@@ -875,6 +875,10 @@ select[multiple] {
   gap: 10px;
 }
 
+.checkbox-grid--dense {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .checkbox-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -901,6 +905,55 @@ select[multiple] {
   margin-top: 3px;
   color: #8ea0b5;
   line-height: 1.35;
+}
+
+.push-composer {
+  display: grid;
+  gap: 16px;
+}
+
+.push-summary {
+  min-height: 86px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 12px;
+}
+
+.push-summary strong {
+  font-size: 1.8rem;
+  color: #7dd3fc;
+}
+
+.push-summary span {
+  color: #aebdd0;
+}
+
+.push-targets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 0 16px;
+}
+
+.push-targets__section {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.push-targets__section--wide {
+  grid-column: 1 / -1;
+}
+
+.push-targets__section h3 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 0.95rem;
 }
 
 .actions-row {
@@ -1066,6 +1119,8 @@ pre {
   .firebase-wizard__nav,
   .setup-review,
   .setup-stepper,
+  .push-targets,
+  .checkbox-grid--dense,
   .form-grid {
     grid-template-columns: 1fr;
   }
@@ -1113,6 +1168,8 @@ pre {
   .inline-form,
   .download-card,
   .firebase-wizard__intro,
+  .checkbox-grid,
+  .push-summary,
   .mfa-card {
     grid-template-columns: 1fr;
   }

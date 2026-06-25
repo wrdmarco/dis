@@ -1,4 +1,5 @@
 import { FormEvent, useState } from 'react';
+import { Send, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { useApiResource } from '../../lib/useApiResource';
@@ -54,55 +55,110 @@ export function PushPage() {
     }
   }
 
+  function toggleValue(field: 'teamIds' | 'roleIds' | 'userIds', value: string) {
+    setForm((current) => ({
+      ...current,
+      [field]: current[field].includes(value)
+        ? current[field].filter((candidate) => candidate !== value)
+        : [...current[field], value],
+    }));
+  }
+
   const resourcesLoading = roles.loading || teams.loading || users.loading;
   const resourcesError = roles.error ?? teams.error ?? users.error;
+  const selectedCount = recipientCount(form);
 
   return (
     <div className="page-stack">
       <Panel title="Handmatige pushmelding">
         <ResourceState loading={resourcesLoading} error={resourcesError} empty={false}>
-          <form className="form-grid" onSubmit={submit}>
-            <label>
-              Titel
-              <input value={form.title} maxLength={120} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
-            </label>
-            <label>
-              Gebruikers
-              <select multiple value={form.userIds} onChange={(event) => setForm((current) => ({ ...current, userIds: selectedValues(event.currentTarget) }))}>
-                {users.data?.map((user) => (
-                  <option key={user.id} value={user.id}>{user.name} - {user.email}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Teams
-              <select multiple value={form.teamIds} onChange={(event) => setForm((current) => ({ ...current, teamIds: selectedValues(event.currentTarget) }))}>
-                {teams.data?.map((team) => (
-                  <option key={team.id} value={team.id}>{team.code} - {team.name}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Rollen
-              <select multiple value={form.roleIds} onChange={(event) => setForm((current) => ({ ...current, roleIds: selectedValues(event.currentTarget) }))}>
-                {roles.data?.map((role) => (
-                  <option key={role.id} value={role.id}>{role.display_name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="form-grid__wide">
-              Bericht
-              <textarea value={form.body} maxLength={1200} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} />
-            </label>
-            {error ? <p className="form-error form-grid__wide">{error}</p> : null}
-            {result ? <p className="success-text form-grid__wide">{result}</p> : null}
-            <div className="actions-row form-grid__wide">
+          <form className="push-composer" onSubmit={submit}>
+            <div className="form-grid">
+              <label>
+                Titel
+                <input value={form.title} maxLength={120} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} required />
+              </label>
+              <div className="push-summary">
+                <strong>{selectedCount}</strong>
+                <span>ontvangerselecties</span>
+                <button className="secondary-button" type="button" onClick={() => setForm((current) => ({ ...current, teamIds: [], roleIds: [], userIds: [] }))} disabled={selectedCount === 0}>
+                  <X size={16} /> Selectie wissen
+                </button>
+              </div>
+              <label className="form-grid__wide">
+                Bericht
+                <textarea value={form.body} maxLength={1200} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} required />
+              </label>
+            </div>
+
+            <div className="push-targets">
+              <section className="push-targets__section">
+                <h3>Teams</h3>
+                <div className="checkbox-grid">
+                  {teams.data?.map((team) => (
+                    <label className="checkbox-card" key={team.id}>
+                      <input
+                        type="checkbox"
+                        checked={form.teamIds.includes(team.id)}
+                        onChange={() => toggleValue('teamIds', team.id)}
+                      />
+                      <span>
+                        <strong>{team.code} - {team.name}</strong>
+                        <small>{team.alert_teams?.length ? `Alarmeert ook: ${team.alert_teams.map((alertTeam) => alertTeam.code).join(', ')}` : team.type}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </section>
+
+              <section className="push-targets__section">
+                <h3>Rollen</h3>
+                <div className="checkbox-grid">
+                  {roles.data?.map((role) => (
+                    <label className="checkbox-card" key={role.id}>
+                      <input
+                        type="checkbox"
+                        checked={form.roleIds.includes(role.id)}
+                        onChange={() => toggleValue('roleIds', role.id)}
+                      />
+                      <span>
+                        <strong>{role.display_name}</strong>
+                        <small>{role.description ?? role.name}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </section>
+
+              <section className="push-targets__section push-targets__section--wide">
+                <h3>Individuele gebruikers</h3>
+                <div className="checkbox-grid checkbox-grid--dense">
+                  {users.data?.map((user) => (
+                    <label className="checkbox-card" key={user.id}>
+                      <input
+                        type="checkbox"
+                        checked={form.userIds.includes(user.id)}
+                        onChange={() => toggleValue('userIds', user.id)}
+                      />
+                      <span>
+                        <strong>{user.name}</strong>
+                        <small>{user.email}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </section>
+            </div>
+
+            {error ? <p className="form-error">{error}</p> : null}
+            {result ? <p className="success-text">{result}</p> : null}
+            <div className="actions-row">
               <button
                 className="primary-button"
                 type="submit"
-                disabled={sending || !form.title.trim() || !form.body.trim() || recipientCount(form) === 0}
+                disabled={sending || !form.title.trim() || !form.body.trim() || selectedCount === 0}
               >
-                {sending ? 'Versturen...' : 'Pushmelding versturen'}
+                <Send size={16} /> {sending ? 'Versturen...' : 'Pushmelding versturen'}
               </button>
             </div>
           </form>
@@ -110,10 +166,6 @@ export function PushPage() {
       </Panel>
     </div>
   );
-}
-
-function selectedValues(select: HTMLSelectElement): string[] {
-  return Array.from(select.selectedOptions).map((option) => option.value);
 }
 
 function recipientCount(form: ManualPushForm): number {
