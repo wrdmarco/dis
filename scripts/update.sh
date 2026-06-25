@@ -144,8 +144,6 @@ clear_application_caches() {
     "${backend_dir}/bootstrap/cache/"*.php \
     "${backend_dir}/storage/framework/cache/data/"* \
     "${backend_dir}/storage/framework/views/"* \
-    "${frontend_dir}/dist" \
-    "${frontend_dir}/build" \
     "${frontend_dir}/.vite" \
     "${frontend_dir}/tsconfig.tsbuildinfo" \
     "${frontend_dir}/tsconfig.node.tsbuildinfo" \
@@ -262,7 +260,6 @@ if [ "${UPDATE_APP}" = "1" ]; then
 
     write_frontend_env
     nginx_source="$(refresh_generated_nginx)"
-    clear_application_caches
 
     log "Deploying updated DIS application"
     APP_ROOT="${DIS_INSTALL_PATH}" NGINX_SOURCE="${nginx_source}" bash "${SCRIPT_DIR}/deploy.sh"
@@ -276,5 +273,7 @@ if [ "${RUN_HEALTHCHECK}" = "1" ]; then
   log "Running final local health check"
   HEALTH_URL="http://127.0.0.1/health" bash "${SCRIPT_DIR}/healthcheck.sh"
 fi
+
+clear_application_caches
 
 log "DIS system and application update completed."
