@@ -111,7 +111,8 @@ refresh_generated_nginx() {
   generated_conf="${generated_dir}/dis.conf"
   ensure_directory "${generated_dir}" root root 0755
   run_cmd cp "${DIS_INSTALL_PATH}/infrastructure/nginx/dis.conf" "${generated_conf}"
-  run_cmd sed -i "s/server_name dis.example.nl;/server_name ${host};/" "${generated_conf}"
+  run_cmd sed -i "s/server_name _;/server_name ${host} _;/" "${generated_conf}"
+  run_cmd sed -i "s#unix:/run/php/php[0-9.]*-fpm.sock#unix:/run/php/php${PHP_VERSION}-fpm.sock#" "${generated_conf}"
   printf '%s' "${generated_conf}"
 }
 

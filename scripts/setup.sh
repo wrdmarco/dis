@@ -149,7 +149,8 @@ GENERATED_NGINX_DIR="${APP_ROOT}/storage/generated/nginx"
 ensure_directory "${GENERATED_NGINX_DIR}" root root 0755
 GENERATED_NGINX_CONF="${GENERATED_NGINX_DIR}/dis.conf"
 run_cmd cp "${APP_ROOT}/infrastructure/nginx/dis.conf" "${GENERATED_NGINX_CONF}"
-run_cmd sed -i "s/server_name dis.example.nl;/server_name ${DOMAIN};/" "${GENERATED_NGINX_CONF}"
+run_cmd sed -i "s/server_name _;/server_name ${DOMAIN} _;/" "${GENERATED_NGINX_CONF}"
+run_cmd sed -i "s#unix:/run/php/php[0-9.]*-fpm.sock#unix:/run/php/php${PHP_VERSION}-fpm.sock#" "${GENERATED_NGINX_CONF}"
 
 log "Provisioning database"
 APP_ROOT="${APP_ROOT}" ENV_FILE="${ENV_FILE}" bash "${SCRIPT_DIR}/provision-database.sh"
