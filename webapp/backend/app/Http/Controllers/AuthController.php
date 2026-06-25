@@ -85,7 +85,9 @@ final class AuthController extends Controller
 
         if (! $this->twoFactorService->verify($user, (string) $request->input('code'))) {
             $this->auditService->record('auth.2fa_failed', $user, $user, [], null, $request);
-            throw ValidationException::withMessages(['code' => ['The two-factor code is invalid.']]);
+            return ApiResponse::error('invalid_two_factor_code', 'The two-factor code is invalid.', 422, [
+                'code' => ['The two-factor code is invalid.'],
+            ]);
         }
 
         $request->user()?->currentAccessToken()?->delete();
@@ -139,7 +141,9 @@ final class AuthController extends Controller
 
         if (! $this->twoFactorService->verify($user, (string) $request->input('code'))) {
             $this->auditService->record('auth.2fa_enable_failed', $user, $user, [], null, $request);
-            throw ValidationException::withMessages(['code' => ['The two-factor code is invalid.']]);
+            return ApiResponse::error('invalid_two_factor_code', 'The two-factor code is invalid.', 422, [
+                'code' => ['The two-factor code is invalid.'],
+            ]);
         }
 
         $user->forceFill([
@@ -180,7 +184,9 @@ final class AuthController extends Controller
 
         if (! $this->twoFactorService->verify($user, (string) $request->input('code'))) {
             $this->auditService->record('auth.2fa_disable_failed', $user, $user, [], null, $request);
-            throw ValidationException::withMessages(['code' => ['The two-factor code is invalid.']]);
+            return ApiResponse::error('invalid_two_factor_code', 'The two-factor code is invalid.', 422, [
+                'code' => ['The two-factor code is invalid.'],
+            ]);
         }
 
         $user->forceFill([

@@ -1,4 +1,4 @@
-import type { ApiErrorBody, ApiResponse } from '../types/api';
+import type { ApiErrorBody, ApiResponse, LaravelValidationErrorBody } from '../types/api';
 
 export class ApiClientError extends Error {
   constructor(
@@ -56,14 +56,20 @@ export class ApiClient {
       return { data: null as T };
     }
 
-    const payload = (await response.json().catch(() => null)) as ApiResponse<T> | ApiErrorBody | null;
+    const payload = (await response.json().catch(() => null)) as ApiResponse<T> | ApiErrorBody | LaravelValidationErrorBody | null;
 
     if (!response.ok) {
       const error = payload && 'error' in payload ? payload.error : undefined;
+      const validationMessage = readValidationMessage(payload);
       if (response.status === 401) {
         this.options.onUnauthenticated();
       }
-      throw new ApiClientError(error?.message ?? 'API request failed.', response.status, error?.code ?? 'server_error', error?.details);
+      throw new ApiClientError(
+        error?.message ?? validationMessage ?? 'API request failed.',
+        response.status,
+        error?.code ?? (validationMessage ? 'validation_failed' : 'server_error'),
+        error?.details,
+      );
     }
 
     return payload as ApiResponse<T>;
@@ -71,3 +77,23 @@ export class ApiClient {
 }
 
 export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '/api';
+
+function readValidationMessage(payload: unknown): string | null {
+  if (payload === null || typeof payload !== 'object') {
+    return null;
+  }
+
+  const candidate = payload as LaravelValidationErrorBody;
+  if (typeof candidate.message === 'string' && candidate.message.trim() !== '') {
+    return candidate.message;
+  }
+
+  if (candidate.errors !== undefined) {
+    const firstErrors = Object.values(candidate.errors).find((messages) => Array.isArray(messages) && messages.length > 0);
+    const firstMessage = firstErrors?.[0];
+
+    return typeof firstMessage === 'string' && firstMessage.trim() !== '' ? firstMessage : null;
+  }
+
+  return null;
+}

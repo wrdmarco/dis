@@ -6,6 +6,11 @@ export interface ApiErrorBody {
   };
 }
 
+export interface LaravelValidationErrorBody {
+  message?: string;
+  errors?: Record<string, string[]>;
+}
+
 export interface ApiResponse<T> {
   data: T;
   meta?: PaginationMeta;

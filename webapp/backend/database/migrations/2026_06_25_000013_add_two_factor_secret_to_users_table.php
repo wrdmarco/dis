@@ -9,7 +9,7 @@ return new class extends Migration {
     {
         Schema::table('users', function (Blueprint $table): void {
             $table->text('two_factor_secret')->nullable()->after('two_factor_enabled');
-            $table->jsonb('two_factor_recovery_codes')->nullable()->after('two_factor_secret');
+            $table->text('two_factor_recovery_codes')->nullable()->after('two_factor_secret');
         });
     }
 
@@ -20,4 +20,3 @@ return new class extends Migration {
         });
     }
 };
-
