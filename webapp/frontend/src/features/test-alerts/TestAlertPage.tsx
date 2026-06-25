@@ -4,6 +4,7 @@ import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
+import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import type { DispatchRecipient, DispatchRequest } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
@@ -128,5 +129,5 @@ function responseLabel(value: string): string {
 }
 
 function formatDate(value?: string | null): string {
-  return value ? new Date(value).toLocaleString('nl-NL') : '-';
+  return formatDateTime(value);
 }

@@ -3,6 +3,7 @@ import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
+import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
 import type { AvailabilityStatus } from '../../types/api';
@@ -54,7 +55,7 @@ export function StatusPage() {
                 <tr key={item.id}>
                   <td><StatusPill value={item.status} /></td>
                   <td>{item.is_available ? 'Ja' : 'Nee'}</td>
-                  <td>{new Date(item.effective_at).toLocaleString('nl-NL')}</td>
+                  <td>{formatDateTime(item.effective_at)}</td>
                 </tr>
               ))}
             </tbody>

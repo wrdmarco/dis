@@ -1,4 +1,4 @@
-const appTimeZone = import.meta.env.VITE_APP_TIMEZONE ?? 'Europe/Amsterdam';
+const appTimeZone = 'Europe/Amsterdam';
 
 export function formatDateTime(value?: string | null): string {
   if (!value) {

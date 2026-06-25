@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Send, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
+import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import type { ManualPushResult, PushDeliveryLog, Role, Team, User } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
@@ -193,5 +194,5 @@ function recipientCount(form: ManualPushForm): number {
 }
 
 function formatDate(value?: string | null): string {
-  return value ? new Date(value).toLocaleString('nl-NL') : '-';
+  return formatDateTime(value);
 }

@@ -140,7 +140,6 @@ VITE_REVERB_APP_KEY=$(env_value REVERB_APP_KEY)
 VITE_WEBSOCKET_HOST=${DOMAIN}
 VITE_WEBSOCKET_PORT=80
 VITE_WEBSOCKET_SCHEME=ws
-VITE_APP_TIMEZONE=$(env_value APP_TIMEZONE)
 EOF
 run_cmd chown "${DIS_USER}:${DIS_GROUP}" "${APP_ROOT}/webapp/frontend/.env.production"
 run_cmd chmod 0640 "${APP_ROOT}/webapp/frontend/.env.production"

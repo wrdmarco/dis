@@ -3,6 +3,7 @@ import { FirebaseSetupWizard } from '../../components/FirebaseSetupWizard';
 import { ResourceState } from '../../components/ResourceState';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { parseFirebaseJson } from '../../lib/firebaseConfigImport';
+import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import type { FcmToken, Role, SystemSetting } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
@@ -641,7 +642,7 @@ export function AdminPage() {
 }
 
 function formatDate(value?: string | null): string {
-  return value ? new Date(value).toLocaleString('nl-NL') : '-';
+  return formatDateTime(value);
 }
 
 function toMobileSettingsForm(settings: SystemSetting[]): MobileSettingsForm {
