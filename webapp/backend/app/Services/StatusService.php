@@ -7,6 +7,7 @@ use App\Models\AvailabilityStatus;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 final class StatusService
 {
@@ -14,7 +15,7 @@ final class StatusService
 
     public function setStatus(User $user, string $status, User $actor, ?string $reason = null, bool $systemApplied = false): AvailabilityStatus
     {
-        return DB::transaction(function () use ($user, $status, $actor, $reason, $systemApplied): AvailabilityStatus {
+        $record = DB::transaction(function () use ($user, $status, $actor, $reason, $systemApplied): AvailabilityStatus {
             $isAvailable = $status === 'available';
 
             if ($isAvailable && ! $user->push_enabled) {
@@ -32,10 +33,13 @@ final class StatusService
             ]);
 
             $this->auditService->record($systemApplied ? 'status.system_updated' : 'status.updated', $user, $actor, ['status' => $status], $reason);
-            AvailabilityChanged::dispatch($record);
 
             return $record;
         });
+
+        $this->dispatchAvailabilityChanged($record);
+
+        return $record;
     }
 
     public function enforcePushUnavailable(User $user): void
@@ -50,7 +54,16 @@ final class StatusService
                 'reason' => 'Push notifications disabled.',
                 'effective_at' => now(),
             ]);
-            AvailabilityChanged::dispatch($record);
+            $this->dispatchAvailabilityChanged($record);
+        }
+    }
+
+    private function dispatchAvailabilityChanged(AvailabilityStatus $status): void
+    {
+        try {
+            AvailabilityChanged::dispatch($status);
+        } catch (Throwable $exception) {
+            report($exception);
         }
     }
 }
