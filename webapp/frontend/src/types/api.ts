@@ -86,6 +86,19 @@ export interface ManualPushResult {
   recipient_users: number;
 }
 
+export interface PushDeliveryLog {
+  id: string;
+  user_id?: string | null;
+  fcm_token_id?: string | null;
+  dispatch_request_id?: string | null;
+  message_type: string;
+  status: string;
+  provider_message_id?: string | null;
+  error_code?: string | null;
+  sent_at?: string | null;
+  created_at?: string | null;
+}
+
 export interface Incident {
   id: string;
   reference: string;

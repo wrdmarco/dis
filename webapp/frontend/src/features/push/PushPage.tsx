@@ -3,7 +3,7 @@ import { Send, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { useApiResource } from '../../lib/useApiResource';
-import type { ManualPushResult, Role, Team, User } from '../../types/api';
+import type { ManualPushResult, PushDeliveryLog, Role, Team, User } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 
 interface ManualPushForm {
@@ -27,6 +27,7 @@ export function PushPage() {
   const roles = useApiResource<Role[]>('/admin/roles');
   const teams = useApiResource<Team[]>('/admin/teams');
   const users = useApiResource<User[]>('/users?per_page=200');
+  const logs = useApiResource<PushDeliveryLog[]>('/admin/push/logs?per_page=10');
   const [form, setForm] = useState<ManualPushForm>(emptyPushForm);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -48,6 +49,7 @@ export function PushPage() {
       });
       setResult(`${response.data.recipient_users} gebruikers, ${response.data.queued_tokens} push tokens in wachtrij.`);
       setForm(emptyPushForm);
+      await logs.reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Pushmelding versturen mislukt.');
     } finally {
@@ -164,10 +166,32 @@ export function PushPage() {
           </form>
         </ResourceState>
       </Panel>
+
+      <Panel title="Laatste afleverpogingen">
+        <ResourceState loading={logs.loading} error={logs.error} empty={(logs.data?.length ?? 0) === 0}>
+          <table className="data-table">
+            <thead><tr><th>Tijd</th><th>Type</th><th>Status</th><th>Fout</th></tr></thead>
+            <tbody>
+              {logs.data?.map((log) => (
+                <tr key={log.id}>
+                  <td>{formatDate(log.sent_at ?? log.created_at)}</td>
+                  <td>{log.message_type}</td>
+                  <td>{log.status}</td>
+                  <td className="mono">{log.error_code ?? '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ResourceState>
+      </Panel>
     </div>
   );
 }
 
 function recipientCount(form: ManualPushForm): number {
   return form.teamIds.length + form.roleIds.length + form.userIds.length;
+}
+
+function formatDate(value?: string | null): string {
+  return value ? new Date(value).toLocaleString('nl-NL') : '-';
 }

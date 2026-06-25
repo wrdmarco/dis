@@ -2,12 +2,12 @@
 
 namespace App\Jobs;
 
-use App\Models\DispatchRequest;
 use App\Models\FcmToken;
 use App\Models\PushDeliveryLog;
 use App\Services\Firebase\FcmClient;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Throwable;
 
 final class SendFcmNotification implements ShouldQueue
 {
@@ -34,13 +34,32 @@ final class SendFcmNotification implements ShouldQueue
             return;
         }
 
-        $response = $client->send($token, $this->title, $this->body, $this->data);
-        $payload = $response->json();
-        $status = $response->successful() ? 'sent' : 'failed';
-        $errorCode = $response->successful() ? null : (string) ($payload['error']['status'] ?? $payload['error']['message'] ?? 'fcm_error');
+        try {
+            $response = $client->send($token, $this->title, $this->body, $this->data);
+            $payload = $response->json();
+            $status = $response->successful() ? 'sent' : 'failed';
+            $errorCode = $response->successful() ? null : (string) ($payload['error']['status'] ?? $payload['error']['message'] ?? 'fcm_error');
 
-        $providerMessageId = $response->successful() && isset($payload['name']) ? (string) $payload['name'] : null;
+            $providerMessageId = $response->successful() && isset($payload['name']) ? (string) $payload['name'] : null;
 
+            $this->recordDelivery($token, $status, $providerMessageId, $errorCode);
+
+            if (in_array($errorCode, ['NOT_FOUND', 'INVALID_ARGUMENT', 'UNREGISTERED'], true)) {
+                $token->update(['is_active' => false, 'revoked_at' => now()]);
+                if (! $token->user?->fcmTokens()->where('is_active', true)->exists()) {
+                    $token->user?->update(['push_enabled' => false]);
+                }
+            }
+        } catch (Throwable $exception) {
+            $this->recordDelivery($token, 'failed', null, substr($exception->getMessage(), 0, 1000));
+            report($exception);
+
+            throw $exception;
+        }
+    }
+
+    private function recordDelivery(FcmToken $token, string $status, ?string $providerMessageId, ?string $errorCode): void
+    {
         PushDeliveryLog::query()->create([
             'user_id' => $token->user_id,
             'fcm_token_id' => $token->id,
@@ -51,12 +70,5 @@ final class SendFcmNotification implements ShouldQueue
             'error_code' => $errorCode,
             'sent_at' => now(),
         ]);
-
-        if (in_array($errorCode, ['NOT_FOUND', 'INVALID_ARGUMENT', 'UNREGISTERED'], true)) {
-            $token->update(['is_active' => false, 'revoked_at' => now()]);
-            if (! $token->user?->fcmTokens()->where('is_active', true)->exists()) {
-                $token->user?->update(['push_enabled' => false]);
-            }
-        }
     }
 }
