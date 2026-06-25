@@ -8,8 +8,8 @@ use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
 use App\Models\Team;
-use App\Models\User;
 use App\Models\Certification;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -27,13 +27,12 @@ final class DispatchService
         }
 
         return DB::transaction(function () use ($incident, $data, $actor): DispatchRequest {
-            $teamCode = (string) ($data['team_code'] ?? 'OCP');
-            $targetTeam = Team::query()->where('code', $teamCode)->first();
+            $targetTeam = $this->targetTeam($incident, $data);
             if ($targetTeam === null) {
                 throw ValidationException::withMessages(['team_code' => ['Het gekozen team bestaat niet.']]);
             }
 
-            $eligible = $this->eligibleUsers($teamCode);
+            $eligible = $this->eligibleUsers($targetTeam);
             if ($eligible->isEmpty()) {
                 throw ValidationException::withMessages(['team_code' => ['Geen beschikbare gebruikers met actieve push-token gevonden voor dit team.']]);
             }
@@ -41,7 +40,7 @@ final class DispatchService
             $dispatch = DispatchRequest::query()->create([
                 'incident_id' => $incident->id,
                 'requested_by' => $actor->id,
-                'target_team_id' => $data['target_team_id'] ?? $targetTeam->id,
+                'target_team_id' => $targetTeam->id,
                 'status' => 'draft',
                 'priority' => $data['priority'],
                 'message' => $data['message'],
@@ -103,12 +102,32 @@ final class DispatchService
         return $recipient;
     }
 
-    private function eligibleUsers(string $teamCode)
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function targetTeam(Incident $incident, array $data): ?Team
+    {
+        if (isset($data['target_team_id'])) {
+            return Team::query()->find((string) $data['target_team_id']);
+        }
+
+        if (isset($data['team_code'])) {
+            return Team::query()->where('code', (string) $data['team_code'])->first();
+        }
+
+        if ($incident->team_id !== null) {
+            return Team::query()->find($incident->team_id);
+        }
+
+        return Team::query()->where('code', (string) config('dis.teams.base_team_code', 'OCP'))->first();
+    }
+
+    private function eligibleUsers(Team $targetTeam)
     {
         $requiredCertificationIds = Certification::query()
             ->where('is_required_for_dispatch', true)
             ->pluck('id');
-        $teamCodes = $this->expandTeamCodes($teamCode);
+        $teamCodes = $this->expandTeamCodes($targetTeam);
 
         return User::query()
             ->where('account_status', 'active')
@@ -140,13 +159,9 @@ final class DispatchService
     /**
      * @return array<int, string>
      */
-    private function expandTeamCodes(string $teamCode): array
+    private function expandTeamCodes(Team $team): array
     {
-        $team = Team::query()->where('code', $teamCode)->with('alertTeams:id,code')->first();
-
-        if ($team === null) {
-            return [$teamCode];
-        }
+        $team->loadMissing('alertTeams:id,code');
 
         return array_values(array_unique([
             $team->code,

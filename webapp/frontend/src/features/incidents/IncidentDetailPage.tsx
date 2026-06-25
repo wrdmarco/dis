@@ -23,6 +23,7 @@ export function IncidentDetailPage() {
   const [savingIncident, setSavingIncident] = useState(false);
   const [incidentError, setIncidentError] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  const [dispatchTeamId, setDispatchTeamId] = useState('');
   const [dispatchError, setDispatchError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -32,6 +33,7 @@ export function IncidentDetailPage() {
     }
 
     setEditForm(formFromIncident(currentIncident));
+    setDispatchTeamId(currentIncident.team?.id ?? '');
     setStatusReason('');
   }, [incident.data]);
 
@@ -70,7 +72,11 @@ export function IncidentDetailPage() {
     event.preventDefault();
     setDispatchError(null);
     try {
-      await api.post<DispatchRequest>(`/incidents/${incidentId}/dispatches`, { priority: 'high', message, team_code: 'OCP' });
+      await api.post<DispatchRequest>(`/incidents/${incidentId}/dispatches`, {
+        priority: 'high',
+        message,
+        target_team_id: dispatchTeamId === '' ? null : dispatchTeamId,
+      });
       setMessage('');
     } catch (err) {
       setDispatchError(err instanceof ApiClientError ? err.message : 'Dispatch kon niet worden aangemaakt.');
@@ -128,9 +134,17 @@ export function IncidentDetailPage() {
       <Panel title="Dispatch aanmaken">
         <form className="form-grid" onSubmit={createDispatch}>
           <label className="form-grid__wide">
+            Team
+            <select value={dispatchTeamId} onChange={(event) => setDispatchTeamId(event.target.value)}>
+              <option value="">Basisteam</option>
+              {teams.data?.map((team) => <option key={team.id} value={team.id}>{team.code} - {team.name}</option>)}
+            </select>
+          </label>
+          <label className="form-grid__wide">
             Dispatchbericht
             <textarea value={message} onChange={(event) => setMessage(event.target.value)} required />
           </label>
+          {teams.error ? <p className="form-error form-grid__wide">Teams laden mislukt: {teams.error}</p> : null}
           {dispatchError ? <p className="form-error form-grid__wide">{dispatchError}</p> : null}
           <div className="actions-row form-grid__wide">
             <button className="primary-button" type="submit">Dispatch aanmaken</button>
