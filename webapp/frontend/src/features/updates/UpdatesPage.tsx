@@ -10,8 +10,7 @@ import type { AppVersion } from '../../types/api';
 export function UpdatesPage() {
   const { api } = useAuth();
   const versions = useApiResource<AppVersion[]>('/admin/updates/android');
-  const [apk, setApk] = useState<File | null>(null);
-  const [metadata, setMetadata] = useState<File | null>(null);
+  const [releaseZip, setReleaseZip] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -19,19 +18,17 @@ export function UpdatesPage() {
     event.preventDefault();
     setError(null);
 
-    if (apk === null || metadata === null) {
-      setError('Kies zowel de APK als het metadata JSON-bestand.');
+    if (releaseZip === null) {
+      setError('Kies een release ZIP-bestand.');
       return;
     }
 
     setSaving(true);
     try {
       const form = new FormData();
-      form.append('apk', apk);
-      form.append('metadata', metadata);
+      form.append('release_zip', releaseZip);
       await api.postForm('/admin/updates/android/upload', form);
-      setApk(null);
-      setMetadata(null);
+      setReleaseZip(null);
       event.currentTarget.reset();
       await versions.reload();
     } catch (err) {
@@ -43,29 +40,21 @@ export function UpdatesPage() {
 
   return (
     <div className="page-stack">
-      <Panel title="Android APK registreren">
+      <Panel title="Android release registreren">
         <form className="form-grid" onSubmit={submit}>
-          <label>
-            APK bestand
-            <input type="file" accept=".apk,application/vnd.android.package-archive" required onChange={(event) => setApk(event.target.files?.[0] ?? null)} />
-          </label>
-          <label>
-            Metadata JSON
-            <input type="file" accept="application/json,.json" required onChange={(event) => setMetadata(event.target.files?.[0] ?? null)} />
+          <label className="form-grid__wide">
+            Release ZIP
+            <input type="file" accept=".zip,application/zip" required onChange={(event) => setReleaseZip(event.target.files?.[0] ?? null)} />
           </label>
           <div className="form-grid__wide metadata-example">
-            <strong>Metadata voorbeeld</strong>
-            <pre>{`{
-  "version_name": "0.1.2",
-  "version_code": 3,
-  "status": "supported",
-  "artifact_sha256": "optioneel_exacte_apk_sha256_hash",
-  "release_notes": "Korte release notes"
-}`}</pre>
+            <strong>ZIP inhoud</strong>
+            <pre>{`dis-nl.wrdmarco.dis-v0.1.2.zip
+├── dis-nl.wrdmarco.dis-v0.1.2.apk
+└── metadata.json`}</pre>
           </div>
           <div className="actions-row form-grid__wide">
             <button className="primary-button" type="submit" disabled={saving}>
-              {saving ? 'Registreren...' : 'APK registreren'}
+              {saving ? 'Registreren...' : 'Release registreren'}
             </button>
           </div>
         </form>

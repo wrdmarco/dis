@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use ZipArchive;
 
 final class UpdateController extends Controller
 {
@@ -50,21 +51,35 @@ final class UpdateController extends Controller
 
     public function uploadAndroid(Request $request): JsonResponse
     {
-        $data = $this->androidUploadData($request);
+        $zipUpload = $this->androidZipUpload($request);
+        $data = $zipUpload['data'] ?? $this->androidUploadData($request);
 
-        $file = $request->file('apk');
-        abort_unless($file !== null && $file->isValid(), 422);
-        abort_unless(strtolower($file->getClientOriginalExtension()) === 'apk', 422);
+        $apkPath = $zipUpload['apk_path'] ?? null;
+        $apkSize = $zipUpload['apk_size'] ?? null;
+
+        if ($apkPath === null) {
+            $file = $request->file('apk');
+            abort_unless($file !== null && $file->isValid(), 422);
+            abort_unless(strtolower($file->getClientOriginalExtension()) === 'apk', 422);
+            $apkPath = $file->getRealPath();
+            $apkSize = $file->getSize();
+        }
+
+        abort_unless(is_string($apkPath) && is_file($apkPath), 422);
 
         $directory = 'android-apks';
         $filename = 'dis-'.$data['version_code'].'-'.$data['version_name'].'.apk';
         $filename = preg_replace('/[^A-Za-z0-9._-]/', '-', $filename) ?: 'dis-'.$data['version_code'].'.apk';
-        $path = $file->storeAs($directory, $filename, 'local');
+        $path = $directory.'/'.$filename;
+        Storage::disk('local')->put($path, (string) file_get_contents($apkPath));
         $absolutePath = Storage::disk('local')->path($path);
         $sha256 = hash_file('sha256', $absolutePath);
 
         if (($data['artifact_sha256'] ?? null) !== null && ! hash_equals(strtolower((string) $data['artifact_sha256']), $sha256)) {
             Storage::disk('local')->delete($path);
+            if (($zipUpload['apk_path'] ?? null) !== null) {
+                @unlink((string) $zipUpload['apk_path']);
+            }
 
             return ApiResponse::error('apk_hash_mismatch', 'APK SHA-256 does not match metadata.', 422, [
                 'expected' => strtolower((string) $data['artifact_sha256']),
@@ -86,11 +101,81 @@ final class UpdateController extends Controller
         $version->update(['download_url' => url('/api/updates/android/'.$version->id.'/download')]);
         $this->auditService->record('updates.android_apk_uploaded', $version, $request->user(), [
             'artifact_path' => $path,
-            'artifact_size_bytes' => $file->getSize(),
-            'metadata_file' => $request->hasFile('metadata'),
+            'artifact_size_bytes' => $apkSize,
+            'release_zip' => $request->hasFile('release_zip'),
         ]);
 
+        if (($zipUpload['apk_path'] ?? null) !== null) {
+            @unlink((string) $zipUpload['apk_path']);
+        }
+
         return ApiResponse::success($version->refresh(), 201);
+    }
+
+    /**
+     * @return array{data: array{version_name: string, version_code: int, status: string, artifact_sha256?: string|null, release_notes?: string|null}, apk_path: string, apk_size: int}|array{}
+     */
+    private function androidZipUpload(Request $request): array
+    {
+        if (! $request->hasFile('release_zip')) {
+            return [];
+        }
+
+        $request->validate(['release_zip' => ['required', 'file', 'max:512000']]);
+        $file = $request->file('release_zip');
+        abort_unless($file !== null && $file->isValid(), 422);
+        abort_unless(strtolower($file->getClientOriginalExtension()) === 'zip', 422);
+
+        $zip = new ZipArchive();
+        if ($zip->open($file->getRealPath()) !== true) {
+            throw ValidationException::withMessages(['release_zip' => ['Release ZIP could not be opened.']]);
+        }
+
+        try {
+            $apkEntries = [];
+            $metadataEntry = null;
+
+            for ($index = 0; $index < $zip->numFiles; $index++) {
+                $name = $zip->getNameIndex($index);
+                $base = basename(str_replace('\\', '/', $name));
+
+                if (strtolower(pathinfo($base, PATHINFO_EXTENSION)) === 'apk') {
+                    $apkEntries[] = $name;
+                }
+
+                if ($base === 'metadata.json') {
+                    $metadataEntry = $name;
+                }
+            }
+
+            if (count($apkEntries) !== 1 || $metadataEntry === null) {
+                throw ValidationException::withMessages(['release_zip' => ['Release ZIP must contain one APK and metadata.json.']]);
+            }
+
+            $metadata = json_decode((string) $zip->getFromName($metadataEntry), true);
+            if (! is_array($metadata)) {
+                throw ValidationException::withMessages(['metadata' => ['metadata.json must contain valid JSON.']]);
+            }
+
+            $apkContents = $zip->getFromName($apkEntries[0]);
+            if (! is_string($apkContents) || $apkContents === '') {
+                throw ValidationException::withMessages(['apk' => ['APK in release ZIP is empty or unreadable.']]);
+            }
+
+            $tempApk = tempnam(sys_get_temp_dir(), 'dis-apk-');
+            if ($tempApk === false) {
+                throw ValidationException::withMessages(['apk' => ['Could not create temporary APK file.']]);
+            }
+            file_put_contents($tempApk, $apkContents);
+
+            return [
+                'data' => $this->validateAndroidMetadata($metadata),
+                'apk_path' => $tempApk,
+                'apk_size' => strlen($apkContents),
+            ];
+        } finally {
+            $zip->close();
+        }
     }
 
     /**
@@ -107,13 +192,7 @@ final class UpdateController extends Controller
                 throw ValidationException::withMessages(['metadata' => ['Metadata file must contain valid JSON.']]);
             }
 
-            return Validator::make($metadata, [
-                'version_name' => ['required', 'string', 'max:80'],
-                'version_code' => ['required', 'integer', 'min:1', 'unique:app_versions,version_code'],
-                'status' => ['required', 'in:supported,deprecated,blocked'],
-                'artifact_sha256' => ['nullable', 'string', 'size:64'],
-                'release_notes' => ['nullable', 'string', 'max:10000'],
-            ])->validate();
+            return $this->validateAndroidMetadata($metadata);
         }
 
         return $request->validate([
@@ -124,6 +203,21 @@ final class UpdateController extends Controller
             'release_notes' => ['nullable', 'string', 'max:10000'],
             'apk' => ['required', 'file', 'max:512000'],
         ]);
+    }
+
+    /**
+     * @param array<string, mixed> $metadata
+     * @return array{version_name: string, version_code: int, status: string, artifact_sha256?: string|null, release_notes?: string|null}
+     */
+    private function validateAndroidMetadata(array $metadata): array
+    {
+        return Validator::make($metadata, [
+            'version_name' => ['required', 'string', 'max:80'],
+            'version_code' => ['required', 'integer', 'min:1', 'unique:app_versions,version_code'],
+            'status' => ['required', 'in:supported,deprecated,blocked'],
+            'artifact_sha256' => ['nullable', 'string', 'size:64'],
+            'release_notes' => ['nullable', 'string', 'max:10000'],
+        ])->validate();
     }
 
     public function downloadAndroid(AppVersion $version): BinaryFileResponse
