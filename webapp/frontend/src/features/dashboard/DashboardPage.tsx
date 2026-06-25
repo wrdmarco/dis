@@ -1,4 +1,5 @@
 import { AlertTriangle, CheckCircle2, RadioTower, Send, ShieldAlert, Users } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -49,7 +50,7 @@ export function DashboardPage() {
               <tbody>
                 {incidents.data?.map((incident) => (
                   <tr key={incident.id}>
-                    <td>{incident.reference}</td>
+                    <td><Link to={`/incidents/${incident.id}`}>{incident.reference}</Link></td>
                     <td>{incident.title}</td>
                     <td><StatusPill value={incident.priority} tone={incident.priority === 'critical' ? 'bad' : 'warn'} /></td>
                     <td><StatusPill value={incident.status} /></td>
