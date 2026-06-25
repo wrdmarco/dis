@@ -1,4 +1,4 @@
-import { FormEvent, useState, type ReactNode } from 'react';
+import { FormEvent, useEffect, useId, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
@@ -33,6 +33,11 @@ const emptyIncidentForm: IncidentFormState = {
   coordinatorId: '',
   teamId: '',
 };
+
+interface LocationSuggestion {
+  id: string;
+  label: string;
+}
 
 export function IncidentsPage() {
   const { api } = useAuth();
@@ -153,6 +158,26 @@ export function IncidentForm(props: {
   onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
 }) {
   const { form, users, teams, usersError, teamsError, saving, error, extraFields, submitLabel, onCancel, onSubmit, onChange } = props;
+  const locationListId = useId();
+  const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
+
+  useEffect(() => {
+    const query = form.locationLabel.trim();
+    if (query.length < 3) {
+      setLocationSuggestions([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      void fetchLocationSuggestions(query, controller.signal).then(setLocationSuggestions).catch(() => undefined);
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [form.locationLabel]);
 
   return (
     <form className="form-grid" onSubmit={onSubmit}>
@@ -193,7 +218,18 @@ export function IncidentForm(props: {
       </label>
       <label className="form-grid__wide">
         Locatieomschrijving
-        <input value={form.locationLabel} maxLength={255} placeholder="Adres, gebied of rendez-vous punt" onChange={(event) => updateForm(onChange, 'locationLabel', event.target.value)} onBlur={() => void geocodeAddress(form, onChange)} />
+        <input
+          value={form.locationLabel}
+          maxLength={255}
+          placeholder="Adres, gebied of rendez-vous punt"
+          list={locationListId}
+          autoComplete="off"
+          onChange={(event) => updateForm(onChange, 'locationLabel', event.target.value)}
+          onBlur={() => void resolveLocation(form, locationSuggestions, onChange)}
+        />
+        <datalist id={locationListId}>
+          {locationSuggestions.map((suggestion) => <option key={suggestion.id} value={suggestion.label} />)}
+        </datalist>
       </label>
       <label>
         Latitude
@@ -224,6 +260,57 @@ export function IncidentForm(props: {
   );
 }
 
+async function fetchLocationSuggestions(query: string, signal: AbortSignal): Promise<LocationSuggestion[]> {
+  const params = new URLSearchParams({ q: query, rows: '8' });
+  const response = await fetch(`https://api.pdok.nl/bzk/locatieserver/search/v3_1/suggest?${params.toString()}`, {
+    headers: { Accept: 'application/json' },
+    signal,
+  });
+  if (!response.ok) {
+    return [];
+  }
+
+  const payload = await response.json() as { response?: { docs?: Array<{ id?: string; weergavenaam?: string }> } };
+
+  return payload.response?.docs
+    ?.filter((item): item is { id: string; weergavenaam: string } => typeof item.id === 'string' && typeof item.weergavenaam === 'string')
+    .map((item) => ({ id: item.id, label: item.weergavenaam }))
+    ?? [];
+}
+
+async function resolveLocation(
+  form: IncidentFormState,
+  suggestions: LocationSuggestion[],
+  onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void,
+): Promise<void> {
+  const selected = suggestions.find((suggestion) => suggestion.label === form.locationLabel.trim());
+  if (selected) {
+    const resolved = await lookupLocation(selected.id);
+    if (resolved !== null) {
+      onChange((current) => ({ ...current, ...resolved }));
+      return;
+    }
+  }
+
+  await geocodeAddress(form, onChange);
+}
+
+async function lookupLocation(id: string): Promise<Pick<IncidentFormState, 'locationLabel' | 'latitude' | 'longitude'> | null> {
+  try {
+    const params = new URLSearchParams({ id });
+    const response = await fetch(`https://api.pdok.nl/bzk/locatieserver/search/v3_1/lookup?${params.toString()}`, { headers: { Accept: 'application/json' } });
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = await response.json() as { response?: { docs?: Array<{ centroide_ll?: string; weergavenaam?: string }> } };
+    const match = payload.response?.docs?.[0];
+    return coordinatesFromPdokMatch(match);
+  } catch {
+    return null;
+  }
+}
+
 async function geocodeAddress(form: IncidentFormState, onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void): Promise<void> {
   const query = form.locationLabel.trim();
   if (query.length < 6) {
@@ -238,22 +325,30 @@ async function geocodeAddress(form: IncidentFormState, onChange: (updater: (curr
     }
 
     const payload = await response.json() as { response?: { docs?: Array<{ centroide_ll?: string; weergavenaam?: string }> } };
-    const match = payload.response?.docs?.[0];
-    const point = match?.centroide_ll?.match(/^POINT\(([-0-9.]+) ([-0-9.]+)\)$/);
-    if (!point) {
+    const resolved = coordinatesFromPdokMatch(payload.response?.docs?.[0]);
+    if (resolved === null) {
       return;
     }
 
-    const [, longitude, latitude] = point;
-    onChange((current) => ({
-      ...current,
-      latitude,
-      longitude,
-      locationLabel: match?.weergavenaam ?? current.locationLabel,
-    }));
+    onChange((current) => ({ ...current, ...resolved }));
   } catch {
     // Manual coordinates remain available when the geocoder cannot be reached.
   }
+}
+
+function coordinatesFromPdokMatch(match?: { centroide_ll?: string; weergavenaam?: string }): Pick<IncidentFormState, 'locationLabel' | 'latitude' | 'longitude'> | null {
+  const point = match?.centroide_ll?.match(/^POINT\(([-0-9.]+) ([-0-9.]+)\)$/);
+  if (!point) {
+    return null;
+  }
+
+  const [, longitude, latitude] = point;
+
+  return {
+    latitude,
+    longitude,
+    locationLabel: match?.weergavenaam ?? '',
+  };
 }
 
 export function incidentPayload(form: IncidentFormState): Record<string, unknown> {
