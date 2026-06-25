@@ -8,6 +8,7 @@ use App\Models\FcmToken;
 use App\Services\DeviceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 final class DeviceController extends Controller
 {
@@ -18,9 +19,11 @@ final class DeviceController extends Controller
         return ApiResponse::success($request->user()?->fcmTokens()->latest()->get());
     }
 
-    public function register(RegisterFcmTokenRequest $request): JsonResponse
+    public function register(RegisterFcmTokenRequest $request): Response
     {
-        return ApiResponse::success($this->service->registerFcmToken($request->user(), $request->validated()), 201);
+        $this->service->registerFcmToken($request->user(), $request->validated());
+
+        return response()->noContent();
     }
 
     public function revoke(Request $request, FcmToken $token): JsonResponse
@@ -30,4 +33,3 @@ final class DeviceController extends Controller
         return ApiResponse::success(null, 204);
     }
 }
-
