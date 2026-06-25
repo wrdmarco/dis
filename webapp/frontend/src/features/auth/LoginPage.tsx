@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { LockKeyhole } from 'lucide-react';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { ApiClientError } from '../../lib/apiClient';
@@ -124,8 +124,6 @@ export function LoginPage() {
             </button>
           </form>
         )}
-
-        <Link className="public-link" to="/download">Android APK downloaden</Link>
       </section>
     </main>
   );
