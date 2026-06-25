@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Dispatch\RespondDispatchRequest;
 use App\Http\Requests\Dispatch\StoreDispatchRequest;
 use App\Http\Responses\ApiResponse;
+use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
 use App\Services\DispatchService;
@@ -54,6 +55,22 @@ final class DispatchController extends Controller
         $this->service->respond($dispatch, $request->user(), $request->validated('response'), $request->validated('note'));
 
         return response()->noContent();
+    }
+
+    public function overrideRecipientResponse(Request $request, DispatchRequest $dispatch, DispatchRecipient $recipient): JsonResponse
+    {
+        $data = $request->validate([
+            'response' => ['required', 'in:pending,accepted,declined,no_response'],
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        return ApiResponse::success($this->service->overrideRecipientResponse(
+            $dispatch,
+            $recipient,
+            $request->user(),
+            $data['response'],
+            $data['note'] ?? null,
+        ));
     }
 
     public function cancel(Request $request, DispatchRequest $dispatch): JsonResponse

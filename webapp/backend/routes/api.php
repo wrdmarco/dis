@@ -79,6 +79,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/dispatches/{dispatch}/send', [DispatchController::class, 'send'])->middleware('permission:dispatch.manage');
     Route::post('/dispatches/{dispatch}/message', [DispatchController::class, 'message'])->middleware('permission:dispatch.manage');
     Route::post('/dispatches/{dispatch}/respond', [DispatchController::class, 'respond'])->middleware('throttle:dispatch-response');
+    Route::patch('/dispatches/{dispatch}/recipients/{recipient}/response', [DispatchController::class, 'overrideRecipientResponse'])->middleware('permission:dispatch.manage');
     Route::post('/dispatches/{dispatch}/cancel', [DispatchController::class, 'cancel'])->middleware('permission:dispatch.manage');
     Route::post('/dispatches/{dispatch}/escalate', [DispatchController::class, 'escalate'])->middleware('permission:dispatch.manage');
     Route::post('/dispatches/{dispatch}/re-alert', [DispatchController::class, 'reAlert'])->middleware('permission:dispatch.manage');

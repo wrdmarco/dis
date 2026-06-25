@@ -33,6 +33,8 @@ export function IncidentDetailPage() {
   const [additionalInfoMessage, setAdditionalInfoMessage] = useState<string | null>(null);
   const [dispatchAction, setDispatchAction] = useState<'escalate' | 'realert' | null>(null);
   const [dispatchActionMessage, setDispatchActionMessage] = useState<string | null>(null);
+  const [recipientUpdatingId, setRecipientUpdatingId] = useState<string | null>(null);
+  const [recipientUpdateMessage, setRecipientUpdateMessage] = useState<string | null>(null);
 
   const latestDispatch = dispatches.data?.[0] ?? null;
 
@@ -143,6 +145,29 @@ export function IncidentDetailPage() {
       setDispatchActionMessage(err instanceof ApiClientError ? err.message : 'Dispatchactie kon niet worden uitgevoerd.');
     } finally {
       setDispatchAction(null);
+    }
+  };
+
+  const updateRecipientResponse = async (recipientId: string, response: 'pending' | 'accepted' | 'declined' | 'no_response') => {
+    if (!latestDispatch) {
+      return;
+    }
+
+    setRecipientUpdatingId(recipientId);
+    setRecipientUpdateMessage(null);
+    try {
+      await api.patch(`/dispatches/${latestDispatch.id}/recipients/${recipientId}/response`, {
+        response,
+        note: 'Handmatig aangepast vanuit incidentdetail.',
+      });
+      setRecipientUpdateMessage('Opkomststatus aangepast.');
+      await dispatches.reload();
+      await liveLocations.reload();
+      await timeline.reload();
+    } catch (err) {
+      setRecipientUpdateMessage(err instanceof ApiClientError ? err.message : 'Opkomststatus kon niet worden aangepast.');
+    } finally {
+      setRecipientUpdatingId(null);
     }
   };
 
@@ -262,6 +287,7 @@ export function IncidentDetailPage() {
                     <tr>
                       <th>Naam</th>
                       <th>Status</th>
+                      <th>Aanpassen</th>
                       <th>Reactietijd</th>
                       <th>Opmerking</th>
                     </tr>
@@ -271,12 +297,25 @@ export function IncidentDetailPage() {
                       <tr key={recipient.id}>
                         <td>{recipient.user?.name ?? recipient.user_id}</td>
                         <td><StatusPill value={responseLabel(recipient.response_status)} tone={recipient.response_status === 'accepted' ? 'good' : recipient.response_status === 'declined' ? 'bad' : undefined} /></td>
+                        <td>
+                          <select
+                            value={recipient.response_status}
+                            disabled={recipientUpdatingId === recipient.id || latestDispatch.status === 'cancelled'}
+                            onChange={(event) => void updateRecipientResponse(recipient.id, event.target.value as 'pending' | 'accepted' | 'declined' | 'no_response')}
+                          >
+                            <option value="pending">Wacht op reactie</option>
+                            <option value="accepted">Komt</option>
+                            <option value="declined">Komt niet</option>
+                            <option value="no_response">Geen reactie</option>
+                          </select>
+                        </td>
                         <td>{formatDate(recipient.responded_at)}</td>
                         <td>{recipient.response_note ?? '-'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                {recipientUpdateMessage ? <p className={recipientUpdateMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{recipientUpdateMessage}</p> : null}
                 <form className="inline-message-form" onSubmit={sendAdditionalInfo}>
                   <label>
                     Nadere info voor opkomende gebruikers

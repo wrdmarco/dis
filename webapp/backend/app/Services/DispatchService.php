@@ -159,6 +159,28 @@ final class DispatchService
         return $recipient;
     }
 
+    public function overrideRecipientResponse(DispatchRequest $dispatch, DispatchRecipient $recipient, User $actor, string $response, ?string $note): DispatchRecipient
+    {
+        if ($recipient->dispatch_request_id !== $dispatch->id) {
+            throw ValidationException::withMessages(['recipient' => ['Ontvanger hoort niet bij deze alarmering.']]);
+        }
+
+        $recipient->update([
+            'response_status' => $response,
+            'response_note' => $note,
+            'responded_at' => $response === 'pending' ? null : now(),
+        ]);
+
+        $this->auditService->record('dispatch.recipient_response_overridden', $dispatch, $actor, [
+            'recipient_id' => $recipient->id,
+            'user_id' => $recipient->user_id,
+            'response' => $response,
+        ]);
+        $this->broadcastDispatchChange($dispatch->refresh(), 'recipient_response_overridden');
+
+        return $recipient->refresh()->load('user');
+    }
+
     /**
      * @return array{queued_tokens: int, recipient_users: int}
      */
