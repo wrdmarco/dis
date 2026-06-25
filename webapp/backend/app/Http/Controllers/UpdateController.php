@@ -23,12 +23,12 @@ final class UpdateController extends Controller
     public function androidCurrent(Request $request): JsonResponse
     {
         $versionCode = (int) $request->integer('version_code', 0);
-        $blocked = AppVersion::query()->where('platform', 'android')->where('version_code', $versionCode)->where('status', 'blocked')->exists();
+        $notSupported = AppVersion::query()->where('platform', 'android')->where('version_code', $versionCode)->whereIn('status', ['not_supported', 'blocked'])->exists();
         $minimumSupportedVersionCode = SystemSetting::integer('updates.android.minimum_supported_version_code', 1);
         $latest = AppVersion::query()->where('platform', 'android')->whereIn('status', ['supported', 'deprecated'])->orderByDesc('version_code')->first();
 
         return ApiResponse::success([
-            'update_required' => $blocked || ($versionCode > 0 && $versionCode < $minimumSupportedVersionCode),
+            'update_required' => $notSupported || ($versionCode > 0 && $versionCode < $minimumSupportedVersionCode),
             'latest' => MobileApiPayload::appVersion($latest),
         ]);
     }
@@ -43,7 +43,7 @@ final class UpdateController extends Controller
         $version = AppVersion::query()->create($request->validate([
             'version_name' => ['required', 'string', 'max:80'],
             'version_code' => ['required', 'integer', 'min:1', 'unique:app_versions,version_code'],
-            'status' => ['required', 'in:supported,deprecated,blocked'],
+            'status' => ['required', 'in:supported,deprecated,not_supported,blocked'],
             'artifact_sha256' => ['nullable', 'string', 'size:64'],
             'download_url' => ['nullable', 'url', 'max:2048'],
             'release_notes' => ['nullable', 'string', 'max:10000'],
@@ -118,7 +118,7 @@ final class UpdateController extends Controller
         ]);
 
         $compatibilityChanges = $this->applyAndroidCompatibilityPolicy($data['minimum_supported_version_code'] ?? null, $version, $request);
-        if ($compatibilityChanges['blocked_versions'] > 0 || $compatibilityChanges['minimum_supported_version_code'] !== null) {
+        if ($compatibilityChanges['not_supported_versions'] > 0 || $compatibilityChanges['minimum_supported_version_code'] !== null) {
             $this->auditService->record('updates.android_compatibility_applied', $version, $request->user(), $compatibilityChanges);
         }
 
@@ -242,7 +242,7 @@ final class UpdateController extends Controller
         return $request->validate([
             'version_name' => ['required', 'string', 'max:80'],
             'version_code' => ['required', 'integer', 'min:1', 'unique:app_versions,version_code'],
-            'status' => ['required', 'in:supported,deprecated,blocked'],
+            'status' => ['required', 'in:supported,deprecated,not_supported,blocked'],
             'artifact_sha256' => ['nullable', 'string', 'size:64'],
             'release_notes' => ['nullable', 'string', 'max:10000'],
             'minimum_supported_version_code' => ['nullable', 'integer', 'min:1'],
@@ -259,7 +259,7 @@ final class UpdateController extends Controller
         return Validator::make($metadata, [
             'version_name' => ['required', 'string', 'max:80'],
             'version_code' => ['required', 'integer', 'min:1'],
-            'status' => ['required', 'in:supported,deprecated,blocked'],
+            'status' => ['required', 'in:supported,deprecated,not_supported,blocked'],
             'artifact_sha256' => ['nullable', 'string', 'size:64'],
             'release_notes' => ['nullable', 'string', 'max:10000'],
             'minimum_supported_version_code' => ['nullable', 'integer', 'min:1'],
@@ -312,12 +312,12 @@ final class UpdateController extends Controller
     }
 
     /**
-     * @return array{minimum_supported_version_code: int|null, blocked_versions: int}
+     * @return array{minimum_supported_version_code: int|null, not_supported_versions: int}
      */
     private function applyAndroidCompatibilityPolicy(mixed $minimumSupportedVersionCode, AppVersion $currentVersion, Request $request): array
     {
         if (! is_numeric($minimumSupportedVersionCode)) {
-            return ['minimum_supported_version_code' => null, 'blocked_versions' => 0];
+            return ['minimum_supported_version_code' => null, 'not_supported_versions' => 0];
         }
 
         $minimum = (int) $minimumSupportedVersionCode;
@@ -326,15 +326,15 @@ final class UpdateController extends Controller
             ['value' => $minimum, 'is_sensitive' => false, 'updated_by' => $request->user()?->id],
         );
 
-        $blockedVersions = AppVersion::query()
+        $notSupportedVersions = AppVersion::query()
             ->where('platform', 'android')
             ->where('version_code', '<', $minimum)
-            ->where('status', '!=', 'blocked')
-            ->update(['status' => 'blocked']);
+            ->where('status', '!=', 'not_supported')
+            ->update(['status' => 'not_supported']);
 
         return [
             'minimum_supported_version_code' => $minimum,
-            'blocked_versions' => $blockedVersions,
+            'not_supported_versions' => $notSupportedVersions,
         ];
     }
 
@@ -355,7 +355,7 @@ final class UpdateController extends Controller
     public function update(Request $request, AppVersion $version): JsonResponse
     {
         $version->update($request->validate([
-            'status' => ['sometimes', 'in:supported,deprecated,blocked'],
+            'status' => ['sometimes', 'in:supported,deprecated,not_supported,blocked'],
             'artifact_sha256' => ['nullable', 'string', 'size:64'],
             'download_url' => ['nullable', 'url', 'max:2048'],
             'release_notes' => ['nullable', 'string', 'max:10000'],

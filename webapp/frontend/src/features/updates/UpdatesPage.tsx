@@ -79,7 +79,7 @@ export function UpdatesPage() {
                 <tr key={version.id}>
                   <td>{version.version_name}</td>
                   <td>{version.version_code}</td>
-                  <td><StatusPill value={version.status === 'blocked' ? 'Niet compatible' : version.status} tone={version.status === 'blocked' ? 'bad' : version.status === 'deprecated' ? 'warn' : 'good'} /></td>
+                  <td><StatusPill value={version.status === 'not_supported' || version.status === 'blocked' ? 'Not supported' : version.status} tone={version.status === 'not_supported' || version.status === 'blocked' ? 'bad' : version.status === 'deprecated' ? 'warn' : 'good'} /></td>
                   <td className="mono">{version.artifact_sha256 ?? '-'}</td>
                   <td>{version.download_url ? <a href={version.download_url}>Download</a> : '-'}</td>
                 </tr>

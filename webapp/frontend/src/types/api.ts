@@ -205,7 +205,7 @@ export interface AppVersion {
   platform: string;
   version_name: string;
   version_code: number;
-  status: 'supported' | 'deprecated' | 'blocked';
+  status: 'supported' | 'deprecated' | 'not_supported' | 'blocked';
   artifact_sha256?: string | null;
   download_url?: string | null;
 }
