@@ -658,6 +658,19 @@ a:hover {
   margin-top: 18px;
 }
 
+.metadata-example {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 12px;
+}
+
+.metadata-example strong {
+  color: #f8fafc;
+}
+
 .content {
   padding: 24px;
 }

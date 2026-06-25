@@ -10,56 +10,64 @@ import type { AppVersion } from '../../types/api';
 export function UpdatesPage() {
   const { api } = useAuth();
   const versions = useApiResource<AppVersion[]>('/admin/updates/android');
-  const [versionName, setVersionName] = useState('');
-  const [versionCode, setVersionCode] = useState('');
-  const [status, setStatus] = useState('supported');
-  const [sha, setSha] = useState('');
   const [apk, setApk] = useState<File | null>(null);
+  const [metadata, setMetadata] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
+
+    if (apk === null || metadata === null) {
+      setError('Kies zowel de APK als het metadata JSON-bestand.');
+      return;
+    }
+
+    setSaving(true);
     try {
-      if (apk) {
-        const form = new FormData();
-        form.append('version_name', versionName);
-        form.append('version_code', versionCode);
-        form.append('status', status);
-        form.append('apk', apk);
-        await api.postForm('/admin/updates/android/upload', form);
-      } else {
-        await api.post('/admin/updates/android', {
-          version_name: versionName,
-          version_code: Number(versionCode),
-          status,
-          artifact_sha256: sha || null,
-        });
-      }
-      setVersionName('');
-      setVersionCode('');
-      setSha('');
+      const form = new FormData();
+      form.append('apk', apk);
+      form.append('metadata', metadata);
+      await api.postForm('/admin/updates/android/upload', form);
       setApk(null);
+      setMetadata(null);
+      event.currentTarget.reset();
       await versions.reload();
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Appversie kon niet worden geregistreerd.');
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
     <div className="page-stack">
-      <Panel title="Android versie registreren">
-        <form className="inline-form" onSubmit={submit}>
-          <input value={versionName} onChange={(event) => setVersionName(event.target.value)} placeholder="Versienaam" required />
-          <input type="number" min="1" value={versionCode} onChange={(event) => setVersionCode(event.target.value)} placeholder="Version code" required />
-          <select value={status} onChange={(event) => setStatus(event.target.value)}>
-            <option value="supported">Supported</option>
-            <option value="deprecated">Deprecated</option>
-            <option value="blocked">Blocked</option>
-          </select>
-          <input value={sha} onChange={(event) => setSha(event.target.value)} placeholder="SHA-256 artifact" />
-          <input type="file" accept=".apk,application/vnd.android.package-archive" onChange={(event) => setApk(event.target.files?.[0] ?? null)} />
-          <button className="primary-button" type="submit">Registreren</button>
+      <Panel title="Android APK registreren">
+        <form className="form-grid" onSubmit={submit}>
+          <label>
+            APK bestand
+            <input type="file" accept=".apk,application/vnd.android.package-archive" required onChange={(event) => setApk(event.target.files?.[0] ?? null)} />
+          </label>
+          <label>
+            Metadata JSON
+            <input type="file" accept="application/json,.json" required onChange={(event) => setMetadata(event.target.files?.[0] ?? null)} />
+          </label>
+          <div className="form-grid__wide metadata-example">
+            <strong>Metadata voorbeeld</strong>
+            <pre>{`{
+  "version_name": "0.1.2",
+  "version_code": 3,
+  "status": "supported",
+  "artifact_sha256": "optioneel_exacte_apk_sha256_hash",
+  "release_notes": "Korte release notes"
+}`}</pre>
+          </div>
+          <div className="actions-row form-grid__wide">
+            <button className="primary-button" type="submit" disabled={saving}>
+              {saving ? 'Registreren...' : 'APK registreren'}
+            </button>
+          </div>
         </form>
         {error && <p className="form-error">{error}</p>}
       </Panel>
