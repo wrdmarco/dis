@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Events\LocationUpdated;
+use App\Events\IncidentChanged;
 use App\Models\Incident;
 use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
@@ -18,10 +19,29 @@ final class LocationService
     {
         $consent = LocationSharingConsent::query()->updateOrCreate(
             ['incident_id' => $incident->id, 'user_id' => $user->id],
-            ['is_active' => true, 'consented_at' => now(), 'revoked_at' => null],
+            ['is_active' => true, 'consented_at' => now(), 'revoked_at' => null, 'declined_at' => null, 'refusal_reason' => null],
         );
 
         $this->auditService->record('location.consent_enabled', $incident, $user);
+        $this->broadcastLocationSharingChange($incident);
+
+        return $consent;
+    }
+
+    public function decline(Incident $incident, User $user, ?string $reason): LocationSharingConsent
+    {
+        $consent = LocationSharingConsent::query()->updateOrCreate(
+            ['incident_id' => $incident->id, 'user_id' => $user->id],
+            [
+                'is_active' => false,
+                'revoked_at' => null,
+                'declined_at' => now(),
+                'refusal_reason' => $reason,
+            ],
+        );
+
+        $this->auditService->record('location.consent_declined', $incident, $user, ['reason' => $reason]);
+        $this->broadcastLocationSharingChange($incident);
 
         return $consent;
     }
@@ -34,6 +54,7 @@ final class LocationService
             ->update(['is_active' => false, 'revoked_at' => now()]);
 
         $this->auditService->record('location.consent_revoked', $incident, $user);
+        $this->broadcastLocationSharingChange($incident);
     }
 
     /**
@@ -65,5 +86,14 @@ final class LocationService
         }
 
         return $location;
+    }
+
+    private function broadcastLocationSharingChange(Incident $incident): void
+    {
+        try {
+            IncidentChanged::dispatch($incident->refresh(), 'location_sharing_changed');
+        } catch (Throwable $exception) {
+            report($exception);
+        }
     }
 }

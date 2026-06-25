@@ -69,6 +69,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/incidents/{incident}/dispatches', [DispatchController::class, 'incidentDispatches'])->middleware('permission:dispatch.view');
     Route::get('/incidents/{incident}/live-locations', [LocationController::class, 'liveLocations'])->middleware('permission:incidents.view');
     Route::post('/incidents/{incident}/location/consent', [LocationController::class, 'consent'])->middleware('permission:incidents.view');
+    Route::post('/incidents/{incident}/location/decline', [LocationController::class, 'decline'])->middleware('permission:incidents.view');
     Route::delete('/incidents/{incident}/location/consent', [LocationController::class, 'revoke'])->middleware('permission:incidents.view');
     Route::post('/incidents/{incident}/location', [LocationController::class, 'update'])->middleware('permission:incidents.view');
     Route::post('/incidents/{incident}/dispatches', [DispatchController::class, 'store'])->middleware('permission:dispatch.manage');

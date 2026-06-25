@@ -384,6 +384,7 @@ function SummaryItem({ label, value }: { label: string; value: string }) {
 
 function LiveLocationMap({ incident, locations }: { incident: Incident | null; locations: IncidentLiveLocation[] }) {
   const points = locations
+    .filter((location) => location.latitude !== null && location.latitude !== undefined && location.longitude !== null && location.longitude !== undefined)
     .map((location) => ({
       ...location,
       latitude: Number(location.latitude),
@@ -434,16 +435,20 @@ function LiveLocationMap({ incident, locations }: { incident: Incident | null; l
         <thead>
           <tr>
             <th>Gebruiker</th>
+            <th>Locatie</th>
+            <th>ETA</th>
             <th>Laatst gezien</th>
             <th>Nauwkeurigheid</th>
           </tr>
         </thead>
         <tbody>
-          {points.map((point) => (
-            <tr key={point.user_id}>
-              <td>{point.user?.name ?? point.user_id}</td>
-              <td>{formatDate(point.recorded_at)}</td>
-              <td>{point.accuracy_meters ? `${Number(point.accuracy_meters).toFixed(0)} m` : '-'}</td>
+          {locations.map((location) => (
+            <tr key={location.user_id}>
+              <td>{location.user?.name ?? location.user_id}</td>
+              <td>{locationStatusLabel(location)}</td>
+              <td>{location.eta_minutes ? `${location.eta_minutes} min` : '-'}</td>
+              <td>{formatDate(location.recorded_at)}</td>
+              <td>{location.accuracy_meters ? `${Number(location.accuracy_meters).toFixed(0)} m` : '-'}</td>
             </tr>
           ))}
         </tbody>
@@ -466,6 +471,19 @@ function responseLabel(value: string): string {
       return 'geen reactie';
     default:
       return 'wacht op reactie';
+  }
+}
+
+function locationStatusLabel(location: IncidentLiveLocation): string {
+  switch (location.sharing_status) {
+    case 'shared':
+      return 'gedeeld';
+    case 'pending':
+      return 'wacht op locatie';
+    case 'declined':
+      return location.refusal_reason ? `geweigerd (${location.refusal_reason})` : 'geweigerd';
+    default:
+      return 'niet gevraagd';
   }
 }
 

@@ -27,6 +27,15 @@ final class LocationController extends Controller
         return response()->noContent();
     }
 
+    public function decline(Request $request, Incident $incident): JsonResponse
+    {
+        $data = $request->validate([
+            'reason' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        return ApiResponse::success($this->service->decline($incident, $request->user(), $data['reason'] ?? null));
+    }
+
     public function update(Request $request, Incident $incident): Response
     {
         $data = $request->validate([
@@ -43,38 +52,90 @@ final class LocationController extends Controller
 
     public function liveLocations(Incident $incident): JsonResponse
     {
+        $latestDispatch = $incident->dispatchRequests()
+            ->with(['recipients.user'])
+            ->latest()
+            ->first();
+        $acceptedRecipients = $latestDispatch?->recipients
+            ->filter(fn ($recipient): bool => $recipient->response_status === 'accepted')
+            ->values() ?? collect();
         $consents = LocationSharingConsent::query()
             ->with('user')
             ->where('incident_id', $incident->id)
-            ->where('is_active', true)
+            ->whereIn('user_id', $acceptedRecipients->pluck('user_id'))
             ->get();
 
         $latestLocations = LocationUpdate::query()
             ->where('incident_id', $incident->id)
-            ->whereIn('user_id', $consents->pluck('user_id'))
+            ->whereIn('user_id', $acceptedRecipients->pluck('user_id'))
             ->orderByDesc('recorded_at')
             ->get()
             ->unique('user_id')
             ->keyBy('user_id');
 
-        return ApiResponse::success($consents
-            ->map(function (LocationSharingConsent $consent) use ($latestLocations): array {
-                $location = $latestLocations->get($consent->user_id);
+        $consentsByUser = $consents->keyBy('user_id');
+
+        return ApiResponse::success($acceptedRecipients
+            ->map(function ($recipient) use ($consentsByUser, $latestLocations, $incident): array {
+                $consent = $consentsByUser->get($recipient->user_id);
+                $location = $latestLocations->get($recipient->user_id);
+                $sharingStatus = $this->locationSharingStatus($consent, $location);
 
                 return [
-                    'user_id' => $consent->user_id,
-                    'user' => $consent->user === null ? null : [
-                        'id' => $consent->user->id,
-                        'name' => $consent->user->name,
-                        'email' => $consent->user->email,
+                    'user_id' => $recipient->user_id,
+                    'user' => $recipient->user === null ? null : [
+                        'id' => $recipient->user->id,
+                        'name' => $recipient->user->name,
+                        'email' => $recipient->user->email,
                     ],
+                    'sharing_status' => $sharingStatus,
+                    'refusal_reason' => $consent?->refusal_reason,
                     'latitude' => $location?->latitude,
                     'longitude' => $location?->longitude,
                     'accuracy_meters' => $location?->accuracy_meters,
                     'recorded_at' => $location?->recorded_at?->toIso8601String(),
+                    'eta_minutes' => $this->etaMinutes($incident, $location),
                 ];
             })
-            ->filter(fn (array $location): bool => $location['latitude'] !== null && $location['longitude'] !== null)
             ->values());
+    }
+
+    private function locationSharingStatus(?LocationSharingConsent $consent, ?LocationUpdate $location): string
+    {
+        if ($consent?->declined_at !== null) {
+            return 'declined';
+        }
+
+        if ($location !== null) {
+            return 'shared';
+        }
+
+        if ($consent?->is_active === true) {
+            return 'pending';
+        }
+
+        return 'not_requested';
+    }
+
+    private function etaMinutes(Incident $incident, ?LocationUpdate $location): ?int
+    {
+        if ($location === null || $incident->latitude === null || $incident->longitude === null) {
+            return null;
+        }
+
+        $distanceKm = $this->distanceKm((float) $location->latitude, (float) $location->longitude, (float) $incident->latitude, (float) $incident->longitude);
+
+        return max(1, (int) ceil(($distanceKm / 60) * 60));
+    }
+
+    private function distanceKm(float $fromLat, float $fromLon, float $toLat, float $toLon): float
+    {
+        $earthRadiusKm = 6371;
+        $latDelta = deg2rad($toLat - $fromLat);
+        $lonDelta = deg2rad($toLon - $fromLon);
+        $a = sin($latDelta / 2) ** 2
+            + cos(deg2rad($fromLat)) * cos(deg2rad($toLat)) * sin($lonDelta / 2) ** 2;
+
+        return $earthRadiusKm * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 }

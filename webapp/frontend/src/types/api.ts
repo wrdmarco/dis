@@ -162,10 +162,13 @@ export interface IncidentTimelineItem {
 export interface IncidentLiveLocation {
   user_id: string;
   user?: Pick<User, 'id' | 'name' | 'email'> | null;
-  latitude: string | number;
-  longitude: string | number;
+  sharing_status?: 'shared' | 'pending' | 'declined' | 'not_requested';
+  refusal_reason?: string | null;
+  latitude?: string | number | null;
+  longitude?: string | number | null;
   accuracy_meters?: string | number | null;
   recorded_at?: string | null;
+  eta_minutes?: number | null;
 }
 
 export interface AvailabilityStatus {
