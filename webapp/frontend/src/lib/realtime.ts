@@ -34,6 +34,7 @@ export function createRealtime(options: RealtimeOptions): Echo<'reverb'> {
   echo.private('operations')
     .listen('.incident.changed', options.onOperationalEvent)
     .listen('.dispatch.changed', options.onOperationalEvent)
+    .listen('.location.updated', options.onOperationalEvent)
     .listen('.availability.changed', options.onOperationalEvent)
     .listen('.asset.changed', options.onOperationalEvent);
 

@@ -428,7 +428,9 @@ function LiveLocationMap({ incident, locations }: { incident: Incident | null; l
             className="live-map__user-marker"
             style={worldMarkerStyle(point, centerWorld, viewport)}
             title={point.user?.name ?? point.user_id}
-          />
+          >
+            <span className="live-map__user-label">{point.user?.name ?? point.user_id}</span>
+          </span>
         ))}
       </div>
       <table className="data-table live-map__table">
