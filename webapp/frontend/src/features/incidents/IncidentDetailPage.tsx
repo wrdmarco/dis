@@ -398,29 +398,37 @@ function LiveLocationMap({ incident, locations }: { incident: Incident | null; l
     ...(hasIncidentLocation ? [{ latitude: incidentLatitude, longitude: incidentLongitude }] : []),
     ...points,
   ];
-  const bounds = boundsFor(allPoints);
-  const center = hasIncidentLocation
-    ? { latitude: incidentLatitude, longitude: incidentLongitude }
-    : points[0] ?? { latitude: 52.1326, longitude: 5.2913 };
-  const iframeSource = bounds
-    ? `https://www.openstreetmap.org/export/embed.html?bbox=${bounds.minLon},${bounds.minLat},${bounds.maxLon},${bounds.maxLat}&layer=mapnik&marker=${center.latitude},${center.longitude}`
-    : `https://www.openstreetmap.org/export/embed.html?bbox=${center.longitude - 0.03},${center.latitude - 0.02},${center.longitude + 0.03},${center.latitude + 0.02}&layer=mapnik&marker=${center.latitude},${center.longitude}`;
+  const mapPoints = allPoints.length > 0 ? allPoints : [{ latitude: 52.1326, longitude: 5.2913 }];
+  const center = centerFor(mapPoints);
+  const viewport = mapViewport(mapPoints);
+  const centerWorld = latLonToWorld(center.latitude, center.longitude, viewport.zoom);
+  const tiles = visibleTiles(centerWorld, viewport.zoom, viewport.width, viewport.height);
 
   return (
     <div className="live-map">
-      <iframe title="Live locaties" src={iframeSource} loading="lazy" referrerPolicy="no-referrer" />
-      <div className="live-map__overlay" aria-hidden="true">
-        {hasIncidentLocation && bounds ? (
-          <span className="live-map__incident-marker" style={markerStyle({ latitude: incidentLatitude, longitude: incidentLongitude }, bounds)} />
+      <div className="live-map__canvas" role="img" aria-label="Live locaties kaart">
+        {tiles.map((tile) => (
+          <img
+            key={`${tile.x}-${tile.y}-${tile.z}`}
+            alt=""
+            className="live-map__tile"
+            src={`https://tile.openstreetmap.org/${tile.z}/${tile.x}/${tile.y}.png`}
+            style={{ left: tile.left, top: tile.top }}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+          />
+        ))}
+        {hasIncidentLocation ? (
+          <span className="live-map__incident-marker" style={worldMarkerStyle({ latitude: incidentLatitude, longitude: incidentLongitude }, centerWorld, viewport)} />
         ) : null}
-        {bounds ? points.map((point) => (
+        {points.map((point) => (
           <span
             key={point.user_id}
             className="live-map__user-marker"
-            style={markerStyle(point, bounds)}
+            style={worldMarkerStyle(point, centerWorld, viewport)}
             title={point.user?.name ?? point.user_id}
           />
-        )) : null}
+        ))}
       </div>
       <table className="data-table live-map__table">
         <thead>
@@ -472,11 +480,7 @@ interface MapBounds {
   maxLon: number;
 }
 
-function boundsFor(points: Array<{ latitude: number; longitude: number }>): MapBounds | null {
-  if (points.length === 0) {
-    return null;
-  }
-
+function boundsFor(points: Array<{ latitude: number; longitude: number }>): MapBounds {
   const latitudes = points.map((point) => point.latitude);
   const longitudes = points.map((point) => point.longitude);
   const minLat = Math.min(...latitudes);
@@ -494,13 +498,94 @@ function boundsFor(points: Array<{ latitude: number; longitude: number }>): MapB
   };
 }
 
-function markerStyle(point: { latitude: number; longitude: number }, bounds: MapBounds): { left: string; top: string } {
-  const x = ((point.longitude - bounds.minLon) / (bounds.maxLon - bounds.minLon)) * 100;
-  const y = (1 - ((point.latitude - bounds.minLat) / (bounds.maxLat - bounds.minLat))) * 100;
+function centerFor(points: Array<{ latitude: number; longitude: number }>): { latitude: number; longitude: number } {
+  const bounds = boundsFor(points);
 
   return {
-    left: `${clamp(x, 3, 97)}%`,
-    top: `${clamp(y, 3, 97)}%`,
+    latitude: (bounds.minLat + bounds.maxLat) / 2,
+    longitude: (bounds.minLon + bounds.maxLon) / 2,
+  };
+}
+
+interface MapViewport {
+  width: number;
+  height: number;
+  zoom: number;
+}
+
+interface WorldPoint {
+  x: number;
+  y: number;
+}
+
+interface TilePosition {
+  x: number;
+  y: number;
+  z: number;
+  left: string;
+  top: string;
+}
+
+function mapViewport(points: Array<{ latitude: number; longitude: number }>): MapViewport {
+  const width = 960;
+  const height = 380;
+  const bounds = boundsFor(points);
+
+  for (let zoom = 16; zoom >= 5; zoom -= 1) {
+    const northWest = latLonToWorld(bounds.maxLat, bounds.minLon, zoom);
+    const southEast = latLonToWorld(bounds.minLat, bounds.maxLon, zoom);
+    if (Math.abs(southEast.x - northWest.x) <= width - 96 && Math.abs(southEast.y - northWest.y) <= height - 96) {
+      return { width, height, zoom };
+    }
+  }
+
+  return { width, height, zoom: 5 };
+}
+
+function latLonToWorld(latitude: number, longitude: number, zoom: number): WorldPoint {
+  const sinLatitude = Math.sin((clamp(latitude, -85.05112878, 85.05112878) * Math.PI) / 180);
+  const scale = 256 * 2 ** zoom;
+
+  return {
+    x: ((longitude + 180) / 360) * scale,
+    y: (0.5 - Math.log((1 + sinLatitude) / (1 - sinLatitude)) / (4 * Math.PI)) * scale,
+  };
+}
+
+function visibleTiles(center: WorldPoint, zoom: number, width: number, height: number): TilePosition[] {
+  const tileSize = 256;
+  const minTileX = Math.floor((center.x - width / 2) / tileSize);
+  const maxTileX = Math.floor((center.x + width / 2) / tileSize);
+  const minTileY = Math.floor((center.y - height / 2) / tileSize);
+  const maxTileY = Math.floor((center.y + height / 2) / tileSize);
+  const tileCount = 2 ** zoom;
+  const tiles: TilePosition[] = [];
+
+  for (let x = minTileX; x <= maxTileX; x += 1) {
+    for (let y = minTileY; y <= maxTileY; y += 1) {
+      if (y < 0 || y >= tileCount) {
+        continue;
+      }
+
+      const wrappedX = ((x % tileCount) + tileCount) % tileCount;
+      tiles.push({
+        x: wrappedX,
+        y,
+        z: zoom,
+        left: `${Math.round(x * tileSize - (center.x - width / 2))}px`,
+        top: `${Math.round(y * tileSize - (center.y - height / 2))}px`,
+      });
+    }
+  }
+
+  return tiles;
+}
+
+function worldMarkerStyle(point: { latitude: number; longitude: number }, center: WorldPoint, viewport: MapViewport): { left: string; top: string } {
+  const world = latLonToWorld(point.latitude, point.longitude, viewport.zoom);
+  return {
+    left: `${Math.round(world.x - center.x + viewport.width / 2)}px`,
+    top: `${Math.round(world.y - center.y + viewport.height / 2)}px`,
   };
 }
 

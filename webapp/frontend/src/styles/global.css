@@ -1055,29 +1055,35 @@ select[multiple] {
   display: grid;
   gap: 14px;
   padding: 16px;
+  overflow-x: auto;
 }
 
-.live-map iframe {
-  width: 100%;
-  min-height: 380px;
+.live-map__canvas {
+  position: relative;
+  width: 960px;
+  max-width: none;
+  height: 380px;
   border: 1px solid #243449;
   border-radius: 8px;
+  overflow: hidden;
   background: #0b1119;
 }
 
-.live-map__overlay {
+.live-map__tile {
   position: absolute;
-  inset: 16px 16px auto 16px;
-  height: 380px;
-  pointer-events: none;
+  width: 256px;
+  height: 256px;
+  user-select: none;
 }
 
 .live-map__user-marker,
 .live-map__incident-marker {
   position: absolute;
+  z-index: 2;
   transform: translate(-50%, -50%);
   border-radius: 999px;
   box-shadow: 0 0 0 3px rgba(9, 13, 18, 0.82);
+  pointer-events: none;
 }
 
 .live-map__user-marker {
