@@ -27,16 +27,26 @@ final class DispatchService
         }
 
         return DB::transaction(function () use ($incident, $data, $actor): DispatchRequest {
+            $teamCode = (string) ($data['team_code'] ?? 'OCP');
+            $targetTeam = Team::query()->where('code', $teamCode)->first();
+            if ($targetTeam === null) {
+                throw ValidationException::withMessages(['team_code' => ['Het gekozen team bestaat niet.']]);
+            }
+
+            $eligible = $this->eligibleUsers($teamCode);
+            if ($eligible->isEmpty()) {
+                throw ValidationException::withMessages(['team_code' => ['Geen beschikbare gebruikers met actieve push-token gevonden voor dit team.']]);
+            }
+
             $dispatch = DispatchRequest::query()->create([
                 'incident_id' => $incident->id,
                 'requested_by' => $actor->id,
-                'target_team_id' => $data['target_team_id'] ?? null,
+                'target_team_id' => $data['target_team_id'] ?? $targetTeam->id,
                 'status' => 'draft',
                 'priority' => $data['priority'],
                 'message' => $data['message'],
             ]);
 
-            $eligible = $this->eligibleUsers((string) ($data['team_code'] ?? 'OCP'));
             foreach ($eligible as $user) {
                 DispatchRecipient::query()->create([
                     'dispatch_request_id' => $dispatch->id,

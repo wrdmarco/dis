@@ -14,6 +14,8 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+use Throwable;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -51,6 +53,22 @@ return Application::configure(basePath: dirname(__DIR__))
         });
         $exceptions->render(function (ModelNotFoundException $exception) {
             return ApiResponse::error('not_found', 'The requested resource was not found.', 404);
+        });
+        $exceptions->render(function (Throwable $exception, $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            if ($exception instanceof HttpExceptionInterface) {
+                return null;
+            }
+
+            $details = [];
+            if ($request->attributes->has('request_id')) {
+                $details['request_id'] = $request->attributes->get('request_id');
+            }
+
+            return ApiResponse::error('server_error', 'Server error.', 500, $details);
         });
     })
     ->create();

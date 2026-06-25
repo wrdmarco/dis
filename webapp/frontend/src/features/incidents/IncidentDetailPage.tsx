@@ -22,9 +22,15 @@ export function IncidentDetailPage() {
     try {
       await api.post<DispatchRequest>(`/incidents/${incidentId}/dispatches`, { priority: 'high', message, team_code: 'OCP' });
       setMessage('');
-      await incident.reload();
     } catch (err) {
       setDispatchError(err instanceof ApiClientError ? err.message : 'Dispatch kon niet worden aangemaakt.');
+      return;
+    }
+
+    try {
+      await incident.reload();
+    } catch (err) {
+      setDispatchError(err instanceof ApiClientError ? `Dispatch is aangemaakt, maar herladen faalde: ${err.message}` : 'Dispatch is aangemaakt, maar herladen faalde.');
     }
   };
 
