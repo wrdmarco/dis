@@ -17,7 +17,12 @@ final class StatusController extends Controller
 
     public function me(Request $request): JsonResponse
     {
-        $status = $request->user()?->statuses()->latest('effective_at')->first();
+        $status = $request->user()
+            ?->statuses()
+            ->orderByDesc('effective_at')
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->first();
 
         return ApiResponse::success($status === null ? null : MobileApiPayload::status($status));
     }
@@ -32,7 +37,11 @@ final class StatusController extends Controller
     public function users(Request $request): JsonResponse
     {
         return ApiResponse::paginated(
-            AvailabilityStatus::query()->with('user')->latest('effective_at')->paginate((int) $request->integer('per_page', 25)),
+            AvailabilityStatus::query()
+                ->latestPerUser()
+                ->with('user')
+                ->latest('effective_at')
+                ->paginate((int) $request->integer('per_page', 25)),
             fn (AvailabilityStatus $status): array => MobileApiPayload::status($status),
         );
     }

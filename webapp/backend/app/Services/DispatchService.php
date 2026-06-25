@@ -115,7 +115,7 @@ final class DispatchService
             ->where('push_enabled', true)
             ->whereHas('teams', fn ($teams) => $teams->whereIn('code', $teamCodes))
             ->whereHas('fcmTokens', fn ($tokens) => $tokens->where('is_active', true))
-            ->whereHas('statuses', fn ($statuses) => $statuses->where('is_available', true))
+            ->whereHas('statuses', fn ($statuses) => $statuses->latestPerUser()->where('is_available', true))
             ->get()
             ->filter(function (User $user) use ($requiredCertificationIds): bool {
                 foreach ($requiredCertificationIds as $certificationId) {
