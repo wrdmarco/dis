@@ -7,6 +7,7 @@ import { useApiResource } from '../../lib/useApiResource';
 import type { FcmToken, Role, SystemSetting } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { useEffect, useMemo, useState } from 'react';
+import { ApiClientError } from '../../lib/apiClient';
 
 interface MobileSettingsForm {
   tenantName: string;
@@ -66,6 +67,7 @@ export function AdminPage() {
   const [managedSaving, setManagedSaving] = useState(false);
   const [managedError, setManagedError] = useState<string | null>(null);
   const [tokenActionId, setTokenActionId] = useState<string | null>(null);
+  const [tokenActionError, setTokenActionError] = useState<string | null>(null);
   const [roleActionId, setRoleActionId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -234,9 +236,12 @@ export function AdminPage() {
 
   async function updateToken(token: FcmToken, action: 'activate' | 'revoke') {
     setTokenActionId(token.id);
+    setTokenActionError(null);
     try {
-      await api.post(`/admin/push/tokens/${token.id}/${action}`);
+      await api.post<FcmToken>(`/admin/push/tokens/${token.id}/${action}`);
       await tokens.reload();
+    } catch (error) {
+      setTokenActionError(error instanceof ApiClientError ? error.message : 'Tokenactie mislukt.');
     } finally {
       setTokenActionId(null);
     }
@@ -459,6 +464,7 @@ export function AdminPage() {
 
       {activeTab === 'tokens' ? (
         <Panel title="Firebase tokens">
+          {tokenActionError ? <p className="form-error">{tokenActionError}</p> : null}
           <ResourceState loading={tokens.loading} error={tokens.error} empty={(tokens.data?.length ?? 0) === 0}>
             <table className="data-table">
               <thead><tr><th>Gebruiker</th><th>Device</th><th>Platform</th><th>Token</th><th>Status</th><th>Laatst gezien</th><th>Actie</th></tr></thead>

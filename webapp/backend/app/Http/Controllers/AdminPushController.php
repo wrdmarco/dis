@@ -30,19 +30,7 @@ final class AdminPushController extends Controller
             })
             ->latest('last_seen_at')
             ->paginate((int) $request->integer('per_page', 50))
-            ->through(fn (FcmToken $token): array => [
-                'id' => $token->id,
-                'user_id' => $token->user_id,
-                'device_id' => $token->device_id,
-                'platform' => $token->platform,
-                'app_version' => $token->app_version,
-                'is_active' => $token->is_active,
-                'last_seen_at' => $token->last_seen_at,
-                'revoked_at' => $token->revoked_at,
-                'token_preview' => $this->tokenPreview($token->token),
-                'token_hash' => hash('sha256', $token->token),
-                'user' => $token->user,
-            ]);
+            ->through(fn (FcmToken $token): array => $this->tokenPayload($token));
 
         return ApiResponse::paginated($tokens);
     }
@@ -51,14 +39,14 @@ final class AdminPushController extends Controller
     {
         $this->pushNotifications->revokeToken($token, $request->user());
 
-        return ApiResponse::success($token->refresh()->load('user'));
+        return ApiResponse::success($this->tokenPayload($token->refresh()->load('user')));
     }
 
     public function activate(Request $request, FcmToken $token): JsonResponse
     {
         $this->pushNotifications->activateToken($token, $request->user());
 
-        return ApiResponse::success($token->refresh()->load('user'));
+        return ApiResponse::success($this->tokenPayload($token->refresh()->load('user')));
     }
 
     public function send(SendManualPushRequest $request): JsonResponse
@@ -74,5 +62,25 @@ final class AdminPushController extends Controller
     private function tokenPreview(string $token): string
     {
         return strlen($token) <= 18 ? str_repeat('*', strlen($token)) : substr($token, 0, 6).'...'.substr($token, -8);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function tokenPayload(FcmToken $token): array
+    {
+        return [
+            'id' => $token->id,
+            'user_id' => $token->user_id,
+            'device_id' => $token->device_id,
+            'platform' => $token->platform,
+            'app_version' => $token->app_version,
+            'is_active' => (bool) $token->is_active,
+            'last_seen_at' => $token->last_seen_at?->toIso8601String(),
+            'revoked_at' => $token->revoked_at?->toIso8601String(),
+            'token_preview' => $this->tokenPreview($token->token),
+            'token_hash' => hash('sha256', $token->token),
+            'user' => $token->user,
+        ];
     }
 }
