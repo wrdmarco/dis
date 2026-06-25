@@ -38,7 +38,7 @@ final class IncidentController extends Controller
                         ->with(['recipients' => fn ($recipients) => $recipients->where('user_id', $userId)])
                         ->latest(),
                 ])
-                ->whereIn('status', ['active', 'dispatching', 'in_progress'])
+                ->whereNotIn('status', ['resolved', 'cancelled'])
                 ->where(function ($query) use ($userId, $activeDispatchStatuses): void {
                     $query
                         ->where(function ($normalIncident) use ($userId, $activeDispatchStatuses): void {
