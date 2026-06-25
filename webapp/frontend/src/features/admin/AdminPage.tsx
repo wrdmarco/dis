@@ -41,13 +41,22 @@ interface ManagedSettingsForm {
   androidApplicationId: string;
 }
 
-type AdminTab = 'access' | 'firebase' | 'mail' | 'system' | 'tokens' | 'settings';
+interface PasswordPolicySettingsForm {
+  minimumLength: string;
+  requiresMixedCase: boolean;
+  requiresNumbers: boolean;
+  requiresSymbols: boolean;
+  uncompromised: boolean;
+}
+
+type AdminTab = 'access' | 'firebase' | 'mail' | 'system' | 'passwords' | 'tokens' | 'settings';
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'access', label: 'Toegang' },
   { id: 'firebase', label: 'Firebase' },
   { id: 'mail', label: 'Mail' },
   { id: 'system', label: 'Systeem' },
+  { id: 'passwords', label: 'Wachtwoorden' },
   { id: 'tokens', label: 'Tokens' },
   { id: 'settings', label: 'Instellingen' },
 ];
@@ -59,8 +68,10 @@ export function AdminPage() {
   const tokens = useApiResource<FcmToken[]>('/admin/push/tokens?per_page=100');
   const mobileSettings = useMemo(() => toMobileSettingsForm(settings.data ?? []), [settings.data]);
   const managedSettings = useMemo(() => toManagedSettingsForm(settings.data ?? []), [settings.data]);
+  const passwordPolicySettings = useMemo(() => toPasswordPolicySettingsForm(settings.data ?? []), [settings.data]);
   const [form, setForm] = useState<MobileSettingsForm>(mobileSettings);
   const [managedForm, setManagedForm] = useState<ManagedSettingsForm>(managedSettings);
+  const [passwordPolicyForm, setPasswordPolicyForm] = useState<PasswordPolicySettingsForm>(passwordPolicySettings);
   const [activeTab, setActiveTab] = useState<AdminTab>('access');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -81,6 +92,10 @@ export function AdminPage() {
       firebaseServicePrivateKey: current.firebaseServicePrivateKey,
     }));
   }, [managedSettings, settings.data]);
+
+  useEffect(() => {
+    setPasswordPolicyForm(passwordPolicySettings);
+  }, [passwordPolicySettings]);
 
   async function saveMobileSettings() {
     setSaving(true);
@@ -229,6 +244,29 @@ export function AdminPage() {
       await settings.reload();
     } catch (error) {
       setManagedError(error instanceof Error ? error.message : 'Mailinstellingen opslaan mislukt.');
+    } finally {
+      setManagedSaving(false);
+    }
+  }
+
+  async function savePasswordPolicySettings() {
+    setManagedSaving(true);
+    setManagedError(null);
+    try {
+      const minimumLength = Number(passwordPolicyForm.minimumLength || 14);
+
+      await api.patch('/admin/settings', {
+        settings: {
+          'security.password_min_length': minimumLength,
+          'security.password_requires_mixed_case': passwordPolicyForm.requiresMixedCase,
+          'security.password_requires_numbers': passwordPolicyForm.requiresNumbers,
+          'security.password_requires_symbols': passwordPolicyForm.requiresSymbols,
+          'security.password_uncompromised': passwordPolicyForm.uncompromised,
+        },
+      });
+      await settings.reload();
+    } catch (error) {
+      setManagedError(error instanceof Error ? error.message : 'Wachtwoordeisen opslaan mislukt.');
     } finally {
       setManagedSaving(false);
     }
@@ -462,6 +500,61 @@ export function AdminPage() {
         </Panel>
       ) : null}
 
+      {activeTab === 'passwords' ? (
+        <Panel title="Wachtwoordeisen">
+          <div className="form-grid">
+            <label>
+              Minimum lengte
+              <input
+                type="number"
+                min="8"
+                max="128"
+                value={passwordPolicyForm.minimumLength}
+                onChange={(event) => setPasswordPolicyForm((current) => ({ ...current, minimumLength: event.target.value }))}
+              />
+            </label>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={passwordPolicyForm.requiresMixedCase}
+                onChange={(event) => setPasswordPolicyForm((current) => ({ ...current, requiresMixedCase: event.target.checked }))}
+              />
+              Hoofdletters en kleine letters verplichten
+            </label>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={passwordPolicyForm.requiresNumbers}
+                onChange={(event) => setPasswordPolicyForm((current) => ({ ...current, requiresNumbers: event.target.checked }))}
+              />
+              Cijfers verplichten
+            </label>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={passwordPolicyForm.requiresSymbols}
+                onChange={(event) => setPasswordPolicyForm((current) => ({ ...current, requiresSymbols: event.target.checked }))}
+              />
+              Symbolen verplichten
+            </label>
+            <label className="check-label form-grid__wide">
+              <input
+                type="checkbox"
+                checked={passwordPolicyForm.uncompromised}
+                onChange={(event) => setPasswordPolicyForm((current) => ({ ...current, uncompromised: event.target.checked }))}
+              />
+              Bekende gelekte wachtwoorden blokkeren
+            </label>
+          </div>
+          {managedError ? <p className="error-text">{managedError}</p> : null}
+          <div className="actions-row">
+            <button className="primary-button" type="button" onClick={savePasswordPolicySettings} disabled={managedSaving}>
+              {managedSaving ? 'Opslaan...' : 'Wachtwoordeisen opslaan'}
+            </button>
+          </div>
+        </Panel>
+      ) : null}
+
       {activeTab === 'tokens' ? (
         <Panel title="Firebase tokens">
           {tokenActionError ? <p className="form-error">{tokenActionError}</p> : null}
@@ -562,12 +655,28 @@ function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
   };
 }
 
+function toPasswordPolicySettingsForm(settings: SystemSetting[]): PasswordPolicySettingsForm {
+  const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
+
+  return {
+    minimumLength: asStringOrNumber(byKey.get('security.password_min_length'), '14'),
+    requiresMixedCase: asBoolean(byKey.get('security.password_requires_mixed_case'), true),
+    requiresNumbers: asBoolean(byKey.get('security.password_requires_numbers'), true),
+    requiresSymbols: asBoolean(byKey.get('security.password_requires_symbols'), true),
+    uncompromised: asBoolean(byKey.get('security.password_uncompromised'), true),
+  };
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function asString(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+function asBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
 }
 
 function asStringOrNumber(value: unknown, fallback: string): string {

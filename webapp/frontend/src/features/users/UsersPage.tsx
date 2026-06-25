@@ -175,13 +175,12 @@ export function UsersPage() {
                 <input
                   type="password"
                   value={form.password}
-                  placeholder={modalMode === 'edit' ? 'Leeg laten om niet te wijzigen' : 'Minimaal 14 tekens'}
+                  placeholder={modalMode === 'edit' ? 'Leeg laten om niet te wijzigen' : 'Volgens wachtwoordbeleid'}
                   required={modalMode === 'create'}
-                  minLength={14}
                   autoComplete="new-password"
                   onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
                 />
-                <small>Minimaal 14 tekens met hoofdletter, kleine letter, cijfer en symbool.</small>
+                <small>Moet voldoen aan de ingestelde wachtwoordeisen.</small>
               </label>
               <div className="form-grid__wide">
                 <span className="field-label">Rollen</span>

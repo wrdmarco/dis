@@ -10,9 +10,11 @@ use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\Team;
 use App\Services\AuditService;
+use App\Services\PasswordPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 final class AdminController extends Controller
 {
@@ -137,15 +139,18 @@ final class AdminController extends Controller
     {
         $data = $request->validate(['settings' => ['required', 'array']]);
         foreach ($data['settings'] as $key => $value) {
-            if (in_array($key, self::SENSITIVE_SETTING_KEYS, true) && ($value === null || $value === '')) {
+            $settingKey = (string) $key;
+            $value = $this->validateSettingValue($settingKey, $value);
+
+            if (in_array($settingKey, self::SENSITIVE_SETTING_KEYS, true) && ($value === null || $value === '')) {
                 continue;
             }
 
             SystemSetting::query()->updateOrCreate(
-                ['key' => $key],
+                ['key' => $settingKey],
                 [
                     'value' => $value,
-                    'is_sensitive' => in_array($key, self::SENSITIVE_SETTING_KEYS, true),
+                    'is_sensitive' => in_array($settingKey, self::SENSITIVE_SETTING_KEYS, true),
                     'updated_by' => $request->user()?->id,
                 ],
             );
@@ -153,6 +158,41 @@ final class AdminController extends Controller
         $this->auditService->record('admin.settings_updated', SystemSetting::class, $request->user(), ['keys' => array_keys($data['settings'])]);
 
         return $this->settings();
+    }
+
+    private function validateSettingValue(string $key, mixed $value): mixed
+    {
+        return match ($key) {
+            PasswordPolicy::MIN_LENGTH_KEY => $this->validateIntegerSetting($key, $value, 8, 128),
+            PasswordPolicy::MIXED_CASE_KEY,
+            PasswordPolicy::NUMBERS_KEY,
+            PasswordPolicy::SYMBOLS_KEY,
+            PasswordPolicy::UNCOMPROMISED_KEY => $this->validateBooleanSetting($key, $value),
+            default => $value,
+        };
+    }
+
+    private function validateIntegerSetting(string $key, mixed $value, int $min, int $max): int
+    {
+        if (! is_numeric($value)) {
+            throw ValidationException::withMessages(["settings.$key" => ['The setting value must be a number.']]);
+        }
+
+        $integer = (int) $value;
+        if ($integer < $min || $integer > $max) {
+            throw ValidationException::withMessages(["settings.$key" => ["The setting value must be between $min and $max."]]);
+        }
+
+        return $integer;
+    }
+
+    private function validateBooleanSetting(string $key, mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        throw ValidationException::withMessages(["settings.$key" => ['The setting value must be true or false.']]);
     }
 
     public function pushLogs(Request $request): JsonResponse

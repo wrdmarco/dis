@@ -3,13 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiResponse;
+use App\Services\PasswordPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password;
-use Illuminate\Validation\Rules\Password as PasswordRule;
 
 final class PasswordController extends Controller
 {
+    public function __construct(private readonly PasswordPolicy $passwordPolicy) {}
+
     public function forgot(Request $request): JsonResponse
     {
         $data = $request->validate(['email' => ['required', 'email:rfc,dns']]);
@@ -23,7 +25,7 @@ final class PasswordController extends Controller
         $data = $request->validate([
             'email' => ['required', 'email:rfc,dns'],
             'token' => ['required', 'string'],
-            'password' => ['required', 'confirmed', PasswordRule::min(14)->mixedCase()->numbers()->symbols()->uncompromised()],
+            'password' => ['required', 'confirmed', $this->passwordPolicy->rule()],
         ]);
 
         $status = Password::reset($data, function ($user, string $password): void {
@@ -38,4 +40,3 @@ final class PasswordController extends Controller
         return ApiResponse::success(['status' => 'password_reset']);
     }
 }
-

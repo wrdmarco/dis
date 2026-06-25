@@ -2,8 +2,8 @@
 
 namespace App\Http\Requests\Users;
 
+use App\Services\PasswordPolicy;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rules\Password;
 
 final class StoreUserRequest extends FormRequest
 {
@@ -17,7 +17,7 @@ final class StoreUserRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:160'],
             'email' => ['required', 'email:rfc,dns', 'max:255', 'unique:users,email'],
-            'password' => ['required', Password::min(14)->mixedCase()->numbers()->symbols()->uncompromised()],
+            'password' => ['required', app(PasswordPolicy::class)->rule()],
             'phone_number' => ['nullable', 'string', 'max:40'],
             'account_status' => ['nullable', 'in:active,suspended,blocked'],
             'role_ids' => ['nullable', 'array'],
