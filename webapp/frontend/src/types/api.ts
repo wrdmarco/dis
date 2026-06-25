@@ -106,6 +106,7 @@ export interface Incident {
   description?: string | null;
   priority: 'low' | 'normal' | 'high' | 'critical';
   status: 'draft' | 'active' | 'dispatching' | 'in_progress' | 'resolved' | 'cancelled';
+  is_test?: boolean;
   location_label?: string | null;
   latitude?: string | null;
   longitude?: string | null;

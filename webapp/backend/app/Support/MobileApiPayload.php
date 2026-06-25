@@ -91,6 +91,7 @@ final class MobileApiPayload
             'description' => $incident->description,
             'priority' => $incident->priority,
             'status' => $incident->status,
+            'is_test' => (bool) $incident->is_test,
             'location_label' => $incident->location_label,
             'latitude' => $incident->latitude,
             'longitude' => $incident->longitude,

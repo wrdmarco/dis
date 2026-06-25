@@ -18,7 +18,11 @@ final class DispatchController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        return ApiResponse::paginated(DispatchRequest::query()->with(['incident', 'recipients'])->latest()->paginate((int) $request->integer('per_page', 25)));
+        return ApiResponse::paginated(DispatchRequest::query()
+            ->with(['incident', 'recipients'])
+            ->when(! $request->boolean('include_tests'), fn ($query) => $query->whereHas('incident', fn ($incident) => $incident->where('is_test', false)))
+            ->latest()
+            ->paginate((int) $request->integer('per_page', 25)));
     }
 
     public function store(StoreDispatchRequest $request, Incident $incident): JsonResponse

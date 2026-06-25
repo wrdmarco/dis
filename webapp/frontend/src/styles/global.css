@@ -769,6 +769,33 @@ a:hover {
   padding: 16px;
 }
 
+.test-alert-hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 16px;
+}
+
+.test-alert-hero__icon {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #172333;
+  color: #7dd3fc;
+}
+
+.test-alert-hero h3 {
+  margin: 0 0 4px;
+}
+
+.test-alert-hero p {
+  margin: 0;
+  color: #8ea0b5;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -1385,6 +1412,7 @@ pre {
 
   .kpi-grid,
   .summary-grid,
+  .test-alert-hero,
   .inline-form,
   .download-card,
   .download-setup-qr,

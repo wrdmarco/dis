@@ -19,6 +19,7 @@ final class IncidentRepository extends BaseRepository
     {
         return Incident::query()
             ->with(['coordinator', 'team'])
+            ->where('is_test', false)
             ->when($filters['status'] ?? null, fn ($query, string $status) => $query->where('status', $status))
             ->when($filters['priority'] ?? null, fn ($query, string $priority) => $query->where('priority', $priority))
             ->latest()

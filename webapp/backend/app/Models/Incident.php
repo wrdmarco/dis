@@ -19,6 +19,7 @@ final class Incident extends Model
         'description',
         'priority',
         'status',
+        'is_test',
         'location_label',
         'latitude',
         'longitude',
@@ -34,6 +35,7 @@ final class Incident extends Model
         return [
             'latitude' => 'decimal:7',
             'longitude' => 'decimal:7',
+            'is_test' => 'boolean',
             'opened_at' => 'immutable_datetime',
             'closed_at' => 'immutable_datetime',
         ];

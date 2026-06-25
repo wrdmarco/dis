@@ -14,6 +14,7 @@ use App\Http\Controllers\MobileConfigController;
 use App\Http\Controllers\PasswordController;
 use App\Http\Controllers\SetupController;
 use App\Http\Controllers\StatusController;
+use App\Http\Controllers\TestAlertController;
 use App\Http\Controllers\UpdateController;
 use App\Http\Controllers\UserController;
 use App\Http\Responses\ApiResponse;
@@ -53,6 +54,9 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
         Route::get('/users/{user}/audit', [UserController::class, 'audit'])->middleware('permission:audit.view');
 
     Route::get('/teams', [AdminController::class, 'teams'])->middleware('permission:incidents.view');
+
+    Route::get('/test-alert', [TestAlertController::class, 'show'])->middleware('permission:dispatch.view');
+    Route::post('/test-alert', [TestAlertController::class, 'send'])->middleware(['permission:dispatch.manage', 'throttle:dispatch-response']);
 
     Route::get('/incidents', [IncidentController::class, 'index'])->middleware('permission:incidents.view');
     Route::post('/incidents', [IncidentController::class, 'store'])->middleware('permission:incidents.manage');
