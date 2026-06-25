@@ -10,6 +10,7 @@ use App\Repositories\IncidentRepository;
 use App\Services\DispatchService;
 use App\Services\IncidentService;
 use App\Support\MobileApiPayload;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -25,12 +26,13 @@ final class IncidentController extends Controller
     {
         if ($request->boolean('active_alarms')) {
             $userId = $request->user()->id;
+            $activeDispatchStatuses = ['sent', 'escalated'];
             $incidents = Incident::query()
                 ->with([
                     'coordinator',
                     'team',
-                    'dispatchRequests' => fn ($dispatches) => $dispatches
-                        ->where('status', 'sent')
+                    'dispatchRequests' => fn (Builder $dispatches) => $dispatches
+                        ->whereIn('status', $activeDispatchStatuses)
                         ->whereHas('recipients', fn ($recipients) => $recipients
                             ->where('user_id', $userId)
                             ->whereIn('response_status', ['pending', 'accepted']))
@@ -38,22 +40,22 @@ final class IncidentController extends Controller
                         ->latest(),
                 ])
                 ->whereIn('status', ['active', 'dispatching', 'in_progress'])
-                ->where(function ($query) use ($userId): void {
+                ->where(function (Builder $query) use ($userId, $activeDispatchStatuses): void {
                     $query
-                        ->where(function ($normalIncident) use ($userId): void {
+                        ->where(function (Builder $normalIncident) use ($userId, $activeDispatchStatuses): void {
                             $normalIncident
                                 ->where('is_test', false)
-                                ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
-                                    ->where('status', 'sent')
+                                ->whereHas('dispatchRequests', fn (Builder $dispatches) => $dispatches
+                                    ->whereIn('status', $activeDispatchStatuses)
                                     ->whereHas('recipients', fn ($recipients) => $recipients
                                         ->where('user_id', $userId)
                                         ->whereIn('response_status', ['pending', 'accepted'])));
                         })
-                        ->orWhere(function ($testIncident) use ($userId): void {
+                        ->orWhere(function (Builder $testIncident) use ($userId, $activeDispatchStatuses): void {
                             $testIncident
                                 ->where('is_test', true)
-                                ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
-                                    ->where('status', 'sent')
+                                ->whereHas('dispatchRequests', fn (Builder $dispatches) => $dispatches
+                                    ->whereIn('status', $activeDispatchStatuses)
                                     ->whereHas('recipients', fn ($recipients) => $recipients
                                         ->where('user_id', $userId)
                                         ->where('response_status', 'pending')));
