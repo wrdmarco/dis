@@ -127,7 +127,7 @@ final class AdminController extends Controller
             ->map(function (SystemSetting $setting): array {
                 return [
                     'key' => $setting->key,
-                    'value' => $setting->is_sensitive ? null : $setting->value,
+                    'value' => $this->publicSettingValue($setting),
                     'is_sensitive' => $setting->is_sensitive,
                 ];
             });
@@ -170,6 +170,26 @@ final class AdminController extends Controller
             PasswordPolicy::UNCOMPROMISED_KEY => $this->validateBooleanSetting($key, $value),
             default => $value,
         };
+    }
+
+    /**
+     * @return mixed
+     */
+    private function publicSettingValue(SystemSetting $setting): mixed
+    {
+        if ($setting->key === 'firebase.service_account') {
+            $credentials = is_array($setting->value) ? $setting->value : [];
+
+            return [
+                'configured' => filled($credentials['client_email'] ?? null) && filled($credentials['private_key'] ?? null),
+                'client_email' => $credentials['client_email'] ?? '',
+                'private_key_id' => $credentials['private_key_id'] ?? '',
+                'client_id' => $credentials['client_id'] ?? '',
+                'client_x509_cert_url' => $credentials['client_x509_cert_url'] ?? '',
+            ];
+        }
+
+        return $setting->is_sensitive ? null : $setting->value;
     }
 
     private function validateIntegerSetting(string $key, mixed $value, int $min, int $max): int

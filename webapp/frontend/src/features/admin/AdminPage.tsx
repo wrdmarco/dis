@@ -352,7 +352,7 @@ export function AdminPage() {
             <div className="setup-copy">
               <strong>Upload hier je Firebase JSON-bestanden.</strong>
               <p>Voor de Android app is de Firebase Android config JSON nodig. Voor pushberichten vanuit de backend is een Firebase service-account JSON nodig. DIS leest het bestand in je browser en slaat alleen de benodigde waarden op.</p>
-              <p>Service account: {managedForm.firebaseServiceClientEmail.trim() ? 'ingesteld' : 'niet ingesteld'}</p>
+              <p>Service account: {isFirebaseServiceAccountConfigured(settings.data ?? [], managedForm) ? 'ingesteld' : 'niet ingesteld'}</p>
             </div>
             <div className="form-grid">
               <label className="form-grid__wide">
@@ -684,6 +684,17 @@ function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
     locationRetentionDays: asStringOrNumber(byKey.get('retention.location_days'), '30'),
     androidApplicationId: asString(byKey.get('updates.android.application_id')) || 'nl.wrdmarco.dis',
   };
+}
+
+function isFirebaseServiceAccountConfigured(settings: SystemSetting[], form: ManagedSettingsForm): boolean {
+  if (form.firebaseServicePrivateKey.trim() !== '') {
+    return form.firebaseServiceClientEmail.trim() !== '';
+  }
+
+  const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
+  const serviceAccount = asRecord(byKey.get('firebase.service_account'));
+
+  return asBoolean(serviceAccount.configured, false);
 }
 
 function toPasswordPolicySettingsForm(settings: SystemSetting[]): PasswordPolicySettingsForm {
