@@ -52,6 +52,10 @@ final class LocationController extends Controller
 
     public function liveLocations(Incident $incident): JsonResponse
     {
+        if ($this->service->isClosedForLocationSharing($incident)) {
+            return ApiResponse::success([]);
+        }
+
         $latestDispatch = $incident->dispatchRequests()
             ->with(['recipients.user'])
             ->latest()

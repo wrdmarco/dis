@@ -13,6 +13,7 @@ final class IncidentService
     public function __construct(
         private readonly AuditService $auditService,
         private readonly DispatchService $dispatchService,
+        private readonly LocationService $locationService,
     ) {}
 
     /**
@@ -67,6 +68,10 @@ final class IncidentService
 
             if ($beforeStatus === 'draft' && ($data['status'] ?? null) === 'active') {
                 $this->dispatchService->createAndSendForIncidentActivation($incident->refresh(), $actor, $statusReason);
+            }
+
+            if (array_key_exists('status', $data) && in_array($data['status'], ['resolved', 'cancelled'], true)) {
+                $this->locationService->stopForIncident($incident->refresh(), $actor);
             }
 
             $this->auditService->record('incidents.updated', $incident, $actor);

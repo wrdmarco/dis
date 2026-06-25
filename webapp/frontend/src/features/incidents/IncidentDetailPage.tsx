@@ -294,7 +294,7 @@ export function IncidentDetailPage() {
       </Panel>
 
       <Panel title="Live locaties">
-        <ResourceState loading={liveLocations.loading} error={liveLocations.error} empty={(liveLocations.data?.length ?? 0) === 0}>
+        <ResourceState loading={liveLocations.loading} error={liveLocations.error} empty={false}>
           <LiveLocationMap incident={incident.data} locations={liveLocations.data ?? []} />
         </ResourceState>
       </Panel>

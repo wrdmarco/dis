@@ -17,6 +17,8 @@ final class LocationService
 
     public function consent(Incident $incident, User $user): LocationSharingConsent
     {
+        $this->ensureIncidentAllowsLocationSharing($incident);
+
         $consent = LocationSharingConsent::query()->updateOrCreate(
             ['incident_id' => $incident->id, 'user_id' => $user->id],
             ['is_active' => true, 'consented_at' => now(), 'revoked_at' => null, 'declined_at' => null, 'refusal_reason' => null],
@@ -62,6 +64,8 @@ final class LocationService
      */
     public function updateLocation(Incident $incident, User $user, array $data): LocationUpdate
     {
+        $this->ensureIncidentAllowsLocationSharing($incident);
+
         $hasConsent = LocationSharingConsent::query()
             ->where('incident_id', $incident->id)
             ->where('user_id', $user->id)
@@ -86,6 +90,33 @@ final class LocationService
         }
 
         return $location;
+    }
+
+    public function stopForIncident(Incident $incident, User $actor): void
+    {
+        $updated = LocationSharingConsent::query()
+            ->where('incident_id', $incident->id)
+            ->where('is_active', true)
+            ->update(['is_active' => false, 'revoked_at' => now()]);
+
+        if ($updated === 0) {
+            return;
+        }
+
+        $this->auditService->record('location.sharing_stopped_for_incident', $incident, $actor, ['consent_count' => $updated]);
+        $this->broadcastLocationSharingChange($incident);
+    }
+
+    public function isClosedForLocationSharing(Incident $incident): bool
+    {
+        return in_array($incident->status, ['resolved', 'cancelled'], true);
+    }
+
+    private function ensureIncidentAllowsLocationSharing(Incident $incident): void
+    {
+        if ($this->isClosedForLocationSharing($incident)) {
+            throw ValidationException::withMessages(['incident_id' => ['Live locatie delen is gestopt voor afgeronde of geannuleerde incidenten.']]);
+        }
     }
 
     private function broadcastLocationSharingChange(Incident $incident): void
