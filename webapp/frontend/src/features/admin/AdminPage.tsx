@@ -338,7 +338,7 @@ export function AdminPage() {
               </label>
               <label>
                 Server URL
-                <input value={form.apiBaseUrl} placeholder="http://dis.example.nl" onChange={(event) => setForm((current) => ({ ...current, apiBaseUrl: event.target.value }))} />
+                <input value={form.apiBaseUrl} placeholder="https://dis.example.nl" onChange={(event) => setForm((current) => ({ ...current, apiBaseUrl: event.target.value }))} />
               </label>
               <label>
                 Firebase application id
@@ -581,5 +581,5 @@ function normalizePublicUrl(value: string): string {
     return trimmed;
   }
 
-  return `http://${trimmed}`;
+  return `https://${trimmed}`;
 }

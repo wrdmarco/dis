@@ -59,7 +59,7 @@ final class SetupController extends Controller
             'mobile.firebase_config.storage_bucket' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $publicUrl = rtrim((string) $data['public_url'], '/');
+        $publicUrl = $this->normalizePublicUrl((string) $data['public_url']);
 
         $user = DB::transaction(function () use ($data, $publicUrl): User {
             $user = User::query()->create([
@@ -133,5 +133,16 @@ final class SetupController extends Controller
             'token' => $user->createToken('DIS Command Center')->plainTextToken,
             'user' => $user->load(['roles.permissions', 'teams']),
         ], 201);
+    }
+
+    private function normalizePublicUrl(string $url): string
+    {
+        $trimmed = rtrim(trim($url), '/');
+
+        if (! str_starts_with($trimmed, 'http://') && ! str_starts_with($trimmed, 'https://')) {
+            return 'https://'.$trimmed;
+        }
+
+        return $trimmed;
     }
 }

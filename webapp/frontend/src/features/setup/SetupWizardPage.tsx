@@ -299,7 +299,7 @@ export function SetupWizardPage() {
             </label>
             <label>
               Publieke URL
-              <input value={form.publicUrl} required placeholder="http://dis.example.nl" onChange={(event) => update('publicUrl', event.target.value)} />
+              <input value={form.publicUrl} required placeholder="https://dis.example.nl" onChange={(event) => update('publicUrl', event.target.value)} />
             </label>
           </div>
         </>
@@ -568,7 +568,7 @@ function normalizePublicUrl(value: string): string {
     return trimmed;
   }
 
-  return `http://${trimmed}`;
+  return `https://${trimmed}`;
 }
 
 function readError(payload: ApiResponse<unknown> | null): string | null {

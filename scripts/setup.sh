@@ -119,7 +119,7 @@ fi
 
 set_env APP_ENV production
 set_env APP_DEBUG false
-set_env APP_URL "http://${DOMAIN}"
+set_env APP_URL "https://${DOMAIN}"
 set_env DIS_INSTALL_PATH "${DIS_INSTALL_PATH}"
 set_env DB_HOST 127.0.0.1
 set_env REDIS_HOST 127.0.0.1
@@ -163,6 +163,6 @@ if [ "${RUN_HEALTHCHECK}" = "1" ]; then
   HEALTH_URL="http://127.0.0.1/health" bash "${SCRIPT_DIR}/healthcheck.sh"
 fi
 
-log "DIS setup completed for http://${DOMAIN}"
-log "Open http://${DOMAIN}/setup to finish the first web configuration."
+log "DIS setup completed for https://${DOMAIN}"
+log "Open https://${DOMAIN}/setup to finish the first web configuration."
 log "Future updates can be run with: sudo update"
