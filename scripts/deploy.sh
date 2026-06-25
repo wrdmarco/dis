@@ -8,6 +8,7 @@ APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
 BACKEND_DIR="${APP_ROOT}/webapp/backend"
 FRONTEND_DIR="${APP_ROOT}/webapp/frontend"
 NGINX_SOURCE="${NGINX_SOURCE:-${APP_ROOT}/infrastructure/nginx/dis.conf}"
+SKIP_DEPLOY_CACHE_CLEAR="${SKIP_DEPLOY_CACHE_CLEAR:-0}"
 
 require_directory "${APP_ROOT}"
 require_file "${APP_ROOT}/.env"
@@ -47,13 +48,9 @@ if [ -f "${BACKEND_DIR}/composer.json" ]; then
     run_cmd setfacl -R -m "u:www-data:rwx" "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache"
     run_cmd setfacl -R -d -m "u:www-data:rwx" "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache"
   fi
-  run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" optimize:clear
   run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" migrate --force
   run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" db:seed --force
   run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" dis:self-check
-  run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" config:cache
-  run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" route:cache
-  run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" view:cache
 fi
 
 if [ -f "${FRONTEND_DIR}/package.json" ]; then
@@ -99,5 +96,10 @@ for service in dis-queue dis-scheduler dis-websocket "${PHP_FPM_SERVICE}" nginx;
     run_cmd systemctl restart "${service}"
   fi
 done
+
+if [ "${SKIP_DEPLOY_CACHE_CLEAR}" != "1" ] && [ -f "${BACKEND_DIR}/artisan" ]; then
+  log "Clearing application caches"
+  run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" optimize:clear
+fi
 
 log "Deployment finished"

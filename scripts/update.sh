@@ -262,7 +262,7 @@ if [ "${UPDATE_APP}" = "1" ]; then
     nginx_source="$(refresh_generated_nginx)"
 
     log "Deploying updated DIS application"
-    APP_ROOT="${DIS_INSTALL_PATH}" NGINX_SOURCE="${nginx_source}" bash "${SCRIPT_DIR}/deploy.sh"
+    APP_ROOT="${DIS_INSTALL_PATH}" NGINX_SOURCE="${nginx_source}" SKIP_DEPLOY_CACHE_CLEAR=1 bash "${SCRIPT_DIR}/deploy.sh"
     install_update_command
   else
     log "Skipping DIS application deploy."
