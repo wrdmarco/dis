@@ -90,7 +90,11 @@ final class MobileApiPayload
             'priority' => $incident->priority,
             'status' => $incident->status,
             'location_label' => $incident->location_label,
+            'latitude' => $incident->latitude,
+            'longitude' => $incident->longitude,
+            'coordinator' => self::user($incident->coordinator),
             'opened_at' => $incident->opened_at?->toIso8601String(),
+            'closed_at' => $incident->closed_at?->toIso8601String(),
         ];
     }
 

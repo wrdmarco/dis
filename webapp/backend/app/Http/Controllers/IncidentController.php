@@ -36,7 +36,7 @@ final class IncidentController extends Controller
 
     public function store(StoreIncidentRequest $request): JsonResponse
     {
-        return ApiResponse::success($this->service->create($request->validated(), $request->user()), 201);
+        return ApiResponse::success(MobileApiPayload::incident($this->service->create($request->validated(), $request->user())), 201);
     }
 
     public function show(Incident $incident): JsonResponse
@@ -46,21 +46,21 @@ final class IncidentController extends Controller
 
     public function update(UpdateIncidentRequest $request, Incident $incident): JsonResponse
     {
-        return ApiResponse::success($this->service->update($incident, $request->validated(), $request->user()));
+        return ApiResponse::success(MobileApiPayload::incident($this->service->update($incident, $request->validated(), $request->user())));
     }
 
     public function close(Request $request, Incident $incident): JsonResponse
     {
         $request->validate(['reason' => ['nullable', 'string', 'max:1000']]);
 
-        return ApiResponse::success($this->service->close($incident, $request->user(), $request->input('reason')));
+        return ApiResponse::success(MobileApiPayload::incident($this->service->close($incident, $request->user(), $request->input('reason'))));
     }
 
     public function cancel(Request $request, Incident $incident): JsonResponse
     {
         $request->validate(['reason' => ['nullable', 'string', 'max:1000']]);
 
-        return ApiResponse::success($this->service->cancel($incident, $request->user(), $request->input('reason')));
+        return ApiResponse::success(MobileApiPayload::incident($this->service->cancel($incident, $request->user(), $request->input('reason'))));
     }
 
     public function timeline(Incident $incident): JsonResponse

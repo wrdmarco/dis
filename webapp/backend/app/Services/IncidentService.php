@@ -47,6 +47,9 @@ final class IncidentService
     {
         return DB::transaction(function () use ($incident, $data, $actor): Incident {
             $beforeStatus = $incident->status;
+            $statusReason = $data['status_reason'] ?? null;
+            unset($data['status_reason']);
+
             $incident->update($data);
 
             if (array_key_exists('status', $data) && $data['status'] !== $beforeStatus) {
@@ -54,7 +57,7 @@ final class IncidentService
                     'from_status' => $beforeStatus,
                     'to_status' => $data['status'],
                     'changed_by' => $actor->id,
-                    'reason' => $data['status_reason'] ?? null,
+                    'reason' => $statusReason,
                     'created_at' => now(),
                 ]);
             }
