@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Events\DispatchChanged;
 use App\Http\Requests\Dispatch\RespondDispatchRequest;
 use App\Http\Requests\Dispatch\StoreDispatchRequest;
 use App\Http\Responses\ApiResponse;
@@ -47,7 +46,7 @@ final class DispatchController extends Controller
     public function cancel(Request $request, DispatchRequest $dispatch): JsonResponse
     {
         $dispatch->update(['status' => 'cancelled', 'cancelled_at' => now()]);
-        DispatchChanged::dispatch($dispatch->refresh(), 'cancelled');
+        $this->service->broadcastDispatchChange($dispatch->refresh(), 'cancelled');
 
         return ApiResponse::success($dispatch);
     }
@@ -55,7 +54,7 @@ final class DispatchController extends Controller
     public function escalate(Request $request, DispatchRequest $dispatch): JsonResponse
     {
         $dispatch->update(['status' => 'escalated']);
-        DispatchChanged::dispatch($dispatch->refresh(), 'escalated');
+        $this->service->broadcastDispatchChange($dispatch->refresh(), 'escalated');
 
         return ApiResponse::success($dispatch);
     }

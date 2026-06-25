@@ -13,6 +13,7 @@ use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 final class DispatchService
 {
@@ -57,7 +58,7 @@ final class DispatchService
             }
 
             $this->auditService->record('dispatch.created', $dispatch, $actor, ['recipient_count' => $eligible->count()]);
-            DispatchChanged::dispatch($dispatch, 'created');
+            $this->broadcastDispatchChange($dispatch, 'created');
 
             return $dispatch->load(['incident', 'recipients']);
         });
@@ -88,7 +89,7 @@ final class DispatchService
             }
 
             $this->auditService->record('dispatch.sent', $dispatch, $actor);
-            DispatchChanged::dispatch($dispatch, 'sent');
+            $this->broadcastDispatchChange($dispatch, 'sent');
 
             return $dispatch->refresh()->load(['recipients']);
         });
@@ -99,7 +100,7 @@ final class DispatchService
         $recipient = $dispatch->recipients()->where('user_id', $actor->id)->firstOrFail();
         $recipient->update(['response_status' => $response, 'response_note' => $note, 'responded_at' => now()]);
         $this->auditService->record('dispatch.responded', $dispatch, $actor, ['response' => $response]);
-        DispatchChanged::dispatch($dispatch->refresh(), 'responded');
+        $this->broadcastDispatchChange($dispatch->refresh(), 'responded');
 
         return $recipient;
     }
@@ -238,5 +239,14 @@ final class DispatchService
             $team->code,
             ...$team->alertTeams->pluck('code')->all(),
         ]));
+    }
+
+    public function broadcastDispatchChange(DispatchRequest $dispatch, string $action): void
+    {
+        try {
+            DispatchChanged::dispatch($dispatch, $action);
+        } catch (Throwable $exception) {
+            report($exception);
+        }
     }
 }
