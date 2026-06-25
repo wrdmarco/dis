@@ -135,7 +135,7 @@ clear_application_caches() {
   backend_dir="${DIS_INSTALL_PATH}/webapp/backend"
   frontend_dir="${DIS_INSTALL_PATH}/webapp/frontend"
 
-  log "Clearing application caches"
+  log "Clearing backend and frontend caches"
   if [ -f "${backend_dir}/artisan" ]; then
     run_cmd runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" optimize:clear
   fi
@@ -145,6 +145,9 @@ clear_application_caches() {
     "${backend_dir}/storage/framework/cache/data/"* \
     "${backend_dir}/storage/framework/views/"* \
     "${frontend_dir}/.vite" \
+    "${frontend_dir}/.cache" \
+    "${frontend_dir}/node_modules/.vite" \
+    "${frontend_dir}/node_modules/.cache" \
     "${frontend_dir}/tsconfig.tsbuildinfo" \
     "${frontend_dir}/tsconfig.node.tsbuildinfo" \
     "${frontend_dir}/vite.config.js" \
@@ -152,6 +155,7 @@ clear_application_caches() {
     2>/dev/null || true
 
   if command -v npm >/dev/null 2>&1; then
+    run_cmd npm cache clean --force >/dev/null 2>&1 || true
     run_cmd npm cache verify >/dev/null 2>&1 || true
   fi
 }
