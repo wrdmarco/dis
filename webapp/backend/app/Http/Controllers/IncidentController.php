@@ -38,11 +38,27 @@ final class IncidentController extends Controller
                         ->latest(),
                 ])
                 ->whereIn('status', ['active', 'dispatching', 'in_progress'])
-                ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
-                    ->where('status', 'sent')
-                    ->whereHas('recipients', fn ($recipients) => $recipients
-                        ->where('user_id', $userId)
-                        ->whereIn('response_status', ['pending', 'accepted'])))
+                ->where(function ($query) use ($userId): void {
+                    $query
+                        ->where(function ($normalIncident) use ($userId): void {
+                            $normalIncident
+                                ->where('is_test', false)
+                                ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
+                                    ->where('status', 'sent')
+                                    ->whereHas('recipients', fn ($recipients) => $recipients
+                                        ->where('user_id', $userId)
+                                        ->whereIn('response_status', ['pending', 'accepted'])));
+                        })
+                        ->orWhere(function ($testIncident) use ($userId): void {
+                            $testIncident
+                                ->where('is_test', true)
+                                ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
+                                    ->where('status', 'sent')
+                                    ->whereHas('recipients', fn ($recipients) => $recipients
+                                        ->where('user_id', $userId)
+                                        ->where('response_status', 'pending')));
+                        });
+                })
                 ->latest()
                 ->limit(100)
                 ->get()
