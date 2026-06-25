@@ -9,6 +9,8 @@ UPDATE_SYSTEM=1
 UPDATE_APP=1
 UPDATE_SOURCE=1
 RUN_HEALTHCHECK="${RUN_HEALTHCHECK:-1}"
+SYSTEM_UPDATES_AVAILABLE=0
+APP_UPDATES_AVAILABLE=0
 
 usage() {
   cat <<'USAGE'
@@ -128,30 +130,98 @@ EOF
   run_cmd chmod 0755 /usr/local/bin/update
 }
 
-if [ "${UPDATE_SYSTEM}" = "1" ]; then
-  log "Updating Ubuntu packages"
+check_system_updates() {
+  local update_count
+
+  log "Checking Ubuntu package updates"
   run_cmd apt-get update
-  run_cmd apt-get upgrade -y
-  run_cmd apt-get autoremove -y
+  update_count="$(apt list --upgradable 2>/dev/null | sed '1d' | wc -l | tr -d ' ')"
+
+  if [ "${update_count}" -gt 0 ]; then
+    SYSTEM_UPDATES_AVAILABLE=1
+    log "Ubuntu package updates available: ${update_count}"
+  else
+    log "No Ubuntu package updates available."
+  fi
+}
+
+check_app_updates() {
+  local upstream counts behind
+
+  if [ "${UPDATE_SOURCE}" != "1" ]; then
+    APP_UPDATES_AVAILABLE=1
+    log "Source update check skipped; application deploy requested."
+    return
+  fi
+
+  if [ ! -d "${DIS_INSTALL_PATH}/.git" ]; then
+    APP_UPDATES_AVAILABLE=1
+    log "No Git checkout found at ${DIS_INSTALL_PATH}; application deploy requested."
+    return
+  fi
+
+  log "Checking DIS application updates"
+  run_cmd git -C "${DIS_INSTALL_PATH}" fetch --prune
+
+  upstream="$(git -C "${DIS_INSTALL_PATH}" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+  if [ -z "${upstream}" ]; then
+    fail "Git branch at ${DIS_INSTALL_PATH} has no upstream branch configured."
+  fi
+
+  counts="$(git -C "${DIS_INSTALL_PATH}" rev-list --left-right --count "HEAD...${upstream}")"
+  behind="$(printf '%s' "${counts}" | awk '{print $2}')"
+
+  if [ "${behind}" -gt 0 ]; then
+    APP_UPDATES_AVAILABLE=1
+    log "DIS application updates available: ${behind} commit(s)."
+  else
+    log "No DIS application updates available."
+  fi
+}
+
+if [ "${UPDATE_SYSTEM}" = "1" ]; then
+  check_system_updates
 fi
 
 if [ "${UPDATE_APP}" = "1" ]; then
-  if [ "${UPDATE_SOURCE}" = "1" ]; then
-    if [ -d "${DIS_INSTALL_PATH}/.git" ]; then
-      log "Pulling latest DIS source"
-      run_cmd git -C "${DIS_INSTALL_PATH}" fetch --prune
-      run_cmd git -C "${DIS_INSTALL_PATH}" pull --ff-only
-    else
-      log "No Git checkout found at ${DIS_INSTALL_PATH}; skipping source update."
-    fi
+  check_app_updates
+fi
+
+if [ "${SYSTEM_UPDATES_AVAILABLE}" = "0" ] && [ "${APP_UPDATES_AVAILABLE}" = "0" ]; then
+  log "No updates available. Nothing to do."
+  exit 0
+fi
+
+if [ "${UPDATE_SYSTEM}" = "1" ]; then
+  if [ "${SYSTEM_UPDATES_AVAILABLE}" = "1" ]; then
+    log "Updating Ubuntu packages"
+    run_cmd apt-get upgrade -y
+    run_cmd apt-get autoremove -y
+  else
+    log "Skipping Ubuntu package update."
   fi
+fi
 
-  write_frontend_env
-  nginx_source="$(refresh_generated_nginx)"
+if [ "${UPDATE_APP}" = "1" ]; then
+  if [ "${APP_UPDATES_AVAILABLE}" = "1" ]; then
+    if [ "${UPDATE_SOURCE}" = "1" ]; then
+      if [ -d "${DIS_INSTALL_PATH}/.git" ]; then
+        log "Pulling latest DIS source"
+        run_cmd git -C "${DIS_INSTALL_PATH}" pull --ff-only
+      else
+        log "No Git checkout found at ${DIS_INSTALL_PATH}; skipping source update."
+      fi
+    fi
 
-  log "Deploying updated DIS application"
-  APP_ROOT="${DIS_INSTALL_PATH}" NGINX_SOURCE="${nginx_source}" bash "${SCRIPT_DIR}/deploy.sh"
-  install_update_command
+    write_frontend_env
+    nginx_source="$(refresh_generated_nginx)"
+
+    log "Deploying updated DIS application"
+    APP_ROOT="${DIS_INSTALL_PATH}" NGINX_SOURCE="${nginx_source}" bash "${SCRIPT_DIR}/deploy.sh"
+    install_update_command
+  else
+    log "Skipping DIS application deploy."
+  fi
 fi
 
 if [ "${RUN_HEALTHCHECK}" = "1" ]; then
