@@ -7,6 +7,7 @@ use App\Models\Asset;
 use App\Models\AssetAssignment;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 final class AssetService
 {
@@ -19,7 +20,7 @@ final class AssetService
     {
         $asset = Asset::query()->create($data);
         $this->auditService->record('assets.created', $asset, $actor);
-        AssetChanged::dispatch($asset, 'created');
+        $this->broadcastAssetChange($asset, 'created');
 
         return $asset;
     }
@@ -29,9 +30,13 @@ final class AssetService
      */
     public function update(Asset $asset, array $data, User $actor): Asset
     {
+        $before = $asset->only(array_keys($data));
         $asset->update($data);
-        $this->auditService->record('assets.updated', $asset, $actor);
-        AssetChanged::dispatch($asset->refresh(), 'updated');
+        $this->auditService->record('assets.updated', $asset, $actor, [
+            'before' => $before,
+            'after' => $asset->only(array_keys($data)),
+        ]);
+        $this->broadcastAssetChange($asset->refresh(), 'updated');
 
         return $asset;
     }
@@ -45,9 +50,18 @@ final class AssetService
             $assignment = AssetAssignment::query()->create($data + ['asset_id' => $asset->id, 'assigned_by' => $actor->id, 'assigned_at' => now()]);
             $asset->update(['status' => 'assigned']);
             $this->auditService->record('assets.assigned', $asset, $actor, $data);
-            AssetChanged::dispatch($asset->refresh(), 'assigned');
+            $this->broadcastAssetChange($asset->refresh(), 'assigned');
 
             return $assignment;
         });
+    }
+
+    private function broadcastAssetChange(Asset $asset, string $action): void
+    {
+        try {
+            AssetChanged::dispatch($asset, $action);
+        } catch (Throwable $exception) {
+            report($exception);
+        }
     }
 }

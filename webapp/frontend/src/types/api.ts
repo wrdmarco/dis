@@ -134,6 +134,7 @@ export interface Asset {
   status: 'ready' | 'assigned' | 'maintenance' | 'unavailable' | 'retired';
   serial_number?: string | null;
   maintenance_due_at?: string | null;
+  notes?: string | null;
 }
 
 export interface Certification {
