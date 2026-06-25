@@ -158,6 +158,24 @@ clear_application_caches() {
   fi
 }
 
+stash_local_git_changes() {
+  local status stash_name
+
+  if [ ! -d "${DIS_INSTALL_PATH}/.git" ]; then
+    return
+  fi
+
+  status="$(git -C "${DIS_INSTALL_PATH}" status --porcelain)"
+  if [ -z "${status}" ]; then
+    return
+  fi
+
+  stash_name="server-local-before-update-$(date -u +%Y%m%dT%H%M%SZ)"
+  log "Local Git changes detected. Stashing them as ${stash_name}."
+  run_cmd git -C "${DIS_INSTALL_PATH}" stash push -u -m "${stash_name}"
+  log "Local changes were stashed and not reapplied automatically."
+}
+
 check_system_updates() {
   local update_count
 
@@ -235,6 +253,7 @@ if [ "${UPDATE_APP}" = "1" ]; then
     if [ "${UPDATE_SOURCE}" = "1" ]; then
       if [ -d "${DIS_INSTALL_PATH}/.git" ]; then
         log "Pulling latest DIS source"
+        stash_local_git_changes
         run_cmd git -C "${DIS_INSTALL_PATH}" pull --ff-only
       else
         log "No Git checkout found at ${DIS_INSTALL_PATH}; skipping source update."
