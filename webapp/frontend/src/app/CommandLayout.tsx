@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Bell, Boxes, ClipboardCheck, Gauge, LogOut, RadioTower, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
+import { Bell, Boxes, ClipboardCheck, Gauge, LogOut, RadioTower, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
 import { useAuth } from '../features/auth/AuthContext';
 
 const navItems = [
@@ -10,6 +10,7 @@ const navItems = [
   { to: '/assets', label: 'Assets', icon: Boxes },
   { to: '/certifications', label: 'Certificaten', icon: ClipboardCheck },
   { to: '/updates', label: 'Updates', icon: Smartphone },
+  { to: '/push', label: 'Pushmeldingen', icon: Send },
   { to: '/admin', label: 'Admin', icon: Shield },
   { to: '/system', label: 'Systeem', icon: Bell },
 ];

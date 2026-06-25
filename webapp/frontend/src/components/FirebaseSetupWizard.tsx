@@ -57,7 +57,7 @@ export function FirebaseSetupWizard({ androidApplicationId = 'nl.wrdmarco.dis', 
       checks: [
         'Mobiele app opent met alleen de server URL, zonder /api.',
         'Admin > Firebase tokens toont een actief token voor je toestel.',
-        'Admin > Handmatige push melding geeft queued tokens groter dan 0.',
+        'Pushmeldingen > Handmatige pushmelding geeft queued tokens groter dan 0.',
       ],
     },
   ], [androidApplicationId]);

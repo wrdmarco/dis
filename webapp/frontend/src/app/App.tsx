@@ -11,6 +11,7 @@ import { UsersPage } from '../features/users/UsersPage';
 import { AssetsPage } from '../features/assets/AssetsPage';
 import { CertificationsPage } from '../features/certifications/CertificationsPage';
 import { UpdatesPage } from '../features/updates/UpdatesPage';
+import { PushPage } from '../features/push/PushPage';
 import { AdminPage } from '../features/admin/AdminPage';
 import { StatusPage } from '../features/status/StatusPage';
 import { SystemPage } from '../features/system/SystemPage';
@@ -38,6 +39,7 @@ export function App() {
         <Route path="assets" element={<AssetsPage />} />
         <Route path="certifications" element={<CertificationsPage />} />
         <Route path="updates" element={<UpdatesPage />} />
+        <Route path="push" element={<PushPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="system" element={<SystemPage />} />
         <Route path="profile" element={<ProfilePage />} />

@@ -60,12 +60,12 @@ export class ApiClient {
 
     if (!response.ok) {
       const error = payload && 'error' in payload ? payload.error : undefined;
-      const validationMessage = readValidationMessage(payload);
+      const validationMessage = readValidationMessage(payload) ?? readValidationMessage(error?.details);
       if (response.status === 401) {
         this.options.onUnauthenticated();
       }
       throw new ApiClientError(
-        error?.message ?? validationMessage ?? 'API request failed.',
+        validationMessage ?? error?.message ?? 'API request failed.',
         response.status,
         error?.code ?? (validationMessage ? 'validation_failed' : 'server_error'),
         error?.details,

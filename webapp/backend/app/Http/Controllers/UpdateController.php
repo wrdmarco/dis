@@ -87,10 +87,12 @@ final class UpdateController extends Controller
             ]);
         }
 
-        $version = AppVersion::query()->create([
+        $version = AppVersion::query()->updateOrCreate([
+            'platform' => 'android',
+            'version_code' => $data['version_code'],
+        ], [
             'platform' => 'android',
             'version_name' => $data['version_name'],
-            'version_code' => $data['version_code'],
             'status' => $data['status'],
             'artifact_sha256' => $sha256,
             'download_url' => url('/api/updates/android/'.$path.'/download'),
@@ -152,7 +154,7 @@ final class UpdateController extends Controller
                 throw ValidationException::withMessages(['release_zip' => ['Release ZIP must contain one APK and metadata.json.']]);
             }
 
-            $metadata = json_decode((string) $zip->getFromName($metadataEntry), true);
+            $metadata = json_decode($this->stripUtf8Bom((string) $zip->getFromName($metadataEntry)), true);
             if (! is_array($metadata)) {
                 throw ValidationException::withMessages(['metadata' => ['metadata.json must contain valid JSON.']]);
             }
@@ -187,7 +189,7 @@ final class UpdateController extends Controller
             $metadataFile = $request->file('metadata');
             abort_unless($metadataFile !== null && $metadataFile->isValid(), 422);
 
-            $metadata = json_decode((string) file_get_contents($metadataFile->getRealPath()), true);
+            $metadata = json_decode($this->stripUtf8Bom((string) file_get_contents($metadataFile->getRealPath())), true);
             if (! is_array($metadata)) {
                 throw ValidationException::withMessages(['metadata' => ['Metadata file must contain valid JSON.']]);
             }
@@ -213,11 +215,16 @@ final class UpdateController extends Controller
     {
         return Validator::make($metadata, [
             'version_name' => ['required', 'string', 'max:80'],
-            'version_code' => ['required', 'integer', 'min:1', 'unique:app_versions,version_code'],
+            'version_code' => ['required', 'integer', 'min:1'],
             'status' => ['required', 'in:supported,deprecated,blocked'],
             'artifact_sha256' => ['nullable', 'string', 'size:64'],
             'release_notes' => ['nullable', 'string', 'max:10000'],
         ])->validate();
+    }
+
+    private function stripUtf8Bom(string $value): string
+    {
+        return str_starts_with($value, "\xEF\xBB\xBF") ? substr($value, 3) : $value;
     }
 
     public function downloadAndroid(AppVersion $version): BinaryFileResponse
