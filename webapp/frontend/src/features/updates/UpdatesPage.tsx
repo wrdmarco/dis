@@ -17,6 +17,7 @@ export function UpdatesPage() {
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setError(null);
     setSuccess(null);
 
@@ -31,7 +32,7 @@ export function UpdatesPage() {
       form.append('release_zip', releaseZip);
       const response = await api.postForm<AppVersion>('/admin/updates/android/upload', form);
       setReleaseZip(null);
-      event.currentTarget.reset();
+      formElement.reset();
       setSuccess(`Appversie ${response.data.version_name} is geregistreerd.`);
 
       try {

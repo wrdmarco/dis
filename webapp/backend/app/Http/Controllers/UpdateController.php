@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rules\File;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use ZipArchive;
@@ -59,13 +60,19 @@ final class UpdateController extends Controller
 
         if ($apkPath === null) {
             $file = $request->file('apk');
-            abort_unless($file !== null && $file->isValid(), 422);
-            abort_unless(strtolower($file->getClientOriginalExtension()) === 'apk', 422);
+            if ($file === null || ! $file->isValid()) {
+                throw ValidationException::withMessages(['apk' => ['Upload een geldig APK-bestand.']]);
+            }
+            if (strtolower($file->getClientOriginalExtension()) !== 'apk') {
+                throw ValidationException::withMessages(['apk' => ['Het APK-bestand moet de extensie .apk hebben.']]);
+            }
             $apkPath = $file->getRealPath();
             $apkSize = $file->getSize();
         }
 
-        abort_unless(is_string($apkPath) && is_file($apkPath), 422);
+        if (! is_string($apkPath) || ! is_file($apkPath)) {
+            throw ValidationException::withMessages(['apk' => ['APK-bestand kon niet worden gelezen.']]);
+        }
 
         $directory = 'android-apks';
         $filename = 'dis-'.$data['version_code'].'-'.$data['version_name'].'.apk';
@@ -123,10 +130,16 @@ final class UpdateController extends Controller
             return [];
         }
 
-        $request->validate(['release_zip' => ['required', 'file', 'max:512000']]);
+        $request->validate([
+            'release_zip' => ['required', File::types(['zip'])->max(512 * 1024)],
+        ]);
         $file = $request->file('release_zip');
-        abort_unless($file !== null && $file->isValid(), 422);
-        abort_unless(strtolower($file->getClientOriginalExtension()) === 'zip', 422);
+        if ($file === null || ! $file->isValid()) {
+            throw ValidationException::withMessages(['release_zip' => ['Upload een geldig release ZIP-bestand.']]);
+        }
+        if (strtolower($file->getClientOriginalExtension()) !== 'zip') {
+            throw ValidationException::withMessages(['release_zip' => ['Releasebestand moet een .zip-bestand zijn.']]);
+        }
 
         $zip = new ZipArchive();
         if ($zip->open($file->getRealPath()) !== true) {
