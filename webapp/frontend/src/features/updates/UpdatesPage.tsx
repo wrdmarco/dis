@@ -12,11 +12,13 @@ export function UpdatesPage() {
   const versions = useApiResource<AppVersion[]>('/admin/updates/android');
   const [releaseZip, setReleaseZip] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
+    setSuccess(null);
 
     if (releaseZip === null) {
       setError('Kies een release ZIP-bestand.');
@@ -27,10 +29,16 @@ export function UpdatesPage() {
     try {
       const form = new FormData();
       form.append('release_zip', releaseZip);
-      await api.postForm('/admin/updates/android/upload', form);
+      const response = await api.postForm<AppVersion>('/admin/updates/android/upload', form);
       setReleaseZip(null);
       event.currentTarget.reset();
-      await versions.reload();
+      setSuccess(`Appversie ${response.data.version_name} is geregistreerd.`);
+
+      try {
+        await versions.reload();
+      } catch {
+        setSuccess(`Appversie ${response.data.version_name} is geregistreerd. Vernieuw de pagina als de lijst nog niet is bijgewerkt.`);
+      }
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Appversie kon niet worden geregistreerd.');
     } finally {
@@ -48,9 +56,9 @@ export function UpdatesPage() {
           </label>
           <div className="form-grid__wide metadata-example">
             <strong>ZIP inhoud</strong>
-            <pre>{`dis-nl.wrdmarco.dis-v0.1.2.zip
-├── dis-nl.wrdmarco.dis-v0.1.2.apk
-└── metadata.json`}</pre>
+            <pre>{`dis-nl.wrdmarco.dis-v0.1.3-debug.zip
+|-- dis-nl.wrdmarco.dis-v0.1.3-debug.apk
+|-- metadata.json`}</pre>
           </div>
           <div className="actions-row form-grid__wide">
             <button className="primary-button" type="submit" disabled={saving}>
@@ -59,6 +67,7 @@ export function UpdatesPage() {
           </div>
         </form>
         {error && <p className="form-error">{error}</p>}
+        {success && <p className="success-text">{success}</p>}
       </Panel>
       <Panel title="Android updates">
         <ResourceState loading={versions.loading} error={versions.error} empty={(versions.data?.length ?? 0) === 0}>
