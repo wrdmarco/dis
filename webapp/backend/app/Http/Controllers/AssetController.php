@@ -9,6 +9,7 @@ use App\Http\Requests\Assets\UpdateAssetRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\Asset;
 use App\Services\AssetService;
+use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -18,7 +19,10 @@ final class AssetController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        return ApiResponse::paginated(Asset::query()->orderBy('asset_tag')->paginate((int) $request->integer('per_page', 25)));
+        return ApiResponse::paginated(
+            Asset::query()->orderBy('asset_tag')->paginate((int) $request->integer('per_page', 25)),
+            fn (Asset $asset): array => MobileApiPayload::asset($asset),
+        );
     }
 
     public function store(StoreAssetRequest $request): JsonResponse

@@ -7,6 +7,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\User;
 use App\Services\AuditService;
 use App\Services\TwoFactorService;
+use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -48,7 +49,7 @@ final class AuthController extends Controller
                 'requires_2fa' => false,
                 'requires_2fa_setup' => true,
                 'token' => $token,
-                'user' => $user,
+                'user' => MobileApiPayload::user($user),
                 'two_factor_setup' => [
                     'enabled' => false,
                     'secret' => $secret,
@@ -70,7 +71,7 @@ final class AuthController extends Controller
         return ApiResponse::success([
             'requires_2fa' => false,
             'token' => $user->createToken($tokenName, ['*'])->plainTextToken,
-            'user' => $user,
+            'user' => MobileApiPayload::user($user),
         ]);
     }
 
@@ -96,7 +97,7 @@ final class AuthController extends Controller
 
         return ApiResponse::success([
             'token' => $user->createToken((string) ($request->input('device_name') ?? 'DIS API'), ['*'])->plainTextToken,
-            'user' => $user->load(['roles.permissions', 'teams']),
+            'user' => MobileApiPayload::user($user->load(['roles', 'teams'])),
         ]);
     }
 
@@ -157,7 +158,7 @@ final class AuthController extends Controller
 
         return ApiResponse::success([
             'token' => $user->createToken((string) ($request->input('device_name') ?? 'DIS Command Center'), ['*'])->plainTextToken,
-            'user' => $user->load(['roles.permissions', 'teams']),
+            'user' => MobileApiPayload::user($user->load(['roles', 'teams'])),
             'recovery_codes' => $user->two_factor_recovery_codes,
         ]);
     }
@@ -197,12 +198,12 @@ final class AuthController extends Controller
         ])->save();
         $this->auditService->record('auth.2fa_disabled', $user, $user, [], null, $request);
 
-        return ApiResponse::success($user->load(['roles.permissions', 'teams']));
+        return ApiResponse::success(MobileApiPayload::user($user->load(['roles', 'teams'])));
     }
 
     public function me(Request $request): JsonResponse
     {
-        return ApiResponse::success($request->user()?->load(['roles.permissions', 'teams', 'statuses' => fn ($query) => $query->latest('effective_at')->limit(1)]));
+        return ApiResponse::success(MobileApiPayload::user($request->user()?->load(['roles', 'teams'])));
     }
 
     public function logout(Request $request): JsonResponse

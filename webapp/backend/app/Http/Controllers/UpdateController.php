@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Responses\ApiResponse;
 use App\Models\AppVersion;
 use App\Services\AuditService;
+use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -26,7 +27,7 @@ final class UpdateController extends Controller
 
         return ApiResponse::success([
             'update_required' => $blocked,
-            'latest' => $latest,
+            'latest' => MobileApiPayload::appVersion($latest),
         ]);
     }
 

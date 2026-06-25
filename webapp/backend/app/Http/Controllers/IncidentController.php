@@ -8,6 +8,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\Incident;
 use App\Repositories\IncidentRepository;
 use App\Services\IncidentService;
+use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -17,7 +18,10 @@ final class IncidentController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        return ApiResponse::paginated($this->incidents->search($request->only(['status', 'priority']), (int) $request->integer('per_page', 25)));
+        return ApiResponse::paginated(
+            $this->incidents->search($request->only(['status', 'priority']), (int) $request->integer('per_page', 25)),
+            fn (Incident $incident): array => MobileApiPayload::incident($incident),
+        );
     }
 
     public function store(StoreIncidentRequest $request): JsonResponse
@@ -27,7 +31,7 @@ final class IncidentController extends Controller
 
     public function show(Incident $incident): JsonResponse
     {
-        return ApiResponse::success($incident->load(['coordinator', 'statusHistory', 'dispatchRequests.recipients']));
+        return ApiResponse::success(MobileApiPayload::incident($incident));
     }
 
     public function update(UpdateIncidentRequest $request, Incident $incident): JsonResponse
@@ -54,4 +58,3 @@ final class IncidentController extends Controller
         return ApiResponse::success($incident->statusHistory()->latest('created_at')->get());
     }
 }
-

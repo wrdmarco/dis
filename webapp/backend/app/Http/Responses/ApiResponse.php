@@ -21,10 +21,15 @@ final class ApiResponse
         return response()->json($payload, $status);
     }
 
-    public static function paginated(LengthAwarePaginator $paginator): JsonResponse
+    public static function paginated(LengthAwarePaginator $paginator, ?callable $map = null): JsonResponse
     {
+        $items = $paginator->items();
+        if ($map !== null) {
+            $items = array_map($map, $items);
+        }
+
         return response()->json([
-            'data' => $paginator->items(),
+            'data' => $items,
             'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),
@@ -48,4 +53,3 @@ final class ApiResponse
         ], $status);
     }
 }
-

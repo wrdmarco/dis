@@ -9,6 +9,7 @@ use App\Models\Certification;
 use App\Models\User;
 use App\Models\UserCertification;
 use App\Services\CertificationService;
+use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -18,7 +19,10 @@ final class CertificationController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        return ApiResponse::paginated(Certification::query()->orderBy('name')->paginate((int) $request->integer('per_page', 25)));
+        return ApiResponse::paginated(
+            Certification::query()->orderBy('name')->paginate((int) $request->integer('per_page', 25)),
+            fn (Certification $certification): array => MobileApiPayload::certification($certification),
+        );
     }
 
     public function store(StoreCertificationRequest $request): JsonResponse
