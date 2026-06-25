@@ -16,6 +16,7 @@ use App\Http\Controllers\SetupController;
 use App\Http\Controllers\StatusController;
 use App\Http\Controllers\UpdateController;
 use App\Http\Controllers\UserController;
+use App\Http\Responses\ApiResponse;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
 
@@ -123,9 +124,4 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     });
 });
 
-Route::fallback(fn () => response()->json([
-    'error' => [
-        'code' => 'api_route_not_found',
-        'message' => 'DIS API route was not found.',
-    ],
-], 404));
+Route::fallback(fn () => ApiResponse::error('api_route_not_found', 'DIS API route was not found.', 404));

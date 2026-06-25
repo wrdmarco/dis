@@ -59,7 +59,29 @@ return Application::configure(basePath: dirname(__DIR__))
             }
 
             if ($exception instanceof HttpExceptionInterface) {
-                return null;
+                $status = $exception->getStatusCode();
+                $code = match ($status) {
+                    401 => 'unauthenticated',
+                    403 => 'forbidden',
+                    404 => 'not_found',
+                    409 => 'conflict',
+                    429 => 'rate_limited',
+                    default => $status >= 500 ? 'server_error' : 'request_failed',
+                };
+                $message = match ($status) {
+                    401 => 'Authentication is required.',
+                    403 => 'You do not have permission to perform this action.',
+                    404 => 'The requested resource was not found.',
+                    409 => 'The request conflicts with current state.',
+                    429 => 'Too many requests.',
+                    default => $status >= 500 ? 'Server error.' : ($exception->getMessage() ?: 'Request failed.'),
+                };
+                $details = [];
+                if ($request->attributes->has('request_id')) {
+                    $details['request_id'] = $request->attributes->get('request_id');
+                }
+
+                return ApiResponse::error($code, $message, $status, $details);
             }
 
             $details = [];
