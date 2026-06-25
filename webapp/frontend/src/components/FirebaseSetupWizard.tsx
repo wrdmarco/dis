@@ -26,8 +26,8 @@ export function FirebaseSetupWizard({ androidApplicationId = 'nl.wrdmarco.dis', 
       body: `Registreer een Android app met package name ${androidApplicationId}. Dit moet exact overeenkomen met de APK.`,
       checks: [
         `Android package name: ${androidApplicationId}`,
-        'Neem application id, API key, project id, sender id en storage bucket over in DIS.',
-        'Vul application id, API key, project id, sender id en storage bucket in de DIS velden hieronder in.',
+        'Download de Firebase Android config JSON.',
+        'Upload die JSON in DIS; de appwaarden worden automatisch ingevuld.',
       ],
     },
     {
@@ -46,8 +46,8 @@ export function FirebaseSetupWizard({ androidApplicationId = 'nl.wrdmarco.dis', 
       body: 'Push vanaf de backend gebruikt service-accountgegevens die je via deze webpagina opslaat.',
       checks: [
         'Open Project settings > Service accounts in Firebase Console.',
-        'Maak een private key aan en open die alleen lokaal op je eigen computer.',
-        'Kopieer client_email, private_key, private_key_id, client_id en cert URL naar de DIS velden.',
+        'Maak een private key aan.',
+        'Upload de ontvangen JSON in DIS; de service-accountvelden worden automatisch ingevuld.',
       ],
     },
     {

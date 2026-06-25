@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { FirebaseSetupWizard } from '../../components/FirebaseSetupWizard';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { apiBaseUrl } from '../../lib/apiClient';
+import { parseFirebaseJson } from '../../lib/firebaseConfigImport';
 import type { ApiResponse, User } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 
@@ -377,7 +378,22 @@ export function SetupWizardPage() {
       return (
         <>
           <FirebaseSetupWizard androidApplicationId="nl.wrdmarco.dis" compact />
+          <div className="setup-copy">
+            <strong>Firebase JSON automatisch uitlezen.</strong>
+            <p>Kies je Firebase JSON-bestand. DIS vult de waarden in die in dit bestand aanwezig zijn.</p>
+          </div>
           <div className="form-grid">
+            <label className="form-grid__wide">
+              Firebase JSON
+              <input
+                accept="application/json,.json"
+                type="file"
+                onChange={(event) => {
+                  void importFirebaseJson(event.currentTarget.files?.[0] ?? null);
+                  event.currentTarget.value = '';
+                }}
+              />
+            </label>
             <label>
               Firebase project id
               <input value={form.firebaseProjectId} onChange={(event) => update('firebaseProjectId', event.target.value)} />
@@ -408,9 +424,20 @@ export function SetupWizardPage() {
         <>
           <div className="setup-copy">
             <strong>Alles via deze webpagina.</strong>
-            <p>Kopieer de Firebase service-accountwaarden naar onderstaande velden. Er hoeft niets handmatig op de server geplaatst te worden.</p>
+            <p>Kies je service-account JSON-bestand. DIS vult de velden automatisch; er hoeft niets handmatig op de server geplaatst te worden.</p>
           </div>
           <div className="form-grid">
+            <label className="form-grid__wide">
+              Firebase service-account JSON
+              <input
+                accept="application/json,.json"
+                type="file"
+                onChange={(event) => {
+                  void importFirebaseJson(event.currentTarget.files?.[0] ?? null);
+                  event.currentTarget.value = '';
+                }}
+              />
+            </label>
             <label>
               Service account client_email
               <input value={form.firebaseServiceClientEmail} onChange={(event) => update('firebaseServiceClientEmail', event.target.value)} />
@@ -464,6 +491,33 @@ export function SetupWizardPage() {
 
   function update(field: keyof SetupForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function importFirebaseJson(file: File | null) {
+    if (file === null) {
+      return;
+    }
+
+    setError(null);
+
+    try {
+      const imported = parseFirebaseJson(await file.text());
+      setForm((current) => ({
+        ...current,
+        firebaseProjectId: imported.projectId ?? current.firebaseProjectId,
+        firebaseApplicationId: imported.applicationId ?? current.firebaseApplicationId,
+        firebaseApiKey: imported.apiKey ?? current.firebaseApiKey,
+        firebaseMessagingSenderId: imported.messagingSenderId ?? current.firebaseMessagingSenderId,
+        firebaseStorageBucket: imported.storageBucket ?? current.firebaseStorageBucket,
+        firebaseServiceClientEmail: imported.serviceAccount?.clientEmail ?? current.firebaseServiceClientEmail,
+        firebaseServicePrivateKey: imported.serviceAccount?.privateKey ?? current.firebaseServicePrivateKey,
+        firebaseServicePrivateKeyId: imported.serviceAccount?.privateKeyId ?? current.firebaseServicePrivateKeyId,
+        firebaseServiceClientId: imported.serviceAccount?.clientId ?? current.firebaseServiceClientId,
+        firebaseServiceClientX509CertUrl: imported.serviceAccount?.clientX509CertUrl ?? current.firebaseServiceClientX509CertUrl,
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Firebase JSON importeren mislukt.');
+    }
   }
 }
 

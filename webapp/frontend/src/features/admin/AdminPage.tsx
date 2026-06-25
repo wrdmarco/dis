@@ -2,6 +2,7 @@ import { Panel } from '../../components/Panel';
 import { FirebaseSetupWizard } from '../../components/FirebaseSetupWizard';
 import { ResourceState } from '../../components/ResourceState';
 import { TotpQrCode } from '../../components/TotpQrCode';
+import { parseFirebaseJson } from '../../lib/firebaseConfigImport';
 import { useApiResource } from '../../lib/useApiResource';
 import type { FcmToken, ManualPushResult, Role, SystemSetting, Team, User } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
@@ -110,6 +111,83 @@ export function AdminPage() {
       setSaveError(error instanceof Error ? error.message : 'Opslaan mislukt.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveFirebaseSettings() {
+    setSaving(true);
+    setManagedSaving(true);
+    setSaveError(null);
+    setManagedError(null);
+
+    try {
+      const payload: Record<string, unknown> = {
+        'firebase.project_id': managedForm.firebaseProjectId || form.firebaseProjectId,
+        'mobile.firebase_config': {
+          application_id: form.firebaseApplicationId,
+          api_key: form.firebaseApiKey,
+          project_id: form.firebaseProjectId || managedForm.firebaseProjectId,
+          messaging_sender_id: form.firebaseMessagingSenderId,
+          storage_bucket: form.firebaseStorageBucket,
+        },
+      };
+
+      if ([
+        managedForm.firebaseServiceClientEmail,
+        managedForm.firebaseServicePrivateKey,
+        managedForm.firebaseServicePrivateKeyId,
+        managedForm.firebaseServiceClientId,
+        managedForm.firebaseServiceClientX509CertUrl,
+      ].some((value) => value.trim() !== '')) {
+        payload['firebase.service_account'] = {
+          client_email: managedForm.firebaseServiceClientEmail,
+          private_key: managedForm.firebaseServicePrivateKey,
+          private_key_id: managedForm.firebaseServicePrivateKeyId,
+          client_id: managedForm.firebaseServiceClientId,
+          client_x509_cert_url: managedForm.firebaseServiceClientX509CertUrl,
+        };
+      }
+
+      await api.patch('/admin/settings', { settings: payload });
+      setManagedForm((current) => ({ ...current, firebaseServicePrivateKey: '' }));
+      await settings.reload();
+    } catch (error) {
+      setManagedError(error instanceof Error ? error.message : 'Firebase configuratie opslaan mislukt.');
+    } finally {
+      setSaving(false);
+      setManagedSaving(false);
+    }
+  }
+
+  async function importFirebaseJson(file: File | null) {
+    if (file === null) {
+      return;
+    }
+
+    setSaveError(null);
+    setManagedError(null);
+
+    try {
+      const imported = parseFirebaseJson(await file.text());
+      setForm((current) => ({
+        ...current,
+        firebaseProjectId: imported.projectId ?? current.firebaseProjectId,
+        firebaseApplicationId: imported.applicationId ?? current.firebaseApplicationId,
+        firebaseApiKey: imported.apiKey ?? current.firebaseApiKey,
+        firebaseMessagingSenderId: imported.messagingSenderId ?? current.firebaseMessagingSenderId,
+        firebaseStorageBucket: imported.storageBucket ?? current.firebaseStorageBucket,
+      }));
+      setManagedForm((current) => ({
+        ...current,
+        firebaseProjectId: imported.projectId ?? current.firebaseProjectId,
+        firebaseServiceClientEmail: imported.serviceAccount?.clientEmail ?? current.firebaseServiceClientEmail,
+        firebaseServicePrivateKey: imported.serviceAccount?.privateKey ?? current.firebaseServicePrivateKey,
+        firebaseServicePrivateKeyId: imported.serviceAccount?.privateKeyId ?? current.firebaseServicePrivateKeyId,
+        firebaseServiceClientId: imported.serviceAccount?.clientId ?? current.firebaseServiceClientId,
+        firebaseServiceClientX509CertUrl: imported.serviceAccount?.clientX509CertUrl ?? current.firebaseServiceClientX509CertUrl,
+      }));
+    } catch (error) {
+      setManagedError(error instanceof Error ? error.message : 'Firebase JSON importeren mislukt.');
     }
   }
 
@@ -251,6 +329,30 @@ export function AdminPage() {
       </div>
       <Panel title="Firebase setup wizard">
         <FirebaseSetupWizard androidApplicationId={managedForm.androidApplicationId || 'nl.wrdmarco.dis'} />
+      </Panel>
+      <Panel title="Firebase JSON importeren">
+        <div className="setup-copy">
+          <strong>Upload het Firebase JSON-bestand hier.</strong>
+          <p>DIS leest het bestand in je browser en vult de velden automatisch. Het JSON-bestand zelf wordt niet op de server geplaatst.</p>
+        </div>
+        <div className="form-grid">
+          <label className="form-grid__wide">
+            Firebase JSON
+            <input
+              accept="application/json,.json"
+              type="file"
+              onChange={(event) => {
+                void importFirebaseJson(event.currentTarget.files?.[0] ?? null);
+                event.currentTarget.value = '';
+              }}
+            />
+          </label>
+        </div>
+        <div className="actions-row">
+          <button className="primary-button" type="button" onClick={saveFirebaseSettings} disabled={saving || managedSaving}>
+            {saving || managedSaving ? 'Opslaan...' : 'Firebase configuratie opslaan'}
+          </button>
+        </div>
       </Panel>
       <Panel title="Mobiele app tenantconfiguratie">
         {form.apiBaseUrl.trim() !== '' ? (
