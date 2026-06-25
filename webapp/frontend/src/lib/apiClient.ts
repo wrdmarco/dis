@@ -95,5 +95,10 @@ function readValidationMessage(payload: unknown): string | null {
     return typeof firstMessage === 'string' && firstMessage.trim() !== '' ? firstMessage : null;
   }
 
-  return null;
+  const directErrors = Object.values(payload as Record<string, unknown>).find(
+    (messages): messages is unknown[] => Array.isArray(messages) && messages.length > 0,
+  );
+  const directMessage = directErrors?.[0];
+
+  return typeof directMessage === 'string' && directMessage.trim() !== '' ? directMessage : null;
 }
