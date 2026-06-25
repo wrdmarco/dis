@@ -33,12 +33,12 @@ export function StatusPage() {
       <Panel title="Eigen status">
         <form className="inline-form" onSubmit={submit}>
           <select value={status} onChange={(event) => setStatus(event.target.value)}>
-            <option value="available">Available</option>
-            <option value="unavailable">Unavailable</option>
-            <option value="assigned">Assigned</option>
-            <option value="en_route">En route</option>
-            <option value="on_scene">On scene</option>
-            <option value="resting">Resting</option>
+            <option value="available">Beschikbaar</option>
+            <option value="unavailable">Niet beschikbaar</option>
+            <option value="assigned">Toegewezen</option>
+            <option value="en_route">Onderweg</option>
+            <option value="on_scene">Op locatie</option>
+            <option value="resting">Rust</option>
           </select>
           <button className="primary-button" type="submit">Bijwerken</button>
         </form>
