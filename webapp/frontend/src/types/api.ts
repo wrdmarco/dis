@@ -51,6 +51,8 @@ export interface Team {
   type: string;
   parent_team_id?: string | null;
   is_operational: boolean;
+  parent?: Team | null;
+  alert_teams?: Team[];
 }
 
 export interface User {

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Jobs\SendFcmNotification;
 use App\Models\FcmToken;
+use App\Models\Team;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -29,7 +30,7 @@ final class PushNotificationService
             ->where('push_enabled', true)
             ->whereHas('fcmTokens', fn ($tokens) => $tokens->where('is_active', true))
             ->where(function (Builder $query) use ($data): void {
-                $teamIds = $data['team_ids'] ?? [];
+                $teamIds = $this->expandTeamIds($data['team_ids'] ?? []);
                 $roleIds = $data['role_ids'] ?? [];
                 $userIds = $data['user_ids'] ?? [];
 
@@ -66,6 +67,7 @@ final class PushNotificationService
 
         $this->auditService->record('push.manual_sent', User::class, $actor, [
             'team_ids' => $data['team_ids'] ?? [],
+            'expanded_team_ids' => $this->expandTeamIds($data['team_ids'] ?? []),
             'role_ids' => $data['role_ids'] ?? [],
             'user_ids' => $data['user_ids'] ?? [],
             'recipient_users' => $users->count(),
@@ -107,5 +109,25 @@ final class PushNotificationService
                 'device_id' => $token->device_id,
             ]);
         });
+    }
+
+    /**
+     * @param array<int, string> $teamIds
+     * @return array<int, string>
+     */
+    private function expandTeamIds(array $teamIds): array
+    {
+        if ($teamIds === []) {
+            return [];
+        }
+
+        $alertTeamIds = Team::query()
+            ->whereIn('id', $teamIds)
+            ->with('alertTeams:id')
+            ->get()
+            ->flatMap(fn (Team $team) => $team->alertTeams->pluck('id'))
+            ->all();
+
+        return array_values(array_unique([...$teamIds, ...$alertTeamIds]));
     }
 }

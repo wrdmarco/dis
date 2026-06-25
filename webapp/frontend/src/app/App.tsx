@@ -8,6 +8,7 @@ import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { IncidentsPage } from '../features/incidents/IncidentsPage';
 import { IncidentDetailPage } from '../features/incidents/IncidentDetailPage';
 import { UsersPage } from '../features/users/UsersPage';
+import { TeamsPage } from '../features/teams/TeamsPage';
 import { AssetsPage } from '../features/assets/AssetsPage';
 import { CertificationsPage } from '../features/certifications/CertificationsPage';
 import { UpdatesPage } from '../features/updates/UpdatesPage';
@@ -36,6 +37,7 @@ export function App() {
         <Route path="incidents/:incidentId" element={<IncidentDetailPage />} />
         <Route path="status" element={<StatusPage />} />
         <Route path="users" element={<UsersPage />} />
+        <Route path="teams" element={<TeamsPage />} />
         <Route path="assets" element={<AssetsPage />} />
         <Route path="certifications" element={<CertificationsPage />} />
         <Route path="updates" element={<UpdatesPage />} />

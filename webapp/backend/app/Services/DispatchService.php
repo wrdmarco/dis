@@ -7,6 +7,7 @@ use App\Jobs\SendFcmNotification;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
+use App\Models\Team;
 use App\Models\User;
 use App\Models\Certification;
 use Illuminate\Support\Facades\DB;
@@ -97,11 +98,12 @@ final class DispatchService
         $requiredCertificationIds = Certification::query()
             ->where('is_required_for_dispatch', true)
             ->pluck('id');
+        $teamCodes = $this->expandTeamCodes($teamCode);
 
         return User::query()
             ->where('account_status', 'active')
             ->where('push_enabled', true)
-            ->whereHas('teams', fn ($teams) => $teams->where('code', $teamCode))
+            ->whereHas('teams', fn ($teams) => $teams->whereIn('code', $teamCodes))
             ->whereHas('fcmTokens', fn ($tokens) => $tokens->where('is_active', true))
             ->whereHas('statuses', fn ($statuses) => $statuses->where('is_available', true))
             ->get()
@@ -123,5 +125,22 @@ final class DispatchService
                 return true;
             })
             ->values();
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function expandTeamCodes(string $teamCode): array
+    {
+        $team = Team::query()->where('code', $teamCode)->with('alertTeams:id,code')->first();
+
+        if ($team === null) {
+            return [$teamCode];
+        }
+
+        return array_values(array_unique([
+            $team->code,
+            ...$team->alertTeams->pluck('code')->all(),
+        ]));
     }
 }

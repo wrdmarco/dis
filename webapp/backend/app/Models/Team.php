@@ -29,4 +29,14 @@ final class Team extends Model
     {
         return $this->belongsToMany(User::class)->withPivot(['assigned_by', 'created_at']);
     }
+
+    public function alertTeams(): BelongsToMany
+    {
+        return $this->belongsToMany(self::class, 'team_alert_team', 'team_id', 'alert_team_id')->withPivot('created_at');
+    }
+
+    public function alertedByTeams(): BelongsToMany
+    {
+        return $this->belongsToMany(self::class, 'team_alert_team', 'alert_team_id', 'team_id')->withPivot('created_at');
+    }
 }

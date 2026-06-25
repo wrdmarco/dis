@@ -12,6 +12,7 @@ use App\Models\Team;
 use App\Services\AuditService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 final class AdminController extends Controller
 {
@@ -59,34 +60,56 @@ final class AdminController extends Controller
 
     public function teams(): JsonResponse
     {
-        return ApiResponse::success(Team::query()->with('parent')->orderBy('code')->get());
+        return ApiResponse::success(Team::query()->with(['parent', 'alertTeams'])->orderBy('code')->get());
     }
 
     public function storeTeam(Request $request): JsonResponse
     {
-        $team = Team::query()->create($request->validate([
+        $data = $request->validate([
             'code' => ['required', 'string', 'max:40', 'unique:teams,code'],
             'name' => ['required', 'string', 'max:160'],
             'type' => ['required', 'in:base,subset,support'],
             'parent_team_id' => ['nullable', 'ulid', 'exists:teams,id'],
             'is_operational' => ['required', 'boolean'],
-        ]));
-        $this->auditService->record('admin.team_created', $team, $request->user());
+            'alert_team_ids' => ['nullable', 'array'],
+            'alert_team_ids.*' => ['ulid', 'exists:teams,id'],
+        ]);
+        $alertTeamIds = $data['alert_team_ids'] ?? [];
+        unset($data['alert_team_ids']);
 
-        return ApiResponse::success($team, 201);
+        $team = Team::query()->create($data);
+        $team->alertTeams()->sync(array_values(array_unique(is_array($alertTeamIds) ? $alertTeamIds : [])));
+        $this->auditService->record('admin.team_created', $team, $request->user(), ['alert_team_ids' => $alertTeamIds]);
+
+        return ApiResponse::success($team->load(['parent', 'alertTeams']), 201);
     }
 
     public function updateTeam(Request $request, Team $team): JsonResponse
     {
-        $team->update($request->validate([
+        $data = $request->validate([
+            'code' => ['sometimes', 'string', 'max:40', Rule::unique('teams', 'code')->ignore($team->id)],
             'name' => ['sometimes', 'string', 'max:160'],
             'type' => ['sometimes', 'in:base,subset,support'],
-            'parent_team_id' => ['nullable', 'ulid', 'exists:teams,id'],
+            'parent_team_id' => ['nullable', 'ulid', 'exists:teams,id', Rule::notIn([$team->id])],
             'is_operational' => ['sometimes', 'boolean'],
-        ]));
-        $this->auditService->record('admin.team_updated', $team, $request->user());
+            'alert_team_ids' => ['nullable', 'array'],
+            'alert_team_ids.*' => ['ulid', 'exists:teams,id', Rule::notIn([$team->id])],
+        ]);
+        $alertTeamIds = $data['alert_team_ids'] ?? null;
+        unset($data['alert_team_ids']);
 
-        return ApiResponse::success($team->refresh());
+        $before = $team->only(array_keys($data));
+        $team->update($data);
+        if (is_array($alertTeamIds)) {
+            $team->alertTeams()->sync(array_values(array_unique($alertTeamIds)));
+        }
+        $this->auditService->record('admin.team_updated', $team, $request->user(), [
+            'before' => $before,
+            'after' => $team->only(array_keys($data)),
+            'alert_team_ids' => $alertTeamIds,
+        ]);
+
+        return ApiResponse::success($team->refresh()->load(['parent', 'alertTeams']));
     }
 
     public function auditLogs(Request $request): JsonResponse

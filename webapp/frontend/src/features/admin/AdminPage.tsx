@@ -4,7 +4,7 @@ import { ResourceState } from '../../components/ResourceState';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { parseFirebaseJson } from '../../lib/firebaseConfigImport';
 import { useApiResource } from '../../lib/useApiResource';
-import type { FcmToken, Role, SystemSetting, Team } from '../../types/api';
+import type { FcmToken, Role, SystemSetting } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -52,7 +52,6 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
 export function AdminPage() {
   const { api } = useAuth();
   const roles = useApiResource<Role[]>('/admin/roles');
-  const teams = useApiResource<Team[]>('/admin/teams');
   const settings = useApiResource<SystemSetting[]>('/admin/settings');
   const tokens = useApiResource<FcmToken[]>('/admin/push/tokens?per_page=100');
   const mobileSettings = useMemo(() => toMobileSettingsForm(settings.data ?? []), [settings.data]);
@@ -268,50 +267,32 @@ export function AdminPage() {
       </div>
 
       {activeTab === 'access' ? (
-        <div className="two-column">
-          <Panel title="Rollen">
-            <ResourceState loading={roles.loading} error={roles.error} empty={(roles.data?.length ?? 0) === 0}>
-              <table className="data-table">
-                <thead><tr><th>Naam</th><th>2FA</th><th>Permissies</th><th>Actie</th></tr></thead>
-                <tbody>
-                  {roles.data?.map((role) => (
-                    <tr key={role.id}>
-                      <td>{role.display_name}</td>
-                      <td>{role.requires_two_factor ? 'Verplicht' : 'Niet verplicht'}</td>
-                      <td>{role.permissions?.length ?? 0}</td>
-                      <td>
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          disabled={roleActionId === role.id}
-                          onClick={() => void toggleRoleMfa(role)}
-                        >
-                          {role.requires_two_factor ? 'MFA uit' : 'MFA aan'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </ResourceState>
-          </Panel>
-          <Panel title="Teams">
-            <ResourceState loading={teams.loading} error={teams.error} empty={(teams.data?.length ?? 0) === 0}>
-              <table className="data-table">
-                <thead><tr><th>Code</th><th>Naam</th><th>Type</th></tr></thead>
-                <tbody>
-                  {teams.data?.map((team) => (
-                    <tr key={team.id}>
-                      <td>{team.code}</td>
-                      <td>{team.name}</td>
-                      <td>{team.type}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </ResourceState>
-          </Panel>
-        </div>
+        <Panel title="Rollen">
+          <ResourceState loading={roles.loading} error={roles.error} empty={(roles.data?.length ?? 0) === 0}>
+            <table className="data-table">
+              <thead><tr><th>Naam</th><th>2FA</th><th>Permissies</th><th>Actie</th></tr></thead>
+              <tbody>
+                {roles.data?.map((role) => (
+                  <tr key={role.id}>
+                    <td>{role.display_name}</td>
+                    <td>{role.requires_two_factor ? 'Verplicht' : 'Niet verplicht'}</td>
+                    <td>{role.permissions?.length ?? 0}</td>
+                    <td>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={roleActionId === role.id}
+                        onClick={() => void toggleRoleMfa(role)}
+                      >
+                        {role.requires_two_factor ? 'MFA uit' : 'MFA aan'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </ResourceState>
+        </Panel>
       ) : null}
 
       {activeTab === 'firebase' ? (
