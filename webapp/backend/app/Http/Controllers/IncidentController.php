@@ -41,7 +41,7 @@ final class IncidentController extends Controller
 
     public function show(Incident $incident): JsonResponse
     {
-        return ApiResponse::success(MobileApiPayload::incident($incident));
+        return ApiResponse::success(MobileApiPayload::incident($incident->load(['coordinator', 'team'])));
     }
 
     public function update(UpdateIncidentRequest $request, Incident $incident): JsonResponse

@@ -25,6 +25,8 @@ final class UpdateUserRequest extends FormRequest
             'account_status' => ['sometimes', 'in:active,suspended,blocked'],
             'role_ids' => ['nullable', 'array'],
             'role_ids.*' => ['ulid', 'exists:roles,id'],
+            'team_ids' => ['nullable', 'array'],
+            'team_ids.*' => ['ulid', 'exists:teams,id'],
         ];
     }
 }

@@ -82,6 +82,8 @@ final class MobileApiPayload
      */
     public static function incident(Incident $incident): array
     {
+        $incident->loadMissing(['coordinator', 'team']);
+
         return [
             'id' => $incident->id,
             'reference' => $incident->reference,
@@ -93,6 +95,12 @@ final class MobileApiPayload
             'latitude' => $incident->latitude,
             'longitude' => $incident->longitude,
             'coordinator' => self::user($incident->coordinator),
+            'team' => $incident->team === null ? null : [
+                'id' => $incident->team->id,
+                'code' => $incident->team->code,
+                'name' => $incident->team->name,
+                'type' => $incident->team->type,
+            ],
             'opened_at' => $incident->opened_at?->toIso8601String(),
             'closed_at' => $incident->closed_at?->toIso8601String(),
         ];

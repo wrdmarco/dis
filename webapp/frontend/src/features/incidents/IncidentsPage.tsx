@@ -1,16 +1,16 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { Incident, User } from '../../types/api';
+import type { Incident, Team, User } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 
-interface IncidentFormState {
+export interface IncidentFormState {
   title: string;
   description: string;
   priority: Incident['priority'];
@@ -19,6 +19,7 @@ interface IncidentFormState {
   latitude: string;
   longitude: string;
   coordinatorId: string;
+  teamId: string;
 }
 
 const emptyIncidentForm: IncidentFormState = {
@@ -30,13 +31,16 @@ const emptyIncidentForm: IncidentFormState = {
   latitude: '',
   longitude: '',
   coordinatorId: '',
+  teamId: '',
 };
 
 export function IncidentsPage() {
   const { api } = useAuth();
   const incidents = useApiResource<Incident[]>('/incidents');
   const users = useApiResource<User[]>('/users?per_page=200');
+  const teams = useApiResource<Team[]>('/teams');
   const [form, setForm] = useState<IncidentFormState>(emptyIncidentForm);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,6 +51,7 @@ export function IncidentsPage() {
     try {
       await api.post('/incidents', incidentPayload(form));
       setForm(emptyIncidentForm);
+      setCreateModalOpen(false);
       await incidents.reload();
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Incident kon niet worden aangemaakt.');
@@ -55,66 +60,23 @@ export function IncidentsPage() {
     }
   };
 
+  function openCreateModal() {
+    setForm(emptyIncidentForm);
+    setError(null);
+    setCreateModalOpen(true);
+  }
+
   return (
     <div className="page-stack">
       <RealtimeBridge onOperationalEvent={() => void incidents.reload()} />
-      <Panel title="Incident aanmaken">
-        <form className="form-grid" onSubmit={createIncident}>
-          <label className="form-grid__wide">
-            Titel
-            <input value={form.title} maxLength={180} onChange={(event) => updateForm(setForm, 'title', event.target.value)} required />
-          </label>
-          <label className="form-grid__wide">
-            Omschrijving
-            <textarea value={form.description} rows={5} onChange={(event) => updateForm(setForm, 'description', event.target.value)} />
-          </label>
-          <label>
-            Prioriteit
-            <select value={form.priority} onChange={(event) => updateForm(setForm, 'priority', event.target.value as Incident['priority'])}>
-              <option value="low">Laag</option>
-              <option value="normal">Normaal</option>
-              <option value="high">Hoog</option>
-              <option value="critical">Kritiek</option>
-            </select>
-          </label>
-          <label>
-            Status
-            <select value={form.status} onChange={(event) => updateForm(setForm, 'status', event.target.value as Incident['status'])}>
-              <option value="draft">Concept</option>
-              <option value="active">Actief</option>
-              <option value="dispatching">Alarmeren</option>
-              <option value="in_progress">In uitvoering</option>
-            </select>
-          </label>
-          <label className="form-grid__wide">
-            Locatieomschrijving
-            <input value={form.locationLabel} maxLength={255} placeholder="Adres, gebied of rendez-vous punt" onChange={(event) => updateForm(setForm, 'locationLabel', event.target.value)} />
-          </label>
-          <label>
-            Latitude
-            <input type="number" step="0.0000001" min="-90" max="90" value={form.latitude} onChange={(event) => updateForm(setForm, 'latitude', event.target.value)} />
-          </label>
-          <label>
-            Longitude
-            <input type="number" step="0.0000001" min="-180" max="180" value={form.longitude} onChange={(event) => updateForm(setForm, 'longitude', event.target.value)} />
-          </label>
-          <label className="form-grid__wide">
-            Coördinator
-            <select value={form.coordinatorId} onChange={(event) => updateForm(setForm, 'coordinatorId', event.target.value)}>
-              <option value="">Niet toegewezen</option>
-              {users.data?.map((user) => <option key={user.id} value={user.id}>{user.name} - {user.email}</option>)}
-            </select>
-          </label>
-          {users.error ? <p className="form-error form-grid__wide">Coördinatoren laden mislukt: {users.error}</p> : null}
-          {error ? <p className="form-error form-grid__wide">{error}</p> : null}
-          <div className="actions-row form-grid__wide">
-            <button className="primary-button" type="submit" disabled={creating}>
-              <Plus size={16} /> {creating ? 'Aanmaken...' : 'Incident aanmaken'}
-            </button>
-          </div>
-        </form>
-      </Panel>
-      <Panel title="Incidenten">
+      <Panel
+        title="Incidenten"
+        action={(
+          <button className="primary-button" type="button" onClick={openCreateModal}>
+            <Plus size={16} /> Incident aanmaken
+          </button>
+        )}
+      >
         <ResourceState loading={incidents.loading} error={incidents.error} empty={(incidents.data?.length ?? 0) === 0}>
           <table className="data-table">
             <thead>
@@ -124,7 +86,8 @@ export function IncidentsPage() {
                 <th>Prioriteit</th>
                 <th>Status</th>
                 <th>Locatie</th>
-                <th>Coördinator</th>
+                <th>Team</th>
+                <th>Coordinator</th>
               </tr>
             </thead>
             <tbody>
@@ -135,6 +98,7 @@ export function IncidentsPage() {
                   <td><StatusPill value={incident.priority} tone={incident.priority === 'critical' ? 'bad' : 'warn'} /></td>
                   <td><StatusPill value={incident.status} /></td>
                   <td>{incident.location_label ?? '-'}</td>
+                  <td>{incident.team?.code ?? '-'}</td>
                   <td>{incident.coordinator?.name ?? '-'}</td>
                 </tr>
               ))}
@@ -142,7 +106,119 @@ export function IncidentsPage() {
           </table>
         </ResourceState>
       </Panel>
+
+      {createModalOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="incident-create-title">
+            <header className="modal__header">
+              <h2 id="incident-create-title">Incident aanmaken</h2>
+              <button className="icon-button" type="button" onClick={() => setCreateModalOpen(false)} aria-label="Sluiten">
+                <X size={18} />
+              </button>
+            </header>
+            <IncidentForm
+              form={form}
+              users={users.data ?? []}
+              teams={teams.data ?? []}
+              usersError={users.error}
+              teamsError={teams.error}
+              saving={creating}
+              error={error}
+              submitLabel="Incident aanmaken"
+              onCancel={() => setCreateModalOpen(false)}
+              onSubmit={createIncident}
+              onChange={setForm}
+            />
+          </section>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+export function IncidentForm(props: {
+  form: IncidentFormState;
+  users: User[];
+  teams: Team[];
+  usersError?: string | null;
+  teamsError?: string | null;
+  saving: boolean;
+  error?: string | null;
+  extraFields?: ReactNode;
+  submitLabel: string;
+  onCancel: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
+}) {
+  const { form, users, teams, usersError, teamsError, saving, error, extraFields, submitLabel, onCancel, onSubmit, onChange } = props;
+
+  return (
+    <form className="form-grid" onSubmit={onSubmit}>
+      <label className="form-grid__wide">
+        Titel
+        <input value={form.title} maxLength={180} onChange={(event) => updateForm(onChange, 'title', event.target.value)} required />
+      </label>
+      <label className="form-grid__wide">
+        Omschrijving
+        <textarea value={form.description} rows={5} onChange={(event) => updateForm(onChange, 'description', event.target.value)} />
+      </label>
+      <label>
+        Prioriteit
+        <select value={form.priority} onChange={(event) => updateForm(onChange, 'priority', event.target.value as Incident['priority'])}>
+          <option value="low">Laag</option>
+          <option value="normal">Normaal</option>
+          <option value="high">Hoog</option>
+          <option value="critical">Kritiek</option>
+        </select>
+      </label>
+      <label>
+        Status
+        <select value={form.status} onChange={(event) => updateForm(onChange, 'status', event.target.value as Incident['status'])}>
+          <option value="draft">Concept</option>
+          <option value="active">Actief</option>
+          <option value="dispatching">Alarmeren</option>
+          <option value="in_progress">In uitvoering</option>
+          <option value="resolved">Afgerond</option>
+          <option value="cancelled">Geannuleerd</option>
+        </select>
+      </label>
+      <label className="form-grid__wide">
+        Team
+        <select value={form.teamId} onChange={(event) => updateForm(onChange, 'teamId', event.target.value)}>
+          <option value="">Geen team geselecteerd</option>
+          {teams.map((team) => <option key={team.id} value={team.id}>{team.code} - {team.name}</option>)}
+        </select>
+      </label>
+      <label className="form-grid__wide">
+        Locatieomschrijving
+        <input value={form.locationLabel} maxLength={255} placeholder="Adres, gebied of rendez-vous punt" onChange={(event) => updateForm(onChange, 'locationLabel', event.target.value)} />
+      </label>
+      <label>
+        Latitude
+        <input type="number" step="0.0000001" min="-90" max="90" value={form.latitude} onChange={(event) => updateForm(onChange, 'latitude', event.target.value)} />
+      </label>
+      <label>
+        Longitude
+        <input type="number" step="0.0000001" min="-180" max="180" value={form.longitude} onChange={(event) => updateForm(onChange, 'longitude', event.target.value)} />
+      </label>
+      <label className="form-grid__wide">
+        Coordinator
+        <select value={form.coordinatorId} onChange={(event) => updateForm(onChange, 'coordinatorId', event.target.value)}>
+          <option value="">Niet toegewezen</option>
+          {users.map((user) => <option key={user.id} value={user.id}>{user.name} - {user.email}</option>)}
+        </select>
+      </label>
+      {teamsError ? <p className="form-error form-grid__wide">Teams laden mislukt: {teamsError}</p> : null}
+      {usersError ? <p className="form-error form-grid__wide">Coordinators laden mislukt: {usersError}</p> : null}
+      {extraFields}
+      {error ? <p className="form-error form-grid__wide">{error}</p> : null}
+      <div className="actions-row form-grid__wide">
+        <button className="secondary-button" type="button" onClick={onCancel}>Annuleren</button>
+        <button className="primary-button" type="submit" disabled={saving}>
+          {saving ? 'Opslaan...' : submitLabel}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -156,6 +232,7 @@ export function incidentPayload(form: IncidentFormState): Record<string, unknown
     latitude: form.latitude.trim() === '' ? null : Number(form.latitude),
     longitude: form.longitude.trim() === '' ? null : Number(form.longitude),
     coordinator_id: form.coordinatorId === '' ? null : form.coordinatorId,
+    team_id: form.teamId === '' ? null : form.teamId,
   };
 }
 

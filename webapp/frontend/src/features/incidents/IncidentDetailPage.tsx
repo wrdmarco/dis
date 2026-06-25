@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
+import { Pencil, X } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -6,28 +7,19 @@ import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { DispatchRequest, Incident, User } from '../../types/api';
+import type { DispatchRequest, Incident, Team, User } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
-import { incidentPayload } from './IncidentsPage';
-
-interface IncidentEditFormState {
-  title: string;
-  description: string;
-  priority: Incident['priority'];
-  status: Incident['status'];
-  statusReason: string;
-  locationLabel: string;
-  latitude: string;
-  longitude: string;
-  coordinatorId: string;
-}
+import { IncidentForm, type IncidentFormState, incidentPayload } from './IncidentsPage';
 
 export function IncidentDetailPage() {
   const { incidentId } = useParams();
   const { api } = useAuth();
   const incident = useApiResource<Incident>(`/incidents/${incidentId}`, Boolean(incidentId));
   const users = useApiResource<User[]>('/users?per_page=200');
-  const [editForm, setEditForm] = useState<IncidentEditFormState | null>(null);
+  const teams = useApiResource<Team[]>('/teams');
+  const [editForm, setEditForm] = useState<IncidentFormState | null>(null);
+  const [statusReason, setStatusReason] = useState('');
+  const [editModalOpen, setEditModalOpen] = useState(false);
   const [savingIncident, setSavingIncident] = useState(false);
   const [incidentError, setIncidentError] = useState<string | null>(null);
   const [message, setMessage] = useState('');
@@ -39,18 +31,18 @@ export function IncidentDetailPage() {
       return;
     }
 
-    setEditForm({
-      title: currentIncident.title,
-      description: currentIncident.description ?? '',
-      priority: currentIncident.priority,
-      status: currentIncident.status,
-      statusReason: '',
-      locationLabel: currentIncident.location_label ?? '',
-      latitude: currentIncident.latitude ?? '',
-      longitude: currentIncident.longitude ?? '',
-      coordinatorId: currentIncident.coordinator?.id ?? '',
-    });
+    setEditForm(formFromIncident(currentIncident));
+    setStatusReason('');
   }, [incident.data]);
+
+  function openEditModal() {
+    if (incident.data !== undefined && incident.data !== null) {
+      setEditForm(formFromIncident(incident.data));
+    }
+    setStatusReason('');
+    setIncidentError(null);
+    setEditModalOpen(true);
+  }
 
   const saveIncident = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -63,8 +55,9 @@ export function IncidentDetailPage() {
     try {
       await api.patch(`/incidents/${incidentId}`, {
         ...incidentPayload(editForm),
-        status_reason: editForm.statusReason.trim() === '' ? null : editForm.statusReason,
+        status_reason: statusReason.trim() === '' ? null : statusReason,
       });
+      setEditModalOpen(false);
       await incident.reload();
     } catch (err) {
       setIncidentError(err instanceof ApiClientError ? err.message : 'Incident kon niet worden opgeslagen.');
@@ -94,9 +87,16 @@ export function IncidentDetailPage() {
   return (
     <div className="page-stack">
       <RealtimeBridge onOperationalEvent={() => void incident.reload()} />
-      <Panel title="Incidentdetail">
+      <Panel
+        title="Incidentdetail"
+        action={incident.data ? (
+          <button className="secondary-button" type="button" onClick={openEditModal}>
+            <Pencil size={16} /> Aanpassen
+          </button>
+        ) : null}
+      >
         <ResourceState loading={incident.loading} error={incident.error} empty={!incident.data}>
-          {incident.data && editForm ? (
+          {incident.data ? (
             <div className="detail-grid">
               <div>
                 <h3>{incident.data.reference}</h3>
@@ -106,9 +106,13 @@ export function IncidentDetailPage() {
                   <StatusPill value={incident.data.status} />
                 </div>
                 <dl>
+                  <dt>Omschrijving</dt>
+                  <dd>{incident.data.description ?? '-'}</dd>
                   <dt>Locatie</dt>
                   <dd>{incident.data.location_label ?? '-'}</dd>
-                  <dt>Coördinator</dt>
+                  <dt>Team</dt>
+                  <dd>{incident.data.team?.code ?? '-'}</dd>
+                  <dt>Coordinator</dt>
                   <dd>{incident.data.coordinator?.name ?? '-'}</dd>
                   <dt>Geopend</dt>
                   <dd>{formatDate(incident.data.opened_at)}</dd>
@@ -116,66 +120,6 @@ export function IncidentDetailPage() {
                   <dd>{formatDate(incident.data.closed_at)}</dd>
                 </dl>
               </div>
-              <form className="form-grid" onSubmit={saveIncident}>
-                <label className="form-grid__wide">
-                  Titel
-                  <input value={editForm.title} maxLength={180} onChange={(event) => updateEditForm(setEditForm, 'title', event.target.value)} required />
-                </label>
-                <label className="form-grid__wide">
-                  Omschrijving
-                  <textarea value={editForm.description} rows={5} onChange={(event) => updateEditForm(setEditForm, 'description', event.target.value)} />
-                </label>
-                <label>
-                  Prioriteit
-                  <select value={editForm.priority} onChange={(event) => updateEditForm(setEditForm, 'priority', event.target.value as Incident['priority'])}>
-                    <option value="low">Laag</option>
-                    <option value="normal">Normaal</option>
-                    <option value="high">Hoog</option>
-                    <option value="critical">Kritiek</option>
-                  </select>
-                </label>
-                <label>
-                  Status
-                  <select value={editForm.status} onChange={(event) => updateEditForm(setEditForm, 'status', event.target.value as Incident['status'])}>
-                    <option value="draft">Concept</option>
-                    <option value="active">Actief</option>
-                    <option value="dispatching">Alarmeren</option>
-                    <option value="in_progress">In uitvoering</option>
-                    <option value="resolved">Afgerond</option>
-                    <option value="cancelled">Geannuleerd</option>
-                  </select>
-                </label>
-                <label className="form-grid__wide">
-                  Reden statuswijziging
-                  <input value={editForm.statusReason} maxLength={1000} onChange={(event) => updateEditForm(setEditForm, 'statusReason', event.target.value)} />
-                </label>
-                <label className="form-grid__wide">
-                  Locatieomschrijving
-                  <input value={editForm.locationLabel} maxLength={255} onChange={(event) => updateEditForm(setEditForm, 'locationLabel', event.target.value)} />
-                </label>
-                <label>
-                  Latitude
-                  <input type="number" step="0.0000001" min="-90" max="90" value={editForm.latitude} onChange={(event) => updateEditForm(setEditForm, 'latitude', event.target.value)} />
-                </label>
-                <label>
-                  Longitude
-                  <input type="number" step="0.0000001" min="-180" max="180" value={editForm.longitude} onChange={(event) => updateEditForm(setEditForm, 'longitude', event.target.value)} />
-                </label>
-                <label className="form-grid__wide">
-                  Coördinator
-                  <select value={editForm.coordinatorId} onChange={(event) => updateEditForm(setEditForm, 'coordinatorId', event.target.value)}>
-                    <option value="">Niet toegewezen</option>
-                    {users.data?.map((user) => <option key={user.id} value={user.id}>{user.name} - {user.email}</option>)}
-                  </select>
-                </label>
-                {users.error ? <p className="form-error form-grid__wide">Coördinatoren laden mislukt: {users.error}</p> : null}
-                {incidentError ? <p className="form-error form-grid__wide">{incidentError}</p> : null}
-                <div className="actions-row form-grid__wide">
-                  <button className="primary-button" type="submit" disabled={savingIncident}>
-                    {savingIncident ? 'Opslaan...' : 'Incident opslaan'}
-                  </button>
-                </div>
-              </form>
             </div>
           ) : null}
         </ResourceState>
@@ -193,16 +137,54 @@ export function IncidentDetailPage() {
           </div>
         </form>
       </Panel>
+
+      {editModalOpen && editForm !== null ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="incident-edit-title">
+            <header className="modal__header">
+              <h2 id="incident-edit-title">Incident aanpassen</h2>
+              <button className="icon-button" type="button" onClick={() => setEditModalOpen(false)} aria-label="Sluiten">
+                <X size={18} />
+              </button>
+            </header>
+            <IncidentForm
+              form={editForm}
+              users={users.data ?? []}
+              teams={teams.data ?? []}
+              usersError={users.error}
+              teamsError={teams.error}
+              saving={savingIncident}
+              error={incidentError}
+              extraFields={(
+                <label className="form-grid__wide">
+                  Reden statuswijziging
+                  <input value={statusReason} maxLength={1000} onChange={(event) => setStatusReason(event.target.value)} />
+                </label>
+              )}
+              submitLabel="Incident opslaan"
+              onCancel={() => setEditModalOpen(false)}
+              onSubmit={saveIncident}
+              onChange={(updater) => setEditForm((current) => current === null ? current : updater(current))}
+            />
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function updateEditForm<K extends keyof IncidentEditFormState>(
-  setForm: (updater: (current: IncidentEditFormState | null) => IncidentEditFormState | null) => void,
-  key: K,
-  value: IncidentEditFormState[K],
-) {
-  setForm((current) => current === null ? current : { ...current, [key]: value });
+function formFromIncident(incident: Incident): IncidentFormState {
+  return {
+    title: incident.title,
+    description: incident.description ?? '',
+    priority: incident.priority,
+    status: incident.status,
+    locationLabel: incident.location_label ?? '',
+    latitude: incident.latitude ?? '',
+    longitude: incident.longitude ?? '',
+    coordinatorId: incident.coordinator?.id ?? '',
+    teamId: incident.team?.id ?? '',
+  };
 }
 
 function formatDate(value?: string | null): string {

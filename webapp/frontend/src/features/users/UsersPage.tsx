@@ -6,7 +6,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { Role, User } from '../../types/api';
+import type { Role, Team, User } from '../../types/api';
 
 interface UserFormState {
   name: string;
@@ -15,6 +15,7 @@ interface UserFormState {
   password: string;
   accountStatus: User['account_status'];
   roleIds: string[];
+  teamIds: string[];
 }
 
 const emptyForm: UserFormState = {
@@ -24,12 +25,14 @@ const emptyForm: UserFormState = {
   password: '',
   accountStatus: 'active',
   roleIds: [],
+  teamIds: [],
 };
 
 export function UsersPage() {
   const { api } = useAuth();
   const users = useApiResource<User[]>('/users');
   const roles = useApiResource<Role[]>('/admin/roles');
+  const teams = useApiResource<Team[]>('/admin/teams');
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [form, setForm] = useState<UserFormState>(emptyForm);
@@ -60,6 +63,7 @@ export function UsersPage() {
       password: '',
       accountStatus: user.account_status,
       roleIds: user.roles?.map((role) => role.id) ?? [],
+      teamIds: user.teams?.map((team) => team.id) ?? [],
     });
     setError(null);
     setModalMode('edit');
@@ -76,6 +80,7 @@ export function UsersPage() {
       phone_number: form.phoneNumber || null,
       account_status: form.accountStatus,
       role_ids: form.roleIds,
+      team_ids: form.teamIds,
     };
 
     if (form.password !== '') {
@@ -103,6 +108,15 @@ export function UsersPage() {
       roleIds: current.roleIds.includes(roleId)
         ? current.roleIds.filter((candidate) => candidate !== roleId)
         : [...current.roleIds, roleId],
+    }));
+  }
+
+  function toggleTeam(teamId: string) {
+    setForm((current) => ({
+      ...current,
+      teamIds: current.teamIds.includes(teamId)
+        ? current.teamIds.filter((candidate) => candidate !== teamId)
+        : [...current.teamIds, teamId],
     }));
   }
 
@@ -202,10 +216,30 @@ export function UsersPage() {
                   </div>
                 </ResourceState>
               </div>
+              <div className="form-grid__wide">
+                <span className="field-label">Teams</span>
+                <ResourceState loading={teams.loading} error={teams.error} empty={(teams.data?.length ?? 0) === 0}>
+                  <div className="checkbox-grid">
+                    {teams.data?.map((team) => (
+                      <label className="checkbox-card" key={team.id}>
+                        <input
+                          type="checkbox"
+                          checked={form.teamIds.includes(team.id)}
+                          onChange={() => toggleTeam(team.id)}
+                        />
+                        <span>
+                          <strong>{team.code} - {team.name}</strong>
+                          <small>{team.type}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </ResourceState>
+              </div>
               {error ? <p className="form-error form-grid__wide">{error}</p> : null}
               <div className="actions-row form-grid__wide">
                 <button className="secondary-button" type="button" onClick={() => setModalMode(null)}>Annuleren</button>
-                <button className="primary-button" type="submit" disabled={saving || roles.loading}>
+                <button className="primary-button" type="submit" disabled={saving || roles.loading || teams.loading}>
                   {saving ? 'Opslaan...' : 'Opslaan'}
                 </button>
               </div>

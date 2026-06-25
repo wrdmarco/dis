@@ -19,10 +19,13 @@ final class UserService
     {
         return DB::transaction(function () use ($data, $actor): User {
             $roleIds = $data['role_ids'] ?? [];
+            $teamIds = $data['team_ids'] ?? [];
             unset($data['role_ids']);
+            unset($data['team_ids']);
 
             $user = User::query()->create($data);
             $this->syncRoles($user, is_array($roleIds) ? $roleIds : [], $actor);
+            $this->syncTeams($user, is_array($teamIds) ? $teamIds : [], $actor);
             $this->auditService->record('users.created', $user, $actor);
 
             return $user->load(['roles', 'teams']);
@@ -36,7 +39,9 @@ final class UserService
     {
         return DB::transaction(function () use ($user, $data, $actor): User {
             $roleIds = $data['role_ids'] ?? null;
+            $teamIds = $data['team_ids'] ?? null;
             unset($data['role_ids']);
+            unset($data['team_ids']);
 
             $before = $user->only(array_keys($data));
             if ($data !== []) {
@@ -47,10 +52,15 @@ final class UserService
                 $this->syncRoles($user, $roleIds, $actor);
             }
 
+            if (is_array($teamIds)) {
+                $this->syncTeams($user, $teamIds, $actor);
+            }
+
             $this->auditService->record('users.updated', $user, $actor, [
                 'before' => $before,
                 'after' => $user->only(array_keys($data)),
                 'roles_synced' => is_array($roleIds),
+                'teams_synced' => is_array($teamIds),
             ]);
 
             return $user->refresh()->load(['roles', 'teams']);
@@ -111,5 +121,26 @@ final class UserService
         }
 
         $user->roles()->sync($syncPayload);
+    }
+
+    /**
+     * @param array<int, string> $teamIds
+     */
+    private function syncTeams(User $user, array $teamIds, User $actor): void
+    {
+        $uniqueTeamIds = array_values(array_unique($teamIds));
+        $teams = Team::query()->whereIn('id', $uniqueTeamIds)->get(['id', 'code']);
+        $codes = $teams->pluck('code')->all();
+
+        if (in_array('TUI', $codes, true) && ! in_array('OCP', $codes, true)) {
+            throw ValidationException::withMessages(['team_ids' => ['TUI members must belong to OCP first.']]);
+        }
+
+        $syncPayload = [];
+        foreach ($uniqueTeamIds as $teamId) {
+            $syncPayload[$teamId] = ['assigned_by' => $actor->id];
+        }
+
+        $user->teams()->sync($syncPayload);
     }
 }

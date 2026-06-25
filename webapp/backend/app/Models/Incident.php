@@ -24,6 +24,7 @@ final class Incident extends Model
         'longitude',
         'created_by',
         'coordinator_id',
+        'team_id',
         'opened_at',
         'closed_at',
     ];
@@ -48,6 +49,11 @@ final class Incident extends Model
         return $this->belongsTo(User::class, 'coordinator_id');
     }
 
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(Team::class);
+    }
+
     public function statusHistory(): HasMany
     {
         return $this->hasMany(IncidentStatusHistory::class);
@@ -58,4 +64,3 @@ final class Incident extends Model
         return $this->hasMany(DispatchRequest::class);
     }
 }
-

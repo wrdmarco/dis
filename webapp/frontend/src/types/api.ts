@@ -110,6 +110,7 @@ export interface Incident {
   latitude?: string | null;
   longitude?: string | null;
   coordinator?: User | null;
+  team?: Team | null;
   opened_at?: string | null;
   closed_at?: string | null;
 }

@@ -52,6 +52,8 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
         Route::delete('/users/{user}/teams/{team}', [UserController::class, 'removeTeam'])->middleware('permission:teams.manage');
         Route::get('/users/{user}/audit', [UserController::class, 'audit'])->middleware('permission:audit.view');
 
+    Route::get('/teams', [AdminController::class, 'teams'])->middleware('permission:incidents.view');
+
     Route::get('/incidents', [IncidentController::class, 'index'])->middleware('permission:incidents.view');
     Route::post('/incidents', [IncidentController::class, 'store'])->middleware('permission:incidents.manage');
     Route::get('/incidents/{incident}', [IncidentController::class, 'show'])->middleware('permission:incidents.view');

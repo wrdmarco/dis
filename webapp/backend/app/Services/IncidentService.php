@@ -36,7 +36,7 @@ final class IncidentService
             $this->auditService->record('incidents.created', $incident, $actor);
             $this->broadcastIncidentChange($incident, 'created');
 
-            return $incident->load(['coordinator', 'statusHistory']);
+            return $incident->load(['coordinator', 'team', 'statusHistory']);
         });
     }
 
@@ -65,7 +65,7 @@ final class IncidentService
             $this->auditService->record('incidents.updated', $incident, $actor);
             $this->broadcastIncidentChange($incident->refresh(), 'updated');
 
-            return $incident->load(['coordinator', 'statusHistory']);
+            return $incident->load(['coordinator', 'team', 'statusHistory']);
         });
     }
 

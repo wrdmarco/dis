@@ -18,11 +18,10 @@ final class IncidentRepository extends BaseRepository
     public function search(array $filters, int $perPage): LengthAwarePaginator
     {
         return Incident::query()
-            ->with(['coordinator'])
+            ->with(['coordinator', 'team'])
             ->when($filters['status'] ?? null, fn ($query, string $status) => $query->where('status', $status))
             ->when($filters['priority'] ?? null, fn ($query, string $priority) => $query->where('priority', $priority))
             ->latest()
             ->paginate(min(max($perPage, 1), 100));
     }
 }
-
