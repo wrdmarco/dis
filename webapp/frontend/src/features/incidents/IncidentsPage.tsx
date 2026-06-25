@@ -233,11 +233,11 @@ export function IncidentForm(props: {
       </label>
       <label>
         Latitude
-        <input type="number" step="0.0000001" min="-90" max="90" value={form.latitude} onChange={(event) => updateForm(onChange, 'latitude', event.target.value)} />
+        <input type="number" step="any" min="-90" max="90" value={form.latitude} onChange={(event) => updateForm(onChange, 'latitude', event.target.value)} />
       </label>
       <label>
         Longitude
-        <input type="number" step="0.0000001" min="-180" max="180" value={form.longitude} onChange={(event) => updateForm(onChange, 'longitude', event.target.value)} />
+        <input type="number" step="any" min="-180" max="180" value={form.longitude} onChange={(event) => updateForm(onChange, 'longitude', event.target.value)} />
       </label>
       <label className="form-grid__wide">
         Coordinator
@@ -345,10 +345,30 @@ function coordinatesFromPdokMatch(match?: { centroide_ll?: string; weergavenaam?
   const [, longitude, latitude] = point;
 
   return {
-    latitude,
-    longitude,
+    latitude: formatCoordinate(latitude),
+    longitude: formatCoordinate(longitude),
     locationLabel: match?.weergavenaam ?? '',
   };
+}
+
+function formatCoordinate(value: string): string {
+  const coordinate = Number(value);
+  if (!Number.isFinite(coordinate)) {
+    return '';
+  }
+
+  return coordinate.toFixed(7);
+}
+
+function coordinatePayload(value: string): number | null {
+  const trimmed = value.trim().replace(',', '.');
+  if (trimmed === '') {
+    return null;
+  }
+
+  const coordinate = Number(trimmed);
+
+  return Number.isFinite(coordinate) ? Number(coordinate.toFixed(7)) : null;
 }
 
 export function incidentPayload(form: IncidentFormState): Record<string, unknown> {
@@ -358,8 +378,8 @@ export function incidentPayload(form: IncidentFormState): Record<string, unknown
     priority: form.priority,
     status: form.status,
     location_label: form.locationLabel.trim() === '' ? null : form.locationLabel,
-    latitude: form.latitude.trim() === '' ? null : Number(form.latitude),
-    longitude: form.longitude.trim() === '' ? null : Number(form.longitude),
+    latitude: coordinatePayload(form.latitude),
+    longitude: coordinatePayload(form.longitude),
     coordinator_id: form.coordinatorId === '' ? null : form.coordinatorId,
     team_id: form.teamId === '' ? null : form.teamId,
   };
