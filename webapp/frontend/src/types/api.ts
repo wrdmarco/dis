@@ -140,6 +140,7 @@ export interface Certification {
   id: string;
   code: string;
   name: string;
+  description?: string | null;
   is_required_for_dispatch: boolean;
   warning_days_before_expiry: number;
 }

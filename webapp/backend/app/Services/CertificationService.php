@@ -24,6 +24,21 @@ final class CertificationService
     /**
      * @param array<string, mixed> $data
      */
+    public function update(Certification $certification, array $data, User $actor): Certification
+    {
+        $before = $certification->only(array_keys($data));
+        $certification->update($data);
+        $this->auditService->record('certifications.updated', $certification, $actor, [
+            'before' => $before,
+            'after' => $certification->only(array_keys($data)),
+        ]);
+
+        return $certification->refresh();
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
     public function assignToUser(User $user, array $data, User $actor): UserCertification
     {
         $certification = UserCertification::query()->create($data + ['user_id' => $user->id, 'verified_by' => $actor->id, 'verified_at' => now()]);
@@ -32,4 +47,3 @@ final class CertificationService
         return $certification->load('certification');
     }
 }
-

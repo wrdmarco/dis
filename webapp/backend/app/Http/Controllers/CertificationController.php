@@ -28,9 +28,7 @@ final class CertificationController extends Controller
 
     public function update(UpdateCertificationRequest $request, Certification $certification): JsonResponse
     {
-        $certification->update($request->validated());
-
-        return ApiResponse::success($certification->refresh());
+        return ApiResponse::success($this->service->update($certification, $request->validated(), $request->user()));
     }
 
     public function userCertifications(User $user): JsonResponse
