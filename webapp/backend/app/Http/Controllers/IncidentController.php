@@ -7,6 +7,7 @@ use App\Http\Requests\Incidents\UpdateIncidentRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\Incident;
 use App\Repositories\IncidentRepository;
+use App\Services\DispatchService;
 use App\Services\IncidentService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
@@ -14,7 +15,11 @@ use Illuminate\Http\Request;
 
 final class IncidentController extends Controller
 {
-    public function __construct(private readonly IncidentRepository $incidents, private readonly IncidentService $service) {}
+    public function __construct(
+        private readonly IncidentRepository $incidents,
+        private readonly IncidentService $service,
+        private readonly DispatchService $dispatchService,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -65,6 +70,49 @@ final class IncidentController extends Controller
 
     public function timeline(Incident $incident): JsonResponse
     {
-        return ApiResponse::success($incident->statusHistory()->latest('created_at')->get());
+        $statusItems = $incident->statusHistory()
+            ->with('incident')
+            ->latest('created_at')
+            ->get()
+            ->map(fn ($item): array => [
+                'id' => $item->id,
+                'type' => 'status',
+                'label' => trim(($item->from_status ?? 'nieuw').' -> '.$item->to_status),
+                'message' => $item->reason,
+                'created_at' => $item->created_at?->toIso8601String(),
+            ]);
+
+        $dispatchItems = $incident->dispatchRequests()
+            ->with('recipients.user')
+            ->latest()
+            ->get()
+            ->flatMap(function ($dispatch): array {
+                $items = [[
+                    'id' => $dispatch->id,
+                    'type' => 'dispatch',
+                    'label' => 'Dispatch '.$dispatch->status,
+                    'message' => $dispatch->message,
+                    'created_at' => $dispatch->created_at?->toIso8601String(),
+                ]];
+
+                foreach ($dispatch->recipients as $recipient) {
+                    $items[] = [
+                        'id' => $recipient->id,
+                        'type' => 'dispatch_response',
+                        'label' => ($recipient->user?->name ?? 'Onbekende gebruiker').' - '.$recipient->response_status,
+                        'message' => $recipient->response_note,
+                        'created_at' => ($recipient->responded_at ?? $recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at)?->toIso8601String(),
+                    ];
+                }
+
+                return $items;
+            });
+
+        return ApiResponse::success($statusItems->concat($dispatchItems)->sortByDesc('created_at')->values());
+    }
+
+    public function dispatchPreview(Incident $incident): JsonResponse
+    {
+        return ApiResponse::success($this->dispatchService->previewForIncident($incident));
     }
 }

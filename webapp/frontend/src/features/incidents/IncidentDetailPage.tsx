@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Pencil, X } from 'lucide-react';
+import { Pencil, Send, X } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -7,7 +7,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { DispatchRequest, Incident, Team, User } from '../../types/api';
+import type { DispatchPreview, Incident, IncidentTimelineItem, Team, User } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 import { IncidentForm, type IncidentFormState, incidentPayload } from './IncidentsPage';
 
@@ -15,6 +15,8 @@ export function IncidentDetailPage() {
   const { incidentId } = useParams();
   const { api } = useAuth();
   const incident = useApiResource<Incident>(`/incidents/${incidentId}`, Boolean(incidentId));
+  const preview = useApiResource<DispatchPreview>(`/incidents/${incidentId}/dispatch-preview`, Boolean(incidentId));
+  const timeline = useApiResource<IncidentTimelineItem[]>(`/incidents/${incidentId}/timeline`, Boolean(incidentId));
   const users = useApiResource<User[]>('/users?per_page=200');
   const teams = useApiResource<Team[]>('/teams');
   const [editForm, setEditForm] = useState<IncidentFormState | null>(null);
@@ -22,8 +24,6 @@ export function IncidentDetailPage() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [savingIncident, setSavingIncident] = useState(false);
   const [incidentError, setIncidentError] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
-  const [dispatchTeamId, setDispatchTeamId] = useState('');
   const [dispatching, setDispatching] = useState(false);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
 
@@ -34,7 +34,6 @@ export function IncidentDetailPage() {
     }
 
     setEditForm(formFromIncident(currentIncident));
-    setDispatchTeamId(currentIncident.team?.id ?? '');
     setStatusReason('');
   }, [incident.data]);
 
@@ -62,6 +61,8 @@ export function IncidentDetailPage() {
       });
       setEditModalOpen(false);
       await incident.reload();
+      await preview.reload();
+      await timeline.reload();
     } catch (err) {
       setIncidentError(err instanceof ApiClientError ? err.message : 'Incident kon niet worden opgeslagen.');
     } finally {
@@ -69,35 +70,35 @@ export function IncidentDetailPage() {
     }
   };
 
-  const createDispatch = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const activateIncident = async () => {
+    if (!incidentId) {
+      return;
+    }
+
     setDispatchError(null);
     setDispatching(true);
     try {
-      const dispatch = await api.post<DispatchRequest>(`/incidents/${incidentId}/dispatches`, {
-        priority: 'high',
-        message,
-        target_team_id: dispatchTeamId === '' ? null : dispatchTeamId,
+      await api.patch(`/incidents/${incidentId}`, {
+        status: 'active',
+        status_reason: 'Melding geactiveerd en alarmering verstuurd.',
       });
-      await api.post<DispatchRequest>(`/dispatches/${dispatch.data.id}/send`);
-      setMessage('');
+      await incident.reload();
+      await preview.reload();
+      await timeline.reload();
     } catch (err) {
-      setDispatchError(err instanceof ApiClientError ? err.message : 'Dispatch kon niet worden verstuurd.');
-      return;
+      setDispatchError(err instanceof ApiClientError ? err.message : 'Melding kon niet worden verstuurd.');
     } finally {
       setDispatching(false);
-    }
-
-    try {
-      await incident.reload();
-    } catch (err) {
-      setDispatchError(err instanceof ApiClientError ? `Dispatch is aangemaakt, maar herladen faalde: ${err.message}` : 'Dispatch is aangemaakt, maar herladen faalde.');
     }
   };
 
   return (
     <div className="page-stack">
-      <RealtimeBridge onOperationalEvent={() => void incident.reload()} />
+      <RealtimeBridge onOperationalEvent={() => {
+        void incident.reload();
+        void preview.reload();
+        void timeline.reload();
+      }} />
       <Panel
         title="Incidentdetail"
         action={incident.data ? (
@@ -136,27 +137,71 @@ export function IncidentDetailPage() {
         </ResourceState>
       </Panel>
 
-      <Panel title="Dispatch aanmaken">
-        <form className="form-grid" onSubmit={createDispatch}>
-          <label className="form-grid__wide">
-            Team
-            <select value={dispatchTeamId} onChange={(event) => setDispatchTeamId(event.target.value)}>
-              <option value="">Basisteam</option>
-              {teams.data?.map((team) => <option key={team.id} value={team.id}>{team.code} - {team.name}</option>)}
-            </select>
-          </label>
-          <label className="form-grid__wide">
-            Dispatchbericht
-            <textarea value={message} onChange={(event) => setMessage(event.target.value)} required />
-          </label>
-          {teams.error ? <p className="form-error form-grid__wide">Teams laden mislukt: {teams.error}</p> : null}
-          {dispatchError ? <p className="form-error form-grid__wide">{dispatchError}</p> : null}
-          <div className="actions-row form-grid__wide">
-            <button className="primary-button" type="submit" disabled={dispatching || teams.loading}>
-              {dispatching ? 'Versturen...' : 'Dispatch versturen'}
-            </button>
+      <Panel
+        title="Alarmeringsconcept"
+        action={incident.data?.status === 'draft' ? (
+          <button className="primary-button" type="button" onClick={activateIncident} disabled={dispatching || preview.loading || (preview.data?.recipients.length ?? 0) === 0}>
+            <Send size={16} /> {dispatching ? 'Versturen...' : 'Melding versturen'}
+          </button>
+        ) : null}
+      >
+        <ResourceState loading={preview.loading} error={preview.error} empty={false}>
+          <div className="panel-body">
+            <dl>
+              <dt>Team</dt>
+              <dd>{preview.data?.team ? `${preview.data.team.code} - ${preview.data.team.name}` : '-'}</dd>
+              <dt>Ontvangers</dt>
+              <dd>{preview.data?.recipients.length ?? 0}</dd>
+            </dl>
+            {preview.data?.blocked_reason ? <p className="form-error">{preview.data.blocked_reason}</p> : null}
+            {dispatchError ? <p className="form-error">{dispatchError}</p> : null}
+            {(preview.data?.recipients.length ?? 0) > 0 ? (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Naam</th>
+                    <th>E-mail</th>
+                    <th>Teams</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.data?.recipients.map((recipient) => (
+                    <tr key={recipient.id}>
+                      <td>{recipient.name}</td>
+                      <td>{recipient.email}</td>
+                      <td>{recipient.teams?.map((team) => team.code).join(', ') || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
           </div>
-        </form>
+        </ResourceState>
+      </Panel>
+
+      <Panel title="Incidentlog">
+        <ResourceState loading={timeline.loading} error={timeline.error} empty={(timeline.data?.length ?? 0) === 0}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Tijd</th>
+                <th>Type</th>
+                <th>Gebeurtenis</th>
+                <th>Toelichting</th>
+              </tr>
+            </thead>
+            <tbody>
+              {timeline.data?.map((item) => (
+                <tr key={`${item.type}-${item.id}`}>
+                  <td>{formatDate(item.created_at)}</td>
+                  <td>{item.type}</td>
+                  <td>{item.label}</td>
+                  <td>{item.message ?? '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ResourceState>
       </Panel>
 
       {editModalOpen && editForm !== null ? (

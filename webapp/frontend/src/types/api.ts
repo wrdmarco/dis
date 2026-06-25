@@ -133,6 +133,20 @@ export interface DispatchRecipient {
   user?: User;
 }
 
+export interface DispatchPreview {
+  team: Pick<Team, 'id' | 'code' | 'name'> | null;
+  recipients: Array<Pick<User, 'id' | 'name' | 'email'> & { teams?: Array<Pick<Team, 'id' | 'code' | 'name'>> }>;
+  blocked_reason?: string | null;
+}
+
+export interface IncidentTimelineItem {
+  id: string;
+  type: 'status' | 'dispatch' | 'dispatch_response';
+  label: string;
+  message?: string | null;
+  created_at?: string | null;
+}
+
 export interface AvailabilityStatus {
   id: string;
   user_id: string;

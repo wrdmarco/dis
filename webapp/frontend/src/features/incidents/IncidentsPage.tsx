@@ -1,5 +1,5 @@
 import { FormEvent, useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Plus, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -26,7 +26,7 @@ const emptyIncidentForm: IncidentFormState = {
   title: '',
   description: '',
   priority: 'normal',
-  status: 'active',
+  status: 'draft',
   locationLabel: '',
   latitude: '',
   longitude: '',
@@ -36,6 +36,7 @@ const emptyIncidentForm: IncidentFormState = {
 
 export function IncidentsPage() {
   const { api } = useAuth();
+  const navigate = useNavigate();
   const incidents = useApiResource<Incident[]>('/incidents');
   const users = useApiResource<User[]>('/users?per_page=200');
   const teams = useApiResource<Team[]>('/teams');
@@ -49,10 +50,11 @@ export function IncidentsPage() {
     setCreating(true);
     setError(null);
     try {
-      await api.post('/incidents', incidentPayload(form));
+      const response = await api.post<Incident>('/incidents', incidentPayload(form));
       setForm(emptyIncidentForm);
       setCreateModalOpen(false);
       await incidents.reload();
+      navigate(`/incidents/${response.data.id}`);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Incident kon niet worden aangemaakt.');
     } finally {
@@ -191,7 +193,7 @@ export function IncidentForm(props: {
       </label>
       <label className="form-grid__wide">
         Locatieomschrijving
-        <input value={form.locationLabel} maxLength={255} placeholder="Adres, gebied of rendez-vous punt" onChange={(event) => updateForm(onChange, 'locationLabel', event.target.value)} />
+        <input value={form.locationLabel} maxLength={255} placeholder="Adres, gebied of rendez-vous punt" onChange={(event) => updateForm(onChange, 'locationLabel', event.target.value)} onBlur={() => void geocodeAddress(form, onChange)} />
       </label>
       <label>
         Latitude
@@ -220,6 +222,38 @@ export function IncidentForm(props: {
       </div>
     </form>
   );
+}
+
+async function geocodeAddress(form: IncidentFormState, onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void): Promise<void> {
+  const query = form.locationLabel.trim();
+  if (query.length < 6) {
+    return;
+  }
+
+  try {
+    const params = new URLSearchParams({ q: query, rows: '1' });
+    const response = await fetch(`https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?${params.toString()}`, { headers: { Accept: 'application/json' } });
+    if (!response.ok) {
+      return;
+    }
+
+    const payload = await response.json() as { response?: { docs?: Array<{ centroide_ll?: string; weergavenaam?: string }> } };
+    const match = payload.response?.docs?.[0];
+    const point = match?.centroide_ll?.match(/^POINT\(([-0-9.]+) ([-0-9.]+)\)$/);
+    if (!point) {
+      return;
+    }
+
+    const [, longitude, latitude] = point;
+    onChange((current) => ({
+      ...current,
+      latitude,
+      longitude,
+      locationLabel: match?.weergavenaam ?? current.locationLabel,
+    }));
+  } catch {
+    // Manual coordinates remain available when the geocoder cannot be reached.
+  }
 }
 
 export function incidentPayload(form: IncidentFormState): Record<string, unknown> {

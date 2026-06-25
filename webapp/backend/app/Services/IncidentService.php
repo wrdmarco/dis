@@ -10,7 +10,10 @@ use Throwable;
 
 final class IncidentService
 {
-    public function __construct(private readonly AuditService $auditService) {}
+    public function __construct(
+        private readonly AuditService $auditService,
+        private readonly DispatchService $dispatchService,
+    ) {}
 
     /**
      * @param array<string, mixed> $data
@@ -60,6 +63,10 @@ final class IncidentService
                     'reason' => $statusReason,
                     'created_at' => now(),
                 ]);
+            }
+
+            if ($beforeStatus === 'draft' && ($data['status'] ?? null) === 'active') {
+                $this->dispatchService->createAndSendForIncidentActivation($incident->refresh(), $actor, $statusReason);
             }
 
             $this->auditService->record('incidents.updated', $incident, $actor);

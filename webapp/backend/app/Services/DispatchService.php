@@ -64,6 +64,60 @@ final class DispatchService
         });
     }
 
+    public function createAndSendForIncidentActivation(Incident $incident, User $actor, ?string $message = null): ?DispatchRequest
+    {
+        if ($incident->dispatchRequests()->whereIn('status', ['draft', 'sent'])->exists()) {
+            return null;
+        }
+
+        $dispatch = $this->create($incident, [
+            'priority' => $incident->priority === 'low' ? 'normal' : $incident->priority,
+            'message' => $message ?: $this->defaultDispatchMessage($incident),
+            'target_team_id' => $incident->team_id,
+        ], $actor);
+
+        return $this->markSent($dispatch, $actor);
+    }
+
+    /**
+     * @return array{team: array<string, mixed>|null, recipients: list<array<string, mixed>>, blocked_reason: string|null}
+     */
+    public function previewForIncident(Incident $incident): array
+    {
+        $targetTeam = $this->targetTeam($incident, []);
+        if ($targetTeam === null) {
+            return [
+                'team' => null,
+                'recipients' => [],
+                'blocked_reason' => 'Er is geen geldig team voor deze melding gekozen.',
+            ];
+        }
+
+        $eligibility = $this->eligibleUsers($targetTeam);
+
+        return [
+            'team' => [
+                'id' => $targetTeam->id,
+                'code' => $targetTeam->code,
+                'name' => $targetTeam->name,
+            ],
+            'recipients' => $eligibility['users']
+                ->map(fn (User $user): array => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'teams' => $user->teams->map(fn (Team $team): array => [
+                        'id' => $team->id,
+                        'code' => $team->code,
+                        'name' => $team->name,
+                    ])->values(),
+                ])
+                ->values()
+                ->all(),
+            'blocked_reason' => $eligibility['users']->isEmpty() ? $eligibility['message'] : null,
+        ];
+    }
+
     public function markSent(DispatchRequest $dispatch, User $actor): DispatchRequest
     {
         return DB::transaction(function () use ($dispatch, $actor): DispatchRequest {
@@ -140,6 +194,7 @@ final class DispatchService
                 'certifications',
                 'fcmTokens' => fn ($tokens) => $tokens->where('is_active', true),
                 'statuses' => fn ($statuses) => $statuses->latestPerUser(),
+                'teams',
             ])
             ->whereHas('teams', fn ($teams) => $teams->whereIn('code', $teamCodes))
             ->get();
@@ -248,5 +303,16 @@ final class DispatchService
         } catch (Throwable $exception) {
             report($exception);
         }
+    }
+
+    private function defaultDispatchMessage(Incident $incident): string
+    {
+        $parts = [
+            $incident->reference,
+            $incident->title,
+            $incident->location_label,
+        ];
+
+        return implode(' - ', array_values(array_filter($parts, fn (?string $part): bool => filled($part))));
     }
 }

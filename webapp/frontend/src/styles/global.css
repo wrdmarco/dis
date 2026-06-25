@@ -763,6 +763,12 @@ a:hover {
   font-size: 0.98rem;
 }
 
+.panel-body {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
 .data-table {
   width: 100%;
   border-collapse: collapse;
