@@ -130,6 +130,34 @@ EOF
   run_cmd chmod 0755 /usr/local/bin/update
 }
 
+clear_application_caches() {
+  local backend_dir frontend_dir
+  backend_dir="${DIS_INSTALL_PATH}/webapp/backend"
+  frontend_dir="${DIS_INSTALL_PATH}/webapp/frontend"
+
+  log "Clearing application caches"
+  if [ -f "${backend_dir}/artisan" ]; then
+    run_cmd runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" optimize:clear
+  fi
+
+  run_cmd rm -rf \
+    "${backend_dir}/bootstrap/cache/"*.php \
+    "${backend_dir}/storage/framework/cache/data/"* \
+    "${backend_dir}/storage/framework/views/"* \
+    "${frontend_dir}/dist" \
+    "${frontend_dir}/build" \
+    "${frontend_dir}/.vite" \
+    "${frontend_dir}/tsconfig.tsbuildinfo" \
+    "${frontend_dir}/tsconfig.node.tsbuildinfo" \
+    "${frontend_dir}/vite.config.js" \
+    "${frontend_dir}/vite.config.d.ts" \
+    2>/dev/null || true
+
+  if command -v npm >/dev/null 2>&1; then
+    run_cmd npm cache verify >/dev/null 2>&1 || true
+  fi
+}
+
 check_system_updates() {
   local update_count
 
@@ -215,6 +243,7 @@ if [ "${UPDATE_APP}" = "1" ]; then
 
     write_frontend_env
     nginx_source="$(refresh_generated_nginx)"
+    clear_application_caches
 
     log "Deploying updated DIS application"
     APP_ROOT="${DIS_INSTALL_PATH}" NGINX_SOURCE="${nginx_source}" bash "${SCRIPT_DIR}/deploy.sh"
