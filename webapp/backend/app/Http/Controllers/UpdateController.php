@@ -117,6 +117,11 @@ final class UpdateController extends Controller
             'release_zip' => $request->hasFile('release_zip'),
         ]);
 
+        $compatibilityChanges = $this->applyAndroidCompatibilityPolicy($data['minimum_supported_version_code'] ?? null, $version, $request);
+        if ($compatibilityChanges['blocked_versions'] > 0 || $compatibilityChanges['minimum_supported_version_code'] !== null) {
+            $this->auditService->record('updates.android_compatibility_applied', $version, $request->user(), $compatibilityChanges);
+        }
+
         $pruned = $this->pruneOldAndroidArtifacts($version->refresh());
         if ($pruned > 0) {
             $this->auditService->record('updates.android_artifacts_pruned', $version, $request->user(), ['artifact_count' => $pruned]);
@@ -130,7 +135,7 @@ final class UpdateController extends Controller
     }
 
     /**
-     * @return array{data: array{version_name: string, version_code: int, status: string, artifact_sha256?: string|null, release_notes?: string|null}, apk_path: string, apk_size: int}|array{}
+     * @return array{data: array{version_name: string, version_code: int, status: string, artifact_sha256?: string|null, release_notes?: string|null, minimum_supported_version_code?: int|null}, apk_path: string, apk_size: int}|array{}
      */
     private function androidZipUpload(Request $request): array
     {
@@ -157,6 +162,7 @@ final class UpdateController extends Controller
         try {
             $apkEntries = [];
             $metadataEntry = null;
+            $compatibilityEntry = null;
 
             for ($index = 0; $index < $zip->numFiles; $index++) {
                 $name = $zip->getNameIndex($index);
@@ -169,6 +175,10 @@ final class UpdateController extends Controller
                 if ($base === 'metadata.json') {
                     $metadataEntry = $name;
                 }
+
+                if ($base === 'compatibility.json') {
+                    $compatibilityEntry = $name;
+                }
             }
 
             if (count($apkEntries) !== 1 || $metadataEntry === null) {
@@ -178,6 +188,17 @@ final class UpdateController extends Controller
             $metadata = json_decode($this->stripUtf8Bom((string) $zip->getFromName($metadataEntry)), true);
             if (! is_array($metadata)) {
                 throw ValidationException::withMessages(['metadata' => ['metadata.json must contain valid JSON.']]);
+            }
+
+            if ($compatibilityEntry !== null) {
+                $compatibility = json_decode($this->stripUtf8Bom((string) $zip->getFromName($compatibilityEntry)), true);
+                if (! is_array($compatibility)) {
+                    throw ValidationException::withMessages(['compatibility' => ['compatibility.json must contain valid JSON.']]);
+                }
+
+                if (isset($compatibility['minimum_supported_version_code'])) {
+                    $metadata['minimum_supported_version_code'] = $compatibility['minimum_supported_version_code'];
+                }
             }
 
             $apkContents = $zip->getFromName($apkEntries[0]);
@@ -202,7 +223,7 @@ final class UpdateController extends Controller
     }
 
     /**
-     * @return array{version_name: string, version_code: int, status: string, artifact_sha256?: string|null, release_notes?: string|null}
+     * @return array{version_name: string, version_code: int, status: string, artifact_sha256?: string|null, release_notes?: string|null, minimum_supported_version_code?: int|null}
      */
     private function androidUploadData(Request $request): array
     {
@@ -224,13 +245,14 @@ final class UpdateController extends Controller
             'status' => ['required', 'in:supported,deprecated,blocked'],
             'artifact_sha256' => ['nullable', 'string', 'size:64'],
             'release_notes' => ['nullable', 'string', 'max:10000'],
+            'minimum_supported_version_code' => ['nullable', 'integer', 'min:1'],
             'apk' => ['required', 'file', 'max:512000'],
         ]);
     }
 
     /**
      * @param array<string, mixed> $metadata
-     * @return array{version_name: string, version_code: int, status: string, artifact_sha256?: string|null, release_notes?: string|null}
+     * @return array{version_name: string, version_code: int, status: string, artifact_sha256?: string|null, release_notes?: string|null, minimum_supported_version_code?: int|null}
      */
     private function validateAndroidMetadata(array $metadata): array
     {
@@ -240,6 +262,7 @@ final class UpdateController extends Controller
             'status' => ['required', 'in:supported,deprecated,blocked'],
             'artifact_sha256' => ['nullable', 'string', 'size:64'],
             'release_notes' => ['nullable', 'string', 'max:10000'],
+            'minimum_supported_version_code' => ['nullable', 'integer', 'min:1'],
         ])->validate();
     }
 
@@ -286,6 +309,33 @@ final class UpdateController extends Controller
         }
 
         return $deleted;
+    }
+
+    /**
+     * @return array{minimum_supported_version_code: int|null, blocked_versions: int}
+     */
+    private function applyAndroidCompatibilityPolicy(mixed $minimumSupportedVersionCode, AppVersion $currentVersion, Request $request): array
+    {
+        if (! is_numeric($minimumSupportedVersionCode)) {
+            return ['minimum_supported_version_code' => null, 'blocked_versions' => 0];
+        }
+
+        $minimum = (int) $minimumSupportedVersionCode;
+        SystemSetting::query()->updateOrCreate(
+            ['key' => 'updates.android.minimum_supported_version_code'],
+            ['value' => $minimum, 'is_sensitive' => false, 'updated_by' => $request->user()?->id],
+        );
+
+        $blockedVersions = AppVersion::query()
+            ->where('platform', 'android')
+            ->where('version_code', '<', $minimum)
+            ->where('status', '!=', 'blocked')
+            ->update(['status' => 'blocked']);
+
+        return [
+            'minimum_supported_version_code' => $minimum,
+            'blocked_versions' => $blockedVersions,
+        ];
     }
 
     public function downloadAndroid(AppVersion $version): BinaryFileResponse
