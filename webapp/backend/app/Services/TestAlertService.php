@@ -7,7 +7,6 @@ use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -102,7 +101,7 @@ final class TestAlertService
             ->with(['incident', 'recipients'])
             ->where('requested_by', $actor->id)
             ->whereIn('status', ['draft', 'sent', 'escalated'])
-            ->whereHas('incident', fn (Builder $incident) => $incident
+            ->whereHas('incident', fn ($incident) => $incident
                 ->where('is_test', true)
                 ->whereNotIn('status', ['resolved', 'cancelled']))
             ->get()
