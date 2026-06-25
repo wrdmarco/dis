@@ -32,4 +32,9 @@ final class DispatchRequest extends Model
     {
         return $this->hasMany(DispatchRecipient::class);
     }
+
+    public function messages(): HasMany
+    {
+        return $this->hasMany(DispatchMessage::class);
+    }
 }

@@ -165,6 +165,11 @@ final class DispatchService
     public function sendAdditionalInfo(DispatchRequest $dispatch, User $actor, string $message): array
     {
         $dispatch->load(['incident', 'recipients.user.fcmTokens']);
+        $dispatchMessage = $dispatch->messages()->create([
+            'sent_by' => $actor->id,
+            'body' => $message,
+            'created_at' => now(),
+        ]);
         $recipients = $dispatch->recipients
             ->filter(fn (DispatchRecipient $recipient): bool => $recipient->response_status === 'accepted')
             ->values();
@@ -189,6 +194,7 @@ final class DispatchService
         }
 
         $this->auditService->record('dispatch.additional_info_sent', $dispatch, $actor, [
+            'message_id' => $dispatchMessage->id,
             'recipient_users' => $recipients->count(),
             'queued_tokens' => $queuedTokens,
         ]);

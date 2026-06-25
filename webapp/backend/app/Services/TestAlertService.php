@@ -46,7 +46,7 @@ final class TestAlertService
                 'target_team_id' => null,
                 'status' => 'sent',
                 'priority' => 'normal',
-                'message' => 'Proefalarmering D.I.S - bevestig met Komt of Komt niet.',
+                'message' => 'Proefalarmering D.I.S - bevestig ontvangst.',
                 'sent_at' => now(),
             ]);
 
@@ -62,9 +62,10 @@ final class TestAlertService
                     (string) $token->id,
                     'dispatch_request',
                     'D.I.S proefalarmering',
-                    'Bevestig deze proefalarmering met Komt of Komt niet.',
+                    'Bevestig deze proefalarmering met Ontvangen.',
                     [
                         'type' => 'dispatch_request',
+                        'is_test' => 'true',
                         'dispatch_id' => (string) $dispatch->id,
                         'incident_id' => (string) $incident->id,
                     ],

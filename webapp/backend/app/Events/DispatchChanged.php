@@ -5,11 +5,11 @@ namespace App\Events;
 use App\Models\DispatchRequest;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcastAfterCommit;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-final class DispatchChanged implements ShouldBroadcastAfterCommit
+final class DispatchChanged implements ShouldBroadcastNow
 {
     use Dispatchable;
     use InteractsWithSockets;

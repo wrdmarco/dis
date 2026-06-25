@@ -153,7 +153,7 @@ export interface DispatchPreview {
 
 export interface IncidentTimelineItem {
   id: string;
-  type: 'status' | 'dispatch' | 'dispatch_response';
+  type: 'status' | 'dispatch' | 'dispatch_response' | 'dispatch_message';
   label: string;
   message?: string | null;
   created_at?: string | null;

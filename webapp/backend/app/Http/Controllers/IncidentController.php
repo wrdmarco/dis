@@ -123,7 +123,7 @@ final class IncidentController extends Controller
             ]);
 
         $dispatchItems = $incident->dispatchRequests()
-            ->with('recipients.user')
+            ->with(['recipients.user', 'messages.sender'])
             ->latest()
             ->get()
             ->flatMap(function ($dispatch): array {
@@ -142,6 +142,16 @@ final class IncidentController extends Controller
                         'label' => ($recipient->user?->name ?? 'Onbekende gebruiker').' - '.$recipient->response_status,
                         'message' => $recipient->response_note,
                         'created_at' => ($recipient->responded_at ?? $recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at)?->toIso8601String(),
+                    ];
+                }
+
+                foreach ($dispatch->messages as $message) {
+                    $items[] = [
+                        'id' => $message->id,
+                        'type' => 'dispatch_message',
+                        'label' => 'Nadere info'.($message->sender?->name ? ' - '.$message->sender->name : ''),
+                        'message' => $message->body,
+                        'created_at' => $message->created_at?->toIso8601String(),
                     ];
                 }
 

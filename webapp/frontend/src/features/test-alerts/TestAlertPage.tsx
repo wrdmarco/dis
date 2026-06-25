@@ -23,7 +23,7 @@ export function TestAlertPage() {
 
     try {
       await api.post<DispatchRequest>('/test-alert');
-      setMessage('Proefalarmering verzonden. Wacht op reactie via de Android melding.');
+      setMessage('Proefalarmering verzonden. Wacht op ontvangstbevestiging via de Android melding.');
       await testAlert.reload();
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Proefalarmering kon niet worden verzonden.');
@@ -49,8 +49,8 @@ export function TestAlertPage() {
         <div className="test-alert-hero">
           <div className="test-alert-hero__icon"><BellRing size={28} /></div>
           <div>
-            <h3>Controleer pushmelding en opkomstknoppen</h3>
-            <p>De proefalarmering wordt naar de ingelogde gebruiker gestuurd en gebruikt dezelfde Komt/Komt niet actieknoppen als een echte alarmering.</p>
+            <h3>Controleer pushmelding en ontvangstknop</h3>
+            <p>De proefalarmering wordt naar de ingelogde gebruiker gestuurd en toont alleen de knop Ontvangen.</p>
           </div>
         </div>
         {error ? <p className="form-error">{error}</p> : null}
@@ -64,8 +64,8 @@ export function TestAlertPage() {
               <SummaryItem label="Referentie" value={testAlert.data?.incident?.reference ?? '-'} />
               <SummaryItem label="Dispatch" value={testAlert.data?.status ?? '-'} />
               <SummaryItem label="Verstuurd" value={formatDate(testAlert.data?.sent_at)} />
-              <SummaryItem label="Komt" value={String(countResponses(recipients, 'accepted'))} />
-              <SummaryItem label="Komt niet" value={String(countResponses(recipients, 'declined'))} />
+              <SummaryItem label="Ontvangen" value={String(countResponses(recipients, 'accepted'))} />
+              <SummaryItem label="Niet ontvangen" value={String(countResponses(recipients, 'declined'))} />
               <SummaryItem label="Wacht op reactie" value={String(countResponses(recipients, 'pending'))} />
             </div>
 
@@ -117,9 +117,9 @@ function countResponses(recipients: DispatchRecipient[], status: DispatchRecipie
 function responseLabel(value: string): string {
   switch (value) {
     case 'accepted':
-      return 'komt';
+      return 'ontvangen';
     case 'declined':
-      return 'komt niet';
+      return 'niet ontvangen';
     case 'no_response':
       return 'geen reactie';
     default:
