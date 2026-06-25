@@ -7,6 +7,7 @@ use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -28,6 +29,8 @@ final class TestAlertService
         }
 
         return DB::transaction(function () use ($actor): DispatchRequest {
+            $this->expirePreviousTestAlerts($actor);
+
             $incident = Incident::query()->create([
                 'reference' => $this->nextReference(),
                 'title' => 'Proefalarmering',
@@ -91,6 +94,35 @@ final class TestAlertService
             ->whereHas('incident', fn ($incident) => $incident->where('is_test', true))
             ->latest()
             ->first();
+    }
+
+    private function expirePreviousTestAlerts(User $actor): void
+    {
+        DispatchRequest::query()
+            ->with(['incident', 'recipients'])
+            ->where('requested_by', $actor->id)
+            ->whereIn('status', ['draft', 'sent', 'escalated'])
+            ->whereHas('incident', fn (Builder $incident) => $incident
+                ->where('is_test', true)
+                ->whereNotIn('status', ['resolved', 'cancelled']))
+            ->get()
+            ->each(function (DispatchRequest $dispatch) use ($actor): void {
+                $dispatch->recipients()
+                    ->where('response_status', 'pending')
+                    ->update([
+                        'response_status' => 'no_response',
+                        'response_note' => 'Vervallen door nieuwe proefalarmering.',
+                        'responded_at' => now(),
+                    ]);
+
+                $dispatch->update(['status' => 'cancelled', 'cancelled_at' => now()]);
+                $dispatch->incident?->update(['status' => 'cancelled', 'closed_at' => now()]);
+
+                $this->auditService->record('test_alert.superseded', $dispatch, $actor, [
+                    'incident_id' => $dispatch->incident_id,
+                ]);
+                $this->dispatchService->broadcastDispatchChange($dispatch->refresh(), 'test_superseded');
+            });
     }
 
     private function nextReference(): string
