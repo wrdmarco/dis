@@ -1,4 +1,5 @@
-import { CheckCircle2, ClipboardList, KeyRound, Send, Settings2, Smartphone } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, KeyRound, Send, Settings2, Smartphone } from 'lucide-react';
+import { useMemo, useState } from 'react';
 
 interface FirebaseSetupWizardProps {
   androidApplicationId?: string;
@@ -8,11 +9,11 @@ interface FirebaseSetupWizardProps {
 const consoleUrl = 'https://console.firebase.google.com/';
 
 export function FirebaseSetupWizard({ androidApplicationId = 'nl.wrdmarco.dis', compact = false }: FirebaseSetupWizardProps) {
-  const steps = [
+  const steps = useMemo(() => [
     {
       title: 'Firebase project',
       icon: Settings2,
-      body: 'Maak of kies een Firebase project. Gebruik dezelfde project id voor FCM server push en voor de mobiele appconfiguratie.',
+      body: 'Maak of kies een Firebase project. De project id gebruik je straks in de DIS velden.',
       checks: [
         'Open Firebase Console en maak een project aan.',
         'Noteer de project id, niet alleen de weergavenaam.',
@@ -22,10 +23,10 @@ export function FirebaseSetupWizard({ androidApplicationId = 'nl.wrdmarco.dis', 
     {
       title: 'Android app',
       icon: Smartphone,
-      body: `Registreer een Android app met package name ${androidApplicationId}. Deze waarde moet exact gelijk zijn aan de APK applicationId.`,
+      body: `Registreer een Android app met package name ${androidApplicationId}. Dit moet exact overeenkomen met de APK.`,
       checks: [
         `Android package name: ${androidApplicationId}`,
-        'Neem de Firebase appwaarden over in de DIS webpagina; plaats geen google-services.json op de server.',
+        'Neem application id, API key, project id, sender id en storage bucket over in DIS.',
         'Vul application id, API key, project id, sender id en storage bucket in de DIS velden hieronder in.',
       ],
     },
@@ -44,9 +45,9 @@ export function FirebaseSetupWizard({ androidApplicationId = 'nl.wrdmarco.dis', 
       icon: KeyRound,
       body: 'Push vanaf de backend gebruikt service-accountgegevens die je via deze webpagina opslaat.',
       checks: [
-        'Firebase Console > Project settings > Service accounts > Generate new private key.',
-        'Open de key lokaal en kopieer client_email, private_key en private_key_id in DIS.',
-        'Upload of plaats geen JSON-bestand op de server.',
+        'Open Project settings > Service accounts in Firebase Console.',
+        'Maak een private key aan en open die alleen lokaal op je eigen computer.',
+        'Kopieer client_email, private_key, private_key_id, client_id en cert URL naar de DIS velden.',
       ],
     },
     {
@@ -59,7 +60,10 @@ export function FirebaseSetupWizard({ androidApplicationId = 'nl.wrdmarco.dis', 
         'Admin > Handmatige push melding geeft queued tokens groter dan 0.',
       ],
     },
-  ];
+  ], [androidApplicationId]);
+  const [activeStep, setActiveStep] = useState(0);
+  const step = steps[activeStep];
+  const Icon = step.icon;
 
   return (
     <div className={compact ? 'firebase-wizard firebase-wizard--compact' : 'firebase-wizard'}>
@@ -71,26 +75,46 @@ export function FirebaseSetupWizard({ androidApplicationId = 'nl.wrdmarco.dis', 
         </div>
         <a className="secondary-button" href={consoleUrl} target="_blank" rel="noreferrer">Firebase Console</a>
       </div>
-      <div className="firebase-wizard__steps">
+      <div className="firebase-wizard__nav" role="tablist" aria-label="Firebase setup stappen">
         {steps.map((step, index) => {
           const Icon = step.icon;
           return (
-            <section className="firebase-step" key={step.title}>
-              <div className="firebase-step__heading">
-                <span>{index + 1}</span>
-                <Icon size={18} />
-                <strong>{step.title}</strong>
-              </div>
-              <p>{step.body}</p>
-              <ul>
-                {step.checks.map((check) => (
-                  <li key={check}>{check}</li>
-                ))}
-              </ul>
-            </section>
+            <button
+              className={index === activeStep ? 'firebase-wizard__tab firebase-wizard__tab--active' : 'firebase-wizard__tab'}
+              key={step.title}
+              type="button"
+              role="tab"
+              aria-selected={index === activeStep}
+              onClick={() => setActiveStep(index)}
+            >
+              <span>{index + 1}</span>
+              <Icon size={16} />
+              <strong>{step.title}</strong>
+            </button>
           );
         })}
       </div>
+      <section className="firebase-step" aria-live="polite">
+        <div className="firebase-step__heading">
+          <span>{activeStep + 1}</span>
+          <Icon size={18} />
+          <strong>{step.title}</strong>
+        </div>
+        <p>{step.body}</p>
+        <ul>
+          {step.checks.map((check) => (
+            <li key={check}>{check}</li>
+          ))}
+        </ul>
+        <div className="firebase-step__actions">
+          <button className="secondary-button" type="button" disabled={activeStep === 0} onClick={() => setActiveStep((current) => Math.max(0, current - 1))}>
+            <ChevronLeft size={16} /> Vorige
+          </button>
+          <button className="primary-button" type="button" disabled={activeStep === steps.length - 1} onClick={() => setActiveStep((current) => Math.min(steps.length - 1, current + 1))}>
+            Volgende <ChevronRight size={16} />
+          </button>
+        </div>
+      </section>
     </div>
   );
 }

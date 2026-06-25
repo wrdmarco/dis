@@ -527,7 +527,7 @@ function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
     pushLogRetentionDays: asStringOrNumber(byKey.get('retention.push_logs_days'), '90'),
     auditLogRetentionDays: asStringOrNumber(byKey.get('retention.audit_logs_days'), '3650'),
     locationRetentionDays: asStringOrNumber(byKey.get('retention.location_days'), '30'),
-    androidApplicationId: asString(byKey.get('updates.android.application_id')) || 'nl.nationaaldroneteam.dis',
+    androidApplicationId: asString(byKey.get('updates.android.application_id')) || 'nl.wrdmarco.dis',
   };
 }
 

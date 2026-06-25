@@ -40,7 +40,7 @@ final class SystemSettingSeeder extends Seeder
         'retention.push_logs_days' => ['value' => 90, 'is_sensitive' => false],
         'retention.audit_logs_days' => ['value' => 3650, 'is_sensitive' => false],
         'retention.location_days' => ['value' => 30, 'is_sensitive' => false],
-        'updates.android.application_id' => ['value' => 'nl.nationaaldroneteam.dis', 'is_sensitive' => false],
+        'updates.android.application_id' => ['value' => 'nl.wrdmarco.dis', 'is_sensitive' => false],
         'mobile.tenant_name' => ['value' => 'Nationaal Droneteam', 'is_sensitive' => false],
         'mobile.api_base_url' => ['value' => '', 'is_sensitive' => false],
         'mobile.firebase_config' => ['value' => [

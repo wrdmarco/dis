@@ -13,7 +13,7 @@ return [
         'default_retention_days' => (int) env('LOCATION_RETENTION_DAYS', 30),
     ],
     'updates' => [
-        'android_application_id' => env('ANDROID_APPLICATION_ID', 'nl.nationaaldroneteam.dis'),
+        'android_application_id' => env('ANDROID_APPLICATION_ID', 'nl.wrdmarco.dis'),
     ],
     'retention' => [
         'push_logs_days' => (int) env('PUSH_LOG_RETENTION_DAYS', 90),

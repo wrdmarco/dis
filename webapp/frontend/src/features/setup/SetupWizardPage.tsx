@@ -407,8 +407,8 @@ export function SetupWizardPage() {
       return (
         <>
           <div className="setup-copy">
-            <strong>Geen JSON-bestand op de server plaatsen.</strong>
-            <p>Open de Firebase private key lokaal en kopieer alleen onderstaande waarden in deze webpagina.</p>
+            <strong>Alles via deze webpagina.</strong>
+            <p>Kopieer de Firebase service-accountwaarden naar onderstaande velden. Er hoeft niets handmatig op de server geplaatst te worden.</p>
           </div>
           <div className="form-grid">
             <label>
