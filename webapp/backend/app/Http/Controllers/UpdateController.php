@@ -117,6 +117,11 @@ final class UpdateController extends Controller
             'release_zip' => $request->hasFile('release_zip'),
         ]);
 
+        $pruned = $this->pruneOldAndroidArtifacts($version->refresh());
+        if ($pruned > 0) {
+            $this->auditService->record('updates.android_artifacts_pruned', $version, $request->user(), ['artifact_count' => $pruned]);
+        }
+
         if (($zipUpload['apk_path'] ?? null) !== null) {
             @unlink((string) $zipUpload['apk_path']);
         }
@@ -249,6 +254,38 @@ final class UpdateController extends Controller
         $filename = preg_replace('/[^A-Za-z0-9._-]/', '-', $filename) ?: 'dis.apk';
 
         return 'android-apks/'.$filename;
+    }
+
+    private function pruneOldAndroidArtifacts(AppVersion $currentVersion): int
+    {
+        $currentPath = $this->androidArtifactPath($currentVersion);
+        $deleted = 0;
+
+        AppVersion::query()
+            ->where('platform', 'android')
+            ->where('id', '!=', $currentVersion->id)
+            ->whereNotNull('download_url')
+            ->get()
+            ->each(function (AppVersion $version) use ($currentPath, &$deleted): void {
+                $path = $this->androidArtifactPath($version);
+                if ($path !== $currentPath && Storage::disk('local')->exists($path)) {
+                    Storage::disk('local')->delete($path);
+                    $deleted++;
+                }
+
+                $version->update(['download_url' => null]);
+            });
+
+        foreach (Storage::disk('local')->files('android-apks') as $path) {
+            if (! str_ends_with(strtolower($path), '.apk') || $path === $currentPath) {
+                continue;
+            }
+
+            Storage::disk('local')->delete($path);
+            $deleted++;
+        }
+
+        return $deleted;
     }
 
     public function downloadAndroid(AppVersion $version): BinaryFileResponse
