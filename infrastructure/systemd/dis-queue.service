@@ -10,12 +10,11 @@ WorkingDirectory=/opt/dis/webapp/backend
 ExecStart=/usr/bin/php artisan queue:work redis --queue=default,push,broadcasts --sleep=1 --tries=3 --timeout=90
 Restart=always
 RestartSec=5
-NoNewPrivileges=true
+NoNewPrivileges=false
 PrivateTmp=true
-ProtectSystem=full
+ProtectSystem=false
 ProtectHome=true
-CapabilityBoundingSet=
-RestrictSUIDSGID=true
+RestrictSUIDSGID=false
 LockPersonality=true
 ReadWritePaths=/opt/dis/webapp/backend/storage /opt/dis/storage
 

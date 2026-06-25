@@ -28,7 +28,7 @@ ensure_directory "${DIS_INSTALL_PATH}/secrets" root "${DIS_GROUP}" 0750
 log "Installing required Ubuntu packages"
 run_cmd apt-get update
 run_cmd apt-get install -y \
-  acl ca-certificates curl git gnupg jq openssl rsync unzip \
+  acl ca-certificates curl git gnupg jq openssl rsync sudo unzip \
   nginx postgresql postgresql-client redis-server redis-tools \
   "php${PHP_VERSION}-fpm" "php${PHP_VERSION}-cli" "php${PHP_VERSION}-pgsql" "php${PHP_VERSION}-redis" \
   "php${PHP_VERSION}-mbstring" "php${PHP_VERSION}-xml" "php${PHP_VERSION}-curl" "php${PHP_VERSION}-zip" \

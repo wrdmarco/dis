@@ -55,6 +55,18 @@ final class UpdateController extends Controller
 
     public function uploadAndroid(Request $request): JsonResponse
     {
+        return $this->storeAndroidUpload($request, 'admin');
+    }
+
+    public function developerUploadAndroid(Request $request): JsonResponse
+    {
+        $this->authorizeDeveloperUpload($request);
+
+        return $this->storeAndroidUpload($request, 'developer_api');
+    }
+
+    private function storeAndroidUpload(Request $request, string $source): JsonResponse
+    {
         $zipUpload = $this->androidZipUpload($request);
         $data = $zipUpload['data'] ?? $this->androidUploadData($request);
 
@@ -115,6 +127,7 @@ final class UpdateController extends Controller
             'artifact_path' => $path,
             'artifact_size_bytes' => $apkSize,
             'release_zip' => $request->hasFile('release_zip'),
+            'source' => $source,
         ]);
 
         $compatibilityChanges = $this->applyAndroidCompatibilityPolicy($data['minimum_supported_version_code'] ?? null, $version, $request);
@@ -132,6 +145,22 @@ final class UpdateController extends Controller
         }
 
         return ApiResponse::success($version->refresh(), 201);
+    }
+
+    private function authorizeDeveloperUpload(Request $request): void
+    {
+        $providedKey = (string) $request->header('X-DIS-Developer-Key', '');
+        $setting = SystemSetting::query()->find('developer.android_upload');
+        $value = is_array($setting?->value) ? $setting->value : [];
+        $expectedHash = $value['key_hash'] ?? null;
+
+        if (($value['enabled'] ?? false) !== true || ! is_string($expectedHash) || $expectedHash === '') {
+            abort(403, 'Developer upload is disabled.');
+        }
+
+        if ($providedKey === '' || ! hash_equals($expectedHash, hash('sha256', $providedKey))) {
+            abort(401, 'Invalid developer upload key.');
+        }
     }
 
     /**

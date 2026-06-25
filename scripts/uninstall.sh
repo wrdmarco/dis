@@ -191,6 +191,10 @@ for unit in \
     run_cmd rm -f -- "${unit}"
   fi
 done
+
+if [ -f /etc/sudoers.d/dis-update ]; then
+  run_cmd rm -f /etc/sudoers.d/dis-update
+fi
 run_cmd systemctl daemon-reload
 
 log "Removing DIS Nginx configuration"

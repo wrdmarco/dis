@@ -4,8 +4,9 @@ import { ResourceState } from '../../components/ResourceState';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { parseFirebaseJson } from '../../lib/firebaseConfigImport';
 import { formatDateTime } from '../../lib/dateTime';
+import { createRealtime } from '../../lib/realtime';
 import { useApiResource } from '../../lib/useApiResource';
-import type { FcmToken, Role, SystemSetting } from '../../types/api';
+import type { DeveloperAccessState, FcmToken, Role, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { useEffect, useMemo, useState } from 'react';
 import { ApiClientError } from '../../lib/apiClient';
@@ -50,7 +51,7 @@ interface PasswordPolicySettingsForm {
   uncompromised: boolean;
 }
 
-type AdminTab = 'access' | 'firebase' | 'mail' | 'system' | 'passwords' | 'tokens' | 'settings';
+type AdminTab = 'access' | 'firebase' | 'mail' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'settings';
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'access', label: 'Toegang' },
@@ -58,15 +59,19 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'mail', label: 'Mail' },
   { id: 'system', label: 'Systeem' },
   { id: 'passwords', label: 'Wachtwoorden' },
+  { id: 'developer', label: 'Ontwikkel' },
+  { id: 'version', label: 'Versie' },
   { id: 'tokens', label: 'Tokens' },
   { id: 'settings', label: 'Instellingen' },
 ];
 
 export function AdminPage() {
-  const { api } = useAuth();
+  const { api, token } = useAuth();
   const roles = useApiResource<Role[]>('/admin/roles');
   const settings = useApiResource<SystemSetting[]>('/admin/settings');
   const tokens = useApiResource<FcmToken[]>('/admin/push/tokens?per_page=100');
+  const developerAccess = useApiResource<DeveloperAccessState>('/admin/developer-access');
+  const systemVersion = useApiResource<SystemVersionState>('/admin/system/version');
   const mobileSettings = useMemo(() => toMobileSettingsForm(settings.data ?? []), [settings.data]);
   const managedSettings = useMemo(() => toManagedSettingsForm(settings.data ?? []), [settings.data]);
   const passwordPolicySettings = useMemo(() => toPasswordPolicySettingsForm(settings.data ?? []), [settings.data]);
@@ -81,6 +86,12 @@ export function AdminPage() {
   const [tokenActionId, setTokenActionId] = useState<string | null>(null);
   const [tokenActionError, setTokenActionError] = useState<string | null>(null);
   const [roleActionId, setRoleActionId] = useState<string | null>(null);
+  const [developerActionError, setDeveloperActionError] = useState<string | null>(null);
+  const [generatedDeveloperKey, setGeneratedDeveloperKey] = useState<string | null>(null);
+  const [developerSaving, setDeveloperSaving] = useState(false);
+  const [updaterStatus, setUpdaterStatus] = useState<SystemUpdateStatus | null>(null);
+  const [updateActionError, setUpdateActionError] = useState<string | null>(null);
+  const [updateStarting, setUpdateStarting] = useState(false);
 
   useEffect(() => {
     setForm(mobileSettings);
@@ -97,6 +108,33 @@ export function AdminPage() {
   useEffect(() => {
     setPasswordPolicyForm(passwordPolicySettings);
   }, [passwordPolicySettings]);
+
+  useEffect(() => {
+    setUpdaterStatus(systemVersion.data?.updater ?? null);
+  }, [systemVersion.data?.updater]);
+
+  const reloadSystemVersionSilently = systemVersion.silentReload;
+
+  useEffect(() => {
+    if (token === null) {
+      return;
+    }
+
+    const echo = createRealtime({
+      token,
+      onSystemUpdateStatus: (payload) => {
+        const status = payload as SystemUpdateStatus;
+        setUpdaterStatus(status);
+        if (status.state === 'succeeded' || status.state === 'failed') {
+          void reloadSystemVersionSilently();
+        }
+      },
+    });
+
+    return () => {
+      echo.leave('private-admin.system');
+    };
+  }, [reloadSystemVersionSilently, token]);
 
   async function saveMobileSettings() {
     setSaving(true);
@@ -295,6 +333,49 @@ export function AdminPage() {
       await roles.reload();
     } finally {
       setRoleActionId(null);
+    }
+  }
+
+  async function generateDeveloperKey() {
+    setDeveloperSaving(true);
+    setDeveloperActionError(null);
+    setGeneratedDeveloperKey(null);
+    try {
+      const response = await api.post<DeveloperAccessState>('/admin/developer-access/key');
+      setGeneratedDeveloperKey(response.data.api_key ?? null);
+      await developerAccess.reload();
+    } catch (error) {
+      setDeveloperActionError(error instanceof ApiClientError ? error.message : 'Developer sleutel genereren mislukt.');
+    } finally {
+      setDeveloperSaving(false);
+    }
+  }
+
+  async function disableDeveloperKey() {
+    setDeveloperSaving(true);
+    setDeveloperActionError(null);
+    setGeneratedDeveloperKey(null);
+    try {
+      await api.delete<DeveloperAccessState>('/admin/developer-access/key');
+      await developerAccess.reload();
+    } catch (error) {
+      setDeveloperActionError(error instanceof ApiClientError ? error.message : 'Developer toegang uitschakelen mislukt.');
+    } finally {
+      setDeveloperSaving(false);
+    }
+  }
+
+  async function startServerUpdate() {
+    setUpdateStarting(true);
+    setUpdateActionError(null);
+    try {
+      const response = await api.post<SystemUpdateStatus>('/admin/system/update');
+      setUpdaterStatus(response.data);
+      await systemVersion.silentReload();
+    } catch (error) {
+      setUpdateActionError(error instanceof ApiClientError ? error.message : 'Update starten mislukt.');
+    } finally {
+      setUpdateStarting(false);
     }
   }
 
@@ -587,6 +668,105 @@ export function AdminPage() {
         </Panel>
       ) : null}
 
+      {activeTab === 'developer' ? (
+        <Panel title="Tijdelijke ontwikkeltoegang">
+          <ResourceState loading={developerAccess.loading} error={developerAccess.error} empty={!developerAccess.data}>
+            <div className="setup-copy">
+              <strong>Android release upload via API-key</strong>
+              <p>Gebruik deze tijdelijke sleutel alleen voor ontwikkel/deploy werk. De sleutel wordt eenmalig getoond; de server bewaart alleen een hash. Uitschakelen blokkeert direct uploads via deze sleutel.</p>
+            </div>
+            <dl className="definition-grid">
+              <dt>Status</dt>
+              <dd>{developerAccess.data?.enabled ? 'Ingeschakeld' : 'Uitgeschakeld'}</dd>
+              <dt>Sleutel aanwezig</dt>
+              <dd>{developerAccess.data?.configured ? 'Ja' : 'Nee'}</dd>
+              <dt>Gegenereerd</dt>
+              <dd>{formatDate(developerAccess.data?.generated_at)}</dd>
+              <dt>Uitgeschakeld</dt>
+              <dd>{formatDate(developerAccess.data?.disabled_at)}</dd>
+              <dt>Upload endpoint</dt>
+              <dd className="mono">POST /api/developer/android/upload</dd>
+              <dt>Header</dt>
+              <dd className="mono">X-DIS-Developer-Key</dd>
+            </dl>
+            {generatedDeveloperKey ? (
+              <div className="metadata-example">
+                <strong>Nieuwe sleutel, eenmalig zichtbaar</strong>
+                <pre>{generatedDeveloperKey}</pre>
+              </div>
+            ) : null}
+            {developerActionError ? <p className="form-error">{developerActionError}</p> : null}
+            <div className="actions-row">
+              <button className="secondary-button" type="button" onClick={() => void disableDeveloperKey()} disabled={developerSaving || !developerAccess.data?.enabled}>
+                Ontwikkeltoegang uitzetten
+              </button>
+              <button className="primary-button" type="button" onClick={() => void generateDeveloperKey()} disabled={developerSaving}>
+                {developerSaving ? 'Bezig...' : 'Nieuwe API-key genereren'}
+              </button>
+            </div>
+          </ResourceState>
+        </Panel>
+      ) : null}
+
+      {activeTab === 'version' ? (
+        <>
+          <Panel title="DIS versie">
+            <ResourceState loading={systemVersion.loading} error={systemVersion.error} empty={!systemVersion.data}>
+              <dl className="definition-grid">
+                <dt>Applicatieversie</dt>
+                <dd>{systemVersion.data?.app_version ?? '-'}</dd>
+                <dt>Branch</dt>
+                <dd>{systemVersion.data?.git.branch ?? '-'}</dd>
+                <dt>Lokale commit</dt>
+                <dd className="mono">{shortCommit(systemVersion.data?.git.current_commit)}</dd>
+                <dt>Remote</dt>
+                <dd>{systemVersion.data?.git.upstream ?? '-'}</dd>
+                <dt>Laatste remote commit</dt>
+                <dd className="mono">{shortCommit(systemVersion.data?.git.latest_commit)}</dd>
+                <dt>Status</dt>
+                <dd>
+                  {systemVersion.data?.git.update_available
+                    ? `${systemVersion.data.git.behind ?? 0} commit(s) achter`
+                    : 'Laatste versie actief'}
+                </dd>
+              </dl>
+              {updateActionError ? <p className="form-error">{updateActionError}</p> : null}
+              <div className="actions-row">
+                <button className="secondary-button" type="button" onClick={() => void systemVersion.reload()}>
+                  Controleer opnieuw
+                </button>
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={updateStarting || updaterStatus?.state === 'running' || !systemVersion.data?.git.update_available}
+                  onClick={() => void startServerUpdate()}
+                >
+                  {updaterStatus?.state === 'running' ? 'Update draait...' : updateStarting ? 'Starten...' : 'Update uitvoeren'}
+                </button>
+              </div>
+            </ResourceState>
+          </Panel>
+          <Panel title="Updater status">
+            <dl className="definition-grid">
+              <dt>Status</dt>
+              <dd>{updaterStatus?.state ?? 'idle'}</dd>
+              <dt>Laatste melding</dt>
+              <dd>{updaterStatus?.message ?? '-'}</dd>
+              <dt>Gestart</dt>
+              <dd>{formatDate(updaterStatus?.started_at)}</dd>
+              <dt>Afgerond</dt>
+              <dd>{formatDate(updaterStatus?.finished_at)}</dd>
+              <dt>Exit code</dt>
+              <dd>{updaterStatus?.exit_code ?? '-'}</dd>
+            </dl>
+            <div className="metadata-example">
+              <strong>Live log</strong>
+              <pre>{(updaterStatus?.log ?? []).join('\n') || 'Nog geen updater output.'}</pre>
+            </div>
+          </Panel>
+        </>
+      ) : null}
+
       {activeTab === 'tokens' ? (
         <Panel title="Firebase tokens">
           {tokenActionError ? <p className="form-error">{tokenActionError}</p> : null}
@@ -643,6 +823,10 @@ export function AdminPage() {
 
 function formatDate(value?: string | null): string {
   return formatDateTime(value);
+}
+
+function shortCommit(value?: string | null): string {
+  return value !== undefined && value !== null && value !== '' ? value.slice(0, 12) : '-';
 }
 
 function toMobileSettingsForm(settings: SystemSetting[]): MobileSettingsForm {

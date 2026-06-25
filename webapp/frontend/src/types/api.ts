@@ -212,6 +212,36 @@ export interface AppVersion {
   download_url?: string | null;
 }
 
+export interface DeveloperAccessState {
+  enabled: boolean;
+  configured: boolean;
+  generated_at?: string | null;
+  disabled_at?: string | null;
+  api_key?: string;
+}
+
+export interface SystemUpdateStatus {
+  state: 'idle' | 'running' | 'succeeded' | 'failed';
+  started_at?: string | null;
+  finished_at?: string | null;
+  exit_code?: number | null;
+  message?: string | null;
+  log?: string[];
+}
+
+export interface SystemVersionState {
+  app_version: string;
+  git: {
+    current_commit?: string | null;
+    branch?: string | null;
+    upstream?: string | null;
+    latest_commit?: string | null;
+    behind?: number | null;
+    update_available: boolean;
+  };
+  updater: SystemUpdateStatus;
+}
+
 export interface SystemSetting {
   key: string;
   value: unknown;

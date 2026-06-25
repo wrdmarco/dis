@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AdminController;
+use App\Http\Controllers\AdminDeveloperController;
 use App\Http\Controllers\AdminPushController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AuthController;
@@ -31,6 +32,7 @@ Route::post('/setup/complete', [SetupController::class, 'complete'])->middleware
 Route::get('/mobile/config', [MobileConfigController::class, 'show'])->middleware('throttle:mobile-public');
 Route::get('/updates/android/current', [UpdateController::class, 'androidCurrent'])->middleware('throttle:mobile-public');
 Route::get('/updates/android/{version}/download', [UpdateController::class, 'downloadAndroid'])->middleware('throttle:mobile-public');
+Route::post('/developer/android/upload', [UpdateController::class, 'developerUploadAndroid'])->middleware('throttle:api');
 Route::get('/health', [HealthController::class, 'public'])->middleware('throttle:api');
 
 Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(function (): void {
@@ -127,6 +129,11 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/admin/audit-logs', [AdminController::class, 'auditLogs'])->middleware('permission:audit.view');
     Route::get('/admin/settings', [AdminController::class, 'settings'])->middleware('permission:settings.manage');
     Route::patch('/admin/settings', [AdminController::class, 'updateSettings'])->middleware('permission:settings.manage');
+    Route::get('/admin/developer-access', [AdminDeveloperController::class, 'developerAccess'])->middleware('permission:settings.manage');
+    Route::post('/admin/developer-access/key', [AdminDeveloperController::class, 'generateDeveloperKey'])->middleware('permission:settings.manage');
+    Route::delete('/admin/developer-access/key', [AdminDeveloperController::class, 'disableDeveloperKey'])->middleware('permission:settings.manage');
+    Route::get('/admin/system/version', [AdminDeveloperController::class, 'version'])->middleware('permission:system.health');
+    Route::post('/admin/system/update', [AdminDeveloperController::class, 'runUpdate'])->middleware('permission:system.health');
     Route::get('/admin/push/logs', [AdminController::class, 'pushLogs'])->middleware('permission:push.manage');
     Route::get('/admin/push/tokens', [AdminPushController::class, 'tokens'])->middleware('permission:push.manage');
     Route::post('/admin/push/tokens/{token}/revoke', [AdminPushController::class, 'revoke'])->middleware('permission:push.manage');

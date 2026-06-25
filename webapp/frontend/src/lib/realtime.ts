@@ -9,7 +9,8 @@ declare global {
 
 export interface RealtimeOptions {
   token: string;
-  onOperationalEvent: () => void;
+  onOperationalEvent?: () => void;
+  onSystemUpdateStatus?: (payload: unknown) => void;
 }
 
 export function createRealtime(options: RealtimeOptions): Echo<'reverb'> {
@@ -31,12 +32,19 @@ export function createRealtime(options: RealtimeOptions): Echo<'reverb'> {
     },
   });
 
-  echo.private('operations')
-    .listen('.incident.changed', options.onOperationalEvent)
-    .listen('.dispatch.changed', options.onOperationalEvent)
-    .listen('.location.updated', options.onOperationalEvent)
-    .listen('.availability.changed', options.onOperationalEvent)
-    .listen('.asset.changed', options.onOperationalEvent);
+  if (options.onOperationalEvent !== undefined) {
+    echo.private('operations')
+      .listen('.incident.changed', options.onOperationalEvent)
+      .listen('.dispatch.changed', options.onOperationalEvent)
+      .listen('.location.updated', options.onOperationalEvent)
+      .listen('.availability.changed', options.onOperationalEvent)
+      .listen('.asset.changed', options.onOperationalEvent);
+  }
+
+  if (options.onSystemUpdateStatus !== undefined) {
+    echo.private('admin.system')
+      .listen('.system.update.status', options.onSystemUpdateStatus);
+  }
 
   return echo;
 }
