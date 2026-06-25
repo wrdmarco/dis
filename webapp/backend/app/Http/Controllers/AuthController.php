@@ -33,12 +33,19 @@ final class AuthController extends Controller
             return ApiResponse::error('forbidden', 'The account is not active.', 403);
         }
 
+        $tokenName = $request->validated('device_name') ?? 'DIS API';
         $requiresTwoFactor = $user->roles->contains(fn ($role) => $role->requires_two_factor);
         if ($requiresTwoFactor && ! $user->two_factor_enabled) {
-            return ApiResponse::error('forbidden', 'Two-factor authentication is required for this account.', 403);
-        }
+            $token = $user->createToken($tokenName, ['2fa:setup'], now()->addMinutes(30))->plainTextToken;
+            $this->auditService->record('auth.2fa_setup_required', $user, $user, [], null, $request);
 
-        $tokenName = $request->validated('device_name') ?? 'DIS API';
+            return ApiResponse::success([
+                'requires_2fa' => false,
+                'requires_2fa_setup' => true,
+                'token' => $token,
+                'user' => $user,
+            ], 202);
+        }
 
         if ($requiresTwoFactor) {
             $token = $user->createToken($tokenName, ['2fa:pending'], now()->addMinutes(10))->plainTextToken;
@@ -81,6 +88,102 @@ final class AuthController extends Controller
         ]);
     }
 
+    public function setupTwoFactor(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        if ($user === null) {
+            return ApiResponse::error('unauthenticated', 'Authentication is required.', 401);
+        }
+
+        if ($user->two_factor_enabled) {
+            return ApiResponse::success([
+                'enabled' => true,
+                'secret' => null,
+                'provisioning_uri' => null,
+            ]);
+        }
+
+        $secret = $this->twoFactorService->generateSecret();
+        $user->forceFill([
+            'two_factor_secret' => $secret,
+            'two_factor_confirmed_at' => null,
+        ])->save();
+        $this->auditService->record('auth.2fa_setup_started', $user, $user, [], null, $request);
+
+        return ApiResponse::success([
+            'enabled' => false,
+            'secret' => $secret,
+            'provisioning_uri' => $this->twoFactorService->provisioningUri($user, $secret),
+        ]);
+    }
+
+    public function enableTwoFactor(Request $request): JsonResponse
+    {
+        $request->validate(['code' => ['required', 'digits:6'], 'device_name' => ['nullable', 'string', 'max:120']]);
+        $user = $request->user();
+
+        if ($user === null) {
+            return ApiResponse::error('unauthenticated', 'Authentication is required.', 401);
+        }
+
+        if (! $this->twoFactorService->verify($user, (string) $request->input('code'))) {
+            $this->auditService->record('auth.2fa_enable_failed', $user, $user, [], null, $request);
+            throw ValidationException::withMessages(['code' => ['The two-factor code is invalid.']]);
+        }
+
+        $user->forceFill([
+            'two_factor_enabled' => true,
+            'two_factor_confirmed_at' => now(),
+            'two_factor_recovery_codes' => $this->twoFactorService->generateRecoveryCodes(),
+            'last_login_at' => now(),
+        ])->save();
+        $request->user()?->currentAccessToken()?->delete();
+        $this->auditService->record('auth.2fa_enabled', $user, $user, [], null, $request);
+
+        return ApiResponse::success([
+            'token' => $user->createToken((string) ($request->input('device_name') ?? 'DIS Command Center'), ['*'])->plainTextToken,
+            'user' => $user->load(['roles.permissions', 'teams']),
+            'recovery_codes' => $user->two_factor_recovery_codes,
+        ]);
+    }
+
+    public function disableTwoFactor(Request $request): JsonResponse
+    {
+        $request->validate([
+            'password' => ['required', 'string'],
+            'code' => ['required', 'digits:6'],
+        ]);
+        $user = $request->user();
+
+        if ($user === null) {
+            return ApiResponse::error('unauthenticated', 'Authentication is required.', 401);
+        }
+
+        if ($user->roles()->where('requires_two_factor', true)->exists()) {
+            return ApiResponse::error('two_factor_required_by_role', 'Two-factor authentication is required by one or more assigned roles.', 422);
+        }
+
+        if (! Hash::check((string) $request->input('password'), $user->password)) {
+            throw ValidationException::withMessages(['password' => ['The password is invalid.']]);
+        }
+
+        if (! $this->twoFactorService->verify($user, (string) $request->input('code'))) {
+            $this->auditService->record('auth.2fa_disable_failed', $user, $user, [], null, $request);
+            throw ValidationException::withMessages(['code' => ['The two-factor code is invalid.']]);
+        }
+
+        $user->forceFill([
+            'two_factor_enabled' => false,
+            'two_factor_secret' => null,
+            'two_factor_recovery_codes' => null,
+            'two_factor_confirmed_at' => null,
+        ])->save();
+        $this->auditService->record('auth.2fa_disabled', $user, $user, [], null, $request);
+
+        return ApiResponse::success($user->load(['roles.permissions', 'teams']));
+    }
+
     public function me(Request $request): JsonResponse
     {
         return ApiResponse::success($request->user()?->load(['roles.permissions', 'teams', 'statuses' => fn ($query) => $query->latest('effective_at')->limit(1)]));
@@ -93,4 +196,3 @@ final class AuthController extends Controller
         return ApiResponse::success(null, 204);
     }
 }
-

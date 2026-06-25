@@ -1,4 +1,5 @@
 import { Panel } from '../../components/Panel';
+import { FirebaseSetupWizard } from '../../components/FirebaseSetupWizard';
 import { ResourceState } from '../../components/ResourceState';
 import { useApiResource } from '../../lib/useApiResource';
 import type { FcmToken, ManualPushResult, Role, SystemSetting, Team, User } from '../../types/api';
@@ -67,6 +68,7 @@ export function AdminPage() {
   const [pushResult, setPushResult] = useState<string | null>(null);
   const [pushError, setPushError] = useState<string | null>(null);
   const [tokenActionId, setTokenActionId] = useState<string | null>(null);
+  const [roleActionId, setRoleActionId] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(mobileSettings);
@@ -165,19 +167,39 @@ export function AdminPage() {
     }
   }
 
+  async function toggleRoleMfa(role: Role) {
+    setRoleActionId(role.id);
+    try {
+      await api.patch(`/admin/roles/${role.id}`, { requires_two_factor: !role.requires_two_factor });
+      await roles.reload();
+    } finally {
+      setRoleActionId(null);
+    }
+  }
+
   return (
     <div className="page-stack">
       <div className="two-column">
         <Panel title="Rollen">
           <ResourceState loading={roles.loading} error={roles.error} empty={(roles.data?.length ?? 0) === 0}>
             <table className="data-table">
-              <thead><tr><th>Naam</th><th>2FA</th><th>Permissies</th></tr></thead>
+              <thead><tr><th>Naam</th><th>2FA</th><th>Permissies</th><th>Actie</th></tr></thead>
               <tbody>
                 {roles.data?.map((role) => (
                   <tr key={role.id}>
                     <td>{role.display_name}</td>
                     <td>{role.requires_two_factor ? 'Verplicht' : 'Niet verplicht'}</td>
                     <td>{role.permissions?.length ?? 0}</td>
+                    <td>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={roleActionId === role.id}
+                        onClick={() => void toggleRoleMfa(role)}
+                      >
+                        {role.requires_two_factor ? 'MFA uit' : 'MFA aan'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -201,6 +223,9 @@ export function AdminPage() {
           </ResourceState>
         </Panel>
       </div>
+      <Panel title="Firebase setup wizard">
+        <FirebaseSetupWizard androidApplicationId={managedForm.androidApplicationId || 'nl.wrdmarco.dis'} />
+      </Panel>
       <Panel title="Mobiele app tenantconfiguratie">
         <div className="form-grid">
           <label>

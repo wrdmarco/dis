@@ -1,9 +1,10 @@
 import { createContext, useContext, useMemo, useState } from 'react';
 import { ApiClient, apiBaseUrl } from '../../lib/apiClient';
-import type { User } from '../../types/api';
+import type { TwoFactorEnableResult, TwoFactorSetup, User } from '../../types/api';
 
 interface LoginResult {
   requires_2fa: boolean;
+  requires_2fa_setup?: boolean;
   token: string;
   user?: User;
 }
@@ -17,6 +18,9 @@ interface AuthContextValue {
   clearSession: () => void;
   login: (email: string, password: string) => Promise<LoginResult>;
   verifyTwoFactor: (code: string) => Promise<User>;
+  startTwoFactorSetup: () => Promise<TwoFactorSetup>;
+  enableTwoFactor: (code: string) => Promise<TwoFactorEnableResult>;
+  disableTwoFactor: (password: string, code: string) => Promise<User>;
   refreshMe: () => Promise<User | null>;
   hasPermission: (permission: string) => boolean;
 }
@@ -64,6 +68,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return response.data.user;
   };
 
+  const startTwoFactorSetup = async (): Promise<TwoFactorSetup> => {
+    const response = await api.post<TwoFactorSetup>('/auth/2fa/setup');
+    return response.data;
+  };
+
+  const enableTwoFactor = async (code: string): Promise<TwoFactorEnableResult> => {
+    const response = await api.post<TwoFactorEnableResult>('/auth/2fa/enable', { code, device_name: 'DIS Command Center' });
+    setSession(response.data.token, response.data.user);
+    return response.data;
+  };
+
+  const disableTwoFactor = async (password: string, code: string): Promise<User> => {
+    const response = await api.post<User>('/auth/2fa/disable', { password, code });
+    setUser(response.data);
+    return response.data;
+  };
+
   const refreshMe = async (): Promise<User | null> => {
     if (!sessionStorage.getItem(tokenKey)) {
       return null;
@@ -78,7 +99,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ api, token, user, isAuthenticated: token !== null, setSession, clearSession, login, verifyTwoFactor, refreshMe, hasPermission }}
+      value={{
+        api,
+        token,
+        user,
+        isAuthenticated: token !== null,
+        setSession,
+        clearSession,
+        login,
+        verifyTwoFactor,
+        startTwoFactorSetup,
+        enableTwoFactor,
+        disableTwoFactor,
+        refreshMe,
+        hasPermission,
+      }}
     >
       {children}
     </AuthContext.Provider>
@@ -92,4 +127,3 @@ export function useAuth(): AuthContextValue {
   }
   return context;
 }
-

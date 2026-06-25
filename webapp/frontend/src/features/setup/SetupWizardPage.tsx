@@ -1,6 +1,7 @@
 import { CheckCircle2, Settings, ShieldCheck } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { FirebaseSetupWizard } from '../../components/FirebaseSetupWizard';
 import { apiBaseUrl } from '../../lib/apiClient';
 import type { ApiResponse, User } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
@@ -270,6 +271,7 @@ export function SetupWizardPage() {
 
             <div className="setup-section">
               <h2>Firebase appconfiguratie</h2>
+              <FirebaseSetupWizard androidApplicationId="nl.wrdmarco.dis" compact />
               <div className="form-grid">
                 <label>
                   Firebase project id

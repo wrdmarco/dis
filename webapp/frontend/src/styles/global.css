@@ -366,6 +366,109 @@ a:hover {
   color: #d7e7f8;
 }
 
+.mfa-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 16px;
+}
+
+.mfa-card p {
+  margin: 4px 0 0;
+  color: #8ea0b5;
+}
+
+.mfa-card__icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: #172333;
+  color: #93c5fd;
+}
+
+.firebase-wizard {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.firebase-wizard--compact {
+  padding: 16px 16px 0;
+}
+
+.firebase-wizard__intro {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.firebase-wizard__intro p {
+  margin: 4px 0 0;
+  color: #8ea0b5;
+}
+
+.firebase-wizard__icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: #172333;
+  color: #93c5fd;
+}
+
+.firebase-wizard__steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.firebase-step {
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 12px;
+}
+
+.firebase-step__heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #f8fafc;
+}
+
+.firebase-step__heading span {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #172333;
+  color: #7dd3fc;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.firebase-step p {
+  margin: 10px 0;
+  color: #aebdd0;
+  line-height: 1.45;
+}
+
+.firebase-step ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #8ea0b5;
+}
+
+.firebase-step li + li {
+  margin-top: 6px;
+}
+
 .download-integrity {
   display: flex;
   align-items: center;
@@ -660,6 +763,7 @@ pre {
 
   .two-column,
   .detail-grid,
+  .firebase-wizard__steps,
   .form-grid {
     grid-template-columns: 1fr;
   }
@@ -705,7 +809,9 @@ pre {
 
   .kpi-grid,
   .inline-form,
-  .download-card {
+  .download-card,
+  .firebase-wizard__intro,
+  .mfa-card {
     grid-template-columns: 1fr;
   }
 

@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Bell, Boxes, ClipboardCheck, Gauge, LogOut, RadioTower, Shield, Smartphone, Users, Workflow } from 'lucide-react';
+import { Bell, Boxes, ClipboardCheck, Gauge, LogOut, RadioTower, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
 import { useAuth } from '../features/auth/AuthContext';
 
 const navItems = [
@@ -54,6 +54,9 @@ export function CommandLayout() {
               <strong>{user?.name ?? 'Operator'}</strong>
               <span>{user?.email}</span>
             </div>
+            <button className="icon-button" type="button" onClick={() => navigate('/profile')} aria-label="Profiel">
+              <UserRound size={18} />
+            </button>
             <button className="icon-button" type="button" onClick={logout} aria-label="Uitloggen">
               <LogOut size={18} />
             </button>
@@ -66,4 +69,3 @@ export function CommandLayout() {
     </div>
   );
 }
-

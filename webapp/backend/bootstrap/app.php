@@ -4,6 +4,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use App\Http\Middleware\EnsureOperationalAccess;
+use App\Http\Middleware\EnsureTwoFactorComplete;
 use App\Http\Middleware\AuditPrivilegedRequest;
 use App\Http\Middleware\RequestId;
 use App\Http\Middleware\RequirePermission;
@@ -34,6 +35,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'audit.privileged' => AuditPrivilegedRequest::class,
             'operational' => EnsureOperationalAccess::class,
+            'two_factor.complete' => EnsureTwoFactorComplete::class,
             'permission' => RequirePermission::class,
         ]);
     })

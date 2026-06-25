@@ -33,18 +33,23 @@ Route::get('/health', [HealthController::class, 'public'])->middleware('throttle
 
 Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(function (): void {
     Route::post('/auth/2fa/verify', [AuthController::class, 'verifyTwoFactor'])->middleware('throttle:two-factor');
+    Route::post('/auth/2fa/setup', [AuthController::class, 'setupTwoFactor'])->middleware('throttle:two-factor');
+    Route::post('/auth/2fa/enable', [AuthController::class, 'enableTwoFactor'])->middleware('throttle:two-factor');
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
 
-    Route::get('/users', [UserController::class, 'index'])->middleware('permission:users.view');
-    Route::post('/users', [UserController::class, 'store'])->middleware('permission:users.manage');
-    Route::get('/users/{user}', [UserController::class, 'show'])->middleware('permission:users.view');
-    Route::patch('/users/{user}', [UserController::class, 'update'])->middleware('permission:users.manage');
-    Route::post('/users/{user}/roles', [UserController::class, 'assignRole'])->middleware('permission:roles.manage');
-    Route::delete('/users/{user}/roles/{role}', [UserController::class, 'removeRole'])->middleware('permission:roles.manage');
-    Route::post('/users/{user}/teams', [UserController::class, 'assignTeam'])->middleware('permission:teams.manage');
-    Route::delete('/users/{user}/teams/{team}', [UserController::class, 'removeTeam'])->middleware('permission:teams.manage');
-    Route::get('/users/{user}/audit', [UserController::class, 'audit'])->middleware('permission:audit.view');
+    Route::middleware('two_factor.complete')->group(function (): void {
+        Route::post('/auth/2fa/disable', [AuthController::class, 'disableTwoFactor'])->middleware('throttle:two-factor');
+
+        Route::get('/users', [UserController::class, 'index'])->middleware('permission:users.view');
+        Route::post('/users', [UserController::class, 'store'])->middleware('permission:users.manage');
+        Route::get('/users/{user}', [UserController::class, 'show'])->middleware('permission:users.view');
+        Route::patch('/users/{user}', [UserController::class, 'update'])->middleware('permission:users.manage');
+        Route::post('/users/{user}/roles', [UserController::class, 'assignRole'])->middleware('permission:roles.manage');
+        Route::delete('/users/{user}/roles/{role}', [UserController::class, 'removeRole'])->middleware('permission:roles.manage');
+        Route::post('/users/{user}/teams', [UserController::class, 'assignTeam'])->middleware('permission:teams.manage');
+        Route::delete('/users/{user}/teams/{team}', [UserController::class, 'removeTeam'])->middleware('permission:teams.manage');
+        Route::get('/users/{user}/audit', [UserController::class, 'audit'])->middleware('permission:audit.view');
 
     Route::get('/incidents', [IncidentController::class, 'index'])->middleware('permission:incidents.view');
     Route::post('/incidents', [IncidentController::class, 'store'])->middleware('permission:incidents.manage');
@@ -115,4 +120,5 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/admin/health', [HealthController::class, 'admin'])->middleware('permission:system.health');
     Route::get('/admin/queues', [HealthController::class, 'queues'])->middleware('permission:system.health');
     Route::get('/admin/websocket-status', [HealthController::class, 'websocket'])->middleware('permission:system.health');
+    });
 });

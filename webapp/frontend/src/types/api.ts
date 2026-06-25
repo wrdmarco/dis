@@ -27,6 +27,7 @@ export interface Role {
   id: string;
   name: string;
   display_name: string;
+  description?: string | null;
   requires_two_factor: boolean;
   permissions?: Permission[];
 }
@@ -152,4 +153,16 @@ export interface SystemSetting {
   key: string;
   value: unknown;
   is_sensitive: boolean;
+}
+
+export interface TwoFactorSetup {
+  enabled: boolean;
+  secret: string | null;
+  provisioning_uri: string | null;
+}
+
+export interface TwoFactorEnableResult {
+  token: string;
+  user: User;
+  recovery_codes: string[];
 }

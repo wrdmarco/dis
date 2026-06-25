@@ -3,9 +3,51 @@
 namespace App\Services;
 
 use App\Models\User;
+use Illuminate\Support\Str;
 
 final class TwoFactorService
 {
+    public function generateSecret(int $length = 32): string
+    {
+        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        $secret = '';
+
+        for ($index = 0; $index < $length; $index++) {
+            $secret .= $alphabet[random_int(0, strlen($alphabet) - 1)];
+        }
+
+        return $secret;
+    }
+
+    public function provisioningUri(User $user, string $secret): string
+    {
+        $issuer = config('app.name', 'D.I.S');
+        $label = rawurlencode($issuer.':'.$user->email);
+        $query = http_build_query([
+            'secret' => $secret,
+            'issuer' => $issuer,
+            'algorithm' => 'SHA1',
+            'digits' => 6,
+            'period' => 30,
+        ], '', '&', PHP_QUERY_RFC3986);
+
+        return "otpauth://totp/{$label}?{$query}";
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function generateRecoveryCodes(int $count = 8): array
+    {
+        $codes = [];
+
+        for ($index = 0; $index < $count; $index++) {
+            $codes[] = Str::upper(Str::random(5).'-'.Str::random(5));
+        }
+
+        return $codes;
+    }
+
     public function verify(User $user, string $code): bool
     {
         $secret = $user->two_factor_secret;
@@ -64,4 +106,3 @@ final class TwoFactorService
         return $binary;
     }
 }
-

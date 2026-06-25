@@ -14,6 +14,7 @@ import { UpdatesPage } from '../features/updates/UpdatesPage';
 import { AdminPage } from '../features/admin/AdminPage';
 import { StatusPage } from '../features/status/StatusPage';
 import { SystemPage } from '../features/system/SystemPage';
+import { ProfilePage } from '../features/profile/ProfilePage';
 
 export function App() {
   return (
@@ -39,6 +40,7 @@ export function App() {
         <Route path="updates" element={<UpdatesPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="system" element={<SystemPage />} />
+        <Route path="profile" element={<ProfilePage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
