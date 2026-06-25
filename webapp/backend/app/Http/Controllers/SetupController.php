@@ -79,7 +79,7 @@ final class SetupController extends Controller
                 'app.setup_completed_at' => now()->toIso8601String(),
                 'app.public_url' => $publicUrl,
                 'mobile.tenant_name' => $data['tenant_name'],
-                'mobile.api_base_url' => $publicUrl,
+                'mobile.api_base_url' => $publicUrl.'/api',
                 'mail.mailer' => $data['mail']['mailer'] ?? 'smtp',
                 'mail.host' => $data['mail']['host'] ?? '',
                 'mail.port' => (int) ($data['mail']['port'] ?? 587),
