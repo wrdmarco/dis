@@ -9,6 +9,7 @@ BACKEND_DIR="${APP_ROOT}/webapp/backend"
 FRONTEND_DIR="${APP_ROOT}/webapp/frontend"
 NGINX_SOURCE="${NGINX_SOURCE:-${APP_ROOT}/infrastructure/nginx/dis.conf}"
 SKIP_DEPLOY_CACHE_CLEAR="${SKIP_DEPLOY_CACHE_CLEAR:-0}"
+RUN_SEEDERS="${RUN_SEEDERS:-0}"
 
 require_directory "${APP_ROOT}"
 require_file "${APP_ROOT}/.env"
@@ -49,7 +50,11 @@ if [ -f "${BACKEND_DIR}/composer.json" ]; then
     run_cmd setfacl -R -d -m "u:www-data:rwx" "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache"
   fi
   run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" migrate --force
-  run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" db:seed --force
+  if [ "${RUN_SEEDERS}" = "1" ]; then
+    run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" db:seed --force
+  else
+    log "Skipping database seeders. Set RUN_SEEDERS=1 only for first install or intentional reseeding."
+  fi
   run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" dis:self-check
 fi
 

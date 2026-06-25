@@ -156,7 +156,7 @@ log "Provisioning database"
 APP_ROOT="${APP_ROOT}" ENV_FILE="${ENV_FILE}" bash "${SCRIPT_DIR}/provision-database.sh"
 
 log "Running deployment"
-APP_ROOT="${APP_ROOT}" NGINX_SOURCE="${GENERATED_NGINX_CONF}" bash "${SCRIPT_DIR}/deploy.sh"
+APP_ROOT="${APP_ROOT}" NGINX_SOURCE="${GENERATED_NGINX_CONF}" RUN_SEEDERS=1 bash "${SCRIPT_DIR}/deploy.sh"
 
 if [ "${RUN_HEALTHCHECK}" = "1" ]; then
   log "Running final local health check"

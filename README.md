@@ -69,7 +69,7 @@ This will:
 - run `apt-get autoremove -y`
 - pull the latest Git source
 - rebuild backend and frontend
-- run migrations and seeders
+- run pending migrations only
 - refresh Nginx, PHP and systemd configuration
 - restart services
 - run a local health check
@@ -90,6 +90,12 @@ The implementation lives in:
 ```
 
 The root `/opt/dis/update.sh` file is only a wrapper.
+
+Database seeders are intentionally not run during updates, so admin-managed teams, roles and settings are not overwritten. For an intentional reseed during a manual deploy, run:
+
+```bash
+sudo RUN_SEEDERS=1 bash /opt/dis/scripts/deploy.sh
+```
 
 ## Public APK Page
 
