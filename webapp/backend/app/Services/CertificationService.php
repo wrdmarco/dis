@@ -46,4 +46,27 @@ final class CertificationService
 
         return $certification->load('certification');
     }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    public function selfAssignToUser(User $user, array $data): UserCertification
+    {
+        $certification = UserCertification::query()->updateOrCreate(
+            [
+                'user_id' => $user->id,
+                'certification_id' => $data['certification_id'],
+                'certificate_number' => $data['certificate_number'] ?? null,
+            ],
+            $data + [
+                'user_id' => $user->id,
+                'status' => 'active',
+                'verified_by' => null,
+                'verified_at' => null,
+            ],
+        );
+        $this->auditService->record('certifications.self_reported', $user, $user, ['certification_id' => $data['certification_id']]);
+
+        return $certification->load('certification');
+    }
 }

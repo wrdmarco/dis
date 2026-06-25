@@ -7,6 +7,7 @@ interface ResourceState<T> {
   loading: boolean;
   error: string | null;
   reload: () => Promise<void>;
+  silentReload: () => Promise<void>;
 }
 
 export function useApiResource<T>(path: string, enabled = true): ResourceState<T> {
@@ -15,11 +16,13 @@ export function useApiResource<T>(path: string, enabled = true): ResourceState<T
   const [loading, setLoading] = useState<boolean>(enabled);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options?: { silent?: boolean }) => {
     if (!enabled) {
       return;
     }
-    setLoading(true);
+    if (options?.silent !== true) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const response = await api.get<T>(path);
@@ -27,7 +30,9 @@ export function useApiResource<T>(path: string, enabled = true): ResourceState<T
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Unable to load data.');
     } finally {
-      setLoading(false);
+      if (options?.silent !== true) {
+        setLoading(false);
+      }
     }
   }, [api, enabled, path]);
 
@@ -35,6 +40,8 @@ export function useApiResource<T>(path: string, enabled = true): ResourceState<T
     void load();
   }, [load]);
 
-  return { data, loading, error, reload: load };
-}
+  const reload = useCallback(() => load(), [load]);
+  const silentReload = useCallback(() => load({ silent: true }), [load]);
 
+  return { data, loading, error, reload, silentReload };
+}

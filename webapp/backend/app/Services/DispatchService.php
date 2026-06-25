@@ -309,9 +309,13 @@ final class DispatchService
      */
     private function eligibleUsers(Team $targetTeam): array
     {
-        $requiredCertificationIds = Certification::query()
-            ->where('is_required_for_dispatch', true)
-            ->pluck('id');
+        $targetTeam->loadMissing('requiredCertifications');
+        $requiredCertificationIds = $targetTeam->requiredCertifications->pluck('id');
+        if ($requiredCertificationIds->isEmpty()) {
+            $requiredCertificationIds = Certification::query()
+                ->where('is_required_for_dispatch', true)
+                ->pluck('id');
+        }
         $teamCodes = $this->expandTeamCodes($targetTeam);
 
         $teamUsers = User::query()

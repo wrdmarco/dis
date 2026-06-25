@@ -14,7 +14,7 @@ final class PasswordController extends Controller
 
     public function forgot(Request $request): JsonResponse
     {
-        $data = $request->validate(['email' => ['required', 'email:rfc,dns']]);
+        $data = $request->validate(['email' => ['required', 'email:rfc']]);
         Password::sendResetLink($data);
 
         return ApiResponse::success(['status' => 'password_reset_link_sent']);
@@ -23,7 +23,7 @@ final class PasswordController extends Controller
     public function reset(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'email' => ['required', 'email:rfc,dns'],
+            'email' => ['required', 'email:rfc'],
             'token' => ['required', 'string'],
             'password' => ['required', 'confirmed', $this->passwordPolicy->rule()],
         ]);

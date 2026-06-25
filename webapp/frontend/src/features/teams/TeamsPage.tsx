@@ -6,7 +6,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { Team } from '../../types/api';
+import type { Certification, Team } from '../../types/api';
 
 interface TeamFormState {
   code: string;
@@ -15,6 +15,7 @@ interface TeamFormState {
   parentTeamId: string;
   isOperational: boolean;
   alertTeamIds: string[];
+  requiredCertificationIds: string[];
 }
 
 const emptyForm: TeamFormState = {
@@ -24,6 +25,7 @@ const emptyForm: TeamFormState = {
   parentTeamId: '',
   isOperational: true,
   alertTeamIds: [],
+  requiredCertificationIds: [],
 };
 
 const teamTypes = [
@@ -35,6 +37,7 @@ const teamTypes = [
 export function TeamsPage() {
   const { api } = useAuth();
   const teams = useApiResource<Team[]>('/admin/teams');
+  const certifications = useApiResource<Certification[]>('/certifications');
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [form, setForm] = useState<TeamFormState>(emptyForm);
@@ -65,6 +68,7 @@ export function TeamsPage() {
       parentTeamId: team.parent_team_id ?? '',
       isOperational: team.is_operational,
       alertTeamIds: team.alert_teams?.map((alertTeam) => alertTeam.id) ?? [],
+      requiredCertificationIds: team.required_certifications?.map((certification) => certification.id) ?? [],
     });
     setError(null);
     setModalMode('edit');
@@ -82,6 +86,7 @@ export function TeamsPage() {
       parent_team_id: form.parentTeamId || null,
       is_operational: form.isOperational,
       alert_team_ids: form.alertTeamIds,
+      required_certification_ids: form.requiredCertificationIds,
     };
 
     try {
@@ -108,6 +113,15 @@ export function TeamsPage() {
     }));
   }
 
+  function toggleRequiredCertification(certificationId: string) {
+    setForm((current) => ({
+      ...current,
+      requiredCertificationIds: current.requiredCertificationIds.includes(certificationId)
+        ? current.requiredCertificationIds.filter((candidate) => candidate !== certificationId)
+        : [...current.requiredCertificationIds, certificationId],
+    }));
+  }
+
   const selectableTeams = teams.data?.filter((team) => team.id !== editingTeam?.id) ?? [];
 
   return (
@@ -122,7 +136,7 @@ export function TeamsPage() {
       >
         <ResourceState loading={teams.loading} error={teams.error} empty={(teams.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Code</th><th>Naam</th><th>Type</th><th>Ouderteam</th><th>Operationeel</th><th>Mee alarmeren</th><th>Actie</th></tr></thead>
+            <thead><tr><th>Code</th><th>Naam</th><th>Type</th><th>Ouderteam</th><th>Operationeel</th><th>Mee alarmeren</th><th>Certificaten vereist</th><th>Actie</th></tr></thead>
             <tbody>
               {teams.data?.map((team) => (
                 <tr key={team.id}>
@@ -132,6 +146,7 @@ export function TeamsPage() {
                   <td>{team.parent?.code ?? '-'}</td>
                   <td><StatusPill value={team.is_operational ? 'actief' : 'uit'} tone={team.is_operational ? 'good' : 'bad'} /></td>
                   <td>{team.alert_teams?.map((alertTeam) => alertTeam.code).join(', ') || '-'}</td>
+                  <td>{team.required_certifications?.map((certification) => certification.code).join(', ') || '-'}</td>
                   <td>
                     <button className="secondary-button" type="button" onClick={() => openEditModal(team)}>
                       <Pencil size={16} /> Aanpassen
@@ -204,6 +219,26 @@ export function TeamsPage() {
                     </label>
                   ))}
                 </div>
+              </div>
+              <div className="form-grid__wide">
+                <span className="field-label">Certificaten vereist voor alarmering</span>
+                <ResourceState loading={certifications.loading} error={certifications.error} empty={(certifications.data?.length ?? 0) === 0}>
+                  <div className="checkbox-grid">
+                    {certifications.data?.map((certification) => (
+                      <label className="checkbox-card" key={certification.id}>
+                        <input
+                          type="checkbox"
+                          checked={form.requiredCertificationIds.includes(certification.id)}
+                          onChange={() => toggleRequiredCertification(certification.id)}
+                        />
+                        <span>
+                          <strong>{certification.code} - {certification.name}</strong>
+                          <small>{certification.description ?? 'Geen omschrijving'}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </ResourceState>
               </div>
               {error ? <p className="form-error form-grid__wide">{error}</p> : null}
               <div className="actions-row form-grid__wide">

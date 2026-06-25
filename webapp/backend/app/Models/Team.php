@@ -35,6 +35,11 @@ final class Team extends Model
         return $this->belongsToMany(self::class, 'team_alert_team', 'team_id', 'alert_team_id')->withPivot('created_at');
     }
 
+    public function requiredCertifications(): BelongsToMany
+    {
+        return $this->belongsToMany(Certification::class, 'team_certification')->withPivot('created_at');
+    }
+
     public function alertedByTeams(): BelongsToMany
     {
         return $this->belongsToMany(self::class, 'team_alert_team', 'alert_team_id', 'team_id')->withPivot('created_at');

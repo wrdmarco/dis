@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useState } from 'react';
-import { BellRing, MessageSquare, Pencil, Send, TrendingUp, X } from 'lucide-react';
+import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
+import { BellRing, Clock, MapPin, MessageSquare, Pencil, RadioTower, Send, TrendingUp, Users, X } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -38,16 +38,19 @@ export function IncidentDetailPage() {
   const [recipientUpdateMessage, setRecipientUpdateMessage] = useState<string | null>(null);
 
   const latestDispatch = dispatches.data?.[0] ?? null;
+  const showDraftPanel = incident.data?.status === 'draft';
+  const recipientCount = latestDispatch?.recipients?.length ?? preview.data?.recipients.length ?? 0;
+  const liveSharedCount = liveLocations.data?.filter((location) => location.sharing_status === 'shared').length ?? 0;
 
   useEffect(() => {
     const currentIncident = incident.data;
-    if (currentIncident == null) {
+    if (currentIncident == null || editModalOpen) {
       return;
     }
 
     setEditForm(formFromIncident(currentIncident));
     setStatusReason('');
-  }, [incident.data]);
+  }, [editModalOpen, incident.data]);
 
   function openEditModal() {
     if (incident.data !== undefined && incident.data !== null) {
@@ -173,16 +176,16 @@ export function IncidentDetailPage() {
   };
 
   return (
-    <div className="page-stack">
+    <div className="page-stack incident-detail-page">
       <RealtimeBridge onOperationalEvent={() => {
-        void incident.reload();
-        void preview.reload();
-        void dispatches.reload();
-        void liveLocations.reload();
-        void timeline.reload();
+        void incident.silentReload();
+        void preview.silentReload();
+        void dispatches.silentReload();
+        void liveLocations.silentReload();
+        void timeline.silentReload();
       }} />
       <Panel
-        title="Incidentdetail"
+        title="Melding"
         action={incident.data ? (
           <button className="secondary-button" type="button" onClick={openEditModal}>
             <Pencil size={16} /> Aanpassen
@@ -191,133 +194,137 @@ export function IncidentDetailPage() {
       >
         <ResourceState loading={incident.loading} error={incident.error} empty={!incident.data}>
           {incident.data ? (
-            <div className="detail-grid">
-              <div>
-                <h3>{incident.data.reference}</h3>
-                <p>{incident.data.title}</p>
-                <div className="actions-row">
-                  <StatusPill value={incident.data.priority} tone={incident.data.priority === 'critical' ? 'bad' : 'warn'} />
-                  <StatusPill value={incident.data.status} />
+            <div className="incident-detail">
+              <div className="incident-hero">
+                <div className="incident-hero__main">
+                  <span className="incident-reference">{incident.data.reference}</span>
+                  <h3>{incident.data.title}</h3>
+                  <div className="incident-hero__badges">
+                    <StatusPill value={incident.data.priority} tone={incident.data.priority === 'critical' ? 'bad' : 'warn'} />
+                    <StatusPill value={incident.data.status} />
+                  </div>
+                  <p>{incident.data.description ?? 'Geen omschrijving vastgelegd.'}</p>
                 </div>
-                <dl>
-                  <dt>Omschrijving</dt>
-                  <dd>{incident.data.description ?? '-'}</dd>
-                  <dt>Locatie</dt>
-                  <dd>{incident.data.location_label ?? '-'}</dd>
-                  <dt>Team</dt>
-                  <dd>{incident.data.team?.code ?? '-'}</dd>
-                  <dt>Coordinator</dt>
-                  <dd>{incident.data.coordinator?.name ?? '-'}</dd>
-                  <dt>Geopend</dt>
-                  <dd>{formatDate(incident.data.opened_at)}</dd>
-                  <dt>Gesloten</dt>
-                  <dd>{formatDate(incident.data.closed_at)}</dd>
+                <dl className="incident-meta">
+                  <MetaItem icon={<MapPin size={16} />} label="Locatie" value={incident.data.location_label ?? '-'} />
+                  <MetaItem icon={<Users size={16} />} label="Team" value={incident.data.team?.code ? `${incident.data.team.code} - ${incident.data.team.name}` : '-'} />
+                  <MetaItem icon={<RadioTower size={16} />} label="Coordinator" value={incident.data.coordinator?.name ?? '-'} />
+                  <MetaItem icon={<Clock size={16} />} label="Geopend" value={formatDate(incident.data.opened_at)} />
+                  <MetaItem icon={<Clock size={16} />} label="Gesloten" value={formatDate(incident.data.closed_at)} />
                 </dl>
+              </div>
+              <div className="incident-overview">
+                <SummaryItem label="Incidentstatus" value={incidentStatusLabel(incident.data.status)} />
+                <SummaryItem label="Prioriteit" value={priorityLabel(incident.data.priority)} />
+                <SummaryItem label="Ontvangers" value={String(recipientCount)} />
+                <SummaryItem label="Komt" value={latestDispatch ? String(countResponses(latestDispatch, 'accepted')) : '-'} />
+                <SummaryItem label="Onderweg" value={latestDispatch ? String(countOperatorStatuses(latestDispatch, 'en_route')) : '-'} />
+                <SummaryItem label="Live locaties" value={String(liveSharedCount)} />
               </div>
             </div>
           ) : null}
         </ResourceState>
       </Panel>
 
-      <Panel
-        title="Alarmeringsconcept"
-        action={incident.data?.status === 'draft' ? (
-          <button className="primary-button" type="button" onClick={activateIncident} disabled={dispatching || preview.loading || (preview.data?.recipients.length ?? 0) === 0}>
-            <Send size={16} /> {dispatching ? 'Versturen...' : 'Melding versturen'}
-          </button>
-        ) : null}
-      >
-        <ResourceState loading={preview.loading} error={preview.error} empty={false}>
-          <div className="panel-body">
-            <dl>
-              <dt>Team</dt>
-              <dd>{preview.data?.team ? `${preview.data.team.code} - ${preview.data.team.name}` : '-'}</dd>
-              <dt>Ontvangers</dt>
-              <dd>{preview.data?.recipients.length ?? 0}</dd>
-            </dl>
-            {preview.data?.blocked_reason ? <p className="form-error">{preview.data.blocked_reason}</p> : null}
-            {dispatchError ? <p className="form-error">{dispatchError}</p> : null}
-            {(preview.data?.recipients.length ?? 0) > 0 ? (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Naam</th>
-                    <th>E-mail</th>
-                    <th>Teams</th>
-                  </tr>
-                </thead>
-                <tbody>
+      {showDraftPanel ? (
+        <Panel
+          title="Alarmeringsconcept"
+          action={(
+            <button className="primary-button" type="button" onClick={activateIncident} disabled={dispatching || preview.loading || (preview.data?.recipients.length ?? 0) === 0}>
+              <Send size={16} /> {dispatching ? 'Versturen...' : 'Melding versturen'}
+            </button>
+          )}
+        >
+          <ResourceState loading={preview.loading} error={preview.error} empty={false}>
+            <div className="panel-body">
+              <div className="draft-dispatch">
+                <div>
+                  <span>Team</span>
+                  <strong>{preview.data?.team ? `${preview.data.team.code} - ${preview.data.team.name}` : '-'}</strong>
+                </div>
+                <div>
+                  <span>Te alarmeren</span>
+                  <strong>{preview.data?.recipients.length ?? 0}</strong>
+                </div>
+              </div>
+              {preview.data?.blocked_reason ? <p className="form-error">{preview.data.blocked_reason}</p> : null}
+              {dispatchError ? <p className="form-error">{dispatchError}</p> : null}
+              {(preview.data?.recipients.length ?? 0) > 0 ? (
+                <div className="draft-recipient-grid">
                   {preview.data?.recipients.map((recipient) => (
-                    <tr key={recipient.id}>
-                      <td>{recipient.name}</td>
-                      <td>{recipient.email}</td>
-                      <td>{recipient.teams?.map((team) => team.code).join(', ') || '-'}</td>
-                    </tr>
+                    <article key={recipient.id}>
+                      <strong>{recipient.name}</strong>
+                      <span>{recipient.email}</span>
+                      <small>{recipient.teams?.map((team) => team.code).join(', ') || '-'}</small>
+                    </article>
                   ))}
-                </tbody>
-              </table>
-            ) : null}
-          </div>
-        </ResourceState>
-      </Panel>
+                </div>
+              ) : null}
+            </div>
+          </ResourceState>
+        </Panel>
+      ) : null}
 
-      <Panel title="Opkomststatus">
+      <Panel title="Opkomst en alarmering">
         <ResourceState loading={dispatches.loading} error={dispatches.error} empty={(dispatches.data?.length ?? 0) === 0}>
           <div className="panel-body">
             {latestDispatch ? (
               <>
-                <div className="actions-row">
-                  <button className="secondary-button" type="button" onClick={() => void runDispatchAction('escalate')} disabled={dispatchAction !== null || latestDispatch.status === 'cancelled' || latestDispatch.status === 'escalated'}>
-                    <TrendingUp size={16} /> {dispatchAction === 'escalate' ? 'Opschalen...' : 'Opschalen'}
-                  </button>
-                  <button className="secondary-button" type="button" onClick={() => void runDispatchAction('realert')} disabled={dispatchAction !== null || latestDispatch.status === 'cancelled' || countResponses(latestDispatch, 'pending') === 0}>
-                    <BellRing size={16} /> {dispatchAction === 'realert' ? 'Heralarmeren...' : 'Heralarmeren'}
-                  </button>
+                <div className="dispatch-toolbar">
+                  <div>
+                    <span>Laatste alarmering</span>
+                    <strong>{dispatchStatusLabel(latestDispatch.status)}</strong>
+                  </div>
+                  <div className="dispatch-toolbar__actions">
+                    <button className="secondary-button" type="button" onClick={() => void runDispatchAction('escalate')} disabled={dispatchAction !== null || latestDispatch.status === 'cancelled' || latestDispatch.status === 'escalated'}>
+                      <TrendingUp size={16} /> {dispatchAction === 'escalate' ? 'Opschalen...' : 'Opschalen'}
+                    </button>
+                    <button className="secondary-button" type="button" onClick={() => void runDispatchAction('realert')} disabled={dispatchAction !== null || latestDispatch.status === 'cancelled' || countResponses(latestDispatch, 'pending') === 0}>
+                      <BellRing size={16} /> {dispatchAction === 'realert' ? 'Heralarmeren...' : 'Heralarmeren'}
+                    </button>
+                  </div>
                 </div>
                 {dispatchActionMessage ? <p className={dispatchActionMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{dispatchActionMessage}</p> : null}
                 <div className="summary-grid">
-                  <SummaryItem label="Alarmering" value={latestDispatch.status} />
+                  <SummaryItem label="Alarmering" value={dispatchStatusLabel(latestDispatch.status)} />
                   <SummaryItem label="Team" value={latestDispatch.target_team?.code ?? '-'} />
                   <SummaryItem label="Verstuurd" value={formatDate(latestDispatch.sent_at)} />
                   <SummaryItem label="Komt" value={String(countResponses(latestDispatch, 'accepted'))} />
                   <SummaryItem label="Komt niet" value={String(countResponses(latestDispatch, 'declined'))} />
                   <SummaryItem label="Nog geen reactie" value={String(countResponses(latestDispatch, 'pending'))} />
+                  <SummaryItem label="Onderweg" value={String(countOperatorStatuses(latestDispatch, 'en_route'))} />
+                  <SummaryItem label="Op locatie" value={String(countOperatorStatuses(latestDispatch, 'on_scene'))} />
                 </div>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Naam</th>
-                      <th>Status</th>
-                      <th>Operationele status</th>
-                      <th>Aanpassen</th>
-                      <th>Reactietijd</th>
-                      <th>Opmerking</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {latestDispatch.recipients?.map((recipient) => (
-                      <tr key={recipient.id}>
-                        <td>{recipient.user?.name ?? recipient.user_id}</td>
-                        <td><StatusPill value={responseLabel(recipient.response_status)} tone={recipient.response_status === 'accepted' ? 'good' : recipient.response_status === 'declined' ? 'bad' : undefined} /></td>
-                        <td><StatusPill value={operatorStatusLabel(recipient.user?.statuses?.[0]?.status)} tone={operatorStatusTone(recipient.user?.statuses?.[0]?.status)} /></td>
-                        <td>
-                          <select
-                            value={recipient.response_status}
-                            disabled={recipientUpdatingId === recipient.id || latestDispatch.status === 'cancelled'}
-                            onChange={(event) => void updateRecipientResponse(recipient.id, event.target.value as 'pending' | 'accepted' | 'declined' | 'no_response')}
-                          >
-                            <option value="pending">Wacht op reactie</option>
-                            <option value="accepted">Komt</option>
-                            <option value="declined">Komt niet</option>
-                            <option value="no_response">Geen reactie</option>
-                          </select>
-                        </td>
-                        <td>{formatDate(recipient.responded_at)}</td>
-                        <td>{recipient.response_note ?? '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="recipient-list">
+                  {latestDispatch.recipients?.map((recipient) => (
+                    <article className={`recipient-row recipient-row--${recipient.response_status}`} key={recipient.id}>
+                      <div className="recipient-row__identity">
+                        <strong>{recipient.user?.name ?? recipient.user_id}</strong>
+                        <span>{recipient.user?.email ?? '-'}</span>
+                      </div>
+                      <div className="recipient-row__states">
+                        <StatusPill value={responseLabel(recipient.response_status)} tone={recipient.response_status === 'accepted' ? 'good' : recipient.response_status === 'declined' ? 'bad' : undefined} />
+                        <StatusPill value={operatorStatusLabel(recipient.user?.statuses?.[0]?.status)} tone={operatorStatusTone(recipient.user?.statuses?.[0]?.status)} />
+                      </div>
+                      <div className="recipient-row__time">
+                        <span>Reactie</span>
+                        <strong>{formatDate(recipient.responded_at)}</strong>
+                      </div>
+                      <select
+                        value={recipient.response_status}
+                        disabled={recipientUpdatingId === recipient.id || latestDispatch.status === 'cancelled'}
+                        onChange={(event) => void updateRecipientResponse(recipient.id, event.target.value as 'pending' | 'accepted' | 'declined' | 'no_response')}
+                        aria-label={`Opkomststatus aanpassen voor ${recipient.user?.name ?? recipient.user_id}`}
+                      >
+                        <option value="pending">Wacht op reactie</option>
+                        <option value="accepted">Komt</option>
+                        <option value="declined">Komt niet</option>
+                        <option value="no_response">Geen reactie</option>
+                      </select>
+                      {recipient.response_note ? <p className="recipient-row__note">{recipient.response_note}</p> : null}
+                    </article>
+                  ))}
+                </div>
                 {recipientUpdateMessage ? <p className={recipientUpdateMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{recipientUpdateMessage}</p> : null}
                 <form className="inline-message-form" onSubmit={sendAdditionalInfo}>
                   <label>
@@ -335,34 +342,26 @@ export function IncidentDetailPage() {
         </ResourceState>
       </Panel>
 
-      <Panel title="Live locaties">
+      <Panel title="Kaart en live locaties">
         <ResourceState loading={liveLocations.loading} error={liveLocations.error} empty={false}>
           <LiveLocationMap incident={incident.data} locations={liveLocations.data ?? []} />
         </ResourceState>
       </Panel>
 
-      <Panel title="Incidentlog">
+      <Panel title="Tijdlijn">
         <ResourceState loading={timeline.loading} error={timeline.error} empty={(timeline.data?.length ?? 0) === 0}>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Tijd</th>
-                <th>Type</th>
-                <th>Gebeurtenis</th>
-                <th>Toelichting</th>
-              </tr>
-            </thead>
-            <tbody>
-              {timeline.data?.map((item) => (
-                <tr key={`${item.type}-${item.id}`}>
-                  <td>{formatDate(item.created_at)}</td>
-                  <td>{item.type}</td>
-                  <td>{item.label}</td>
-                  <td>{item.message ?? '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="incident-timeline">
+            {timeline.data?.map((item) => (
+              <article className={`incident-timeline__item incident-timeline__item--${item.type}`} key={`${item.type}-${item.id}`}>
+                <time>{formatDate(item.created_at)}</time>
+                <div>
+                  <span>{timelineTypeLabel(item.type)}</span>
+                  <strong>{item.label}</strong>
+                  {item.message ? <p>{item.message}</p> : null}
+                </div>
+              </article>
+            ))}
+          </div>
         </ResourceState>
       </Panel>
 
@@ -398,6 +397,15 @@ export function IncidentDetailPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function MetaItem({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <>
+      <dt>{icon}<span>{label}</span></dt>
+      <dd>{value}</dd>
+    </>
   );
 }
 
@@ -505,6 +513,72 @@ function formatDate(value?: string | null): string {
   return formatDateTime(value);
 }
 
+function incidentStatusLabel(status: string): string {
+  switch (status) {
+    case 'draft':
+      return 'Concept';
+    case 'active':
+      return 'Actief';
+    case 'dispatching':
+      return 'Alarmeren';
+    case 'in_progress':
+      return 'In behandeling';
+    case 'resolved':
+      return 'Afgerond';
+    case 'cancelled':
+      return 'Geannuleerd';
+    default:
+      return status;
+  }
+}
+
+function priorityLabel(priority: string): string {
+  switch (priority) {
+    case 'critical':
+      return 'Kritiek';
+    case 'high':
+      return 'Hoog';
+    case 'normal':
+      return 'Normaal';
+    case 'low':
+      return 'Laag';
+    default:
+      return priority;
+  }
+}
+
+function dispatchStatusLabel(status: string): string {
+  switch (status) {
+    case 'draft':
+      return 'Concept';
+    case 'sent':
+      return 'Verstuurd';
+    case 'escalated':
+      return 'Opgeschaald';
+    case 'cancelled':
+      return 'Geannuleerd';
+    default:
+      return status;
+  }
+}
+
+function timelineTypeLabel(type: IncidentTimelineItem['type']): string {
+  switch (type) {
+    case 'status':
+      return 'Incidentstatus';
+    case 'dispatch':
+      return 'Alarmering';
+    case 'dispatch_response':
+      return 'Opkomst';
+    case 'dispatch_message':
+      return 'Nadere info';
+    case 'operator_status':
+      return 'Operationele status';
+    default:
+      return type;
+  }
+}
+
 function responseLabel(value: string): string {
   switch (value) {
     case 'accepted':
@@ -569,6 +643,10 @@ function operatorStatusTone(status?: string | null): 'neutral' | 'good' | 'warn'
 
 function countResponses(dispatch: DispatchRequest, status: 'accepted' | 'declined' | 'pending'): number {
   return dispatch.recipients?.filter((recipient) => recipient.response_status === status).length ?? 0;
+}
+
+function countOperatorStatuses(dispatch: DispatchRequest, status: 'en_route' | 'on_scene'): number {
+  return dispatch.recipients?.filter((recipient) => recipient.user?.statuses?.[0]?.status === status).length ?? 0;
 }
 
 function additionalInfoRecipientCount(dispatch: DispatchRequest): number {

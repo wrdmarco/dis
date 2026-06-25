@@ -16,7 +16,7 @@ final class StoreUserRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:160'],
-            'email' => ['required', 'email:rfc,dns', 'max:255', 'unique:users,email'],
+            'email' => ['required', 'email:rfc', 'max:255', 'unique:users,email'],
             'password' => ['required', app(PasswordPolicy::class)->rule()],
             'phone_number' => ['nullable', 'string', 'max:40'],
             'account_status' => ['nullable', 'in:active,suspended,blocked'],

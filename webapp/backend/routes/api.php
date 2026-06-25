@@ -91,6 +91,8 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/status/users/{user}/override', [StatusController::class, 'override'])->middleware('permission:status.override');
     Route::get('/status/history', [StatusController::class, 'history'])->middleware('permission:status.view');
 
+    Route::get('/assets/mine', [AssetController::class, 'mine']);
+    Route::patch('/assets/{asset}/mine', [AssetController::class, 'updateMine']);
     Route::get('/assets', [AssetController::class, 'index'])->middleware('permission:assets.view');
     Route::post('/assets', [AssetController::class, 'store'])->middleware('permission:assets.manage');
     Route::get('/assets/{asset}', [AssetController::class, 'show'])->middleware('permission:assets.view');
@@ -100,6 +102,9 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/assets/{asset}/history', [AssetController::class, 'history'])->middleware('permission:assets.view');
 
     Route::get('/certifications', [CertificationController::class, 'index'])->middleware('permission:certifications.view');
+    Route::get('/certifications/me', [CertificationController::class, 'myCertifications']);
+    Route::post('/certifications/me', [CertificationController::class, 'storeMyCertification']);
+    Route::patch('/certifications/me/{userCertification}', [CertificationController::class, 'updateMyCertification']);
     Route::post('/certifications', [CertificationController::class, 'store'])->middleware('permission:certifications.manage');
     Route::patch('/certifications/{certification}', [CertificationController::class, 'update'])->middleware('permission:certifications.manage');
     Route::get('/users/{user}/certifications', [CertificationController::class, 'userCertifications'])->middleware('permission:certifications.view');

@@ -19,7 +19,7 @@ final class UpdateUserRequest extends FormRequest
 
         return [
             'name' => ['sometimes', 'string', 'max:160'],
-            'email' => ['sometimes', 'email:rfc,dns', 'max:255', Rule::unique('users', 'email')->ignore($userId)],
+            'email' => ['sometimes', 'email:rfc', 'max:255', Rule::unique('users', 'email')->ignore($userId)],
             'password' => ['nullable', app(PasswordPolicy::class)->rule()],
             'phone_number' => ['nullable', 'string', 'max:40'],
             'account_status' => ['sometimes', 'in:active,suspended,blocked'],

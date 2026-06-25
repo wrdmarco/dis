@@ -36,6 +36,20 @@ final class AssetController extends Controller
         );
     }
 
+    public function mine(Request $request): JsonResponse
+    {
+        return ApiResponse::success(
+            Asset::query()
+                ->whereHas('assignments', fn ($assignments) => $assignments
+                    ->where('user_id', $request->user()?->id)
+                    ->whereNull('released_at'))
+                ->orderBy('asset_tag')
+                ->get()
+                ->map(fn (Asset $asset): array => MobileApiPayload::asset($asset))
+                ->values(),
+        );
+    }
+
     public function store(StoreAssetRequest $request): JsonResponse
     {
         return ApiResponse::success($this->service->create($request->validated(), $request->user()), 201);
@@ -68,5 +82,20 @@ final class AssetController extends Controller
     public function history(Asset $asset): JsonResponse
     {
         return ApiResponse::success($asset->assignments()->latest('assigned_at')->get());
+    }
+
+    public function updateMine(Request $request, Asset $asset): JsonResponse
+    {
+        abort_unless($asset->assignments()
+            ->where('user_id', $request->user()?->id)
+            ->whereNull('released_at')
+            ->exists(), 403);
+
+        $data = $request->validate([
+            'status' => ['required', 'in:ready,maintenance,unavailable'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        return ApiResponse::success($this->service->update($asset, $data, $request->user()));
     }
 }

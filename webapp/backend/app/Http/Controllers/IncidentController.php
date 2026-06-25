@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Incidents\StoreIncidentRequest;
 use App\Http\Requests\Incidents\UpdateIncidentRequest;
 use App\Http\Responses\ApiResponse;
+use App\Models\AvailabilityStatus;
 use App\Models\Incident;
 use App\Repositories\IncidentRepository;
 use App\Services\DispatchService;
@@ -127,6 +128,11 @@ final class IncidentController extends Controller
 
     public function timeline(Incident $incident): JsonResponse
     {
+        $dispatches = $incident->dispatchRequests()
+            ->with(['recipients.user', 'messages.sender'])
+            ->latest()
+            ->get();
+
         $statusItems = $incident->statusHistory()
             ->with('incident')
             ->latest('created_at')
@@ -139,10 +145,7 @@ final class IncidentController extends Controller
                 'created_at' => $item->created_at?->toIso8601String(),
             ]);
 
-        $dispatchItems = $incident->dispatchRequests()
-            ->with(['recipients.user', 'messages.sender'])
-            ->latest()
-            ->get()
+        $dispatchItems = $dispatches
             ->flatMap(function ($dispatch): array {
                 $items = [[
                     'id' => $dispatch->id,
@@ -175,11 +178,49 @@ final class IncidentController extends Controller
                 return $items;
             });
 
-        return ApiResponse::success($statusItems->concat($dispatchItems)->sortByDesc('created_at')->values());
+        $recipientStartsByUser = $dispatches
+            ->flatMap(fn ($dispatch) => $dispatch->recipients->map(fn ($recipient): array => [
+                'user_id' => $recipient->user_id,
+                'started_at' => $recipient->responded_at ?? $recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at,
+            ]))
+            ->filter(fn (array $recipient): bool => $recipient['started_at'] !== null)
+            ->groupBy('user_id')
+            ->map(fn ($recipients) => $recipients->pluck('started_at')->min());
+
+        $operatorStatusItems = collect();
+        if ($recipientStartsByUser->isNotEmpty()) {
+            $firstRelevantStatusAt = $recipientStartsByUser->min();
+            $operatorStatusItems = AvailabilityStatus::query()
+                ->with('user')
+                ->whereIn('user_id', $recipientStartsByUser->keys())
+                ->whereIn('status', ['en_route', 'on_scene'])
+                ->where('effective_at', '>=', $firstRelevantStatusAt)
+                ->latest('effective_at')
+                ->get()
+                ->filter(fn (AvailabilityStatus $status): bool => $status->effective_at?->greaterThanOrEqualTo($recipientStartsByUser->get($status->user_id)) === true)
+                ->map(fn (AvailabilityStatus $status): array => [
+                    'id' => $status->id,
+                    'type' => 'operator_status',
+                    'label' => ($status->user?->name ?? 'Onbekende gebruiker').' - '.$this->operatorStatusLabel($status->status),
+                    'message' => $status->reason,
+                    'created_at' => $status->effective_at?->toIso8601String(),
+                ]);
+        }
+
+        return ApiResponse::success($statusItems->concat($dispatchItems)->concat($operatorStatusItems)->sortByDesc('created_at')->values());
     }
 
     public function dispatchPreview(Incident $incident): JsonResponse
     {
         return ApiResponse::success($this->dispatchService->previewForIncident($incident));
+    }
+
+    private function operatorStatusLabel(string $status): string
+    {
+        return match ($status) {
+            'en_route' => 'Onderweg',
+            'on_scene' => 'Op locatie',
+            default => $status,
+        };
     }
 }

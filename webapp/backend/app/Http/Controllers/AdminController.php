@@ -62,7 +62,7 @@ final class AdminController extends Controller
 
     public function teams(): JsonResponse
     {
-        return ApiResponse::success(Team::query()->with(['parent', 'alertTeams'])->orderBy('code')->get());
+        return ApiResponse::success(Team::query()->with(['parent', 'alertTeams', 'requiredCertifications'])->orderBy('code')->get());
     }
 
     public function storeTeam(Request $request): JsonResponse
@@ -75,15 +75,23 @@ final class AdminController extends Controller
             'is_operational' => ['required', 'boolean'],
             'alert_team_ids' => ['nullable', 'array'],
             'alert_team_ids.*' => ['ulid', 'exists:teams,id'],
+            'required_certification_ids' => ['nullable', 'array'],
+            'required_certification_ids.*' => ['ulid', 'exists:certifications,id'],
         ]);
         $alertTeamIds = $data['alert_team_ids'] ?? [];
+        $requiredCertificationIds = $data['required_certification_ids'] ?? [];
         unset($data['alert_team_ids']);
+        unset($data['required_certification_ids']);
 
         $team = Team::query()->create($data);
         $team->alertTeams()->sync(array_values(array_unique(is_array($alertTeamIds) ? $alertTeamIds : [])));
-        $this->auditService->record('admin.team_created', $team, $request->user(), ['alert_team_ids' => $alertTeamIds]);
+        $team->requiredCertifications()->sync(array_values(array_unique(is_array($requiredCertificationIds) ? $requiredCertificationIds : [])));
+        $this->auditService->record('admin.team_created', $team, $request->user(), [
+            'alert_team_ids' => $alertTeamIds,
+            'required_certification_ids' => $requiredCertificationIds,
+        ]);
 
-        return ApiResponse::success($team->load(['parent', 'alertTeams']), 201);
+        return ApiResponse::success($team->load(['parent', 'alertTeams', 'requiredCertifications']), 201);
     }
 
     public function updateTeam(Request $request, Team $team): JsonResponse
@@ -96,22 +104,30 @@ final class AdminController extends Controller
             'is_operational' => ['sometimes', 'boolean'],
             'alert_team_ids' => ['nullable', 'array'],
             'alert_team_ids.*' => ['ulid', 'exists:teams,id', Rule::notIn([$team->id])],
+            'required_certification_ids' => ['nullable', 'array'],
+            'required_certification_ids.*' => ['ulid', 'exists:certifications,id'],
         ]);
         $alertTeamIds = $data['alert_team_ids'] ?? null;
+        $requiredCertificationIds = $data['required_certification_ids'] ?? null;
         unset($data['alert_team_ids']);
+        unset($data['required_certification_ids']);
 
         $before = $team->only(array_keys($data));
         $team->update($data);
         if (is_array($alertTeamIds)) {
             $team->alertTeams()->sync(array_values(array_unique($alertTeamIds)));
         }
+        if (is_array($requiredCertificationIds)) {
+            $team->requiredCertifications()->sync(array_values(array_unique($requiredCertificationIds)));
+        }
         $this->auditService->record('admin.team_updated', $team, $request->user(), [
             'before' => $before,
             'after' => $team->only(array_keys($data)),
             'alert_team_ids' => $alertTeamIds,
+            'required_certification_ids' => $requiredCertificationIds,
         ]);
 
-        return ApiResponse::success($team->refresh()->load(['parent', 'alertTeams']));
+        return ApiResponse::success($team->refresh()->load(['parent', 'alertTeams', 'requiredCertifications']));
     }
 
     public function auditLogs(Request $request): JsonResponse

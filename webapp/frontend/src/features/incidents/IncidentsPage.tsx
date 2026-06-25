@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { MapPin, Plus, Search, X } from 'lucide-react';
+import { Clock, MapPin, Plus, RadioTower, Search, Users, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
+import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
 import type { Incident, Team, User } from '../../types/api';
@@ -49,6 +50,10 @@ export function IncidentsPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const incidentList = incidents.data ?? [];
+  const activeCount = incidentList.filter((incident) => ['active', 'dispatching', 'in_progress'].includes(incident.status)).length;
+  const draftCount = incidentList.filter((incident) => incident.status === 'draft').length;
+  const criticalCount = incidentList.filter((incident) => incident.priority === 'critical').length;
 
   const createIncident = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -74,8 +79,8 @@ export function IncidentsPage() {
   }
 
   return (
-    <div className="page-stack">
-      <RealtimeBridge onOperationalEvent={() => void incidents.reload()} />
+    <div className="page-stack incident-page">
+      <RealtimeBridge onOperationalEvent={() => void incidents.silentReload()} />
       <Panel
         title="Incidenten"
         action={(
@@ -85,32 +90,34 @@ export function IncidentsPage() {
         )}
       >
         <ResourceState loading={incidents.loading} error={incidents.error} empty={(incidents.data?.length ?? 0) === 0}>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Referentie</th>
-                <th>Titel</th>
-                <th>Prioriteit</th>
-                <th>Status</th>
-                <th>Locatie</th>
-                <th>Team</th>
-                <th>Coordinator</th>
-              </tr>
-            </thead>
-            <tbody>
-              {incidents.data?.map((incident) => (
-                <tr key={incident.id}>
-                  <td><Link to={`/incidents/${incident.id}`}>{incident.reference}</Link></td>
-                  <td>{incident.title}</td>
-                  <td><StatusPill value={incident.priority} tone={incident.priority === 'critical' ? 'bad' : 'warn'} /></td>
-                  <td><StatusPill value={incident.status} /></td>
-                  <td>{incident.location_label ?? '-'}</td>
-                  <td>{incident.team?.code ?? '-'}</td>
-                  <td>{incident.coordinator?.name ?? '-'}</td>
-                </tr>
+          <div className="incident-list-view">
+            <div className="incident-list-summary">
+              <SummaryMetric label="Totaal" value={String(incidentList.length)} />
+              <SummaryMetric label="Actief" value={String(activeCount)} />
+              <SummaryMetric label="Concept" value={String(draftCount)} />
+              <SummaryMetric label="Kritiek" value={String(criticalCount)} />
+            </div>
+            <div className="incident-card-grid">
+              {incidentList.map((incident) => (
+                <Link className={`incident-card incident-card--${incident.status}`} to={`/incidents/${incident.id}`} key={incident.id}>
+                  <header>
+                    <span className="incident-card__reference">{incident.reference}</span>
+                    <div className="incident-card__badges">
+                      <StatusPill value={priorityLabel(incident.priority)} tone={incident.priority === 'critical' ? 'bad' : incident.priority === 'high' ? 'warn' : 'neutral'} />
+                      <StatusPill value={incidentStatusLabel(incident.status)} tone={incidentTone(incident.status)} />
+                    </div>
+                  </header>
+                  <strong>{incident.title}</strong>
+                  <div className="incident-card__meta">
+                    <MetaLine icon={<MapPin size={15} />} value={incident.location_label ?? 'Geen locatie'} />
+                    <MetaLine icon={<Users size={15} />} value={incident.team?.code ? `${incident.team.code} - ${incident.team.name}` : 'Geen team'} />
+                    <MetaLine icon={<RadioTower size={15} />} value={incident.coordinator?.name ?? 'Geen coordinator'} />
+                    <MetaLine icon={<Clock size={15} />} value={formatDate(incident.opened_at)} />
+                  </div>
+                </Link>
               ))}
-            </tbody>
-          </table>
+            </div>
+          </div>
         </ResourceState>
       </Panel>
 
@@ -141,6 +148,77 @@ export function IncidentsPage() {
       ) : null}
     </div>
   );
+}
+
+function SummaryMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function MetaLine({ icon, value }: { icon: ReactNode; value: string }) {
+  return (
+    <span>
+      {icon}
+      <span>{value}</span>
+    </span>
+  );
+}
+
+function formatDate(value?: string | null): string {
+  return formatDateTime(value);
+}
+
+function incidentStatusLabel(status: Incident['status']): string {
+  switch (status) {
+    case 'draft':
+      return 'Concept';
+    case 'active':
+      return 'Actief';
+    case 'dispatching':
+      return 'Alarmeren';
+    case 'in_progress':
+      return 'In uitvoering';
+    case 'resolved':
+      return 'Afgerond';
+    case 'cancelled':
+      return 'Geannuleerd';
+    default:
+      return status;
+  }
+}
+
+function priorityLabel(priority: Incident['priority']): string {
+  switch (priority) {
+    case 'low':
+      return 'Laag';
+    case 'normal':
+      return 'Normaal';
+    case 'high':
+      return 'Hoog';
+    case 'critical':
+      return 'Kritiek';
+    default:
+      return priority;
+  }
+}
+
+function incidentTone(status: Incident['status']): 'neutral' | 'good' | 'warn' | 'bad' {
+  switch (status) {
+    case 'active':
+    case 'dispatching':
+    case 'in_progress':
+      return 'warn';
+    case 'resolved':
+      return 'good';
+    case 'cancelled':
+      return 'bad';
+    default:
+      return 'neutral';
+  }
 }
 
 export function IncidentForm(props: {

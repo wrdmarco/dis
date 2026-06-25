@@ -52,6 +52,36 @@ final class CertificationController extends Controller
         return ApiResponse::success($user->certifications()->with('certification')->get());
     }
 
+    public function myCertifications(Request $request): JsonResponse
+    {
+        return ApiResponse::success($request->user()?->certifications()->with('certification')->orderBy('expires_at')->get() ?? []);
+    }
+
+    public function storeMyCertification(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'certification_id' => ['required', 'ulid', 'exists:certifications,id'],
+            'issued_at' => ['required', 'date'],
+            'expires_at' => ['nullable', 'date', 'after:issued_at'],
+            'certificate_number' => ['nullable', 'string', 'max:160'],
+        ]);
+
+        return ApiResponse::success($this->service->selfAssignToUser($request->user(), $data), 201);
+    }
+
+    public function updateMyCertification(Request $request, UserCertification $userCertification): JsonResponse
+    {
+        abort_unless($userCertification->user_id === $request->user()?->id, 404);
+        $userCertification->update($request->validate([
+            'issued_at' => ['sometimes', 'date'],
+            'expires_at' => ['nullable', 'date'],
+            'certificate_number' => ['nullable', 'string', 'max:160'],
+            'status' => ['sometimes', 'in:active,expired,revoked'],
+        ]));
+
+        return ApiResponse::success($userCertification->refresh()->load('certification'));
+    }
+
     public function assignToUser(Request $request, User $user): JsonResponse
     {
         $data = $request->validate([

@@ -53,6 +53,7 @@ export interface Team {
   is_operational: boolean;
   parent?: Team | null;
   alert_teams?: Team[];
+  required_certifications?: Certification[];
 }
 
 export interface User {
@@ -154,7 +155,7 @@ export interface DispatchPreview {
 
 export interface IncidentTimelineItem {
   id: string;
-  type: 'status' | 'dispatch' | 'dispatch_response' | 'dispatch_message';
+  type: 'status' | 'dispatch' | 'dispatch_response' | 'dispatch_message' | 'operator_status';
   label: string;
   message?: string | null;
   created_at?: string | null;
