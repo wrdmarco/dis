@@ -1,6 +1,7 @@
 import { Download, ShieldCheck, Smartphone } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { TotpQrCode } from '../../components/TotpQrCode';
 import { apiBaseUrl } from '../../lib/apiClient';
 import type { AppVersion, ApiResponse } from '../../types/api';
 
@@ -52,6 +53,7 @@ export function AndroidDownloadPage() {
   }, []);
 
   const canDownload = latest?.download_url;
+  const setupUrl = window.location.origin;
 
   return (
     <main className="public-download-shell">
@@ -98,6 +100,15 @@ export function AndroidDownloadPage() {
           <Link className="secondary-button" to="/login">
             Command Center
           </Link>
+        </div>
+
+        <div className="download-setup-qr">
+          <div>
+            <strong>Setup URL</strong>
+            <p>Scan deze QR-code bij de eerste start van de Android app.</p>
+            <code>{setupUrl}</code>
+          </div>
+          <TotpQrCode value={setupUrl} alt="QR-code met DIS setup URL" helpText="Scan met de Android app om deze server te koppelen." />
         </div>
 
         <div className="download-integrity">

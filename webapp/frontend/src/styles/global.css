@@ -461,6 +461,32 @@ a:hover {
   color: #d7e7f8;
 }
 
+.download-setup-qr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin-top: 16px;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 14px;
+}
+
+.download-setup-qr p {
+  margin: 6px 0;
+  color: #8ea0b5;
+}
+
+.download-setup-qr code {
+  color: #d7e7f8;
+  overflow-wrap: anywhere;
+}
+
+.download-setup-qr .totp-qr {
+  width: 220px;
+}
+
 .mfa-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1167,6 +1193,7 @@ pre {
   .kpi-grid,
   .inline-form,
   .download-card,
+  .download-setup-qr,
   .firebase-wizard__intro,
   .checkbox-grid,
   .push-summary,
