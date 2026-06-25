@@ -6,6 +6,7 @@ use App\Events\IncidentChanged;
 use App\Models\Incident;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 final class IncidentService
 {
@@ -33,7 +34,7 @@ final class IncidentService
             ]);
 
             $this->auditService->record('incidents.created', $incident, $actor);
-            IncidentChanged::dispatch($incident, 'created');
+            $this->broadcastIncidentChange($incident, 'created');
 
             return $incident->load(['coordinator', 'statusHistory']);
         });
@@ -59,7 +60,7 @@ final class IncidentService
             }
 
             $this->auditService->record('incidents.updated', $incident, $actor);
-            IncidentChanged::dispatch($incident->refresh(), 'updated');
+            $this->broadcastIncidentChange($incident->refresh(), 'updated');
 
             return $incident->load(['coordinator', 'statusHistory']);
         });
@@ -78,5 +79,14 @@ final class IncidentService
     private function nextReference(): string
     {
         return 'DIS-'.now()->format('Ymd-His').'-'.strtoupper(substr(bin2hex(random_bytes(2)), 0, 4));
+    }
+
+    private function broadcastIncidentChange(Incident $incident, string $action): void
+    {
+        try {
+            IncidentChanged::dispatch($incident, $action);
+        } catch (Throwable $exception) {
+            report($exception);
+        }
     }
 }
