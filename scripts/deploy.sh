@@ -61,13 +61,14 @@ if [ -f "${FRONTEND_DIR}/package.json" ]; then
 fi
 
 log "Installing Nginx and systemd configuration"
-run_cmd chmod 0755 "${APP_ROOT}/update.sh"
+run_cmd chmod 0755 "${APP_ROOT}/setup.sh" "${APP_ROOT}/update.sh" "${APP_ROOT}/uninstall.sh"
+run_cmd find "${APP_ROOT}/scripts" -type f -name "*.sh" -exec chmod 0755 {} +
 if [ -e /usr/local/bin/update ] && ! grep -q "${APP_ROOT}/update.sh" /usr/local/bin/update 2>/dev/null; then
   fail "/usr/local/bin/update already exists and is not managed by DIS."
 fi
 cat > /usr/local/bin/update <<EOF
 #!/usr/bin/env bash
-exec "${APP_ROOT}/update.sh" "\$@"
+exec bash "${APP_ROOT}/update.sh" "\$@"
 EOF
 run_cmd chmod 0755 /usr/local/bin/update
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/php/security.ini" "/etc/php/${PHP_VERSION}/fpm/conf.d/99-dis-security.ini"

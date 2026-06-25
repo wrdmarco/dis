@@ -122,7 +122,7 @@ install_update_command() {
   fi
   cat > /usr/local/bin/update <<EOF
 #!/usr/bin/env bash
-exec "${DIS_INSTALL_PATH}/update.sh" "\$@"
+exec bash "${DIS_INSTALL_PATH}/update.sh" "\$@"
 EOF
   run_cmd chmod 0755 /usr/local/bin/update
 }

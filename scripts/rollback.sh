@@ -15,12 +15,12 @@ require_directory "${RELEASE_PATH}"
 require_file "${RELEASE_PATH}/VERSION"
 
 log "Rolling back DIS to ${RELEASE_PATH}"
-run_cmd "${SCRIPT_DIR}/maintenance.sh" enable
+run_cmd bash "${SCRIPT_DIR}/maintenance.sh" enable
 run_cmd rsync -a --delete \
   --exclude ".env" \
   --exclude "storage/" \
   "${RELEASE_PATH}/" "${APP_ROOT}/"
 
-run_cmd "${SCRIPT_DIR}/deploy.sh"
-run_cmd "${SCRIPT_DIR}/maintenance.sh" disable
+run_cmd bash "${SCRIPT_DIR}/deploy.sh"
+run_cmd bash "${SCRIPT_DIR}/maintenance.sh" disable
 log "Rollback completed"

@@ -16,7 +16,7 @@ require_file "${APP_ROOT}/.env"
 require_file "${BACKUP_PATH}/database.dump"
 require_file "${BACKUP_PATH}/SHA256SUMS"
 
-run_cmd "${SCRIPT_DIR}/verify-backup.sh" "${BACKUP_PATH}"
+run_cmd bash "${SCRIPT_DIR}/verify-backup.sh" "${BACKUP_PATH}"
 
 set -a
 source "${APP_ROOT}/.env"
