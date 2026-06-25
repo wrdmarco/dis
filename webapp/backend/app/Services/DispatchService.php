@@ -200,6 +200,57 @@ final class DispatchService
         ];
     }
 
+    public function escalate(DispatchRequest $dispatch, User $actor): DispatchRequest
+    {
+        if ($dispatch->status === 'cancelled') {
+            throw ValidationException::withMessages(['dispatch' => ['Een geannuleerde alarmering kan niet worden opgeschaald.']]);
+        }
+
+        $dispatch->update(['status' => 'escalated']);
+        $this->auditService->record('dispatch.escalated', $dispatch, $actor);
+        $this->broadcastDispatchChange($dispatch->refresh(), 'escalated');
+
+        return $dispatch->load(['incident', 'targetTeam', 'recipients.user']);
+    }
+
+    public function reAlert(DispatchRequest $dispatch, User $actor): DispatchRequest
+    {
+        if ($dispatch->status === 'cancelled') {
+            throw ValidationException::withMessages(['dispatch' => ['Een geannuleerde alarmering kan niet opnieuw worden verstuurd.']]);
+        }
+
+        $dispatch->load(['incident', 'recipients.user.fcmTokens']);
+        $queuedTokens = 0;
+
+        foreach ($dispatch->recipients as $recipient) {
+            if ($recipient->response_status !== 'pending') {
+                continue;
+            }
+
+            foreach ($recipient->user?->fcmTokens->where('is_active', true) ?? [] as $token) {
+                SendFcmNotification::dispatch(
+                    (string) $token->id,
+                    'dispatch_request',
+                    'D.I.S heralarmering',
+                    $dispatch->incident?->reference.' - reactie vereist',
+                    [
+                        'type' => 'dispatch_request',
+                        'dispatch_id' => (string) $dispatch->id,
+                        'incident_id' => (string) $dispatch->incident_id,
+                    ],
+                    (string) $dispatch->id,
+                )->onQueue('push');
+                $queuedTokens++;
+            }
+        }
+
+        $dispatch->recipients()->where('response_status', 'pending')->update(['notified_at' => now()]);
+        $this->auditService->record('dispatch.realerted', $dispatch, $actor, ['queued_tokens' => $queuedTokens]);
+        $this->broadcastDispatchChange($dispatch->refresh(), 'realerted');
+
+        return $dispatch->load(['incident', 'targetTeam', 'recipients.user']);
+    }
+
     /**
      * @param array<string, mixed> $data
      */

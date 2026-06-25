@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { MessageSquare, Pencil, Send, X } from 'lucide-react';
+import { BellRing, MessageSquare, Pencil, Send, TrendingUp, X } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -31,6 +31,8 @@ export function IncidentDetailPage() {
   const [additionalInfo, setAdditionalInfo] = useState('');
   const [additionalInfoSending, setAdditionalInfoSending] = useState(false);
   const [additionalInfoMessage, setAdditionalInfoMessage] = useState<string | null>(null);
+  const [dispatchAction, setDispatchAction] = useState<'escalate' | 'realert' | null>(null);
+  const [dispatchActionMessage, setDispatchActionMessage] = useState<string | null>(null);
 
   const latestDispatch = dispatches.data?.[0] ?? null;
 
@@ -122,6 +124,25 @@ export function IncidentDetailPage() {
       setAdditionalInfoMessage(err instanceof ApiClientError ? err.message : 'Nadere info kon niet worden verzonden.');
     } finally {
       setAdditionalInfoSending(false);
+    }
+  };
+
+  const runDispatchAction = async (action: 'escalate' | 'realert') => {
+    if (!latestDispatch) {
+      return;
+    }
+
+    setDispatchAction(action);
+    setDispatchActionMessage(null);
+    try {
+      await api.post<DispatchRequest>(`/dispatches/${latestDispatch.id}/${action === 'escalate' ? 'escalate' : 're-alert'}`);
+      setDispatchActionMessage(action === 'escalate' ? 'Alarmering is opgeschaald.' : 'Heralarmering is verstuurd naar ontvangers zonder reactie.');
+      await dispatches.reload();
+      await timeline.reload();
+    } catch (err) {
+      setDispatchActionMessage(err instanceof ApiClientError ? err.message : 'Dispatchactie kon niet worden uitgevoerd.');
+    } finally {
+      setDispatchAction(null);
     }
   };
 
@@ -219,6 +240,15 @@ export function IncidentDetailPage() {
           <div className="panel-body">
             {latestDispatch ? (
               <>
+                <div className="actions-row">
+                  <button className="secondary-button" type="button" onClick={() => void runDispatchAction('escalate')} disabled={dispatchAction !== null || latestDispatch.status === 'cancelled' || latestDispatch.status === 'escalated'}>
+                    <TrendingUp size={16} /> {dispatchAction === 'escalate' ? 'Opschalen...' : 'Opschalen'}
+                  </button>
+                  <button className="secondary-button" type="button" onClick={() => void runDispatchAction('realert')} disabled={dispatchAction !== null || latestDispatch.status === 'cancelled' || countResponses(latestDispatch, 'pending') === 0}>
+                    <BellRing size={16} /> {dispatchAction === 'realert' ? 'Heralarmeren...' : 'Heralarmeren'}
+                  </button>
+                </div>
+                {dispatchActionMessage ? <p className={dispatchActionMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{dispatchActionMessage}</p> : null}
                 <div className="summary-grid">
                   <SummaryItem label="Alarmering" value={latestDispatch.status} />
                   <SummaryItem label="Team" value={latestDispatch.target_team?.code ?? '-'} />

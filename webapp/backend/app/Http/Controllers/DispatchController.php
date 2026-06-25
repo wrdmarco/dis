@@ -66,10 +66,12 @@ final class DispatchController extends Controller
 
     public function escalate(Request $request, DispatchRequest $dispatch): JsonResponse
     {
-        $dispatch->update(['status' => 'escalated']);
-        $this->service->broadcastDispatchChange($dispatch->refresh(), 'escalated');
+        return ApiResponse::success($this->service->escalate($dispatch, $request->user()));
+    }
 
-        return ApiResponse::success($dispatch);
+    public function reAlert(Request $request, DispatchRequest $dispatch): JsonResponse
+    {
+        return ApiResponse::success($this->service->reAlert($dispatch, $request->user()));
     }
 
     public function recipients(DispatchRequest $dispatch): JsonResponse

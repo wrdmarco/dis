@@ -80,6 +80,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/dispatches/{dispatch}/respond', [DispatchController::class, 'respond'])->middleware('throttle:dispatch-response');
     Route::post('/dispatches/{dispatch}/cancel', [DispatchController::class, 'cancel'])->middleware('permission:dispatch.manage');
     Route::post('/dispatches/{dispatch}/escalate', [DispatchController::class, 'escalate'])->middleware('permission:dispatch.manage');
+    Route::post('/dispatches/{dispatch}/re-alert', [DispatchController::class, 'reAlert'])->middleware('permission:dispatch.manage');
     Route::get('/dispatches/{dispatch}/recipients', [DispatchController::class, 'recipients'])->middleware('permission:dispatch.view');
 
     Route::get('/status/me', [StatusController::class, 'me']);
