@@ -133,19 +133,11 @@ export function AdminPage() {
         },
       };
 
-      if ([
-        managedForm.firebaseServiceClientEmail,
-        managedForm.firebaseServicePrivateKey,
-        managedForm.firebaseServicePrivateKeyId,
-        managedForm.firebaseServiceClientId,
-        managedForm.firebaseServiceClientX509CertUrl,
-      ].some((value) => value.trim() !== '')) {
+      if (managedForm.firebaseServicePrivateKey.trim() !== '') {
         payload['firebase.service_account'] = {
           client_email: managedForm.firebaseServiceClientEmail,
           private_key: managedForm.firebaseServicePrivateKey,
           private_key_id: managedForm.firebaseServicePrivateKeyId,
-          client_id: managedForm.firebaseServiceClientId,
-          client_x509_cert_url: managedForm.firebaseServiceClientX509CertUrl,
         };
       }
 
@@ -197,31 +189,13 @@ export function AdminPage() {
     setManagedError(null);
     try {
       const payload: Record<string, unknown> = {
-        'firebase.project_id': managedForm.firebaseProjectId,
         'retention.push_logs_days': Number(managedForm.pushLogRetentionDays || 90),
         'retention.audit_logs_days': Number(managedForm.auditLogRetentionDays || 3650),
         'retention.location_days': Number(managedForm.locationRetentionDays || 30),
         'updates.android.application_id': managedForm.androidApplicationId,
       };
 
-      if ([
-        managedForm.firebaseServiceClientEmail,
-        managedForm.firebaseServicePrivateKey,
-        managedForm.firebaseServicePrivateKeyId,
-        managedForm.firebaseServiceClientId,
-        managedForm.firebaseServiceClientX509CertUrl,
-      ].some((value) => value.trim() !== '')) {
-        payload['firebase.service_account'] = {
-          client_email: managedForm.firebaseServiceClientEmail,
-          private_key: managedForm.firebaseServicePrivateKey,
-          private_key_id: managedForm.firebaseServicePrivateKeyId,
-          client_id: managedForm.firebaseServiceClientId,
-          client_x509_cert_url: managedForm.firebaseServiceClientX509CertUrl,
-        };
-      }
-
       await api.patch('/admin/settings', { settings: payload });
-      setManagedForm((current) => ({ ...current, firebaseServicePrivateKey: '' }));
       await settings.reload();
     } catch (error) {
       setManagedError(error instanceof Error ? error.message : 'Instellingen opslaan mislukt.');
@@ -331,8 +305,9 @@ export function AdminPage() {
           </Panel>
           <Panel title="Firebase JSON importeren">
             <div className="setup-copy">
-              <strong>Upload het Firebase JSON-bestand hier.</strong>
-              <p>DIS leest het bestand in je browser en vult de velden automatisch. Het JSON-bestand zelf wordt niet op de server geplaatst.</p>
+              <strong>Upload hier je Firebase JSON-bestanden.</strong>
+              <p>Voor de Android app is de Firebase Android config JSON nodig. Voor pushberichten vanuit de backend is een Firebase service-account JSON nodig. DIS leest het bestand in je browser en slaat alleen de benodigde waarden op.</p>
+              <p>Service account: {managedForm.firebaseServiceClientEmail.trim() ? 'ingesteld' : 'niet ingesteld'}</p>
             </div>
             <div className="form-grid">
               <label className="form-grid__wide">
@@ -456,30 +431,6 @@ export function AdminPage() {
       {activeTab === 'system' ? (
         <Panel title="Beheerbare systeeminstellingen">
           <div className="form-grid">
-            <label>
-              Firebase project id
-              <input value={managedForm.firebaseProjectId} onChange={(event) => setManagedForm((current) => ({ ...current, firebaseProjectId: event.target.value }))} />
-            </label>
-            <label>
-              Firebase service account client_email
-              <input value={managedForm.firebaseServiceClientEmail} onChange={(event) => setManagedForm((current) => ({ ...current, firebaseServiceClientEmail: event.target.value }))} />
-            </label>
-            <label>
-              Firebase service account private_key_id
-              <input value={managedForm.firebaseServicePrivateKeyId} onChange={(event) => setManagedForm((current) => ({ ...current, firebaseServicePrivateKeyId: event.target.value }))} />
-            </label>
-            <label>
-              Firebase service account client_id
-              <input value={managedForm.firebaseServiceClientId} onChange={(event) => setManagedForm((current) => ({ ...current, firebaseServiceClientId: event.target.value }))} />
-            </label>
-            <label>
-              Firebase service account cert URL
-              <input value={managedForm.firebaseServiceClientX509CertUrl} onChange={(event) => setManagedForm((current) => ({ ...current, firebaseServiceClientX509CertUrl: event.target.value }))} />
-            </label>
-            <label className="form-grid__wide">
-              Firebase service account private_key
-              <textarea className="mono" value={managedForm.firebaseServicePrivateKey} placeholder="Ongewijzigd laten" onChange={(event) => setManagedForm((current) => ({ ...current, firebaseServicePrivateKey: event.target.value }))} />
-            </label>
             <label>
               Android application id
               <input value={managedForm.androidApplicationId} onChange={(event) => setManagedForm((current) => ({ ...current, androidApplicationId: event.target.value }))} />
