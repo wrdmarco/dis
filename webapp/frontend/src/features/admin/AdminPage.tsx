@@ -1,6 +1,7 @@
 import { Panel } from '../../components/Panel';
 import { FirebaseSetupWizard } from '../../components/FirebaseSetupWizard';
 import { ResourceState } from '../../components/ResourceState';
+import { TotpQrCode } from '../../components/TotpQrCode';
 import { useApiResource } from '../../lib/useApiResource';
 import type { FcmToken, ManualPushResult, Role, SystemSetting, Team, User } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
@@ -227,6 +228,12 @@ export function AdminPage() {
         <FirebaseSetupWizard androidApplicationId={managedForm.androidApplicationId || 'nl.wrdmarco.dis'} />
       </Panel>
       <Panel title="Mobiele app tenantconfiguratie">
+        {form.apiBaseUrl.trim() !== '' ? (
+          <div className="tenant-qr">
+            <TotpQrCode value={normalizePublicUrl(form.apiBaseUrl)} alt="QR-code met DIS server URL" helpText="Scan deze QR-code in de Android app om de server URL automatisch in te vullen." />
+            <code>{normalizePublicUrl(form.apiBaseUrl)}</code>
+          </div>
+        ) : null}
         <div className="form-grid">
           <label>
             Tenantnaam
@@ -487,4 +494,14 @@ function asStringOrNumber(value: unknown, fallback: string): string {
   }
 
   return typeof value === 'string' && value !== '' ? value : fallback;
+}
+
+function normalizePublicUrl(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, '');
+
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+
+  return `http://${trimmed}`;
 }

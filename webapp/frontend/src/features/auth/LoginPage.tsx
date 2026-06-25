@@ -80,7 +80,7 @@ export function LoginPage() {
 
         {requiresTwoFactorSetup ? (
           <form onSubmit={confirmSetup} className="form">
-            <TotpQrCode value={twoFactorSetup?.provisioning_uri} />
+            <TotpQrCode value={twoFactorSetup?.provisioning_uri} alt="MFA QR-code voor Authenticator app" helpText="Scan deze QR-code met je Authenticator app." />
             <label>
               Authenticator secret
               <input className="mono" value={twoFactorSetup?.secret ?? ''} readOnly />

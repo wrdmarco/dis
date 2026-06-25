@@ -2,6 +2,7 @@ import { CheckCircle2, Settings, ShieldCheck } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FirebaseSetupWizard } from '../../components/FirebaseSetupWizard';
+import { TotpQrCode } from '../../components/TotpQrCode';
 import { apiBaseUrl } from '../../lib/apiClient';
 import type { ApiResponse, User } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
@@ -197,6 +198,10 @@ export function SetupWizardPage() {
           <form onSubmit={submit}>
             <div className="setup-section">
               <h2>Platform</h2>
+              <div className="tenant-qr">
+                <TotpQrCode value={normalizePublicUrl(form.publicUrl)} alt="QR-code met DIS server URL" helpText="Scan deze QR-code in de Android app om de server URL automatisch in te vullen." />
+                <code>{normalizePublicUrl(form.publicUrl)}</code>
+              </div>
               <div className="form-grid">
                 <label>
                   Tenantnaam

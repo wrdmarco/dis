@@ -115,7 +115,7 @@ export function ProfilePage() {
         {setup?.secret ? (
           <form className="form-grid" onSubmit={confirmSetup}>
             <div className="form-grid__wide">
-              <TotpQrCode value={setup.provisioning_uri} />
+              <TotpQrCode value={setup.provisioning_uri} alt="MFA QR-code voor Authenticator app" helpText="Scan deze QR-code met je Authenticator app." />
             </div>
             <label className="form-grid__wide">
               Secret

@@ -413,6 +413,23 @@ a:hover {
   font-size: 0.9rem;
 }
 
+.tenant-qr {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  padding: 16px;
+}
+
+.tenant-qr .totp-qr {
+  max-width: 300px;
+}
+
+.tenant-qr code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: #d7e7f8;
+}
+
 .firebase-wizard {
   display: grid;
   gap: 14px;

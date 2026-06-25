@@ -3,9 +3,11 @@ import QRCode from 'qrcode';
 
 interface TotpQrCodeProps {
   value?: string | null;
+  alt?: string;
+  helpText?: string;
 }
 
-export function TotpQrCode({ value }: TotpQrCodeProps) {
+export function TotpQrCode({ value, alt = 'QR-code', helpText = 'Scan deze QR-code.' }: TotpQrCodeProps) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,8 +59,8 @@ export function TotpQrCode({ value }: TotpQrCodeProps) {
 
   return (
     <div className="totp-qr">
-      <img src={dataUrl} alt="MFA QR-code voor Authenticator app" />
-      <span>Scan deze QR-code met je Authenticator app.</span>
+      <img src={dataUrl} alt={alt} />
+      <span>{helpText}</span>
     </div>
   );
 }
