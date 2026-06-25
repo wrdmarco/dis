@@ -44,6 +44,7 @@ export function App() {
         <Route path="push" element={<PushPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="system" element={<SystemPage />} />
+        <Route path="systeem" element={<SystemPage />} />
         <Route path="profile" element={<ProfilePage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 interface MobileSettingsForm {
   tenantName: string;
+  publicUrl: string;
   apiBaseUrl: string;
   firebaseApplicationId: string;
   firebaseApiKey: string;
@@ -39,11 +40,12 @@ interface ManagedSettingsForm {
   androidApplicationId: string;
 }
 
-type AdminTab = 'access' | 'firebase' | 'system' | 'tokens' | 'settings';
+type AdminTab = 'access' | 'firebase' | 'mail' | 'system' | 'tokens' | 'settings';
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'access', label: 'Toegang' },
   { id: 'firebase', label: 'Firebase' },
+  { id: 'mail', label: 'Mail' },
   { id: 'system', label: 'Systeem' },
   { id: 'tokens', label: 'Tokens' },
   { id: 'settings', label: 'Instellingen' },
@@ -82,10 +84,20 @@ export function AdminPage() {
     setSaving(true);
     setSaveError(null);
     try {
+      const sourceUrl = form.publicUrl || form.apiBaseUrl;
+
+      if (sourceUrl.trim() === '') {
+        setSaveError('Publieke web URL is verplicht.');
+        return;
+      }
+
+      const publicUrl = normalizeWebPublicUrl(sourceUrl);
+
       await api.patch('/admin/settings', {
         settings: {
           'mobile.tenant_name': form.tenantName,
-          'mobile.api_base_url': form.apiBaseUrl,
+          'app.public_url': publicUrl,
+          'mobile.api_base_url': normalizeApiBaseUrl(form.apiBaseUrl || publicUrl),
           'mobile.firebase_config': {
             application_id: form.firebaseApplicationId,
             api_key: form.firebaseApiKey,
@@ -185,23 +197,12 @@ export function AdminPage() {
     setManagedError(null);
     try {
       const payload: Record<string, unknown> = {
-        'mail.mailer': managedForm.mailMailer,
-        'mail.host': managedForm.mailHost,
-        'mail.port': Number(managedForm.mailPort || 587),
-        'mail.encryption': managedForm.mailEncryption,
-        'mail.username': managedForm.mailUsername,
-        'mail.from_address': managedForm.mailFromAddress,
-        'mail.from_name': managedForm.mailFromName,
         'firebase.project_id': managedForm.firebaseProjectId,
         'retention.push_logs_days': Number(managedForm.pushLogRetentionDays || 90),
         'retention.audit_logs_days': Number(managedForm.auditLogRetentionDays || 3650),
         'retention.location_days': Number(managedForm.locationRetentionDays || 30),
         'updates.android.application_id': managedForm.androidApplicationId,
       };
-
-      if (managedForm.mailPassword.trim() !== '') {
-        payload['mail.password'] = managedForm.mailPassword;
-      }
 
       if ([
         managedForm.firebaseServiceClientEmail,
@@ -220,10 +221,38 @@ export function AdminPage() {
       }
 
       await api.patch('/admin/settings', { settings: payload });
-      setManagedForm((current) => ({ ...current, mailPassword: '', firebaseServicePrivateKey: '' }));
+      setManagedForm((current) => ({ ...current, firebaseServicePrivateKey: '' }));
       await settings.reload();
     } catch (error) {
       setManagedError(error instanceof Error ? error.message : 'Instellingen opslaan mislukt.');
+    } finally {
+      setManagedSaving(false);
+    }
+  }
+
+  async function saveMailSettings() {
+    setManagedSaving(true);
+    setManagedError(null);
+    try {
+      const payload: Record<string, unknown> = {
+        'mail.mailer': managedForm.mailMailer,
+        'mail.host': managedForm.mailHost,
+        'mail.port': Number(managedForm.mailPort || 587),
+        'mail.encryption': managedForm.mailEncryption,
+        'mail.username': managedForm.mailUsername,
+        'mail.from_address': managedForm.mailFromAddress,
+        'mail.from_name': managedForm.mailFromName,
+      };
+
+      if (managedForm.mailPassword.trim() !== '') {
+        payload['mail.password'] = managedForm.mailPassword;
+      }
+
+      await api.patch('/admin/settings', { settings: payload });
+      setManagedForm((current) => ({ ...current, mailPassword: '' }));
+      await settings.reload();
+    } catch (error) {
+      setManagedError(error instanceof Error ? error.message : 'Mailinstellingen opslaan mislukt.');
     } finally {
       setManagedSaving(false);
     }
@@ -325,10 +354,10 @@ export function AdminPage() {
             </div>
           </Panel>
           <Panel title="Mobiele app tenantconfiguratie">
-            {form.apiBaseUrl.trim() !== '' ? (
+            {(form.publicUrl || form.apiBaseUrl).trim() !== '' ? (
               <div className="tenant-qr">
-                <TotpQrCode value={normalizePublicUrl(form.apiBaseUrl)} alt="QR-code met DIS server URL" helpText="Scan deze QR-code in de Android app om de server URL automatisch in te vullen." />
-                <code>{normalizePublicUrl(form.apiBaseUrl)}</code>
+                <TotpQrCode value={normalizeWebPublicUrl(form.publicUrl || form.apiBaseUrl)} alt="QR-code met DIS server URL" helpText="Scan deze QR-code in de Android app om de server URL automatisch in te vullen." />
+                <code>{normalizeWebPublicUrl(form.publicUrl || form.apiBaseUrl)}</code>
               </div>
             ) : null}
             <div className="form-grid">
@@ -337,7 +366,11 @@ export function AdminPage() {
                 <input value={form.tenantName} onChange={(event) => setForm((current) => ({ ...current, tenantName: event.target.value }))} />
               </label>
               <label>
-                Server URL
+                Publieke web URL
+                <input value={form.publicUrl} placeholder="https://dis.example.nl" onChange={(event) => setForm((current) => ({ ...current, publicUrl: event.target.value }))} />
+              </label>
+              <label>
+                API URL
                 <input value={form.apiBaseUrl} placeholder="https://dis.example.nl" onChange={(event) => setForm((current) => ({ ...current, apiBaseUrl: event.target.value }))} />
               </label>
               <label>
@@ -371,8 +404,8 @@ export function AdminPage() {
         </>
       ) : null}
 
-      {activeTab === 'system' ? (
-        <Panel title="Beheerbare systeeminstellingen">
+      {activeTab === 'mail' ? (
+        <Panel title="Mailinstellingen">
           <div className="form-grid">
             <label>
               Mail driver
@@ -410,6 +443,19 @@ export function AdminPage() {
               Afzender naam
               <input value={managedForm.mailFromName} onChange={(event) => setManagedForm((current) => ({ ...current, mailFromName: event.target.value }))} />
             </label>
+          </div>
+          {managedError ? <p className="error-text">{managedError}</p> : null}
+          <div className="actions-row">
+            <button className="primary-button" type="button" onClick={saveMailSettings} disabled={managedSaving}>
+              {managedSaving ? 'Opslaan...' : 'Mailinstellingen opslaan'}
+            </button>
+          </div>
+        </Panel>
+      ) : null}
+
+      {activeTab === 'system' ? (
+        <Panel title="Beheerbare systeeminstellingen">
+          <div className="form-grid">
             <label>
               Firebase project id
               <input value={managedForm.firebaseProjectId} onChange={(event) => setManagedForm((current) => ({ ...current, firebaseProjectId: event.target.value }))} />
@@ -523,6 +569,7 @@ function toMobileSettingsForm(settings: SystemSetting[]): MobileSettingsForm {
 
   return {
     tenantName: asString(byKey.get('mobile.tenant_name')),
+    publicUrl: asString(byKey.get('app.public_url')),
     apiBaseUrl: asString(byKey.get('mobile.api_base_url')),
     firebaseApplicationId: asString(firebase.application_id),
     firebaseApiKey: asString(firebase.api_key),
@@ -582,4 +629,37 @@ function normalizePublicUrl(value: string): string {
   }
 
   return `https://${trimmed}`;
+}
+
+function normalizeWebPublicUrl(value: string): string {
+  const url = new URL(normalizePublicUrl(value));
+  const segments = url.pathname.split('/').filter(Boolean);
+  const apiIndex = segments.indexOf('api');
+
+  if (apiIndex >= 0) {
+    url.pathname = segments.slice(0, apiIndex).length > 0 ? `/${segments.slice(0, apiIndex).join('/')}` : '/';
+  }
+
+  url.search = '';
+  url.hash = '';
+
+  return url.toString().replace(/\/+$/, '');
+}
+
+function normalizeApiBaseUrl(value: string): string {
+  const publicUrl = normalizePublicUrl(value);
+  const url = new URL(publicUrl);
+  const segments = url.pathname.split('/').filter(Boolean);
+  const apiIndex = segments.indexOf('api');
+
+  if (apiIndex >= 0) {
+    url.pathname = `/${segments.slice(0, apiIndex + 1).join('/')}`;
+  } else {
+    url.pathname = `${url.pathname.replace(/\/+$/, '')}/api`;
+  }
+
+  url.search = '';
+  url.hash = '';
+
+  return url.toString().replace(/\/+$/, '');
 }
