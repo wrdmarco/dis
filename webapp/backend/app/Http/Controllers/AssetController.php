@@ -19,6 +19,17 @@ final class AssetController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        if (! $request->has('per_page')) {
+            return ApiResponse::success(
+                Asset::query()
+                    ->orderBy('asset_tag')
+                    ->limit(100)
+                    ->get()
+                    ->map(fn (Asset $asset): array => MobileApiPayload::asset($asset))
+                    ->values(),
+            );
+        }
+
         return ApiResponse::paginated(
             Asset::query()->orderBy('asset_tag')->paginate((int) $request->integer('per_page', 25)),
             fn (Asset $asset): array => MobileApiPayload::asset($asset),

@@ -18,6 +18,16 @@ final class IncidentController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        if (! $request->has('per_page')) {
+            $incidents = $this->incidents
+                ->search($request->only(['status', 'priority']), 100)
+                ->getCollection()
+                ->map(fn (Incident $incident): array => MobileApiPayload::incident($incident))
+                ->values();
+
+            return ApiResponse::success($incidents);
+        }
+
         return ApiResponse::paginated(
             $this->incidents->search($request->only(['status', 'priority']), (int) $request->integer('per_page', 25)),
             fn (Incident $incident): array => MobileApiPayload::incident($incident),

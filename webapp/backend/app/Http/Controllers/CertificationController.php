@@ -20,6 +20,17 @@ final class CertificationController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        if (! $request->has('per_page')) {
+            return ApiResponse::success(
+                Certification::query()
+                    ->orderBy('name')
+                    ->limit(100)
+                    ->get()
+                    ->map(fn (Certification $certification): array => MobileApiPayload::certification($certification))
+                    ->values(),
+            );
+        }
+
         return ApiResponse::paginated(
             Certification::query()->orderBy('name')->paginate((int) $request->integer('per_page', 25)),
             fn (Certification $certification): array => MobileApiPayload::certification($certification),
