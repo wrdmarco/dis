@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/common.sh"
+
+require_root
+require_ubuntu_2604
+
+log "Preparing DIS installation at ${DIS_INSTALL_PATH}"
+
+if ! getent group "${DIS_GROUP}" >/dev/null 2>&1; then
+  run_cmd groupadd --system "${DIS_GROUP}"
+fi
+
+if ! id "${DIS_USER}" >/dev/null 2>&1; then
+  run_cmd useradd --system --gid "${DIS_GROUP}" --home-dir "${DIS_INSTALL_PATH}" --shell /usr/sbin/nologin "${DIS_USER}"
+fi
+
+ensure_directory "${DIS_INSTALL_PATH}" root root 0755
+ensure_directory "${DIS_INSTALL_PATH}/storage" "${DIS_USER}" "${DIS_GROUP}" 0750
+ensure_directory "${DIS_INSTALL_PATH}/storage/app" "${DIS_USER}" "${DIS_GROUP}" 0750
+ensure_directory "${DIS_INSTALL_PATH}/storage/backups" "${DIS_USER}" "${DIS_GROUP}" 0750
+ensure_directory "${DIS_INSTALL_PATH}/storage/logs" "${DIS_USER}" "${DIS_GROUP}" 0750
+ensure_directory "${DIS_INSTALL_PATH}/storage/tmp" "${DIS_USER}" "${DIS_GROUP}" 0750
+ensure_directory "${DIS_INSTALL_PATH}/secrets" root "${DIS_GROUP}" 0750
+
+log "Installing required Ubuntu packages"
+run_cmd apt-get update
+run_cmd apt-get install -y \
+  acl ca-certificates composer curl git gnupg jq openssl rsync unzip \
+  nginx postgresql postgresql-client redis-server redis-tools \
+  "php${PHP_VERSION}-fpm" "php${PHP_VERSION}-cli" "php${PHP_VERSION}-pgsql" "php${PHP_VERSION}-redis" \
+  "php${PHP_VERSION}-mbstring" "php${PHP_VERSION}-xml" "php${PHP_VERSION}-curl" "php${PHP_VERSION}-zip" \
+  "php${PHP_VERSION}-bcmath" "php${PHP_VERSION}-intl" \
+  nodejs npm
+
+if id www-data >/dev/null 2>&1; then
+  run_cmd usermod -aG "${DIS_GROUP}" www-data
+fi
+
+log "Enabling system services"
+run_cmd systemctl enable postgresql
+run_cmd systemctl enable redis-server
+run_cmd systemctl enable "${PHP_FPM_SERVICE}"
+run_cmd systemctl enable nginx
+
+log "Install completed. For first install use setup.sh; for updates configure .env and run scripts/deploy.sh."

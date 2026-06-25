@@ -1,0 +1,76 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Requests\Users\StoreUserRequest;
+use App\Http\Requests\Users\UpdateUserRequest;
+use App\Http\Responses\ApiResponse;
+use App\Models\AuditLog;
+use App\Models\Role;
+use App\Models\Team;
+use App\Models\User;
+use App\Repositories\UserRepository;
+use App\Services\UserService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+final class UserController extends Controller
+{
+    public function __construct(private readonly UserRepository $users, private readonly UserService $service) {}
+
+    public function index(Request $request): JsonResponse
+    {
+        return ApiResponse::paginated($this->users->search($request->only(['search', 'status', 'role', 'team']), (int) $request->integer('per_page', 25)));
+    }
+
+    public function store(StoreUserRequest $request): JsonResponse
+    {
+        return ApiResponse::success($this->service->create($request->validated(), $request->user()), 201);
+    }
+
+    public function show(User $user): JsonResponse
+    {
+        return ApiResponse::success($user->load(['roles.permissions', 'teams', 'certifications.certification']));
+    }
+
+    public function update(UpdateUserRequest $request, User $user): JsonResponse
+    {
+        return ApiResponse::success($this->service->update($user, $request->validated(), $request->user()));
+    }
+
+    public function assignRole(Request $request, User $user): JsonResponse
+    {
+        $request->validate(['role_id' => ['required', 'ulid', 'exists:roles,id']]);
+        $this->service->assignRole($user, Role::query()->findOrFail($request->input('role_id')), $request->user());
+
+        return ApiResponse::success($user->refresh()->load('roles'));
+    }
+
+    public function removeRole(Request $request, User $user, Role $role): JsonResponse
+    {
+        $this->service->removeRole($user, $role, $request->user());
+
+        return ApiResponse::success(null, 204);
+    }
+
+    public function assignTeam(Request $request, User $user): JsonResponse
+    {
+        $request->validate(['team_id' => ['required', 'ulid', 'exists:teams,id']]);
+        $this->service->assignTeam($user, Team::query()->findOrFail($request->input('team_id')), $request->user());
+
+        return ApiResponse::success($user->refresh()->load('teams'));
+    }
+
+    public function removeTeam(Request $request, User $user, Team $team): JsonResponse
+    {
+        $this->service->removeTeam($user, $team, $request->user());
+
+        return ApiResponse::success(null, 204);
+    }
+
+    public function audit(User $user): JsonResponse
+    {
+        return ApiResponse::success(AuditLog::query()->where('target_id', $user->id)->latest('created_at')->paginate(50));
+    }
+}
+

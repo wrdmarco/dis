@@ -1,0 +1,23 @@
+[Unit]
+Description=DIS Laravel Queue Worker
+After=network.target redis-server.service postgresql.service
+
+[Service]
+Type=simple
+User=dis
+Group=dis
+WorkingDirectory=/opt/dis/webapp/backend
+ExecStart=/usr/bin/php artisan queue:work redis --queue=default,push,broadcasts --sleep=1 --tries=3 --timeout=90
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+CapabilityBoundingSet=
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/opt/dis/webapp/backend/storage /opt/dis/storage
+
+[Install]
+WantedBy=multi-user.target

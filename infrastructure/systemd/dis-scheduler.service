@@ -1,0 +1,23 @@
+[Unit]
+Description=DIS Laravel Scheduler
+After=network.target redis-server.service postgresql.service
+
+[Service]
+Type=simple
+User=dis
+Group=dis
+WorkingDirectory=/opt/dis/webapp/backend
+ExecStart=/usr/bin/php artisan schedule:work
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+CapabilityBoundingSet=
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/opt/dis/webapp/backend/storage /opt/dis/storage
+
+[Install]
+WantedBy=multi-user.target

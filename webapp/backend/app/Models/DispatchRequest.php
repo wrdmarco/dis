@@ -1,0 +1,31 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Concerns\UsesUlids;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+final class DispatchRequest extends Model
+{
+    use UsesUlids;
+
+    protected $fillable = ['incident_id', 'requested_by', 'target_team_id', 'status', 'priority', 'message', 'sent_at', 'cancelled_at'];
+
+    protected function casts(): array
+    {
+        return ['sent_at' => 'immutable_datetime', 'cancelled_at' => 'immutable_datetime'];
+    }
+
+    public function incident(): BelongsTo
+    {
+        return $this->belongsTo(Incident::class);
+    }
+
+    public function recipients(): HasMany
+    {
+        return $this->hasMany(DispatchRecipient::class);
+    }
+}
+

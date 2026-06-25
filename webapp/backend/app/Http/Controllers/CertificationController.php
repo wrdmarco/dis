@@ -1,0 +1,74 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Requests\Certifications\StoreCertificationRequest;
+use App\Http\Requests\Certifications\UpdateCertificationRequest;
+use App\Http\Responses\ApiResponse;
+use App\Models\Certification;
+use App\Models\User;
+use App\Models\UserCertification;
+use App\Services\CertificationService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+final class CertificationController extends Controller
+{
+    public function __construct(private readonly CertificationService $service) {}
+
+    public function index(Request $request): JsonResponse
+    {
+        return ApiResponse::paginated(Certification::query()->orderBy('name')->paginate((int) $request->integer('per_page', 25)));
+    }
+
+    public function store(StoreCertificationRequest $request): JsonResponse
+    {
+        return ApiResponse::success($this->service->create($request->validated(), $request->user()), 201);
+    }
+
+    public function update(UpdateCertificationRequest $request, Certification $certification): JsonResponse
+    {
+        $certification->update($request->validated());
+
+        return ApiResponse::success($certification->refresh());
+    }
+
+    public function userCertifications(User $user): JsonResponse
+    {
+        return ApiResponse::success($user->certifications()->with('certification')->get());
+    }
+
+    public function assignToUser(Request $request, User $user): JsonResponse
+    {
+        $data = $request->validate([
+            'certification_id' => ['required', 'ulid', 'exists:certifications,id'],
+            'issued_at' => ['required', 'date'],
+            'expires_at' => ['nullable', 'date', 'after:issued_at'],
+            'certificate_number' => ['nullable', 'string', 'max:160'],
+            'status' => ['nullable', 'in:active,expired,revoked'],
+        ]);
+
+        return ApiResponse::success($this->service->assignToUser($user, $data, $request->user()), 201);
+    }
+
+    public function updateUserCertification(Request $request, User $user, UserCertification $userCertification): JsonResponse
+    {
+        abort_unless($userCertification->user_id === $user->id, 404);
+        $userCertification->update($request->validate([
+            'issued_at' => ['sometimes', 'date'],
+            'expires_at' => ['nullable', 'date'],
+            'certificate_number' => ['nullable', 'string', 'max:160'],
+            'status' => ['sometimes', 'in:active,expired,revoked'],
+        ]));
+
+        return ApiResponse::success($userCertification->refresh()->load('certification'));
+    }
+
+    public function revokeUserCertification(User $user, UserCertification $userCertification): JsonResponse
+    {
+        abort_unless($userCertification->user_id === $user->id, 404);
+        $userCertification->update(['status' => 'revoked']);
+
+        return ApiResponse::success(null, 204);
+    }
+}

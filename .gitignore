@@ -1,0 +1,52 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Secrets
+firebase-service-account.json
+secrets/*
+!secrets/.gitkeep
+*.pem
+*.key
+*.crt
+
+# Runtime storage
+/storage/*
+!/storage/.gitkeep
+!/storage/app/.gitkeep
+!/storage/backups/.gitkeep
+!/storage/logs/.gitkeep
+!/storage/tmp/.gitkeep
+
+# Dependencies
+/webapp/backend/vendor/
+/webapp/frontend/node_modules/
+/app/android/.gradle/
+
+# Build artifacts
+/webapp/frontend/dist/
+/webapp/frontend/build/
+/app/android/app/build/
+/app/android/build/
+*.apk
+*.aab
+
+# Laravel runtime
+/webapp/backend/storage/logs/*.log
+/webapp/backend/storage/framework/cache/*
+!/webapp/backend/storage/framework/cache/.gitkeep
+/webapp/backend/storage/framework/sessions/*
+!/webapp/backend/storage/framework/sessions/.gitkeep
+/webapp/backend/storage/framework/views/*
+!/webapp/backend/storage/framework/views/.gitkeep
+/webapp/backend/bootstrap/cache/*.php
+
+# Tooling
+/app/android/local.properties
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

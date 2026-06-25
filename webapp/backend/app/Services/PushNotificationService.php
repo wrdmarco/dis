@@ -1,0 +1,111 @@
+<?php
+
+namespace App\Services;
+
+use App\Jobs\SendFcmNotification;
+use App\Models\FcmToken;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+
+final class PushNotificationService
+{
+    public function __construct(
+        private readonly AuditService $auditService,
+        private readonly StatusService $statusService,
+    ) {}
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array{queued_tokens: int, recipient_users: int}
+     */
+    public function sendManual(User $actor, array $data): array
+    {
+        /** @var Collection<int, User> $users */
+        $users = User::query()
+            ->with(['fcmTokens' => fn ($tokens) => $tokens->where('is_active', true)])
+            ->where('account_status', 'active')
+            ->where('push_enabled', true)
+            ->whereHas('fcmTokens', fn ($tokens) => $tokens->where('is_active', true))
+            ->where(function (Builder $query) use ($data): void {
+                $teamIds = $data['team_ids'] ?? [];
+                $roleIds = $data['role_ids'] ?? [];
+                $userIds = $data['user_ids'] ?? [];
+
+                if ($teamIds !== []) {
+                    $query->orWhereHas('teams', fn ($teams) => $teams->whereIn('teams.id', $teamIds));
+                }
+
+                if ($roleIds !== []) {
+                    $query->orWhereHas('roles', fn ($roles) => $roles->whereIn('roles.id', $roleIds));
+                }
+
+                if ($userIds !== []) {
+                    $query->orWhereIn('id', $userIds);
+                }
+            })
+            ->get();
+
+        $queuedTokens = 0;
+        foreach ($users as $user) {
+            foreach ($user->fcmTokens as $token) {
+                SendFcmNotification::dispatch(
+                    (string) $token->id,
+                    'manual_admin',
+                    (string) $data['title'],
+                    (string) $data['body'],
+                    [
+                        'type' => 'manual_admin',
+                        'sent_by' => (string) $actor->id,
+                    ],
+                )->onQueue('push');
+                $queuedTokens++;
+            }
+        }
+
+        $this->auditService->record('push.manual_sent', User::class, $actor, [
+            'team_ids' => $data['team_ids'] ?? [],
+            'role_ids' => $data['role_ids'] ?? [],
+            'user_ids' => $data['user_ids'] ?? [],
+            'recipient_users' => $users->count(),
+            'queued_tokens' => $queuedTokens,
+        ]);
+
+        return [
+            'queued_tokens' => $queuedTokens,
+            'recipient_users' => $users->count(),
+        ];
+    }
+
+    public function revokeToken(FcmToken $token, ?User $actor): void
+    {
+        DB::transaction(function () use ($token, $actor): void {
+            $token->update(['is_active' => false, 'revoked_at' => now()]);
+            $user = $token->user;
+
+            if ($user !== null && ! $user->fcmTokens()->where('is_active', true)->exists()) {
+                $user->update(['push_enabled' => false]);
+                $this->statusService->enforcePushUnavailable($user);
+            }
+
+            $this->auditService->record('push.token_admin_revoked', $token, $actor, [
+                'user_id' => $token->user_id,
+                'device_id' => $token->device_id,
+            ]);
+        });
+    }
+
+    public function activateToken(FcmToken $token, ?User $actor): void
+    {
+        DB::transaction(function () use ($token, $actor): void {
+            $token->update(['is_active' => true, 'revoked_at' => null, 'last_seen_at' => now()]);
+            $token->user?->update(['push_enabled' => true]);
+
+            $this->auditService->record('push.token_admin_activated', $token, $actor, [
+                'user_id' => $token->user_id,
+                'device_id' => $token->device_id,
+            ]);
+        });
+    }
+}

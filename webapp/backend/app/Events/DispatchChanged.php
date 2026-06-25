@@ -1,0 +1,45 @@
+<?php
+
+namespace App\Events;
+
+use App\Models\DispatchRequest;
+use Illuminate\Broadcasting\InteractsWithSockets;
+use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastAfterCommit;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
+
+final class DispatchChanged implements ShouldBroadcastAfterCommit
+{
+    use Dispatchable;
+    use InteractsWithSockets;
+    use SerializesModels;
+
+    public function __construct(public readonly DispatchRequest $dispatch, public readonly string $action) {}
+
+    public function broadcastOn(): array
+    {
+        return [
+            new PrivateChannel('operations'),
+            new PrivateChannel('incidents.'.$this->dispatch->incident_id),
+        ];
+    }
+
+    public function broadcastAs(): string
+    {
+        return 'dispatch.changed';
+    }
+
+    public function broadcastWith(): array
+    {
+        return [
+            'id' => $this->dispatch->id,
+            'incident_id' => $this->dispatch->incident_id,
+            'status' => $this->dispatch->status,
+            'priority' => $this->dispatch->priority,
+            'action' => $this->action,
+            'sent_at' => $this->dispatch->sent_at?->toISOString(),
+        ];
+    }
+}
+

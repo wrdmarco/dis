@@ -1,0 +1,82 @@
+<?php
+
+namespace App\Services;
+
+use App\Events\IncidentChanged;
+use App\Models\Incident;
+use App\Models\User;
+use Illuminate\Support\Facades\DB;
+
+final class IncidentService
+{
+    public function __construct(private readonly AuditService $auditService) {}
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    public function create(array $data, User $actor): Incident
+    {
+        return DB::transaction(function () use ($data, $actor): Incident {
+            $incident = Incident::query()->create($data + [
+                'reference' => $this->nextReference(),
+                'created_by' => $actor->id,
+                'status' => $data['status'] ?? 'draft',
+                'opened_at' => now(),
+            ]);
+
+            $incident->statusHistory()->create([
+                'from_status' => null,
+                'to_status' => $incident->status,
+                'changed_by' => $actor->id,
+                'reason' => 'Incident created.',
+                'created_at' => now(),
+            ]);
+
+            $this->auditService->record('incidents.created', $incident, $actor);
+            IncidentChanged::dispatch($incident, 'created');
+
+            return $incident->load(['coordinator', 'statusHistory']);
+        });
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    public function update(Incident $incident, array $data, User $actor): Incident
+    {
+        return DB::transaction(function () use ($incident, $data, $actor): Incident {
+            $beforeStatus = $incident->status;
+            $incident->update($data);
+
+            if (array_key_exists('status', $data) && $data['status'] !== $beforeStatus) {
+                $incident->statusHistory()->create([
+                    'from_status' => $beforeStatus,
+                    'to_status' => $data['status'],
+                    'changed_by' => $actor->id,
+                    'reason' => $data['status_reason'] ?? null,
+                    'created_at' => now(),
+                ]);
+            }
+
+            $this->auditService->record('incidents.updated', $incident, $actor);
+            IncidentChanged::dispatch($incident->refresh(), 'updated');
+
+            return $incident->load(['coordinator', 'statusHistory']);
+        });
+    }
+
+    public function close(Incident $incident, User $actor, ?string $reason): Incident
+    {
+        return $this->update($incident, ['status' => 'resolved', 'closed_at' => now(), 'status_reason' => $reason], $actor);
+    }
+
+    public function cancel(Incident $incident, User $actor, ?string $reason): Incident
+    {
+        return $this->update($incident, ['status' => 'cancelled', 'closed_at' => now(), 'status_reason' => $reason], $actor);
+    }
+
+    private function nextReference(): string
+    {
+        return 'DIS-'.now()->format('Ymd-His').'-'.strtoupper(substr(bin2hex(random_bytes(2)), 0, 4));
+    }
+}
