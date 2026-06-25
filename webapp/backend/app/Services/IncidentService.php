@@ -14,6 +14,7 @@ final class IncidentService
         private readonly AuditService $auditService,
         private readonly DispatchService $dispatchService,
         private readonly LocationService $locationService,
+        private readonly StatusService $statusService,
     ) {}
 
     /**
@@ -70,8 +71,9 @@ final class IncidentService
                 $this->dispatchService->createAndSendForIncidentActivation($incident->refresh(), $actor, $statusReason);
             }
 
-            if (array_key_exists('status', $data) && in_array($data['status'], ['resolved', 'cancelled'], true)) {
+            if (array_key_exists('status', $data) && $data['status'] !== $beforeStatus && in_array($data['status'], ['resolved', 'cancelled'], true)) {
                 $this->locationService->stopForIncident($incident->refresh(), $actor);
+                $this->resetAcceptedRecipientsToAvailable($incident->refresh(), $actor, $data['status']);
             }
 
             $this->auditService->record('incidents.updated', $incident, $actor);
@@ -94,6 +96,25 @@ final class IncidentService
     private function nextReference(): string
     {
         return 'DIS-'.now()->format('Ymd-His').'-'.strtoupper(substr(bin2hex(random_bytes(2)), 0, 4));
+    }
+
+    private function resetAcceptedRecipientsToAvailable(Incident $incident, User $actor, string $terminalStatus): void
+    {
+        $incident->load([
+            'dispatchRequests.recipients.user',
+        ]);
+
+        $reason = $terminalStatus === 'resolved'
+            ? 'Incident afgerond; gebruiker automatisch weer beschikbaar gezet.'
+            : 'Incident geannuleerd; gebruiker automatisch weer beschikbaar gezet.';
+
+        $incident->dispatchRequests
+            ->flatMap(fn ($dispatch) => $dispatch->recipients)
+            ->filter(fn ($recipient): bool => $recipient->response_status === 'accepted'
+                && $recipient->user !== null
+                && (bool) $recipient->user->push_enabled)
+            ->unique('user_id')
+            ->each(fn ($recipient) => $this->statusService->setStatus($recipient->user, 'available', $actor, $reason, true));
     }
 
     private function broadcastIncidentChange(Incident $incident, string $action): void

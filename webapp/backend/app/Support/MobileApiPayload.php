@@ -74,6 +74,11 @@ final class MobileApiPayload
             'status' => $status->status,
             'is_available' => (bool) $status->is_available,
             'effective_at' => $status->effective_at?->toIso8601String(),
+            'user' => $status->relationLoaded('user') && $status->user !== null ? [
+                'id' => $status->user->id,
+                'name' => $status->user->name,
+                'email' => $status->user->email,
+            ] : null,
         ];
     }
 
