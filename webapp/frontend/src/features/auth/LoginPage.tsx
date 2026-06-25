@@ -38,7 +38,7 @@ export function LoginPage() {
       if (result.requires_2fa_setup) {
         setRequiresTwoFactorSetup(true);
         setCode('');
-        setTwoFactorSetup(await startTwoFactorSetup());
+        setTwoFactorSetup(result.two_factor_setup ?? await startTwoFactorSetup());
         return;
       }
 

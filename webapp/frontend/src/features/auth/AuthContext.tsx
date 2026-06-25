@@ -5,6 +5,7 @@ import type { TwoFactorEnableResult, TwoFactorSetup, User } from '../../types/ap
 interface LoginResult {
   requires_2fa: boolean;
   requires_2fa_setup?: boolean;
+  two_factor_setup?: TwoFactorSetup;
   token: string;
   user?: User;
 }

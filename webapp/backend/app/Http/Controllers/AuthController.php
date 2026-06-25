@@ -36,6 +36,11 @@ final class AuthController extends Controller
         $tokenName = $request->validated('device_name') ?? 'DIS API';
         $requiresTwoFactor = $user->roles->contains(fn ($role) => $role->requires_two_factor);
         if ($requiresTwoFactor && ! $user->two_factor_enabled) {
+            $secret = $this->twoFactorService->generateSecret();
+            $user->forceFill([
+                'two_factor_secret' => $secret,
+                'two_factor_confirmed_at' => null,
+            ])->save();
             $token = $user->createToken($tokenName, ['2fa:setup'], now()->addMinutes(30))->plainTextToken;
             $this->auditService->record('auth.2fa_setup_required', $user, $user, [], null, $request);
 
@@ -44,6 +49,11 @@ final class AuthController extends Controller
                 'requires_2fa_setup' => true,
                 'token' => $token,
                 'user' => $user,
+                'two_factor_setup' => [
+                    'enabled' => false,
+                    'secret' => $secret,
+                    'provisioning_uri' => $this->twoFactorService->provisioningUri($user, $secret),
+                ],
             ], 202);
         }
 
