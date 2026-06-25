@@ -10,6 +10,7 @@ use App\Models\Incident;
 use App\Models\Team;
 use App\Models\Certification;
 use App\Models\User;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -32,9 +33,10 @@ final class DispatchService
                 throw ValidationException::withMessages(['team_code' => ['Het gekozen team bestaat niet.']]);
             }
 
-            $eligible = $this->eligibleUsers($targetTeam);
+            $eligibility = $this->eligibleUsers($targetTeam);
+            $eligible = $eligibility['users'];
             if ($eligible->isEmpty()) {
-                throw ValidationException::withMessages(['team_code' => ['Geen beschikbare gebruikers met actieve push-token gevonden voor dit team.']]);
+                throw ValidationException::withMessages(['team_code' => [$eligibility['message']]]);
             }
 
             $dispatch = DispatchRequest::query()->create([
@@ -122,38 +124,107 @@ final class DispatchService
         return Team::query()->where('code', (string) config('dis.teams.base_team_code', 'OCP'))->first();
     }
 
-    private function eligibleUsers(Team $targetTeam)
+    /**
+     * @return array{users: Collection<int, User>, message: string}
+     */
+    private function eligibleUsers(Team $targetTeam): array
     {
         $requiredCertificationIds = Certification::query()
             ->where('is_required_for_dispatch', true)
             ->pluck('id');
         $teamCodes = $this->expandTeamCodes($targetTeam);
 
-        return User::query()
-            ->where('account_status', 'active')
-            ->where('push_enabled', true)
+        $teamUsers = User::query()
+            ->with([
+                'certifications',
+                'fcmTokens' => fn ($tokens) => $tokens->where('is_active', true),
+                'statuses' => fn ($statuses) => $statuses->latestPerUser(),
+            ])
             ->whereHas('teams', fn ($teams) => $teams->whereIn('code', $teamCodes))
-            ->whereHas('fcmTokens', fn ($tokens) => $tokens->where('is_active', true))
-            ->whereHas('statuses', fn ($statuses) => $statuses->latestPerUser()->where('is_available', true))
-            ->get()
-            ->filter(function (User $user) use ($requiredCertificationIds): bool {
-                foreach ($requiredCertificationIds as $certificationId) {
-                    $hasActiveCertification = $user->certifications()
-                        ->where('certification_id', $certificationId)
-                        ->where('status', 'active')
-                        ->where(function ($query): void {
-                            $query->whereNull('expires_at')->orWhere('expires_at', '>=', now()->toDateString());
-                        })
-                        ->exists();
+            ->get();
 
-                    if (! $hasActiveCertification) {
-                        return false;
-                    }
-                }
-
-                return true;
-            })
+        $activeUsers = $teamUsers
+            ->filter(fn (User $user): bool => $user->account_status === 'active')
             ->values();
+        $pushEnabledUsers = $activeUsers
+            ->filter(fn (User $user): bool => (bool) $user->push_enabled)
+            ->values();
+        $tokenUsers = $pushEnabledUsers
+            ->filter(fn (User $user): bool => $user->fcmTokens->isNotEmpty())
+            ->values();
+        $availableUsers = $tokenUsers
+            ->filter(fn (User $user): bool => $user->statuses->first()?->is_available === true)
+            ->values();
+        $certifiedUsers = $availableUsers
+            ->filter(fn (User $user): bool => $this->hasRequiredCertifications($user, $requiredCertificationIds))
+            ->values();
+
+        return [
+            'users' => $certifiedUsers,
+            'message' => $this->eligibilityFailureMessage($targetTeam, [
+                'team_users' => $teamUsers->count(),
+                'active_users' => $activeUsers->count(),
+                'push_enabled_users' => $pushEnabledUsers->count(),
+                'active_token_users' => $tokenUsers->count(),
+                'available_users' => $availableUsers->count(),
+                'certified_users' => $certifiedUsers->count(),
+                'required_certifications' => $requiredCertificationIds->count(),
+            ]),
+        ];
+    }
+
+    /**
+     * @param Collection<int, string> $requiredCertificationIds
+     */
+    private function hasRequiredCertifications(User $user, Collection $requiredCertificationIds): bool
+    {
+        foreach ($requiredCertificationIds as $certificationId) {
+            $hasActiveCertification = $user->certifications->contains(
+                fn ($certification): bool => $certification->certification_id === $certificationId
+                    && $certification->status === 'active'
+                    && ($certification->expires_at === null || $certification->expires_at->greaterThanOrEqualTo(now()->toDateString())),
+            );
+
+            if (! $hasActiveCertification) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param array{team_users: int, active_users: int, push_enabled_users: int, active_token_users: int, available_users: int, certified_users: int, required_certifications: int} $counts
+     */
+    private function eligibilityFailureMessage(Team $team, array $counts): string
+    {
+        $prefix = "Geen alarmeerbare gebruikers gevonden voor team {$team->code}.";
+
+        if ($counts['team_users'] === 0) {
+            return "$prefix Er zijn geen gebruikers aan dit team gekoppeld.";
+        }
+
+        if ($counts['active_users'] === 0) {
+            return "$prefix Teamleden hebben geen actieve accountstatus.";
+        }
+
+        if ($counts['push_enabled_users'] === 0) {
+            return "$prefix Teamleden hebben pushmeldingen niet ingeschakeld.";
+        }
+
+        if ($counts['active_token_users'] === 0) {
+            return "$prefix Teamleden hebben geen actieve push-token.";
+        }
+
+        if ($counts['available_users'] === 0) {
+            return "$prefix Teamleden zijn niet beschikbaar volgens hun laatste status.";
+        }
+
+        if ($counts['required_certifications'] > 0 && $counts['certified_users'] === 0) {
+            return "$prefix Beschikbare teamleden missen een verplichte geldige certificering.";
+        }
+
+        return "$prefix Controleer team, push-token, beschikbaarheid en certificeringen.";
     }
 
     /**
