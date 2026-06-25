@@ -122,3 +122,10 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/admin/websocket-status', [HealthController::class, 'websocket'])->middleware('permission:system.health');
     });
 });
+
+Route::fallback(fn () => response()->json([
+    'error' => [
+        'code' => 'api_route_not_found',
+        'message' => 'DIS API route was not found.',
+    ],
+], 404));
