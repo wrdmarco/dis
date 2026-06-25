@@ -59,7 +59,11 @@ fi
 if [ -f "${FRONTEND_DIR}/package.json" ]; then
   log "Building frontend"
   if [ -f "${FRONTEND_DIR}/package-lock.json" ]; then
-    run_cmd npm --prefix "${FRONTEND_DIR}" ci
+    log "Installing frontend dependencies from package-lock.json"
+    if ! run_cmd npm --prefix "${FRONTEND_DIR}" ci; then
+      log "npm ci failed. Falling back to npm install to refresh stale frontend lock state."
+      run_cmd npm --prefix "${FRONTEND_DIR}" install
+    fi
   else
     run_cmd npm --prefix "${FRONTEND_DIR}" install
   fi
