@@ -11,6 +11,7 @@ use App\Models\Incident;
 use App\Services\DispatchService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 final class DispatchController extends Controller
 {
@@ -36,9 +37,11 @@ final class DispatchController extends Controller
         return ApiResponse::success($this->service->markSent($dispatch, $request->user()));
     }
 
-    public function respond(RespondDispatchRequest $request, DispatchRequest $dispatch): JsonResponse
+    public function respond(RespondDispatchRequest $request, DispatchRequest $dispatch): Response
     {
-        return ApiResponse::success($this->service->respond($dispatch, $request->user(), $request->validated('response'), $request->validated('note')));
+        $this->service->respond($dispatch, $request->user(), $request->validated('response'), $request->validated('note'));
+
+        return response()->noContent();
     }
 
     public function cancel(Request $request, DispatchRequest $dispatch): JsonResponse

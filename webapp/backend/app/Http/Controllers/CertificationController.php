@@ -12,6 +12,7 @@ use App\Services\CertificationService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 final class CertificationController extends Controller
 {
@@ -66,11 +67,11 @@ final class CertificationController extends Controller
         return ApiResponse::success($userCertification->refresh()->load('certification'));
     }
 
-    public function revokeUserCertification(User $user, UserCertification $userCertification): JsonResponse
+    public function revokeUserCertification(User $user, UserCertification $userCertification): Response
     {
         abort_unless($userCertification->user_id === $user->id, 404);
         $userCertification->update(['status' => 'revoked']);
 
-        return ApiResponse::success(null, 204);
+        return response()->noContent();
     }
 }

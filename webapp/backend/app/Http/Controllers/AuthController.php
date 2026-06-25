@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\Response;
 
 final class AuthController extends Controller
 {
@@ -206,11 +207,11 @@ final class AuthController extends Controller
         return ApiResponse::success(MobileApiPayload::user($request->user()?->load(['roles', 'teams'])));
     }
 
-    public function logout(Request $request): JsonResponse
+    public function logout(Request $request): Response
     {
         $request->user()?->currentAccessToken()?->delete();
 
-        return ApiResponse::success(null, 204);
+        return response()->noContent();
     }
 
     private function currentTokenHasExactAbility(Request $request, string $ability): bool

@@ -7,6 +7,7 @@ use App\Models\Incident;
 use App\Services\LocationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 final class LocationController extends Controller
 {
@@ -17,14 +18,14 @@ final class LocationController extends Controller
         return ApiResponse::success($this->service->consent($incident, $request->user()), 201);
     }
 
-    public function revoke(Request $request, Incident $incident): JsonResponse
+    public function revoke(Request $request, Incident $incident): Response
     {
         $this->service->revoke($incident, $request->user());
 
-        return ApiResponse::success(null, 204);
+        return response()->noContent();
     }
 
-    public function update(Request $request, Incident $incident): JsonResponse
+    public function update(Request $request, Incident $incident): Response
     {
         $data = $request->validate([
             'latitude' => ['required', 'numeric', 'between:-90,90'],
@@ -33,7 +34,8 @@ final class LocationController extends Controller
             'recorded_at' => ['nullable', 'date'],
         ]);
 
-        return ApiResponse::success($this->service->updateLocation($incident, $request->user(), $data), 201);
+        $this->service->updateLocation($incident, $request->user(), $data);
+
+        return response()->noContent();
     }
 }
-

@@ -26,10 +26,10 @@ final class DeviceController extends Controller
         return response()->noContent();
     }
 
-    public function revoke(Request $request, FcmToken $token): JsonResponse
+    public function revoke(Request $request, FcmToken $token): Response
     {
         $this->service->revokeFcmToken($request->user(), $token);
 
-        return ApiResponse::success(null, 204);
+        return response()->noContent();
     }
 }

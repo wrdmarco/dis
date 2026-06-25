@@ -13,6 +13,7 @@ use App\Repositories\UserRepository;
 use App\Services\UserService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 final class UserController extends Controller
 {
@@ -46,11 +47,11 @@ final class UserController extends Controller
         return ApiResponse::success($user->refresh()->load('roles'));
     }
 
-    public function removeRole(Request $request, User $user, Role $role): JsonResponse
+    public function removeRole(Request $request, User $user, Role $role): Response
     {
         $this->service->removeRole($user, $role, $request->user());
 
-        return ApiResponse::success(null, 204);
+        return response()->noContent();
     }
 
     public function assignTeam(Request $request, User $user): JsonResponse
@@ -61,11 +62,11 @@ final class UserController extends Controller
         return ApiResponse::success($user->refresh()->load('teams'));
     }
 
-    public function removeTeam(Request $request, User $user, Team $team): JsonResponse
+    public function removeTeam(Request $request, User $user, Team $team): Response
     {
         $this->service->removeTeam($user, $team, $request->user());
 
-        return ApiResponse::success(null, 204);
+        return response()->noContent();
     }
 
     public function audit(User $user): JsonResponse
@@ -73,4 +74,3 @@ final class UserController extends Controller
         return ApiResponse::success(AuditLog::query()->where('target_id', $user->id)->latest('created_at')->paginate(50));
     }
 }
-
