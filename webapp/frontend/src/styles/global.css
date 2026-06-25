@@ -389,6 +389,30 @@ a:hover {
   color: #93c5fd;
 }
 
+.totp-qr {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0b1119;
+}
+
+.totp-qr img {
+  width: min(240px, 100%);
+  height: auto;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 8px;
+}
+
+.totp-qr span {
+  color: #aebdd0;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
 .firebase-wizard {
   display: grid;
   gap: 14px;

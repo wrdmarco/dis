@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { KeyRound, ShieldCheck } from 'lucide-react';
 import { Panel } from '../../components/Panel';
+import { TotpQrCode } from '../../components/TotpQrCode';
 import { ApiClientError } from '../../lib/apiClient';
 import { useAuth } from '../auth/AuthContext';
 import type { TwoFactorSetup } from '../../types/api';
@@ -113,6 +114,9 @@ export function ProfilePage() {
 
         {setup?.secret ? (
           <form className="form-grid" onSubmit={confirmSetup}>
+            <div className="form-grid__wide">
+              <TotpQrCode value={setup.provisioning_uri} />
+            </div>
             <label className="form-grid__wide">
               Secret
               <input className="mono" value={setup.secret} readOnly />

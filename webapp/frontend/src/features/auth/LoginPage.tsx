@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { LockKeyhole } from 'lucide-react';
+import { TotpQrCode } from '../../components/TotpQrCode';
 import { ApiClientError } from '../../lib/apiClient';
 import type { TwoFactorSetup } from '../../types/api';
 import { useAuth } from './AuthContext';
@@ -79,6 +80,7 @@ export function LoginPage() {
 
         {requiresTwoFactorSetup ? (
           <form onSubmit={confirmSetup} className="form">
+            <TotpQrCode value={twoFactorSetup?.provisioning_uri} />
             <label>
               Authenticator secret
               <input className="mono" value={twoFactorSetup?.secret ?? ''} readOnly />
