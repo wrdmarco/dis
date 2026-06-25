@@ -288,6 +288,7 @@ export function IncidentDetailPage() {
                     <tr>
                       <th>Naam</th>
                       <th>Status</th>
+                      <th>Operationele status</th>
                       <th>Aanpassen</th>
                       <th>Reactietijd</th>
                       <th>Opmerking</th>
@@ -298,6 +299,7 @@ export function IncidentDetailPage() {
                       <tr key={recipient.id}>
                         <td>{recipient.user?.name ?? recipient.user_id}</td>
                         <td><StatusPill value={responseLabel(recipient.response_status)} tone={recipient.response_status === 'accepted' ? 'good' : recipient.response_status === 'declined' ? 'bad' : undefined} /></td>
+                        <td><StatusPill value={operatorStatusLabel(recipient.user?.statuses?.[0]?.status)} tone={operatorStatusTone(recipient.user?.statuses?.[0]?.status)} /></td>
                         <td>
                           <select
                             value={recipient.response_status}
@@ -322,7 +324,7 @@ export function IncidentDetailPage() {
                     Nadere info voor opkomende gebruikers
                     <textarea value={additionalInfo} maxLength={2000} onChange={(event) => setAdditionalInfo(event.target.value)} />
                   </label>
-                  <button className="primary-button" type="submit" disabled={additionalInfoSending || additionalInfo.trim() === '' || countResponses(latestDispatch, 'accepted') === 0}>
+                  <button className="primary-button" type="submit" disabled={additionalInfoSending || additionalInfo.trim() === '' || additionalInfoRecipientCount(latestDispatch) === 0}>
                     <MessageSquare size={16} /> {additionalInfoSending ? 'Versturen...' : 'Info versturen'}
                   </button>
                   {additionalInfoMessage ? <p className={additionalInfoMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{additionalInfoMessage}</p> : null}
@@ -529,8 +531,49 @@ function locationStatusLabel(location: IncidentLiveLocation): string {
   }
 }
 
+function operatorStatusLabel(status?: string | null): string {
+  switch (status) {
+    case 'en_route':
+      return 'Onderweg';
+    case 'on_scene':
+      return 'Op locatie';
+    case 'available':
+      return 'Beschikbaar';
+    case 'unavailable':
+      return 'Niet beschikbaar';
+    case 'assigned':
+      return 'Toegewezen';
+    case 'resting':
+      return 'Rust';
+    case 'suspended':
+      return 'Geblokkeerd';
+    default:
+      return 'Onbekend';
+  }
+}
+
+function operatorStatusTone(status?: string | null): 'neutral' | 'good' | 'warn' | 'bad' {
+  switch (status) {
+    case 'en_route':
+    case 'on_scene':
+      return 'good';
+    case 'unavailable':
+    case 'suspended':
+      return 'bad';
+    case 'assigned':
+      return 'warn';
+    default:
+      return 'neutral';
+  }
+}
+
 function countResponses(dispatch: DispatchRequest, status: 'accepted' | 'declined' | 'pending'): number {
   return dispatch.recipients?.filter((recipient) => recipient.response_status === status).length ?? 0;
+}
+
+function additionalInfoRecipientCount(dispatch: DispatchRequest): number {
+  return dispatch.recipients?.filter((recipient) => recipient.response_status === 'accepted'
+    || ['en_route', 'on_scene'].includes(recipient.user?.statuses?.[0]?.status ?? '')).length ?? 0;
 }
 
 interface MapBounds {

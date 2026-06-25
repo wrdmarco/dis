@@ -186,14 +186,19 @@ final class DispatchService
      */
     public function sendAdditionalInfo(DispatchRequest $dispatch, User $actor, string $message): array
     {
-        $dispatch->load(['incident', 'recipients.user.fcmTokens']);
+        $dispatch->load([
+            'incident',
+            'recipients.user.fcmTokens',
+            'recipients.user.statuses' => fn ($statuses) => $statuses->latestPerUser(),
+        ]);
         $dispatchMessage = $dispatch->messages()->create([
             'sent_by' => $actor->id,
             'body' => $message,
             'created_at' => now(),
         ]);
         $recipients = $dispatch->recipients
-            ->filter(fn (DispatchRecipient $recipient): bool => $recipient->response_status === 'accepted')
+            ->filter(fn (DispatchRecipient $recipient): bool => $recipient->response_status === 'accepted'
+                || in_array($recipient->user?->statuses->first()?->status, ['en_route', 'on_scene'], true))
             ->values();
 
         $queuedTokens = 0;

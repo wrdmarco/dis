@@ -93,13 +93,20 @@ final class DispatchController extends Controller
 
     public function recipients(DispatchRequest $dispatch): JsonResponse
     {
-        return ApiResponse::success($dispatch->recipients()->with('user')->get());
+        return ApiResponse::success($dispatch->recipients()->with([
+            'user',
+            'user.statuses' => fn ($statuses) => $statuses->latestPerUser(),
+        ])->get());
     }
 
     public function incidentDispatches(Incident $incident): JsonResponse
     {
         return ApiResponse::success($incident->dispatchRequests()
-            ->with(['targetTeam', 'recipients.user'])
+            ->with([
+                'targetTeam',
+                'recipients.user',
+                'recipients.user.statuses' => fn ($statuses) => $statuses->latestPerUser(),
+            ])
             ->latest()
             ->get());
     }

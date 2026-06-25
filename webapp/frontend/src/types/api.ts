@@ -65,6 +65,7 @@ export interface User {
   two_factor_enabled: boolean;
   roles?: Role[];
   teams?: Team[];
+  statuses?: AvailabilityStatus[];
 }
 
 export interface FcmToken {
