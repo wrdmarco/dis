@@ -26,9 +26,9 @@ Route::post('/auth/password/forgot', [PasswordController::class, 'forgot'])->mid
 Route::post('/auth/password/reset', [PasswordController::class, 'reset'])->middleware('throttle:password-reset');
 Route::get('/setup/status', [SetupController::class, 'status'])->middleware('throttle:api');
 Route::post('/setup/complete', [SetupController::class, 'complete'])->middleware('throttle:login');
-Route::get('/mobile/config', [MobileConfigController::class, 'show'])->middleware('throttle:api');
-Route::get('/updates/android/current', [UpdateController::class, 'androidCurrent'])->middleware('throttle:api');
-Route::get('/updates/android/{version}/download', [UpdateController::class, 'downloadAndroid'])->middleware('throttle:api');
+Route::get('/mobile/config', [MobileConfigController::class, 'show'])->middleware('throttle:mobile-public');
+Route::get('/updates/android/current', [UpdateController::class, 'androidCurrent'])->middleware('throttle:mobile-public');
+Route::get('/updates/android/{version}/download', [UpdateController::class, 'downloadAndroid'])->middleware('throttle:mobile-public');
 Route::get('/health', [HealthController::class, 'public'])->middleware('throttle:api');
 
 Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(function (): void {
