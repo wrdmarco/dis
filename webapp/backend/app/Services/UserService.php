@@ -18,7 +18,11 @@ final class UserService
     public function create(array $data, User $actor): User
     {
         return DB::transaction(function () use ($data, $actor): User {
+            $roleIds = $data['role_ids'] ?? [];
+            unset($data['role_ids']);
+
             $user = User::query()->create($data);
+            $this->syncRoles($user, is_array($roleIds) ? $roleIds : [], $actor);
             $this->auditService->record('users.created', $user, $actor);
 
             return $user->load(['roles', 'teams']);
@@ -31,9 +35,23 @@ final class UserService
     public function update(User $user, array $data, User $actor): User
     {
         return DB::transaction(function () use ($user, $data, $actor): User {
+            $roleIds = $data['role_ids'] ?? null;
+            unset($data['role_ids']);
+
             $before = $user->only(array_keys($data));
-            $user->update($data);
-            $this->auditService->record('users.updated', $user, $actor, ['before' => $before, 'after' => $user->only(array_keys($data))]);
+            if ($data !== []) {
+                $user->update($data);
+            }
+
+            if (is_array($roleIds)) {
+                $this->syncRoles($user, $roleIds, $actor);
+            }
+
+            $this->auditService->record('users.updated', $user, $actor, [
+                'before' => $before,
+                'after' => $user->only(array_keys($data)),
+                'roles_synced' => is_array($roleIds),
+            ]);
 
             return $user->refresh()->load(['roles', 'teams']);
         });
@@ -81,5 +99,17 @@ final class UserService
             $this->auditService->record('users.team_removed', $user, $actor, ['team' => $team->code]);
         });
     }
-}
 
+    /**
+     * @param array<int, string> $roleIds
+     */
+    private function syncRoles(User $user, array $roleIds, User $actor): void
+    {
+        $syncPayload = [];
+        foreach (array_values(array_unique($roleIds)) as $roleId) {
+            $syncPayload[$roleId] = ['assigned_by' => $actor->id];
+        }
+
+        $user->roles()->sync($syncPayload);
+    }
+}

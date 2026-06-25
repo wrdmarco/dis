@@ -20,7 +20,8 @@ final class StoreUserRequest extends FormRequest
             'password' => ['required', Password::min(14)->mixedCase()->numbers()->symbols()->uncompromised()],
             'phone_number' => ['nullable', 'string', 'max:40'],
             'account_status' => ['nullable', 'in:active,suspended,blocked'],
+            'role_ids' => ['nullable', 'array'],
+            'role_ids.*' => ['ulid', 'exists:roles,id'],
         ];
     }
 }
-
