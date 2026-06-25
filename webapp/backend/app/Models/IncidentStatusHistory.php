@@ -10,6 +10,8 @@ final class IncidentStatusHistory extends Model
 {
     use UsesUlids;
 
+    protected $table = 'incident_status_history';
+
     public $timestamps = false;
 
     protected $fillable = ['incident_id', 'from_status', 'to_status', 'changed_by', 'reason', 'created_at'];
@@ -24,4 +26,3 @@ final class IncidentStatusHistory extends Model
         return $this->belongsTo(Incident::class);
     }
 }
-

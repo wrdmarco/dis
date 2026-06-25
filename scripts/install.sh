@@ -28,21 +28,32 @@ ensure_directory "${DIS_INSTALL_PATH}/secrets" root "${DIS_GROUP}" 0750
 log "Installing required Ubuntu packages"
 run_cmd apt-get update
 run_cmd apt-get install -y \
-  acl ca-certificates composer curl git gnupg jq openssl rsync unzip \
+  acl ca-certificates curl git gnupg jq openssl rsync unzip \
   nginx postgresql postgresql-client redis-server redis-tools \
   "php${PHP_VERSION}-fpm" "php${PHP_VERSION}-cli" "php${PHP_VERSION}-pgsql" "php${PHP_VERSION}-redis" \
   "php${PHP_VERSION}-mbstring" "php${PHP_VERSION}-xml" "php${PHP_VERSION}-curl" "php${PHP_VERSION}-zip" \
   "php${PHP_VERSION}-bcmath" "php${PHP_VERSION}-intl" \
   nodejs npm
 
+log "Installing Composer"
+EXPECTED_COMPOSER_SIGNATURE="$(curl -fsSL https://composer.github.io/installer.sig)"
+run_cmd curl -fsSL https://getcomposer.org/installer -o /tmp/composer-setup.php
+ACTUAL_COMPOSER_SIGNATURE="$(php -r "echo hash_file('sha384', '/tmp/composer-setup.php');")"
+if [ "${EXPECTED_COMPOSER_SIGNATURE}" != "${ACTUAL_COMPOSER_SIGNATURE}" ]; then
+  run_cmd rm -f /tmp/composer-setup.php
+  fail "Composer installer signature verification failed."
+fi
+run_cmd php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer --quiet
+run_cmd rm -f /tmp/composer-setup.php
+
 if id www-data >/dev/null 2>&1; then
   run_cmd usermod -aG "${DIS_GROUP}" www-data
 fi
 
 log "Enabling system services"
-run_cmd systemctl enable postgresql
-run_cmd systemctl enable redis-server
-run_cmd systemctl enable "${PHP_FPM_SERVICE}"
-run_cmd systemctl enable nginx
+run_cmd systemctl enable --now postgresql
+run_cmd systemctl enable --now redis-server
+run_cmd systemctl enable --now "${PHP_FPM_SERVICE}"
+run_cmd systemctl enable --now nginx
 
 log "Install completed. For first install use setup.sh; for updates configure .env and run scripts/deploy.sh."

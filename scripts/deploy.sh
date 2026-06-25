@@ -36,7 +36,11 @@ fi
 
 if [ -f "${BACKEND_DIR}/composer.json" ]; then
   log "Installing backend dependencies"
-  run_cmd composer install --working-dir="${BACKEND_DIR}" --no-dev --prefer-dist --no-interaction --optimize-autoloader
+  if [ -f "${BACKEND_DIR}/composer.lock" ]; then
+    run_cmd env COMPOSER_ALLOW_SUPERUSER=1 composer install --working-dir="${BACKEND_DIR}" --no-dev --prefer-dist --no-interaction --optimize-autoloader
+  else
+    run_cmd env COMPOSER_ALLOW_SUPERUSER=1 composer update --working-dir="${BACKEND_DIR}" --no-dev --prefer-dist --no-interaction --optimize-autoloader
+  fi
   run_cmd chown -R "${DIS_USER}:${DIS_GROUP}" "${BACKEND_DIR}/vendor" "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache"
   if id www-data >/dev/null 2>&1; then
     run_cmd setfacl -R -m "u:www-data:rx" "${BACKEND_DIR}/vendor"
@@ -45,6 +49,7 @@ if [ -f "${BACKEND_DIR}/composer.json" ]; then
   fi
   run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" migrate --force
   run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" db:seed --force
+  run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" dis:self-check
   run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" config:cache
   run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" route:cache
   run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" view:cache
