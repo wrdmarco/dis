@@ -38,8 +38,7 @@ final class DispatchChanged implements ShouldBroadcastAfterCommit
             'status' => $this->dispatch->status,
             'priority' => $this->dispatch->priority,
             'action' => $this->action,
-            'sent_at' => $this->dispatch->sent_at?->toISOString(),
+            'sent_at' => $this->dispatch->sent_at?->toIso8601String(),
         ];
     }
 }
-

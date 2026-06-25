@@ -16,7 +16,7 @@ final class HealthController extends Controller
     {
         return ApiResponse::success([
             'status' => 'ok',
-            'timestamp' => now()->toISOString(),
+            'timestamp' => now()->toIso8601String(),
         ]);
     }
 
@@ -36,7 +36,7 @@ final class HealthController extends Controller
                 'project_configured' => filled(SystemSetting::string('firebase.project_id', config('dis.push.fcm_project_id'))),
                 'service_account_configured' => $this->firebaseServiceAccountConfigured(),
             ],
-            'timestamp' => now()->toISOString(),
+            'timestamp' => now()->toIso8601String(),
         ];
 
         return ApiResponse::success($checks);

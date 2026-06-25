@@ -19,7 +19,10 @@ final class LocationUpdated implements ShouldBroadcastAfterCommit
 
     public function broadcastOn(): array
     {
-        return [new PrivateChannel('incidents.'.$this->locationUpdate->incident_id)];
+        return [
+            new PrivateChannel('operations'),
+            new PrivateChannel('incidents.'.$this->locationUpdate->incident_id),
+        ];
     }
 
     public function broadcastAs(): string
@@ -34,8 +37,7 @@ final class LocationUpdated implements ShouldBroadcastAfterCommit
             'latitude' => $this->locationUpdate->latitude,
             'longitude' => $this->locationUpdate->longitude,
             'accuracy_meters' => $this->locationUpdate->accuracy_meters,
-            'recorded_at' => $this->locationUpdate->recorded_at?->toISOString(),
+            'recorded_at' => $this->locationUpdate->recorded_at?->toIso8601String(),
         ];
     }
 }
-

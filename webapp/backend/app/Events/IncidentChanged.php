@@ -39,8 +39,7 @@ final class IncidentChanged implements ShouldBroadcastAfterCommit
             'priority' => $this->incident->priority,
             'status' => $this->incident->status,
             'action' => $this->action,
-            'updated_at' => $this->incident->updated_at?->toISOString(),
+            'updated_at' => $this->incident->updated_at?->toIso8601String(),
         ];
     }
 }
-

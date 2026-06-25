@@ -160,6 +160,47 @@ final class DispatchService
     }
 
     /**
+     * @return array{queued_tokens: int, recipient_users: int}
+     */
+    public function sendAdditionalInfo(DispatchRequest $dispatch, User $actor, string $message): array
+    {
+        $dispatch->load(['incident', 'recipients.user.fcmTokens']);
+        $recipients = $dispatch->recipients
+            ->filter(fn (DispatchRecipient $recipient): bool => $recipient->response_status === 'accepted')
+            ->values();
+
+        $queuedTokens = 0;
+        foreach ($recipients as $recipient) {
+            foreach ($recipient->user?->fcmTokens->where('is_active', true) ?? [] as $token) {
+                SendFcmNotification::dispatch(
+                    (string) $token->id,
+                    'dispatch_update',
+                    'D.I.S aanvullende info',
+                    $message,
+                    [
+                        'type' => 'dispatch_update',
+                        'dispatch_id' => (string) $dispatch->id,
+                        'incident_id' => (string) $dispatch->incident_id,
+                    ],
+                    (string) $dispatch->id,
+                )->onQueue('push');
+                $queuedTokens++;
+            }
+        }
+
+        $this->auditService->record('dispatch.additional_info_sent', $dispatch, $actor, [
+            'recipient_users' => $recipients->count(),
+            'queued_tokens' => $queuedTokens,
+        ]);
+        $this->broadcastDispatchChange($dispatch->refresh(), 'additional_info_sent');
+
+        return [
+            'queued_tokens' => $queuedTokens,
+            'recipient_users' => $recipients->count(),
+        ];
+    }
+
+    /**
      * @param array<string, mixed> $data
      */
     private function targetTeam(Incident $incident, array $data): ?Team

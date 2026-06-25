@@ -37,8 +37,7 @@ final class AvailabilityChanged implements ShouldBroadcastAfterCommit
             'user_id' => $this->status->user_id,
             'status' => $this->status->status,
             'is_available' => $this->status->is_available,
-            'effective_at' => $this->status->effective_at?->toISOString(),
+            'effective_at' => $this->status->effective_at?->toIso8601String(),
         ];
     }
 }
-

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\UsesUlids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 final class LocationSharingConsent extends Model
 {
@@ -15,5 +16,9 @@ final class LocationSharingConsent extends Model
     {
         return ['is_active' => 'boolean', 'consented_at' => 'immutable_datetime', 'revoked_at' => 'immutable_datetime'];
     }
-}
 
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+}

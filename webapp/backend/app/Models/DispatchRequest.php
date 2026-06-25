@@ -23,9 +23,13 @@ final class DispatchRequest extends Model
         return $this->belongsTo(Incident::class);
     }
 
+    public function targetTeam(): BelongsTo
+    {
+        return $this->belongsTo(Team::class, 'target_team_id');
+    }
+
     public function recipients(): HasMany
     {
         return $this->hasMany(DispatchRecipient::class);
     }
 }
-

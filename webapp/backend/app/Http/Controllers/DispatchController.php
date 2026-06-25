@@ -36,6 +36,15 @@ final class DispatchController extends Controller
         return ApiResponse::success($this->service->markSent($dispatch, $request->user()));
     }
 
+    public function message(Request $request, DispatchRequest $dispatch): JsonResponse
+    {
+        $data = $request->validate([
+            'message' => ['required', 'string', 'max:2000'],
+        ]);
+
+        return ApiResponse::success($this->service->sendAdditionalInfo($dispatch, $request->user(), $data['message']));
+    }
+
     public function respond(RespondDispatchRequest $request, DispatchRequest $dispatch): Response
     {
         $this->service->respond($dispatch, $request->user(), $request->validated('response'), $request->validated('note'));
@@ -62,5 +71,13 @@ final class DispatchController extends Controller
     public function recipients(DispatchRequest $dispatch): JsonResponse
     {
         return ApiResponse::success($dispatch->recipients()->with('user')->get());
+    }
+
+    public function incidentDispatches(Incident $incident): JsonResponse
+    {
+        return ApiResponse::success($incident->dispatchRequests()
+            ->with(['targetTeam', 'recipients.user'])
+            ->latest()
+            ->get());
     }
 }

@@ -113,16 +113,24 @@ export interface Incident {
   team?: Team | null;
   opened_at?: string | null;
   closed_at?: string | null;
+  active_dispatch?: {
+    id: string;
+    status: string;
+    response_status?: DispatchRecipient['response_status'] | null;
+  } | null;
 }
 
 export interface DispatchRequest {
   id: string;
   incident_id: string;
+  target_team_id?: string | null;
   status: string;
   priority: string;
   message: string;
   sent_at?: string | null;
+  created_at?: string | null;
   incident?: Incident;
+  target_team?: Team | null;
   recipients?: DispatchRecipient[];
 }
 
@@ -130,6 +138,9 @@ export interface DispatchRecipient {
   id: string;
   user_id: string;
   response_status: 'pending' | 'accepted' | 'declined' | 'no_response';
+  response_note?: string | null;
+  notified_at?: string | null;
+  responded_at?: string | null;
   user?: User;
 }
 
@@ -145,6 +156,15 @@ export interface IncidentTimelineItem {
   label: string;
   message?: string | null;
   created_at?: string | null;
+}
+
+export interface IncidentLiveLocation {
+  user_id: string;
+  user?: Pick<User, 'id' | 'name' | 'email'> | null;
+  latitude: string | number;
+  longitude: string | number;
+  accuracy_meters?: string | number | null;
+  recorded_at?: string | null;
 }
 
 export interface AvailabilityStatus {

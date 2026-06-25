@@ -769,6 +769,34 @@ a:hover {
   padding: 16px;
 }
 
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.summary-grid > div {
+  min-height: 72px;
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 10px;
+}
+
+.summary-grid span {
+  color: #8ea0b5;
+  font-size: 0.8rem;
+}
+
+.summary-grid strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .data-table {
   width: 100%;
   border-collapse: collapse;
@@ -971,6 +999,76 @@ select[multiple] {
 .form-error {
   color: #fecdd3;
   margin: 4px 16px;
+}
+
+.form-note {
+  color: #a7f3d0;
+  margin: 4px 0;
+}
+
+.inline-message-form {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #1f2b3a;
+  padding-top: 14px;
+}
+
+.inline-message-form label {
+  display: grid;
+  gap: 6px;
+  color: #aebdd0;
+}
+
+.inline-message-form .primary-button {
+  justify-self: start;
+}
+
+.live-map {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.live-map iframe {
+  width: 100%;
+  min-height: 380px;
+  border: 1px solid #243449;
+  border-radius: 8px;
+  background: #0b1119;
+}
+
+.live-map__overlay {
+  position: absolute;
+  inset: 16px 16px auto 16px;
+  height: 380px;
+  pointer-events: none;
+}
+
+.live-map__user-marker,
+.live-map__incident-marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px rgba(9, 13, 18, 0.82);
+}
+
+.live-map__user-marker {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #ecfeff;
+  background: #22c55e;
+}
+
+.live-map__incident-marker {
+  width: 22px;
+  height: 22px;
+  border: 3px solid #fef3c7;
+  background: #ef4444;
+}
+
+.live-map__table {
+  margin-top: 0;
 }
 
 .error-text {
@@ -1241,7 +1339,8 @@ pre {
   .setup-stepper,
   .push-targets,
   .checkbox-grid--dense,
-  .form-grid {
+  .form-grid,
+  .summary-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -1285,6 +1384,7 @@ pre {
   }
 
   .kpi-grid,
+  .summary-grid,
   .inline-form,
   .download-card,
   .download-setup-qr,

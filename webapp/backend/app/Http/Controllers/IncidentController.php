@@ -23,6 +23,46 @@ final class IncidentController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        if ($request->boolean('active_alarms')) {
+            $userId = $request->user()->id;
+            $incidents = Incident::query()
+                ->with([
+                    'coordinator',
+                    'team',
+                    'dispatchRequests' => fn ($dispatches) => $dispatches
+                        ->where('status', 'sent')
+                        ->whereHas('recipients', fn ($recipients) => $recipients
+                            ->where('user_id', $userId)
+                            ->whereIn('response_status', ['pending', 'accepted']))
+                        ->with(['recipients' => fn ($recipients) => $recipients->where('user_id', $userId)])
+                        ->latest(),
+                ])
+                ->whereIn('status', ['active', 'dispatching', 'in_progress'])
+                ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
+                    ->where('status', 'sent')
+                    ->whereHas('recipients', fn ($recipients) => $recipients
+                        ->where('user_id', $userId)
+                        ->whereIn('response_status', ['pending', 'accepted'])))
+                ->latest()
+                ->limit(100)
+                ->get()
+                ->map(function (Incident $incident): array {
+                    $payload = MobileApiPayload::incident($incident);
+                    $dispatch = $incident->dispatchRequests->first();
+                    $recipient = $dispatch?->recipients->first();
+                    $payload['active_dispatch'] = $dispatch === null ? null : [
+                        'id' => $dispatch->id,
+                        'status' => $dispatch->status,
+                        'response_status' => $recipient?->response_status,
+                    ];
+
+                    return $payload;
+                })
+                ->values();
+
+            return ApiResponse::success($incidents);
+        }
+
         if (! $request->has('per_page')) {
             $incidents = $this->incidents
                 ->search($request->only(['status', 'priority']), 100)

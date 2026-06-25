@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\UsesUlids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 final class LocationUpdate extends Model
 {
@@ -23,5 +24,9 @@ final class LocationUpdate extends Model
             'created_at' => 'immutable_datetime',
         ];
     }
-}
 
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+}

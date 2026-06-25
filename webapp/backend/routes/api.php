@@ -62,6 +62,8 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/incidents/{incident}/cancel', [IncidentController::class, 'cancel'])->middleware('permission:incidents.manage');
     Route::get('/incidents/{incident}/timeline', [IncidentController::class, 'timeline'])->middleware('permission:incidents.view');
     Route::get('/incidents/{incident}/dispatch-preview', [IncidentController::class, 'dispatchPreview'])->middleware('permission:dispatch.view');
+    Route::get('/incidents/{incident}/dispatches', [DispatchController::class, 'incidentDispatches'])->middleware('permission:dispatch.view');
+    Route::get('/incidents/{incident}/live-locations', [LocationController::class, 'liveLocations'])->middleware('permission:incidents.view');
     Route::post('/incidents/{incident}/location/consent', [LocationController::class, 'consent'])->middleware('permission:incidents.view');
     Route::delete('/incidents/{incident}/location/consent', [LocationController::class, 'revoke'])->middleware('permission:incidents.view');
     Route::post('/incidents/{incident}/location', [LocationController::class, 'update'])->middleware('permission:incidents.view');
@@ -70,6 +72,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/dispatches', [DispatchController::class, 'index'])->middleware('permission:dispatch.view');
     Route::get('/dispatches/{dispatch}', [DispatchController::class, 'show'])->middleware('permission:dispatch.view');
     Route::post('/dispatches/{dispatch}/send', [DispatchController::class, 'send'])->middleware('permission:dispatch.manage');
+    Route::post('/dispatches/{dispatch}/message', [DispatchController::class, 'message'])->middleware('permission:dispatch.manage');
     Route::post('/dispatches/{dispatch}/respond', [DispatchController::class, 'respond'])->middleware('throttle:dispatch-response');
     Route::post('/dispatches/{dispatch}/cancel', [DispatchController::class, 'cancel'])->middleware('permission:dispatch.manage');
     Route::post('/dispatches/{dispatch}/escalate', [DispatchController::class, 'escalate'])->middleware('permission:dispatch.manage');

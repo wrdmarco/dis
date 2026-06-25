@@ -8,6 +8,7 @@ use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
 use App\Models\User;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 final class LocationService
 {
@@ -57,7 +58,11 @@ final class LocationService
             'created_at' => now(),
         ]);
 
-        LocationUpdated::dispatch($location);
+        try {
+            LocationUpdated::dispatch($location);
+        } catch (Throwable $exception) {
+            report($exception);
+        }
 
         return $location;
     }
