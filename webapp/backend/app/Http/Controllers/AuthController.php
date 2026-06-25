@@ -79,7 +79,7 @@ final class AuthController extends Controller
         $request->validate(['code' => ['required', 'digits:6'], 'device_name' => ['nullable', 'string', 'max:120']]);
         $user = $request->user();
 
-        if ($user === null || ! $request->user()?->tokenCan('2fa:pending')) {
+        if ($user === null || ! $this->currentTokenHasExactAbility($request, '2fa:pending')) {
             return ApiResponse::error('forbidden', 'A pending two-factor token is required.', 403);
         }
 
@@ -210,5 +210,13 @@ final class AuthController extends Controller
         $request->user()?->currentAccessToken()?->delete();
 
         return ApiResponse::success(null, 204);
+    }
+
+    private function currentTokenHasExactAbility(Request $request, string $ability): bool
+    {
+        $token = $request->user()?->currentAccessToken();
+        $abilities = is_array($token?->abilities ?? null) ? $token->abilities : [];
+
+        return in_array($ability, $abilities, true);
     }
 }

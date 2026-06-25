@@ -14,7 +14,7 @@ final class EnsureTwoFactorComplete
         $user = $request->user();
         $token = $request->user()?->currentAccessToken();
 
-        if ($token !== null && ($token->can('2fa:pending') || $token->can('2fa:setup'))) {
+        if ($token !== null && $this->tokenHasExactAbility($token, ['2fa:pending', '2fa:setup'])) {
             return ApiResponse::error('two_factor_required', 'Two-factor authentication must be completed first.', 403);
         }
 
@@ -23,5 +23,21 @@ final class EnsureTwoFactorComplete
         }
 
         return $next($request);
+    }
+
+    /**
+     * @param list<string> $abilities
+     */
+    private function tokenHasExactAbility(mixed $token, array $abilities): bool
+    {
+        $tokenAbilities = is_array($token->abilities ?? null) ? $token->abilities : [];
+
+        foreach ($abilities as $ability) {
+            if (in_array($ability, $tokenAbilities, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
