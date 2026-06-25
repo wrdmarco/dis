@@ -24,6 +24,7 @@ export function IncidentDetailPage() {
   const [incidentError, setIncidentError] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [dispatchTeamId, setDispatchTeamId] = useState('');
+  const [dispatching, setDispatching] = useState(false);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -71,16 +72,20 @@ export function IncidentDetailPage() {
   const createDispatch = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setDispatchError(null);
+    setDispatching(true);
     try {
-      await api.post<DispatchRequest>(`/incidents/${incidentId}/dispatches`, {
+      const dispatch = await api.post<DispatchRequest>(`/incidents/${incidentId}/dispatches`, {
         priority: 'high',
         message,
         target_team_id: dispatchTeamId === '' ? null : dispatchTeamId,
       });
+      await api.post<DispatchRequest>(`/dispatches/${dispatch.data.id}/send`);
       setMessage('');
     } catch (err) {
-      setDispatchError(err instanceof ApiClientError ? err.message : 'Dispatch kon niet worden aangemaakt.');
+      setDispatchError(err instanceof ApiClientError ? err.message : 'Dispatch kon niet worden verstuurd.');
       return;
+    } finally {
+      setDispatching(false);
     }
 
     try {
@@ -147,7 +152,9 @@ export function IncidentDetailPage() {
           {teams.error ? <p className="form-error form-grid__wide">Teams laden mislukt: {teams.error}</p> : null}
           {dispatchError ? <p className="form-error form-grid__wide">{dispatchError}</p> : null}
           <div className="actions-row form-grid__wide">
-            <button className="primary-button" type="submit">Dispatch aanmaken</button>
+            <button className="primary-button" type="submit" disabled={dispatching || teams.loading}>
+              {dispatching ? 'Versturen...' : 'Dispatch versturen'}
+            </button>
           </div>
         </form>
       </Panel>
