@@ -34,7 +34,7 @@ final class HealthController extends Controller
             ],
             'fcm' => [
                 'project_configured' => filled(SystemSetting::string('firebase.project_id', config('dis.push.fcm_project_id'))),
-                'credentials_readable' => is_string(config('dis.push.credentials_path')) && is_readable((string) config('dis.push.credentials_path')),
+                'service_account_configured' => $this->firebaseServiceAccountConfigured(),
             ],
             'timestamp' => now()->toISOString(),
         ];
@@ -93,5 +93,14 @@ final class HealthController extends Controller
         Storage::disk('local')->delete($path);
 
         return ['status' => $ok ? 'ok' : 'failed'];
+    }
+
+    private function firebaseServiceAccountConfigured(): bool
+    {
+        $credentials = SystemSetting::value('firebase.service_account', []);
+
+        return is_array($credentials)
+            && filled($credentials['client_email'] ?? null)
+            && filled($credentials['private_key'] ?? null);
     }
 }

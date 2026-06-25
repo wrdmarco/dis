@@ -27,6 +27,11 @@ interface ManagedSettingsForm {
   mailFromAddress: string;
   mailFromName: string;
   firebaseProjectId: string;
+  firebaseServiceClientEmail: string;
+  firebaseServicePrivateKey: string;
+  firebaseServicePrivateKeyId: string;
+  firebaseServiceClientId: string;
+  firebaseServiceClientX509CertUrl: string;
   pushLogRetentionDays: string;
   auditLogRetentionDays: string;
   locationRetentionDays: string;
@@ -76,7 +81,11 @@ export function AdminPage() {
   }, [mobileSettings]);
 
   useEffect(() => {
-    setManagedForm((current) => ({ ...toManagedSettingsForm(settings.data ?? []), mailPassword: current.mailPassword }));
+    setManagedForm((current) => ({
+      ...toManagedSettingsForm(settings.data ?? []),
+      mailPassword: current.mailPassword,
+      firebaseServicePrivateKey: current.firebaseServicePrivateKey,
+    }));
   }, [managedSettings, settings.data]);
 
   async function saveMobileSettings() {
@@ -148,8 +157,24 @@ export function AdminPage() {
         payload['mail.password'] = managedForm.mailPassword;
       }
 
+      if ([
+        managedForm.firebaseServiceClientEmail,
+        managedForm.firebaseServicePrivateKey,
+        managedForm.firebaseServicePrivateKeyId,
+        managedForm.firebaseServiceClientId,
+        managedForm.firebaseServiceClientX509CertUrl,
+      ].some((value) => value.trim() !== '')) {
+        payload['firebase.service_account'] = {
+          client_email: managedForm.firebaseServiceClientEmail,
+          private_key: managedForm.firebaseServicePrivateKey,
+          private_key_id: managedForm.firebaseServicePrivateKeyId,
+          client_id: managedForm.firebaseServiceClientId,
+          client_x509_cert_url: managedForm.firebaseServiceClientX509CertUrl,
+        };
+      }
+
       await api.patch('/admin/settings', { settings: payload });
-      setManagedForm((current) => ({ ...current, mailPassword: '' }));
+      setManagedForm((current) => ({ ...current, mailPassword: '', firebaseServicePrivateKey: '' }));
       await settings.reload();
     } catch (error) {
       setManagedError(error instanceof Error ? error.message : 'Instellingen opslaan mislukt.');
@@ -314,6 +339,26 @@ export function AdminPage() {
             <input value={managedForm.firebaseProjectId} onChange={(event) => setManagedForm((current) => ({ ...current, firebaseProjectId: event.target.value }))} />
           </label>
           <label>
+            Firebase service account client_email
+            <input value={managedForm.firebaseServiceClientEmail} onChange={(event) => setManagedForm((current) => ({ ...current, firebaseServiceClientEmail: event.target.value }))} />
+          </label>
+          <label>
+            Firebase service account private_key_id
+            <input value={managedForm.firebaseServicePrivateKeyId} onChange={(event) => setManagedForm((current) => ({ ...current, firebaseServicePrivateKeyId: event.target.value }))} />
+          </label>
+          <label>
+            Firebase service account client_id
+            <input value={managedForm.firebaseServiceClientId} onChange={(event) => setManagedForm((current) => ({ ...current, firebaseServiceClientId: event.target.value }))} />
+          </label>
+          <label>
+            Firebase service account cert URL
+            <input value={managedForm.firebaseServiceClientX509CertUrl} onChange={(event) => setManagedForm((current) => ({ ...current, firebaseServiceClientX509CertUrl: event.target.value }))} />
+          </label>
+          <label className="form-grid__wide">
+            Firebase service account private_key
+            <textarea className="mono" value={managedForm.firebaseServicePrivateKey} placeholder="Ongewijzigd laten" onChange={(event) => setManagedForm((current) => ({ ...current, firebaseServicePrivateKey: event.target.value }))} />
+          </label>
+          <label>
             Android application id
             <input value={managedForm.androidApplicationId} onChange={(event) => setManagedForm((current) => ({ ...current, androidApplicationId: event.target.value }))} />
           </label>
@@ -462,6 +507,7 @@ function toMobileSettingsForm(settings: SystemSetting[]): MobileSettingsForm {
 
 function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
   const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
+  const serviceAccount = asRecord(byKey.get('firebase.service_account'));
 
   return {
     mailMailer: asString(byKey.get('mail.mailer')) || 'smtp',
@@ -473,6 +519,11 @@ function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
     mailFromAddress: asString(byKey.get('mail.from_address')),
     mailFromName: asString(byKey.get('mail.from_name')),
     firebaseProjectId: asString(byKey.get('firebase.project_id')),
+    firebaseServiceClientEmail: asString(serviceAccount.client_email),
+    firebaseServicePrivateKey: '',
+    firebaseServicePrivateKeyId: asString(serviceAccount.private_key_id),
+    firebaseServiceClientId: asString(serviceAccount.client_id),
+    firebaseServiceClientX509CertUrl: asString(serviceAccount.client_x509_cert_url),
     pushLogRetentionDays: asStringOrNumber(byKey.get('retention.push_logs_days'), '90'),
     auditLogRetentionDays: asStringOrNumber(byKey.get('retention.audit_logs_days'), '3650'),
     locationRetentionDays: asStringOrNumber(byKey.get('retention.location_days'), '30'),

@@ -1,5 +1,5 @@
-import { CheckCircle2, Settings, ShieldCheck } from 'lucide-react';
-import { FormEvent, useEffect, useState } from 'react';
+import { CheckCircle2, ChevronLeft, ChevronRight, Mail, Rocket, Settings, ShieldCheck, Smartphone, UserRound } from 'lucide-react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FirebaseSetupWizard } from '../../components/FirebaseSetupWizard';
 import { TotpQrCode } from '../../components/TotpQrCode';
@@ -33,6 +33,11 @@ interface SetupForm {
   firebaseApiKey: string;
   firebaseMessagingSenderId: string;
   firebaseStorageBucket: string;
+  firebaseServiceClientEmail: string;
+  firebaseServicePrivateKey: string;
+  firebaseServicePrivateKeyId: string;
+  firebaseServiceClientId: string;
+  firebaseServiceClientX509CertUrl: string;
 }
 
 const initialForm: SetupForm = {
@@ -54,16 +59,34 @@ const initialForm: SetupForm = {
   firebaseApiKey: '',
   firebaseMessagingSenderId: '',
   firebaseStorageBucket: '',
+  firebaseServiceClientEmail: '',
+  firebaseServicePrivateKey: '',
+  firebaseServicePrivateKeyId: '',
+  firebaseServiceClientId: '',
+  firebaseServiceClientX509CertUrl: '',
 };
+
+const steps = [
+  { key: 'platform', title: 'Platform', icon: Settings },
+  { key: 'admin', title: 'Beheerder', icon: UserRound },
+  { key: 'mail', title: 'Mail', icon: Mail },
+  { key: 'mobile', title: 'Mobiele app', icon: Smartphone },
+  { key: 'service', title: 'Service account', icon: ShieldCheck },
+  { key: 'review', title: 'Controle', icon: Rocket },
+] as const;
 
 export function SetupWizardPage() {
   const { setSession } = useAuth();
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [form, setForm] = useState<SetupForm>(initialForm);
+  const [stepIndex, setStepIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const currentStep = steps[stepIndex];
+  const stepError = useMemo(() => validateStep(stepIndex, form), [form, stepIndex]);
 
   useEffect(() => {
     let cancelled = false;
@@ -106,6 +129,13 @@ export function SetupWizardPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    const validation = validateAll(form);
+    if (validation !== null) {
+      setError(validation);
+      return;
+    }
+
     setSaving(true);
     setError(null);
 
@@ -135,6 +165,13 @@ export function SetupWizardPage() {
           },
           firebase: {
             project_id: form.firebaseProjectId,
+            service_account: {
+              client_email: form.firebaseServiceClientEmail,
+              private_key: form.firebaseServicePrivateKey,
+              private_key_id: form.firebaseServicePrivateKeyId,
+              client_id: form.firebaseServiceClientId,
+              client_x509_cert_url: form.firebaseServiceClientX509CertUrl,
+            },
           },
           mobile: {
             firebase_config: {
@@ -180,8 +217,8 @@ export function SetupWizardPage() {
           </div>
         </div>
 
-        {loading ? <p className="public-download-panel__status">Setup status laden...</p> : null}
-        {error ? <p className="form-error">{error}</p> : null}
+        {loading ? <p className="public-download-panel__status setup-status-line">Setup status laden...</p> : null}
+        {error ? <p className="form-error setup-status-line">{error}</p> : null}
 
         {!loading && (completed || locked) ? (
           <div className="setup-complete">
@@ -196,115 +233,44 @@ export function SetupWizardPage() {
 
         {!loading && !locked && !completed ? (
           <form onSubmit={submit}>
-            <div className="setup-section">
-              <h2>Platform</h2>
-              <div className="tenant-qr">
-                <TotpQrCode value={normalizePublicUrl(form.publicUrl)} alt="QR-code met DIS server URL" helpText="Scan deze QR-code in de Android app om de server URL automatisch in te vullen." />
-                <code>{normalizePublicUrl(form.publicUrl)}</code>
-              </div>
-              <div className="form-grid">
-                <label>
-                  Tenantnaam
-                  <input value={form.tenantName} required onChange={(event) => update('tenantName', event.target.value)} />
-                </label>
-                <label>
-                  Publieke URL
-                  <input value={form.publicUrl} required placeholder="http://dis.example.nl" onChange={(event) => update('publicUrl', event.target.value)} />
-                </label>
-              </div>
+            <nav className="setup-stepper" aria-label="Setup stappen">
+              {steps.map((step, index) => {
+                const Icon = step.icon;
+                return (
+                  <button
+                    key={step.key}
+                    type="button"
+                    className={index === stepIndex ? 'setup-stepper__item setup-stepper__item--active' : 'setup-stepper__item'}
+                    onClick={() => setStepIndex(index)}
+                  >
+                    <span>{index + 1}</span>
+                    <Icon size={16} />
+                    <strong>{step.title}</strong>
+                  </button>
+                );
+              })}
+            </nav>
+
+            <div className="setup-section setup-section--active">
+              <h2>{currentStep.title}</h2>
+              {renderStep()}
             </div>
 
-            <div className="setup-section">
-              <h2>Eerste beheerder</h2>
-              <div className="form-grid">
-                <label>
-                  Naam
-                  <input value={form.adminName} required onChange={(event) => update('adminName', event.target.value)} />
-                </label>
-                <label>
-                  E-mail
-                  <input type="email" value={form.adminEmail} required onChange={(event) => update('adminEmail', event.target.value)} />
-                </label>
-                <label>
-                  Wachtwoord
-                  <input type="password" value={form.adminPassword} required minLength={14} onChange={(event) => update('adminPassword', event.target.value)} />
-                </label>
-                <label>
-                  Wachtwoord bevestigen
-                  <input type="password" value={form.adminPasswordConfirmation} required minLength={14} onChange={(event) => update('adminPasswordConfirmation', event.target.value)} />
-                </label>
-              </div>
-            </div>
-
-            <div className="setup-section">
-              <h2>Mail</h2>
-              <div className="form-grid">
-                <label>
-                  SMTP host
-                  <input value={form.mailHost} onChange={(event) => update('mailHost', event.target.value)} />
-                </label>
-                <label>
-                  SMTP poort
-                  <input type="number" min="1" value={form.mailPort} onChange={(event) => update('mailPort', event.target.value)} />
-                </label>
-                <label>
-                  Encryptie
-                  <select value={form.mailEncryption} onChange={(event) => update('mailEncryption', event.target.value)}>
-                    <option value="">Geen</option>
-                    <option value="tls">TLS</option>
-                    <option value="ssl">SSL</option>
-                  </select>
-                </label>
-                <label>
-                  SMTP gebruiker
-                  <input value={form.mailUsername} onChange={(event) => update('mailUsername', event.target.value)} />
-                </label>
-                <label>
-                  SMTP wachtwoord
-                  <input type="password" value={form.mailPassword} onChange={(event) => update('mailPassword', event.target.value)} />
-                </label>
-                <label>
-                  Afzender e-mail
-                  <input type="email" value={form.mailFromAddress} onChange={(event) => update('mailFromAddress', event.target.value)} />
-                </label>
-                <label>
-                  Afzender naam
-                  <input value={form.mailFromName} onChange={(event) => update('mailFromName', event.target.value)} />
-                </label>
-              </div>
-            </div>
-
-            <div className="setup-section">
-              <h2>Firebase appconfiguratie</h2>
-              <FirebaseSetupWizard androidApplicationId="nl.wrdmarco.dis" compact />
-              <div className="form-grid">
-                <label>
-                  Firebase project id
-                  <input value={form.firebaseProjectId} onChange={(event) => update('firebaseProjectId', event.target.value)} />
-                </label>
-                <label>
-                  Firebase application id
-                  <input value={form.firebaseApplicationId} onChange={(event) => update('firebaseApplicationId', event.target.value)} />
-                </label>
-                <label>
-                  Firebase API key
-                  <input value={form.firebaseApiKey} onChange={(event) => update('firebaseApiKey', event.target.value)} />
-                </label>
-                <label>
-                  Firebase sender id
-                  <input value={form.firebaseMessagingSenderId} onChange={(event) => update('firebaseMessagingSenderId', event.target.value)} />
-                </label>
-                <label>
-                  Firebase storage bucket
-                  <input value={form.firebaseStorageBucket} onChange={(event) => update('firebaseStorageBucket', event.target.value)} />
-                </label>
-              </div>
-            </div>
+            {stepError ? <p className="form-hint setup-status-line">{stepError}</p> : null}
 
             <div className="setup-actions">
-              <button className="primary-button" type="submit" disabled={saving}>
-                {saving ? 'Opslaan...' : 'Setup afronden'}
+              <button className="secondary-button" type="button" onClick={previousStep} disabled={stepIndex === 0 || saving}>
+                <ChevronLeft size={16} /> Vorige
               </button>
+              {stepIndex < steps.length - 1 ? (
+                <button className="primary-button" type="button" onClick={nextStep} disabled={saving || stepError !== null}>
+                  Volgende <ChevronRight size={16} />
+                </button>
+              ) : (
+                <button className="primary-button" type="submit" disabled={saving || validateAll(form) !== null}>
+                  {saving ? 'Opslaan...' : 'Setup afronden'}
+                </button>
+              )}
               <Link className="secondary-button" to="/download">APK pagina</Link>
             </div>
           </form>
@@ -313,9 +279,232 @@ export function SetupWizardPage() {
     </main>
   );
 
+  function renderStep() {
+    if (currentStep.key === 'platform') {
+      return (
+        <>
+          <div className="setup-copy">
+            <strong>Basisgegevens voor webapp en Android app.</strong>
+            <p>De Android app gebruikt alleen de server URL. De app voegt zelf `/api` toe.</p>
+          </div>
+          <div className="tenant-qr">
+            <TotpQrCode value={normalizePublicUrl(form.publicUrl)} alt="QR-code met DIS server URL" helpText="Scan deze QR-code in de Android app om de server URL automatisch in te vullen." />
+            <code>{normalizePublicUrl(form.publicUrl)}</code>
+          </div>
+          <div className="form-grid">
+            <label>
+              Tenantnaam
+              <input value={form.tenantName} required onChange={(event) => update('tenantName', event.target.value)} />
+            </label>
+            <label>
+              Publieke URL
+              <input value={form.publicUrl} required placeholder="http://dis.example.nl" onChange={(event) => update('publicUrl', event.target.value)} />
+            </label>
+          </div>
+        </>
+      );
+    }
+
+    if (currentStep.key === 'admin') {
+      return (
+        <div className="form-grid">
+          <label>
+            Naam
+            <input value={form.adminName} required onChange={(event) => update('adminName', event.target.value)} />
+          </label>
+          <label>
+            E-mail
+            <input type="email" value={form.adminEmail} required onChange={(event) => update('adminEmail', event.target.value)} />
+          </label>
+          <label>
+            Wachtwoord
+            <input type="password" value={form.adminPassword} required minLength={14} onChange={(event) => update('adminPassword', event.target.value)} />
+          </label>
+          <label>
+            Wachtwoord bevestigen
+            <input type="password" value={form.adminPasswordConfirmation} required minLength={14} onChange={(event) => update('adminPasswordConfirmation', event.target.value)} />
+          </label>
+        </div>
+      );
+    }
+
+    if (currentStep.key === 'mail') {
+      return (
+        <>
+          <div className="setup-copy">
+            <strong>Mail is optioneel tijdens installatie.</strong>
+            <p>Je kunt deze waarden later wijzigen in het adminpaneel.</p>
+          </div>
+          <div className="form-grid">
+            <label>
+              SMTP host
+              <input value={form.mailHost} onChange={(event) => update('mailHost', event.target.value)} />
+            </label>
+            <label>
+              SMTP poort
+              <input type="number" min="1" value={form.mailPort} onChange={(event) => update('mailPort', event.target.value)} />
+            </label>
+            <label>
+              Encryptie
+              <select value={form.mailEncryption} onChange={(event) => update('mailEncryption', event.target.value)}>
+                <option value="">Geen</option>
+                <option value="tls">TLS</option>
+                <option value="ssl">SSL</option>
+              </select>
+            </label>
+            <label>
+              SMTP gebruiker
+              <input value={form.mailUsername} onChange={(event) => update('mailUsername', event.target.value)} />
+            </label>
+            <label>
+              SMTP wachtwoord
+              <input type="password" value={form.mailPassword} onChange={(event) => update('mailPassword', event.target.value)} />
+            </label>
+            <label>
+              Afzender e-mail
+              <input type="email" value={form.mailFromAddress} onChange={(event) => update('mailFromAddress', event.target.value)} />
+            </label>
+            <label>
+              Afzender naam
+              <input value={form.mailFromName} onChange={(event) => update('mailFromName', event.target.value)} />
+            </label>
+          </div>
+        </>
+      );
+    }
+
+    if (currentStep.key === 'mobile') {
+      return (
+        <>
+          <FirebaseSetupWizard androidApplicationId="nl.wrdmarco.dis" compact />
+          <div className="form-grid">
+            <label>
+              Firebase project id
+              <input value={form.firebaseProjectId} onChange={(event) => update('firebaseProjectId', event.target.value)} />
+            </label>
+            <label>
+              Firebase application id
+              <input value={form.firebaseApplicationId} onChange={(event) => update('firebaseApplicationId', event.target.value)} />
+            </label>
+            <label>
+              Firebase API key
+              <input value={form.firebaseApiKey} onChange={(event) => update('firebaseApiKey', event.target.value)} />
+            </label>
+            <label>
+              Firebase sender id
+              <input value={form.firebaseMessagingSenderId} onChange={(event) => update('firebaseMessagingSenderId', event.target.value)} />
+            </label>
+            <label>
+              Firebase storage bucket
+              <input value={form.firebaseStorageBucket} onChange={(event) => update('firebaseStorageBucket', event.target.value)} />
+            </label>
+          </div>
+        </>
+      );
+    }
+
+    if (currentStep.key === 'service') {
+      return (
+        <>
+          <div className="setup-copy">
+            <strong>Geen JSON-bestand op de server plaatsen.</strong>
+            <p>Open de Firebase private key lokaal en kopieer alleen onderstaande waarden in deze webpagina.</p>
+          </div>
+          <div className="form-grid">
+            <label>
+              Service account client_email
+              <input value={form.firebaseServiceClientEmail} onChange={(event) => update('firebaseServiceClientEmail', event.target.value)} />
+            </label>
+            <label>
+              Service account private_key_id
+              <input value={form.firebaseServicePrivateKeyId} onChange={(event) => update('firebaseServicePrivateKeyId', event.target.value)} />
+            </label>
+            <label>
+              Service account client_id
+              <input value={form.firebaseServiceClientId} onChange={(event) => update('firebaseServiceClientId', event.target.value)} />
+            </label>
+            <label>
+              Service account cert URL
+              <input value={form.firebaseServiceClientX509CertUrl} onChange={(event) => update('firebaseServiceClientX509CertUrl', event.target.value)} />
+            </label>
+            <label className="form-grid__wide">
+              Service account private_key
+              <textarea className="mono" rows={8} value={form.firebaseServicePrivateKey} onChange={(event) => update('firebaseServicePrivateKey', event.target.value)} />
+            </label>
+          </div>
+        </>
+      );
+    }
+
+    return (
+      <div className="setup-review">
+        <div><span>Tenant</span><strong>{form.tenantName}</strong></div>
+        <div><span>Publieke URL</span><strong>{normalizePublicUrl(form.publicUrl)}</strong></div>
+        <div><span>Eerste beheerder</span><strong>{form.adminEmail}</strong></div>
+        <div><span>Mail</span><strong>{form.mailHost.trim() ? `${form.mailHost}:${form.mailPort}` : 'Later configureren'}</strong></div>
+        <div><span>Firebase mobiele app</span><strong>{form.firebaseProjectId.trim() ? 'Ingevuld' : 'Later configureren'}</strong></div>
+        <div><span>Firebase service account</span><strong>{form.firebaseServiceClientEmail.trim() ? 'Ingevuld via webpagina' : 'Later configureren'}</strong></div>
+      </div>
+    );
+  }
+
+  function nextStep() {
+    if (stepError !== null) {
+      setError(stepError);
+      return;
+    }
+    setError(null);
+    setStepIndex((current) => Math.min(current + 1, steps.length - 1));
+  }
+
+  function previousStep() {
+    setError(null);
+    setStepIndex((current) => Math.max(current - 1, 0));
+  }
+
   function update(field: keyof SetupForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
   }
+}
+
+function validateStep(stepIndex: number, form: SetupForm): string | null {
+  if (stepIndex === 0) {
+    if (!form.tenantName.trim()) return 'Tenantnaam is verplicht.';
+    if (!form.publicUrl.trim()) return 'Publieke URL is verplicht.';
+  }
+
+  if (stepIndex === 1) {
+    if (!form.adminName.trim()) return 'Naam van de eerste beheerder is verplicht.';
+    if (!form.adminEmail.trim()) return 'E-mail van de eerste beheerder is verplicht.';
+    if (form.adminPassword.length < 14) return 'Wachtwoord moet minimaal 14 tekens bevatten.';
+    if (form.adminPassword !== form.adminPasswordConfirmation) return 'Wachtwoorden zijn niet gelijk.';
+  }
+
+  if (stepIndex === 4) {
+    const hasAny = [
+      form.firebaseServiceClientEmail,
+      form.firebaseServicePrivateKey,
+      form.firebaseServicePrivateKeyId,
+      form.firebaseServiceClientId,
+      form.firebaseServiceClientX509CertUrl,
+    ].some((value) => value.trim() !== '');
+
+    const hasRequired = form.firebaseServiceClientEmail.trim() !== '' && form.firebaseServicePrivateKey.trim() !== '';
+    if (hasAny && !hasRequired) {
+      return 'Vul minimaal client_email en private_key in, of laat het service account volledig leeg.';
+    }
+  }
+
+  return null;
+}
+
+function validateAll(form: SetupForm): string | null {
+  for (let index = 0; index < steps.length; index += 1) {
+    const error = validateStep(index, form);
+    if (error !== null) return error;
+  }
+
+  return null;
 }
 
 function normalizePublicUrl(value: string): string {

@@ -47,6 +47,11 @@ final class SetupController extends Controller
             'mail.from_address' => ['nullable', 'email:rfc', 'max:255'],
             'mail.from_name' => ['nullable', 'string', 'max:255'],
             'firebase.project_id' => ['nullable', 'string', 'max:160'],
+            'firebase.service_account.client_email' => ['nullable', 'email:rfc', 'max:255'],
+            'firebase.service_account.private_key' => ['nullable', 'string', 'max:8000'],
+            'firebase.service_account.private_key_id' => ['nullable', 'string', 'max:255'],
+            'firebase.service_account.client_id' => ['nullable', 'string', 'max:255'],
+            'firebase.service_account.client_x509_cert_url' => ['nullable', 'url:http,https', 'max:2048'],
             'mobile.firebase_config.application_id' => ['nullable', 'string', 'max:255'],
             'mobile.firebase_config.api_key' => ['nullable', 'string', 'max:255'],
             'mobile.firebase_config.project_id' => ['nullable', 'string', 'max:160'],
@@ -83,6 +88,13 @@ final class SetupController extends Controller
                 'mail.from_address' => $data['mail']['from_address'] ?? 'no-reply@'.parse_url($publicUrl, PHP_URL_HOST),
                 'mail.from_name' => $data['mail']['from_name'] ?? $data['tenant_name'],
                 'firebase.project_id' => $data['firebase']['project_id'] ?? '',
+                'firebase.service_account' => [
+                    'client_email' => $data['firebase']['service_account']['client_email'] ?? '',
+                    'private_key' => $data['firebase']['service_account']['private_key'] ?? '',
+                    'private_key_id' => $data['firebase']['service_account']['private_key_id'] ?? '',
+                    'client_id' => $data['firebase']['service_account']['client_id'] ?? '',
+                    'client_x509_cert_url' => $data['firebase']['service_account']['client_x509_cert_url'] ?? '',
+                ],
                 'mobile.firebase_config' => [
                     'application_id' => $data['mobile']['firebase_config']['application_id'] ?? '',
                     'api_key' => $data['mobile']['firebase_config']['api_key'] ?? '',
@@ -101,7 +113,7 @@ final class SetupController extends Controller
                     ['key' => $key],
                     [
                         'value' => $value,
-                        'is_sensitive' => $key === 'mail.password',
+                        'is_sensitive' => in_array($key, ['mail.password', 'firebase.service_account'], true),
                         'updated_by' => $user->id,
                     ],
                 );

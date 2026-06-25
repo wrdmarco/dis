@@ -6,7 +6,6 @@ interface FirebaseSetupWizardProps {
 }
 
 const consoleUrl = 'https://console.firebase.google.com/';
-const serviceAccountPath = '/opt/dis/secrets/firebase-service-account.json';
 
 export function FirebaseSetupWizard({ androidApplicationId = 'nl.wrdmarco.dis', compact = false }: FirebaseSetupWizardProps) {
   const steps = [
@@ -26,7 +25,7 @@ export function FirebaseSetupWizard({ androidApplicationId = 'nl.wrdmarco.dis', 
       body: `Registreer een Android app met package name ${androidApplicationId}. Deze waarde moet exact gelijk zijn aan de APK applicationId.`,
       checks: [
         `Android package name: ${androidApplicationId}`,
-        'Download google-services.json alleen als referentie; de DIS app haalt tenantconfiguratie op via de API.',
+        'Neem de Firebase appwaarden over in de DIS webpagina; plaats geen google-services.json op de server.',
         'Vul application id, API key, project id, sender id en storage bucket in de DIS velden hieronder in.',
       ],
     },
@@ -43,11 +42,11 @@ export function FirebaseSetupWizard({ androidApplicationId = 'nl.wrdmarco.dis', 
     {
       title: 'Service account',
       icon: KeyRound,
-      body: `Plaats de Firebase service account JSON op de server als ${serviceAccountPath}. Dit bestand hoort niet in git en niet in de webroot.`,
+      body: 'Push vanaf de backend gebruikt service-accountgegevens die je via deze webpagina opslaat.',
       checks: [
         'Firebase Console > Project settings > Service accounts > Generate new private key.',
-        `Upload het JSON bestand naar ${serviceAccountPath}.`,
-        'Zorg dat alleen de DIS backend gebruiker het bestand kan lezen.',
+        'Open de key lokaal en kopieer client_email, private_key en private_key_id in DIS.',
+        'Upload of plaats geen JSON-bestand op de server.',
       ],
     },
     {

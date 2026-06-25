@@ -105,10 +105,104 @@ a:hover {
   border-top: 1px solid #223042;
 }
 
+.setup-section--active {
+  min-height: 360px;
+}
+
 .setup-section h2 {
   margin: 0;
   padding: 18px 16px 0;
   font-size: 1rem;
+  color: #f8fafc;
+}
+
+.setup-status-line {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+
+.setup-copy {
+  display: grid;
+  gap: 6px;
+  padding: 16px 16px 0;
+  color: #d7e7f8;
+}
+
+.setup-copy p {
+  margin: 0;
+  color: #8ea0b5;
+}
+
+.setup-stepper {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 16px 18px;
+}
+
+.setup-stepper__item {
+  min-height: 68px;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #223042;
+  border-radius: 8px;
+  background: #0b1119;
+  color: #aebdd0;
+  cursor: pointer;
+  padding: 10px;
+  text-align: left;
+}
+
+.setup-stepper__item span {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #172333;
+  color: #7dd3fc;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.setup-stepper__item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setup-stepper__item--active {
+  border-color: #7dd3fc;
+  color: #f8fafc;
+  background: #102033;
+}
+
+.setup-review {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.setup-review div {
+  display: grid;
+  gap: 6px;
+  min-height: 76px;
+  border: 1px solid #223042;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 12px;
+}
+
+.setup-review span {
+  color: #8ea0b5;
+  font-size: 0.86rem;
+}
+
+.setup-review strong {
+  overflow-wrap: anywhere;
   color: #f8fafc;
 }
 
@@ -316,6 +410,7 @@ a:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   padding: 0 14px;
   border: 1px solid #2c3b50;
   border-radius: 6px;
@@ -805,6 +900,8 @@ pre {
   .two-column,
   .detail-grid,
   .firebase-wizard__steps,
+  .setup-review,
+  .setup-stepper,
   .form-grid {
     grid-template-columns: 1fr;
   }

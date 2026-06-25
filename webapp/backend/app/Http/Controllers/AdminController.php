@@ -17,6 +17,7 @@ final class AdminController extends Controller
 {
     private const SENSITIVE_SETTING_KEYS = [
         'mail.password',
+        'firebase.service_account',
     ];
 
     public function __construct(private readonly AuditService $auditService) {}

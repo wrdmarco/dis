@@ -30,6 +30,13 @@ final class SystemSettingSeeder extends Seeder
         'mail.from_address' => ['value' => 'no-reply@dis.example.nl', 'is_sensitive' => false],
         'mail.from_name' => ['value' => 'Drone Inzet Systeem', 'is_sensitive' => false],
         'firebase.project_id' => ['value' => '', 'is_sensitive' => false],
+        'firebase.service_account' => ['value' => [
+            'client_email' => '',
+            'private_key' => '',
+            'private_key_id' => '',
+            'client_id' => '',
+            'client_x509_cert_url' => '',
+        ], 'is_sensitive' => true],
         'retention.push_logs_days' => ['value' => 90, 'is_sensitive' => false],
         'retention.audit_logs_days' => ['value' => 3650, 'is_sensitive' => false],
         'retention.location_days' => ['value' => 30, 'is_sensitive' => false],
