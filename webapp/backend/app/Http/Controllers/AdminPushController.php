@@ -8,6 +8,7 @@ use App\Models\FcmToken;
 use App\Services\PushNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 final class AdminPushController extends Controller
 {
@@ -35,18 +36,18 @@ final class AdminPushController extends Controller
         return ApiResponse::paginated($tokens);
     }
 
-    public function revoke(Request $request, FcmToken $token): JsonResponse
+    public function revoke(Request $request, FcmToken $token): Response
     {
         $this->pushNotifications->revokeToken($token, $request->user());
 
-        return ApiResponse::success($this->tokenPayload($token->refresh()->load('user')));
+        return response()->noContent();
     }
 
-    public function activate(Request $request, FcmToken $token): JsonResponse
+    public function activate(Request $request, FcmToken $token): Response
     {
         $this->pushNotifications->activateToken($token, $request->user());
 
-        return ApiResponse::success($this->tokenPayload($token->refresh()->load('user')));
+        return response()->noContent();
     }
 
     public function send(SendManualPushRequest $request): JsonResponse

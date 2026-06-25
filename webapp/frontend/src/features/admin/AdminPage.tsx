@@ -238,7 +238,7 @@ export function AdminPage() {
     setTokenActionId(token.id);
     setTokenActionError(null);
     try {
-      await api.post<FcmToken>(`/admin/push/tokens/${token.id}/${action}`);
+      await api.post<null>(`/admin/push/tokens/${token.id}/${action}`);
       await tokens.reload();
     } catch (error) {
       setTokenActionError(error instanceof ApiClientError ? error.message : 'Tokenactie mislukt.');
