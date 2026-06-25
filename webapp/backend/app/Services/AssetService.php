@@ -28,6 +28,27 @@ final class AssetService
     /**
      * @param array<string, mixed> $data
      */
+    public function createForUser(array $data, User $actor): Asset
+    {
+        return DB::transaction(function () use ($data, $actor): Asset {
+            $asset = Asset::query()->create($data);
+            AssetAssignment::query()->create([
+                'asset_id' => $asset->id,
+                'user_id' => $actor->id,
+                'assigned_by' => $actor->id,
+                'assigned_at' => now(),
+            ]);
+
+            $this->auditService->record('assets.self_created', $asset, $actor);
+            $this->broadcastAssetChange($asset, 'self_created');
+
+            return $asset->refresh()->load('assignments');
+        });
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
     public function update(Asset $asset, array $data, User $actor): Asset
     {
         $before = $asset->only(array_keys($data));

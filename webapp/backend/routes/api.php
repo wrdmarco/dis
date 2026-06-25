@@ -92,6 +92,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/status/history', [StatusController::class, 'history'])->middleware('permission:status.view');
 
     Route::get('/assets/mine', [AssetController::class, 'mine']);
+    Route::post('/assets/mine', [AssetController::class, 'storeMine']);
     Route::patch('/assets/{asset}/mine', [AssetController::class, 'updateMine']);
     Route::get('/assets', [AssetController::class, 'index'])->middleware('permission:assets.view');
     Route::post('/assets', [AssetController::class, 'store'])->middleware('permission:assets.manage');

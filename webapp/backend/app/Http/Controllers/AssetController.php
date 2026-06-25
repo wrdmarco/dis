@@ -55,6 +55,21 @@ final class AssetController extends Controller
         return ApiResponse::success($this->service->create($request->validated(), $request->user()), 201);
     }
 
+    public function storeMine(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'asset_tag' => ['required', 'string', 'max:80', 'unique:assets,asset_tag'],
+            'name' => ['required', 'string', 'max:160'],
+            'type' => ['required', 'in:drone,battery,sensor,vehicle,support_equipment'],
+            'status' => ['required', 'in:ready,maintenance,unavailable'],
+            'serial_number' => ['nullable', 'string', 'max:160', 'unique:assets,serial_number'],
+            'maintenance_due_at' => ['nullable', 'date'],
+            'notes' => ['nullable', 'string', 'max:4000'],
+        ]);
+
+        return ApiResponse::success(MobileApiPayload::asset($this->service->createForUser($data, $request->user())), 201);
+    }
+
     public function show(Asset $asset): JsonResponse
     {
         return ApiResponse::success($asset->load('assignments'));
@@ -93,6 +108,7 @@ final class AssetController extends Controller
 
         $data = $request->validate([
             'status' => ['required', 'in:ready,maintenance,unavailable'],
+            'maintenance_due_at' => ['nullable', 'date'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
