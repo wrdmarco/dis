@@ -1,6 +1,6 @@
-import { FormEvent, useEffect, useId, useState, type ReactNode } from 'react';
+import { FormEvent, useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, X } from 'lucide-react';
+import { MapPin, Plus, Search, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -158,7 +158,6 @@ export function IncidentForm(props: {
   onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
 }) {
   const { form, users, teams, usersError, teamsError, saving, error, extraFields, submitLabel, onCancel, onSubmit, onChange } = props;
-  const locationListId = useId();
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
 
   useEffect(() => {
@@ -216,21 +215,11 @@ export function IncidentForm(props: {
           {teams.map((team) => <option key={team.id} value={team.id}>{team.code} - {team.name}</option>)}
         </select>
       </label>
-      <label className="form-grid__wide">
-        Locatieomschrijving
-        <input
-          value={form.locationLabel}
-          maxLength={255}
-          placeholder="Adres, gebied of rendez-vous punt"
-          list={locationListId}
-          autoComplete="off"
-          onChange={(event) => updateForm(onChange, 'locationLabel', event.target.value)}
-          onBlur={() => void resolveLocation(form, locationSuggestions, onChange)}
-        />
-        <datalist id={locationListId}>
-          {locationSuggestions.map((suggestion) => <option key={suggestion.id} value={suggestion.label} />)}
-        </datalist>
-      </label>
+      <LocationPicker
+        form={form}
+        suggestions={locationSuggestions}
+        onChange={onChange}
+      />
       <label>
         Latitude
         <input type="number" step="any" min="-90" max="90" value={form.latitude} onChange={(event) => updateForm(onChange, 'latitude', event.target.value)} />
@@ -260,6 +249,65 @@ export function IncidentForm(props: {
   );
 }
 
+function LocationPicker(props: {
+  form: IncidentFormState;
+  suggestions: LocationSuggestion[];
+  onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
+}) {
+  const { form, suggestions, onChange } = props;
+  const hasCoordinates = form.latitude.trim() !== '' && form.longitude.trim() !== '';
+
+  return (
+    <div className="location-picker form-grid__wide">
+      <div className="location-picker__search">
+        <label>
+          Locatie zoeken
+          <div className="input-with-icon">
+            <Search size={16} />
+            <input
+              value={form.locationLabel}
+              maxLength={255}
+              placeholder="Adres, gebied of rendez-vous punt"
+              autoComplete="off"
+              onChange={(event) => updateForm(onChange, 'locationLabel', event.target.value)}
+              onBlur={() => void resolveLocation(form, suggestions, onChange)}
+            />
+          </div>
+        </label>
+        {suggestions.length > 0 ? (
+          <div className="location-picker__results">
+            {suggestions.map((suggestion) => (
+              <button
+                key={suggestion.id}
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => void selectLocationSuggestion(suggestion, onChange)}
+              >
+                <MapPin size={15} />
+                <span>{suggestion.label}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <div className="location-picker__map">
+        {hasCoordinates ? (
+          <iframe
+            title="Geselecteerde locatie"
+            src={mapPreviewUrl(form.latitude, form.longitude)}
+            loading="lazy"
+          />
+        ) : (
+          <div className="location-picker__empty">
+            <MapPin size={28} />
+            <span>Zoek een locatie om de kaart te tonen.</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 async function fetchLocationSuggestions(query: string, signal: AbortSignal): Promise<LocationSuggestion[]> {
   const params = new URLSearchParams({ q: query, rows: '8' });
   const response = await fetch(`https://api.pdok.nl/bzk/locatieserver/search/v3_1/suggest?${params.toString()}`, {
@@ -278,6 +326,17 @@ async function fetchLocationSuggestions(query: string, signal: AbortSignal): Pro
     ?? [];
 }
 
+async function selectLocationSuggestion(
+  suggestion: LocationSuggestion,
+  onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void,
+): Promise<void> {
+  onChange((current) => ({ ...current, locationLabel: suggestion.label }));
+  const resolved = await lookupLocation(suggestion.id);
+  if (resolved !== null) {
+    onChange((current) => ({ ...current, ...resolved }));
+  }
+}
+
 async function resolveLocation(
   form: IncidentFormState,
   suggestions: LocationSuggestion[],
@@ -293,6 +352,23 @@ async function resolveLocation(
   }
 
   await geocodeAddress(form, onChange);
+}
+
+function mapPreviewUrl(latitude: string, longitude: string): string {
+  const lat = Number(latitude);
+  const lon = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return 'about:blank';
+  }
+
+  const delta = 0.01;
+  const params = new URLSearchParams({
+    bbox: `${lon - delta},${lat - delta},${lon + delta},${lat + delta}`,
+    layer: 'mapnik',
+    marker: `${lat},${lon}`,
+  });
+
+  return `https://www.openstreetmap.org/export/embed.html?${params.toString()}`;
 }
 
 async function lookupLocation(id: string): Promise<Pick<IncidentFormState, 'locationLabel' | 'latitude' | 'longitude'> | null> {
