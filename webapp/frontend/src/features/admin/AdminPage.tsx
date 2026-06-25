@@ -155,6 +155,8 @@ export function AdminPage() {
           client_email: managedForm.firebaseServiceClientEmail,
           private_key: managedForm.firebaseServicePrivateKey,
           private_key_id: managedForm.firebaseServicePrivateKeyId,
+          client_id: managedForm.firebaseServiceClientId,
+          client_x509_cert_url: managedForm.firebaseServiceClientX509CertUrl,
         };
       }
 
@@ -365,6 +367,35 @@ export function AdminPage() {
                 />
               </label>
             </div>
+            <div className="form-grid">
+              <label>
+                Service account client email
+                <input value={managedForm.firebaseServiceClientEmail} onChange={(event) => setManagedForm((current) => ({ ...current, firebaseServiceClientEmail: event.target.value }))} />
+              </label>
+              <label>
+                Service account private key id
+                <input value={managedForm.firebaseServicePrivateKeyId} onChange={(event) => setManagedForm((current) => ({ ...current, firebaseServicePrivateKeyId: event.target.value }))} />
+              </label>
+              <label>
+                Service account client id
+                <input value={managedForm.firebaseServiceClientId} onChange={(event) => setManagedForm((current) => ({ ...current, firebaseServiceClientId: event.target.value }))} />
+              </label>
+              <label>
+                Service account certificaat URL
+                <input value={managedForm.firebaseServiceClientX509CertUrl} onChange={(event) => setManagedForm((current) => ({ ...current, firebaseServiceClientX509CertUrl: event.target.value }))} />
+              </label>
+              <label className="form-grid__wide">
+                Service account private key
+                <textarea
+                  className="mono"
+                  rows={8}
+                  value={managedForm.firebaseServicePrivateKey}
+                  placeholder="Ongewijzigd laten als de service account al is opgeslagen"
+                  onChange={(event) => setManagedForm((current) => ({ ...current, firebaseServicePrivateKey: event.target.value }))}
+                />
+              </label>
+            </div>
+            {managedError ? <p className="error-text">{managedError}</p> : null}
             <div className="actions-row">
               <button className="primary-button" type="button" onClick={saveFirebaseSettings} disabled={saving || managedSaving}>
                 {saving || managedSaving ? 'Opslaan...' : 'Firebase configuratie opslaan'}
