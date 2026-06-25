@@ -12,18 +12,29 @@ return new class extends Migration {
             $table->string('code')->unique();
             $table->string('name');
             $table->string('type')->index();
-            $table->foreignUlid('parent_team_id')->nullable()->constrained('teams')->nullOnDelete();
+            $table->ulid('parent_team_id')->nullable()->index();
             $table->boolean('is_operational')->default(true)->index();
             $table->timestampsTz();
             $table->softDeletesTz();
         });
 
         Schema::create('team_user', function (Blueprint $table): void {
-            $table->foreignUlid('team_id')->constrained('teams')->cascadeOnDelete();
-            $table->foreignUlid('user_id')->constrained('users')->cascadeOnDelete();
-            $table->foreignUlid('assigned_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->ulid('team_id');
+            $table->ulid('user_id');
+            $table->ulid('assigned_by')->nullable();
             $table->timestampTz('created_at')->useCurrent();
             $table->primary(['team_id', 'user_id']);
+            $table->index('assigned_by');
+        });
+
+        Schema::table('teams', function (Blueprint $table): void {
+            $table->foreign('parent_team_id')->references('id')->on('teams')->nullOnDelete();
+        });
+
+        Schema::table('team_user', function (Blueprint $table): void {
+            $table->foreign('team_id')->references('id')->on('teams')->cascadeOnDelete();
+            $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
+            $table->foreign('assigned_by')->references('id')->on('users')->nullOnDelete();
         });
     }
 
@@ -33,4 +44,3 @@ return new class extends Migration {
         Schema::dropIfExists('teams');
     }
 };
-
