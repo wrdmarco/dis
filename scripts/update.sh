@@ -237,6 +237,7 @@ fi
 
 if [ "${SYSTEM_UPDATES_AVAILABLE}" = "0" ] && [ "${APP_UPDATES_AVAILABLE}" = "0" ]; then
   log "No updates available. Nothing to do."
+  clear_application_caches
   exit 0
 fi
 
