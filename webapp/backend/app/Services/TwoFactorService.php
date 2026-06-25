@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\SystemSetting;
 use App\Models\User;
 use Illuminate\Support\Str;
 
@@ -21,7 +22,7 @@ final class TwoFactorService
 
     public function provisioningUri(User $user, string $secret): string
     {
-        $issuer = config('app.name', 'D.I.S');
+        $issuer = $this->issuer();
         $label = rawurlencode($issuer.':'.$user->email);
         $query = http_build_query([
             'secret' => $secret,
@@ -32,6 +33,14 @@ final class TwoFactorService
         ], '', '&', PHP_QUERY_RFC3986);
 
         return "otpauth://totp/{$label}?{$query}";
+    }
+
+    private function issuer(): string
+    {
+        $configuredUrl = SystemSetting::string('app.public_url', config('app.url', 'http://dis.example.nl'));
+        $issuer = rtrim((string) $configuredUrl, '/');
+
+        return $issuer !== '' ? $issuer : 'http://dis.example.nl';
     }
 
     /**
