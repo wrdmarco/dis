@@ -4,9 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiResponse;
 use App\Models\AppVersion;
+use App\Models\SystemSetting;
 use App\Services\AuditService;
 use App\Support\MobileApiPayload;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -24,32 +24,18 @@ final class UpdateController extends Controller
     {
         $versionCode = (int) $request->integer('version_code', 0);
         $blocked = AppVersion::query()->where('platform', 'android')->where('version_code', $versionCode)->where('status', 'blocked')->exists();
+        $minimumSupportedVersionCode = SystemSetting::integer('updates.android.minimum_supported_version_code', 1);
         $latest = AppVersion::query()->where('platform', 'android')->whereIn('status', ['supported', 'deprecated'])->orderByDesc('version_code')->first();
 
         return ApiResponse::success([
-            'update_required' => $blocked,
+            'update_required' => $blocked || ($versionCode > 0 && $versionCode < $minimumSupportedVersionCode),
             'latest' => MobileApiPayload::appVersion($latest),
         ]);
     }
 
     public function index(Request $request): JsonResponse
     {
-        $latestReleaseId = AppVersion::query()
-            ->where('platform', 'android')
-            ->where('status', '!=', 'blocked')
-            ->orderByDesc('version_code')
-            ->value('id');
-
-        return ApiResponse::paginated(AppVersion::query()
-            ->where('platform', 'android')
-            ->where(function (Builder $query) use ($latestReleaseId): void {
-                $query->where('status', 'blocked');
-                if ($latestReleaseId !== null) {
-                    $query->orWhere('id', $latestReleaseId);
-                }
-            })
-            ->orderByDesc('version_code')
-            ->paginate((int) $request->integer('per_page', 25)));
+        return ApiResponse::paginated(AppVersion::query()->where('platform', 'android')->orderByDesc('version_code')->paginate((int) $request->integer('per_page', 25)));
     }
 
     public function store(Request $request): JsonResponse
@@ -130,11 +116,6 @@ final class UpdateController extends Controller
             'artifact_size_bytes' => $apkSize,
             'release_zip' => $request->hasFile('release_zip'),
         ]);
-
-        $pruned = $this->pruneAndroidReleases($version->refresh());
-        if ($pruned['versions'] > 0 || $pruned['artifacts'] > 0) {
-            $this->auditService->record('updates.android_releases_pruned', $version, $request->user(), $pruned);
-        }
 
         if (($zipUpload['apk_path'] ?? null) !== null) {
             @unlink((string) $zipUpload['apk_path']);
@@ -260,59 +241,6 @@ final class UpdateController extends Controller
     private function stripUtf8Bom(string $value): string
     {
         return str_starts_with($value, "\xEF\xBB\xBF") ? substr($value, 3) : $value;
-    }
-
-    /**
-     * Keep the current Android release and blocked version records. Older regular
-     * releases are no longer needed once a new APK is published.
-     *
-     * @return array{versions: int, artifacts: int}
-     */
-    private function pruneAndroidReleases(AppVersion $currentVersion): array
-    {
-        if ($currentVersion->platform !== 'android' || $currentVersion->status === 'blocked') {
-            return ['versions' => 0, 'artifacts' => 0];
-        }
-
-        $protectedPaths = AppVersion::query()
-            ->where('platform', 'android')
-            ->where('status', 'blocked')
-            ->get()
-            ->map(fn (AppVersion $version): string => $this->androidArtifactPath($version))
-            ->push($this->androidArtifactPath($currentVersion))
-            ->unique()
-            ->values()
-            ->all();
-
-        $versionsPruned = 0;
-        $artifactsPruned = 0;
-
-        AppVersion::query()
-            ->where('platform', 'android')
-            ->where('id', '!=', $currentVersion->id)
-            ->where('status', '!=', 'blocked')
-            ->get()
-            ->each(function (AppVersion $version) use (&$versionsPruned, &$artifactsPruned, $protectedPaths): void {
-                $path = $this->androidArtifactPath($version);
-                if (! in_array($path, $protectedPaths, true) && Storage::disk('local')->exists($path)) {
-                    Storage::disk('local')->delete($path);
-                    $artifactsPruned++;
-                }
-
-                $version->delete();
-                $versionsPruned++;
-            });
-
-        foreach (Storage::disk('local')->files('android-apks') as $path) {
-            if (! str_ends_with(strtolower($path), '.apk') || in_array($path, $protectedPaths, true)) {
-                continue;
-            }
-
-            Storage::disk('local')->delete($path);
-            $artifactsPruned++;
-        }
-
-        return ['versions' => $versionsPruned, 'artifacts' => $artifactsPruned];
     }
 
     private function androidArtifactPath(AppVersion $version): string
