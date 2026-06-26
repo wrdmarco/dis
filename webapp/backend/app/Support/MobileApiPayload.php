@@ -117,15 +117,36 @@ final class MobileApiPayload
      */
     public static function asset(Asset $asset): array
     {
+        $asset->loadMissing('droneType');
+
         return [
             'id' => $asset->id,
             'asset_tag' => $asset->asset_tag,
             'name' => $asset->name,
             'type' => $asset->type,
+            'drone_type_id' => $asset->drone_type_id,
+            'drone_type' => $asset->droneType === null ? null : self::droneType($asset->droneType),
             'status' => $asset->status,
             'serial_number' => $asset->serial_number,
             'maintenance_due_at' => $asset->maintenance_due_at?->toDateString(),
             'notes' => $asset->notes,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function droneType(\App\Models\DroneType $droneType): array
+    {
+        return [
+            'id' => $droneType->id,
+            'manufacturer' => $droneType->manufacturer,
+            'model' => $droneType->model,
+            'has_thermal' => (bool) $droneType->has_thermal,
+            'has_spotlight' => (bool) $droneType->has_spotlight,
+            'has_speaker' => (bool) $droneType->has_speaker,
+            'is_active' => (bool) $droneType->is_active,
+            'notes' => $droneType->notes,
         ];
     }
 

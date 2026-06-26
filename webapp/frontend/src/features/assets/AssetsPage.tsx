@@ -6,15 +6,15 @@ import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { Asset } from '../../types/api';
+import type { Asset, DroneType } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 
 type AssetStatus = Asset['status'];
 
 interface AssetFormState {
-  assetTag: string;
   name: string;
   type: string;
+  droneTypeId: string;
   status: AssetStatus;
   serialNumber: string;
   maintenanceDueAt: string;
@@ -22,9 +22,9 @@ interface AssetFormState {
 }
 
 const emptyForm: AssetFormState = {
-  assetTag: '',
   name: '',
   type: 'drone',
+  droneTypeId: '',
   status: 'ready',
   serialNumber: '',
   maintenanceDueAt: '',
@@ -50,11 +50,29 @@ const assetStatuses: Array<{ value: AssetStatus; label: string }> = [
 export function AssetsPage() {
   const { api } = useAuth();
   const assets = useApiResource<Asset[]>('/assets');
+  const droneTypes = useApiResource<DroneType[]>('/drone-types');
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
+  const [droneTypeModalMode, setDroneTypeModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
+  const [editingDroneType, setEditingDroneType] = useState<DroneType | null>(null);
   const [form, setForm] = useState<AssetFormState>(emptyForm);
+  const [droneTypeForm, setDroneTypeForm] = useState({
+    manufacturer: 'DJI',
+    model: '',
+    hasThermal: false,
+    hasSpotlight: false,
+    hasSpeaker: false,
+    isActive: true,
+    notes: '',
+  });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const assetList = assets.data ?? [];
+  const readyAssets = assetList.filter((asset) => asset.status === 'ready');
+  const readyDrones = readyAssets.filter((asset) => asset.type === 'drone');
+  const assignedAssets = assetList.filter((asset) => asset.status === 'assigned');
+  const maintenanceAssets = assetList.filter((asset) => asset.status === 'maintenance');
+  const unavailableAssets = assetList.filter((asset) => asset.status === 'unavailable' || asset.status === 'retired');
 
   useEffect(() => {
     if (modalMode === null) {
@@ -74,9 +92,9 @@ export function AssetsPage() {
   function openEditModal(asset: Asset) {
     setEditingAsset(asset);
     setForm({
-      assetTag: asset.asset_tag,
       name: asset.name,
       type: asset.type,
+      droneTypeId: asset.drone_type_id ?? '',
       status: asset.status,
       serialNumber: asset.serial_number ?? '',
       maintenanceDueAt: normalizeDate(asset.maintenance_due_at),
@@ -92,9 +110,9 @@ export function AssetsPage() {
     setError(null);
 
     const payload = {
-      asset_tag: form.assetTag,
       name: form.name,
       type: form.type,
+      drone_type_id: form.type === 'drone' ? form.droneTypeId || null : null,
       status: form.status,
       serial_number: form.serialNumber || null,
       maintenance_due_at: form.maintenanceDueAt || null,
@@ -116,11 +134,94 @@ export function AssetsPage() {
     }
   }
 
+  function openDroneTypeCreateModal() {
+    setEditingDroneType(null);
+    setDroneTypeForm({ manufacturer: 'DJI', model: '', hasThermal: false, hasSpotlight: false, hasSpeaker: false, isActive: true, notes: '' });
+    setError(null);
+    setDroneTypeModalMode('create');
+  }
+
+  function openDroneTypeEditModal(droneType: DroneType) {
+    setEditingDroneType(droneType);
+    setDroneTypeForm({
+      manufacturer: droneType.manufacturer,
+      model: droneType.model,
+      hasThermal: droneType.has_thermal,
+      hasSpotlight: droneType.has_spotlight,
+      hasSpeaker: droneType.has_speaker,
+      isActive: droneType.is_active,
+      notes: droneType.notes ?? '',
+    });
+    setError(null);
+    setDroneTypeModalMode('edit');
+  }
+
+  async function submitDroneType(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+
+    const payload = {
+      manufacturer: droneTypeForm.manufacturer,
+      model: droneTypeForm.model,
+      has_thermal: droneTypeForm.hasThermal,
+      has_spotlight: droneTypeForm.hasSpotlight,
+      has_speaker: droneTypeForm.hasSpeaker,
+      is_active: droneTypeForm.isActive,
+      notes: droneTypeForm.notes || null,
+    };
+
+    try {
+      if (droneTypeModalMode === 'edit' && editingDroneType !== null) {
+        await api.patch(`/admin/drone-types/${editingDroneType.id}`, payload);
+      } else {
+        await api.post('/admin/drone-types', payload);
+      }
+      setDroneTypeModalMode(null);
+      await droneTypes.reload();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Drone type kon niet worden opgeslagen.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteDroneType(droneType: DroneType) {
+    if (!window.confirm(`${droneType.model} verwijderen?`)) {
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await api.delete(`/admin/drone-types/${droneType.id}`);
+      await droneTypes.reload();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Drone type kon niet worden verwijderd.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="page-stack">
       <RealtimeBridge onOperationalEvent={() => void assets.reload()} />
+
+      <Panel title="Beschikbaarheid">
+        <ResourceState loading={assets.loading} error={assets.error} empty={assetList.length === 0}>
+          <div className="summary-grid">
+            <SummaryItem label="Totaal assets" value={assetList.length} />
+            <SummaryItem label="Beschikbaar" value={readyAssets.length} />
+            <SummaryItem label="Beschikbare drones" value={readyDrones.length} />
+            <SummaryItem label="Toegewezen" value={assignedAssets.length} />
+            <SummaryItem label="Onderhoud" value={maintenanceAssets.length} />
+            <SummaryItem label="Niet inzetbaar" value={unavailableAssets.length} />
+          </div>
+        </ResourceState>
+      </Panel>
+
       <Panel
-        title="Assets"
+        title="Asset overzicht"
         action={(
           <button className="primary-button" type="button" onClick={openCreateModal}>
             <Plus size={16} /> Asset registreren
@@ -129,13 +230,13 @@ export function AssetsPage() {
       >
         <ResourceState loading={assets.loading} error={assets.error} empty={(assets.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Tag</th><th>Naam</th><th>Type</th><th>Status</th><th>Serienummer</th><th>Onderhoud</th><th>Actie</th></tr></thead>
+            <thead><tr><th>Naam</th><th>Type</th><th>Opties</th><th>Status</th><th>Serienummer</th><th>Onderhoud</th><th>Actie</th></tr></thead>
             <tbody>
               {assets.data?.map((asset) => (
                 <tr key={asset.id}>
-                  <td>{asset.asset_tag}</td>
                   <td>{asset.name}</td>
-                  <td>{asset.type}</td>
+                  <td>{asset.drone_type?.model ?? asset.type}</td>
+                  <td>{asset.drone_type ? droneTypeCapabilities(asset.drone_type) : '-'}</td>
                   <td><StatusPill value={asset.status} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} /></td>
                   <td>{asset.serial_number ?? '-'}</td>
                   <td>{asset.maintenance_due_at ?? '-'}</td>
@@ -162,10 +263,6 @@ export function AssetsPage() {
             </header>
             <form className="form-grid" onSubmit={submit}>
               <label>
-                Asset tag
-                <input value={form.assetTag} onChange={(event) => setForm((current) => ({ ...current, assetTag: event.target.value }))} required />
-              </label>
-              <label>
                 Naam
                 <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
               </label>
@@ -177,6 +274,17 @@ export function AssetsPage() {
                   ))}
                 </select>
               </label>
+              {form.type === 'drone' ? (
+                <label>
+                  Drone type
+                  <select value={form.droneTypeId} onChange={(event) => setForm((current) => ({ ...current, droneTypeId: event.target.value }))} required>
+                    <option value="">Kies drone type</option>
+                    {droneTypes.data?.filter((type) => type.is_active || type.id === form.droneTypeId).map((type) => (
+                      <option key={type.id} value={type.id}>{type.manufacturer} {type.model} - {droneTypeCapabilities(type)}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <label>
                 Status
                 <select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as AssetStatus }))}>
@@ -208,10 +316,114 @@ export function AssetsPage() {
           </section>
         </div>
       ) : null}
+
+      <Panel
+        title="Drone types"
+        action={(
+          <button className="primary-button" type="button" onClick={openDroneTypeCreateModal}>
+            <Plus size={16} /> Drone type toevoegen
+          </button>
+        )}
+      >
+        {error ? <p className="form-error">{error}</p> : null}
+        <ResourceState loading={droneTypes.loading} error={droneTypes.error} empty={(droneTypes.data?.length ?? 0) === 0}>
+          <table className="data-table">
+            <thead><tr><th>Merk</th><th>Model</th><th>Thermal</th><th>Externe lamp</th><th>Speaker</th><th>Status</th><th>Actie</th></tr></thead>
+            <tbody>
+              {droneTypes.data?.map((type) => (
+                <tr key={type.id}>
+                  <td>{type.manufacturer}</td>
+                  <td>{type.model}</td>
+                  <td>{type.has_thermal ? 'Ja' : 'Nee'}</td>
+                  <td>{type.has_spotlight ? 'Ja' : 'Nee'}</td>
+                  <td>{type.has_speaker ? 'Ja' : 'Nee'}</td>
+                  <td>{type.is_active ? 'Actief' : 'Uitgeschakeld'}</td>
+                  <td>
+                    <div className="actions-row">
+                      <button className="secondary-button" type="button" onClick={() => openDroneTypeEditModal(type)}>
+                        <Pencil size={16} /> Aanpassen
+                      </button>
+                      <button className="secondary-button" type="button" onClick={() => void deleteDroneType(type)} disabled={saving}>
+                        Verwijderen
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ResourceState>
+      </Panel>
+
+      {droneTypeModalMode !== null ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="drone-type-modal-title">
+            <header className="modal__header">
+              <h2 id="drone-type-modal-title">{droneTypeModalMode === 'edit' ? 'Drone type aanpassen' : 'Drone type toevoegen'}</h2>
+              <button className="icon-button" type="button" onClick={() => setDroneTypeModalMode(null)} aria-label="Sluiten">
+                <X size={18} />
+              </button>
+            </header>
+            <form className="form-grid" onSubmit={submitDroneType}>
+              <label>
+                Merk
+                <input value={droneTypeForm.manufacturer} onChange={(event) => setDroneTypeForm((current) => ({ ...current, manufacturer: event.target.value }))} required />
+              </label>
+              <label>
+                Model
+                <input value={droneTypeForm.model} onChange={(event) => setDroneTypeForm((current) => ({ ...current, model: event.target.value }))} required />
+              </label>
+              <label className="check-label">
+                <input type="checkbox" checked={droneTypeForm.hasThermal} onChange={(event) => setDroneTypeForm((current) => ({ ...current, hasThermal: event.target.checked }))} />
+                Thermal aanwezig
+              </label>
+              <label className="check-label">
+                <input type="checkbox" checked={droneTypeForm.hasSpotlight} onChange={(event) => setDroneTypeForm((current) => ({ ...current, hasSpotlight: event.target.checked }))} />
+                Externe lamp aanwezig
+              </label>
+              <label className="check-label">
+                <input type="checkbox" checked={droneTypeForm.hasSpeaker} onChange={(event) => setDroneTypeForm((current) => ({ ...current, hasSpeaker: event.target.checked }))} />
+                Speaker aanwezig
+              </label>
+              <label className="check-label">
+                <input type="checkbox" checked={droneTypeForm.isActive} onChange={(event) => setDroneTypeForm((current) => ({ ...current, isActive: event.target.checked }))} />
+                Actief
+              </label>
+              <label className="form-grid__wide">
+                Notities
+                <textarea value={droneTypeForm.notes} onChange={(event) => setDroneTypeForm((current) => ({ ...current, notes: event.target.value }))} />
+              </label>
+              <div className="actions-row form-grid__wide">
+                <button className="secondary-button" type="button" onClick={() => setDroneTypeModalMode(null)}>Annuleren</button>
+                <button className="primary-button" type="submit" disabled={saving}>{saving ? 'Opslaan...' : 'Opslaan'}</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function normalizeDate(value?: string | null): string {
   return value ? value.slice(0, 10) : '';
+}
+
+function SummaryItem({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function droneTypeCapabilities(type: DroneType): string {
+  const capabilities = [
+    type.has_thermal ? 'Thermal' : 'Geen thermal',
+    type.has_spotlight ? 'Externe lamp' : 'Geen externe lamp',
+    type.has_speaker ? 'Speaker' : 'Geen speaker',
+  ];
+
+  return capabilities.join(' / ');
 }

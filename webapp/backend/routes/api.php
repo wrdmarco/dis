@@ -8,6 +8,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CertificationController;
 use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\DispatchController;
+use App\Http\Controllers\DroneTypeController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\IncidentController;
 use App\Http\Controllers\LocationController;
@@ -96,6 +97,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/assets/mine', [AssetController::class, 'mine']);
     Route::post('/assets/mine', [AssetController::class, 'storeMine']);
     Route::patch('/assets/{asset}/mine', [AssetController::class, 'updateMine']);
+    Route::get('/drone-types', [DroneTypeController::class, 'index']);
     Route::get('/assets', [AssetController::class, 'index'])->middleware('permission:assets.view');
     Route::post('/assets', [AssetController::class, 'store'])->middleware('permission:assets.manage');
     Route::get('/assets/{asset}', [AssetController::class, 'show'])->middleware('permission:assets.view');
@@ -103,6 +105,9 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/assets/{asset}/assign', [AssetController::class, 'assign'])->middleware('permission:assets.manage');
     Route::post('/assets/{asset}/release', [AssetController::class, 'release'])->middleware('permission:assets.manage');
     Route::get('/assets/{asset}/history', [AssetController::class, 'history'])->middleware('permission:assets.view');
+    Route::post('/admin/drone-types', [DroneTypeController::class, 'store'])->middleware('permission:assets.manage');
+    Route::patch('/admin/drone-types/{droneType}', [DroneTypeController::class, 'update'])->middleware('permission:assets.manage');
+    Route::delete('/admin/drone-types/{droneType}', [DroneTypeController::class, 'destroy'])->middleware('permission:assets.manage');
 
     Route::get('/certifications', [CertificationController::class, 'index'])->middleware('permission:certifications.view');
     Route::get('/certifications/me', [CertificationController::class, 'myCertifications']);

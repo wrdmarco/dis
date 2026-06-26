@@ -7,6 +7,7 @@ use App\Models\Asset;
 use App\Models\AssetAssignment;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Throwable;
 
 final class AssetService
@@ -18,6 +19,8 @@ final class AssetService
      */
     public function create(array $data, User $actor): Asset
     {
+        $data = $this->normalizeDroneType($data);
+        $data = $this->ensureAssetTag($data);
         $asset = Asset::query()->create($data);
         $this->auditService->record('assets.created', $asset, $actor);
         $this->broadcastAssetChange($asset, 'created');
@@ -31,6 +34,8 @@ final class AssetService
     public function createForUser(array $data, User $actor): Asset
     {
         return DB::transaction(function () use ($data, $actor): Asset {
+            $data = $this->normalizeDroneType($data);
+            $data = $this->ensureAssetTag($data);
             $asset = Asset::query()->create($data);
             AssetAssignment::query()->create([
                 'asset_id' => $asset->id,
@@ -51,6 +56,7 @@ final class AssetService
      */
     public function update(Asset $asset, array $data, User $actor): Asset
     {
+        $data = $this->normalizeDroneType($data);
         $before = $asset->only(array_keys($data));
         $asset->update($data);
         $this->auditService->record('assets.updated', $asset, $actor, [
@@ -84,5 +90,37 @@ final class AssetService
         } catch (Throwable $exception) {
             report($exception);
         }
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function normalizeDroneType(array $data): array
+    {
+        if (($data['type'] ?? null) !== 'drone') {
+            $data['drone_type_id'] = null;
+        }
+
+        return $data;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function ensureAssetTag(array $data): array
+    {
+        if (! empty($data['asset_tag'])) {
+            return $data;
+        }
+
+        do {
+            $tag = 'AST-'.Str::upper(Str::random(8));
+        } while (Asset::query()->where('asset_tag', $tag)->exists());
+
+        $data['asset_tag'] = $tag;
+
+        return $data;
     }
 }

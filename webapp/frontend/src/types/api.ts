@@ -187,9 +187,22 @@ export interface Asset {
   asset_tag: string;
   name: string;
   type: string;
+  drone_type_id?: string | null;
+  drone_type?: DroneType | null;
   status: 'ready' | 'assigned' | 'maintenance' | 'unavailable' | 'retired';
   serial_number?: string | null;
   maintenance_due_at?: string | null;
+  notes?: string | null;
+}
+
+export interface DroneType {
+  id: string;
+  manufacturer: string;
+  model: string;
+  has_thermal: boolean;
+  has_spotlight: boolean;
+  has_speaker: boolean;
+  is_active: boolean;
   notes?: string | null;
 }
 

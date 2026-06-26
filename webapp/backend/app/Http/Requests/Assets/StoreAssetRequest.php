@@ -14,9 +14,10 @@ final class StoreAssetRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'asset_tag' => ['required', 'string', 'max:80', 'unique:assets,asset_tag'],
+            'asset_tag' => ['nullable', 'string', 'max:80', 'unique:assets,asset_tag'],
             'name' => ['required', 'string', 'max:160'],
             'type' => ['required', 'in:drone,battery,sensor,vehicle,support_equipment'],
+            'drone_type_id' => ['nullable', 'required_if:type,drone', 'ulid', 'exists:drone_types,id'],
             'status' => ['required', 'in:ready,assigned,maintenance,unavailable,retired'],
             'serial_number' => ['nullable', 'string', 'max:160', 'unique:assets,serial_number'],
             'maintenance_due_at' => ['nullable', 'date'],
@@ -24,4 +25,3 @@ final class StoreAssetRequest extends FormRequest
         ];
     }
 }
-
