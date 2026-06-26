@@ -67,9 +67,13 @@ final class TestAlertService
                     'Bevestig deze proefalarmering met Ontvangen.',
                     [
                         'type' => 'dispatch_request',
+                        'action_mode' => 'test_ack',
                         'is_test' => 'true',
                         'dispatch_id' => (string) $dispatch->id,
                         'incident_id' => (string) $incident->id,
+                        'incident_reference' => (string) $incident->reference,
+                        'incident_title' => (string) $incident->title,
+                        'priority' => 'normal',
                     ],
                     (string) $dispatch->id,
                 )->onQueue('push');

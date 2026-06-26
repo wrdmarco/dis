@@ -55,6 +55,10 @@ final class IncidentService
             $statusReason = $data['status_reason'] ?? null;
             unset($data['status_reason']);
 
+            if (array_key_exists('status', $data)) {
+                $data = $this->applyStatusTimestamps($incident, $data);
+            }
+
             $incident->update($data);
 
             if (array_key_exists('status', $data) && $data['status'] !== $beforeStatus) {
@@ -96,6 +100,25 @@ final class IncidentService
     private function nextReference(): string
     {
         return 'DIS-'.now()->format('Ymd-His').'-'.strtoupper(substr(bin2hex(random_bytes(2)), 0, 4));
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function applyStatusTimestamps(Incident $incident, array $data): array
+    {
+        $nextStatus = $data['status'] ?? null;
+
+        if (in_array($nextStatus, ['resolved', 'cancelled'], true) && $incident->closed_at === null) {
+            $data['closed_at'] = now();
+        }
+
+        if (! in_array($nextStatus, ['resolved', 'cancelled'], true) && in_array($incident->status, ['resolved', 'cancelled'], true)) {
+            $data['closed_at'] = null;
+        }
+
+        return $data;
     }
 
     private function resetAcceptedRecipientsToAvailable(Incident $incident, User $actor, string $terminalStatus): void

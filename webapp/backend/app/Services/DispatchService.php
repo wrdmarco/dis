@@ -130,13 +130,9 @@ final class DispatchService
                     SendFcmNotification::dispatch(
                         (string) $token->id,
                         'dispatch_request',
-                        'D.I.S dispatch',
-                        $dispatch->incident?->reference.' - '.$dispatch->priority,
-                        [
-                            'type' => 'dispatch_request',
-                            'dispatch_id' => (string) $dispatch->id,
-                            'incident_id' => (string) $dispatch->incident_id,
-                        ],
+                        'NDT Alarmering',
+                        $this->notificationBody($dispatch),
+                        $this->notificationData($dispatch),
                         (string) $dispatch->id,
                     )->onQueue('push');
                 }
@@ -264,13 +260,9 @@ final class DispatchService
                 SendFcmNotification::dispatch(
                     (string) $token->id,
                     'dispatch_request',
-                    'D.I.S heralarmering',
-                    $dispatch->incident?->reference.' - reactie vereist',
-                    [
-                        'type' => 'dispatch_request',
-                        'dispatch_id' => (string) $dispatch->id,
-                        'incident_id' => (string) $dispatch->incident_id,
-                    ],
+                    'NDT Heralarmering',
+                    $this->notificationBody($dispatch, 'Reactie vereist'),
+                    $this->notificationData($dispatch),
                     (string) $dispatch->id,
                 )->onQueue('push');
                 $queuedTokens++;
@@ -443,5 +435,38 @@ final class DispatchService
         ];
 
         return implode(' - ', array_values(array_filter($parts, fn (?string $part): bool => filled($part))));
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function notificationData(DispatchRequest $dispatch): array
+    {
+        $incident = $dispatch->incident;
+
+        return [
+            'type' => 'dispatch_request',
+            'action_mode' => 'attendance',
+            'is_test' => $incident?->is_test ? 'true' : 'false',
+            'dispatch_id' => (string) $dispatch->id,
+            'incident_id' => (string) $dispatch->incident_id,
+            'incident_reference' => (string) ($incident?->reference ?? ''),
+            'incident_title' => (string) ($incident?->title ?? ''),
+            'incident_location' => (string) ($incident?->location_label ?? ''),
+            'priority' => (string) $dispatch->priority,
+        ];
+    }
+
+    private function notificationBody(DispatchRequest $dispatch, ?string $prefix = null): string
+    {
+        $incident = $dispatch->incident;
+        $parts = array_values(array_filter([
+            $prefix,
+            $incident?->reference,
+            $incident?->title,
+            $incident?->location_label,
+        ], fn (?string $part): bool => filled($part)));
+
+        return implode(' - ', $parts);
     }
 }
