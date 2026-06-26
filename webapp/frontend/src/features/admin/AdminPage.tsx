@@ -725,11 +725,17 @@ export function AdminPage() {
                 <dd className="mono">{shortCommit(systemVersion.data?.git.latest_commit)}</dd>
                 <dt>Status</dt>
                 <dd>
-                  {systemVersion.data?.git.update_available
-                    ? `${systemVersion.data.git.behind ?? 0} commit(s) achter`
-                    : 'Laatste versie actief'}
+                  {gitUpdateStatus(systemVersion.data)}
                 </dd>
+                <dt>Fetch</dt>
+                <dd>{systemVersion.data?.git.fetch_successful === null || systemVersion.data?.git.fetch_successful === undefined ? '-' : systemVersion.data.git.fetch_successful ? 'Gelukt' : 'Mislukt'}</dd>
               </dl>
+              {(systemVersion.data?.git.errors?.length ?? 0) > 0 ? (
+                <div className="metadata-example">
+                  <strong>Git controle meldingen</strong>
+                  <pre>{systemVersion.data?.git.errors?.join('\n')}</pre>
+                </div>
+              ) : null}
               {updateActionError ? <p className="form-error">{updateActionError}</p> : null}
               <div className="actions-row">
                 <button className="secondary-button" type="button" onClick={() => void systemVersion.reload()}>
@@ -827,6 +833,23 @@ function formatDate(value?: string | null): string {
 
 function shortCommit(value?: string | null): string {
   return value !== undefined && value !== null && value !== '' ? value.slice(0, 12) : '-';
+}
+
+function gitUpdateStatus(systemVersion?: SystemVersionState | null): string {
+  const git = systemVersion?.git;
+  if (git === undefined) {
+    return '-';
+  }
+
+  if (git.update_available) {
+    return `${git.behind ?? 0} commit(s) achter`;
+  }
+
+  if (git.checkable === false) {
+    return 'Update status kon niet worden gecontroleerd';
+  }
+
+  return 'Laatste versie actief';
 }
 
 function toMobileSettingsForm(settings: SystemSetting[]): MobileSettingsForm {

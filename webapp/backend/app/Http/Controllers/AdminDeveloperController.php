@@ -120,20 +120,36 @@ final class AdminDeveloperController extends Controller
     private function gitState(): array
     {
         $root = base_path('../..');
+        $errors = [];
         $current = $this->runGit($root, ['rev-parse', 'HEAD']);
         $branch = $this->runGit($root, ['rev-parse', '--abbrev-ref', 'HEAD']);
         $upstream = $this->runGit($root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
 
+        if ($upstream === null && $branch !== null && $branch !== 'HEAD') {
+            $originBranch = 'origin/'.$branch;
+            if ($this->runGit($root, ['rev-parse', '--verify', $originBranch]) !== null) {
+                $upstream = $originBranch;
+            }
+        }
+
         $latest = null;
         $behind = null;
+        $fetchSuccessful = null;
         if ($upstream !== null) {
-            $this->runGit($root, ['fetch', '--prune']);
+            $fetchSuccessful = $this->runGit($root, ['fetch', '--prune']) !== null;
+            if (! $fetchSuccessful) {
+                $errors[] = 'Git fetch kon niet worden uitgevoerd.';
+            }
             $latest = $this->runGit($root, ['rev-parse', $upstream]);
             $count = $this->runGit($root, ['rev-list', '--left-right', '--count', 'HEAD...'.$upstream]);
             if ($count !== null) {
                 $parts = preg_split('/\s+/', $count);
                 $behind = isset($parts[1]) ? (int) $parts[1] : null;
+            } else {
+                $errors[] = 'Git achterstand kon niet worden berekend.';
             }
+        } else {
+            $errors[] = 'Geen Git upstream of origin branch gevonden.';
         }
 
         return [
@@ -142,6 +158,9 @@ final class AdminDeveloperController extends Controller
             'upstream' => $upstream,
             'latest_commit' => $latest,
             'behind' => $behind,
+            'fetch_successful' => $fetchSuccessful,
+            'checkable' => $upstream !== null && $behind !== null,
+            'errors' => $errors,
             'update_available' => $behind !== null && $behind > 0,
         ];
     }

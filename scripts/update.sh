@@ -11,6 +11,7 @@ UPDATE_SOURCE=1
 RUN_HEALTHCHECK="${RUN_HEALTHCHECK:-1}"
 SYSTEM_UPDATES_AVAILABLE=0
 APP_UPDATES_AVAILABLE=0
+APP_UPSTREAM=""
 
 usage() {
   cat <<'USAGE'
@@ -194,7 +195,7 @@ check_system_updates() {
 }
 
 check_app_updates() {
-  local upstream counts behind
+  local upstream branch counts behind
 
   if [ "${UPDATE_SOURCE}" != "1" ]; then
     APP_UPDATES_AVAILABLE=1
@@ -213,8 +214,14 @@ check_app_updates() {
 
   upstream="$(git -C "${DIS_INSTALL_PATH}" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
   if [ -z "${upstream}" ]; then
-    fail "Git branch at ${DIS_INSTALL_PATH} has no upstream branch configured."
+    branch="$(git -C "${DIS_INSTALL_PATH}" rev-parse --abbrev-ref HEAD)"
+    upstream="origin/${branch}"
+    if ! git -C "${DIS_INSTALL_PATH}" rev-parse --verify "${upstream}" >/dev/null 2>&1; then
+      fail "Git branch at ${DIS_INSTALL_PATH} has no upstream branch configured and ${upstream} was not found."
+    fi
+    log "No upstream branch configured; using ${upstream}."
   fi
+  APP_UPSTREAM="${upstream}"
 
   counts="$(git -C "${DIS_INSTALL_PATH}" rev-list --left-right --count "HEAD...${upstream}")"
   behind="$(printf '%s' "${counts}" | awk '{print $2}')"
@@ -257,7 +264,7 @@ if [ "${UPDATE_APP}" = "1" ]; then
       if [ -d "${DIS_INSTALL_PATH}/.git" ]; then
         log "Pulling latest DIS source"
         stash_local_git_changes
-        run_cmd git -C "${DIS_INSTALL_PATH}" pull --ff-only
+        run_cmd git -C "${DIS_INSTALL_PATH}" merge --ff-only "${APP_UPSTREAM}"
       else
         log "No Git checkout found at ${DIS_INSTALL_PATH}; skipping source update."
       fi

@@ -250,6 +250,9 @@ export interface SystemVersionState {
     upstream?: string | null;
     latest_commit?: string | null;
     behind?: number | null;
+    fetch_successful?: boolean | null;
+    checkable?: boolean;
+    errors?: string[];
     update_available: boolean;
   };
   updater: SystemUpdateStatus;
