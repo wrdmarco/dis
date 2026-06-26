@@ -29,6 +29,10 @@ interface ManagedSettingsForm {
   mailEncryption: string;
   mailUsername: string;
   mailPassword: string;
+  mailMicrosoft365TenantId: string;
+  mailMicrosoft365ClientId: string;
+  mailMicrosoft365ClientSecret: string;
+  mailMicrosoft365Sender: string;
   mailFromAddress: string;
   mailFromName: string;
   firebaseProjectId: string;
@@ -83,6 +87,7 @@ export function AdminPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [managedSaving, setManagedSaving] = useState(false);
   const [managedError, setManagedError] = useState<string | null>(null);
+  const [managedMessage, setManagedMessage] = useState<string | null>(null);
   const [tokenActionId, setTokenActionId] = useState<string | null>(null);
   const [tokenActionError, setTokenActionError] = useState<string | null>(null);
   const [roleActionId, setRoleActionId] = useState<string | null>(null);
@@ -101,6 +106,7 @@ export function AdminPage() {
     setManagedForm((current) => ({
       ...toManagedSettingsForm(settings.data ?? []),
       mailPassword: current.mailPassword,
+      mailMicrosoft365ClientSecret: current.mailMicrosoft365ClientSecret,
       firebaseServicePrivateKey: current.firebaseServicePrivateKey,
     }));
   }, [managedSettings, settings.data]);
@@ -245,6 +251,7 @@ export function AdminPage() {
   async function saveManagedSettings() {
     setManagedSaving(true);
     setManagedError(null);
+    setManagedMessage(null);
     try {
       const payload: Record<string, unknown> = {
         'retention.push_logs_days': Number(managedForm.pushLogRetentionDays || 90),
@@ -272,6 +279,9 @@ export function AdminPage() {
         'mail.port': Number(managedForm.mailPort || 587),
         'mail.encryption': managedForm.mailEncryption,
         'mail.username': managedForm.mailUsername,
+        'mail.microsoft365_tenant_id': managedForm.mailMicrosoft365TenantId,
+        'mail.microsoft365_client_id': managedForm.mailMicrosoft365ClientId,
+        'mail.microsoft365_sender': managedForm.mailMicrosoft365Sender,
         'mail.from_address': managedForm.mailFromAddress,
         'mail.from_name': managedForm.mailFromName,
       };
@@ -279,12 +289,29 @@ export function AdminPage() {
       if (managedForm.mailPassword.trim() !== '') {
         payload['mail.password'] = managedForm.mailPassword;
       }
+      if (managedForm.mailMicrosoft365ClientSecret.trim() !== '') {
+        payload['mail.microsoft365_client_secret'] = managedForm.mailMicrosoft365ClientSecret;
+      }
 
       await api.patch('/admin/settings', { settings: payload });
-      setManagedForm((current) => ({ ...current, mailPassword: '' }));
+      setManagedForm((current) => ({ ...current, mailPassword: '', mailMicrosoft365ClientSecret: '' }));
       await settings.reload();
     } catch (error) {
       setManagedError(error instanceof Error ? error.message : 'Mailinstellingen opslaan mislukt.');
+    } finally {
+      setManagedSaving(false);
+    }
+  }
+
+  async function sendTestMail() {
+    setManagedSaving(true);
+    setManagedError(null);
+    setManagedMessage(null);
+    try {
+      await api.post('/admin/settings/mail/test');
+      setManagedMessage('Testmail is verzonden naar je eigen e-mailadres.');
+    } catch (error) {
+      setManagedError(error instanceof Error ? error.message : 'Testmail verzenden mislukt.');
     } finally {
       setManagedSaving(false);
     }
@@ -540,7 +567,11 @@ export function AdminPage() {
           <div className="form-grid">
             <label>
               Mail driver
-              <input value={managedForm.mailMailer} onChange={(event) => setManagedForm((current) => ({ ...current, mailMailer: event.target.value }))} />
+              <select value={managedForm.mailMailer} onChange={(event) => setManagedForm((current) => ({ ...current, mailMailer: event.target.value }))}>
+                <option value="smtp">SMTP</option>
+                <option value="microsoft365">Microsoft 365 Graph</option>
+                <option value="log">Log</option>
+              </select>
             </label>
             <label>
               SMTP host
@@ -567,6 +598,22 @@ export function AdminPage() {
               <input type="password" value={managedForm.mailPassword} placeholder="Ongewijzigd laten" onChange={(event) => setManagedForm((current) => ({ ...current, mailPassword: event.target.value }))} />
             </label>
             <label>
+              Microsoft 365 tenant id
+              <input value={managedForm.mailMicrosoft365TenantId} onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365TenantId: event.target.value }))} />
+            </label>
+            <label>
+              Microsoft 365 client id
+              <input value={managedForm.mailMicrosoft365ClientId} onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365ClientId: event.target.value }))} />
+            </label>
+            <label>
+              Microsoft 365 client secret
+              <input type="password" value={managedForm.mailMicrosoft365ClientSecret} placeholder="Ongewijzigd laten" onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365ClientSecret: event.target.value }))} />
+            </label>
+            <label>
+              Microsoft 365 afzender mailbox
+              <input type="email" value={managedForm.mailMicrosoft365Sender} onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365Sender: event.target.value }))} />
+            </label>
+            <label>
               Afzender e-mail
               <input value={managedForm.mailFromAddress} onChange={(event) => setManagedForm((current) => ({ ...current, mailFromAddress: event.target.value }))} />
             </label>
@@ -576,9 +623,13 @@ export function AdminPage() {
             </label>
           </div>
           {managedError ? <p className="error-text">{managedError}</p> : null}
+          {managedMessage ? <p className="form-note">{managedMessage}</p> : null}
           <div className="actions-row">
             <button className="primary-button" type="button" onClick={saveMailSettings} disabled={managedSaving}>
               {managedSaving ? 'Opslaan...' : 'Mailinstellingen opslaan'}
+            </button>
+            <button className="secondary-button" type="button" onClick={() => void sendTestMail()} disabled={managedSaving}>
+              Testmail versturen
             </button>
           </div>
         </Panel>
@@ -879,6 +930,10 @@ function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
     mailEncryption: asString(byKey.get('mail.encryption')),
     mailUsername: asString(byKey.get('mail.username')),
     mailPassword: '',
+    mailMicrosoft365TenantId: asString(byKey.get('mail.microsoft365_tenant_id')),
+    mailMicrosoft365ClientId: asString(byKey.get('mail.microsoft365_client_id')),
+    mailMicrosoft365ClientSecret: '',
+    mailMicrosoft365Sender: asString(byKey.get('mail.microsoft365_sender')),
     mailFromAddress: asString(byKey.get('mail.from_address')),
     mailFromName: asString(byKey.get('mail.from_name')),
     firebaseProjectId: asString(byKey.get('firebase.project_id')),

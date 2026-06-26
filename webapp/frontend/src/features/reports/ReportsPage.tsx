@@ -1,21 +1,91 @@
 import { type ReactNode, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, MessageCircleOff, Users } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, FileText, MessageCircleOff, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
+import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
-import type { DispatchStatistics, DispatchStatisticsIncidentSummary } from '../../types/api';
+import { useAuth } from '../auth/AuthContext';
+import type { DispatchStatistics, DispatchStatisticsIncidentSummary, ReportIncident } from '../../types/api';
 
 export function ReportsPage() {
+  const { api } = useAuth();
   const [incidentLimit, setIncidentLimit] = useState(5);
+  const [reportDownloadingId, setReportDownloadingId] = useState<string | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
   const resourcePath = useMemo(() => `/reports/dispatch-statistics?incident_limit=${incidentLimit}`, [incidentLimit]);
   const statistics = useApiResource<DispatchStatistics>(resourcePath);
+  const reportIncidents = useApiResource<ReportIncident[]>('/reports/incidents?limit=50');
   const summary = statistics.data?.summary;
+
+  async function downloadReport(incident: ReportIncident) {
+    setReportDownloadingId(incident.id);
+    setReportError(null);
+
+    try {
+      const response = await api.download(`/incidents/${incident.id}/report.pdf`);
+      const url = URL.createObjectURL(response.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = response.filename ?? `${incident.reference}-rapport.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setReportError(err instanceof ApiClientError ? err.message : 'Rapport kon niet worden gedownload.');
+    } finally {
+      setReportDownloadingId(null);
+    }
+  }
 
   return (
     <div className="page-stack reports-page">
+      <Panel title="Incidentrapporten">
+        <ResourceState loading={reportIncidents.loading} error={reportIncidents.error} empty={(reportIncidents.data?.length ?? 0) === 0}>
+          <div className="panel-body">
+            {reportError ? <p className="form-error">{reportError}</p> : null}
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Referentie</th>
+                  <th>Titel</th>
+                  <th>Status</th>
+                  <th>Team</th>
+                  <th>Gesloten</th>
+                  <th>Ontvangers</th>
+                  <th>Komt</th>
+                  <th>Geen reactie</th>
+                  <th>Rapport</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reportIncidents.data?.map((incident) => (
+                  <tr key={incident.id}>
+                    <td><Link to={`/incidents/${incident.id}`}>{incident.reference}</Link></td>
+                    <td>{incident.title}</td>
+                    <td><StatusPill value={incident.status} tone={incident.status === 'resolved' ? 'good' : 'warn'} /></td>
+                    <td>{incident.team?.code ?? '-'}</td>
+                    <td>{formatDateTime(incident.closed_at)}</td>
+                    <td>{incident.recipient_count}</td>
+                    <td>{incident.accepted}</td>
+                    <td>{incident.no_response}</td>
+                    <td>
+                      <button className="secondary-button" type="button" onClick={() => void downloadReport(incident)} disabled={reportDownloadingId === incident.id}>
+                        {reportDownloadingId === incident.id ? <FileText size={16} /> : <Download size={16} />}
+                        {reportDownloadingId === incident.id ? 'Maken...' : 'PDF'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </ResourceState>
+      </Panel>
+
       <Panel
         title="Statistieken"
         action={(

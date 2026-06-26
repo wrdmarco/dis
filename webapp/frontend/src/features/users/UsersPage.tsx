@@ -13,6 +13,7 @@ interface UserFormState {
   email: string;
   phoneNumber: string;
   password: string;
+  sendWelcomeMail: boolean;
   accountStatus: User['account_status'];
   roleIds: string[];
   teamIds: string[];
@@ -23,6 +24,7 @@ const emptyForm: UserFormState = {
   email: '',
   phoneNumber: '',
   password: '',
+  sendWelcomeMail: true,
   accountStatus: 'active',
   roleIds: [],
   teamIds: [],
@@ -79,6 +81,7 @@ export function UsersPage() {
       email: user.email,
       phoneNumber: user.phone_number ?? '',
       password: '',
+      sendWelcomeMail: false,
       accountStatus: user.account_status,
       roleIds: user.roles?.map((role) => role.id) ?? [],
       teamIds: user.teams?.map((team) => team.id) ?? [],
@@ -118,6 +121,10 @@ export function UsersPage() {
 
     if (form.password !== '') {
       payload.password = form.password;
+    }
+
+    if (modalMode === 'create') {
+      payload.send_welcome_mail = form.sendWelcomeMail;
     }
 
     try {
@@ -246,13 +253,23 @@ export function UsersPage() {
                 <input
                   type="password"
                   value={form.password}
-                  placeholder={modalMode === 'edit' ? 'Leeg laten om niet te wijzigen' : 'Volgens wachtwoordbeleid'}
-                  required={modalMode === 'create'}
+                  placeholder={modalMode === 'edit' ? 'Leeg laten om niet te wijzigen' : form.sendWelcomeMail ? 'Gebruiker stelt wachtwoord zelf in' : 'Volgens wachtwoordbeleid'}
+                  required={modalMode === 'create' && !form.sendWelcomeMail}
                   autoComplete="new-password"
                   onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
                 />
                 <small>Moet voldoen aan de ingestelde wachtwoordeisen.</small>
               </label>
+              {modalMode === 'create' ? (
+                <label className="check-label form-grid__wide">
+                  <input
+                    type="checkbox"
+                    checked={form.sendWelcomeMail}
+                    onChange={(event) => setForm((current) => ({ ...current, sendWelcomeMail: event.target.checked }))}
+                  />
+                  Welkomstmail sturen en registratie laten afronden
+                </label>
+              ) : null}
               <div className="form-grid__wide">
                 <span className="field-label">Rollen</span>
                 <ResourceState loading={roles.loading} error={roles.error} empty={(roles.data?.length ?? 0) === 0}>

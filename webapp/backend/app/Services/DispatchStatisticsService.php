@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 final class DispatchStatisticsService
@@ -23,6 +24,7 @@ final class DispatchStatisticsService
             ->latest('sent_at')
             ->get()
             ->pluck('incident_id')
+            ->filter()
             ->unique()
             ->take($incidentLimit)
             ->values();
@@ -73,7 +75,7 @@ final class DispatchStatisticsService
                 $declined = $rows->where('response_status', 'declined')->count();
                 $noResponseRows = $rows->whereIn('response_status', ['pending', 'no_response']);
                 $user = $rows->first()?->user;
-                $sorted = $rows->sortByDesc(fn (DispatchRecipient $recipient) => $recipient->dispatchRequest?->sent_at ?? $recipient->dispatchRequest?->created_at);
+                $sorted = $rows->sortByDesc(fn (DispatchRecipient $recipient) => $this->timestamp($recipient->dispatchRequest?->sent_at ?? $recipient->dispatchRequest?->created_at));
                 $lastAlert = $sorted->first();
                 $lastDeployment = $sorted->firstWhere('response_status', 'accepted');
 
@@ -91,7 +93,7 @@ final class DispatchStatisticsService
                     'last_alert' => $this->incidentSummary($lastAlert),
                     'last_deployment' => $this->incidentSummary($lastDeployment),
                     'recent_no_response' => $noResponseRows
-                        ->sortByDesc(fn (DispatchRecipient $recipient) => $recipient->dispatchRequest?->sent_at ?? $recipient->dispatchRequest?->created_at)
+                        ->sortByDesc(fn (DispatchRecipient $recipient) => $this->timestamp($recipient->dispatchRequest?->sent_at ?? $recipient->dispatchRequest?->created_at))
                         ->take(5)
                         ->map(fn (DispatchRecipient $recipient): ?array => $this->incidentSummary($recipient))
                         ->filter()
@@ -111,6 +113,7 @@ final class DispatchStatisticsService
     private function incidentStats(Collection $recipients): array
     {
         return $recipients
+            ->filter(fn (DispatchRecipient $recipient): bool => $recipient->dispatchRequest?->incident_id !== null)
             ->groupBy(fn (DispatchRecipient $recipient) => $recipient->dispatchRequest?->incident_id)
             ->map(function (Collection $rows): array {
                 $first = $rows->first();
@@ -161,5 +164,18 @@ final class DispatchStatisticsService
         }
 
         return round(($part / $total) * 100, 1);
+    }
+
+    private function timestamp(mixed $value): int
+    {
+        if ($value instanceof Carbon) {
+            return $value->getTimestamp();
+        }
+
+        if ($value instanceof \DateTimeInterface) {
+            return $value->getTimestamp();
+        }
+
+        return is_string($value) ? (strtotime($value) ?: 0) : 0;
     }
 }

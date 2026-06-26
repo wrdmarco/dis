@@ -3,6 +3,7 @@ import { CommandLayout } from './CommandLayout';
 import { ProtectedRoute } from '../routes/ProtectedRoute';
 import { LoginPage } from '../features/auth/LoginPage';
 import { AndroidDownloadPage } from '../features/public/AndroidDownloadPage';
+import { RegisterWizardPage } from '../features/registration/RegisterWizardPage';
 import { SetupWizardPage } from '../features/setup/SetupWizardPage';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { IncidentsPage } from '../features/incidents/IncidentsPage';
@@ -25,6 +26,7 @@ export function App() {
     <Routes>
       <Route path="/setup" element={<SetupWizardPage />} />
       <Route path="/download" element={<AndroidDownloadPage />} />
+      <Route path="/register" element={<RegisterWizardPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route
         path="/"

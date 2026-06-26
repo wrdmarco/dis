@@ -14,6 +14,7 @@ use App\Http\Controllers\IncidentController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MobileConfigController;
 use App\Http\Controllers\PasswordController;
+use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\ReportingController;
 use App\Http\Controllers\SetupController;
 use App\Http\Controllers\StatusController;
@@ -29,6 +30,8 @@ Broadcast::routes(['middleware' => ['auth:sanctum', 'operational']]);
 Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
 Route::post('/auth/password/forgot', [PasswordController::class, 'forgot'])->middleware('throttle:password-reset');
 Route::post('/auth/password/reset', [PasswordController::class, 'reset'])->middleware('throttle:password-reset');
+Route::get('/registration/invite', [RegistrationController::class, 'show'])->middleware('throttle:api');
+Route::post('/registration/complete', [RegistrationController::class, 'complete'])->middleware('throttle:password-reset');
 Route::get('/setup/status', [SetupController::class, 'status'])->middleware('throttle:api');
 Route::post('/setup/complete', [SetupController::class, 'complete'])->middleware('throttle:login');
 Route::get('/mobile/config', [MobileConfigController::class, 'show'])->middleware('throttle:mobile-public');
@@ -90,6 +93,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/dispatches/{dispatch}/escalate', [DispatchController::class, 'escalate'])->middleware('permission:dispatch.manage');
     Route::post('/dispatches/{dispatch}/re-alert', [DispatchController::class, 'reAlert'])->middleware('permission:dispatch.manage');
     Route::get('/dispatches/{dispatch}/recipients', [DispatchController::class, 'recipients'])->middleware('permission:dispatch.view');
+    Route::get('/reports/incidents', [ReportingController::class, 'incidents'])->middleware('permission:incidents.view');
     Route::get('/reports/dispatch-statistics', [ReportingController::class, 'dispatchStatistics'])->middleware('permission:dispatch.view');
 
     Route::get('/status/me', [StatusController::class, 'me']);
@@ -141,6 +145,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/admin/audit-logs', [AdminController::class, 'auditLogs'])->middleware('permission:audit.view');
     Route::get('/admin/settings', [AdminController::class, 'settings'])->middleware('permission:settings.manage');
     Route::patch('/admin/settings', [AdminController::class, 'updateSettings'])->middleware('permission:settings.manage');
+    Route::post('/admin/settings/mail/test', [AdminController::class, 'testMail'])->middleware('permission:settings.manage');
     Route::get('/admin/developer-access', [AdminDeveloperController::class, 'developerAccess'])->middleware('permission:settings.manage');
     Route::post('/admin/developer-access/key', [AdminDeveloperController::class, 'generateDeveloperKey'])->middleware('permission:settings.manage');
     Route::delete('/admin/developer-access/key', [AdminDeveloperController::class, 'disableDeveloperKey'])->middleware('permission:settings.manage');

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\UsesUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 final class UserCertification extends Model
 {
@@ -21,5 +22,14 @@ final class UserCertification extends Model
     {
         return $this->belongsTo(Certification::class);
     }
-}
 
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function mailLogs(): HasMany
+    {
+        return $this->hasMany(CertificationMailLog::class);
+    }
+}

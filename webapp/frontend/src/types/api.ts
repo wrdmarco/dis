@@ -344,6 +344,23 @@ export interface DispatchStatistics {
   incidents: DispatchStatisticsIncident[];
 }
 
+export interface ReportIncident {
+  id: string;
+  reference: string;
+  title: string;
+  status: Incident['status'];
+  priority: Incident['priority'];
+  team?: Pick<Team, 'id' | 'code' | 'name'> | null;
+  coordinator?: Pick<User, 'id' | 'name' | 'email'> | null;
+  opened_at?: string | null;
+  closed_at?: string | null;
+  latest_dispatch_sent_at?: string | null;
+  recipient_count: number;
+  accepted: number;
+  declined: number;
+  no_response: number;
+}
+
 export interface TwoFactorSetup {
   enabled: boolean;
   secret: string | null;

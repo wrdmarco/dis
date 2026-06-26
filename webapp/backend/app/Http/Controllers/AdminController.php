@@ -13,6 +13,7 @@ use App\Services\AuditService;
 use App\Services\PasswordPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -20,6 +21,7 @@ final class AdminController extends Controller
 {
     private const SENSITIVE_SETTING_KEYS = [
         'mail.password',
+        'mail.microsoft365_client_secret',
         'firebase.service_account',
     ];
 
@@ -176,9 +178,33 @@ final class AdminController extends Controller
         return $this->settings();
     }
 
+    public function testMail(Request $request): JsonResponse
+    {
+        $recipient = $request->user()?->email;
+        if (! is_string($recipient) || $recipient === '') {
+            throw ValidationException::withMessages(['email' => ['Geen ontvanger beschikbaar voor de testmail.']]);
+        }
+
+        Mail::raw(
+            'Dit is een testmail vanuit D.I.S. Als je deze mail ontvangt, is de mailconfiguratie correct.',
+            fn ($message) => $message
+                ->to($recipient)
+                ->subject('D.I.S testmail'),
+        );
+
+        $this->auditService->record('admin.mail_test_sent', SystemSetting::class, $request->user(), ['recipient' => $recipient]);
+
+        return ApiResponse::success(['recipient' => $recipient]);
+    }
+
     private function validateSettingValue(string $key, mixed $value): mixed
     {
         return match ($key) {
+            'mail.mailer' => $this->validateStringIn($key, $value, ['smtp', 'microsoft365', 'log']),
+            'mail.microsoft365_tenant_id',
+            'mail.microsoft365_client_id',
+            'mail.microsoft365_sender' => $this->validateStringSetting($key, $value, 255),
+            'mail.microsoft365_client_secret' => $this->validateStringSetting($key, $value, 2000),
             PasswordPolicy::MIN_LENGTH_KEY => $this->validateIntegerSetting($key, $value, 8, 128),
             PasswordPolicy::MIXED_CASE_KEY,
             PasswordPolicy::NUMBERS_KEY,
@@ -206,6 +232,33 @@ final class AdminController extends Controller
         }
 
         return $setting->is_sensitive ? null : $setting->value;
+    }
+
+    private function validateStringSetting(string $key, mixed $value, int $max): string
+    {
+        if (! is_string($value)) {
+            throw ValidationException::withMessages(["settings.$key" => ['The setting value must be a string.']]);
+        }
+
+        if (mb_strlen($value) > $max) {
+            throw ValidationException::withMessages(["settings.$key" => ["The setting value may not be greater than $max characters."]]);
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param array<int, string> $allowed
+     */
+    private function validateStringIn(string $key, mixed $value, array $allowed): string
+    {
+        $value = $this->validateStringSetting($key, $value, 255);
+
+        if (! in_array($value, $allowed, true)) {
+            throw ValidationException::withMessages(["settings.$key" => ['The selected setting value is invalid.']]);
+        }
+
+        return $value;
     }
 
     private function validateIntegerSetting(string $key, mixed $value, int $min, int $max): int

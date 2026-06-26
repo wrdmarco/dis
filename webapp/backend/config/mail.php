@@ -13,6 +13,13 @@ return [
             'timeout' => null,
             'local_domain' => env('MAIL_EHLO_DOMAIN', parse_url((string) env('APP_URL', 'http://dis.example.nl'), PHP_URL_HOST)),
         ],
+        'microsoft365' => [
+            'transport' => 'microsoft365',
+            'tenant_id' => env('MICROSOFT365_TENANT_ID'),
+            'client_id' => env('MICROSOFT365_CLIENT_ID'),
+            'client_secret' => env('MICROSOFT365_CLIENT_SECRET'),
+            'sender' => env('MICROSOFT365_SENDER'),
+        ],
         'log' => [
             'transport' => 'log',
             'channel' => env('MAIL_LOG_CHANNEL'),

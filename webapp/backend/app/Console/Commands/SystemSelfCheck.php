@@ -35,6 +35,7 @@ final class SystemSelfCheck extends Command
         'asset_assignments',
         'certifications',
         'user_certifications',
+        'certification_mail_logs',
         'fcm_tokens',
         'push_delivery_logs',
         'location_sharing_consents',
