@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
-import { BellRing, Clock, MapPin, MessageSquare, Pencil, RadioTower, Send, TrendingUp, Users, X } from 'lucide-react';
+import { BellRing, Clock, Download, MapPin, MessageSquare, Pencil, RadioTower, Send, TrendingUp, Users, X } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -36,9 +36,12 @@ export function IncidentDetailPage() {
   const [dispatchActionMessage, setDispatchActionMessage] = useState<string | null>(null);
   const [recipientUpdatingId, setRecipientUpdatingId] = useState<string | null>(null);
   const [recipientUpdateMessage, setRecipientUpdateMessage] = useState<string | null>(null);
+  const [reportDownloading, setReportDownloading] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   const latestDispatch = dispatches.data?.[0] ?? null;
   const showDraftPanel = incident.data?.status === 'draft';
+  const reportAvailable = incident.data?.status === 'resolved' || incident.data?.status === 'cancelled';
   const recipientCount = latestDispatch?.recipients?.length ?? preview.data?.recipients.length ?? 0;
   const liveSharedCount = liveLocations.data?.filter((location) => location.sharing_status === 'shared').length ?? 0;
 
@@ -175,6 +178,30 @@ export function IncidentDetailPage() {
     }
   };
 
+  const downloadReport = async () => {
+    if (!incidentId) {
+      return;
+    }
+
+    setReportDownloading(true);
+    setReportError(null);
+    try {
+      const response = await api.download(`/incidents/${incidentId}/report.pdf`);
+      const url = URL.createObjectURL(response.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = response.filename ?? `${incident.data?.reference ?? 'incident'}-rapport.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setReportError(err instanceof ApiClientError ? err.message : 'Rapport kon niet worden gedownload.');
+    } finally {
+      setReportDownloading(false);
+    }
+  };
+
   return (
     <div className="page-stack incident-detail-page">
       <RealtimeBridge onOperationalEvent={() => {
@@ -187,9 +214,16 @@ export function IncidentDetailPage() {
       <Panel
         title="Melding"
         action={incident.data ? (
-          <button className="secondary-button" type="button" onClick={openEditModal}>
-            <Pencil size={16} /> Aanpassen
-          </button>
+          <div className="table-actions">
+            {reportAvailable ? (
+              <button className="primary-button" type="button" onClick={() => void downloadReport()} disabled={reportDownloading}>
+                <Download size={16} /> {reportDownloading ? 'Rapport...' : 'Rapport PDF'}
+              </button>
+            ) : null}
+            <button className="secondary-button" type="button" onClick={openEditModal}>
+              <Pencil size={16} /> Aanpassen
+            </button>
+          </div>
         ) : null}
       >
         <ResourceState loading={incident.loading} error={incident.error} empty={!incident.data}>
@@ -221,6 +255,7 @@ export function IncidentDetailPage() {
                 <SummaryItem label="Onderweg" value={latestDispatch ? String(countOperatorStatuses(latestDispatch, 'en_route')) : '-'} />
                 <SummaryItem label="Live locaties" value={String(liveSharedCount)} />
               </div>
+              {reportError ? <p className="form-error">{reportError}</p> : null}
             </div>
           ) : null}
         </ResourceState>

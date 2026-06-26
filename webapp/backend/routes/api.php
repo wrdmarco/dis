@@ -14,6 +14,7 @@ use App\Http\Controllers\IncidentController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MobileConfigController;
 use App\Http\Controllers\PasswordController;
+use App\Http\Controllers\ReportingController;
 use App\Http\Controllers\SetupController;
 use App\Http\Controllers\StatusController;
 use App\Http\Controllers\TestAlertController;
@@ -50,6 +51,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
         Route::post('/users', [UserController::class, 'store'])->middleware('permission:users.manage');
         Route::get('/users/{user}', [UserController::class, 'show'])->middleware('permission:users.view');
         Route::patch('/users/{user}', [UserController::class, 'update'])->middleware('permission:users.manage');
+        Route::delete('/users/{user}', [UserController::class, 'destroy'])->middleware('permission:users.manage');
         Route::post('/users/{user}/roles', [UserController::class, 'assignRole'])->middleware('permission:roles.manage');
         Route::delete('/users/{user}/roles/{role}', [UserController::class, 'removeRole'])->middleware('permission:roles.manage');
         Route::post('/users/{user}/teams', [UserController::class, 'assignTeam'])->middleware('permission:teams.manage');
@@ -68,6 +70,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/incidents/{incident}/close', [IncidentController::class, 'close'])->middleware('permission:incidents.manage');
     Route::post('/incidents/{incident}/cancel', [IncidentController::class, 'cancel'])->middleware('permission:incidents.manage');
     Route::get('/incidents/{incident}/timeline', [IncidentController::class, 'timeline'])->middleware('permission:incidents.view');
+    Route::get('/incidents/{incident}/report.pdf', [ReportingController::class, 'incidentPdf'])->middleware('permission:incidents.view');
     Route::get('/incidents/{incident}/dispatch-preview', [IncidentController::class, 'dispatchPreview'])->middleware('permission:dispatch.view');
     Route::get('/incidents/{incident}/dispatches', [DispatchController::class, 'incidentDispatches'])->middleware('permission:dispatch.view');
     Route::get('/incidents/{incident}/live-locations', [LocationController::class, 'liveLocations'])->middleware('permission:incidents.view');
@@ -87,6 +90,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/dispatches/{dispatch}/escalate', [DispatchController::class, 'escalate'])->middleware('permission:dispatch.manage');
     Route::post('/dispatches/{dispatch}/re-alert', [DispatchController::class, 'reAlert'])->middleware('permission:dispatch.manage');
     Route::get('/dispatches/{dispatch}/recipients', [DispatchController::class, 'recipients'])->middleware('permission:dispatch.view');
+    Route::get('/reports/dispatch-statistics', [ReportingController::class, 'dispatchStatistics'])->middleware('permission:dispatch.view');
 
     Route::get('/status/me', [StatusController::class, 'me']);
     Route::patch('/status/me', [StatusController::class, 'updateMe']);

@@ -1,10 +1,11 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Bell, BellRing, Boxes, ClipboardCheck, Gauge, LogOut, Network, RadioTower, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, Boxes, ClipboardCheck, Gauge, LogOut, Network, RadioTower, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
 import { useAuth } from '../features/auth/AuthContext';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: Gauge, end: true },
-  { to: '/incidents', label: 'Incidenten', icon: RadioTower },
+  { to: '/incidents', label: 'Actieve meldingen', icon: RadioTower, end: true },
+  { to: '/incidents/archive', label: 'Archief', icon: Archive },
   { to: '/status', label: 'Status', icon: Workflow },
   { to: '/users', label: 'Gebruikers', icon: Users },
   { to: '/teams', label: 'Teams', icon: Network },
@@ -12,6 +13,7 @@ const navItems = [
   { to: '/certifications', label: 'Certificaten', icon: ClipboardCheck },
   { to: '/updates', label: 'Updates', icon: Smartphone },
   { to: '/push', label: 'Pushmeldingen', icon: Send },
+  { to: '/reports', label: 'Statistieken', icon: BarChart3 },
   { to: '/proefalarmering', label: 'Proefalarmering', icon: BellRing },
   { to: '/admin', label: 'Admin', icon: Shield },
   { to: '/system', label: 'Systeem', icon: Bell },

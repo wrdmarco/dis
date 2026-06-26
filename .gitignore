@@ -27,6 +27,9 @@ secrets/*
 # Build artifacts
 /webapp/frontend/dist/
 /webapp/frontend/build/
+/webapp/frontend/*.tsbuildinfo
+/webapp/frontend/vite.config.js
+/webapp/frontend/vite.config.d.ts
 /app/android/app/build/
 /app/android/build/
 *.apk

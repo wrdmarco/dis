@@ -40,6 +40,37 @@ export class ApiClient {
     return this.request<T>('DELETE', path);
   }
 
+  async download(path: string): Promise<{ blob: Blob; filename?: string }> {
+    const token = this.options.getToken();
+    const response = await fetch(`${this.options.baseUrl}${path}`, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/pdf,application/octet-stream,application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as ApiErrorBody | LaravelValidationErrorBody | null;
+      const error = payload && 'error' in payload ? payload.error : undefined;
+      const validationMessage = readValidationMessage(payload) ?? readValidationMessage(error?.details);
+      if (response.status === 401) {
+        this.options.onUnauthenticated();
+      }
+      throw new ApiClientError(
+        validationMessage ?? error?.message ?? 'Download failed.',
+        response.status,
+        error?.code ?? (validationMessage ? 'validation_failed' : 'server_error'),
+        error?.details,
+      );
+    }
+
+    return {
+      blob: await response.blob(),
+      filename: filenameFromDisposition(response.headers.get('Content-Disposition')),
+    };
+  }
+
   private async request<T>(method: string, path: string, body?: unknown): Promise<ApiResponse<T>> {
     const token = this.options.getToken();
     const response = await fetch(`${this.options.baseUrl}${path}`, {
@@ -101,4 +132,13 @@ function readValidationMessage(payload: unknown): string | null {
   const directMessage = directErrors?.[0];
 
   return typeof directMessage === 'string' && directMessage.trim() !== '' ? directMessage : null;
+}
+
+function filenameFromDisposition(disposition: string | null): string | undefined {
+  if (disposition === null) {
+    return undefined;
+  }
+
+  const match = /filename="?([^"]+)"?/i.exec(disposition);
+  return match?.[1];
 }

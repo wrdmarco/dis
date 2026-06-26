@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Clock, MapPin, Plus, RadioTower, Search, Users, X } from 'lucide-react';
+import { Archive, Clock, FileText, MapPin, Plus, RadioTower, Search, Users, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -40,20 +40,29 @@ interface LocationSuggestion {
   label: string;
 }
 
-export function IncidentsPage() {
+type IncidentPageMode = 'active' | 'archive';
+
+const activeIncidentStatuses: Incident['status'][] = ['draft', 'active', 'dispatching', 'in_progress'];
+const archiveIncidentStatuses: Incident['status'][] = ['resolved', 'cancelled'];
+
+export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) {
   const { api } = useAuth();
   const navigate = useNavigate();
-  const incidents = useApiResource<Incident[]>('/incidents');
+  const incidents = useApiResource<Incident[]>(incidentListPath(mode));
   const users = useApiResource<User[]>('/users?per_page=200');
   const teams = useApiResource<Team[]>('/teams');
   const [form, setForm] = useState<IncidentFormState>(emptyIncidentForm);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const incidentList = incidents.data ?? [];
+  const incidentList = filterIncidentsForMode(incidents.data ?? [], mode);
   const activeCount = incidentList.filter((incident) => ['active', 'dispatching', 'in_progress'].includes(incident.status)).length;
   const draftCount = incidentList.filter((incident) => incident.status === 'draft').length;
   const criticalCount = incidentList.filter((incident) => incident.priority === 'critical').length;
+  const resolvedCount = incidentList.filter((incident) => incident.status === 'resolved').length;
+  const cancelledCount = incidentList.filter((incident) => incident.status === 'cancelled').length;
+  const pageTitle = mode === 'archive' ? 'Archief' : 'Actieve meldingen';
+  const emptyText = mode === 'archive' ? 'Geen afgeronde of geannuleerde meldingen gevonden.' : 'Geen actieve meldingen of concepten gevonden.';
 
   const createIncident = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -82,41 +91,44 @@ export function IncidentsPage() {
     <div className="page-stack incident-page">
       <RealtimeBridge onOperationalEvent={() => void incidents.silentReload()} />
       <Panel
-        title="Incidenten"
-        action={(
+        title={pageTitle}
+        action={mode === 'active' ? (
           <button className="primary-button" type="button" onClick={openCreateModal}>
             <Plus size={16} /> Incident aanmaken
           </button>
-        )}
+        ) : null}
       >
-        <ResourceState loading={incidents.loading} error={incidents.error} empty={(incidents.data?.length ?? 0) === 0}>
+        <ResourceState loading={incidents.loading} error={incidents.error} empty={false}>
           <div className="incident-list-view">
             <div className="incident-list-summary">
-              <SummaryMetric label="Totaal" value={String(incidentList.length)} />
-              <SummaryMetric label="Actief" value={String(activeCount)} />
-              <SummaryMetric label="Concept" value={String(draftCount)} />
-              <SummaryMetric label="Kritiek" value={String(criticalCount)} />
+              {mode === 'archive' ? (
+                <>
+                  <SummaryMetric label="Archief" value={String(incidentList.length)} />
+                  <SummaryMetric label="Afgerond" value={String(resolvedCount)} />
+                  <SummaryMetric label="Geannuleerd" value={String(cancelledCount)} />
+                  <SummaryMetric label="Kritiek" value={String(criticalCount)} />
+                </>
+              ) : (
+                <>
+                  <SummaryMetric label="Openstaand" value={String(incidentList.length)} />
+                  <SummaryMetric label="Actief" value={String(activeCount)} />
+                  <SummaryMetric label="Concept" value={String(draftCount)} />
+                  <SummaryMetric label="Kritiek" value={String(criticalCount)} />
+                </>
+              )}
             </div>
-            <div className="incident-card-grid">
-              {incidentList.map((incident) => (
-                <Link className={`incident-card incident-card--${incident.status}`} to={`/incidents/${incident.id}`} key={incident.id}>
-                  <header>
-                    <span className="incident-card__reference">{incident.reference}</span>
-                    <div className="incident-card__badges">
-                      <StatusPill value={priorityLabel(incident.priority)} tone={incident.priority === 'critical' ? 'bad' : incident.priority === 'high' ? 'warn' : 'neutral'} />
-                      <StatusPill value={incidentStatusLabel(incident.status)} tone={incidentTone(incident.status)} />
-                    </div>
-                  </header>
-                  <strong>{incident.title}</strong>
-                  <div className="incident-card__meta">
-                    <MetaLine icon={<MapPin size={15} />} value={incident.location_label ?? 'Geen locatie'} />
-                    <MetaLine icon={<Users size={15} />} value={incident.team?.code ? `${incident.team.code} - ${incident.team.name}` : 'Geen team'} />
-                    <MetaLine icon={<RadioTower size={15} />} value={incident.coordinator?.name ?? 'Geen coordinator'} />
-                    <MetaLine icon={<Clock size={15} />} value={formatDate(incident.opened_at)} />
-                  </div>
-                </Link>
-              ))}
-            </div>
+            {incidentList.length > 0 ? (
+              <div className={mode === 'archive' ? 'incident-card-grid incident-card-grid--archive' : 'incident-card-grid'}>
+                {incidentList.map((incident) => (
+                  <IncidentCard incident={incident} mode={mode} key={incident.id} />
+                ))}
+              </div>
+            ) : (
+              <div className="empty-panel">
+                {mode === 'archive' ? <Archive size={28} /> : <FileText size={28} />}
+                <span>{emptyText}</span>
+              </div>
+            )}
           </div>
         </ResourceState>
       </Panel>
@@ -147,6 +159,39 @@ export function IncidentsPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function filterIncidentsForMode(incidents: Incident[], mode: IncidentPageMode): Incident[] {
+  const statuses = mode === 'archive' ? archiveIncidentStatuses : activeIncidentStatuses;
+
+  return incidents.filter((incident) => statuses.includes(incident.status));
+}
+
+function incidentListPath(mode: IncidentPageMode): string {
+  const statuses = mode === 'archive' ? archiveIncidentStatuses : activeIncidentStatuses;
+
+  return `/incidents?status=${statuses.join(',')}`;
+}
+
+function IncidentCard({ incident, mode }: { incident: Incident; mode: IncidentPageMode }) {
+  return (
+    <Link className={`incident-card incident-card--${incident.status}`} to={`/incidents/${incident.id}`}>
+      <header>
+        <span className="incident-card__reference">{incident.reference}</span>
+        <div className="incident-card__badges">
+          <StatusPill value={priorityLabel(incident.priority)} tone={incident.priority === 'critical' ? 'bad' : incident.priority === 'high' ? 'warn' : 'neutral'} />
+          <StatusPill value={incidentStatusLabel(incident.status)} tone={incidentTone(incident.status)} />
+        </div>
+      </header>
+      <strong>{incident.title}</strong>
+      <div className="incident-card__meta">
+        <MetaLine icon={<MapPin size={15} />} value={incident.location_label ?? 'Geen locatie'} />
+        <MetaLine icon={<Users size={15} />} value={incident.team?.code ? `${incident.team.code} - ${incident.team.name}` : 'Geen team'} />
+        <MetaLine icon={<RadioTower size={15} />} value={incident.coordinator?.name ?? 'Geen coordinator'} />
+        <MetaLine icon={<Clock size={15} />} value={mode === 'archive' ? `Gesloten: ${formatDate(incident.closed_at)}` : `Geopend: ${formatDate(incident.opened_at)}`} />
+      </div>
+    </Link>
   );
 }
 

@@ -67,6 +67,38 @@ final class UserService
         });
     }
 
+    public function delete(User $user, User $actor): void
+    {
+        if ($user->is($actor)) {
+            throw ValidationException::withMessages(['user' => ['Je kunt je eigen gebruiker niet verwijderen.']]);
+        }
+
+        DB::transaction(function () use ($user, $actor): void {
+            $user->loadMissing('roles');
+
+            if ($user->hasRole('system-administrator') && ! $this->hasOtherActiveSystemAdministrator($user)) {
+                throw ValidationException::withMessages(['user' => ['De laatste systeembeheerder kan niet worden verwijderd.']]);
+            }
+
+            $user->fcmTokens()->update([
+                'is_active' => false,
+                'revoked_at' => now(),
+            ]);
+            $user->tokens()->delete();
+            $user->update([
+                'account_status' => 'blocked',
+                'push_enabled' => false,
+            ]);
+
+            $this->auditService->record('users.deleted', $user, $actor, [
+                'name' => $user->name,
+                'email' => $user->email,
+            ]);
+
+            $user->delete();
+        });
+    }
+
     public function assignRole(User $user, Role $role, User $actor): void
     {
         DB::transaction(function () use ($user, $role, $actor): void {
@@ -142,5 +174,14 @@ final class UserService
         }
 
         $user->teams()->sync($syncPayload);
+    }
+
+    private function hasOtherActiveSystemAdministrator(User $user): bool
+    {
+        return User::query()
+            ->whereKeyNot($user->getKey())
+            ->where('account_status', 'active')
+            ->whereHas('roles', fn ($roles) => $roles->where('name', 'system-administrator'))
+            ->exists();
     }
 }

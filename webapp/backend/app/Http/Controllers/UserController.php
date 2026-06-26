@@ -47,6 +47,13 @@ final class UserController extends Controller
         return ApiResponse::success($this->service->update($user, $request->validated(), $request->user()));
     }
 
+    public function destroy(Request $request, User $user): Response
+    {
+        $this->service->delete($user, $request->user());
+
+        return response()->noContent();
+    }
+
     public function assignRole(Request $request, User $user): JsonResponse
     {
         $request->validate(['role_id' => ['required', 'ulid', 'exists:roles,id']]);

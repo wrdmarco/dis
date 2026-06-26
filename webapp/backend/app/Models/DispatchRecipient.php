@@ -21,5 +21,9 @@ final class DispatchRecipient extends Model
     {
         return $this->belongsTo(User::class);
     }
-}
 
+    public function dispatchRequest(): BelongsTo
+    {
+        return $this->belongsTo(DispatchRequest::class);
+    }
+}

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Pencil, Plus, X } from 'lucide-react';
+import { Eye, Plus, Trash2, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -35,12 +35,14 @@ export function UsersPage() {
   const teams = useApiResource<Team[]>('/admin/teams');
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
   const [userDetail, setUserDetail] = useState<User | null>(null);
   const [userDetailLoading, setUserDetailLoading] = useState(false);
   const [userDetailError, setUserDetailError] = useState<string | null>(null);
   const [form, setForm] = useState<UserFormState>(emptyForm);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (modalMode === null) {
@@ -52,6 +54,12 @@ export function UsersPage() {
       setError(null);
     }
   }, [modalMode]);
+
+  useEffect(() => {
+    if (deletingUser === null) {
+      setDeleting(false);
+    }
+  }, [deletingUser]);
 
   function openCreateModal() {
     setEditingUser(null);
@@ -127,6 +135,28 @@ export function UsersPage() {
     }
   }
 
+  async function deleteUser() {
+    if (deletingUser === null) {
+      return;
+    }
+
+    setDeleting(true);
+    setError(null);
+
+    try {
+      await api.delete(`/users/${deletingUser.id}`);
+      if (editingUser?.id === deletingUser.id) {
+        setModalMode(null);
+      }
+      setDeletingUser(null);
+      await users.reload();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Gebruiker kon niet worden verwijderd.');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   function toggleRole(roleId: string) {
     setForm((current) => ({
       ...current,
@@ -168,9 +198,11 @@ export function UsersPage() {
                   <td>{user.teams?.map((team) => team.code).join(', ') || '-'}</td>
                   <td>{user.roles?.map((role) => role.display_name).join(', ') || '-'}</td>
                   <td>
-                    <button className="secondary-button" type="button" onClick={() => openEditModal(user)}>
-                      <Pencil size={16} /> Aanpassen
-                    </button>
+                    <div className="table-actions">
+                      <button className="secondary-button" type="button" onClick={() => openEditModal(user)}>
+                        <Eye size={16} /> Details
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -270,12 +302,47 @@ export function UsersPage() {
               ) : null}
               {error ? <p className="form-error form-grid__wide">{error}</p> : null}
               <div className="actions-row form-grid__wide">
+                {modalMode === 'edit' && editingUser !== null ? (
+                  <button className="danger-button" type="button" onClick={() => setDeletingUser(editingUser)}>
+                    <Trash2 size={16} /> Verwijderen
+                  </button>
+                ) : null}
                 <button className="secondary-button" type="button" onClick={() => setModalMode(null)}>Annuleren</button>
                 <button className="primary-button" type="submit" disabled={saving || roles.loading || teams.loading}>
                   {saving ? 'Opslaan...' : 'Opslaan'}
                 </button>
               </div>
             </form>
+          </section>
+        </div>
+      ) : null}
+
+      {deletingUser !== null ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal modal--narrow" role="dialog" aria-modal="true" aria-labelledby="delete-user-title">
+            <header className="modal__header">
+              <h2 id="delete-user-title">Gebruiker verwijderen</h2>
+              <button className="icon-button" type="button" onClick={() => setDeletingUser(null)} aria-label="Sluiten">
+                <X size={18} />
+              </button>
+            </header>
+            <div className="confirm-dialog">
+              <p>
+                Weet je zeker dat je <strong>{deletingUser.name}</strong> wilt verwijderen?
+              </p>
+              <p className="muted-text">
+                De gebruiker kan niet meer inloggen. Historische meldingen, rapportages en auditgegevens blijven behouden.
+              </p>
+              {error ? <p className="form-error">{error}</p> : null}
+            </div>
+            <div className="actions-row">
+              <button className="secondary-button" type="button" onClick={() => setDeletingUser(null)} disabled={deleting}>
+                Annuleren
+              </button>
+              <button className="danger-button" type="button" onClick={deleteUser} disabled={deleting}>
+                {deleting ? 'Verwijderen...' : 'Ja, verwijderen'}
+              </button>
+            </div>
           </section>
         </div>
       ) : null}

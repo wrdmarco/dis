@@ -293,6 +293,57 @@ export interface SystemSetting {
   is_sensitive: boolean;
 }
 
+export interface DispatchStatisticsIncidentSummary {
+  incident_id?: string;
+  reference?: string;
+  title?: string;
+  sent_at?: string | null;
+  response_status?: DispatchRecipient['response_status'];
+  responded_at?: string | null;
+}
+
+export interface DispatchStatisticsUser {
+  user: Pick<User, 'id' | 'name' | 'email'> | null;
+  total_alerts: number;
+  accepted: number;
+  declined: number;
+  no_response: number;
+  no_response_rate: number;
+  last_alert?: DispatchStatisticsIncidentSummary | null;
+  last_deployment?: DispatchStatisticsIncidentSummary | null;
+  recent_no_response: DispatchStatisticsIncidentSummary[];
+}
+
+export interface DispatchStatisticsIncident {
+  id?: string;
+  reference?: string;
+  title?: string;
+  sent_at?: string | null;
+  total_alerts: number;
+  accepted: number;
+  declined: number;
+  no_response: number;
+  no_response_rate: number;
+}
+
+export interface DispatchStatistics {
+  scope: {
+    incident_limit: number;
+    incident_count: number;
+  };
+  summary: {
+    total_alerts: number;
+    accepted: number;
+    declined: number;
+    no_response: number;
+    accepted_rate: number;
+    declined_rate: number;
+    no_response_rate: number;
+  };
+  users: DispatchStatisticsUser[];
+  incidents: DispatchStatisticsIncident[];
+}
+
 export interface TwoFactorSetup {
   enabled: boolean;
   secret: string | null;

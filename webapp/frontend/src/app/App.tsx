@@ -13,6 +13,7 @@ import { AssetsPage } from '../features/assets/AssetsPage';
 import { CertificationsPage } from '../features/certifications/CertificationsPage';
 import { UpdatesPage } from '../features/updates/UpdatesPage';
 import { PushPage } from '../features/push/PushPage';
+import { ReportsPage } from '../features/reports/ReportsPage';
 import { TestAlertPage } from '../features/test-alerts/TestAlertPage';
 import { AdminPage } from '../features/admin/AdminPage';
 import { StatusPage } from '../features/status/StatusPage';
@@ -34,7 +35,8 @@ export function App() {
         }
       >
         <Route index element={<DashboardPage />} />
-        <Route path="incidents" element={<IncidentsPage />} />
+        <Route path="incidents" element={<IncidentsPage mode="active" />} />
+        <Route path="incidents/archive" element={<IncidentsPage mode="archive" />} />
         <Route path="incidents/:incidentId" element={<IncidentDetailPage />} />
         <Route path="status" element={<StatusPage />} />
         <Route path="users" element={<UsersPage />} />
@@ -43,6 +45,7 @@ export function App() {
         <Route path="certifications" element={<CertificationsPage />} />
         <Route path="updates" element={<UpdatesPage />} />
         <Route path="push" element={<PushPage />} />
+        <Route path="reports" element={<ReportsPage />} />
         <Route path="proefalarmering" element={<TestAlertPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="system" element={<SystemPage />} />
