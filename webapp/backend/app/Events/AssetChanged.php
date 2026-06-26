@@ -15,7 +15,22 @@ final class AssetChanged implements ShouldBroadcastAfterCommit
     use InteractsWithSockets;
     use SerializesModels;
 
-    public function __construct(public readonly Asset $asset, public readonly string $action) {}
+    /**
+     * @var array{id: string, asset_tag: string|null, name: string, type: string, status: string, action: string}
+     */
+    private readonly array $payload;
+
+    public function __construct(Asset $asset, public readonly string $action)
+    {
+        $this->payload = [
+            'id' => (string) $asset->id,
+            'asset_tag' => $asset->asset_tag,
+            'name' => $asset->name,
+            'type' => $asset->type,
+            'status' => $asset->status,
+            'action' => $action,
+        ];
+    }
 
     public function broadcastOn(): array
     {
@@ -29,14 +44,6 @@ final class AssetChanged implements ShouldBroadcastAfterCommit
 
     public function broadcastWith(): array
     {
-        return [
-            'id' => $this->asset->id,
-            'asset_tag' => $this->asset->asset_tag,
-            'name' => $this->asset->name,
-            'type' => $this->asset->type,
-            'status' => $this->asset->status,
-            'action' => $this->action,
-        ];
+        return $this->payload;
     }
 }
-

@@ -75,8 +75,9 @@ final class AssetService
             $asset->assignments()->whereNull('released_at')->update(['released_at' => now()]);
             $this->auditService->record('assets.deleted', $asset, $actor);
             $asset->delete();
-            $this->broadcastAssetChange($asset, 'deleted');
         });
+
+        $this->broadcastAssetChange($asset, 'deleted');
     }
 
     /**
