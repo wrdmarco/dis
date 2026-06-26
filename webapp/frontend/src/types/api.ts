@@ -246,6 +246,7 @@ export interface UserCertification {
 export interface AppVersion {
   id: string;
   platform: string;
+  application_id: string;
   version_name: string;
   version_code: number;
   status: 'supported' | 'deprecated' | 'not_supported' | 'blocked';

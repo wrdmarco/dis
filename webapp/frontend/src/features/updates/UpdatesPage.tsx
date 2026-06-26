@@ -57,8 +57,8 @@ export function UpdatesPage() {
           </label>
           <div className="form-grid__wide metadata-example">
             <strong>ZIP inhoud</strong>
-            <pre>{`dis-nl.wrdmarco.dis-v0.1.3-debug.zip
-|-- dis-nl.wrdmarco.dis-v0.1.3-debug.apk
+            <pre>{`dis-nl.wrdmarco.dis-v0.1.50.zip
+|-- dis-nl.wrdmarco.dis-v0.1.50.apk
 |-- metadata.json`}</pre>
           </div>
           <div className="actions-row form-grid__wide">
@@ -73,10 +73,11 @@ export function UpdatesPage() {
       <Panel title="Android updates">
         <ResourceState loading={versions.loading} error={versions.error} empty={(versions.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Versie</th><th>Code</th><th>Status</th><th>SHA-256</th><th>APK</th></tr></thead>
+            <thead><tr><th>App</th><th>Versie</th><th>Code</th><th>Status</th><th>SHA-256</th><th>APK</th></tr></thead>
             <tbody>
               {versions.data?.map((version) => (
                 <tr key={version.id}>
+                  <td>{version.application_id}</td>
                   <td>{version.version_name}</td>
                   <td>{version.version_code}</td>
                   <td><StatusPill value={version.status === 'not_supported' || version.status === 'blocked' ? 'Not supported' : version.status} tone={version.status === 'not_supported' || version.status === 'blocked' ? 'bad' : version.status === 'deprecated' ? 'warn' : 'good'} /></td>

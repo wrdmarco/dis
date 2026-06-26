@@ -55,6 +55,7 @@ final class MobileApiPayload
         return [
             'id' => $version->id,
             'platform' => $version->platform,
+            'application_id' => $version->application_id,
             'version_name' => $version->version_name,
             'version_code' => (int) $version->version_code,
             'status' => $version->status,

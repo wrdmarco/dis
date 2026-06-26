@@ -23,9 +23,20 @@ final class UpdateController extends Controller
     public function androidCurrent(Request $request): JsonResponse
     {
         $versionCode = (int) $request->integer('version_code', 0);
-        $notSupported = AppVersion::query()->where('platform', 'android')->where('version_code', $versionCode)->whereIn('status', ['not_supported', 'blocked'])->exists();
-        $minimumSupportedVersionCode = SystemSetting::integer('updates.android.minimum_supported_version_code', 1);
-        $latest = AppVersion::query()->where('platform', 'android')->whereIn('status', ['supported', 'deprecated'])->orderByDesc('version_code')->first();
+        $applicationId = $this->androidApplicationId($request);
+        $notSupported = AppVersion::query()
+            ->where('platform', 'android')
+            ->where('application_id', $applicationId)
+            ->where('version_code', $versionCode)
+            ->whereIn('status', ['not_supported', 'blocked'])
+            ->exists();
+        $minimumSupportedVersionCode = SystemSetting::integer($this->minimumSupportedVersionCodeKey($applicationId), 1);
+        $latest = AppVersion::query()
+            ->where('platform', 'android')
+            ->where('application_id', $applicationId)
+            ->whereIn('status', ['supported', 'deprecated'])
+            ->orderByDesc('version_code')
+            ->first();
 
         return ApiResponse::success([
             'update_required' => $notSupported || ($versionCode > 0 && $versionCode < $minimumSupportedVersionCode),
@@ -35,19 +46,33 @@ final class UpdateController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        return ApiResponse::paginated(AppVersion::query()->where('platform', 'android')->orderByDesc('version_code')->paginate((int) $request->integer('per_page', 25)));
+        return ApiResponse::paginated(
+            AppVersion::query()
+                ->where('platform', 'android')
+                ->when($request->input('application_id'), fn ($query, string $applicationId) => $query->where('application_id', $applicationId))
+                ->orderByDesc('version_code')
+                ->paginate((int) $request->integer('per_page', 25)),
+        );
     }
 
     public function store(Request $request): JsonResponse
     {
-        $version = AppVersion::query()->create($request->validate([
+        $data = $request->validate([
+            'application_id' => ['nullable', 'string', 'max:190'],
             'version_name' => ['required', 'string', 'max:80'],
-            'version_code' => ['required', 'integer', 'min:1', 'unique:app_versions,version_code'],
+            'version_code' => ['required', 'integer', 'min:1'],
             'status' => ['required', 'in:supported,deprecated,not_supported,blocked'],
             'artifact_sha256' => ['nullable', 'string', 'size:64'],
             'download_url' => ['nullable', 'url', 'max:2048'],
             'release_notes' => ['nullable', 'string', 'max:10000'],
-        ]) + ['platform' => 'android', 'created_by' => $request->user()?->id]);
+        ]);
+        $data['application_id'] = $this->normalizeAndroidApplicationId($data['application_id'] ?? null);
+
+        $version = AppVersion::query()->updateOrCreate([
+            'platform' => 'android',
+            'application_id' => $data['application_id'],
+            'version_code' => $data['version_code'],
+        ], $data + ['platform' => 'android', 'created_by' => $request->user()?->id]);
         $this->auditService->record('updates.android_created', $version, $request->user());
 
         return ApiResponse::success($version, 201);
@@ -90,7 +115,8 @@ final class UpdateController extends Controller
         }
 
         $directory = 'android-apks';
-        $filename = 'dis-'.$data['version_code'].'-'.$data['version_name'].'.apk';
+        $applicationId = $data['application_id'];
+        $filename = 'dis-'.$applicationId.'-'.$data['version_code'].'-'.$data['version_name'].'.apk';
         $filename = preg_replace('/[^A-Za-z0-9._-]/', '-', $filename) ?: 'dis-'.$data['version_code'].'.apk';
         $path = $directory.'/'.$filename;
         Storage::disk('local')->put($path, (string) file_get_contents($apkPath));
@@ -111,9 +137,11 @@ final class UpdateController extends Controller
 
         $version = AppVersion::query()->updateOrCreate([
             'platform' => 'android',
+            'application_id' => $applicationId,
             'version_code' => $data['version_code'],
         ], [
             'platform' => 'android',
+            'application_id' => $applicationId,
             'version_name' => $data['version_name'],
             'status' => $data['status'],
             'artifact_sha256' => $sha256,
@@ -164,7 +192,7 @@ final class UpdateController extends Controller
     }
 
     /**
-     * @return array{data: array{version_name: string, version_code: int, status: string, artifact_sha256?: string|null, release_notes?: string|null, minimum_supported_version_code?: int|null}, apk_path: string, apk_size: int}|array{}
+     * @return array{data: array{application_id: string, version_name: string, version_code: int, status: string, artifact_sha256?: string|null, release_notes?: string|null, minimum_supported_version_code?: int|null}, apk_path: string, apk_size: int}|array{}
      */
     private function androidZipUpload(Request $request): array
     {
@@ -252,7 +280,7 @@ final class UpdateController extends Controller
     }
 
     /**
-     * @return array{version_name: string, version_code: int, status: string, artifact_sha256?: string|null, release_notes?: string|null, minimum_supported_version_code?: int|null}
+     * @return array{application_id: string, version_name: string, version_code: int, status: string, artifact_sha256?: string|null, release_notes?: string|null, minimum_supported_version_code?: int|null}
      */
     private function androidUploadData(Request $request): array
     {
@@ -268,24 +296,30 @@ final class UpdateController extends Controller
             return $this->validateAndroidMetadata($metadata);
         }
 
-        return $request->validate([
+        $data = $request->validate([
+            'application_id' => ['nullable', 'string', 'max:190'],
             'version_name' => ['required', 'string', 'max:80'],
-            'version_code' => ['required', 'integer', 'min:1', 'unique:app_versions,version_code'],
+            'version_code' => ['required', 'integer', 'min:1'],
             'status' => ['required', 'in:supported,deprecated,not_supported,blocked'],
             'artifact_sha256' => ['nullable', 'string', 'size:64'],
             'release_notes' => ['nullable', 'string', 'max:10000'],
             'minimum_supported_version_code' => ['nullable', 'integer', 'min:1'],
             'apk' => ['required', 'file', 'max:512000'],
         ]);
+
+        $data['application_id'] = $this->normalizeAndroidApplicationId($data['application_id'] ?? null);
+
+        return $data;
     }
 
     /**
      * @param array<string, mixed> $metadata
-     * @return array{version_name: string, version_code: int, status: string, artifact_sha256?: string|null, release_notes?: string|null, minimum_supported_version_code?: int|null}
+     * @return array{application_id: string, version_name: string, version_code: int, status: string, artifact_sha256?: string|null, release_notes?: string|null, minimum_supported_version_code?: int|null}
      */
     private function validateAndroidMetadata(array $metadata): array
     {
-        return Validator::make($metadata, [
+        $data = Validator::make($metadata, [
+            'application_id' => ['nullable', 'string', 'max:190'],
             'version_name' => ['required', 'string', 'max:80'],
             'version_code' => ['required', 'integer', 'min:1'],
             'status' => ['required', 'in:supported,deprecated,not_supported,blocked'],
@@ -293,6 +327,10 @@ final class UpdateController extends Controller
             'release_notes' => ['nullable', 'string', 'max:10000'],
             'minimum_supported_version_code' => ['nullable', 'integer', 'min:1'],
         ])->validate();
+
+        $data['application_id'] = $this->normalizeAndroidApplicationId($data['application_id'] ?? null);
+
+        return $data;
     }
 
     private function stripUtf8Bom(string $value): string
@@ -300,9 +338,30 @@ final class UpdateController extends Controller
         return str_starts_with($value, "\xEF\xBB\xBF") ? substr($value, 3) : $value;
     }
 
+    private function androidApplicationId(Request $request): string
+    {
+        return $this->normalizeAndroidApplicationId($request->query('application_id'));
+    }
+
+    private function normalizeAndroidApplicationId(mixed $applicationId): string
+    {
+        $value = is_string($applicationId) ? trim($applicationId) : '';
+
+        return $value !== '' ? $value : (string) config('dis.updates.android_application_id', 'nl.wrdmarco.dis');
+    }
+
+    private function minimumSupportedVersionCodeKey(string $applicationId): string
+    {
+        if ($applicationId === (string) config('dis.updates.android_application_id', 'nl.wrdmarco.dis')) {
+            return 'updates.android.minimum_supported_version_code';
+        }
+
+        return 'updates.android.'.$applicationId.'.minimum_supported_version_code';
+    }
+
     private function androidArtifactPath(AppVersion $version): string
     {
-        $filename = 'dis-'.$version->version_code.'-'.$version->version_name.'.apk';
+        $filename = 'dis-'.$version->application_id.'-'.$version->version_code.'-'.$version->version_name.'.apk';
         $filename = preg_replace('/[^A-Za-z0-9._-]/', '-', $filename) ?: 'dis.apk';
 
         return 'android-apks/'.$filename;
@@ -315,6 +374,7 @@ final class UpdateController extends Controller
 
         AppVersion::query()
             ->where('platform', 'android')
+            ->where('application_id', $currentVersion->application_id)
             ->where('id', '!=', $currentVersion->id)
             ->whereNotNull('download_url')
             ->get()
@@ -328,8 +388,13 @@ final class UpdateController extends Controller
                 $version->update(['download_url' => null]);
             });
 
+        $currentPrefix = 'android-apks/dis-'.preg_replace('/[^A-Za-z0-9._-]/', '-', (string) $currentVersion->application_id).'-';
         foreach (Storage::disk('local')->files('android-apks') as $path) {
             if (! str_ends_with(strtolower($path), '.apk') || $path === $currentPath) {
+                continue;
+            }
+
+            if (! str_starts_with($path, $currentPrefix)) {
                 continue;
             }
 
@@ -351,12 +416,13 @@ final class UpdateController extends Controller
 
         $minimum = (int) $minimumSupportedVersionCode;
         SystemSetting::query()->updateOrCreate(
-            ['key' => 'updates.android.minimum_supported_version_code'],
+            ['key' => $this->minimumSupportedVersionCodeKey((string) $currentVersion->application_id)],
             ['value' => $minimum, 'is_sensitive' => false, 'updated_by' => $request->user()?->id],
         );
 
         $notSupportedVersions = AppVersion::query()
             ->where('platform', 'android')
+            ->where('application_id', $currentVersion->application_id)
             ->where('version_code', '<', $minimum)
             ->where('status', '!=', 'not_supported')
             ->update(['status' => 'not_supported']);
