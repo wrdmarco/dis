@@ -67,6 +67,8 @@ export interface User {
   roles?: Role[];
   teams?: Team[];
   statuses?: AvailabilityStatus[];
+  certifications?: UserCertification[];
+  asset_assignments?: AssetAssignment[];
 }
 
 export interface FcmToken {
@@ -189,10 +191,23 @@ export interface Asset {
   type: string;
   drone_type_id?: string | null;
   drone_type?: DroneType | null;
+  has_spotlight: boolean;
+  has_speaker: boolean;
   status: 'ready' | 'assigned' | 'maintenance' | 'unavailable' | 'retired';
   serial_number?: string | null;
   maintenance_due_at?: string | null;
   notes?: string | null;
+}
+
+export interface AssetAssignment {
+  id: string;
+  asset_id: string;
+  incident_id?: string | null;
+  user_id?: string | null;
+  assigned_by?: string | null;
+  assigned_at?: string | null;
+  released_at?: string | null;
+  asset?: Asset | null;
 }
 
 export interface DroneType {
@@ -213,6 +228,19 @@ export interface Certification {
   description?: string | null;
   is_required_for_dispatch: boolean;
   warning_days_before_expiry: number;
+}
+
+export interface UserCertification {
+  id: string;
+  user_id: string;
+  certification_id: string;
+  issued_at?: string | null;
+  expires_at?: string | null;
+  certificate_number?: string | null;
+  status: 'active' | 'expired' | 'revoked' | 'pending';
+  verified_by?: string | null;
+  verified_at?: string | null;
+  certification?: Certification | null;
 }
 
 export interface AppVersion {

@@ -31,7 +31,15 @@ final class UserController extends Controller
 
     public function show(User $user): JsonResponse
     {
-        return ApiResponse::success($user->load(['roles.permissions', 'teams', 'certifications.certification']));
+        return ApiResponse::success($user->load([
+            'roles.permissions',
+            'teams',
+            'certifications.certification',
+            'assetAssignments' => fn ($query) => $query
+                ->whereNull('released_at')
+                ->with('asset.droneType')
+                ->latest('assigned_at'),
+        ]));
     }
 
     public function update(UpdateUserRequest $request, User $user): JsonResponse

@@ -980,6 +980,24 @@ a:hover {
   text-transform: uppercase;
 }
 
+.compact-table th,
+.compact-table td {
+  padding: 9px 10px;
+  font-size: 0.85rem;
+}
+
+.stacked-section {
+  display: grid;
+  gap: 18px;
+  padding: 4px 16px 12px;
+}
+
+.muted-text {
+  margin: 6px 0 0;
+  color: #8ea0b5;
+  font-size: 0.9rem;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;

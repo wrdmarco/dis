@@ -13,11 +13,15 @@ final class Asset extends Model
     use SoftDeletes;
     use UsesUlids;
 
-    protected $fillable = ['asset_tag', 'name', 'type', 'drone_type_id', 'status', 'serial_number', 'maintenance_due_at', 'notes'];
+    protected $fillable = ['asset_tag', 'name', 'type', 'drone_type_id', 'has_spotlight', 'has_speaker', 'status', 'serial_number', 'maintenance_due_at', 'notes'];
 
     protected function casts(): array
     {
-        return ['maintenance_due_at' => 'immutable_date'];
+        return [
+            'has_spotlight' => 'boolean',
+            'has_speaker' => 'boolean',
+            'maintenance_due_at' => 'immutable_date',
+        ];
     }
 
     public function assignments(): HasMany

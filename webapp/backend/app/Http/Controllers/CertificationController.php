@@ -82,6 +82,14 @@ final class CertificationController extends Controller
         return ApiResponse::success($userCertification->refresh()->load('certification'));
     }
 
+    public function deleteMyCertification(Request $request, UserCertification $userCertification): Response
+    {
+        abort_unless($userCertification->user_id === $request->user()?->id, 404);
+        $this->service->deleteUserCertification($userCertification, $request->user());
+
+        return response()->noContent();
+    }
+
     public function assignToUser(Request $request, User $user): JsonResponse
     {
         $data = $request->validate([
@@ -108,10 +116,10 @@ final class CertificationController extends Controller
         return ApiResponse::success($userCertification->refresh()->load('certification'));
     }
 
-    public function revokeUserCertification(User $user, UserCertification $userCertification): Response
+    public function deleteUserCertification(Request $request, User $user, UserCertification $userCertification): Response
     {
         abort_unless($userCertification->user_id === $user->id, 404);
-        $userCertification->update(['status' => 'revoked']);
+        $this->service->deleteUserCertification($userCertification, $request->user());
 
         return response()->noContent();
     }

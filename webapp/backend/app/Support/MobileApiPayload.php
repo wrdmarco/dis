@@ -126,6 +126,8 @@ final class MobileApiPayload
             'type' => $asset->type,
             'drone_type_id' => $asset->drone_type_id,
             'drone_type' => $asset->droneType === null ? null : self::droneType($asset->droneType),
+            'has_spotlight' => (bool) $asset->has_spotlight,
+            'has_speaker' => (bool) $asset->has_speaker,
             'status' => $asset->status,
             'serial_number' => $asset->serial_number,
             'maintenance_due_at' => $asset->maintenance_due_at?->toDateString(),

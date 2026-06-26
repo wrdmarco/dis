@@ -21,6 +21,8 @@ final class UpdateAssetRequest extends FormRequest
             'name' => ['sometimes', 'string', 'max:160'],
             'type' => ['sometimes', 'in:drone,battery,sensor,vehicle,support_equipment'],
             'drone_type_id' => [Rule::requiredIf(fn (): bool => $this->input('type') === 'drone'), 'nullable', 'ulid', 'exists:drone_types,id'],
+            'has_spotlight' => ['sometimes', 'boolean'],
+            'has_speaker' => ['sometimes', 'boolean'],
             'status' => ['sometimes', 'in:ready,assigned,maintenance,unavailable,retired'],
             'serial_number' => ['nullable', 'string', 'max:160', Rule::unique('assets', 'serial_number')->ignore($assetId)],
             'maintenance_due_at' => ['nullable', 'date'],

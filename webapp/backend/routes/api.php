@@ -97,11 +97,13 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/assets/mine', [AssetController::class, 'mine']);
     Route::post('/assets/mine', [AssetController::class, 'storeMine']);
     Route::patch('/assets/{asset}/mine', [AssetController::class, 'updateMine']);
+    Route::delete('/assets/{asset}/mine', [AssetController::class, 'destroyMine']);
     Route::get('/drone-types', [DroneTypeController::class, 'index']);
     Route::get('/assets', [AssetController::class, 'index'])->middleware('permission:assets.view');
     Route::post('/assets', [AssetController::class, 'store'])->middleware('permission:assets.manage');
     Route::get('/assets/{asset}', [AssetController::class, 'show'])->middleware('permission:assets.view');
     Route::patch('/assets/{asset}', [AssetController::class, 'update'])->middleware('permission:assets.manage');
+    Route::delete('/assets/{asset}', [AssetController::class, 'destroy'])->middleware('permission:assets.manage');
     Route::post('/assets/{asset}/assign', [AssetController::class, 'assign'])->middleware('permission:assets.manage');
     Route::post('/assets/{asset}/release', [AssetController::class, 'release'])->middleware('permission:assets.manage');
     Route::get('/assets/{asset}/history', [AssetController::class, 'history'])->middleware('permission:assets.view');
@@ -113,12 +115,13 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/certifications/me', [CertificationController::class, 'myCertifications']);
     Route::post('/certifications/me', [CertificationController::class, 'storeMyCertification']);
     Route::patch('/certifications/me/{userCertification}', [CertificationController::class, 'updateMyCertification']);
+    Route::delete('/certifications/me/{userCertification}', [CertificationController::class, 'deleteMyCertification']);
     Route::post('/certifications', [CertificationController::class, 'store'])->middleware('permission:certifications.manage');
     Route::patch('/certifications/{certification}', [CertificationController::class, 'update'])->middleware('permission:certifications.manage');
     Route::get('/users/{user}/certifications', [CertificationController::class, 'userCertifications'])->middleware('permission:certifications.view');
     Route::post('/users/{user}/certifications', [CertificationController::class, 'assignToUser'])->middleware('permission:certifications.manage');
     Route::patch('/users/{user}/certifications/{userCertification}', [CertificationController::class, 'updateUserCertification'])->middleware('permission:certifications.manage');
-    Route::delete('/users/{user}/certifications/{userCertification}', [CertificationController::class, 'revokeUserCertification'])->middleware('permission:certifications.manage');
+    Route::delete('/users/{user}/certifications/{userCertification}', [CertificationController::class, 'deleteUserCertification'])->middleware('permission:certifications.manage');
 
     Route::post('/devices/fcm-token', [DeviceController::class, 'register'])->middleware('throttle:push-token');
     Route::delete('/devices/fcm-token/{token}', [DeviceController::class, 'revoke']);

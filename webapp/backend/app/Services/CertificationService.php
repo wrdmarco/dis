@@ -69,4 +69,13 @@ final class CertificationService
 
         return $certification->load('certification');
     }
+
+    public function deleteUserCertification(UserCertification $userCertification, User $actor): void
+    {
+        $this->auditService->record('certifications.user_certification_deleted', $userCertification, $actor, [
+            'user_id' => $userCertification->user_id,
+            'certification_id' => $userCertification->certification_id,
+        ]);
+        $userCertification->delete();
+    }
 }

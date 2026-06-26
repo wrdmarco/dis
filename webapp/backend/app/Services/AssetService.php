@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Events\AssetChanged;
 use App\Models\Asset;
 use App\Models\AssetAssignment;
+use App\Models\DroneType;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -56,7 +57,7 @@ final class AssetService
      */
     public function update(Asset $asset, array $data, User $actor): Asset
     {
-        $data = $this->normalizeDroneType($data);
+        $data = $this->normalizeDroneType($data, $asset);
         $before = $asset->only(array_keys($data));
         $asset->update($data);
         $this->auditService->record('assets.updated', $asset, $actor, [
@@ -66,6 +67,16 @@ final class AssetService
         $this->broadcastAssetChange($asset->refresh(), 'updated');
 
         return $asset;
+    }
+
+    public function delete(Asset $asset, User $actor): void
+    {
+        DB::transaction(function () use ($asset, $actor): void {
+            $asset->assignments()->whereNull('released_at')->update(['released_at' => now()]);
+            $this->auditService->record('assets.deleted', $asset, $actor);
+            $asset->delete();
+            $this->broadcastAssetChange($asset, 'deleted');
+        });
     }
 
     /**
@@ -96,10 +107,33 @@ final class AssetService
      * @param array<string, mixed> $data
      * @return array<string, mixed>
      */
-    private function normalizeDroneType(array $data): array
+    private function normalizeDroneType(array $data, ?Asset $asset = null): array
     {
-        if (($data['type'] ?? null) !== 'drone') {
+        $type = $data['type'] ?? $asset?->type;
+        if ($type !== 'drone') {
             $data['drone_type_id'] = null;
+            $data['has_spotlight'] = false;
+            $data['has_speaker'] = false;
+
+            return $data;
+        }
+
+        $droneTypeId = $data['drone_type_id'] ?? $asset?->drone_type_id;
+        if (! is_string($droneTypeId) || $droneTypeId === '') {
+            $data['has_spotlight'] = false;
+            $data['has_speaker'] = false;
+
+            return $data;
+        }
+
+        $droneType = DroneType::query()->find($droneTypeId);
+        if ($droneType !== null) {
+            if (! $droneType->has_spotlight) {
+                $data['has_spotlight'] = false;
+            }
+            if (! $droneType->has_speaker) {
+                $data['has_speaker'] = false;
+            }
         }
 
         return $data;

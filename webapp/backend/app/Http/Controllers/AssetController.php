@@ -62,6 +62,8 @@ final class AssetController extends Controller
             'name' => ['required', 'string', 'max:160'],
             'type' => ['required', 'in:drone,battery,sensor,vehicle,support_equipment'],
             'drone_type_id' => ['nullable', 'required_if:type,drone', 'ulid', 'exists:drone_types,id'],
+            'has_spotlight' => ['sometimes', 'boolean'],
+            'has_speaker' => ['sometimes', 'boolean'],
             'status' => ['required', 'in:ready,maintenance,unavailable'],
             'serial_number' => ['nullable', 'string', 'max:160', 'unique:assets,serial_number'],
             'maintenance_due_at' => ['nullable', 'date'],
@@ -79,6 +81,13 @@ final class AssetController extends Controller
     public function update(UpdateAssetRequest $request, Asset $asset): JsonResponse
     {
         return ApiResponse::success($this->service->update($asset, $request->validated(), $request->user()));
+    }
+
+    public function destroy(Request $request, Asset $asset): JsonResponse
+    {
+        $this->service->delete($asset, $request->user());
+
+        return ApiResponse::success(null);
     }
 
     public function assign(AssignAssetRequest $request, Asset $asset): JsonResponse
@@ -109,10 +118,24 @@ final class AssetController extends Controller
 
         $data = $request->validate([
             'status' => ['required', 'in:ready,maintenance,unavailable'],
+            'has_spotlight' => ['sometimes', 'boolean'],
+            'has_speaker' => ['sometimes', 'boolean'],
             'maintenance_due_at' => ['nullable', 'date'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
         return ApiResponse::success($this->service->update($asset, $data, $request->user()));
+    }
+
+    public function destroyMine(Request $request, Asset $asset): JsonResponse
+    {
+        abort_unless($asset->assignments()
+            ->where('user_id', $request->user()?->id)
+            ->whereNull('released_at')
+            ->exists(), 403);
+
+        $this->service->delete($asset, $request->user());
+
+        return ApiResponse::success(null);
     }
 }

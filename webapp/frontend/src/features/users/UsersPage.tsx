@@ -35,6 +35,9 @@ export function UsersPage() {
   const teams = useApiResource<Team[]>('/admin/teams');
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [userDetail, setUserDetail] = useState<User | null>(null);
+  const [userDetailLoading, setUserDetailLoading] = useState(false);
+  const [userDetailError, setUserDetailError] = useState<string | null>(null);
   const [form, setForm] = useState<UserFormState>(emptyForm);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -43,12 +46,17 @@ export function UsersPage() {
     if (modalMode === null) {
       setForm(emptyForm);
       setEditingUser(null);
+      setUserDetail(null);
+      setUserDetailLoading(false);
+      setUserDetailError(null);
       setError(null);
     }
   }, [modalMode]);
 
   function openCreateModal() {
     setEditingUser(null);
+    setUserDetail(null);
+    setUserDetailError(null);
     setForm(emptyForm);
     setError(null);
     setModalMode('create');
@@ -56,6 +64,8 @@ export function UsersPage() {
 
   function openEditModal(user: User) {
     setEditingUser(user);
+    setUserDetail(user);
+    setUserDetailError(null);
     setForm({
       name: user.name,
       email: user.email,
@@ -67,6 +77,21 @@ export function UsersPage() {
     });
     setError(null);
     setModalMode('edit');
+    void loadUserDetail(user.id);
+  }
+
+  async function loadUserDetail(userId: string) {
+    setUserDetailLoading(true);
+    setUserDetailError(null);
+
+    try {
+      const response = await api.get<User>(`/users/${userId}`);
+      setUserDetail(response.data);
+    } catch (err) {
+      setUserDetailError(err instanceof ApiClientError ? err.message : 'Gebruikersdetails konden niet worden geladen.');
+    } finally {
+      setUserDetailLoading(false);
+    }
   }
 
   async function submitUser(event: FormEvent<HTMLFormElement>) {
@@ -236,6 +261,13 @@ export function UsersPage() {
                   </div>
                 </ResourceState>
               </div>
+              {modalMode === 'edit' ? (
+                <UserOperationalDetails
+                  user={userDetail}
+                  loading={userDetailLoading}
+                  error={userDetailError}
+                />
+              ) : null}
               {error ? <p className="form-error form-grid__wide">{error}</p> : null}
               <div className="actions-row form-grid__wide">
                 <button className="secondary-button" type="button" onClick={() => setModalMode(null)}>Annuleren</button>
@@ -249,4 +281,85 @@ export function UsersPage() {
       ) : null}
     </div>
   );
+}
+
+interface UserOperationalDetailsProps {
+  user: User | null;
+  loading: boolean;
+  error: string | null;
+}
+
+function UserOperationalDetails({ user, loading, error }: UserOperationalDetailsProps) {
+  const certifications = user?.certifications ?? [];
+  const droneAssignments = (user?.asset_assignments ?? [])
+    .filter((assignment) => assignment.asset?.type === 'drone');
+
+  return (
+    <div className="form-grid__wide stacked-section">
+      <div>
+        <span className="field-label">Certificaten</span>
+        {loading ? <p className="muted-text">Certificaten laden...</p> : null}
+        {error ? <p className="form-error">{error}</p> : null}
+        {!loading && certifications.length === 0 ? <p className="muted-text">Geen certificaten geregistreerd.</p> : null}
+        {certifications.length > 0 ? (
+          <table className="data-table compact-table">
+            <thead><tr><th>Certificaat</th><th>Status</th><th>Nummer</th><th>Verloopt</th></tr></thead>
+            <tbody>
+              {certifications.map((certification) => (
+                <tr key={certification.id}>
+                  <td>{certification.certification?.name ?? certification.certification?.code ?? certification.certification_id}</td>
+                  <td><StatusPill value={certification.status} tone={certification.status === 'active' ? 'good' : 'warn'} /></td>
+                  <td>{certification.certificate_number ?? '-'}</td>
+                  <td>{formatDate(certification.expires_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
+      </div>
+
+      <div>
+        <span className="field-label">Drones</span>
+        {loading ? <p className="muted-text">Drones laden...</p> : null}
+        {!loading && droneAssignments.length === 0 ? <p className="muted-text">Geen actieve drones toegewezen.</p> : null}
+        {droneAssignments.length > 0 ? (
+          <table className="data-table compact-table">
+            <thead><tr><th>Drone</th><th>Type</th><th>Status</th><th>Opties</th><th>Toegewezen</th></tr></thead>
+            <tbody>
+              {droneAssignments.map((assignment) => {
+                const asset = assignment.asset;
+                const options = [
+                  asset?.drone_type?.has_thermal ? 'Thermal' : null,
+                  asset?.has_spotlight ? 'Lamp' : null,
+                  asset?.has_speaker ? 'Speaker' : null,
+                ].filter(Boolean).join(', ');
+
+                return (
+                  <tr key={assignment.id}>
+                    <td>{asset?.name ?? assignment.asset_id}</td>
+                    <td>{asset?.drone_type?.model ?? '-'}</td>
+                    <td>{asset ? <StatusPill value={asset.status} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} /> : '-'}</td>
+                    <td>{options || '-'}</td>
+                    <td>{formatDate(assignment.assigned_at)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function formatDate(value?: string | null): string {
+  if (value === undefined || value === null || value === '') {
+    return '-';
+  }
+
+  return new Intl.DateTimeFormat('nl-NL', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(new Date(value));
 }

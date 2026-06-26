@@ -74,6 +74,11 @@ final class User extends Authenticatable
         return $this->hasMany(UserCertification::class);
     }
 
+    public function assetAssignments(): HasMany
+    {
+        return $this->hasMany(AssetAssignment::class);
+    }
+
     public function fcmTokens(): HasMany
     {
         return $this->hasMany(FcmToken::class);
