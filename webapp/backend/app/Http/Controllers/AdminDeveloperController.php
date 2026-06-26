@@ -124,6 +124,11 @@ final class AdminDeveloperController extends Controller
         $current = $this->runGit($root, ['rev-parse', 'HEAD']);
         $branch = $this->runGit($root, ['rev-parse', '--abbrev-ref', 'HEAD']);
         $upstream = $this->runGit($root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+        $fetchSuccessful = $current !== null ? $this->runGit($root, ['fetch', '--prune']) !== null : null;
+
+        if ($fetchSuccessful === false) {
+            $errors[] = 'Git fetch kon niet worden uitgevoerd.';
+        }
 
         if ($upstream === null && $branch !== null && $branch !== 'HEAD') {
             $originBranch = 'origin/'.$branch;
@@ -134,12 +139,7 @@ final class AdminDeveloperController extends Controller
 
         $latest = null;
         $behind = null;
-        $fetchSuccessful = null;
         if ($upstream !== null) {
-            $fetchSuccessful = $this->runGit($root, ['fetch', '--prune']) !== null;
-            if (! $fetchSuccessful) {
-                $errors[] = 'Git fetch kon niet worden uitgevoerd.';
-            }
             $latest = $this->runGit($root, ['rev-parse', $upstream]);
             $count = $this->runGit($root, ['rev-list', '--left-right', '--count', 'HEAD...'.$upstream]);
             if ($count !== null) {
