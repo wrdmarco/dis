@@ -114,6 +114,7 @@ export interface Incident {
   location_label?: string | null;
   latitude?: string | null;
   longitude?: string | null;
+  drone_flight_context?: DroneFlightContext | null;
   coordinator?: User | null;
   team?: Team | null;
   opened_at?: string | null;
@@ -123,6 +124,51 @@ export interface Incident {
     status: string;
     response_status?: DispatchRecipient['response_status'] | null;
   } | null;
+}
+
+export interface DroneFlightContext {
+  generated_at?: string | null;
+  location?: {
+    label?: string | null;
+    latitude?: number | string | null;
+    longitude?: number | string | null;
+  };
+  map?: {
+    provider?: string | null;
+    status?: string | null;
+    aeret_url?: string | null;
+    notam_url?: string | null;
+    openstreetmap_url?: string | null;
+  };
+  airspace?: {
+    provider?: string | null;
+    status?: string | null;
+    summary?: string | null;
+    no_fly_zones?: unknown[];
+    notams?: unknown[];
+    restrictions?: unknown[];
+    errors?: string[];
+  };
+  weather?: {
+    provider?: string | null;
+    status?: string | null;
+    measured_at?: string | null;
+    temperature_c?: number | string | null;
+    feels_like_c?: number | string | null;
+    humidity_percent?: number | string | null;
+    wind_speed_kmh?: number | string | null;
+    wind_gust_kmh?: number | string | null;
+    wind_direction_degrees?: number | string | null;
+    precipitation_mm?: number | string | null;
+    rain_mm?: number | string | null;
+    cloud_cover_percent?: number | string | null;
+    visibility_m?: number | string | null;
+    pressure_hpa?: number | string | null;
+    weather_code?: number | string | null;
+    summary?: string | null;
+    errors?: string[];
+  };
+  checklist?: string[];
 }
 
 export interface DispatchRequest {

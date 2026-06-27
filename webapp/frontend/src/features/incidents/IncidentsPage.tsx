@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Archive, Clock, FileText, MapPin, Plus, RadioTower, Search, Users, X } from 'lucide-react';
+import { Archive, Clock, CloudSun, FileText, MapPin, Plane, Plus, RadioTower, Search, Users, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -8,7 +8,7 @@ import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { Incident, Team, User } from '../../types/api';
+import type { DroneFlightContext, Incident, Team, User } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 
 export interface IncidentFormState {
@@ -280,8 +280,12 @@ export function IncidentForm(props: {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
 }) {
+  const { api } = useAuth();
   const { form, users, teams, usersError, teamsError, saving, error, extraFields, submitLabel, onCancel, onSubmit, onChange } = props;
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
+  const [flightContext, setFlightContext] = useState<DroneFlightContext | null>(null);
+  const [flightContextLoading, setFlightContextLoading] = useState(false);
+  const [flightContextError, setFlightContextError] = useState<string | null>(null);
 
   useEffect(() => {
     const query = form.locationLabel.trim();
@@ -300,6 +304,46 @@ export function IncidentForm(props: {
       controller.abort();
     };
   }, [form.locationLabel]);
+
+  useEffect(() => {
+    const latitude = coordinatePayload(form.latitude);
+    const longitude = coordinatePayload(form.longitude);
+    if (latitude === null || longitude === null) {
+      setFlightContext(null);
+      setFlightContextError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timeoutId = window.setTimeout(async () => {
+      setFlightContextLoading(true);
+      setFlightContextError(null);
+      try {
+        const response = await api.post<DroneFlightContext>('/incidents/flight-context-preview', {
+          latitude,
+          longitude,
+          location_label: form.locationLabel.trim() === '' ? null : form.locationLabel,
+        });
+        if (!cancelled) {
+          setFlightContext(response.data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setFlightContext(null);
+          setFlightContextError(err instanceof ApiClientError ? err.message : 'Drone vluchtinformatie kon niet worden opgehaald.');
+        }
+      } finally {
+        if (!cancelled) {
+          setFlightContextLoading(false);
+        }
+      }
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [api, form.latitude, form.longitude, form.locationLabel]);
 
   return (
     <form className="form-grid" onSubmit={onSubmit}>
@@ -360,6 +404,7 @@ export function IncidentForm(props: {
       </label>
       {teamsError ? <p className="form-error form-grid__wide">Teams laden mislukt: {teamsError}</p> : null}
       {usersError ? <p className="form-error form-grid__wide">Coordinators laden mislukt: {usersError}</p> : null}
+      <DroneFlightContextPanel context={flightContext} loading={flightContextLoading} error={flightContextError} />
       {extraFields}
       {error ? <p className="form-error form-grid__wide">{error}</p> : null}
       <div className="actions-row form-grid__wide">
@@ -369,6 +414,71 @@ export function IncidentForm(props: {
         </button>
       </div>
     </form>
+  );
+}
+
+function DroneFlightContextPanel({ context, loading, error }: { context: DroneFlightContext | null; loading: boolean; error: string | null }) {
+  return (
+    <section className="drone-flight-panel form-grid__wide" aria-live="polite">
+      <header>
+        <div>
+          <span>Drone vluchtcheck</span>
+          <strong>{loading ? 'Ophalen...' : context ? 'Locatie beoordeeld' : 'Wacht op locatie'}</strong>
+        </div>
+        <Plane size={20} />
+      </header>
+      {error ? <p className="form-error">{error}</p> : null}
+      {context ? (
+        <div className="drone-flight-grid">
+          <FlightInfoCard
+            icon={<CloudSun size={18} />}
+            title="Weer"
+            items={[
+              ['Temperatuur', formatFlightMetric(context.weather?.temperature_c, ' C')],
+              ['Wind', formatFlightMetric(context.weather?.wind_speed_kmh, ' km/u')],
+              ['Windstoten', formatFlightMetric(context.weather?.wind_gust_kmh, ' km/u')],
+              ['Zicht', formatVisibility(context.weather?.visibility_m)],
+              ['Samenvatting', context.weather?.summary ?? '-'],
+            ]}
+          />
+          <FlightInfoCard
+            icon={<Plane size={18} />}
+            title="Luchtruim"
+            items={[
+              ['Aeret', airspaceStatusLabel(context.airspace?.status)],
+              ['No-fly zones', String(context.airspace?.no_fly_zones?.length ?? 0)],
+              ['NOTAM', String(context.airspace?.notams?.length ?? 0)],
+              ['Samenvatting', context.airspace?.summary ?? '-'],
+            ]}
+          />
+          <div className="drone-flight-links">
+            {context.map?.aeret_url ? <a href={context.map.aeret_url} target="_blank" rel="noreferrer">Open Aeret dronekaart</a> : null}
+            {context.map?.notam_url ? <a href={context.map.notam_url} target="_blank" rel="noreferrer">Open NOTAM bron</a> : null}
+          </div>
+          {context.map?.aeret_url ? (
+            <iframe className="drone-flight-aeret-frame" title="Aeret dronekaart" src={context.map.aeret_url} loading="lazy" />
+          ) : null}
+        </div>
+      ) : (
+        <p className="muted-text">Vul een adres of coordinaten in om weer, no-fly/NOTAM status en dronekaart te tonen.</p>
+      )}
+    </section>
+  );
+}
+
+function FlightInfoCard({ icon, title, items }: { icon: ReactNode; title: string; items: Array<[string, string]> }) {
+  return (
+    <article className="drone-flight-card">
+      <h4>{icon}{title}</h4>
+      <dl>
+        {items.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </article>
   );
 }
 
@@ -568,6 +678,36 @@ function coordinatePayload(value: string): number | null {
   const coordinate = Number(trimmed);
 
   return Number.isFinite(coordinate) ? Number(coordinate.toFixed(7)) : null;
+}
+
+function formatFlightMetric(value: unknown, suffix: string): string {
+  if (value === null || value === undefined || value === '') {
+    return '-';
+  }
+
+  return `${value}${suffix}`;
+}
+
+function formatVisibility(value: unknown): string {
+  const meters = Number(value);
+  if (!Number.isFinite(meters)) {
+    return '-';
+  }
+
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
+function airspaceStatusLabel(status?: string | null): string {
+  switch (status) {
+    case 'available':
+      return 'Opgehaald';
+    case 'not_configured':
+      return 'Niet gekoppeld';
+    case 'unavailable':
+      return 'Niet beschikbaar';
+    default:
+      return status ?? '-';
+  }
 }
 
 export function incidentPayload(form: IncidentFormState): Record<string, unknown> {

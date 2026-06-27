@@ -45,6 +45,10 @@ interface ManagedSettingsForm {
   auditLogRetentionDays: string;
   locationRetentionDays: string;
   androidApplicationId: string;
+  aeretMapUrl: string;
+  aeretApiUrl: string;
+  aeretApiKey: string;
+  notamUrl: string;
 }
 
 interface PasswordPolicySettingsForm {
@@ -108,6 +112,7 @@ export function AdminPage() {
       mailPassword: current.mailPassword,
       mailMicrosoft365ClientSecret: current.mailMicrosoft365ClientSecret,
       firebaseServicePrivateKey: current.firebaseServicePrivateKey,
+      aeretApiKey: current.aeretApiKey,
     }));
   }, [managedSettings, settings.data]);
 
@@ -258,9 +263,17 @@ export function AdminPage() {
         'retention.audit_logs_days': Number(managedForm.auditLogRetentionDays || 3650),
         'retention.location_days': Number(managedForm.locationRetentionDays || 30),
         'updates.android.application_id': managedForm.androidApplicationId,
+        'drone.aeret_map_url': managedForm.aeretMapUrl.trim() === '' ? null : managedForm.aeretMapUrl,
+        'drone.aeret_api_url': managedForm.aeretApiUrl.trim() === '' ? null : managedForm.aeretApiUrl,
+        'drone.notam_url': managedForm.notamUrl.trim() === '' ? null : managedForm.notamUrl,
       };
 
+      if (managedForm.aeretApiKey.trim() !== '') {
+        payload['drone.aeret_api_key'] = managedForm.aeretApiKey;
+      }
+
       await api.patch('/admin/settings', { settings: payload });
+      setManagedForm((current) => ({ ...current, aeretApiKey: '' }));
       await settings.reload();
     } catch (error) {
       setManagedError(error instanceof Error ? error.message : 'Instellingen opslaan mislukt.');
@@ -654,6 +667,22 @@ export function AdminPage() {
               Locatie retentie dagen
               <input type="number" min="1" value={managedForm.locationRetentionDays} onChange={(event) => setManagedForm((current) => ({ ...current, locationRetentionDays: event.target.value }))} />
             </label>
+            <label className="form-grid__wide">
+              Aeret dronekaart URL
+              <input value={managedForm.aeretMapUrl} placeholder="https://dronepreflight.nl/" onChange={(event) => setManagedForm((current) => ({ ...current, aeretMapUrl: event.target.value }))} />
+            </label>
+            <label className="form-grid__wide">
+              Aeret API endpoint
+              <input value={managedForm.aeretApiUrl} placeholder="https://..." onChange={(event) => setManagedForm((current) => ({ ...current, aeretApiUrl: event.target.value }))} />
+            </label>
+            <label className="form-grid__wide">
+              Aeret API key
+              <input type="password" value={managedForm.aeretApiKey} placeholder="Ongewijzigd laten" onChange={(event) => setManagedForm((current) => ({ ...current, aeretApiKey: event.target.value }))} />
+            </label>
+            <label className="form-grid__wide">
+              NOTAM bron URL
+              <input value={managedForm.notamUrl} placeholder="https://www.lvnl.nl/informatie-voor-luchtvarenden/notam" onChange={(event) => setManagedForm((current) => ({ ...current, notamUrl: event.target.value }))} />
+            </label>
           </div>
           {managedError ? <p className="error-text">{managedError}</p> : null}
           <div className="actions-row">
@@ -946,6 +975,10 @@ function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
     auditLogRetentionDays: asStringOrNumber(byKey.get('retention.audit_logs_days'), '3650'),
     locationRetentionDays: asStringOrNumber(byKey.get('retention.location_days'), '30'),
     androidApplicationId: asString(byKey.get('updates.android.application_id')) || 'nl.wrdmarco.dis',
+    aeretMapUrl: asString(byKey.get('drone.aeret_map_url')) || 'https://dronepreflight.nl/',
+    aeretApiUrl: asString(byKey.get('drone.aeret_api_url')),
+    aeretApiKey: '',
+    notamUrl: asString(byKey.get('drone.notam_url')) || 'https://www.lvnl.nl/informatie-voor-luchtvarenden/notam',
   };
 }
 

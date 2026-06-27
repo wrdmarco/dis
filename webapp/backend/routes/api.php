@@ -68,8 +68,10 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
 
     Route::get('/incidents', [IncidentController::class, 'index'])->middleware('permission:incidents.view');
     Route::post('/incidents', [IncidentController::class, 'store'])->middleware('permission:incidents.manage');
+    Route::post('/incidents/flight-context-preview', [IncidentController::class, 'flightContextPreview'])->middleware('permission:incidents.manage');
     Route::get('/incidents/{incident}', [IncidentController::class, 'show'])->middleware('permission:incidents.view');
     Route::patch('/incidents/{incident}', [IncidentController::class, 'update'])->middleware('permission:incidents.manage');
+    Route::post('/incidents/{incident}/flight-context/refresh', [IncidentController::class, 'refreshFlightContext'])->middleware('permission:incidents.manage');
     Route::post('/incidents/{incident}/close', [IncidentController::class, 'close'])->middleware('permission:incidents.manage');
     Route::post('/incidents/{incident}/cancel', [IncidentController::class, 'cancel'])->middleware('permission:incidents.manage');
     Route::get('/incidents/{incident}/timeline', [IncidentController::class, 'timeline'])->middleware('permission:incidents.view');

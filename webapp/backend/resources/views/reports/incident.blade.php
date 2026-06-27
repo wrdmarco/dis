@@ -29,14 +29,52 @@
         .timeline__label { margin-top: 2px; font-weight: bold; }
         .timeline__type { color: #0369a1; font-size: 9px; text-transform: uppercase; }
         .muted { color: #64748b; }
+        .map-layout { width: 100%; border-collapse: collapse; }
+        .map-layout__visual { width: 62%; padding-right: 14px; vertical-align: top; }
+        .map-layout__details { vertical-align: top; }
+        .map-card { position: relative; height: 165px; overflow: hidden; border: 1px solid #cbd5e1; border-radius: 9px; background: #e8f3f8; }
+        .map-water { position: absolute; background: #c7e8f4; }
+        .map-water--top { left: 0; right: 0; top: 0; height: 34px; }
+        .map-water--bottom { left: 0; right: 0; bottom: 0; height: 24px; }
+        .map-road { position: absolute; background: #ffffff; border: 1px solid #d1dce8; }
+        .map-road--h1 { left: -4px; right: -4px; top: 52px; height: 7px; }
+        .map-road--h2 { left: -4px; right: -4px; top: 109px; height: 7px; }
+        .map-road--v1 { top: -4px; bottom: -4px; left: 28%; width: 7px; }
+        .map-road--v2 { top: -4px; bottom: -4px; left: 67%; width: 7px; }
+        .map-grid { position: absolute; background: #d9e5ee; }
+        .map-grid--h1 { left: 0; right: 0; top: 82px; height: 1px; }
+        .map-grid--v1 { top: 0; bottom: 0; left: 50%; width: 1px; }
+        .map-marker { position: absolute; width: 15px; height: 15px; margin: -10px 0 0 -10px; border: 3px solid #ffffff; border-radius: 50%; background: #dc2626; box-shadow: 0 1px 4px rgba(15, 23, 42, .35); }
+        .map-marker-ring { position: absolute; width: 31px; height: 31px; margin: -18px 0 0 -18px; border: 2px solid #dc2626; border-radius: 50%; }
+        .map-caption { position: absolute; left: 10px; bottom: 9px; padding: 6px 8px; border: 1px solid #dbe5f0; border-radius: 6px; background: #ffffff; color: #0f172a; font-size: 9px; }
+        .map-detail-box { padding: 11px 12px; border: 1px solid #d8e1ec; border-radius: 8px; background: #f8fafc; }
+        .map-detail-box strong { display: block; margin-bottom: 5px; color: #0f172a; font-size: 13px; }
+        .map-detail-box span { display: block; margin-top: 5px; color: #475569; }
+        .map-url { margin-top: 8px; color: #0369a1; font-size: 9px; word-break: break-all; }
+        .flight-grid { width: 100%; border-collapse: separate; border-spacing: 8px; margin-left: -8px; margin-right: -8px; }
+        .flight-card { padding: 10px 12px; border: 1px solid #d8e1ec; border-radius: 8px; background: #f8fafc; vertical-align: top; }
+        .flight-card h3 { margin-bottom: 6px; color: #0f172a; font-size: 12px; }
+        .flight-card dl { margin: 0; }
+        .flight-card dt { color: #64748b; font-size: 9px; text-transform: uppercase; }
+        .flight-card dd { margin: 0 0 5px 0; }
+        .flight-list { margin: 6px 0 0 14px; padding: 0; }
+        .flight-list li { margin-bottom: 4px; }
         .footer { position: fixed; bottom: -10px; left: 0; right: 0; color: #94a3b8; font-size: 9px; text-align: center; }
     </style>
 </head>
 <body>
 @php
     $tz = $timezone;
+    $map = $map ?? ['available' => false];
+    $flight = $droneFlightContext ?? null;
+    $weather = is_array($flight) && is_array($flight['weather'] ?? null) ? $flight['weather'] : null;
+    $airspace = is_array($flight) && is_array($flight['airspace'] ?? null) ? $flight['airspace'] : null;
+    $flightMap = is_array($flight) && is_array($flight['map'] ?? null) ? $flight['map'] : null;
+    $flightChecklist = is_array($flight) && is_array($flight['checklist'] ?? null) ? $flight['checklist'] : [];
     $formatDate = fn ($value) => $value ? $value->timezone($tz)->format('d-m-Y H:i') : '-';
     $formatMinutes = fn ($value) => $value === null ? '-' : $value.' min';
+    $formatFlightValue = fn ($value, string $suffix = '') => $value === null || $value === '' ? '-' : $value.$suffix;
+    $formatFlightItem = fn ($item) => is_scalar($item) ? (string) $item : json_encode($item, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $responseLabel = fn ($value) => match ($value) {
         'accepted' => 'Komt',
         'declined' => 'Komt niet',
@@ -79,6 +117,114 @@
         <tr><th>Coordinator</th><td>{{ $incident->coordinator?->name ?? '-' }}</td></tr>
         <tr><th>Aangemaakt door</th><td>{{ $incident->creator?->name ?? '-' }}</td></tr>
     </table>
+</section>
+
+<section class="section">
+    <h2>Incidentkaart</h2>
+    @if ($map['available'])
+        <table class="map-layout">
+            <tr>
+                <td class="map-layout__visual">
+                    <div class="map-card">
+                        <div class="map-water map-water--top"></div>
+                        <div class="map-water map-water--bottom"></div>
+                        <div class="map-road map-road--h1"></div>
+                        <div class="map-road map-road--h2"></div>
+                        <div class="map-road map-road--v1"></div>
+                        <div class="map-road map-road--v2"></div>
+                        <div class="map-grid map-grid--h1"></div>
+                        <div class="map-grid map-grid--v1"></div>
+                        <div class="map-marker-ring" style="left: {{ $map['marker_x'] }}%; top: {{ $map['marker_y'] }}%;"></div>
+                        <div class="map-marker" style="left: {{ $map['marker_x'] }}%; top: {{ $map['marker_y'] }}%;"></div>
+                        <div class="map-caption">Incidentlocatie</div>
+                    </div>
+                </td>
+                <td class="map-layout__details">
+                    <div class="map-detail-box">
+                        <strong>{{ $incident->location_label ?: 'GPS locatie' }}</strong>
+                        <span>Latitude: {{ $map['latitude_label'] }}</span>
+                        <span>Longitude: {{ $map['longitude_label'] }}</span>
+                        <div class="map-url">{{ $map['openstreetmap_url'] }}</div>
+                    </div>
+                </td>
+            </tr>
+        </table>
+    @else
+        <p class="muted">Geen GPS locatie beschikbaar voor dit incident.</p>
+    @endif
+</section>
+
+<section class="section">
+    <h2>Drone vluchtinformatie</h2>
+    @if (is_array($flight))
+        <table class="flight-grid">
+            <tr>
+                <td class="flight-card">
+                    <h3>Weer op locatie</h3>
+                    @if ($weather)
+                        <dl>
+                            <dt>Status</dt><dd>{{ $weather['status'] ?? '-' }}</dd>
+                            <dt>Samenvatting</dt><dd>{{ $weather['summary'] ?? '-' }}</dd>
+                            <dt>Temperatuur</dt><dd>{{ $formatFlightValue($weather['temperature_c'] ?? null, ' C') }}</dd>
+                            <dt>Gevoelstemperatuur</dt><dd>{{ $formatFlightValue($weather['feels_like_c'] ?? null, ' C') }}</dd>
+                            <dt>Wind</dt><dd>{{ $formatFlightValue($weather['wind_speed_kmh'] ?? null, ' km/u') }}</dd>
+                            <dt>Windstoten</dt><dd>{{ $formatFlightValue($weather['wind_gust_kmh'] ?? null, ' km/u') }}</dd>
+                            <dt>Zicht</dt><dd>{{ isset($weather['visibility_m']) ? round(((float) $weather['visibility_m']) / 1000, 1).' km' : '-' }}</dd>
+                            <dt>Neerslag</dt><dd>{{ $formatFlightValue($weather['precipitation_mm'] ?? null, ' mm') }}</dd>
+                            <dt>Bewolking</dt><dd>{{ $formatFlightValue($weather['cloud_cover_percent'] ?? null, '%') }}</dd>
+                            <dt>Bron</dt><dd>{{ $weather['provider'] ?? '-' }}</dd>
+                        </dl>
+                    @else
+                        <p class="muted">Geen weerdata opgeslagen.</p>
+                    @endif
+                </td>
+                <td class="flight-card">
+                    <h3>Luchtruim, no-fly en NOTAM</h3>
+                    @if ($airspace)
+                        <dl>
+                            <dt>Status</dt><dd>{{ $airspace['status'] ?? '-' }}</dd>
+                            <dt>Samenvatting</dt><dd>{{ $airspace['summary'] ?? '-' }}</dd>
+                            <dt>Bron</dt><dd>{{ $airspace['provider'] ?? '-' }}</dd>
+                        </dl>
+                        <strong>No-fly zones</strong>
+                        <ul class="flight-list">
+                            @forelse (($airspace['no_fly_zones'] ?? []) as $item)
+                                <li>{{ $formatFlightItem($item) }}</li>
+                            @empty
+                                <li>Geen no-fly zones ontvangen van provider.</li>
+                            @endforelse
+                        </ul>
+                        <strong>NOTAM</strong>
+                        <ul class="flight-list">
+                            @forelse (($airspace['notams'] ?? []) as $item)
+                                <li>{{ $formatFlightItem($item) }}</li>
+                            @empty
+                                <li>Geen NOTAM regels ontvangen van provider.</li>
+                            @endforelse
+                        </ul>
+                    @else
+                        <p class="muted">Geen luchtruimdata opgeslagen.</p>
+                    @endif
+                </td>
+            </tr>
+            <tr>
+                <td class="flight-card" colspan="2">
+                    <h3>Vliegcheck</h3>
+                    <ul class="flight-list">
+                        @foreach ($flightChecklist as $item)
+                            <li>{{ $item }}</li>
+                        @endforeach
+                    </ul>
+                    @if ($flightMap)
+                        <p class="map-url">Aeret kaart: {{ $flightMap['aeret_url'] ?? '-' }}</p>
+                        <p class="map-url">NOTAM bron: {{ $flightMap['notam_url'] ?? '-' }}</p>
+                    @endif
+                </td>
+            </tr>
+        </table>
+    @else
+        <p class="muted">Geen drone vluchtinformatie opgeslagen voor dit incident.</p>
+    @endif
 </section>
 
 <section class="section">

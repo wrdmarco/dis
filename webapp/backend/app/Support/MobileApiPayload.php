@@ -101,6 +101,7 @@ final class MobileApiPayload
             'location_label' => $incident->location_label,
             'latitude' => $incident->latitude,
             'longitude' => $incident->longitude,
+            'drone_flight_context' => $incident->drone_flight_context,
             'coordinator' => self::user($incident->coordinator),
             'team' => $incident->team === null ? null : [
                 'id' => $incident->team->id,

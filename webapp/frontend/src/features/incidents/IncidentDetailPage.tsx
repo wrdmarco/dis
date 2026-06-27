@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
-import { BellRing, Clock, Download, MapPin, MessageSquare, Pencil, RadioTower, Send, TrendingUp, Users, X } from 'lucide-react';
+import { BellRing, Clock, CloudSun, Download, MapPin, MessageSquare, Pencil, Plane, RadioTower, RefreshCw, Send, TrendingUp, Users, X } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -8,7 +8,7 @@ import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { DispatchPreview, DispatchRequest, Incident, IncidentLiveLocation, IncidentTimelineItem, Team, User } from '../../types/api';
+import type { DispatchPreview, DispatchRequest, DroneFlightContext, Incident, IncidentLiveLocation, IncidentTimelineItem, Team, User } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 import { IncidentForm, type IncidentFormState, incidentPayload } from './IncidentsPage';
 
@@ -38,6 +38,8 @@ export function IncidentDetailPage() {
   const [recipientUpdateMessage, setRecipientUpdateMessage] = useState<string | null>(null);
   const [reportDownloading, setReportDownloading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [flightRefreshLoading, setFlightRefreshLoading] = useState(false);
+  const [flightRefreshMessage, setFlightRefreshMessage] = useState<string | null>(null);
 
   const latestDispatch = dispatches.data?.[0] ?? null;
   const showDraftPanel = incident.data?.status === 'draft';
@@ -199,6 +201,24 @@ export function IncidentDetailPage() {
       setReportError(err instanceof ApiClientError ? err.message : 'Rapport kon niet worden gedownload.');
     } finally {
       setReportDownloading(false);
+    }
+  };
+
+  const refreshFlightContext = async () => {
+    if (!incidentId) {
+      return;
+    }
+
+    setFlightRefreshLoading(true);
+    setFlightRefreshMessage(null);
+    try {
+      await api.post(`/incidents/${incidentId}/flight-context/refresh`);
+      setFlightRefreshMessage('Drone vluchtinformatie is bijgewerkt.');
+      await incident.reload();
+    } catch (err) {
+      setFlightRefreshMessage(err instanceof ApiClientError ? err.message : 'Drone vluchtinformatie kon niet worden bijgewerkt.');
+    } finally {
+      setFlightRefreshLoading(false);
     }
   };
 
@@ -383,6 +403,20 @@ export function IncidentDetailPage() {
         </ResourceState>
       </Panel>
 
+      <Panel
+        title="Drone vluchtinformatie"
+        action={incident.data ? (
+          <button className="secondary-button" type="button" onClick={() => void refreshFlightContext()} disabled={flightRefreshLoading}>
+            <RefreshCw size={16} /> {flightRefreshLoading ? 'Bijwerken...' : 'Bijwerken'}
+          </button>
+        ) : null}
+      >
+        <ResourceState loading={incident.loading} error={incident.error} empty={!incident.data}>
+          <DroneFlightContextDetail context={incident.data?.drone_flight_context ?? null} />
+          {flightRefreshMessage ? <p className={flightRefreshMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{flightRefreshMessage}</p> : null}
+        </ResourceState>
+      </Panel>
+
       <Panel title="Tijdlijn">
         <ResourceState loading={timeline.loading} error={timeline.error} empty={(timeline.data?.length ?? 0) === 0}>
           <div className="incident-timeline">
@@ -432,6 +466,105 @@ export function IncidentDetailPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function DroneFlightContextDetail({ context }: { context: DroneFlightContext | null }) {
+  if (!context) {
+    return (
+      <div className="drone-flight-empty">
+        <Plane size={24} />
+        <span>Geen drone vluchtinformatie opgeslagen. Werk de informatie bij zodra de incidentlocatie bekend is.</span>
+      </div>
+    );
+  }
+
+  const weather = context.weather;
+  const airspace = context.airspace;
+
+  return (
+    <div className="drone-flight-detail">
+      <div className="drone-flight-map-card">
+        <div>
+          <span>Dronekaart</span>
+          <strong>{context.location?.label ?? 'Incidentlocatie'}</strong>
+          <small>Snapshot: {formatDate(context.generated_at)}</small>
+        </div>
+        <div className="drone-flight-links">
+          {context.map?.aeret_url ? <a href={context.map.aeret_url} target="_blank" rel="noreferrer">Open Aeret kaart</a> : null}
+          {context.map?.notam_url ? <a href={context.map.notam_url} target="_blank" rel="noreferrer">Open NOTAM bron</a> : null}
+          {context.map?.openstreetmap_url ? <a href={context.map.openstreetmap_url} target="_blank" rel="noreferrer">Open OSM kaart</a> : null}
+        </div>
+      </div>
+      {context.map?.aeret_url ? (
+        <iframe className="drone-flight-aeret-frame" title="Aeret dronekaart" src={context.map.aeret_url} loading="lazy" />
+      ) : null}
+      <div className="drone-flight-grid">
+        <FlightDetailCard
+          icon={<CloudSun size={18} />}
+          title="Weer"
+          items={[
+            ['Status', providerStatusLabel(weather?.status)],
+            ['Samenvatting', weather?.summary ?? '-'],
+            ['Temperatuur', formatFlightMetric(weather?.temperature_c, ' C')],
+            ['Gevoelstemperatuur', formatFlightMetric(weather?.feels_like_c, ' C')],
+            ['Wind', formatFlightMetric(weather?.wind_speed_kmh, ' km/u')],
+            ['Windstoten', formatFlightMetric(weather?.wind_gust_kmh, ' km/u')],
+            ['Windrichting', formatFlightMetric(weather?.wind_direction_degrees, ' graden')],
+            ['Zicht', formatVisibility(weather?.visibility_m)],
+            ['Neerslag', formatFlightMetric(weather?.precipitation_mm, ' mm')],
+            ['Bewolking', formatFlightMetric(weather?.cloud_cover_percent, '%')],
+          ]}
+        />
+        <FlightDetailCard
+          icon={<Plane size={18} />}
+          title="Luchtruim"
+          items={[
+            ['Status', providerStatusLabel(airspace?.status)],
+            ['Samenvatting', airspace?.summary ?? '-'],
+            ['No-fly zones', String(airspace?.no_fly_zones?.length ?? 0)],
+            ['NOTAM', String(airspace?.notams?.length ?? 0)],
+            ['Beperkingen', String(airspace?.restrictions?.length ?? 0)],
+          ]}
+        />
+      </div>
+      <div className="drone-flight-list-row">
+        <FlightList title="No-fly zones" items={airspace?.no_fly_zones ?? []} empty="Geen no-fly zones ontvangen van provider." />
+        <FlightList title="NOTAM" items={airspace?.notams ?? []} empty="Geen NOTAM regels ontvangen van provider." />
+        <FlightList title="Vliegcheck" items={context.checklist ?? []} empty="Geen checklist opgeslagen." />
+      </div>
+    </div>
+  );
+}
+
+function FlightDetailCard({ icon, title, items }: { icon: ReactNode; title: string; items: Array<[string, string]> }) {
+  return (
+    <article className="drone-flight-card">
+      <h4>{icon}{title}</h4>
+      <dl>
+        {items.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </article>
+  );
+}
+
+function FlightList({ title, items, empty }: { title: string; items: unknown[]; empty: string }) {
+  return (
+    <article className="drone-flight-list">
+      <h4>{title}</h4>
+      {items.length > 0 ? (
+        <ul>
+          {items.map((item, index) => <li key={index}>{formatFlightItem(item)}</li>)}
+        </ul>
+      ) : (
+        <p>{empty}</p>
+      )}
+    </article>
   );
 }
 
@@ -546,6 +679,54 @@ function LiveLocationMap({ incident, locations }: { incident: Incident | null; l
 
 function formatDate(value?: string | null): string {
   return formatDateTime(value);
+}
+
+function formatFlightMetric(value: unknown, suffix: string): string {
+  if (value === null || value === undefined || value === '') {
+    return '-';
+  }
+
+  return `${value}${suffix}`;
+}
+
+function formatVisibility(value: unknown): string {
+  const meters = Number(value);
+  if (!Number.isFinite(meters)) {
+    return '-';
+  }
+
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
+function providerStatusLabel(status?: string | null): string {
+  switch (status) {
+    case 'available':
+      return 'Opgehaald';
+    case 'linked':
+      return 'Gekoppeld';
+    case 'not_configured':
+      return 'Niet gekoppeld';
+    case 'unavailable':
+      return 'Niet beschikbaar';
+    default:
+      return status ?? '-';
+  }
+}
+
+function formatFlightItem(item: unknown): string {
+  if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') {
+    return String(item);
+  }
+
+  if (item && typeof item === 'object') {
+    const record = item as Record<string, unknown>;
+    const preferred = record.name ?? record.title ?? record.description ?? record.summary ?? record.message ?? record.identifier ?? record.id;
+    if (typeof preferred === 'string' || typeof preferred === 'number') {
+      return String(preferred);
+    }
+  }
+
+  return JSON.stringify(item);
 }
 
 function incidentStatusLabel(status: string): string {

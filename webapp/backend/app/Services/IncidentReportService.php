@@ -12,6 +12,8 @@ use Illuminate\Support\Str;
 
 final class IncidentReportService
 {
+    public function __construct(private readonly DroneFlightContextService $droneFlightContextService) {}
+
     /**
      * @return array<string, mixed>
      */
@@ -35,6 +37,8 @@ final class IncidentReportService
             'dispatches' => $dispatches,
             'travelRows' => $travelRows,
             'timeline' => $timeline,
+            'map' => $this->mapData($incident),
+            'droneFlightContext' => $incident->drone_flight_context ?? $this->droneFlightContextService->previewForIncident($incident),
             'summary' => [
                 'recipients' => $travelRows->count(),
                 'accepted' => $travelRows->where('response_status', 'accepted')->count(),
@@ -209,6 +213,65 @@ final class IncidentReportService
         }
 
         return max(0, (int) round($start->diffInSeconds($end) / 60));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function mapData(Incident $incident): array
+    {
+        $latitude = $this->coordinate($incident->latitude);
+        $longitude = $this->coordinate($incident->longitude);
+
+        if ($latitude === null || $longitude === null) {
+            return [
+                'available' => false,
+                'latitude' => null,
+                'longitude' => null,
+                'latitude_label' => null,
+                'longitude_label' => null,
+                'marker_x' => 50.0,
+                'marker_y' => 50.0,
+                'openstreetmap_url' => null,
+            ];
+        }
+
+        return [
+            'available' => true,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'latitude_label' => number_format($latitude, 6, '.', ''),
+            'longitude_label' => number_format($longitude, 6, '.', ''),
+            'marker_x' => $this->markerPercentage($longitude, 3.2, 7.3),
+            'marker_y' => $this->markerPercentage($latitude, 50.7, 53.7, true),
+            'openstreetmap_url' => sprintf(
+                'https://www.openstreetmap.org/?mlat=%1$.6f&mlon=%2$.6f#map=16/%1$.6f/%2$.6f',
+                $latitude,
+                $longitude,
+            ),
+        ];
+    }
+
+    private function coordinate(mixed $value): ?float
+    {
+        if ($value === null || $value === '' || ! is_numeric($value)) {
+            return null;
+        }
+
+        $coordinate = (float) $value;
+
+        return is_finite($coordinate) ? $coordinate : null;
+    }
+
+    private function markerPercentage(float $value, float $min, float $max, bool $invert = false): float
+    {
+        $percentage = (($value - $min) / ($max - $min)) * 100;
+
+        if ($invert) {
+            $percentage = 100 - $percentage;
+        }
+
+        return round(min(88, max(12, $percentage)), 1);
     }
 
     private function responseLabel(string $status): string

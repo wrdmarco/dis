@@ -12,6 +12,7 @@ final class IncidentService
 {
     public function __construct(
         private readonly AuditService $auditService,
+        private readonly DroneFlightContextService $droneFlightContextService,
         private readonly DispatchService $dispatchService,
         private readonly LocationService $locationService,
         private readonly StatusService $statusService,
@@ -29,6 +30,7 @@ final class IncidentService
                 'status' => $data['status'] ?? 'draft',
                 'opened_at' => now(),
             ]);
+            $this->refreshDroneFlightContextWhenLocated($incident);
 
             $incident->statusHistory()->create([
                 'from_status' => null,
@@ -60,6 +62,7 @@ final class IncidentService
             }
 
             $incident->update($data);
+            $this->refreshDroneFlightContextWhenLocationChanged($incident, $data);
 
             if (array_key_exists('status', $data) && $data['status'] !== $beforeStatus) {
                 $incident->statusHistory()->create([
@@ -119,6 +122,29 @@ final class IncidentService
         }
 
         return $data;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function refreshDroneFlightContextWhenLocationChanged(Incident $incident, array $data): void
+    {
+        if (
+            ! array_key_exists('latitude', $data)
+            && ! array_key_exists('longitude', $data)
+            && ! array_key_exists('location_label', $data)
+        ) {
+            return;
+        }
+
+        $this->refreshDroneFlightContextWhenLocated($incident);
+    }
+
+    private function refreshDroneFlightContextWhenLocated(Incident $incident): void
+    {
+        $context = $this->droneFlightContextService->previewForIncident($incident);
+
+        $incident->forceFill(['drone_flight_context' => $context])->save();
     }
 
     private function resetAcceptedRecipientsToAvailable(Incident $incident, User $actor, string $terminalStatus): void

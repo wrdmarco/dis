@@ -9,6 +9,7 @@ use App\Models\AvailabilityStatus;
 use App\Models\Incident;
 use App\Repositories\IncidentRepository;
 use App\Services\DispatchService;
+use App\Services\DroneFlightContextService;
 use App\Services\IncidentService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
@@ -20,6 +21,7 @@ final class IncidentController extends Controller
         private readonly IncidentRepository $incidents,
         private readonly IncidentService $service,
         private readonly DispatchService $dispatchService,
+        private readonly DroneFlightContextService $droneFlightContextService,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -102,6 +104,21 @@ final class IncidentController extends Controller
         return ApiResponse::success(MobileApiPayload::incident($this->service->create($request->validated(), $request->user())), 201);
     }
 
+    public function flightContextPreview(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'latitude' => ['required', 'numeric', 'between:-90,90'],
+            'longitude' => ['required', 'numeric', 'between:-180,180'],
+            'location_label' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        return ApiResponse::success($this->droneFlightContextService->preview(
+            (float) $data['latitude'],
+            (float) $data['longitude'],
+            $data['location_label'] ?? null,
+        ));
+    }
+
     public function show(Incident $incident): JsonResponse
     {
         return ApiResponse::success(MobileApiPayload::incident($incident->load(['coordinator', 'team'])));
@@ -110,6 +127,11 @@ final class IncidentController extends Controller
     public function update(UpdateIncidentRequest $request, Incident $incident): JsonResponse
     {
         return ApiResponse::success(MobileApiPayload::incident($this->service->update($incident, $request->validated(), $request->user())));
+    }
+
+    public function refreshFlightContext(Incident $incident): JsonResponse
+    {
+        return ApiResponse::success(MobileApiPayload::incident($this->droneFlightContextService->refreshIncident($incident)));
     }
 
     public function close(Request $request, Incident $incident): JsonResponse

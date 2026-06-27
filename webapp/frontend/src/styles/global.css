@@ -1351,6 +1351,157 @@ select[multiple] {
   padding: 18px;
 }
 
+.drone-flight-panel,
+.drone-flight-detail {
+  display: grid;
+  gap: 14px;
+}
+
+.drone-flight-panel {
+  border: 1px solid #243449;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 14px;
+}
+
+.drone-flight-panel > header,
+.drone-flight-map-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.drone-flight-panel > header span,
+.drone-flight-map-card span {
+  display: block;
+  color: #8ea0b5;
+  font-size: 12px;
+}
+
+.drone-flight-panel > header strong,
+.drone-flight-map-card strong {
+  display: block;
+  margin-top: 2px;
+  color: #eff6ff;
+  font-size: 16px;
+}
+
+.drone-flight-map-card {
+  border: 1px solid #243449;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 14px 16px;
+}
+
+.drone-flight-map-card small {
+  display: block;
+  margin-top: 4px;
+  color: #8ea0b5;
+}
+
+.drone-flight-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.drone-flight-card,
+.drone-flight-list {
+  min-width: 0;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0d1520;
+  padding: 12px;
+}
+
+.drone-flight-card h4,
+.drone-flight-list h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  color: #eff6ff;
+  font-size: 14px;
+}
+
+.drone-flight-card dl {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.drone-flight-card dl div {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.drone-flight-card dt {
+  color: #8ea0b5;
+}
+
+.drone-flight-card dd {
+  min-width: 0;
+  margin: 0;
+  color: #d7e7f8;
+  overflow-wrap: anywhere;
+}
+
+.drone-flight-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.drone-flight-links a {
+  border: 1px solid #256a92;
+  border-radius: 6px;
+  color: #7dd3fc;
+  padding: 7px 10px;
+  text-decoration: none;
+}
+
+.drone-flight-links a:hover {
+  border-color: #7dd3fc;
+}
+
+.drone-flight-aeret-frame {
+  width: 100%;
+  min-height: 360px;
+  border: 1px solid #243449;
+  border-radius: 8px;
+  background: #0b1119;
+}
+
+.drone-flight-list-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.drone-flight-list ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.drone-flight-list li,
+.drone-flight-list p,
+.muted-text {
+  color: #aebdd0;
+  overflow-wrap: anywhere;
+}
+
+.drone-flight-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #aebdd0;
+  padding: 16px;
+}
+
 .form-error {
   color: #fecdd3;
   margin: 4px 16px;
@@ -1450,6 +1601,14 @@ select[multiple] {
 
 .live-map__table {
   margin-top: 0;
+}
+
+@media (max-width: 900px) {
+  .drone-flight-grid,
+  .drone-flight-list-row,
+  .location-picker {
+    grid-template-columns: 1fr;
+  }
 }
 
 .error-text {

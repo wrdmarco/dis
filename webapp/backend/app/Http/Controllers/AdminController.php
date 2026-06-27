@@ -20,6 +20,7 @@ use Illuminate\Validation\ValidationException;
 final class AdminController extends Controller
 {
     private const SENSITIVE_SETTING_KEYS = [
+        'drone.aeret_api_key',
         'mail.password',
         'mail.microsoft365_client_secret',
         'firebase.service_account',
@@ -205,6 +206,10 @@ final class AdminController extends Controller
             'mail.microsoft365_client_id',
             'mail.microsoft365_sender' => $this->validateStringSetting($key, $value, 255),
             'mail.microsoft365_client_secret' => $this->validateStringSetting($key, $value, 2000),
+            'drone.aeret_map_url',
+            'drone.aeret_api_url',
+            'drone.notam_url' => $this->validateNullableUrlSetting($key, $value, 2048),
+            'drone.aeret_api_key' => $this->validateStringSetting($key, $value, 2000),
             PasswordPolicy::MIN_LENGTH_KEY => $this->validateIntegerSetting($key, $value, 8, 128),
             PasswordPolicy::MIXED_CASE_KEY,
             PasswordPolicy::NUMBERS_KEY,
@@ -232,6 +237,21 @@ final class AdminController extends Controller
         }
 
         return $setting->is_sensitive ? null : $setting->value;
+    }
+
+    private function validateNullableUrlSetting(string $key, mixed $value, int $max): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $value = $this->validateStringSetting($key, $value, $max);
+
+        if (! filter_var($value, FILTER_VALIDATE_URL)) {
+            throw ValidationException::withMessages(["settings.$key" => ['The setting value must be a valid URL.']]);
+        }
+
+        return $value;
     }
 
     private function validateStringSetting(string $key, mixed $value, int $max): string
