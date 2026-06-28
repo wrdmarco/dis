@@ -824,7 +824,7 @@ export function AdminPage() {
                 <button
                   className="primary-button"
                   type="button"
-                  disabled={updateStarting || updaterStatus?.state === 'running' || !systemVersion.data?.git.update_available}
+                  disabled={updateStarting || updaterStatus?.state === 'running' || systemVersion.data === null}
                   onClick={() => void startServerUpdate()}
                 >
                   {updaterStatus?.state === 'running' ? 'Update draait...' : updateStarting ? 'Starten...' : 'Update uitvoeren'}
