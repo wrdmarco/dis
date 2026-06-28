@@ -497,6 +497,7 @@ final class DispatchService
             'incident_reference' => (string) ($incident?->reference ?? ''),
             'incident_title' => (string) ($incident?->title ?? ''),
             'incident_location' => (string) ($incident?->location_label ?? ''),
+            'dispatch_message' => (string) $dispatch->message,
             'priority' => (string) $dispatch->priority,
         ];
     }
@@ -506,6 +507,7 @@ final class DispatchService
         $incident = $dispatch->incident;
         $parts = array_values(array_filter([
             $prefix,
+            $dispatch->message,
             $incident?->reference,
             $incident?->title,
             $incident?->location_label,

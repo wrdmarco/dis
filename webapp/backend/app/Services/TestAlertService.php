@@ -78,6 +78,7 @@ final class TestAlertService
                         'incident_id' => (string) $incident->id,
                         'incident_reference' => (string) $incident->reference,
                         'incident_title' => (string) $incident->title,
+                        'dispatch_message' => $message,
                         'priority' => 'normal',
                     ],
                     (string) $dispatch->id,

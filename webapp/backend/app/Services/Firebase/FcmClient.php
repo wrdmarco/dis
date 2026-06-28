@@ -17,7 +17,12 @@ final class FcmClient
     public function send(FcmToken $token, string $title, string $body, array $data = []): Response
     {
         $projectId = SystemSetting::string('firebase.project_id', config('dis.push.fcm_project_id'));
-        $messageData = array_merge($data, ['title' => $title, 'body' => $body]);
+        $messageData = array_merge($data, [
+            'title' => $title,
+            'body' => $body,
+            'display_title' => $title,
+            'display_body' => $body,
+        ]);
         $message = [
             'token' => $token->token,
             'data' => $messageData,
