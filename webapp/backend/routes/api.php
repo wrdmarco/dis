@@ -38,6 +38,7 @@ Route::get('/mobile/config', [MobileConfigController::class, 'show'])->middlewar
 Route::get('/updates/android/current', [UpdateController::class, 'androidCurrent'])->middleware('throttle:mobile-public');
 Route::get('/updates/android/{version}/download', [UpdateController::class, 'downloadAndroid'])->middleware('throttle:mobile-public');
 Route::post('/developer/android/upload', [UpdateController::class, 'developerUploadAndroid'])->middleware('throttle:api');
+Route::post('/developer/system/update', [AdminDeveloperController::class, 'developerRunUpdate'])->middleware('throttle:api');
 Route::get('/health', [HealthController::class, 'public'])->middleware('throttle:api');
 
 Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(function (): void {

@@ -6,6 +6,7 @@ use App\Http\Responses\ApiResponse;
 use App\Jobs\RunSystemUpdate;
 use App\Models\SystemSetting;
 use App\Services\AuditService;
+use App\Services\DeveloperAccessService;
 use App\Services\SystemUpdateStatusService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,6 +19,7 @@ final class AdminDeveloperController extends Controller
 
     public function __construct(
         private readonly AuditService $auditService,
+        private readonly DeveloperAccessService $developerAccess,
         private readonly SystemUpdateStatusService $updateStatus,
     ) {}
 
@@ -88,6 +90,22 @@ final class AdminDeveloperController extends Controller
         $this->updateStatus->start('Update gestart vanuit admin.');
         RunSystemUpdate::dispatch()->onQueue('default');
         $this->auditService->record('system.update_started', SystemSetting::class, $request->user(), [], null, $request);
+
+        return ApiResponse::success($this->updateStatus->current(), 202);
+    }
+
+    public function developerRunUpdate(Request $request): JsonResponse
+    {
+        $this->developerAccess->authorize($request);
+
+        $currentStatus = $this->updateStatus->current();
+        if (($currentStatus['state'] ?? null) === 'running') {
+            return ApiResponse::error('update_already_running', 'Er draait al een update.', 409);
+        }
+
+        $this->updateStatus->start('Update gestart via developer API.');
+        RunSystemUpdate::dispatch()->onQueue('default');
+        $this->auditService->record('system.update_started_developer_api', SystemSetting::class, null, [], null, $request);
 
         return ApiResponse::success($this->updateStatus->current(), 202);
     }

@@ -6,6 +6,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\AppVersion;
 use App\Models\SystemSetting;
 use App\Services\AuditService;
+use App\Services\DeveloperAccessService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +19,10 @@ use ZipArchive;
 
 final class UpdateController extends Controller
 {
-    public function __construct(private readonly AuditService $auditService) {}
+    public function __construct(
+        private readonly AuditService $auditService,
+        private readonly DeveloperAccessService $developerAccess,
+    ) {}
 
     public function androidCurrent(Request $request): JsonResponse
     {
@@ -85,7 +89,7 @@ final class UpdateController extends Controller
 
     public function developerUploadAndroid(Request $request): JsonResponse
     {
-        $this->authorizeDeveloperUpload($request);
+        $this->developerAccess->authorize($request);
 
         return $this->storeAndroidUpload($request, 'developer_api');
     }
@@ -173,22 +177,6 @@ final class UpdateController extends Controller
         }
 
         return ApiResponse::success($version->refresh(), 201);
-    }
-
-    private function authorizeDeveloperUpload(Request $request): void
-    {
-        $providedKey = (string) $request->header('X-DIS-Developer-Key', '');
-        $setting = SystemSetting::query()->find('developer.android_upload');
-        $value = is_array($setting?->value) ? $setting->value : [];
-        $expectedHash = $value['key_hash'] ?? null;
-
-        if (($value['enabled'] ?? false) !== true || ! is_string($expectedHash) || $expectedHash === '') {
-            abort(403, 'Developer upload is disabled.');
-        }
-
-        if ($providedKey === '' || ! hash_equals($expectedHash, hash('sha256', $providedKey))) {
-            abort(401, 'Invalid developer upload key.');
-        }
     }
 
     /**
