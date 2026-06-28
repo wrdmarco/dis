@@ -30,7 +30,7 @@ const navGroups: NavGroup[] = [
     items: [
       { to: '/incidents', label: 'Actieve meldingen', icon: RadioTower, end: true, permissions: ['incidents.view'] },
       { to: '/incidents/archive', label: 'Archief', icon: Archive, permissions: ['incidents.view'] },
-      { to: '/status', label: 'Status', icon: Workflow, permissions: ['status.view'] },
+      { to: '/operationele-status', label: 'Status', icon: Workflow, permissions: ['status.view'] },
       { to: '/status/audit', label: 'Status audit', icon: FileClock, permissions: ['status.audit.view'] },
       { to: '/proefalarmering', label: 'Proefalarmering', icon: BellRing, permissions: ['dispatch.manage'] },
       { to: '/push', label: 'Pushmeldingen', icon: Send, permissions: ['push.manage'] },

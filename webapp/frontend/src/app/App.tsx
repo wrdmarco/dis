@@ -6,6 +6,7 @@ import { DefaultRoute, PermissionRoute } from '../routes/PermissionRoute';
 
 const LoginPage = lazy(() => import('../features/auth/LoginPage').then((module) => ({ default: module.LoginPage })));
 const AndroidDownloadPage = lazy(() => import('../features/public/AndroidDownloadPage').then((module) => ({ default: module.AndroidDownloadPage })));
+const PublicStatusPage = lazy(() => import('../features/public/PublicStatusPage').then((module) => ({ default: module.PublicStatusPage })));
 const RegisterWizardPage = lazy(() => import('../features/registration/RegisterWizardPage').then((module) => ({ default: module.RegisterWizardPage })));
 const SetupWizardPage = lazy(() => import('../features/setup/SetupWizardPage').then((module) => ({ default: module.SetupWizardPage })));
 const DashboardPage = lazy(() => import('../features/dashboard/DashboardPage').then((module) => ({ default: module.DashboardPage })));
@@ -34,6 +35,7 @@ export function App() {
       <Routes>
         <Route path="/setup" element={<SetupWizardPage />} />
         <Route path="/download" element={<AndroidDownloadPage />} />
+        <Route path="/status" element={<PublicStatusPage />} />
         <Route path="/register" element={<RegisterWizardPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route
@@ -49,7 +51,8 @@ export function App() {
           <Route path="incidents" element={<PermissionRoute permissions={['incidents.view']}><IncidentsPage mode="active" /></PermissionRoute>} />
           <Route path="incidents/archive" element={<PermissionRoute permissions={['incidents.view']}><IncidentsPage mode="archive" /></PermissionRoute>} />
           <Route path="incidents/:incidentId" element={<PermissionRoute permissions={['incidents.view']}><IncidentDetailPage /></PermissionRoute>} />
-          <Route path="status" element={<PermissionRoute permissions={['status.view']}><StatusPage /></PermissionRoute>} />
+          <Route path="operationele-status" element={<PermissionRoute permissions={['status.view']}><StatusPage /></PermissionRoute>} />
+          <Route path="status/operationeel" element={<PermissionRoute permissions={['status.view']}><StatusPage /></PermissionRoute>} />
           <Route path="status/audit" element={<PermissionRoute permissions={['status.audit.view']}><StatusAuditPage /></PermissionRoute>} />
           <Route path="users" element={<PermissionRoute permissions={['users.view']}><UsersPage /></PermissionRoute>} />
           <Route path="teams" element={<PermissionRoute permissions={['teams.manage']}><TeamsPage /></PermissionRoute>} />

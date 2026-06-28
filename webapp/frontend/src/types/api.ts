@@ -257,6 +257,18 @@ export interface StatusAuditEntry {
   created_at?: string | null;
 }
 
+export interface PublicStatusResponse {
+  status: 'ok' | 'degraded' | 'failed';
+  generated_at: string;
+  services: Record<string, {
+    status: 'ok' | 'degraded' | 'failed' | 'unknown';
+    uptime_seconds?: number | null;
+    driver?: string | null;
+    connection?: string | null;
+    store?: string | null;
+  }>;
+}
+
 export interface Asset {
   id: string;
   asset_tag: string;

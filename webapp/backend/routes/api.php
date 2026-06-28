@@ -47,6 +47,7 @@ Route::post('/developer/system/update', [AdminDeveloperController::class, 'devel
 Route::get('/developer/logs', [AdminDeveloperController::class, 'developerLogs'])->middleware('throttle:api');
 Route::get('/developer/logs/{filename}', [AdminDeveloperController::class, 'developerLog'])->where('filename', '[A-Za-z0-9._-]+\.log')->middleware('throttle:api');
 Route::get('/health', [HealthController::class, 'public'])->middleware('throttle:api');
+Route::get('/public/status', [HealthController::class, 'status'])->middleware('throttle:api');
 
 Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(function (): void {
     Route::post('/auth/2fa/verify', [AuthController::class, 'verifyTwoFactor'])->middleware('throttle:two-factor');

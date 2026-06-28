@@ -20,6 +20,37 @@ final class HealthController extends Controller
         ]);
     }
 
+    public function status(): JsonResponse
+    {
+        $services = [
+            'backend' => [
+                'status' => 'ok',
+                'uptime_seconds' => $this->serverUptimeSeconds(),
+            ],
+            'database' => $this->safeCheck(fn (): array => $this->checkDatabase()),
+            'cache' => $this->safeCheck(fn (): array => $this->checkCache()),
+            'storage' => $this->safeCheck(fn (): array => $this->checkStorage()),
+            'queue' => [
+                'status' => 'ok',
+                'driver' => Queue::getDefaultDriver(),
+            ],
+            'websocket' => [
+                'status' => filled(config('broadcasting.default')) ? 'ok' : 'unknown',
+                'driver' => config('broadcasting.default'),
+            ],
+        ];
+
+        $overall = collect($services)->contains(fn (array $service): bool => ($service['status'] ?? null) === 'failed')
+            ? 'degraded'
+            : 'ok';
+
+        return ApiResponse::success([
+            'status' => $overall,
+            'generated_at' => now()->toIso8601String(),
+            'services' => $services,
+        ]);
+    }
+
     public function admin(): JsonResponse
     {
         $checks = [
@@ -102,5 +133,32 @@ final class HealthController extends Controller
         return is_array($credentials)
             && filled($credentials['client_email'] ?? null)
             && filled($credentials['private_key'] ?? null);
+    }
+
+    /**
+     * @param callable(): array<string, mixed> $callback
+     * @return array<string, mixed>
+     */
+    private function safeCheck(callable $callback): array
+    {
+        try {
+            return $callback();
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return ['status' => 'failed'];
+        }
+    }
+
+    private function serverUptimeSeconds(): ?int
+    {
+        $uptime = @file_get_contents('/proc/uptime');
+        if (! is_string($uptime)) {
+            return null;
+        }
+
+        $seconds = (float) (explode(' ', trim($uptime))[0] ?? 0);
+
+        return $seconds > 0 ? (int) floor($seconds) : null;
     }
 }

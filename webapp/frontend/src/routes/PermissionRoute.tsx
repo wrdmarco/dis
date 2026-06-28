@@ -34,7 +34,7 @@ export function DefaultRoute() {
   const target = [
     { to: '/dashboard', permissions: ['incidents.view', 'dispatch.view', 'status.view', 'assets.view'] },
     { to: '/incidents', permissions: ['incidents.view'] },
-    { to: '/status', permissions: ['status.view'] },
+    { to: '/operationele-status', permissions: ['status.view'] },
     { to: '/users', permissions: ['users.view'] },
     { to: '/assets', permissions: ['assets.view'] },
     { to: '/certifications', permissions: ['certifications.view'] },

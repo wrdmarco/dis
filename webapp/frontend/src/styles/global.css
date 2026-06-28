@@ -80,6 +80,73 @@ a:hover {
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
 }
 
+.public-status-panel {
+  width: min(920px, calc(100vw - 32px));
+}
+
+.public-status-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  align-items: center;
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid #223042;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.public-status-summary span {
+  grid-column: 2;
+  color: #8ea0b5;
+  font-size: 0.9rem;
+}
+
+.public-status-summary--ok svg,
+.public-status-card--ok strong {
+  color: #7dd3a7;
+}
+
+.public-status-summary--degraded svg,
+.public-status-card--degraded strong,
+.public-status-card--unknown strong {
+  color: #f8d179;
+}
+
+.public-status-summary--failed svg,
+.public-status-card--failed strong {
+  color: #ff9b9b;
+}
+
+.public-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.public-status-card {
+  display: grid;
+  gap: 6px;
+  min-height: 126px;
+  padding: 14px;
+  border: 1px solid #223042;
+  border-radius: 8px;
+  background: rgba(9, 13, 18, 0.62);
+}
+
+.public-status-card span {
+  color: #8ea0b5;
+  font-size: 0.86rem;
+}
+
+.public-status-card strong {
+  font-size: 1.1rem;
+}
+
+.public-status-card small {
+  color: #b9c7d8;
+}
+
 .setup-panel {
   width: min(980px, calc(100vw - 32px));
   border: 1px solid #223042;
