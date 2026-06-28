@@ -33,6 +33,7 @@ final class IncidentController extends Controller
                 ->with([
                     'coordinator',
                     'team',
+                    'teams',
                     'dispatchRequests' => fn ($dispatches) => $dispatches
                         ->whereIn('status', $activeDispatchStatuses)
                         ->whereHas('recipients', fn ($recipients) => $recipients
@@ -121,7 +122,7 @@ final class IncidentController extends Controller
 
     public function show(Incident $incident): JsonResponse
     {
-        return ApiResponse::success(MobileApiPayload::incident($incident->load(['coordinator', 'team'])));
+        return ApiResponse::success(MobileApiPayload::incident($incident->load(['coordinator', 'team', 'teams'])));
     }
 
     public function update(UpdateIncidentRequest $request, Incident $incident): JsonResponse

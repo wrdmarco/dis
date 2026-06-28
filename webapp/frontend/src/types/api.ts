@@ -120,6 +120,7 @@ export interface Incident {
   drone_flight_context?: DroneFlightContext | null;
   coordinator?: User | null;
   team?: Team | null;
+  teams?: Team[];
   opened_at?: string | null;
   closed_at?: string | null;
   active_dispatch?: {
@@ -200,6 +201,7 @@ export interface DispatchRecipient {
 
 export interface DispatchPreview {
   team: Pick<Team, 'id' | 'code' | 'name'> | null;
+  teams?: Array<Pick<Team, 'id' | 'code' | 'name'>>;
   recipients: Array<Pick<User, 'id' | 'name' | 'email'> & { teams?: Array<Pick<Team, 'id' | 'code' | 'name'>> }>;
   blocked_reason?: string | null;
 }

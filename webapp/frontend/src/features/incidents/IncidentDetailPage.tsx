@@ -261,7 +261,7 @@ export function IncidentDetailPage() {
                 </div>
                 <dl className="incident-meta">
                   <MetaItem icon={<MapPin size={16} />} label="Locatie" value={incident.data.location_label ?? '-'} />
-                  <MetaItem icon={<Users size={16} />} label="Team" value={incident.data.team?.code ? `${incident.data.team.code} - ${incident.data.team.name}` : '-'} />
+                  <MetaItem icon={<Users size={16} />} label="Teams" value={incidentTeamsLabel(incident.data)} />
                   <MetaItem icon={<RadioTower size={16} />} label="Coordinator" value={incident.data.coordinator?.name ?? '-'} />
                   <MetaItem icon={<Clock size={16} />} label="Geopend" value={formatDate(incident.data.opened_at)} />
                   <MetaItem icon={<Clock size={16} />} label="Gesloten" value={formatDate(incident.data.closed_at)} />
@@ -294,8 +294,8 @@ export function IncidentDetailPage() {
             <div className="panel-body">
               <div className="draft-dispatch">
                 <div>
-                  <span>Team</span>
-                  <strong>{preview.data?.team ? `${preview.data.team.code} - ${preview.data.team.name}` : '-'}</strong>
+                  <span>Teams</span>
+                  <strong>{previewTeamsLabel(preview.data)}</strong>
                 </div>
                 <div>
                   <span>Te alarmeren</span>
@@ -587,8 +587,20 @@ function formFromIncident(incident: Incident): IncidentFormState {
     latitude: incident.latitude ?? '',
     longitude: incident.longitude ?? '',
     coordinatorId: incident.coordinator?.id ?? '',
-    teamId: incident.team?.id ?? '',
+    teamIds: incident.teams?.length ? incident.teams.map((team) => team.id) : incident.team?.id ? [incident.team.id] : [],
   };
+}
+
+function incidentTeamsLabel(incident: Incident): string {
+  const teams = incident.teams?.length ? incident.teams : incident.team ? [incident.team] : [];
+
+  return teams.map((team) => `${team.code} - ${team.name}`).join(', ') || '-';
+}
+
+function previewTeamsLabel(preview?: DispatchPreview | null): string {
+  const teams = preview?.teams?.length ? preview.teams : preview?.team ? [preview.team] : [];
+
+  return teams.map((team) => `${team.code} - ${team.name}`).join(', ') || '-';
 }
 
 function SummaryItem({ label, value }: { label: string; value: string }) {

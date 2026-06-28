@@ -70,13 +70,19 @@ final class DispatchService
             return null;
         }
 
-        $dispatch = $this->create($incident, [
-            'priority' => $incident->priority === 'low' ? 'normal' : $incident->priority,
-            'message' => $message ?: $this->defaultDispatchMessage($incident),
-            'target_team_id' => $incident->team_id,
-        ], $actor);
+        $dispatch = null;
+        foreach ($this->targetTeams($incident, []) as $targetTeam) {
+            $created = $this->create($incident, [
+                'priority' => $incident->priority === 'low' ? 'normal' : $incident->priority,
+                'message' => $message ?: $this->defaultDispatchMessage($incident),
+                'target_team_id' => $targetTeam->id,
+            ], $actor);
 
-        return $this->markSent($dispatch, $actor);
+            $sent = $this->markSent($created, $actor);
+            $dispatch ??= $sent;
+        }
+
+        return $dispatch;
     }
 
     /**
@@ -84,24 +90,40 @@ final class DispatchService
      */
     public function previewForIncident(Incident $incident): array
     {
-        $targetTeam = $this->targetTeam($incident, []);
-        if ($targetTeam === null) {
+        $targetTeams = $this->targetTeams($incident, []);
+        if ($targetTeams->isEmpty()) {
             return [
                 'team' => null,
+                'teams' => [],
                 'recipients' => [],
                 'blocked_reason' => 'Er is geen geldig team voor deze melding gekozen.',
             ];
         }
 
-        $eligibility = $this->eligibleUsers($targetTeam);
+        $eligibleUsers = collect();
+        $blockedReasons = [];
+        foreach ($targetTeams as $targetTeam) {
+            $eligibility = $this->eligibleUsers($targetTeam);
+            $eligibleUsers = $eligibleUsers->merge($eligibility['users']);
+            if ($eligibility['users']->isEmpty()) {
+                $blockedReasons[] = $eligibility['message'];
+            }
+        }
+        $eligibleUsers = $eligibleUsers->unique('id')->values();
+        $primaryTeam = $targetTeams->first();
 
         return [
             'team' => [
-                'id' => $targetTeam->id,
-                'code' => $targetTeam->code,
-                'name' => $targetTeam->name,
+                'id' => $primaryTeam->id,
+                'code' => $primaryTeam->code,
+                'name' => $primaryTeam->name,
             ],
-            'recipients' => $eligibility['users']
+            'teams' => $targetTeams->map(fn (Team $team): array => [
+                'id' => $team->id,
+                'code' => $team->code,
+                'name' => $team->name,
+            ])->values()->all(),
+            'recipients' => $eligibleUsers
                 ->map(fn (User $user): array => [
                     'id' => $user->id,
                     'name' => $user->name,
@@ -114,7 +136,7 @@ final class DispatchService
                 ])
                 ->values()
                 ->all(),
-            'blocked_reason' => $eligibility['users']->isEmpty() ? $eligibility['message'] : null,
+            'blocked_reason' => $eligibleUsers->isEmpty() ? implode(' ', array_unique($blockedReasons)) : null,
         ];
     }
 
@@ -294,6 +316,28 @@ final class DispatchService
         }
 
         return Team::query()->where('code', (string) config('dis.teams.base_team_code', 'OCP'))->first();
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return Collection<int, Team>
+     */
+    private function targetTeams(Incident $incident, array $data): Collection
+    {
+        if (isset($data['target_team_id']) || isset($data['team_code'])) {
+            $targetTeam = $this->targetTeam($incident, $data);
+
+            return $targetTeam === null ? collect() : collect([$targetTeam]);
+        }
+
+        $incident->loadMissing('teams');
+        if ($incident->teams->isNotEmpty()) {
+            return $incident->teams->values();
+        }
+
+        $targetTeam = $this->targetTeam($incident, []);
+
+        return $targetTeam === null ? collect() : collect([$targetTeam]);
     }
 
     /**

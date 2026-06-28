@@ -90,7 +90,7 @@ final class MobileApiPayload
      */
     public static function incident(Incident $incident): array
     {
-        $incident->loadMissing(['coordinator', 'team']);
+        $incident->loadMissing(['coordinator', 'team', 'teams']);
 
         return [
             'id' => $incident->id,
@@ -111,6 +111,12 @@ final class MobileApiPayload
                 'name' => $incident->team->name,
                 'type' => $incident->team->type,
             ],
+            'teams' => $incident->teams->map(fn ($team): array => [
+                'id' => $team->id,
+                'code' => $team->code,
+                'name' => $team->name,
+                'type' => $team->type,
+            ])->values(),
             'opened_at' => $incident->opened_at?->toIso8601String(),
             'closed_at' => $incident->closed_at?->toIso8601String(),
         ];

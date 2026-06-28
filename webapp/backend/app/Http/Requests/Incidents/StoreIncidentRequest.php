@@ -23,6 +23,8 @@ final class StoreIncidentRequest extends FormRequest
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'coordinator_id' => ['nullable', 'ulid', 'exists:users,id'],
             'team_id' => ['nullable', 'ulid', 'exists:teams,id'],
+            'team_ids' => ['nullable', 'array'],
+            'team_ids.*' => ['ulid', 'exists:teams,id'],
         ];
     }
 }

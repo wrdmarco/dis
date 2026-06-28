@@ -24,12 +24,17 @@ final class IncidentService
     public function create(array $data, User $actor): Incident
     {
         return DB::transaction(function () use ($data, $actor): Incident {
+            $teamIds = $this->teamIdsFromPayload($data);
+            unset($data['team_ids']);
+            $data['team_id'] = $teamIds[0] ?? null;
+
             $incident = Incident::query()->create($data + [
                 'reference' => $this->nextReference(),
                 'created_by' => $actor->id,
                 'status' => $data['status'] ?? 'draft',
                 'opened_at' => now(),
             ]);
+            $incident->teams()->sync($teamIds);
             $this->refreshDroneFlightContextWhenLocated($incident);
 
             $incident->statusHistory()->create([
@@ -43,7 +48,7 @@ final class IncidentService
             $this->auditService->record('incidents.created', $incident, $actor);
             $this->broadcastIncidentChange($incident, 'created');
 
-            return $incident->load(['coordinator', 'team', 'statusHistory']);
+            return $incident->load(['coordinator', 'team', 'teams', 'statusHistory']);
         });
     }
 
@@ -55,13 +60,21 @@ final class IncidentService
         return DB::transaction(function () use ($incident, $data, $actor): Incident {
             $beforeStatus = $incident->status;
             $statusReason = $data['status_reason'] ?? null;
+            $teamIds = array_key_exists('team_ids', $data) ? $this->teamIdsFromPayload($data) : null;
             unset($data['status_reason']);
+            unset($data['team_ids']);
+            if (is_array($teamIds)) {
+                $data['team_id'] = $teamIds[0] ?? null;
+            }
 
             if (array_key_exists('status', $data)) {
                 $data = $this->applyStatusTimestamps($incident, $data);
             }
 
             $incident->update($data);
+            if (is_array($teamIds)) {
+                $incident->teams()->sync($teamIds);
+            }
             $this->refreshDroneFlightContextWhenLocationChanged($incident, $data);
 
             if (array_key_exists('status', $data) && $data['status'] !== $beforeStatus) {
@@ -86,7 +99,7 @@ final class IncidentService
             $this->auditService->record('incidents.updated', $incident, $actor);
             $this->broadcastIncidentChange($incident->refresh(), 'updated');
 
-            return $incident->load(['coordinator', 'team', 'statusHistory']);
+            return $incident->load(['coordinator', 'team', 'teams', 'statusHistory']);
         });
     }
 
@@ -103,6 +116,24 @@ final class IncidentService
     private function nextReference(): string
     {
         return 'DIS-'.now()->format('Ymd-His').'-'.strtoupper(substr(bin2hex(random_bytes(2)), 0, 4));
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return list<string>
+     */
+    private function teamIdsFromPayload(array $data): array
+    {
+        $teamIds = $data['team_ids'] ?? [];
+        if (! is_array($teamIds)) {
+            $teamIds = [];
+        }
+
+        if (($data['team_id'] ?? null) !== null && $data['team_id'] !== '') {
+            array_unshift($teamIds, (string) $data['team_id']);
+        }
+
+        return array_values(array_unique(array_filter($teamIds, fn (mixed $teamId): bool => is_string($teamId) && $teamId !== '')));
     }
 
     /**

@@ -30,7 +30,7 @@ final class IncidentRepository extends BaseRepository
         $statuses = $this->statusFilter($filters['status'] ?? null);
 
         return Incident::query()
-            ->with(['coordinator', 'team'])
+            ->with(['coordinator', 'team', 'teams'])
             ->where('is_test', false)
             ->when($statuses !== [], fn ($query) => $query->whereIn('status', $statuses))
             ->when($filters['priority'] ?? null, fn ($query, string $priority) => $query->where('priority', $priority))

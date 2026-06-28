@@ -20,7 +20,7 @@ export interface IncidentFormState {
   latitude: string;
   longitude: string;
   coordinatorId: string;
-  teamId: string;
+  teamIds: string[];
 }
 
 const emptyIncidentForm: IncidentFormState = {
@@ -32,7 +32,7 @@ const emptyIncidentForm: IncidentFormState = {
   latitude: '',
   longitude: '',
   coordinatorId: '',
-  teamId: '',
+  teamIds: [],
 };
 
 interface LocationSuggestion {
@@ -187,7 +187,7 @@ function IncidentCard({ incident, mode }: { incident: Incident; mode: IncidentPa
       <strong>{incident.title}</strong>
       <div className="incident-card__meta">
         <MetaLine icon={<MapPin size={15} />} value={incident.location_label ?? 'Geen locatie'} />
-        <MetaLine icon={<Users size={15} />} value={incident.team?.code ? `${incident.team.code} - ${incident.team.name}` : 'Geen team'} />
+        <MetaLine icon={<Users size={15} />} value={incidentTeamsLabel(incident)} />
         <MetaLine icon={<RadioTower size={15} />} value={incident.coordinator?.name ?? 'Geen coordinator'} />
         <MetaLine icon={<Clock size={15} />} value={mode === 'archive' ? `Gesloten: ${formatDate(incident.closed_at)}` : `Geopend: ${formatDate(incident.opened_at)}`} />
       </div>
@@ -375,13 +375,24 @@ export function IncidentForm(props: {
           <option value="cancelled">Geannuleerd</option>
         </select>
       </label>
-      <label className="form-grid__wide">
-        Team
-        <select value={form.teamId} onChange={(event) => updateForm(onChange, 'teamId', event.target.value)}>
-          <option value="">Geen team geselecteerd</option>
-          {teams.map((team) => <option key={team.id} value={team.id}>{team.code} - {team.name}</option>)}
-        </select>
-      </label>
+      <div className="form-grid__wide">
+        <span className="field-label">Teams</span>
+        <div className="checkbox-grid">
+          {teams.map((team) => (
+            <label className="checkbox-card" key={team.id}>
+              <input
+                type="checkbox"
+                checked={form.teamIds.includes(team.id)}
+                onChange={() => toggleTeam(onChange, team.id)}
+              />
+              <span>
+                <strong>{team.code} - {team.name}</strong>
+                <small>{team.type}</small>
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
       <LocationPicker
         form={form}
         suggestions={locationSuggestions}
@@ -720,8 +731,27 @@ export function incidentPayload(form: IncidentFormState): Record<string, unknown
     latitude: coordinatePayload(form.latitude),
     longitude: coordinatePayload(form.longitude),
     coordinator_id: form.coordinatorId === '' ? null : form.coordinatorId,
-    team_id: form.teamId === '' ? null : form.teamId,
+    team_id: form.teamIds[0] ?? null,
+    team_ids: form.teamIds,
   };
+}
+
+function incidentTeamsLabel(incident: Incident): string {
+  const teams = incident.teams?.length ? incident.teams : incident.team ? [incident.team] : [];
+
+  return teams.map((team) => `${team.code} - ${team.name}`).join(', ') || 'Geen team';
+}
+
+function toggleTeam(
+  setForm: (updater: (current: IncidentFormState) => IncidentFormState) => void,
+  teamId: string,
+) {
+  setForm((current) => ({
+    ...current,
+    teamIds: current.teamIds.includes(teamId)
+      ? current.teamIds.filter((candidate) => candidate !== teamId)
+      : [...current.teamIds, teamId],
+  }));
 }
 
 function updateForm<K extends keyof IncidentFormState>(
