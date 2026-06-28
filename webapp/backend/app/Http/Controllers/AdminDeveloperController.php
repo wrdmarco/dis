@@ -318,11 +318,27 @@ final class AdminDeveloperController extends Controller
             $updateArguments[] = '--skip-system';
         }
 
-        $timeout = is_file('/usr/bin/timeout') ? '/usr/bin/timeout' : 'timeout';
         $logPath = storage_path('logs/system-update-runner.log');
+        $script = $this->updateRunnerScript($root, $php, $updateArguments, $logPath, $updateSystem);
+
+        if ($this->startUpdateProcessWithSystemd($updateSystem)) {
+            return true;
+        }
+
+        return $this->startUpdateProcessWithNohup($script);
+    }
+
+    /**
+     * @param list<string> $updateArguments
+     */
+    private function updateRunnerScript(string $root, string $php, array $updateArguments, string $logPath, bool $updateSystem): string
+    {
+        $timeout = is_file('/usr/bin/timeout') ? '/usr/bin/timeout' : 'timeout';
         $updateLine = implode(' ', array_map('escapeshellarg', [$timeout, self::UPDATE_TIMEOUT_SECONDS.'s', ...$updateArguments]));
         $finishLine = escapeshellarg($php).' '.escapeshellarg(base_path('artisan')).' dis:finish-update "${exit_code}"';
-        $script = implode("\n", [
+
+        return implode("\n", [
+            'exec >> '.escapeshellarg($logPath).' 2>&1',
             'cd '.escapeshellarg($root).' || exit 1',
             'echo '.escapeshellarg($updateSystem ? '[dis] Updatecommando gestart met systeemupdates.' : '[dis] Updatecommando gestart zonder systeemupdates.'),
             $updateLine,
@@ -333,7 +349,49 @@ final class AdminDeveloperController extends Controller
             $finishLine.' || true',
             'exit "${exit_code}"',
         ]);
-        $command = 'nohup /bin/bash -lc '.escapeshellarg($script).' >> '.escapeshellarg($logPath).' 2>&1 < /dev/null & echo $!';
+    }
+
+    private function startUpdateProcessWithSystemd(bool $updateSystem): bool
+    {
+        $systemdRun = is_file('/usr/bin/systemd-run') ? '/usr/bin/systemd-run' : (is_file('/bin/systemd-run') ? '/bin/systemd-run' : null);
+        $runner = '/usr/local/bin/dis-update-runner';
+        if ($systemdRun === null || ! is_file($runner)) {
+            return false;
+        }
+
+        $unit = 'dis-update-'.date('YmdHis').'-'.bin2hex(random_bytes(3));
+        $command = [
+            'sudo',
+            '-n',
+            $systemdRun,
+            '--unit='.$unit,
+            '--collect',
+            '--property=Type=simple',
+            '--property=KillMode=process',
+            $runner,
+        ];
+        if (! $updateSystem) {
+            $command[] = '--skip-system';
+        }
+        $result = Process::run($command);
+        if (! $result->successful()) {
+            $message = trim($result->errorOutput()) ?: trim($result->output());
+            if ($message !== '') {
+                $this->updateStatus->append('systemd-run kon update niet starten; fallback wordt geprobeerd: '.$message);
+            }
+
+            return false;
+        }
+
+        $this->updateStatus->append('Update achtergrondproces gestart via systemd unit '.$unit.'.');
+        $this->updateStatus->markSystemdUnitStarted($unit);
+
+        return true;
+    }
+
+    private function startUpdateProcessWithNohup(string $script): bool
+    {
+        $command = 'nohup /bin/bash -lc '.escapeshellarg($script).' < /dev/null & echo $!';
         $descriptorSpec = [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],
@@ -361,6 +419,9 @@ final class AdminDeveloperController extends Controller
         }
 
         $this->updateStatus->append('Update achtergrondproces gestart met PID '.$pid.'.');
+        if (ctype_digit($pid)) {
+            $this->updateStatus->markProcessStarted((int) $pid);
+        }
 
         return true;
     }

@@ -131,6 +131,7 @@ install_update_command() {
 exec bash "${DIS_INSTALL_PATH}/update.sh" "\$@"
 EOF
   run_cmd chmod 0755 /usr/local/bin/update
+  run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/web-update-runner.sh" /usr/local/bin/dis-update-runner
 }
 
 install_update_privileges() {
