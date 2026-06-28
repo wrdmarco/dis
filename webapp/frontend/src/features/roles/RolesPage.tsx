@@ -18,9 +18,10 @@ interface RoleFormState {
 }
 
 export function RolesPage() {
-  const { api } = useAuth();
+  const { api, user } = useAuth();
   const roles = useApiResource<Role[]>('/admin/roles');
   const permissions = useApiResource<Permission[]>('/admin/permissions');
+  const isSystemAdmin = user?.roles?.some((role) => role.name === 'system-administrator') === true;
   const [roleActionId, setRoleActionId] = useState<string | null>(null);
   const [roleForm, setRoleForm] = useState<RoleFormState>(emptyRoleForm());
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
@@ -29,6 +30,11 @@ export function RolesPage() {
   const [roleError, setRoleError] = useState<string | null>(null);
 
   function openCreateModal() {
+    if (!isSystemAdmin) {
+      setRoleError('Alleen system administrators mogen rollen beheren.');
+      return;
+    }
+
     setEditingRoleId(null);
     setRoleError(null);
     setRoleForm(emptyRoleForm());
@@ -36,6 +42,11 @@ export function RolesPage() {
   }
 
   function editRole(role: Role) {
+    if (role.name === 'system-administrator') {
+      setRoleError('De system administrator rol mag niet worden aangepast.');
+      return;
+    }
+
     setEditingRoleId(role.id);
     setRoleError(null);
     setRoleForm({
@@ -127,7 +138,7 @@ export function RolesPage() {
       <Panel
         title="Rollen"
         action={(
-          <button className="primary-button" type="button" onClick={openCreateModal}>
+          <button className="primary-button" type="button" disabled={!isSystemAdmin} title={isSystemAdmin ? 'Rol toevoegen' : 'Alleen system administrators mogen rollen beheren'} onClick={openCreateModal}>
             <Plus size={16} /> Rol toevoegen
           </button>
         )}
@@ -139,12 +150,20 @@ export function RolesPage() {
             <tbody>
               {roles.data?.map((role) => {
                 const userCount = role.users_count ?? 0;
-                const deleteDisabled = roleActionId !== null || role.name === 'system-administrator' || userCount > 0;
-                const deleteTitle = role.name === 'system-administrator'
+                const protectedRole = role.name === 'system-administrator';
+                const deleteDisabled = roleActionId !== null || !isSystemAdmin || protectedRole || userCount > 0;
+                const deleteTitle = !isSystemAdmin
+                  ? 'Alleen system administrators mogen rollen beheren'
+                  : protectedRole
                   ? 'System administrator mag niet worden verwijderd'
                   : userCount > 0
                     ? 'Rol is nog gekoppeld aan gebruikers'
                     : 'Rol verwijderen';
+                const editTitle = !isSystemAdmin
+                  ? 'Alleen system administrators mogen rollen beheren'
+                  : protectedRole
+                    ? 'System administrator mag niet worden aangepast'
+                    : 'Rol bewerken';
 
                 return (
                   <tr key={role.id}>
@@ -155,7 +174,7 @@ export function RolesPage() {
                     <td>{userCount}</td>
                     <td>
                       <div className="table-actions">
-                        <button className="secondary-button" type="button" disabled={roleActionId !== null} onClick={() => editRole(role)}>
+                        <button className="secondary-button" type="button" disabled={roleActionId !== null || !isSystemAdmin || protectedRole} title={editTitle} onClick={() => editRole(role)}>
                           <Pencil size={16} /> Bewerken
                         </button>
                         <button className="danger-button" type="button" disabled={deleteDisabled} title={deleteTitle} onClick={() => setDeletingRole(role)}>

@@ -26,6 +26,10 @@ final class UserService
             $roleIds = $data['role_ids'] ?? [];
             $teamIds = $data['team_ids'] ?? [];
             $sendWelcomeMail = (bool) ($data['send_welcome_mail'] ?? false);
+            if (array_key_exists('role_ids', $data) && is_array($roleIds) && $roleIds !== []) {
+                $this->assertActorCanManageRoles($actor);
+            }
+
             unset($data['role_ids']);
             unset($data['team_ids']);
             unset($data['send_welcome_mail']);
@@ -55,6 +59,11 @@ final class UserService
         return DB::transaction(function () use ($user, $data, $actor): User {
             $roleIds = $data['role_ids'] ?? null;
             $teamIds = $data['team_ids'] ?? null;
+            if (array_key_exists('role_ids', $data)) {
+                $this->assertActorCanManageRoles($actor);
+            }
+            $this->assertSystemAdministratorRemainsActive($user, $data, is_array($roleIds) ? $roleIds : null);
+
             unset($data['role_ids']);
             unset($data['team_ids']);
 
@@ -91,7 +100,7 @@ final class UserService
         DB::transaction(function () use ($user, $actor): void {
             $user->loadMissing('roles');
 
-            if ($user->hasRole('system-administrator') && ! $this->hasOtherActiveSystemAdministrator($user)) {
+            if ($user->hasRole(Role::SYSTEM_ADMINISTRATOR) && ! $this->hasOtherActiveSystemAdministrator($user)) {
                 throw ValidationException::withMessages(['user' => ['De laatste systeembeheerder kan niet worden verwijderd.']]);
             }
 
@@ -116,6 +125,8 @@ final class UserService
 
     public function assignRole(User $user, Role $role, User $actor): void
     {
+        $this->assertActorCanManageRoles($actor);
+
         DB::transaction(function () use ($user, $role, $actor): void {
             $user->roles()->syncWithoutDetaching([$role->id => ['assigned_by' => $actor->id]]);
             $this->auditService->record('users.role_assigned', $user, $actor, ['role' => $role->name]);
@@ -124,7 +135,13 @@ final class UserService
 
     public function removeRole(User $user, Role $role, User $actor): void
     {
+        $this->assertActorCanManageRoles($actor);
+
         DB::transaction(function () use ($user, $role, $actor): void {
+            if ($role->isSystemAdministrator()) {
+                $this->assertCanRemoveSystemAdministratorRole($user);
+            }
+
             $user->roles()->detach($role->id);
             $this->auditService->record('users.role_removed', $user, $actor, ['role' => $role->name]);
         });
@@ -181,6 +198,8 @@ final class UserService
      */
     private function syncRoles(User $user, array $roleIds, User $actor): void
     {
+        $this->assertSystemAdministratorRemainsActive($user, [], $roleIds);
+
         $syncPayload = [];
         foreach (array_values(array_unique($roleIds)) as $roleId) {
             $syncPayload[$roleId] = ['assigned_by' => $actor->id];
@@ -215,7 +234,57 @@ final class UserService
         return User::query()
             ->whereKeyNot($user->getKey())
             ->where('account_status', 'active')
-            ->whereHas('roles', fn ($roles) => $roles->where('name', 'system-administrator'))
+            ->whereHas('roles', fn ($roles) => $roles->where('name', Role::SYSTEM_ADMINISTRATOR))
+            ->exists();
+    }
+
+    private function assertActorCanManageRoles(User $actor): void
+    {
+        if (! $actor->hasRole(Role::SYSTEM_ADMINISTRATOR)) {
+            throw ValidationException::withMessages(['roles' => ['Alleen system administrators mogen rechten aanpassen.']]);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @param array<int, string>|null $roleIds
+     */
+    private function assertSystemAdministratorRemainsActive(User $user, array $data, ?array $roleIds): void
+    {
+        $user->loadMissing('roles');
+        if (! $user->hasRole(Role::SYSTEM_ADMINISTRATOR)) {
+            return;
+        }
+
+        if ($this->hasOtherActiveSystemAdministrator($user)) {
+            return;
+        }
+
+        if (($data['account_status'] ?? $user->account_status) !== 'active') {
+            throw ValidationException::withMessages(['user' => ['De laatste systeembeheerder moet actief blijven.']]);
+        }
+
+        if (is_array($roleIds) && ! $this->roleIdsContainSystemAdministrator($roleIds)) {
+            throw ValidationException::withMessages(['role_ids' => ['De laatste systeembeheerder kan zijn system administrator rol niet verliezen.']]);
+        }
+    }
+
+    private function assertCanRemoveSystemAdministratorRole(User $user): void
+    {
+        $user->loadMissing('roles');
+        if ($user->hasRole(Role::SYSTEM_ADMINISTRATOR) && ! $this->hasOtherActiveSystemAdministrator($user)) {
+            throw ValidationException::withMessages(['role' => ['De laatste systeembeheerder kan zijn system administrator rol niet verliezen.']]);
+        }
+    }
+
+    /**
+     * @param array<int, string> $roleIds
+     */
+    private function roleIdsContainSystemAdministrator(array $roleIds): bool
+    {
+        return Role::query()
+            ->whereIn('id', array_values(array_unique($roleIds)))
+            ->where('name', Role::SYSTEM_ADMINISTRATOR)
             ->exists();
     }
 

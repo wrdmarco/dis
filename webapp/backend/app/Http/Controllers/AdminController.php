@@ -37,6 +37,10 @@ final class AdminController extends Controller
 
     public function storeRole(Request $request): JsonResponse
     {
+        if (! $this->isSystemAdministrator($request)) {
+            return ApiResponse::error('system_admin_required', 'Alleen system administrators mogen rollen beheren.', 403);
+        }
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120', 'unique:roles,name'],
             'display_name' => ['required', 'string', 'max:160'],
@@ -59,6 +63,14 @@ final class AdminController extends Controller
 
     public function updateRole(Request $request, Role $role): JsonResponse
     {
+        if (! $this->isSystemAdministrator($request)) {
+            return ApiResponse::error('system_admin_required', 'Alleen system administrators mogen rollen beheren.', 403);
+        }
+
+        if ($role->isSystemAdministrator()) {
+            return ApiResponse::error('role_protected', 'De system administrator rol mag niet worden aangepast.', 409);
+        }
+
         $data = $request->validate([
             'name' => ['sometimes', 'string', 'max:120', Rule::unique('roles', 'name')->ignore($role->id)],
             'display_name' => ['sometimes', 'string', 'max:160'],
@@ -88,8 +100,12 @@ final class AdminController extends Controller
 
     public function destroyRole(Request $request, Role $role): JsonResponse
     {
-        if ($role->name === 'system-administrator') {
-            return ApiResponse::error('role_protected', 'System administrator mag niet worden verwijderd.', 409);
+        if (! $this->isSystemAdministrator($request)) {
+            return ApiResponse::error('system_admin_required', 'Alleen system administrators mogen rollen beheren.', 403);
+        }
+
+        if ($role->isSystemAdministrator()) {
+            return ApiResponse::error('role_protected', 'De system administrator rol mag niet worden verwijderd.', 409);
         }
 
         $userCount = $role->users()->count();
@@ -105,6 +121,11 @@ final class AdminController extends Controller
         $role->delete();
 
         return ApiResponse::success(null);
+    }
+
+    private function isSystemAdministrator(Request $request): bool
+    {
+        return $request->user()?->hasRole(Role::SYSTEM_ADMINISTRATOR) === true;
     }
 
     public function permissions(): JsonResponse

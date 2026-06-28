@@ -10,6 +10,8 @@ final class Role extends Model
 {
     use UsesUlids;
 
+    public const SYSTEM_ADMINISTRATOR = 'system-administrator';
+
     protected $fillable = ['name', 'display_name', 'description', 'requires_two_factor', 'can_use_operator_app', 'can_use_admin_app'];
 
     protected function casts(): array
@@ -29,5 +31,10 @@ final class Role extends Model
     public function users(): BelongsToMany
     {
         return $this->belongsToMany(User::class)->withPivot(['assigned_by', 'created_at']);
+    }
+
+    public function isSystemAdministrator(): bool
+    {
+        return $this->name === self::SYSTEM_ADMINISTRATOR;
     }
 }
