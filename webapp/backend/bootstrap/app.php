@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withCommands([
         App\Console\Commands\PruneOperationalData::class,
+        App\Console\Commands\RunSystemUpdateCommand::class,
         App\Console\Commands\SystemSelfCheck::class,
     ])
     ->withMiddleware(function (Middleware $middleware): void {

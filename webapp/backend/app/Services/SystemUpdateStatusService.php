@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Events\SystemUpdateStatusChanged;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
 
@@ -10,13 +11,14 @@ final class SystemUpdateStatusService
 {
     private const CACHE_KEY = 'system.update.status';
     private const LOG_LIMIT = 120;
+    private const STALE_AFTER_MINUTES = 5;
 
     /**
      * @return array<string, mixed>
      */
     public function current(): array
     {
-        return Cache::get(self::CACHE_KEY, [
+        $status = Cache::get(self::CACHE_KEY, [
             'state' => 'idle',
             'started_at' => null,
             'finished_at' => null,
@@ -25,6 +27,28 @@ final class SystemUpdateStatusService
             'log' => [],
             'reboot_required' => $this->rebootRequired(),
         ]);
+
+        if (is_array($status) && $this->isStaleRunningStatus($status)) {
+            $log = is_array($status['log'] ?? null) ? $status['log'] : [];
+            $log[] = 'Updateproces reageert niet meer en is automatisch vrijgegeven.';
+            $status['state'] = 'failed';
+            $status['finished_at'] = now()->toIso8601String();
+            $status['exit_code'] = 124;
+            $status['message'] = 'Updateproces reageert niet meer.';
+            $status['log'] = array_slice($log, -self::LOG_LIMIT);
+            $status['reboot_required'] = $this->rebootRequired();
+            $this->store($status);
+        }
+
+        return is_array($status) ? $status : [
+            'state' => 'idle',
+            'started_at' => null,
+            'finished_at' => null,
+            'exit_code' => null,
+            'message' => 'Geen update actief.',
+            'log' => [],
+            'reboot_required' => $this->rebootRequired(),
+        ];
     }
 
     public function start(string $message): void
@@ -84,5 +108,21 @@ final class SystemUpdateStatusService
     private function rebootRequired(): bool
     {
         return is_file('/var/run/reboot-required') || is_file('/run/reboot-required');
+    }
+
+    /**
+     * @param array<string, mixed> $status
+     */
+    private function isStaleRunningStatus(array $status): bool
+    {
+        if (($status['state'] ?? null) !== 'running' || ! is_string($status['started_at'] ?? null)) {
+            return false;
+        }
+
+        try {
+            return Carbon::parse($status['started_at'])->lt(now()->subMinutes(self::STALE_AFTER_MINUTES));
+        } catch (Throwable) {
+            return false;
+        }
     }
 }

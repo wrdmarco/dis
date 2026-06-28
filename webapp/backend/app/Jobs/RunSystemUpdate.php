@@ -11,6 +11,8 @@ final class RunSystemUpdate implements ShouldQueue
     use Queueable;
 
     public int $timeout = 3600;
+    private const PROCESS_TIMEOUT_SECONDS = 2700;
+    private const HEARTBEAT_SECONDS = 15;
 
     public function __construct(public readonly bool $updateSystem = false) {}
 
@@ -30,6 +32,7 @@ final class RunSystemUpdate implements ShouldQueue
         if (! $this->updateSystem) {
             $command[] = '--skip-system';
         }
+        $status->append($this->updateSystem ? 'Updatecommando gestart met systeemupdates.' : 'Updatecommando gestart zonder systeemupdates.');
         $descriptorSpec = [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],
@@ -49,14 +52,29 @@ final class RunSystemUpdate implements ShouldQueue
         stream_set_blocking($pipes[2], false);
 
         $exitCode = 1;
+        $startedAt = time();
+        $lastOutputAt = $startedAt;
         while (true) {
             foreach ([1, 2] as $index) {
                 while (($line = fgets($pipes[$index])) !== false) {
                     $line = trim($line);
                     if ($line !== '') {
+                        $lastOutputAt = time();
                         $status->append($line);
                     }
                 }
+            }
+
+            if (time() - $startedAt > self::PROCESS_TIMEOUT_SECONDS) {
+                $status->append('Updateproces duurde te lang en is afgebroken.');
+                proc_terminate($process);
+                $exitCode = 124;
+                break;
+            }
+
+            if (time() - $lastOutputAt >= self::HEARTBEAT_SECONDS) {
+                $lastOutputAt = time();
+                $status->append('Update draait nog; wachten op uitvoer.');
             }
 
             $processStatus = proc_get_status($process);

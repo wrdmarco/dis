@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiResponse;
-use App\Jobs\RunSystemUpdate;
 use App\Models\SystemSetting;
 use App\Services\AuditService;
 use App\Services\DeveloperAccessService;
@@ -11,6 +10,7 @@ use App\Services\SystemUpdateStatusService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Process;
+use Symfony\Component\Process\PhpExecutableFinder;
 
 final class AdminDeveloperController extends Controller
 {
@@ -92,7 +92,12 @@ final class AdminDeveloperController extends Controller
 
         $updateSystem = $request->boolean('update_system');
         $this->updateStatus->start($updateSystem ? 'Systeem- en app-update gestart vanuit admin.' : 'App-update gestart vanuit admin.');
-        RunSystemUpdate::dispatch($updateSystem)->onQueue('default');
+        if (! $this->startUpdateProcess($updateSystem)) {
+            $this->updateStatus->append('Updateproces kon niet als achtergrondproces worden gestart.');
+            $this->updateStatus->finish(1);
+
+            return ApiResponse::error('update_start_failed', 'Updateproces kon niet worden gestart.', 500);
+        }
         $this->auditService->record('system.update_started', SystemSetting::class, $request->user(), ['update_system' => $updateSystem], null, $request);
 
         return ApiResponse::success($this->updateStatus->current(), 202);
@@ -122,7 +127,12 @@ final class AdminDeveloperController extends Controller
 
         $updateSystem = $request->boolean('update_system');
         $this->updateStatus->start($updateSystem ? 'Systeem- en app-update gestart via developer API.' : 'App-update gestart via developer API.');
-        RunSystemUpdate::dispatch($updateSystem)->onQueue('default');
+        if (! $this->startUpdateProcess($updateSystem)) {
+            $this->updateStatus->append('Updateproces kon niet als achtergrondproces worden gestart.');
+            $this->updateStatus->finish(1);
+
+            return ApiResponse::error('update_start_failed', 'Updateproces kon niet worden gestart.', 500);
+        }
         $this->auditService->record('system.update_started_developer_api', SystemSetting::class, null, [], null, $request);
 
         return ApiResponse::success($this->updateStatus->current(), 202);
@@ -287,6 +297,55 @@ final class AdminDeveloperController extends Controller
     private function rebootRequired(): bool
     {
         return is_file('/var/run/reboot-required') || is_file('/run/reboot-required');
+    }
+
+    private function startUpdateProcess(bool $updateSystem): bool
+    {
+        $php = (new PhpExecutableFinder())->find() ?: PHP_BINARY;
+        if (! is_string($php) || $php === '') {
+            $php = '/usr/bin/php';
+        }
+
+        $arguments = [
+            escapeshellarg($php),
+            escapeshellarg(base_path('artisan')),
+            'dis:run-update',
+        ];
+        if ($updateSystem) {
+            $arguments[] = '--system';
+        }
+
+        $logPath = storage_path('logs/system-update-runner.log');
+        $command = 'nohup '.implode(' ', $arguments).' >> '.escapeshellarg($logPath).' 2>&1 & echo $!';
+        $descriptorSpec = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+
+        $process = proc_open(['/bin/sh', '-c', $command], $descriptorSpec, $pipes, base_path());
+        if (! is_resource($process)) {
+            return false;
+        }
+
+        fclose($pipes[0]);
+        $pid = trim(stream_get_contents($pipes[1]) ?: '');
+        $error = trim(stream_get_contents($pipes[2]) ?: '');
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $exitCode = proc_close($process);
+
+        if ($exitCode !== 0 || $pid === '') {
+            if ($error !== '') {
+                $this->updateStatus->append($error);
+            }
+
+            return false;
+        }
+
+        $this->updateStatus->append('Update achtergrondproces gestart met PID '.$pid.'.');
+
+        return true;
     }
 
     private function tailFile(string $path, int $maxBytes): string
