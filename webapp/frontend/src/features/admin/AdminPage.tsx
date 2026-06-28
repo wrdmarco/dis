@@ -579,69 +579,73 @@ export function AdminPage() {
             </label>
           </div>
 
-          <div className="settings-group">
-            <h3>Entra app voor mail</h3>
-            <div className="metadata-example">
-              <strong>Vereist in Entra</strong>
-              <pre>Microsoft Graph: Mail.Send als Application permission met admin consent.</pre>
+          {managedForm.mailMailer === 'microsoft365' ? (
+            <div className="settings-group">
+              <h3>Entra app voor mail</h3>
+              <div className="metadata-example">
+                <strong>Vereist in Entra</strong>
+                <pre>Microsoft Graph: Mail.Send als Application permission met admin consent.</pre>
+              </div>
+              <dl className="definition-grid">
+                <dt>Client secret</dt>
+                <dd>{isMicrosoft365ClientSecretConfigured(settings.data ?? []) ? 'Ingesteld' : 'Niet ingesteld'}</dd>
+                <dt>Token endpoint</dt>
+                <dd className="mono">https://login.microsoftonline.com/&lt;tenant&gt;/oauth2/v2.0/token</dd>
+                <dt>Graph actie</dt>
+                <dd className="mono">POST /users/&lt;mailbox&gt;/sendMail</dd>
+              </dl>
+              <div className="form-grid">
+                <label>
+                  Tenant id
+                  <input value={managedForm.mailMicrosoft365TenantId} onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365TenantId: event.target.value }))} />
+                </label>
+                <label>
+                  Application client id
+                  <input value={managedForm.mailMicrosoft365ClientId} onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365ClientId: event.target.value }))} />
+                </label>
+                <label>
+                  Client secret
+                  <input type="password" value={managedForm.mailMicrosoft365ClientSecret} placeholder="Ongewijzigd laten" onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365ClientSecret: event.target.value }))} />
+                </label>
+                <label>
+                  Afzender mailbox
+                  <input type="email" value={managedForm.mailMicrosoft365Sender} onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365Sender: event.target.value }))} />
+                </label>
+              </div>
             </div>
-            <dl className="definition-grid">
-              <dt>Client secret</dt>
-              <dd>{isMicrosoft365ClientSecretConfigured(settings.data ?? []) ? 'Ingesteld' : 'Niet ingesteld'}</dd>
-              <dt>Token endpoint</dt>
-              <dd className="mono">https://login.microsoftonline.com/&lt;tenant&gt;/oauth2/v2.0/token</dd>
-              <dt>Graph actie</dt>
-              <dd className="mono">POST /users/&lt;mailbox&gt;/sendMail</dd>
-            </dl>
-            <div className="form-grid">
-              <label>
-                Tenant id
-                <input value={managedForm.mailMicrosoft365TenantId} onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365TenantId: event.target.value }))} />
-              </label>
-              <label>
-                Application client id
-                <input value={managedForm.mailMicrosoft365ClientId} onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365ClientId: event.target.value }))} />
-              </label>
-              <label>
-                Client secret
-                <input type="password" value={managedForm.mailMicrosoft365ClientSecret} placeholder="Ongewijzigd laten" onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365ClientSecret: event.target.value }))} />
-              </label>
-              <label>
-                Afzender mailbox
-                <input type="email" value={managedForm.mailMicrosoft365Sender} onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365Sender: event.target.value }))} />
-              </label>
-            </div>
-          </div>
+          ) : null}
 
-          <div className="settings-group">
-            <h3>SMTP fallback</h3>
-            <div className="form-grid">
-            <label>
-              SMTP host
-              <input value={managedForm.mailHost} onChange={(event) => setManagedForm((current) => ({ ...current, mailHost: event.target.value }))} />
-            </label>
-            <label>
-              SMTP poort
-              <input type="number" min="1" value={managedForm.mailPort} onChange={(event) => setManagedForm((current) => ({ ...current, mailPort: event.target.value }))} />
-            </label>
-            <label>
-              SMTP encryptie
-              <select value={managedForm.mailEncryption} onChange={(event) => setManagedForm((current) => ({ ...current, mailEncryption: event.target.value }))}>
-                <option value="">Geen</option>
-                <option value="tls">TLS</option>
-                <option value="ssl">SSL</option>
-              </select>
-            </label>
-            <label>
-              SMTP gebruiker
-              <input value={managedForm.mailUsername} onChange={(event) => setManagedForm((current) => ({ ...current, mailUsername: event.target.value }))} />
-            </label>
-            <label>
-              SMTP wachtwoord
-              <input type="password" value={managedForm.mailPassword} placeholder="Ongewijzigd laten" onChange={(event) => setManagedForm((current) => ({ ...current, mailPassword: event.target.value }))} />
-            </label>
+          {managedForm.mailMailer === 'smtp' ? (
+            <div className="settings-group">
+              <h3>SMTP</h3>
+              <div className="form-grid">
+                <label>
+                  SMTP host
+                  <input value={managedForm.mailHost} onChange={(event) => setManagedForm((current) => ({ ...current, mailHost: event.target.value }))} />
+                </label>
+                <label>
+                  SMTP poort
+                  <input type="number" min="1" value={managedForm.mailPort} onChange={(event) => setManagedForm((current) => ({ ...current, mailPort: event.target.value }))} />
+                </label>
+                <label>
+                  SMTP encryptie
+                  <select value={managedForm.mailEncryption} onChange={(event) => setManagedForm((current) => ({ ...current, mailEncryption: event.target.value }))}>
+                    <option value="">Geen</option>
+                    <option value="tls">TLS</option>
+                    <option value="ssl">SSL</option>
+                  </select>
+                </label>
+                <label>
+                  SMTP gebruiker
+                  <input value={managedForm.mailUsername} onChange={(event) => setManagedForm((current) => ({ ...current, mailUsername: event.target.value }))} />
+                </label>
+                <label>
+                  SMTP wachtwoord
+                  <input type="password" value={managedForm.mailPassword} placeholder="Ongewijzigd laten" onChange={(event) => setManagedForm((current) => ({ ...current, mailPassword: event.target.value }))} />
+                </label>
+              </div>
             </div>
-          </div>
+          ) : null}
           {managedError ? <p className="error-text">{managedError}</p> : null}
           {managedMessage ? <p className="form-note">{managedMessage}</p> : null}
           <div className="actions-row">
