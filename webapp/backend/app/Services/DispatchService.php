@@ -504,15 +504,16 @@ final class DispatchService
 
     private function notificationBody(DispatchRequest $dispatch, ?string $prefix = null): string
     {
-        $incident = $dispatch->incident;
-        $parts = array_values(array_filter([
-            $prefix,
-            $dispatch->message,
-            $incident?->reference,
-            $incident?->title,
-            $incident?->location_label,
-        ], fn (?string $part): bool => filled($part)));
+        $message = trim((string) $dispatch->message);
+        if ($message === '' && $dispatch->incident !== null) {
+            $message = $this->defaultDispatchMessage($dispatch->incident);
+        }
 
-        return implode(' - ', $parts);
+        $prefix = trim((string) $prefix);
+        if ($prefix === '') {
+            return $message;
+        }
+
+        return $message === '' ? $prefix : "$prefix - $message";
     }
 }
