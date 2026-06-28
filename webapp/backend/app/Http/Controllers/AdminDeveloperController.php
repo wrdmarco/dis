@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Process;
 final class AdminDeveloperController extends Controller
 {
     private const ACCESS_KEY = 'developer.android_upload';
+    private const GIT_REMOTE_URL = 'https://github.com/wrdmarco/dis.git';
+    private const GIT_BRANCH = 'main';
 
     public function __construct(
         private readonly AuditService $auditService,
@@ -123,6 +125,9 @@ final class AdminDeveloperController extends Controller
         $errors = [];
         $current = $this->runGit($root, ['rev-parse', 'HEAD']);
         $branch = $this->runGit($root, ['rev-parse', '--abbrev-ref', 'HEAD']);
+        if ($current !== null) {
+            $this->ensureGitRemote($root);
+        }
         $upstream = $this->runGit($root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
         $fetchSuccessful = $current !== null ? $this->runGit($root, ['fetch', '--prune']) !== null : null;
 
@@ -137,6 +142,10 @@ final class AdminDeveloperController extends Controller
             }
         }
 
+        if ($upstream === null && $this->runGit($root, ['rev-parse', '--verify', 'origin/'.self::GIT_BRANCH]) !== null) {
+            $upstream = 'origin/'.self::GIT_BRANCH;
+        }
+
         $latest = null;
         $behind = null;
         if ($upstream !== null) {
@@ -148,8 +157,6 @@ final class AdminDeveloperController extends Controller
             } else {
                 $errors[] = 'Git achterstand kon niet worden berekend.';
             }
-        } else {
-            $errors[] = 'Geen Git upstream of origin branch gevonden.';
         }
 
         return [
@@ -178,5 +185,36 @@ final class AdminDeveloperController extends Controller
         $output = trim($result->output());
 
         return $output === '' ? null : $output;
+    }
+
+    private function ensureGitRemote(string $root): void
+    {
+        if (! is_dir($root.'/.git')) {
+            return;
+        }
+
+        if ($this->runGit($root, ['remote', 'get-url', 'origin']) === null) {
+            $this->runGit($root, ['remote', 'add', 'origin', self::GIT_REMOTE_URL]);
+        }
+
+        $remoteBranch = self::GIT_BRANCH.':refs/remotes/origin/'.self::GIT_BRANCH;
+        if ($this->runGit($root, ['fetch', '--prune', 'origin', $remoteBranch]) === null) {
+            $this->runGit($root, ['remote', 'remove', 'origin']);
+            $this->runGit($root, ['remote', 'add', 'origin', self::GIT_REMOTE_URL]);
+            $this->runGit($root, ['fetch', '--prune', 'origin', $remoteBranch]);
+        }
+
+        $branch = $this->runGit($root, ['rev-parse', '--abbrev-ref', 'HEAD']);
+        if ($branch === null || $branch === 'HEAD') {
+            return;
+        }
+
+        $targetUpstream = $this->runGit($root, ['rev-parse', '--verify', 'origin/'.$branch]) !== null
+            ? 'origin/'.$branch
+            : 'origin/'.self::GIT_BRANCH;
+
+        if ($this->runGit($root, ['rev-parse', '--verify', $targetUpstream]) !== null) {
+            $this->runGit($root, ['branch', '--set-upstream-to='.$targetUpstream, $branch]);
+        }
     }
 }
