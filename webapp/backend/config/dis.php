@@ -18,6 +18,13 @@ return [
         'notam_url' => env('DRONE_NOTAM_URL', 'https://www.lvnl.nl/informatie-voor-luchtvarenden/notam'),
         'weather_provider' => 'Open-Meteo',
     ],
+    'geocoding' => [
+        'enabled' => filter_var(env('GEOCODING_ENABLED', true), FILTER_VALIDATE_BOOL),
+        'provider' => env('GEOCODING_PROVIDER', 'nominatim'),
+        'nominatim_url' => env('GEOCODING_NOMINATIM_URL', 'https://nominatim.openstreetmap.org/search'),
+        'user_agent' => env('GEOCODING_USER_AGENT'),
+        'country_codes' => env('GEOCODING_COUNTRY_CODES', 'nl,be,de'),
+    ],
     'updates' => [
         'android_application_id' => env('ANDROID_APPLICATION_ID', 'nl.wrdmarco.dis'),
     ],

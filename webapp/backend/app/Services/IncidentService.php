@@ -14,6 +14,7 @@ final class IncidentService
         private readonly AuditService $auditService,
         private readonly DroneFlightContextService $droneFlightContextService,
         private readonly DispatchService $dispatchService,
+        private readonly GeocodingService $geocodingService,
         private readonly LocationService $locationService,
         private readonly StatusService $statusService,
     ) {}
@@ -24,6 +25,7 @@ final class IncidentService
     public function create(array $data, User $actor): Incident
     {
         return DB::transaction(function () use ($data, $actor): Incident {
+            $data = $this->resolveLocationCoordinates($data);
             $teamIds = $this->teamIdsFromPayload($data);
             unset($data['team_ids']);
             $data['team_id'] = $teamIds[0] ?? null;
@@ -60,6 +62,7 @@ final class IncidentService
         return DB::transaction(function () use ($incident, $data, $actor): Incident {
             $beforeStatus = $incident->status;
             $statusReason = $data['status_reason'] ?? null;
+            $data = $this->resolveLocationCoordinates($data, $incident);
             $teamIds = array_key_exists('team_ids', $data) ? $this->teamIdsFromPayload($data) : null;
             unset($data['status_reason']);
             unset($data['team_ids']);
@@ -169,6 +172,60 @@ final class IncidentService
         }
 
         $this->refreshDroneFlightContextWhenLocated($incident);
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function resolveLocationCoordinates(array $data, ?Incident $incident = null): array
+    {
+        if (! array_key_exists('location_label', $data)) {
+            return $data;
+        }
+
+        if ($this->hasCoordinatePair($data['latitude'] ?? null, $data['longitude'] ?? null)) {
+            return $data;
+        }
+
+        $locationLabel = trim((string) ($data['location_label'] ?? ''));
+        if ($locationLabel === '') {
+            $data['latitude'] = null;
+            $data['longitude'] = null;
+
+            return $data;
+        }
+
+        $coordinates = $this->geocodingService->coordinatesFor($locationLabel);
+        if ($coordinates !== null) {
+            $data['latitude'] = $coordinates['latitude'];
+            $data['longitude'] = $coordinates['longitude'];
+
+            return $data;
+        }
+
+        if ($incident !== null && trim((string) $incident->location_label) !== $locationLabel) {
+            $data['latitude'] = null;
+            $data['longitude'] = null;
+        }
+
+        return $data;
+    }
+
+    private function hasCoordinatePair(mixed $latitude, mixed $longitude): bool
+    {
+        return $this->validCoordinate($latitude, -90, 90) && $this->validCoordinate($longitude, -180, 180);
+    }
+
+    private function validCoordinate(mixed $value, float $minimum, float $maximum): bool
+    {
+        if ($value === null || $value === '' || ! is_numeric($value)) {
+            return false;
+        }
+
+        $coordinate = (float) $value;
+
+        return is_finite($coordinate) && $coordinate >= $minimum && $coordinate <= $maximum;
     }
 
     private function refreshDroneFlightContextWhenLocated(Incident $incident): void
