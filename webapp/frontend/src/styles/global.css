@@ -448,11 +448,17 @@ a:hover {
   cursor: progress;
 }
 
+.download-channel-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+}
+
 .download-card {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
-  margin-top: 14px;
+  margin-top: 0;
 }
 
 .download-card > div {
@@ -475,6 +481,11 @@ a:hover {
 }
 
 .download-card__hash {
+  grid-column: 1 / -1;
+}
+
+.download-card > .primary-button,
+.download-card > .secondary-button {
   grid-column: 1 / -1;
 }
 

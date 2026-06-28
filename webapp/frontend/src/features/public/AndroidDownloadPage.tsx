@@ -10,8 +10,18 @@ interface AndroidUpdatePolicy {
   latest: AppVersion | null;
 }
 
+type Channel = {
+  key: string;
+  title: string;
+  applicationId?: string;
+  latest: AppVersion | null;
+};
+
 export function AndroidDownloadPage() {
-  const [latest, setLatest] = useState<AppVersion | null>(null);
+  const [channels, setChannels] = useState<Channel[]>([
+    { key: 'operator', title: 'Operator app', latest: null },
+    { key: 'admin', title: 'Admin app', applicationId: 'nl.wrdmarco.dis.admin', latest: null },
+  ]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,18 +32,12 @@ export function AndroidDownloadPage() {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`${apiBaseUrl}/updates/android/current?version_code=0`, {
-          headers: { Accept: 'application/json' },
-        });
-        const payload = (await response.json()) as ApiResponse<AndroidUpdatePolicy>;
+        const nextChannels = await Promise.all([
+          loadChannel('operator', 'Operator app'),
+          loadChannel('admin', 'Admin app', 'nl.wrdmarco.dis.admin'),
+        ]);
 
-        if (!response.ok) {
-          throw new Error('APK informatie kon niet worden geladen.');
-        }
-
-        if (!cancelled) {
-          setLatest(payload.data.latest);
-        }
+        if (!cancelled) setChannels(nextChannels);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'APK informatie kon niet worden geladen.');
@@ -52,7 +56,6 @@ export function AndroidDownloadPage() {
     };
   }, []);
 
-  const canDownload = latest?.download_url;
   const setupUrl = window.location.origin;
 
   return (
@@ -67,36 +70,19 @@ export function AndroidDownloadPage() {
         {loading ? <p className="public-download-panel__status">APK informatie laden...</p> : null}
         {error ? <p className="form-error">{error}</p> : null}
 
-        {!loading && !error && latest ? (
-          <div className="download-card">
-            <div>
-              <span>Laatste versie</span>
-              <strong>{latest.version_name}</strong>
-            </div>
-            <div>
-              <span>Version code</span>
-              <strong>{latest.version_code}</strong>
-            </div>
-            <div>
-              <span>Status</span>
-              <strong>{latest.status}</strong>
-            </div>
-            <div className="download-card__hash">
-              <span>SHA-256</span>
-              <code>{latest.artifact_sha256 ?? '-'}</code>
-            </div>
+        {!loading && !error ? (
+          <div className="download-channel-list">
+            {channels.map((channel) => (
+              <DownloadChannelCard key={channel.key} channel={channel} />
+            ))}
           </div>
         ) : null}
 
-        {!loading && !error && !latest ? (
+        {!loading && !error && channels.every((channel) => channel.latest === null) ? (
           <p className="public-download-panel__status">Er is nog geen Android APK gepubliceerd.</p>
         ) : null}
 
         <div className="public-download-panel__actions">
-          <a className={`primary-button ${canDownload ? '' : 'primary-button--disabled'}`} href={canDownload || undefined}>
-            <Download aria-hidden size={18} />
-            APK downloaden
-          </a>
           <Link className="secondary-button" to="/login">
             Command Center
           </Link>
@@ -117,5 +103,58 @@ export function AndroidDownloadPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+async function loadChannel(key: string, title: string, applicationId?: string): Promise<Channel> {
+  const params = new URLSearchParams({ version_code: '0' });
+  if (applicationId) params.set('application_id', applicationId);
+
+  const response = await fetch(`${apiBaseUrl}/updates/android/current?${params.toString()}`, {
+    headers: { Accept: 'application/json' },
+  });
+  const payload = (await response.json()) as ApiResponse<AndroidUpdatePolicy>;
+
+  if (!response.ok) {
+    throw new Error('APK informatie kon niet worden geladen.');
+  }
+
+  return { key, title, applicationId, latest: payload.data.latest };
+}
+
+function DownloadChannelCard({ channel }: { channel: Channel }) {
+  const latest = channel.latest;
+  const canDownload = latest?.download_url;
+
+  return (
+    <div className="download-card">
+      <div>
+        <span>App</span>
+        <strong>{channel.title}</strong>
+      </div>
+      <div>
+        <span>Laatste versie</span>
+        <strong>{latest?.version_name ?? '-'}</strong>
+      </div>
+      <div>
+        <span>Version code</span>
+        <strong>{latest?.version_code ?? '-'}</strong>
+      </div>
+      <div>
+        <span>Status</span>
+        <strong>{latest?.status ?? 'niet gepubliceerd'}</strong>
+      </div>
+      <div className="download-card__hash">
+        <span>SHA-256</span>
+        <code>{latest?.artifact_sha256 ?? '-'}</code>
+      </div>
+      <a className={`primary-button ${canDownload ? '' : 'primary-button--disabled'}`} href={canDownload || undefined}>
+        <Download aria-hidden size={18} />
+        {channel.title} downloaden
+      </a>
+      {latest && !canDownload ? (
+        <p className="public-download-panel__status">Deze versie is geregistreerd, maar het APK-bestand ontbreekt nog.</p>
+      ) : null}
+    </div>
   );
 }
