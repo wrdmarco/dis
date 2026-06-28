@@ -14,6 +14,7 @@ interface TestAlertSchedule {
   enabled: boolean;
   day_of_week: number;
   time: string;
+  message: string;
   last_run_at: string | null;
 }
 
@@ -27,6 +28,8 @@ const weekDays = [
   { value: '7', label: 'Zondag' },
 ];
 
+const defaultTestAlertMessage = 'Bevestig deze proefalarmering met Ontvangen.';
+
 export function TestAlertPage() {
   const { api } = useAuth();
   const testAlert = useApiResource<DispatchRequest>('/test-alert');
@@ -37,7 +40,7 @@ export function TestAlertPage() {
   const [error, setError] = useState<string | null>(null);
   const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
-  const [scheduleForm, setScheduleForm] = useState({ enabled: false, dayOfWeek: '1', time: '09:00' });
+  const [scheduleForm, setScheduleForm] = useState({ enabled: false, dayOfWeek: '1', time: '09:00', message: defaultTestAlertMessage });
 
   useEffect(() => {
     if (schedule.data === null) {
@@ -48,6 +51,7 @@ export function TestAlertPage() {
       enabled: schedule.data.enabled,
       dayOfWeek: String(schedule.data.day_of_week),
       time: schedule.data.time,
+      message: schedule.data.message,
     });
   }, [schedule.data]);
 
@@ -78,6 +82,7 @@ export function TestAlertPage() {
         enabled: scheduleForm.enabled,
         day_of_week: Number(scheduleForm.dayOfWeek),
         time: scheduleForm.time,
+        message: scheduleForm.message,
       });
       setScheduleMessage('Planning opgeslagen.');
       await schedule.reload();
@@ -135,6 +140,16 @@ export function TestAlertPage() {
             <label>
               Tijd
               <input type="time" value={scheduleForm.time} onChange={(event) => setScheduleForm((current) => ({ ...current, time: event.target.value }))} />
+            </label>
+            <label className="form-grid__wide">
+              Tekst
+              <textarea
+                maxLength={240}
+                required
+                rows={3}
+                value={scheduleForm.message}
+                onChange={(event) => setScheduleForm((current) => ({ ...current, message: event.target.value }))}
+              />
             </label>
             <div className="form-grid__wide">
               <span className="field-label">Laatste automatische uitvoering</span>

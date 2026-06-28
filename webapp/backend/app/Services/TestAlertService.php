@@ -14,6 +14,8 @@ use Illuminate\Validation\ValidationException;
 
 final class TestAlertService
 {
+    private const DEFAULT_MESSAGE = 'Bevestig deze proefalarmering met Ontvangen.';
+
     public function __construct(
         private readonly AuditService $auditService,
         private readonly DispatchService $dispatchService,
@@ -30,12 +32,13 @@ final class TestAlertService
         }
 
         return DB::transaction(function () use ($actor): DispatchRequest {
+            $message = $this->message();
             $this->expirePreviousTestAlerts($actor);
 
             $incident = Incident::query()->create([
                 'reference' => $this->nextReference(),
                 'title' => 'Proefalarmering',
-                'description' => 'Automatische proefalarmering voor controle van pushmelding en opkomstknoppen.',
+                'description' => $message,
                 'priority' => 'normal',
                 'status' => 'active',
                 'is_test' => true,
@@ -50,7 +53,7 @@ final class TestAlertService
                 'target_team_id' => null,
                 'status' => 'sent',
                 'priority' => 'normal',
-                'message' => 'Proefalarmering D.I.S - bevestig ontvangst.',
+                'message' => $message,
                 'sent_at' => now(),
             ]);
 
@@ -66,7 +69,7 @@ final class TestAlertService
                     (string) $token->id,
                     'dispatch_request',
                     'D.I.S proefalarmering',
-                    'Bevestig deze proefalarmering met Ontvangen.',
+                    $message,
                     [
                         'type' => 'dispatch_request',
                         'action_mode' => 'test_ack',
@@ -124,7 +127,7 @@ final class TestAlertService
     }
 
     /**
-     * @return array{enabled: bool, day_of_week: int, time: string, last_run_at: string|null}
+     * @return array{enabled: bool, day_of_week: int, time: string, message: string, last_run_at: string|null}
      */
     public function schedule(): array
     {
@@ -132,20 +135,23 @@ final class TestAlertService
             'enabled' => SystemSetting::boolean('test_alert.schedule_enabled', false),
             'day_of_week' => SystemSetting::integer('test_alert.schedule_day_of_week', 1),
             'time' => SystemSetting::string('test_alert.schedule_time', '09:00') ?? '09:00',
+            'message' => $this->message(),
             'last_run_at' => SystemSetting::string('test_alert.schedule_last_run_at'),
         ];
     }
 
     /**
-     * @param array{enabled: bool, day_of_week: int, time: string} $data
-     * @return array{enabled: bool, day_of_week: int, time: string, last_run_at: string|null}
+     * @param array{enabled: bool, day_of_week: int, time: string, message: string} $data
+     * @return array{enabled: bool, day_of_week: int, time: string, message: string, last_run_at: string|null}
      */
     public function updateSchedule(array $data, string|null $updatedBy): array
     {
+        $message = trim($data['message']);
         $settings = [
             'test_alert.schedule_enabled' => (bool) $data['enabled'],
             'test_alert.schedule_day_of_week' => (int) $data['day_of_week'],
             'test_alert.schedule_time' => $data['time'],
+            'test_alert.message' => $message !== '' ? $message : self::DEFAULT_MESSAGE,
         ];
 
         foreach ($settings as $key => $value) {
@@ -160,6 +166,11 @@ final class TestAlertService
         }
 
         return $this->schedule();
+    }
+
+    private function message(): string
+    {
+        return SystemSetting::string('test_alert.message', self::DEFAULT_MESSAGE) ?? self::DEFAULT_MESSAGE;
     }
 
     private function scheduleDue(): bool
