@@ -133,6 +133,19 @@ EOF
   run_cmd chmod 0755 /usr/local/bin/update
 }
 
+install_update_privileges() {
+  local sudoers_source
+  sudoers_source="${DIS_INSTALL_PATH}/infrastructure/sudoers/dis-update"
+
+  if [ ! -f "${sudoers_source}" ]; then
+    return
+  fi
+
+  log "Installing update sudo privileges"
+  run_cmd install -m 0440 "${sudoers_source}" /etc/sudoers.d/dis-update
+  run_cmd visudo -cf /etc/sudoers.d/dis-update
+}
+
 clear_application_caches() {
   local backend_dir frontend_dir
   backend_dir="${DIS_INSTALL_PATH}/webapp/backend"
@@ -297,6 +310,8 @@ fi
 
 if [ "${SYSTEM_UPDATES_AVAILABLE}" = "0" ] && [ "${APP_UPDATES_AVAILABLE}" = "0" ]; then
   log "No updates available. Nothing to do."
+  install_update_command
+  install_update_privileges
   clear_application_caches
   exit 0
 fi
@@ -329,8 +344,11 @@ if [ "${UPDATE_APP}" = "1" ]; then
     log "Deploying updated DIS application"
     APP_ROOT="${DIS_INSTALL_PATH}" NGINX_SOURCE="${nginx_source}" SKIP_DEPLOY_CACHE_CLEAR=1 bash "${SCRIPT_DIR}/deploy.sh"
     install_update_command
+    install_update_privileges
   else
     log "Skipping DIS application deploy."
+    install_update_command
+    install_update_privileges
   fi
 fi
 
