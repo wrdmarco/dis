@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Archive, BarChart3, Bell, BellRing, Boxes, ClipboardCheck, Gauge, KeyRound, LogOut, Network, RadioTower, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, ClipboardCheck, Gauge, KeyRound, LogOut, Network, RadioTower, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
 import { useAuth } from '../features/auth/AuthContext';
 
 const navItems = [
@@ -11,6 +11,7 @@ const navItems = [
   { to: '/teams', label: 'Teams', icon: Network },
   { to: '/assets', label: 'Assets', icon: Boxes },
   { to: '/certifications', label: 'Certificaten', icon: ClipboardCheck },
+  { to: '/verloop', label: 'Verloop', icon: CalendarClock },
   { to: '/updates', label: 'Updates', icon: Smartphone },
   { to: '/push', label: 'Pushmeldingen', icon: Send },
   { to: '/reports', label: 'Statistieken', icon: BarChart3 },

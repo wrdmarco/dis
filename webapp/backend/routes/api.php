@@ -9,6 +9,7 @@ use App\Http\Controllers\CertificationController;
 use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\DispatchController;
 use App\Http\Controllers\DroneTypeController;
+use App\Http\Controllers\ExpiryOverviewController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\IncidentController;
 use App\Http\Controllers\LocationController;
@@ -100,6 +101,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/dispatches/{dispatch}/recipients', [DispatchController::class, 'recipients'])->middleware('permission:dispatch.view');
     Route::get('/reports/incidents', [ReportingController::class, 'incidents'])->middleware('permission:incidents.view');
     Route::get('/reports/dispatch-statistics', [ReportingController::class, 'dispatchStatistics'])->middleware('permission:dispatch.view');
+    Route::get('/expiry-overview', [ExpiryOverviewController::class, 'index']);
 
     Route::get('/status/me', [StatusController::class, 'me']);
     Route::patch('/status/me', [StatusController::class, 'updateMe']);

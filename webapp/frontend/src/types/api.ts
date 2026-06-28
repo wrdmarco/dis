@@ -310,6 +310,40 @@ export interface DeveloperAccessState {
   api_key?: string;
 }
 
+export interface ExpiryOverview {
+  days: number;
+  until: string;
+  assets: ExpiringAsset[];
+  certifications: ExpiringCertification[];
+}
+
+export interface ExpiringAsset {
+  id: string;
+  name: string;
+  asset_tag: string;
+  type: string;
+  status: Asset['status'];
+  maintenance_due_at?: string | null;
+  drone_type?: {
+    manufacturer: string;
+    model: string;
+  } | null;
+}
+
+export interface ExpiringCertification {
+  id: string;
+  user_id: string;
+  user_name?: string | null;
+  user_email?: string | null;
+  certification_id: string;
+  certification_name?: string | null;
+  certification_code?: string | null;
+  status: UserCertification['status'];
+  issued_at?: string | null;
+  expires_at?: string | null;
+  certificate_number?: string | null;
+}
+
 export interface SystemUpdateStatus {
   state: 'idle' | 'running' | 'succeeded' | 'failed';
   started_at?: string | null;

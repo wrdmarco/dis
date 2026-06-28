@@ -6,7 +6,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { Role, Team, User } from '../../types/api';
+import type { Asset, Certification, Role, Team, User } from '../../types/api';
 
 interface UserFormState {
   name: string;
@@ -35,6 +35,8 @@ export function UsersPage() {
   const users = useApiResource<User[]>('/users');
   const roles = useApiResource<Role[]>('/admin/roles');
   const teams = useApiResource<Team[]>('/admin/teams');
+  const assets = useApiResource<Asset[]>('/assets');
+  const certifications = useApiResource<Certification[]>('/certifications');
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
@@ -102,6 +104,14 @@ export function UsersPage() {
       setUserDetailError(err instanceof ApiClientError ? err.message : 'Gebruikersdetails konden niet worden geladen.');
     } finally {
       setUserDetailLoading(false);
+    }
+  }
+
+  async function reloadUserDetail() {
+    if (editingUser !== null) {
+      await loadUserDetail(editingUser.id);
+      await users.reload();
+      await assets.reload();
     }
   }
 
@@ -315,6 +325,13 @@ export function UsersPage() {
                   user={userDetail}
                   loading={userDetailLoading}
                   error={userDetailError}
+                  assets={assets.data ?? []}
+                  assetsLoading={assets.loading}
+                  assetsError={assets.error}
+                  certifications={certifications.data ?? []}
+                  certificationsLoading={certifications.loading}
+                  certificationsError={certifications.error}
+                  onChanged={reloadUserDetail}
                 />
               ) : null}
               {error ? <p className="form-error form-grid__wide">{error}</p> : null}
@@ -371,25 +388,127 @@ interface UserOperationalDetailsProps {
   user: User | null;
   loading: boolean;
   error: string | null;
+  assets: Asset[];
+  assetsLoading: boolean;
+  assetsError: string | null;
+  certifications: Certification[];
+  certificationsLoading: boolean;
+  certificationsError: string | null;
+  onChanged: () => Promise<void>;
 }
 
-function UserOperationalDetails({ user, loading, error }: UserOperationalDetailsProps) {
-  const certifications = user?.certifications ?? [];
-  const droneAssignments = (user?.asset_assignments ?? [])
-    .filter((assignment) => assignment.asset?.type === 'drone');
+function UserOperationalDetails({
+  user,
+  loading,
+  error,
+  assets,
+  assetsLoading,
+  assetsError,
+  certifications: certificationOptions,
+  certificationsLoading,
+  certificationsError,
+  onChanged,
+}: UserOperationalDetailsProps) {
+  const { api } = useAuth();
+  const userCertifications = user?.certifications ?? [];
+  const assetAssignments = user?.asset_assignments ?? [];
+  const assignedAssetIds = new Set(assetAssignments.map((assignment) => assignment.asset_id));
+  const availableAssets = assets.filter((asset) => !assignedAssetIds.has(asset.id) && asset.status !== 'assigned' && asset.status !== 'retired');
+  const userCertificationIds = new Set(userCertifications.map((certification) => certification.certification_id));
+  const availableCertifications = certificationOptions.filter((certification) => !userCertificationIds.has(certification.id));
+  const [assetId, setAssetId] = useState('');
+  const [certificationId, setCertificationId] = useState('');
+  const [issuedAt, setIssuedAt] = useState(todayInputValue());
+  const [expiresAt, setExpiresAt] = useState('');
+  const [certificateNumber, setCertificateNumber] = useState('');
+  const [linking, setLinking] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  async function assignAsset() {
+    if (user === null || assetId === '') {
+      return;
+    }
+
+    setLinking(true);
+    setLinkError(null);
+    try {
+      await api.post(`/assets/${assetId}/assign`, { user_id: user.id });
+      setAssetId('');
+      await onChanged();
+    } catch (err) {
+      setLinkError(err instanceof ApiClientError ? err.message : 'Asset koppelen mislukt.');
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  async function assignCertification() {
+    if (user === null || certificationId === '') {
+      return;
+    }
+
+    setLinking(true);
+    setLinkError(null);
+    try {
+      await api.post(`/users/${user.id}/certifications`, {
+        certification_id: certificationId,
+        issued_at: issuedAt,
+        expires_at: expiresAt || null,
+        certificate_number: certificateNumber || null,
+        status: 'active',
+      });
+      setCertificationId('');
+      setIssuedAt(todayInputValue());
+      setExpiresAt('');
+      setCertificateNumber('');
+      await onChanged();
+    } catch (err) {
+      setLinkError(err instanceof ApiClientError ? err.message : 'Certificaat koppelen mislukt.');
+    } finally {
+      setLinking(false);
+    }
+  }
 
   return (
     <div className="form-grid__wide stacked-section">
+      {linkError ? <p className="form-error">{linkError}</p> : null}
       <div>
         <span className="field-label">Certificaten</span>
+        <div className="inline-form inline-form--compact">
+          <label>
+            Certificaat
+            <select value={certificationId} onChange={(event) => setCertificationId(event.target.value)} disabled={certificationsLoading || user === null}>
+              <option value="">Selecteer certificaat</option>
+              {availableCertifications.map((certification) => (
+                <option key={certification.id} value={certification.id}>{certification.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Afgifte
+            <input type="date" value={issuedAt} onChange={(event) => setIssuedAt(event.target.value)} />
+          </label>
+          <label>
+            Verloopt
+            <input type="date" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} />
+          </label>
+          <label>
+            Nummer
+            <input value={certificateNumber} onChange={(event) => setCertificateNumber(event.target.value)} />
+          </label>
+          <button className="primary-button" type="button" disabled={linking || certificationId === '' || user === null} onClick={() => void assignCertification()}>
+            Koppelen
+          </button>
+        </div>
+        {certificationsError ? <p className="form-error">{certificationsError}</p> : null}
         {loading ? <p className="muted-text">Certificaten laden...</p> : null}
         {error ? <p className="form-error">{error}</p> : null}
-        {!loading && certifications.length === 0 ? <p className="muted-text">Geen certificaten geregistreerd.</p> : null}
-        {certifications.length > 0 ? (
+        {!loading && userCertifications.length === 0 ? <p className="muted-text">Geen certificaten geregistreerd.</p> : null}
+        {userCertifications.length > 0 ? (
           <table className="data-table compact-table">
             <thead><tr><th>Certificaat</th><th>Status</th><th>Nummer</th><th>Verloopt</th></tr></thead>
             <tbody>
-              {certifications.map((certification) => (
+              {userCertifications.map((certification) => (
                 <tr key={certification.id}>
                   <td>{certification.certification?.name ?? certification.certification?.code ?? certification.certification_id}</td>
                   <td><StatusPill value={certification.status} tone={certification.status === 'active' ? 'good' : 'warn'} /></td>
@@ -403,14 +522,29 @@ function UserOperationalDetails({ user, loading, error }: UserOperationalDetails
       </div>
 
       <div>
-        <span className="field-label">Drones</span>
-        {loading ? <p className="muted-text">Drones laden...</p> : null}
-        {!loading && droneAssignments.length === 0 ? <p className="muted-text">Geen actieve drones toegewezen.</p> : null}
-        {droneAssignments.length > 0 ? (
+        <span className="field-label">Assets</span>
+        <div className="inline-form inline-form--compact">
+          <label>
+            Asset
+            <select value={assetId} onChange={(event) => setAssetId(event.target.value)} disabled={assetsLoading || user === null}>
+              <option value="">Selecteer asset</option>
+              {availableAssets.map((asset) => (
+                <option key={asset.id} value={asset.id}>{asset.asset_tag} - {asset.name}</option>
+              ))}
+            </select>
+          </label>
+          <button className="primary-button" type="button" disabled={linking || assetId === '' || user === null} onClick={() => void assignAsset()}>
+            Koppelen
+          </button>
+        </div>
+        {assetsError ? <p className="form-error">{assetsError}</p> : null}
+        {loading ? <p className="muted-text">Assets laden...</p> : null}
+        {!loading && assetAssignments.length === 0 ? <p className="muted-text">Geen actieve assets toegewezen.</p> : null}
+        {assetAssignments.length > 0 ? (
           <table className="data-table compact-table">
-            <thead><tr><th>Drone</th><th>Type</th><th>Status</th><th>Opties</th><th>Toegewezen</th></tr></thead>
+            <thead><tr><th>Asset</th><th>Type</th><th>Status</th><th>Opties</th><th>Onderhoud</th><th>Toegewezen</th></tr></thead>
             <tbody>
-              {droneAssignments.map((assignment) => {
+              {assetAssignments.map((assignment) => {
                 const asset = assignment.asset;
                 const options = [
                   asset?.drone_type?.has_thermal ? 'Thermal' : null,
@@ -421,9 +555,10 @@ function UserOperationalDetails({ user, loading, error }: UserOperationalDetails
                 return (
                   <tr key={assignment.id}>
                     <td>{asset?.name ?? assignment.asset_id}</td>
-                    <td>{asset?.drone_type?.model ?? '-'}</td>
+                    <td>{asset?.drone_type?.model ?? asset?.type ?? '-'}</td>
                     <td>{asset ? <StatusPill value={asset.status} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} /> : '-'}</td>
                     <td>{options || '-'}</td>
+                    <td>{formatDate(asset?.maintenance_due_at)}</td>
                     <td>{formatDate(assignment.assigned_at)}</td>
                   </tr>
                 );
@@ -446,4 +581,8 @@ function formatDate(value?: string | null): string {
     month: '2-digit',
     year: 'numeric',
   }).format(new Date(value));
+}
+
+function todayInputValue(): string {
+  return new Date().toISOString().slice(0, 10);
 }

@@ -14,6 +14,7 @@ const UsersPage = lazy(() => import('../features/users/UsersPage').then((module)
 const TeamsPage = lazy(() => import('../features/teams/TeamsPage').then((module) => ({ default: module.TeamsPage })));
 const AssetsPage = lazy(() => import('../features/assets/AssetsPage').then((module) => ({ default: module.AssetsPage })));
 const CertificationsPage = lazy(() => import('../features/certifications/CertificationsPage').then((module) => ({ default: module.CertificationsPage })));
+const ExpiryPage = lazy(() => import('../features/expiry/ExpiryPage').then((module) => ({ default: module.ExpiryPage })));
 const UpdatesPage = lazy(() => import('../features/updates/UpdatesPage').then((module) => ({ default: module.UpdatesPage })));
 const PushPage = lazy(() => import('../features/push/PushPage').then((module) => ({ default: module.PushPage })));
 const ReportsPage = lazy(() => import('../features/reports/ReportsPage').then((module) => ({ default: module.ReportsPage })));
@@ -49,6 +50,8 @@ export function App() {
           <Route path="teams" element={<TeamsPage />} />
           <Route path="assets" element={<AssetsPage />} />
           <Route path="certifications" element={<CertificationsPage />} />
+          <Route path="verloop" element={<ExpiryPage />} />
+          <Route path="expiry" element={<ExpiryPage />} />
           <Route path="updates" element={<UpdatesPage />} />
           <Route path="push" element={<PushPage />} />
           <Route path="reports" element={<ReportsPage />} />
