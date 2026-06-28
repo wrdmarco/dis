@@ -14,7 +14,7 @@ final class RunSystemUpdate implements ShouldQueue
 
     public function handle(SystemUpdateStatusService $status): void
     {
-        $root = base_path('../..');
+        $root = realpath(base_path('../..')) ?: base_path('../..');
         $script = $root.'/update.sh';
         if (! is_file($script)) {
             $status->append('Update script niet gevonden: '.$script);
@@ -23,6 +23,7 @@ final class RunSystemUpdate implements ShouldQueue
             return;
         }
 
+        $script = realpath($script) ?: $script;
         $bash = is_file('/usr/bin/bash') ? '/usr/bin/bash' : '/bin/bash';
         $command = ['sudo', '-n', $bash, $script, '--skip-system'];
         $descriptorSpec = [
