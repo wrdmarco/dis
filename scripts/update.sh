@@ -188,6 +188,8 @@ ensure_git_remote() {
     return
   fi
 
+  run_cmd git config --system --add safe.directory "${DIS_INSTALL_PATH}" >/dev/null 2>&1 || true
+
   origin_url="$(git -C "${DIS_INSTALL_PATH}" remote get-url origin 2>/dev/null || true)"
   if [ -z "${origin_url}" ]; then
     log "Git origin remote missing; configuring ${DIS_GIT_REMOTE_URL}."
