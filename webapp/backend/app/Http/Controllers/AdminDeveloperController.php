@@ -151,6 +151,15 @@ final class AdminDeveloperController extends Controller
             }
         }
 
+        $remoteLatest = $this->remoteLatestCommit($root);
+        if ($remoteLatest !== null) {
+            $latest = $remoteLatest;
+            $upstream ??= 'origin/'.self::GIT_BRANCH;
+            if ($current !== null && $current !== $remoteLatest && ($behind === null || $behind === 0)) {
+                $behind = 1;
+            }
+        }
+
         return [
             'current_commit' => $current,
             'branch' => $branch,
@@ -158,9 +167,9 @@ final class AdminDeveloperController extends Controller
             'latest_commit' => $latest,
             'behind' => $behind,
             'fetch_successful' => $fetchSuccessful,
-            'checkable' => $upstream !== null && $behind !== null,
+            'checkable' => ($upstream !== null && $behind !== null) || ($current !== null && $remoteLatest !== null),
             'errors' => $errors,
-            'update_available' => $behind !== null && $behind > 0,
+            'update_available' => ($behind !== null && $behind > 0) || ($current !== null && $remoteLatest !== null && $current !== $remoteLatest),
         ];
     }
 
@@ -177,6 +186,19 @@ final class AdminDeveloperController extends Controller
         $output = trim($result->output());
 
         return $output === '' ? null : $output;
+    }
+
+    private function remoteLatestCommit(string $root): ?string
+    {
+        $output = $this->runGit($root, ['ls-remote', 'origin', 'refs/heads/'.self::GIT_BRANCH]);
+        if ($output === null) {
+            return null;
+        }
+
+        $parts = preg_split('/\s+/', $output);
+        $commit = $parts[0] ?? null;
+
+        return is_string($commit) && preg_match('/^[a-f0-9]{40}$/', $commit) === 1 ? $commit : null;
     }
 
 }
