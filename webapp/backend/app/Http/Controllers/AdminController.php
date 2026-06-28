@@ -10,6 +10,7 @@ use App\Models\PushDeliveryLog;
 use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\Team;
+use App\Models\User;
 use App\Services\AuditService;
 use App\Services\PasswordPolicy;
 use Illuminate\Http\JsonResponse;
@@ -195,7 +196,77 @@ final class AdminController extends Controller
 
     public function auditLogs(Request $request): JsonResponse
     {
-        return ApiResponse::paginated(AuditLog::query()->latest('created_at')->paginate((int) $request->integer('per_page', 50)));
+        $filters = $request->validate([
+            'user_id' => ['nullable', 'ulid', 'exists:users,id'],
+            'action' => ['nullable', 'string', 'max:120'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:250'],
+        ]);
+
+        $query = AuditLog::query();
+
+        if (is_string($filters['user_id'] ?? null)) {
+            $userId = $filters['user_id'];
+            $query->where(function ($inner) use ($userId): void {
+                $inner->where('actor_id', $userId)
+                    ->orWhere(function ($target) use ($userId): void {
+                        $target->where('target_type', User::class)->where('target_id', $userId);
+                    });
+            });
+        }
+        if (is_string($filters['action'] ?? null) && trim($filters['action']) !== '') {
+            $query->where('action', 'like', '%'.trim($filters['action']).'%');
+        }
+        if (is_string($filters['from'] ?? null)) {
+            $query->whereDate('created_at', '>=', $filters['from']);
+        }
+        if (is_string($filters['to'] ?? null)) {
+            $query->whereDate('created_at', '<=', $filters['to']);
+        }
+
+        $paginator = $query->latest('created_at')->paginate((int) ($filters['per_page'] ?? 100));
+        $userIds = collect($paginator->items())
+            ->flatMap(fn (AuditLog $log): array => array_filter([
+                (string) $log->actor_id,
+                $log->target_type === User::class ? (string) $log->target_id : null,
+            ]))
+            ->unique()
+            ->values();
+        $users = User::query()->whereIn('id', $userIds)->get(['id', 'name', 'email'])->keyBy('id');
+
+        return ApiResponse::paginated($paginator, function (AuditLog $log) use ($users): array {
+            $actor = is_string($log->actor_id) ? $users->get($log->actor_id) : null;
+            $targetUser = $log->target_type === User::class && is_string($log->target_id) ? $users->get($log->target_id) : null;
+
+            return [
+                'id' => $log->id,
+                'action' => $log->action,
+                'actor' => $actor === null ? null : [
+                    'id' => $actor->id,
+                    'name' => $actor->name,
+                    'email' => $actor->email,
+                ],
+                'target_type' => $this->shortTargetType($log->target_type),
+                'target_id' => $log->target_id,
+                'target_user' => $targetUser === null ? null : [
+                    'id' => $targetUser->id,
+                    'name' => $targetUser->name,
+                    'email' => $targetUser->email,
+                ],
+                'ip_address' => $log->ip_address,
+                'metadata' => is_array($log->metadata) ? $log->metadata : [],
+                'reason' => $log->reason,
+                'created_at' => $log->created_at?->toIso8601String(),
+            ];
+        });
+    }
+
+    public function auditUsers(): JsonResponse
+    {
+        return ApiResponse::success(User::query()
+            ->orderBy('name')
+            ->get(['id', 'name', 'email']));
     }
 
     public function settings(): JsonResponse
@@ -409,5 +480,12 @@ final class AdminController extends Controller
     public function pushLogs(Request $request): JsonResponse
     {
         return ApiResponse::paginated(PushDeliveryLog::query()->latest()->paginate((int) $request->integer('per_page', 50)));
+    }
+
+    private function shortTargetType(string $targetType): string
+    {
+        $parts = explode('\\', $targetType);
+
+        return end($parts) ?: $targetType;
     }
 }

@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, ClipboardCheck, FileClock, Gauge, KeyRound, LogOut, Network, Palette, RadioTower, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, ClipboardCheck, FileClock, Gauge, KeyRound, LogOut, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../features/auth/AuthContext';
@@ -59,6 +59,7 @@ const navGroups: NavGroup[] = [
       { to: '/updates', label: 'App updates', icon: Smartphone, permissions: ['updates.manage'] },
       { to: '/admin', label: 'Admin', icon: Shield, permissions: ['settings.manage'] },
       { to: '/branding', label: 'Branding', icon: Palette, permissions: ['settings.manage'] },
+      { to: '/auditlog', label: 'Auditlog', icon: ScrollText, permissions: ['audit.view'] },
       { to: '/system', label: 'Systeem', icon: Bell, permissions: ['system.health'] },
     ],
   },

@@ -26,6 +26,7 @@ const AdminPage = lazy(() => import('../features/admin/AdminPage').then((module)
 const BrandingPage = lazy(() => import('../features/branding/BrandingPage').then((module) => ({ default: module.BrandingPage })));
 const StatusPage = lazy(() => import('../features/status/StatusPage').then((module) => ({ default: module.StatusPage })));
 const StatusAuditPage = lazy(() => import('../features/status/StatusAuditPage').then((module) => ({ default: module.StatusAuditPage })));
+const AuditLogPage = lazy(() => import('../features/audit/AuditLogPage').then((module) => ({ default: module.AuditLogPage })));
 const SystemPage = lazy(() => import('../features/system/SystemPage').then((module) => ({ default: module.SystemPage })));
 const ProfilePage = lazy(() => import('../features/profile/ProfilePage').then((module) => ({ default: module.ProfilePage })));
 
@@ -68,6 +69,7 @@ export function App() {
           <Route path="roles" element={<PermissionRoute permissions={['roles.manage']}><RolesPage /></PermissionRoute>} />
           <Route path="admin" element={<PermissionRoute permissions={['settings.manage']}><AdminPage /></PermissionRoute>} />
           <Route path="branding" element={<PermissionRoute permissions={['settings.manage']}><BrandingPage /></PermissionRoute>} />
+          <Route path="auditlog" element={<PermissionRoute permissions={['audit.view']}><AuditLogPage /></PermissionRoute>} />
           <Route path="system" element={<PermissionRoute permissions={['system.health']}><SystemPage /></PermissionRoute>} />
           <Route path="systeem" element={<PermissionRoute permissions={['system.health']}><SystemPage /></PermissionRoute>} />
           <Route path="profile" element={<ProfilePage />} />

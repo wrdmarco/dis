@@ -165,6 +165,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/admin/teams', [AdminController::class, 'storeTeam'])->middleware('permission:teams.manage');
     Route::patch('/admin/teams/{team}', [AdminController::class, 'updateTeam'])->middleware('permission:teams.manage');
     Route::get('/admin/audit-logs', [AdminController::class, 'auditLogs'])->middleware('permission:audit.view');
+    Route::get('/admin/audit-users', [AdminController::class, 'auditUsers'])->middleware('permission:audit.view');
     Route::get('/admin/settings', [AdminController::class, 'settings'])->middleware('permission:settings.manage');
     Route::patch('/admin/settings', [AdminController::class, 'updateSettings'])->middleware('permission:settings.manage');
     Route::post('/admin/settings/mail/test', [AdminController::class, 'testMail'])->middleware('permission:settings.manage');

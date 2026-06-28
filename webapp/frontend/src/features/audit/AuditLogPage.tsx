@@ -1,23 +1,27 @@
 import { useMemo, useState } from 'react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
-import { StatusPill } from '../../components/StatusPill';
 import { useApiResource } from '../../lib/useApiResource';
-import type { StatusAuditEntry, User } from '../../types/api';
+import { formatDateTime } from '../../lib/dateTime';
+import type { AuditLogEntry, User } from '../../types/api';
 
-interface StatusAuditFilters {
+interface AuditFilters {
   userId: string;
+  action: string;
   from: string;
   to: string;
 }
 
-export function StatusAuditPage() {
-  const [filters, setFilters] = useState<StatusAuditFilters>({ userId: '', from: '', to: '' });
+export function AuditLogPage() {
+  const [filters, setFilters] = useState<AuditFilters>({ userId: '', action: '', from: '', to: '' });
   const users = useApiResource<Pick<User, 'id' | 'name' | 'email'>[]>('/admin/audit-users');
   const auditPath = useMemo(() => {
-    const params = new URLSearchParams({ limit: '150' });
+    const params = new URLSearchParams({ per_page: '150' });
     if (filters.userId !== '') {
       params.set('user_id', filters.userId);
+    }
+    if (filters.action.trim() !== '') {
+      params.set('action', filters.action.trim());
     }
     if (filters.from !== '') {
       params.set('from', filters.from);
@@ -26,9 +30,9 @@ export function StatusAuditPage() {
       params.set('to', filters.to);
     }
 
-    return `/status/audit?${params.toString()}`;
+    return `/admin/audit-logs?${params.toString()}`;
   }, [filters]);
-  const audit = useApiResource<StatusAuditEntry[]>(auditPath);
+  const audit = useApiResource<AuditLogEntry[]>(auditPath);
 
   return (
     <div className="page-stack">
@@ -44,6 +48,10 @@ export function StatusAuditPage() {
             </select>
           </label>
           <label>
+            Actie
+            <input value={filters.action} placeholder="Bijv. auth.login" onChange={(event) => setFilters((current) => ({ ...current, action: event.target.value }))} />
+          </label>
+          <label>
             Vanaf
             <input type="date" value={filters.from} onChange={(event) => setFilters((current) => ({ ...current, from: event.target.value }))} />
           </label>
@@ -52,14 +60,15 @@ export function StatusAuditPage() {
             <input type="date" value={filters.to} onChange={(event) => setFilters((current) => ({ ...current, to: event.target.value }))} />
           </label>
           <div className="form-actions">
-            <button className="secondary-button" type="button" onClick={() => setFilters({ userId: '', from: '', to: '' })}>
+            <button className="secondary-button" type="button" onClick={() => setFilters({ userId: '', action: '', from: '', to: '' })}>
               Wissen
             </button>
           </div>
         </div>
       </Panel>
+
       <Panel
-        title="Status audit"
+        title="Auditlog"
         action={(
           <button className="secondary-button" type="button" onClick={() => void audit.reload()}>
             Vernieuwen
@@ -72,8 +81,9 @@ export function StatusAuditPage() {
               <tr>
                 <th>Tijd</th>
                 <th>Gebruiker</th>
-                <th>Wijziging</th>
-                <th>Door</th>
+                <th>Actie</th>
+                <th>Doel</th>
+                <th>IP</th>
                 <th>Reden</th>
               </tr>
             </thead>
@@ -82,18 +92,27 @@ export function StatusAuditPage() {
                 <tr key={entry.id}>
                   <td>{formatDateTime(entry.created_at)}</td>
                   <td>
-                    <strong>{entry.user?.name ?? '-'}</strong>
+                    <strong>{entry.actor?.name ?? 'Systeem'}</strong>
                     <br />
-                    <span className="muted-text">{entry.user?.email ?? ''}</span>
+                    <span className="muted-text">{entry.actor?.email ?? ''}</span>
                   </td>
+                  <td><code>{entry.action}</code></td>
                   <td>
-                    <div className="table-actions">
-                      <StatusPill value={statusLabel(entry.from_status)} tone="neutral" />
-                      <span>naar</span>
-                      <StatusPill value={statusLabel(entry.to_status)} tone={entry.to_status === 'available' ? 'good' : 'neutral'} />
-                    </div>
+                    {entry.target_user ? (
+                      <>
+                        <strong>{entry.target_user.name}</strong>
+                        <br />
+                        <span className="muted-text">{entry.target_user.email}</span>
+                      </>
+                    ) : (
+                      <>
+                        <strong>{entry.target_type}</strong>
+                        <br />
+                        <span className="muted-text">{shortId(entry.target_id)}</span>
+                      </>
+                    )}
                   </td>
-                  <td>{entry.is_system_applied ? 'Systeem' : entry.actor?.name ?? '-'}</td>
+                  <td>{entry.ip_address ?? '-'}</td>
                   <td>{entry.reason ?? '-'}</td>
                 </tr>
               ))}
@@ -105,34 +124,10 @@ export function StatusAuditPage() {
   );
 }
 
-function statusLabel(status?: string | null): string {
-  switch (status) {
-    case 'available':
-      return 'Beschikbaar';
-    case 'unavailable':
-      return 'Niet beschikbaar';
-    case 'busy':
-      return 'Bezet';
-    case 'en_route':
-      return 'Onderweg';
-    case 'vacation':
-      return 'Vakantie';
-    case null:
-    case undefined:
-    case '':
-      return '-';
-    default:
-      return status;
-  }
-}
-
-function formatDateTime(value?: string | null): string {
+function shortId(value?: string | null): string {
   if (!value) {
     return '-';
   }
 
-  return new Intl.DateTimeFormat('nl-NL', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  }).format(new Date(value));
+  return value.length > 12 ? `${value.slice(0, 12)}...` : value;
 }

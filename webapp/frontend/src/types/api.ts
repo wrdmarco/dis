@@ -257,6 +257,19 @@ export interface StatusAuditEntry {
   created_at?: string | null;
 }
 
+export interface AuditLogEntry {
+  id: string;
+  action: string;
+  actor?: Pick<User, 'id' | 'name' | 'email'> | null;
+  target_type: string;
+  target_id?: string | null;
+  target_user?: Pick<User, 'id' | 'name' | 'email'> | null;
+  ip_address?: string | null;
+  metadata?: Record<string, unknown>;
+  reason?: string | null;
+  created_at?: string | null;
+}
+
 export interface PublicStatusResponse {
   status: 'ok' | 'degraded' | 'failed';
   generated_at: string;

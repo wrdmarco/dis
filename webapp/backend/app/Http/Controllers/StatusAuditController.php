@@ -12,12 +12,26 @@ final class StatusAuditController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $filters = $request->validate([
+            'user_id' => ['nullable', 'ulid', 'exists:users,id'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:250'],
+        ]);
         $limit = min(max((int) $request->integer('limit', 100), 1), 250);
-        $logs = AuditLog::query()
-            ->whereIn('action', ['status.updated', 'status.system_updated'])
-            ->latest('created_at')
-            ->limit($limit)
-            ->get();
+        $query = AuditLog::query()->whereIn('action', ['status.updated', 'status.system_updated']);
+
+        if (is_string($filters['user_id'] ?? null)) {
+            $query->where('target_id', $filters['user_id']);
+        }
+        if (is_string($filters['from'] ?? null)) {
+            $query->whereDate('created_at', '>=', $filters['from']);
+        }
+        if (is_string($filters['to'] ?? null)) {
+            $query->whereDate('created_at', '<=', $filters['to']);
+        }
+
+        $logs = $query->latest('created_at')->limit($limit)->get();
 
         $userIds = $logs
             ->flatMap(fn (AuditLog $log): array => array_filter([(string) $log->target_id, (string) $log->actor_id]))
