@@ -52,7 +52,7 @@ const assetStatuses: Array<{ value: AssetStatus; label: string }> = [
 ];
 
 export function AssetsPage() {
-  const { api } = useAuth();
+  const { api, hasPermission } = useAuth();
   const assets = useApiResource<Asset[]>('/assets');
   const droneTypes = useApiResource<DroneType[]>('/drone-types');
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
@@ -78,6 +78,7 @@ export function AssetsPage() {
   const maintenanceAssets = assetList.filter((asset) => asset.status === 'maintenance');
   const unavailableAssets = assetList.filter((asset) => asset.status === 'unavailable' || asset.status === 'retired');
   const selectedDroneType = droneTypes.data?.find((type) => type.id === form.droneTypeId) ?? null;
+  const canManageAssets = hasPermission('assets.manage');
 
   useEffect(() => {
     if (modalMode === null) {
@@ -249,11 +250,11 @@ export function AssetsPage() {
 
       <Panel
         title="Assets per gebruiker"
-        action={(
+        action={canManageAssets ? (
           <button className="primary-button" type="button" onClick={openCreateModal}>
             <Plus size={16} /> Asset registreren
           </button>
-        )}
+        ) : null}
       >
         <ResourceState loading={assets.loading} error={assets.error} empty={(assets.data?.length ?? 0) === 0}>
           <table className="data-table">
@@ -268,9 +269,11 @@ export function AssetsPage() {
                   <td>{asset.serial_number ?? '-'}</td>
                   <td>{asset.maintenance_due_at ?? '-'}</td>
                   <td>
-                    <button className="secondary-button" type="button" onClick={() => openEditModal(asset)}>
-                      <Pencil size={16} /> Aanpassen
-                    </button>
+                    {canManageAssets ? (
+                      <button className="secondary-button" type="button" onClick={() => openEditModal(asset)}>
+                        <Pencil size={16} /> Aanpassen
+                      </button>
+                    ) : '-'}
                   </td>
                 </tr>
               ))}
@@ -279,7 +282,7 @@ export function AssetsPage() {
         </ResourceState>
       </Panel>
 
-      {modalMode !== null ? (
+      {modalMode !== null && canManageAssets ? (
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="asset-modal-title">
             <header className="modal__header">
@@ -376,11 +379,11 @@ export function AssetsPage() {
 
       <Panel
         title="Drone types"
-        action={(
+        action={canManageAssets ? (
           <button className="primary-button" type="button" onClick={openDroneTypeCreateModal}>
             <Plus size={16} /> Drone type toevoegen
           </button>
-        )}
+        ) : null}
       >
         {error ? <p className="form-error">{error}</p> : null}
         <ResourceState loading={droneTypes.loading} error={droneTypes.error} empty={(droneTypes.data?.length ?? 0) === 0}>
@@ -397,12 +400,16 @@ export function AssetsPage() {
                   <td>{type.is_active ? 'Actief' : 'Uitgeschakeld'}</td>
                   <td>
                     <div className="actions-row">
-                      <button className="secondary-button" type="button" onClick={() => openDroneTypeEditModal(type)}>
-                        <Pencil size={16} /> Aanpassen
-                      </button>
-                      <button className="secondary-button" type="button" onClick={() => void deleteDroneType(type)} disabled={saving}>
-                        Verwijderen
-                      </button>
+                      {canManageAssets ? (
+                        <>
+                          <button className="secondary-button" type="button" onClick={() => openDroneTypeEditModal(type)}>
+                            <Pencil size={16} /> Aanpassen
+                          </button>
+                          <button className="secondary-button" type="button" onClick={() => void deleteDroneType(type)} disabled={saving}>
+                            Verwijderen
+                          </button>
+                        </>
+                      ) : '-'}
                     </div>
                   </td>
                 </tr>
@@ -412,7 +419,7 @@ export function AssetsPage() {
         </ResourceState>
       </Panel>
 
-      {droneTypeModalMode !== null ? (
+      {droneTypeModalMode !== null && canManageAssets ? (
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="drone-type-modal-title">
             <header className="modal__header">

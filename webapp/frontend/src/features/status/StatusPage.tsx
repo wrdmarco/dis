@@ -11,7 +11,7 @@ import type { AvailabilityStatus } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 
 export function StatusPage() {
-  const { api } = useAuth();
+  const { api, hasPermission } = useAuth();
   const statuses = useApiResource<AvailabilityStatus[]>('/status/users?per_page=200');
   const [editingStatus, setEditingStatus] = useState<AvailabilityStatus | null>(null);
   const [status, setStatus] = useState('available');
@@ -23,6 +23,7 @@ export function StatusPage() {
   const unavailableCount = items.filter((item) => !item.is_available).length;
   const enRouteCount = items.filter((item) => item.status === 'en_route').length;
   const onSceneCount = items.filter((item) => item.status === 'on_scene').length;
+  const canOverrideStatus = hasPermission('status.override');
 
   function openEditModal(item: AvailabilityStatus) {
     setEditingStatus(item);
@@ -86,9 +87,11 @@ export function StatusPage() {
                     <td>{item.is_available ? 'Ja' : 'Nee'} </td>
                     <td>{formatDateTime(item.effective_at)}</td>
                     <td>
-                      <button className="secondary-button" type="button" onClick={() => openEditModal(item)}>
-                        <Pencil size={16} /> Aanpassen
-                      </button>
+                      {canOverrideStatus ? (
+                        <button className="secondary-button" type="button" onClick={() => openEditModal(item)}>
+                          <Pencil size={16} /> Aanpassen
+                        </button>
+                      ) : '-'}
                     </td>
                   </tr>
                 ))}
@@ -98,7 +101,7 @@ export function StatusPage() {
         </ResourceState>
       </Panel>
 
-      {editingStatus !== null ? (
+      {editingStatus !== null && canOverrideStatus ? (
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="status-edit-title">
             <header className="modal__header">

@@ -87,7 +87,7 @@ final class RoleAndPermissionSeeder extends Seeder
             'description' => 'Operational support for assets and certifications.',
             'requires_two_factor' => false,
             'can_use_operator_app' => false,
-            'can_use_admin_app' => false,
+            'can_use_admin_app' => true,
             'permissions' => [
                 'users.view', 'assets.view', 'assets.manage', 'certifications.view',
                 'certifications.manage', 'status.view',
@@ -98,7 +98,7 @@ final class RoleAndPermissionSeeder extends Seeder
             'description' => 'Read-only inspection of operational and audit records.',
             'requires_two_factor' => false,
             'can_use_operator_app' => false,
-            'can_use_admin_app' => false,
+            'can_use_admin_app' => true,
             'permissions' => [
                 'users.view', 'incidents.view', 'dispatch.view', 'status.view',
                 'assets.view', 'certifications.view', 'audit.view',

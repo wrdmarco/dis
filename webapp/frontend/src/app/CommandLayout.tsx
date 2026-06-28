@@ -22,7 +22,7 @@ const navGroups: NavGroup[] = [
   {
     label: 'Overzicht',
     items: [
-      { to: '/', label: 'Dashboard', icon: Gauge, end: true, permissions: ['incidents.view', 'dispatch.view', 'status.view', 'assets.view'] },
+      { to: '/dashboard', label: 'Dashboard', icon: Gauge, permissions: ['incidents.view', 'dispatch.view', 'status.view', 'assets.view'] },
     ],
   },
   {
@@ -31,7 +31,7 @@ const navGroups: NavGroup[] = [
       { to: '/incidents', label: 'Actieve meldingen', icon: RadioTower, end: true, permissions: ['incidents.view'] },
       { to: '/incidents/archive', label: 'Archief', icon: Archive, permissions: ['incidents.view'] },
       { to: '/status', label: 'Status', icon: Workflow, permissions: ['status.view'] },
-      { to: '/proefalarmering', label: 'Proefalarmering', icon: BellRing, permissions: ['dispatch.view'] },
+      { to: '/proefalarmering', label: 'Proefalarmering', icon: BellRing, permissions: ['dispatch.manage'] },
       { to: '/push', label: 'Pushmeldingen', icon: Send, permissions: ['push.manage'] },
       { to: '/reports', label: 'Statistieken', icon: BarChart3, permissions: ['incidents.view', 'dispatch.view'] },
     ],
@@ -79,7 +79,7 @@ interface BrandingState {
 }
 
 export function CommandLayout() {
-  const { user, api, clearSession, canUseAdminApp, hasPermission } = useAuth();
+  const { user, api, clearSession, canUseWebConsole, hasPermission } = useAuth();
   const navigate = useNavigate();
   const [branding, setBranding] = useState<BrandingState>({
     name: 'D.I.S Operationeel Beeld',
@@ -98,7 +98,7 @@ export function CommandLayout() {
     clearSession();
     navigate('/login', { replace: true });
   };
-  const visibleNavGroups = canUseAdminApp()
+  const visibleNavGroups = canUseWebConsole()
     ? navGroups
       .map((group) => ({
         ...group,

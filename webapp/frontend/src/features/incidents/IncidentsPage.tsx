@@ -46,7 +46,7 @@ const activeIncidentStatuses: Incident['status'][] = ['draft', 'active', 'dispat
 const archiveIncidentStatuses: Incident['status'][] = ['resolved', 'cancelled'];
 
 export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) {
-  const { api } = useAuth();
+  const { api, hasPermission } = useAuth();
   const navigate = useNavigate();
   const incidents = useApiResource<Incident[]>(incidentListPath(mode));
   const users = useApiResource<User[]>('/users?per_page=200');
@@ -63,6 +63,7 @@ export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) 
   const cancelledCount = incidentList.filter((incident) => incident.status === 'cancelled').length;
   const pageTitle = mode === 'archive' ? 'Archief' : 'Actieve meldingen';
   const emptyText = mode === 'archive' ? 'Geen afgeronde of geannuleerde meldingen gevonden.' : 'Geen actieve meldingen of concepten gevonden.';
+  const canManageIncidents = hasPermission('incidents.manage');
 
   const createIncident = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -92,7 +93,7 @@ export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) 
       <RealtimeBridge onOperationalEvent={() => void incidents.silentReload()} />
       <Panel
         title={pageTitle}
-        action={mode === 'active' ? (
+        action={mode === 'active' && canManageIncidents ? (
           <button className="primary-button" type="button" onClick={openCreateModal}>
             <Plus size={16} /> Incident aanmaken
           </button>
@@ -133,7 +134,7 @@ export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) 
         </ResourceState>
       </Panel>
 
-      {createModalOpen ? (
+      {createModalOpen && canManageIncidents ? (
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="incident-create-title">
             <header className="modal__header">

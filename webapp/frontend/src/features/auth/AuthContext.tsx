@@ -24,7 +24,7 @@ interface AuthContextValue {
   disableTwoFactor: (password: string, code: string) => Promise<User>;
   refreshMe: () => Promise<User | null>;
   hasPermission: (permission: string) => boolean;
-  canUseAdminApp: () => boolean;
+  canUseWebConsole: () => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -99,9 +99,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const hasPermission = (permission: string): boolean =>
-    user?.roles?.some((role) => role.permissions?.some((candidate) => candidate.name === permission)) ?? false;
+    user?.roles?.some((role) => role.can_use_admin_app && role.permissions?.some((candidate) => candidate.name === permission)) ?? false;
 
-  const canUseAdminApp = (): boolean =>
+  const canUseWebConsole = (): boolean =>
     user?.roles?.some((role) => role.can_use_admin_app) ?? false;
 
   return (
@@ -120,7 +120,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         disableTwoFactor,
         refreshMe,
         hasPermission,
-        canUseAdminApp,
+        canUseWebConsole,
       }}
     >
       {children}

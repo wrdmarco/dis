@@ -8,9 +8,9 @@ interface PermissionRouteProps {
 }
 
 export function PermissionRoute({ children, permissions = [], anyPermission = false }: PermissionRouteProps) {
-  const { canUseAdminApp, hasPermission } = useAuth();
+  const { canUseWebConsole, hasPermission } = useAuth();
 
-  if (!canUseAdminApp()) {
+  if (!canUseWebConsole()) {
     return <Navigate to="/profile" replace />;
   }
 
@@ -22,4 +22,26 @@ export function PermissionRoute({ children, permissions = [], anyPermission = fa
   }
 
   return <>{children}</>;
+}
+
+export function DefaultRoute() {
+  const { canUseWebConsole, hasPermission } = useAuth();
+
+  if (!canUseWebConsole()) {
+    return <Navigate to="/profile" replace />;
+  }
+
+  const target = [
+    { to: '/dashboard', permissions: ['incidents.view', 'dispatch.view', 'status.view', 'assets.view'] },
+    { to: '/incidents', permissions: ['incidents.view'] },
+    { to: '/status', permissions: ['status.view'] },
+    { to: '/users', permissions: ['users.view'] },
+    { to: '/assets', permissions: ['assets.view'] },
+    { to: '/certifications', permissions: ['certifications.view'] },
+    { to: '/updates', permissions: ['updates.manage'] },
+    { to: '/admin', permissions: ['settings.manage'] },
+    { to: '/system', permissions: ['system.health'] },
+  ].find((item) => item.permissions.every(hasPermission));
+
+  return <Navigate to={target?.to ?? '/profile'} replace />;
 }

@@ -2,7 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { CommandLayout } from './CommandLayout';
 import { ProtectedRoute } from '../routes/ProtectedRoute';
-import { PermissionRoute } from '../routes/PermissionRoute';
+import { DefaultRoute, PermissionRoute } from '../routes/PermissionRoute';
 
 const LoginPage = lazy(() => import('../features/auth/LoginPage').then((module) => ({ default: module.LoginPage })));
 const AndroidDownloadPage = lazy(() => import('../features/public/AndroidDownloadPage').then((module) => ({ default: module.AndroidDownloadPage })));
@@ -43,7 +43,8 @@ export function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<PermissionRoute permissions={['incidents.view', 'dispatch.view', 'status.view', 'assets.view']}><DashboardPage /></PermissionRoute>} />
+          <Route index element={<DefaultRoute />} />
+          <Route path="dashboard" element={<PermissionRoute permissions={['incidents.view', 'dispatch.view', 'status.view', 'assets.view']}><DashboardPage /></PermissionRoute>} />
           <Route path="incidents" element={<PermissionRoute permissions={['incidents.view']}><IncidentsPage mode="active" /></PermissionRoute>} />
           <Route path="incidents/archive" element={<PermissionRoute permissions={['incidents.view']}><IncidentsPage mode="archive" /></PermissionRoute>} />
           <Route path="incidents/:incidentId" element={<PermissionRoute permissions={['incidents.view']}><IncidentDetailPage /></PermissionRoute>} />
@@ -57,7 +58,7 @@ export function App() {
           <Route path="updates" element={<PermissionRoute permissions={['updates.manage']}><UpdatesPage /></PermissionRoute>} />
           <Route path="push" element={<PermissionRoute permissions={['push.manage']}><PushPage /></PermissionRoute>} />
           <Route path="reports" element={<PermissionRoute permissions={['incidents.view', 'dispatch.view']}><ReportsPage /></PermissionRoute>} />
-          <Route path="proefalarmering" element={<PermissionRoute permissions={['dispatch.view']}><TestAlertPage /></PermissionRoute>} />
+          <Route path="proefalarmering" element={<PermissionRoute permissions={['dispatch.manage']}><TestAlertPage /></PermissionRoute>} />
           <Route path="rollen" element={<PermissionRoute permissions={['roles.manage']}><RolesPage /></PermissionRoute>} />
           <Route path="roles" element={<PermissionRoute permissions={['roles.manage']}><RolesPage /></PermissionRoute>} />
           <Route path="admin" element={<PermissionRoute permissions={['settings.manage']}><AdminPage /></PermissionRoute>} />

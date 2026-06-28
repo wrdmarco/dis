@@ -25,7 +25,7 @@ const emptyForm: CertificationFormState = {
 };
 
 export function CertificationsPage() {
-  const { api } = useAuth();
+  const { api, hasPermission } = useAuth();
   const certifications = useApiResource<Certification[]>('/certifications');
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingCertification, setEditingCertification] = useState<Certification | null>(null);
@@ -33,6 +33,7 @@ export function CertificationsPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const userCertifications = flattenUserCertifications(certifications.data ?? []);
+  const canManageCertifications = hasPermission('certifications.manage');
 
   useEffect(() => {
     if (modalMode === null) {
@@ -113,11 +114,11 @@ export function CertificationsPage() {
 
       <Panel
         title="Certificaatsoorten"
-        action={(
+        action={canManageCertifications ? (
           <button className="primary-button" type="button" onClick={openCreateModal}>
             <Plus size={16} /> Certificaat aanmaken
           </button>
-        )}
+        ) : null}
       >
         <ResourceState loading={certifications.loading} error={certifications.error} empty={(certifications.data?.length ?? 0) === 0}>
           <table className="data-table">
@@ -131,9 +132,11 @@ export function CertificationsPage() {
                   <td><StatusPill value={certification.is_required_for_dispatch ? 'required' : 'optional'} tone={certification.is_required_for_dispatch ? 'warn' : 'neutral'} /></td>
                   <td>{certification.warning_days_before_expiry} dagen</td>
                   <td>
-                    <button className="secondary-button" type="button" onClick={() => openEditModal(certification)}>
-                      <Pencil size={16} /> Aanpassen
-                    </button>
+                    {canManageCertifications ? (
+                      <button className="secondary-button" type="button" onClick={() => openEditModal(certification)}>
+                        <Pencil size={16} /> Aanpassen
+                      </button>
+                    ) : '-'}
                   </td>
                 </tr>
               ))}
@@ -142,7 +145,7 @@ export function CertificationsPage() {
         </ResourceState>
       </Panel>
 
-      {modalMode !== null ? (
+      {modalMode !== null && canManageCertifications ? (
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="certification-modal-title">
             <header className="modal__header">

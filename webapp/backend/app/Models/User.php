@@ -86,9 +86,14 @@ final class User extends Authenticatable
 
     public function hasPermission(string $permission): bool
     {
-        return $this->roles()
-            ->whereHas('permissions', fn ($query) => $query->where('permissions.name', $permission))
-            ->exists();
+        $query = $this->roles()
+            ->whereHas('permissions', fn ($query) => $query->where('permissions.name', $permission));
+
+        if ($this->shouldUseAdminAppPermissions()) {
+            $query->where('roles.can_use_admin_app', true);
+        }
+
+        return $query->exists();
     }
 
     public function hasRole(string $role): bool
@@ -113,5 +118,13 @@ final class User extends Authenticatable
     public function belongsToTeamCode(string $code): bool
     {
         return $this->teams()->where('teams.code', $code)->exists();
+    }
+
+    private function shouldUseAdminAppPermissions(): bool
+    {
+        $token = $this->currentAccessToken();
+        $tokenName = is_string($token?->name ?? null) ? strtolower($token->name) : '';
+
+        return ! str_contains($tokenName, 'android') || str_contains($tokenName, 'admin android');
     }
 }

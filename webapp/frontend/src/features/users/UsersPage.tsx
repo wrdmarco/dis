@@ -31,12 +31,17 @@ const emptyForm: UserFormState = {
 };
 
 export function UsersPage() {
-  const { api } = useAuth();
+  const { api, hasPermission } = useAuth();
+  const canManageUsers = hasPermission('users.manage');
+  const canManageRoles = hasPermission('roles.manage');
+  const canManageTeams = hasPermission('teams.manage');
+  const canManageAssets = hasPermission('assets.manage');
+  const canManageCertifications = hasPermission('certifications.manage');
   const users = useApiResource<User[]>('/users');
-  const roles = useApiResource<Role[]>('/admin/roles');
-  const teams = useApiResource<Team[]>('/admin/teams');
-  const assets = useApiResource<Asset[]>('/assets');
-  const certifications = useApiResource<Certification[]>('/certifications');
+  const roles = useApiResource<Role[]>('/admin/roles', canManageRoles);
+  const teams = useApiResource<Team[]>('/admin/teams', canManageTeams);
+  const assets = useApiResource<Asset[]>('/assets', canManageAssets);
+  const certifications = useApiResource<Certification[]>('/certifications', canManageCertifications);
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
@@ -216,11 +221,11 @@ export function UsersPage() {
     <div className="page-stack">
       <Panel
         title="Gebruikers"
-        action={(
+        action={canManageUsers ? (
           <button className="primary-button" type="button" onClick={openCreateModal}>
             <Plus size={16} /> Gebruiker aanmaken
           </button>
-        )}
+        ) : null}
       >
         <ResourceState loading={users.loading} error={users.error} empty={(users.data?.length ?? 0) === 0}>
           <table className="data-table">
@@ -257,7 +262,7 @@ export function UsersPage() {
                 <X size={18} />
               </button>
             </header>
-            <form className="form-grid" onSubmit={submitUser}>
+            <form className="form-grid" onSubmit={canManageUsers ? submitUser : (event) => event.preventDefault()}>
               <label>
                 Naam
                 <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
@@ -300,7 +305,7 @@ export function UsersPage() {
                   Welkomstmail sturen en registratie laten afronden
                 </label>
               ) : null}
-              <div className="form-grid__wide">
+              {canManageRoles ? <div className="form-grid__wide">
                 <span className="field-label">Rollen</span>
                 <ResourceState loading={roles.loading} error={roles.error} empty={(roles.data?.length ?? 0) === 0}>
                   <div className="checkbox-grid">
@@ -319,8 +324,8 @@ export function UsersPage() {
                     ))}
                   </div>
                 </ResourceState>
-              </div>
-              <div className="form-grid__wide">
+              </div> : null}
+              {canManageTeams ? <div className="form-grid__wide">
                 <span className="field-label">Teams</span>
                 <ResourceState loading={teams.loading} error={teams.error} empty={(teams.data?.length ?? 0) === 0}>
                   <div className="checkbox-grid">
@@ -339,22 +344,24 @@ export function UsersPage() {
                     ))}
                   </div>
                 </ResourceState>
-              </div>
+              </div> : null}
               {modalMode === 'edit' ? (
                 <UserOperationalDetails
                   user={userDetail}
                   loading={userDetailLoading}
                   error={userDetailError}
-                  assets={assets.data ?? []}
-                  assetsLoading={assets.loading}
-                  assetsError={assets.error}
-                  certifications={certifications.data ?? []}
-                  certificationsLoading={certifications.loading}
-                  certificationsError={certifications.error}
+                  assets={canManageAssets ? assets.data ?? [] : []}
+                  assetsLoading={canManageAssets && assets.loading}
+                  assetsError={canManageAssets ? assets.error : null}
+                  certifications={canManageCertifications ? certifications.data ?? [] : []}
+                  certificationsLoading={canManageCertifications && certifications.loading}
+                  certificationsError={canManageCertifications ? certifications.error : null}
+                  canManageAssets={canManageAssets}
+                  canManageCertifications={canManageCertifications}
                   onChanged={reloadUserDetail}
                 />
               ) : null}
-              {modalMode === 'edit' && editingUser !== null ? (
+              {modalMode === 'edit' && editingUser !== null && canManageUsers ? (
                 <div className="form-grid__wide stacked-section">
                   <span className="field-label">MFA herstel</span>
                   <dl className="definition-grid">
@@ -370,22 +377,24 @@ export function UsersPage() {
               ) : null}
               {error ? <p className="form-error form-grid__wide">{error}</p> : null}
               <div className="actions-row form-grid__wide">
-                {modalMode === 'edit' && editingUser !== null ? (
+                {modalMode === 'edit' && editingUser !== null && canManageUsers ? (
                   <button className="danger-button" type="button" onClick={() => setDeletingUser(editingUser)}>
                     <Trash2 size={16} /> Verwijderen
                   </button>
                 ) : null}
                 <button className="secondary-button" type="button" onClick={() => setModalMode(null)}>Annuleren</button>
-                <button className="primary-button" type="submit" disabled={saving || roles.loading || teams.loading}>
-                  {saving ? 'Opslaan...' : 'Opslaan'}
-                </button>
+                {canManageUsers ? (
+                  <button className="primary-button" type="submit" disabled={saving || roles.loading || teams.loading}>
+                    {saving ? 'Opslaan...' : 'Opslaan'}
+                  </button>
+                ) : null}
               </div>
             </form>
           </section>
         </div>
       ) : null}
 
-      {deletingUser !== null ? (
+      {deletingUser !== null && canManageUsers ? (
         <div className="modal-backdrop" role="presentation">
           <section className="modal modal--narrow" role="dialog" aria-modal="true" aria-labelledby="delete-user-title">
             <header className="modal__header">
@@ -428,6 +437,8 @@ interface UserOperationalDetailsProps {
   certifications: Certification[];
   certificationsLoading: boolean;
   certificationsError: string | null;
+  canManageAssets: boolean;
+  canManageCertifications: boolean;
   onChanged: () => Promise<void>;
 }
 
@@ -441,6 +452,8 @@ function UserOperationalDetails({
   certifications: certificationOptions,
   certificationsLoading,
   certificationsError,
+  canManageAssets,
+  canManageCertifications,
   onChanged,
 }: UserOperationalDetailsProps) {
   const { api } = useAuth();
@@ -508,7 +521,7 @@ function UserOperationalDetails({
       {linkError ? <p className="form-error">{linkError}</p> : null}
       <div>
         <span className="field-label">Certificaten</span>
-        <div className="inline-form inline-form--compact">
+        {canManageCertifications ? <div className="inline-form inline-form--compact">
           <label>
             Certificaat
             <select value={certificationId} onChange={(event) => setCertificationId(event.target.value)} disabled={certificationsLoading || user === null}>
@@ -533,7 +546,7 @@ function UserOperationalDetails({
           <button className="primary-button" type="button" disabled={linking || certificationId === '' || user === null} onClick={() => void assignCertification()}>
             Koppelen
           </button>
-        </div>
+        </div> : null}
         {certificationsError ? <p className="form-error">{certificationsError}</p> : null}
         {loading ? <p className="muted-text">Certificaten laden...</p> : null}
         {error ? <p className="form-error">{error}</p> : null}
@@ -557,7 +570,7 @@ function UserOperationalDetails({
 
       <div>
         <span className="field-label">Assets</span>
-        <div className="inline-form inline-form--compact">
+        {canManageAssets ? <div className="inline-form inline-form--compact">
           <label>
             Asset
             <select value={assetId} onChange={(event) => setAssetId(event.target.value)} disabled={assetsLoading || user === null}>
@@ -570,7 +583,7 @@ function UserOperationalDetails({
           <button className="primary-button" type="button" disabled={linking || assetId === '' || user === null} onClick={() => void assignAsset()}>
             Koppelen
           </button>
-        </div>
+        </div> : null}
         {assetsError ? <p className="form-error">{assetsError}</p> : null}
         {loading ? <p className="muted-text">Assets laden...</p> : null}
         {!loading && assetAssignments.length === 0 ? <p className="muted-text">Geen actieve assets toegewezen.</p> : null}

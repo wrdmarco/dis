@@ -14,7 +14,7 @@ import { IncidentForm, type IncidentFormState, incidentPayload } from './Inciden
 
 export function IncidentDetailPage() {
   const { incidentId } = useParams();
-  const { api } = useAuth();
+  const { api, hasPermission } = useAuth();
   const incident = useApiResource<Incident>(`/incidents/${incidentId}`, Boolean(incidentId));
   const preview = useApiResource<DispatchPreview>(`/incidents/${incidentId}/dispatch-preview`, Boolean(incidentId));
   const dispatches = useApiResource<DispatchRequest[]>(`/incidents/${incidentId}/dispatches`, Boolean(incidentId));
@@ -46,6 +46,8 @@ export function IncidentDetailPage() {
   const reportAvailable = incident.data?.status === 'resolved' || incident.data?.status === 'cancelled';
   const recipientCount = latestDispatch?.recipients?.length ?? preview.data?.recipients.length ?? 0;
   const liveSharedCount = liveLocations.data?.filter((location) => location.sharing_status === 'shared').length ?? 0;
+  const canManageIncidents = hasPermission('incidents.manage');
+  const canManageDispatches = hasPermission('dispatch.manage');
 
   useEffect(() => {
     const currentIncident = incident.data;
@@ -240,9 +242,11 @@ export function IncidentDetailPage() {
                 <Download size={16} /> {reportDownloading ? 'Rapport...' : 'Rapport PDF'}
               </button>
             ) : null}
-            <button className="secondary-button" type="button" onClick={openEditModal}>
-              <Pencil size={16} /> Aanpassen
-            </button>
+            {canManageIncidents ? (
+              <button className="secondary-button" type="button" onClick={openEditModal}>
+                <Pencil size={16} /> Aanpassen
+              </button>
+            ) : null}
           </div>
         ) : null}
       >
@@ -281,7 +285,7 @@ export function IncidentDetailPage() {
         </ResourceState>
       </Panel>
 
-      {showDraftPanel ? (
+      {showDraftPanel && canManageIncidents ? (
         <Panel
           title="Alarmeringsconcept"
           action={(
@@ -330,14 +334,14 @@ export function IncidentDetailPage() {
                     <span>Laatste alarmering</span>
                     <strong>{dispatchStatusLabel(latestDispatch.status)}</strong>
                   </div>
-                  <div className="dispatch-toolbar__actions">
+                  {canManageDispatches ? <div className="dispatch-toolbar__actions">
                     <button className="secondary-button" type="button" onClick={() => void runDispatchAction('escalate')} disabled={dispatchAction !== null || latestDispatch.status === 'cancelled' || latestDispatch.status === 'escalated'}>
                       <TrendingUp size={16} /> {dispatchAction === 'escalate' ? 'Opschalen...' : 'Opschalen'}
                     </button>
                     <button className="secondary-button" type="button" onClick={() => void runDispatchAction('realert')} disabled={dispatchAction !== null || latestDispatch.status === 'cancelled' || countResponses(latestDispatch, 'pending') === 0}>
                       <BellRing size={16} /> {dispatchAction === 'realert' ? 'Heralarmeren...' : 'Heralarmeren'}
                     </button>
-                  </div>
+                  </div> : null}
                 </div>
                 {dispatchActionMessage ? <p className={dispatchActionMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{dispatchActionMessage}</p> : null}
                 <div className="summary-grid">
@@ -365,32 +369,36 @@ export function IncidentDetailPage() {
                         <span>Reactie</span>
                         <strong>{formatDate(recipient.responded_at)}</strong>
                       </div>
-                      <select
-                        value={recipient.response_status}
-                        disabled={recipientUpdatingId === recipient.id || latestDispatch.status === 'cancelled'}
-                        onChange={(event) => void updateRecipientResponse(recipient.id, event.target.value as 'pending' | 'accepted' | 'declined' | 'no_response')}
-                        aria-label={`Opkomststatus aanpassen voor ${recipient.user?.name ?? recipient.user_id}`}
-                      >
-                        <option value="pending">Wacht op reactie</option>
-                        <option value="accepted">Komt</option>
-                        <option value="declined">Komt niet</option>
-                        <option value="no_response">Geen reactie</option>
-                      </select>
+                      {canManageDispatches ? (
+                        <select
+                          value={recipient.response_status}
+                          disabled={recipientUpdatingId === recipient.id || latestDispatch.status === 'cancelled'}
+                          onChange={(event) => void updateRecipientResponse(recipient.id, event.target.value as 'pending' | 'accepted' | 'declined' | 'no_response')}
+                          aria-label={`Opkomststatus aanpassen voor ${recipient.user?.name ?? recipient.user_id}`}
+                        >
+                          <option value="pending">Wacht op reactie</option>
+                          <option value="accepted">Komt</option>
+                          <option value="declined">Komt niet</option>
+                          <option value="no_response">Geen reactie</option>
+                        </select>
+                      ) : null}
                       {recipient.response_note ? <p className="recipient-row__note">{recipient.response_note}</p> : null}
                     </article>
                   ))}
                 </div>
                 {recipientUpdateMessage ? <p className={recipientUpdateMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{recipientUpdateMessage}</p> : null}
-                <form className="inline-message-form" onSubmit={sendAdditionalInfo}>
-                  <label>
-                    Nadere info voor opkomende gebruikers
-                    <textarea value={additionalInfo} maxLength={2000} onChange={(event) => setAdditionalInfo(event.target.value)} />
-                  </label>
-                  <button className="primary-button" type="submit" disabled={additionalInfoSending || additionalInfo.trim() === '' || additionalInfoRecipientCount(latestDispatch) === 0}>
-                    <MessageSquare size={16} /> {additionalInfoSending ? 'Versturen...' : 'Info versturen'}
-                  </button>
-                  {additionalInfoMessage ? <p className={additionalInfoMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{additionalInfoMessage}</p> : null}
-                </form>
+                {canManageDispatches ? (
+                  <form className="inline-message-form" onSubmit={sendAdditionalInfo}>
+                    <label>
+                      Nadere info voor opkomende gebruikers
+                      <textarea value={additionalInfo} maxLength={2000} onChange={(event) => setAdditionalInfo(event.target.value)} />
+                    </label>
+                    <button className="primary-button" type="submit" disabled={additionalInfoSending || additionalInfo.trim() === '' || additionalInfoRecipientCount(latestDispatch) === 0}>
+                      <MessageSquare size={16} /> {additionalInfoSending ? 'Versturen...' : 'Info versturen'}
+                    </button>
+                    {additionalInfoMessage ? <p className={additionalInfoMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{additionalInfoMessage}</p> : null}
+                  </form>
+                ) : null}
               </>
             ) : null}
           </div>
@@ -405,7 +413,7 @@ export function IncidentDetailPage() {
 
       <Panel
         title="Drone vluchtinformatie"
-        action={incident.data ? (
+        action={incident.data && canManageIncidents ? (
           <button className="secondary-button" type="button" onClick={() => void refreshFlightContext()} disabled={flightRefreshLoading}>
             <RefreshCw size={16} /> {flightRefreshLoading ? 'Bijwerken...' : 'Bijwerken'}
           </button>
@@ -434,7 +442,7 @@ export function IncidentDetailPage() {
         </ResourceState>
       </Panel>
 
-      {editModalOpen && editForm !== null ? (
+      {editModalOpen && editForm !== null && canManageIncidents ? (
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="incident-edit-title">
             <header className="modal__header">
