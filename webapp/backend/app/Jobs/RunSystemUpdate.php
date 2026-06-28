@@ -12,6 +12,8 @@ final class RunSystemUpdate implements ShouldQueue
 
     public int $timeout = 3600;
 
+    public function __construct(public readonly bool $updateSystem = false) {}
+
     public function handle(SystemUpdateStatusService $status): void
     {
         $root = realpath(base_path('../..')) ?: base_path('../..');
@@ -24,7 +26,10 @@ final class RunSystemUpdate implements ShouldQueue
         }
 
         $updateCommand = is_file('/usr/local/bin/update') ? '/usr/local/bin/update' : (realpath($script) ?: $script);
-        $command = ['sudo', '-n', $updateCommand, '--skip-system'];
+        $command = ['sudo', '-n', $updateCommand];
+        if (! $this->updateSystem) {
+            $command[] = '--skip-system';
+        }
         $descriptorSpec = [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],

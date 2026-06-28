@@ -315,6 +315,7 @@ export interface SystemUpdateStatus {
   exit_code?: number | null;
   message?: string | null;
   log?: string[];
+  reboot_required?: boolean;
 }
 
 export interface SystemVersionState {
@@ -329,6 +330,9 @@ export interface SystemVersionState {
     checkable?: boolean;
     errors?: string[];
     update_available: boolean;
+  };
+  system?: {
+    reboot_required?: boolean;
   };
   updater: SystemUpdateStatus;
 }

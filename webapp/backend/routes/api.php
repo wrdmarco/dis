@@ -156,6 +156,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::delete('/admin/developer-access/key', [AdminDeveloperController::class, 'disableDeveloperKey'])->middleware('permission:settings.manage');
     Route::get('/admin/system/version', [AdminDeveloperController::class, 'version'])->middleware('permission:system.health');
     Route::post('/admin/system/update', [AdminDeveloperController::class, 'runUpdate'])->middleware('permission:system.health');
+    Route::post('/admin/system/reboot', [AdminDeveloperController::class, 'reboot'])->middleware('permission:system.health');
     Route::get('/admin/push/logs', [AdminController::class, 'pushLogs'])->middleware('permission:push.manage');
     Route::get('/admin/push/tokens', [AdminPushController::class, 'tokens'])->middleware('permission:push.manage');
     Route::post('/admin/push/tokens/{token}/revoke', [AdminPushController::class, 'revoke'])->middleware('permission:push.manage');

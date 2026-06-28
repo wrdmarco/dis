@@ -76,6 +76,9 @@ final class AdminDeveloperController extends Controller
         return ApiResponse::success([
             'app_version' => $this->readVersionFile(),
             'git' => $this->gitState(),
+            'system' => [
+                'reboot_required' => $this->rebootRequired(),
+            ],
             'updater' => $this->updateStatus->current(),
         ]);
     }
@@ -87,11 +90,25 @@ final class AdminDeveloperController extends Controller
             return ApiResponse::error('update_already_running', 'Er draait al een update.', 409);
         }
 
-        $this->updateStatus->start('Update gestart vanuit admin.');
-        RunSystemUpdate::dispatch()->onQueue('default');
-        $this->auditService->record('system.update_started', SystemSetting::class, $request->user(), [], null, $request);
+        $updateSystem = $request->boolean('update_system');
+        $this->updateStatus->start($updateSystem ? 'Systeem- en app-update gestart vanuit admin.' : 'App-update gestart vanuit admin.');
+        RunSystemUpdate::dispatch($updateSystem)->onQueue('default');
+        $this->auditService->record('system.update_started', SystemSetting::class, $request->user(), ['update_system' => $updateSystem], null, $request);
 
         return ApiResponse::success($this->updateStatus->current(), 202);
+    }
+
+    public function reboot(Request $request): JsonResponse
+    {
+        $this->auditService->record('system.reboot_requested', SystemSetting::class, $request->user(), [], null, $request);
+
+        $command = is_file('/usr/bin/systemctl') ? '/usr/bin/systemctl' : '/bin/systemctl';
+        $result = Process::run(['sudo', '-n', $command, 'reboot']);
+        if (! $result->successful()) {
+            return ApiResponse::error('server_reboot_failed', trim($result->errorOutput()) ?: 'Serverherstart kon niet worden gestart.', 500);
+        }
+
+        return ApiResponse::success(['reboot_started' => true], 202);
     }
 
     public function developerRunUpdate(Request $request): JsonResponse
@@ -103,8 +120,9 @@ final class AdminDeveloperController extends Controller
             return ApiResponse::error('update_already_running', 'Er draait al een update.', 409);
         }
 
-        $this->updateStatus->start('Update gestart via developer API.');
-        RunSystemUpdate::dispatch()->onQueue('default');
+        $updateSystem = $request->boolean('update_system');
+        $this->updateStatus->start($updateSystem ? 'Systeem- en app-update gestart via developer API.' : 'App-update gestart via developer API.');
+        RunSystemUpdate::dispatch($updateSystem)->onQueue('default');
         $this->auditService->record('system.update_started_developer_api', SystemSetting::class, null, [], null, $request);
 
         return ApiResponse::success($this->updateStatus->current(), 202);
@@ -264,6 +282,11 @@ final class AdminDeveloperController extends Controller
         $commit = $parts[0] ?? null;
 
         return is_string($commit) && preg_match('/^[a-f0-9]{40}$/', $commit) === 1 ? $commit : null;
+    }
+
+    private function rebootRequired(): bool
+    {
+        return is_file('/var/run/reboot-required') || is_file('/run/reboot-required');
     }
 
     private function tailFile(string $path, int $maxBytes): string

@@ -101,6 +101,7 @@ export function AdminPage() {
   const [updaterStatus, setUpdaterStatus] = useState<SystemUpdateStatus | null>(null);
   const [updateActionError, setUpdateActionError] = useState<string | null>(null);
   const [updateStarting, setUpdateStarting] = useState(false);
+  const [rebootStarting, setRebootStarting] = useState(false);
 
   useEffect(() => {
     setForm(mobileSettings);
@@ -405,17 +406,34 @@ export function AdminPage() {
     }
   }
 
-  async function startServerUpdate() {
+  async function startServerUpdate(updateSystem: boolean) {
     setUpdateStarting(true);
     setUpdateActionError(null);
     try {
-      const response = await api.post<SystemUpdateStatus>('/admin/system/update');
+      const response = await api.post<SystemUpdateStatus>('/admin/system/update', { update_system: updateSystem });
       setUpdaterStatus(response.data);
       await systemVersion.silentReload();
     } catch (error) {
       setUpdateActionError(error instanceof ApiClientError ? error.message : 'Update starten mislukt.');
     } finally {
       setUpdateStarting(false);
+    }
+  }
+
+  async function rebootServer() {
+    setRebootStarting(true);
+    setUpdateActionError(null);
+    try {
+      await api.post<{ reboot_started: boolean }>('/admin/system/reboot');
+      setUpdaterStatus((current) => ({
+        ...(current ?? { state: 'idle' as const }),
+        message: 'Serverherstart gestart.',
+        log: [...(current?.log ?? []), 'Serverherstart gestart.'],
+      }));
+    } catch (error) {
+      setUpdateActionError(error instanceof ApiClientError ? error.message : 'Serverherstart starten mislukt.');
+    } finally {
+      setRebootStarting(false);
     }
   }
 
@@ -809,6 +827,8 @@ export function AdminPage() {
                 </dd>
                 <dt>Fetch</dt>
                 <dd>{systemVersion.data?.git.fetch_successful === null || systemVersion.data?.git.fetch_successful === undefined ? '-' : systemVersion.data.git.fetch_successful ? 'Gelukt' : 'Mislukt'}</dd>
+                <dt>Herstart nodig</dt>
+                <dd>{(updaterStatus?.reboot_required ?? systemVersion.data?.system?.reboot_required) ? 'Ja' : 'Nee'}</dd>
               </dl>
               {(systemVersion.data?.git.errors?.length ?? 0) > 0 ? (
                 <div className="metadata-example">
@@ -825,9 +845,25 @@ export function AdminPage() {
                   className="primary-button"
                   type="button"
                   disabled={updateStarting || updaterStatus?.state === 'running' || systemVersion.data === null}
-                  onClick={() => void startServerUpdate()}
+                  onClick={() => void startServerUpdate(false)}
                 >
-                  {updaterStatus?.state === 'running' ? 'Update draait...' : updateStarting ? 'Starten...' : 'Update uitvoeren'}
+                  {updaterStatus?.state === 'running' ? 'Update draait...' : updateStarting ? 'Starten...' : 'App update'}
+                </button>
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={updateStarting || updaterStatus?.state === 'running' || systemVersion.data === null}
+                  onClick={() => void startServerUpdate(true)}
+                >
+                  {updaterStatus?.state === 'running' ? 'Update draait...' : updateStarting ? 'Starten...' : 'Systeem update'}
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={rebootStarting || updaterStatus?.state === 'running' || !(updaterStatus?.reboot_required ?? systemVersion.data?.system?.reboot_required)}
+                  onClick={() => void rebootServer()}
+                >
+                  {rebootStarting ? 'Herstarten...' : 'Server herstarten'}
                 </button>
               </div>
             </ResourceState>

@@ -23,6 +23,7 @@ final class SystemUpdateStatusService
             'exit_code' => null,
             'message' => 'Geen update actief.',
             'log' => [],
+            'reboot_required' => $this->rebootRequired(),
         ]);
     }
 
@@ -35,6 +36,7 @@ final class SystemUpdateStatusService
             'exit_code' => null,
             'message' => $message,
             'log' => [$message],
+            'reboot_required' => $this->rebootRequired(),
         ]);
     }
 
@@ -55,6 +57,13 @@ final class SystemUpdateStatusService
         $status['finished_at'] = now()->toIso8601String();
         $status['exit_code'] = $exitCode;
         $status['message'] = $exitCode === 0 ? 'Update afgerond.' : 'Update mislukt.';
+        $status['reboot_required'] = $this->rebootRequired();
+        if ($exitCode === 0 && $status['reboot_required'] === true) {
+            $status['message'] = 'Update afgerond. Serverherstart vereist.';
+            $log = is_array($status['log'] ?? null) ? $status['log'] : [];
+            $log[] = 'Serverherstart vereist.';
+            $status['log'] = array_slice($log, -self::LOG_LIMIT);
+        }
         $this->store($status);
     }
 
@@ -70,5 +79,10 @@ final class SystemUpdateStatusService
         } catch (Throwable $exception) {
             report($exception);
         }
+    }
+
+    private function rebootRequired(): bool
+    {
+        return is_file('/var/run/reboot-required') || is_file('/run/reboot-required');
     }
 }
