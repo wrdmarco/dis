@@ -65,6 +65,7 @@ export interface User {
   email: string;
   phone_number?: string | null;
   account_status: 'active' | 'suspended' | 'blocked';
+  last_login_at?: string | null;
   push_enabled: boolean;
   two_factor_enabled: boolean;
   roles?: Role[];

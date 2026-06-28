@@ -193,6 +193,21 @@ final class UserService
         return $user->refresh()->load(['roles', 'teams']);
     }
 
+    public function resendWelcomeMail(User $user, User $actor): User
+    {
+        if ($user->last_login_at !== null) {
+            throw ValidationException::withMessages(['user' => ['Deze gebruiker is al geactiveerd.']]);
+        }
+
+        if ($user->account_status !== 'active') {
+            throw ValidationException::withMessages(['user' => ['Alleen actieve gebruikers kunnen een uitnodiging ontvangen.']]);
+        }
+
+        $this->sendWelcomeMail($user->refresh()->load(['roles.permissions', 'teams']), $actor);
+
+        return $user->refresh()->load(['roles', 'teams']);
+    }
+
     /**
      * @param array<int, string> $roleIds
      */

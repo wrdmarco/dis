@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Eye, KeyRound, Plus, Trash2, X } from 'lucide-react';
+import { Eye, KeyRound, Mail, Plus, Trash2, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -53,6 +53,8 @@ export function UsersPage() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [resettingMfa, setResettingMfa] = useState(false);
+  const [resendingInvitation, setResendingInvitation] = useState(false);
+  const [invitationMessage, setInvitationMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (modalMode === null) {
@@ -62,6 +64,8 @@ export function UsersPage() {
       setUserDetailLoading(false);
       setUserDetailError(null);
       setError(null);
+      setInvitationMessage(null);
+      setResendingInvitation(false);
     }
   }, [modalMode]);
 
@@ -95,6 +99,7 @@ export function UsersPage() {
       teamIds: user.teams?.map((team) => team.id) ?? [],
     });
     setError(null);
+    setInvitationMessage(null);
     setModalMode('edit');
     void loadUserDetail(user.id);
   }
@@ -137,6 +142,27 @@ export function UsersPage() {
       setError(err instanceof ApiClientError ? err.message : 'MFA resetten mislukt.');
     } finally {
       setResettingMfa(false);
+    }
+  }
+
+  async function resendInvitation() {
+    if (editingUser === null) {
+      return;
+    }
+
+    setResendingInvitation(true);
+    setError(null);
+    setInvitationMessage(null);
+    try {
+      const response = await api.post<User>(`/users/${editingUser.id}/invitation/resend`);
+      setEditingUser(response.data);
+      setUserDetail((current) => current === null ? response.data : { ...current, ...response.data });
+      setInvitationMessage('Uitnodiging is opnieuw verstuurd.');
+      await users.reload();
+    } catch (err) {
+      setInvitationMessage(err instanceof ApiClientError ? err.message : 'Uitnodiging opnieuw versturen mislukt.');
+    } finally {
+      setResendingInvitation(false);
     }
   }
 
@@ -360,6 +386,26 @@ export function UsersPage() {
                   canManageCertifications={canManageCertifications}
                   onChanged={reloadUserDetail}
                 />
+              ) : null}
+              {modalMode === 'edit' && editingUser !== null && canManageUsers ? (
+                <div className="form-grid__wide stacked-section">
+                  <span className="field-label">Uitnodiging</span>
+                  <dl className="definition-grid">
+                    <dt>Activatie</dt>
+                    <dd>{(userDetail ?? editingUser).last_login_at ? 'Geactiveerd' : 'Nog niet geactiveerd'}</dd>
+                  </dl>
+                  <div className="actions-row">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={resendingInvitation || Boolean((userDetail ?? editingUser).last_login_at) || (userDetail ?? editingUser).account_status !== 'active'}
+                      onClick={() => void resendInvitation()}
+                    >
+                      <Mail size={16} /> {resendingInvitation ? 'Versturen...' : 'Uitnodiging opnieuw versturen'}
+                    </button>
+                  </div>
+                  {invitationMessage ? <p className={invitationMessage.includes('mislukt') || invitationMessage.includes('al geactiveerd') ? 'form-error' : 'form-note'}>{invitationMessage}</p> : null}
+                </div>
               ) : null}
               {modalMode === 'edit' && editingUser !== null && canManageUsers ? (
                 <div className="form-grid__wide stacked-section">
