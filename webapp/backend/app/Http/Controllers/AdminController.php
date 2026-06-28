@@ -30,7 +30,7 @@ final class AdminController extends Controller
 
     public function roles(): JsonResponse
     {
-        return ApiResponse::success(Role::query()->with('permissions')->orderBy('name')->get());
+        return ApiResponse::success(Role::query()->with('permissions')->withCount('users')->orderBy('name')->get());
     }
 
     public function storeRole(Request $request): JsonResponse
@@ -82,6 +82,27 @@ final class AdminController extends Controller
         ]);
 
         return ApiResponse::success($role->refresh()->load('permissions'));
+    }
+
+    public function destroyRole(Request $request, Role $role): JsonResponse
+    {
+        if ($role->name === 'system-administrator') {
+            return ApiResponse::error('role_protected', 'System administrator mag niet worden verwijderd.', 409);
+        }
+
+        $userCount = $role->users()->count();
+        if ($userCount > 0) {
+            return ApiResponse::error('role_in_use', 'Deze rol is nog gekoppeld aan gebruikers.', 409, ['users_count' => $userCount]);
+        }
+
+        $this->auditService->record('admin.role_deleted', $role, $request->user(), [
+            'name' => $role->name,
+            'display_name' => $role->display_name,
+        ]);
+        $role->permissions()->detach();
+        $role->delete();
+
+        return ApiResponse::success(null);
     }
 
     public function permissions(): JsonResponse

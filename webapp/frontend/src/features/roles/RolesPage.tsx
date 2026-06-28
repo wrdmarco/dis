@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Trash2 } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { ApiClientError } from '../../lib/apiClient';
@@ -83,6 +84,36 @@ export function RolesPage() {
     }
   }
 
+  async function deleteRole(role: Role) {
+    if (role.name === 'system-administrator') {
+      setRoleError('System administrator mag niet worden verwijderd.');
+      return;
+    }
+
+    if ((role.users_count ?? 0) > 0) {
+      setRoleError('Deze rol is nog gekoppeld aan gebruikers.');
+      return;
+    }
+
+    if (!window.confirm(`${role.display_name} verwijderen?`)) {
+      return;
+    }
+
+    setRoleActionId(role.id);
+    setRoleError(null);
+    try {
+      await api.delete(`/admin/roles/${role.id}`);
+      if (editingRoleId === role.id) {
+        resetRoleForm();
+      }
+      await roles.reload();
+    } catch (error) {
+      setRoleError(error instanceof ApiClientError ? error.message : 'Rol verwijderen mislukt.');
+    } finally {
+      setRoleActionId(null);
+    }
+  }
+
   return (
     <div className="page-stack">
       <Panel title="Rollen">
@@ -133,21 +164,37 @@ export function RolesPage() {
         </div>
         <ResourceState loading={roles.loading} error={roles.error} empty={(roles.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Naam</th><th>Apps</th><th>2FA</th><th>Permissies</th><th>Actie</th></tr></thead>
+            <thead><tr><th>Naam</th><th>Apps</th><th>2FA</th><th>Permissies</th><th>Gebruikers</th><th>Actie</th></tr></thead>
             <tbody>
-              {roles.data?.map((role) => (
-                <tr key={role.id}>
-                  <td><strong>{role.display_name}</strong><br /><span className="mono">{role.name}</span></td>
-                  <td>{role.can_use_operator_app ? 'Operator' : '-'} / {role.can_use_admin_app ? 'Admin' : '-'}</td>
-                  <td>{role.requires_two_factor ? 'Verplicht' : 'Niet verplicht'}</td>
-                  <td>{role.permissions?.length ?? 0}</td>
-                  <td>
-                    <button className="secondary-button" type="button" disabled={roleActionId !== null} onClick={() => editRole(role)}>
-                      Bewerken
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {roles.data?.map((role) => {
+                const userCount = role.users_count ?? 0;
+                const deleteDisabled = roleActionId !== null || role.name === 'system-administrator' || userCount > 0;
+                const deleteTitle = role.name === 'system-administrator'
+                  ? 'System administrator mag niet worden verwijderd'
+                  : userCount > 0
+                    ? 'Rol is nog gekoppeld aan gebruikers'
+                    : 'Rol verwijderen';
+
+                return (
+                  <tr key={role.id}>
+                    <td><strong>{role.display_name}</strong><br /><span className="mono">{role.name}</span></td>
+                    <td>{role.can_use_operator_app ? 'Operator' : '-'} / {role.can_use_admin_app ? 'Admin' : '-'}</td>
+                    <td>{role.requires_two_factor ? 'Verplicht' : 'Niet verplicht'}</td>
+                    <td>{role.permissions?.length ?? 0}</td>
+                    <td>{userCount}</td>
+                    <td>
+                      <div className="table-actions">
+                        <button className="secondary-button" type="button" disabled={roleActionId !== null} onClick={() => editRole(role)}>
+                          Bewerken
+                        </button>
+                        <button className="danger-button" type="button" disabled={deleteDisabled} title={deleteTitle} onClick={() => void deleteRole(role)}>
+                          <Trash2 size={16} /> Verwijderen
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </ResourceState>

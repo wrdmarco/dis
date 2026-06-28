@@ -36,6 +36,7 @@ export interface Role {
   requires_two_factor: boolean;
   can_use_operator_app: boolean;
   can_use_admin_app: boolean;
+  users_count?: number;
   permissions?: Permission[];
 }
 

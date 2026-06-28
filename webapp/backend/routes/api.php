@@ -145,6 +145,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/admin/roles', [AdminController::class, 'roles'])->middleware('permission:roles.manage');
     Route::post('/admin/roles', [AdminController::class, 'storeRole'])->middleware('permission:roles.manage');
     Route::patch('/admin/roles/{role}', [AdminController::class, 'updateRole'])->middleware('permission:roles.manage');
+    Route::delete('/admin/roles/{role}', [AdminController::class, 'destroyRole'])->middleware('permission:roles.manage');
     Route::get('/admin/permissions', [AdminController::class, 'permissions'])->middleware('permission:roles.manage');
     Route::get('/admin/teams', [AdminController::class, 'teams'])->middleware('permission:teams.manage');
     Route::post('/admin/teams', [AdminController::class, 'storeTeam'])->middleware('permission:teams.manage');
