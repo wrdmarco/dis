@@ -18,6 +18,7 @@ const UpdatesPage = lazy(() => import('../features/updates/UpdatesPage').then((m
 const PushPage = lazy(() => import('../features/push/PushPage').then((module) => ({ default: module.PushPage })));
 const ReportsPage = lazy(() => import('../features/reports/ReportsPage').then((module) => ({ default: module.ReportsPage })));
 const TestAlertPage = lazy(() => import('../features/test-alerts/TestAlertPage').then((module) => ({ default: module.TestAlertPage })));
+const RolesPage = lazy(() => import('../features/roles/RolesPage').then((module) => ({ default: module.RolesPage })));
 const AdminPage = lazy(() => import('../features/admin/AdminPage').then((module) => ({ default: module.AdminPage })));
 const StatusPage = lazy(() => import('../features/status/StatusPage').then((module) => ({ default: module.StatusPage })));
 const SystemPage = lazy(() => import('../features/system/SystemPage').then((module) => ({ default: module.SystemPage })));
@@ -52,6 +53,8 @@ export function App() {
           <Route path="push" element={<PushPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="proefalarmering" element={<TestAlertPage />} />
+          <Route path="rollen" element={<RolesPage />} />
+          <Route path="roles" element={<RolesPage />} />
           <Route path="admin" element={<AdminPage />} />
           <Route path="system" element={<SystemPage />} />
           <Route path="systeem" element={<SystemPage />} />

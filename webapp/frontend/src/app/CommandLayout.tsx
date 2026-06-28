@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Archive, BarChart3, Bell, BellRing, Boxes, ClipboardCheck, Gauge, LogOut, Network, RadioTower, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, Boxes, ClipboardCheck, Gauge, KeyRound, LogOut, Network, RadioTower, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
 import { useAuth } from '../features/auth/AuthContext';
 
 const navItems = [
@@ -15,6 +15,7 @@ const navItems = [
   { to: '/push', label: 'Pushmeldingen', icon: Send },
   { to: '/reports', label: 'Statistieken', icon: BarChart3 },
   { to: '/proefalarmering', label: 'Proefalarmering', icon: BellRing },
+  { to: '/rollen', label: 'Rollen', icon: KeyRound },
   { to: '/admin', label: 'Admin', icon: Shield },
   { to: '/system', label: 'Systeem', icon: Bell },
 ];
