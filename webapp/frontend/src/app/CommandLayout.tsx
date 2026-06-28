@@ -22,6 +22,7 @@ const navGroups = [
     label: 'Mensen & middelen',
     items: [
       { to: '/users', label: 'Gebruikers', icon: Users },
+      { to: '/rollen', label: 'Rollen', icon: KeyRound },
       { to: '/teams', label: 'Teams', icon: Network },
       { to: '/assets', label: 'Assets', icon: Boxes },
       { to: '/certifications', label: 'Certificaten', icon: ClipboardCheck },
@@ -39,7 +40,6 @@ const navGroups = [
     label: 'Beheer',
     items: [
       { to: '/updates', label: 'App updates', icon: Smartphone },
-      { to: '/rollen', label: 'Rollen', icon: KeyRound },
       { to: '/admin', label: 'Admin', icon: Shield },
       { to: '/system', label: 'Systeem', icon: Bell },
     ],
