@@ -17,28 +17,14 @@ final class FcmClient
     public function send(FcmToken $token, string $title, string $body, array $data = []): Response
     {
         $projectId = SystemSetting::string('firebase.project_id', config('dis.push.fcm_project_id'));
-        $isDispatchRequest = ($data['type'] ?? null) === 'dispatch_request';
-        $messageData = $isDispatchRequest
-            ? array_merge($data, ['title' => $title, 'body' => $body])
-            : $data;
+        $messageData = array_merge($data, ['title' => $title, 'body' => $body]);
         $message = [
             'token' => $token->token,
             'data' => $messageData,
             'android' => [
                 'priority' => 'HIGH',
-                'notification' => [
-                    'channel_id' => 'dispatch_alerts',
-                    'default_sound' => true,
-                ],
             ],
         ];
-
-        if (! $isDispatchRequest) {
-            $message['notification'] = [
-                'title' => $title,
-                'body' => $body,
-            ];
-        }
 
         return Http::withToken($this->tokens->token())
             ->acceptJson()
