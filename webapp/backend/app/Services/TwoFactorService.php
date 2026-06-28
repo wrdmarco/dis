@@ -23,7 +23,8 @@ final class TwoFactorService
     public function provisioningUri(User $user, string $secret): string
     {
         $issuer = $this->issuer();
-        $label = rawurlencode($issuer.':'.$user->email);
+        $account = trim($user->name) !== '' ? $user->name.' - '.$user->email : $user->email;
+        $label = rawurlencode($issuer.':'.$account);
         $query = http_build_query([
             'secret' => $secret,
             'issuer' => $issuer,
@@ -37,10 +38,9 @@ final class TwoFactorService
 
     private function issuer(): string
     {
-        $configuredUrl = SystemSetting::string('app.public_url', config('app.url', 'http://dis.example.nl'));
-        $issuer = rtrim((string) $configuredUrl, '/');
+        $issuer = trim((string) SystemSetting::string('security.mfa_issuer_name', 'D.I.S'));
 
-        return $issuer !== '' ? $issuer : 'http://dis.example.nl';
+        return $issuer !== '' ? $issuer : 'D.I.S';
     }
 
     /**

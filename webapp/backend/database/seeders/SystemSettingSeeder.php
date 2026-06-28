@@ -23,6 +23,7 @@ final class SystemSettingSeeder extends Seeder
         'security.password_requires_numbers' => ['value' => true, 'is_sensitive' => false],
         'security.password_requires_symbols' => ['value' => true, 'is_sensitive' => false],
         'security.password_uncompromised' => ['value' => true, 'is_sensitive' => false],
+        'security.mfa_issuer_name' => ['value' => 'D.I.S', 'is_sensitive' => false],
         'app.setup_completed' => ['value' => false, 'is_sensitive' => false],
         'app.setup_completed_at' => ['value' => null, 'is_sensitive' => false],
         'app.public_url' => ['value' => '', 'is_sensitive' => false],

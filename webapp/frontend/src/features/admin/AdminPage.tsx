@@ -52,6 +52,7 @@ interface ManagedSettingsForm {
 }
 
 interface PasswordPolicySettingsForm {
+  mfaIssuerName: string;
   minimumLength: string;
   requiresMixedCase: boolean;
   requiresNumbers: boolean;
@@ -341,6 +342,7 @@ export function AdminPage() {
           'security.password_requires_numbers': passwordPolicyForm.requiresNumbers,
           'security.password_requires_symbols': passwordPolicyForm.requiresSymbols,
           'security.password_uncompromised': passwordPolicyForm.uncompromised,
+          'security.mfa_issuer_name': passwordPolicyForm.mfaIssuerName.trim() || 'D.I.S',
         },
       });
       await settings.reload();
@@ -699,8 +701,16 @@ export function AdminPage() {
       ) : null}
 
       {activeTab === 'passwords' ? (
-        <Panel title="Wachtwoordeisen">
+        <Panel title="MFA en wachtwoordeisen">
           <div className="form-grid">
+            <label>
+              Authenticator naam
+              <input
+                maxLength={64}
+                value={passwordPolicyForm.mfaIssuerName}
+                onChange={(event) => setPasswordPolicyForm((current) => ({ ...current, mfaIssuerName: event.target.value }))}
+              />
+            </label>
             <label>
               Minimum lengte
               <input
@@ -747,7 +757,7 @@ export function AdminPage() {
           {managedError ? <p className="error-text">{managedError}</p> : null}
           <div className="actions-row">
             <button className="primary-button" type="button" onClick={savePasswordPolicySettings} disabled={managedSaving}>
-              {managedSaving ? 'Opslaan...' : 'Wachtwoordeisen opslaan'}
+              {managedSaving ? 'Opslaan...' : 'MFA en wachtwoordeisen opslaan'}
             </button>
           </div>
         </Panel>
@@ -1034,6 +1044,7 @@ function toPasswordPolicySettingsForm(settings: SystemSetting[]): PasswordPolicy
   const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
 
   return {
+    mfaIssuerName: asString(byKey.get('security.mfa_issuer_name')) || 'D.I.S',
     minimumLength: asStringOrNumber(byKey.get('security.password_min_length'), '14'),
     requiresMixedCase: asBoolean(byKey.get('security.password_requires_mixed_case'), true),
     requiresNumbers: asBoolean(byKey.get('security.password_requires_numbers'), true),

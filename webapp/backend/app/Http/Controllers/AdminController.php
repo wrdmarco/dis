@@ -269,6 +269,7 @@ final class AdminController extends Controller
             PasswordPolicy::NUMBERS_KEY,
             PasswordPolicy::SYMBOLS_KEY,
             PasswordPolicy::UNCOMPROMISED_KEY => $this->validateBooleanSetting($key, $value),
+            'security.mfa_issuer_name' => $this->validateStringSetting($key, $value, 64),
             default => $value,
         };
     }
