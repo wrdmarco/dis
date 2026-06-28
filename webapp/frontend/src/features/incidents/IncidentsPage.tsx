@@ -353,8 +353,8 @@ export function IncidentForm(props: {
         <input value={form.title} maxLength={180} onChange={(event) => updateForm(onChange, 'title', event.target.value)} required />
       </label>
       <label className="form-grid__wide">
-        Omschrijving
-        <textarea value={form.description} rows={5} onChange={(event) => updateForm(onChange, 'description', event.target.value)} />
+        Details
+        <textarea value={form.description} rows={5} onChange={(event) => updateForm(onChange, 'description', event.target.value)} required />
       </label>
       <label>
         Prioriteit
@@ -421,7 +421,7 @@ export function IncidentForm(props: {
       {error ? <p className="form-error form-grid__wide">{error}</p> : null}
       <div className="actions-row form-grid__wide">
         <button className="secondary-button" type="button" onClick={onCancel}>Annuleren</button>
-        <button className="primary-button" type="submit" disabled={saving}>
+        <button className="primary-button" type="submit" disabled={saving || form.title.trim() === '' || form.description.trim() === ''}>
           {saving ? 'Opslaan...' : submitLabel}
         </button>
       </div>
@@ -724,8 +724,8 @@ function airspaceStatusLabel(status?: string | null): string {
 
 export function incidentPayload(form: IncidentFormState): Record<string, unknown> {
   return {
-    title: form.title,
-    description: form.description.trim() === '' ? null : form.description,
+    title: form.title.trim(),
+    description: form.description.trim(),
     priority: form.priority,
     status: form.status,
     location_label: form.locationLabel.trim() === '' ? null : form.locationLabel,

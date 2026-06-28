@@ -15,7 +15,7 @@ final class StoreIncidentRequest extends FormRequest
     {
         return [
             'title' => ['required', 'string', 'max:180'],
-            'description' => ['nullable', 'string', 'max:10000'],
+            'description' => ['required', 'string', 'max:10000'],
             'priority' => ['required', 'in:low,normal,high,critical'],
             'status' => ['nullable', 'in:draft,active,dispatching,in_progress,resolved,cancelled'],
             'location_label' => ['nullable', 'string', 'max:255'],

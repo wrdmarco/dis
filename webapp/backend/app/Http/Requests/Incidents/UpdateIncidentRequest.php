@@ -14,8 +14,8 @@ final class UpdateIncidentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'title' => ['sometimes', 'string', 'max:180'],
-            'description' => ['nullable', 'string', 'max:10000'],
+            'title' => ['sometimes', 'required', 'string', 'max:180'],
+            'description' => ['sometimes', 'required', 'string', 'max:10000'],
             'priority' => ['sometimes', 'in:low,normal,high,critical'],
             'status' => ['sometimes', 'in:draft,active,dispatching,in_progress,resolved,cancelled'],
             'status_reason' => ['nullable', 'string', 'max:1000'],
