@@ -73,12 +73,31 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'settings', label: 'Instellingen' },
 ];
 
+function adminTabAllowed(
+  tab: AdminTab,
+  permissions: { canManageSettings: boolean; canManagePush: boolean; canViewSystemHealth: boolean },
+): boolean {
+  if (tab === 'tokens') {
+    return permissions.canManagePush;
+  }
+
+  if (tab === 'version') {
+    return permissions.canViewSystemHealth;
+  }
+
+  return permissions.canManageSettings;
+}
+
 export function AdminPage() {
-  const { api, token } = useAuth();
-  const settings = useApiResource<SystemSetting[]>('/admin/settings');
-  const tokens = useApiResource<FcmToken[]>('/admin/push/tokens?per_page=100');
-  const developerAccess = useApiResource<DeveloperAccessState>('/admin/developer-access');
-  const systemVersion = useApiResource<SystemVersionState>('/admin/system/version');
+  const { api, token, hasPermission } = useAuth();
+  const canManageSettings = hasPermission('settings.manage');
+  const canManagePush = hasPermission('push.manage');
+  const canViewSystemHealth = hasPermission('system.health');
+  const visibleAdminTabs = adminTabs.filter((tab) => adminTabAllowed(tab.id, { canManageSettings, canManagePush, canViewSystemHealth }));
+  const settings = useApiResource<SystemSetting[]>('/admin/settings', canManageSettings);
+  const tokens = useApiResource<FcmToken[]>('/admin/push/tokens?per_page=100', canManagePush);
+  const developerAccess = useApiResource<DeveloperAccessState>('/admin/developer-access', canManageSettings);
+  const systemVersion = useApiResource<SystemVersionState>('/admin/system/version', canViewSystemHealth);
   const mobileSettings = useMemo(() => toMobileSettingsForm(settings.data ?? []), [settings.data]);
   const managedSettings = useMemo(() => toManagedSettingsForm(settings.data ?? []), [settings.data]);
   const passwordPolicySettings = useMemo(() => toPasswordPolicySettingsForm(settings.data ?? []), [settings.data]);
@@ -123,10 +142,16 @@ export function AdminPage() {
     setUpdaterStatus(systemVersion.data?.updater ?? null);
   }, [systemVersion.data?.updater]);
 
+  useEffect(() => {
+    if (!visibleAdminTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab(visibleAdminTabs[0]?.id ?? 'settings');
+    }
+  }, [activeTab, visibleAdminTabs]);
+
   const reloadSystemVersionSilently = systemVersion.silentReload;
 
   useEffect(() => {
-    if (token === null) {
+    if (token === null || !canViewSystemHealth) {
       return;
     }
 
@@ -144,7 +169,7 @@ export function AdminPage() {
     return () => {
       echo.leave('private-admin.system');
     };
-  }, [reloadSystemVersionSilently, token]);
+  }, [canViewSystemHealth, reloadSystemVersionSilently, token]);
 
   useEffect(() => {
     if (updaterStatus?.state !== 'running') {
@@ -447,7 +472,7 @@ export function AdminPage() {
   return (
     <div className="page-stack">
       <div className="admin-tabs" role="tablist" aria-label="Admin onderdelen">
-        {adminTabs.map((tab) => (
+        {visibleAdminTabs.map((tab) => (
           <button
             className={activeTab === tab.id ? 'admin-tab admin-tab--active' : 'admin-tab'}
             key={tab.id}

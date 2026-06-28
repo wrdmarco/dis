@@ -37,7 +37,7 @@ const teamTypes = [
 export function TeamsPage() {
   const { api } = useAuth();
   const teams = useApiResource<Team[]>('/admin/teams');
-  const certifications = useApiResource<Certification[]>('/certifications');
+  const certifications = useApiResource<Certification[]>('/admin/teams/certification-options');
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [form, setForm] = useState<TeamFormState>(emptyForm);

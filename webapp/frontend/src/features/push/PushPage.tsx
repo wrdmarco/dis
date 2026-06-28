@@ -23,11 +23,15 @@ const emptyPushForm: ManualPushForm = {
   userIds: [],
 };
 
+interface PushOptions {
+  teams: Team[];
+  roles: Role[];
+  users: User[];
+}
+
 export function PushPage() {
   const { api } = useAuth();
-  const roles = useApiResource<Role[]>('/admin/roles');
-  const teams = useApiResource<Team[]>('/admin/teams');
-  const users = useApiResource<User[]>('/users?per_page=200');
+  const options = useApiResource<PushOptions>('/admin/push/options');
   const logs = useApiResource<PushDeliveryLog[]>('/admin/push/logs?per_page=10');
   const [form, setForm] = useState<ManualPushForm>(emptyPushForm);
   const [sending, setSending] = useState(false);
@@ -67,8 +71,8 @@ export function PushPage() {
     }));
   }
 
-  const resourcesLoading = roles.loading || teams.loading || users.loading;
-  const resourcesError = roles.error ?? teams.error ?? users.error;
+  const resourcesLoading = options.loading;
+  const resourcesError = options.error;
   const selectedCount = recipientCount(form);
 
   return (
@@ -98,7 +102,7 @@ export function PushPage() {
               <section className="push-targets__section">
                 <h3>Teams</h3>
                 <div className="checkbox-grid">
-                  {teams.data?.map((team) => (
+                  {options.data?.teams.map((team) => (
                     <label className="checkbox-card" key={team.id}>
                       <input
                         type="checkbox"
@@ -117,7 +121,7 @@ export function PushPage() {
               <section className="push-targets__section">
                 <h3>Rollen</h3>
                 <div className="checkbox-grid">
-                  {roles.data?.map((role) => (
+                  {options.data?.roles.map((role) => (
                     <label className="checkbox-card" key={role.id}>
                       <input
                         type="checkbox"
@@ -136,7 +140,7 @@ export function PushPage() {
               <section className="push-targets__section push-targets__section--wide">
                 <h3>Individuele gebruikers</h3>
                 <div className="checkbox-grid checkbox-grid--dense">
-                  {users.data?.map((user) => (
+                  {options.data?.users.map((user) => (
                     <label className="checkbox-card" key={user.id}>
                       <input
                         type="checkbox"

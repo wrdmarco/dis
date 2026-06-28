@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiResponse;
 use App\Models\AuditLog;
+use App\Models\Certification;
 use App\Models\Permission;
 use App\Models\PushDeliveryLog;
 use App\Models\Role;
@@ -114,6 +115,13 @@ final class AdminController extends Controller
     public function teams(): JsonResponse
     {
         return ApiResponse::success(Team::query()->with(['parent', 'alertTeams', 'requiredCertifications'])->orderBy('code')->get());
+    }
+
+    public function teamCertificationOptions(): JsonResponse
+    {
+        return ApiResponse::success(Certification::query()
+            ->orderBy('code')
+            ->get(['id', 'code', 'name', 'description', 'is_required_for_dispatch', 'warning_days_before_expiry']));
     }
 
     public function storeTeam(Request $request): JsonResponse

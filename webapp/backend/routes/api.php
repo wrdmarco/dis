@@ -151,6 +151,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::delete('/admin/roles/{role}', [AdminController::class, 'destroyRole'])->middleware('permission:roles.manage');
     Route::get('/admin/permissions', [AdminController::class, 'permissions'])->middleware('permission:roles.manage');
     Route::get('/admin/teams', [AdminController::class, 'teams'])->middleware('permission:teams.manage');
+    Route::get('/admin/teams/certification-options', [AdminController::class, 'teamCertificationOptions'])->middleware('permission:teams.manage');
     Route::post('/admin/teams', [AdminController::class, 'storeTeam'])->middleware('permission:teams.manage');
     Route::patch('/admin/teams/{team}', [AdminController::class, 'updateTeam'])->middleware('permission:teams.manage');
     Route::get('/admin/audit-logs', [AdminController::class, 'auditLogs'])->middleware('permission:audit.view');
@@ -164,6 +165,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/admin/system/update', [AdminDeveloperController::class, 'runUpdate'])->middleware('permission:system.health');
     Route::post('/admin/system/reboot', [AdminDeveloperController::class, 'reboot'])->middleware('permission:system.health');
     Route::get('/admin/push/logs', [AdminController::class, 'pushLogs'])->middleware('permission:push.manage');
+    Route::get('/admin/push/options', [AdminPushController::class, 'options'])->middleware('permission:push.manage');
     Route::get('/admin/push/tokens', [AdminPushController::class, 'tokens'])->middleware('permission:push.manage');
     Route::post('/admin/push/tokens/{token}/revoke', [AdminPushController::class, 'revoke'])->middleware('permission:push.manage');
     Route::post('/admin/push/tokens/{token}/activate', [AdminPushController::class, 'activate'])->middleware('permission:push.manage');

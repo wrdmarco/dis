@@ -5,6 +5,9 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Admin\SendManualPushRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\FcmToken;
+use App\Models\Role;
+use App\Models\Team;
+use App\Models\User;
 use App\Services\PushNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,6 +16,38 @@ use Symfony\Component\HttpFoundation\Response;
 final class AdminPushController extends Controller
 {
     public function __construct(private readonly PushNotificationService $pushNotifications) {}
+
+    public function options(): JsonResponse
+    {
+        return ApiResponse::success([
+            'teams' => Team::query()
+                ->with('alertTeams')
+                ->orderBy('code')
+                ->get(['id', 'code', 'name', 'type'])
+                ->map(fn (Team $team): array => [
+                    'id' => $team->id,
+                    'code' => $team->code,
+                    'name' => $team->name,
+                    'type' => $team->type,
+                    'alert_teams' => $team->alertTeams->map(fn (Team $alertTeam): array => [
+                        'id' => $alertTeam->id,
+                        'code' => $alertTeam->code,
+                        'name' => $alertTeam->name,
+                        'type' => $alertTeam->type,
+                    ])->values(),
+                ])->values(),
+            'roles' => Role::query()
+                ->orderBy('display_name')
+                ->get(['id', 'name', 'display_name', 'description', 'requires_two_factor', 'can_use_operator_app', 'can_use_admin_app'])
+                ->values(),
+            'users' => User::query()
+                ->where('account_status', 'active')
+                ->orderBy('name')
+                ->limit(500)
+                ->get(['id', 'name', 'email', 'account_status', 'push_enabled', 'two_factor_enabled'])
+                ->values(),
+        ]);
+    }
 
     public function tokens(Request $request): JsonResponse
     {
