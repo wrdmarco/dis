@@ -24,6 +24,7 @@ const RolesPage = lazy(() => import('../features/roles/RolesPage').then((module)
 const AdminPage = lazy(() => import('../features/admin/AdminPage').then((module) => ({ default: module.AdminPage })));
 const BrandingPage = lazy(() => import('../features/branding/BrandingPage').then((module) => ({ default: module.BrandingPage })));
 const StatusPage = lazy(() => import('../features/status/StatusPage').then((module) => ({ default: module.StatusPage })));
+const StatusAuditPage = lazy(() => import('../features/status/StatusAuditPage').then((module) => ({ default: module.StatusAuditPage })));
 const SystemPage = lazy(() => import('../features/system/SystemPage').then((module) => ({ default: module.SystemPage })));
 const ProfilePage = lazy(() => import('../features/profile/ProfilePage').then((module) => ({ default: module.ProfilePage })));
 
@@ -49,6 +50,7 @@ export function App() {
           <Route path="incidents/archive" element={<PermissionRoute permissions={['incidents.view']}><IncidentsPage mode="archive" /></PermissionRoute>} />
           <Route path="incidents/:incidentId" element={<PermissionRoute permissions={['incidents.view']}><IncidentDetailPage /></PermissionRoute>} />
           <Route path="status" element={<PermissionRoute permissions={['status.view']}><StatusPage /></PermissionRoute>} />
+          <Route path="status/audit" element={<PermissionRoute permissions={['status.audit.view']}><StatusAuditPage /></PermissionRoute>} />
           <Route path="users" element={<PermissionRoute permissions={['users.view']}><UsersPage /></PermissionRoute>} />
           <Route path="teams" element={<PermissionRoute permissions={['teams.manage']}><TeamsPage /></PermissionRoute>} />
           <Route path="assets" element={<PermissionRoute permissions={['assets.view']}><AssetsPage /></PermissionRoute>} />

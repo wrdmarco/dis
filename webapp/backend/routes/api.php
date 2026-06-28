@@ -20,6 +20,7 @@ use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\ReportingController;
 use App\Http\Controllers\SetupController;
 use App\Http\Controllers\StatusController;
+use App\Http\Controllers\StatusAuditController;
 use App\Http\Controllers\TestAlertController;
 use App\Http\Controllers\UpdateController;
 use App\Http\Controllers\UserController;
@@ -114,6 +115,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/status/users', [StatusController::class, 'users'])->middleware('permission:status.view');
     Route::post('/status/users/{user}/override', [StatusController::class, 'override'])->middleware('permission:status.override');
     Route::get('/status/history', [StatusController::class, 'history'])->middleware('permission:status.view');
+    Route::get('/status/audit', [StatusAuditController::class, 'index'])->middleware('permission:status.audit.view');
     Route::get('/vacations/mine', [VacationController::class, 'mine']);
     Route::post('/vacations/mine', [VacationController::class, 'store']);
     Route::delete('/vacations/{vacation}', [VacationController::class, 'cancel']);

@@ -23,6 +23,7 @@ final class RoleAndPermissionSeeder extends Seeder
         'dispatch.manage' => ['display_name' => 'Manage dispatches', 'category' => 'dispatch_management', 'description' => 'Create, send, cancel and escalate dispatch requests.'],
         'status.view' => ['display_name' => 'View statuses', 'category' => 'status_management', 'description' => 'View operational availability status.'],
         'status.override' => ['display_name' => 'Override statuses', 'category' => 'status_management', 'description' => 'Override availability with an auditable reason.'],
+        'status.audit.view' => ['display_name' => 'View status audit', 'category' => 'status_management', 'description' => 'View audit log entries for availability status changes.'],
         'assets.view' => ['display_name' => 'View assets', 'category' => 'asset_management', 'description' => 'View operational assets and readiness.'],
         'assets.manage' => ['display_name' => 'Manage assets', 'category' => 'asset_management', 'description' => 'Create, update, assign and release assets.'],
         'certifications.view' => ['display_name' => 'View certifications', 'category' => 'certification_management', 'description' => 'View certification types and user certification state.'],

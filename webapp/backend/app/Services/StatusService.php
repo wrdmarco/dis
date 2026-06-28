@@ -17,6 +17,7 @@ final class StatusService
     public function setStatus(User $user, string $status, User $actor, ?string $reason = null, bool $systemApplied = false): AvailabilityStatus
     {
         $record = DB::transaction(function () use ($user, $status, $actor, $reason, $systemApplied): AvailabilityStatus {
+            $previousStatus = $this->latestStatus($user);
             $isAvailable = $status === 'available';
 
             if ($isAvailable && $this->hasActiveVacation($user)) {
@@ -37,7 +38,12 @@ final class StatusService
                 'effective_at' => now(),
             ]);
 
-            $this->auditService->record($systemApplied ? 'status.system_updated' : 'status.updated', $user, $actor, ['status' => $status], $reason);
+            $this->auditService->record($systemApplied ? 'status.system_updated' : 'status.updated', $user, $actor, [
+                'from_status' => $previousStatus?->status,
+                'to_status' => $status,
+                'is_available' => $isAvailable,
+                'is_system_applied' => $systemApplied,
+            ], $reason);
 
             return $record;
         });
@@ -50,6 +56,7 @@ final class StatusService
     public function enforcePushUnavailable(User $user): void
     {
         if (! $user->push_enabled) {
+            $previousStatus = $this->latestStatus($user);
             $record = AvailabilityStatus::query()->create([
                 'user_id' => $user->id,
                 'status' => 'unavailable',
@@ -59,6 +66,12 @@ final class StatusService
                 'reason' => 'Push notifications disabled.',
                 'effective_at' => now(),
             ]);
+            $this->auditService->record('status.system_updated', $user, null, [
+                'from_status' => $previousStatus?->status,
+                'to_status' => 'unavailable',
+                'is_available' => false,
+                'is_system_applied' => true,
+            ], 'Push notifications disabled.');
             $this->dispatchAvailabilityChanged($record);
         }
     }
@@ -80,5 +93,14 @@ final class StatusService
             ->whereDate('starts_at', '<=', today())
             ->whereDate('ends_at', '>=', today())
             ->exists();
+    }
+
+    private function latestStatus(User $user): ?AvailabilityStatus
+    {
+        return $user->statuses()
+            ->orderByDesc('effective_at')
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->first();
     }
 }

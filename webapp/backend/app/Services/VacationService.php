@@ -57,20 +57,24 @@ final class VacationService
                 throw ValidationException::withMessages(['vacation' => ['Deze vakantie kan niet meer worden ingetrokken.']]);
             }
 
-            $vacation->update([
-                'status' => UserVacation::STATUS_CANCELLED,
-                'cancelled_by' => $actor->id,
-                'cancelled_at' => now(),
-            ]);
+            $vacation->loadMissing('user');
+            $deletedVacation = $vacation->replicate();
+            $deletedVacation->id = $vacation->id;
+            $deletedVacation->exists = true;
 
             $latest = $this->latestStatus($vacation->user);
             if ($latest?->status === 'vacation') {
                 $this->statusService->setStatus($vacation->user, 'unavailable', $actor, 'Vakantie ingetrokken.', true);
             }
 
-            $this->auditService->record('vacation.cancelled', $vacation, $actor, ['user_id' => $vacation->user_id]);
+            $this->auditService->record('vacation.deleted', $vacation, $actor, [
+                'user_id' => $vacation->user_id,
+                'starts_at' => $vacation->starts_at?->toDateString(),
+                'ends_at' => $vacation->ends_at?->toDateString(),
+            ]);
+            $vacation->delete();
 
-            return $vacation->refresh()->load('user');
+            return $deletedVacation->setRelation('user', $vacation->user);
         });
     }
 

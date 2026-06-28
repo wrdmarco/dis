@@ -245,6 +245,18 @@ export interface UserVacation {
   user?: Pick<User, 'id' | 'name' | 'email'> | null;
 }
 
+export interface StatusAuditEntry {
+  id: string;
+  action: 'status.updated' | 'status.system_updated';
+  user?: Pick<User, 'id' | 'name' | 'email'> | null;
+  actor?: Pick<User, 'id' | 'name' | 'email'> | null;
+  from_status?: string | null;
+  to_status?: string | null;
+  is_system_applied: boolean;
+  reason?: string | null;
+  created_at?: string | null;
+}
+
 export interface Asset {
   id: string;
   asset_tag: string;
