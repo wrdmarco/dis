@@ -240,8 +240,8 @@ final class UserService
 
     private function assertActorCanManageRoles(User $actor): void
     {
-        if (! $actor->hasRole(Role::SYSTEM_ADMINISTRATOR)) {
-            throw ValidationException::withMessages(['roles' => ['Alleen system administrators mogen rechten aanpassen.']]);
+        if (! $actor->hasPermission('roles.manage')) {
+            throw ValidationException::withMessages(['roles' => ['Je hebt geen rechten om rollen aan te passen.']]);
         }
     }
 
