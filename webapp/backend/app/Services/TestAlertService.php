@@ -6,7 +6,9 @@ use App\Jobs\SendFcmNotification;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
+use App\Models\SystemSetting;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -87,6 +89,106 @@ final class TestAlertService
 
             return $dispatch->load(['incident', 'recipients.user']);
         });
+    }
+
+    /**
+     * @return array{sent_users: int, skipped_users: int}
+     */
+    public function sendScheduled(): array
+    {
+        if (! $this->scheduleDue()) {
+            return ['sent_users' => 0, 'skipped_users' => 0];
+        }
+
+        $users = User::query()
+            ->with(['roles', 'fcmTokens' => fn ($tokens) => $tokens->where('is_active', true)])
+            ->where('account_status', 'active')
+            ->where('push_enabled', true)
+            ->whereHas('fcmTokens', fn ($tokens) => $tokens->where('is_active', true))
+            ->get()
+            ->filter(fn (User $user): bool => $user->canUseOperatorApp())
+            ->values();
+
+        $sent = 0;
+        $skipped = 0;
+        foreach ($users as $user) {
+            try {
+                $this->send($user);
+                $sent++;
+            } catch (ValidationException) {
+                $skipped++;
+            }
+        }
+
+        return ['sent_users' => $sent, 'skipped_users' => $skipped];
+    }
+
+    /**
+     * @return array{enabled: bool, day_of_week: int, time: string, last_run_at: string|null}
+     */
+    public function schedule(): array
+    {
+        return [
+            'enabled' => SystemSetting::boolean('test_alert.schedule_enabled', false),
+            'day_of_week' => SystemSetting::integer('test_alert.schedule_day_of_week', 1),
+            'time' => SystemSetting::string('test_alert.schedule_time', '09:00') ?? '09:00',
+            'last_run_at' => SystemSetting::string('test_alert.schedule_last_run_at'),
+        ];
+    }
+
+    /**
+     * @param array{enabled: bool, day_of_week: int, time: string} $data
+     * @return array{enabled: bool, day_of_week: int, time: string, last_run_at: string|null}
+     */
+    public function updateSchedule(array $data, string|null $updatedBy): array
+    {
+        $settings = [
+            'test_alert.schedule_enabled' => (bool) $data['enabled'],
+            'test_alert.schedule_day_of_week' => (int) $data['day_of_week'],
+            'test_alert.schedule_time' => $data['time'],
+        ];
+
+        foreach ($settings as $key => $value) {
+            SystemSetting::query()->updateOrCreate(
+                ['key' => $key],
+                [
+                    'value' => $value,
+                    'is_sensitive' => false,
+                    'updated_by' => $updatedBy,
+                ],
+            );
+        }
+
+        return $this->schedule();
+    }
+
+    private function scheduleDue(): bool
+    {
+        $schedule = $this->schedule();
+        if (! $schedule['enabled']) {
+            return false;
+        }
+
+        $now = now();
+        if ((int) $schedule['day_of_week'] !== $now->dayOfWeekIso || $schedule['time'] !== $now->format('H:i')) {
+            return false;
+        }
+
+        $runKey = 'test-alert-schedule:'.$now->format('Y-m-d-H-i');
+        if (! Cache::add($runKey, true, $now->copy()->addHours(2))) {
+            return false;
+        }
+
+        SystemSetting::query()->updateOrCreate(
+            ['key' => 'test_alert.schedule_last_run_at'],
+            [
+                'value' => $now->toIso8601String(),
+                'is_sensitive' => false,
+                'updated_by' => null,
+            ],
+        );
+
+        return true;
     }
 
     public function latestFor(User $actor): DispatchRequest|null

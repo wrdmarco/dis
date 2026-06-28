@@ -20,4 +20,20 @@ final class TestAlertController extends Controller
     {
         return ApiResponse::success($this->service->send($request->user()), 201);
     }
+
+    public function schedule(): JsonResponse
+    {
+        return ApiResponse::success($this->service->schedule());
+    }
+
+    public function updateSchedule(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'enabled' => ['required', 'boolean'],
+            'day_of_week' => ['required', 'integer', 'between:1,7'],
+            'time' => ['required', 'date_format:H:i'],
+        ]);
+
+        return ApiResponse::success($this->service->updateSchedule($data, $request->user()?->id));
+    }
 }

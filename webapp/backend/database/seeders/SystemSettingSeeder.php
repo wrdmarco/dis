@@ -14,6 +14,10 @@ final class SystemSettingSeeder extends Seeder
     private array $settings = [
         'dispatch.response_timeout_seconds' => ['value' => 300, 'is_sensitive' => false],
         'dispatch.escalation_enabled' => ['value' => true, 'is_sensitive' => false],
+        'test_alert.schedule_enabled' => ['value' => false, 'is_sensitive' => false],
+        'test_alert.schedule_day_of_week' => ['value' => 1, 'is_sensitive' => false],
+        'test_alert.schedule_time' => ['value' => '09:00', 'is_sensitive' => false],
+        'test_alert.schedule_last_run_at' => ['value' => null, 'is_sensitive' => false],
         'push.availability_requires_push' => ['value' => true, 'is_sensitive' => false],
         'location.retention_days' => ['value' => 30, 'is_sensitive' => false],
         'updates.android.minimum_supported_version_code' => ['value' => 1, 'is_sensitive' => false],

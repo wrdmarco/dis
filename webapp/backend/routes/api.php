@@ -72,6 +72,8 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
 
     Route::get('/test-alert', [TestAlertController::class, 'show'])->middleware('permission:dispatch.view');
     Route::post('/test-alert', [TestAlertController::class, 'send'])->middleware(['permission:dispatch.manage', 'throttle:dispatch-response']);
+    Route::get('/test-alert/schedule', [TestAlertController::class, 'schedule'])->middleware('permission:dispatch.manage');
+    Route::patch('/test-alert/schedule', [TestAlertController::class, 'updateSchedule'])->middleware('permission:dispatch.manage');
 
     Route::get('/incidents', [IncidentController::class, 'index'])->middleware('permission:incidents.view');
     Route::post('/incidents', [IncidentController::class, 'store'])->middleware('permission:incidents.manage');

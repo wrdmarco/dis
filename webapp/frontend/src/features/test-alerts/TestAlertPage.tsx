@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 import { BellRing, Send } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -10,12 +10,46 @@ import type { DispatchRecipient, DispatchRequest } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 
+interface TestAlertSchedule {
+  enabled: boolean;
+  day_of_week: number;
+  time: string;
+  last_run_at: string | null;
+}
+
+const weekDays = [
+  { value: '1', label: 'Maandag' },
+  { value: '2', label: 'Dinsdag' },
+  { value: '3', label: 'Woensdag' },
+  { value: '4', label: 'Donderdag' },
+  { value: '5', label: 'Vrijdag' },
+  { value: '6', label: 'Zaterdag' },
+  { value: '7', label: 'Zondag' },
+];
+
 export function TestAlertPage() {
   const { api } = useAuth();
   const testAlert = useApiResource<DispatchRequest>('/test-alert');
+  const schedule = useApiResource<TestAlertSchedule>('/test-alert/schedule');
   const [sending, setSending] = useState(false);
+  const [savingSchedule, setSavingSchedule] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [scheduleForm, setScheduleForm] = useState({ enabled: false, dayOfWeek: '1', time: '09:00' });
+
+  useEffect(() => {
+    if (schedule.data === null) {
+      return;
+    }
+
+    setScheduleForm({
+      enabled: schedule.data.enabled,
+      dayOfWeek: String(schedule.data.day_of_week),
+      time: schedule.data.time,
+    });
+  }, [schedule.data]);
 
   async function sendTestAlert() {
     setSending(true);
@@ -30,6 +64,27 @@ export function TestAlertPage() {
       setError(err instanceof ApiClientError ? err.message : 'Proefalarmering kon niet worden verzonden.');
     } finally {
       setSending(false);
+    }
+  }
+
+  async function saveSchedule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingSchedule(true);
+    setScheduleMessage(null);
+    setScheduleError(null);
+
+    try {
+      await api.patch<TestAlertSchedule>('/test-alert/schedule', {
+        enabled: scheduleForm.enabled,
+        day_of_week: Number(scheduleForm.dayOfWeek),
+        time: scheduleForm.time,
+      });
+      setScheduleMessage('Planning opgeslagen.');
+      await schedule.reload();
+    } catch (err) {
+      setScheduleError(err instanceof ApiClientError ? err.message : 'Planning kon niet worden opgeslagen.');
+    } finally {
+      setSavingSchedule(false);
     }
   }
 
@@ -56,6 +111,44 @@ export function TestAlertPage() {
         </div>
         {error ? <p className="form-error">{error}</p> : null}
         {message ? <p className="success-text">{message}</p> : null}
+      </Panel>
+
+      <Panel title="Automatisch proefalarm">
+        <ResourceState loading={schedule.loading} error={schedule.error} empty={!schedule.data}>
+          <form className="form-grid" onSubmit={saveSchedule}>
+            <label className="check-label form-grid__wide">
+              <input
+                type="checkbox"
+                checked={scheduleForm.enabled}
+                onChange={(event) => setScheduleForm((current) => ({ ...current, enabled: event.target.checked }))}
+              />
+              Automatische proefalarmering inschakelen
+            </label>
+            <label>
+              Dag
+              <select value={scheduleForm.dayOfWeek} onChange={(event) => setScheduleForm((current) => ({ ...current, dayOfWeek: event.target.value }))}>
+                {weekDays.map((day) => (
+                  <option key={day.value} value={day.value}>{day.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Tijd
+              <input type="time" value={scheduleForm.time} onChange={(event) => setScheduleForm((current) => ({ ...current, time: event.target.value }))} />
+            </label>
+            <div className="form-grid__wide">
+              <span className="field-label">Laatste automatische uitvoering</span>
+              <strong>{formatDate(schedule.data?.last_run_at)}</strong>
+            </div>
+            {scheduleError ? <p className="form-error form-grid__wide">{scheduleError}</p> : null}
+            {scheduleMessage ? <p className="success-text form-grid__wide">{scheduleMessage}</p> : null}
+            <div className="actions-row form-grid__wide">
+              <button className="primary-button" type="submit" disabled={savingSchedule}>
+                {savingSchedule ? 'Opslaan...' : 'Planning opslaan'}
+              </button>
+            </div>
+          </form>
+        </ResourceState>
       </Panel>
 
       <Panel title="Live status">
