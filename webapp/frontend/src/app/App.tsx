@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { CommandLayout } from './CommandLayout';
 import { ProtectedRoute } from '../routes/ProtectedRoute';
+import { PermissionRoute } from '../routes/PermissionRoute';
 
 const LoginPage = lazy(() => import('../features/auth/LoginPage').then((module) => ({ default: module.LoginPage })));
 const AndroidDownloadPage = lazy(() => import('../features/public/AndroidDownloadPage').then((module) => ({ default: module.AndroidDownloadPage })));
@@ -42,27 +43,27 @@ export function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<DashboardPage />} />
-          <Route path="incidents" element={<IncidentsPage mode="active" />} />
-          <Route path="incidents/archive" element={<IncidentsPage mode="archive" />} />
-          <Route path="incidents/:incidentId" element={<IncidentDetailPage />} />
-          <Route path="status" element={<StatusPage />} />
-          <Route path="users" element={<UsersPage />} />
-          <Route path="teams" element={<TeamsPage />} />
-          <Route path="assets" element={<AssetsPage />} />
-          <Route path="certifications" element={<CertificationsPage />} />
-          <Route path="verloop" element={<ExpiryPage />} />
-          <Route path="expiry" element={<ExpiryPage />} />
-          <Route path="updates" element={<UpdatesPage />} />
-          <Route path="push" element={<PushPage />} />
-          <Route path="reports" element={<ReportsPage />} />
-          <Route path="proefalarmering" element={<TestAlertPage />} />
-          <Route path="rollen" element={<RolesPage />} />
-          <Route path="roles" element={<RolesPage />} />
-          <Route path="admin" element={<AdminPage />} />
-          <Route path="branding" element={<BrandingPage />} />
-          <Route path="system" element={<SystemPage />} />
-          <Route path="systeem" element={<SystemPage />} />
+          <Route index element={<PermissionRoute permissions={['incidents.view', 'dispatch.view', 'status.view', 'assets.view']}><DashboardPage /></PermissionRoute>} />
+          <Route path="incidents" element={<PermissionRoute permissions={['incidents.view']}><IncidentsPage mode="active" /></PermissionRoute>} />
+          <Route path="incidents/archive" element={<PermissionRoute permissions={['incidents.view']}><IncidentsPage mode="archive" /></PermissionRoute>} />
+          <Route path="incidents/:incidentId" element={<PermissionRoute permissions={['incidents.view']}><IncidentDetailPage /></PermissionRoute>} />
+          <Route path="status" element={<PermissionRoute permissions={['status.view']}><StatusPage /></PermissionRoute>} />
+          <Route path="users" element={<PermissionRoute permissions={['users.view']}><UsersPage /></PermissionRoute>} />
+          <Route path="teams" element={<PermissionRoute permissions={['teams.manage']}><TeamsPage /></PermissionRoute>} />
+          <Route path="assets" element={<PermissionRoute permissions={['assets.view']}><AssetsPage /></PermissionRoute>} />
+          <Route path="certifications" element={<PermissionRoute permissions={['certifications.view']}><CertificationsPage /></PermissionRoute>} />
+          <Route path="verloop" element={<PermissionRoute permissions={['assets.view', 'certifications.view']} anyPermission><ExpiryPage /></PermissionRoute>} />
+          <Route path="expiry" element={<PermissionRoute permissions={['assets.view', 'certifications.view']} anyPermission><ExpiryPage /></PermissionRoute>} />
+          <Route path="updates" element={<PermissionRoute permissions={['updates.manage']}><UpdatesPage /></PermissionRoute>} />
+          <Route path="push" element={<PermissionRoute permissions={['push.manage']}><PushPage /></PermissionRoute>} />
+          <Route path="reports" element={<PermissionRoute permissions={['incidents.view', 'dispatch.view']}><ReportsPage /></PermissionRoute>} />
+          <Route path="proefalarmering" element={<PermissionRoute permissions={['dispatch.view']}><TestAlertPage /></PermissionRoute>} />
+          <Route path="rollen" element={<PermissionRoute permissions={['roles.manage']}><RolesPage /></PermissionRoute>} />
+          <Route path="roles" element={<PermissionRoute permissions={['roles.manage']}><RolesPage /></PermissionRoute>} />
+          <Route path="admin" element={<PermissionRoute permissions={['settings.manage']}><AdminPage /></PermissionRoute>} />
+          <Route path="branding" element={<PermissionRoute permissions={['settings.manage']}><BrandingPage /></PermissionRoute>} />
+          <Route path="system" element={<PermissionRoute permissions={['system.health']}><SystemPage /></PermissionRoute>} />
+          <Route path="systeem" element={<PermissionRoute permissions={['system.health']}><SystemPage /></PermissionRoute>} />
           <Route path="profile" element={<ProfilePage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

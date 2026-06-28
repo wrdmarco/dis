@@ -20,7 +20,7 @@ final class MobileApiPayload
             return null;
         }
 
-        $user->loadMissing(['roles', 'teams']);
+        $user->loadMissing(['roles.permissions', 'teams']);
 
         return [
             'id' => $user->id,
@@ -35,6 +35,12 @@ final class MobileApiPayload
                 'display_name' => $role->display_name,
                 'can_use_operator_app' => (bool) $role->can_use_operator_app,
                 'can_use_admin_app' => (bool) $role->can_use_admin_app,
+                'permissions' => $role->permissions->map(fn ($permission): array => [
+                    'id' => $permission->id,
+                    'name' => $permission->name,
+                    'category' => $permission->category,
+                    'display_name' => $permission->display_name,
+                ])->values(),
             ])->values(),
             'teams' => $user->teams->map(fn ($team): array => [
                 'id' => $team->id,
