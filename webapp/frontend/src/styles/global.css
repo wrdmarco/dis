@@ -1334,6 +1334,38 @@ select[multiple] {
   font-size: 1.35rem;
 }
 
+.expiry-group {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.expiry-group + .expiry-group {
+  border-top: 1px solid #1f2b3a;
+}
+
+.expiry-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.expiry-group__header strong {
+  color: #f8fafc;
+}
+
+.expiry-group__header span {
+  min-width: 28px;
+  min-height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #172333;
+  color: #7dd3fc;
+  font-weight: 800;
+}
+
 .location-picker {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
