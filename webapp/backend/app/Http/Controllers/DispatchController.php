@@ -83,7 +83,12 @@ final class DispatchController extends Controller
 
     public function escalate(Request $request, DispatchRequest $dispatch): JsonResponse
     {
-        return ApiResponse::success($this->service->escalate($dispatch, $request->user()));
+        $data = $request->validate([
+            'team_ids' => ['sometimes', 'array'],
+            'team_ids.*' => ['ulid', 'exists:teams,id'],
+        ]);
+
+        return ApiResponse::success($this->service->escalate($dispatch, $request->user(), $data['team_ids'] ?? []));
     }
 
     public function reAlert(Request $request, DispatchRequest $dispatch): JsonResponse

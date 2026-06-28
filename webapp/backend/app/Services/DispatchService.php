@@ -251,17 +251,52 @@ final class DispatchService
         ];
     }
 
-    public function escalate(DispatchRequest $dispatch, User $actor): DispatchRequest
+    /**
+     * @param array<int, string> $teamIds
+     */
+    public function escalate(DispatchRequest $dispatch, User $actor, array $teamIds = []): DispatchRequest
     {
         if ($dispatch->status === 'cancelled') {
             throw ValidationException::withMessages(['dispatch' => ['Een geannuleerde alarmering kan niet worden opgeschaald.']]);
         }
 
-        $dispatch->update(['status' => 'escalated']);
-        $this->auditService->record('dispatch.escalated', $dispatch, $actor);
-        $this->broadcastDispatchChange($dispatch->refresh(), 'escalated');
+        $dispatch->loadMissing(['incident.dispatchRequests', 'incident.teams']);
+        $newTeams = $this->teamsForEscalation($dispatch, $teamIds);
+        $eligibility = $newTeams->mapWithKeys(fn (Team $team): array => [$team->id => $this->eligibleUsers($team)]);
+        $blocked = $eligibility->filter(fn (array $result): bool => $result['users']->isEmpty());
 
-        return $dispatch->load(['incident', 'targetTeam', 'recipients.user']);
+        if ($blocked->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'team_ids' => $blocked->map(fn (array $result): string => $result['message'])->values()->all(),
+            ]);
+        }
+
+        return DB::transaction(function () use ($dispatch, $actor, $newTeams): DispatchRequest {
+            $incident = $dispatch->incident;
+            if ($incident !== null && $newTeams->isNotEmpty()) {
+                $incident->teams()->syncWithoutDetaching($newTeams->pluck('id')->all());
+                $incident->forceFill(['team_id' => $incident->team_id ?? $newTeams->first()?->id])->save();
+
+                foreach ($newTeams as $team) {
+                    $created = $this->create($incident->refresh(), [
+                        'priority' => $dispatch->priority,
+                        'message' => $dispatch->message ?: $this->defaultDispatchMessage($incident),
+                        'target_team_id' => $team->id,
+                    ], $actor);
+
+                    $this->markSent($created, $actor);
+                }
+            }
+
+            $dispatch->update(['status' => 'escalated']);
+            $this->auditService->record('dispatch.escalated', $dispatch, $actor, [
+                'added_team_ids' => $newTeams->pluck('id')->values()->all(),
+                'added_team_codes' => $newTeams->pluck('code')->values()->all(),
+            ]);
+            $this->broadcastDispatchChange($dispatch->refresh(), 'escalated');
+
+            return $dispatch->load(['incident', 'targetTeam', 'recipients.user']);
+        });
     }
 
     public function reAlert(DispatchRequest $dispatch, User $actor): DispatchRequest
@@ -338,6 +373,42 @@ final class DispatchService
         $targetTeam = $this->targetTeam($incident, []);
 
         return $targetTeam === null ? collect() : collect([$targetTeam]);
+    }
+
+    /**
+     * @param array<int, string> $teamIds
+     * @return Collection<int, Team>
+     */
+    private function teamsForEscalation(DispatchRequest $dispatch, array $teamIds): Collection
+    {
+        $teamIds = array_values(array_unique(array_filter($teamIds, fn (mixed $teamId): bool => is_string($teamId) && $teamId !== '')));
+        if ($teamIds === []) {
+            return collect();
+        }
+
+        $incident = $dispatch->incident;
+        if ($incident === null) {
+            throw ValidationException::withMessages(['dispatch' => ['Deze alarmering is niet gekoppeld aan een incident.']]);
+        }
+
+        $alreadyDispatchedTeamIds = $incident->dispatchRequests
+            ->filter(fn (DispatchRequest $existing): bool => $existing->status !== 'cancelled' && $existing->target_team_id !== null)
+            ->pluck('target_team_id')
+            ->unique()
+            ->values();
+
+        $teams = Team::query()
+            ->whereIn('id', $teamIds)
+            ->where('is_operational', true)
+            ->get()
+            ->filter(fn (Team $team): bool => ! $alreadyDispatchedTeamIds->contains($team->id))
+            ->values();
+
+        if ($teams->isEmpty()) {
+            throw ValidationException::withMessages(['team_ids' => ['Kies minimaal een operationeel team dat nog niet voor dit incident is gealarmeerd.']]);
+        }
+
+        return $teams;
     }
 
     /**

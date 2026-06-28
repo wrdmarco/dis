@@ -34,6 +34,9 @@ export function IncidentDetailPage() {
   const [additionalInfoMessage, setAdditionalInfoMessage] = useState<string | null>(null);
   const [dispatchAction, setDispatchAction] = useState<'escalate' | 'realert' | null>(null);
   const [dispatchActionMessage, setDispatchActionMessage] = useState<string | null>(null);
+  const [escalationModalOpen, setEscalationModalOpen] = useState(false);
+  const [escalationTeamIds, setEscalationTeamIds] = useState<string[]>([]);
+  const [escalationError, setEscalationError] = useState<string | null>(null);
   const [recipientUpdatingId, setRecipientUpdatingId] = useState<string | null>(null);
   const [recipientUpdateMessage, setRecipientUpdateMessage] = useState<string | null>(null);
   const [reportDownloading, setReportDownloading] = useState(false);
@@ -48,6 +51,8 @@ export function IncidentDetailPage() {
   const liveSharedCount = liveLocations.data?.filter((location) => location.sharing_status === 'shared').length ?? 0;
   const canManageIncidents = hasPermission('incidents.manage');
   const canManageDispatches = hasPermission('dispatch.manage');
+  const dispatchedTeamIds = dispatchTargetTeamIds(dispatches.data ?? []);
+  const escalationTeams = (teams.data ?? []).filter((team) => team.is_operational && !dispatchedTeamIds.includes(team.id));
 
   useEffect(() => {
     const currentIncident = incident.data;
@@ -140,7 +145,50 @@ export function IncidentDetailPage() {
     }
   };
 
-  const runDispatchAction = async (action: 'escalate' | 'realert') => {
+  const openEscalationModal = () => {
+    setEscalationTeamIds([]);
+    setEscalationError(null);
+    setDispatchActionMessage(null);
+    setEscalationModalOpen(true);
+  };
+
+  const toggleEscalationTeam = (teamId: string, checked: boolean) => {
+    setEscalationTeamIds((current) => checked ? [...current, teamId] : current.filter((id) => id !== teamId));
+  };
+
+  const runEscalation = async () => {
+    if (!latestDispatch || escalationTeamIds.length === 0) {
+      setEscalationError('Kies minimaal een extra team om naar op te schalen.');
+      return;
+    }
+
+    const selectedLabels = escalationTeams
+      .filter((team) => escalationTeamIds.includes(team.id))
+      .map((team) => team.code)
+      .join(', ');
+
+    setDispatchAction('escalate');
+    setEscalationError(null);
+    setDispatchActionMessage(null);
+    try {
+      await api.post<DispatchRequest>(`/dispatches/${latestDispatch.id}/escalate`, {
+        team_ids: escalationTeamIds,
+      });
+      setDispatchActionMessage(`Opgeschaald naar ${selectedLabels}. De extra teams zijn aan het incident gekoppeld en gealarmeerd.`);
+      setEscalationModalOpen(false);
+      setEscalationTeamIds([]);
+      await incident.reload();
+      await preview.reload();
+      await dispatches.reload();
+      await timeline.reload();
+    } catch (err) {
+      setEscalationError(err instanceof ApiClientError ? err.message : 'Opschalen kon niet worden uitgevoerd.');
+    } finally {
+      setDispatchAction(null);
+    }
+  };
+
+  const runDispatchAction = async (action: 'realert') => {
     if (!latestDispatch) {
       return;
     }
@@ -148,8 +196,8 @@ export function IncidentDetailPage() {
     setDispatchAction(action);
     setDispatchActionMessage(null);
     try {
-      await api.post<DispatchRequest>(`/dispatches/${latestDispatch.id}/${action === 'escalate' ? 'escalate' : 're-alert'}`);
-      setDispatchActionMessage(action === 'escalate' ? 'Alarmering is opgeschaald.' : 'Heralarmering is verstuurd naar ontvangers zonder reactie.');
+      await api.post<DispatchRequest>(`/dispatches/${latestDispatch.id}/re-alert`);
+      setDispatchActionMessage('Heralarmering is verstuurd naar ontvangers zonder reactie.');
       await dispatches.reload();
       await timeline.reload();
     } catch (err) {
@@ -335,7 +383,7 @@ export function IncidentDetailPage() {
                     <strong>{dispatchStatusLabel(latestDispatch.status)}</strong>
                   </div>
                   {canManageDispatches ? <div className="dispatch-toolbar__actions">
-                    <button className="secondary-button" type="button" onClick={() => void runDispatchAction('escalate')} disabled={dispatchAction !== null || latestDispatch.status === 'cancelled' || latestDispatch.status === 'escalated'}>
+                    <button className="secondary-button" type="button" onClick={openEscalationModal} disabled={dispatchAction !== null || latestDispatch.status === 'cancelled' || latestDispatch.status === 'escalated'}>
                       <TrendingUp size={16} /> {dispatchAction === 'escalate' ? 'Opschalen...' : 'Opschalen'}
                     </button>
                     <button className="secondary-button" type="button" onClick={() => void runDispatchAction('realert')} disabled={dispatchAction !== null || latestDispatch.status === 'cancelled' || countResponses(latestDispatch, 'pending') === 0}>
@@ -441,6 +489,58 @@ export function IncidentDetailPage() {
           </div>
         </ResourceState>
       </Panel>
+
+      {escalationModalOpen && latestDispatch && canManageDispatches ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="incident-escalation-title">
+            <header className="modal__header">
+              <h2 id="incident-escalation-title">Incident opschalen</h2>
+              <button className="icon-button" type="button" onClick={() => setEscalationModalOpen(false)} aria-label="Sluiten">
+                <X size={18} />
+              </button>
+            </header>
+            <div className="panel-body">
+              <p className="form-note">
+                Opschalen koppelt de gekozen teams aan dit incident en verstuurt direct een extra alarmering naar beschikbare gebruikers in die teams.
+              </p>
+              <div className="summary-grid">
+                <SummaryItem label="Huidige incidentteams" value={incident.data ? incidentTeamsLabel(incident.data) : '-'} />
+                <SummaryItem label="Al gealarmeerd" value={dispatchTeamsLabel(dispatches.data ?? [])} />
+                <SummaryItem label="Laatste alarmering" value={dispatchStatusLabel(latestDispatch.status)} />
+              </div>
+              <div>
+                <strong>Extra teams</strong>
+                {escalationTeams.length > 0 ? (
+                  <div className="checkbox-grid checkbox-grid--dense">
+                    {escalationTeams.map((team) => (
+                      <label className="checkbox-card" key={team.id}>
+                        <input
+                          type="checkbox"
+                          checked={escalationTeamIds.includes(team.id)}
+                          onChange={(event) => toggleEscalationTeam(team.id, event.target.checked)}
+                        />
+                        <span>
+                          <strong>{team.code} - {team.name}</strong>
+                          <small>{team.alert_teams?.length ? `Alarmeert ook: ${team.alert_teams.map((alertTeam) => alertTeam.code).join(', ')}` : team.type}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="form-note">Er zijn geen extra operationele teams beschikbaar die nog niet zijn gealarmeerd.</p>
+                )}
+              </div>
+              {escalationError ? <p className="form-error">{escalationError}</p> : null}
+              <div className="form-actions">
+                <button className="secondary-button" type="button" onClick={() => setEscalationModalOpen(false)}>Annuleren</button>
+                <button className="primary-button" type="button" onClick={() => void runEscalation()} disabled={dispatchAction === 'escalate' || escalationTeamIds.length === 0}>
+                  <TrendingUp size={16} /> {dispatchAction === 'escalate' ? 'Opschalen...' : 'Opschalen'}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {editModalOpen && editForm !== null && canManageIncidents ? (
         <div className="modal-backdrop" role="presentation">
@@ -603,6 +703,22 @@ function incidentTeamsLabel(incident: Incident): string {
   const teams = incident.teams?.length ? incident.teams : incident.team ? [incident.team] : [];
 
   return teams.map((team) => `${team.code} - ${team.name}`).join(', ') || '-';
+}
+
+function dispatchTargetTeamIds(dispatches: DispatchRequest[]): string[] {
+  return Array.from(new Set(dispatches
+    .map((dispatch) => dispatch.target_team?.id ?? dispatch.target_team_id)
+    .filter((teamId): teamId is string => typeof teamId === 'string' && teamId !== '')));
+}
+
+function dispatchTeamsLabel(dispatches: DispatchRequest[]): string {
+  const teams = dispatches
+    .map((dispatch) => dispatch.target_team)
+    .filter((team): team is Team => team !== null && team !== undefined);
+
+  const uniqueTeams = Array.from(new Map(teams.map((team) => [team.id, team])).values());
+
+  return uniqueTeams.map((team) => `${team.code} - ${team.name}`).join(', ') || '-';
 }
 
 function previewTeamsLabel(preview?: DispatchPreview | null): string {
