@@ -110,6 +110,53 @@ final class AdminDeveloperController extends Controller
         return ApiResponse::success($this->updateStatus->current(), 202);
     }
 
+    public function developerLogs(Request $request): JsonResponse
+    {
+        $this->developerAccess->authorize($request);
+
+        $directory = storage_path('logs');
+        $logs = [];
+        foreach (glob($directory.'/*.log') ?: [] as $path) {
+            if (! is_file($path)) {
+                continue;
+            }
+
+            $logs[] = [
+                'name' => basename($path),
+                'size_bytes' => filesize($path) ?: 0,
+                'modified_at' => date(DATE_ATOM, filemtime($path) ?: time()),
+            ];
+        }
+
+        usort($logs, fn (array $left, array $right): int => strcmp((string) $right['modified_at'], (string) $left['modified_at']));
+
+        return ApiResponse::success([
+            'logs' => $logs,
+            'updater' => $this->updateStatus->current(),
+        ]);
+    }
+
+    public function developerLog(Request $request, string $filename): JsonResponse
+    {
+        $this->developerAccess->authorize($request);
+
+        abort_unless(preg_match('/^[A-Za-z0-9._-]+\.log$/', $filename) === 1, 404);
+        $path = storage_path('logs/'.$filename);
+        abort_unless(is_file($path), 404);
+
+        $maxLines = min(max((int) $request->integer('lines', 200), 1), 1000);
+        $content = $this->tailFile($path, 512 * 1024);
+        $lines = array_slice(preg_split('/\R/', $content) ?: [], -$maxLines);
+        $lines = array_map(fn (string $line): string => $this->redactLogLine($line), $lines);
+
+        return ApiResponse::success([
+            'name' => basename($path),
+            'size_bytes' => filesize($path) ?: 0,
+            'modified_at' => date(DATE_ATOM, filemtime($path) ?: time()),
+            'lines' => $lines,
+        ]);
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -217,6 +264,37 @@ final class AdminDeveloperController extends Controller
         $commit = $parts[0] ?? null;
 
         return is_string($commit) && preg_match('/^[a-f0-9]{40}$/', $commit) === 1 ? $commit : null;
+    }
+
+    private function tailFile(string $path, int $maxBytes): string
+    {
+        $handle = fopen($path, 'rb');
+        if ($handle === false) {
+            return '';
+        }
+
+        try {
+            $size = filesize($path) ?: 0;
+            if ($size > $maxBytes) {
+                fseek($handle, -$maxBytes, SEEK_END);
+                fgets($handle);
+            }
+
+            return (string) stream_get_contents($handle);
+        } finally {
+            fclose($handle);
+        }
+    }
+
+    private function redactLogLine(string $line): string
+    {
+        $patterns = [
+            '/(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+\/=-]+/i',
+            '/(X-DIS-Developer-Key:\s*)\S+/i',
+            '/((?:api[_-]?key|token|secret|password)[\'"\s:=]+)[^\'"\s,}]+/i',
+        ];
+
+        return preg_replace($patterns, '$1[redacted]', $line) ?? $line;
     }
 
 }
