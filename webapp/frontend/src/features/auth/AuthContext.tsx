@@ -15,7 +15,7 @@ interface AuthContextValue {
   token: string | null;
   user: User | null;
   isAuthenticated: boolean;
-  setSession: (token: string, user?: User | null) => void;
+  setSession: (token: string, user?: User | null, purpose?: SessionPurpose) => void;
   clearSession: () => void;
   login: (email: string, password: string) => Promise<LoginResult>;
   verifyTwoFactor: (code: string) => Promise<User>;
@@ -29,15 +29,21 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 const tokenKey = 'dis.session.token';
+const tokenPurposeKey = 'dis.session.purpose';
+type SessionPurpose = 'full' | 'mfa';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(() => storedToken());
+  const [sessionPurpose, setSessionPurpose] = useState<SessionPurpose>(() => storedTokenPurpose());
   const [user, setUser] = useState<User | null>(null);
 
   const clearSession = () => {
     sessionStorage.removeItem(tokenKey);
+    sessionStorage.removeItem(tokenPurposeKey);
     localStorage.removeItem(tokenKey);
+    localStorage.removeItem(tokenPurposeKey);
     setToken(null);
+    setSessionPurpose('full');
     setUser(null);
   };
 
@@ -51,24 +57,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  const setSession = (nextToken: string, nextUser?: User | null) => {
+  const setSession = (nextToken: string, nextUser?: User | null, purpose: SessionPurpose = 'full') => {
     localStorage.setItem(tokenKey, nextToken);
+    localStorage.setItem(tokenPurposeKey, purpose);
     sessionStorage.removeItem(tokenKey);
+    sessionStorage.removeItem(tokenPurposeKey);
     setToken(nextToken);
+    setSessionPurpose(purpose);
     if (nextUser !== undefined) {
-      setUser(nextUser);
+      setUser(purpose === 'full' ? nextUser : null);
     }
   };
 
   const login = async (email: string, password: string): Promise<LoginResult> => {
     const response = await api.post<LoginResult>('/auth/login', { email, password, device_name: 'DIS Command Center' });
-    setSession(response.data.token, response.data.user ?? null);
+    const isMfaChallenge = response.data.requires_2fa === true || response.data.requires_2fa_setup === true;
+    setSession(response.data.token, response.data.user ?? null, isMfaChallenge ? 'mfa' : 'full');
     return response.data;
   };
 
   const verifyTwoFactor = async (code: string): Promise<User> => {
     const response = await api.post<{ token: string; user: User }>('/auth/2fa/verify', { code, device_name: 'DIS Command Center' });
-    setSession(response.data.token, response.data.user);
+    setSession(response.data.token, response.data.user, 'full');
     return response.data.user;
   };
 
@@ -79,7 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const enableTwoFactor = async (code: string): Promise<TwoFactorEnableResult> => {
     const response = await api.post<TwoFactorEnableResult>('/auth/2fa/enable', { code, device_name: 'DIS Command Center' });
-    setSession(response.data.token, response.data.user);
+    setSession(response.data.token, response.data.user, 'full');
     return response.data;
   };
 
@@ -91,6 +101,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshMe = async (): Promise<User | null> => {
     if (storedToken() === null) {
+      return null;
+    }
+    if (storedTokenPurpose() !== 'full') {
+      setUser(null);
       return null;
     }
     const response = await api.get<User>('/auth/me');
@@ -110,7 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         api,
         token,
         user,
-        isAuthenticated: token !== null,
+        isAuthenticated: token !== null && sessionPurpose === 'full',
         setSession,
         clearSession,
         login,
@@ -145,8 +159,16 @@ function storedToken(): string | null {
   const legacySessionToken = sessionStorage.getItem(tokenKey);
   if (legacySessionToken !== null) {
     localStorage.setItem(tokenKey, legacySessionToken);
+    localStorage.setItem(tokenPurposeKey, sessionStorage.getItem(tokenPurposeKey) ?? 'full');
     sessionStorage.removeItem(tokenKey);
+    sessionStorage.removeItem(tokenPurposeKey);
   }
 
   return legacySessionToken;
+}
+
+function storedTokenPurpose(): SessionPurpose {
+  const purpose = localStorage.getItem(tokenPurposeKey) ?? sessionStorage.getItem(tokenPurposeKey);
+
+  return purpose === 'mfa' ? 'mfa' : 'full';
 }

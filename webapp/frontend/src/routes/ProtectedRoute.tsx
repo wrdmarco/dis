@@ -3,7 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../features/auth/AuthContext';
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, user, refreshMe } = useAuth();
+  const { clearSession, isAuthenticated, user, refreshMe } = useAuth();
   const location = useLocation();
   const [checking, setChecking] = useState(isAuthenticated && user === null);
 
@@ -15,12 +15,22 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     refreshMe().finally(() => setChecking(false));
   }, [isAuthenticated, refreshMe, user]);
 
+  useEffect(() => {
+    if (isAuthenticated && !checking && user === null) {
+      clearSession();
+    }
+  }, [checking, clearSession, isAuthenticated, user]);
+
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
   if (checking) {
     return <main className="boot-screen">Command Center initialiseren</main>;
+  }
+
+  if (user === null) {
+    return <Navigate to="/login" replace />;
   }
 
   const requiresTwoFactorSetup = user?.roles?.some((role) => role.requires_two_factor) === true && user.two_factor_enabled !== true;

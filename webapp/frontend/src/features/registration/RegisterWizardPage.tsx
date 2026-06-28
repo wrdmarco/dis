@@ -134,7 +134,7 @@ export function RegisterWizardPage() {
       }
 
       setCompleted(payload.data);
-      setSession(payload.data.token, payload.data.user);
+      setSession(payload.data.token, payload.data.user, payload.data.requires_mfa && payload.data.two_factor_setup !== null ? 'mfa' : 'full');
       setStepIndex(payload.data.requires_mfa ? 1 : 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registratie afronden mislukt.');
