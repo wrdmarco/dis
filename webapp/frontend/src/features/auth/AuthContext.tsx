@@ -30,11 +30,12 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const tokenKey = 'dis.session.token';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(() => sessionStorage.getItem(tokenKey));
+  const [token, setToken] = useState<string | null>(() => storedToken());
   const [user, setUser] = useState<User | null>(null);
 
   const clearSession = () => {
     sessionStorage.removeItem(tokenKey);
+    localStorage.removeItem(tokenKey);
     setToken(null);
     setUser(null);
   };
@@ -43,14 +44,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () =>
       new ApiClient({
         baseUrl: apiBaseUrl,
-        getToken: () => sessionStorage.getItem(tokenKey),
+        getToken: storedToken,
         onUnauthenticated: clearSession,
       }),
     [],
   );
 
   const setSession = (nextToken: string, nextUser?: User | null) => {
-    sessionStorage.setItem(tokenKey, nextToken);
+    localStorage.setItem(tokenKey, nextToken);
+    sessionStorage.removeItem(tokenKey);
     setToken(nextToken);
     if (nextUser !== undefined) {
       setUser(nextUser);
@@ -87,7 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refreshMe = async (): Promise<User | null> => {
-    if (!sessionStorage.getItem(tokenKey)) {
+    if (storedToken() === null) {
       return null;
     }
     const response = await api.get<User>('/auth/me');
@@ -127,4 +129,19 @@ export function useAuth(): AuthContextValue {
     throw new Error('useAuth must be used inside AuthProvider');
   }
   return context;
+}
+
+function storedToken(): string | null {
+  const persistentToken = localStorage.getItem(tokenKey);
+  if (persistentToken !== null) {
+    return persistentToken;
+  }
+
+  const legacySessionToken = sessionStorage.getItem(tokenKey);
+  if (legacySessionToken !== null) {
+    localStorage.setItem(tokenKey, legacySessionToken);
+    sessionStorage.removeItem(tokenKey);
+  }
+
+  return legacySessionToken;
 }
