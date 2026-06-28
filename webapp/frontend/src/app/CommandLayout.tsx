@@ -2,23 +2,48 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, ClipboardCheck, Gauge, KeyRound, LogOut, Network, RadioTower, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
 import { useAuth } from '../features/auth/AuthContext';
 
-const navItems = [
-  { to: '/', label: 'Dashboard', icon: Gauge, end: true },
-  { to: '/incidents', label: 'Actieve meldingen', icon: RadioTower, end: true },
-  { to: '/incidents/archive', label: 'Archief', icon: Archive },
-  { to: '/status', label: 'Status', icon: Workflow },
-  { to: '/users', label: 'Gebruikers', icon: Users },
-  { to: '/teams', label: 'Teams', icon: Network },
-  { to: '/assets', label: 'Assets', icon: Boxes },
-  { to: '/certifications', label: 'Certificaten', icon: ClipboardCheck },
-  { to: '/verloop', label: 'Verloop', icon: CalendarClock },
-  { to: '/updates', label: 'Updates', icon: Smartphone },
-  { to: '/push', label: 'Pushmeldingen', icon: Send },
-  { to: '/reports', label: 'Statistieken', icon: BarChart3 },
-  { to: '/proefalarmering', label: 'Proefalarmering', icon: BellRing },
-  { to: '/rollen', label: 'Rollen', icon: KeyRound },
-  { to: '/admin', label: 'Admin', icon: Shield },
-  { to: '/system', label: 'Systeem', icon: Bell },
+const navGroups = [
+  {
+    label: 'Overzicht',
+    items: [
+      { to: '/', label: 'Dashboard', icon: Gauge, end: true },
+    ],
+  },
+  {
+    label: 'Operatie',
+    items: [
+      { to: '/incidents', label: 'Actieve meldingen', icon: RadioTower, end: true },
+      { to: '/incidents/archive', label: 'Archief', icon: Archive },
+      { to: '/status', label: 'Status', icon: Workflow },
+      { to: '/proefalarmering', label: 'Proefalarmering', icon: BellRing },
+    ],
+  },
+  {
+    label: 'Mensen & middelen',
+    items: [
+      { to: '/users', label: 'Gebruikers', icon: Users },
+      { to: '/teams', label: 'Teams', icon: Network },
+      { to: '/assets', label: 'Assets', icon: Boxes },
+      { to: '/certifications', label: 'Certificaten', icon: ClipboardCheck },
+      { to: '/verloop', label: 'Verloop', icon: CalendarClock },
+    ],
+  },
+  {
+    label: 'Communicatie',
+    items: [
+      { to: '/push', label: 'Pushmeldingen', icon: Send },
+      { to: '/reports', label: 'Statistieken', icon: BarChart3 },
+    ],
+  },
+  {
+    label: 'Beheer',
+    items: [
+      { to: '/updates', label: 'App updates', icon: Smartphone },
+      { to: '/rollen', label: 'Rollen', icon: KeyRound },
+      { to: '/admin', label: 'Admin', icon: Shield },
+      { to: '/system', label: 'Systeem', icon: Bell },
+    ],
+  },
 ];
 
 export function CommandLayout() {
@@ -39,15 +64,22 @@ export function CommandLayout() {
           <span className="brand__text">Command Center</span>
         </div>
         <nav className="nav" aria-label="Hoofdnavigatie">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `nav__item ${isActive ? 'nav__item--active' : ''}`}>
-                <Icon aria-hidden size={18} />
-                <span>{item.label}</span>
-              </NavLink>
-            );
-          })}
+          {navGroups.map((group) => (
+            <section className="nav__group" key={group.label}>
+              <h2 className="nav__label">{group.label}</h2>
+              <div className="nav__items">
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `nav__item ${isActive ? 'nav__item--active' : ''}`}>
+                      <Icon aria-hidden size={18} />
+                      <span>{item.label}</span>
+                    </NavLink>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </nav>
       </aside>
       <div className="workspace">

@@ -307,6 +307,26 @@ a:hover {
 
 .nav {
   display: grid;
+  gap: 18px;
+}
+
+.nav__group {
+  display: grid;
+  gap: 6px;
+}
+
+.nav__label {
+  margin: 0;
+  padding: 0 10px;
+  color: #718399;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.nav__items {
+  display: grid;
   gap: 4px;
 }
 
@@ -2310,7 +2330,17 @@ pre {
   .nav {
     grid-auto-flow: column;
     grid-auto-columns: max-content;
+    align-items: start;
     overflow-x: auto;
+  }
+
+  .nav__group {
+    min-width: max-content;
+  }
+
+  .nav__items {
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
   }
 
   .incident-card-grid {
