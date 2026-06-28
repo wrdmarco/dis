@@ -249,9 +249,16 @@ final class AdminController extends Controller
     {
         return match ($key) {
             'mail.mailer' => $this->validateStringIn($key, $value, ['smtp', 'microsoft365', 'log']),
+            'mail.host',
+            'mail.username',
+            'mail.password',
+            'mail.from_name' => $this->validateStringSetting($key, $value, 255),
+            'mail.port' => $this->validateIntegerSetting($key, $value, 1, 65535),
+            'mail.encryption' => $this->validateStringIn($key, $value, ['', 'tls', 'ssl']),
+            'mail.from_address' => $this->validateEmailSetting($key, $value),
             'mail.microsoft365_tenant_id',
-            'mail.microsoft365_client_id',
-            'mail.microsoft365_sender' => $this->validateStringSetting($key, $value, 255),
+            'mail.microsoft365_client_id' => $this->validateStringSetting($key, $value, 255),
+            'mail.microsoft365_sender' => $this->validateEmailSetting($key, $value),
             'mail.microsoft365_client_secret' => $this->validateStringSetting($key, $value, 2000),
             'drone.aeret_map_url',
             'drone.aeret_api_url',
@@ -283,6 +290,10 @@ final class AdminController extends Controller
             ];
         }
 
+        if ($setting->key === 'mail.microsoft365_client_secret') {
+            return ['configured' => filled($setting->value)];
+        }
+
         return $setting->is_sensitive ? null : $setting->value;
     }
 
@@ -309,6 +320,17 @@ final class AdminController extends Controller
 
         if (mb_strlen($value) > $max) {
             throw ValidationException::withMessages(["settings.$key" => ["The setting value may not be greater than $max characters."]]);
+        }
+
+        return $value;
+    }
+
+    private function validateEmailSetting(string $key, mixed $value): string
+    {
+        $value = $this->validateStringSetting($key, $value, 255);
+
+        if ($value !== '' && ! filter_var($value, FILTER_VALIDATE_EMAIL)) {
+            throw ValidationException::withMessages(["settings.$key" => ['The setting value must be a valid email address.']]);
         }
 
         return $value;

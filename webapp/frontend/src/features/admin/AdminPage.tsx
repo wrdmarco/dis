@@ -553,15 +553,67 @@ export function AdminPage() {
 
       {activeTab === 'mail' ? (
         <Panel title="Mailinstellingen">
+          <div className="setup-copy">
+            <strong>Mailroute</strong>
+            <p>Kies SMTP, loggen of de Entra app. Voor Microsoft 365 gebruikt D.I.S de Entra app met Graph Mail.Send application permission.</p>
+            <p>Entra app: {isMicrosoft365MailConfigured(settings.data ?? [], managedForm) ? 'compleet ingesteld' : 'nog niet compleet'}</p>
+          </div>
           <div className="form-grid">
             <label>
               Mail driver
               <select value={managedForm.mailMailer} onChange={(event) => setManagedForm((current) => ({ ...current, mailMailer: event.target.value }))}>
                 <option value="smtp">SMTP</option>
-                <option value="microsoft365">Microsoft 365 Graph</option>
+                <option value="microsoft365">Entra app - Microsoft Graph</option>
                 <option value="log">Log</option>
               </select>
             </label>
+            <label>
+              Afzender e-mail
+              <input type="email" value={managedForm.mailFromAddress} onChange={(event) => setManagedForm((current) => ({ ...current, mailFromAddress: event.target.value }))} />
+            </label>
+            <label>
+              Afzender naam
+              <input value={managedForm.mailFromName} onChange={(event) => setManagedForm((current) => ({ ...current, mailFromName: event.target.value }))} />
+            </label>
+          </div>
+
+          <div className="settings-group">
+            <h3>Entra app voor mail</h3>
+            <div className="metadata-example">
+              <strong>Vereist in Entra</strong>
+              <pre>Microsoft Graph: Mail.Send als Application permission met admin consent.</pre>
+            </div>
+            <dl className="definition-grid">
+              <dt>Client secret</dt>
+              <dd>{isMicrosoft365ClientSecretConfigured(settings.data ?? []) ? 'Ingesteld' : 'Niet ingesteld'}</dd>
+              <dt>Token endpoint</dt>
+              <dd className="mono">https://login.microsoftonline.com/&lt;tenant&gt;/oauth2/v2.0/token</dd>
+              <dt>Graph actie</dt>
+              <dd className="mono">POST /users/&lt;mailbox&gt;/sendMail</dd>
+            </dl>
+            <div className="form-grid">
+              <label>
+                Tenant id
+                <input value={managedForm.mailMicrosoft365TenantId} onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365TenantId: event.target.value }))} />
+              </label>
+              <label>
+                Application client id
+                <input value={managedForm.mailMicrosoft365ClientId} onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365ClientId: event.target.value }))} />
+              </label>
+              <label>
+                Client secret
+                <input type="password" value={managedForm.mailMicrosoft365ClientSecret} placeholder="Ongewijzigd laten" onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365ClientSecret: event.target.value }))} />
+              </label>
+              <label>
+                Afzender mailbox
+                <input type="email" value={managedForm.mailMicrosoft365Sender} onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365Sender: event.target.value }))} />
+              </label>
+            </div>
+          </div>
+
+          <div className="settings-group">
+            <h3>SMTP fallback</h3>
+            <div className="form-grid">
             <label>
               SMTP host
               <input value={managedForm.mailHost} onChange={(event) => setManagedForm((current) => ({ ...current, mailHost: event.target.value }))} />
@@ -586,30 +638,7 @@ export function AdminPage() {
               SMTP wachtwoord
               <input type="password" value={managedForm.mailPassword} placeholder="Ongewijzigd laten" onChange={(event) => setManagedForm((current) => ({ ...current, mailPassword: event.target.value }))} />
             </label>
-            <label>
-              Microsoft 365 tenant id
-              <input value={managedForm.mailMicrosoft365TenantId} onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365TenantId: event.target.value }))} />
-            </label>
-            <label>
-              Microsoft 365 client id
-              <input value={managedForm.mailMicrosoft365ClientId} onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365ClientId: event.target.value }))} />
-            </label>
-            <label>
-              Microsoft 365 client secret
-              <input type="password" value={managedForm.mailMicrosoft365ClientSecret} placeholder="Ongewijzigd laten" onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365ClientSecret: event.target.value }))} />
-            </label>
-            <label>
-              Microsoft 365 afzender mailbox
-              <input type="email" value={managedForm.mailMicrosoft365Sender} onChange={(event) => setManagedForm((current) => ({ ...current, mailMicrosoft365Sender: event.target.value }))} />
-            </label>
-            <label>
-              Afzender e-mail
-              <input value={managedForm.mailFromAddress} onChange={(event) => setManagedForm((current) => ({ ...current, mailFromAddress: event.target.value }))} />
-            </label>
-            <label>
-              Afzender naam
-              <input value={managedForm.mailFromName} onChange={(event) => setManagedForm((current) => ({ ...current, mailFromName: event.target.value }))} />
-            </label>
+            </div>
           </div>
           {managedError ? <p className="error-text">{managedError}</p> : null}
           {managedMessage ? <p className="form-note">{managedMessage}</p> : null}
@@ -985,6 +1014,20 @@ function isFirebaseServiceAccountConfigured(settings: SystemSetting[], form: Man
   const serviceAccount = asRecord(byKey.get('firebase.service_account'));
 
   return asBoolean(serviceAccount.configured, false);
+}
+
+function isMicrosoft365MailConfigured(settings: SystemSetting[], form: ManagedSettingsForm): boolean {
+  return form.mailMicrosoft365TenantId.trim() !== ''
+    && form.mailMicrosoft365ClientId.trim() !== ''
+    && form.mailMicrosoft365Sender.trim() !== ''
+    && (form.mailMicrosoft365ClientSecret.trim() !== '' || isMicrosoft365ClientSecretConfigured(settings));
+}
+
+function isMicrosoft365ClientSecretConfigured(settings: SystemSetting[]): boolean {
+  const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
+  const secret = asRecord(byKey.get('mail.microsoft365_client_secret'));
+
+  return asBoolean(secret.configured, false);
 }
 
 function toPasswordPolicySettingsForm(settings: SystemSetting[]): PasswordPolicySettingsForm {

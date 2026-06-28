@@ -1618,6 +1618,22 @@ select[multiple] {
   margin: 4px 0;
 }
 
+.settings-group {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid #1f2b3a;
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.settings-group h3 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: .95rem;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
 .inline-message-form {
   display: grid;
   gap: 10px;
