@@ -6,7 +6,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { Certification } from '../../types/api';
+import type { Certification, UserCertification } from '../../types/api';
 
 interface CertificationFormState {
   code: string;
@@ -32,6 +32,7 @@ export function CertificationsPage() {
   const [form, setForm] = useState<CertificationFormState>(emptyForm);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const userCertifications = flattenUserCertifications(certifications.data ?? []);
 
   useEffect(() => {
     if (modalMode === null) {
@@ -91,8 +92,27 @@ export function CertificationsPage() {
 
   return (
     <div className="page-stack">
+      <Panel title="Gebruikerscertificaten">
+        <ResourceState loading={certifications.loading} error={certifications.error} empty={userCertifications.length === 0}>
+          <table className="data-table">
+            <thead><tr><th>Gebruiker</th><th>Certificaat</th><th>Status</th><th>Nummer</th><th>Verloopt</th></tr></thead>
+            <tbody>
+              {userCertifications.map(({ certification, userCertification }) => (
+                <tr key={userCertification.id}>
+                  <td>{userCertification.user?.name ?? userCertification.user?.email ?? '-'}</td>
+                  <td>{certification.name}</td>
+                  <td><StatusPill value={userCertification.status} tone={userCertification.status === 'active' ? 'good' : 'warn'} /></td>
+                  <td>{userCertification.certificate_number ?? '-'}</td>
+                  <td>{userCertification.expires_at ?? '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ResourceState>
+      </Panel>
+
       <Panel
-        title="Certificeringen"
+        title="Certificaatsoorten"
         action={(
           <button className="primary-button" type="button" onClick={openCreateModal}>
             <Plus size={16} /> Certificaat aanmaken
@@ -101,7 +121,7 @@ export function CertificationsPage() {
       >
         <ResourceState loading={certifications.loading} error={certifications.error} empty={(certifications.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Code</th><th>Naam</th><th>Gebruikers</th><th>Dispatch</th><th>Waarschuwing</th><th>Actie</th></tr></thead>
+            <thead><tr><th>Code</th><th>Naam</th><th>Gekoppelde gebruikers</th><th>Dispatch</th><th>Waarschuwing</th><th>Actie</th></tr></thead>
             <tbody>
               {certifications.data?.map((certification) => (
                 <tr key={certification.id}>
@@ -188,4 +208,10 @@ function certificationUsers(certification: Certification): string {
   }
 
   return users.join(', ');
+}
+
+function flattenUserCertifications(certifications: Certification[]): Array<{ certification: Certification; userCertification: UserCertification }> {
+  return certifications.flatMap((certification) => (
+    certification.user_certifications?.map((userCertification) => ({ certification, userCertification })) ?? []
+  ));
 }

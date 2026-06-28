@@ -72,9 +72,9 @@ export function AssetsPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const assetList = assets.data ?? [];
-  const readyAssets = assetList.filter((asset) => asset.status === 'ready');
-  const readyDrones = readyAssets.filter((asset) => asset.type === 'drone');
-  const assignedAssets = assetList.filter((asset) => asset.status === 'assigned');
+  const linkedAssets = assetList.filter((asset) => asset.active_assignment?.user !== undefined && asset.active_assignment?.user !== null);
+  const unlinkedAssets = assetList.filter((asset) => asset.active_assignment?.user === undefined || asset.active_assignment?.user === null);
+  const linkedDrones = linkedAssets.filter((asset) => asset.type === 'drone');
   const maintenanceAssets = assetList.filter((asset) => asset.status === 'maintenance');
   const unavailableAssets = assetList.filter((asset) => asset.status === 'unavailable' || asset.status === 'retired');
   const selectedDroneType = droneTypes.data?.find((type) => type.id === form.droneTypeId) ?? null;
@@ -234,13 +234,13 @@ export function AssetsPage() {
     <div className="page-stack">
       <RealtimeBridge onOperationalEvent={() => void assets.reload()} />
 
-      <Panel title="Beschikbaarheid">
+      <Panel title="Gebruikersassets">
         <ResourceState loading={assets.loading} error={assets.error} empty={assetList.length === 0}>
           <div className="summary-grid">
             <SummaryItem label="Totaal assets" value={assetList.length} />
-            <SummaryItem label="Beschikbaar" value={readyAssets.length} />
-            <SummaryItem label="Beschikbare drones" value={readyDrones.length} />
-            <SummaryItem label="Toegewezen" value={assignedAssets.length} />
+            <SummaryItem label="Gekoppeld aan gebruiker" value={linkedAssets.length} />
+            <SummaryItem label="Nog niet gekoppeld" value={unlinkedAssets.length} />
+            <SummaryItem label="Gekoppelde drones" value={linkedDrones.length} />
             <SummaryItem label="Onderhoud" value={maintenanceAssets.length} />
             <SummaryItem label="Niet inzetbaar" value={unavailableAssets.length} />
           </div>
@@ -248,7 +248,7 @@ export function AssetsPage() {
       </Panel>
 
       <Panel
-        title="Asset overzicht"
+        title="Assets per gebruiker"
         action={(
           <button className="primary-button" type="button" onClick={openCreateModal}>
             <Plus size={16} /> Asset registreren
@@ -257,14 +257,14 @@ export function AssetsPage() {
       >
         <ResourceState loading={assets.loading} error={assets.error} empty={(assets.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Naam</th><th>Type</th><th>Status</th><th>Toegewezen aan</th><th>Serienummer</th><th>Onderhoud</th><th>Actie</th></tr></thead>
+            <thead><tr><th>Gebruiker</th><th>Asset</th><th>Type</th><th>Status</th><th>Serienummer</th><th>Onderhoud</th><th>Actie</th></tr></thead>
             <tbody>
               {assets.data?.map((asset) => (
                 <tr key={asset.id}>
+                  <td>{asset.active_assignment?.user?.name ?? asset.active_assignment?.user?.email ?? 'Nog niet gekoppeld'}</td>
                   <td>{asset.name}</td>
                   <td>{asset.drone_type?.model ?? asset.type}</td>
                   <td><StatusPill value={asset.status} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} /></td>
-                  <td>{asset.active_assignment?.user?.name ?? asset.active_assignment?.user?.email ?? '-'}</td>
                   <td>{asset.serial_number ?? '-'}</td>
                   <td>{asset.maintenance_due_at ?? '-'}</td>
                   <td>

@@ -28,7 +28,7 @@ const navGroups = [
     ],
   },
   {
-    label: 'Assets & certificaten',
+    label: 'Gebruikersmiddelen',
     items: [
       { to: '/assets', label: 'Assets', icon: Boxes },
       { to: '/certifications', label: 'Certificaten', icon: ClipboardCheck },
