@@ -28,7 +28,7 @@ const weekDays = [
   { value: '7', label: 'Zondag' },
 ];
 
-const defaultTestAlertMessage = 'Bevestig deze proefalarmering met Ontvangen.';
+const defaultTestAlertMessage = 'Dit is het wekelijkse proefalarm.';
 
 export function TestAlertPage() {
   const { api } = useAuth();

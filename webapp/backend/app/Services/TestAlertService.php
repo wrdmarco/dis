@@ -14,7 +14,7 @@ use Illuminate\Validation\ValidationException;
 
 final class TestAlertService
 {
-    private const DEFAULT_MESSAGE = 'Bevestig deze proefalarmering met Ontvangen.';
+    private const DEFAULT_MESSAGE = 'Dit is het wekelijkse proefalarm.';
 
     public function __construct(
         private readonly AuditService $auditService,
@@ -33,12 +33,13 @@ final class TestAlertService
 
         return DB::transaction(function () use ($actor): DispatchRequest {
             $message = $this->message();
+            $notificationMessage = $this->notificationMessage($message);
             $this->expirePreviousTestAlerts($actor);
 
             $incident = Incident::query()->create([
                 'reference' => $this->nextReference(),
                 'title' => 'Proefalarmering',
-                'description' => $message,
+                'description' => $notificationMessage,
                 'priority' => 'normal',
                 'status' => 'active',
                 'is_test' => true,
@@ -53,7 +54,7 @@ final class TestAlertService
                 'target_team_id' => null,
                 'status' => 'sent',
                 'priority' => 'normal',
-                'message' => $message,
+                'message' => $notificationMessage,
                 'sent_at' => now(),
             ]);
 
@@ -69,7 +70,7 @@ final class TestAlertService
                     (string) $token->id,
                     'dispatch_request',
                     'D.I.S proefalarmering',
-                    $message,
+                    $notificationMessage,
                     [
                         'type' => 'dispatch_request',
                         'action_mode' => 'test_ack',
@@ -78,7 +79,7 @@ final class TestAlertService
                         'incident_id' => (string) $incident->id,
                         'incident_reference' => (string) $incident->reference,
                         'incident_title' => (string) $incident->title,
-                        'dispatch_message' => $message,
+                        'dispatch_message' => $notificationMessage,
                         'priority' => 'normal',
                     ],
                     (string) $dispatch->id,
@@ -172,6 +173,18 @@ final class TestAlertService
     private function message(): string
     {
         return SystemSetting::string('test_alert.message', self::DEFAULT_MESSAGE) ?? self::DEFAULT_MESSAGE;
+    }
+
+    private function notificationMessage(string $message): string
+    {
+        $cleaned = preg_replace([
+            '/\s*Bevestig deze proefalarmering met Ontvangen(?: in de app)?\.?/iu',
+            '/\s*Bevestig ontvangst met de knop Ontvangen\.?/iu',
+        ], '', $message);
+
+        $cleaned = trim((string) $cleaned);
+
+        return $cleaned !== '' ? $cleaned : self::DEFAULT_MESSAGE;
     }
 
     private function scheduleDue(): bool
