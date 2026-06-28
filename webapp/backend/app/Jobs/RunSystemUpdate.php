@@ -23,7 +23,8 @@ final class RunSystemUpdate implements ShouldQueue
             return;
         }
 
-        $command = ['sudo', '-n', '/usr/bin/bash', $script, '--skip-system'];
+        $bash = is_file('/usr/bin/bash') ? '/usr/bin/bash' : '/bin/bash';
+        $command = ['sudo', '-n', $bash, $script, '--skip-system'];
         $descriptorSpec = [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],

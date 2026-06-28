@@ -1,1 +1,3 @@
-dis ALL=(root) NOPASSWD: /usr/bin/bash /opt/dis/update.sh --skip-system
+Cmnd_Alias DIS_UPDATE = /usr/bin/bash /opt/dis/update.sh --skip-system, /bin/bash /opt/dis/update.sh --skip-system, /usr/bin/bash /opt/dis/scripts/update.sh --skip-system, /bin/bash /opt/dis/scripts/update.sh --skip-system, /usr/local/bin/update --skip-system
+
+dis ALL=(root) NOPASSWD: DIS_UPDATE
