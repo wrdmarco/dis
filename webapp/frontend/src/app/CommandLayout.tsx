@@ -17,6 +17,8 @@ const navGroups = [
       { to: '/incidents/archive', label: 'Archief', icon: Archive },
       { to: '/status', label: 'Status', icon: Workflow },
       { to: '/proefalarmering', label: 'Proefalarmering', icon: BellRing },
+      { to: '/push', label: 'Pushmeldingen', icon: Send },
+      { to: '/reports', label: 'Statistieken', icon: BarChart3 },
     ],
   },
   {
@@ -36,18 +38,11 @@ const navGroups = [
     ],
   },
   {
-    label: 'Communicatie',
-    items: [
-      { to: '/push', label: 'Pushmeldingen', icon: Send },
-      { to: '/reports', label: 'Statistieken', icon: BarChart3 },
-    ],
-  },
-  {
     label: 'Beheer',
     items: [
       { to: '/updates', label: 'App updates', icon: Smartphone },
-      { to: '/branding', label: 'Branding', icon: Palette },
       { to: '/admin', label: 'Admin', icon: Shield },
+      { to: '/branding', label: 'Branding', icon: Palette },
       { to: '/system', label: 'Systeem', icon: Bell },
     ],
   },
