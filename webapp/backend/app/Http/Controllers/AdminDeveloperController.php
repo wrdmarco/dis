@@ -359,7 +359,7 @@ final class AdminDeveloperController extends Controller
             return false;
         }
 
-        $unit = 'dis-update-'.date('YmdHis').'-'.bin2hex(random_bytes(3));
+        $unit = $updateSystem ? 'dis-update-system' : 'dis-update-app';
         $command = [
             'sudo',
             '-n',
