@@ -569,14 +569,6 @@ export function AdminPage() {
                 <option value="log">Log</option>
               </select>
             </label>
-            <label>
-              Afzender e-mail
-              <input type="email" value={managedForm.mailFromAddress} onChange={(event) => setManagedForm((current) => ({ ...current, mailFromAddress: event.target.value }))} />
-            </label>
-            <label>
-              Afzender naam
-              <input value={managedForm.mailFromName} onChange={(event) => setManagedForm((current) => ({ ...current, mailFromName: event.target.value }))} />
-            </label>
           </div>
 
           {managedForm.mailMailer === 'microsoft365' ? (
@@ -619,6 +611,14 @@ export function AdminPage() {
             <div className="settings-group">
               <h3>SMTP</h3>
               <div className="form-grid">
+                <label>
+                  Afzender e-mail
+                  <input type="email" value={managedForm.mailFromAddress} onChange={(event) => setManagedForm((current) => ({ ...current, mailFromAddress: event.target.value }))} />
+                </label>
+                <label>
+                  Afzender naam
+                  <input value={managedForm.mailFromName} onChange={(event) => setManagedForm((current) => ({ ...current, mailFromName: event.target.value }))} />
+                </label>
                 <label>
                   SMTP host
                   <input value={managedForm.mailHost} onChange={(event) => setManagedForm((current) => ({ ...current, mailHost: event.target.value }))} />
