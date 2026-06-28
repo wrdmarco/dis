@@ -284,25 +284,31 @@ export function AdminPage() {
   async function saveMailSettings() {
     setManagedSaving(true);
     setManagedError(null);
+    setManagedMessage(null);
     try {
       const payload: Record<string, unknown> = {
         'mail.mailer': managedForm.mailMailer,
-        'mail.host': managedForm.mailHost,
-        'mail.port': Number(managedForm.mailPort || 587),
-        'mail.encryption': managedForm.mailEncryption,
-        'mail.username': managedForm.mailUsername,
-        'mail.microsoft365_tenant_id': managedForm.mailMicrosoft365TenantId,
-        'mail.microsoft365_client_id': managedForm.mailMicrosoft365ClientId,
-        'mail.microsoft365_sender': managedForm.mailMicrosoft365Sender,
-        'mail.from_address': managedForm.mailFromAddress,
-        'mail.from_name': managedForm.mailFromName,
       };
 
-      if (managedForm.mailPassword.trim() !== '') {
-        payload['mail.password'] = managedForm.mailPassword;
+      if (managedForm.mailMailer === 'microsoft365') {
+        payload['mail.microsoft365_tenant_id'] = managedForm.mailMicrosoft365TenantId;
+        payload['mail.microsoft365_client_id'] = managedForm.mailMicrosoft365ClientId;
+        payload['mail.microsoft365_sender'] = managedForm.mailMicrosoft365Sender;
+        if (managedForm.mailMicrosoft365ClientSecret.trim() !== '') {
+          payload['mail.microsoft365_client_secret'] = managedForm.mailMicrosoft365ClientSecret;
+        }
       }
-      if (managedForm.mailMicrosoft365ClientSecret.trim() !== '') {
-        payload['mail.microsoft365_client_secret'] = managedForm.mailMicrosoft365ClientSecret;
+
+      if (managedForm.mailMailer === 'smtp') {
+        payload['mail.host'] = managedForm.mailHost;
+        payload['mail.port'] = Number(managedForm.mailPort || 587);
+        payload['mail.encryption'] = managedForm.mailEncryption;
+        payload['mail.username'] = managedForm.mailUsername;
+        payload['mail.from_address'] = managedForm.mailFromAddress;
+        payload['mail.from_name'] = managedForm.mailFromName;
+        if (managedForm.mailPassword.trim() !== '') {
+          payload['mail.password'] = managedForm.mailPassword;
+        }
       }
 
       await api.patch('/admin/settings', { settings: payload });
