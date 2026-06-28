@@ -16,6 +16,7 @@ final class AdminDeveloperController extends Controller
 {
     private const ACCESS_KEY = 'developer.android_upload';
     private const GIT_BRANCH = 'main';
+    private const UPDATE_TIMEOUT_SECONDS = 3300;
 
     public function __construct(
         private readonly AuditService $auditService,
@@ -301,29 +302,45 @@ final class AdminDeveloperController extends Controller
 
     private function startUpdateProcess(bool $updateSystem): bool
     {
+        $root = realpath(base_path('../..')) ?: base_path('../..');
         $php = (new PhpExecutableFinder())->find() ?: PHP_BINARY;
         if (! is_string($php) || $php === '') {
             $php = '/usr/bin/php';
         }
 
-        $arguments = [
-            escapeshellarg($php),
-            escapeshellarg(base_path('artisan')),
-            'dis:run-update',
+        $updateCommand = is_file('/usr/local/bin/update') ? '/usr/local/bin/update' : (realpath($root.'/update.sh') ?: $root.'/update.sh');
+        $updateArguments = [
+            'sudo',
+            '-n',
+            $updateCommand,
         ];
-        if ($updateSystem) {
-            $arguments[] = '--system';
+        if (! $updateSystem) {
+            $updateArguments[] = '--skip-system';
         }
 
+        $timeout = is_file('/usr/bin/timeout') ? '/usr/bin/timeout' : 'timeout';
         $logPath = storage_path('logs/system-update-runner.log');
-        $command = 'nohup '.implode(' ', $arguments).' >> '.escapeshellarg($logPath).' 2>&1 & echo $!';
+        $updateLine = implode(' ', array_map('escapeshellarg', [$timeout, self::UPDATE_TIMEOUT_SECONDS.'s', ...$updateArguments]));
+        $finishLine = escapeshellarg($php).' '.escapeshellarg(base_path('artisan')).' dis:finish-update "${exit_code}"';
+        $script = implode("\n", [
+            'cd '.escapeshellarg($root).' || exit 1',
+            'echo '.escapeshellarg($updateSystem ? '[dis] Updatecommando gestart met systeemupdates.' : '[dis] Updatecommando gestart zonder systeemupdates.'),
+            $updateLine,
+            'exit_code=$?',
+            'if [ "${exit_code}" -eq 124 ]; then echo '.escapeshellarg('[dis] Updateproces duurde te lang en is afgebroken.').'; fi',
+            'echo "[dis] Updatecommando afgerond met exit code ${exit_code}."',
+            'cd '.escapeshellarg(base_path()).' || true',
+            $finishLine.' || true',
+            'exit "${exit_code}"',
+        ]);
+        $command = 'nohup /bin/bash -lc '.escapeshellarg($script).' >> '.escapeshellarg($logPath).' 2>&1 < /dev/null & echo $!';
         $descriptorSpec = [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],
             2 => ['pipe', 'w'],
         ];
 
-        $process = proc_open(['/bin/sh', '-c', $command], $descriptorSpec, $pipes, base_path());
+        $process = proc_open(['/bin/bash', '-lc', $command], $descriptorSpec, $pipes, base_path());
         if (! is_resource($process)) {
             return false;
         }

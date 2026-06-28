@@ -146,6 +146,18 @@ export function AdminPage() {
     };
   }, [reloadSystemVersionSilently, token]);
 
+  useEffect(() => {
+    if (updaterStatus?.state !== 'running') {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void reloadSystemVersionSilently();
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
+  }, [reloadSystemVersionSilently, updaterStatus?.state]);
+
   async function saveMobileSettings() {
     setSaving(true);
     setSaveError(null);

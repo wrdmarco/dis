@@ -25,8 +25,13 @@ final class SystemUpdateStatusService
             'exit_code' => null,
             'message' => 'Geen update actief.',
             'log' => [],
+            'runner_log_offset' => $this->runnerLogSize(),
             'reboot_required' => $this->rebootRequired(),
         ]);
+
+        if (is_array($status) && ($status['state'] ?? null) === 'running') {
+            $status = $this->syncRunnerLog($status);
+        }
 
         if (is_array($status) && ($status['state'] ?? null) === 'running' && $this->hasSuccessfulCompletionLine($status)) {
             $status = $this->successfulStatus($status);
@@ -52,6 +57,7 @@ final class SystemUpdateStatusService
             'exit_code' => null,
             'message' => 'Geen update actief.',
             'log' => [],
+            'runner_log_offset' => $this->runnerLogSize(),
             'reboot_required' => $this->rebootRequired(),
         ];
     }
@@ -65,6 +71,7 @@ final class SystemUpdateStatusService
             'exit_code' => null,
             'message' => $message,
             'log' => [$message],
+            'runner_log_offset' => $this->runnerLogSize(),
             'reboot_required' => $this->rebootRequired(),
         ]);
     }
@@ -116,6 +123,68 @@ final class SystemUpdateStatusService
     private function rebootRequired(): bool
     {
         return is_file('/var/run/reboot-required') || is_file('/run/reboot-required');
+    }
+
+    /**
+     * @param array<string, mixed> $status
+     * @return array<string, mixed>
+     */
+    private function syncRunnerLog(array $status): array
+    {
+        $path = storage_path('logs/system-update-runner.log');
+        if (! is_file($path) || ! is_readable($path)) {
+            return $status;
+        }
+
+        $size = filesize($path) ?: 0;
+        $offset = is_int($status['runner_log_offset'] ?? null) ? (int) $status['runner_log_offset'] : 0;
+        if ($offset < 0 || $offset > $size) {
+            $offset = 0;
+        }
+
+        if ($offset === $size) {
+            return $status;
+        }
+
+        $handle = fopen($path, 'rb');
+        if ($handle === false) {
+            return $status;
+        }
+
+        try {
+            fseek($handle, $offset);
+            $content = (string) stream_get_contents($handle);
+        } finally {
+            fclose($handle);
+        }
+
+        $lines = array_values(array_filter(
+            array_map('trim', preg_split('/\R/', $content) ?: []),
+            fn (string $line): bool => $line !== '',
+        ));
+        $status['runner_log_offset'] = $size;
+        if ($lines === []) {
+            $this->store($status);
+
+            return $status;
+        }
+
+        $log = is_array($status['log'] ?? null) ? $status['log'] : [];
+        foreach ($lines as $line) {
+            $log[] = $line;
+        }
+        $status['log'] = array_slice($log, -self::LOG_LIMIT);
+        $status['message'] = end($lines) ?: ($status['message'] ?? 'Update draait.');
+        $this->store($status);
+
+        return $status;
+    }
+
+    private function runnerLogSize(): int
+    {
+        $path = storage_path('logs/system-update-runner.log');
+
+        return is_file($path) ? (filesize($path) ?: 0) : 0;
     }
 
     /**

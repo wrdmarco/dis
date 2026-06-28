@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/health',
     )
     ->withCommands([
+        App\Console\Commands\FinishSystemUpdateCommand::class,
         App\Console\Commands\PruneOperationalData::class,
         App\Console\Commands\RunSystemUpdateCommand::class,
         App\Console\Commands\SystemSelfCheck::class,
