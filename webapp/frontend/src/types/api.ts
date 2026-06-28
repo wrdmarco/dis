@@ -34,6 +34,8 @@ export interface Role {
   display_name: string;
   description?: string | null;
   requires_two_factor: boolean;
+  can_use_operator_app: boolean;
+  can_use_admin_app: boolean;
   permissions?: Permission[];
 }
 

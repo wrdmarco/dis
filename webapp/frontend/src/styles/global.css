@@ -1247,6 +1247,22 @@ a:hover {
   justify-content: start;
 }
 
+.permission-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 16px 16px;
+}
+
+.permission-grid .check-label {
+  min-width: 0;
+  min-height: 42px;
+  border: 1px solid #1f2b3a;
+  border-radius: 6px;
+  background: #0b1119;
+  padding: 8px 10px;
+}
+
 input,
 select,
 textarea {
@@ -2294,6 +2310,7 @@ pre {
   .download-card,
   .download-setup-qr,
   .firebase-wizard__intro,
+  .permission-grid,
   .checkbox-grid,
   .push-summary,
   .mfa-card {

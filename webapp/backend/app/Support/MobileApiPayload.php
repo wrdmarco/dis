@@ -33,6 +33,8 @@ final class MobileApiPayload
                 'id' => $role->id,
                 'name' => $role->name,
                 'display_name' => $role->display_name,
+                'can_use_operator_app' => (bool) $role->can_use_operator_app,
+                'can_use_admin_app' => (bool) $role->can_use_admin_app,
             ])->values(),
             'teams' => $user->teams->map(fn ($team): array => [
                 'id' => $team->id,

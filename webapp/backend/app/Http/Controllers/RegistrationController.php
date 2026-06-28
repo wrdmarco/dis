@@ -116,9 +116,6 @@ final class RegistrationController extends Controller
 
     private function adminAppAllowed(User $user): bool
     {
-        return $user->roles->contains(
-            fn ($role): bool => $role->permissions->contains('name', 'incidents.manage')
-                && $role->permissions->contains('name', 'dispatch.manage'),
-        );
+        return $user->canUseAdminApp();
     }
 }

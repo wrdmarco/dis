@@ -205,10 +205,7 @@ final class UserService
         $token = Password::broker()->createToken($user);
         $publicUrl = rtrim(SystemSetting::string('app.public_url', config('app.url', '')) ?? '', '/');
         $registrationUrl = $publicUrl.'/register?email='.rawurlencode($user->email).'&token='.rawurlencode($token);
-        $adminAppAllowed = $user->roles->contains(
-            fn (Role $role): bool => $role->permissions->contains('name', 'incidents.manage')
-                && $role->permissions->contains('name', 'dispatch.manage'),
-        );
+        $adminAppAllowed = $user->canUseAdminApp();
 
         Mail::to($user->email)->send(new UserWelcomeMail($user, $registrationUrl, $adminAppAllowed));
         $this->auditService->record('users.welcome_mail_sent', $user, $actor, ['admin_app_allowed' => $adminAppAllowed]);

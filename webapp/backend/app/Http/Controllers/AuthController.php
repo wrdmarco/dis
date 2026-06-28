@@ -36,6 +36,11 @@ final class AuthController extends Controller
         }
 
         $tokenName = $request->validated('device_name') ?? 'DIS API';
+        if (! $this->canUseRequestedApp($user, (string) $tokenName)) {
+            $this->auditService->record('auth.login_app_blocked', $user, $user, ['device_name' => $tokenName], null, $request);
+
+            return ApiResponse::error('app_access_denied', 'Deze rol geeft geen toegang tot deze app.', 403);
+        }
         $requiresTwoFactor = $user->roles->contains(fn ($role) => $role->requires_two_factor);
         if ($requiresTwoFactor && ! $user->two_factor_enabled) {
             $secret = $this->twoFactorService->generateSecret();
@@ -220,5 +225,20 @@ final class AuthController extends Controller
         $abilities = is_array($token?->abilities ?? null) ? $token->abilities : [];
 
         return in_array($ability, $abilities, true);
+    }
+
+    private function canUseRequestedApp(User $user, string $tokenName): bool
+    {
+        $normalizedTokenName = strtolower($tokenName);
+
+        if (str_contains($normalizedTokenName, 'admin android')) {
+            return $user->canUseAdminApp();
+        }
+
+        if (str_contains($normalizedTokenName, 'android')) {
+            return $user->canUseOperatorApp();
+        }
+
+        return true;
     }
 }

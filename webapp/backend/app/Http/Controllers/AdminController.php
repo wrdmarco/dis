@@ -35,27 +35,53 @@ final class AdminController extends Controller
 
     public function storeRole(Request $request): JsonResponse
     {
-        $role = Role::query()->create($request->validate([
+        $data = $request->validate([
             'name' => ['required', 'string', 'max:120', 'unique:roles,name'],
             'display_name' => ['required', 'string', 'max:160'],
             'description' => ['nullable', 'string', 'max:2000'],
             'requires_two_factor' => ['required', 'boolean'],
-        ]));
-        $this->auditService->record('admin.role_created', $role, $request->user());
+            'can_use_operator_app' => ['required', 'boolean'],
+            'can_use_admin_app' => ['required', 'boolean'],
+            'permission_ids' => ['nullable', 'array'],
+            'permission_ids.*' => ['ulid', 'exists:permissions,id'],
+        ]);
+        $permissionIds = $data['permission_ids'] ?? [];
+        unset($data['permission_ids']);
 
-        return ApiResponse::success($role, 201);
+        $role = Role::query()->create($data);
+        $role->permissions()->sync(array_values(array_unique(is_array($permissionIds) ? $permissionIds : [])));
+        $this->auditService->record('admin.role_created', $role, $request->user(), ['permission_ids' => $permissionIds]);
+
+        return ApiResponse::success($role->load('permissions'), 201);
     }
 
     public function updateRole(Request $request, Role $role): JsonResponse
     {
-        $role->update($request->validate([
+        $data = $request->validate([
+            'name' => ['sometimes', 'string', 'max:120', Rule::unique('roles', 'name')->ignore($role->id)],
             'display_name' => ['sometimes', 'string', 'max:160'],
             'description' => ['nullable', 'string', 'max:2000'],
             'requires_two_factor' => ['sometimes', 'boolean'],
-        ]));
-        $this->auditService->record('admin.role_updated', $role, $request->user());
+            'can_use_operator_app' => ['sometimes', 'boolean'],
+            'can_use_admin_app' => ['sometimes', 'boolean'],
+            'permission_ids' => ['nullable', 'array'],
+            'permission_ids.*' => ['ulid', 'exists:permissions,id'],
+        ]);
+        $permissionIds = $data['permission_ids'] ?? null;
+        unset($data['permission_ids']);
 
-        return ApiResponse::success($role->refresh());
+        $before = $role->only(array_keys($data));
+        $role->update($data);
+        if (is_array($permissionIds)) {
+            $role->permissions()->sync(array_values(array_unique($permissionIds)));
+        }
+        $this->auditService->record('admin.role_updated', $role, $request->user(), [
+            'before' => $before,
+            'after' => $role->only(array_keys($data)),
+            'permission_ids' => $permissionIds,
+        ]);
+
+        return ApiResponse::success($role->refresh()->load('permissions'));
     }
 
     public function permissions(): JsonResponse

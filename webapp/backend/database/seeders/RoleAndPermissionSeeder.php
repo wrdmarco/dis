@@ -35,19 +35,23 @@ final class RoleAndPermissionSeeder extends Seeder
     ];
 
     /**
-     * @var array<string, array{display_name: string, description: string, requires_two_factor: bool, permissions: list<string>}>
+     * @var array<string, array{display_name: string, description: string, requires_two_factor: bool, can_use_operator_app: bool, can_use_admin_app: bool, permissions: list<string>}>
      */
     private array $roles = [
         'system-administrator' => [
             'display_name' => 'System Administrator',
             'description' => 'Full platform administration and security-sensitive configuration.',
             'requires_two_factor' => true,
+            'can_use_operator_app' => true,
+            'can_use_admin_app' => true,
             'permissions' => ['*'],
         ],
         'national-coordinator' => [
             'display_name' => 'National Coordinator',
             'description' => 'National operational coordination across incidents, teams and dispatches.',
             'requires_two_factor' => true,
+            'can_use_operator_app' => true,
+            'can_use_admin_app' => true,
             'permissions' => [
                 'users.view', 'teams.manage', 'incidents.view', 'incidents.manage',
                 'dispatch.view', 'dispatch.manage', 'status.view', 'status.override',
@@ -59,6 +63,8 @@ final class RoleAndPermissionSeeder extends Seeder
             'display_name' => 'Incident Coordinator',
             'description' => 'Incident-level coordination and dispatch management.',
             'requires_two_factor' => true,
+            'can_use_operator_app' => true,
+            'can_use_admin_app' => true,
             'permissions' => [
                 'users.view', 'incidents.view', 'incidents.manage', 'dispatch.view',
                 'dispatch.manage', 'status.view', 'assets.view', 'certifications.view',
@@ -69,6 +75,8 @@ final class RoleAndPermissionSeeder extends Seeder
             'display_name' => 'Operator / Pilot',
             'description' => 'Drone operator receiving dispatches and managing own operational status.',
             'requires_two_factor' => false,
+            'can_use_operator_app' => true,
+            'can_use_admin_app' => false,
             'permissions' => [
                 'incidents.view', 'dispatch.view', 'status.view', 'assets.view',
                 'certifications.view',
@@ -78,6 +86,8 @@ final class RoleAndPermissionSeeder extends Seeder
             'display_name' => 'Support Staff',
             'description' => 'Operational support for assets and certifications.',
             'requires_two_factor' => false,
+            'can_use_operator_app' => false,
+            'can_use_admin_app' => false,
             'permissions' => [
                 'users.view', 'assets.view', 'assets.manage', 'certifications.view',
                 'certifications.manage', 'status.view',
@@ -87,6 +97,8 @@ final class RoleAndPermissionSeeder extends Seeder
             'display_name' => 'Auditor',
             'description' => 'Read-only inspection of operational and audit records.',
             'requires_two_factor' => false,
+            'can_use_operator_app' => false,
+            'can_use_admin_app' => false,
             'permissions' => [
                 'users.view', 'incidents.view', 'dispatch.view', 'status.view',
                 'assets.view', 'certifications.view', 'audit.view',
@@ -120,6 +132,8 @@ final class RoleAndPermissionSeeder extends Seeder
                     'display_name' => $role['display_name'],
                     'description' => $role['description'],
                     'requires_two_factor' => $role['requires_two_factor'],
+                    'can_use_operator_app' => $role['can_use_operator_app'],
+                    'can_use_admin_app' => $role['can_use_admin_app'],
                     'created_at' => $now,
                     'updated_at' => $now,
                 ],

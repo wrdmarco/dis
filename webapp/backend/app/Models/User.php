@@ -96,6 +96,20 @@ final class User extends Authenticatable
         return $this->roles()->where('roles.name', $role)->exists();
     }
 
+    public function canUseOperatorApp(): bool
+    {
+        $this->loadMissing('roles');
+
+        return $this->roles->contains(fn (Role $role): bool => (bool) $role->can_use_operator_app);
+    }
+
+    public function canUseAdminApp(): bool
+    {
+        $this->loadMissing('roles');
+
+        return $this->roles->contains(fn (Role $role): bool => (bool) $role->can_use_admin_app);
+    }
+
     public function belongsToTeamCode(string $code): bool
     {
         return $this->teams()->where('teams.code', $code)->exists();
