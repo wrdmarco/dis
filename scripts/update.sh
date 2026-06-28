@@ -12,6 +12,8 @@ RUN_HEALTHCHECK="${RUN_HEALTHCHECK:-1}"
 SYSTEM_UPDATES_AVAILABLE=0
 APP_UPDATES_AVAILABLE=0
 APP_UPSTREAM=""
+DIS_GIT_REMOTE_URL="${DIS_GIT_REMOTE_URL:-https://github.com/wrdmarco/dis.git}"
+DIS_GIT_BRANCH="${DIS_GIT_BRANCH:-main}"
 
 usage() {
   cat <<'USAGE'
@@ -179,6 +181,48 @@ stash_local_git_changes() {
   log "Local changes were stashed and not reapplied automatically."
 }
 
+ensure_git_remote() {
+  local origin_url branch target_upstream
+
+  if [ ! -d "${DIS_INSTALL_PATH}/.git" ]; then
+    return
+  fi
+
+  origin_url="$(git -C "${DIS_INSTALL_PATH}" remote get-url origin 2>/dev/null || true)"
+  if [ -z "${origin_url}" ]; then
+    log "Git origin remote missing; configuring ${DIS_GIT_REMOTE_URL}."
+    run_cmd git -C "${DIS_INSTALL_PATH}" remote add origin "${DIS_GIT_REMOTE_URL}"
+  fi
+
+  if ! git -C "${DIS_INSTALL_PATH}" fetch --prune origin "${DIS_GIT_BRANCH}:refs/remotes/origin/${DIS_GIT_BRANCH}" >/dev/null 2>&1; then
+    log "Git origin fetch failed; resetting origin remote to ${DIS_GIT_REMOTE_URL}."
+    run_cmd git -C "${DIS_INSTALL_PATH}" remote remove origin >/dev/null 2>&1 || true
+    run_cmd git -C "${DIS_INSTALL_PATH}" remote add origin "${DIS_GIT_REMOTE_URL}"
+    run_cmd git -C "${DIS_INSTALL_PATH}" fetch --prune origin "${DIS_GIT_BRANCH}:refs/remotes/origin/${DIS_GIT_BRANCH}"
+  fi
+
+  branch="$(git -C "${DIS_INSTALL_PATH}" rev-parse --abbrev-ref HEAD)"
+  if [ "${branch}" = "HEAD" ]; then
+    log "Git checkout is detached; switching to ${DIS_GIT_BRANCH}."
+    stash_local_git_changes
+    if git -C "${DIS_INSTALL_PATH}" show-ref --verify --quiet "refs/heads/${DIS_GIT_BRANCH}"; then
+      run_cmd git -C "${DIS_INSTALL_PATH}" checkout "${DIS_GIT_BRANCH}"
+    else
+      run_cmd git -C "${DIS_INSTALL_PATH}" checkout -B "${DIS_GIT_BRANCH}" "origin/${DIS_GIT_BRANCH}"
+    fi
+    branch="${DIS_GIT_BRANCH}"
+  fi
+
+  target_upstream="origin/${branch}"
+  if ! git -C "${DIS_INSTALL_PATH}" rev-parse --verify "${target_upstream}" >/dev/null 2>&1; then
+    target_upstream="origin/${DIS_GIT_BRANCH}"
+  fi
+
+  if git -C "${DIS_INSTALL_PATH}" rev-parse --verify "${target_upstream}" >/dev/null 2>&1; then
+    run_cmd git -C "${DIS_INSTALL_PATH}" branch --set-upstream-to="${target_upstream}" "${branch}" >/dev/null 2>&1 || true
+  fi
+}
+
 check_system_updates() {
   local update_count
 
@@ -210,12 +254,19 @@ check_app_updates() {
   fi
 
   log "Checking DIS application updates"
+  ensure_git_remote
   run_cmd git -C "${DIS_INSTALL_PATH}" fetch --prune
 
   upstream="$(git -C "${DIS_INSTALL_PATH}" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
   if [ -z "${upstream}" ]; then
     branch="$(git -C "${DIS_INSTALL_PATH}" rev-parse --abbrev-ref HEAD)"
+    if [ "${branch}" = "HEAD" ]; then
+      branch="${DIS_GIT_BRANCH}"
+    fi
     upstream="origin/${branch}"
+    if ! git -C "${DIS_INSTALL_PATH}" rev-parse --verify "${upstream}" >/dev/null 2>&1; then
+      upstream="origin/${DIS_GIT_BRANCH}"
+    fi
     if ! git -C "${DIS_INSTALL_PATH}" rev-parse --verify "${upstream}" >/dev/null 2>&1; then
       fail "Git branch at ${DIS_INSTALL_PATH} has no upstream branch configured and ${upstream} was not found."
     fi
