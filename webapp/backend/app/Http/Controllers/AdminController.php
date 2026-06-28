@@ -270,6 +270,8 @@ final class AdminController extends Controller
             PasswordPolicy::SYMBOLS_KEY,
             PasswordPolicy::UNCOMPROMISED_KEY => $this->validateBooleanSetting($key, $value),
             'security.mfa_issuer_name' => $this->validateStringSetting($key, $value, 64),
+            'app.brand_name' => $this->validateStringSetting($key, $value, 120),
+            'app.brand_short_name' => $this->validateStringSetting($key, $value, 12),
             default => $value,
         };
     }

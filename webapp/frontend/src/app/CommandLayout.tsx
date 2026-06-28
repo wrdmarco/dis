@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, ClipboardCheck, Gauge, KeyRound, LogOut, Network, RadioTower, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, ClipboardCheck, Gauge, KeyRound, LogOut, Network, Palette, RadioTower, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../features/auth/AuthContext';
 
 const navGroups = [
@@ -40,15 +41,33 @@ const navGroups = [
     label: 'Beheer',
     items: [
       { to: '/updates', label: 'App updates', icon: Smartphone },
+      { to: '/branding', label: 'Branding', icon: Palette },
       { to: '/admin', label: 'Admin', icon: Shield },
       { to: '/system', label: 'Systeem', icon: Bell },
     ],
   },
 ];
 
+interface BrandingState {
+  name: string;
+  short_name: string;
+  tenant_name: string;
+}
+
 export function CommandLayout() {
   const { user, api, clearSession } = useAuth();
   const navigate = useNavigate();
+  const [branding, setBranding] = useState<BrandingState>({
+    name: 'D.I.S Operationeel Beeld',
+    short_name: 'DIS',
+    tenant_name: 'Nationaal Droneteam',
+  });
+
+  useEffect(() => {
+    api.get<BrandingState>('/branding')
+      .then((response) => setBranding(response.data))
+      .catch(() => undefined);
+  }, [api]);
 
   const logout = async () => {
     await api.post('/auth/logout').catch(() => undefined);
@@ -60,7 +79,7 @@ export function CommandLayout() {
     <div className="command-layout">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand__mark">DIS</span>
+          <span className="brand__mark">{branding.short_name}</span>
           <span className="brand__text">Command Center</span>
         </div>
         <nav className="nav" aria-label="Hoofdnavigatie">
@@ -85,8 +104,8 @@ export function CommandLayout() {
       <div className="workspace">
         <header className="topbar">
           <div>
-            <span className="topbar__eyebrow">Nationaal Droneteam</span>
-            <h1>D.I.S Operationeel Beeld</h1>
+            <span className="topbar__eyebrow">{branding.tenant_name}</span>
+            <h1>{branding.name}</h1>
           </div>
           <div className="operator">
             <div>

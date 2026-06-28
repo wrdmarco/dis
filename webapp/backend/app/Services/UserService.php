@@ -157,6 +157,25 @@ final class UserService
         });
     }
 
+    public function resetTwoFactor(User $user, User $actor): User
+    {
+        if ($user->is($actor)) {
+            throw ValidationException::withMessages(['user' => ['Je kunt je eigen MFA hier niet resetten. Gebruik je profielpagina.']]);
+        }
+
+        $user->forceFill([
+            'two_factor_enabled' => false,
+            'two_factor_secret' => null,
+            'two_factor_recovery_codes' => null,
+            'two_factor_confirmed_at' => null,
+        ])->save();
+
+        $user->tokens()->delete();
+        $this->auditService->record('users.two_factor_reset', $user, $actor);
+
+        return $user->refresh()->load(['roles', 'teams']);
+    }
+
     /**
      * @param array<int, string> $roleIds
      */

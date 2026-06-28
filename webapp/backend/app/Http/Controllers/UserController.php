@@ -84,6 +84,11 @@ final class UserController extends Controller
         return response()->noContent();
     }
 
+    public function resetTwoFactor(Request $request, User $user): JsonResponse
+    {
+        return ApiResponse::success($this->service->resetTwoFactor($user, $request->user()));
+    }
+
     public function audit(User $user): JsonResponse
     {
         return ApiResponse::success(AuditLog::query()->where('target_id', $user->id)->latest('created_at')->paginate(50));

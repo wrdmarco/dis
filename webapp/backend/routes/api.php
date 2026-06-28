@@ -5,6 +5,7 @@ use App\Http\Controllers\AdminDeveloperController;
 use App\Http\Controllers\AdminPushController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BrandingController;
 use App\Http\Controllers\CertificationController;
 use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\DispatchController;
@@ -38,6 +39,7 @@ Route::post('/setup/complete', [SetupController::class, 'complete'])->middleware
 Route::get('/mobile/config', [MobileConfigController::class, 'show'])->middleware('throttle:mobile-public');
 Route::get('/updates/android/current', [UpdateController::class, 'androidCurrent'])->middleware('throttle:mobile-public');
 Route::get('/updates/android/{version}/download', [UpdateController::class, 'downloadAndroid'])->middleware('throttle:mobile-public');
+Route::get('/branding', [BrandingController::class, 'show'])->middleware('throttle:api');
 Route::post('/developer/android/upload', [UpdateController::class, 'developerUploadAndroid'])->middleware('throttle:api');
 Route::post('/developer/system/update', [AdminDeveloperController::class, 'developerRunUpdate'])->middleware('throttle:api');
 Route::get('/developer/logs', [AdminDeveloperController::class, 'developerLogs'])->middleware('throttle:api');
@@ -63,6 +65,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
         Route::delete('/users/{user}/roles/{role}', [UserController::class, 'removeRole'])->middleware('permission:roles.manage');
         Route::post('/users/{user}/teams', [UserController::class, 'assignTeam'])->middleware('permission:teams.manage');
         Route::delete('/users/{user}/teams/{team}', [UserController::class, 'removeTeam'])->middleware('permission:teams.manage');
+        Route::post('/users/{user}/2fa/reset', [UserController::class, 'resetTwoFactor'])->middleware('permission:users.manage');
         Route::get('/users/{user}/audit', [UserController::class, 'audit'])->middleware('permission:audit.view');
 
     Route::get('/teams', [AdminController::class, 'teams'])->middleware('permission:incidents.view');

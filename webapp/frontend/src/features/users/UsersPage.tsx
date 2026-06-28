@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Eye, Plus, Trash2, X } from 'lucide-react';
+import { Eye, KeyRound, Plus, Trash2, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -47,6 +47,7 @@ export function UsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [resettingMfa, setResettingMfa] = useState(false);
 
   useEffect(() => {
     if (modalMode === null) {
@@ -112,6 +113,25 @@ export function UsersPage() {
       await loadUserDetail(editingUser.id);
       await users.reload();
       await assets.reload();
+    }
+  }
+
+  async function resetUserMfa() {
+    if (editingUser === null) {
+      return;
+    }
+
+    setResettingMfa(true);
+    setError(null);
+    try {
+      const response = await api.post<User>(`/users/${editingUser.id}/2fa/reset`);
+      setEditingUser(response.data);
+      setUserDetail(response.data);
+      await users.reload();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'MFA resetten mislukt.');
+    } finally {
+      setResettingMfa(false);
     }
   }
 
@@ -333,6 +353,20 @@ export function UsersPage() {
                   certificationsError={certifications.error}
                   onChanged={reloadUserDetail}
                 />
+              ) : null}
+              {modalMode === 'edit' && editingUser !== null ? (
+                <div className="form-grid__wide stacked-section">
+                  <span className="field-label">MFA herstel</span>
+                  <dl className="definition-grid">
+                    <dt>Status</dt>
+                    <dd>{(userDetail ?? editingUser).two_factor_enabled ? 'Ingeschakeld' : 'Uitgeschakeld'}</dd>
+                  </dl>
+                  <div className="actions-row">
+                    <button className="secondary-button" type="button" disabled={resettingMfa || !(userDetail ?? editingUser).two_factor_enabled} onClick={() => void resetUserMfa()}>
+                      <KeyRound size={16} /> {resettingMfa ? 'Resetten...' : 'MFA resetten'}
+                    </button>
+                  </div>
+                </div>
               ) : null}
               {error ? <p className="form-error form-grid__wide">{error}</p> : null}
               <div className="actions-row form-grid__wide">

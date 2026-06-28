@@ -27,6 +27,8 @@ final class SystemSettingSeeder extends Seeder
         'app.setup_completed' => ['value' => false, 'is_sensitive' => false],
         'app.setup_completed_at' => ['value' => null, 'is_sensitive' => false],
         'app.public_url' => ['value' => '', 'is_sensitive' => false],
+        'app.brand_name' => ['value' => 'D.I.S Operationeel Beeld', 'is_sensitive' => false],
+        'app.brand_short_name' => ['value' => 'DIS', 'is_sensitive' => false],
         'mail.mailer' => ['value' => 'smtp', 'is_sensitive' => false],
         'mail.host' => ['value' => 'smtp.example.nl', 'is_sensitive' => false],
         'mail.port' => ['value' => 587, 'is_sensitive' => false],

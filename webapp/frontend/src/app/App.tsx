@@ -21,6 +21,7 @@ const ReportsPage = lazy(() => import('../features/reports/ReportsPage').then((m
 const TestAlertPage = lazy(() => import('../features/test-alerts/TestAlertPage').then((module) => ({ default: module.TestAlertPage })));
 const RolesPage = lazy(() => import('../features/roles/RolesPage').then((module) => ({ default: module.RolesPage })));
 const AdminPage = lazy(() => import('../features/admin/AdminPage').then((module) => ({ default: module.AdminPage })));
+const BrandingPage = lazy(() => import('../features/branding/BrandingPage').then((module) => ({ default: module.BrandingPage })));
 const StatusPage = lazy(() => import('../features/status/StatusPage').then((module) => ({ default: module.StatusPage })));
 const SystemPage = lazy(() => import('../features/system/SystemPage').then((module) => ({ default: module.SystemPage })));
 const ProfilePage = lazy(() => import('../features/profile/ProfilePage').then((module) => ({ default: module.ProfilePage })));
@@ -59,6 +60,7 @@ export function App() {
           <Route path="rollen" element={<RolesPage />} />
           <Route path="roles" element={<RolesPage />} />
           <Route path="admin" element={<AdminPage />} />
+          <Route path="branding" element={<BrandingPage />} />
           <Route path="system" element={<SystemPage />} />
           <Route path="systeem" element={<SystemPage />} />
           <Route path="profile" element={<ProfilePage />} />
