@@ -25,7 +25,6 @@ const RolesPage = lazy(() => import('../features/roles/RolesPage').then((module)
 const AdminPage = lazy(() => import('../features/admin/AdminPage').then((module) => ({ default: module.AdminPage })));
 const BrandingPage = lazy(() => import('../features/branding/BrandingPage').then((module) => ({ default: module.BrandingPage })));
 const StatusPage = lazy(() => import('../features/status/StatusPage').then((module) => ({ default: module.StatusPage })));
-const StatusAuditPage = lazy(() => import('../features/status/StatusAuditPage').then((module) => ({ default: module.StatusAuditPage })));
 const AuditLogPage = lazy(() => import('../features/audit/AuditLogPage').then((module) => ({ default: module.AuditLogPage })));
 const SystemPage = lazy(() => import('../features/system/SystemPage').then((module) => ({ default: module.SystemPage })));
 const ProfilePage = lazy(() => import('../features/profile/ProfilePage').then((module) => ({ default: module.ProfilePage })));
@@ -54,7 +53,7 @@ export function App() {
           <Route path="incidents/:incidentId" element={<PermissionRoute permissions={['incidents.view']}><IncidentDetailPage /></PermissionRoute>} />
           <Route path="operationele-status" element={<PermissionRoute permissions={['status.view']}><StatusPage /></PermissionRoute>} />
           <Route path="status/operationeel" element={<PermissionRoute permissions={['status.view']}><StatusPage /></PermissionRoute>} />
-          <Route path="status/audit" element={<PermissionRoute permissions={['status.audit.view']}><StatusAuditPage /></PermissionRoute>} />
+          <Route path="status/audit" element={<Navigate to="/audit" replace />} />
           <Route path="users" element={<PermissionRoute permissions={['users.view']}><UsersPage /></PermissionRoute>} />
           <Route path="teams" element={<PermissionRoute permissions={['teams.manage']}><TeamsPage /></PermissionRoute>} />
           <Route path="assets" element={<PermissionRoute permissions={['assets.view']}><AssetsPage /></PermissionRoute>} />
@@ -69,7 +68,8 @@ export function App() {
           <Route path="roles" element={<PermissionRoute permissions={['roles.manage']}><RolesPage /></PermissionRoute>} />
           <Route path="admin" element={<PermissionRoute permissions={['settings.manage']}><AdminPage /></PermissionRoute>} />
           <Route path="branding" element={<PermissionRoute permissions={['settings.manage']}><BrandingPage /></PermissionRoute>} />
-          <Route path="auditlog" element={<PermissionRoute permissions={['audit.view']}><AuditLogPage /></PermissionRoute>} />
+          <Route path="audit" element={<PermissionRoute permissions={['audit.view', 'status.audit.view']} anyPermission><AuditLogPage /></PermissionRoute>} />
+          <Route path="auditlog" element={<Navigate to="/audit" replace />} />
           <Route path="system" element={<PermissionRoute permissions={['system.health']}><SystemPage /></PermissionRoute>} />
           <Route path="systeem" element={<PermissionRoute permissions={['system.health']}><SystemPage /></PermissionRoute>} />
           <Route path="profile" element={<ProfilePage />} />

@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, ClipboardCheck, FileClock, Gauge, KeyRound, LogOut, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, ClipboardCheck, Gauge, KeyRound, LogOut, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../features/auth/AuthContext';
@@ -31,7 +31,6 @@ const navGroups: NavGroup[] = [
       { to: '/incidents', label: 'Actieve meldingen', icon: RadioTower, end: true, permissions: ['incidents.view'] },
       { to: '/incidents/archive', label: 'Archief', icon: Archive, permissions: ['incidents.view'] },
       { to: '/operationele-status', label: 'Status', icon: Workflow, permissions: ['status.view'] },
-      { to: '/status/audit', label: 'Status audit', icon: FileClock, permissions: ['status.audit.view'] },
       { to: '/proefalarmering', label: 'Proefalarmering', icon: BellRing, permissions: ['dispatch.manage'] },
       { to: '/push', label: 'Pushmeldingen', icon: Send, permissions: ['push.manage'] },
       { to: '/reports', label: 'Statistieken', icon: BarChart3, permissions: ['incidents.view', 'dispatch.view'] },
@@ -59,7 +58,7 @@ const navGroups: NavGroup[] = [
       { to: '/updates', label: 'App updates', icon: Smartphone, permissions: ['updates.manage'] },
       { to: '/admin', label: 'Admin', icon: Shield, permissions: ['settings.manage'] },
       { to: '/branding', label: 'Branding', icon: Palette, permissions: ['settings.manage'] },
-      { to: '/auditlog', label: 'Auditlog', icon: ScrollText, permissions: ['audit.view'] },
+      { to: '/audit', label: 'Audit', icon: ScrollText, permissions: ['audit.view', 'status.audit.view'], anyPermission: true },
       { to: '/system', label: 'Systeem', icon: Bell, permissions: ['system.health'] },
     ],
   },
