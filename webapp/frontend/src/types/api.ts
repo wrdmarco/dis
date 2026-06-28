@@ -235,6 +235,16 @@ export interface AvailabilityStatus {
   user?: User;
 }
 
+export interface UserVacation {
+  id: string;
+  user_id: string;
+  starts_at: string;
+  ends_at: string;
+  status: 'scheduled' | 'active' | 'cancelled' | 'completed';
+  note?: string | null;
+  user?: Pick<User, 'id' | 'name' | 'email'> | null;
+}
+
 export interface Asset {
   id: string;
   asset_tag: string;

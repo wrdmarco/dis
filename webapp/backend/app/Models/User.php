@@ -84,6 +84,11 @@ final class User extends Authenticatable
         return $this->hasMany(FcmToken::class);
     }
 
+    public function vacations(): HasMany
+    {
+        return $this->hasMany(UserVacation::class);
+    }
+
     public function hasPermission(string $permission): bool
     {
         $query = $this->roles()

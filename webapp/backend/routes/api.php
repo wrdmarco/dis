@@ -23,6 +23,7 @@ use App\Http\Controllers\StatusController;
 use App\Http\Controllers\TestAlertController;
 use App\Http\Controllers\UpdateController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\VacationController;
 use App\Http\Responses\ApiResponse;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
@@ -113,6 +114,10 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/status/users', [StatusController::class, 'users'])->middleware('permission:status.view');
     Route::post('/status/users/{user}/override', [StatusController::class, 'override'])->middleware('permission:status.override');
     Route::get('/status/history', [StatusController::class, 'history'])->middleware('permission:status.view');
+    Route::get('/vacations/mine', [VacationController::class, 'mine']);
+    Route::post('/vacations/mine', [VacationController::class, 'store']);
+    Route::delete('/vacations/{vacation}', [VacationController::class, 'cancel']);
+    Route::get('/vacations', [VacationController::class, 'index'])->middleware('permission:status.view');
 
     Route::get('/assets/mine', [AssetController::class, 'mine']);
     Route::post('/assets/mine', [AssetController::class, 'storeMine']);

@@ -7,21 +7,28 @@ import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { AvailabilityStatus } from '../../types/api';
+import type { AvailabilityStatus, UserVacation } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 
 export function StatusPage() {
   const { api, hasPermission } = useAuth();
   const statuses = useApiResource<AvailabilityStatus[]>('/status/users?per_page=200');
+  const myVacations = useApiResource<UserVacation[]>('/vacations/mine');
+  const vacations = useApiResource<UserVacation[]>('/vacations');
   const [editingStatus, setEditingStatus] = useState<AvailabilityStatus | null>(null);
   const [status, setStatus] = useState('available');
   const [reason, setReason] = useState('');
+  const [vacationForm, setVacationForm] = useState({ startsAt: todayInputValue(), endsAt: todayInputValue(), note: '' });
+  const [savingVacation, setSavingVacation] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [vacationError, setVacationError] = useState<string | null>(null);
+  const [vacationMessage, setVacationMessage] = useState<string | null>(null);
   const items = statuses.data ?? [];
+  const vacationItems = vacations.data ?? [];
   const availableCount = items.filter((item) => item.is_available).length;
   const unavailableCount = items.filter((item) => !item.is_available).length;
-  const enRouteCount = items.filter((item) => item.status === 'en_route').length;
+  const vacationCount = items.filter((item) => item.status === 'vacation').length;
   const onSceneCount = items.filter((item) => item.status === 'on_scene').length;
   const canOverrideStatus = hasPermission('status.override');
 
@@ -54,9 +61,71 @@ export function StatusPage() {
     }
   }
 
+  async function submitVacation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingVacation(true);
+    setVacationError(null);
+    setVacationMessage(null);
+    try {
+      await api.post<UserVacation>('/vacations/mine', {
+        starts_at: vacationForm.startsAt,
+        ends_at: vacationForm.endsAt,
+        note: vacationForm.note.trim() === '' ? null : vacationForm.note.trim(),
+      });
+      setVacationForm({ startsAt: todayInputValue(), endsAt: todayInputValue(), note: '' });
+      setVacationMessage('Vakantie opgeslagen.');
+      await myVacations.reload();
+      await vacations.reload();
+      await statuses.reload();
+    } catch (err) {
+      setVacationError(err instanceof ApiClientError ? err.message : 'Vakantie kon niet worden opgeslagen.');
+    } finally {
+      setSavingVacation(false);
+    }
+  }
+
+  async function cancelVacation(vacation: UserVacation) {
+    setVacationError(null);
+    setVacationMessage(null);
+    try {
+      await api.delete(`/vacations/${vacation.id}`);
+      setVacationMessage('Vakantie ingetrokken.');
+      await myVacations.reload();
+      await vacations.reload();
+      await statuses.reload();
+    } catch (err) {
+      setVacationError(err instanceof ApiClientError ? err.message : 'Vakantie kon niet worden ingetrokken.');
+    }
+  }
+
   return (
     <div className="page-stack">
       <RealtimeBridge onOperationalEvent={() => void statuses.silentReload()} />
+      <Panel title="Mijn vakantie">
+        <form className="form-grid" onSubmit={submitVacation}>
+          <label>
+            Begindatum
+            <input type="date" value={vacationForm.startsAt} onChange={(event) => setVacationForm((current) => ({ ...current, startsAt: event.target.value }))} />
+          </label>
+          <label>
+            Einddatum
+            <input type="date" value={vacationForm.endsAt} onChange={(event) => setVacationForm((current) => ({ ...current, endsAt: event.target.value }))} />
+          </label>
+          <label className="form-grid__wide">
+            Notitie
+            <input value={vacationForm.note} maxLength={1000} onChange={(event) => setVacationForm((current) => ({ ...current, note: event.target.value }))} />
+          </label>
+          {vacationError ? <p className="form-error form-grid__wide">{vacationError}</p> : null}
+          {vacationMessage ? <p className="form-note form-grid__wide">{vacationMessage}</p> : null}
+          <div className="actions-row form-grid__wide">
+            <button className="primary-button" type="submit" disabled={savingVacation || vacationForm.startsAt === '' || vacationForm.endsAt === ''}>
+              {savingVacation ? 'Opslaan...' : 'Vakantie opgeven'}
+            </button>
+          </div>
+        </form>
+        <VacationTable vacations={myVacations.data ?? []} loading={myVacations.loading} error={myVacations.error} onCancel={cancelVacation} />
+      </Panel>
+
       <Panel title="Gebruikersstatussen">
         <ResourceState loading={statuses.loading} error={statuses.error} empty={items.length === 0}>
           <div className="status-overview">
@@ -64,7 +133,7 @@ export function StatusPage() {
               <SummaryItem label="Gebruikers" value={String(items.length)} />
               <SummaryItem label="Beschikbaar" value={String(availableCount)} />
               <SummaryItem label="Niet beschikbaar" value={String(unavailableCount)} />
-              <SummaryItem label="Onderweg" value={String(enRouteCount)} />
+              <SummaryItem label="Vakantie" value={String(vacationCount)} />
               <SummaryItem label="Op locatie" value={String(onSceneCount)} />
             </div>
             <table className="data-table">
@@ -101,6 +170,12 @@ export function StatusPage() {
         </ResourceState>
       </Panel>
 
+      {canOverrideStatus ? (
+        <Panel title="Geplande vakanties">
+          <VacationTable vacations={vacationItems} loading={vacations.loading} error={vacations.error} showUser onCancel={cancelVacation} />
+        </Panel>
+      ) : null}
+
       {editingStatus !== null && canOverrideStatus ? (
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="status-edit-title">
@@ -124,8 +199,8 @@ export function StatusPage() {
                 <select value={status} onChange={(event) => setStatus(event.target.value)}>
                   <option value="available">Beschikbaar</option>
                   <option value="unavailable">Niet beschikbaar</option>
+                  <option value="vacation">Vakantie</option>
                   <option value="assigned">Toegewezen</option>
-                  <option value="en_route">Onderweg</option>
                   <option value="on_scene">Op locatie</option>
                   <option value="resting">Rust</option>
                   <option value="suspended">Geblokkeerd</option>
@@ -148,6 +223,43 @@ export function StatusPage() {
   );
 }
 
+function VacationTable({ vacations, loading, error, showUser = false, onCancel }: { vacations: UserVacation[]; loading: boolean; error: string | null; showUser?: boolean; onCancel: (vacation: UserVacation) => Promise<void> }) {
+  return (
+    <ResourceState loading={loading} error={error} empty={vacations.length === 0}>
+      <table className="data-table">
+        <thead>
+          <tr>
+            {showUser ? <th>Gebruiker</th> : null}
+            {showUser ? <th>E-mail</th> : null}
+            <th>Begin</th>
+            <th>Einde</th>
+            <th>Status</th>
+            <th>Notitie</th>
+            <th>Actie</th>
+          </tr>
+        </thead>
+        <tbody>
+          {vacations.map((vacation) => (
+            <tr key={vacation.id}>
+              {showUser ? <td>{vacation.user?.name ?? '-'}</td> : null}
+              {showUser ? <td>{vacation.user?.email ?? '-'}</td> : null}
+              <td>{formatDate(vacation.starts_at)}</td>
+              <td>{formatDate(vacation.ends_at)}</td>
+              <td><StatusPill value={vacation.status} tone={vacation.status === 'active' ? 'warn' : vacation.status === 'cancelled' ? 'bad' : 'neutral'} /></td>
+              <td>{vacation.note ?? '-'}</td>
+              <td>
+                {vacation.status === 'scheduled' || vacation.status === 'active' ? (
+                  <button className="secondary-button" type="button" onClick={() => void onCancel(vacation)}>Intrekken</button>
+                ) : '-'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </ResourceState>
+  );
+}
+
 function SummaryItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -166,9 +278,26 @@ function statusTone(item: AvailabilityStatus): 'neutral' | 'good' | 'warn' | 'ba
     return 'good';
   }
 
+  if (item.status === 'vacation') {
+    return 'warn';
+  }
+
   if (item.status === 'unavailable' || item.status === 'suspended') {
     return 'bad';
   }
 
   return 'neutral';
+}
+
+function todayInputValue(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function formatDate(value?: string | null): string {
+  if (!value) {
+    return '-';
+  }
+
+  const [year, month, day] = value.split('-');
+  return year && month && day ? `${day}-${month}-${year}` : value;
 }

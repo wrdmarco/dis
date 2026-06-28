@@ -11,6 +11,7 @@ function statusLabel(value: string): string {
   const labels: Record<string, string> = {
     available: 'Beschikbaar',
     unavailable: 'Niet beschikbaar',
+    vacation: 'Vakantie',
     assigned: 'Toegewezen',
     en_route: 'Onderweg',
     on_scene: 'Op locatie',

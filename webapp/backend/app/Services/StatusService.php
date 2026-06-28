@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Events\AvailabilityChanged;
 use App\Models\AvailabilityStatus;
 use App\Models\User;
+use App\Models\UserVacation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -17,6 +18,10 @@ final class StatusService
     {
         $record = DB::transaction(function () use ($user, $status, $actor, $reason, $systemApplied): AvailabilityStatus {
             $isAvailable = $status === 'available';
+
+            if ($isAvailable && $this->hasActiveVacation($user)) {
+                throw ValidationException::withMessages(['status' => ['Deze gebruiker staat op vakantie en kan niet beschikbaar worden gezet.']]);
+            }
 
             if ($isAvailable && ! $user->push_enabled) {
                 throw ValidationException::withMessages(['status' => ['Push notifications are required before a user can be available.']]);
@@ -65,5 +70,15 @@ final class StatusService
         } catch (Throwable $exception) {
             report($exception);
         }
+    }
+
+    private function hasActiveVacation(User $user): bool
+    {
+        return UserVacation::query()
+            ->where('user_id', $user->id)
+            ->open()
+            ->whereDate('starts_at', '<=', today())
+            ->whereDate('ends_at', '>=', today())
+            ->exists();
     }
 }

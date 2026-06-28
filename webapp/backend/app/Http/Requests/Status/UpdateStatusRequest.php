@@ -14,9 +14,8 @@ final class UpdateStatusRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'status' => ['required', 'in:available,unavailable,assigned,en_route,on_scene,resting,suspended'],
+            'status' => ['required', 'in:available,unavailable,vacation,assigned,en_route,on_scene,resting,suspended'],
             'reason' => ['nullable', 'string', 'max:1000'],
         ];
     }
 }
-
