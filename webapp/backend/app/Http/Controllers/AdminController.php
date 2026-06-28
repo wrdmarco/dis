@@ -16,6 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 final class AdminController extends Controller
 {
@@ -233,12 +234,18 @@ final class AdminController extends Controller
             throw ValidationException::withMessages(['email' => ['Geen ontvanger beschikbaar voor de testmail.']]);
         }
 
-        Mail::raw(
-            'Dit is een testmail vanuit D.I.S. Als je deze mail ontvangt, is de mailconfiguratie correct.',
-            fn ($message) => $message
-                ->to($recipient)
-                ->subject('D.I.S testmail'),
-        );
+        try {
+            Mail::raw(
+                'Dit is een testmail vanuit D.I.S. Als je deze mail ontvangt, is de mailconfiguratie correct.',
+                fn ($message) => $message
+                    ->to($recipient)
+                    ->subject('D.I.S testmail'),
+            );
+        } catch (Throwable $exception) {
+            throw ValidationException::withMessages([
+                'mail' => [$this->mailFailureMessage($exception)],
+            ]);
+        }
 
         $this->auditService->record('admin.mail_test_sent', SystemSetting::class, $request->user(), ['recipient' => $recipient]);
 
@@ -274,6 +281,17 @@ final class AdminController extends Controller
             'app.brand_short_name' => $this->validateStringSetting($key, $value, 12),
             default => $value,
         };
+    }
+
+    private function mailFailureMessage(Throwable $exception): string
+    {
+        $message = trim($exception->getMessage());
+
+        if ($message === '') {
+            return 'Testmail verzenden mislukt. Controleer de mailinstellingen en probeer opnieuw.';
+        }
+
+        return 'Testmail verzenden mislukt: '.$message;
     }
 
     /**

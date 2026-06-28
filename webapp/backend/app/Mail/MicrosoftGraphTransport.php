@@ -4,6 +4,7 @@ namespace App\Mail;
 
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Http\Client\Response;
 use RuntimeException;
 use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\SentMessage;
@@ -45,7 +46,7 @@ final class MicrosoftGraphTransport extends AbstractTransport
             ]);
 
         if (! $response->successful()) {
-            throw new RuntimeException('Microsoft 365 mail failed: '.$response->status().' '.$response->body());
+            throw new RuntimeException('Microsoft 365 mail verzenden mislukt: '.$this->responseError($response));
         }
     }
 
@@ -139,7 +140,7 @@ final class MicrosoftGraphTransport extends AbstractTransport
                 ]);
 
             if (! $response->successful()) {
-                throw new RuntimeException('Microsoft 365 token request failed: '.$response->status().' '.$response->body());
+                throw new RuntimeException('Microsoft 365 token aanvraag mislukt: '.$this->responseError($response));
             }
 
             $token = $response->json('access_token');
@@ -149,5 +150,23 @@ final class MicrosoftGraphTransport extends AbstractTransport
 
             return $token;
         });
+    }
+
+    private function responseError(Response $response): string
+    {
+        $status = $response->status();
+        $code = $response->json('error.code') ?? $response->json('error');
+        $message = $response->json('error.message') ?? $response->json('error_description');
+        $parts = array_filter([
+            'HTTP '.$status,
+            is_string($code) && $code !== '' ? $code : null,
+            is_string($message) && $message !== '' ? $message : null,
+        ]);
+
+        if ($parts !== []) {
+            return implode(' - ', $parts);
+        }
+
+        return 'HTTP '.$status.' - '.$response->body();
     }
 }
