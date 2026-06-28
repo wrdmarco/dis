@@ -11,7 +11,7 @@ final class SystemUpdateStatusService
 {
     private const CACHE_KEY = 'system.update.status';
     private const LOG_LIMIT = 120;
-    private const STALE_AFTER_MINUTES = 5;
+    private const STALE_AFTER_MINUTES = 60;
 
     /**
      * @return array<string, mixed>
@@ -27,6 +27,11 @@ final class SystemUpdateStatusService
             'log' => [],
             'reboot_required' => $this->rebootRequired(),
         ]);
+
+        if (is_array($status) && ($status['state'] ?? null) === 'running' && $this->hasSuccessfulCompletionLine($status)) {
+            $status = $this->successfulStatus($status);
+            $this->store($status);
+        }
 
         if (is_array($status) && $this->isStaleRunningStatus($status)) {
             $log = is_array($status['log'] ?? null) ? $status['log'] : [];
@@ -71,6 +76,9 @@ final class SystemUpdateStatusService
         $log[] = $line;
         $status['log'] = array_slice($log, -self::LOG_LIMIT);
         $status['message'] = $line;
+        if (($status['state'] ?? null) === 'running' && $this->isSuccessfulCompletionLine($line)) {
+            $status = $this->successfulStatus($status);
+        }
         $this->store($status);
     }
 
@@ -124,5 +132,42 @@ final class SystemUpdateStatusService
         } catch (Throwable) {
             return false;
         }
+    }
+
+    /**
+     * @param array<string, mixed> $status
+     */
+    private function hasSuccessfulCompletionLine(array $status): bool
+    {
+        $log = is_array($status['log'] ?? null) ? $status['log'] : [];
+
+        foreach ($log as $line) {
+            if (is_string($line) && $this->isSuccessfulCompletionLine($line)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isSuccessfulCompletionLine(string $line): bool
+    {
+        return str_contains($line, 'DIS system and application update completed.')
+            || str_contains($line, 'Deployment finished');
+    }
+
+    /**
+     * @param array<string, mixed> $status
+     * @return array<string, mixed>
+     */
+    private function successfulStatus(array $status): array
+    {
+        $status['state'] = 'succeeded';
+        $status['finished_at'] = now()->toIso8601String();
+        $status['exit_code'] = 0;
+        $status['message'] = 'Update afgerond.';
+        $status['reboot_required'] = $this->rebootRequired();
+
+        return $status;
     }
 }
