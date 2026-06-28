@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\UsesUlids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 final class Certification extends Model
@@ -17,5 +18,9 @@ final class Certification extends Model
     {
         return ['is_required_for_dispatch' => 'boolean'];
     }
-}
 
+    public function userCertifications(): HasMany
+    {
+        return $this->hasMany(UserCertification::class);
+    }
+}

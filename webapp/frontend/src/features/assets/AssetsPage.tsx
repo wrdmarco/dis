@@ -257,13 +257,14 @@ export function AssetsPage() {
       >
         <ResourceState loading={assets.loading} error={assets.error} empty={(assets.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Naam</th><th>Type</th><th>Status</th><th>Serienummer</th><th>Onderhoud</th><th>Actie</th></tr></thead>
+            <thead><tr><th>Naam</th><th>Type</th><th>Status</th><th>Toegewezen aan</th><th>Serienummer</th><th>Onderhoud</th><th>Actie</th></tr></thead>
             <tbody>
               {assets.data?.map((asset) => (
                 <tr key={asset.id}>
                   <td>{asset.name}</td>
                   <td>{asset.drone_type?.model ?? asset.type}</td>
                   <td><StatusPill value={asset.status} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} /></td>
+                  <td>{asset.active_assignment?.user?.name ?? asset.active_assignment?.user?.email ?? '-'}</td>
                   <td>{asset.serial_number ?? '-'}</td>
                   <td>{asset.maintenance_due_at ?? '-'}</td>
                   <td>

@@ -22,6 +22,7 @@ final class AssetController extends Controller
         if (! $request->has('per_page')) {
             return ApiResponse::success(
                 Asset::query()
+                    ->with(['droneType', 'activeAssignment.user'])
                     ->orderBy('asset_tag')
                     ->limit(100)
                     ->get()
@@ -31,7 +32,7 @@ final class AssetController extends Controller
         }
 
         return ApiResponse::paginated(
-            Asset::query()->orderBy('asset_tag')->paginate((int) $request->integer('per_page', 25)),
+            Asset::query()->with(['droneType', 'activeAssignment.user'])->orderBy('asset_tag')->paginate((int) $request->integer('per_page', 25)),
             fn (Asset $asset): array => MobileApiPayload::asset($asset),
         );
     }

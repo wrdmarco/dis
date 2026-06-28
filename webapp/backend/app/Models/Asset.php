@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\UsesUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -27,6 +28,11 @@ final class Asset extends Model
     public function assignments(): HasMany
     {
         return $this->hasMany(AssetAssignment::class);
+    }
+
+    public function activeAssignment(): HasOne
+    {
+        return $this->hasOne(AssetAssignment::class)->whereNull('released_at')->latestOfMany('assigned_at');
     }
 
     public function droneType(): BelongsTo

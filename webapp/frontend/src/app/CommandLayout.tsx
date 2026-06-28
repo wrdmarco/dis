@@ -25,6 +25,11 @@ const navGroups = [
       { to: '/users', label: 'Gebruikers', icon: Users },
       { to: '/rollen', label: 'Rollen', icon: KeyRound },
       { to: '/teams', label: 'Teams', icon: Network },
+    ],
+  },
+  {
+    label: 'Assets & certificaten',
+    items: [
       { to: '/assets', label: 'Assets', icon: Boxes },
       { to: '/certifications', label: 'Certificaten', icon: ClipboardCheck },
       { to: '/verloop', label: 'Verloop', icon: CalendarClock },

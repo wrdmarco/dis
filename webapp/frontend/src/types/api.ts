@@ -246,6 +246,7 @@ export interface Asset {
   serial_number?: string | null;
   maintenance_due_at?: string | null;
   notes?: string | null;
+  active_assignment?: AssetAssignment | null;
 }
 
 export interface AssetAssignment {
@@ -257,6 +258,7 @@ export interface AssetAssignment {
   assigned_at?: string | null;
   released_at?: string | null;
   asset?: Asset | null;
+  user?: Pick<User, 'id' | 'name' | 'email'> | null;
 }
 
 export interface DroneType {
@@ -277,6 +279,7 @@ export interface Certification {
   description?: string | null;
   is_required_for_dispatch: boolean;
   warning_days_before_expiry: number;
+  user_certifications?: UserCertification[];
 }
 
 export interface UserCertification {
@@ -290,6 +293,7 @@ export interface UserCertification {
   verified_by?: string | null;
   verified_at?: string | null;
   certification?: Certification | null;
+  user?: Pick<User, 'id' | 'name' | 'email'> | null;
 }
 
 export interface AppVersion {

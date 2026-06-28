@@ -23,6 +23,7 @@ final class CertificationController extends Controller
         if (! $request->has('per_page')) {
             return ApiResponse::success(
                 Certification::query()
+                    ->with(['userCertifications' => fn ($query) => $query->where('status', 'active')->with('user')->orderBy('expires_at')])
                     ->orderBy('name')
                     ->limit(100)
                     ->get()
@@ -32,7 +33,10 @@ final class CertificationController extends Controller
         }
 
         return ApiResponse::paginated(
-            Certification::query()->orderBy('name')->paginate((int) $request->integer('per_page', 25)),
+            Certification::query()
+                ->with(['userCertifications' => fn ($query) => $query->where('status', 'active')->with('user')->orderBy('expires_at')])
+                ->orderBy('name')
+                ->paginate((int) $request->integer('per_page', 25)),
             fn (Certification $certification): array => MobileApiPayload::certification($certification),
         );
     }

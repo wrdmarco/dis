@@ -101,12 +101,13 @@ export function CertificationsPage() {
       >
         <ResourceState loading={certifications.loading} error={certifications.error} empty={(certifications.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Code</th><th>Naam</th><th>Dispatch</th><th>Waarschuwing</th><th>Actie</th></tr></thead>
+            <thead><tr><th>Code</th><th>Naam</th><th>Gebruikers</th><th>Dispatch</th><th>Waarschuwing</th><th>Actie</th></tr></thead>
             <tbody>
               {certifications.data?.map((certification) => (
                 <tr key={certification.id}>
                   <td>{certification.code}</td>
                   <td>{certification.name}</td>
+                  <td>{certificationUsers(certification)}</td>
                   <td><StatusPill value={certification.is_required_for_dispatch ? 'required' : 'optional'} tone={certification.is_required_for_dispatch ? 'warn' : 'neutral'} /></td>
                   <td>{certification.warning_days_before_expiry} dagen</td>
                   <td>
@@ -175,4 +176,16 @@ export function CertificationsPage() {
       ) : null}
     </div>
   );
+}
+
+function certificationUsers(certification: Certification): string {
+  const users = certification.user_certifications
+    ?.map((userCertification) => userCertification.user?.name ?? userCertification.user?.email ?? null)
+    .filter((value): value is string => value !== null && value !== undefined && value !== '') ?? [];
+
+  if (users.length === 0) {
+    return '-';
+  }
+
+  return users.join(', ');
 }

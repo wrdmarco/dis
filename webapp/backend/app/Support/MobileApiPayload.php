@@ -121,7 +121,8 @@ final class MobileApiPayload
      */
     public static function asset(Asset $asset): array
     {
-        $asset->loadMissing('droneType');
+        $asset->loadMissing(['droneType', 'activeAssignment.user']);
+        $activeAssignment = $asset->activeAssignment;
 
         return [
             'id' => $asset->id,
@@ -136,6 +137,18 @@ final class MobileApiPayload
             'serial_number' => $asset->serial_number,
             'maintenance_due_at' => $asset->maintenance_due_at?->toDateString(),
             'notes' => $asset->notes,
+            'active_assignment' => $activeAssignment === null ? null : [
+                'id' => $activeAssignment->id,
+                'asset_id' => $activeAssignment->asset_id,
+                'user_id' => $activeAssignment->user_id,
+                'assigned_at' => $activeAssignment->assigned_at?->toIso8601String(),
+                'released_at' => $activeAssignment->released_at?->toIso8601String(),
+                'user' => $activeAssignment->user === null ? null : [
+                    'id' => $activeAssignment->user->id,
+                    'name' => $activeAssignment->user->name,
+                    'email' => $activeAssignment->user->email,
+                ],
+            ],
         ];
     }
 
@@ -161,6 +174,8 @@ final class MobileApiPayload
      */
     public static function certification(Certification $certification): array
     {
+        $certification->loadMissing('userCertifications.user');
+
         return [
             'id' => $certification->id,
             'code' => $certification->code,
@@ -168,6 +183,20 @@ final class MobileApiPayload
             'description' => $certification->description,
             'is_required_for_dispatch' => (bool) $certification->is_required_for_dispatch,
             'warning_days_before_expiry' => (int) $certification->warning_days_before_expiry,
+            'user_certifications' => $certification->userCertifications->map(fn ($userCertification): array => [
+                'id' => $userCertification->id,
+                'user_id' => $userCertification->user_id,
+                'certification_id' => $userCertification->certification_id,
+                'issued_at' => $userCertification->issued_at?->toDateString(),
+                'expires_at' => $userCertification->expires_at?->toDateString(),
+                'certificate_number' => $userCertification->certificate_number,
+                'status' => $userCertification->status,
+                'user' => $userCertification->user === null ? null : [
+                    'id' => $userCertification->user->id,
+                    'name' => $userCertification->user->name,
+                    'email' => $userCertification->user->email,
+                ],
+            ])->values(),
         ];
     }
 }
