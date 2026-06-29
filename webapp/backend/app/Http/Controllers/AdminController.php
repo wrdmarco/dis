@@ -356,10 +356,16 @@ final class AdminController extends Controller
             'mail.microsoft365_client_id' => $this->validateStringSetting($key, $value, 255),
             'mail.microsoft365_sender' => $this->validateEmailSetting($key, $value),
             'mail.microsoft365_client_secret' => $this->validateStringSetting($key, $value, 2000),
+            'firebase.project_id' => $this->validateStringSetting($key, $value, 160),
+            'firebase.service_account' => $this->validateFirebaseServiceAccount($key, $value),
+            'mobile.firebase_config' => $this->validateMobileFirebaseConfig($key, $value),
             'drone.aeret_map_url',
             'drone.aeret_api_url',
             'drone.notam_url' => $this->validateNullableUrlSetting($key, $value, 2048),
             'drone.aeret_api_key' => $this->validateStringSetting($key, $value, 2000),
+            'retention.push_logs_days',
+            'retention.audit_logs_days',
+            'retention.location_days' => $this->validateIntegerSetting($key, $value, 1, 3650),
             PasswordPolicy::MIN_LENGTH_KEY => $this->validateIntegerSetting($key, $value, 8, 128),
             PasswordPolicy::MIXED_CASE_KEY,
             PasswordPolicy::NUMBERS_KEY,
@@ -372,8 +378,11 @@ final class AdminController extends Controller
             'app.login_subtitle' => $this->validateStringSetting($key, $value, 240),
             'app.logo_data_url' => $this->validateStringSetting($key, $value, 700000),
             'mobile.tenant_name' => $this->validateStringSetting($key, $value, 120),
+            'mobile.api_base_url',
+            'app.public_url' => $this->validateNullableUrlSetting($key, $value, 2048),
             'asset.warning_days_before_expiry' => $this->validateIntegerSetting($key, $value, 1, 365),
-            default => $value,
+            'updates.android.application_id' => $this->validateAndroidApplicationIdSetting($key, $value),
+            default => throw ValidationException::withMessages(["settings.$key" => ['Deze instelling mag niet via deze pagina worden aangepast.']]),
         };
     }
 
@@ -435,6 +444,59 @@ final class AdminController extends Controller
 
         if (mb_strlen($value) > $max) {
             throw ValidationException::withMessages(["settings.$key" => ["The setting value may not be greater than $max characters."]]);
+        }
+
+        return $value;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function validateFirebaseServiceAccount(string $key, mixed $value): array
+    {
+        if (! is_array($value)) {
+            throw ValidationException::withMessages(["settings.$key" => ['The setting value must be an object.']]);
+        }
+
+        $clientEmail = $this->validateEmailSetting($key.'.client_email', $value['client_email'] ?? '');
+        $privateKey = $this->validateStringSetting($key.'.private_key', $value['private_key'] ?? '', 8000);
+        $privateKeyId = $this->validateStringSetting($key.'.private_key_id', $value['private_key_id'] ?? '', 255);
+        $clientId = $this->validateStringSetting($key.'.client_id', $value['client_id'] ?? '', 255);
+        $clientCertUrl = $this->validateNullableUrlSetting($key.'.client_x509_cert_url', $value['client_x509_cert_url'] ?? '', 2048) ?? '';
+
+        return [
+            'client_email' => $clientEmail,
+            'private_key' => $privateKey,
+            'private_key_id' => $privateKeyId,
+            'client_id' => $clientId,
+            'client_x509_cert_url' => $clientCertUrl,
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function validateMobileFirebaseConfig(string $key, mixed $value): array
+    {
+        if (! is_array($value)) {
+            throw ValidationException::withMessages(["settings.$key" => ['The setting value must be an object.']]);
+        }
+
+        return [
+            'application_id' => $this->validateStringSetting($key.'.application_id', $value['application_id'] ?? '', 255),
+            'api_key' => $this->validateStringSetting($key.'.api_key', $value['api_key'] ?? '', 255),
+            'project_id' => $this->validateStringSetting($key.'.project_id', $value['project_id'] ?? '', 160),
+            'messaging_sender_id' => $this->validateStringSetting($key.'.messaging_sender_id', $value['messaging_sender_id'] ?? '', 160),
+            'storage_bucket' => $this->validateStringSetting($key.'.storage_bucket', $value['storage_bucket'] ?? '', 255),
+        ];
+    }
+
+    private function validateAndroidApplicationIdSetting(string $key, mixed $value): string
+    {
+        $value = $this->validateStringSetting($key, $value, 255);
+
+        if ($value === '' || preg_match('/^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*)+$/', $value) !== 1) {
+            throw ValidationException::withMessages(["settings.$key" => ['The setting value must be a valid Android application id.']]);
         }
 
         return $value;
