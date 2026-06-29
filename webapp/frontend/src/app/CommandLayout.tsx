@@ -18,12 +18,14 @@ interface NavGroup {
   items: NavItem[];
 }
 
+const PROFILE_PATH = '/profile';
+
 const navGroups: NavGroup[] = [
   {
     label: 'Overzicht',
     items: [
       { to: '/dashboard', label: 'Dashboard', icon: Gauge, permissions: ['incidents.view', 'dispatch.view', 'status.view', 'assets.view'] },
-      { to: '/profile', label: 'Profiel', icon: UserRound },
+      { to: PROFILE_PATH, label: 'Profiel', icon: UserRound },
     ],
   },
   {
@@ -69,7 +71,7 @@ const profileOnlyNavGroups: NavGroup[] = [
   {
     label: 'Account',
     items: [
-      { to: '/profile', label: 'Profiel', icon: UserRound },
+      { to: PROFILE_PATH, label: 'Profiel', icon: UserRound },
     ],
   },
 ];
@@ -146,9 +148,9 @@ export function CommandLayout() {
               <strong>{user?.name ?? 'Operator'}</strong>
               <span>{user?.email}</span>
             </div>
-            <button className="icon-button" type="button" onClick={() => navigate('/profile')} aria-label="Profiel">
+            <NavLink to={PROFILE_PATH} className={({ isActive }) => `icon-button ${isActive ? 'icon-button--active' : ''}`} aria-label="Profiel">
               <UserRound size={18} />
-            </button>
+            </NavLink>
             <button className="icon-button" type="button" onClick={logout} aria-label="Uitloggen">
               <LogOut size={18} />
             </button>

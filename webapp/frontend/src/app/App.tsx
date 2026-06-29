@@ -73,6 +73,7 @@ export function App() {
           <Route path="system" element={<PermissionRoute permissions={['system.health']}><SystemPage /></PermissionRoute>} />
           <Route path="systeem" element={<PermissionRoute permissions={['system.health']}><SystemPage /></PermissionRoute>} />
           <Route path="profile" element={<ProfilePage />} />
+          <Route path="profiel" element={<Navigate to="/profile" replace />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
