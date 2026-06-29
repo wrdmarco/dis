@@ -131,34 +131,45 @@ export function BackupPage() {
               Lokale map
               <input value={settingsForm.localPath} readOnly />
             </label>
-            <label className="form-grid__wide">
-              Samba share
-              <input placeholder="//server/share" value={settingsForm.sambaShare} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaShare: event.target.value }))} disabled={settingsForm.target !== 'samba'} />
-            </label>
-            <label>
-              Mountpoint
-              <input value={settingsForm.sambaMount} readOnly />
-            </label>
-            <label>
-              SMB versie
-              <input value={settingsForm.sambaVersion} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaVersion: event.target.value }))} disabled={settingsForm.target !== 'samba'} />
-            </label>
-            <label>
-              Gebruikersnaam
-              <input value={settingsForm.sambaUsername} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaUsername: event.target.value }))} disabled={settingsForm.target !== 'samba'} />
-            </label>
-            <label>
-              Domein
-              <input value={settingsForm.sambaDomain} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaDomain: event.target.value }))} disabled={settingsForm.target !== 'samba'} />
-            </label>
-            <label>
-              Wachtwoord
-              <input type="password" placeholder={backups.data?.settings.samba_password_configured ? 'Ingesteld' : ''} value={settingsForm.sambaPassword} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaPassword: event.target.value }))} disabled={settingsForm.target !== 'samba'} />
-            </label>
             <div className="form-grid__wide metadata-example">
               <strong>Status</strong>
-              <pre>{`Actief doel: ${settingsForm.target === 'samba' ? 'Samba share' : 'Lokaal'}\nSamba mount: ${backups.data?.settings.samba_mounted ? 'Gekoppeld' : 'Niet gekoppeld'}\nWachtwoord: ${backups.data?.settings.samba_password_configured ? 'Ingesteld' : 'Niet ingesteld'}`}</pre>
+              <pre>{`Actief doel: ${targetLabel(settingsForm.target)}\nLokale map: ${backups.data?.roots.local ?? settingsForm.localPath}`}</pre>
             </div>
+            {settingsForm.target === 'samba' ? (
+              <>
+                <div className="form-grid__wide section-heading">
+                  <h3>Samba instellingen</h3>
+                </div>
+                <label className="form-grid__wide">
+                  Samba share
+                  <input placeholder="//server/share" value={settingsForm.sambaShare} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaShare: event.target.value }))} />
+                </label>
+                <label>
+                  Mountpoint
+                  <input value={settingsForm.sambaMount} readOnly />
+                </label>
+                <label>
+                  SMB versie
+                  <input value={settingsForm.sambaVersion} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaVersion: event.target.value }))} />
+                </label>
+                <label>
+                  Gebruikersnaam
+                  <input value={settingsForm.sambaUsername} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaUsername: event.target.value }))} />
+                </label>
+                <label>
+                  Domein
+                  <input value={settingsForm.sambaDomain} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaDomain: event.target.value }))} />
+                </label>
+                <label>
+                  Wachtwoord
+                  <input type="password" placeholder={backups.data?.settings.samba_password_configured ? 'Ingesteld' : ''} value={settingsForm.sambaPassword} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaPassword: event.target.value }))} />
+                </label>
+                <div className="form-grid__wide metadata-example">
+                  <strong>Samba status</strong>
+                  <pre>{`Samba map: ${backups.data?.roots.samba ?? settingsForm.sambaMount}\nSamba mount: ${backups.data?.settings.samba_mounted ? 'Gekoppeld' : 'Niet gekoppeld'}\nWachtwoord: ${backups.data?.settings.samba_password_configured ? 'Ingesteld' : 'Niet ingesteld'}`}</pre>
+                </div>
+              </>
+            ) : null}
             <div className="actions-row form-grid__wide">
               <button className="primary-button" type="submit" disabled={busy !== null}>
                 {busy === 'settings' ? 'Opslaan...' : 'Backup doel opslaan'}
@@ -186,7 +197,11 @@ export function BackupPage() {
           <dl className="definition-grid">
             <dt>Standaardlocatie</dt><dd className="mono">{backups.data?.root ?? '-'}</dd>
             <dt>Lokale map</dt><dd className="mono">{backups.data?.roots.local ?? '-'}</dd>
-            <dt>Samba map</dt><dd className="mono">{backups.data?.roots.samba ?? '-'}</dd>
+            {backups.data?.settings.target === 'samba' ? (
+              <>
+                <dt>Samba map</dt><dd className="mono">{backups.data.roots.samba ?? '-'}</dd>
+              </>
+            ) : null}
             <dt>Aantal backups</dt><dd>{backups.data?.backups.length ?? 0}</dd>
           </dl>
           {message ? <p className="form-note">{message}</p> : null}

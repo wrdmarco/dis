@@ -1457,6 +1457,17 @@ select[multiple] {
   grid-column: 1 / -1;
 }
 
+.section-heading {
+  border-top: 1px solid #1f2b3a;
+  padding-top: 14px;
+}
+
+.section-heading h3 {
+  margin: 0;
+  color: #f4f8fc;
+  font-size: 0.95rem;
+}
+
 .summary-card {
   min-height: 84px;
   display: grid;
