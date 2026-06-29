@@ -109,13 +109,17 @@ final class AdminPushController extends Controller
             'id' => $token->id,
             'user_id' => $token->user_id,
             'device_id' => $token->device_id,
+            'device_manufacturer' => $token->device_manufacturer,
+            'device_model' => $token->device_model,
+            'android_version' => $token->android_version,
+            'sdk_version' => $token->sdk_version,
             'platform' => $token->platform,
             'app_version' => $token->app_version,
             'is_active' => (bool) $token->is_active,
             'last_seen_at' => $token->last_seen_at?->toIso8601String(),
             'revoked_at' => $token->revoked_at?->toIso8601String(),
             'token_preview' => $this->tokenPreview($token->token),
-            'token_hash' => hash('sha256', $token->token),
+            'token_hash' => $token->token_hash ?? hash('sha256', $token->token),
             'user' => $token->user,
         ];
     }

@@ -26,6 +26,7 @@ final class User extends Authenticatable
         'phone_number',
         'account_status',
         'push_enabled',
+        'mail_preferences',
         'two_factor_enabled',
         'two_factor_secret',
         'two_factor_recovery_codes',
@@ -45,6 +46,7 @@ final class User extends Authenticatable
         return [
             'email_verified_at' => 'immutable_datetime',
             'push_enabled' => 'boolean',
+            'mail_preferences' => 'array',
             'two_factor_enabled' => 'boolean',
             'two_factor_secret' => 'encrypted',
             'two_factor_recovery_codes' => 'encrypted:array',
@@ -134,6 +136,14 @@ final class User extends Authenticatable
         $this->loadMissing('roles');
 
         return $this->roles->contains(fn (Role $role): bool => (bool) $role->can_use_admin_app);
+    }
+
+    public function wantsBackupReport(string $result): bool
+    {
+        $preferences = is_array($this->mail_preferences) ? $this->mail_preferences : [];
+        $backupReport = $preferences['backup_report'] ?? [];
+
+        return is_array($backupReport) && (bool) ($backupReport[$result] ?? false);
     }
 
     public function belongsToTeamCode(string $code): bool

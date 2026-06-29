@@ -26,6 +26,10 @@ final class StoreUserRequest extends FormRequest
             'role_ids.*' => ['ulid', 'exists:roles,id'],
             'team_ids' => ['nullable', 'array'],
             'team_ids.*' => ['ulid', 'exists:teams,id'],
+            'mail_preferences' => ['nullable', 'array'],
+            'mail_preferences.backup_report' => ['nullable', 'array'],
+            'mail_preferences.backup_report.success' => ['sometimes', 'boolean'],
+            'mail_preferences.backup_report.failed' => ['sometimes', 'boolean'],
         ];
     }
 }

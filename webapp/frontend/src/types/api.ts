@@ -73,12 +73,23 @@ export interface User {
   statuses?: AvailabilityStatus[];
   certifications?: UserCertification[];
   asset_assignments?: AssetAssignment[];
+  fcm_tokens?: FcmToken[];
+  mail_preferences?: {
+    backup_report?: {
+      success?: boolean;
+      failed?: boolean;
+    };
+  } | null;
 }
 
 export interface FcmToken {
   id: string;
   user_id: string;
   device_id: string;
+  device_manufacturer?: string | null;
+  device_model?: string | null;
+  android_version?: string | null;
+  sdk_version?: string | null;
   platform: string;
   app_version?: string | null;
   is_active: boolean;

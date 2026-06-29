@@ -422,10 +422,10 @@ final class AdminController extends Controller
         return $setting->is_sensitive ? null : $setting->value;
     }
 
-    private function validateNullableUrlSetting(string $key, mixed $value, int $max): ?string
+    private function validateNullableUrlSetting(string $key, mixed $value, int $max): string
     {
         if ($value === null || $value === '') {
-            return null;
+            return '';
         }
 
         $value = $this->validateStringSetting($key, $value, $max);

@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\SystemSetting;
 use App\Services\AuditService;
+use App\Services\BackupReportService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Process;
@@ -14,7 +15,7 @@ final class RunScheduledBackup extends Command
 
     protected $description = 'Run the configured automatic DIS backup.';
 
-    public function handle(AuditService $auditService): int
+    public function handle(AuditService $auditService, BackupReportService $backupReports): int
     {
         if (! $this->backupDue()) {
             $this->info('Automatic backup checked. Not due.');
@@ -24,11 +25,13 @@ final class RunScheduledBackup extends Command
 
         $target = SystemSetting::string('backup.target', 'local') ?? 'local';
         if ($target === 'samba' && ! $this->sambaReady()) {
+            $message = 'Automatic backup skipped. Samba backups are not fully configured.';
             $auditService->record('backups.automatic_skipped', SystemSetting::class, null, [
                 'target' => $target,
                 'reason' => 'samba_not_configured',
+                'report_recipients' => $backupReports->sendFailed($target, 1, $message),
             ]);
-            $this->error('Automatic backup skipped. Samba backups are not fully configured.');
+            $this->error($message);
 
             return self::FAILURE;
         }
@@ -43,6 +46,7 @@ final class RunScheduledBackup extends Command
                 'target' => $target,
                 'exit_code' => $result->exitCode(),
                 'output' => mb_substr($cleanOutput, 0, 1000),
+                'report_recipients' => $backupReports->sendFailed($target, $result->exitCode(), $cleanOutput),
             ]);
             $this->error($cleanOutput);
 
@@ -57,6 +61,7 @@ final class RunScheduledBackup extends Command
         $auditService->record('backups.automatic_created', SystemSetting::class, null, [
             'target' => $target,
             'retention_count' => max(0, SystemSetting::integer('backup.retention_count', 7)),
+            'report_recipients' => $backupReports->sendSuccess($target, $this->cleanOutput($output !== '' ? $output : 'Automatic backup completed.')),
         ]);
 
         $this->info($this->cleanOutput($output !== '' ? $output : 'Automatic backup completed.'));

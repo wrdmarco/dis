@@ -18,6 +18,8 @@ interface UserFormState {
   accountStatus: User['account_status'];
   roleIds: string[];
   teamIds: string[];
+  backupReportSuccess: boolean;
+  backupReportFailed: boolean;
 }
 
 const emptyForm: UserFormState = {
@@ -29,6 +31,8 @@ const emptyForm: UserFormState = {
   accountStatus: 'active',
   roleIds: [],
   teamIds: [],
+  backupReportSuccess: false,
+  backupReportFailed: false,
 };
 
 export function UsersPage() {
@@ -99,6 +103,8 @@ export function UsersPage() {
       accountStatus: user.account_status,
       roleIds: user.roles?.map((role) => role.id) ?? [],
       teamIds: user.teams?.map((team) => team.id) ?? [],
+      backupReportSuccess: user.mail_preferences?.backup_report?.success ?? false,
+      backupReportFailed: user.mail_preferences?.backup_report?.failed ?? false,
     });
     setError(null);
     setInvitationMessage(null);
@@ -180,6 +186,12 @@ export function UsersPage() {
       account_status: form.accountStatus,
       role_ids: form.roleIds,
       team_ids: form.teamIds,
+      mail_preferences: {
+        backup_report: {
+          success: form.backupReportSuccess,
+          failed: form.backupReportFailed,
+        },
+      },
     };
 
     if (form.password !== '') {
@@ -373,6 +385,33 @@ export function UsersPage() {
                   </div>
                 </ResourceState>
               </div> : null}
+              <div className="form-grid__wide">
+                <span className="field-label">Backuprapporten</span>
+                <div className="checkbox-grid">
+                  <label className="checkbox-card">
+                    <input
+                      type="checkbox"
+                      checked={form.backupReportSuccess}
+                      onChange={(event) => setForm((current) => ({ ...current, backupReportSuccess: event.target.checked }))}
+                    />
+                    <span>
+                      <strong>Succes ontvangen</strong>
+                      <small>Mail sturen als de automatische backup is gelukt.</small>
+                    </span>
+                  </label>
+                  <label className="checkbox-card">
+                    <input
+                      type="checkbox"
+                      checked={form.backupReportFailed}
+                      onChange={(event) => setForm((current) => ({ ...current, backupReportFailed: event.target.checked }))}
+                    />
+                    <span>
+                      <strong>Fout ontvangen</strong>
+                      <small>Mail sturen als de automatische backup mislukt.</small>
+                    </span>
+                  </label>
+                </div>
+              </div>
               {modalMode === 'edit' ? (
                 <UserOperationalDetails
                   user={userDetail}
@@ -510,6 +549,7 @@ function UserOperationalDetails({
   const { api } = useAuth();
   const userCertifications = user?.certifications ?? [];
   const assetAssignments = user?.asset_assignments ?? [];
+  const fcmTokens = user?.fcm_tokens ?? [];
   const assignedAssetIds = new Set(assetAssignments.map((assignment) => assignment.asset_id));
   const availableAssets = assets.filter((asset) => !assignedAssetIds.has(asset.id) && asset.status !== 'assigned' && asset.status !== 'retired');
   const userCertificationIds = new Set(userCertifications.map((certification) => certification.certification_id));
@@ -782,8 +822,50 @@ function UserOperationalDetails({
           </table>
         ) : null}
       </div>
+
+      <div>
+        <span className="field-label">Gekoppelde toestellen</span>
+        {loading ? <p className="muted-text">Toestellen laden...</p> : null}
+        {!loading && fcmTokens.length === 0 ? <p className="muted-text">Geen toestellen gekoppeld.</p> : null}
+        {fcmTokens.length > 0 ? (
+          <table className="data-table compact-table">
+            <thead><tr><th>Toestel</th><th>Android</th><th>App</th><th>Status</th><th>Laatst gezien</th></tr></thead>
+            <tbody>
+              {fcmTokens.map((token) => (
+                <tr key={token.id}>
+                  <td>{deviceLabel(token.device_manufacturer, token.device_model, token.device_id)}</td>
+                  <td>{token.android_version ? `${token.android_version}${token.sdk_version ? ` (SDK ${token.sdk_version})` : ''}` : '-'}</td>
+                  <td>{token.app_version ?? '-'}</td>
+                  <td><StatusPill value={token.is_active ? 'Actief' : 'Uitgeschakeld'} tone={token.is_active ? 'good' : 'neutral'} /></td>
+                  <td>{formatDateTime(token.last_seen_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
+      </div>
     </div>
   );
+}
+
+function deviceLabel(manufacturer?: string | null, model?: string | null, fallback?: string | null): string {
+  const label = [manufacturer, model].filter((value) => value !== undefined && value !== null && value !== '').join(' ');
+
+  return label || fallback || '-';
+}
+
+function formatDateTime(value?: string | null): string {
+  if (value === undefined || value === null || value === '') {
+    return '-';
+  }
+
+  return new Intl.DateTimeFormat('nl-NL', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
 }
 
 function formatDate(value?: string | null): string {

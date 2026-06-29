@@ -17,10 +17,17 @@ final class DeviceService
      */
     public function registerFcmToken(User $user, array $data): FcmToken
     {
+        $tokenHash = hash('sha256', (string) $data['token']);
         $token = FcmToken::query()->updateOrCreate(
-            ['user_id' => $user->id, 'device_id' => $data['device_id']],
+            ['user_id' => $user->id, 'token_hash' => $tokenHash],
             [
+                'device_id' => $data['device_id'],
+                'device_manufacturer' => $data['device_manufacturer'] ?? null,
+                'device_model' => $data['device_model'] ?? null,
+                'android_version' => $data['android_version'] ?? null,
+                'sdk_version' => $data['sdk_version'] ?? null,
                 'token' => $data['token'],
+                'token_hash' => $tokenHash,
                 'platform' => $data['platform'] ?? 'android',
                 'app_version' => $data['app_version'] ?? null,
                 'is_active' => true,
@@ -48,4 +55,3 @@ final class DeviceService
         $this->auditService->record('push.token_revoked', $token, $user);
     }
 }
-

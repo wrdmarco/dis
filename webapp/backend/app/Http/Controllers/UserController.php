@@ -39,6 +39,8 @@ final class UserController extends Controller
                 ->whereNull('released_at')
                 ->with('asset.droneType')
                 ->latest('assigned_at'),
+            'fcmTokens' => fn ($query) => $query
+                ->latest('last_seen_at'),
         ]));
     }
 

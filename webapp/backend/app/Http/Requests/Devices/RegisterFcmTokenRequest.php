@@ -18,7 +18,10 @@ final class RegisterFcmTokenRequest extends FormRequest
             'token' => ['required', 'string', 'max:4096'],
             'platform' => ['nullable', 'in:android'],
             'app_version' => ['nullable', 'string', 'max:80'],
+            'device_manufacturer' => ['nullable', 'string', 'max:120'],
+            'device_model' => ['nullable', 'string', 'max:160'],
+            'android_version' => ['nullable', 'string', 'max:80'],
+            'sdk_version' => ['nullable', 'string', 'max:40'],
         ];
     }
 }
-

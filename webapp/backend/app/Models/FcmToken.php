@@ -10,7 +10,21 @@ final class FcmToken extends Model
 {
     use UsesUlids;
 
-    protected $fillable = ['user_id', 'device_id', 'token', 'platform', 'app_version', 'is_active', 'last_seen_at', 'revoked_at'];
+    protected $fillable = [
+        'user_id',
+        'device_id',
+        'device_manufacturer',
+        'device_model',
+        'android_version',
+        'sdk_version',
+        'token',
+        'token_hash',
+        'platform',
+        'app_version',
+        'is_active',
+        'last_seen_at',
+        'revoked_at',
+    ];
 
     protected function casts(): array
     {
