@@ -28,6 +28,7 @@ ensure_directory "${BACKEND_DIR}/storage/framework/sessions" "${DIS_USER}" "${DI
 ensure_directory "${BACKEND_DIR}/storage/framework/views" "${DIS_USER}" "${DIS_GROUP}" 0750
 ensure_directory "${BACKEND_DIR}/storage/logs" "${DIS_USER}" "${DIS_GROUP}" 0750
 ensure_directory "${BACKEND_DIR}/bootstrap/cache" "${DIS_USER}" "${DIS_GROUP}" 0750
+ensure_directory "${BACKEND_DIR}/storage/composer" "${DIS_USER}" "${DIS_GROUP}" 0750
 run_cmd ln -sfn "${APP_ROOT}/.env" "${BACKEND_DIR}/.env"
 run_cmd chown -h "${DIS_USER}:${DIS_GROUP}" "${BACKEND_DIR}/.env"
 if id www-data >/dev/null 2>&1; then
@@ -38,10 +39,11 @@ fi
 
 if [ -f "${BACKEND_DIR}/composer.json" ]; then
   log "Installing backend dependencies"
+  COMPOSER_ENV=(env HOME="${BACKEND_DIR}/storage/composer" COMPOSER_HOME="${BACKEND_DIR}/storage/composer" COMPOSER_ALLOW_SUPERUSER=1)
   if [ -f "${BACKEND_DIR}/composer.lock" ]; then
-    run_cmd env COMPOSER_ALLOW_SUPERUSER=1 composer install --working-dir="${BACKEND_DIR}" --no-dev --prefer-dist --no-interaction --optimize-autoloader
+    run_cmd "${COMPOSER_ENV[@]}" composer install --working-dir="${BACKEND_DIR}" --no-dev --prefer-dist --no-interaction --optimize-autoloader
   else
-    run_cmd env COMPOSER_ALLOW_SUPERUSER=1 composer update --working-dir="${BACKEND_DIR}" --no-dev --prefer-dist --no-interaction --optimize-autoloader
+    run_cmd "${COMPOSER_ENV[@]}" composer update --working-dir="${BACKEND_DIR}" --no-dev --prefer-dist --no-interaction --optimize-autoloader
   fi
   run_cmd chown -R "${DIS_USER}:${DIS_GROUP}" "${BACKEND_DIR}/vendor" "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache"
   if id www-data >/dev/null 2>&1; then
