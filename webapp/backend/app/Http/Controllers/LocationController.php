@@ -70,13 +70,15 @@ final class LocationController extends Controller
             return ApiResponse::success([]);
         }
 
-        $latestDispatch = $incident->dispatchRequests()
+        $acceptedRecipients = $incident->dispatchRequests()
             ->with(['recipients.user'])
             ->latest()
-            ->first();
-        $acceptedRecipients = $latestDispatch?->recipients
+            ->get()
+            ->flatMap->recipients
             ->filter(fn ($recipient): bool => $recipient->response_status === 'accepted')
-            ->values() ?? collect();
+            ->unique('user_id')
+            ->values();
+
         $consents = LocationSharingConsent::query()
             ->with('user')
             ->where('incident_id', $incident->id)
