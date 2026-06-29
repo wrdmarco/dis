@@ -53,6 +53,7 @@ run_cmd tar -C "${APP_ROOT}" -czf "${TARGET}/storage.tar.gz" storage
 log "Archiving software source and module manifests"
 run_cmd tar -C "${APP_ROOT}" -czf "${TARGET}/source.tar.gz" \
   --exclude='./.git' \
+  --exclude='./backup' \
   --exclude='./storage' \
   --exclude='./webapp/backend/vendor' \
   --exclude='./webapp/backend/storage' \
