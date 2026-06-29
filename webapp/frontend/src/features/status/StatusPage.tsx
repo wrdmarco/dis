@@ -21,13 +21,12 @@ export function StatusPage() {
   const items = statuses.data ?? [];
   const availableCount = items.filter((item) => item.is_available).length;
   const unavailableCount = items.filter((item) => !item.is_available).length;
-  const vacationCount = items.filter((item) => item.status === 'vacation').length;
   const onSceneCount = items.filter((item) => item.status === 'on_scene').length;
   const canOverrideStatus = hasPermission('status.override');
 
   function openEditModal(item: AvailabilityStatus) {
     setEditingStatus(item);
-    setStatus(item.status);
+    setStatus(item.status === 'vacation' ? 'unavailable' : item.status);
     setReason('');
     setError(null);
   }
@@ -64,7 +63,6 @@ export function StatusPage() {
               <SummaryItem label="Gebruikers" value={String(items.length)} />
               <SummaryItem label="Beschikbaar" value={String(availableCount)} />
               <SummaryItem label="Niet beschikbaar" value={String(unavailableCount)} />
-              <SummaryItem label="Vakantie" value={String(vacationCount)} />
               <SummaryItem label="Op locatie" value={String(onSceneCount)} />
             </div>
             <table className="data-table">
@@ -124,7 +122,6 @@ export function StatusPage() {
                 <select value={status} onChange={(event) => setStatus(event.target.value)}>
                   <option value="available">Beschikbaar</option>
                   <option value="unavailable">Niet beschikbaar</option>
-                  <option value="vacation">Vakantie</option>
                   <option value="assigned">Toegewezen</option>
                   <option value="on_scene">Op locatie</option>
                   <option value="resting">Rust</option>

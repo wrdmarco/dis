@@ -22,10 +22,15 @@ const PROFILE_PATH = '/profile';
 
 const navGroups: NavGroup[] = [
   {
+    label: 'Account',
+    items: [
+      { to: PROFILE_PATH, label: 'Profiel', icon: UserRound },
+    ],
+  },
+  {
     label: 'Overzicht',
     items: [
       { to: '/dashboard', label: 'Dashboard', icon: Gauge, permissions: ['incidents.view', 'dispatch.view', 'status.view', 'assets.view'] },
-      { to: PROFILE_PATH, label: 'Profiel', icon: UserRound },
     ],
   },
   {
