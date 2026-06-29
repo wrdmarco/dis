@@ -123,7 +123,7 @@ final class BackupController extends Controller
         $this->ensureTargetReady($target);
         $this->writeRuntimeConfig($target);
         $path = $this->backupPath($backup, $target);
-        $result = Process::timeout(600)->run(['sudo', '-n', 'bash', $this->scriptPath('verify-backup.sh'), $path]);
+        $result = Process::timeout(600)->run(['sudo', '-n', '/usr/local/bin/dis-backup-verify', $path]);
         $output = $this->cleanOutput($result->output().$result->errorOutput());
 
         $this->auditService->record('backups.verified', SystemSetting::class, $request->user(), [
@@ -157,7 +157,7 @@ final class BackupController extends Controller
         $this->ensureTargetReady($target);
         $this->writeRuntimeConfig($target);
         $path = $this->backupPath($backup, $target);
-        $result = Process::timeout(1200)->run(['sudo', '-n', 'bash', $this->scriptPath('restore.sh'), $path]);
+        $result = Process::timeout(1200)->run(['sudo', '-n', '/usr/local/bin/dis-backup-restore', $path]);
         $output = $this->cleanOutput($result->output().$result->errorOutput());
 
         $this->auditService->record('backups.restored', SystemSetting::class, $request->user(), [
