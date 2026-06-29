@@ -447,7 +447,6 @@ export function IncidentDetailPage() {
                   {latestDispatch.recipients?.map((recipient) => {
                     const userStatus = recipient.user?.statuses?.[0]?.status;
                     const location = liveLocations.data?.find((item) => item.user_id === recipient.user_id);
-                    const canRequestLocation = canManageDispatches && recipient.response_status === 'accepted' && recipient.user_id !== '' && location?.sharing_status !== 'shared';
                     const canEditOperatorStatus = canOverrideStatus && recipient.response_status === 'accepted' && recipient.user_id !== '';
 
                     return (
@@ -488,11 +487,6 @@ export function IncidentDetailPage() {
                             </button>
                           </div>
                         ) : null}
-                        {canRequestLocation ? (
-                          <button className="secondary-button" type="button" onClick={() => void requestLocationSharing(recipient.user_id)} disabled={locationRequestingUserId === recipient.user_id || location?.sharing_status === 'pending'}>
-                            {location?.sharing_status === 'pending' ? 'Locatie gevraagd' : 'Vraag locatie'}
-                          </button>
-                        ) : null}
                         {recipient.response_note ? <p className="recipient-row__note">{recipient.response_note}</p> : null}
                       </article>
                     );
@@ -519,7 +513,13 @@ export function IncidentDetailPage() {
 
       <Panel title="Kaart en live locaties">
         <ResourceState loading={liveLocations.loading} error={liveLocations.error} empty={false}>
-          <LiveLocationMap incident={incident.data} locations={liveLocations.data ?? []} />
+          <LiveLocationMap
+            incident={incident.data}
+            locations={liveLocations.data ?? []}
+            canRequestLocation={canManageDispatches}
+            requestingUserId={locationRequestingUserId}
+            onRequestLocation={requestLocationSharing}
+          />
         </ResourceState>
       </Panel>
 
@@ -799,7 +799,19 @@ function SummaryItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function LiveLocationMap({ incident, locations }: { incident: Incident | null; locations: IncidentLiveLocation[] }) {
+function LiveLocationMap({
+  incident,
+  locations,
+  canRequestLocation,
+  requestingUserId,
+  onRequestLocation,
+}: {
+  incident: Incident | null;
+  locations: IncidentLiveLocation[];
+  canRequestLocation: boolean;
+  requestingUserId: string | null;
+  onRequestLocation: (userId: string) => Promise<void>;
+}) {
   const points = locations
     .filter((location) => location.latitude !== null && location.latitude !== undefined && location.longitude !== null && location.longitude !== undefined)
     .map((location) => ({
@@ -858,18 +870,36 @@ function LiveLocationMap({ incident, locations }: { incident: Incident | null; l
             <th>ETA</th>
             <th>Laatst gezien</th>
             <th>Nauwkeurigheid</th>
+            {canRequestLocation ? <th>Actie</th> : null}
           </tr>
         </thead>
         <tbody>
-          {locations.map((location) => (
-            <tr key={location.user_id}>
-              <td>{location.user?.name ?? location.user_id}</td>
-              <td>{locationStatusLabel(location)}</td>
-              <td>{location.eta_minutes ? `${location.eta_minutes} min` : '-'}</td>
-              <td>{formatDate(location.recorded_at)}</td>
-              <td>{location.accuracy_meters ? `${Number(location.accuracy_meters).toFixed(0)} m` : '-'}</td>
-            </tr>
-          ))}
+          {locations.map((location) => {
+            const requestDisabled = requestingUserId === location.user_id || location.sharing_status === 'shared' || location.sharing_status === 'pending';
+
+            return (
+              <tr key={location.user_id}>
+                <td>{location.user?.name ?? location.user_id}</td>
+                <td>{locationStatusLabel(location)}</td>
+                <td>{location.eta_minutes ? `${location.eta_minutes} min` : '-'}</td>
+                <td>{formatDate(location.recorded_at)}</td>
+                <td>{location.accuracy_meters ? `${Number(location.accuracy_meters).toFixed(0)} m` : '-'}</td>
+                {canRequestLocation ? (
+                  <td>
+                    <button className="secondary-button" type="button" onClick={() => void onRequestLocation(location.user_id)} disabled={requestDisabled}>
+                      {location.sharing_status === 'shared'
+                        ? 'Gedeeld'
+                        : location.sharing_status === 'pending'
+                          ? 'Gevraagd'
+                          : requestingUserId === location.user_id
+                            ? 'Vragen...'
+                            : 'Vraag locatie'}
+                    </button>
+                  </td>
+                ) : null}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
