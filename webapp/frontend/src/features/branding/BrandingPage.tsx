@@ -18,6 +18,9 @@ interface BrandingForm {
   welcomeBody: string;
   certificationExpirySubject: string;
   certificationExpiryBody: string;
+  assetWarningDaysBeforeExpiry: string;
+  assetExpirySubject: string;
+  assetExpiryBody: string;
 }
 
 export function BrandingPage() {
@@ -53,6 +56,9 @@ export function BrandingPage() {
           'mail.template.welcome_body': form.welcomeBody.trim(),
           'mail.template.certification_expiry_subject': form.certificationExpirySubject.trim() || '{{certification_name}} - {{status_text}}',
           'mail.template.certification_expiry_body': form.certificationExpiryBody.trim(),
+          'asset.warning_days_before_expiry': Number(form.assetWarningDaysBeforeExpiry || 30),
+          'mail.template.asset_expiry_subject': form.assetExpirySubject.trim() || '{{asset_name}} - {{status_text}}',
+          'mail.template.asset_expiry_body': form.assetExpiryBody.trim(),
         },
       });
       await settings.reload();
@@ -177,10 +183,22 @@ export function BrandingPage() {
                 Certificaat verloop tekst
                 <textarea rows={9} maxLength={4000} value={form.certificationExpiryBody} onChange={(event) => setForm((current) => ({ ...current, certificationExpiryBody: event.target.value }))} />
               </label>
+              <label>
+                Asset waarschuwing vanaf dagen
+                <input type="number" min={1} max={365} value={form.assetWarningDaysBeforeExpiry} onChange={(event) => setForm((current) => ({ ...current, assetWarningDaysBeforeExpiry: event.target.value }))} />
+              </label>
+              <label className="form-grid__wide">
+                Asset verloop onderwerp
+                <input maxLength={160} value={form.assetExpirySubject} onChange={(event) => setForm((current) => ({ ...current, assetExpirySubject: event.target.value }))} />
+              </label>
+              <label className="form-grid__wide">
+                Asset verloop tekst
+                <textarea rows={9} maxLength={4000} value={form.assetExpiryBody} onChange={(event) => setForm((current) => ({ ...current, assetExpiryBody: event.target.value }))} />
+              </label>
             </div>
             <div className="metadata-example">
               <strong>Beschikbare tokens</strong>
-              <pre>{'{{app_name}}, {{tenant_name}}, {{name}}, {{email}}, {{registration_url}}, {{admin_app_note}}, {{certification_name}}, {{certificate_number}}, {{expires_at}}, {{days_until_expiry}}, {{expiry_status}}, {{status_text}}, {{download_url}}'}</pre>
+              <pre>{'{{app_name}}, {{tenant_name}}, {{name}}, {{email}}, {{registration_url}}, {{admin_app_note}}, {{certification_name}}, {{certificate_number}}, {{asset_name}}, {{asset_tag}}, {{asset_type}}, {{serial_number}}, {{expires_at}}, {{days_until_expiry}}, {{expiry_status}}, {{status_text}}, {{download_url}}'}</pre>
             </div>
           </div>
 
@@ -217,9 +235,16 @@ function toBrandingForm(settings: SystemSetting[]): BrandingForm {
     welcomeBody: asString(byKey.get('mail.template.welcome_body')) || '',
     certificationExpirySubject: asString(byKey.get('mail.template.certification_expiry_subject')) || '{{certification_name}} - {{status_text}}',
     certificationExpiryBody: asString(byKey.get('mail.template.certification_expiry_body')) || '',
+    assetWarningDaysBeforeExpiry: String(asNumber(byKey.get('asset.warning_days_before_expiry'), 30)),
+    assetExpirySubject: asString(byKey.get('mail.template.asset_expiry_subject')) || '{{asset_name}} - {{status_text}}',
+    assetExpiryBody: asString(byKey.get('mail.template.asset_expiry_body')) || '',
   };
 }
 
 function asString(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+function asNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }

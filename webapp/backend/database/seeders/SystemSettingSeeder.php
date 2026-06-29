@@ -20,6 +20,7 @@ final class SystemSettingSeeder extends Seeder
         'test_alert.message' => ['value' => 'Dit is het wekelijkse proefalarm.', 'is_sensitive' => false],
         'test_alert.schedule_last_run_at' => ['value' => null, 'is_sensitive' => false],
         'push.availability_requires_push' => ['value' => true, 'is_sensitive' => false],
+        'asset.warning_days_before_expiry' => ['value' => 30, 'is_sensitive' => false],
         'location.retention_days' => ['value' => 30, 'is_sensitive' => false],
         'updates.android.minimum_supported_version_code' => ['value' => 1, 'is_sensitive' => false],
         'security.require_2fa_for_coordinators' => ['value' => true, 'is_sensitive' => false],
@@ -53,6 +54,8 @@ final class SystemSettingSeeder extends Seeder
         'mail.template.welcome_body' => ['value' => "Beste {{name}},\n\nEr is een account voor je aangemaakt in {{app_name}}. Rond je registratie af via onderstaande link:\n\n{{registration_url}}\n\nJe stelt zelf je wachtwoord in en doorloopt direct de MFA-setup wanneer dat voor je rol verplicht is.\n\n{{admin_app_note}}\n\nDeze link is tijdelijk geldig. Vraag een beheerder om een nieuwe uitnodiging als de link verlopen is.", 'is_sensitive' => false],
         'mail.template.certification_expiry_subject' => ['value' => '{{certification_name}} - {{status_text}}', 'is_sensitive' => false],
         'mail.template.certification_expiry_body' => ['value' => "Beste {{name}},\n\nJe certificaat {{certification_name}} {{expiry_status}}.\n\nCertificaatnummer: {{certificate_number}}\nVerloopdatum: {{expires_at}}\nStatus: {{status_text}}\n\nWerk je certificaat bij in de app zodra de verlenging rond is. Zonder geldig vereist certificaat kun je niet meegenomen worden in alarmeringen waarvoor dit certificaat verplicht is.\n\nApp downloadpagina:\n{{download_url}}", 'is_sensitive' => false],
+        'mail.template.asset_expiry_subject' => ['value' => '{{asset_name}} - {{status_text}}', 'is_sensitive' => false],
+        'mail.template.asset_expiry_body' => ['value' => "Beste {{name}},\n\nDe verloopdatum of onderhoudsdatum van asset {{asset_name}} {{expiry_status}}.\n\nAsset tag: {{asset_tag}}\nSerienummer: {{serial_number}}\nVerloopdatum: {{expires_at}}\nStatus: {{status_text}}\n\nWerk de assetgegevens bij zodra dit is afgehandeld.\n\nApp downloadpagina:\n{{download_url}}", 'is_sensitive' => false],
         'firebase.project_id' => ['value' => '', 'is_sensitive' => false],
         'firebase.service_account' => ['value' => [
             'client_email' => '',
