@@ -83,11 +83,7 @@ final class MobileApiPayload
             'status' => $status->status,
             'is_available' => (bool) $status->is_available,
             'effective_at' => $status->effective_at?->toIso8601String(),
-            'user' => $status->relationLoaded('user') && $status->user !== null ? [
-                'id' => $status->user->id,
-                'name' => $status->user->name,
-                'email' => $status->user->email,
-            ] : null,
+            'user' => $status->relationLoaded('user') ? self::user($status->user) : null,
         ];
     }
 
@@ -155,11 +151,7 @@ final class MobileApiPayload
                 'user_id' => $activeAssignment->user_id,
                 'assigned_at' => $activeAssignment->assigned_at?->toIso8601String(),
                 'released_at' => $activeAssignment->released_at?->toIso8601String(),
-                'user' => $activeAssignment->user === null ? null : [
-                    'id' => $activeAssignment->user->id,
-                    'name' => $activeAssignment->user->name,
-                    'email' => $activeAssignment->user->email,
-                ],
+                'user' => self::user($activeAssignment->user),
             ],
         ];
     }
@@ -203,11 +195,7 @@ final class MobileApiPayload
                 'expires_at' => $userCertification->expires_at?->toDateString(),
                 'certificate_number' => $userCertification->certificate_number,
                 'status' => $userCertification->status,
-                'user' => $userCertification->user === null ? null : [
-                    'id' => $userCertification->user->id,
-                    'name' => $userCertification->user->name,
-                    'email' => $userCertification->user->email,
-                ],
+                'user' => self::user($userCertification->user),
             ])->values(),
         ];
     }
