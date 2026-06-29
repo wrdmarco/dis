@@ -32,6 +32,8 @@ type BackupTarget = 'local' | 'samba';
 interface BackupSettings {
   target: BackupTarget;
   local_path: string;
+  samba_server: string;
+  samba_share_name: string;
   samba_share: string;
   samba_mount: string;
   samba_username: string;
@@ -50,6 +52,8 @@ interface BackupSettings {
 interface BackupSettingsForm {
   target: BackupTarget;
   localPath: string;
+  sambaServer: string;
+  sambaShareName: string;
   sambaShare: string;
   sambaMount: string;
   sambaUsername: string;
@@ -66,6 +70,16 @@ interface BackupSettingsForm {
 interface BackupActionResult {
   state: string;
   output?: string;
+}
+
+interface SambaShareOption {
+  name: string;
+  path: string;
+  comment?: string | null;
+}
+
+interface SambaSharesResponse {
+  shares: SambaShareOption[];
 }
 
 const SMB_VERSION_OPTIONS = ['3.1.1', '3.0', '2.1', '2.0', '1.0'] as const;
@@ -93,10 +107,14 @@ export function BackupPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [output, setOutput] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sambaShares, setSambaShares] = useState<SambaShareOption[]>([]);
+  const [sharesLoading, setSharesLoading] = useState(false);
+  const [sharesError, setSharesError] = useState<string | null>(null);
 
   useEffect(() => {
     setSettingsForm(initialSettings);
     setCreateTarget(initialSettings.target);
+    setSambaShares(initialSettings.sambaShareName ? [{ name: initialSettings.sambaShareName, path: initialSettings.sambaShare || `//${initialSettings.sambaServer}/${initialSettings.sambaShareName}` }] : []);
   }, [initialSettings]);
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
@@ -104,7 +122,8 @@ export function BackupPage() {
     await runAction('settings', async () => {
       await api.patch<BackupIndex>('/admin/backups/settings', {
         target: settingsForm.target,
-        samba_share: settingsForm.sambaShare,
+        samba_server: settingsForm.sambaServer,
+        samba_share_name: settingsForm.sambaShareName,
         samba_mount: settingsForm.sambaMount,
         samba_username: settingsForm.sambaUsername,
         samba_password: settingsForm.sambaPassword,
@@ -119,6 +138,32 @@ export function BackupPage() {
 
       return { state: 'saved' };
     });
+  }
+
+  async function fetchSambaShares() {
+    setSharesLoading(true);
+    setSharesError(null);
+    setError(null);
+
+    try {
+      const response = await api.post<SambaSharesResponse>('/admin/backups/samba-shares', {
+        samba_server: settingsForm.sambaServer,
+        samba_username: settingsForm.sambaUsername,
+        samba_password: settingsForm.sambaPassword,
+        samba_domain: settingsForm.sambaDomain,
+        samba_version: settingsForm.sambaVersion,
+      });
+      setSambaShares(response.data.shares);
+      if (response.data.shares.length > 0 && !response.data.shares.some((share) => share.name === settingsForm.sambaShareName)) {
+        const firstShare = response.data.shares[0];
+        setSettingsForm((current) => ({ ...current, sambaShareName: firstShare.name, sambaShare: firstShare.path }));
+      }
+      setMessage(response.data.shares.length > 0 ? 'Samba paden zijn opgehaald.' : 'Geen Samba paden gevonden.');
+    } catch (err) {
+      setSharesError(err instanceof ApiClientError ? err.message : 'Samba paden ophalen mislukt.');
+    } finally {
+      setSharesLoading(false);
+    }
   }
 
   async function runAction(label: string, action: () => Promise<BackupActionResult>) {
@@ -168,13 +213,13 @@ export function BackupPage() {
                 <div className="form-grid__wide section-heading">
                   <h3>Samba instellingen</h3>
                 </div>
-                <label className="form-grid__wide">
-                  Samba share
-                  <input placeholder="//server/share" value={settingsForm.sambaShare} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaShare: event.target.value }))} />
-                </label>
                 <label>
-                  Mountpoint
-                  <input value={settingsForm.sambaMount} readOnly />
+                  Servernaam/IP
+                  <input
+                    placeholder="192.168.1.10"
+                    value={settingsForm.sambaServer}
+                    onChange={(event) => setSettingsForm((current) => ({ ...current, sambaServer: event.target.value, sambaShareName: '', sambaShare: '' }))}
+                  />
                 </label>
                 <label>
                   SMB versie
@@ -196,9 +241,34 @@ export function BackupPage() {
                   Wachtwoord
                   <input type="password" placeholder={backups.data?.settings.samba_password_configured ? 'Ingesteld' : ''} value={settingsForm.sambaPassword} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaPassword: event.target.value }))} />
                 </label>
+                <div className="actions-row form-grid__wide">
+                  <button className="secondary-button" type="button" onClick={() => void fetchSambaShares()} disabled={sharesLoading || busy !== null || settingsForm.sambaServer.trim() === '' || settingsForm.sambaUsername.trim() === ''}>
+                    {sharesLoading ? 'Paden ophalen...' : 'Paden ophalen'}
+                  </button>
+                </div>
+                {sharesError ? <p className="form-error form-grid__wide">{sharesError}</p> : null}
+                <label className="form-grid__wide">
+                  Pad/share
+                  <select
+                    value={settingsForm.sambaShareName}
+                    onChange={(event) => {
+                      const selected = sambaShares.find((share) => share.name === event.target.value);
+                      setSettingsForm((current) => ({ ...current, sambaShareName: event.target.value, sambaShare: selected?.path ?? (current.sambaServer ? `//${current.sambaServer}/${event.target.value}` : '') }));
+                    }}
+                  >
+                    <option value="">Selecteer een pad</option>
+                    {sambaShares.map((share) => (
+                      <option key={share.name} value={share.name}>{share.path}{share.comment ? ` - ${share.comment}` : ''}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Mountpoint
+                  <input value={settingsForm.sambaMount} readOnly />
+                </label>
                 <div className="form-grid__wide metadata-example">
                   <strong>Samba status</strong>
-                  <pre>{`Samba map: ${backups.data?.roots.samba ?? settingsForm.sambaMount}\nSamba mount: ${backups.data?.settings.samba_mounted ? 'Gekoppeld' : 'Niet gekoppeld'}\nWachtwoord: ${backups.data?.settings.samba_password_configured ? 'Ingesteld' : 'Niet ingesteld'}`}</pre>
+                  <pre>{`Server/IP: ${settingsForm.sambaServer || '-'}\nPad/share: ${settingsForm.sambaShare || '-'}\nSamba mount: ${backups.data?.settings.samba_mounted ? 'Gekoppeld' : 'Niet gekoppeld'}\nWachtwoord: ${backups.data?.settings.samba_password_configured ? 'Ingesteld' : 'Niet ingesteld'}`}</pre>
                 </div>
               </>
             ) : null}
@@ -398,6 +468,8 @@ function toSettingsForm(settings?: BackupSettings): BackupSettingsForm {
   return {
     target: settings?.target ?? 'local',
     localPath: settings?.local_path ?? '/opt/dis/backup',
+    sambaServer: settings?.samba_server ?? '',
+    sambaShareName: settings?.samba_share_name ?? '',
     sambaShare: settings?.samba_share ?? '',
     sambaMount: settings?.samba_mount ?? '/mnt/dis-backup',
     sambaUsername: settings?.samba_username ?? '',

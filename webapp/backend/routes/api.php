@@ -185,6 +185,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/admin/system/reboot', [AdminDeveloperController::class, 'reboot'])->middleware('permission:system.health');
     Route::get('/admin/backups', [BackupController::class, 'index'])->middleware('permission:backups.manage');
     Route::patch('/admin/backups/settings', [BackupController::class, 'updateSettings'])->middleware('permission:backups.manage');
+    Route::post('/admin/backups/samba-shares', [BackupController::class, 'sambaShares'])->middleware('permission:backups.manage');
     Route::post('/admin/backups', [BackupController::class, 'create'])->middleware('permission:backups.manage');
     Route::post('/admin/backups/{backup}/verify', [BackupController::class, 'verify'])->middleware('permission:backups.manage');
     Route::post('/admin/backups/{backup}/restore', [BackupController::class, 'restore'])->middleware('permission:backups.manage');

@@ -56,6 +56,8 @@ final class BackupController extends Controller
     {
         $data = $request->validate([
             'target' => ['required', 'string', 'in:local,samba'],
+            'samba_server' => ['nullable', 'string', 'max:255', 'regex:/^[A-Za-z0-9._:-]+$/'],
+            'samba_share_name' => ['nullable', 'string', 'max:255', 'regex:/^[^\/\\\\]+$/'],
             'samba_share' => ['nullable', 'string', 'max:255'],
             'samba_mount' => ['nullable', 'string', 'in:/mnt/dis-backup'],
             'samba_username' => ['nullable', 'string', 'max:255'],
@@ -70,16 +72,26 @@ final class BackupController extends Controller
         ]);
 
         if ($data['target'] === 'samba') {
-            foreach (['samba_share', 'samba_mount', 'samba_username'] as $field) {
+            foreach (['samba_server', 'samba_share_name', 'samba_mount', 'samba_username'] as $field) {
                 if (trim((string) ($data[$field] ?? '')) === '') {
                     throw ValidationException::withMessages([$field => ['Dit veld is verplicht voor Samba backups.']]);
                 }
             }
+
+            if (trim((string) ($data['samba_password'] ?? '')) === '' && SystemSetting::string(self::PASSWORD_KEY, '') === '') {
+                throw ValidationException::withMessages(['samba_password' => ['Dit veld is verplicht zolang er nog geen Samba wachtwoord is opgeslagen.']]);
+            }
         }
+
+        $server = trim((string) ($data['samba_server'] ?? ''));
+        $shareName = trim((string) ($data['samba_share_name'] ?? ''));
+        $sharePath = $server !== '' && $shareName !== '' ? '//'.$server.'/'.$shareName : '';
 
         $this->putSetting('backup.target', $data['target'], $request);
         $this->putSetting('backup.local_path', self::DEFAULT_LOCAL_PATH, $request);
-        $this->putSetting('backup.samba.share', trim((string) ($data['samba_share'] ?? '')), $request);
+        $this->putSetting('backup.samba.server', $server, $request);
+        $this->putSetting('backup.samba.share_name', $shareName, $request);
+        $this->putSetting('backup.samba.share', $sharePath, $request);
         $this->putSetting('backup.samba.mount', trim((string) ($data['samba_mount'] ?? '')) ?: '/mnt/dis-backup', $request);
         $this->putSetting('backup.samba.username', trim((string) ($data['samba_username'] ?? '')), $request);
         $this->putSetting('backup.samba.domain', trim((string) ($data['samba_domain'] ?? '')), $request);
@@ -99,10 +111,67 @@ final class BackupController extends Controller
             'auto_enabled' => (bool) $data['auto_enabled'],
             'auto_frequency' => $data['auto_frequency'],
             'retention_count' => (int) $data['retention_count'],
-            'samba_share' => $data['target'] === 'samba' ? ($data['samba_share'] ?? null) : null,
+            'samba_server' => $data['target'] === 'samba' ? $server : null,
+            'samba_share_name' => $data['target'] === 'samba' ? $shareName : null,
         ], null, $request);
 
         return $this->index();
+    }
+
+    public function sambaShares(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'samba_server' => ['required', 'string', 'max:255', 'regex:/^[A-Za-z0-9._:-]+$/'],
+            'samba_username' => ['required', 'string', 'max:255'],
+            'samba_password' => ['nullable', 'string', 'max:2000'],
+            'samba_domain' => ['nullable', 'string', 'max:255'],
+            'samba_version' => ['nullable', 'string', 'in:3.1.1,3.0,2.1,2.0,1.0'],
+        ]);
+
+        if (! is_executable('/usr/bin/smbclient') && ! is_executable('/bin/smbclient')) {
+            return ApiResponse::error('smbclient_missing', 'Samba shares ophalen vereist smbclient op de server. Voer een systeemupdate uit zodat dit pakket wordt geinstalleerd.', 500);
+        }
+
+        $password = (string) ($data['samba_password'] ?? '');
+        if (trim($password) === '') {
+            $password = SystemSetting::string(self::PASSWORD_KEY, '') ?? '';
+        }
+        if ($password === '') {
+            throw ValidationException::withMessages(['samba_password' => ['Vul het Samba wachtwoord in om shares op te halen.']]);
+        }
+
+        $credentialsFile = tempnam(sys_get_temp_dir(), 'dis-smb-');
+        if ($credentialsFile === false) {
+            return ApiResponse::error('smb_credentials_failed', 'Tijdelijk credentialsbestand kon niet worden gemaakt.', 500);
+        }
+
+        try {
+            file_put_contents($credentialsFile, $this->smbCredentialsContent((string) $data['samba_username'], $password, (string) ($data['samba_domain'] ?? '')), LOCK_EX);
+            chmod($credentialsFile, 0600);
+
+            $command = [
+                is_executable('/usr/bin/smbclient') ? '/usr/bin/smbclient' : '/bin/smbclient',
+                '-L',
+                '//'.$data['samba_server'],
+                '-A',
+                $credentialsFile,
+                '-m',
+                $this->smbClientProtocol((string) ($data['samba_version'] ?? '3.1.1')),
+                '-g',
+            ];
+            $result = Process::timeout(30)->run($command);
+        } finally {
+            @unlink($credentialsFile);
+        }
+
+        $output = $this->cleanOutput($result->output().$result->errorOutput());
+        if (! $result->successful()) {
+            return ApiResponse::error('smb_shares_failed', $output ?: 'Samba shares konden niet worden opgehaald.', 422);
+        }
+
+        return ApiResponse::success([
+            'shares' => $this->parseSmbShares($result->output(), (string) $data['samba_server']),
+        ]);
     }
 
     public function create(Request $request): JsonResponse
@@ -213,10 +282,15 @@ final class BackupController extends Controller
      */
     private function settingsState(): array
     {
+        $legacyShare = SystemSetting::string('backup.samba.share', '') ?? '';
+        [$server, $shareName] = $this->storedSambaServerAndShare($legacyShare);
+
         return [
             'target' => SystemSetting::string('backup.target', 'local') ?? 'local',
             'local_path' => SystemSetting::string('backup.local_path', self::DEFAULT_LOCAL_PATH) ?? self::DEFAULT_LOCAL_PATH,
-            'samba_share' => SystemSetting::string('backup.samba.share', '') ?? '',
+            'samba_server' => $server,
+            'samba_share_name' => $shareName,
+            'samba_share' => $server !== '' && $shareName !== '' ? '//'.$server.'/'.$shareName : $legacyShare,
             'samba_mount' => SystemSetting::string('backup.samba.mount', '/mnt/dis-backup') ?? '/mnt/dis-backup',
             'samba_username' => SystemSetting::string('backup.samba.username', '') ?? '',
             'samba_password_configured' => SystemSetting::string(self::PASSWORD_KEY, '') !== '',
@@ -295,7 +369,9 @@ final class BackupController extends Controller
             return;
         }
 
-        $share = trim(SystemSetting::string('backup.samba.share', '') ?? '');
+        $legacyShare = SystemSetting::string('backup.samba.share', '') ?? '';
+        [$server, $shareName] = $this->storedSambaServerAndShare($legacyShare);
+        $share = $server !== '' && $shareName !== '' ? '//'.$server.'/'.$shareName : trim($legacyShare);
         $username = trim(SystemSetting::string('backup.samba.username', '') ?? '');
         $password = SystemSetting::string(self::PASSWORD_KEY, '') ?? '';
         if ($share === '' || $username === '' || $password === '') {
@@ -369,5 +445,75 @@ final class BackupController extends Controller
         $output = preg_replace('/((?:password|secret|token|api[_-]?key)[\'"\s:=]+)[^\'"\s,}]+/i', '$1[redacted]', $output) ?? $output;
 
         return trim($output);
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function storedSambaServerAndShare(string $legacyShare): array
+    {
+        $server = SystemSetting::string('backup.samba.server', '') ?? '';
+        $shareName = SystemSetting::string('backup.samba.share_name', '') ?? '';
+        if ($server !== '' || $shareName !== '') {
+            return [$server, $shareName];
+        }
+
+        if (preg_match('#^//([^/]+)/(.+)$#', $legacyShare, $matches) === 1) {
+            return [$matches[1], $matches[2]];
+        }
+
+        return ['', ''];
+    }
+
+    private function smbClientProtocol(string $mountVersion): string
+    {
+        return match ($mountVersion) {
+            '1.0' => 'NT1',
+            '2.0', '2.1' => 'SMB2',
+            default => 'SMB3',
+        };
+    }
+
+    private function smbCredentialsContent(string $username, string $password, string $domain): string
+    {
+        $lines = [
+            'username='.$username,
+            'password='.$password,
+        ];
+
+        if (trim($domain) !== '') {
+            $lines[] = 'domain='.trim($domain);
+        }
+
+        return implode("\n", $lines)."\n";
+    }
+
+    /**
+     * @return list<array{name: string, path: string, comment: string|null}>
+     */
+    private function parseSmbShares(string $output, string $server): array
+    {
+        $shares = [];
+        foreach (preg_split('/\R/', $output) ?: [] as $line) {
+            $parts = explode('|', trim($line));
+            if (count($parts) < 2 || strtolower($parts[0]) !== 'disk') {
+                continue;
+            }
+
+            $name = trim($parts[1]);
+            if ($name === '' || in_array(strtolower($name), ['ipc$', 'print$'], true)) {
+                continue;
+            }
+
+            $shares[] = [
+                'name' => $name,
+                'path' => '//'.$server.'/'.$name,
+                'comment' => isset($parts[2]) && trim($parts[2]) !== '' ? trim($parts[2]) : null,
+            ];
+        }
+
+        usort($shares, fn (array $left, array $right): int => strcasecmp($left['name'], $right['name']));
+
+        return $shares;
     }
 }

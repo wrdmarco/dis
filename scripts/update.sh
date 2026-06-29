@@ -371,6 +371,11 @@ if [ "${UPDATE_APP}" = "1" ]; then
   check_app_updates
 fi
 
+if [ "${UPDATE_SYSTEM}" = "1" ]; then
+  log "Ensuring backup system dependencies"
+  run_cmd apt-get install -y cifs-utils smbclient
+fi
+
 if [ "${SYSTEM_UPDATES_AVAILABLE}" = "0" ] && [ "${APP_UPDATES_AVAILABLE}" = "0" ]; then
   log "No updates available. Nothing to do."
   install_update_command
@@ -382,8 +387,6 @@ fi
 create_pre_update_backup
 
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
-  log "Ensuring backup system dependencies"
-  run_cmd apt-get install -y cifs-utils
   if [ "${SYSTEM_UPDATES_AVAILABLE}" = "1" ]; then
     log "Updating Ubuntu packages"
     run_cmd apt-get upgrade -y
