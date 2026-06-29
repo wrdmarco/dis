@@ -12,6 +12,8 @@ import type { DispatchPreview, DispatchRequest, DroneFlightContext, Incident, In
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 import { IncidentForm, type IncidentFormState, incidentPayload } from './IncidentsPage';
 
+const LIVE_LOCATION_STALE_MS = 5 * 60 * 1000;
+
 export function IncidentDetailPage() {
   const { incidentId } = useParams();
   const { api, hasPermission } = useAuth();
@@ -875,7 +877,8 @@ function LiveLocationMap({
         </thead>
         <tbody>
           {locations.map((location) => {
-            const requestDisabled = requestingUserId === location.user_id || location.sharing_status === 'shared' || location.sharing_status === 'pending';
+            const hasCurrentLiveLocation = isCurrentLiveLocation(location);
+            const requestDisabled = requestingUserId === location.user_id;
 
             return (
               <tr key={location.user_id}>
@@ -884,18 +887,14 @@ function LiveLocationMap({
                 <td>{location.eta_minutes ? `${location.eta_minutes} min` : '-'}</td>
                 <td>{formatDate(location.recorded_at)}</td>
                 <td>{location.accuracy_meters ? `${Number(location.accuracy_meters).toFixed(0)} m` : '-'}</td>
-                {canRequestLocation ? (
+                {canRequestLocation && !hasCurrentLiveLocation ? (
                   <td>
                     <button className="secondary-button" type="button" onClick={() => void onRequestLocation(location.user_id)} disabled={requestDisabled}>
-                      {location.sharing_status === 'shared'
-                        ? 'Gedeeld'
-                        : location.sharing_status === 'pending'
-                          ? 'Gevraagd'
-                          : requestingUserId === location.user_id
-                            ? 'Vragen...'
-                            : 'Vraag locatie'}
+                      {requestingUserId === location.user_id ? 'Vragen...' : 'Vraag locatie'}
                     </button>
                   </td>
+                ) : canRequestLocation ? (
+                  <td><span className="form-note">Live</span></td>
                 ) : null}
               </tr>
             );
@@ -908,6 +907,19 @@ function LiveLocationMap({
 
 function formatDate(value?: string | null): string {
   return formatDateTime(value);
+}
+
+function isCurrentLiveLocation(location: IncidentLiveLocation): boolean {
+  if (location.latitude === null || location.latitude === undefined || location.longitude === null || location.longitude === undefined || !location.recorded_at) {
+    return false;
+  }
+
+  const recordedAt = new Date(location.recorded_at).getTime();
+  if (!Number.isFinite(recordedAt)) {
+    return false;
+  }
+
+  return Date.now() - recordedAt <= LIVE_LOCATION_STALE_MS;
 }
 
 function formatFlightMetric(value: unknown, suffix: string): string {
