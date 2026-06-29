@@ -32,6 +32,7 @@ ensure_directory "${BACKEND_DIR}/storage/composer" "${DIS_USER}" "${DIS_GROUP}" 
 run_cmd ln -sfn "${APP_ROOT}/.env" "${BACKEND_DIR}/.env"
 run_cmd chown -h "${DIS_USER}:${DIS_GROUP}" "${BACKEND_DIR}/.env"
 if id www-data >/dev/null 2>&1; then
+  run_cmd usermod -aG "${DIS_GROUP}" www-data
   run_cmd setfacl -m "u:www-data:r--" "${APP_ROOT}/.env"
   run_cmd setfacl -R -m "u:www-data:rwx" "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache"
   run_cmd setfacl -R -d -m "u:www-data:rwx" "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache"

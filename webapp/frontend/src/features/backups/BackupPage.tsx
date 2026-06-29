@@ -23,6 +23,7 @@ interface BackupIndex {
   root: string;
   roots: Record<BackupTarget, string>;
   settings: BackupSettings;
+  report_recipients: BackupReportRecipient[];
   confirmation_text: string;
   backups: BackupSummary[];
 }
@@ -65,6 +66,16 @@ interface BackupSettingsForm {
   autoDayOfWeek: number;
   autoTime: string;
   retentionCount: number;
+  backupReportSuccessUserIds: string[];
+  backupReportFailedUserIds: string[];
+}
+
+interface BackupReportRecipient {
+  id: string;
+  name: string;
+  email: string;
+  success: boolean;
+  failed: boolean;
 }
 
 interface BackupActionResult {
@@ -98,7 +109,7 @@ const WEEK_DAYS = [
 export function BackupPage() {
   const { api } = useAuth();
   const backups = useApiResource<BackupIndex>('/admin/backups');
-  const initialSettings = useMemo(() => toSettingsForm(backups.data?.settings), [backups.data]);
+  const initialSettings = useMemo(() => toSettingsForm(backups.data?.settings, backups.data?.report_recipients), [backups.data]);
   const [settingsForm, setSettingsForm] = useState<BackupSettingsForm>(initialSettings);
   const [createTarget, setCreateTarget] = useState<BackupTarget>(initialSettings.target);
   const [busy, setBusy] = useState<string | null>(null);
@@ -134,6 +145,8 @@ export function BackupPage() {
         auto_day_of_week: settingsForm.autoDayOfWeek,
         auto_time: settingsForm.autoTime,
         retention_count: settingsForm.retentionCount,
+        backup_report_success_user_ids: settingsForm.backupReportSuccessUserIds,
+        backup_report_failed_user_ids: settingsForm.backupReportFailedUserIds,
       });
 
       return { state: 'saved' };
@@ -305,6 +318,44 @@ export function BackupPage() {
               <input type="number" min="0" max="365" value={settingsForm.retentionCount} onChange={(event) => setSettingsForm((current) => ({ ...current, retentionCount: Number(event.target.value) }))} />
             </label>
             <p className="form-note form-grid__wide">Gebruik 0 om backups onbeperkt te bewaren.</p>
+            <div className="form-grid__wide section-heading">
+              <h3>Rapport ontvangers</h3>
+            </div>
+            <div className="form-grid__wide table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Gebruiker</th>
+                    <th>Succes</th>
+                    <th>Fout</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(backups.data?.report_recipients ?? []).map((user) => (
+                    <tr key={user.id}>
+                      <td>
+                        <strong>{user.name}</strong>
+                        <span className="muted-text">{user.email}</span>
+                      </td>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={settingsForm.backupReportSuccessUserIds.includes(user.id)}
+                          onChange={() => setSettingsForm((current) => ({ ...current, backupReportSuccessUserIds: toggleId(current.backupReportSuccessUserIds, user.id) }))}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={settingsForm.backupReportFailedUserIds.includes(user.id)}
+                          onChange={() => setSettingsForm((current) => ({ ...current, backupReportFailedUserIds: toggleId(current.backupReportFailedUserIds, user.id) }))}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <div className="actions-row form-grid__wide">
               <button className="primary-button" type="submit" disabled={busy !== null}>
                 {busy === 'settings' ? 'Opslaan...' : 'Backup doel opslaan'}
@@ -464,7 +515,7 @@ function autoBackupLabel(settings: BackupSettings): string {
   return `Dagelijks om ${settings.auto_time}`;
 }
 
-function toSettingsForm(settings?: BackupSettings): BackupSettingsForm {
+function toSettingsForm(settings?: BackupSettings, recipients: BackupReportRecipient[] = []): BackupSettingsForm {
   return {
     target: settings?.target ?? 'local',
     localPath: settings?.local_path ?? '/opt/dis/backup',
@@ -481,5 +532,11 @@ function toSettingsForm(settings?: BackupSettings): BackupSettingsForm {
     autoDayOfWeek: settings?.auto_day_of_week ?? 1,
     autoTime: settings?.auto_time ?? '02:15',
     retentionCount: settings?.retention_count ?? 7,
+    backupReportSuccessUserIds: recipients.filter((recipient) => recipient.success).map((recipient) => recipient.id),
+    backupReportFailedUserIds: recipients.filter((recipient) => recipient.failed).map((recipient) => recipient.id),
   };
+}
+
+function toggleId(values: string[], id: string): string[] {
+  return values.includes(id) ? values.filter((value) => value !== id) : [...values, id];
 }

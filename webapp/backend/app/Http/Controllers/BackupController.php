@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiResponse;
 use App\Models\SystemSetting;
+use App\Models\User;
 use App\Services\AuditService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -47,6 +48,7 @@ final class BackupController extends Controller
                 'samba' => $this->backupRoot('samba'),
             ],
             'settings' => $this->settingsState(),
+            'report_recipients' => $this->reportRecipients(),
             'confirmation_text' => self::RESTORE_CONFIRMATION,
             'backups' => $backups,
         ]);
@@ -69,6 +71,10 @@ final class BackupController extends Controller
             'auto_day_of_week' => ['required', 'integer', 'between:1,7'],
             'auto_time' => ['required', 'date_format:H:i'],
             'retention_count' => ['required', 'integer', 'between:0,365'],
+            'backup_report_success_user_ids' => ['nullable', 'array'],
+            'backup_report_success_user_ids.*' => ['ulid', 'exists:users,id'],
+            'backup_report_failed_user_ids' => ['nullable', 'array'],
+            'backup_report_failed_user_ids.*' => ['ulid', 'exists:users,id'],
         ]);
 
         if ($data['target'] === 'samba') {
@@ -104,6 +110,10 @@ final class BackupController extends Controller
         if (array_key_exists('samba_password', $data) && trim((string) $data['samba_password']) !== '') {
             $this->putSetting(self::PASSWORD_KEY, (string) $data['samba_password'], $request, true);
         }
+        $this->updateReportRecipients(
+            $data['backup_report_success_user_ids'] ?? null,
+            $data['backup_report_failed_user_ids'] ?? null,
+        );
 
         $this->writeRuntimeConfig();
         $this->auditService->record('backups.settings_updated', SystemSetting::class, $request->user(), [
@@ -304,6 +314,55 @@ final class BackupController extends Controller
             'retention_count' => SystemSetting::integer('backup.retention_count', 7),
             'auto_last_run_at' => SystemSetting::string('backup.auto.last_run_at'),
         ];
+    }
+
+    /**
+     * @return list<array{id: string, name: string, email: string, success: bool, failed: bool}>
+     */
+    private function reportRecipients(): array
+    {
+        return User::query()
+            ->where('account_status', 'active')
+            ->orderBy('name')
+            ->get(['id', 'name', 'email', 'mail_preferences'])
+            ->map(function (User $user): array {
+                return [
+                    'id' => (string) $user->id,
+                    'name' => (string) $user->name,
+                    'email' => (string) $user->email,
+                    'success' => $user->wantsBackupReport('success'),
+                    'failed' => $user->wantsBackupReport('failed'),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param array<int, string>|null $successUserIds
+     * @param array<int, string>|null $failedUserIds
+     */
+    private function updateReportRecipients(?array $successUserIds, ?array $failedUserIds): void
+    {
+        if ($successUserIds === null && $failedUserIds === null) {
+            return;
+        }
+
+        $success = collect($successUserIds ?? [])->unique()->values();
+        $failed = collect($failedUserIds ?? [])->unique()->values();
+
+        User::query()
+            ->where('account_status', 'active')
+            ->get()
+            ->each(function (User $user) use ($success, $failed): void {
+                $preferences = is_array($user->mail_preferences) ? $user->mail_preferences : [];
+                $preferences['backup_report'] = [
+                    'success' => $success->contains((string) $user->id),
+                    'failed' => $failed->contains((string) $user->id),
+                ];
+
+                $user->forceFill(['mail_preferences' => $preferences])->save();
+            });
     }
 
     private function putSetting(string $key, mixed $value, Request $request, bool $sensitive = false): void
