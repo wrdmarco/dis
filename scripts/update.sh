@@ -8,6 +8,7 @@ source "${SCRIPT_DIR}/lib/common.sh"
 UPDATE_SYSTEM=1
 UPDATE_APP=1
 UPDATE_SOURCE=1
+CREATE_BACKUP="${CREATE_BACKUP:-1}"
 RUN_HEALTHCHECK="${RUN_HEALTHCHECK:-1}"
 SYSTEM_UPDATES_AVAILABLE=0
 APP_UPDATES_AVAILABLE=0
@@ -25,6 +26,7 @@ Options:
   --skip-system          Do not run apt update/upgrade.
   --skip-app             Do not deploy the DIS application.
   --skip-source          Do not run git pull before deploying.
+  --skip-backup          Do not create a pre-update backup.
   --skip-healthcheck     Skip final local health check.
   -h, --help             Show this help.
 USAGE
@@ -42,6 +44,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --skip-source)
       UPDATE_SOURCE=0
+      shift
+      ;;
+    --skip-backup)
+      CREATE_BACKUP=0
       shift
       ;;
     --skip-healthcheck)
@@ -175,6 +181,24 @@ clear_application_caches() {
     run_cmd npm cache clean --force >/dev/null 2>&1 || true
     run_cmd npm cache verify >/dev/null 2>&1 || true
   fi
+}
+
+create_pre_update_backup() {
+  local backup_output backup_path
+
+  if [ "${CREATE_BACKUP}" != "1" ]; then
+    log "Skipping pre-update backup."
+    return
+  fi
+
+  log "Creating and verifying pre-update backup"
+  backup_output="$(APP_ROOT="${DIS_INSTALL_PATH}" bash "${SCRIPT_DIR}/backup.sh")"
+  printf '%s\n' "${backup_output}"
+  backup_path="$(printf '%s\n' "${backup_output}" | awk '/Backup created at / {print $NF}' | tail -n 1)"
+  if [ -z "${backup_path}" ]; then
+    fail "Backup path could not be determined."
+  fi
+  run_cmd bash "${SCRIPT_DIR}/verify-backup.sh" "${backup_path}"
 }
 
 stash_local_git_changes() {
@@ -316,6 +340,8 @@ if [ "${SYSTEM_UPDATES_AVAILABLE}" = "0" ] && [ "${APP_UPDATES_AVAILABLE}" = "0"
   clear_application_caches
   exit 0
 fi
+
+create_pre_update_backup
 
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
   if [ "${SYSTEM_UPDATES_AVAILABLE}" = "1" ]; then
