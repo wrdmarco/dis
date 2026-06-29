@@ -79,16 +79,17 @@ final class DroneFlightContextService
     private function airspaceData(float $latitude, float $longitude): array
     {
         $apiUrl = SystemSetting::string('drone.aeret_api_url', is_string(config('dis.drone_flight.aeret_api_url')) ? (string) config('dis.drone_flight.aeret_api_url') : null);
+        $kaartviewer = $this->aeretKaartviewerData($latitude, $longitude);
 
         if (! is_string($apiUrl) || trim($apiUrl) === '') {
             return [
                 'provider' => 'Aeret Drone PreFlight',
-                'status' => 'not_configured',
-                'summary' => 'Aeret API endpoint is niet geconfigureerd. Controleer de Aeret dronekaart en NOTAM handmatig voor inzet.',
+                'status' => ($kaartviewer['status'] ?? null) === 'available' ? 'partial_available' : 'not_configured',
+                'summary' => ($kaartviewer['summary'] ?? null) ?: 'Aeret API endpoint is niet geconfigureerd. Controleer de Aeret dronekaart en NOTAM handmatig voor inzet.',
                 'no_fly_zones' => [],
-                'notams' => [],
+                'notams' => $kaartviewer['notams'] ?? [],
                 'restrictions' => [],
-                'errors' => ['AERET_API_URL ontbreekt.'],
+                'errors' => array_values(array_filter(['AERET_API_URL ontbreekt.', ...($kaartviewer['errors'] ?? [])])),
             ];
         }
 
@@ -127,10 +128,13 @@ final class DroneFlightContextService
                 'status' => 'available',
                 'summary' => $this->stringValue($payload, ['summary', 'message']) ?? 'Aeret/NOTAM gegevens opgehaald.',
                 'no_fly_zones' => $this->listValue($payload, ['no_fly_zones', 'nofly_zones', 'zones']),
-                'notams' => $this->listValue($payload, ['notams', 'notam']),
+                'notams' => $this->mergeLists(
+                    $this->listValue($payload, ['notams', 'notam']),
+                    $kaartviewer['notams'] ?? [],
+                ),
                 'restrictions' => $this->listValue($payload, ['restrictions', 'airspace', 'warnings']),
                 'raw' => $payload,
-                'errors' => [],
+                'errors' => $kaartviewer['errors'] ?? [],
             ];
         } catch (Throwable $exception) {
             report($exception);
@@ -295,6 +299,126 @@ final class DroneFlightContextService
         return $configured === 'https://dronepreflight.nl/' ? 'https://aeret.kaartviewer.nl/?@dpf_basic' : $configured;
     }
 
+    /**
+     * @return array{status: string, summary: string, notams: array<int, mixed>, errors: array<int, string>}
+     */
+    private function aeretKaartviewerData(float $latitude, float $longitude): array
+    {
+        $baseUrl = $this->aeretMapUrl();
+        if ($baseUrl === '' || ! str_contains($baseUrl, 'aeret.kaartviewer.nl')) {
+            return [
+                'status' => 'not_configured',
+                'summary' => '',
+                'notams' => [],
+                'errors' => ['Aeret kaartviewer URL is niet geconfigureerd.'],
+            ];
+        }
+
+        try {
+            $origin = $this->originFromUrl($baseUrl);
+            $website = $this->websiteNameFromAeretUrl($baseUrl);
+            $settings = Http::timeout(10)
+                ->acceptJson()
+                ->get($origin.'/admin/v2/kaartviewerapi/bookmark/'.$website.'/settings')
+                ->json();
+
+            if (! is_array($settings) || ! is_numeric($settings['bookmarkID'] ?? null)) {
+                return $this->kaartviewerUnavailable('Aeret kaartviewer settings konden niet worden gelezen.');
+            }
+
+            $bookmarkId = (int) $settings['bookmarkID'];
+            $tree = Http::timeout(10)
+                ->acceptJson()
+                ->get($origin.'/admin/v2/kaartviewerapi/bookmark/'.$bookmarkId.'/tree')
+                ->json();
+            $notamNode = $this->findTreeNodeByLabel($tree, 'notam');
+            if ($notamNode === null || ! is_numeric($notamNode['ID'] ?? null) || ! is_numeric($notamNode['presentationID'] ?? null)) {
+                return $this->kaartviewerUnavailable('Aeret kaartviewer NOTAM-laag is niet gevonden.');
+            }
+
+            $bookmarkPresentationId = (int) $notamNode['ID'];
+            $presentationId = (int) $notamNode['presentationID'];
+            $presentation = Http::timeout(10)
+                ->acceptJson()
+                ->get($origin.'/admin/v2/kaartviewerapi/bookmark/'.$bookmarkId.'/bookmarkpresentation/'.$bookmarkPresentationId.'/presentation')
+                ->json();
+            $formId = $this->firstFormId($presentation);
+            if ($formId === null) {
+                return $this->kaartviewerUnavailable('Aeret kaartviewer NOTAM-formulier is niet gevonden.');
+            }
+
+            [$x, $y] = $this->wgs84ToRd($latitude, $longitude);
+            $span = 25000;
+            $payload = [
+                'bbox' => implode(',', [round($x - $span, 2), round($y - $span, 2), round($x + $span, 2), round($y + $span, 2)]),
+                'geometry' => ['type' => 'Point', 'coordinates' => [round($x, 2), round($y, 2)]],
+                'start' => 0,
+                'length' => 50,
+            ];
+            $data = Http::timeout(15)
+                ->acceptJson()
+                ->asJson()
+                ->post($origin.'/admin/v2/kaartviewerapi/bookmark/'.$bookmarkId.'/domain/1/presentation/'.$presentationId.'/filter/'.$formId.'?request=data&trekking=1', $payload)
+                ->json();
+
+            $notams = $this->kaartviewerNotams($data);
+
+            return [
+                'status' => 'available',
+                'summary' => $notams === []
+                    ? 'Aeret kaartviewer NOTAM feed gecontroleerd; geen NOTAM regels ontvangen voor deze locatie.'
+                    : 'Aeret kaartviewer NOTAM feed gelezen.',
+                'notams' => $notams,
+                'errors' => [],
+            ];
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return $this->kaartviewerUnavailable($exception->getMessage());
+        }
+    }
+
+    /**
+     * @return array{status: string, summary: string, notams: array<int, mixed>, errors: array<int, string>}
+     */
+    private function kaartviewerUnavailable(string $error): array
+    {
+        return [
+            'status' => 'unavailable',
+            'summary' => 'Aeret kaartviewer NOTAM feed kon niet worden gelezen.',
+            'notams' => [],
+            'errors' => [$error],
+        ];
+    }
+
+    private function originFromUrl(string $url): string
+    {
+        $parts = parse_url($url);
+        $scheme = $parts['scheme'] ?? 'https';
+        $host = $parts['host'] ?? 'aeret.kaartviewer.nl';
+
+        return $scheme.'://'.$host;
+    }
+
+    private function websiteNameFromAeretUrl(string $url): string
+    {
+        $parts = parse_url($url);
+        $query = [];
+        if (is_string($parts['query'] ?? null)) {
+            parse_str($parts['query'], $query);
+            foreach ($query as $key => $value) {
+                if (str_starts_with((string) $key, '@')) {
+                    return ltrim((string) $key, '@');
+                }
+                if ($key === 'website' && is_string($value) && $value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        return 'dpf_basic';
+    }
+
     private function aeretUrlWithCoordinates(string $url, float $latitude, float $longitude): ?string
     {
         if (trim($url) === '') {
@@ -363,6 +487,107 @@ final class DroneFlightContextService
             + (-0.054 * $dLatitude ** 4);
 
         return [$x, $y];
+    }
+
+    /**
+     * @param mixed $node
+     * @return array<string, mixed>|null
+     */
+    private function findTreeNodeByLabel(mixed $node, string $needle): ?array
+    {
+        if (! is_array($node)) {
+            return null;
+        }
+
+        $label = $node['label'] ?? null;
+        if (is_string($label) && str_contains(strtolower($label), strtolower($needle))) {
+            return $node;
+        }
+
+        $branches = $node['branch'] ?? [];
+        if (! is_array($branches)) {
+            return null;
+        }
+
+        foreach ($branches as $branch) {
+            $match = $this->findTreeNodeByLabel($branch, $needle);
+            if ($match !== null) {
+                return $match;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param mixed $presentation
+     */
+    private function firstFormId(mixed $presentation): ?int
+    {
+        if (! is_array($presentation)) {
+            return null;
+        }
+
+        $forms = $presentation['Forms'] ?? [];
+        if (! is_array($forms)) {
+            return null;
+        }
+
+        foreach ($forms as $form) {
+            if (is_array($form) && is_numeric($form['ID'] ?? null)) {
+                return (int) $form['ID'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param mixed $payload
+     * @return array<int, mixed>
+     */
+    private function kaartviewerNotams(mixed $payload): array
+    {
+        if (! is_array($payload)) {
+            return [];
+        }
+
+        foreach (['features', 'data', 'items', 'results'] as $key) {
+            $items = $payload[$key] ?? null;
+            if (is_array($items)) {
+                return array_values(array_filter(array_map(fn (mixed $item): mixed => $this->normaliseFeatureProperties($item), $items)));
+            }
+        }
+
+        return [];
+    }
+
+    private function normaliseFeatureProperties(mixed $item): mixed
+    {
+        if (! is_array($item)) {
+            return $item;
+        }
+
+        $properties = $item['properties'] ?? null;
+
+        return is_array($properties) ? $properties : $item;
+    }
+
+    /**
+     * @param array<int, mixed> $first
+     * @param array<int, mixed> $second
+     * @return array<int, mixed>
+     */
+    private function mergeLists(array $first, array $second): array
+    {
+        if ($second === []) {
+            return $first;
+        }
+        if ($first === []) {
+            return $second;
+        }
+
+        return array_values([...$first, ...$second]);
     }
 
     /**
