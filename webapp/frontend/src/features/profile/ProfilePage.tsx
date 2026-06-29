@@ -1,22 +1,30 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { KeyRound, ShieldCheck } from 'lucide-react';
 import { Panel } from '../../components/Panel';
+import { ResourceState } from '../../components/ResourceState';
+import { StatusPill } from '../../components/StatusPill';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { ApiClientError } from '../../lib/apiClient';
+import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { TwoFactorSetup } from '../../types/api';
+import type { TwoFactorSetup, UserVacation } from '../../types/api';
 
 export function ProfilePage() {
-  const { user, startTwoFactorSetup, enableTwoFactor, disableTwoFactor } = useAuth();
+  const { api, user, startTwoFactorSetup, enableTwoFactor, disableTwoFactor } = useAuth();
+  const vacations = useApiResource<UserVacation[]>('/vacations/mine');
   const [setup, setSetup] = useState<TwoFactorSetup | null>(null);
   const [enableCode, setEnableCode] = useState('');
   const [disablePassword, setDisablePassword] = useState('');
   const [disableCode, setDisableCode] = useState('');
+  const [vacationForm, setVacationForm] = useState({ startsAt: todayInputValue(), endsAt: todayInputValue(), note: '' });
+  const [savingVacation, setSavingVacation] = useState(false);
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [autoSetupStarted, setAutoSetupStarted] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [vacationMessage, setVacationMessage] = useState<string | null>(null);
+  const [vacationError, setVacationError] = useState<string | null>(null);
 
   const mfaRequiredByRole = useMemo(
     () => user?.roles?.some((role) => role.requires_two_factor) ?? false,
@@ -81,6 +89,39 @@ export function ProfilePage() {
     }
   }
 
+  async function submitVacation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingVacation(true);
+    setVacationError(null);
+    setVacationMessage(null);
+    try {
+      await api.post<UserVacation>('/vacations/mine', {
+        starts_at: vacationForm.startsAt,
+        ends_at: vacationForm.endsAt,
+        note: vacationForm.note.trim() === '' ? null : vacationForm.note.trim(),
+      });
+      setVacationForm({ startsAt: todayInputValue(), endsAt: todayInputValue(), note: '' });
+      setVacationMessage('Vakantie opgeslagen.');
+      await vacations.reload();
+    } catch (err) {
+      setVacationError(err instanceof ApiClientError ? err.message : 'Vakantie kon niet worden opgeslagen.');
+    } finally {
+      setSavingVacation(false);
+    }
+  }
+
+  async function cancelVacation(vacation: UserVacation) {
+    setVacationError(null);
+    setVacationMessage(null);
+    try {
+      await api.delete(`/vacations/${vacation.id}`);
+      setVacationMessage('Vakantie ingetrokken.');
+      await vacations.reload();
+    } catch (err) {
+      setVacationError(err instanceof ApiClientError ? err.message : 'Vakantie kon niet worden ingetrokken.');
+    }
+  }
+
   return (
     <div className="page-stack">
       <Panel title="Profiel">
@@ -96,6 +137,31 @@ export function ProfilePage() {
           <dt>MFA verplicht</dt>
           <dd>{mfaRequiredByRole ? 'Ja, door rol' : 'Nee'}</dd>
         </div>
+      </Panel>
+
+      <Panel title="Mijn vakantie">
+        <form className="form-grid" onSubmit={submitVacation}>
+          <label>
+            Begindatum
+            <input type="date" value={vacationForm.startsAt} onChange={(event) => setVacationForm((current) => ({ ...current, startsAt: event.target.value }))} />
+          </label>
+          <label>
+            Einddatum
+            <input type="date" value={vacationForm.endsAt} onChange={(event) => setVacationForm((current) => ({ ...current, endsAt: event.target.value }))} />
+          </label>
+          <label className="form-grid__wide">
+            Notitie
+            <input value={vacationForm.note} maxLength={1000} onChange={(event) => setVacationForm((current) => ({ ...current, note: event.target.value }))} />
+          </label>
+          {vacationError ? <p className="form-error form-grid__wide">{vacationError}</p> : null}
+          {vacationMessage ? <p className="form-note form-grid__wide">{vacationMessage}</p> : null}
+          <div className="actions-row form-grid__wide">
+            <button className="primary-button" type="submit" disabled={savingVacation || vacationForm.startsAt === '' || vacationForm.endsAt === ''}>
+              {savingVacation ? 'Opslaan...' : 'Vakantie opgeven'}
+            </button>
+          </div>
+        </form>
+        <VacationTable vacations={vacations.data ?? []} loading={vacations.loading} error={vacations.error} onCancel={cancelVacation} />
       </Panel>
 
       <Panel title="Multi-factor authenticatie">
@@ -169,4 +235,50 @@ export function ProfilePage() {
       ) : null}
     </div>
   );
+}
+
+function VacationTable({ vacations, loading, error, onCancel }: { vacations: UserVacation[]; loading: boolean; error: string | null; onCancel: (vacation: UserVacation) => Promise<void> }) {
+  return (
+    <ResourceState loading={loading} error={error} empty={vacations.length === 0}>
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Begin</th>
+            <th>Einde</th>
+            <th>Status</th>
+            <th>Notitie</th>
+            <th>Actie</th>
+          </tr>
+        </thead>
+        <tbody>
+          {vacations.map((vacation) => (
+            <tr key={vacation.id}>
+              <td>{formatDate(vacation.starts_at)}</td>
+              <td>{formatDate(vacation.ends_at)}</td>
+              <td><StatusPill value={vacation.status} tone={vacation.status === 'active' ? 'warn' : vacation.status === 'cancelled' ? 'bad' : 'neutral'} /></td>
+              <td>{vacation.note ?? '-'}</td>
+              <td>
+                {vacation.status === 'scheduled' || vacation.status === 'active' ? (
+                  <button className="secondary-button" type="button" onClick={() => void onCancel(vacation)}>Intrekken</button>
+                ) : '-'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </ResourceState>
+  );
+}
+
+function todayInputValue(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function formatDate(value?: string | null): string {
+  if (!value) {
+    return '-';
+  }
+
+  const [year, month, day] = value.split('-');
+  return year && month && day ? `${day}-${month}-${year}` : value;
 }
