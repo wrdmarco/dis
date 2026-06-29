@@ -18,8 +18,6 @@ final class StoreCertificationRequest extends FormRequest
             'name' => ['required', 'string', 'max:160'],
             'description' => ['nullable', 'string', 'max:4000'],
             'is_required_for_dispatch' => ['required', 'boolean'],
-            'warning_days_before_expiry' => ['required', 'integer', 'min:1', 'max:365'],
         ];
     }
 }
-

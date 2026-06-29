@@ -21,8 +21,6 @@ final class UpdateCertificationRequest extends FormRequest
             'name' => ['sometimes', 'string', 'max:160'],
             'description' => ['nullable', 'string', 'max:4000'],
             'is_required_for_dispatch' => ['sometimes', 'boolean'],
-            'warning_days_before_expiry' => ['sometimes', 'integer', 'min:1', 'max:365'],
         ];
     }
 }
-

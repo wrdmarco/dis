@@ -18,15 +18,13 @@ final class CertificationExpiryNotificationService
     public function sendDueNotifications(bool $dryRun = false): array
     {
         $today = now()->toImmutable()->startOfDay();
-        $maxWarningDays = (int) max(1, UserCertification::query()
-            ->join('certifications', 'certifications.id', '=', 'user_certifications.certification_id')
-            ->max('certifications.warning_days_before_expiry') ?? 30);
+        $warningDays = SystemSetting::integer('certification.warning_days_before_expiry', 30);
 
         $candidates = UserCertification::query()
             ->with(['user', 'certification'])
             ->where('status', 'active')
             ->whereNotNull('expires_at')
-            ->whereDate('expires_at', '<=', $today->addDays($maxWarningDays)->toDateString())
+            ->whereDate('expires_at', '<=', $today->addDays($warningDays)->toDateString())
             ->whereHas('user', fn ($query) => $query->where('account_status', 'active'))
             ->get();
 
@@ -44,13 +42,12 @@ final class CertificationExpiryNotificationService
             }
 
             $daysUntilExpiry = (int) $today->diffInDays($expiresAt, false);
-            $warningDays = (int) $certification->warning_days_before_expiry;
-            if ($daysUntilExpiry > $warningDays) {
+            if (! in_array($daysUntilExpiry, [$warningDays, 0], true)) {
                 $result['skipped']++;
                 continue;
             }
 
-            $notificationType = $daysUntilExpiry < 0 ? 'expired' : 'expiring';
+            $notificationType = $daysUntilExpiry === 0 ? 'expired' : 'expiring';
             if ($this->alreadySentToday($userCertification, $notificationType)) {
                 $result['skipped']++;
                 continue;

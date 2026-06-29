@@ -37,6 +37,7 @@ final class SystemSettingSeeder extends Seeder
         'backup.retention_count' => ['value' => 7, 'is_sensitive' => false],
         'backup.auto.last_run_at' => ['value' => null, 'is_sensitive' => false],
         'asset.warning_days_before_expiry' => ['value' => 30, 'is_sensitive' => false],
+        'certification.warning_days_before_expiry' => ['value' => 30, 'is_sensitive' => false],
         'location.retention_days' => ['value' => 30, 'is_sensitive' => false],
         'updates.android.minimum_supported_version_code' => ['value' => 1, 'is_sensitive' => false],
         'security.require_2fa_for_coordinators' => ['value' => true, 'is_sensitive' => false],

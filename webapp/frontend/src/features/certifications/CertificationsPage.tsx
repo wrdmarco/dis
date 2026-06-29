@@ -13,7 +13,6 @@ interface CertificationFormState {
   name: string;
   description: string;
   isRequiredForDispatch: boolean;
-  warningDaysBeforeExpiry: string;
 }
 
 const emptyForm: CertificationFormState = {
@@ -21,7 +20,6 @@ const emptyForm: CertificationFormState = {
   name: '',
   description: '',
   isRequiredForDispatch: true,
-  warningDaysBeforeExpiry: '30',
 };
 
 export function CertificationsPage() {
@@ -57,7 +55,6 @@ export function CertificationsPage() {
       name: certification.name,
       description: certification.description ?? '',
       isRequiredForDispatch: certification.is_required_for_dispatch,
-      warningDaysBeforeExpiry: String(certification.warning_days_before_expiry),
     });
     setError(null);
     setModalMode('edit');
@@ -73,7 +70,6 @@ export function CertificationsPage() {
       name: form.name,
       description: form.description || null,
       is_required_for_dispatch: form.isRequiredForDispatch,
-      warning_days_before_expiry: Number(form.warningDaysBeforeExpiry || 30),
     };
 
     try {
@@ -122,7 +118,7 @@ export function CertificationsPage() {
       >
         <ResourceState loading={certifications.loading} error={certifications.error} empty={(certifications.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Code</th><th>Naam</th><th>Gekoppelde gebruikers</th><th>Dispatch</th><th>Waarschuwing</th><th>Actie</th></tr></thead>
+            <thead><tr><th>Code</th><th>Naam</th><th>Gekoppelde gebruikers</th><th>Dispatch</th><th>Actie</th></tr></thead>
             <tbody>
               {certifications.data?.map((certification) => (
                 <tr key={certification.id}>
@@ -130,7 +126,6 @@ export function CertificationsPage() {
                   <td>{certification.name}</td>
                   <td>{certificationUsers(certification)}</td>
                   <td><StatusPill value={certification.is_required_for_dispatch ? 'required' : 'optional'} tone={certification.is_required_for_dispatch ? 'warn' : 'neutral'} /></td>
-                  <td>{certification.warning_days_before_expiry} dagen</td>
                   <td>
                     {canManageCertifications ? (
                       <button className="secondary-button" type="button" onClick={() => openEditModal(certification)}>
@@ -162,17 +157,6 @@ export function CertificationsPage() {
               <label>
                 Naam
                 <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
-              </label>
-              <label>
-                Waarschuwingstermijn
-                <input
-                  type="number"
-                  min="1"
-                  max="365"
-                  value={form.warningDaysBeforeExpiry}
-                  onChange={(event) => setForm((current) => ({ ...current, warningDaysBeforeExpiry: event.target.value }))}
-                  required
-                />
               </label>
               <label className="check-label">
                 <input

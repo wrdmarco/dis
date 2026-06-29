@@ -40,7 +40,12 @@ final class AssetExpiryNotificationService
             }
 
             $daysUntilExpiry = (int) $today->diffInDays($expiresAt, false);
-            $notificationType = $daysUntilExpiry < 0 ? 'expired' : 'expiring';
+            if (! in_array($daysUntilExpiry, [$warningDays, 0], true)) {
+                $result['skipped']++;
+                continue;
+            }
+
+            $notificationType = $daysUntilExpiry === 0 ? 'expired' : 'expiring';
             if ($this->alreadySentToday($asset, $user->id, $notificationType)) {
                 $result['skipped']++;
                 continue;

@@ -380,6 +380,7 @@ final class AdminController extends Controller
             'mobile.tenant_name' => $this->validateStringSetting($key, $value, 120),
             'mobile.api_base_url',
             'app.public_url' => $this->validateNullableUrlSetting($key, $value, 2048),
+            'certification.warning_days_before_expiry',
             'asset.warning_days_before_expiry' => $this->validateIntegerSetting($key, $value, 1, 365),
             'updates.android.application_id' => $this->validateAndroidApplicationIdSetting($key, $value),
             default => throw ValidationException::withMessages(["settings.$key" => ['Deze instelling mag niet via deze pagina worden aangepast.']]),

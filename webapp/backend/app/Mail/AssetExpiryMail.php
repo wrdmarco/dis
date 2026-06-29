@@ -25,7 +25,7 @@ final class AssetExpiryMail extends Mailable
     public function build(): self
     {
         $expiresAt = $this->asset->maintenance_due_at?->format('d-m-Y') ?? '-';
-        $isExpired = $this->daysUntilExpiry < 0;
+        $isExpired = $this->daysUntilExpiry <= 0;
         $appName = SystemSetting::string('app.brand_name', 'D.I.S') ?? 'D.I.S';
         $tenantName = SystemSetting::string('mobile.tenant_name', 'Nationaal Droneteam') ?? 'Nationaal Droneteam';
         $subjectTemplate = SystemSetting::string('mail.template.asset_expiry_subject', '{{asset_name}} - {{status_text}}') ?? '';

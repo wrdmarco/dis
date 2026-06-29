@@ -24,7 +24,7 @@ final class CertificationExpiryMail extends Mailable
     {
         $certificationName = $this->userCertification->certification?->name ?? 'Certificaat';
         $expiresAt = $this->userCertification->expires_at?->format('d-m-Y') ?? '-';
-        $isExpired = $this->daysUntilExpiry < 0;
+        $isExpired = $this->daysUntilExpiry <= 0;
         $appName = SystemSetting::string('app.brand_name', 'D.I.S') ?? 'D.I.S';
         $tenantName = SystemSetting::string('mobile.tenant_name', 'Nationaal Droneteam') ?? 'Nationaal Droneteam';
         $subjectTemplate = SystemSetting::string(

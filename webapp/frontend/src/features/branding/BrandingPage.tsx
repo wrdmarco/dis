@@ -5,6 +5,8 @@ import { useApiResource } from '../../lib/useApiResource';
 import type { SystemSetting } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 
+type BrandingTab = 'general' | 'logo' | 'templates' | 'expiry';
+
 interface BrandingForm {
   brandName: string;
   brandShortName: string;
@@ -16,6 +18,7 @@ interface BrandingForm {
   mailFromName: string;
   welcomeSubject: string;
   welcomeBody: string;
+  certificationWarningDaysBeforeExpiry: string;
   certificationExpirySubject: string;
   certificationExpiryBody: string;
   assetWarningDaysBeforeExpiry: string;
@@ -23,11 +26,19 @@ interface BrandingForm {
   assetExpiryBody: string;
 }
 
+const brandingTabs: Array<{ id: BrandingTab; label: string }> = [
+  { id: 'general', label: 'Algemeen' },
+  { id: 'logo', label: 'Logo' },
+  { id: 'templates', label: 'Mail templates' },
+  { id: 'expiry', label: 'Verloopmails' },
+];
+
 export function BrandingPage() {
   const { api } = useAuth();
   const settings = useApiResource<SystemSetting[]>('/admin/settings');
   const initialForm = useMemo(() => toBrandingForm(settings.data ?? []), [settings.data]);
   const [form, setForm] = useState<BrandingForm>(initialForm);
+  const [activeTab, setActiveTab] = useState<BrandingTab>('general');
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -54,9 +65,10 @@ export function BrandingPage() {
           'mail.from_name': textSetting(form.mailFromName, textSetting(form.tenantName, 'D.I.S')),
           'mail.template.welcome_subject': textSetting(form.welcomeSubject, 'Welkom bij {{app_name}}'),
           'mail.template.welcome_body': textSetting(form.welcomeBody),
+          'certification.warning_days_before_expiry': numberSetting(form.certificationWarningDaysBeforeExpiry, 30),
           'mail.template.certification_expiry_subject': textSetting(form.certificationExpirySubject, '{{certification_name}} - {{status_text}}'),
           'mail.template.certification_expiry_body': textSetting(form.certificationExpiryBody),
-          'asset.warning_days_before_expiry': Number(form.assetWarningDaysBeforeExpiry || 30),
+          'asset.warning_days_before_expiry': numberSetting(form.assetWarningDaysBeforeExpiry, 30),
           'mail.template.asset_expiry_subject': textSetting(form.assetExpirySubject, '{{asset_name}} - {{status_text}}'),
           'mail.template.asset_expiry_body': textSetting(form.assetExpiryBody),
         },
@@ -112,95 +124,128 @@ export function BrandingPage() {
     <div className="page-stack">
       <Panel title="Branding">
         <ResourceState loading={settings.loading} error={settings.error} empty={settings.data === null}>
-          <div className="stacked-section">
-            <h3>Algemeen</h3>
-            <div className="form-grid">
-              <label>
-                Applicatienaam
-                <input maxLength={120} value={form.brandName} onChange={(event) => setForm((current) => ({ ...current, brandName: event.target.value }))} />
-              </label>
-              <label>
-                Korte naam
-                <input maxLength={12} value={form.brandShortName} onChange={(event) => setForm((current) => ({ ...current, brandShortName: event.target.value }))} />
-              </label>
-              <label>
-                Organisatienaam
-                <input maxLength={120} value={form.tenantName} onChange={(event) => setForm((current) => ({ ...current, tenantName: event.target.value }))} />
-              </label>
-              <label>
-                Authenticator naam
-                <input maxLength={64} value={form.mfaIssuerName} onChange={(event) => setForm((current) => ({ ...current, mfaIssuerName: event.target.value }))} />
-              </label>
-              <label>
-                Titel inlogvenster
-                <input maxLength={120} value={form.loginTitle} onChange={(event) => setForm((current) => ({ ...current, loginTitle: event.target.value }))} />
-              </label>
-              <label>
-                Subtitel inlogvenster
-                <input maxLength={240} value={form.loginSubtitle} onChange={(event) => setForm((current) => ({ ...current, loginSubtitle: event.target.value }))} />
-              </label>
-              <label className="form-grid__wide">
-                Mail afzendernaam
-                <input maxLength={255} value={form.mailFromName} onChange={(event) => setForm((current) => ({ ...current, mailFromName: event.target.value }))} />
-              </label>
-            </div>
+          <div className="admin-tabs" role="tablist" aria-label="Branding onderdelen">
+            {brandingTabs.map((tab) => (
+              <button
+                className={activeTab === tab.id ? 'admin-tab admin-tab--active' : 'admin-tab'}
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
-          <div className="stacked-section">
-            <h3>Logo</h3>
-            <div className="branding-logo-row">
-              <div className="branding-logo-preview">
-                {form.logoDataUrl ? <img src={form.logoDataUrl} alt="Huidig logo" /> : <span>{form.brandShortName || 'DIS'}</span>}
-              </div>
-              <div className="actions-row">
-                <label className="secondary-button file-button">
-                  Logo uploaden
-                  <input accept="image/png,image/jpeg,image/webp" type="file" onChange={(event) => void uploadLogo(event.target.files?.[0] ?? null)} disabled={uploadingLogo} />
+          {activeTab === 'general' ? (
+            <div className="stacked-section">
+              <div className="form-grid">
+                <label>
+                  Applicatienaam
+                  <input maxLength={120} value={form.brandName} onChange={(event) => setForm((current) => ({ ...current, brandName: event.target.value }))} />
                 </label>
-                <button className="secondary-button" type="button" onClick={() => void deleteLogo()} disabled={uploadingLogo || !form.logoDataUrl}>
-                  Logo verwijderen
-                </button>
+                <label>
+                  Korte naam
+                  <input maxLength={12} value={form.brandShortName} onChange={(event) => setForm((current) => ({ ...current, brandShortName: event.target.value }))} />
+                </label>
+                <label>
+                  Organisatienaam
+                  <input maxLength={120} value={form.tenantName} onChange={(event) => setForm((current) => ({ ...current, tenantName: event.target.value }))} />
+                </label>
+                <label>
+                  Authenticator naam
+                  <input maxLength={64} value={form.mfaIssuerName} onChange={(event) => setForm((current) => ({ ...current, mfaIssuerName: event.target.value }))} />
+                </label>
+                <label>
+                  Titel inlogvenster
+                  <input maxLength={120} value={form.loginTitle} onChange={(event) => setForm((current) => ({ ...current, loginTitle: event.target.value }))} />
+                </label>
+                <label>
+                  Subtitel inlogvenster
+                  <input maxLength={240} value={form.loginSubtitle} onChange={(event) => setForm((current) => ({ ...current, loginSubtitle: event.target.value }))} />
+                </label>
+                <label className="form-grid__wide">
+                  Mail afzendernaam
+                  <input maxLength={255} value={form.mailFromName} onChange={(event) => setForm((current) => ({ ...current, mailFromName: event.target.value }))} />
+                </label>
               </div>
             </div>
-          </div>
+          ) : null}
 
-          <div className="stacked-section">
-            <h3>Mail templates</h3>
-            <div className="form-grid">
-              <label className="form-grid__wide">
-                Uitnodiging onderwerp
-                <input maxLength={160} value={form.welcomeSubject} onChange={(event) => setForm((current) => ({ ...current, welcomeSubject: event.target.value }))} />
-              </label>
-              <label className="form-grid__wide">
-                Uitnodiging tekst
-                <textarea rows={9} maxLength={4000} value={form.welcomeBody} onChange={(event) => setForm((current) => ({ ...current, welcomeBody: event.target.value }))} />
-              </label>
-              <label className="form-grid__wide">
-                Certificaat verloop onderwerp
-                <input maxLength={160} value={form.certificationExpirySubject} onChange={(event) => setForm((current) => ({ ...current, certificationExpirySubject: event.target.value }))} />
-              </label>
-              <label className="form-grid__wide">
-                Certificaat verloop tekst
-                <textarea rows={9} maxLength={4000} value={form.certificationExpiryBody} onChange={(event) => setForm((current) => ({ ...current, certificationExpiryBody: event.target.value }))} />
-              </label>
-              <label>
-                Asset waarschuwing vanaf dagen
-                <input type="number" min={1} max={365} value={form.assetWarningDaysBeforeExpiry} onChange={(event) => setForm((current) => ({ ...current, assetWarningDaysBeforeExpiry: event.target.value }))} />
-              </label>
-              <label className="form-grid__wide">
-                Asset verloop onderwerp
-                <input maxLength={160} value={form.assetExpirySubject} onChange={(event) => setForm((current) => ({ ...current, assetExpirySubject: event.target.value }))} />
-              </label>
-              <label className="form-grid__wide">
-                Asset verloop tekst
-                <textarea rows={9} maxLength={4000} value={form.assetExpiryBody} onChange={(event) => setForm((current) => ({ ...current, assetExpiryBody: event.target.value }))} />
-              </label>
+          {activeTab === 'logo' ? (
+            <div className="stacked-section">
+              <div className="branding-logo-row">
+                <div className="branding-logo-preview">
+                  {form.logoDataUrl ? <img src={form.logoDataUrl} alt="Huidig logo" /> : <span>{form.brandShortName || 'DIS'}</span>}
+                </div>
+                <div className="actions-row">
+                  <label className="secondary-button file-button">
+                    Logo uploaden
+                    <input accept="image/png,image/jpeg,image/webp" type="file" onChange={(event) => void uploadLogo(event.target.files?.[0] ?? null)} disabled={uploadingLogo} />
+                  </label>
+                  <button className="secondary-button" type="button" onClick={() => void deleteLogo()} disabled={uploadingLogo || !form.logoDataUrl}>
+                    Logo verwijderen
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="metadata-example">
-              <strong>Beschikbare tokens</strong>
-              <pre>{'{{app_name}}, {{tenant_name}}, {{name}}, {{email}}, {{registration_url}}, {{admin_app_note}}, {{certification_name}}, {{certificate_number}}, {{asset_name}}, {{asset_tag}}, {{asset_type}}, {{serial_number}}, {{expires_at}}, {{days_until_expiry}}, {{expiry_status}}, {{status_text}}, {{download_url}}'}</pre>
+          ) : null}
+
+          {activeTab === 'templates' ? (
+            <div className="stacked-section">
+              <div className="form-grid">
+                <label className="form-grid__wide">
+                  Uitnodiging onderwerp
+                  <input maxLength={160} value={form.welcomeSubject} onChange={(event) => setForm((current) => ({ ...current, welcomeSubject: event.target.value }))} />
+                </label>
+                <label className="form-grid__wide">
+                  Uitnodiging tekst
+                  <textarea rows={9} maxLength={4000} value={form.welcomeBody} onChange={(event) => setForm((current) => ({ ...current, welcomeBody: event.target.value }))} />
+                </label>
+                <label className="form-grid__wide">
+                  Certificaat verloop onderwerp
+                  <input maxLength={160} value={form.certificationExpirySubject} onChange={(event) => setForm((current) => ({ ...current, certificationExpirySubject: event.target.value }))} />
+                </label>
+                <label className="form-grid__wide">
+                  Certificaat verloop tekst
+                  <textarea rows={9} maxLength={4000} value={form.certificationExpiryBody} onChange={(event) => setForm((current) => ({ ...current, certificationExpiryBody: event.target.value }))} />
+                </label>
+                <label className="form-grid__wide">
+                  Asset verloop onderwerp
+                  <input maxLength={160} value={form.assetExpirySubject} onChange={(event) => setForm((current) => ({ ...current, assetExpirySubject: event.target.value }))} />
+                </label>
+                <label className="form-grid__wide">
+                  Asset verloop tekst
+                  <textarea rows={9} maxLength={4000} value={form.assetExpiryBody} onChange={(event) => setForm((current) => ({ ...current, assetExpiryBody: event.target.value }))} />
+                </label>
+              </div>
+              <div className="metadata-example">
+                <strong>Beschikbare tokens</strong>
+                <pre>{'{{app_name}}, {{tenant_name}}, {{name}}, {{email}}, {{registration_url}}, {{admin_app_note}}, {{certification_name}}, {{certificate_number}}, {{asset_name}}, {{asset_tag}}, {{asset_type}}, {{serial_number}}, {{expires_at}}, {{days_until_expiry}}, {{expiry_status}}, {{status_text}}, {{download_url}}'}</pre>
+              </div>
             </div>
-          </div>
+          ) : null}
+
+          {activeTab === 'expiry' ? (
+            <div className="stacked-section">
+              <div className="form-grid">
+                <label>
+                  Certificaat waarschuwing
+                  <input type="number" min={1} max={365} value={form.certificationWarningDaysBeforeExpiry} onChange={(event) => setForm((current) => ({ ...current, certificationWarningDaysBeforeExpiry: event.target.value }))} />
+                </label>
+                <label>
+                  Asset waarschuwing
+                  <input type="number" min={1} max={365} value={form.assetWarningDaysBeforeExpiry} onChange={(event) => setForm((current) => ({ ...current, assetWarningDaysBeforeExpiry: event.target.value }))} />
+                </label>
+              </div>
+              <div className="metadata-example">
+                <strong>Verzendmomenten</strong>
+                <pre>{`Certificaten: ${form.certificationWarningDaysBeforeExpiry || 30} dag(en) voor verlopen en op de verloopdatum.\nAssets: ${form.assetWarningDaysBeforeExpiry || 30} dag(en) voor verlopen en op de verloopdatum.`}</pre>
+              </div>
+            </div>
+          ) : null}
 
           <div className="metadata-example">
             <strong>Voorbeeld</strong>
@@ -233,6 +278,7 @@ function toBrandingForm(settings: SystemSetting[]): BrandingForm {
     mailFromName: asString(byKey.get('mail.from_name')) || 'D.I.S',
     welcomeSubject: asString(byKey.get('mail.template.welcome_subject')) || 'Welkom bij {{app_name}}',
     welcomeBody: asString(byKey.get('mail.template.welcome_body')) || '',
+    certificationWarningDaysBeforeExpiry: String(asNumber(byKey.get('certification.warning_days_before_expiry'), 30)),
     certificationExpirySubject: asString(byKey.get('mail.template.certification_expiry_subject')) || '{{certification_name}} - {{status_text}}',
     certificationExpiryBody: asString(byKey.get('mail.template.certification_expiry_body')) || '',
     assetWarningDaysBeforeExpiry: String(asNumber(byKey.get('asset.warning_days_before_expiry'), 30)),
@@ -249,6 +295,11 @@ function textSetting(value: unknown, fallback = ''): string {
   const text = typeof value === 'string' ? value.trim() : '';
 
   return text || fallback;
+}
+
+function numberSetting(value: string, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function asNumber(value: unknown, fallback: number): number {
