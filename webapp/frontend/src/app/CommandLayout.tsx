@@ -23,6 +23,7 @@ const navGroups: NavGroup[] = [
     label: 'Overzicht',
     items: [
       { to: '/dashboard', label: 'Dashboard', icon: Gauge, permissions: ['incidents.view', 'dispatch.view', 'status.view', 'assets.view'] },
+      { to: '/profile', label: 'Profiel', icon: UserRound },
     ],
   },
   {
