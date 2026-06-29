@@ -41,6 +41,17 @@ final class CertificationController extends Controller
         );
     }
 
+    public function options(): JsonResponse
+    {
+        return ApiResponse::success(
+            Certification::query()
+                ->orderBy('name')
+                ->get()
+                ->map(fn (Certification $certification): array => MobileApiPayload::certification($certification))
+                ->values(),
+        );
+    }
+
     public function store(StoreCertificationRequest $request): JsonResponse
     {
         return ApiResponse::success($this->service->create($request->validated(), $request->user()), 201);

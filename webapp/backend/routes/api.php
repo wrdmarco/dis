@@ -143,6 +143,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::delete('/admin/drone-types/{droneType}', [DroneTypeController::class, 'destroy'])->middleware('permission:assets.manage');
 
     Route::get('/certifications', [CertificationController::class, 'index'])->middleware('permission:certifications.view');
+    Route::get('/certifications/options', [CertificationController::class, 'options']);
     Route::get('/certifications/me', [CertificationController::class, 'myCertifications']);
     Route::post('/certifications/me', [CertificationController::class, 'storeMyCertification']);
     Route::patch('/certifications/me/{userCertification}', [CertificationController::class, 'updateMyCertification']);
