@@ -172,9 +172,29 @@ final class DispatchService
         $recipient = $dispatch->recipients()->where('user_id', $actor->id)->firstOrFail();
         $recipient->update(['response_status' => $response, 'response_note' => $note, 'responded_at' => now()]);
         $this->auditService->record('dispatch.responded', $dispatch, $actor, ['response' => $response]);
+        $this->syncResponseToUserDevices($dispatch, $actor, $response);
         $this->broadcastDispatchChange($dispatch->refresh(), 'responded');
 
         return $recipient;
+    }
+
+    private function syncResponseToUserDevices(DispatchRequest $dispatch, User $actor, string $response): void
+    {
+        foreach ($actor->fcmTokens()->where('is_active', true)->get() as $token) {
+            SendFcmNotification::dispatch(
+                (string) $token->id,
+                'dispatch_response_sync',
+                'D.I.S alarmering bijgewerkt',
+                'Je reactie is verwerkt.',
+                [
+                    'type' => 'dispatch_response_sync',
+                    'dispatch_id' => (string) $dispatch->id,
+                    'incident_id' => (string) $dispatch->incident_id,
+                    'response' => $response,
+                ],
+                (string) $dispatch->id,
+            )->onQueue('push');
+        }
     }
 
     public function overrideRecipientResponse(DispatchRequest $dispatch, DispatchRecipient $recipient, User $actor, string $response, ?string $note): DispatchRecipient
