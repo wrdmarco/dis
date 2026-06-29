@@ -76,7 +76,11 @@ final class VacationController extends Controller
 
     public function cancel(Request $request, UserVacation $vacation): JsonResponse
     {
-        if ($vacation->user_id !== $request->user()?->id && $request->user()?->hasPermission('status.override') !== true) {
+        if (
+            $vacation->user_id !== $request->user()?->id
+            && $request->user()?->hasPermission('users.manage') !== true
+            && $request->user()?->hasPermission('status.override') !== true
+        ) {
             abort(403);
         }
 

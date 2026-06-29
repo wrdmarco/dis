@@ -7,6 +7,7 @@ use App\Http\Middleware\EnsureOperationalAccess;
 use App\Http\Middleware\EnsureTwoFactorComplete;
 use App\Http\Middleware\AuditPrivilegedRequest;
 use App\Http\Middleware\RequestId;
+use App\Http\Middleware\RequireAnyPermission;
 use App\Http\Middleware\RequirePermission;
 use App\Http\Middleware\SecurityHeaders;
 use App\Http\Responses\ApiResponse;
@@ -42,6 +43,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'operational' => EnsureOperationalAccess::class,
             'two_factor.complete' => EnsureTwoFactorComplete::class,
             'permission' => RequirePermission::class,
+            'permission.any' => RequireAnyPermission::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -37,7 +37,7 @@ export function UsersPage() {
   const canManageTeams = hasPermission('teams.manage');
   const canManageAssets = hasPermission('assets.manage');
   const canManageCertifications = hasPermission('certifications.manage');
-  const canManageVacations = hasPermission('status.override');
+  const canManageVacations = hasPermission('users.manage') || hasPermission('status.override');
   const users = useApiResource<User[]>('/users');
   const roles = useApiResource<Role[]>('/admin/roles', canManageRoles);
   const teams = useApiResource<Team[]>('/admin/teams', canManageTeams);
