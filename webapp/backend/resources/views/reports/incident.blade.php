@@ -39,6 +39,7 @@
         .map-detail-box strong { display: block; margin-bottom: 5px; color: #0f172a; font-size: 13px; }
         .map-detail-box span { display: block; margin-top: 5px; color: #475569; }
         .map-url { margin-top: 8px; color: #0369a1; font-size: 9px; word-break: break-all; }
+        .aeret-snapshot { display: block; width: 100%; height: 260px; margin-bottom: 8px; border: 1px solid #cbd5e1; border-radius: 9px; }
         .flight-grid { width: 100%; border-collapse: separate; border-spacing: 8px; margin-left: -8px; margin-right: -8px; }
         .flight-card { padding: 10px 12px; border: 1px solid #d8e1ec; border-radius: 8px; background: #f8fafc; vertical-align: top; }
         .flight-card h3 { margin-bottom: 6px; color: #0f172a; font-size: 12px; }
@@ -191,6 +192,9 @@
                 <td class="flight-card" colspan="2">
                     <h3>Aeret kaart</h3>
                     @if ($flightMap)
+                        @if (! empty($map['aeret_snapshot_data_uri']))
+                            <img class="aeret-snapshot" src="{{ $map['aeret_snapshot_data_uri'] }}" alt="Aeret kaart bij incidentlocatie">
+                        @endif
                         <dl>
                             <dt>Bron</dt><dd>{{ $flightMap['provider'] ?? 'Aeret Drone PreFlight' }}</dd>
                             <dt>Status</dt><dd>{{ $flightMap['status'] ?? '-' }}</dd>

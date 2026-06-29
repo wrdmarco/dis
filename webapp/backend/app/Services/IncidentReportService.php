@@ -237,12 +237,14 @@ final class IncidentReportService
                 'marker_y' => 50.0,
                 'snapshot_data_uri' => null,
                 'snapshot_available' => false,
+                'aeret_snapshot_data_uri' => null,
                 'aeret_url' => null,
                 'openstreetmap_url' => null,
             ];
         }
 
         $flightMap = is_array($droneFlightContext['map'] ?? null) ? $droneFlightContext['map'] : [];
+        $aeretUrl = is_string($flightMap['aeret_url'] ?? null) ? $flightMap['aeret_url'] : null;
         $mapSnapshot = $this->satelliteMapSnapshot($latitude, $longitude);
 
         return [
@@ -255,7 +257,8 @@ final class IncidentReportService
             'marker_y' => 50.0,
             'snapshot_data_uri' => $mapSnapshot['data_uri'],
             'snapshot_available' => $mapSnapshot['available'],
-            'aeret_url' => is_string($flightMap['aeret_url'] ?? null) ? $flightMap['aeret_url'] : null,
+            'aeret_snapshot_data_uri' => $this->aeretMapReferenceImage($latitude, $longitude, $aeretUrl),
+            'aeret_url' => $aeretUrl,
             'openstreetmap_url' => sprintf(
                 'https://www.openstreetmap.org/?mlat=%1$.6f&mlon=%2$.6f#map=16/%1$.6f/%2$.6f',
                 $latitude,
@@ -380,6 +383,48 @@ final class IncidentReportService
   <text x="{$attributionTextX}" y="{$attributionTextY}" font-family="DejaVu Sans, Arial, sans-serif" font-size="8" fill="#475569">Esri World Imagery</text>
 </svg>
 SVG;
+    }
+
+    private function aeretMapReferenceImage(float $latitude, float $longitude, ?string $aeretUrl): ?string
+    {
+        if (! is_string($aeretUrl) || trim($aeretUrl) === '') {
+            return null;
+        }
+
+        $width = 720;
+        $height = 260;
+        $latitudeLabel = e(number_format($latitude, 6, '.', ''));
+        $longitudeLabel = e(number_format($longitude, 6, '.', ''));
+
+        $svg = <<<SVG
+<svg xmlns="http://www.w3.org/2000/svg" width="{$width}" height="{$height}" viewBox="0 0 {$width} {$height}">
+  <defs>
+    <linearGradient id="aeret-bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#dbeafe"/>
+      <stop offset="48%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#dcfce7"/>
+    </linearGradient>
+    <pattern id="grid" width="42" height="42" patternUnits="userSpaceOnUse">
+      <path d="M 42 0 L 0 0 0 42" fill="none" stroke="#cbd5e1" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="{$width}" height="{$height}" rx="10" fill="url(#aeret-bg)" stroke="#cbd5e1"/>
+  <rect width="{$width}" height="{$height}" fill="url(#grid)" opacity="0.55"/>
+  <circle cx="360" cy="130" r="52" fill="#0284c7" fill-opacity="0.12" stroke="#0284c7" stroke-width="2"/>
+  <circle cx="360" cy="130" r="12" fill="#dc2626" stroke="#ffffff" stroke-width="4"/>
+  <line x1="360" y1="70" x2="360" y2="190" stroke="#0f172a" stroke-opacity="0.22" stroke-width="2"/>
+  <line x1="300" y1="130" x2="420" y2="130" stroke="#0f172a" stroke-opacity="0.22" stroke-width="2"/>
+  <rect x="22" y="22" width="230" height="72" rx="8" fill="#ffffff" fill-opacity="0.92" stroke="#dbe5f0"/>
+  <text x="38" y="50" font-family="DejaVu Sans, Arial, sans-serif" font-size="18" font-weight="bold" fill="#0f172a">Aeret Drone PreFlight</text>
+  <text x="38" y="75" font-family="DejaVu Sans, Arial, sans-serif" font-size="11" fill="#475569">Interactieve kaart bij dit incident</text>
+  <rect x="468" y="186" width="230" height="52" rx="8" fill="#ffffff" fill-opacity="0.92" stroke="#dbe5f0"/>
+  <text x="484" y="210" font-family="DejaVu Sans, Arial, sans-serif" font-size="11" fill="#475569">Latitude {$latitudeLabel}</text>
+  <text x="484" y="228" font-family="DejaVu Sans, Arial, sans-serif" font-size="11" fill="#475569">Longitude {$longitudeLabel}</text>
+  <text x="22" y="236" font-family="DejaVu Sans, Arial, sans-serif" font-size="10" fill="#475569">Gebruik de Aeret-link onder deze afbeelding voor actuele kaartlagen, NOTAM en luchtruimcontrole.</text>
+</svg>
+SVG;
+
+        return 'data:image/svg+xml;base64,'.base64_encode($svg);
     }
 
     private function coordinate(mixed $value): ?float
