@@ -122,6 +122,8 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/vacations/mine', [VacationController::class, 'store']);
     Route::delete('/vacations/{vacation}', [VacationController::class, 'cancel']);
     Route::get('/vacations', [VacationController::class, 'index'])->middleware('permission:status.view');
+    Route::get('/users/{user}/vacations', [VacationController::class, 'userVacations'])->middleware('permission:status.view');
+    Route::post('/users/{user}/vacations', [VacationController::class, 'storeForUser'])->middleware('permission:status.override');
 
     Route::get('/assets/mine', [AssetController::class, 'mine']);
     Route::post('/assets/mine', [AssetController::class, 'storeMine']);

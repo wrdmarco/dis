@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiResponse;
+use App\Models\User;
 use App\Models\UserVacation;
 use App\Services\VacationService;
 use Illuminate\Http\JsonResponse;
@@ -37,6 +38,20 @@ final class VacationController extends Controller
         );
     }
 
+    public function userVacations(User $user): JsonResponse
+    {
+        return ApiResponse::success(
+            UserVacation::query()
+                ->with('user')
+                ->where('user_id', $user->id)
+                ->open()
+                ->orderBy('starts_at')
+                ->get()
+                ->map(fn (UserVacation $vacation): array => $this->payload($vacation))
+                ->values(),
+        );
+    }
+
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -46,6 +61,17 @@ final class VacationController extends Controller
         ]);
 
         return ApiResponse::success($this->payload($this->service->create($request->user(), $data, $request->user())), 201);
+    }
+
+    public function storeForUser(Request $request, User $user): JsonResponse
+    {
+        $data = $request->validate([
+            'starts_at' => ['required', 'date'],
+            'ends_at' => ['required', 'date', 'after_or_equal:starts_at'],
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        return ApiResponse::success($this->payload($this->service->create($user, $data, $request->user())), 201);
     }
 
     public function cancel(Request $request, UserVacation $vacation): JsonResponse

@@ -6,7 +6,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { Asset, Certification, Role, Team, User } from '../../types/api';
+import type { Asset, Certification, Role, Team, User, UserVacation } from '../../types/api';
 
 interface UserFormState {
   name: string;
@@ -37,6 +37,7 @@ export function UsersPage() {
   const canManageTeams = hasPermission('teams.manage');
   const canManageAssets = hasPermission('assets.manage');
   const canManageCertifications = hasPermission('certifications.manage');
+  const canManageVacations = hasPermission('status.override');
   const users = useApiResource<User[]>('/users');
   const roles = useApiResource<Role[]>('/admin/roles', canManageRoles);
   const teams = useApiResource<Team[]>('/admin/teams', canManageTeams);
@@ -384,6 +385,7 @@ export function UsersPage() {
                   certificationsError={canManageCertifications ? certifications.error : null}
                   canManageAssets={canManageAssets}
                   canManageCertifications={canManageCertifications}
+                  canManageVacations={canManageVacations}
                   onChanged={reloadUserDetail}
                 />
               ) : null}
@@ -485,6 +487,7 @@ interface UserOperationalDetailsProps {
   certificationsError: string | null;
   canManageAssets: boolean;
   canManageCertifications: boolean;
+  canManageVacations: boolean;
   onChanged: () => Promise<void>;
 }
 
@@ -500,6 +503,7 @@ function UserOperationalDetails({
   certificationsError,
   canManageAssets,
   canManageCertifications,
+  canManageVacations,
   onChanged,
 }: UserOperationalDetailsProps) {
   const { api } = useAuth();
@@ -514,8 +518,44 @@ function UserOperationalDetails({
   const [issuedAt, setIssuedAt] = useState(todayInputValue());
   const [expiresAt, setExpiresAt] = useState('');
   const [certificateNumber, setCertificateNumber] = useState('');
+  const [vacations, setVacations] = useState<UserVacation[]>([]);
+  const [vacationsLoading, setVacationsLoading] = useState(false);
+  const [vacationStartsAt, setVacationStartsAt] = useState(todayInputValue());
+  const [vacationEndsAt, setVacationEndsAt] = useState(todayInputValue());
+  const [vacationNote, setVacationNote] = useState('');
   const [linking, setLinking] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canManageVacations || user === null) {
+      setVacations([]);
+      return;
+    }
+
+    let cancelled = false;
+    setVacationsLoading(true);
+    setLinkError(null);
+    api.get<UserVacation[]>(`/users/${user.id}/vacations`)
+      .then((response) => {
+        if (!cancelled) {
+          setVacations(response.data);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setLinkError(err instanceof ApiClientError ? err.message : 'Vakanties laden mislukt.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setVacationsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api, canManageVacations, user]);
 
   async function assignAsset() {
     if (user === null || assetId === '') {
@@ -562,9 +602,90 @@ function UserOperationalDetails({
     }
   }
 
+  async function createVacation() {
+    if (user === null) {
+      return;
+    }
+
+    setLinking(true);
+    setLinkError(null);
+    try {
+      const response = await api.post<UserVacation>(`/users/${user.id}/vacations`, {
+        starts_at: vacationStartsAt,
+        ends_at: vacationEndsAt,
+        note: vacationNote.trim() === '' ? null : vacationNote.trim(),
+      });
+      setVacations((current) => [...current, response.data].sort((a, b) => a.starts_at.localeCompare(b.starts_at)));
+      setVacationStartsAt(todayInputValue());
+      setVacationEndsAt(todayInputValue());
+      setVacationNote('');
+    } catch (err) {
+      setLinkError(err instanceof ApiClientError ? err.message : 'Vakantie opslaan mislukt.');
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  async function cancelVacation(vacation: UserVacation) {
+    setLinking(true);
+    setLinkError(null);
+    try {
+      await api.delete(`/vacations/${vacation.id}`);
+      setVacations((current) => current.filter((candidate) => candidate.id !== vacation.id));
+    } catch (err) {
+      setLinkError(err instanceof ApiClientError ? err.message : 'Vakantie intrekken mislukt.');
+    } finally {
+      setLinking(false);
+    }
+  }
+
   return (
     <div className="form-grid__wide stacked-section">
       {linkError ? <p className="form-error">{linkError}</p> : null}
+      {canManageVacations ? (
+        <div>
+          <span className="field-label">Vakanties</span>
+          <div className="inline-form inline-form--compact">
+            <label>
+              Begindatum
+              <input type="date" value={vacationStartsAt} onChange={(event) => setVacationStartsAt(event.target.value)} disabled={user === null} />
+            </label>
+            <label>
+              Einddatum
+              <input type="date" value={vacationEndsAt} onChange={(event) => setVacationEndsAt(event.target.value)} disabled={user === null} />
+            </label>
+            <label>
+              Notitie
+              <input value={vacationNote} maxLength={1000} onChange={(event) => setVacationNote(event.target.value)} disabled={user === null} />
+            </label>
+            <button className="primary-button" type="button" disabled={linking || user === null || vacationStartsAt === '' || vacationEndsAt === ''} onClick={() => void createVacation()}>
+              Toevoegen
+            </button>
+          </div>
+          {vacationsLoading ? <p className="muted-text">Vakanties laden...</p> : null}
+          {!vacationsLoading && vacations.length === 0 ? <p className="muted-text">Geen open vakanties geregistreerd.</p> : null}
+          {vacations.length > 0 ? (
+            <table className="data-table compact-table">
+              <thead><tr><th>Begin</th><th>Eind</th><th>Status</th><th>Notitie</th><th>Actie</th></tr></thead>
+              <tbody>
+                {vacations.map((vacation) => (
+                  <tr key={vacation.id}>
+                    <td>{formatDate(vacation.starts_at)}</td>
+                    <td>{formatDate(vacation.ends_at)}</td>
+                    <td><StatusPill value={vacation.status} tone={vacation.status === 'active' ? 'warn' : 'neutral'} /></td>
+                    <td>{vacation.note ?? '-'}</td>
+                    <td>
+                      {vacation.status === 'scheduled' || vacation.status === 'active' ? (
+                        <button className="secondary-button" type="button" disabled={linking} onClick={() => void cancelVacation(vacation)}>Intrekken</button>
+                      ) : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+        </div>
+      ) : null}
       <div>
         <span className="field-label">Certificaten</span>
         {canManageCertifications ? <div className="inline-form inline-form--compact">
