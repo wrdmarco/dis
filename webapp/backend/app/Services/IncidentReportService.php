@@ -11,6 +11,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Throwable;
 
 final class IncidentReportService
 {
@@ -67,6 +68,59 @@ final class IncidentReportService
         $dompdf->render();
 
         return $dompdf->output();
+    }
+
+    public function ensureStored(Incident $incident): ?string
+    {
+        if (! in_array($incident->status, ['resolved', 'cancelled'], true)) {
+            return null;
+        }
+
+        if (is_string($incident->report_pdf_path)
+            && $incident->report_pdf_path !== ''
+            && Storage::disk('local')->exists($incident->report_pdf_path)) {
+            return $incident->report_pdf_path;
+        }
+
+        try {
+            $path = $this->reportPath($incident);
+            Storage::disk('local')->put($path, $this->pdf($incident));
+            $incident->forceFill([
+                'report_pdf_path' => $path,
+                'report_generated_at' => now(),
+                'report_generation_error' => null,
+            ])->save();
+
+            return $path;
+        } catch (Throwable $exception) {
+            report($exception);
+            $incident->forceFill([
+                'report_generation_error' => mb_substr($exception->getMessage(), 0, 2000),
+            ])->save();
+
+            return null;
+        }
+    }
+
+    public function storedPdf(Incident $incident): ?string
+    {
+        if (! is_string($incident->report_pdf_path) || $incident->report_pdf_path === '') {
+            return null;
+        }
+
+        return Storage::disk('local')->exists($incident->report_pdf_path)
+            ? Storage::disk('local')->get($incident->report_pdf_path)
+            : null;
+    }
+
+    public function filename(Incident $incident): string
+    {
+        return Str::slug($incident->reference.'-'.$incident->title).'.pdf';
+    }
+
+    private function reportPath(Incident $incident): string
+    {
+        return 'incident-reports/'.$incident->id.'/'.$this->filename($incident);
     }
 
     /**

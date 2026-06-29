@@ -25,6 +25,9 @@ final class Incident extends Model
         'latitude',
         'longitude',
         'drone_flight_context',
+        'report_pdf_path',
+        'report_generated_at',
+        'report_generation_error',
         'created_by',
         'coordinator_id',
         'team_id',
@@ -39,6 +42,7 @@ final class Incident extends Model
             'longitude' => 'decimal:7',
             'drone_flight_context' => 'array',
             'is_test' => 'boolean',
+            'report_generated_at' => 'immutable_datetime',
             'opened_at' => 'immutable_datetime',
             'closed_at' => 'immutable_datetime',
         ];

@@ -15,6 +15,7 @@ final class IncidentService
         private readonly DroneFlightContextService $droneFlightContextService,
         private readonly DispatchService $dispatchService,
         private readonly GeocodingService $geocodingService,
+        private readonly IncidentReportService $incidentReportService,
         private readonly LocationService $locationService,
         private readonly StatusService $statusService,
     ) {}
@@ -97,6 +98,7 @@ final class IncidentService
             if (array_key_exists('status', $data) && $data['status'] !== $beforeStatus && in_array($data['status'], ['resolved', 'cancelled'], true)) {
                 $this->locationService->stopForIncident($incident->refresh(), $actor);
                 $this->resetAcceptedRecipientsToAvailable($incident->refresh(), $actor, $data['status']);
+                DB::afterCommit(fn (): ?string => $this->incidentReportService->ensureStored($incident->refresh()));
             }
 
             $this->auditService->record('incidents.updated', $incident, $actor);

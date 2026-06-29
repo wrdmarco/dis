@@ -9,7 +9,6 @@ use App\Services\IncidentReportService;
 use DateTimeInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 
 final class ReportingController extends Controller
@@ -20,11 +19,19 @@ final class ReportingController extends Controller
             return ApiResponse::error('incident_not_closed', 'Een rapport kan pas worden gemaakt als het incident is afgerond of geannuleerd.', 422);
         }
 
-        $filename = Str::slug($incident->reference.'-'.$incident->title).'.pdf';
+        $pdf = $reports->storedPdf($incident);
+        if ($pdf === null) {
+            $reports->ensureStored($incident);
+            $pdf = $reports->storedPdf($incident->refresh());
+        }
 
-        return response($reports->pdf($incident), 200, [
+        if ($pdf === null) {
+            return ApiResponse::error('incident_report_unavailable', 'Het opgeslagen incidentrapport is nog niet beschikbaar.', 503);
+        }
+
+        return response($pdf, 200, [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+            'Content-Disposition' => 'attachment; filename="'.$reports->filename($incident).'"',
         ]);
     }
 
@@ -77,6 +84,8 @@ final class ReportingController extends Controller
                     ],
                     'opened_at' => $incident->opened_at?->toIso8601String(),
                     'closed_at' => $incident->closed_at?->toIso8601String(),
+                    'report_generated_at' => $incident->report_generated_at?->toIso8601String(),
+                    'report_available' => is_string($incident->report_pdf_path) && $incident->report_pdf_path !== '',
                     'latest_dispatch_sent_at' => $latestDispatchAt?->toIso8601String(),
                     'recipient_count' => $recipients->count(),
                     'accepted' => $recipients->where('response_status', 'accepted')->count(),
