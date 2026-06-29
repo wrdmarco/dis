@@ -7,6 +7,7 @@ import { useAuth } from '../auth/AuthContext';
 
 interface BackupSummary {
   id: string;
+  target: BackupTarget;
   created_at: string;
   database?: string | null;
   host?: string | null;
@@ -20,13 +21,16 @@ interface BackupSummary {
 
 interface BackupIndex {
   root: string;
+  roots: Record<BackupTarget, string>;
   settings: BackupSettings;
   confirmation_text: string;
   backups: BackupSummary[];
 }
 
+type BackupTarget = 'local' | 'samba';
+
 interface BackupSettings {
-  target: 'local' | 'samba';
+  target: BackupTarget;
   local_path: string;
   samba_share: string;
   samba_mount: string;
@@ -38,7 +42,7 @@ interface BackupSettings {
 }
 
 interface BackupSettingsForm {
-  target: 'local' | 'samba';
+  target: BackupTarget;
   localPath: string;
   sambaShare: string;
   sambaMount: string;
@@ -58,6 +62,7 @@ export function BackupPage() {
   const backups = useApiResource<BackupIndex>('/admin/backups');
   const initialSettings = useMemo(() => toSettingsForm(backups.data?.settings), [backups.data]);
   const [settingsForm, setSettingsForm] = useState<BackupSettingsForm>(initialSettings);
+  const [createTarget, setCreateTarget] = useState<BackupTarget>(initialSettings.target);
   const [busy, setBusy] = useState<string | null>(null);
   const [restoreBackup, setRestoreBackup] = useState<BackupSummary | null>(null);
   const [confirmation, setConfirmation] = useState('');
@@ -67,6 +72,7 @@ export function BackupPage() {
 
   useEffect(() => {
     setSettingsForm(initialSettings);
+    setCreateTarget(initialSettings.target);
   }, [initialSettings]);
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
@@ -165,14 +171,22 @@ export function BackupPage() {
       <Panel
         title="Backup beheer"
         action={(
-          <button className="primary-button" type="button" onClick={() => void runAction('create', async () => (await api.post<BackupActionResult>('/admin/backups')).data)} disabled={busy !== null}>
-            {busy === 'create' ? 'Backup draait...' : 'Backup maken'}
-          </button>
+          <div className="actions-row">
+            <select value={createTarget} onChange={(event) => setCreateTarget(event.target.value as BackupTarget)} disabled={busy !== null}>
+              <option value="local">Lokaal</option>
+              <option value="samba">Samba share</option>
+            </select>
+            <button className="primary-button" type="button" onClick={() => void runAction('create', async () => (await api.post<BackupActionResult>('/admin/backups', { target: createTarget })).data)} disabled={busy !== null}>
+              {busy === 'create' ? 'Backup draait...' : 'Backup maken'}
+            </button>
+          </div>
         )}
       >
         <ResourceState loading={backups.loading} error={backups.error} empty={!backups.data}>
           <dl className="definition-grid">
-            <dt>Locatie</dt><dd className="mono">{backups.data?.root ?? '-'}</dd>
+            <dt>Standaardlocatie</dt><dd className="mono">{backups.data?.root ?? '-'}</dd>
+            <dt>Lokale map</dt><dd className="mono">{backups.data?.roots.local ?? '-'}</dd>
+            <dt>Samba map</dt><dd className="mono">{backups.data?.roots.samba ?? '-'}</dd>
             <dt>Aantal backups</dt><dd>{backups.data?.backups.length ?? 0}</dd>
           </dl>
           {message ? <p className="form-note">{message}</p> : null}
@@ -182,6 +196,7 @@ export function BackupPage() {
               <thead>
                 <tr>
                   <th>Backup</th>
+                  <th>Doel</th>
                   <th>Database</th>
                   <th>Host</th>
                   <th>Versie</th>
@@ -197,6 +212,7 @@ export function BackupPage() {
                       <strong>{backup.id}</strong>
                       <span className="muted-text">{backup.created_at}</span>
                     </td>
+                    <td>{targetLabel(backup.target)}</td>
                     <td>{backup.database ?? '-'}</td>
                     <td>{backup.host ?? '-'}</td>
                     <td>{backup.version ?? '-'}</td>
@@ -204,7 +220,7 @@ export function BackupPage() {
                     <td>{backup.has_manifest && backup.has_checksums ? 'Compleet' : 'Onvolledig'}</td>
                     <td>
                       <div className="actions-row">
-                        <button className="secondary-button" type="button" onClick={() => void runAction('verify', async () => (await api.post<BackupActionResult>(`/admin/backups/${backup.id}/verify`)).data)} disabled={busy !== null}>
+                        <button className="secondary-button" type="button" onClick={() => void runAction('verify', async () => (await api.post<BackupActionResult>(`/admin/backups/${backup.id}/verify`, { target: backup.target })).data)} disabled={busy !== null}>
                           Verifieren
                         </button>
                         <button className="danger-button" type="button" onClick={() => setRestoreBackup(backup)} disabled={busy !== null || !backup.has_checksums}>
@@ -240,6 +256,9 @@ export function BackupPage() {
               <p className="form-error form-grid__wide">
                 Dit zet database en storage terug naar backup {restoreBackup.id}. Nieuwe gegevens na deze backup kunnen verdwijnen.
               </p>
+              <dl className="definition-grid form-grid__wide">
+                <dt>Doel</dt><dd>{targetLabel(restoreBackup.target)}</dd>
+              </dl>
               <label className="form-grid__wide">
                 Typ {backups.data?.confirmation_text}
                 <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
@@ -250,7 +269,7 @@ export function BackupPage() {
                   className="danger-button"
                   type="button"
                   disabled={busy !== null || confirmation !== backups.data?.confirmation_text}
-                  onClick={() => void runAction('restore', async () => (await api.post<BackupActionResult>(`/admin/backups/${restoreBackup.id}/restore`, { confirmation })).data)}
+                  onClick={() => void runAction('restore', async () => (await api.post<BackupActionResult>(`/admin/backups/${restoreBackup.id}/restore`, { confirmation, target: restoreBackup.target })).data)}
                 >
                   {busy === 'restore' ? 'Restore draait...' : 'Restore uitvoeren'}
                 </button>
@@ -277,6 +296,10 @@ function formatBytes(bytes: number): string {
   }
 
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function targetLabel(target: BackupTarget): string {
+  return target === 'samba' ? 'Samba share' : 'Lokaal';
 }
 
 function toSettingsForm(settings?: BackupSettings): BackupSettingsForm {

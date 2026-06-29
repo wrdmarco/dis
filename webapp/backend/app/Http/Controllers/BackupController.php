@@ -20,22 +20,32 @@ final class BackupController extends Controller
 
     public function index(): JsonResponse
     {
-        $root = $this->backupRoot();
         $backups = [];
 
-        foreach (glob($root.'/*', GLOB_ONLYDIR) ?: [] as $path) {
-            $id = basename($path);
-            if (! $this->validBackupId($id)) {
+        foreach (['local', 'samba'] as $target) {
+            $root = $this->backupRoot($target);
+            if (! is_dir($root)) {
                 continue;
             }
 
-            $backups[] = $this->backupSummary($id, $path);
+            foreach (glob($root.'/*', GLOB_ONLYDIR) ?: [] as $path) {
+                $id = basename($path);
+                if (! $this->validBackupId($id)) {
+                    continue;
+                }
+
+                $backups[] = $this->backupSummary($id, $path, $target);
+            }
         }
 
         usort($backups, fn (array $left, array $right): int => strcmp((string) $right['created_at'], (string) $left['created_at']));
 
         return ApiResponse::success([
-            'root' => $root,
+            'root' => $this->backupRoot(),
+            'roots' => [
+                'local' => $this->backupRoot('local'),
+                'samba' => $this->backupRoot('samba'),
+            ],
             'settings' => $this->settingsState(),
             'confirmation_text' => self::RESTORE_CONFIRMATION,
             'backups' => $backups,
@@ -85,11 +95,14 @@ final class BackupController extends Controller
 
     public function create(Request $request): JsonResponse
     {
-        $this->writeRuntimeConfig();
+        $target = $this->requestTarget($request);
+        $this->ensureTargetReady($target);
+        $this->writeRuntimeConfig($target);
         $result = Process::timeout(900)->run(['sudo', '-n', 'bash', $this->scriptPath('backup.sh')]);
         $output = $this->cleanOutput($result->output().$result->errorOutput());
 
         $this->auditService->record('backups.created', SystemSetting::class, $request->user(), [
+            'target' => $target,
             'successful' => $result->successful(),
         ], null, $request);
 
@@ -106,13 +119,16 @@ final class BackupController extends Controller
 
     public function verify(Request $request, string $backup): JsonResponse
     {
-        $this->writeRuntimeConfig();
-        $path = $this->backupPath($backup);
+        $target = $this->requestTarget($request);
+        $this->ensureTargetReady($target);
+        $this->writeRuntimeConfig($target);
+        $path = $this->backupPath($backup, $target);
         $result = Process::timeout(600)->run(['sudo', '-n', 'bash', $this->scriptPath('verify-backup.sh'), $path]);
         $output = $this->cleanOutput($result->output().$result->errorOutput());
 
         $this->auditService->record('backups.verified', SystemSetting::class, $request->user(), [
             'backup' => $backup,
+            'target' => $target,
             'successful' => $result->successful(),
         ], null, $request);
 
@@ -131,18 +147,22 @@ final class BackupController extends Controller
     {
         $data = $request->validate([
             'confirmation' => ['required', 'string'],
+            'target' => ['nullable', 'string', 'in:local,samba'],
         ]);
         if ($data['confirmation'] !== self::RESTORE_CONFIRMATION) {
             throw ValidationException::withMessages(['confirmation' => ['Bevestigingstekst klopt niet.']]);
         }
 
-        $this->writeRuntimeConfig();
-        $path = $this->backupPath($backup);
+        $target = $this->requestTarget($request);
+        $this->ensureTargetReady($target);
+        $this->writeRuntimeConfig($target);
+        $path = $this->backupPath($backup, $target);
         $result = Process::timeout(1200)->run(['sudo', '-n', 'bash', $this->scriptPath('restore.sh'), $path]);
         $output = $this->cleanOutput($result->output().$result->errorOutput());
 
         $this->auditService->record('backups.restored', SystemSetting::class, $request->user(), [
             'backup' => $backup,
+            'target' => $target,
             'successful' => $result->successful(),
         ], null, $request);
 
@@ -157,9 +177,9 @@ final class BackupController extends Controller
         ]);
     }
 
-    private function backupRoot(): string
+    private function backupRoot(?string $target = null): string
     {
-        $target = SystemSetting::string('backup.target', 'local') ?? 'local';
+        $target ??= SystemSetting::string('backup.target', 'local') ?? 'local';
         if ($target === 'samba') {
             return rtrim(SystemSetting::string('backup.samba.mount', '/mnt/dis-backup') ?? '/mnt/dis-backup', '/');
         }
@@ -206,9 +226,9 @@ final class BackupController extends Controller
         );
     }
 
-    private function writeRuntimeConfig(): void
+    private function writeRuntimeConfig(?string $targetOverride = null): void
     {
-        $target = SystemSetting::string('backup.target', 'local') ?? 'local';
+        $target = $targetOverride ?? SystemSetting::string('backup.target', 'local') ?? 'local';
         $lines = [
             'BACKUP_TARGET='.$this->shellValue($target),
             'BACKUP_ROOT='.$this->shellValue(SystemSetting::string('backup.local_path', self::DEFAULT_LOCAL_PATH) ?? self::DEFAULT_LOCAL_PATH),
@@ -241,13 +261,38 @@ final class BackupController extends Controller
         return $result->successful();
     }
 
-    private function backupPath(string $backup): string
+    private function requestTarget(Request $request): string
+    {
+        $data = $request->validate([
+            'target' => ['nullable', 'string', 'in:local,samba'],
+        ]);
+
+        return $data['target'] ?? SystemSetting::string('backup.target', 'local') ?? 'local';
+    }
+
+    private function ensureTargetReady(string $target): void
+    {
+        if ($target !== 'samba') {
+            return;
+        }
+
+        $share = trim(SystemSetting::string('backup.samba.share', '') ?? '');
+        $username = trim(SystemSetting::string('backup.samba.username', '') ?? '');
+        $password = SystemSetting::string(self::PASSWORD_KEY, '') ?? '';
+        if ($share === '' || $username === '' || $password === '') {
+            throw ValidationException::withMessages([
+                'target' => ['Samba backups zijn nog niet volledig ingesteld.'],
+            ]);
+        }
+    }
+
+    private function backupPath(string $backup, ?string $target = null): string
     {
         if (! $this->validBackupId($backup)) {
             abort(404);
         }
 
-        $root = $this->backupRoot();
+        $root = $this->backupRoot($target);
         $path = $root.'/'.$backup;
         if (! str_starts_with($path, $root.'/')) {
             abort(404);
@@ -264,7 +309,7 @@ final class BackupController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function backupSummary(string $id, string $path): array
+    private function backupSummary(string $id, string $path, string $target): array
     {
         $manifestPath = $path.'/manifest.json';
         $manifest = [];
@@ -275,6 +320,7 @@ final class BackupController extends Controller
 
         return [
             'id' => $id,
+            'target' => $target,
             'created_at' => $manifest['created_at'] ?? $id,
             'database' => $manifest['database'] ?? null,
             'host' => $manifest['host'] ?? null,
