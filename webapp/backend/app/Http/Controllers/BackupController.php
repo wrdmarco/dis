@@ -474,7 +474,7 @@ final class BackupController extends Controller
     {
         $manifestPath = $path.'/manifest.json';
         $manifest = [];
-        if (is_file($manifestPath)) {
+        if (is_file($manifestPath) && is_readable($manifestPath)) {
             $decoded = json_decode((string) file_get_contents($manifestPath), true);
             $manifest = is_array($decoded) ? $decoded : [];
         }
@@ -489,18 +489,26 @@ final class BackupController extends Controller
             'git_commit' => $manifest['git_commit'] ?? null,
             'includes' => is_array($manifest['includes'] ?? null) ? $manifest['includes'] : [],
             'size_bytes' => $this->directorySize($path),
-            'has_manifest' => is_file($manifestPath),
-            'has_checksums' => is_file($path.'/SHA256SUMS'),
+            'has_manifest' => is_file($manifestPath) && is_readable($manifestPath),
+            'has_checksums' => is_file($path.'/SHA256SUMS') && is_readable($path.'/SHA256SUMS'),
         ];
     }
 
     private function directorySize(string $path): int
     {
+        if (! is_readable($path)) {
+            return 0;
+        }
+
         $size = 0;
-        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS)) as $file) {
-            if ($file->isFile()) {
-                $size += $file->getSize();
+        try {
+            foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS)) as $file) {
+                if ($file->isFile()) {
+                    $size += $file->getSize();
+                }
             }
+        } catch (\UnexpectedValueException) {
+            return 0;
         }
 
         return $size;

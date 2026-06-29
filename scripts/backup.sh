@@ -18,7 +18,18 @@ set +a
 
 BACKUP_ROOT="$(resolve_backup_root "${APP_ROOT}")"
 TARGET="${BACKUP_ROOT}/${STAMP}"
-run_cmd install -d -m 0750 "${TARGET}"
+run_cmd install -d -m 0750 -o root -g "${DIS_GROUP}" "${TARGET}"
+
+allow_app_backup_read() {
+  local path="$1"
+
+  if getent group "${DIS_GROUP}" >/dev/null 2>&1; then
+    chgrp -R "${DIS_GROUP}" "${path}" 2>/dev/null || true
+  fi
+  chmod 0750 "${path}" 2>/dev/null || true
+  find "${path}" -type d -exec chmod 0750 {} + 2>/dev/null || true
+  find "${path}" -type f -exec chmod 0640 {} + 2>/dev/null || true
+}
 
 prune_old_backups() {
   local root="$1"
@@ -87,6 +98,7 @@ cat > "${TARGET}/manifest.json" <<EOF
   "includes": ["database", "storage", "env", "source", "module_manifests"]
 }
 EOF
+allow_app_backup_read "${TARGET}"
 
 prune_old_backups "${BACKUP_ROOT}"
 log "Backup created at ${TARGET}"
