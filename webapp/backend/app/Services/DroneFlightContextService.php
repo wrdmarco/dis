@@ -57,13 +57,13 @@ final class DroneFlightContextService
      */
     private function mapData(float $latitude, float $longitude): array
     {
-        $aeretMapUrl = SystemSetting::string('drone.aeret_map_url', (string) config('dis.drone_flight.aeret_map_url')) ?? '';
+        $aeretMapUrl = $this->aeretMapUrl();
         $notamUrl = SystemSetting::string('drone.notam_url', (string) config('dis.drone_flight.notam_url')) ?? '';
 
         return [
             'provider' => 'Aeret Drone PreFlight',
             'status' => $aeretMapUrl !== '' ? 'linked' : 'not_configured',
-            'aeret_url' => $this->urlWithCoordinates($aeretMapUrl, $latitude, $longitude),
+            'aeret_url' => $this->aeretUrlWithCoordinates($aeretMapUrl, $latitude, $longitude),
             'notam_url' => $notamUrl,
             'openstreetmap_url' => sprintf(
                 'https://www.openstreetmap.org/?mlat=%1$.6f&mlon=%2$.6f#map=16/%1$.6f/%2$.6f',
@@ -287,6 +287,84 @@ final class DroneFlightContextService
         ]);
     }
 
+    private function aeretMapUrl(): string
+    {
+        $configured = SystemSetting::string('drone.aeret_map_url', (string) config('dis.drone_flight.aeret_map_url')) ?? '';
+        $configured = trim($configured);
+
+        return $configured === 'https://dronepreflight.nl/' ? 'https://aeret.kaartviewer.nl/?@dpf_basic' : $configured;
+    }
+
+    private function aeretUrlWithCoordinates(string $url, float $latitude, float $longitude): ?string
+    {
+        if (trim($url) === '') {
+            return null;
+        }
+
+        if (! str_contains($url, 'aeret.kaartviewer.nl')) {
+            return $this->urlWithCoordinates($url, $latitude, $longitude);
+        }
+
+        [$x, $y] = $this->wgs84ToRd($latitude, $longitude);
+        $parts = parse_url($url);
+        $query = [];
+        if (is_string($parts['query'] ?? null) && $parts['query'] !== '') {
+            parse_str($parts['query'], $query);
+        }
+
+        $query = array_merge($query, [
+            '@dpf_basic' => $query['@dpf_basic'] ?? '',
+            'catalogus' => '1',
+            'v' => '5',
+            'website' => 'dpf_basic',
+            'x' => round($x, 2),
+            'y' => round($y, 2),
+            'zoom' => '7.5',
+        ]);
+
+        $scheme = $parts['scheme'] ?? 'https';
+        $host = $parts['host'] ?? 'aeret.kaartviewer.nl';
+        $path = $parts['path'] ?? '/';
+
+        return $scheme.'://'.$host.$path.'?'.http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+    }
+
+    /**
+     * @return array{0: float, 1: float}
+     */
+    private function wgs84ToRd(float $latitude, float $longitude): array
+    {
+        $referenceLatitude = 52.15517440;
+        $referenceLongitude = 5.38720621;
+        $dLatitude = 0.36 * ($latitude - $referenceLatitude);
+        $dLongitude = 0.36 * ($longitude - $referenceLongitude);
+
+        $x = 155000
+            + (190094.945 * $dLongitude)
+            + (-11832.228 * $dLatitude * $dLongitude)
+            + (-114.221 * $dLatitude ** 2 * $dLongitude)
+            + (-32.391 * $dLongitude ** 3)
+            + (-0.705 * $dLatitude)
+            + (-2.34 * $dLatitude ** 3 * $dLongitude)
+            + (-0.608 * $dLatitude * $dLongitude ** 3)
+            + (-0.008 * $dLongitude ** 2)
+            + (0.148 * $dLatitude ** 2 * $dLongitude ** 3);
+
+        $y = 463000
+            + (309056.544 * $dLatitude)
+            + (3638.893 * $dLongitude ** 2)
+            + (73.077 * $dLatitude ** 2)
+            + (-157.984 * $dLatitude * $dLongitude ** 2)
+            + (59.788 * $dLatitude ** 3)
+            + (0.433 * $dLongitude)
+            + (-6.439 * $dLatitude ** 2 * $dLongitude ** 2)
+            + (-0.032 * $dLatitude * $dLongitude)
+            + (0.092 * $dLongitude ** 4)
+            + (-0.054 * $dLatitude ** 4);
+
+        return [$x, $y];
+    }
+
     /**
      * @param array<string, mixed>|mixed $payload
      * @param array<int, string> $keys
@@ -302,6 +380,16 @@ final class DroneFlightContextService
             $value = $payload[$key] ?? null;
             if (is_array($value)) {
                 return array_values($value);
+            }
+        }
+
+        foreach (['data', 'results', 'items'] as $containerKey) {
+            $container = $payload[$containerKey] ?? null;
+            if (is_array($container)) {
+                $nested = $this->listValue($container, $keys);
+                if ($nested !== []) {
+                    return $nested;
+                }
             }
         }
 

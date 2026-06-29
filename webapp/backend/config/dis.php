@@ -13,7 +13,7 @@ return [
         'default_retention_days' => (int) env('LOCATION_RETENTION_DAYS', 30),
     ],
     'drone_flight' => [
-        'aeret_map_url' => env('AERET_DRONE_MAP_URL', 'https://dronepreflight.nl/'),
+        'aeret_map_url' => env('AERET_DRONE_MAP_URL', 'https://aeret.kaartviewer.nl/?@dpf_basic'),
         'aeret_api_url' => env('AERET_API_URL'),
         'notam_url' => env('DRONE_NOTAM_URL', 'https://www.lvnl.nl/informatie-voor-luchtvarenden/notam'),
         'weather_provider' => 'Open-Meteo',

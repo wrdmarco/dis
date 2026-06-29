@@ -747,7 +747,7 @@ export function AdminPage() {
             </label>
             <label className="form-grid__wide">
               Aeret dronekaart URL
-              <input value={managedForm.aeretMapUrl} placeholder="https://dronepreflight.nl/" onChange={(event) => setManagedForm((current) => ({ ...current, aeretMapUrl: event.target.value }))} />
+              <input value={managedForm.aeretMapUrl} placeholder="https://aeret.kaartviewer.nl/?@dpf_basic" onChange={(event) => setManagedForm((current) => ({ ...current, aeretMapUrl: event.target.value }))} />
             </label>
             <label className="form-grid__wide">
               Aeret API endpoint
@@ -1165,7 +1165,7 @@ function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
     auditLogRetentionDays: asStringOrNumber(byKey.get('retention.audit_logs_days'), '3650'),
     locationRetentionDays: asStringOrNumber(byKey.get('retention.location_days'), '30'),
     androidApplicationId: asString(byKey.get('updates.android.application_id')) || 'nl.wrdmarco.dis',
-    aeretMapUrl: asString(byKey.get('drone.aeret_map_url')) || 'https://dronepreflight.nl/',
+    aeretMapUrl: asString(byKey.get('drone.aeret_map_url')) || 'https://aeret.kaartviewer.nl/?@dpf_basic',
     aeretApiUrl: asString(byKey.get('drone.aeret_api_url')),
     aeretApiKey: '',
     notamUrl: asString(byKey.get('drone.notam_url')) || 'https://www.lvnl.nl/informatie-voor-luchtvarenden/notam',
