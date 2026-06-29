@@ -45,20 +45,20 @@ export function BrandingPage() {
     try {
       await api.patch('/admin/settings', {
         settings: {
-          'app.brand_name': form.brandName.trim() || 'D.I.S Operationeel Beeld',
-          'app.brand_short_name': form.brandShortName.trim() || 'DIS',
-          'app.login_title': form.loginTitle.trim() || 'D.I.S Command Center',
-          'app.login_subtitle': form.loginSubtitle.trim(),
-          'mobile.tenant_name': form.tenantName.trim() || 'Nationaal Droneteam',
-          'security.mfa_issuer_name': form.mfaIssuerName.trim() || 'D.I.S',
-          'mail.from_name': form.mailFromName.trim() || form.tenantName.trim() || 'D.I.S',
-          'mail.template.welcome_subject': form.welcomeSubject.trim() || 'Welkom bij {{app_name}}',
-          'mail.template.welcome_body': form.welcomeBody.trim(),
-          'mail.template.certification_expiry_subject': form.certificationExpirySubject.trim() || '{{certification_name}} - {{status_text}}',
-          'mail.template.certification_expiry_body': form.certificationExpiryBody.trim(),
+          'app.brand_name': textSetting(form.brandName, 'D.I.S Operationeel Beeld'),
+          'app.brand_short_name': textSetting(form.brandShortName, 'DIS'),
+          'app.login_title': textSetting(form.loginTitle, 'D.I.S Command Center'),
+          'app.login_subtitle': textSetting(form.loginSubtitle),
+          'mobile.tenant_name': textSetting(form.tenantName, 'Nationaal Droneteam'),
+          'security.mfa_issuer_name': textSetting(form.mfaIssuerName, 'D.I.S'),
+          'mail.from_name': textSetting(form.mailFromName, textSetting(form.tenantName, 'D.I.S')),
+          'mail.template.welcome_subject': textSetting(form.welcomeSubject, 'Welkom bij {{app_name}}'),
+          'mail.template.welcome_body': textSetting(form.welcomeBody),
+          'mail.template.certification_expiry_subject': textSetting(form.certificationExpirySubject, '{{certification_name}} - {{status_text}}'),
+          'mail.template.certification_expiry_body': textSetting(form.certificationExpiryBody),
           'asset.warning_days_before_expiry': Number(form.assetWarningDaysBeforeExpiry || 30),
-          'mail.template.asset_expiry_subject': form.assetExpirySubject.trim() || '{{asset_name}} - {{status_text}}',
-          'mail.template.asset_expiry_body': form.assetExpiryBody.trim(),
+          'mail.template.asset_expiry_subject': textSetting(form.assetExpirySubject, '{{asset_name}} - {{status_text}}'),
+          'mail.template.asset_expiry_body': textSetting(form.assetExpiryBody),
         },
       });
       await settings.reload();
@@ -243,6 +243,12 @@ function toBrandingForm(settings: SystemSetting[]): BrandingForm {
 
 function asString(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+function textSetting(value: unknown, fallback = ''): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+
+  return text || fallback;
 }
 
 function asNumber(value: unknown, fallback: number): number {

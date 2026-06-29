@@ -65,6 +65,9 @@ export function ProfilePage() {
   const [assetError, setAssetError] = useState<string | null>(null);
   const [certificationMessage, setCertificationMessage] = useState<string | null>(null);
   const [certificationError, setCertificationError] = useState<string | null>(null);
+  const selectedAssetDroneType = droneTypes.data?.find((type) => type.id === assetForm.droneTypeId) ?? null;
+  const assetSupportsSpotlight = assetForm.type === 'drone' && selectedAssetDroneType?.has_spotlight === true;
+  const assetSupportsSpeaker = assetForm.type === 'drone' && selectedAssetDroneType?.has_speaker === true;
 
   const mfaRequiredByRole = useMemo(
     () => user?.roles?.some((role) => role.requires_two_factor) ?? false,
@@ -172,8 +175,8 @@ export function ProfilePage() {
       name: assetForm.name,
       type: assetForm.type,
       drone_type_id: assetForm.type === 'drone' ? assetForm.droneTypeId || null : null,
-      has_spotlight: assetForm.type === 'drone' ? assetForm.hasSpotlight : false,
-      has_speaker: assetForm.type === 'drone' ? assetForm.hasSpeaker : false,
+      has_spotlight: assetSupportsSpotlight ? assetForm.hasSpotlight : false,
+      has_speaker: assetSupportsSpeaker ? assetForm.hasSpeaker : false,
       status: assetForm.status,
       serial_number: assetForm.serialNumber || null,
       maintenance_due_at: assetForm.maintenanceDueAt || null,
@@ -355,7 +358,19 @@ export function ProfilePage() {
           {assetForm.type === 'drone' ? (
             <label>
               Drone type
-              <select value={assetForm.droneTypeId} onChange={(event) => setAssetForm((current) => ({ ...current, droneTypeId: event.target.value }))} required>
+              <select
+                value={assetForm.droneTypeId}
+                onChange={(event) => {
+                  const nextDroneType = droneTypes.data?.find((type) => type.id === event.target.value) ?? null;
+                  setAssetForm((current) => ({
+                    ...current,
+                    droneTypeId: event.target.value,
+                    hasSpotlight: nextDroneType?.has_spotlight === true ? current.hasSpotlight : false,
+                    hasSpeaker: nextDroneType?.has_speaker === true ? current.hasSpeaker : false,
+                  }));
+                }}
+                required
+              >
                 <option value="">Kies drone type</option>
                 {droneTypes.data?.filter((type) => type.is_active || type.id === assetForm.droneTypeId).map((type) => (
                   <option key={type.id} value={type.id}>{type.manufacturer} {type.model}</option>
@@ -379,14 +394,18 @@ export function ProfilePage() {
             Onderhoud voor
             <input type="date" value={assetForm.maintenanceDueAt} onChange={(event) => setAssetForm((current) => ({ ...current, maintenanceDueAt: event.target.value }))} />
           </label>
-          <label className="check-label">
-            <input type="checkbox" checked={assetForm.hasSpotlight} disabled={assetForm.type !== 'drone'} onChange={(event) => setAssetForm((current) => ({ ...current, hasSpotlight: event.target.checked }))} />
-            Externe lamp
-          </label>
-          <label className="check-label">
-            <input type="checkbox" checked={assetForm.hasSpeaker} disabled={assetForm.type !== 'drone'} onChange={(event) => setAssetForm((current) => ({ ...current, hasSpeaker: event.target.checked }))} />
-            Speaker
-          </label>
+          {assetSupportsSpotlight ? (
+            <label className="check-label">
+              <input type="checkbox" checked={assetForm.hasSpotlight} onChange={(event) => setAssetForm((current) => ({ ...current, hasSpotlight: event.target.checked }))} />
+              Externe lamp
+            </label>
+          ) : null}
+          {assetSupportsSpeaker ? (
+            <label className="check-label">
+              <input type="checkbox" checked={assetForm.hasSpeaker} onChange={(event) => setAssetForm((current) => ({ ...current, hasSpeaker: event.target.checked }))} />
+              Speaker
+            </label>
+          ) : null}
           <label className="form-grid__wide">
             Notities
             <textarea value={assetForm.notes} onChange={(event) => setAssetForm((current) => ({ ...current, notes: event.target.value }))} />

@@ -371,6 +371,7 @@ final class AdminController extends Controller
             'app.login_title' => $this->validateStringSetting($key, $value, 120),
             'app.login_subtitle' => $this->validateStringSetting($key, $value, 240),
             'app.logo_data_url' => $this->validateStringSetting($key, $value, 700000),
+            'mobile.tenant_name' => $this->validateStringSetting($key, $value, 120),
             'asset.warning_days_before_expiry' => $this->validateIntegerSetting($key, $value, 1, 365),
             default => $value,
         };
