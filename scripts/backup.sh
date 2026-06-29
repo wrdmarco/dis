@@ -6,7 +6,7 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
 ENV_FILE="${APP_ROOT}/.env"
-BACKUP_ROOT="${BACKUP_ROOT:-${APP_ROOT}/storage/backups}"
+BACKUP_ROOT="${BACKUP_ROOT:-${APP_ROOT}/backup}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 TARGET="${BACKUP_ROOT}/${STAMP}"
 

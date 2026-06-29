@@ -7,7 +7,7 @@ source "${SCRIPT_DIR}/lib/common.sh"
 BACKUP_PATH="${1:-}"
 
 if [ -z "${BACKUP_PATH}" ]; then
-  fail "Usage: verify-backup.sh /opt/dis/storage/backups/<timestamp>"
+  fail "Usage: verify-backup.sh /opt/dis/backup/<timestamp>"
 fi
 
 require_directory "${BACKUP_PATH}"

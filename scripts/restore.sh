@@ -8,7 +8,7 @@ APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
 BACKUP_PATH="${1:-}"
 
 if [ -z "${BACKUP_PATH}" ]; then
-  fail "Usage: restore.sh /opt/dis/storage/backups/<timestamp>"
+  fail "Usage: restore.sh /opt/dis/backup/<timestamp>"
 fi
 
 require_directory "${BACKUP_PATH}"
