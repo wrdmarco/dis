@@ -69,6 +69,18 @@ export function IncidentDetailPage() {
     setStatusReason('');
   }, [editModalOpen, incident.data]);
 
+  useEffect(() => {
+    if (!incidentId || incident.data?.status === 'resolved' || incident.data?.status === 'cancelled') {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void liveLocations.silentReload();
+    }, 10_000);
+
+    return () => window.clearInterval(timer);
+  }, [incident.data?.status, incidentId, liveLocations.silentReload]);
+
   function openEditModal() {
     if (incident.data !== undefined && incident.data !== null) {
       setEditForm(formFromIncident(incident.data));
