@@ -1,6 +1,9 @@
 Cmnd_Alias DIS_UPDATE = /usr/bin/bash /opt/dis/update.sh --skip-system, /bin/bash /opt/dis/update.sh --skip-system, /usr/bin/bash /opt/dis/scripts/update.sh --skip-system, /bin/bash /opt/dis/scripts/update.sh --skip-system, /usr/local/bin/update --skip-system, /usr/local/bin/update
 Cmnd_Alias DIS_UPDATE_RUNNER = /usr/bin/systemd-run --unit=dis-update-app --collect --property=Type=simple --property=KillMode=process /usr/local/bin/dis-update-runner --skip-system, /bin/systemd-run --unit=dis-update-app --collect --property=Type=simple --property=KillMode=process /usr/local/bin/dis-update-runner --skip-system, /usr/bin/systemd-run --unit=dis-update-system --collect --property=Type=simple --property=KillMode=process /usr/local/bin/dis-update-runner, /bin/systemd-run --unit=dis-update-system --collect --property=Type=simple --property=KillMode=process /usr/local/bin/dis-update-runner
 Cmnd_Alias DIS_REBOOT = /usr/bin/systemctl reboot, /bin/systemctl reboot
+Cmnd_Alias DIS_BACKUP = /usr/bin/bash /opt/dis/scripts/backup.sh, /bin/bash /opt/dis/scripts/backup.sh
+Cmnd_Alias DIS_BACKUP_VERIFY = /usr/bin/bash /opt/dis/scripts/verify-backup.sh /opt/dis/backup/[0-9]*T[0-9]*Z, /bin/bash /opt/dis/scripts/verify-backup.sh /opt/dis/backup/[0-9]*T[0-9]*Z, /usr/bin/bash /opt/dis/scripts/verify-backup.sh /mnt/dis-backup/[0-9]*T[0-9]*Z, /bin/bash /opt/dis/scripts/verify-backup.sh /mnt/dis-backup/[0-9]*T[0-9]*Z
+Cmnd_Alias DIS_BACKUP_RESTORE = /usr/bin/bash /opt/dis/scripts/restore.sh /opt/dis/backup/[0-9]*T[0-9]*Z, /bin/bash /opt/dis/scripts/restore.sh /opt/dis/backup/[0-9]*T[0-9]*Z, /usr/bin/bash /opt/dis/scripts/restore.sh /mnt/dis-backup/[0-9]*T[0-9]*Z, /bin/bash /opt/dis/scripts/restore.sh /mnt/dis-backup/[0-9]*T[0-9]*Z
 
 dis ALL=(root) NOPASSWD: DIS_UPDATE
 %dis ALL=(root) NOPASSWD: DIS_UPDATE
@@ -8,3 +11,9 @@ dis ALL=(root) NOPASSWD: DIS_UPDATE_RUNNER
 %dis ALL=(root) NOPASSWD: DIS_UPDATE_RUNNER
 dis ALL=(root) NOPASSWD: DIS_REBOOT
 %dis ALL=(root) NOPASSWD: DIS_REBOOT
+dis ALL=(root) NOPASSWD: DIS_BACKUP
+%dis ALL=(root) NOPASSWD: DIS_BACKUP
+dis ALL=(root) NOPASSWD: DIS_BACKUP_VERIFY
+%dis ALL=(root) NOPASSWD: DIS_BACKUP_VERIFY
+dis ALL=(root) NOPASSWD: DIS_BACKUP_RESTORE
+%dis ALL=(root) NOPASSWD: DIS_BACKUP_RESTORE

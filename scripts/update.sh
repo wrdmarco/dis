@@ -344,6 +344,8 @@ fi
 create_pre_update_backup
 
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
+  log "Ensuring backup system dependencies"
+  run_cmd apt-get install -y cifs-utils
   if [ "${SYSTEM_UPDATES_AVAILABLE}" = "1" ]; then
     log "Updating Ubuntu packages"
     run_cmd apt-get upgrade -y

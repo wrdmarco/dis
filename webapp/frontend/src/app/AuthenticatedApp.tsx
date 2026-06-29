@@ -19,6 +19,7 @@ const TestAlertPage = lazy(() => import('../features/test-alerts/TestAlertPage')
 const RolesPage = lazy(() => import('../features/roles/RolesPage').then((module) => ({ default: module.RolesPage })));
 const AdminPage = lazy(() => import('../features/admin/AdminPage').then((module) => ({ default: module.AdminPage })));
 const BrandingPage = lazy(() => import('../features/branding/BrandingPage').then((module) => ({ default: module.BrandingPage })));
+const BackupPage = lazy(() => import('../features/backups/BackupPage').then((module) => ({ default: module.BackupPage })));
 const StatusPage = lazy(() => import('../features/status/StatusPage').then((module) => ({ default: module.StatusPage })));
 const AuditLogPage = lazy(() => import('../features/audit/AuditLogPage').then((module) => ({ default: module.AuditLogPage })));
 const SystemPage = lazy(() => import('../features/system/SystemPage').then((module) => ({ default: module.SystemPage })));
@@ -57,6 +58,7 @@ export function AuthenticatedRoutes() {
         <Route path="roles" element={<PermissionRoute permissions={['roles.manage']}><RolesPage /></PermissionRoute>} />
         <Route path="admin" element={<PermissionRoute permissions={['settings.manage']}><AdminPage /></PermissionRoute>} />
         <Route path="branding" element={<PermissionRoute permissions={['settings.manage']}><BrandingPage /></PermissionRoute>} />
+        <Route path="backups" element={<PermissionRoute permissions={['backups.manage']}><BackupPage /></PermissionRoute>} />
         <Route path="audit" element={<PermissionRoute permissions={['audit.view', 'status.audit.view']} anyPermission><AuditLogPage /></PermissionRoute>} />
         <Route path="auditlog" element={<Navigate to="/audit" replace />} />
         <Route path="system" element={<PermissionRoute permissions={['system.health']}><SystemPage /></PermissionRoute>} />

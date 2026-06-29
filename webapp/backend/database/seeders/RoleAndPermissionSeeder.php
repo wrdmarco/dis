@@ -33,6 +33,7 @@ final class RoleAndPermissionSeeder extends Seeder
         'push.manage' => ['display_name' => 'Manage push notifications', 'category' => 'push_management', 'description' => 'Manage FCM tokens and send manual push notifications.'],
         'settings.manage' => ['display_name' => 'Manage system settings', 'category' => 'system_configuration', 'description' => 'Update operational system settings.'],
         'system.health' => ['display_name' => 'View system health', 'category' => 'system_configuration', 'description' => 'View queue, websocket and service health.'],
+        'backups.manage' => ['display_name' => 'Manage backups', 'category' => 'system_configuration', 'description' => 'Create, verify and restore system backups.'],
     ];
 
     /**

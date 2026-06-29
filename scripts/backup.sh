@@ -6,16 +6,19 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
 ENV_FILE="${APP_ROOT}/.env"
-BACKUP_ROOT="${BACKUP_ROOT:-${APP_ROOT}/backup}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-TARGET="${BACKUP_ROOT}/${STAMP}"
 
 require_file "${ENV_FILE}"
-run_cmd install -d -m 0750 "${TARGET}"
-
 set -a
 source "${ENV_FILE}"
+if [ -f "${APP_ROOT}/webapp/backend/storage/app/backup-config.env" ]; then
+  source "${APP_ROOT}/webapp/backend/storage/app/backup-config.env"
+fi
 set +a
+
+BACKUP_ROOT="$(resolve_backup_root "${APP_ROOT}")"
+TARGET="${BACKUP_ROOT}/${STAMP}"
+run_cmd install -d -m 0750 "${TARGET}"
 
 log "Creating PostgreSQL backup"
 PGPASSWORD="${DB_PASSWORD}" run_cmd pg_dump \

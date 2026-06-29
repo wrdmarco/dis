@@ -16,11 +16,15 @@ require_file "${APP_ROOT}/.env"
 require_file "${BACKUP_PATH}/database.dump"
 require_file "${BACKUP_PATH}/SHA256SUMS"
 
-run_cmd bash "${SCRIPT_DIR}/verify-backup.sh" "${BACKUP_PATH}"
-
 set -a
 source "${APP_ROOT}/.env"
+if [ -f "${APP_ROOT}/webapp/backend/storage/app/backup-config.env" ]; then
+  source "${APP_ROOT}/webapp/backend/storage/app/backup-config.env"
+fi
 set +a
+resolve_backup_root "${APP_ROOT}" >/dev/null
+
+run_cmd bash "${SCRIPT_DIR}/verify-backup.sh" "${BACKUP_PATH}"
 
 log "Restoring database from ${BACKUP_PATH}"
 PGPASSWORD="${DB_PASSWORD}" run_cmd pg_restore \

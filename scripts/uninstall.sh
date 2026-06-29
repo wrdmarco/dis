@@ -253,7 +253,7 @@ if [ "${PURGE_PACKAGES}" = "1" ]; then
   confirm "Purge Ubuntu packages installed by DIS setup? Use only on a dedicated server."
   log "Purging DIS package dependencies"
   run_cmd apt-get purge -y \
-    composer nginx postgresql postgresql-client redis-server redis-tools \
+    composer nginx postgresql postgresql-client redis-server redis-tools cifs-utils \
     "php${PHP_VERSION}-fpm" "php${PHP_VERSION}-cli" "php${PHP_VERSION}-pgsql" "php${PHP_VERSION}-redis" \
     "php${PHP_VERSION}-mbstring" "php${PHP_VERSION}-xml" "php${PHP_VERSION}-curl" "php${PHP_VERSION}-zip" \
     "php${PHP_VERSION}-bcmath" "php${PHP_VERSION}-intl" \

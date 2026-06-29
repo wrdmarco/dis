@@ -10,6 +10,17 @@ if [ -z "${BACKUP_PATH}" ]; then
   fail "Usage: verify-backup.sh /opt/dis/backup/<timestamp>"
 fi
 
+APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
+if [ -f "${APP_ROOT}/.env" ]; then
+  set -a
+  source "${APP_ROOT}/.env"
+  if [ -f "${APP_ROOT}/webapp/backend/storage/app/backup-config.env" ]; then
+    source "${APP_ROOT}/webapp/backend/storage/app/backup-config.env"
+  fi
+  set +a
+  resolve_backup_root "${APP_ROOT}" >/dev/null
+fi
+
 require_directory "${BACKUP_PATH}"
 require_file "${BACKUP_PATH}/database.dump"
 require_file "${BACKUP_PATH}/storage.tar.gz"
