@@ -372,8 +372,8 @@ if [ "${UPDATE_APP}" = "1" ]; then
 fi
 
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
-  log "Ensuring backup system dependencies"
-  run_cmd apt-get install -y cifs-utils smbclient
+  log "Ensuring DIS system dependencies"
+  run_cmd apt-get install -y cifs-utils smbclient "php${PHP_VERSION}-gd"
 fi
 
 if [ "${SYSTEM_UPDATES_AVAILABLE}" = "0" ] && [ "${APP_UPDATES_AVAILABLE}" = "0" ]; then

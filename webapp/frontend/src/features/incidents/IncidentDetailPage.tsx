@@ -856,7 +856,7 @@ function LiveLocationMap({
             key={`${tile.x}-${tile.y}-${tile.z}`}
             alt=""
             className="live-map__tile"
-            src={`https://tile.openstreetmap.org/${tile.z}/${tile.x}/${tile.y}.png`}
+            src={`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${tile.z}/${tile.y}/${tile.x}`}
             style={{ left: tile.left, top: tile.top }}
             loading="lazy"
             referrerPolicy="no-referrer"

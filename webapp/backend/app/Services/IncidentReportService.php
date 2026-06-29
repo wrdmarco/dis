@@ -8,6 +8,8 @@ use App\Models\Incident;
 use Dompdf\Dompdf;
 use Dompdf\Options;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 final class IncidentReportService
@@ -233,12 +235,15 @@ final class IncidentReportService
                 'longitude_label' => null,
                 'marker_x' => 50.0,
                 'marker_y' => 50.0,
+                'snapshot_data_uri' => null,
+                'snapshot_available' => false,
                 'aeret_url' => null,
                 'openstreetmap_url' => null,
             ];
         }
 
         $flightMap = is_array($droneFlightContext['map'] ?? null) ? $droneFlightContext['map'] : [];
+        $mapSnapshot = $this->satelliteMapSnapshot($latitude, $longitude);
 
         return [
             'available' => true,
@@ -246,8 +251,10 @@ final class IncidentReportService
             'longitude' => $longitude,
             'latitude_label' => number_format($latitude, 6, '.', ''),
             'longitude_label' => number_format($longitude, 6, '.', ''),
-            'marker_x' => $this->markerPercentage($longitude, 3.2, 7.3),
-            'marker_y' => $this->markerPercentage($latitude, 50.7, 53.7, true),
+            'marker_x' => 50.0,
+            'marker_y' => 50.0,
+            'snapshot_data_uri' => $mapSnapshot['data_uri'],
+            'snapshot_available' => $mapSnapshot['available'],
             'aeret_url' => is_string($flightMap['aeret_url'] ?? null) ? $flightMap['aeret_url'] : null,
             'openstreetmap_url' => sprintf(
                 'https://www.openstreetmap.org/?mlat=%1$.6f&mlon=%2$.6f#map=16/%1$.6f/%2$.6f',
@@ -255,6 +262,118 @@ final class IncidentReportService
                 $longitude,
             ),
         ];
+    }
+
+    /**
+     * @return array{available: bool, data_uri: string|null}
+     */
+    private function satelliteMapSnapshot(float $latitude, float $longitude): array
+    {
+        $zoom = 16;
+        $tileSize = 256;
+        $width = 360;
+        $height = 185;
+        $scale = (2 ** $zoom) * $tileSize;
+        $sinLatitude = sin(deg2rad(max(-85.05112878, min(85.05112878, $latitude))));
+        $centerX = (($longitude + 180) / 360) * $scale;
+        $centerY = (0.5 - log((1 + $sinLatitude) / (1 - $sinLatitude)) / (4 * M_PI)) * $scale;
+        $left = $centerX - ($width / 2);
+        $top = $centerY - ($height / 2);
+        $firstTileX = (int) floor($left / $tileSize);
+        $lastTileX = (int) floor(($left + $width) / $tileSize);
+        $firstTileY = (int) floor($top / $tileSize);
+        $lastTileY = (int) floor(($top + $height) / $tileSize);
+        $maxTile = (2 ** $zoom) - 1;
+        $tiles = [];
+        $cacheKey = sha1(implode('|', [
+            'satellite',
+            $zoom,
+            $width,
+            $height,
+            number_format($latitude, 5, '.', ''),
+            number_format($longitude, 5, '.', ''),
+        ]));
+        $cachePath = 'report-map-snapshots/'.$cacheKey.'.svg';
+
+        if (Storage::disk('local')->exists($cachePath)) {
+            return [
+                'available' => true,
+                'data_uri' => 'data:image/svg+xml;base64,'.base64_encode(Storage::disk('local')->get($cachePath)),
+            ];
+        }
+
+        for ($tileX = $firstTileX; $tileX <= $lastTileX; $tileX++) {
+            for ($tileY = $firstTileY; $tileY <= $lastTileY; $tileY++) {
+                if ($tileY < 0 || $tileY > $maxTile) {
+                    continue;
+                }
+
+                $wrappedTileX = (($tileX % ($maxTile + 1)) + ($maxTile + 1)) % ($maxTile + 1);
+                $url = sprintf('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/%d/%d/%d', $zoom, $tileY, $wrappedTileX);
+                $response = Http::timeout(4)
+                    ->retry(1, 150)
+                    ->withHeaders([
+                        'User-Agent' => 'DIS Incident Report/1.0 (https://dis.wrdmarco.nl)',
+                    ])
+                    ->get($url);
+
+                if (! $response->ok()) {
+                    continue;
+                }
+
+                $tiles[] = [
+                    'data_uri' => 'data:image/png;base64,'.base64_encode($response->body()),
+                    'left' => round(($tileX * $tileSize) - $left, 2),
+                    'top' => round(($tileY * $tileSize) - $top, 2),
+                ];
+            }
+        }
+
+        if ($tiles === []) {
+            return [
+                'available' => false,
+                'data_uri' => null,
+            ];
+        }
+
+        $svg = $this->mapSnapshotSvg($width, $height, $tiles);
+        Storage::disk('local')->put($cachePath, $svg);
+
+        return [
+            'available' => true,
+            'data_uri' => 'data:image/svg+xml;base64,'.base64_encode($svg),
+        ];
+    }
+
+    /**
+     * @param array<int, array{data_uri: string, left: float, top: float}> $tiles
+     */
+    private function mapSnapshotSvg(int $width, int $height, array $tiles): string
+    {
+        $images = collect($tiles)
+            ->map(fn (array $tile): string => sprintf(
+                '<image href="%s" x="%s" y="%s" width="256" height="256" preserveAspectRatio="none" />',
+                e($tile['data_uri']),
+                number_format($tile['left'], 2, '.', ''),
+                number_format($tile['top'], 2, '.', ''),
+            ))
+            ->implode('');
+
+        $centerX = number_format($width / 2, 2, '.', '');
+        $centerY = number_format($height / 2, 2, '.', '');
+
+        return <<<SVG
+<svg xmlns="http://www.w3.org/2000/svg" width="{$width}" height="{$height}" viewBox="0 0 {$width} {$height}">
+  <rect width="{$width}" height="{$height}" fill="#e8f3f8"/>
+  {$images}
+  <circle cx="{$centerX}" cy="{$centerY}" r="16" fill="none" stroke="#dc2626" stroke-width="2"/>
+  <circle cx="{$centerX}" cy="{$centerY}" r="8" fill="#dc2626" stroke="#ffffff" stroke-width="3"/>
+  <rect x="10" y="153" width="94" height="22" rx="5" fill="#ffffff" stroke="#dbe5f0"/>
+  <text x="18" y="168" font-family="DejaVu Sans, Arial, sans-serif" font-size="10" fill="#0f172a">Incidentlocatie</text>
+  <rect x="257" y="157" width="93" height="18" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+  <text x="264" y="169" font-family="DejaVu Sans, Arial, sans-serif" font-size="8" fill="#475569">Esri World Imagery</text>
+</svg>
+SVG;
     }
 
     private function coordinate(mixed $value): ?float
@@ -266,17 +385,6 @@ final class IncidentReportService
         $coordinate = (float) $value;
 
         return is_finite($coordinate) ? $coordinate : null;
-    }
-
-    private function markerPercentage(float $value, float $min, float $max, bool $invert = false): float
-    {
-        $percentage = (($value - $min) / ($max - $min)) * 100;
-
-        if ($invert) {
-            $percentage = 100 - $percentage;
-        }
-
-        return round(min(88, max(12, $percentage)), 1);
     }
 
     private function responseLabel(string $status): string
