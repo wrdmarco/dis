@@ -155,11 +155,16 @@ final class VacationService
             return false;
         }
 
-        $vacation->update(['status' => UserVacation::STATUS_COMPLETED]);
+        $this->auditService->record('vacation.completed', $vacation, $vacation->user, [
+            'user_id' => $vacation->user_id,
+            'starts_at' => $vacation->starts_at?->toDateString(),
+            'ends_at' => $vacation->ends_at?->toDateString(),
+        ]);
         $latest = $this->latestStatus($vacation->user);
         if ($latest?->status === 'vacation') {
             $this->statusService->setStatus($vacation->user, 'unavailable', $vacation->user, 'Vakantie afgelopen.', true);
         }
+        $vacation->delete();
 
         return true;
     }

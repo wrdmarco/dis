@@ -18,7 +18,8 @@ final class VacationController extends Controller
         return ApiResponse::success(
             UserVacation::query()
                 ->where('user_id', $request->user()?->id)
-                ->latest('starts_at')
+                ->open()
+                ->orderBy('starts_at')
                 ->get()
                 ->map(fn (UserVacation $vacation): array => $this->payload($vacation))
                 ->values(),
