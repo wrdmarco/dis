@@ -39,6 +39,8 @@ export function IncidentDetailPage() {
   const [escalationError, setEscalationError] = useState<string | null>(null);
   const [recipientUpdatingId, setRecipientUpdatingId] = useState<string | null>(null);
   const [recipientUpdateMessage, setRecipientUpdateMessage] = useState<string | null>(null);
+  const [operatorStatusUpdatingUserId, setOperatorStatusUpdatingUserId] = useState<string | null>(null);
+  const [locationRequestingUserId, setLocationRequestingUserId] = useState<string | null>(null);
   const [reportDownloading, setReportDownloading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [flightRefreshLoading, setFlightRefreshLoading] = useState(false);
@@ -51,6 +53,7 @@ export function IncidentDetailPage() {
   const liveSharedCount = liveLocations.data?.filter((location) => location.sharing_status === 'shared').length ?? 0;
   const canManageIncidents = hasPermission('incidents.manage');
   const canManageDispatches = hasPermission('dispatch.manage');
+  const canOverrideStatus = hasPermission('status.override');
   const dispatchedTeamIds = dispatchTargetTeamIds(dispatches.data ?? []);
   const escalationTeams = (teams.data ?? []).filter((team) => team.is_operational && !dispatchedTeamIds.includes(team.id));
 
@@ -230,6 +233,44 @@ export function IncidentDetailPage() {
     }
   };
 
+  const updateOperatorStatus = async (userId: string, status: 'en_route' | 'on_scene') => {
+    setOperatorStatusUpdatingUserId(userId);
+    setRecipientUpdateMessage(null);
+    try {
+      await api.post(`/status/users/${userId}/override`, {
+        status,
+        reason: 'Handmatig aangepast vanuit incidentdetail.',
+      });
+      setRecipientUpdateMessage('Gebruikersstatus aangepast.');
+      await dispatches.reload();
+      await liveLocations.reload();
+      await timeline.reload();
+    } catch (err) {
+      setRecipientUpdateMessage(err instanceof ApiClientError ? err.message : 'Gebruikersstatus kon niet worden aangepast.');
+    } finally {
+      setOperatorStatusUpdatingUserId(null);
+    }
+  };
+
+  const requestLocationSharing = async (userId: string) => {
+    if (!incidentId) {
+      return;
+    }
+
+    setLocationRequestingUserId(userId);
+    setRecipientUpdateMessage(null);
+    try {
+      await api.post(`/incidents/${incidentId}/location/request`, { user_id: userId });
+      setRecipientUpdateMessage('Locatieverzoek is naar de gebruiker gestuurd.');
+      await liveLocations.reload();
+      await timeline.reload();
+    } catch (err) {
+      setRecipientUpdateMessage(err instanceof ApiClientError ? err.message : 'Locatieverzoek kon niet worden verzonden.');
+    } finally {
+      setLocationRequestingUserId(null);
+    }
+  };
+
   const downloadReport = async () => {
     if (!incidentId) {
       return;
@@ -403,36 +444,59 @@ export function IncidentDetailPage() {
                   <SummaryItem label="Op locatie" value={String(countOperatorStatuses(latestDispatch, 'on_scene'))} />
                 </div>
                 <div className="recipient-list">
-                  {latestDispatch.recipients?.map((recipient) => (
-                    <article className={`recipient-row recipient-row--${recipient.response_status}`} key={recipient.id}>
-                      <div className="recipient-row__identity">
-                        <strong>{recipient.user?.name ?? recipient.user_id}</strong>
-                        <span>{recipient.user?.email ?? '-'}</span>
-                      </div>
-                      <div className="recipient-row__states">
-                        <StatusPill value={responseLabel(recipient.response_status)} tone={recipient.response_status === 'accepted' ? 'good' : recipient.response_status === 'declined' ? 'bad' : undefined} />
-                        <StatusPill value={operatorStatusLabel(recipient.user?.statuses?.[0]?.status)} tone={operatorStatusTone(recipient.user?.statuses?.[0]?.status)} />
-                      </div>
-                      <div className="recipient-row__time">
-                        <span>Reactie</span>
-                        <strong>{formatDate(recipient.responded_at)}</strong>
-                      </div>
-                      {canManageDispatches ? (
-                        <select
-                          value={recipient.response_status}
-                          disabled={recipientUpdatingId === recipient.id || latestDispatch.status === 'cancelled'}
-                          onChange={(event) => void updateRecipientResponse(recipient.id, event.target.value as 'pending' | 'accepted' | 'declined' | 'no_response')}
-                          aria-label={`Opkomststatus aanpassen voor ${recipient.user?.name ?? recipient.user_id}`}
-                        >
-                          <option value="pending">Wacht op reactie</option>
-                          <option value="accepted">Komt</option>
-                          <option value="declined">Komt niet</option>
-                          <option value="no_response">Geen reactie</option>
-                        </select>
-                      ) : null}
-                      {recipient.response_note ? <p className="recipient-row__note">{recipient.response_note}</p> : null}
-                    </article>
-                  ))}
+                  {latestDispatch.recipients?.map((recipient) => {
+                    const userStatus = recipient.user?.statuses?.[0]?.status;
+                    const location = liveLocations.data?.find((item) => item.user_id === recipient.user_id);
+                    const canRequestLocation = canManageDispatches && recipient.response_status === 'accepted' && recipient.user_id !== '' && location?.sharing_status !== 'shared';
+                    const canEditOperatorStatus = canOverrideStatus && recipient.response_status === 'accepted' && recipient.user_id !== '';
+
+                    return (
+                      <article className={`recipient-row recipient-row--${recipient.response_status}`} key={recipient.id}>
+                        <div className="recipient-row__identity">
+                          <strong>{recipient.user?.name ?? recipient.user_id}</strong>
+                          <span>{recipient.user?.email ?? '-'}</span>
+                        </div>
+                        <div className="recipient-row__states">
+                          <StatusPill value={responseLabel(recipient.response_status)} tone={recipient.response_status === 'accepted' ? 'good' : recipient.response_status === 'declined' ? 'bad' : undefined} />
+                          <StatusPill value={operatorStatusLabel(userStatus)} tone={operatorStatusTone(userStatus)} />
+                          <StatusPill value={locationSharingLabel(location?.sharing_status)} tone={location?.sharing_status === 'shared' ? 'good' : location?.sharing_status === 'declined' ? 'bad' : 'neutral'} />
+                        </div>
+                        <div className="recipient-row__time">
+                          <span>Reactie</span>
+                          <strong>{formatDate(recipient.responded_at)}</strong>
+                        </div>
+                        {canManageDispatches ? (
+                          <select
+                            value={recipient.response_status}
+                            disabled={recipientUpdatingId === recipient.id || latestDispatch.status === 'cancelled'}
+                            onChange={(event) => void updateRecipientResponse(recipient.id, event.target.value as 'pending' | 'accepted' | 'declined' | 'no_response')}
+                            aria-label={`Opkomststatus aanpassen voor ${recipient.user?.name ?? recipient.user_id}`}
+                          >
+                            <option value="pending">Wacht op reactie</option>
+                            <option value="accepted">Komt</option>
+                            <option value="declined">Komt niet</option>
+                            <option value="no_response">Geen reactie</option>
+                          </select>
+                        ) : null}
+                        {canEditOperatorStatus ? (
+                          <div className="table-actions">
+                            <button className="secondary-button" type="button" onClick={() => void updateOperatorStatus(recipient.user_id, 'en_route')} disabled={operatorStatusUpdatingUserId === recipient.user_id || userStatus === 'en_route' || userStatus === 'on_scene'}>
+                              Onderweg
+                            </button>
+                            <button className="secondary-button" type="button" onClick={() => void updateOperatorStatus(recipient.user_id, 'on_scene')} disabled={operatorStatusUpdatingUserId === recipient.user_id || userStatus === 'on_scene'}>
+                              Op locatie
+                            </button>
+                          </div>
+                        ) : null}
+                        {canRequestLocation ? (
+                          <button className="secondary-button" type="button" onClick={() => void requestLocationSharing(recipient.user_id)} disabled={locationRequestingUserId === recipient.user_id || location?.sharing_status === 'pending'}>
+                            {location?.sharing_status === 'pending' ? 'Locatie gevraagd' : 'Vraag locatie'}
+                          </button>
+                        ) : null}
+                        {recipient.response_note ? <p className="recipient-row__note">{recipient.response_note}</p> : null}
+                      </article>
+                    );
+                  })}
                 </div>
                 {recipientUpdateMessage ? <p className={recipientUpdateMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{recipientUpdateMessage}</p> : null}
                 {canManageDispatches ? (
@@ -953,6 +1017,19 @@ function locationStatusLabel(location: IncidentLiveLocation): string {
       return location.refusal_reason ? `geweigerd (${location.refusal_reason})` : 'geweigerd';
     default:
       return 'niet gevraagd';
+  }
+}
+
+function locationSharingLabel(status?: IncidentLiveLocation['sharing_status']): string {
+  switch (status) {
+    case 'shared':
+      return 'Locatie gedeeld';
+    case 'pending':
+      return 'Locatie gevraagd';
+    case 'declined':
+      return 'Locatie geweigerd';
+    default:
+      return 'Locatie niet gevraagd';
   }
 }
 

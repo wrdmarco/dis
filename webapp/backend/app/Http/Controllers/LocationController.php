@@ -6,6 +6,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\Incident;
 use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
+use App\Models\User;
 use App\Services\LocationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -34,6 +35,19 @@ final class LocationController extends Controller
         ]);
 
         return ApiResponse::success($this->service->decline($incident, $request->user(), $data['reason'] ?? null));
+    }
+
+    public function requestSharing(Request $request, Incident $incident): JsonResponse
+    {
+        $data = $request->validate([
+            'user_id' => ['required', 'ulid', 'exists:users,id'],
+        ]);
+
+        return ApiResponse::success($this->service->requestSharing(
+            $incident,
+            User::query()->findOrFail($data['user_id']),
+            $request->user(),
+        ));
     }
 
     public function update(Request $request, Incident $incident): Response
@@ -115,6 +129,10 @@ final class LocationController extends Controller
         }
 
         if ($consent?->is_active === true) {
+            return 'pending';
+        }
+
+        if ($consent !== null && $consent->revoked_at === null) {
             return 'pending';
         }
 

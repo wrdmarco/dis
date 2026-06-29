@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Events\LocationUpdated;
 use App\Events\IncidentChanged;
+use App\Jobs\SendFcmNotification;
 use App\Models\Incident;
 use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
@@ -46,6 +47,57 @@ final class LocationService
         $this->broadcastLocationSharingChange($incident);
 
         return $consent;
+    }
+
+    /**
+     * @return array{queued_tokens: int, user_id: string}
+     */
+    public function requestSharing(Incident $incident, User $target, User $actor): array
+    {
+        $this->ensureIncidentAllowsLocationSharing($incident);
+        $this->ensureAcceptedRecipient($incident, $target);
+
+        $consent = LocationSharingConsent::query()->updateOrCreate(
+            ['incident_id' => $incident->id, 'user_id' => $target->id],
+            [
+                'is_active' => false,
+                'consented_at' => null,
+                'revoked_at' => null,
+                'declined_at' => null,
+                'refusal_reason' => null,
+            ],
+        );
+
+        $tokens = $target->fcmTokens()->where('is_active', true)->get();
+        if ($tokens->isEmpty()) {
+            throw ValidationException::withMessages(['user_id' => ['Deze gebruiker heeft geen actief app-device voor pushmeldingen.']]);
+        }
+
+        foreach ($tokens as $token) {
+            SendFcmNotification::dispatch(
+                (string) $token->id,
+                'location_share_request',
+                'Locatie delen gevraagd',
+                'Open het incident om je locatie te delen.',
+                [
+                    'type' => 'location_share_request',
+                    'incident_id' => (string) $incident->id,
+                    'incident_reference' => (string) $incident->reference,
+                    'incident_title' => (string) $incident->title,
+                    'request_location_consent' => 'true',
+                ],
+                null,
+            )->onQueue('push');
+        }
+
+        $this->auditService->record('location.share_requested', $incident, $actor, [
+            'user_id' => $target->id,
+            'consent_id' => $consent->id,
+            'queued_tokens' => $tokens->count(),
+        ]);
+        $this->broadcastLocationSharingChange($incident);
+
+        return ['queued_tokens' => $tokens->count(), 'user_id' => (string) $target->id];
     }
 
     public function revoke(Incident $incident, User $user): void
@@ -116,6 +168,19 @@ final class LocationService
     {
         if ($this->isClosedForLocationSharing($incident)) {
             throw ValidationException::withMessages(['incident_id' => ['Live locatie delen is gestopt voor afgeronde of geannuleerde incidenten.']]);
+        }
+    }
+
+    private function ensureAcceptedRecipient(Incident $incident, User $target): void
+    {
+        $isAcceptedRecipient = $incident->dispatchRequests()
+            ->whereHas('recipients', fn ($recipients) => $recipients
+                ->where('user_id', $target->id)
+                ->where('response_status', 'accepted'))
+            ->exists();
+
+        if (! $isAcceptedRecipient) {
+            throw ValidationException::withMessages(['user_id' => ['Locatie delen kan alleen worden gevraagd aan gebruikers die opkomen voor dit incident.']]);
         }
     }
 
