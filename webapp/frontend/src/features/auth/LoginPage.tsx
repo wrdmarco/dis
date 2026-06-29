@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { LockKeyhole } from 'lucide-react';
 import { TotpQrCode } from '../../components/TotpQrCode';
@@ -6,9 +6,20 @@ import { ApiClientError } from '../../lib/apiClient';
 import type { TwoFactorSetup } from '../../types/api';
 import { useAuth } from './AuthContext';
 
+interface LoginBranding {
+  login_title: string;
+  login_subtitle: string;
+  logo_data_url: string;
+}
+
 export function LoginPage() {
-  const { isAuthenticated, login, verifyTwoFactor, startTwoFactorSetup, enableTwoFactor } = useAuth();
+  const { api, isAuthenticated, login, verifyTwoFactor, startTwoFactorSetup, enableTwoFactor } = useAuth();
   const navigate = useNavigate();
+  const [branding, setBranding] = useState<LoginBranding>({
+    login_title: 'D.I.S Command Center',
+    login_subtitle: '',
+    logo_data_url: '',
+  });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
@@ -18,6 +29,12 @@ export function LoginPage() {
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.get<LoginBranding>('/branding')
+      .then((response) => setBranding(response.data))
+      .catch(() => undefined);
+  }, [api]);
 
   if (isAuthenticated && !requiresTwoFactor && !requiresTwoFactorSetup) {
     return <Navigate to="/" replace />;
@@ -74,9 +91,10 @@ export function LoginPage() {
     <main className="login-shell">
       <section className="login-panel" aria-labelledby="login-title">
         <div className="login-panel__mark">
-          <LockKeyhole aria-hidden size={28} />
+          {branding.logo_data_url ? <img src={branding.logo_data_url} alt="" /> : <LockKeyhole aria-hidden size={28} />}
         </div>
-        <h1 id="login-title">D.I.S Command Center</h1>
+        <h1 id="login-title">{branding.login_title || 'D.I.S Command Center'}</h1>
+        {branding.login_subtitle ? <p className="login-panel__subtitle">{branding.login_subtitle}</p> : null}
 
         {requiresTwoFactorSetup ? (
           <form onSubmit={confirmSetup} className="form">

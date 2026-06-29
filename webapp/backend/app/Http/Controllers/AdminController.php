@@ -343,6 +343,10 @@ final class AdminController extends Controller
             'mail.username',
             'mail.password',
             'mail.from_name' => $this->validateStringSetting($key, $value, 255),
+            'mail.template.welcome_subject',
+            'mail.template.certification_expiry_subject' => $this->validateStringSetting($key, $value, 160),
+            'mail.template.welcome_body',
+            'mail.template.certification_expiry_body' => $this->validateStringSetting($key, $value, 4000),
             'mail.port' => $this->validateIntegerSetting($key, $value, 1, 65535),
             'mail.encryption' => $this->validateStringIn($key, $value, ['', 'tls', 'ssl']),
             'mail.from_address' => $this->validateEmailSetting($key, $value),
@@ -362,6 +366,9 @@ final class AdminController extends Controller
             'security.mfa_issuer_name' => $this->validateStringSetting($key, $value, 64),
             'app.brand_name' => $this->validateStringSetting($key, $value, 120),
             'app.brand_short_name' => $this->validateStringSetting($key, $value, 12),
+            'app.login_title' => $this->validateStringSetting($key, $value, 120),
+            'app.login_subtitle' => $this->validateStringSetting($key, $value, 240),
+            'app.logo_data_url' => $this->validateStringSetting($key, $value, 700000),
             default => $value,
         };
     }

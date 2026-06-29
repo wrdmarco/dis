@@ -85,6 +85,7 @@ interface BrandingState {
   name: string;
   short_name: string;
   tenant_name: string;
+  logo_data_url: string;
 }
 
 export function CommandLayout() {
@@ -94,6 +95,7 @@ export function CommandLayout() {
     name: 'D.I.S Operationeel Beeld',
     short_name: 'DIS',
     tenant_name: 'Nationaal Droneteam',
+    logo_data_url: '',
   });
 
   useEffect(() => {
@@ -120,7 +122,9 @@ export function CommandLayout() {
     <div className="command-layout">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand__mark">{branding.short_name}</span>
+          <span className="brand__mark">
+            {branding.logo_data_url ? <img src={branding.logo_data_url} alt="" /> : branding.short_name}
+          </span>
           <span className="brand__text">Command Center</span>
         </div>
         <nav className="nav" aria-label="Hoofdnavigatie">

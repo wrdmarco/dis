@@ -173,6 +173,8 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/status/audit-users', [AdminController::class, 'auditUsers'])->middleware('permission:status.audit.view');
     Route::get('/admin/settings', [AdminController::class, 'settings'])->middleware('permission:settings.manage');
     Route::patch('/admin/settings', [AdminController::class, 'updateSettings'])->middleware('permission:settings.manage');
+    Route::post('/admin/branding/logo', [BrandingController::class, 'uploadLogo'])->middleware('permission:settings.manage');
+    Route::delete('/admin/branding/logo', [BrandingController::class, 'deleteLogo'])->middleware('permission:settings.manage');
     Route::post('/admin/settings/mail/test', [AdminController::class, 'testMail'])->middleware('permission:settings.manage');
     Route::get('/admin/developer-access', [AdminDeveloperController::class, 'developerAccess'])->middleware('permission:settings.manage');
     Route::post('/admin/developer-access/key', [AdminDeveloperController::class, 'generateDeveloperKey'])->middleware('permission:settings.manage');
