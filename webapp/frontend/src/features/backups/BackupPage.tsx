@@ -57,6 +57,8 @@ interface BackupActionResult {
   output?: string;
 }
 
+const SMB_VERSION_OPTIONS = ['3.1.1', '3.0', '2.1', '2.0', '1.0'] as const;
+
 export function BackupPage() {
   const { api } = useAuth();
   const backups = useApiResource<BackupIndex>('/admin/backups');
@@ -80,7 +82,6 @@ export function BackupPage() {
     await runAction('settings', async () => {
       await api.patch<BackupIndex>('/admin/backups/settings', {
         target: settingsForm.target,
-        local_path: settingsForm.localPath,
         samba_share: settingsForm.sambaShare,
         samba_mount: settingsForm.sambaMount,
         samba_username: settingsForm.sambaUsername,
@@ -127,10 +128,10 @@ export function BackupPage() {
                 <option value="samba">Samba share</option>
               </select>
             </label>
-            <label>
-              Lokale map
-              <input value={settingsForm.localPath} readOnly />
-            </label>
+            <div className="field-display">
+              <span>Lokale map</span>
+              <strong className="mono">{settingsForm.localPath}</strong>
+            </div>
             <div className="form-grid__wide metadata-example">
               <strong>Status</strong>
               <pre>{`Actief doel: ${targetLabel(settingsForm.target)}\nLokale map: ${backups.data?.roots.local ?? settingsForm.localPath}`}</pre>
@@ -150,7 +151,11 @@ export function BackupPage() {
                 </label>
                 <label>
                   SMB versie
-                  <input value={settingsForm.sambaVersion} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaVersion: event.target.value }))} />
+                  <select value={settingsForm.sambaVersion} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaVersion: event.target.value }))}>
+                    {SMB_VERSION_OPTIONS.map((version) => (
+                      <option key={version} value={version}>{version}</option>
+                    ))}
+                  </select>
                 </label>
                 <label>
                   Gebruikersnaam

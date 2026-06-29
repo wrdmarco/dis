@@ -56,13 +56,12 @@ final class BackupController extends Controller
     {
         $data = $request->validate([
             'target' => ['required', 'string', 'in:local,samba'],
-            'local_path' => ['nullable', 'string', 'in:/opt/dis/backup'],
             'samba_share' => ['nullable', 'string', 'max:255'],
             'samba_mount' => ['nullable', 'string', 'in:/mnt/dis-backup'],
             'samba_username' => ['nullable', 'string', 'max:255'],
             'samba_password' => ['nullable', 'string', 'max:2000'],
             'samba_domain' => ['nullable', 'string', 'max:255'],
-            'samba_version' => ['nullable', 'string', 'max:20'],
+            'samba_version' => ['nullable', 'string', 'in:3.1.1,3.0,2.1,2.0,1.0'],
         ]);
 
         if ($data['target'] === 'samba') {
@@ -74,7 +73,7 @@ final class BackupController extends Controller
         }
 
         $this->putSetting('backup.target', $data['target'], $request);
-        $this->putSetting('backup.local_path', trim((string) ($data['local_path'] ?? '')) ?: self::DEFAULT_LOCAL_PATH, $request);
+        $this->putSetting('backup.local_path', self::DEFAULT_LOCAL_PATH, $request);
         $this->putSetting('backup.samba.share', trim((string) ($data['samba_share'] ?? '')), $request);
         $this->putSetting('backup.samba.mount', trim((string) ($data['samba_mount'] ?? '')) ?: '/mnt/dis-backup', $request);
         $this->putSetting('backup.samba.username', trim((string) ($data['samba_username'] ?? '')), $request);

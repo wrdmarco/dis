@@ -1391,6 +1391,19 @@ a:hover {
   color: #aebdd0;
 }
 
+.field-display {
+  display: grid;
+  gap: 6px;
+  min-height: 40px;
+  align-content: center;
+  color: #aebdd0;
+}
+
+.field-display strong {
+  color: #f4f8fc;
+  font-weight: 600;
+}
+
 .check-label {
   grid-auto-flow: column;
   align-items: center;
