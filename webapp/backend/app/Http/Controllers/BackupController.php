@@ -189,7 +189,7 @@ final class BackupController extends Controller
         $target = $this->requestTarget($request);
         $this->ensureTargetReady($target);
         $this->writeRuntimeConfig($target);
-        $result = Process::timeout(900)->run(['sudo', '-n', 'bash', $this->scriptPath('backup.sh')]);
+        $result = Process::timeout(900)->run(['sudo', '-n', $this->bashBinary(), $this->scriptPath('backup.sh')]);
         $output = $this->cleanOutput($result->output().$result->errorOutput());
 
         $this->auditService->record('backups.created', SystemSetting::class, $request->user(), [
@@ -284,7 +284,14 @@ final class BackupController extends Controller
 
     private function scriptPath(string $script): string
     {
-        return rtrim(base_path('../..'), '/').'/scripts/'.$script;
+        $path = dirname(base_path(), 2).'/scripts/'.$script;
+
+        return realpath($path) ?: $path;
+    }
+
+    private function bashBinary(): string
+    {
+        return is_executable('/usr/bin/bash') ? '/usr/bin/bash' : '/bin/bash';
     }
 
     /**

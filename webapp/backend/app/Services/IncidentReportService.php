@@ -288,8 +288,9 @@ final class IncidentReportService
         $lastTileY = (int) floor(($top + $height) / $tileSize);
         $maxTile = (2 ** $zoom) - 1;
         $tiles = [];
+        $baseTiles = 0;
         $cacheKey = sha1(implode('|', [
-            'satellite',
+            'satellite-labels',
             $zoom,
             $width,
             $height,
@@ -312,27 +313,32 @@ final class IncidentReportService
                 }
 
                 $wrappedTileX = (($tileX % ($maxTile + 1)) + ($maxTile + 1)) % ($maxTile + 1);
-                $url = sprintf('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/%d/%d/%d', $zoom, $tileY, $wrappedTileX);
-                $response = Http::timeout(4)
-                    ->retry(1, 150)
-                    ->withHeaders([
-                        'User-Agent' => 'DIS Incident Report/1.0 (https://dis.wrdmarco.nl)',
-                    ])
-                    ->get($url);
+                foreach ($this->mapTileUrls($zoom, $tileY, $wrappedTileX) as $index => $url) {
+                    $response = Http::timeout(4)
+                        ->retry(1, 150)
+                        ->withHeaders([
+                            'User-Agent' => 'DIS Incident Report/1.0 (https://dis.wrdmarco.nl)',
+                        ])
+                        ->get($url);
 
-                if (! $response->ok()) {
-                    continue;
+                    if (! $response->ok()) {
+                        continue;
+                    }
+
+                    if ($index === 0) {
+                        $baseTiles++;
+                    }
+
+                    $tiles[] = [
+                        'data_uri' => 'data:image/png;base64,'.base64_encode($response->body()),
+                        'left' => round(($tileX * $tileSize) - $left, 2),
+                        'top' => round(($tileY * $tileSize) - $top, 2),
+                    ];
                 }
-
-                $tiles[] = [
-                    'data_uri' => 'data:image/png;base64,'.base64_encode($response->body()),
-                    'left' => round(($tileX * $tileSize) - $left, 2),
-                    'top' => round(($tileY * $tileSize) - $top, 2),
-                ];
             }
         }
 
-        if ($tiles === []) {
+        if ($baseTiles === 0) {
             return [
                 'available' => false,
                 'data_uri' => null,
@@ -366,7 +372,7 @@ final class IncidentReportService
         $centerY = number_format($height / 2, 2, '.', '');
         $labelY = $height - 17;
         $labelTextY = $height - 8;
-        $attributionX = $width - 103;
+        $attributionX = $width - 132;
         $attributionY = $height - 21;
         $attributionTextX = $width - 96;
         $attributionTextY = $height - 9;
@@ -379,10 +385,22 @@ final class IncidentReportService
   <circle cx="{$centerX}" cy="{$centerY}" r="8" fill="#dc2626" stroke="#ffffff" stroke-width="3"/>
   <rect x="10" y="{$labelY}" width="94" height="22" rx="5" fill="#ffffff" stroke="#dbe5f0"/>
   <text x="18" y="{$labelTextY}" font-family="DejaVu Sans, Arial, sans-serif" font-size="10" fill="#0f172a">Incidentlocatie</text>
-  <rect x="{$attributionX}" y="{$attributionY}" width="93" height="18" rx="4" fill="#ffffff" fill-opacity="0.92"/>
-  <text x="{$attributionTextX}" y="{$attributionTextY}" font-family="DejaVu Sans, Arial, sans-serif" font-size="8" fill="#475569">Esri World Imagery</text>
+  <rect x="{$attributionX}" y="{$attributionY}" width="122" height="18" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+  <text x="{$attributionTextX}" y="{$attributionTextY}" font-family="DejaVu Sans, Arial, sans-serif" font-size="8" fill="#475569">Esri Imagery + labels</text>
 </svg>
 SVG;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function mapTileUrls(int $zoom, int $tileY, int $tileX): array
+    {
+        return [
+            sprintf('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/%d/%d/%d', $zoom, $tileY, $tileX),
+            sprintf('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/%d/%d/%d', $zoom, $tileY, $tileX),
+            sprintf('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/%d/%d/%d', $zoom, $tileY, $tileX),
+        ];
     }
 
     private function aeretMapReferenceImage(float $latitude, float $longitude, ?string $aeretUrl): ?string

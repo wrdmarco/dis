@@ -37,7 +37,7 @@ final class RunScheduledBackup extends Command
         }
 
         $this->writeRuntimeConfig($target);
-        $result = Process::timeout(900)->run(['sudo', '-n', 'bash', $this->scriptPath('backup.sh')]);
+        $result = Process::timeout(900)->run(['sudo', '-n', $this->bashBinary(), $this->scriptPath('backup.sh')]);
         $output = trim($result->output().$result->errorOutput());
 
         if (! $result->successful()) {
@@ -124,7 +124,14 @@ final class RunScheduledBackup extends Command
 
     private function scriptPath(string $script): string
     {
-        return rtrim(base_path('../..'), '/').'/scripts/'.$script;
+        $path = dirname(base_path(), 2).'/scripts/'.$script;
+
+        return realpath($path) ?: $path;
+    }
+
+    private function bashBinary(): string
+    {
+        return is_executable('/usr/bin/bash') ? '/usr/bin/bash' : '/bin/bash';
     }
 
     private function shellValue(string $value): string
