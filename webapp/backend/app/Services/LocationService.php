@@ -61,7 +61,7 @@ final class LocationService
             ['incident_id' => $incident->id, 'user_id' => $target->id],
             [
                 'is_active' => false,
-                'consented_at' => null,
+                'consented_at' => now(),
                 'revoked_at' => null,
                 'declined_at' => null,
                 'refusal_reason' => null,
