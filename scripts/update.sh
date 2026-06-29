@@ -183,6 +183,61 @@ clear_application_caches() {
   fi
 }
 
+assert_backend_routes() {
+  local backend_dir missing routes
+  backend_dir="${DIS_INSTALL_PATH}/webapp/backend"
+
+  if [ ! -f "${backend_dir}/artisan" ]; then
+    return
+  fi
+
+  log "Checking critical backend routes"
+  routes="$(runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" route:list --path=admin/backups --columns=method,uri 2>/dev/null || true)"
+  missing=0
+  for route in \
+    "GET api/admin/backups" \
+    "PATCH api/admin/backups/settings" \
+    "POST api/admin/backups" \
+    "POST api/admin/backups/{backup}/verify" \
+    "POST api/admin/backups/{backup}/restore"; do
+    if ! route_exists_in_list "${routes}" "${route}"; then
+      log "Missing backend route: ${route}"
+      missing=1
+    fi
+  done
+
+  if [ "${missing}" = "1" ]; then
+    log "Backend routes are stale or incomplete; clearing caches once more."
+    clear_application_caches
+    routes="$(runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" route:list --path=admin/backups --columns=method,uri 2>/dev/null || true)"
+    missing=0
+    for route in \
+      "GET api/admin/backups" \
+      "PATCH api/admin/backups/settings" \
+      "POST api/admin/backups" \
+      "POST api/admin/backups/{backup}/verify" \
+      "POST api/admin/backups/{backup}/restore"; do
+      if ! route_exists_in_list "${routes}" "${route}"; then
+        log "Still missing backend route after cache clear: ${route}"
+        missing=1
+      fi
+    done
+  fi
+
+  if [ "${missing}" = "1" ]; then
+    fail "Backend route registration check failed."
+  fi
+}
+
+route_exists_in_list() {
+  local routes route normalized
+  routes="$1"
+  route="$2"
+  normalized="$(printf '%s\n' "${routes}" | sed -E 's/[[:space:]]+/ /g; s/GET\|HEAD/GET/g')"
+
+  printf '%s\n' "${normalized}" | grep -Fq "${route}"
+}
+
 create_pre_update_backup() {
   local backup_output backup_path
 
@@ -374,10 +429,14 @@ if [ "${UPDATE_APP}" = "1" ]; then
     APP_ROOT="${DIS_INSTALL_PATH}" NGINX_SOURCE="${nginx_source}" SKIP_DEPLOY_CACHE_CLEAR=1 bash "${SCRIPT_DIR}/deploy.sh"
     install_update_command
     install_update_privileges
+    clear_application_caches
+    assert_backend_routes
   else
     log "Skipping DIS application deploy."
     install_update_command
     install_update_privileges
+    clear_application_caches
+    assert_backend_routes
   fi
 fi
 
@@ -385,7 +444,5 @@ if [ "${RUN_HEALTHCHECK}" = "1" ]; then
   log "Running final local health check"
   HEALTH_URL="http://127.0.0.1/health" bash "${SCRIPT_DIR}/healthcheck.sh"
 fi
-
-clear_application_caches
 
 log "DIS system and application update completed."
