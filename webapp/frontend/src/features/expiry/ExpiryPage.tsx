@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
+import { droneTypeLabel } from '../../lib/droneTypes';
 import { useApiResource } from '../../lib/useApiResource';
 import type { ExpiryOverview } from '../../types/api';
 
@@ -105,7 +106,7 @@ function AssetTable({ assets }: { assets: ExpiryOverview['assets'] }) {
           <tr key={asset.id}>
             <td>{asset.name}</td>
             <td className="mono">{asset.asset_tag}</td>
-            <td>{asset.drone_type?.model ?? asset.type}</td>
+            <td>{asset.drone_type ? droneTypeLabel(asset.drone_type) : asset.type}</td>
             <td><StatusPill value={asset.status} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} /></td>
             <td>{formatDate(asset.maintenance_due_at)}</td>
             <td>{deadlineLabel(asset.maintenance_due_at)}</td>

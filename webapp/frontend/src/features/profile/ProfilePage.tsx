@@ -5,6 +5,7 @@ import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { ApiClientError } from '../../lib/apiClient';
+import { droneTypeLabel } from '../../lib/droneTypes';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
 import type { Asset, Certification, DroneType, TwoFactorSetup, UserCertification, UserVacation } from '../../types/api';
@@ -373,7 +374,7 @@ export function ProfilePage() {
               >
                 <option value="">Kies drone type</option>
                 {droneTypes.data?.filter((type) => type.is_active || type.id === assetForm.droneTypeId).map((type) => (
-                  <option key={type.id} value={type.id}>{type.manufacturer} {type.model}</option>
+                  <option key={type.id} value={type.id}>{droneTypeLabel(type)}</option>
                 ))}
               </select>
             </label>
@@ -612,7 +613,7 @@ function AssetTable({
           {assets.map((asset) => (
             <tr key={asset.id}>
               <td>{asset.name}</td>
-              <td>{asset.drone_type ? `${asset.drone_type.manufacturer} ${asset.drone_type.model}` : assetTypeLabel(asset.type)}</td>
+              <td>{asset.drone_type ? droneTypeLabel(asset.drone_type) : assetTypeLabel(asset.type)}</td>
               <td><StatusPill value={assetStatusLabel(asset.status)} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} /></td>
               <td>{asset.serial_number ?? '-'}</td>
               <td>{formatDate(asset.maintenance_due_at)}</td>

@@ -4,6 +4,7 @@ import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
+import { droneTypeLabel } from '../../lib/droneTypes';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
 import type { Asset, DroneType } from '../../types/api';
@@ -264,7 +265,7 @@ export function AssetsPage() {
                 <tr key={asset.id}>
                   <td>{asset.active_assignment?.user?.name ?? asset.active_assignment?.user?.email ?? 'Nog niet gekoppeld'}</td>
                   <td>{asset.name}</td>
-                  <td>{asset.drone_type?.model ?? asset.type}</td>
+                  <td>{asset.drone_type ? droneTypeLabel(asset.drone_type) : asset.type}</td>
                   <td><StatusPill value={asset.status} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} /></td>
                   <td>{asset.serial_number ?? '-'}</td>
                   <td>{asset.maintenance_due_at ?? '-'}</td>
@@ -323,7 +324,7 @@ export function AssetsPage() {
                   >
                     <option value="">Kies drone type</option>
                     {droneTypes.data?.filter((type) => type.is_active || type.id === form.droneTypeId).map((type) => (
-                      <option key={type.id} value={type.id}>{type.manufacturer} {type.model}</option>
+                      <option key={type.id} value={type.id}>{droneTypeLabel(type)}</option>
                     ))}
                   </select>
                 </label>
