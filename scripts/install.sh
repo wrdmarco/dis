@@ -50,6 +50,8 @@ if id www-data >/dev/null 2>&1; then
   run_cmd usermod -aG "${DIS_GROUP}" www-data
 fi
 
+APP_ROOT="${DIS_INSTALL_PATH}" bash "${SCRIPT_DIR}/self-heal-permissions.sh"
+
 log "Enabling system services"
 run_cmd systemctl enable --now postgresql
 run_cmd systemctl enable --now redis-server

@@ -29,6 +29,7 @@ ensure_directory "${BACKEND_DIR}/storage/framework/views" "${DIS_USER}" "${DIS_G
 ensure_directory "${BACKEND_DIR}/storage/logs" "${DIS_USER}" "${DIS_GROUP}" 0750
 ensure_directory "${BACKEND_DIR}/bootstrap/cache" "${DIS_USER}" "${DIS_GROUP}" 0750
 ensure_directory "${BACKEND_DIR}/storage/composer" "${DIS_USER}" "${DIS_GROUP}" 0750
+APP_ROOT="${APP_ROOT}" bash "${SCRIPT_DIR}/self-heal-permissions.sh"
 run_cmd ln -sfn "${APP_ROOT}/.env" "${BACKEND_DIR}/.env"
 run_cmd chown -h "${DIS_USER}:${DIS_GROUP}" "${BACKEND_DIR}/.env"
 if id www-data >/dev/null 2>&1; then

@@ -185,6 +185,12 @@ clear_application_caches() {
   fi
 }
 
+self_heal_permissions() {
+  if [ -f "${SCRIPT_DIR}/self-heal-permissions.sh" ]; then
+    APP_ROOT="${DIS_INSTALL_PATH}" bash "${SCRIPT_DIR}/self-heal-permissions.sh"
+  fi
+}
+
 assert_backend_routes() {
   local backend_dir status
   backend_dir="${DIS_INSTALL_PATH}/webapp/backend"
@@ -380,6 +386,7 @@ if [ "${SYSTEM_UPDATES_AVAILABLE}" = "0" ] && [ "${APP_UPDATES_AVAILABLE}" = "0"
   log "No updates available. Nothing to do."
   install_update_command
   install_update_privileges
+  self_heal_permissions
   clear_application_caches
   exit 0
 fi
@@ -415,12 +422,14 @@ if [ "${UPDATE_APP}" = "1" ]; then
     APP_ROOT="${DIS_INSTALL_PATH}" NGINX_SOURCE="${nginx_source}" SKIP_DEPLOY_CACHE_CLEAR=1 bash "${SCRIPT_DIR}/deploy.sh"
     install_update_command
     install_update_privileges
+    self_heal_permissions
     clear_application_caches
     assert_backend_routes
   else
     log "Skipping DIS application deploy."
     install_update_command
     install_update_privileges
+    self_heal_permissions
     clear_application_caches
     assert_backend_routes
   fi
