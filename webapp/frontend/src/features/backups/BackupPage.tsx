@@ -39,6 +39,12 @@ interface BackupSettings {
   samba_domain: string;
   samba_version: string;
   samba_mounted: boolean;
+  auto_enabled: boolean;
+  auto_frequency: BackupFrequency;
+  auto_day_of_week: number;
+  auto_time: string;
+  retention_count: number;
+  auto_last_run_at?: string | null;
 }
 
 interface BackupSettingsForm {
@@ -50,6 +56,11 @@ interface BackupSettingsForm {
   sambaPassword: string;
   sambaDomain: string;
   sambaVersion: string;
+  autoEnabled: boolean;
+  autoFrequency: BackupFrequency;
+  autoDayOfWeek: number;
+  autoTime: string;
+  retentionCount: number;
 }
 
 interface BackupActionResult {
@@ -58,6 +69,17 @@ interface BackupActionResult {
 }
 
 const SMB_VERSION_OPTIONS = ['3.1.1', '3.0', '2.1', '2.0', '1.0'] as const;
+type BackupFrequency = 'daily' | 'weekly';
+
+const WEEK_DAYS = [
+  { value: 1, label: 'Maandag' },
+  { value: 2, label: 'Dinsdag' },
+  { value: 3, label: 'Woensdag' },
+  { value: 4, label: 'Donderdag' },
+  { value: 5, label: 'Vrijdag' },
+  { value: 6, label: 'Zaterdag' },
+  { value: 7, label: 'Zondag' },
+] as const;
 
 export function BackupPage() {
   const { api } = useAuth();
@@ -88,6 +110,11 @@ export function BackupPage() {
         samba_password: settingsForm.sambaPassword,
         samba_domain: settingsForm.sambaDomain,
         samba_version: settingsForm.sambaVersion,
+        auto_enabled: settingsForm.autoEnabled,
+        auto_frequency: settingsForm.autoFrequency,
+        auto_day_of_week: settingsForm.autoDayOfWeek,
+        auto_time: settingsForm.autoTime,
+        retention_count: settingsForm.retentionCount,
       });
 
       return { state: 'saved' };
@@ -134,7 +161,7 @@ export function BackupPage() {
             </div>
             <div className="form-grid__wide metadata-example">
               <strong>Status</strong>
-              <pre>{`Actief doel: ${targetLabel(settingsForm.target)}\nLokale map: ${backups.data?.roots.local ?? settingsForm.localPath}`}</pre>
+              <pre>{`Actief doel: ${targetLabel(settingsForm.target)}\nLokale map: ${backups.data?.roots.local ?? settingsForm.localPath}\nAutomatisch: ${settingsForm.autoEnabled ? 'Aan' : 'Uit'}\nAantal bewaren: ${settingsForm.retentionCount === 0 ? 'Onbeperkt' : settingsForm.retentionCount}`}</pre>
             </div>
             {settingsForm.target === 'samba' ? (
               <>
@@ -175,6 +202,39 @@ export function BackupPage() {
                 </div>
               </>
             ) : null}
+            <div className="form-grid__wide section-heading">
+              <h3>Automatische backups</h3>
+            </div>
+            <label className="check-label form-grid__wide">
+              <input type="checkbox" checked={settingsForm.autoEnabled} onChange={(event) => setSettingsForm((current) => ({ ...current, autoEnabled: event.target.checked }))} />
+              Automatisch backups maken
+            </label>
+            <label>
+              Frequentie
+              <select value={settingsForm.autoFrequency} onChange={(event) => setSettingsForm((current) => ({ ...current, autoFrequency: event.target.value as BackupFrequency }))}>
+                <option value="daily">Dagelijks</option>
+                <option value="weekly">Wekelijks</option>
+              </select>
+            </label>
+            {settingsForm.autoFrequency === 'weekly' ? (
+              <label>
+                Dag
+                <select value={settingsForm.autoDayOfWeek} onChange={(event) => setSettingsForm((current) => ({ ...current, autoDayOfWeek: Number(event.target.value) }))}>
+                  {WEEK_DAYS.map((day) => (
+                    <option key={day.value} value={day.value}>{day.label}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <label>
+              Tijd
+              <input type="time" value={settingsForm.autoTime} onChange={(event) => setSettingsForm((current) => ({ ...current, autoTime: event.target.value }))} />
+            </label>
+            <label>
+              Aantal bewaren
+              <input type="number" min="0" max="365" value={settingsForm.retentionCount} onChange={(event) => setSettingsForm((current) => ({ ...current, retentionCount: Number(event.target.value) }))} />
+            </label>
+            <p className="form-note form-grid__wide">Gebruik 0 om backups onbeperkt te bewaren.</p>
             <div className="actions-row form-grid__wide">
               <button className="primary-button" type="submit" disabled={busy !== null}>
                 {busy === 'settings' ? 'Opslaan...' : 'Backup doel opslaan'}
@@ -207,6 +267,9 @@ export function BackupPage() {
                 <dt>Samba map</dt><dd className="mono">{backups.data.roots.samba ?? '-'}</dd>
               </>
             ) : null}
+            <dt>Automatische backup</dt><dd>{backups.data?.settings.auto_enabled ? autoBackupLabel(backups.data.settings) : 'Uit'}</dd>
+            <dt>Aantal bewaren</dt><dd>{backups.data?.settings.retention_count === 0 ? 'Onbeperkt' : backups.data?.settings.retention_count ?? '-'}</dd>
+            <dt>Laatst automatisch</dt><dd>{backups.data?.settings.auto_last_run_at ?? '-'}</dd>
             <dt>Aantal backups</dt><dd>{backups.data?.backups.length ?? 0}</dd>
           </dl>
           {message ? <p className="form-note">{message}</p> : null}
@@ -322,6 +385,15 @@ function targetLabel(target: BackupTarget): string {
   return target === 'samba' ? 'Samba share' : 'Lokaal';
 }
 
+function autoBackupLabel(settings: BackupSettings): string {
+  if (settings.auto_frequency === 'weekly') {
+    const day = WEEK_DAYS.find((option) => option.value === settings.auto_day_of_week)?.label ?? 'Maandag';
+    return `Wekelijks op ${day} om ${settings.auto_time}`;
+  }
+
+  return `Dagelijks om ${settings.auto_time}`;
+}
+
 function toSettingsForm(settings?: BackupSettings): BackupSettingsForm {
   return {
     target: settings?.target ?? 'local',
@@ -332,5 +404,10 @@ function toSettingsForm(settings?: BackupSettings): BackupSettingsForm {
     sambaPassword: '',
     sambaDomain: settings?.samba_domain ?? '',
     sambaVersion: settings?.samba_version ?? '3.1.1',
+    autoEnabled: settings?.auto_enabled ?? false,
+    autoFrequency: settings?.auto_frequency ?? 'daily',
+    autoDayOfWeek: settings?.auto_day_of_week ?? 1,
+    autoTime: settings?.auto_time ?? '02:15',
+    retentionCount: settings?.retention_count ?? 7,
   };
 }

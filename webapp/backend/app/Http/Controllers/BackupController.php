@@ -62,6 +62,11 @@ final class BackupController extends Controller
             'samba_password' => ['nullable', 'string', 'max:2000'],
             'samba_domain' => ['nullable', 'string', 'max:255'],
             'samba_version' => ['nullable', 'string', 'in:3.1.1,3.0,2.1,2.0,1.0'],
+            'auto_enabled' => ['required', 'boolean'],
+            'auto_frequency' => ['required', 'string', 'in:daily,weekly'],
+            'auto_day_of_week' => ['required', 'integer', 'between:1,7'],
+            'auto_time' => ['required', 'date_format:H:i'],
+            'retention_count' => ['required', 'integer', 'between:0,365'],
         ]);
 
         if ($data['target'] === 'samba') {
@@ -79,6 +84,11 @@ final class BackupController extends Controller
         $this->putSetting('backup.samba.username', trim((string) ($data['samba_username'] ?? '')), $request);
         $this->putSetting('backup.samba.domain', trim((string) ($data['samba_domain'] ?? '')), $request);
         $this->putSetting('backup.samba.version', trim((string) ($data['samba_version'] ?? '')) ?: '3.1.1', $request);
+        $this->putSetting('backup.auto.enabled', (bool) $data['auto_enabled'], $request);
+        $this->putSetting('backup.auto.frequency', $data['auto_frequency'], $request);
+        $this->putSetting('backup.auto.day_of_week', (int) $data['auto_day_of_week'], $request);
+        $this->putSetting('backup.auto.time', $data['auto_time'], $request);
+        $this->putSetting('backup.retention_count', (int) $data['retention_count'], $request);
         if (array_key_exists('samba_password', $data) && trim((string) $data['samba_password']) !== '') {
             $this->putSetting(self::PASSWORD_KEY, (string) $data['samba_password'], $request, true);
         }
@@ -86,6 +96,9 @@ final class BackupController extends Controller
         $this->writeRuntimeConfig();
         $this->auditService->record('backups.settings_updated', SystemSetting::class, $request->user(), [
             'target' => $data['target'],
+            'auto_enabled' => (bool) $data['auto_enabled'],
+            'auto_frequency' => $data['auto_frequency'],
+            'retention_count' => (int) $data['retention_count'],
             'samba_share' => $data['target'] === 'samba' ? ($data['samba_share'] ?? null) : null,
         ], null, $request);
 
@@ -210,6 +223,12 @@ final class BackupController extends Controller
             'samba_domain' => SystemSetting::string('backup.samba.domain', '') ?? '',
             'samba_version' => SystemSetting::string('backup.samba.version', '3.1.1') ?? '3.1.1',
             'samba_mounted' => $this->isMounted(SystemSetting::string('backup.samba.mount', '/mnt/dis-backup') ?? '/mnt/dis-backup'),
+            'auto_enabled' => SystemSetting::boolean('backup.auto.enabled', false),
+            'auto_frequency' => SystemSetting::string('backup.auto.frequency', 'daily') ?? 'daily',
+            'auto_day_of_week' => SystemSetting::integer('backup.auto.day_of_week', 1),
+            'auto_time' => SystemSetting::string('backup.auto.time', '02:15') ?? '02:15',
+            'retention_count' => SystemSetting::integer('backup.retention_count', 7),
+            'auto_last_run_at' => SystemSetting::string('backup.auto.last_run_at'),
         ];
     }
 
@@ -231,6 +250,7 @@ final class BackupController extends Controller
         $lines = [
             'BACKUP_TARGET='.$this->shellValue($target),
             'BACKUP_ROOT='.$this->shellValue(SystemSetting::string('backup.local_path', self::DEFAULT_LOCAL_PATH) ?? self::DEFAULT_LOCAL_PATH),
+            'BACKUP_RETENTION_COUNT='.$this->shellValue((string) max(0, SystemSetting::integer('backup.retention_count', 7))),
             'BACKUP_SAMBA_SHARE='.$this->shellValue(SystemSetting::string('backup.samba.share', '') ?? ''),
             'BACKUP_SAMBA_MOUNT='.$this->shellValue(SystemSetting::string('backup.samba.mount', '/mnt/dis-backup') ?? '/mnt/dis-backup'),
             'BACKUP_SAMBA_USERNAME='.$this->shellValue(SystemSetting::string('backup.samba.username', '') ?? ''),

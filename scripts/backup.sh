@@ -20,6 +20,25 @@ BACKUP_ROOT="$(resolve_backup_root "${APP_ROOT}")"
 TARGET="${BACKUP_ROOT}/${STAMP}"
 run_cmd install -d -m 0750 "${TARGET}"
 
+prune_old_backups() {
+  local root="$1"
+  local keep="${BACKUP_RETENTION_COUNT:-0}"
+
+  if ! [[ "${keep}" =~ ^[0-9]+$ ]] || [ "${keep}" -lt 1 ]; then
+    return 0
+  fi
+
+  log "Pruning old backups, keeping latest ${keep}"
+  find "${root}" -mindepth 1 -maxdepth 1 -type d -regextype posix-extended -regex '.*/[0-9]{8}T[0-9]{6}Z$' -printf '%f\n' \
+    | sort -r \
+    | awk -v keep="${keep}" 'NR > keep { print }' \
+    | while IFS= read -r backup_id; do
+        if [[ "${backup_id}" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]; then
+          run_cmd rm -rf -- "${root}/${backup_id}"
+        fi
+      done
+}
+
 log "Creating PostgreSQL backup"
 PGPASSWORD="${DB_PASSWORD}" run_cmd pg_dump \
   --host="${DB_HOST}" \
@@ -63,8 +82,10 @@ cat > "${TARGET}/manifest.json" <<EOF
   "host": "$(hostname -f 2>/dev/null || hostname)",
   "version": "$(cat "${APP_ROOT}/VERSION" 2>/dev/null || printf unknown)",
   "git_commit": "$(git -C "${APP_ROOT}" rev-parse HEAD 2>/dev/null || printf unknown)",
+  "target": "${BACKUP_TARGET:-local}",
   "includes": ["database", "storage", "env", "source", "module_manifests"]
 }
 EOF
 
+prune_old_backups "${BACKUP_ROOT}"
 log "Backup created at ${TARGET}"
