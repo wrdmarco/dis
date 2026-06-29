@@ -29,15 +29,13 @@
         .timeline__label { margin-top: 2px; font-weight: bold; }
         .timeline__type { color: #0369a1; font-size: 9px; text-transform: uppercase; }
         .muted { color: #64748b; }
-        .map-layout { width: 100%; border-collapse: collapse; }
-        .map-layout__visual { width: 62%; padding-right: 14px; vertical-align: top; }
-        .map-layout__details { vertical-align: top; }
-        .map-card { position: relative; height: 185px; overflow: hidden; border: 1px solid #cbd5e1; border-radius: 9px; background: #e8f3f8; }
-        .map-snapshot { display: block; width: 100%; height: 185px; object-fit: cover; }
-        .map-placeholder { padding: 62px 18px; color: #475569; text-align: center; }
+        .map-layout { width: 100%; }
+        .map-card { position: relative; width: 100%; height: 260px; overflow: hidden; border: 1px solid #cbd5e1; border-radius: 9px; background: #e8f3f8; }
+        .map-snapshot { display: block; width: 100%; height: 260px; }
+        .map-placeholder { padding: 98px 18px; color: #475569; text-align: center; }
         .map-marker { position: absolute; width: 15px; height: 15px; margin: -10px 0 0 -10px; border: 3px solid #ffffff; border-radius: 50%; background: #dc2626; box-shadow: 0 1px 4px rgba(15, 23, 42, .35); }
         .map-marker-ring { position: absolute; width: 31px; height: 31px; margin: -18px 0 0 -18px; border: 2px solid #dc2626; border-radius: 50%; }
-        .map-detail-box { padding: 11px 12px; border: 1px solid #d8e1ec; border-radius: 8px; background: #f8fafc; }
+        .map-detail-box { margin-top: 8px; padding: 11px 12px; border: 1px solid #d8e1ec; border-radius: 8px; background: #f8fafc; }
         .map-detail-box strong { display: block; margin-bottom: 5px; color: #0f172a; font-size: 13px; }
         .map-detail-box span { display: block; margin-top: 5px; color: #475569; }
         .map-url { margin-top: 8px; color: #0369a1; font-size: 9px; word-break: break-all; }
@@ -112,31 +110,25 @@
 <section class="section">
     <h2>Incidentkaart satelliet</h2>
     @if ($map['available'])
-        <table class="map-layout">
-            <tr>
-                <td class="map-layout__visual">
-                    <div class="map-card">
-                        @if (! empty($map['snapshot_data_uri']))
-                            <img class="map-snapshot" src="{{ $map['snapshot_data_uri'] }}" alt="Incidentkaart satelliet snapshot">
-                        @else
-                            <div class="map-placeholder">Satelliet snapshot kon niet worden opgehaald. Gebruik de OSM-link naast de kaart.</div>
-                            <div class="map-marker-ring" style="left: {{ $map['marker_x'] }}%; top: {{ $map['marker_y'] }}%;"></div>
-                            <div class="map-marker" style="left: {{ $map['marker_x'] }}%; top: {{ $map['marker_y'] }}%;"></div>
-                        @endif
-                    </div>
-                </td>
-                <td class="map-layout__details">
-                    <div class="map-detail-box">
-                        <strong>{{ $incident->location_label ?: 'GPS locatie' }}</strong>
-                        <span>Latitude: {{ $map['latitude_label'] }}</span>
-                        <span>Longitude: {{ $map['longitude_label'] }}</span>
-                        @if (! empty($map['openstreetmap_url']))
-                            <div class="map-url">Incidentkaart OSM: {{ $map['openstreetmap_url'] }}</div>
-                        @endif
-                    </div>
-                </td>
-            </tr>
-        </table>
+        <div class="map-layout">
+            <div class="map-card">
+                @if (! empty($map['snapshot_data_uri']))
+                    <img class="map-snapshot" src="{{ $map['snapshot_data_uri'] }}" alt="Incidentkaart satelliet snapshot">
+                @else
+                    <div class="map-placeholder">Satelliet snapshot kon niet worden opgehaald. Gebruik de OSM-link onder de kaart.</div>
+                    <div class="map-marker-ring" style="left: {{ $map['marker_x'] }}%; top: {{ $map['marker_y'] }}%;"></div>
+                    <div class="map-marker" style="left: {{ $map['marker_x'] }}%; top: {{ $map['marker_y'] }}%;"></div>
+                @endif
+            </div>
+            <div class="map-detail-box">
+                <strong>{{ $incident->location_label ?: 'GPS locatie' }}</strong>
+                <span>Latitude: {{ $map['latitude_label'] }}</span>
+                <span>Longitude: {{ $map['longitude_label'] }}</span>
+                @if (! empty($map['openstreetmap_url']))
+                    <div class="map-url">Incidentkaart OSM: {{ $map['openstreetmap_url'] }}</div>
+                @endif
+            </div>
+        </div>
     @else
         <p class="muted">Geen GPS locatie beschikbaar voor dit incident.</p>
     @endif

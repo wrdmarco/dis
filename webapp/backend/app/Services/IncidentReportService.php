@@ -271,8 +271,8 @@ final class IncidentReportService
     {
         $zoom = 16;
         $tileSize = 256;
-        $width = 360;
-        $height = 185;
+        $width = 720;
+        $height = 260;
         $scale = (2 ** $zoom) * $tileSize;
         $sinLatitude = sin(deg2rad(max(-85.05112878, min(85.05112878, $latitude))));
         $centerX = (($longitude + 180) / 360) * $scale;
@@ -361,6 +361,12 @@ final class IncidentReportService
 
         $centerX = number_format($width / 2, 2, '.', '');
         $centerY = number_format($height / 2, 2, '.', '');
+        $labelY = $height - 17;
+        $labelTextY = $height - 8;
+        $attributionX = $width - 103;
+        $attributionY = $height - 21;
+        $attributionTextX = $width - 96;
+        $attributionTextY = $height - 9;
 
         return <<<SVG
 <svg xmlns="http://www.w3.org/2000/svg" width="{$width}" height="{$height}" viewBox="0 0 {$width} {$height}">
@@ -368,10 +374,10 @@ final class IncidentReportService
   {$images}
   <circle cx="{$centerX}" cy="{$centerY}" r="16" fill="none" stroke="#dc2626" stroke-width="2"/>
   <circle cx="{$centerX}" cy="{$centerY}" r="8" fill="#dc2626" stroke="#ffffff" stroke-width="3"/>
-  <rect x="10" y="153" width="94" height="22" rx="5" fill="#ffffff" stroke="#dbe5f0"/>
-  <text x="18" y="168" font-family="DejaVu Sans, Arial, sans-serif" font-size="10" fill="#0f172a">Incidentlocatie</text>
-  <rect x="257" y="157" width="93" height="18" rx="4" fill="#ffffff" fill-opacity="0.92"/>
-  <text x="264" y="169" font-family="DejaVu Sans, Arial, sans-serif" font-size="8" fill="#475569">Esri World Imagery</text>
+  <rect x="10" y="{$labelY}" width="94" height="22" rx="5" fill="#ffffff" stroke="#dbe5f0"/>
+  <text x="18" y="{$labelTextY}" font-family="DejaVu Sans, Arial, sans-serif" font-size="10" fill="#0f172a">Incidentlocatie</text>
+  <rect x="{$attributionX}" y="{$attributionY}" width="93" height="18" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+  <text x="{$attributionTextX}" y="{$attributionTextY}" font-family="DejaVu Sans, Arial, sans-serif" font-size="8" fill="#475569">Esri World Imagery</text>
 </svg>
 SVG;
     }
