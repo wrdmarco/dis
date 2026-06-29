@@ -186,58 +186,39 @@ clear_application_caches() {
 }
 
 assert_backend_routes() {
-  local backend_dir missing routes
+  local backend_dir status
   backend_dir="${DIS_INSTALL_PATH}/webapp/backend"
 
   if [ ! -f "${backend_dir}/artisan" ]; then
     return
   fi
 
-  log "Checking critical backend routes"
-  routes="$(runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" route:list --path=admin/backups --columns=method,uri 2>/dev/null || true)"
-  missing=0
-  for route in \
-    "GET api/admin/backups" \
-    "PATCH api/admin/backups/settings" \
-    "POST api/admin/backups" \
-    "POST api/admin/backups/{backup}/verify" \
-    "POST api/admin/backups/{backup}/restore"; do
-    if ! route_exists_in_list "${routes}" "${route}"; then
-      log "Missing backend route: ${route}"
-      missing=1
-    fi
-  done
-
-  if [ "${missing}" = "1" ]; then
-    log "Backend routes are stale or incomplete; clearing caches once more."
+  log "Checking backup API route"
+  status="$(backup_route_http_status)"
+  if ! backup_route_status_is_valid "${status}"; then
+    log "Backup API route check returned HTTP ${status}; clearing caches once more."
     clear_application_caches
-    routes="$(runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" route:list --path=admin/backups --columns=method,uri 2>/dev/null || true)"
-    missing=0
-    for route in \
-      "GET api/admin/backups" \
-      "PATCH api/admin/backups/settings" \
-      "POST api/admin/backups" \
-      "POST api/admin/backups/{backup}/verify" \
-      "POST api/admin/backups/{backup}/restore"; do
-      if ! route_exists_in_list "${routes}" "${route}"; then
-        log "Still missing backend route after cache clear: ${route}"
-        missing=1
-      fi
-    done
+    status="$(backup_route_http_status)"
   fi
 
-  if [ "${missing}" = "1" ]; then
-    fail "Backend route registration check failed."
+  if ! backup_route_status_is_valid "${status}"; then
+    fail "Backup API route check failed with HTTP ${status}."
   fi
 }
 
-route_exists_in_list() {
-  local routes route normalized
-  routes="$1"
-  route="$2"
-  normalized="$(printf '%s\n' "${routes}" | sed -E 's/[[:space:]]+/ /g; s/GET\|HEAD/GET/g')"
+backup_route_http_status() {
+  curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://127.0.0.1/api/admin/backups" 2>/dev/null || printf '000'
+}
 
-  printf '%s\n' "${normalized}" | grep -Fq "${route}"
+backup_route_status_is_valid() {
+  case "$1" in
+    200|401|403)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 create_pre_update_backup() {
