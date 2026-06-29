@@ -360,6 +360,13 @@ export interface AppVersion {
 export interface DeveloperAccessState {
   enabled: boolean;
   configured: boolean;
+  scopes?: string[];
+  available_scopes?: string[];
+  expires_at?: string | null;
+  expired?: boolean;
+  allowed_ips?: string[];
+  allowed_ips_count?: number;
+  legacy_unscoped?: boolean;
   generated_at?: string | null;
   disabled_at?: string | null;
   api_key?: string;

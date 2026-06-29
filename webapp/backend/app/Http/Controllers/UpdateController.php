@@ -89,7 +89,7 @@ final class UpdateController extends Controller
 
     public function developerUploadAndroid(Request $request): JsonResponse
     {
-        $this->developerAccess->authorize($request);
+        $this->developerAccess->authorize($request, DeveloperAccessService::SCOPE_ANDROID_UPLOAD);
 
         return $this->storeAndroidUpload($request, 'developer_api');
     }

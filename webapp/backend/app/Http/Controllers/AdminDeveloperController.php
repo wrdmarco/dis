@@ -9,7 +9,9 @@ use App\Services\DeveloperAccessService;
 use App\Services\SystemUpdateStatusService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Process;
+use Illuminate\Validation\Rule;
 use Symfony\Component\Process\PhpExecutableFinder;
 
 final class AdminDeveloperController extends Controller
@@ -31,6 +33,23 @@ final class AdminDeveloperController extends Controller
 
     public function generateDeveloperKey(Request $request): JsonResponse
     {
+        $data = $request->validate([
+            'scopes' => ['nullable', 'array', 'min:1'],
+            'scopes.*' => ['string', Rule::in(DeveloperAccessService::SCOPES)],
+            'expires_at' => ['nullable', 'date', 'after:now'],
+            'allowed_ips' => ['nullable', 'array', 'max:20'],
+            'allowed_ips.*' => [
+                'string',
+                'max:64',
+                fn (string $attribute, mixed $value, \Closure $fail) => $this->validateDeveloperIpPattern($value, $fail),
+            ],
+        ]);
+        $scopes = array_values(array_unique($data['scopes'] ?? DeveloperAccessService::SCOPES));
+        $allowedIps = $this->normalizedDeveloperAllowedIps($data['allowed_ips'] ?? []);
+        $expiresAt = isset($data['expires_at'])
+            ? Carbon::parse((string) $data['expires_at'])->toIso8601String()
+            : now()->addDays(30)->toIso8601String();
+
         $plainTextKey = 'dis_dev_'.bin2hex(random_bytes(32));
         SystemSetting::query()->updateOrCreate(
             ['key' => self::ACCESS_KEY],
@@ -38,6 +57,9 @@ final class AdminDeveloperController extends Controller
                 'value' => [
                     'enabled' => true,
                     'key_hash' => hash('sha256', $plainTextKey),
+                    'scopes' => $scopes,
+                    'expires_at' => $expiresAt,
+                    'allowed_ips' => $allowedIps,
                     'generated_at' => now()->toIso8601String(),
                     'disabled_at' => null,
                 ],
@@ -46,7 +68,11 @@ final class AdminDeveloperController extends Controller
             ],
         );
 
-        $this->auditService->record('developer.android_upload_key_generated', SystemSetting::class, $request->user(), [], null, $request);
+        $this->auditService->record('developer.api_key_generated', SystemSetting::class, $request->user(), [
+            'scopes' => $scopes,
+            'expires_at' => $expiresAt,
+            'allowed_ips_count' => count($allowedIps),
+        ], null, $request);
 
         return ApiResponse::success($this->developerAccessState() + ['api_key' => $plainTextKey]);
     }
@@ -59,6 +85,9 @@ final class AdminDeveloperController extends Controller
                 'value' => [
                     'enabled' => false,
                     'key_hash' => null,
+                    'scopes' => [],
+                    'expires_at' => null,
+                    'allowed_ips' => [],
                     'generated_at' => null,
                     'disabled_at' => now()->toIso8601String(),
                 ],
@@ -119,7 +148,7 @@ final class AdminDeveloperController extends Controller
 
     public function developerRunUpdate(Request $request): JsonResponse
     {
-        $this->developerAccess->authorize($request);
+        $this->developerAccess->authorize($request, DeveloperAccessService::SCOPE_SYSTEM_UPDATE);
 
         $currentStatus = $this->updateStatus->current();
         if (($currentStatus['state'] ?? null) === 'running') {
@@ -134,14 +163,14 @@ final class AdminDeveloperController extends Controller
 
             return ApiResponse::error('update_start_failed', 'Updateproces kon niet worden gestart.', 500);
         }
-        $this->auditService->record('system.update_started_developer_api', SystemSetting::class, null, [], null, $request);
+        $this->auditService->record('system.update_started_developer_api', SystemSetting::class, null, ['update_system' => $updateSystem], null, $request);
 
         return ApiResponse::success($this->updateStatus->current(), 202);
     }
 
     public function developerLogs(Request $request): JsonResponse
     {
-        $this->developerAccess->authorize($request);
+        $this->developerAccess->authorize($request, DeveloperAccessService::SCOPE_LOGS_READ);
 
         $directory = storage_path('logs');
         $logs = [];
@@ -158,6 +187,7 @@ final class AdminDeveloperController extends Controller
         }
 
         usort($logs, fn (array $left, array $right): int => strcmp((string) $right['modified_at'], (string) $left['modified_at']));
+        $this->auditService->record('developer.logs_listed', SystemSetting::class, null, ['log_count' => count($logs)], null, $request);
 
         return ApiResponse::success([
             'logs' => $logs,
@@ -167,7 +197,7 @@ final class AdminDeveloperController extends Controller
 
     public function developerLog(Request $request, string $filename): JsonResponse
     {
-        $this->developerAccess->authorize($request);
+        $this->developerAccess->authorize($request, DeveloperAccessService::SCOPE_LOGS_READ);
 
         abort_unless(preg_match('/^[A-Za-z0-9._-]+\.log$/', $filename) === 1, 404);
         $path = storage_path('logs/'.$filename);
@@ -177,6 +207,10 @@ final class AdminDeveloperController extends Controller
         $content = $this->tailFile($path, 512 * 1024);
         $lines = array_slice(preg_split('/\R/', $content) ?: [], -$maxLines);
         $lines = array_map(fn (string $line): string => $this->redactLogLine($line), $lines);
+        $this->auditService->record('developer.log_read', SystemSetting::class, null, [
+            'filename' => basename($path),
+            'lines' => count($lines),
+        ], null, $request);
 
         return ApiResponse::success([
             'name' => basename($path),
@@ -193,13 +227,44 @@ final class AdminDeveloperController extends Controller
     {
         $setting = SystemSetting::query()->find(self::ACCESS_KEY);
         $value = is_array($setting?->value) ? $setting->value : [];
+        $allowedIps = is_array($value['allowed_ips'] ?? null) ? array_values(array_filter($value['allowed_ips'], 'is_string')) : [];
 
         return [
             'enabled' => (bool) ($value['enabled'] ?? false),
             'configured' => filled($value['key_hash'] ?? null),
+            'scopes' => $this->developerAccess->configuredScopes($value),
+            'available_scopes' => DeveloperAccessService::SCOPES,
+            'expires_at' => $value['expires_at'] ?? null,
+            'expired' => $this->developerAccess->isExpired($value['expires_at'] ?? null),
+            'allowed_ips' => $allowedIps,
+            'allowed_ips_count' => count($allowedIps),
+            'legacy_unscoped' => filled($value['key_hash'] ?? null) && ! is_array($value['scopes'] ?? null),
             'generated_at' => $value['generated_at'] ?? null,
             'disabled_at' => $value['disabled_at'] ?? null,
         ];
+    }
+
+    private function validateDeveloperIpPattern(mixed $value, \Closure $fail): void
+    {
+        if (! is_string($value) || ! $this->developerAccess->isAllowedIpPattern($value)) {
+            $fail('Gebruik een geldig IP-adres of CIDR-blok.');
+        }
+    }
+
+    /**
+     * @param mixed $allowedIps
+     * @return list<string>
+     */
+    private function normalizedDeveloperAllowedIps(mixed $allowedIps): array
+    {
+        if (! is_array($allowedIps)) {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter(
+            array_map(fn (mixed $value): string => is_string($value) ? trim($value) : '', $allowedIps),
+            fn (string $value): bool => $value !== '',
+        )));
     }
 
     private function readVersionFile(): string

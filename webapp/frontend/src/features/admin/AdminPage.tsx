@@ -73,6 +73,20 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'settings', label: 'Instellingen' },
 ];
 
+const developerScopeLabels: Record<string, string> = {
+  android_upload: 'Android upload',
+  system_update: 'Update starten',
+  logs_read: 'Logs lezen',
+};
+
+const defaultDeveloperScopes = ['android_upload', 'system_update', 'logs_read'];
+
+interface DeveloperKeyForm {
+  scopes: string[];
+  expiresAt: string;
+  allowedIps: string;
+}
+
 function adminTabAllowed(
   tab: AdminTab,
   permissions: { canManageSettings: boolean; canManagePush: boolean; canViewSystemHealth: boolean },
@@ -114,6 +128,7 @@ export function AdminPage() {
   const [tokenActionError, setTokenActionError] = useState<string | null>(null);
   const [developerActionError, setDeveloperActionError] = useState<string | null>(null);
   const [generatedDeveloperKey, setGeneratedDeveloperKey] = useState<string | null>(null);
+  const [developerKeyForm, setDeveloperKeyForm] = useState<DeveloperKeyForm>(() => defaultDeveloperKeyForm());
   const [developerSaving, setDeveloperSaving] = useState(false);
   const [updaterStatus, setUpdaterStatus] = useState<SystemUpdateStatus | null>(null);
   const [updateActionError, setUpdateActionError] = useState<string | null>(null);
@@ -413,8 +428,17 @@ export function AdminPage() {
     setDeveloperSaving(true);
     setDeveloperActionError(null);
     setGeneratedDeveloperKey(null);
+    if (developerKeyForm.scopes.length === 0) {
+      setDeveloperActionError('Kies minimaal een recht voor deze sleutel.');
+      setDeveloperSaving(false);
+      return;
+    }
     try {
-      const response = await api.post<DeveloperAccessState>('/admin/developer-access/key');
+      const response = await api.post<DeveloperAccessState>('/admin/developer-access/key', {
+        scopes: developerKeyForm.scopes,
+        expires_at: developerKeyForm.expiresAt || undefined,
+        allowed_ips: splitDeveloperAllowedIps(developerKeyForm.allowedIps),
+      });
       setGeneratedDeveloperKey(response.data.api_key ?? null);
       await developerAccess.reload();
     } catch (error) {
@@ -820,17 +844,69 @@ export function AdminPage() {
             <dl className="definition-grid">
               <dt>Status</dt>
               <dd>{developerAccess.data?.enabled ? 'Ingeschakeld' : 'Uitgeschakeld'}</dd>
+              <dt>Verlopen</dt>
+              <dd>{developerAccess.data?.expired ? 'Ja' : 'Nee'}</dd>
               <dt>Sleutel aanwezig</dt>
               <dd>{developerAccess.data?.configured ? 'Ja' : 'Nee'}</dd>
+              <dt>Rechten</dt>
+              <dd>{formatDeveloperScopes(developerAccess.data?.scopes)}</dd>
+              <dt>Vervalt op</dt>
+              <dd>{formatDate(developerAccess.data?.expires_at)}</dd>
+              <dt>IP beperking</dt>
+              <dd>{formatDeveloperAllowedIps(developerAccess.data?.allowed_ips)}</dd>
               <dt>Gegenereerd</dt>
               <dd>{formatDate(developerAccess.data?.generated_at)}</dd>
               <dt>Uitgeschakeld</dt>
               <dd>{formatDate(developerAccess.data?.disabled_at)}</dd>
               <dt>Upload endpoint</dt>
               <dd className="mono">POST /api/developer/android/upload</dd>
+              <dt>Update endpoint</dt>
+              <dd className="mono">POST /api/developer/system/update</dd>
+              <dt>Logs endpoint</dt>
+              <dd className="mono">GET /api/developer/logs</dd>
               <dt>Header</dt>
               <dd className="mono">X-DIS-Developer-Key</dd>
             </dl>
+            {developerAccess.data?.legacy_unscoped ? (
+              <p className="form-note">Deze bestaande sleutel heeft nog geen opgeslagen rechten. Maak een nieuwe sleutel aan om rechten, vervaldatum en IP-beperking vast te leggen.</p>
+            ) : null}
+            <div className="form-grid">
+              <div className="form-grid__wide">
+                <span className="field-label">Rechten voor nieuwe sleutel</span>
+                {(developerAccess.data?.available_scopes ?? defaultDeveloperScopes).map((scope) => (
+                  <label className="check-label" key={scope}>
+                    <input
+                      type="checkbox"
+                      checked={developerKeyForm.scopes.includes(scope)}
+                      onChange={(event) => setDeveloperKeyForm((current) => ({
+                        ...current,
+                        scopes: event.target.checked
+                          ? Array.from(new Set([...current.scopes, scope]))
+                          : current.scopes.filter((value) => value !== scope),
+                      }))}
+                    />
+                    {developerScopeLabels[scope] ?? scope}
+                  </label>
+                ))}
+              </div>
+              <label>
+                Vervaldatum
+                <input
+                  type="date"
+                  value={developerKeyForm.expiresAt}
+                  onChange={(event) => setDeveloperKeyForm((current) => ({ ...current, expiresAt: event.target.value }))}
+                />
+              </label>
+              <label className="form-grid__wide">
+                Toegestane IP-adressen
+                <textarea
+                  rows={3}
+                  value={developerKeyForm.allowedIps}
+                  onChange={(event) => setDeveloperKeyForm((current) => ({ ...current, allowedIps: event.target.value }))}
+                  placeholder="Leeg laten voor geen IP-beperking. Een IP of CIDR per regel."
+                />
+              </label>
+            </div>
             {generatedDeveloperKey ? (
               <div className="metadata-example">
                 <strong>Nieuwe sleutel, eenmalig zichtbaar</strong>
@@ -989,6 +1065,40 @@ export function AdminPage() {
 
 function formatDate(value?: string | null): string {
   return formatDateTime(value);
+}
+
+function defaultDeveloperKeyForm(): DeveloperKeyForm {
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 30);
+
+  return {
+    scopes: [...defaultDeveloperScopes],
+    expiresAt: expiresAt.toISOString().slice(0, 10),
+    allowedIps: '',
+  };
+}
+
+function splitDeveloperAllowedIps(value: string): string[] {
+  return value
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatDeveloperScopes(scopes?: string[]): string {
+  if (scopes === undefined || scopes.length === 0) {
+    return '-';
+  }
+
+  return scopes.map((scope) => developerScopeLabels[scope] ?? scope).join(', ');
+}
+
+function formatDeveloperAllowedIps(allowedIps?: string[]): string {
+  if (allowedIps === undefined || allowedIps.length === 0) {
+    return 'Geen beperking';
+  }
+
+  return allowedIps.join(', ');
 }
 
 function shortCommit(value?: string | null): string {

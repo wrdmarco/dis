@@ -34,6 +34,9 @@ final class AppServiceProvider extends ServiceProvider
         RateLimiter::for('password-reset', fn (Request $request) => Limit::perMinute(3)->by($request->ip().'|'.$request->input('email')));
         RateLimiter::for('push-token', fn (Request $request) => Limit::perMinute(300)->by($request->user()?->id ?: $request->ip()));
         RateLimiter::for('dispatch-response', fn (Request $request) => Limit::perMinute(30)->by($request->user()?->id ?: $request->ip()));
+        RateLimiter::for('developer-upload', fn (Request $request) => Limit::perMinute(6)->by($request->ip()));
+        RateLimiter::for('developer-update', fn (Request $request) => Limit::perMinute(2)->by($request->ip()));
+        RateLimiter::for('developer-logs', fn (Request $request) => Limit::perMinute(30)->by($request->ip()));
     }
 
     private function applyManagedSettings(): void

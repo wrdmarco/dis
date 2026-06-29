@@ -43,10 +43,10 @@ Route::get('/mobile/config', [MobileConfigController::class, 'show'])->middlewar
 Route::get('/updates/android/current', [UpdateController::class, 'androidCurrent'])->middleware('throttle:mobile-public');
 Route::get('/updates/android/{version}/download', [UpdateController::class, 'downloadAndroid'])->middleware('throttle:mobile-public');
 Route::get('/branding', [BrandingController::class, 'show'])->middleware('throttle:api');
-Route::post('/developer/android/upload', [UpdateController::class, 'developerUploadAndroid'])->middleware('throttle:api');
-Route::post('/developer/system/update', [AdminDeveloperController::class, 'developerRunUpdate'])->middleware('throttle:api');
-Route::get('/developer/logs', [AdminDeveloperController::class, 'developerLogs'])->middleware('throttle:api');
-Route::get('/developer/logs/{filename}', [AdminDeveloperController::class, 'developerLog'])->where('filename', '[A-Za-z0-9._-]+\.log')->middleware('throttle:api');
+Route::post('/developer/android/upload', [UpdateController::class, 'developerUploadAndroid'])->middleware('throttle:developer-upload');
+Route::post('/developer/system/update', [AdminDeveloperController::class, 'developerRunUpdate'])->middleware('throttle:developer-update');
+Route::get('/developer/logs', [AdminDeveloperController::class, 'developerLogs'])->middleware('throttle:developer-logs');
+Route::get('/developer/logs/{filename}', [AdminDeveloperController::class, 'developerLog'])->where('filename', '[A-Za-z0-9._-]+\.log')->middleware('throttle:developer-logs');
 Route::get('/health', [HealthController::class, 'public'])->middleware('throttle:api');
 Route::get('/public/status', [HealthController::class, 'status'])->middleware('throttle:api');
 
