@@ -109,6 +109,12 @@ final class LocationController extends Controller
                         'email' => $recipient->user->email,
                     ],
                     'sharing_status' => $sharingStatus,
+                    'location_is_current' => $this->isCurrentLocation($location),
+                    'consent_active' => (bool) ($consent?->is_active ?? false),
+                    'requested_at' => $consent?->updated_at?->toIso8601String(),
+                    'consented_at' => $consent?->is_active === true ? $consent->consented_at?->toIso8601String() : null,
+                    'revoked_at' => $consent?->revoked_at?->toIso8601String(),
+                    'declined_at' => $consent?->declined_at?->toIso8601String(),
                     'refusal_reason' => $consent?->refusal_reason,
                     'latitude' => $location?->latitude,
                     'longitude' => $location?->longitude,
@@ -126,19 +132,28 @@ final class LocationController extends Controller
             return 'declined';
         }
 
-        if ($location !== null) {
+        if ($this->isCurrentLocation($location)) {
             return 'shared';
         }
 
+        if ($location !== null) {
+            return 'stale';
+        }
+
         if ($consent?->is_active === true) {
-            return 'pending';
+            return 'consented';
         }
 
         if ($consent !== null && $consent->revoked_at === null) {
-            return 'pending';
+            return 'requested';
         }
 
         return 'not_requested';
+    }
+
+    private function isCurrentLocation(?LocationUpdate $location): bool
+    {
+        return $location?->recorded_at !== null && $location->recorded_at->greaterThanOrEqualTo(now()->subMinutes(5));
     }
 
     private function etaMinutes(Incident $incident, ?LocationUpdate $location): ?int

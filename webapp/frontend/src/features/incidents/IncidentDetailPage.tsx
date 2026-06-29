@@ -52,7 +52,7 @@ export function IncidentDetailPage() {
   const showDraftPanel = incident.data?.status === 'draft';
   const reportAvailable = incident.data?.status === 'resolved' || incident.data?.status === 'cancelled';
   const recipientCount = latestDispatch?.recipients?.length ?? preview.data?.recipients.length ?? 0;
-  const liveSharedCount = liveLocations.data?.filter((location) => location.sharing_status === 'shared').length ?? 0;
+  const liveSharedCount = liveLocations.data?.filter((location) => location.location_is_current === true || location.sharing_status === 'shared').length ?? 0;
   const canManageIncidents = hasPermission('incidents.manage');
   const canManageDispatches = hasPermission('dispatch.manage');
   const canOverrideStatus = hasPermission('status.override');
@@ -922,6 +922,10 @@ function formatDate(value?: string | null): string {
 }
 
 function isCurrentLiveLocation(location: IncidentLiveLocation): boolean {
+  if (location.location_is_current === true) {
+    return true;
+  }
+
   if (location.latitude === null || location.latitude === undefined || location.longitude === null || location.longitude === undefined || !location.recorded_at) {
     return false;
   }
@@ -1065,6 +1069,12 @@ function locationStatusLabel(location: IncidentLiveLocation): string {
   switch (location.sharing_status) {
     case 'shared':
       return 'gedeeld';
+    case 'stale':
+      return 'locatie verlopen';
+    case 'consented':
+      return 'toestemming gegeven, wacht op locatie';
+    case 'requested':
+      return 'verzoek verzonden';
     case 'pending':
       return 'wacht op locatie';
     case 'declined':
@@ -1078,6 +1088,12 @@ function locationSharingLabel(status?: IncidentLiveLocation['sharing_status']): 
   switch (status) {
     case 'shared':
       return 'Locatie gedeeld';
+    case 'stale':
+      return 'Locatie verlopen';
+    case 'consented':
+      return 'Toestemming gegeven';
+    case 'requested':
+      return 'Locatie gevraagd';
     case 'pending':
       return 'Locatie gevraagd';
     case 'declined':

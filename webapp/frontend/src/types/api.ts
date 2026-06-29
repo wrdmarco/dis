@@ -228,7 +228,13 @@ export interface IncidentTimelineItem {
 export interface IncidentLiveLocation {
   user_id: string;
   user?: Pick<User, 'id' | 'name' | 'email'> | null;
-  sharing_status?: 'shared' | 'pending' | 'declined' | 'not_requested';
+  sharing_status?: 'shared' | 'stale' | 'consented' | 'requested' | 'pending' | 'declined' | 'not_requested';
+  location_is_current?: boolean;
+  consent_active?: boolean;
+  requested_at?: string | null;
+  consented_at?: string | null;
+  revoked_at?: string | null;
+  declined_at?: string | null;
   refusal_reason?: string | null;
   latitude?: string | number | null;
   longitude?: string | number | null;
