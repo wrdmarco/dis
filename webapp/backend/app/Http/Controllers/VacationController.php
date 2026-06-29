@@ -79,7 +79,6 @@ final class VacationController extends Controller
         if (
             $vacation->user_id !== $request->user()?->id
             && $request->user()?->hasPermission('users.manage') !== true
-            && $request->user()?->hasPermission('status.override') !== true
         ) {
             abort(403);
         }
