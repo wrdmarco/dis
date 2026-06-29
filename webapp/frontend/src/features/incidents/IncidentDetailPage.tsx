@@ -600,7 +600,6 @@ function DroneFlightContextDetail({ context }: { context: DroneFlightContext | n
         </div>
         <div className="drone-flight-links">
           {context.map?.aeret_url ? <a href={context.map.aeret_url} target="_blank" rel="noreferrer">Open Aeret kaart</a> : null}
-          {context.map?.notam_url ? <a href={context.map.notam_url} target="_blank" rel="noreferrer">Open NOTAM bron</a> : null}
           {context.map?.openstreetmap_url ? <a href={context.map.openstreetmap_url} target="_blank" rel="noreferrer">Open OSM kaart</a> : null}
         </div>
       </div>

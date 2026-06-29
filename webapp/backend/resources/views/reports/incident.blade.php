@@ -144,7 +144,15 @@
                         <strong>{{ $incident->location_label ?: 'GPS locatie' }}</strong>
                         <span>Latitude: {{ $map['latitude_label'] }}</span>
                         <span>Longitude: {{ $map['longitude_label'] }}</span>
-                        <div class="map-url">{{ $map['openstreetmap_url'] }}</div>
+                        @if (! empty($map['openstreetmap_url']))
+                            <div class="map-url">Incidentkaart OSM: {{ $map['openstreetmap_url'] }}</div>
+                        @endif
+                        @if (! empty($map['aeret_url']))
+                            <span>Kaartbron: Aeret Drone PreFlight</span>
+                            <div class="map-url">Aeret kaart: {{ $map['aeret_url'] }}</div>
+                        @else
+                            <span>Kaartbron: Aeret kaart niet opgeslagen</span>
+                        @endif
                     </div>
                 </td>
             </tr>
@@ -217,7 +225,6 @@
                     </ul>
                     @if ($flightMap)
                         <p class="map-url">Aeret kaart: {{ $flightMap['aeret_url'] ?? '-' }}</p>
-                        <p class="map-url">NOTAM bron: {{ $flightMap['notam_url'] ?? '-' }}</p>
                     @endif
                 </td>
             </tr>

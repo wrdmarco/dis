@@ -31,14 +31,15 @@ final class IncidentReportService
 
         $travelRows = $this->travelRows($dispatches);
         $timeline = $this->timeline($incident, $dispatches);
+        $droneFlightContext = $incident->drone_flight_context ?? $this->droneFlightContextService->previewForIncident($incident);
 
         return [
             'incident' => $incident,
             'dispatches' => $dispatches,
             'travelRows' => $travelRows,
             'timeline' => $timeline,
-            'map' => $this->mapData($incident),
-            'droneFlightContext' => $incident->drone_flight_context ?? $this->droneFlightContextService->previewForIncident($incident),
+            'map' => $this->mapData($incident, is_array($droneFlightContext) ? $droneFlightContext : null),
+            'droneFlightContext' => $droneFlightContext,
             'summary' => [
                 'recipients' => $travelRows->count(),
                 'accepted' => $travelRows->where('response_status', 'accepted')->count(),
@@ -218,7 +219,7 @@ final class IncidentReportService
     /**
      * @return array<string, mixed>
      */
-    private function mapData(Incident $incident): array
+    private function mapData(Incident $incident, ?array $droneFlightContext): array
     {
         $latitude = $this->coordinate($incident->latitude);
         $longitude = $this->coordinate($incident->longitude);
@@ -232,9 +233,12 @@ final class IncidentReportService
                 'longitude_label' => null,
                 'marker_x' => 50.0,
                 'marker_y' => 50.0,
+                'aeret_url' => null,
                 'openstreetmap_url' => null,
             ];
         }
+
+        $flightMap = is_array($droneFlightContext['map'] ?? null) ? $droneFlightContext['map'] : [];
 
         return [
             'available' => true,
@@ -244,6 +248,7 @@ final class IncidentReportService
             'longitude_label' => number_format($longitude, 6, '.', ''),
             'marker_x' => $this->markerPercentage($longitude, 3.2, 7.3),
             'marker_y' => $this->markerPercentage($latitude, 50.7, 53.7, true),
+            'aeret_url' => is_string($flightMap['aeret_url'] ?? null) ? $flightMap['aeret_url'] : null,
             'openstreetmap_url' => sprintf(
                 'https://www.openstreetmap.org/?mlat=%1$.6f&mlon=%2$.6f#map=16/%1$.6f/%2$.6f',
                 $latitude,

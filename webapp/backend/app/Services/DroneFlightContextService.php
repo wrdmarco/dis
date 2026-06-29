@@ -58,13 +58,11 @@ final class DroneFlightContextService
     private function mapData(float $latitude, float $longitude): array
     {
         $aeretMapUrl = $this->aeretMapUrl();
-        $notamUrl = SystemSetting::string('drone.notam_url', (string) config('dis.drone_flight.notam_url')) ?? '';
 
         return [
             'provider' => 'Aeret Drone PreFlight',
             'status' => $aeretMapUrl !== '' ? 'linked' : 'not_configured',
             'aeret_url' => $this->aeretUrlWithCoordinates($aeretMapUrl, $latitude, $longitude),
-            'notam_url' => $notamUrl,
             'openstreetmap_url' => sprintf(
                 'https://www.openstreetmap.org/?mlat=%1$.6f&mlon=%2$.6f#map=16/%1$.6f/%2$.6f',
                 $latitude,

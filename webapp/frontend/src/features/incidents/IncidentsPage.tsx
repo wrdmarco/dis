@@ -465,7 +465,6 @@ function DroneFlightContextPanel({ context, loading, error }: { context: DroneFl
           />
           <div className="drone-flight-links">
             {context.map?.aeret_url ? <a href={context.map.aeret_url} target="_blank" rel="noreferrer">Open Aeret dronekaart</a> : null}
-            {context.map?.notam_url ? <a href={context.map.notam_url} target="_blank" rel="noreferrer">Open NOTAM bron</a> : null}
           </div>
           {context.map?.aeret_url ? (
             <iframe className="drone-flight-aeret-frame" title="Aeret dronekaart" src={context.map.aeret_url} loading="lazy" />

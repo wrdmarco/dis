@@ -153,7 +153,6 @@ export interface DroneFlightContext {
     provider?: string | null;
     status?: string | null;
     aeret_url?: string | null;
-    notam_url?: string | null;
     openstreetmap_url?: string | null;
   };
   airspace?: {

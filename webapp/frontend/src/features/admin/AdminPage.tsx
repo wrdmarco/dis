@@ -48,7 +48,6 @@ interface ManagedSettingsForm {
   aeretMapUrl: string;
   aeretApiUrl: string;
   aeretApiKey: string;
-  notamUrl: string;
 }
 
 interface PasswordPolicySettingsForm {
@@ -316,7 +315,6 @@ export function AdminPage() {
         'updates.android.application_id': managedForm.androidApplicationId,
         'drone.aeret_map_url': managedForm.aeretMapUrl.trim() === '' ? null : managedForm.aeretMapUrl,
         'drone.aeret_api_url': managedForm.aeretApiUrl.trim() === '' ? null : managedForm.aeretApiUrl,
-        'drone.notam_url': managedForm.notamUrl.trim() === '' ? null : managedForm.notamUrl,
       };
 
       if (managedForm.aeretApiKey.trim() !== '') {
@@ -757,10 +755,6 @@ export function AdminPage() {
               Aeret API key
               <input type="password" value={managedForm.aeretApiKey} placeholder="Ongewijzigd laten" onChange={(event) => setManagedForm((current) => ({ ...current, aeretApiKey: event.target.value }))} />
             </label>
-            <label className="form-grid__wide">
-              NOTAM bron URL
-              <input value={managedForm.notamUrl} placeholder="https://www.lvnl.nl/informatie-voor-luchtvarenden/notam" onChange={(event) => setManagedForm((current) => ({ ...current, notamUrl: event.target.value }))} />
-            </label>
           </div>
           {managedError ? <p className="error-text">{managedError}</p> : null}
           <div className="actions-row">
@@ -1168,7 +1162,6 @@ function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
     aeretMapUrl: asString(byKey.get('drone.aeret_map_url')) || 'https://aeret.kaartviewer.nl/?@dpf_basic',
     aeretApiUrl: asString(byKey.get('drone.aeret_api_url')),
     aeretApiKey: '',
-    notamUrl: asString(byKey.get('drone.notam_url')) || 'https://www.lvnl.nl/informatie-voor-luchtvarenden/notam',
   };
 }
 
