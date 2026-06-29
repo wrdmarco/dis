@@ -28,17 +28,36 @@ final class EnsureOperationalAccess
     {
         $user = $request->user();
         $token = $user?->currentAccessToken();
-        $tokenName = is_string($token?->name ?? null) ? $token->name : 'DIS API';
-        $normalizedTokenName = strtolower($tokenName);
+        $clientType = $this->clientType($token);
 
-        if (str_contains($normalizedTokenName, 'admin android')) {
-            return $user?->canUseAdminApp() === true;
+        return match ($clientType) {
+            'operator' => $user?->canUseOperatorApp() === true,
+            'admin' => $user?->canUseAdminApp() === true,
+            default => true,
+        };
+    }
+
+    private function clientType(mixed $token): string
+    {
+        $abilities = is_array($token?->abilities ?? null) ? $token->abilities : [];
+        if (in_array('client:admin', $abilities, true)) {
+            return 'admin';
+        }
+        if (in_array('client:operator', $abilities, true)) {
+            return 'operator';
+        }
+        if (in_array('client:web', $abilities, true)) {
+            return 'web';
         }
 
-        if (str_contains($normalizedTokenName, 'android')) {
-            return $user?->canUseOperatorApp() === true;
+        $tokenName = is_string($token?->name ?? null) ? strtolower($token->name) : '';
+        if (str_contains($tokenName, 'admin android')) {
+            return 'admin';
+        }
+        if (str_contains($tokenName, 'android')) {
+            return 'operator';
         }
 
-        return true;
+        return 'web';
     }
 }

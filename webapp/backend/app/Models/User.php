@@ -94,7 +94,23 @@ final class User extends Authenticatable
         $query = $this->roles()
             ->whereHas('permissions', fn ($query) => $query->where('permissions.name', $permission));
 
-        if ($this->shouldUseAdminAppPermissions()) {
+        match ($this->currentClientType()) {
+            'operator' => $query->where('roles.can_use_operator_app', true),
+            'admin', 'web' => $query->where('roles.can_use_admin_app', true),
+            default => null,
+        };
+
+        return $query->exists();
+    }
+
+    public function hasClientPermission(string $permission, string $clientType): bool
+    {
+        $query = $this->roles()
+            ->whereHas('permissions', fn ($query) => $query->where('permissions.name', $permission));
+
+        if ($clientType === 'operator') {
+            $query->where('roles.can_use_operator_app', true);
+        } else {
             $query->where('roles.can_use_admin_app', true);
         }
 
@@ -125,11 +141,29 @@ final class User extends Authenticatable
         return $this->teams()->where('teams.code', $code)->exists();
     }
 
-    private function shouldUseAdminAppPermissions(): bool
+    private function currentClientType(): string
     {
         $token = $this->currentAccessToken();
-        $tokenName = is_string($token?->name ?? null) ? strtolower($token->name) : '';
+        $abilities = is_array($token?->abilities ?? null) ? $token->abilities : [];
 
-        return ! str_contains($tokenName, 'android') || str_contains($tokenName, 'admin android');
+        if (in_array('client:admin', $abilities, true)) {
+            return 'admin';
+        }
+        if (in_array('client:operator', $abilities, true)) {
+            return 'operator';
+        }
+        if (in_array('client:web', $abilities, true)) {
+            return 'web';
+        }
+
+        $tokenName = is_string($token?->name ?? null) ? strtolower($token->name) : '';
+        if (str_contains($tokenName, 'admin android')) {
+            return 'admin';
+        }
+        if (str_contains($tokenName, 'android')) {
+            return 'operator';
+        }
+
+        return 'web';
     }
 }

@@ -70,14 +70,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const login = async (email: string, password: string): Promise<LoginResult> => {
-    const response = await api.post<LoginResult>('/auth/login', { email, password, device_name: 'DIS Command Center' });
+    const response = await api.post<LoginResult>('/auth/login', { email, password, device_name: 'DIS Command Center', client_type: 'web' });
     const isMfaChallenge = response.data.requires_2fa === true || response.data.requires_2fa_setup === true;
     setSession(response.data.token, response.data.user ?? null, isMfaChallenge ? 'mfa' : 'full');
     return response.data;
   };
 
   const verifyTwoFactor = async (code: string): Promise<User> => {
-    const response = await api.post<{ token: string; user: User }>('/auth/2fa/verify', { code, device_name: 'DIS Command Center' });
+    const response = await api.post<{ token: string; user: User }>('/auth/2fa/verify', { code, device_name: 'DIS Command Center', client_type: 'web' });
     setSession(response.data.token, response.data.user, 'full');
     return response.data.user;
   };
@@ -88,7 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const enableTwoFactor = async (code: string): Promise<TwoFactorEnableResult> => {
-    const response = await api.post<TwoFactorEnableResult>('/auth/2fa/enable', { code, device_name: 'DIS Command Center' });
+    const response = await api.post<TwoFactorEnableResult>('/auth/2fa/enable', { code, device_name: 'DIS Command Center', client_type: 'web' });
     setSession(response.data.token, response.data.user, 'full');
     return response.data;
   };

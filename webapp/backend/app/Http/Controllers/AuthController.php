@@ -35,9 +35,13 @@ final class AuthController extends Controller
             return ApiResponse::error('forbidden', 'The account is not active.', 403);
         }
 
-        $tokenName = $request->validated('device_name') ?? 'DIS API';
-        if (! $this->canUseRequestedApp($user, (string) $tokenName)) {
-            $this->auditService->record('auth.login_app_blocked', $user, $user, ['device_name' => $tokenName], null, $request);
+        $tokenName = (string) ($request->validated('device_name') ?? 'DIS API');
+        $clientType = $this->requestedClientType($request, $tokenName);
+        if (! $this->canUseRequestedApp($user, $clientType)) {
+            $this->auditService->record('auth.login_app_blocked', $user, $user, [
+                'device_name' => $tokenName,
+                'client_type' => $clientType,
+            ], null, $request);
 
             return ApiResponse::error('app_access_denied', 'Deze rol geeft geen toegang tot deze app.', 403);
         }
@@ -48,7 +52,7 @@ final class AuthController extends Controller
                 'two_factor_secret' => $secret,
                 'two_factor_confirmed_at' => null,
             ])->save();
-            $token = $user->createToken($tokenName, ['2fa:setup'], now()->addMinutes(30))->plainTextToken;
+            $token = $user->createToken($tokenName, ['2fa:setup', $this->clientAbility($clientType)], now()->addMinutes(30))->plainTextToken;
             $this->auditService->record('auth.2fa_setup_required', $user, $user, [], null, $request);
 
             return ApiResponse::success([
@@ -65,7 +69,7 @@ final class AuthController extends Controller
         }
 
         if ($requiresTwoFactor) {
-            $token = $user->createToken($tokenName, ['2fa:pending'], now()->addMinutes(10))->plainTextToken;
+            $token = $user->createToken($tokenName, ['2fa:pending', $this->clientAbility($clientType)], now()->addMinutes(10))->plainTextToken;
             $this->auditService->record('auth.login_2fa_required', $user, $user, [], null, $request);
 
             return ApiResponse::success(['requires_2fa' => true, 'token' => $token], 202);
@@ -76,14 +80,18 @@ final class AuthController extends Controller
 
         return ApiResponse::success([
             'requires_2fa' => false,
-            'token' => $user->createToken($tokenName, ['*'])->plainTextToken,
+            'token' => $user->createToken($tokenName, ['*', $this->clientAbility($clientType)])->plainTextToken,
             'user' => MobileApiPayload::user($user),
         ]);
     }
 
     public function verifyTwoFactor(Request $request): JsonResponse
     {
-        $request->validate(['code' => ['required', 'digits:6'], 'device_name' => ['nullable', 'string', 'max:120']]);
+        $request->validate([
+            'code' => ['required', 'digits:6'],
+            'device_name' => ['nullable', 'string', 'max:120'],
+            'client_type' => ['nullable', 'string', 'in:web,operator_android,admin_android'],
+        ]);
         $user = $request->user();
 
         if ($user === null || ! $this->currentTokenHasExactAbility($request, '2fa:pending')) {
@@ -102,7 +110,10 @@ final class AuthController extends Controller
         $this->auditService->record('auth.2fa_verified', $user, $user, [], null, $request);
 
         return ApiResponse::success([
-            'token' => $user->createToken((string) ($request->input('device_name') ?? 'DIS API'), ['*'])->plainTextToken,
+            'token' => $user->createToken(
+                (string) ($request->input('device_name') ?? 'DIS API'),
+                ['*', $this->clientAbility($this->clientTypeForTokenExchange($request))]
+            )->plainTextToken,
             'user' => MobileApiPayload::user($user->load(['roles', 'teams'])),
         ]);
     }
@@ -139,7 +150,11 @@ final class AuthController extends Controller
 
     public function enableTwoFactor(Request $request): JsonResponse
     {
-        $request->validate(['code' => ['required', 'digits:6'], 'device_name' => ['nullable', 'string', 'max:120']]);
+        $request->validate([
+            'code' => ['required', 'digits:6'],
+            'device_name' => ['nullable', 'string', 'max:120'],
+            'client_type' => ['nullable', 'string', 'in:web,operator_android,admin_android'],
+        ]);
         $user = $request->user();
 
         if ($user === null) {
@@ -163,7 +178,10 @@ final class AuthController extends Controller
         $this->auditService->record('auth.2fa_enabled', $user, $user, [], null, $request);
 
         return ApiResponse::success([
-            'token' => $user->createToken((string) ($request->input('device_name') ?? 'DIS Command Center'), ['*'])->plainTextToken,
+            'token' => $user->createToken(
+                (string) ($request->input('device_name') ?? 'DIS Command Center'),
+                ['*', $this->clientAbility($this->clientTypeForTokenExchange($request))]
+            )->plainTextToken,
             'user' => MobileApiPayload::user($user->load(['roles', 'teams'])),
             'recovery_codes' => $user->two_factor_recovery_codes,
         ]);
@@ -227,18 +245,63 @@ final class AuthController extends Controller
         return in_array($ability, $abilities, true);
     }
 
-    private function canUseRequestedApp(User $user, string $tokenName): bool
+    private function requestedClientType(Request $request, string $tokenName): string
     {
+        $clientType = method_exists($request, 'validated')
+            ? ($request->validated('client_type') ?? $request->input('client_type'))
+            : $request->input('client_type');
+        if (in_array($clientType, ['web', 'operator_android', 'admin_android'], true)) {
+            return (string) $clientType;
+        }
+
         $normalizedTokenName = strtolower($tokenName);
 
         if (str_contains($normalizedTokenName, 'admin android')) {
-            return $user->canUseAdminApp();
+            return 'admin_android';
         }
 
         if (str_contains($normalizedTokenName, 'android')) {
-            return $user->canUseOperatorApp();
+            return 'operator_android';
         }
 
-        return true;
+        return 'web';
+    }
+
+    private function clientTypeForTokenExchange(Request $request): string
+    {
+        $clientType = $request->input('client_type');
+        if (in_array($clientType, ['web', 'operator_android', 'admin_android'], true)) {
+            return (string) $clientType;
+        }
+
+        $token = $request->user()?->currentAccessToken();
+        $abilities = is_array($token?->abilities ?? null) ? $token->abilities : [];
+        foreach (['web', 'operator_android', 'admin_android'] as $candidate) {
+            if (in_array($this->clientAbility($candidate), $abilities, true)) {
+                return $candidate;
+            }
+        }
+
+        $tokenName = is_string($token?->name ?? null) ? $token->name : (string) ($request->input('device_name') ?? 'DIS API');
+
+        return $this->requestedClientType($request, $tokenName);
+    }
+
+    private function clientAbility(string $clientType): string
+    {
+        return match ($clientType) {
+            'operator_android' => 'client:operator',
+            'admin_android' => 'client:admin',
+            default => 'client:web',
+        };
+    }
+
+    private function canUseRequestedApp(User $user, string $clientType): bool
+    {
+        return match ($clientType) {
+            'operator_android' => $user->canUseOperatorApp(),
+            'admin_android' => $user->canUseAdminApp(),
+            default => true,
+        };
     }
 }

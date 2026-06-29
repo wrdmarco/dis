@@ -17,6 +17,7 @@ final class LoginRequest extends FormRequest
             'email' => ['required', 'email:rfc'],
             'password' => ['required', 'string'],
             'device_name' => ['nullable', 'string', 'max:120'],
+            'client_type' => ['nullable', 'string', 'in:web,operator_android,admin_android'],
         ];
     }
 }
