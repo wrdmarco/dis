@@ -9,6 +9,7 @@ use App\Services\AuditService;
 use App\Services\BackupReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Validation\ValidationException;
 use ZipArchive;
@@ -722,7 +723,7 @@ final class BackupController extends Controller
         return [
             'id' => $id,
             'target' => $target,
-            'created_at' => $manifest['created_at'] ?? $id,
+            'created_at' => is_string($manifest['created_at'] ?? null) ? $manifest['created_at'] : $this->createdAtFromBackupId($id),
             'database' => $manifest['database'] ?? null,
             'host' => $manifest['host'] ?? null,
             'version' => $manifest['version'] ?? null,
@@ -752,6 +753,15 @@ final class BackupController extends Controller
         }
 
         return $size;
+    }
+
+    private function createdAtFromBackupId(string $id): string
+    {
+        try {
+            return Carbon::createFromFormat('Ymd\THis\Z', $id, 'UTC')->toIso8601String();
+        } catch (\Throwable) {
+            return $id;
+        }
     }
 
     private function cleanOutput(string $output): string
