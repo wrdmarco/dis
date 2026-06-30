@@ -82,6 +82,29 @@ const profileOnlyNavGroups: NavGroup[] = [
   },
 ];
 
+const routePreloaders: Record<string, () => Promise<unknown>> = {
+  '/dashboard': () => import('../features/dashboard/DashboardPage'),
+  '/incidents': () => import('../features/incidents/IncidentsPage'),
+  '/incidents/archive': () => import('../features/incidents/IncidentsPage'),
+  '/operationele-status': () => import('../features/status/StatusPage'),
+  '/proefalarmering': () => import('../features/test-alerts/TestAlertPage'),
+  '/push': () => import('../features/push/PushPage'),
+  '/reports': () => import('../features/reports/ReportsPage'),
+  '/users': () => import('../features/users/UsersPage'),
+  '/rollen': () => import('../features/roles/RolesPage'),
+  '/teams': () => import('../features/teams/TeamsPage'),
+  '/assets': () => import('../features/assets/AssetsPage'),
+  '/certifications': () => import('../features/certifications/CertificationsPage'),
+  '/verloop': () => import('../features/expiry/ExpiryPage'),
+  '/updates': () => import('../features/updates/UpdatesPage'),
+  '/admin': () => import('../features/admin/AdminPage'),
+  '/branding': () => import('../features/branding/BrandingPage'),
+  '/audit': () => import('../features/audit/AuditLogPage'),
+  '/backups': () => import('../features/backups/BackupPage'),
+  '/systeem': () => import('../features/system/SystemPage'),
+  [PROFILE_PATH]: () => import('../features/profile/ProfilePage'),
+};
+
 interface BrandingState {
   name: string;
   short_name: string;
@@ -121,6 +144,7 @@ export function CommandLayout() {
 
   return (
     <div className="command-layout">
+      <a className="skip-link" href="#main-content">Naar hoofdinhoud</a>
       <aside className="sidebar">
         <div className="brand">
           <span className="brand__mark">
@@ -136,7 +160,14 @@ export function CommandLayout() {
                 {group.items.map((item) => {
                   const Icon = item.icon;
                   return (
-                    <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `nav__item ${isActive ? 'nav__item--active' : ''}`}>
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.end}
+                      className={({ isActive }) => `nav__item ${isActive ? 'nav__item--active' : ''}`}
+                      onFocus={() => void preloadRoute(item.to)}
+                      onMouseEnter={() => void preloadRoute(item.to)}
+                    >
                       <Icon aria-hidden size={18} />
                       <span>{item.label}</span>
                     </NavLink>
@@ -166,12 +197,16 @@ export function CommandLayout() {
             </button>
           </div>
         </header>
-        <main className="content">
+        <main className="content" id="main-content" tabIndex={-1}>
           <Outlet />
         </main>
       </div>
     </div>
   );
+}
+
+function preloadRoute(path: string): Promise<unknown> | undefined {
+  return routePreloaders[path]?.();
 }
 
 function canShowNavItem(item: NavItem, hasPermission: (permission: string) => boolean): boolean {

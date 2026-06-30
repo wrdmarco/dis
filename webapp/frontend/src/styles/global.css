@@ -51,6 +51,26 @@ a:hover {
   text-decoration: underline;
 }
 
+.skip-link {
+  position: fixed;
+  left: 16px;
+  top: 12px;
+  z-index: 1000;
+  transform: translateY(-160%);
+  border: 1px solid var(--dis-blue);
+  border-radius: 6px;
+  background: var(--dis-surface);
+  color: var(--dis-text-strong);
+  padding: 10px 14px;
+  font-weight: 800;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.42);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+  text-decoration: none;
+}
+
 .boot-screen,
 .login-shell,
 .public-download-shell {
@@ -650,6 +670,12 @@ a:hover {
   place-items: center;
   color: #d7e7f8;
   background: #172333;
+}
+
+.icon-button--active,
+.icon-button:hover {
+  color: var(--dis-blue);
+  background: var(--dis-blue-soft);
 }
 
 .primary-button {
@@ -2894,6 +2920,21 @@ a,
 .status-pill--neutral {
   background: var(--dis-blue-soft);
   color: var(--dis-blue);
+}
+
+.panel,
+.incident-card,
+.kpi,
+.summary-card,
+.download-card > div,
+.recipient-row,
+.draft-recipient-grid article,
+.drone-flight-panel,
+.drone-flight-card,
+.drone-flight-list,
+.checkbox-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 220px;
 }
 
 .nav__item,

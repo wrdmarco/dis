@@ -13,7 +13,7 @@ export function ResourceState({
 }) {
   if (loading) {
     return (
-      <div className="resource-state">
+      <div className="resource-state" role="status" aria-live="polite">
         <Loader2 aria-hidden className="spin" size={18} />
         <span>Gegevens laden</span>
       </div>
@@ -22,7 +22,7 @@ export function ResourceState({
 
   if (error) {
     return (
-      <div className="resource-state resource-state--error">
+      <div className="resource-state resource-state--error" role="alert">
         <AlertTriangle aria-hidden size={18} />
         <span>{error}</span>
       </div>
@@ -30,9 +30,8 @@ export function ResourceState({
   }
 
   if (empty) {
-    return <div className="resource-state">Geen gegevens beschikbaar</div>;
+    return <div className="resource-state" role="status">Geen gegevens beschikbaar</div>;
   }
 
   return <>{children}</>;
 }
-

@@ -11,7 +11,7 @@ const AuthenticatedRoutes = lazy(() => import('./AuthenticatedApp').then((module
 export function App() {
   return (
     <AppErrorBoundary>
-      <Suspense fallback={<div className="resource-state">Laden...</div>}>
+      <Suspense fallback={<div className="resource-state" role="status" aria-live="polite">Laden...</div>}>
         <Routes>
           <Route path="/setup" element={<SetupWizardPage />} />
           <Route path="/download" element={<AndroidDownloadPage />} />
@@ -61,7 +61,7 @@ class AppErrorBoundary extends Component<{ children: React.ReactNode }, AppError
 
     return (
       <main className="boot-screen">
-        <div className="resource-state resource-state--error">
+        <div className="resource-state resource-state--error" role="alert">
           <span>{this.state.message}</span>
           <button className="secondary-button" type="button" onClick={() => window.location.reload()}>
             Opnieuw laden
