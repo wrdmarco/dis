@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Mail\Concerns\BuildsSimpleHtmlMail;
 use App\Models\Asset;
 use App\Models\SystemSetting;
 use App\Models\User;
@@ -12,6 +13,7 @@ use Illuminate\Queue\SerializesModels;
 
 final class AssetExpiryMail extends Mailable
 {
+    use BuildsSimpleHtmlMail;
     use Queueable;
     use SerializesModels;
 
@@ -49,14 +51,11 @@ final class AssetExpiryMail extends Mailable
             'tenant_name' => $tenantName,
         ];
         $renderer = app(MailTemplateRenderer::class);
+        $subject = $renderer->render($subjectTemplate, $tokens);
+        $body = $renderer->render($bodyTemplate, $tokens);
 
         return $this
-            ->subject($renderer->render($subjectTemplate, $tokens))
-            ->view('mail.asset-expiry', [
-                'tenantName' => $tenantName,
-                'mailTitle' => $isExpired ? 'Asset verlopen' : 'Asset verloopt binnenkort',
-                'body' => $renderer->render($bodyTemplate, $tokens),
-                'downloadUrl' => $this->downloadUrl,
-            ]);
+            ->subject($subject)
+            ->html($this->simpleHtmlBody($appName, $tenantName, $subject, $body, $this->downloadUrl, 'Open downloadpagina'));
     }
 }

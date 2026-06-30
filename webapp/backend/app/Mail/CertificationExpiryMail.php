@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Mail\Concerns\BuildsSimpleHtmlMail;
 use App\Models\SystemSetting;
 use App\Models\UserCertification;
 use App\Services\MailTemplateRenderer;
@@ -11,6 +12,7 @@ use Illuminate\Queue\SerializesModels;
 
 final class CertificationExpiryMail extends Mailable
 {
+    use BuildsSimpleHtmlMail;
     use Queueable;
     use SerializesModels;
 
@@ -49,15 +51,11 @@ final class CertificationExpiryMail extends Mailable
             'tenant_name' => $tenantName,
         ];
         $renderer = app(MailTemplateRenderer::class);
+        $subject = $renderer->render($subjectTemplate, $tokens);
+        $body = $renderer->render($bodyTemplate, $tokens);
 
         return $this
-            ->subject($renderer->render($subjectTemplate, $tokens))
-            ->view('mail.certification-expiry', [
-                'appName' => $appName,
-                'tenantName' => $tenantName,
-                'mailTitle' => $isExpired ? 'Certificaat verlopen' : 'Certificaat verloopt binnenkort',
-                'body' => $renderer->render($bodyTemplate, $tokens),
-                'downloadUrl' => $this->downloadUrl,
-            ]);
+            ->subject($subject)
+            ->html($this->simpleHtmlBody($appName, $tenantName, $subject, $body, $this->downloadUrl, 'Open downloadpagina'));
     }
 }
