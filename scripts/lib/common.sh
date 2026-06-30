@@ -114,24 +114,21 @@ migrate_path_to_data() {
     return
   fi
 
-  if [ -e "${destination}" ]; then
-    if [ -d "${destination}" ] && [ -n "$(find "${destination}" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null || true)" ]; then
-      return
-    fi
-    if [ -f "${destination}" ]; then
-      return
-    fi
-  fi
-
   if [ -d "${source}" ]; then
     ensure_directory "$(dirname "${destination}")" root "${DIS_GROUP}" 0750
     if [ -d "${destination}" ]; then
-      run_cmd rmdir "${destination}"
+      run_cmd cp -a "${source}/." "${destination}/"
+      run_cmd rm -rf "${source}"
+    else
+      run_cmd mv "${source}" "${destination}"
     fi
-    run_cmd mv "${source}" "${destination}"
   elif [ -f "${source}" ]; then
     ensure_directory "$(dirname "${destination}")" root "${DIS_GROUP}" 0750
-    run_cmd mv "${source}" "${destination}"
+    if [ -f "${destination}" ]; then
+      run_cmd rm -f "${source}"
+    else
+      run_cmd mv "${source}" "${destination}"
+    fi
   fi
 }
 
@@ -145,6 +142,10 @@ link_data_path() {
 
   if [ -e "${source}" ] && [ ! -L "${source}" ]; then
     migrate_path_to_data "${source}" "${destination}"
+  fi
+
+  if [ -d "${source}" ] && [ ! -L "${source}" ]; then
+    fail "Could not replace ${source} with data symlink. Check ${destination} and remove the old directory after migration."
   fi
 
   run_cmd ln -sfn "${destination}" "${source}"
