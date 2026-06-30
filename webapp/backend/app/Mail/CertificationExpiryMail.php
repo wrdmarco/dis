@@ -35,7 +35,7 @@ final class CertificationExpiryMail extends Mailable
         ) ?? '';
         $bodyTemplate = SystemSetting::string(
             'mail.template.certification_expiry_body',
-            "Beste {{name}},\n\nJe certificaat {{certification_name}} {{expiry_status}}.\n\nVerloopdatum: {{expires_at}}\n\n{{download_url}}",
+            "Beste {{name}},\n\nJe certificaat {{certification_name}} {{expiry_status}}.\n\nCertificaatnummer: {{certificate_number}}\nVerloopdatum: {{expires_at}}\nStatus: {{status_text}}\n\nWerk je certificaat bij in de app zodra de verlenging rond is. Zonder geldig vereist certificaat kun je niet meegenomen worden in alarmeringen waarvoor dit certificaat verplicht is.",
         ) ?? '';
         $tokens = [
             'name' => $this->userCertification->user?->name ?? 'gebruiker',
@@ -56,6 +56,6 @@ final class CertificationExpiryMail extends Mailable
 
         return $this
             ->subject($subject)
-            ->html($this->simpleHtmlBody($appName, $tenantName, $subject, $body, $this->downloadUrl, 'Open downloadpagina'));
+            ->html($this->simpleHtmlBody($appName, $tenantName, $subject, $body));
     }
 }

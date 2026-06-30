@@ -54,10 +54,7 @@ Certificaatnummer: {{certificate_number}}
 Verloopdatum: {{expires_at}}
 Status: {{status_text}}
 
-Werk je certificaat bij in de app zodra de verlenging rond is. Zonder geldig vereist certificaat kun je niet meegenomen worden in alarmeringen waarvoor dit certificaat verplicht is.
-
-App downloadpagina:
-{{download_url}}`;
+Werk je certificaat bij in de app zodra de verlenging rond is. Zonder geldig vereist certificaat kun je niet meegenomen worden in alarmeringen waarvoor dit certificaat verplicht is.`;
 const DEFAULT_ASSET_EXPIRY_SUBJECT = '{{asset_name}} - {{status_text}}';
 const DEFAULT_ASSET_EXPIRY_BODY = `Beste {{name}},
 
@@ -68,10 +65,7 @@ Serienummer: {{serial_number}}
 Verloopdatum: {{expires_at}}
 Status: {{status_text}}
 
-Werk de assetgegevens bij zodra dit is afgehandeld.
-
-App downloadpagina:
-{{download_url}}`;
+Werk de assetgegevens bij zodra dit is afgehandeld.`;
 
 export function BrandingPage() {
   const { api } = useAuth();

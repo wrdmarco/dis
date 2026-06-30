@@ -33,7 +33,7 @@ final class AssetExpiryMail extends Mailable
         $subjectTemplate = SystemSetting::string('mail.template.asset_expiry_subject', '{{asset_name}} - {{status_text}}') ?? '';
         $bodyTemplate = SystemSetting::string(
             'mail.template.asset_expiry_body',
-            "Beste {{name}},\n\nDe verloopdatum of onderhoudsdatum van asset {{asset_name}} {{expiry_status}}.\n\nAsset tag: {{asset_tag}}\nSerienummer: {{serial_number}}\nVerloopdatum: {{expires_at}}\nStatus: {{status_text}}\n\nWerk de assetgegevens bij zodra dit is afgehandeld.\n\nApp downloadpagina:\n{{download_url}}",
+            "Beste {{name}},\n\nDe verloopdatum of onderhoudsdatum van asset {{asset_name}} {{expiry_status}}.\n\nAsset tag: {{asset_tag}}\nSerienummer: {{serial_number}}\nVerloopdatum: {{expires_at}}\nStatus: {{status_text}}\n\nWerk de assetgegevens bij zodra dit is afgehandeld.",
         ) ?? '';
         $tokens = [
             'name' => $this->user->name,
@@ -56,6 +56,6 @@ final class AssetExpiryMail extends Mailable
 
         return $this
             ->subject($subject)
-            ->html($this->simpleHtmlBody($appName, $tenantName, $subject, $body, $this->downloadUrl, 'Open downloadpagina'));
+            ->html($this->simpleHtmlBody($appName, $tenantName, $subject, $body));
     }
 }
