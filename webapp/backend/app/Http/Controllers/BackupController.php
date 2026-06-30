@@ -722,7 +722,7 @@ final class BackupController extends Controller
         return [
             'id' => $id,
             'target' => $target,
-            'created_at' => is_string($manifest['created_at'] ?? null) ? $manifest['created_at'] : $this->createdAtFromBackupId($id),
+            'created_at' => $this->normalizeBackupCreatedAt($manifest['created_at'] ?? null, $id),
             'database' => $manifest['database'] ?? null,
             'host' => $manifest['host'] ?? null,
             'version' => $manifest['version'] ?? null,
@@ -754,10 +754,19 @@ final class BackupController extends Controller
         return $size;
     }
 
-    private function createdAtFromBackupId(string $id): string
+    private function normalizeBackupCreatedAt(mixed $createdAt, string $id): string
     {
-        if (preg_match('/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/', $id, $matches) !== 1) {
-            return $id;
+        if (is_string($createdAt) && $createdAt !== '') {
+            return $this->createdAtFromBackupId($createdAt);
+        }
+
+        return $this->createdAtFromBackupId($id);
+    }
+
+    private function createdAtFromBackupId(string $value): string
+    {
+        if (preg_match('/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/', $value, $matches) !== 1) {
+            return $value;
         }
 
         return sprintf(
