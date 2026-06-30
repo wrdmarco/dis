@@ -12,6 +12,7 @@ secrets/*
 *.crt
 
 # Runtime storage
+/backup/
 /storage/*
 !/storage/.gitkeep
 !/storage/app/.gitkeep

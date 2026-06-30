@@ -73,6 +73,70 @@ if [ "${APP_ROOT}" != "${DIS_INSTALL_PATH}" ]; then
   fail "DIS update script must run from ${DIS_INSTALL_PATH}. Current script path is ${APP_ROOT}."
 fi
 
+ensure_runtime_git_excludes() {
+  local exclude_file pattern
+
+  if [ ! -d "${DIS_INSTALL_PATH}/.git" ]; then
+    return
+  fi
+
+  exclude_file="${DIS_INSTALL_PATH}/.git/info/exclude"
+  run_cmd install -d -m 0755 "$(dirname "${exclude_file}")"
+  run_cmd touch "${exclude_file}"
+  for pattern in \
+    "/backup/" \
+    "/storage/tmp/" \
+    "/storage/generated/" \
+    "/webapp/backend/storage/logs/" \
+    "/webapp/backend/storage/app/backup-config.env"; do
+    if ! grep -qxF "${pattern}" "${exclude_file}" 2>/dev/null; then
+      printf '%s\n' "${pattern}" >> "${exclude_file}"
+    fi
+  done
+}
+
+recover_stashed_backups() {
+  local stash_ref untracked_tree restored backup_id backup_file destination
+
+  if [ ! -d "${DIS_INSTALL_PATH}/.git" ]; then
+    return
+  fi
+
+  restored=0
+  while IFS= read -r stash_ref; do
+    if ! git -C "${DIS_INSTALL_PATH}" rev-parse --verify "${stash_ref}^3" >/dev/null 2>&1; then
+      continue
+    fi
+    untracked_tree="${stash_ref}^3"
+
+    while IFS= read -r backup_file; do
+      backup_id="$(printf '%s' "${backup_file}" | cut -d '/' -f 2)"
+      if ! [[ "${backup_id}" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]; then
+        continue
+      fi
+      destination="${DIS_INSTALL_PATH}/${backup_file}"
+      if [ -f "${destination}" ]; then
+        continue
+      fi
+
+      run_cmd install -d -m 0750 -o root -g "${DIS_GROUP}" "$(dirname "${destination}")"
+      git -C "${DIS_INSTALL_PATH}" show "${untracked_tree}:${backup_file}" > "${destination}"
+      run_cmd chgrp "${DIS_GROUP}" "${destination}" || true
+      run_cmd chmod 0640 "${destination}" || true
+      restored=1
+    done < <(git -C "${DIS_INSTALL_PATH}" ls-tree -r --name-only "${untracked_tree}" | grep -E '^backup/[0-9]{8}T[0-9]{6}Z/' || true)
+  done < <(git -C "${DIS_INSTALL_PATH}" stash list --format='%gd %s' | awk '/server-local-before-update/ {print $1}')
+
+  if [ "${restored}" = "1" ]; then
+    log "Recovered backup files from previous update stash."
+    if [ -d "${DIS_INSTALL_PATH}/backup" ]; then
+      run_cmd chgrp -R "${DIS_GROUP}" "${DIS_INSTALL_PATH}/backup" || true
+      run_cmd find "${DIS_INSTALL_PATH}/backup" -type d -exec chmod 0750 {} + || true
+      run_cmd find "${DIS_INSTALL_PATH}/backup" -type f -exec chmod 0640 {} + || true
+    fi
+  fi
+}
+
 env_value() {
   local key="$1"
   local value
@@ -252,14 +316,25 @@ stash_local_git_changes() {
     return
   fi
 
-  status="$(git -C "${DIS_INSTALL_PATH}" status --porcelain)"
+  ensure_runtime_git_excludes
+  status="$(git -C "${DIS_INSTALL_PATH}" status --porcelain -- . \
+    ':(exclude)backup' \
+    ':(exclude)storage/tmp' \
+    ':(exclude)storage/generated' \
+    ':(exclude)webapp/backend/storage/logs' \
+    ':(exclude)webapp/backend/storage/app/backup-config.env')"
   if [ -z "${status}" ]; then
     return
   fi
 
   stash_name="server-local-before-update-$(date -u +%Y%m%dT%H%M%SZ)"
   log "Local Git changes detected. Stashing them as ${stash_name}."
-  run_cmd git -C "${DIS_INSTALL_PATH}" stash push -u -m "${stash_name}"
+  run_cmd git -C "${DIS_INSTALL_PATH}" stash push -u -m "${stash_name}" -- . \
+    ':(exclude)backup' \
+    ':(exclude)storage/tmp' \
+    ':(exclude)storage/generated' \
+    ':(exclude)webapp/backend/storage/logs' \
+    ':(exclude)webapp/backend/storage/app/backup-config.env'
   log "Local changes were stashed and not reapplied automatically."
 }
 
@@ -368,6 +443,9 @@ check_app_updates() {
     log "No DIS application updates available."
   fi
 }
+
+ensure_runtime_git_excludes
+recover_stashed_backups
 
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
   check_system_updates
