@@ -11,14 +11,15 @@ ACTION="${1:-}"
 case "${ACTION}" in
   enable)
     require_file "${BACKEND_DIR}/artisan"
+    enable_frontend_maintenance
     run_cmd php "${BACKEND_DIR}/artisan" down --render="errors::503"
     ;;
   disable)
     require_file "${BACKEND_DIR}/artisan"
     run_cmd php "${BACKEND_DIR}/artisan" up
+    disable_frontend_maintenance
     ;;
   *)
     fail "Usage: maintenance.sh enable|disable"
     ;;
 esac
-
