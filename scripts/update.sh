@@ -390,7 +390,8 @@ reset_git_worktree_for_update() {
     webapp/backend/bootstrap/cache \
     webapp/backend/storage/logs \
     webapp/backend/storage/app/backup-config.env \
-    webapp/frontend/dist \
+    webapp/frontend/dist-next \
+    webapp/frontend/dist-previous \
     webapp/frontend/.vite \
     webapp/frontend/.cache \
     webapp/frontend/node_modules/.vite \

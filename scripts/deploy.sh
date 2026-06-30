@@ -65,6 +65,9 @@ if [ -f "${BACKEND_DIR}/composer.json" ]; then
 fi
 
 if [ -f "${FRONTEND_DIR}/package.json" ]; then
+  next_frontend_dist="${FRONTEND_DIR}/dist-next"
+  previous_frontend_dist="${FRONTEND_DIR}/dist-previous"
+
   log "Building frontend"
   if [ -f "${FRONTEND_DIR}/package-lock.json" ]; then
     log "Installing frontend dependencies from package-lock.json"
@@ -75,7 +78,14 @@ if [ -f "${FRONTEND_DIR}/package.json" ]; then
   else
     run_cmd npm --prefix "${FRONTEND_DIR}" install
   fi
-  run_cmd npm --prefix "${FRONTEND_DIR}" run build
+  run_cmd rm -rf "${next_frontend_dist}" "${previous_frontend_dist}"
+  run_cmd npm --prefix "${FRONTEND_DIR}" run build -- --outDir dist-next
+  if [ -d "${FRONTEND_DIR}/dist" ]; then
+    run_cmd mv "${FRONTEND_DIR}/dist" "${previous_frontend_dist}"
+  fi
+  run_cmd mv "${next_frontend_dist}" "${FRONTEND_DIR}/dist"
+  run_cmd chown -R "${DIS_USER}:${DIS_GROUP}" "${FRONTEND_DIR}/dist"
+  run_cmd rm -rf "${previous_frontend_dist}"
 fi
 
 log "Installing Nginx and systemd configuration"
