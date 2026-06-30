@@ -9,6 +9,7 @@ use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
 use App\Services\DispatchService;
+use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -23,22 +24,24 @@ final class DispatchController extends Controller
             ->with(['incident', 'recipients'])
             ->when(! $request->boolean('include_tests'), fn ($query) => $query->whereHas('incident', fn ($incident) => $incident->where('is_test', false)))
             ->latest()
-            ->paginate((int) $request->integer('per_page', 25)));
+            ->paginate((int) $request->integer('per_page', 25)),
+            fn (DispatchRequest $dispatch): array => MobileApiPayload::dispatch($dispatch),
+        );
     }
 
     public function store(StoreDispatchRequest $request, Incident $incident): JsonResponse
     {
-        return ApiResponse::success($this->service->create($incident, $request->validated(), $request->user()), 201);
+        return ApiResponse::success(MobileApiPayload::dispatch($this->service->create($incident, $request->validated(), $request->user())->load(['incident', 'targetTeam', 'recipients.user'])), 201);
     }
 
     public function show(DispatchRequest $dispatch): JsonResponse
     {
-        return ApiResponse::success($dispatch->load(['incident', 'recipients.user']));
+        return ApiResponse::success(MobileApiPayload::dispatch($dispatch->load(['incident', 'recipients.user'])));
     }
 
     public function send(Request $request, DispatchRequest $dispatch): JsonResponse
     {
-        return ApiResponse::success($this->service->markSent($dispatch, $request->user()));
+        return ApiResponse::success(MobileApiPayload::dispatch($this->service->markSent($dispatch, $request->user())->load(['incident', 'targetTeam', 'recipients.user'])));
     }
 
     public function message(Request $request, DispatchRequest $dispatch): JsonResponse
@@ -64,13 +67,13 @@ final class DispatchController extends Controller
             'note' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        return ApiResponse::success($this->service->overrideRecipientResponse(
+        return ApiResponse::success(MobileApiPayload::dispatchRecipient($this->service->overrideRecipientResponse(
             $dispatch,
             $recipient,
             $request->user(),
             $data['response'],
             $data['note'] ?? null,
-        ));
+        )->load('user')));
     }
 
     public function cancel(Request $request, DispatchRequest $dispatch): JsonResponse
@@ -78,7 +81,7 @@ final class DispatchController extends Controller
         $dispatch->update(['status' => 'cancelled', 'cancelled_at' => now()]);
         $this->service->broadcastDispatchChange($dispatch->refresh(), 'cancelled');
 
-        return ApiResponse::success($dispatch);
+        return ApiResponse::success(MobileApiPayload::dispatch($dispatch->load(['incident', 'targetTeam', 'recipients.user'])));
     }
 
     public function escalate(Request $request, DispatchRequest $dispatch): JsonResponse
@@ -88,12 +91,12 @@ final class DispatchController extends Controller
             'team_ids.*' => ['ulid', 'exists:teams,id'],
         ]);
 
-        return ApiResponse::success($this->service->escalate($dispatch, $request->user(), $data['team_ids'] ?? []));
+        return ApiResponse::success(MobileApiPayload::dispatch($this->service->escalate($dispatch, $request->user(), $data['team_ids'] ?? [])->load(['incident', 'targetTeam', 'recipients.user'])));
     }
 
     public function reAlert(Request $request, DispatchRequest $dispatch): JsonResponse
     {
-        return ApiResponse::success($this->service->reAlert($dispatch, $request->user()));
+        return ApiResponse::success(MobileApiPayload::dispatch($this->service->reAlert($dispatch, $request->user())->load(['incident', 'targetTeam', 'recipients.user'])));
     }
 
     public function recipients(DispatchRequest $dispatch): JsonResponse
@@ -101,7 +104,7 @@ final class DispatchController extends Controller
         return ApiResponse::success($dispatch->recipients()->with([
             'user',
             'user.statuses' => fn ($statuses) => $statuses->latestPerUser(),
-        ])->get());
+        ])->get()->map(fn (DispatchRecipient $recipient): array => MobileApiPayload::dispatchRecipient($recipient))->values());
     }
 
     public function incidentDispatches(Incident $incident): JsonResponse
@@ -113,6 +116,8 @@ final class DispatchController extends Controller
                 'recipients.user.statuses' => fn ($statuses) => $statuses->latestPerUser(),
             ])
             ->latest()
-            ->get());
+            ->get()
+            ->map(fn (DispatchRequest $dispatch): array => MobileApiPayload::dispatch($dispatch))
+            ->values());
     }
 }

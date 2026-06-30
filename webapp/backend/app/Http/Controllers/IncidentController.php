@@ -173,7 +173,7 @@ final class IncidentController extends Controller
                 'type' => 'status',
                 'label' => trim(($item->from_status ?? 'nieuw').' -> '.$item->to_status),
                 'message' => $item->reason,
-                'created_at' => $item->created_at?->toIso8601String(),
+                'created_at' => MobileApiPayload::dateTime($item->created_at),
             ]);
 
         $dispatchItems = $dispatches
@@ -183,7 +183,7 @@ final class IncidentController extends Controller
                     'type' => 'dispatch',
                     'label' => 'Dispatch '.$dispatch->status,
                     'message' => $dispatch->message,
-                    'created_at' => $dispatch->created_at?->toIso8601String(),
+                    'created_at' => MobileApiPayload::dateTime($dispatch->created_at),
                 ]];
 
                 foreach ($dispatch->recipients as $recipient) {
@@ -192,7 +192,7 @@ final class IncidentController extends Controller
                         'type' => 'dispatch_response',
                         'label' => ($recipient->user?->name ?? $recipient->user_name ?? 'Verwijderde gebruiker').' - '.$recipient->response_status,
                         'message' => $recipient->response_note,
-                        'created_at' => ($recipient->responded_at ?? $recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at)?->toIso8601String(),
+                        'created_at' => MobileApiPayload::dateTime($recipient->responded_at ?? $recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at),
                     ];
                 }
 
@@ -203,7 +203,7 @@ final class IncidentController extends Controller
                         'type' => 'dispatch_message',
                         'label' => 'Nadere info'.($senderName ? ' - '.$senderName : ''),
                         'message' => $message->body,
-                        'created_at' => $message->created_at?->toIso8601String(),
+                        'created_at' => MobileApiPayload::dateTime($message->created_at),
                     ];
                 }
 
@@ -235,7 +235,7 @@ final class IncidentController extends Controller
                     'type' => 'operator_status',
                     'label' => ($status->user?->name ?? $status->user_name ?? 'Verwijderde gebruiker').' - '.$this->operatorStatusLabel($status->status),
                     'message' => $status->reason,
-                    'created_at' => $status->effective_at?->toIso8601String(),
+                    'created_at' => MobileApiPayload::dateTime($status->effective_at),
                 ]);
         }
 

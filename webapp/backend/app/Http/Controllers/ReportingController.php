@@ -6,6 +6,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\Incident;
 use App\Services\DispatchStatisticsService;
 use App\Services\IncidentReportService;
+use App\Support\MobileApiPayload;
 use DateTimeInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -86,11 +87,11 @@ final class ReportingController extends Controller
                         'name' => $incident->coordinator?->name ?? $incident->coordinator_name,
                         'email' => $incident->coordinator?->email ?? $incident->coordinator_email,
                     ],
-                    'opened_at' => $incident->opened_at?->toIso8601String(),
-                    'closed_at' => $incident->closed_at?->toIso8601String(),
-                    'report_generated_at' => $incident->report_generated_at?->toIso8601String(),
+                    'opened_at' => MobileApiPayload::dateTime($incident->opened_at),
+                    'closed_at' => MobileApiPayload::dateTime($incident->closed_at),
+                    'report_generated_at' => MobileApiPayload::dateTime($incident->report_generated_at),
                     'report_available' => is_string($incident->report_pdf_path) && $incident->report_pdf_path !== '',
-                    'latest_dispatch_sent_at' => $latestDispatchAt?->toIso8601String(),
+                    'latest_dispatch_sent_at' => MobileApiPayload::dateTime($latestDispatchAt),
                     'recipient_count' => $recipients->count(),
                     'accepted' => $recipients->where('response_status', 'accepted')->count(),
                     'declined' => $recipients->where('response_status', 'declined')->count(),

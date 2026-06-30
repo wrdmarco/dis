@@ -6,8 +6,11 @@ use App\Models\AppVersion;
 use App\Models\Asset;
 use App\Models\AvailabilityStatus;
 use App\Models\Certification;
+use App\Models\DispatchRecipient;
+use App\Models\DispatchRequest;
 use App\Models\Incident;
 use App\Models\User;
+use DateTimeInterface;
 
 final class MobileApiPayload
 {
@@ -82,7 +85,7 @@ final class MobileApiPayload
             'user_id' => $status->user_id,
             'status' => $status->status,
             'is_available' => (bool) $status->is_available,
-            'effective_at' => $status->effective_at?->toIso8601String(),
+            'effective_at' => self::dateTime($status->effective_at),
             'user' => $status->relationLoaded('user') ? self::user($status->user) : null,
         ];
     }
@@ -119,8 +122,51 @@ final class MobileApiPayload
                 'name' => $team->name,
                 'type' => $team->type,
             ])->values(),
-            'opened_at' => $incident->opened_at?->toIso8601String(),
-            'closed_at' => $incident->closed_at?->toIso8601String(),
+            'opened_at' => self::dateTime($incident->opened_at),
+            'closed_at' => self::dateTime($incident->closed_at),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function dispatch(DispatchRequest $dispatch): array
+    {
+        return [
+            'id' => $dispatch->id,
+            'incident_id' => $dispatch->incident_id,
+            'target_team_id' => $dispatch->target_team_id,
+            'status' => $dispatch->status,
+            'priority' => $dispatch->priority,
+            'message' => $dispatch->message,
+            'sent_at' => self::dateTime($dispatch->sent_at),
+            'created_at' => self::dateTime($dispatch->created_at),
+            'incident' => $dispatch->relationLoaded('incident') && $dispatch->incident !== null ? self::incident($dispatch->incident) : null,
+            'target_team' => $dispatch->relationLoaded('targetTeam') && $dispatch->targetTeam !== null ? [
+                'id' => $dispatch->targetTeam->id,
+                'code' => $dispatch->targetTeam->code,
+                'name' => $dispatch->targetTeam->name,
+                'type' => $dispatch->targetTeam->type,
+            ] : null,
+            'recipients' => $dispatch->relationLoaded('recipients')
+                ? $dispatch->recipients->map(fn (DispatchRecipient $recipient): array => self::dispatchRecipient($recipient))->values()
+                : [],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function dispatchRecipient(DispatchRecipient $recipient): array
+    {
+        return [
+            'id' => $recipient->id,
+            'user_id' => $recipient->user_id,
+            'response_status' => $recipient->response_status,
+            'response_note' => $recipient->response_note,
+            'notified_at' => self::dateTime($recipient->notified_at),
+            'responded_at' => self::dateTime($recipient->responded_at),
+            'user' => $recipient->relationLoaded('user') ? self::user($recipient->user) : null,
         ];
     }
 
@@ -149,8 +195,8 @@ final class MobileApiPayload
                 'id' => $activeAssignment->id,
                 'asset_id' => $activeAssignment->asset_id,
                 'user_id' => $activeAssignment->user_id,
-                'assigned_at' => $activeAssignment->assigned_at?->toIso8601String(),
-                'released_at' => $activeAssignment->released_at?->toIso8601String(),
+                'assigned_at' => self::dateTime($activeAssignment->assigned_at),
+                'released_at' => self::dateTime($activeAssignment->released_at),
                 'user' => self::user($activeAssignment->user),
             ],
         ];
@@ -198,5 +244,10 @@ final class MobileApiPayload
                 'user' => self::user($userCertification->user),
             ])->values(),
         ];
+    }
+
+    public static function dateTime(?DateTimeInterface $value): ?string
+    {
+        return $value?->format('Y-m-d H:i:s');
     }
 }
