@@ -2,6 +2,21 @@
   color-scheme: dark;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --dis-bg: #090d12;
+  --dis-bg-elevated: #0d131b;
+  --dis-surface: #0f1722;
+  --dis-surface-2: #111d2b;
+  --dis-surface-3: #172333;
+  --dis-field: #0b1119;
+  --dis-border: #1f2b3a;
+  --dis-border-strong: #2f4056;
+  --dis-text: #e7eef7;
+  --dis-text-strong: #f8fbff;
+  --dis-muted: #8ea0b5;
+  --dis-muted-strong: #b9c7d8;
+  --dis-blue: #80c7ff;
+  --dis-blue-soft: #122235;
+  --dis-blue-panel: #102033;
   background: #090d12;
   color: #e7eef7;
   font-synthesis: none;
@@ -2638,6 +2653,294 @@ pre {
   padding: 16px;
   overflow: auto;
   color: #cfe0f3;
+}
+
+/* DIS interface refresh: centralize the web app around the established blue/grey command palette. */
+body,
+.workspace {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(128, 199, 255, 0.06), transparent 28%),
+    var(--dis-bg);
+  color: var(--dis-text);
+}
+
+.sidebar,
+.topbar {
+  background: linear-gradient(180deg, #0e151e, var(--dis-bg-elevated));
+  border-color: var(--dis-border);
+}
+
+.brand__mark,
+.icon-button,
+.mfa-card__icon,
+.firebase-wizard__icon,
+.test-alert-hero__icon,
+.kpi__icon,
+.expiry-group__header span,
+.setup-stepper__item span,
+.firebase-wizard__tab span,
+.firebase-step__heading span {
+  background: var(--dis-blue-soft);
+  color: var(--dis-blue);
+}
+
+.brand__mark {
+  border-color: var(--dis-border-strong);
+}
+
+.nav__label,
+.topbar__eyebrow,
+.operator span,
+.resource-state,
+.muted-text,
+.definition-grid dt,
+.field-label,
+.download-card span,
+.download-integrity,
+.setup-copy p,
+.metadata-example pre,
+.panel-body p,
+.kpi span,
+.incident-meta dt,
+.recipient-row__identity span,
+.recipient-row__time span,
+.draft-dispatch span,
+.dispatch-toolbar span,
+.summary-card span,
+.expiry-group__header small,
+.drone-flight-card dt,
+.drone-flight-map-card span,
+.drone-flight-panel > header span {
+  color: var(--dis-muted);
+}
+
+.brand__text,
+.topbar h1,
+.panel__header h2,
+.metadata-example strong,
+.setup-section h2,
+.summary-card strong,
+.incident-hero h3,
+.draft-dispatch strong,
+.dispatch-toolbar strong,
+.recipient-row__identity strong,
+.recipient-row__time strong,
+.kpi strong,
+.field-display strong,
+.expiry-group__header strong,
+.drone-flight-map-card strong,
+.drone-flight-panel > header strong {
+  color: var(--dis-text-strong);
+}
+
+.panel,
+.modal,
+.kpi,
+.firebase-step,
+.metadata-example,
+.summary-card,
+.download-card > div,
+.download-setup-qr,
+.totp-qr,
+.incident-list-summary > div,
+.incident-card,
+.draft-dispatch > div,
+.draft-recipient-grid article,
+.dispatch-toolbar,
+.recipient-row,
+.drone-flight-panel,
+.drone-flight-card,
+.drone-flight-list,
+.drone-flight-map-card,
+.checkbox-card,
+.permission-grid .check-label,
+.push-summary,
+.public-status-summary,
+.public-status-card,
+.setup-panel,
+.setup-review div,
+.setup-stepper__item,
+.firebase-wizard__tab,
+.branding-logo-preview {
+  border-color: var(--dis-border);
+  background:
+    linear-gradient(180deg, rgba(17, 29, 43, 0.72), rgba(11, 17, 25, 0.96)),
+    var(--dis-field);
+}
+
+.panel,
+.modal,
+.setup-panel {
+  box-shadow: 0 18px 56px rgba(0, 0, 0, 0.28);
+}
+
+.panel__header,
+.modal__header,
+.admin-tabs,
+.setup-actions,
+.settings-group,
+.section-heading,
+.expiry-group + .expiry-group,
+.incident-overview,
+.incident-meta,
+.incident-timeline__item,
+.topbar,
+.sidebar {
+  border-color: var(--dis-border);
+}
+
+.nav__item {
+  color: #aebdd0;
+}
+
+.nav__item--active,
+.nav__item:hover {
+  background: linear-gradient(90deg, rgba(128, 199, 255, 0.16), rgba(18, 34, 53, 0.76));
+  color: var(--dis-text-strong);
+}
+
+.nav__item--active {
+  box-shadow: inset 3px 0 0 var(--dis-blue);
+}
+
+.primary-button {
+  background: var(--dis-blue);
+  color: #061018;
+}
+
+.primary-button:hover {
+  text-decoration: none;
+  background: #9fd8ff;
+}
+
+.secondary-button,
+.admin-tab,
+.location-picker__results button,
+.drone-flight-links a {
+  border-color: #2c3b50;
+  background: #101925;
+  color: #d7e7f8;
+}
+
+.secondary-button:hover,
+.admin-tab:hover,
+.location-picker__results button:hover,
+.drone-flight-links a:hover {
+  border-color: var(--dis-blue);
+  background: var(--dis-surface-3);
+  color: var(--dis-text-strong);
+}
+
+.admin-tab--active,
+.setup-stepper__item--active,
+.firebase-wizard__tab--active {
+  border-color: var(--dis-blue);
+  background: var(--dis-blue-panel);
+  color: var(--dis-text-strong);
+}
+
+input,
+select,
+textarea,
+.field-display {
+  border-color: #2c3b50;
+  background: var(--dis-field);
+  color: #f4f8fc;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid rgba(128, 199, 255, 0.34);
+  outline-offset: 2px;
+  border-color: var(--dis-blue);
+}
+
+.input-with-icon svg {
+  color: var(--dis-muted);
+}
+
+a,
+.incident-reference,
+.incident-card__reference,
+.recipient-chip strong,
+.push-summary strong,
+.drone-flight-links a,
+.incident-timeline__item span,
+.public-link {
+  color: var(--dis-blue);
+}
+
+.incident-card:hover {
+  border-color: var(--dis-border-strong);
+  border-left-color: var(--dis-blue);
+  background: #101a27;
+}
+
+.incident-timeline__item::before {
+  background: var(--dis-blue);
+  box-shadow: 0 0 0 4px var(--dis-surface);
+}
+
+.data-table th,
+.data-table td {
+  border-color: var(--dis-border);
+}
+
+.status-pill--info,
+.status-pill--neutral {
+  background: var(--dis-blue-soft);
+  color: var(--dis-blue);
+}
+
+.nav__item,
+.primary-button,
+.secondary-button,
+.danger-button,
+.icon-button,
+.admin-tab,
+.incident-card,
+.firebase-wizard__tab,
+.setup-stepper__item,
+.location-picker__results button,
+.drone-flight-links a,
+.recipient-chip,
+input,
+select,
+textarea {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="tab"]:focus-visible {
+  outline: 2px solid var(--dis-blue);
+  outline-offset: 3px;
+}
+
+button:disabled,
+.primary-button:disabled,
+.secondary-button:disabled,
+.danger-button:disabled {
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 @keyframes spin {
