@@ -23,6 +23,7 @@ final class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->ensureRuntimeStorage();
         Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
         $this->applyManagedSettings();
         $this->registerMailTransports();
@@ -37,6 +38,30 @@ final class AppServiceProvider extends ServiceProvider
         RateLimiter::for('developer-upload', fn (Request $request) => Limit::perMinute(6)->by($request->ip()));
         RateLimiter::for('developer-update', fn (Request $request) => Limit::perMinute(2)->by($request->ip()));
         RateLimiter::for('developer-logs', fn (Request $request) => Limit::perMinute(30)->by($request->ip()));
+    }
+
+    private function ensureRuntimeStorage(): void
+    {
+        $directories = [
+            storage_path('app'),
+            storage_path('framework/cache'),
+            storage_path('framework/sessions'),
+            storage_path('framework/views'),
+            storage_path('logs'),
+            storage_path('tmp'),
+        ];
+
+        foreach ($directories as $directory) {
+            if (! is_dir($directory)) {
+                @mkdir($directory, 0750, true);
+            }
+        }
+
+        if (is_dir(storage_path('tmp')) && is_writable(storage_path('tmp'))) {
+            putenv('TMPDIR='.storage_path('tmp'));
+            putenv('TEMP='.storage_path('tmp'));
+            putenv('TMP='.storage_path('tmp'));
+        }
     }
 
     private function applyManagedSettings(): void
