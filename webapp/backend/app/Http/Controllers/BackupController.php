@@ -6,6 +6,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\BackupReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Process;
@@ -184,17 +185,21 @@ final class BackupController extends Controller
         ]);
     }
 
-    public function create(Request $request): JsonResponse
+    public function create(Request $request, BackupReportService $backupReports): JsonResponse
     {
         $target = $this->requestTarget($request);
         $this->ensureTargetReady($target);
         $this->writeRuntimeConfig($target);
         $result = Process::timeout(900)->run(['sudo', '-n', $this->bashBinary(), $this->scriptPath('backup.sh')]);
         $output = $this->cleanOutput($result->output().$result->errorOutput());
+        $reportRecipients = $result->successful()
+            ? $backupReports->sendSuccess($target, $output !== '' ? $output : 'Manual backup completed.')
+            : $backupReports->sendFailed($target, $result->exitCode(), $output !== '' ? $output : 'Manual backup failed.');
 
         $this->auditService->record('backups.created', SystemSetting::class, $request->user(), [
             'target' => $target,
             'successful' => $result->successful(),
+            'report_recipients' => $reportRecipients,
         ], null, $request);
 
         if (! $result->successful()) {
@@ -204,6 +209,7 @@ final class BackupController extends Controller
         return ApiResponse::success([
             'output' => $output,
             'state' => 'succeeded',
+            'report_recipients' => $reportRecipients,
             'backups' => $this->index()->getData(true)['data']['backups'] ?? [],
         ], 201);
     }
