@@ -12,7 +12,19 @@ final class AvailabilityStatus extends Model
 {
     use UsesUlids;
 
-    protected $fillable = ['user_id', 'status', 'is_available', 'is_system_applied', 'changed_by', 'reason', 'effective_at'];
+    protected $fillable = [
+        'user_id',
+        'user_name',
+        'user_email',
+        'status',
+        'is_available',
+        'is_system_applied',
+        'changed_by',
+        'changed_by_name',
+        'changed_by_email',
+        'reason',
+        'effective_at',
+    ];
 
     protected function casts(): array
     {

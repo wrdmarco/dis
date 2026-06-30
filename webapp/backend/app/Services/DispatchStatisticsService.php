@@ -74,16 +74,17 @@ final class DispatchStatisticsService
                 $accepted = $rows->where('response_status', 'accepted')->count();
                 $declined = $rows->where('response_status', 'declined')->count();
                 $noResponseRows = $rows->whereIn('response_status', ['pending', 'no_response']);
-                $user = $rows->first()?->user;
+                $firstRow = $rows->first();
+                $user = $firstRow?->user;
                 $sorted = $rows->sortByDesc(fn (DispatchRecipient $recipient) => $this->timestamp($recipient->dispatchRequest?->sent_at ?? $recipient->dispatchRequest?->created_at));
                 $lastAlert = $sorted->first();
                 $lastDeployment = $sorted->firstWhere('response_status', 'accepted');
 
                 return [
-                    'user' => $user === null ? null : [
-                        'id' => $user->id,
-                        'name' => $user->name,
-                        'email' => $user->email,
+                    'user' => [
+                        'id' => $user?->id ?? $firstRow?->user_id,
+                        'name' => $user?->name ?? $firstRow?->user_name ?? 'Verwijderde gebruiker',
+                        'email' => $user?->email ?? $firstRow?->user_email,
                     ],
                     'total_alerts' => $total,
                     'accepted' => $accepted,

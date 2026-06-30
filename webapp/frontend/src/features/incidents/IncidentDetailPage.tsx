@@ -1,6 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
-import { BellRing, Clock, CloudSun, Download, MapPin, MessageSquare, Pencil, Plane, RadioTower, RefreshCw, Send, TrendingUp, Users, X } from 'lucide-react';
-import { useParams } from 'react-router-dom';
+import { BellRing, Clock, CloudSun, Download, MapPin, MessageSquare, Pencil, Plane, RadioTower, RefreshCw, Send, Trash2, TrendingUp, Users, X } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -16,6 +16,7 @@ const LIVE_LOCATION_STALE_MS = 5 * 60 * 1000;
 
 export function IncidentDetailPage() {
   const { incidentId } = useParams();
+  const navigate = useNavigate();
   const { api, hasPermission } = useAuth();
   const incident = useApiResource<Incident>(`/incidents/${incidentId}`, Boolean(incidentId));
   const preview = useApiResource<DispatchPreview>(`/incidents/${incidentId}/dispatch-preview`, Boolean(incidentId));
@@ -47,6 +48,7 @@ export function IncidentDetailPage() {
   const [reportError, setReportError] = useState<string | null>(null);
   const [flightRefreshLoading, setFlightRefreshLoading] = useState(false);
   const [flightRefreshMessage, setFlightRefreshMessage] = useState<string | null>(null);
+  const [deletingIncident, setDeletingIncident] = useState(false);
 
   const latestDispatch = dispatches.data?.[0] ?? null;
   const showDraftPanel = incident.data?.status === 'draft';
@@ -54,6 +56,7 @@ export function IncidentDetailPage() {
   const recipientCount = latestDispatch?.recipients?.length ?? preview.data?.recipients.length ?? 0;
   const liveSharedCount = liveLocations.data?.filter((location) => location.location_is_current === true || location.sharing_status === 'shared').length ?? 0;
   const canManageIncidents = hasPermission('incidents.manage');
+  const canDeleteIncidents = hasPermission('incidents.delete');
   const canManageDispatches = hasPermission('dispatch.manage');
   const canOverrideStatus = hasPermission('status.override');
   const dispatchedTeamIds = dispatchTargetTeamIds(dispatches.data ?? []);
@@ -327,6 +330,28 @@ export function IncidentDetailPage() {
     }
   };
 
+  const deleteIncident = async () => {
+    if (!incidentId || !incident.data) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Incident ${incident.data.reference} permanent verwijderen? Bijbehorende opkomst, tijdlijn, live locatiegegevens en opgeslagen rapportdata worden ook verwijderd.`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingIncident(true);
+    setIncidentError(null);
+    try {
+      await api.delete(`/incidents/${incidentId}`);
+      navigate('/incidents', { replace: true });
+    } catch (err) {
+      setIncidentError(err instanceof ApiClientError ? err.message : 'Incident kon niet worden verwijderd.');
+    } finally {
+      setDeletingIncident(false);
+    }
+  };
+
   return (
     <div className="page-stack incident-detail-page">
       <RealtimeBridge onOperationalEvent={() => {
@@ -348,6 +373,11 @@ export function IncidentDetailPage() {
             {canManageIncidents ? (
               <button className="secondary-button" type="button" onClick={openEditModal}>
                 <Pencil size={16} /> Aanpassen
+              </button>
+            ) : null}
+            {canDeleteIncidents ? (
+              <button className="danger-button" type="button" onClick={() => void deleteIncident()} disabled={deletingIncident}>
+                <Trash2 size={16} /> {deletingIncident ? 'Verwijderen...' : 'Verwijderen'}
               </button>
             ) : null}
           </div>
@@ -382,6 +412,7 @@ export function IncidentDetailPage() {
                 <SummaryItem label="Onderweg" value={latestDispatch ? String(countOperatorStatuses(latestDispatch, 'en_route')) : '-'} />
                 <SummaryItem label="Live locaties" value={String(liveSharedCount)} />
               </div>
+              {incidentError && !editModalOpen ? <p className="form-error">{incidentError}</p> : null}
               {reportError ? <p className="form-error">{reportError}</p> : null}
             </div>
           ) : null}

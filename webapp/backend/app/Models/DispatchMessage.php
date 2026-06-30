@@ -12,7 +12,7 @@ final class DispatchMessage extends Model
 
     public $timestamps = false;
 
-    protected $fillable = ['dispatch_request_id', 'sent_by', 'body', 'created_at'];
+    protected $fillable = ['dispatch_request_id', 'sent_by', 'sent_by_name', 'sent_by_email', 'body', 'created_at'];
 
     protected function casts(): array
     {

@@ -20,40 +20,14 @@ final class HealthController extends Controller
         ]);
     }
 
-    public function status(): JsonResponse
-    {
-        $services = [
-            'backend' => [
-                'status' => 'ok',
-                'uptime_seconds' => $this->serverUptimeSeconds(),
-            ],
-            'database' => $this->safeCheck(fn (): array => $this->checkDatabase()),
-            'cache' => $this->safeCheck(fn (): array => $this->checkCache()),
-            'storage' => $this->safeCheck(fn (): array => $this->checkStorage()),
-            'queue' => [
-                'status' => 'ok',
-                'driver' => Queue::getDefaultDriver(),
-            ],
-            'websocket' => [
-                'status' => filled(config('broadcasting.default')) ? 'ok' : 'unknown',
-                'driver' => config('broadcasting.default'),
-            ],
-        ];
-
-        $overall = collect($services)->contains(fn (array $service): bool => ($service['status'] ?? null) === 'failed')
-            ? 'degraded'
-            : 'ok';
-
-        return ApiResponse::success([
-            'status' => $overall,
-            'generated_at' => now()->toIso8601String(),
-            'services' => $services,
-        ]);
-    }
-
     public function admin(): JsonResponse
     {
+        $services = $this->serviceChecks();
+
         $checks = [
+            'status' => $this->overallStatus($services),
+            'generated_at' => now()->toIso8601String(),
+            'services' => $services,
             'database' => $this->checkDatabase(),
             'cache' => $this->checkCache(),
             'storage' => $this->checkStorage(),
@@ -133,6 +107,40 @@ final class HealthController extends Controller
         return is_array($credentials)
             && filled($credentials['client_email'] ?? null)
             && filled($credentials['private_key'] ?? null);
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    private function serviceChecks(): array
+    {
+        return [
+            'backend' => [
+                'status' => 'ok',
+                'uptime_seconds' => $this->serverUptimeSeconds(),
+            ],
+            'database' => $this->safeCheck(fn (): array => $this->checkDatabase()),
+            'cache' => $this->safeCheck(fn (): array => $this->checkCache()),
+            'storage' => $this->safeCheck(fn (): array => $this->checkStorage()),
+            'queue' => [
+                'status' => 'ok',
+                'driver' => Queue::getDefaultDriver(),
+            ],
+            'websocket' => [
+                'status' => filled(config('broadcasting.default')) ? 'ok' : 'unknown',
+                'driver' => config('broadcasting.default'),
+            ],
+        ];
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $services
+     */
+    private function overallStatus(array $services): string
+    {
+        return collect($services)->contains(fn (array $service): bool => ($service['status'] ?? null) === 'failed')
+            ? 'degraded'
+            : 'ok';
     }
 
     /**

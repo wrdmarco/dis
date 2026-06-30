@@ -77,10 +77,10 @@ final class ReportingController extends Controller
                         'code' => $incident->team->code,
                         'name' => $incident->team->name,
                     ],
-                    'coordinator' => $incident->coordinator === null ? null : [
-                        'id' => $incident->coordinator->id,
-                        'name' => $incident->coordinator->name,
-                        'email' => $incident->coordinator->email,
+                    'coordinator' => $incident->coordinator === null && $incident->coordinator_name === null ? null : [
+                        'id' => $incident->coordinator?->id ?? $incident->coordinator_id,
+                        'name' => $incident->coordinator?->name ?? $incident->coordinator_name,
+                        'email' => $incident->coordinator?->email ?? $incident->coordinator_email,
                     ],
                     'opened_at' => $incident->opened_at?->toIso8601String(),
                     'closed_at' => $incident->closed_at?->toIso8601String(),

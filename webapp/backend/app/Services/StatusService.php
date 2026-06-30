@@ -30,10 +30,14 @@ final class StatusService
 
             $record = AvailabilityStatus::query()->create([
                 'user_id' => $user->id,
+                'user_name' => $user->name,
+                'user_email' => $user->email,
                 'status' => $status,
                 'is_available' => $isAvailable,
                 'is_system_applied' => $systemApplied,
                 'changed_by' => $actor->id,
+                'changed_by_name' => $actor->name,
+                'changed_by_email' => $actor->email,
                 'reason' => $reason,
                 'effective_at' => now(),
             ]);
@@ -59,6 +63,8 @@ final class StatusService
             $previousStatus = $this->latestStatus($user);
             $record = AvailabilityStatus::query()->create([
                 'user_id' => $user->id,
+                'user_name' => $user->name,
+                'user_email' => $user->email,
                 'status' => 'unavailable',
                 'is_available' => false,
                 'is_system_applied' => true,

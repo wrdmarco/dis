@@ -14,7 +14,7 @@ final class IncidentStatusHistory extends Model
 
     public $timestamps = false;
 
-    protected $fillable = ['incident_id', 'from_status', 'to_status', 'changed_by', 'reason', 'created_at'];
+    protected $fillable = ['incident_id', 'from_status', 'to_status', 'changed_by', 'changed_by_name', 'changed_by_email', 'reason', 'created_at'];
 
     protected function casts(): array
     {

@@ -17,6 +17,7 @@ return new class extends Migration
         'teams.manage' => ['display_name' => 'Manage teams', 'category' => 'team_management', 'description' => 'Manage OCP, TUI and supporting team membership.'],
         'incidents.view' => ['display_name' => 'View incidents', 'category' => 'incident_management', 'description' => 'View incident records and timelines.'],
         'incidents.manage' => ['display_name' => 'Manage incidents', 'category' => 'incident_management', 'description' => 'Create, update, close and cancel incidents.'],
+        'incidents.delete' => ['display_name' => 'Delete incidents', 'category' => 'incident_management', 'description' => 'Permanently delete incidents and related operational data.'],
         'dispatch.view' => ['display_name' => 'View dispatches', 'category' => 'dispatch_management', 'description' => 'View dispatch requests and recipient states.'],
         'dispatch.manage' => ['display_name' => 'Manage dispatches', 'category' => 'dispatch_management', 'description' => 'Create, send, cancel and escalate dispatch requests.'],
         'status.view' => ['display_name' => 'View statuses', 'category' => 'status_management', 'description' => 'View operational availability status.'],

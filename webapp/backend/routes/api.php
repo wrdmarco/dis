@@ -48,7 +48,6 @@ Route::post('/developer/system/update', [AdminDeveloperController::class, 'devel
 Route::get('/developer/logs', [AdminDeveloperController::class, 'developerLogs'])->middleware('throttle:developer-logs');
 Route::get('/developer/logs/{filename}', [AdminDeveloperController::class, 'developerLog'])->where('filename', '[A-Za-z0-9._-]+\.log')->middleware('throttle:developer-logs');
 Route::get('/health', [HealthController::class, 'public'])->middleware('throttle:api');
-Route::get('/public/status', [HealthController::class, 'status'])->middleware('throttle:api');
 
 Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(function (): void {
     Route::post('/auth/2fa/verify', [AuthController::class, 'verifyTwoFactor'])->middleware('throttle:two-factor');
@@ -85,6 +84,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/incidents/flight-context-preview', [IncidentController::class, 'flightContextPreview'])->middleware('permission:incidents.manage');
     Route::get('/incidents/{incident}', [IncidentController::class, 'show'])->middleware('permission:incidents.view');
     Route::patch('/incidents/{incident}', [IncidentController::class, 'update'])->middleware('permission:incidents.manage');
+    Route::delete('/incidents/{incident}', [IncidentController::class, 'destroy'])->middleware('permission:incidents.delete');
     Route::post('/incidents/{incident}/flight-context/refresh', [IncidentController::class, 'refreshFlightContext'])->middleware('permission:incidents.manage');
     Route::post('/incidents/{incident}/close', [IncidentController::class, 'close'])->middleware('permission:incidents.manage');
     Route::post('/incidents/{incident}/cancel', [IncidentController::class, 'cancel'])->middleware('permission:incidents.manage');

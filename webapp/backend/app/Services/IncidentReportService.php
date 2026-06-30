@@ -164,6 +164,8 @@ final class IncidentReportService
                 return [
                     'dispatch' => $dispatch,
                     'user' => $recipient->user,
+                    'user_name' => $this->recipientName($recipient),
+                    'user_email' => $this->recipientEmail($recipient),
                     'response_status' => $recipient->response_status,
                     'response_note' => $recipient->response_note,
                     'notified_at' => $recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at,
@@ -175,7 +177,7 @@ final class IncidentReportService
                     'total_minutes' => $this->minutesBetween($recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at, $onScene?->effective_at),
                 ];
             }))
-            ->sortBy(fn (array $row) => strtolower((string) ($row['user']?->name ?? '')))
+            ->sortBy(fn (array $row) => strtolower((string) ($row['user_name'] ?? '')))
             ->values();
     }
 
@@ -209,7 +211,7 @@ final class IncidentReportService
                 $items[] = [
                     'id' => $recipient->id,
                     'type' => 'Opkomst',
-                    'label' => ($recipient->user?->name ?? 'Onbekende gebruiker').' - '.$this->responseLabel($recipient->response_status),
+                    'label' => $this->recipientName($recipient).' - '.$this->responseLabel($recipient->response_status),
                     'message' => $recipient->response_note,
                     'created_at' => $recipient->responded_at ?? $recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at,
                 ];
@@ -219,7 +221,7 @@ final class IncidentReportService
                 $items[] = [
                     'id' => $message->id,
                     'type' => 'Nadere info',
-                    'label' => 'Nadere info'.($message->sender?->name ? ' - '.$message->sender->name : ''),
+                    'label' => 'Nadere info'.($this->messageSenderName($message) ? ' - '.$this->messageSenderName($message) : ''),
                     'message' => $message->body,
                     'created_at' => $message->created_at,
                 ];
@@ -249,7 +251,7 @@ final class IncidentReportService
                 ->map(fn (AvailabilityStatus $status): array => [
                     'id' => $status->id,
                     'type' => 'Operationele status',
-                    'label' => ($status->user?->name ?? 'Onbekende gebruiker').' - '.$this->operatorStatusLabel($status->status),
+                    'label' => $this->statusUserName($status).' - '.$this->operatorStatusLabel($status->status),
                     'message' => $status->reason,
                     'created_at' => $status->effective_at,
                 ]);
@@ -298,7 +300,10 @@ final class IncidentReportService
         }
 
         $flightMap = is_array($droneFlightContext['map'] ?? null) ? $droneFlightContext['map'] : [];
-        $aeretUrl = is_string($flightMap['aeret_url'] ?? null) ? $flightMap['aeret_url'] : null;
+        $aeretUrl = $this->aeretReportUrl($latitude, $longitude);
+        if ($aeretUrl === null && is_string($flightMap['aeret_url'] ?? null)) {
+            $aeretUrl = $flightMap['aeret_url'];
+        }
         $mapSnapshot = $this->satelliteMapSnapshot($latitude, $longitude);
 
         return [
@@ -311,7 +316,7 @@ final class IncidentReportService
             'marker_y' => 50.0,
             'snapshot_data_uri' => $mapSnapshot['data_uri'],
             'snapshot_available' => $mapSnapshot['available'],
-            'aeret_snapshot_data_uri' => $this->aeretMapReferenceImage($latitude, $longitude, $aeretUrl),
+            'aeret_snapshot_data_uri' => null,
             'aeret_url' => $aeretUrl,
             'openstreetmap_url' => sprintf(
                 'https://www.openstreetmap.org/?mlat=%1$.6f&mlon=%2$.6f#map=16/%1$.6f/%2$.6f',
@@ -457,46 +462,54 @@ SVG;
         ];
     }
 
-    private function aeretMapReferenceImage(float $latitude, float $longitude, ?string $aeretUrl): ?string
+    private function aeretReportUrl(float $latitude, float $longitude): ?string
     {
-        if (! is_string($aeretUrl) || trim($aeretUrl) === '') {
-            return null;
-        }
+        [$x, $y] = $this->wgs84ToRd($latitude, $longitude);
 
-        $width = 720;
-        $height = 260;
-        $latitudeLabel = e(number_format($latitude, 6, '.', ''));
-        $longitudeLabel = e(number_format($longitude, 6, '.', ''));
+        return 'https://aeret.kaartviewer.nl/?@dpf_basic&'.http_build_query([
+            'catalogus' => '1',
+            'v' => '5',
+            'website' => 'dpf_basic',
+            'x' => round($x, 2),
+            'y' => round($y, 2),
+            'zoom' => '9',
+        ], '', '&', PHP_QUERY_RFC3986);
+    }
 
-        $svg = <<<SVG
-<svg xmlns="http://www.w3.org/2000/svg" width="{$width}" height="{$height}" viewBox="0 0 {$width} {$height}">
-  <defs>
-    <linearGradient id="aeret-bg" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0%" stop-color="#dbeafe"/>
-      <stop offset="48%" stop-color="#f8fafc"/>
-      <stop offset="100%" stop-color="#dcfce7"/>
-    </linearGradient>
-    <pattern id="grid" width="42" height="42" patternUnits="userSpaceOnUse">
-      <path d="M 42 0 L 0 0 0 42" fill="none" stroke="#cbd5e1" stroke-width="1"/>
-    </pattern>
-  </defs>
-  <rect width="{$width}" height="{$height}" rx="10" fill="url(#aeret-bg)" stroke="#cbd5e1"/>
-  <rect width="{$width}" height="{$height}" fill="url(#grid)" opacity="0.55"/>
-  <circle cx="360" cy="130" r="52" fill="#0284c7" fill-opacity="0.12" stroke="#0284c7" stroke-width="2"/>
-  <circle cx="360" cy="130" r="12" fill="#dc2626" stroke="#ffffff" stroke-width="4"/>
-  <line x1="360" y1="70" x2="360" y2="190" stroke="#0f172a" stroke-opacity="0.22" stroke-width="2"/>
-  <line x1="300" y1="130" x2="420" y2="130" stroke="#0f172a" stroke-opacity="0.22" stroke-width="2"/>
-  <rect x="22" y="22" width="230" height="72" rx="8" fill="#ffffff" fill-opacity="0.92" stroke="#dbe5f0"/>
-  <text x="38" y="50" font-family="DejaVu Sans, Arial, sans-serif" font-size="18" font-weight="bold" fill="#0f172a">Aeret Drone PreFlight</text>
-  <text x="38" y="75" font-family="DejaVu Sans, Arial, sans-serif" font-size="11" fill="#475569">Interactieve kaart bij dit incident</text>
-  <rect x="468" y="186" width="230" height="52" rx="8" fill="#ffffff" fill-opacity="0.92" stroke="#dbe5f0"/>
-  <text x="484" y="210" font-family="DejaVu Sans, Arial, sans-serif" font-size="11" fill="#475569">Latitude {$latitudeLabel}</text>
-  <text x="484" y="228" font-family="DejaVu Sans, Arial, sans-serif" font-size="11" fill="#475569">Longitude {$longitudeLabel}</text>
-  <text x="22" y="236" font-family="DejaVu Sans, Arial, sans-serif" font-size="10" fill="#475569">Gebruik de Aeret-link onder deze afbeelding voor actuele kaartlagen, NOTAM en luchtruimcontrole.</text>
-</svg>
-SVG;
+    /**
+     * @return array{0: float, 1: float}
+     */
+    private function wgs84ToRd(float $latitude, float $longitude): array
+    {
+        $referenceLatitude = 52.15517440;
+        $referenceLongitude = 5.38720621;
+        $dLatitude = 0.36 * ($latitude - $referenceLatitude);
+        $dLongitude = 0.36 * ($longitude - $referenceLongitude);
 
-        return 'data:image/svg+xml;base64,'.base64_encode($svg);
+        $x = 155000
+            + (190094.945 * $dLongitude)
+            + (-11832.228 * $dLatitude * $dLongitude)
+            + (-114.221 * $dLatitude ** 2 * $dLongitude)
+            + (-32.391 * $dLongitude ** 3)
+            + (-0.705 * $dLatitude)
+            + (-2.34 * $dLatitude ** 3 * $dLongitude)
+            + (-0.608 * $dLatitude * $dLongitude ** 3)
+            + (-0.008 * $dLongitude ** 2)
+            + (0.148 * $dLatitude ** 2 * $dLongitude ** 3);
+
+        $y = 463000
+            + (309056.544 * $dLatitude)
+            + (3638.893 * $dLongitude ** 2)
+            + (73.077 * $dLatitude ** 2)
+            + (-157.984 * $dLatitude * $dLongitude ** 2)
+            + (59.788 * $dLatitude ** 3)
+            + (0.433 * $dLongitude)
+            + (-6.439 * $dLatitude ** 2 * $dLongitude ** 2)
+            + (-0.032 * $dLatitude * $dLongitude)
+            + (0.092 * $dLongitude ** 4)
+            + (-0.054 * $dLatitude ** 4);
+
+        return [$x, $y];
     }
 
     private function coordinate(mixed $value): ?float
@@ -518,6 +531,30 @@ SVG;
             'no_response' => 'geen reactie',
             default => 'wacht op reactie',
         };
+    }
+
+    private function recipientName(mixed $recipient): string
+    {
+        return $recipient->user?->name
+            ?? (is_string($recipient->user_name ?? null) && $recipient->user_name !== '' ? $recipient->user_name : 'Verwijderde gebruiker');
+    }
+
+    private function recipientEmail(mixed $recipient): ?string
+    {
+        return $recipient->user?->email
+            ?? (is_string($recipient->user_email ?? null) && $recipient->user_email !== '' ? $recipient->user_email : null);
+    }
+
+    private function statusUserName(AvailabilityStatus $status): string
+    {
+        return $status->user?->name
+            ?? (is_string($status->user_name) && $status->user_name !== '' ? $status->user_name : 'Verwijderde gebruiker');
+    }
+
+    private function messageSenderName(mixed $message): ?string
+    {
+        return $message->sender?->name
+            ?? (is_string($message->sent_by_name ?? null) && $message->sent_by_name !== '' ? $message->sent_by_name : null);
     }
 
     private function operatorStatusLabel(string $status): string

@@ -11,7 +11,18 @@ final class DispatchRequest extends Model
 {
     use UsesUlids;
 
-    protected $fillable = ['incident_id', 'requested_by', 'target_team_id', 'status', 'priority', 'message', 'sent_at', 'cancelled_at'];
+    protected $fillable = [
+        'incident_id',
+        'requested_by',
+        'requested_by_name',
+        'requested_by_email',
+        'target_team_id',
+        'status',
+        'priority',
+        'message',
+        'sent_at',
+        'cancelled_at',
+    ];
 
     protected function casts(): array
     {

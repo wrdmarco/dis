@@ -6,6 +6,7 @@ use App\Events\IncidentChanged;
 use App\Models\Incident;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 final class IncidentService
@@ -34,6 +35,10 @@ final class IncidentService
             $incident = Incident::query()->create($data + [
                 'reference' => $this->nextReference(),
                 'created_by' => $actor->id,
+                'created_by_name' => $actor->name,
+                'created_by_email' => $actor->email,
+                'coordinator_name' => $this->snapshotUserName($data['coordinator_id'] ?? null),
+                'coordinator_email' => $this->snapshotUserEmail($data['coordinator_id'] ?? null),
                 'status' => $data['status'] ?? 'draft',
                 'opened_at' => now(),
             ]);
@@ -44,6 +49,8 @@ final class IncidentService
                 'from_status' => null,
                 'to_status' => $incident->status,
                 'changed_by' => $actor->id,
+                'changed_by_name' => $actor->name,
+                'changed_by_email' => $actor->email,
                 'reason' => 'Incident created.',
                 'created_at' => now(),
             ]);
@@ -75,6 +82,11 @@ final class IncidentService
                 $data = $this->applyStatusTimestamps($incident, $data);
             }
 
+            if (array_key_exists('coordinator_id', $data)) {
+                $data['coordinator_name'] = $this->snapshotUserName($data['coordinator_id']);
+                $data['coordinator_email'] = $this->snapshotUserEmail($data['coordinator_id']);
+            }
+
             $incident->update($data);
             if (is_array($teamIds)) {
                 $incident->teams()->sync($teamIds);
@@ -86,6 +98,8 @@ final class IncidentService
                     'from_status' => $beforeStatus,
                     'to_status' => $data['status'],
                     'changed_by' => $actor->id,
+                    'changed_by_name' => $actor->name,
+                    'changed_by_email' => $actor->email,
                     'reason' => $statusReason,
                     'created_at' => now(),
                 ]);
@@ -118,9 +132,42 @@ final class IncidentService
         return $this->update($incident, ['status' => 'cancelled', 'closed_at' => now(), 'status_reason' => $reason], $actor);
     }
 
+    public function delete(Incident $incident, User $actor): void
+    {
+        DB::transaction(function () use ($incident, $actor): void {
+            $incidentId = (string) $incident->getKey();
+
+            $this->auditService->record('incidents.deleted', $incident, $actor, [
+                'reference' => $incident->reference,
+                'title' => $incident->title,
+                'status' => $incident->status,
+                'deleted_related_data' => true,
+            ]);
+
+            $this->broadcastIncidentChange($incident, 'deleted');
+            $incident->forceDelete();
+
+            DB::afterCommit(fn () => Storage::disk('local')->deleteDirectory('incident-reports/'.$incidentId));
+        });
+    }
+
     private function nextReference(): string
     {
         return 'DIS-'.now()->format('Ymd-His').'-'.strtoupper(substr(bin2hex(random_bytes(2)), 0, 4));
+    }
+
+    private function snapshotUserName(mixed $userId): ?string
+    {
+        return is_string($userId) && $userId !== ''
+            ? User::query()->whereKey($userId)->value('name')
+            : null;
+    }
+
+    private function snapshotUserEmail(mixed $userId): ?string
+    {
+        return is_string($userId) && $userId !== ''
+            ? User::query()->whereKey($userId)->value('email')
+            : null;
     }
 
     /**

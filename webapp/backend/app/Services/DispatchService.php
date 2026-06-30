@@ -43,6 +43,8 @@ final class DispatchService
             $dispatch = DispatchRequest::query()->create([
                 'incident_id' => $incident->id,
                 'requested_by' => $actor->id,
+                'requested_by_name' => $actor->name,
+                'requested_by_email' => $actor->email,
                 'target_team_id' => $targetTeam->id,
                 'status' => 'draft',
                 'priority' => $data['priority'],
@@ -53,6 +55,8 @@ final class DispatchService
                 DispatchRecipient::query()->create([
                     'dispatch_request_id' => $dispatch->id,
                     'user_id' => $user->id,
+                    'user_name' => $user->name,
+                    'user_email' => $user->email,
                     'response_status' => 'pending',
                 ]);
             }
@@ -231,6 +235,8 @@ final class DispatchService
         ]);
         $dispatchMessage = $dispatch->messages()->create([
             'sent_by' => $actor->id,
+            'sent_by_name' => $actor->name,
+            'sent_by_email' => $actor->email,
             'body' => $message,
             'created_at' => now(),
         ]);

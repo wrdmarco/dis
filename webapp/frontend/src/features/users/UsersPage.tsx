@@ -36,7 +36,7 @@ const emptyForm: UserFormState = {
 };
 
 export function UsersPage() {
-  const { api, hasPermission } = useAuth();
+  const { api, hasPermission, user: currentUser } = useAuth();
   const canManageUsers = hasPermission('users.manage');
   const canManageRoles = hasPermission('roles.manage');
   const canManageTeams = hasPermission('teams.manage');
@@ -61,6 +61,16 @@ export function UsersPage() {
   const [resettingMfa, setResettingMfa] = useState(false);
   const [resendingInvitation, setResendingInvitation] = useState(false);
   const [invitationMessage, setInvitationMessage] = useState<string | null>(null);
+  const isSystemAdministrator = currentUser?.roles?.some((role) => role.name === 'system-administrator') ?? false;
+  const assignableRoles = (roles.data ?? []).filter((role) => isSystemAdministrator || role.name !== 'system-administrator');
+  const activeSystemAdministratorCount = users.data?.filter((user) => user.account_status === 'active' && hasSystemAdministratorRole(user)).length ?? 0;
+  const canDeleteEditingUser = editingUser !== null
+    && canManageUsers
+    && currentUser?.id !== editingUser.id
+    && (
+      !hasSystemAdministratorRole(editingUser)
+      || (isSystemAdministrator && activeSystemAdministratorCount > 1)
+    );
 
   useEffect(() => {
     if (modalMode === null) {
@@ -349,7 +359,7 @@ export function UsersPage() {
                 <span className="field-label">Rollen</span>
                 <ResourceState loading={roles.loading} error={roles.error} empty={(roles.data?.length ?? 0) === 0}>
                   <div className="checkbox-grid">
-                    {roles.data?.map((role) => (
+                    {assignableRoles.map((role) => (
                       <label className="checkbox-card" key={role.id}>
                         <input
                           type="checkbox"
@@ -465,7 +475,7 @@ export function UsersPage() {
               ) : null}
               {error ? <p className="form-error form-grid__wide">{error}</p> : null}
               <div className="actions-row form-grid__wide">
-                {modalMode === 'edit' && editingUser !== null && canManageUsers ? (
+                {modalMode === 'edit' && canManageUsers && canDeleteEditingUser ? (
                   <button className="danger-button" type="button" onClick={() => setDeletingUser(editingUser)}>
                     <Trash2 size={16} /> Verwijderen
                   </button>
@@ -513,6 +523,10 @@ export function UsersPage() {
       ) : null}
     </div>
   );
+}
+
+function hasSystemAdministratorRole(user: User): boolean {
+  return user.roles?.some((role) => role.name === 'system-administrator') ?? false;
 }
 
 interface UserOperationalDetailsProps {

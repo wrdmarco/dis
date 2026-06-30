@@ -10,7 +10,16 @@ final class DispatchRecipient extends Model
 {
     use UsesUlids;
 
-    protected $fillable = ['dispatch_request_id', 'user_id', 'response_status', 'response_note', 'notified_at', 'responded_at'];
+    protected $fillable = [
+        'dispatch_request_id',
+        'user_id',
+        'user_name',
+        'user_email',
+        'response_status',
+        'response_note',
+        'notified_at',
+        'responded_at',
+    ];
 
     protected function casts(): array
     {

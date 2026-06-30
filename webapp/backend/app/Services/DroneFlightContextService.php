@@ -310,21 +310,23 @@ final class DroneFlightContextService
             parse_str($parts['query'], $query);
         }
 
+        unset($query['@dpf_basic']);
         $query = array_merge($query, [
-            '@dpf_basic' => $query['@dpf_basic'] ?? '',
             'catalogus' => '1',
             'v' => '5',
             'website' => 'dpf_basic',
             'x' => round($x, 2),
             'y' => round($y, 2),
-            'zoom' => '7.5',
+            'zoom' => '9',
         ]);
 
         $scheme = $parts['scheme'] ?? 'https';
         $host = $parts['host'] ?? 'aeret.kaartviewer.nl';
         $path = $parts['path'] ?? '/';
 
-        return $scheme.'://'.$host.$path.'?'.http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+        $queryString = http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+
+        return $scheme.'://'.$host.$path.'?@dpf_basic'.($queryString === '' ? '' : '&'.$queryString);
     }
 
     /**

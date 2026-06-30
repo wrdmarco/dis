@@ -44,13 +44,19 @@ final class TestAlertService
                 'status' => 'active',
                 'is_test' => true,
                 'created_by' => $actor->id,
+                'created_by_name' => $actor->name,
+                'created_by_email' => $actor->email,
                 'coordinator_id' => $actor->id,
+                'coordinator_name' => $actor->name,
+                'coordinator_email' => $actor->email,
                 'opened_at' => now(),
             ]);
 
             $dispatch = DispatchRequest::query()->create([
                 'incident_id' => $incident->id,
                 'requested_by' => $actor->id,
+                'requested_by_name' => $actor->name,
+                'requested_by_email' => $actor->email,
                 'target_team_id' => null,
                 'status' => 'sent',
                 'priority' => 'normal',
@@ -61,6 +67,8 @@ final class TestAlertService
             DispatchRecipient::query()->create([
                 'dispatch_request_id' => $dispatch->id,
                 'user_id' => $actor->id,
+                'user_name' => $actor->name,
+                'user_email' => $actor->email,
                 'response_status' => 'pending',
                 'notified_at' => now(),
             ]);

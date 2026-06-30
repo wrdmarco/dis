@@ -14,6 +14,7 @@ use App\Services\IncidentService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 final class IncidentController extends Controller
 {
@@ -130,6 +131,13 @@ final class IncidentController extends Controller
         return ApiResponse::success(MobileApiPayload::incident($this->service->update($incident, $request->validated(), $request->user())));
     }
 
+    public function destroy(Request $request, Incident $incident): Response
+    {
+        $this->service->delete($incident, $request->user());
+
+        return response()->noContent();
+    }
+
     public function refreshFlightContext(Incident $incident): JsonResponse
     {
         return ApiResponse::success(MobileApiPayload::incident($this->droneFlightContextService->refreshIncident($incident)));
@@ -182,17 +190,18 @@ final class IncidentController extends Controller
                     $items[] = [
                         'id' => $recipient->id,
                         'type' => 'dispatch_response',
-                        'label' => ($recipient->user?->name ?? 'Onbekende gebruiker').' - '.$recipient->response_status,
+                        'label' => ($recipient->user?->name ?? $recipient->user_name ?? 'Verwijderde gebruiker').' - '.$recipient->response_status,
                         'message' => $recipient->response_note,
                         'created_at' => ($recipient->responded_at ?? $recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at)?->toIso8601String(),
                     ];
                 }
 
                 foreach ($dispatch->messages as $message) {
+                    $senderName = $message->sender?->name ?? $message->sent_by_name;
                     $items[] = [
                         'id' => $message->id,
                         'type' => 'dispatch_message',
-                        'label' => 'Nadere info'.($message->sender?->name ? ' - '.$message->sender->name : ''),
+                        'label' => 'Nadere info'.($senderName ? ' - '.$senderName : ''),
                         'message' => $message->body,
                         'created_at' => $message->created_at?->toIso8601String(),
                     ];
@@ -224,7 +233,7 @@ final class IncidentController extends Controller
                 ->map(fn (AvailabilityStatus $status): array => [
                     'id' => $status->id,
                     'type' => 'operator_status',
-                    'label' => ($status->user?->name ?? 'Onbekende gebruiker').' - '.$this->operatorStatusLabel($status->status),
+                    'label' => ($status->user?->name ?? $status->user_name ?? 'Verwijderde gebruiker').' - '.$this->operatorStatusLabel($status->status),
                     'message' => $status->reason,
                     'created_at' => $status->effective_at?->toIso8601String(),
                 ]);

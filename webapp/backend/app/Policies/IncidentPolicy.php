@@ -26,5 +26,9 @@ final class IncidentPolicy
     {
         return ! in_array($incident->status, ['resolved', 'cancelled'], true) && $actor->hasPermission('incidents.manage');
     }
-}
 
+    public function delete(User $actor, Incident $incident): bool
+    {
+        return $actor->hasPermission('incidents.delete');
+    }
+}
