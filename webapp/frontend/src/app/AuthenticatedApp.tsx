@@ -56,6 +56,7 @@ export function AuthenticatedRoutes() {
         <Route path="roles" element={<PermissionRoute permissions={['roles.manage']}><RolesPage /></PermissionRoute>} />
         <Route path="admin" element={<PermissionRoute permissions={['settings.manage']}><AdminPage /></PermissionRoute>} />
         <Route path="branding" element={<PermissionRoute permissions={['settings.manage']}><BrandingPage /></PermissionRoute>} />
+        <Route path="backup" element={<PermissionRoute permissions={['backups.manage']}><BackupPage /></PermissionRoute>} />
         <Route path="backups" element={<PermissionRoute permissions={['backups.manage']}><BackupPage /></PermissionRoute>} />
         <Route path="audit" element={<PermissionRoute permissions={['audit.view', 'status.audit.view']} anyPermission><AuditLogPage /></PermissionRoute>} />
         <Route path="auditlog" element={<Navigate to="/audit" replace />} />
