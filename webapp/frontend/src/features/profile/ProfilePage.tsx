@@ -680,20 +680,34 @@ function CertificationTable({
 }
 
 function todayInputValue(): string {
-  return new Date().toISOString().slice(0, 10);
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
 }
 
 function normalizeDate(value?: string | null): string {
-  return value ? value.slice(0, 10) : '';
+  return dateParts(value)?.input ?? '';
 }
 
 function formatDate(value?: string | null): string {
-  if (!value) {
-    return '-';
+  return dateParts(value)?.display ?? '-';
+}
+
+function dateParts(value?: string | null): { input: string; display: string } | null {
+  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) {
+    return null;
   }
 
-  const [year, month, day] = value.split('-');
-  return year && month && day ? `${day}-${month}-${year}` : value;
+  const [, year, month, day] = match;
+
+  return {
+    input: `${year}-${month}-${day}`,
+    display: `${day}-${month}-${year}`,
+  };
 }
 
 function ownAssetStatus(status: Asset['status']): OwnAssetStatus {
