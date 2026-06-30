@@ -285,6 +285,16 @@ self_heal_permissions() {
   fi
 }
 
+put_webapp_in_production() {
+  local backend_dir
+  backend_dir="${DIS_INSTALL_PATH}/webapp/backend"
+
+  disable_frontend_maintenance
+  if [ -f "${backend_dir}/artisan" ]; then
+    run_cmd php "${backend_dir}/artisan" up >/dev/null 2>&1 || true
+  fi
+}
+
 assert_backend_routes() {
   local backend_dir status
   backend_dir="${DIS_INSTALL_PATH}/webapp/backend"
@@ -517,7 +527,7 @@ recover_stashed_backups
 drop_dis_update_stashes
 
 enable_frontend_maintenance
-trap disable_frontend_maintenance EXIT
+trap put_webapp_in_production EXIT
 
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
   check_system_updates
@@ -585,7 +595,7 @@ if [ "${UPDATE_APP}" = "1" ]; then
   fi
 fi
 
-disable_frontend_maintenance
+put_webapp_in_production
 trap - EXIT
 
 if [ "${RUN_HEALTHCHECK}" = "1" ]; then

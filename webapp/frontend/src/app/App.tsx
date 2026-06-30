@@ -81,5 +81,5 @@ function userMessageForError(error: unknown): string {
 function isChunkLoadError(error: unknown): boolean {
   const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);
 
-  return /ChunkLoadError|dynamically imported module|Importing a module script failed|Failed to fetch/i.test(text);
+  return /ChunkLoadError|chunk|dynamically imported module|Importing a module script failed|Failed to fetch|Failed to load module script|module script|Unable to preload CSS|preload CSS|Load failed|Import failed|error loading/i.test(text);
 }
