@@ -1,25 +1,31 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../features/auth/AuthContext';
+import { ApiClientError } from '../lib/apiClient';
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { clearSession, isAuthenticated, user, refreshMe } = useAuth();
+  const { isAuthenticated, user, refreshMe } = useAuth();
   const location = useLocation();
   const [checking, setChecking] = useState(isAuthenticated && user === null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated || user !== null) {
       setChecking(false);
+      setRefreshError(null);
       return;
     }
-    refreshMe().finally(() => setChecking(false));
+    refreshMe()
+      .then(() => setRefreshError(null))
+      .catch((error: unknown) => {
+        if (error instanceof ApiClientError && error.status === 401) {
+          setRefreshError(null);
+          return;
+        }
+        setRefreshError('Het systeem is tijdelijk niet bereikbaar. Je login blijft bewaard.');
+      })
+      .finally(() => setChecking(false));
   }, [isAuthenticated, refreshMe, user]);
-
-  useEffect(() => {
-    if (isAuthenticated && !checking && user === null) {
-      clearSession();
-    }
-  }, [checking, clearSession, isAuthenticated, user]);
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
@@ -30,6 +36,10 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (user === null) {
+    if (refreshError !== null) {
+      return <main className="boot-screen">{refreshError}</main>;
+    }
+
     return <Navigate to="/login" replace />;
   }
 
