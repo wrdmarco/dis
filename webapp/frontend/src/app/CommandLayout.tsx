@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, ClipboardCheck, DatabaseBackup, Gauge, KeyRound, LogOut, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -115,6 +115,7 @@ interface BrandingState {
 export function CommandLayout() {
   const { user, api, clearSession, canUseWebConsole, hasPermission } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [branding, setBranding] = useState<BrandingState>({
     name: 'D.I.S Operationeel Beeld',
     short_name: 'DIS',
@@ -141,6 +142,7 @@ export function CommandLayout() {
       }))
       .filter((group) => group.items.length > 0)
     : profileOnlyNavGroups;
+  const currentNavItem = currentNavForPath(visibleNavGroups, location.pathname);
 
   return (
     <div className="command-layout">
@@ -180,9 +182,10 @@ export function CommandLayout() {
       </aside>
       <div className="workspace">
         <header className="topbar">
-          <div>
-            <span className="topbar__eyebrow">{branding.tenant_name}</span>
-            <h1>{branding.name}</h1>
+          <div className="topbar__title">
+            <span className="topbar__eyebrow">{currentNavItem?.groupLabel ?? branding.tenant_name}</span>
+            <h1>{currentNavItem?.item.label ?? branding.name}</h1>
+            <span className="topbar__app">{branding.tenant_name} - {branding.name}</span>
           </div>
           <div className="operator">
             <div>
@@ -207,6 +210,24 @@ export function CommandLayout() {
 
 function preloadRoute(path: string): Promise<unknown> | undefined {
   return routePreloaders[path]?.();
+}
+
+function currentNavForPath(groups: NavGroup[], pathname: string): { groupLabel: string; item: NavItem } | null {
+  let match: { groupLabel: string; item: NavItem } | null = null;
+  let matchLength = -1;
+
+  for (const group of groups) {
+    for (const item of group.items) {
+      const isExact = pathname === item.to;
+      const isNested = !item.end && pathname.startsWith(`${item.to}/`);
+      if ((isExact || isNested) && item.to.length > matchLength) {
+        match = { groupLabel: group.label, item };
+        matchLength = item.to.length;
+      }
+    }
+  }
+
+  return match;
 }
 
 function canShowNavItem(item: NavItem, hasPermission: (permission: string) => boolean): boolean {
