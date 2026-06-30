@@ -53,8 +53,8 @@ a:hover {
   place-items: stretch;
   padding: clamp(18px, 4vw, 56px);
   background:
-    radial-gradient(circle at 20% 20%, rgba(125, 211, 252, 0.14), transparent 28%),
-    linear-gradient(135deg, rgba(9, 13, 18, 0.96) 0%, rgba(14, 19, 24, 0.94) 48%, rgba(34, 24, 18, 0.92) 100%),
+    radial-gradient(circle at 20% 20%, rgba(128, 199, 255, 0.12), transparent 28%),
+    linear-gradient(135deg, rgba(9, 13, 18, 0.97) 0%, rgba(13, 19, 27, 0.95) 52%, rgba(23, 35, 51, 0.92) 100%),
     url("/command-center.jpg");
   background-size: cover;
   background-position: center;
@@ -66,8 +66,8 @@ a:hover {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(90deg, rgba(125, 211, 252, 0.05) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(125, 211, 252, 0.035) 1px, transparent 1px);
+    linear-gradient(90deg, rgba(128, 199, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(128, 199, 255, 0.03) 1px, transparent 1px);
   background-size: 56px 56px;
   mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
 }
@@ -90,7 +90,7 @@ a:hover {
   align-self: center;
   justify-self: end;
   width: min(460px, 100%);
-  border: 1px solid rgba(125, 211, 252, 0.2);
+  border: 1px solid #223042;
   background:
     linear-gradient(180deg, rgba(16, 24, 35, 0.98), rgba(9, 13, 18, 0.97)),
     rgba(12, 18, 27, 0.96);
@@ -107,7 +107,7 @@ a:hover {
   position: absolute;
   inset: 0 0 auto;
   height: 3px;
-  background: linear-gradient(90deg, #7dd3fc, #f8d179 62%, transparent);
+  background: linear-gradient(90deg, #80c7ff, #2f4056 72%, transparent);
 }
 
 .login-panel__brand {
@@ -368,9 +368,9 @@ a:hover {
 .login-panel__mark {
   width: 58px;
   height: 58px;
-  border: 1px solid rgba(125, 211, 252, 0.28);
+  border: 1px solid #2f4056;
   background: #0b141f;
-  box-shadow: 0 0 0 6px rgba(125, 211, 252, 0.06);
+  box-shadow: 0 0 0 6px rgba(128, 199, 255, 0.06);
 }
 
 .login-panel__mark img {
@@ -411,22 +411,22 @@ a:hover {
 
 .login-panel input:focus,
 .login-panel textarea:focus {
-  outline: 2px solid rgba(125, 211, 252, 0.36);
+  outline: 2px solid rgba(128, 199, 255, 0.34);
   outline-offset: 2px;
-  border-color: #7dd3fc;
+  border-color: #80c7ff;
 }
 
 .login-panel .primary-button {
   width: 100%;
   min-height: 48px;
   margin-top: 4px;
-  background: linear-gradient(135deg, #7dd3fc, #f8d179);
+  background: #80c7ff;
   color: #061018;
   font-size: 1rem;
 }
 
 .login-panel .primary-button:focus-visible {
-  outline: 2px solid #f8d179;
+  outline: 2px solid #80c7ff;
   outline-offset: 3px;
 }
 
@@ -436,14 +436,14 @@ a:hover {
   gap: 8px;
   min-height: 42px;
   padding: 10px 12px;
-  border: 1px solid rgba(125, 211, 252, 0.18);
+  border: 1px solid #223042;
   border-radius: 8px;
   color: #dff5ff;
-  background: rgba(12, 30, 42, 0.62);
+  background: rgba(18, 34, 53, 0.62);
 }
 
 .login-state svg {
-  color: #7dd3fc;
+  color: #80c7ff;
 }
 
 .login-mfa-grid {
@@ -468,7 +468,7 @@ a:hover {
 }
 
 .login-panel__footer svg {
-  color: #f8d179;
+  color: #80c7ff;
 }
 
 .public-download-panel h1 {
