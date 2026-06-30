@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { Component, lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from '../features/auth/AuthContext';
 
@@ -10,16 +10,18 @@ const AuthenticatedRoutes = lazy(() => import('./AuthenticatedApp').then((module
 
 export function App() {
   return (
-    <Suspense fallback={<div className="resource-state">Laden...</div>}>
-      <Routes>
-        <Route path="/setup" element={<SetupWizardPage />} />
-        <Route path="/download" element={<AndroidDownloadPage />} />
-        <Route path="/register" element={<RegisterWizardPage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/*" element={<AuthenticatedEntrypoint />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Suspense>
+    <AppErrorBoundary>
+      <Suspense fallback={<div className="resource-state">Laden...</div>}>
+        <Routes>
+          <Route path="/setup" element={<SetupWizardPage />} />
+          <Route path="/download" element={<AndroidDownloadPage />} />
+          <Route path="/register" element={<RegisterWizardPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/*" element={<AuthenticatedEntrypoint />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
+    </AppErrorBoundary>
   );
 }
 
@@ -27,4 +29,57 @@ function AuthenticatedEntrypoint() {
   const { isAuthenticated } = useAuth();
 
   return isAuthenticated ? <AuthenticatedRoutes /> : <Navigate to="/login" replace />;
+}
+
+interface AppErrorBoundaryState {
+  message: string | null;
+}
+
+const chunkReloadKey = 'dis.chunk.reload.attempted';
+
+class AppErrorBoundary extends Component<{ children: React.ReactNode }, AppErrorBoundaryState> {
+  state: AppErrorBoundaryState = { message: null };
+
+  static getDerivedStateFromError(error: unknown): AppErrorBoundaryState {
+    return { message: userMessageForError(error) };
+  }
+
+  componentDidCatch(error: unknown): void {
+    if (!isChunkLoadError(error) || sessionStorage.getItem(chunkReloadKey) === '1') {
+      return;
+    }
+
+    sessionStorage.setItem(chunkReloadKey, '1');
+    window.location.reload();
+  }
+
+  render() {
+    if (this.state.message === null) {
+      sessionStorage.removeItem(chunkReloadKey);
+      return this.props.children;
+    }
+
+    return (
+      <main className="boot-screen">
+        <div className="resource-state resource-state--error">
+          <span>{this.state.message}</span>
+          <button className="secondary-button" type="button" onClick={() => window.location.reload()}>
+            Opnieuw laden
+          </button>
+        </div>
+      </main>
+    );
+  }
+}
+
+function userMessageForError(error: unknown): string {
+  return isChunkLoadError(error)
+    ? 'De pagina kon na een update niet volledig worden geladen. Laad de pagina opnieuw.'
+    : 'Deze pagina kon niet worden geladen.';
+}
+
+function isChunkLoadError(error: unknown): boolean {
+  const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+
+  return /ChunkLoadError|dynamically imported module|Importing a module script failed|Failed to fetch/i.test(text);
 }
