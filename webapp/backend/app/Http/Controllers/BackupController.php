@@ -9,7 +9,6 @@ use App\Services\AuditService;
 use App\Services\BackupReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Validation\ValidationException;
 use ZipArchive;
@@ -757,11 +756,19 @@ final class BackupController extends Controller
 
     private function createdAtFromBackupId(string $id): string
     {
-        try {
-            return Carbon::createFromFormat('Ymd\THis\Z', $id, 'UTC')->toIso8601String();
-        } catch (\Throwable) {
+        if (preg_match('/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/', $id, $matches) !== 1) {
             return $id;
         }
+
+        return sprintf(
+            '%s-%s-%sT%s:%s:%s+00:00',
+            $matches[1],
+            $matches[2],
+            $matches[3],
+            $matches[4],
+            $matches[5],
+            $matches[6],
+        );
     }
 
     private function cleanOutput(string $output): string
