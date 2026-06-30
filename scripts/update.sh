@@ -586,11 +586,12 @@ if [ "${UPDATE_APP}" = "1" ]; then
   fi
 fi
 
+disable_frontend_maintenance
+trap - EXIT
+
 if [ "${RUN_HEALTHCHECK}" = "1" ]; then
   log "Running final local health check"
   HEALTH_URL="http://127.0.0.1/health" bash "${SCRIPT_DIR}/healthcheck.sh"
 fi
 
 log "DIS system and application update completed."
-disable_frontend_maintenance
-trap - EXIT
