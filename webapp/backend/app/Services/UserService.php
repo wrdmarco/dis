@@ -346,8 +346,30 @@ final class UserService
         $registrationUrl = $publicUrl.'/register?email='.rawurlencode($user->email).'&token='.rawurlencode($token);
         $adminAppAllowed = $user->canUseAdminApp();
 
-        Mail::to($user->email)->send(new UserWelcomeMail($user, $registrationUrl, $adminAppAllowed));
+        $this->runIgnoringTempnamFallbackWarning(
+            fn (): mixed => Mail::to($user->email)->send(new UserWelcomeMail($user, $registrationUrl, $adminAppAllowed)),
+        );
         $this->auditService->record('users.welcome_mail_sent', $user, $actor, ['admin_app_allowed' => $adminAppAllowed]);
+    }
+
+    /**
+     * @param callable(): mixed $callback
+     */
+    private function runIgnoringTempnamFallbackWarning(callable $callback): mixed
+    {
+        set_error_handler(function (int $severity, string $message): bool {
+            if (str_contains($message, 'tempnam(): file created in the system')) {
+                return true;
+            }
+
+            return false;
+        });
+
+        try {
+            return $callback();
+        } finally {
+            restore_error_handler();
+        }
     }
 
     private function sendWelcomeMailSafely(User $user, User $actor): void
