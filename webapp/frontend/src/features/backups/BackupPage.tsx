@@ -22,11 +22,11 @@ interface BackupSummary {
 
 interface BackupIndex {
   root: string;
-  roots: Record<BackupTarget, string>;
+  roots?: Partial<Record<BackupTarget, string>> | null;
   settings: BackupSettings;
-  report_recipients: BackupReportRecipient[];
-  confirmation_text: string;
-  backups: BackupSummary[];
+  report_recipients?: BackupReportRecipient[] | null;
+  confirmation_text?: string | null;
+  backups?: BackupSummary[] | null;
 }
 
 type BackupTarget = 'local' | 'samba';
@@ -107,10 +107,25 @@ const WEEK_DAYS = [
   { value: 7, label: 'Zondag' },
 ] as const;
 
+const DEFAULT_BACKUP_ROOTS: Record<BackupTarget, string> = {
+  local: '/opt/dis-data/backup',
+  samba: '/mnt/dis-backup',
+};
+
+const RESTORE_CONFIRMATION_TEXT = 'HERSTEL BACKUP';
+
 export function BackupPage() {
   const { api } = useAuth();
   const backups = useApiResource<BackupIndex>('/admin/backups');
-  const initialSettings = useMemo(() => toSettingsForm(backups.data?.settings, backups.data?.report_recipients), [backups.data]);
+  const backupList = useMemo(() => Array.isArray(backups.data?.backups) ? backups.data.backups : [], [backups.data]);
+  const recipients = useMemo(() => Array.isArray(backups.data?.report_recipients) ? backups.data.report_recipients : [], [backups.data]);
+  const roots = useMemo(() => ({
+    ...DEFAULT_BACKUP_ROOTS,
+    ...(backups.data?.roots ?? {}),
+  }), [backups.data?.roots]);
+  const confirmationText = backups.data?.confirmation_text ?? RESTORE_CONFIRMATION_TEXT;
+  const currentSettings = backups.data?.settings ?? null;
+  const initialSettings = useMemo(() => toSettingsForm(currentSettings, recipients), [currentSettings, recipients]);
   const [settingsForm, setSettingsForm] = useState<BackupSettingsForm>(initialSettings);
   const [createTarget, setCreateTarget] = useState<BackupTarget>(initialSettings.target);
   const [busy, setBusy] = useState<string | null>(null);
@@ -171,12 +186,13 @@ export function BackupPage() {
         samba_domain: settingsForm.sambaDomain,
         samba_version: settingsForm.sambaVersion,
       });
-      setSambaShares(response.data.shares);
-      if (response.data.shares.length > 0 && !response.data.shares.some((share) => share.name === settingsForm.sambaShareName)) {
-        const firstShare = response.data.shares[0];
+      const shares = Array.isArray(response.data.shares) ? response.data.shares : [];
+      setSambaShares(shares);
+      if (shares.length > 0 && !shares.some((share) => share.name === settingsForm.sambaShareName)) {
+        const firstShare = shares[0];
         setSettingsForm((current) => ({ ...current, sambaShareName: firstShare.name, sambaShare: firstShare.path }));
       }
-      setMessage(response.data.shares.length > 0 ? 'Samba paden zijn opgehaald.' : 'Geen Samba paden gevonden.');
+      setMessage(shares.length > 0 ? 'Samba paden zijn opgehaald.' : 'Geen Samba paden gevonden.');
     } catch (err) {
       setSharesError(err instanceof ApiClientError ? err.message : 'Samba paden ophalen mislukt.');
     } finally {
@@ -242,7 +258,7 @@ export function BackupPage() {
             </div>
             <div className="form-grid__wide metadata-example">
               <strong>Status</strong>
-              <pre>{`Actief doel: ${targetLabel(settingsForm.target)}\nLokale map: ${backups.data?.roots.local ?? settingsForm.localPath}\nAutomatisch: ${settingsForm.autoEnabled ? 'Aan' : 'Uit'}\nAantal bewaren: ${settingsForm.retentionCount === 0 ? 'Onbeperkt' : settingsForm.retentionCount}`}</pre>
+              <pre>{`Actief doel: ${targetLabel(settingsForm.target)}\nLokale map: ${roots.local}\nAutomatisch: ${settingsForm.autoEnabled ? 'Aan' : 'Uit'}\nAantal bewaren: ${settingsForm.retentionCount === 0 ? 'Onbeperkt' : settingsForm.retentionCount}`}</pre>
             </div>
             {settingsForm.target === 'samba' ? (
               <>
@@ -275,7 +291,7 @@ export function BackupPage() {
                 </label>
                 <label>
                   Wachtwoord
-                  <input type="password" placeholder={backups.data?.settings.samba_password_configured ? 'Ingesteld' : ''} value={settingsForm.sambaPassword} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaPassword: event.target.value }))} />
+                  <input type="password" placeholder={currentSettings?.samba_password_configured ? 'Ingesteld' : ''} value={settingsForm.sambaPassword} onChange={(event) => setSettingsForm((current) => ({ ...current, sambaPassword: event.target.value }))} />
                 </label>
                 <div className="actions-row form-grid__wide">
                   <button className="secondary-button" type="button" onClick={() => void fetchSambaShares()} disabled={sharesLoading || busy !== null || settingsForm.sambaServer.trim() === '' || settingsForm.sambaUsername.trim() === ''}>
@@ -304,7 +320,7 @@ export function BackupPage() {
                 </label>
                 <div className="form-grid__wide metadata-example">
                   <strong>Samba status</strong>
-                  <pre>{`Server/IP: ${settingsForm.sambaServer || '-'}\nPad/share: ${settingsForm.sambaShare || '-'}\nSamba mount: ${backups.data?.settings.samba_mounted ? 'Gekoppeld' : 'Niet gekoppeld'}\nWachtwoord: ${backups.data?.settings.samba_password_configured ? 'Ingesteld' : 'Niet ingesteld'}`}</pre>
+                  <pre>{`Server/IP: ${settingsForm.sambaServer || '-'}\nPad/share: ${settingsForm.sambaShare || '-'}\nSamba mount: ${currentSettings?.samba_mounted ? 'Gekoppeld' : 'Niet gekoppeld'}\nWachtwoord: ${currentSettings?.samba_password_configured ? 'Ingesteld' : 'Niet ingesteld'}`}</pre>
                 </div>
               </>
             ) : null}
@@ -348,7 +364,7 @@ export function BackupPage() {
               label="Succesrapport naar"
               placeholder="Typ naam of e-mail"
               datalistId="backup-success-recipients"
-              recipients={backups.data?.report_recipients ?? []}
+              recipients={recipients}
               selectedIds={settingsForm.backupReportSuccessUserIds}
               search={successRecipientSearch}
               onSearch={setSuccessRecipientSearch}
@@ -359,7 +375,7 @@ export function BackupPage() {
               label="Foutrapport naar"
               placeholder="Typ naam of e-mail"
               datalistId="backup-failed-recipients"
-              recipients={backups.data?.report_recipients ?? []}
+              recipients={recipients}
               selectedIds={settingsForm.backupReportFailedUserIds}
               search={failedRecipientSearch}
               onSearch={setFailedRecipientSearch}
@@ -392,16 +408,16 @@ export function BackupPage() {
         <ResourceState loading={backups.loading} error={backups.error} empty={!backups.data}>
           <dl className="definition-grid">
             <dt>Standaardlocatie</dt><dd className="mono">{backups.data?.root ?? '-'}</dd>
-            <dt>Lokale map</dt><dd className="mono">{backups.data?.roots.local ?? '-'}</dd>
-            {backups.data?.settings.target === 'samba' ? (
+            <dt>Lokale map</dt><dd className="mono">{roots.local}</dd>
+            {currentSettings?.target === 'samba' ? (
               <>
-                <dt>Samba map</dt><dd className="mono">{backups.data.roots.samba ?? '-'}</dd>
+                <dt>Samba map</dt><dd className="mono">{roots.samba}</dd>
               </>
             ) : null}
-            <dt>Automatische backup</dt><dd>{backups.data?.settings.auto_enabled ? autoBackupLabel(backups.data.settings) : 'Uit'}</dd>
-            <dt>Aantal bewaren</dt><dd>{backups.data?.settings.retention_count === 0 ? 'Onbeperkt' : backups.data?.settings.retention_count ?? '-'}</dd>
-            <dt>Laatst automatisch</dt><dd>{backups.data?.settings.auto_last_run_at ?? '-'}</dd>
-            <dt>Aantal backups</dt><dd>{backups.data?.backups.length ?? 0}</dd>
+            <dt>Automatische backup</dt><dd>{currentSettings?.auto_enabled ? autoBackupLabel(currentSettings) : 'Uit'}</dd>
+            <dt>Aantal bewaren</dt><dd>{currentSettings?.retention_count === 0 ? 'Onbeperkt' : currentSettings?.retention_count ?? '-'}</dd>
+            <dt>Laatst automatisch</dt><dd>{currentSettings?.auto_last_run_at ?? '-'}</dd>
+            <dt>Aantal backups</dt><dd>{backupList.length}</dd>
           </dl>
           {message ? <p className="form-note">{message}</p> : null}
           {error ? <p className="form-error">{error}</p> : null}
@@ -419,14 +435,14 @@ export function BackupPage() {
               />
             </label>
             <label>
-              Typ {backups.data?.confirmation_text}
+              Typ {confirmationText}
               <input value={uploadConfirmation} onChange={(event) => setUploadConfirmation(event.target.value)} />
             </label>
             <div className="actions-row form-grid__wide">
               <button
                 className="danger-button"
                 type="submit"
-                disabled={busy !== null || uploadFile === null || uploadConfirmation !== backups.data?.confirmation_text}
+                disabled={busy !== null || uploadFile === null || uploadConfirmation !== confirmationText}
               >
                 {busy === 'uploadRestore' ? 'Upload restore draait...' : 'Upload restore uitvoeren'}
               </button>
@@ -447,7 +463,7 @@ export function BackupPage() {
                 </tr>
               </thead>
               <tbody>
-                {(backups.data?.backups ?? []).map((backup) => (
+                {backupList.map((backup) => (
                   <tr key={backup.id}>
                     <td>
                       <strong>{backup.id}</strong>
@@ -501,7 +517,7 @@ export function BackupPage() {
                 <dt>Doel</dt><dd>{targetLabel(restoreBackup.target)}</dd>
               </dl>
               <label className="form-grid__wide">
-                Typ {backups.data?.confirmation_text}
+                Typ {confirmationText}
                 <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
               </label>
               <div className="actions-row form-grid__wide">
@@ -509,7 +525,7 @@ export function BackupPage() {
                 <button
                   className="danger-button"
                   type="button"
-                  disabled={busy !== null || confirmation !== backups.data?.confirmation_text}
+                  disabled={busy !== null || confirmation !== confirmationText}
                   onClick={() => void runAction('restore', async () => (await api.post<BackupActionResult>(`/admin/backups/${restoreBackup.id}/restore`, { confirmation, target: restoreBackup.target })).data)}
                 >
                   {busy === 'restore' ? 'Restore draait...' : 'Restore uitvoeren'}
@@ -622,7 +638,7 @@ function autoBackupLabel(settings: BackupSettings): string {
   return `Dagelijks om ${settings.auto_time}`;
 }
 
-function toSettingsForm(settings?: BackupSettings, recipients: BackupReportRecipient[] = []): BackupSettingsForm {
+function toSettingsForm(settings?: BackupSettings | null, recipients: BackupReportRecipient[] = []): BackupSettingsForm {
   return {
     target: settings?.target ?? 'local',
     localPath: settings?.local_path ?? '/opt/dis-data/backup',
