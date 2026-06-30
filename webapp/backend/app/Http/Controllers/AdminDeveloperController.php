@@ -172,13 +172,8 @@ final class AdminDeveloperController extends Controller
     {
         $this->developerAccess->authorize($request, DeveloperAccessService::SCOPE_LOGS_READ);
 
-        $directory = storage_path('logs');
         $logs = [];
-        foreach (glob($directory.'/*.log') ?: [] as $path) {
-            if (! is_file($path)) {
-                continue;
-            }
-
+        foreach ($this->logPaths() as $path) {
             $logs[] = [
                 'name' => basename($path),
                 'size_bytes' => filesize($path) ?: 0,
@@ -200,8 +195,8 @@ final class AdminDeveloperController extends Controller
         $this->developerAccess->authorize($request, DeveloperAccessService::SCOPE_LOGS_READ);
 
         abort_unless(preg_match('/^[A-Za-z0-9._-]+\.log$/', $filename) === 1, 404);
-        $path = storage_path('logs/'.$filename);
-        abort_unless(is_file($path), 404);
+        $path = $this->findLogPath($filename);
+        abort_unless($path !== null, 404);
 
         $maxLines = min(max((int) $request->integer('lines', 200), 1), 1000);
         $content = $this->tailFile($path, 512 * 1024);
@@ -218,6 +213,47 @@ final class AdminDeveloperController extends Controller
             'modified_at' => date(DATE_ATOM, filemtime($path) ?: time()),
             'lines' => $lines,
         ]);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function logPaths(): array
+    {
+        $directories = [
+            storage_path('logs'),
+            '/opt/dis-data/webapp/backend/storage/logs',
+            '/opt/dis-data/storage/logs',
+        ];
+        $paths = [];
+
+        foreach (array_values(array_unique($directories)) as $directory) {
+            if (! is_dir($directory)) {
+                continue;
+            }
+
+            foreach (glob($directory.'/*.log') ?: [] as $path) {
+                if (! is_file($path)) {
+                    continue;
+                }
+
+                $name = basename($path);
+                $paths[$name] ??= $path;
+            }
+        }
+
+        return array_values($paths);
+    }
+
+    private function findLogPath(string $filename): ?string
+    {
+        foreach ($this->logPaths() as $path) {
+            if (basename($path) === $filename) {
+                return $path;
+            }
+        }
+
+        return null;
     }
 
     /**

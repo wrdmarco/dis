@@ -8,10 +8,12 @@ use App\Models\SystemSetting;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 final class UserService
 {
@@ -22,34 +24,36 @@ final class UserService
      */
     public function create(array $data, User $actor): User
     {
-        return DB::transaction(function () use ($data, $actor): User {
-            $roleIds = $data['role_ids'] ?? [];
-            $teamIds = $data['team_ids'] ?? [];
-            $sendWelcomeMail = (bool) ($data['send_welcome_mail'] ?? false);
-            if (array_key_exists('role_ids', $data) && is_array($roleIds) && $roleIds !== []) {
-                $this->assertActorCanManageRoles($actor);
-                $this->assertActorCanAddSystemAdministrator($actor, null, $roleIds);
-            }
+        $roleIds = $data['role_ids'] ?? [];
+        $teamIds = $data['team_ids'] ?? [];
+        $sendWelcomeMail = (bool) ($data['send_welcome_mail'] ?? false);
+        if (array_key_exists('role_ids', $data) && is_array($roleIds) && $roleIds !== []) {
+            $this->assertActorCanManageRoles($actor);
+            $this->assertActorCanAddSystemAdministrator($actor, null, $roleIds);
+        }
 
-            unset($data['role_ids']);
-            unset($data['team_ids']);
-            unset($data['send_welcome_mail']);
+        unset($data['role_ids']);
+        unset($data['team_ids']);
+        unset($data['send_welcome_mail']);
 
-            if ($sendWelcomeMail && empty($data['password'])) {
-                $data['password'] = Str::random(32).'Aa1!';
-            }
+        if ($sendWelcomeMail && empty($data['password'])) {
+            $data['password'] = Str::random(32).'Aa1!';
+        }
 
+        $user = DB::transaction(function () use ($data, $roleIds, $teamIds, $actor): User {
             $user = User::query()->create($data);
             $this->syncRoles($user, is_array($roleIds) ? $roleIds : [], $actor);
             $this->syncTeams($user, is_array($teamIds) ? $teamIds : [], $actor);
             $this->auditService->record('users.created', $user, $actor);
 
-            if ($sendWelcomeMail) {
-                $this->sendWelcomeMail($user->refresh()->load(['roles.permissions', 'teams']), $actor);
-            }
-
             return $user->load(['roles', 'teams']);
         });
+
+        if ($sendWelcomeMail) {
+            $this->sendWelcomeMailSafely($user->refresh()->load(['roles.permissions', 'teams']), $actor);
+        }
+
+        return $user->refresh()->load(['roles', 'teams']);
     }
 
     /**
@@ -344,5 +348,23 @@ final class UserService
 
         Mail::to($user->email)->send(new UserWelcomeMail($user, $registrationUrl, $adminAppAllowed));
         $this->auditService->record('users.welcome_mail_sent', $user, $actor, ['admin_app_allowed' => $adminAppAllowed]);
+    }
+
+    private function sendWelcomeMailSafely(User $user, User $actor): void
+    {
+        try {
+            $this->sendWelcomeMail($user, $actor);
+        } catch (Throwable $exception) {
+            Log::warning('Welcome mail could not be sent after user creation.', [
+                'user_id' => $user->id,
+                'actor_id' => $actor->id,
+                'exception' => $exception::class,
+                'message' => $exception->getMessage(),
+            ]);
+
+            $this->auditService->record('users.welcome_mail_failed', $user, $actor, [
+                'error' => $exception->getMessage(),
+            ]);
+        }
     }
 }
