@@ -600,7 +600,7 @@ trap - EXIT
 
 if [ "${RUN_HEALTHCHECK}" = "1" ]; then
   log "Running final local health check"
-  HEALTH_URL="http://127.0.0.1/health" bash "${SCRIPT_DIR}/healthcheck.sh"
+  HEALTH_URL="http://127.0.0.1/api/health" bash "${SCRIPT_DIR}/healthcheck.sh"
 fi
 
 log "DIS system and application update completed."
