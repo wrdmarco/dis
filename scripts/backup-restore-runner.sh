@@ -7,11 +7,12 @@ if [ ! -f "${SCRIPT_DIR}/lib/common.sh" ] && [ -f "${DIS_INSTALL_PATH}/scripts/l
   SCRIPT_DIR="${DIS_INSTALL_PATH}/scripts"
 fi
 source "${SCRIPT_DIR}/lib/common.sh"
+load_data_path_from_env "${DIS_INSTALL_PATH}/.env"
 
 BACKUP_PATH="${1:-}"
 
 if [ -z "${BACKUP_PATH}" ]; then
-  fail "Usage: backup-restore-runner.sh /opt/dis/backup/<timestamp>"
+  fail "Usage: backup-restore-runner.sh /opt/dis-data/backup/<timestamp>"
 fi
 
 validate_backup_path() {
@@ -23,7 +24,7 @@ validate_backup_path() {
     fail "Invalid backup id."
   fi
 
-  for root in "${DIS_INSTALL_PATH}/backup" "/mnt/dis-backup"; do
+  for root in "${DIS_DATA_PATH}/backup" "${DIS_INSTALL_PATH}/backup" "/mnt/dis-backup"; do
     if [ ! -d "${root}" ]; then
       continue
     fi

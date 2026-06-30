@@ -18,12 +18,7 @@ if ! id "${DIS_USER}" >/dev/null 2>&1; then
 fi
 
 ensure_directory "${DIS_INSTALL_PATH}" root root 0755
-ensure_directory "${DIS_INSTALL_PATH}/storage" "${DIS_USER}" "${DIS_GROUP}" 0750
-ensure_directory "${DIS_INSTALL_PATH}/storage/app" "${DIS_USER}" "${DIS_GROUP}" 0750
-ensure_directory "${DIS_INSTALL_PATH}/backup" "${DIS_USER}" "${DIS_GROUP}" 0750
-ensure_directory "${DIS_INSTALL_PATH}/storage/logs" "${DIS_USER}" "${DIS_GROUP}" 0750
-ensure_directory "${DIS_INSTALL_PATH}/storage/tmp" "${DIS_USER}" "${DIS_GROUP}" 0750
-ensure_directory "${DIS_INSTALL_PATH}/secrets" root "${DIS_GROUP}" 0750
+ensure_data_links "${DIS_INSTALL_PATH}"
 
 log "Installing required Ubuntu packages"
 run_cmd apt-get update

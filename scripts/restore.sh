@@ -8,10 +8,12 @@ APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
 BACKUP_PATH="${1:-}"
 
 if [ -z "${BACKUP_PATH}" ]; then
-  fail "Usage: restore.sh /opt/dis/backup/<timestamp>"
+  fail "Usage: restore.sh /opt/dis-data/backup/<timestamp>"
 fi
 
 require_directory "${BACKUP_PATH}"
+load_data_path_from_env "${APP_ROOT}/.env"
+ensure_data_links "${APP_ROOT}"
 require_file "${APP_ROOT}/.env"
 require_file "${BACKUP_PATH}/database.dump"
 require_file "${BACKUP_PATH}/SHA256SUMS"
@@ -38,7 +40,12 @@ PGPASSWORD="${DB_PASSWORD}" run_cmd pg_restore \
 
 if [ -f "${BACKUP_PATH}/storage.tar.gz" ]; then
   log "Restoring storage archive"
-  run_cmd tar -C "${APP_ROOT}" -xzf "${BACKUP_PATH}/storage.tar.gz"
+  if tar -tzf "${BACKUP_PATH}/storage.tar.gz" | grep -q '^webapp/backend/storage/'; then
+    run_cmd tar -C "${DIS_DATA_PATH}" -xzf "${BACKUP_PATH}/storage.tar.gz"
+  else
+    run_cmd tar -C "${APP_ROOT}" -xzf "${BACKUP_PATH}/storage.tar.gz"
+    ensure_data_links "${APP_ROOT}"
+  fi
 fi
 
 log "Restore completed"

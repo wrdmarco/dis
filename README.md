@@ -118,19 +118,19 @@ sudo bash /opt/dis/scripts/backup.sh
 Backups are stored under:
 
 ```text
-/opt/dis/backup
+/opt/dis-data/backup
 ```
 
 Verify a backup:
 
 ```bash
-sudo bash /opt/dis/scripts/verify-backup.sh /opt/dis/backup/<timestamp>
+sudo bash /opt/dis/scripts/verify-backup.sh /opt/dis-data/backup/<timestamp>
 ```
 
 Restore a backup:
 
 ```bash
-sudo bash /opt/dis/scripts/restore.sh /opt/dis/backup/<timestamp>
+sudo bash /opt/dis/scripts/restore.sh /opt/dis-data/backup/<timestamp>
 ```
 
 ## Maintenance Mode

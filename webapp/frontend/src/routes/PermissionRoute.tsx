@@ -40,7 +40,7 @@ export function DefaultRoute() {
     { to: '/certifications', permissions: ['certifications.view'] },
     { to: '/updates', permissions: ['updates.manage'] },
     { to: '/admin', permissions: ['settings.manage'] },
-    { to: '/system', permissions: ['system.health'] },
+    { to: '/systeem', permissions: ['system.health'] },
   ].find((item) => item.permissions.every(hasPermission));
 
   return <Navigate to={target?.to ?? '/profile'} replace />;

@@ -625,7 +625,7 @@ function autoBackupLabel(settings: BackupSettings): string {
 function toSettingsForm(settings?: BackupSettings, recipients: BackupReportRecipient[] = []): BackupSettingsForm {
   return {
     target: settings?.target ?? 'local',
-    localPath: settings?.local_path ?? '/opt/dis/backup',
+    localPath: settings?.local_path ?? '/opt/dis-data/backup',
     sambaServer: settings?.samba_server ?? '',
     sambaShareName: settings?.samba_share_name ?? '',
     sambaShare: settings?.samba_share ?? '',

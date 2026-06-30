@@ -2,6 +2,7 @@
 set -euo pipefail
 
 DIS_INSTALL_PATH="${DIS_INSTALL_PATH:-/opt/dis}"
+DIS_DATA_PATH="${DIS_DATA_PATH:-/opt/dis-data}"
 DIS_USER="${DIS_USER:-dis}"
 DIS_GROUP="${DIS_GROUP:-dis}"
 PHP_VERSION="${PHP_VERSION:-8.5}"
@@ -66,16 +67,124 @@ ensure_directory() {
   run_cmd install -d -m "$mode" -o "$owner" -g "$group" "$path"
 }
 
+load_data_path_from_env() {
+  local env_file="$1"
+  local configured_path
+
+  if [ ! -f "${env_file}" ]; then
+    return
+  fi
+
+  configured_path="$(grep -E '^DIS_DATA_PATH=' "${env_file}" | tail -n 1 | cut -d '=' -f 2- || true)"
+  configured_path="${configured_path%\"}"
+  configured_path="${configured_path#\"}"
+  configured_path="${configured_path%\'}"
+  configured_path="${configured_path#\'}"
+
+  if [ -n "${configured_path}" ]; then
+    DIS_DATA_PATH="${configured_path}"
+    export DIS_DATA_PATH
+  fi
+}
+
+ensure_data_layout() {
+  ensure_directory "${DIS_DATA_PATH}" root "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/backup" root "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/secrets" root "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/storage" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/storage/app" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/storage/generated" root root 0755
+  ensure_directory "${DIS_DATA_PATH}/storage/logs" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/storage/releases" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/storage/tmp" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/app" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework/cache" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework/sessions" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework/views" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/logs" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/composer" "${DIS_USER}" "${DIS_GROUP}" 0750
+}
+
+migrate_path_to_data() {
+  local source="$1"
+  local destination="$2"
+
+  if [ -L "${source}" ]; then
+    return
+  fi
+
+  if [ -e "${destination}" ]; then
+    if [ -d "${destination}" ] && [ -n "$(find "${destination}" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null || true)" ]; then
+      return
+    fi
+    if [ -f "${destination}" ]; then
+      return
+    fi
+  fi
+
+  if [ -d "${source}" ]; then
+    ensure_directory "$(dirname "${destination}")" root "${DIS_GROUP}" 0750
+    if [ -d "${destination}" ]; then
+      run_cmd rmdir "${destination}"
+    fi
+    run_cmd mv "${source}" "${destination}"
+  elif [ -f "${source}" ]; then
+    ensure_directory "$(dirname "${destination}")" root "${DIS_GROUP}" 0750
+    run_cmd mv "${source}" "${destination}"
+  fi
+}
+
+link_data_path() {
+  local source="$1"
+  local destination="$2"
+
+  if [ -L "${source}" ] && [ "$(readlink "${source}")" = "${destination}" ]; then
+    return
+  fi
+
+  if [ -e "${source}" ] && [ ! -L "${source}" ]; then
+    migrate_path_to_data "${source}" "${destination}"
+  fi
+
+  run_cmd ln -sfn "${destination}" "${source}"
+}
+
+ensure_data_links() {
+  local app_root="${1:-${DIS_INSTALL_PATH}}"
+
+  ensure_data_layout
+  link_data_path "${app_root}/backup" "${DIS_DATA_PATH}/backup"
+  link_data_path "${app_root}/secrets" "${DIS_DATA_PATH}/secrets"
+  link_data_path "${app_root}/storage" "${DIS_DATA_PATH}/storage"
+
+  if [ -d "${app_root}/webapp/backend" ]; then
+    link_data_path "${app_root}/webapp/backend/storage" "${DIS_DATA_PATH}/webapp/backend/storage"
+  fi
+
+  if [ -f "${DIS_DATA_PATH}/.env" ] || [ -f "${app_root}/.env" ]; then
+    if [ -f "${app_root}/.env" ] && [ ! -L "${app_root}/.env" ] && [ ! -f "${DIS_DATA_PATH}/.env" ]; then
+      migrate_path_to_data "${app_root}/.env" "${DIS_DATA_PATH}/.env"
+    fi
+    run_cmd ln -sfn "${DIS_DATA_PATH}/.env" "${app_root}/.env"
+  fi
+}
+
 resolve_backup_root() {
   local app_root="$1"
   local target="${BACKUP_TARGET:-local}"
+  local configured_root
 
   if [ "${BACKUP_SAMBA_ENABLED:-0}" = "1" ]; then
     target="samba"
   fi
 
   if [ "${target}" != "samba" ]; then
-    printf '%s\n' "${BACKUP_ROOT:-${BACKUP_DISK_PATH:-${app_root}/backup}}"
+    configured_root="${BACKUP_ROOT:-${BACKUP_DISK_PATH:-${DIS_DATA_PATH}/backup}}"
+    if [ "${configured_root}" = "${app_root}/backup" ] || [ "${configured_root}" = "${DIS_INSTALL_PATH}/backup" ] || [ "${configured_root}" = "/opt/dis/backup" ]; then
+      configured_root="${DIS_DATA_PATH}/backup"
+    fi
+    printf '%s\n' "${configured_root}"
     return 0
   fi
 

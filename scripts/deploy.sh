@@ -12,9 +12,11 @@ SKIP_DEPLOY_CACHE_CLEAR="${SKIP_DEPLOY_CACHE_CLEAR:-0}"
 RUN_SEEDERS="${RUN_SEEDERS:-0}"
 
 require_directory "${APP_ROOT}"
-require_file "${APP_ROOT}/.env"
 require_file "${NGINX_SOURCE}"
 require_root
+load_data_path_from_env "${APP_ROOT}/.env"
+ensure_data_links "${APP_ROOT}"
+require_file "${APP_ROOT}/.env"
 
 log "Deploying DIS from ${APP_ROOT}"
 RELEASE_ID="$(date -u +%Y%m%dT%H%M%SZ)"

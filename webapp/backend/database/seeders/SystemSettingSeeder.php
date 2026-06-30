@@ -21,7 +21,7 @@ final class SystemSettingSeeder extends Seeder
         'test_alert.schedule_last_run_at' => ['value' => null, 'is_sensitive' => false],
         'push.availability_requires_push' => ['value' => true, 'is_sensitive' => false],
         'backup.target' => ['value' => 'local', 'is_sensitive' => false],
-        'backup.local_path' => ['value' => '/opt/dis/backup', 'is_sensitive' => false],
+        'backup.local_path' => ['value' => '/opt/dis-data/backup', 'is_sensitive' => false],
         'backup.samba.server' => ['value' => '', 'is_sensitive' => false],
         'backup.samba.share_name' => ['value' => '', 'is_sensitive' => false],
         'backup.samba.share' => ['value' => '', 'is_sensitive' => false],

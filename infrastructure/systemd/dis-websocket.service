@@ -17,7 +17,7 @@ ProtectHome=true
 CapabilityBoundingSet=
 RestrictSUIDSGID=true
 LockPersonality=true
-ReadWritePaths=/opt/dis/webapp/backend/storage /opt/dis/storage
+ReadWritePaths=/opt/dis-data /opt/dis/webapp/backend/storage /opt/dis/storage
 
 [Install]
 WantedBy=multi-user.target

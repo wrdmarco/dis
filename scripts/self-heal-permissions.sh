@@ -11,6 +11,7 @@ require_root
 require_directory "${APP_ROOT}"
 
 log "Self-healing DIS file permissions"
+load_data_path_from_env "${APP_ROOT}/.env"
 
 if ! getent group "${DIS_GROUP}" >/dev/null 2>&1; then
   run_cmd groupadd --system "${DIS_GROUP}"
@@ -24,12 +25,16 @@ if id www-data >/dev/null 2>&1; then
   run_cmd usermod -aG "${DIS_GROUP}" www-data
 fi
 
+ensure_data_links "${APP_ROOT}"
+
 ensure_directory "${APP_ROOT}/storage" "${DIS_USER}" "${DIS_GROUP}" 0750
 ensure_directory "${APP_ROOT}/storage/app" "${DIS_USER}" "${DIS_GROUP}" 0750
 ensure_directory "${APP_ROOT}/storage/logs" "${DIS_USER}" "${DIS_GROUP}" 0750
 ensure_directory "${APP_ROOT}/storage/tmp" "${DIS_USER}" "${DIS_GROUP}" 0750
 ensure_directory "${APP_ROOT}/backup" root "${DIS_GROUP}" 0750
 ensure_directory "${APP_ROOT}/secrets" root "${DIS_GROUP}" 0750
+ensure_directory "${DIS_DATA_PATH}/backup" root "${DIS_GROUP}" 0750
+ensure_directory "${DIS_DATA_PATH}/secrets" root "${DIS_GROUP}" 0750
 
 if [ -f "${APP_ROOT}/.env" ]; then
   run_cmd chown root:"${DIS_GROUP}" "${APP_ROOT}/.env"
@@ -83,6 +88,12 @@ if [ -d "${APP_ROOT}/backup" ]; then
   run_cmd chgrp -R "${DIS_GROUP}" "${APP_ROOT}/backup" || true
   run_cmd find "${APP_ROOT}/backup" -type d -exec chmod 0750 {} + || true
   run_cmd find "${APP_ROOT}/backup" -type f -exec chmod 0640 {} + || true
+fi
+
+if [ -d "${DIS_DATA_PATH}/backup" ]; then
+  run_cmd chgrp -R "${DIS_GROUP}" "${DIS_DATA_PATH}/backup" || true
+  run_cmd find "${DIS_DATA_PATH}/backup" -type d -exec chmod 0750 {} + || true
+  run_cmd find "${DIS_DATA_PATH}/backup" -type f -exec chmod 0640 {} + || true
 fi
 
 if [ -d "/mnt/dis-backup" ] && mountpoint -q /mnt/dis-backup; then

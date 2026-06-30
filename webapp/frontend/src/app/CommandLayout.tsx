@@ -68,7 +68,7 @@ const navGroups: NavGroup[] = [
       { to: '/branding', label: 'Branding', icon: Palette, permissions: ['settings.manage'] },
       { to: '/audit', label: 'Audit', icon: ScrollText, permissions: ['audit.view', 'status.audit.view'], anyPermission: true },
       { to: '/backups', label: 'Backups', icon: DatabaseBackup, permissions: ['backups.manage'] },
-      { to: '/system', label: 'Systeem', icon: Bell, permissions: ['system.health'] },
+      { to: '/systeem', label: 'Systeem', icon: Bell, permissions: ['system.health'] },
     ],
   },
 ];

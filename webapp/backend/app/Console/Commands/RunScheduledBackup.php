@@ -102,7 +102,7 @@ final class RunScheduledBackup extends Command
     {
         $lines = [
             'BACKUP_TARGET='.$this->shellValue($target),
-            'BACKUP_ROOT='.$this->shellValue(SystemSetting::string('backup.local_path', '/opt/dis/backup') ?? '/opt/dis/backup'),
+            'BACKUP_ROOT='.$this->shellValue(SystemSetting::string('backup.local_path', '/opt/dis-data/backup') ?? '/opt/dis-data/backup'),
             'BACKUP_RETENTION_COUNT='.$this->shellValue((string) max(0, SystemSetting::integer('backup.retention_count', 7))),
             'BACKUP_SAMBA_SHARE='.$this->shellValue(SystemSetting::string('backup.samba.share', '') ?? ''),
             'BACKUP_SAMBA_MOUNT='.$this->shellValue(SystemSetting::string('backup.samba.mount', '/mnt/dis-backup') ?? '/mnt/dis-backup'),

@@ -16,7 +16,7 @@ use ZipArchive;
 final class BackupController extends Controller
 {
     private const RESTORE_CONFIRMATION = 'HERSTEL BACKUP';
-    private const DEFAULT_LOCAL_PATH = '/opt/dis/backup';
+    private const DEFAULT_LOCAL_PATH = '/opt/dis-data/backup';
     private const PASSWORD_KEY = 'backup.samba.password';
 
     public function __construct(private readonly AuditService $auditService) {}

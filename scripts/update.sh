@@ -67,6 +67,8 @@ done
 require_root
 require_ubuntu_2604
 require_directory "${DIS_INSTALL_PATH}"
+load_data_path_from_env "${DIS_INSTALL_PATH}/.env"
+ensure_data_links "${DIS_INSTALL_PATH}"
 require_file "${DIS_INSTALL_PATH}/.env"
 
 if [ "${APP_ROOT}" != "${DIS_INSTALL_PATH}" ]; then
@@ -138,10 +140,10 @@ recover_stashed_backups() {
 
   if [ "${restored}" = "1" ]; then
     log "Recovered backup files from previous update stash."
-    if [ -d "${DIS_INSTALL_PATH}/backup" ]; then
-      run_cmd chgrp -R "${DIS_GROUP}" "${DIS_INSTALL_PATH}/backup" || true
-      run_cmd find "${DIS_INSTALL_PATH}/backup" -type d -exec chmod 0750 {} + || true
-      run_cmd find "${DIS_INSTALL_PATH}/backup" -type f -exec chmod 0640 {} + || true
+    if [ -d "${DIS_DATA_PATH}/backup" ]; then
+      run_cmd chgrp -R "${DIS_GROUP}" "${DIS_DATA_PATH}/backup" || true
+      run_cmd find "${DIS_DATA_PATH}/backup" -type d -exec chmod 0750 {} + || true
+      run_cmd find "${DIS_DATA_PATH}/backup" -type f -exec chmod 0640 {} + || true
     fi
   fi
 }
@@ -209,7 +211,7 @@ refresh_generated_nginx() {
     fail "APP_URL must be set in ${DIS_INSTALL_PATH}/.env before updating."
   fi
 
-  generated_dir="${DIS_INSTALL_PATH}/storage/generated/nginx"
+  generated_dir="${DIS_DATA_PATH}/storage/generated/nginx"
   generated_conf="${generated_dir}/dis.conf"
   ensure_directory "${generated_dir}" root root 0755
   run_cmd cp "${DIS_INSTALL_PATH}/infrastructure/nginx/dis.conf" "${generated_conf}"
@@ -359,6 +361,7 @@ reset_git_worktree_for_update() {
   run_cmd git -C "${DIS_INSTALL_PATH}" clean -ffdx -- \
     . \
     ':(exclude)backup' \
+    ':(exclude)backup/**' \
     ':(exclude)storage' \
     ':(exclude)storage/**' \
     ':(exclude).env' \

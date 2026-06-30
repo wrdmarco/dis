@@ -8,6 +8,8 @@ APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
 ENV_FILE="${APP_ROOT}/.env"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
+load_data_path_from_env "${ENV_FILE}"
+ensure_data_links "${APP_ROOT}"
 require_file "${ENV_FILE}"
 set -a
 source "${ENV_FILE}"
@@ -15,6 +17,7 @@ if [ -f "${APP_ROOT}/webapp/backend/storage/app/backup-config.env" ]; then
   source "${APP_ROOT}/webapp/backend/storage/app/backup-config.env"
 fi
 set +a
+ensure_data_links "${APP_ROOT}"
 
 BACKUP_ROOT="$(resolve_backup_root "${APP_ROOT}")"
 TARGET="${BACKUP_ROOT}/${STAMP}"
@@ -60,7 +63,10 @@ PGPASSWORD="${DB_PASSWORD}" run_cmd pg_dump \
   "${DB_DATABASE}"
 
 log "Archiving storage and configuration"
-run_cmd tar -C "${APP_ROOT}" -czf "${TARGET}/storage.tar.gz" storage
+run_cmd tar -C "${DIS_DATA_PATH}" -czf "${TARGET}/storage.tar.gz" \
+  storage \
+  webapp/backend/storage \
+  secrets
 log "Archiving software source and module manifests"
 run_cmd tar -C "${APP_ROOT}" -czf "${TARGET}/source.tar.gz" \
   --exclude='./.git' \
@@ -90,6 +96,7 @@ cat > "${TARGET}/manifest.json" <<EOF
 {
   "created_at": "${STAMP}",
   "app_root": "${APP_ROOT}",
+  "data_root": "${DIS_DATA_PATH}",
   "database": "${DB_DATABASE}",
   "host": "$(hostname -f 2>/dev/null || hostname)",
   "version": "$(cat "${APP_ROOT}/VERSION" 2>/dev/null || printf unknown)",

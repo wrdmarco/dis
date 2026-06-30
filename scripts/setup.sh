@@ -19,6 +19,7 @@ Options:
 
 Environment:
   DIS_INSTALL_PATH       Install path. Default: /opt/dis
+  DIS_DATA_PATH          Custom data path. Default: /opt/dis-data
   DIS_DOMAIN             Same as --domain
   RUN_HEALTHCHECK        0 disables final health check
 USAGE
@@ -58,12 +59,14 @@ fi
 log "Starting full DIS setup for ${DOMAIN} at ${DIS_INSTALL_PATH}"
 
 bash "${SCRIPT_DIR}/install.sh"
+ensure_data_links "${APP_ROOT}"
 
-ENV_FILE="${APP_ROOT}/.env"
+ENV_FILE="${DIS_DATA_PATH}/.env"
 if [ ! -f "${ENV_FILE}" ]; then
   log "Creating ${ENV_FILE} from .env.example"
   run_cmd cp "${APP_ROOT}/.env.example" "${ENV_FILE}"
 fi
+run_cmd ln -sfn "${ENV_FILE}" "${APP_ROOT}/.env"
 
 set_env() {
   local key="$1"
@@ -121,6 +124,8 @@ set_env APP_ENV production
 set_env APP_DEBUG false
 set_env APP_URL "https://${DOMAIN}"
 set_env DIS_INSTALL_PATH "${DIS_INSTALL_PATH}"
+set_env DIS_DATA_PATH "${DIS_DATA_PATH}"
+set_env BACKUP_DISK_PATH "${DIS_DATA_PATH}/backup"
 set_env DB_HOST 127.0.0.1
 set_env REDIS_HOST 127.0.0.1
 set_env SESSION_SECURE_COOKIE false

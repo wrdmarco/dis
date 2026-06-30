@@ -10,7 +10,7 @@ return [
         ],
         'backups' => [
             'driver' => 'local',
-            'root' => env('BACKUP_DISK_PATH', '/opt/dis/backup'),
+            'root' => env('BACKUP_DISK_PATH', '/opt/dis-data/backup'),
             'throw' => true,
         ],
     ],

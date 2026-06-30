@@ -42,8 +42,6 @@ export function AuthenticatedRoutes() {
         <Route path="incidents/archive" element={<PermissionRoute permissions={['incidents.view']}><IncidentsPage mode="archive" /></PermissionRoute>} />
         <Route path="incidents/:incidentId" element={<PermissionRoute permissions={['incidents.view']}><IncidentDetailPage /></PermissionRoute>} />
         <Route path="operationele-status" element={<PermissionRoute permissions={['status.view']}><StatusPage /></PermissionRoute>} />
-        <Route path="status/operationeel" element={<PermissionRoute permissions={['status.view']}><StatusPage /></PermissionRoute>} />
-        <Route path="status/audit" element={<Navigate to="/audit" replace />} />
         <Route path="users" element={<PermissionRoute permissions={['users.view']}><UsersPage /></PermissionRoute>} />
         <Route path="teams" element={<PermissionRoute permissions={['teams.manage']}><TeamsPage /></PermissionRoute>} />
         <Route path="assets" element={<PermissionRoute permissions={['assets.view']}><AssetsPage /></PermissionRoute>} />
@@ -61,7 +59,6 @@ export function AuthenticatedRoutes() {
         <Route path="backups" element={<PermissionRoute permissions={['backups.manage']}><BackupPage /></PermissionRoute>} />
         <Route path="audit" element={<PermissionRoute permissions={['audit.view', 'status.audit.view']} anyPermission><AuditLogPage /></PermissionRoute>} />
         <Route path="auditlog" element={<Navigate to="/audit" replace />} />
-        <Route path="system" element={<PermissionRoute permissions={['system.health']}><SystemPage /></PermissionRoute>} />
         <Route path="systeem" element={<PermissionRoute permissions={['system.health']}><SystemPage /></PermissionRoute>} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="profiel" element={<Navigate to="/profile" replace />} />

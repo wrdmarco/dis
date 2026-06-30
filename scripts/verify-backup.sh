@@ -7,10 +7,12 @@ source "${SCRIPT_DIR}/lib/common.sh"
 BACKUP_PATH="${1:-}"
 
 if [ -z "${BACKUP_PATH}" ]; then
-  fail "Usage: verify-backup.sh /opt/dis/backup/<timestamp>"
+  fail "Usage: verify-backup.sh /opt/dis-data/backup/<timestamp>"
 fi
 
 APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
+load_data_path_from_env "${APP_ROOT}/.env"
+ensure_data_links "${APP_ROOT}"
 if [ -f "${APP_ROOT}/.env" ]; then
   set -a
   source "${APP_ROOT}/.env"
