@@ -115,6 +115,8 @@ export function BackupPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [restoreBackup, setRestoreBackup] = useState<BackupSummary | null>(null);
   const [confirmation, setConfirmation] = useState('');
+  const [uploadConfirmation, setUploadConfirmation] = useState('');
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [output, setOutput] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -189,18 +191,36 @@ export function BackupPage() {
 
     try {
       const result = await action();
-      setMessage(label === 'create' ? 'Backup is gemaakt.' : label === 'verify' ? 'Backup is geverifieerd.' : label === 'settings' ? 'Backupinstellingen zijn opgeslagen.' : 'Backup is teruggezet.');
+      setMessage(label === 'create' ? 'Backup is gemaakt.' : label === 'verify' ? 'Backup is geverifieerd.' : label === 'settings' ? 'Backupinstellingen zijn opgeslagen.' : label === 'uploadRestore' ? 'Upload backup is teruggezet.' : 'Backup is teruggezet.');
       setOutput(result.output ?? null);
       await backups.reload();
       if (label === 'restore') {
         setRestoreBackup(null);
         setConfirmation('');
       }
+      if (label === 'uploadRestore') {
+        setUploadConfirmation('');
+        setUploadFile(null);
+      }
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Actie mislukt.');
     } finally {
       setBusy(null);
     }
+  }
+
+  async function uploadRestore(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (uploadFile === null) {
+      setError('Selecteer eerst een ZIP-bestand.');
+      return;
+    }
+
+    const form = new FormData();
+    form.append('confirmation', uploadConfirmation);
+    form.append('backup', uploadFile);
+
+    await runAction('uploadRestore', async () => (await api.postForm<BackupActionResult>('/admin/backups/upload-restore', form)).data);
   }
 
   return (
@@ -384,6 +404,33 @@ export function BackupPage() {
           </dl>
           {message ? <p className="form-note">{message}</p> : null}
           {error ? <p className="form-error">{error}</p> : null}
+          <form className="form-grid restore-upload" onSubmit={uploadRestore}>
+            <div className="form-grid__wide section-heading">
+              <h3>Backup uploaden en terugzetten</h3>
+              <p>Upload een ZIP van een DIS backupmap. De backup wordt eerst geverifieerd en daarna pas teruggezet.</p>
+            </div>
+            <label>
+              Backup ZIP
+              <input
+                type="file"
+                accept=".zip,application/zip"
+                onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)}
+              />
+            </label>
+            <label>
+              Typ {backups.data?.confirmation_text}
+              <input value={uploadConfirmation} onChange={(event) => setUploadConfirmation(event.target.value)} />
+            </label>
+            <div className="actions-row form-grid__wide">
+              <button
+                className="danger-button"
+                type="submit"
+                disabled={busy !== null || uploadFile === null || uploadConfirmation !== backups.data?.confirmation_text}
+              >
+                {busy === 'uploadRestore' ? 'Upload restore draait...' : 'Upload restore uitvoeren'}
+              </button>
+            </div>
+          </form>
           <div className="table-wrap">
             <table>
               <thead>

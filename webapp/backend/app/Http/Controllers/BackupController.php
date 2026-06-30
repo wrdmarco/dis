@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Validation\ValidationException;
+use ZipArchive;
 
 final class BackupController extends Controller
 {
@@ -274,6 +275,83 @@ final class BackupController extends Controller
         ]);
     }
 
+    public function uploadRestore(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'confirmation' => ['required', 'string'],
+            'backup' => ['required', 'file', 'max:2097152'],
+        ]);
+        if ($data['confirmation'] !== self::RESTORE_CONFIRMATION) {
+            throw ValidationException::withMessages(['confirmation' => ['Bevestigingstekst klopt niet.']]);
+        }
+
+        $file = $request->file('backup');
+        if ($file === null || strtolower((string) $file->getClientOriginalExtension()) !== 'zip') {
+            throw ValidationException::withMessages(['backup' => ['Upload een ZIP-bestand met een DIS backup.']]);
+        }
+        $uploadedPath = $file->getRealPath();
+        if ($uploadedPath === false) {
+            throw ValidationException::withMessages(['backup' => ['Uploadbestand kon niet worden gelezen.']]);
+        }
+
+        $root = $this->backupRoot('local');
+        if (! is_dir($root) && ! mkdir($root, 0750, true) && ! is_dir($root)) {
+            return ApiResponse::error('backup_upload_failed', 'Lokale backupmap kon niet worden gemaakt.', 500);
+        }
+
+        $backupId = $this->nextImportBackupId($root);
+        $path = $root.'/'.$backupId;
+        if (! mkdir($path, 0750, true) && ! is_dir($path)) {
+            return ApiResponse::error('backup_upload_failed', 'Upload backupmap kon niet worden gemaakt.', 500);
+        }
+
+        try {
+            $this->extractBackupZip($uploadedPath, $path);
+            $verify = Process::timeout(600)->run(['sudo', '-n', '/usr/local/bin/dis-backup-verify', $path]);
+            $verifyOutput = $this->cleanOutput($verify->output().$verify->errorOutput());
+            if (! $verify->successful()) {
+                $this->deleteDirectory($path, $root);
+                $this->auditService->record('backups.upload_restore_failed', SystemSetting::class, $request->user(), [
+                    'backup' => $backupId,
+                    'successful' => false,
+                    'stage' => 'verify',
+                ], null, $request);
+
+                return ApiResponse::error('backup_upload_verify_failed', $verifyOutput ?: 'Geuploade backup is niet geldig.', 422);
+            }
+
+            $this->writeRuntimeConfig('local');
+            $restore = Process::timeout(1200)->run(['sudo', '-n', '/usr/local/bin/dis-backup-restore', $path]);
+            $restoreOutput = $this->cleanOutput($restore->output().$restore->errorOutput());
+            $output = trim($verifyOutput."\n".$restoreOutput);
+
+            $this->auditService->record('backups.upload_restored', SystemSetting::class, $request->user(), [
+                'backup' => $backupId,
+                'filename' => $file->getClientOriginalName(),
+                'successful' => $restore->successful(),
+            ], null, $request);
+
+            if (! $restore->successful()) {
+                return ApiResponse::error('backup_upload_restore_failed', $restoreOutput ?: 'Backup restore mislukt.', 500);
+            }
+
+            return ApiResponse::success([
+                'backup' => $backupId,
+                'state' => 'restored',
+                'output' => $output,
+                'backups' => $this->index()->getData(true)['data']['backups'] ?? [],
+            ]);
+        } catch (ValidationException $exception) {
+            $this->deleteDirectory($path, $root);
+            throw $exception;
+        } catch (\Throwable $exception) {
+            $this->deleteDirectory($path, $root);
+            report($exception);
+
+            return ApiResponse::error('backup_upload_failed', 'Geuploade backup kon niet worden verwerkt.', 500);
+        }
+    }
+
     private function backupRoot(?string $target = null): string
     {
         $target ??= SystemSetting::string('backup.target', 'local') ?? 'local';
@@ -471,6 +549,162 @@ final class BackupController extends Controller
     private function validBackupId(string $backup): bool
     {
         return preg_match('/^\d{8}T\d{6}Z$/', $backup) === 1;
+    }
+
+    private function nextImportBackupId(string $root): string
+    {
+        $now = now('UTC');
+        for ($offset = 0; $offset < 120; $offset++) {
+            $id = $now->copy()->addSeconds($offset)->format('Ymd\THis\Z');
+            if (! is_dir($root.'/'.$id)) {
+                return $id;
+            }
+        }
+
+        throw ValidationException::withMessages(['backup' => ['Er kon geen unieke backupnaam worden gemaakt.']]);
+    }
+
+    private function extractBackupZip(string $zipPath, string $targetPath): void
+    {
+        if (! class_exists(ZipArchive::class)) {
+            throw ValidationException::withMessages(['backup' => ['ZIP ondersteuning ontbreekt op de server.']]);
+        }
+
+        $zip = new ZipArchive();
+        if ($zip->open($zipPath) !== true) {
+            throw ValidationException::withMessages(['backup' => ['ZIP-bestand kon niet worden geopend.']]);
+        }
+
+        try {
+            $prefix = $this->backupZipPrefix($zip);
+            for ($index = 0; $index < $zip->numFiles; $index++) {
+                $entry = $zip->getNameIndex($index);
+                if (! is_string($entry)) {
+                    continue;
+                }
+
+                $relative = $this->safeZipRelativePath($entry, $prefix);
+                if ($relative === null) {
+                    continue;
+                }
+
+                $destination = $targetPath.'/'.$relative;
+                if (str_ends_with($entry, '/')) {
+                    $this->ensureDirectory($destination);
+                    continue;
+                }
+
+                $stream = $zip->getStream($entry);
+                if ($stream === false) {
+                    throw ValidationException::withMessages(['backup' => ['ZIP-bestand bevat een onleesbaar bestand.']]);
+                }
+
+                $this->ensureDirectory(dirname($destination));
+                $output = fopen($destination, 'wb');
+                if ($output === false) {
+                    fclose($stream);
+                    throw ValidationException::withMessages(['backup' => ['Backupbestand kon niet worden weggeschreven.']]);
+                }
+
+                stream_copy_to_stream($stream, $output);
+                fclose($stream);
+                fclose($output);
+                chmod($destination, 0640);
+            }
+        } finally {
+            $zip->close();
+        }
+
+        foreach (['database.dump', 'storage.tar.gz', 'source.tar.gz', 'env.backup', 'SHA256SUMS', 'manifest.json'] as $required) {
+            if (! is_file($targetPath.'/'.$required)) {
+                throw ValidationException::withMessages(['backup' => ['ZIP-bestand bevat geen volledige DIS backup.']]);
+            }
+        }
+    }
+
+    private function backupZipPrefix(ZipArchive $zip): string
+    {
+        $required = ['database.dump', 'storage.tar.gz', 'source.tar.gz', 'env.backup', 'SHA256SUMS', 'manifest.json'];
+        $names = [];
+        for ($index = 0; $index < $zip->numFiles; $index++) {
+            $name = $zip->getNameIndex($index);
+            if (is_string($name)) {
+                $names[] = ltrim(str_replace('\\', '/', $name), '/');
+            }
+        }
+
+        $prefixes = array_values(array_unique(array_filter(array_map(
+            fn (string $name): string => explode('/', $name, 2)[0] ?? '',
+            $names,
+        ))));
+        array_unshift($prefixes, '');
+
+        foreach ($prefixes as $prefix) {
+            $base = $prefix === '' ? '' : $prefix.'/';
+            $hasAll = true;
+            foreach ($required as $requiredFile) {
+                if (! in_array($base.$requiredFile, $names, true)) {
+                    $hasAll = false;
+                    break;
+                }
+            }
+            if ($hasAll) {
+                return $base;
+            }
+        }
+
+        throw ValidationException::withMessages(['backup' => ['ZIP-bestand bevat geen volledige DIS backup.']]);
+    }
+
+    private function safeZipRelativePath(string $entry, string $prefix): ?string
+    {
+        $normalized = ltrim(str_replace('\\', '/', $entry), '/');
+        if ($prefix !== '' && ! str_starts_with($normalized, $prefix)) {
+            return null;
+        }
+
+        $relative = $prefix === '' ? $normalized : substr($normalized, strlen($prefix));
+        $relative = trim($relative, '/');
+        if ($relative === '' || str_starts_with($relative, '__MACOSX/')) {
+            return null;
+        }
+
+        if (in_array('..', explode('/', $relative), true) || preg_match('/^[A-Za-z]:/', $relative) === 1) {
+            throw ValidationException::withMessages(['backup' => ['ZIP-bestand bevat onveilige paden.']]);
+        }
+
+        return $relative;
+    }
+
+    private function ensureDirectory(string $path): void
+    {
+        if (! is_dir($path) && ! mkdir($path, 0750, true) && ! is_dir($path)) {
+            throw ValidationException::withMessages(['backup' => ['Backupmap kon niet worden aangemaakt.']]);
+        }
+
+        chmod($path, 0750);
+    }
+
+    private function deleteDirectory(string $path, string $root): void
+    {
+        $root = rtrim(realpath($root) ?: $root, '/');
+        $path = rtrim(realpath($path) ?: $path, '/');
+        if ($path === $root || ! str_starts_with($path, $root.'/') || ! is_dir($path)) {
+            return;
+        }
+
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST,
+        );
+        foreach ($iterator as $file) {
+            if ($file->isDir()) {
+                @rmdir($file->getPathname());
+            } else {
+                @unlink($file->getPathname());
+            }
+        }
+        @rmdir($path);
     }
 
     /**

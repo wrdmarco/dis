@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+DIS_INSTALL_PATH="${DIS_INSTALL_PATH:-/opt/dis}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -f "${SCRIPT_DIR}/lib/common.sh" ] && [ -f "${DIS_INSTALL_PATH}/scripts/lib/common.sh" ]; then
+  SCRIPT_DIR="${DIS_INSTALL_PATH}/scripts"
+fi
 source "${SCRIPT_DIR}/lib/common.sh"
 
 BACKUP_PATH="${1:-}"
