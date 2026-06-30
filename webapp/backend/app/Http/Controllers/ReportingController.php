@@ -26,7 +26,11 @@ final class ReportingController extends Controller
         }
 
         if ($pdf === null) {
-            return ApiResponse::error('incident_report_unavailable', 'Het opgeslagen incidentrapport is nog niet beschikbaar.', 503);
+            $message = $incident->report_generation_error !== null && $incident->report_generation_error !== ''
+                ? 'Incidentrapport kon niet worden gemaakt: '.$incident->report_generation_error
+                : 'Het opgeslagen incidentrapport is nog niet beschikbaar.';
+
+            return ApiResponse::error('incident_report_unavailable', $message, 503);
         }
 
         return response($pdf, 200, [

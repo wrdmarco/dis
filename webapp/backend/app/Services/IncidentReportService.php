@@ -58,9 +58,15 @@ final class IncidentReportService
 
     public function pdf(Incident $incident): string
     {
+        Storage::disk('local')->makeDirectory('report-temp');
+        Storage::disk('local')->makeDirectory('report-fonts');
+
         $options = new Options();
         $options->set('isRemoteEnabled', false);
         $options->set('defaultFont', 'DejaVu Sans');
+        $options->set('tempDir', storage_path('app/report-temp'));
+        $options->set('fontDir', storage_path('app/report-fonts'));
+        $options->set('fontCache', storage_path('app/report-fonts'));
 
         $dompdf = new Dompdf($options);
         $dompdf->loadHtml(view('reports.incident', $this->data($incident))->render());
