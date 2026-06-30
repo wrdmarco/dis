@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { Activity, KeyRound, LockKeyhole, Mail, RadioTower, ShieldCheck } from 'lucide-react';
+import { KeyRound, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { ApiClientError } from '../../lib/apiClient';
 import type { TwoFactorSetup } from '../../types/api';
@@ -91,33 +91,6 @@ export function LoginPage() {
 
   return (
     <main className="login-shell">
-      <section className="login-brief" aria-label="D.I.S status">
-        <div className="login-brief__topline">
-          <span>{branding.tenant_name || 'Nationaal Droneteam'}</span>
-          <strong>DIS</strong>
-        </div>
-        <div className="login-brief__title">
-          <span>Command Center</span>
-          <h2>Drone Inzet Systeem</h2>
-        </div>
-        <div className="login-brief__grid" aria-hidden="true">
-          <div>
-            <RadioTower size={18} />
-            <span>Webconsole</span>
-            <strong>Beschermd</strong>
-          </div>
-          <div>
-            <ShieldCheck size={18} />
-            <span>Toegang</span>
-            <strong>MFA gereed</strong>
-          </div>
-          <div>
-            <Activity size={18} />
-            <span>Sessie</span>
-            <strong>Versleuteld</strong>
-          </div>
-        </div>
-      </section>
       <section className="login-panel" aria-labelledby="login-title">
         <div className="login-panel__brand">
           <div className="login-panel__mark">
