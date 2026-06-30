@@ -33,6 +33,46 @@ const brandingTabs: Array<{ id: BrandingTab; label: string }> = [
   { id: 'expiry', label: 'Verloopmails' },
 ];
 
+const DEFAULT_WELCOME_SUBJECT = 'Welkom bij {{app_name}}';
+const DEFAULT_WELCOME_BODY = `Beste {{name}},
+
+Er is een account voor je aangemaakt in {{app_name}}. Rond je registratie af via onderstaande link:
+
+{{registration_url}}
+
+Je stelt zelf je wachtwoord in en doorloopt direct de MFA-setup wanneer dat voor je rol verplicht is.
+
+{{admin_app_note}}
+
+Deze link is tijdelijk geldig. Vraag een beheerder om een nieuwe uitnodiging als de link verlopen is.`;
+const DEFAULT_CERTIFICATION_EXPIRY_SUBJECT = '{{certification_name}} - {{status_text}}';
+const DEFAULT_CERTIFICATION_EXPIRY_BODY = `Beste {{name}},
+
+Je certificaat {{certification_name}} {{expiry_status}}.
+
+Certificaatnummer: {{certificate_number}}
+Verloopdatum: {{expires_at}}
+Status: {{status_text}}
+
+Werk je certificaat bij in de app zodra de verlenging rond is. Zonder geldig vereist certificaat kun je niet meegenomen worden in alarmeringen waarvoor dit certificaat verplicht is.
+
+App downloadpagina:
+{{download_url}}`;
+const DEFAULT_ASSET_EXPIRY_SUBJECT = '{{asset_name}} - {{status_text}}';
+const DEFAULT_ASSET_EXPIRY_BODY = `Beste {{name}},
+
+De verloopdatum of onderhoudsdatum van asset {{asset_name}} {{expiry_status}}.
+
+Asset tag: {{asset_tag}}
+Serienummer: {{serial_number}}
+Verloopdatum: {{expires_at}}
+Status: {{status_text}}
+
+Werk de assetgegevens bij zodra dit is afgehandeld.
+
+App downloadpagina:
+{{download_url}}`;
+
 export function BrandingPage() {
   const { api } = useAuth();
   const settings = useApiResource<SystemSetting[]>('/admin/settings');
@@ -63,14 +103,14 @@ export function BrandingPage() {
           'mobile.tenant_name': textSetting(form.tenantName, 'Nationaal Droneteam'),
           'security.mfa_issuer_name': textSetting(form.mfaIssuerName, 'D.I.S'),
           'mail.from_name': textSetting(form.mailFromName, textSetting(form.tenantName, 'D.I.S')),
-          'mail.template.welcome_subject': textSetting(form.welcomeSubject, 'Welkom bij {{app_name}}'),
-          'mail.template.welcome_body': textSetting(form.welcomeBody),
+          'mail.template.welcome_subject': textSetting(form.welcomeSubject, DEFAULT_WELCOME_SUBJECT),
+          'mail.template.welcome_body': textSetting(form.welcomeBody, DEFAULT_WELCOME_BODY),
           'certification.warning_days_before_expiry': numberSetting(form.certificationWarningDaysBeforeExpiry, 30),
-          'mail.template.certification_expiry_subject': textSetting(form.certificationExpirySubject, '{{certification_name}} - {{status_text}}'),
-          'mail.template.certification_expiry_body': textSetting(form.certificationExpiryBody),
+          'mail.template.certification_expiry_subject': textSetting(form.certificationExpirySubject, DEFAULT_CERTIFICATION_EXPIRY_SUBJECT),
+          'mail.template.certification_expiry_body': textSetting(form.certificationExpiryBody, DEFAULT_CERTIFICATION_EXPIRY_BODY),
           'asset.warning_days_before_expiry': numberSetting(form.assetWarningDaysBeforeExpiry, 30),
-          'mail.template.asset_expiry_subject': textSetting(form.assetExpirySubject, '{{asset_name}} - {{status_text}}'),
-          'mail.template.asset_expiry_body': textSetting(form.assetExpiryBody),
+          'mail.template.asset_expiry_subject': textSetting(form.assetExpirySubject, DEFAULT_ASSET_EXPIRY_SUBJECT),
+          'mail.template.asset_expiry_body': textSetting(form.assetExpiryBody, DEFAULT_ASSET_EXPIRY_BODY),
         },
       });
       await settings.reload();
@@ -276,14 +316,14 @@ function toBrandingForm(settings: SystemSetting[]): BrandingForm {
     tenantName: asString(byKey.get('mobile.tenant_name')) || 'Nationaal Droneteam',
     mfaIssuerName: asString(byKey.get('security.mfa_issuer_name')) || 'D.I.S',
     mailFromName: asString(byKey.get('mail.from_name')) || 'D.I.S',
-    welcomeSubject: asString(byKey.get('mail.template.welcome_subject')) || 'Welkom bij {{app_name}}',
-    welcomeBody: asString(byKey.get('mail.template.welcome_body')) || '',
+    welcomeSubject: asString(byKey.get('mail.template.welcome_subject')) || DEFAULT_WELCOME_SUBJECT,
+    welcomeBody: asString(byKey.get('mail.template.welcome_body')) || DEFAULT_WELCOME_BODY,
     certificationWarningDaysBeforeExpiry: String(asNumber(byKey.get('certification.warning_days_before_expiry'), 30)),
-    certificationExpirySubject: asString(byKey.get('mail.template.certification_expiry_subject')) || '{{certification_name}} - {{status_text}}',
-    certificationExpiryBody: asString(byKey.get('mail.template.certification_expiry_body')) || '',
+    certificationExpirySubject: asString(byKey.get('mail.template.certification_expiry_subject')) || DEFAULT_CERTIFICATION_EXPIRY_SUBJECT,
+    certificationExpiryBody: asString(byKey.get('mail.template.certification_expiry_body')) || DEFAULT_CERTIFICATION_EXPIRY_BODY,
     assetWarningDaysBeforeExpiry: String(asNumber(byKey.get('asset.warning_days_before_expiry'), 30)),
-    assetExpirySubject: asString(byKey.get('mail.template.asset_expiry_subject')) || '{{asset_name}} - {{status_text}}',
-    assetExpiryBody: asString(byKey.get('mail.template.asset_expiry_body')) || '',
+    assetExpirySubject: asString(byKey.get('mail.template.asset_expiry_subject')) || DEFAULT_ASSET_EXPIRY_SUBJECT,
+    assetExpiryBody: asString(byKey.get('mail.template.asset_expiry_body')) || DEFAULT_ASSET_EXPIRY_BODY,
   };
 }
 
