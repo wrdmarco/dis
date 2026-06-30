@@ -393,7 +393,6 @@ reset_git_worktree_for_update() {
     webapp/backend/bootstrap/cache \
     webapp/backend/storage/logs \
     webapp/backend/storage/app/backup-config.env \
-    maintenance/frontend.lock \
     webapp/frontend/dist-next \
     webapp/frontend/dist-previous \
     webapp/frontend/.vite \
@@ -517,6 +516,9 @@ ensure_runtime_git_excludes
 recover_stashed_backups
 drop_dis_update_stashes
 
+enable_frontend_maintenance
+trap disable_frontend_maintenance EXIT
+
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
   check_system_updates
 fi
@@ -538,9 +540,6 @@ if [ "${SYSTEM_UPDATES_AVAILABLE}" = "0" ] && [ "${APP_UPDATES_AVAILABLE}" = "0"
   clear_application_caches
   exit 0
 fi
-
-enable_frontend_maintenance
-trap disable_frontend_maintenance EXIT
 
 create_pre_update_backup
 
