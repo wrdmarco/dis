@@ -1,5 +1,6 @@
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
+import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 
 interface Health {
@@ -52,7 +53,7 @@ export function SystemPage() {
             <div className="summary-grid">
               <SummaryCard label="Algemene status" value={healthLabel(health.data?.status)} />
               <SummaryCard label="Uptime server" value={formatUptime(services.backend?.uptime_seconds)} />
-              <SummaryCard label="Laatste controle" value={health.data?.generated_at ?? health.data?.timestamp ?? '-'} />
+              <SummaryCard label="Laatste controle" value={formatDateTime(health.data?.generated_at ?? health.data?.timestamp)} />
             </div>
             <div className="summary-grid">
               {Object.entries(services).map(([name, service]) => (

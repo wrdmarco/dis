@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { ApiClientError } from '../../lib/apiClient';
+import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
 
@@ -450,7 +451,7 @@ export function BackupPage() {
                   <tr key={backup.id}>
                     <td>
                       <strong>{backup.id}</strong>
-                      <span className="muted-text">{backup.created_at}</span>
+                      <span className="muted-text">{formatDateTime(backup.created_at)}</span>
                     </td>
                     <td>{targetLabel(backup.target)}</td>
                     <td>{backup.database ?? '-'}</td>

@@ -87,8 +87,17 @@ ensure_runtime_git_excludes() {
     "/backup/" \
     "/storage/tmp/" \
     "/storage/generated/" \
+    "/webapp/backend/bootstrap/cache/" \
     "/webapp/backend/storage/logs/" \
-    "/webapp/backend/storage/app/backup-config.env"; do
+    "/webapp/backend/storage/app/backup-config.env" \
+    "/webapp/frontend/dist/" \
+    "/webapp/frontend/.vite/" \
+    "/webapp/frontend/.cache/" \
+    "/webapp/frontend/node_modules/.vite/" \
+    "/webapp/frontend/node_modules/.cache/" \
+    "/webapp/frontend/*.tsbuildinfo" \
+    "/webapp/frontend/vite.config.js" \
+    "/webapp/frontend/vite.config.d.ts"; do
     if ! grep -qxF "${pattern}" "${exclude_file}" 2>/dev/null; then
       printf '%s\n' "${pattern}" >> "${exclude_file}"
     fi
@@ -134,6 +143,24 @@ recover_stashed_backups() {
       run_cmd find "${DIS_INSTALL_PATH}/backup" -type d -exec chmod 0750 {} + || true
       run_cmd find "${DIS_INSTALL_PATH}/backup" -type f -exec chmod 0640 {} + || true
     fi
+  fi
+}
+
+drop_dis_update_stashes() {
+  local stash_ref dropped
+
+  if [ ! -d "${DIS_INSTALL_PATH}/.git" ]; then
+    return
+  fi
+
+  dropped=0
+  while IFS= read -r stash_ref; do
+    run_cmd git -C "${DIS_INSTALL_PATH}" stash drop "${stash_ref}" >/dev/null 2>&1 || true
+    dropped=1
+  done < <(git -C "${DIS_INSTALL_PATH}" stash list --format='%gd %s' | awk '/server-local-before-update/ {print $1}')
+
+  if [ "${dropped}" = "1" ]; then
+    log "Removed old DIS update stashes after recovery."
   fi
 }
 
@@ -309,33 +336,67 @@ create_pre_update_backup() {
   run_cmd bash "${SCRIPT_DIR}/verify-backup.sh" "${backup_path}"
 }
 
-stash_local_git_changes() {
-  local status stash_name
+reset_git_worktree_for_update() {
+  local status_before untracked_before
 
   if [ ! -d "${DIS_INSTALL_PATH}/.git" ]; then
     return
   fi
 
   ensure_runtime_git_excludes
-  status="$(git -C "${DIS_INSTALL_PATH}" status --porcelain -- . \
-    ':(exclude)backup' \
-    ':(exclude)storage/tmp' \
-    ':(exclude)storage/generated' \
-    ':(exclude)webapp/backend/storage/logs' \
-    ':(exclude)webapp/backend/storage/app/backup-config.env')"
-  if [ -z "${status}" ]; then
-    return
+
+  status_before="$(git -C "${DIS_INSTALL_PATH}" status --porcelain --untracked-files=no -- . ':(exclude)backup' || true)"
+  if [ -n "${status_before}" ]; then
+    log "Local tracked Git changes detected; resetting production checkout without stash."
+    run_cmd git -C "${DIS_INSTALL_PATH}" reset --hard HEAD
   fi
 
-  stash_name="server-local-before-update-$(date -u +%Y%m%dT%H%M%SZ)"
-  log "Local Git changes detected. Stashing them as ${stash_name}."
-  run_cmd git -C "${DIS_INSTALL_PATH}" stash push -u -m "${stash_name}" -- . \
+  untracked_before="$(git -C "${DIS_INSTALL_PATH}" status --porcelain --untracked-files=all -- . ':(exclude)backup' | awk '/^\?\?/ {print}' || true)"
+  if [ -n "${untracked_before}" ]; then
+    log "Local untracked files detected; cleaning production checkout without stash."
+  fi
+
+  run_cmd git -C "${DIS_INSTALL_PATH}" clean -ffdx -- \
+    . \
     ':(exclude)backup' \
-    ':(exclude)storage/tmp' \
-    ':(exclude)storage/generated' \
-    ':(exclude)webapp/backend/storage/logs' \
-    ':(exclude)webapp/backend/storage/app/backup-config.env'
-  log "Local changes were stashed and not reapplied automatically."
+    ':(exclude)storage' \
+    ':(exclude)storage/**' \
+    ':(exclude).env' \
+    ':(exclude).env.*' \
+    ':(exclude)secrets' \
+    ':(exclude)secrets/**' \
+    ':(exclude)webapp/backend/storage' \
+    ':(exclude)webapp/backend/storage/**' \
+    ':(exclude)webapp/backend/vendor' \
+    ':(exclude)webapp/backend/vendor/**' \
+    ':(exclude)webapp/backend/.env' \
+    ':(exclude)webapp/frontend/node_modules' \
+    ':(exclude)webapp/frontend/node_modules/**' \
+    ':(exclude)webapp/frontend/.env.production' \
+    ':(exclude)app/android/local.properties' \
+    ':(exclude)app/android/app/build' \
+    ':(exclude)app/android/app/build/**' \
+    ':(exclude)app/android/build' \
+    ':(exclude)app/android/build/**' \
+    ':(exclude)webapp/backend/storage/app/backup-config.env' \
+    >/dev/null 2>&1 || true
+
+  run_cmd git -C "${DIS_INSTALL_PATH}" clean -ffdx -- \
+    storage/tmp \
+    storage/generated \
+    webapp/backend/bootstrap/cache \
+    webapp/backend/storage/logs \
+    webapp/backend/storage/app/backup-config.env \
+    webapp/frontend/dist \
+    webapp/frontend/.vite \
+    webapp/frontend/.cache \
+    webapp/frontend/node_modules/.vite \
+    webapp/frontend/node_modules/.cache \
+    webapp/frontend/tsconfig.tsbuildinfo \
+    webapp/frontend/tsconfig.node.tsbuildinfo \
+    webapp/frontend/vite.config.js \
+    webapp/frontend/vite.config.d.ts \
+    >/dev/null 2>&1 || true
 }
 
 ensure_git_remote() {
@@ -363,7 +424,7 @@ ensure_git_remote() {
   branch="$(git -C "${DIS_INSTALL_PATH}" rev-parse --abbrev-ref HEAD)"
   if [ "${branch}" = "HEAD" ]; then
     log "Git checkout is detached; switching to ${DIS_GIT_BRANCH}."
-    stash_local_git_changes
+    reset_git_worktree_for_update
     if git -C "${DIS_INSTALL_PATH}" show-ref --verify --quiet "refs/heads/${DIS_GIT_BRANCH}"; then
       run_cmd git -C "${DIS_INSTALL_PATH}" checkout "${DIS_GIT_BRANCH}"
     else
@@ -446,6 +507,7 @@ check_app_updates() {
 
 ensure_runtime_git_excludes
 recover_stashed_backups
+drop_dis_update_stashes
 
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
   check_system_updates
@@ -486,8 +548,8 @@ if [ "${UPDATE_APP}" = "1" ]; then
     if [ "${UPDATE_SOURCE}" = "1" ]; then
       if [ -d "${DIS_INSTALL_PATH}/.git" ]; then
         log "Pulling latest DIS source"
-        stash_local_git_changes
-        run_cmd git -C "${DIS_INSTALL_PATH}" merge --ff-only "${APP_UPSTREAM}"
+        reset_git_worktree_for_update
+        run_cmd git -C "${DIS_INSTALL_PATH}" reset --hard "${APP_UPSTREAM}"
       else
         log "No Git checkout found at ${DIS_INSTALL_PATH}; skipping source update."
       fi

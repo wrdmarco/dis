@@ -4,6 +4,7 @@ import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
+import { formatDateTime } from '../../lib/dateTime';
 import { droneTypeLabel } from '../../lib/droneTypes';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
@@ -866,20 +867,6 @@ function deviceLabel(manufacturer?: string | null, model?: string | null, fallba
   const label = [manufacturer, model].filter((value) => value !== undefined && value !== null && value !== '').join(' ');
 
   return label || fallback || '-';
-}
-
-function formatDateTime(value?: string | null): string {
-  if (value === undefined || value === null || value === '') {
-    return '-';
-  }
-
-  return new Intl.DateTimeFormat('nl-NL', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
 }
 
 function formatDate(value?: string | null): string {
