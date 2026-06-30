@@ -355,16 +355,24 @@ final class UserService
         try {
             $this->sendWelcomeMail($user, $actor);
         } catch (Throwable $exception) {
-            Log::warning('Welcome mail could not be sent after user creation.', [
-                'user_id' => $user->id,
-                'actor_id' => $actor->id,
-                'exception' => $exception::class,
-                'message' => $exception->getMessage(),
-            ]);
+            try {
+                Log::warning('Welcome mail could not be sent after user creation.', [
+                    'user_id' => $user->id,
+                    'actor_id' => $actor->id,
+                    'exception' => $exception::class,
+                    'message' => $exception->getMessage(),
+                ]);
+            } catch (Throwable) {
+                // Logging must never block user creation.
+            }
 
-            $this->auditService->record('users.welcome_mail_failed', $user, $actor, [
-                'error' => $exception->getMessage(),
-            ]);
+            try {
+                $this->auditService->record('users.welcome_mail_failed', $user, $actor, [
+                    'error' => mb_substr($exception->getMessage(), 0, 1000),
+                ]);
+            } catch (Throwable) {
+                // Audit is best-effort here because the account already exists.
+            }
         }
     }
 }
