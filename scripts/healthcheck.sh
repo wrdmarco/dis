@@ -29,7 +29,14 @@ check_url() {
 }
 
 log "Checking ${HEALTH_URL}"
-check_url "Health check" "${HEALTH_URL}"
+if ! check_url "Health check" "${HEALTH_URL}"; then
+  if [ "${HEALTH_URL}" = "http://127.0.0.1/health" ]; then
+    log "Retrying local health check via API route"
+    check_url "Health check" "http://127.0.0.1/api/health"
+  else
+    exit 1
+  fi
+fi
 log "Health check passed"
 
 if [ -n "${ADMIN_HEALTH_URL}" ]; then
