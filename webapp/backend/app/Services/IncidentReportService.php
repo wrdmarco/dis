@@ -68,8 +68,27 @@ final class IncidentReportService
         $options->set('fontDir', storage_path('app/report-fonts'));
         $options->set('fontCache', storage_path('app/report-fonts'));
 
+        $data = $this->data($incident);
+        try {
+            return $this->renderPdf($options, $data);
+        } catch (Throwable $exception) {
+            report($exception);
+        }
+
+        $data['map']['snapshot_data_uri'] = null;
+        $data['map']['snapshot_available'] = false;
+        $data['map']['aeret_snapshot_data_uri'] = null;
+
+        return $this->renderPdf($options, $data);
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function renderPdf(Options $options, array $data): string
+    {
         $dompdf = new Dompdf($options);
-        $dompdf->loadHtml(view('reports.incident', $this->data($incident))->render());
+        $dompdf->loadHtml(view('reports.incident', $data)->render());
         $dompdf->setPaper('a4', 'portrait');
         $dompdf->render();
 
@@ -310,7 +329,15 @@ final class IncidentReportService
         if ($aeretUrl === null && is_string($flightMap['aeret_url'] ?? null)) {
             $aeretUrl = $flightMap['aeret_url'];
         }
-        $mapSnapshot = $this->satelliteMapSnapshot($latitude, $longitude);
+        try {
+            $mapSnapshot = $this->satelliteMapSnapshot($latitude, $longitude);
+        } catch (Throwable $exception) {
+            report($exception);
+            $mapSnapshot = [
+                'available' => false,
+                'data_uri' => null,
+            ];
+        }
 
         return [
             'available' => true,

@@ -61,6 +61,7 @@
     $weather = is_array($flight) && is_array($flight['weather'] ?? null) ? $flight['weather'] : null;
     $airspace = is_array($flight) && is_array($flight['airspace'] ?? null) ? $flight['airspace'] : null;
     $flightMap = is_array($flight) && is_array($flight['map'] ?? null) ? $flight['map'] : null;
+    $aeretUrl = $flightMap['aeret_url'] ?? $map['aeret_url'] ?? null;
     $flightChecklist = is_array($flight) && is_array($flight['checklist'] ?? null) ? $flight['checklist'] : [];
     $formatDate = fn ($value) => $value ? $value->timezone($tz)->format('d-m-Y H:i') : '-';
     $formatMinutes = fn ($value) => $value === null ? '-' : $value.' min';
@@ -193,7 +194,7 @@
             <tr>
                 <td class="flight-card" colspan="2">
                     <h3>Aeret kaart</h3>
-                    @if ($flightMap)
+                    @if ($flightMap || $aeretUrl)
                         <div class="aeret-link-card">
                             <strong>Open de actuele Aeret Drone PreFlight kaart</strong>
                             <span>De interactieve Aeret-kaart wordt extern opgebouwd met actuele kaartlagen. In dit rapport staat daarom de directe link naar dezelfde incidentlocatie.</span>
@@ -203,7 +204,7 @@
                             <dt>Bron</dt><dd>{{ $flightMap['provider'] ?? 'Aeret Drone PreFlight' }}</dd>
                             <dt>Status</dt><dd>{{ $flightMap['status'] ?? '-' }}</dd>
                         </dl>
-                        <p class="map-url">Aeret kaart: {{ $flightMap['aeret_url'] ?? '-' }}</p>
+                        <p class="map-url">Aeret kaart: {{ $aeretUrl ?? '-' }}</p>
                     @else
                         <p class="muted">Geen Aeret kaart opgeslagen.</p>
                     @endif
