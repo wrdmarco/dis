@@ -45,6 +45,7 @@ final class AppServiceProvider extends ServiceProvider
         $directories = [
             storage_path('app'),
             storage_path('framework/cache'),
+            storage_path('framework/cache/data'),
             storage_path('framework/sessions'),
             storage_path('framework/views'),
             storage_path('logs'),

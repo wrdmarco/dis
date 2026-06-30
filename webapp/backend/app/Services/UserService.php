@@ -216,7 +216,7 @@ final class UserService
             throw ValidationException::withMessages(['user' => ['Alleen actieve gebruikers kunnen een uitnodiging ontvangen.']]);
         }
 
-        $this->sendWelcomeMail($user->refresh()->load(['roles.permissions', 'teams']), $actor);
+        $this->sendWelcomeMailOrFail($user->refresh()->load(['roles.permissions', 'teams']), $actor);
 
         return $user->refresh()->load(['roles', 'teams']);
     }
@@ -355,24 +355,42 @@ final class UserService
         try {
             $this->sendWelcomeMail($user, $actor);
         } catch (Throwable $exception) {
-            try {
-                Log::warning('Welcome mail could not be sent after user creation.', [
-                    'user_id' => $user->id,
-                    'actor_id' => $actor->id,
-                    'exception' => $exception::class,
-                    'message' => $exception->getMessage(),
-                ]);
-            } catch (Throwable) {
-                // Logging must never block user creation.
-            }
+            $this->recordWelcomeMailFailure($user, $actor, $exception);
+        }
+    }
 
-            try {
-                $this->auditService->record('users.welcome_mail_failed', $user, $actor, [
-                    'error' => mb_substr($exception->getMessage(), 0, 1000),
-                ]);
-            } catch (Throwable) {
-                // Audit is best-effort here because the account already exists.
-            }
+    private function sendWelcomeMailOrFail(User $user, User $actor): void
+    {
+        try {
+            $this->sendWelcomeMail($user, $actor);
+        } catch (Throwable $exception) {
+            $this->recordWelcomeMailFailure($user, $actor, $exception);
+
+            throw ValidationException::withMessages([
+                'mail' => ['Uitnodiging kon niet worden verstuurd: '.mb_substr($exception->getMessage(), 0, 500)],
+            ]);
+        }
+    }
+
+    private function recordWelcomeMailFailure(User $user, User $actor, Throwable $exception): void
+    {
+        try {
+            Log::warning('Welcome mail could not be sent.', [
+                'user_id' => $user->id,
+                'actor_id' => $actor->id,
+                'exception' => $exception::class,
+                'message' => $exception->getMessage(),
+            ]);
+        } catch (Throwable) {
+            // Logging must never block the primary user flow.
+        }
+
+        try {
+            $this->auditService->record('users.welcome_mail_failed', $user, $actor, [
+                'error' => mb_substr($exception->getMessage(), 0, 1000),
+            ]);
+        } catch (Throwable) {
+            // Audit is best-effort here because the account already exists.
         }
     }
 }
