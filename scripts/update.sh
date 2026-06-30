@@ -87,6 +87,7 @@ ensure_runtime_git_excludes() {
   run_cmd touch "${exclude_file}"
   for pattern in \
     "/backup/" \
+    "/maintenance/" \
     "/storage/tmp/" \
     "/storage/generated/" \
     "/webapp/backend/bootstrap/cache/" \
@@ -362,6 +363,8 @@ reset_git_worktree_for_update() {
     . \
     ':(exclude)backup' \
     ':(exclude)backup/**' \
+    ':(exclude)maintenance' \
+    ':(exclude)maintenance/**' \
     ':(exclude)storage' \
     ':(exclude)storage/**' \
     ':(exclude).env' \
@@ -390,6 +393,7 @@ reset_git_worktree_for_update() {
     webapp/backend/bootstrap/cache \
     webapp/backend/storage/logs \
     webapp/backend/storage/app/backup-config.env \
+    maintenance/frontend.lock \
     webapp/frontend/dist-next \
     webapp/frontend/dist-previous \
     webapp/frontend/.vite \
@@ -535,6 +539,9 @@ if [ "${SYSTEM_UPDATES_AVAILABLE}" = "0" ] && [ "${APP_UPDATES_AVAILABLE}" = "0"
   exit 0
 fi
 
+enable_frontend_maintenance
+trap disable_frontend_maintenance EXIT
+
 create_pre_update_backup
 
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
@@ -585,3 +592,5 @@ if [ "${RUN_HEALTHCHECK}" = "1" ]; then
 fi
 
 log "DIS system and application update completed."
+disable_frontend_maintenance
+trap - EXIT

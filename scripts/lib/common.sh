@@ -67,6 +67,49 @@ ensure_directory() {
   run_cmd install -d -m "$mode" -o "$owner" -g "$group" "$path"
 }
 
+write_maintenance_page() {
+  local page_path
+  page_path="${DIS_INSTALL_PATH}/maintenance/__dis_maintenance.html"
+
+  ensure_directory "$(dirname "${page_path}")" root root 0755
+  cat > "${page_path}" <<'HTML'
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="20">
+  <title>D.I.S onderhoud</title>
+  <style>
+    :root { color-scheme: dark; font-family: Arial, sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #070d16; color: #f8fafc; }
+    main { width: min(520px, calc(100vw - 40px)); padding: 28px; border: 1px solid #1f3148; border-radius: 8px; background: #101927; box-shadow: 0 18px 60px rgba(0, 0, 0, .28); }
+    span { display: block; color: #60c7ed; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+    h1 { margin: 10px 0 8px; font-size: 28px; line-height: 1.15; }
+    p { margin: 0; color: #cbd5e1; font-size: 16px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <main>
+    <span>D.I.S update</span>
+    <h1>Tijdelijk onderhoud</h1>
+    <p>Het systeem wordt bijgewerkt. Deze pagina ververst automatisch.</p>
+  </main>
+</body>
+</html>
+HTML
+  run_cmd chmod 0644 "${page_path}"
+}
+
+enable_frontend_maintenance() {
+  write_maintenance_page
+  run_cmd touch "${DIS_INSTALL_PATH}/maintenance/frontend.lock"
+}
+
+disable_frontend_maintenance() {
+  run_cmd rm -f "${DIS_INSTALL_PATH}/maintenance/frontend.lock"
+}
+
 load_data_path_from_env() {
   local env_file="$1"
   local configured_path
