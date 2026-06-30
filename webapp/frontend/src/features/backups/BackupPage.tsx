@@ -121,6 +121,8 @@ export function BackupPage() {
   const [sambaShares, setSambaShares] = useState<SambaShareOption[]>([]);
   const [sharesLoading, setSharesLoading] = useState(false);
   const [sharesError, setSharesError] = useState<string | null>(null);
+  const [successRecipientSearch, setSuccessRecipientSearch] = useState('');
+  const [failedRecipientSearch, setFailedRecipientSearch] = useState('');
 
   useEffect(() => {
     setSettingsForm(initialSettings);
@@ -321,41 +323,28 @@ export function BackupPage() {
             <div className="form-grid__wide section-heading">
               <h3>Rapport ontvangers</h3>
             </div>
-            <div className="form-grid__wide table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Gebruiker</th>
-                    <th>Succes</th>
-                    <th>Fout</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(backups.data?.report_recipients ?? []).map((user) => (
-                    <tr key={user.id}>
-                      <td>
-                        <strong>{user.name}</strong>
-                        <span className="muted-text">{user.email}</span>
-                      </td>
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={settingsForm.backupReportSuccessUserIds.includes(user.id)}
-                          onChange={() => setSettingsForm((current) => ({ ...current, backupReportSuccessUserIds: toggleId(current.backupReportSuccessUserIds, user.id) }))}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={settingsForm.backupReportFailedUserIds.includes(user.id)}
-                          onChange={() => setSettingsForm((current) => ({ ...current, backupReportFailedUserIds: toggleId(current.backupReportFailedUserIds, user.id) }))}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <RecipientSelector
+              label="Succesrapport naar"
+              placeholder="Typ naam of e-mail"
+              datalistId="backup-success-recipients"
+              recipients={backups.data?.report_recipients ?? []}
+              selectedIds={settingsForm.backupReportSuccessUserIds}
+              search={successRecipientSearch}
+              onSearch={setSuccessRecipientSearch}
+              onAdd={(userId) => setSettingsForm((current) => ({ ...current, backupReportSuccessUserIds: addId(current.backupReportSuccessUserIds, userId) }))}
+              onRemove={(userId) => setSettingsForm((current) => ({ ...current, backupReportSuccessUserIds: current.backupReportSuccessUserIds.filter((id) => id !== userId) }))}
+            />
+            <RecipientSelector
+              label="Foutrapport naar"
+              placeholder="Typ naam of e-mail"
+              datalistId="backup-failed-recipients"
+              recipients={backups.data?.report_recipients ?? []}
+              selectedIds={settingsForm.backupReportFailedUserIds}
+              search={failedRecipientSearch}
+              onSearch={setFailedRecipientSearch}
+              onAdd={(userId) => setSettingsForm((current) => ({ ...current, backupReportFailedUserIds: addId(current.backupReportFailedUserIds, userId) }))}
+              onRemove={(userId) => setSettingsForm((current) => ({ ...current, backupReportFailedUserIds: current.backupReportFailedUserIds.filter((id) => id !== userId) }))}
+            />
             <div className="actions-row form-grid__wide">
               <button className="primary-button" type="submit" disabled={busy !== null}>
                 {busy === 'settings' ? 'Opslaan...' : 'Backup doel opslaan'}
@@ -486,6 +475,76 @@ export function BackupPage() {
   );
 }
 
+interface RecipientSelectorProps {
+  label: string;
+  placeholder: string;
+  datalistId: string;
+  recipients: BackupReportRecipient[];
+  selectedIds: string[];
+  search: string;
+  onSearch: (value: string) => void;
+  onAdd: (userId: string) => void;
+  onRemove: (userId: string) => void;
+}
+
+function RecipientSelector({ label, placeholder, datalistId, recipients, selectedIds, search, onSearch, onAdd, onRemove }: RecipientSelectorProps) {
+  const selectedRecipients = selectedIds
+    .map((id) => recipients.find((recipient) => recipient.id === id))
+    .filter((recipient): recipient is BackupReportRecipient => recipient !== undefined);
+  const availableRecipients = recipients.filter((recipient) => !selectedIds.includes(recipient.id));
+
+  function addFromSearch() {
+    const recipient = findRecipientBySearch(availableRecipients, search);
+    if (recipient === null) {
+      return;
+    }
+
+    onAdd(recipient.id);
+    onSearch('');
+  }
+
+  return (
+    <div className="form-grid__wide recipient-picker">
+      <label>
+        {label}
+        <div className="recipient-picker__input-row">
+          <input
+            list={datalistId}
+            value={search}
+            placeholder={placeholder}
+            onChange={(event) => onSearch(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                addFromSearch();
+              }
+            }}
+          />
+          <button className="secondary-button" type="button" onClick={addFromSearch} disabled={findRecipientBySearch(availableRecipients, search) === null}>
+            Toevoegen
+          </button>
+        </div>
+      </label>
+      <datalist id={datalistId}>
+        {availableRecipients.map((recipient) => (
+          <option key={recipient.id} value={recipientLabel(recipient)} />
+        ))}
+      </datalist>
+      <div className="recipient-picker__chips">
+        {selectedRecipients.length === 0 ? (
+          <span className="muted-text">Geen ontvangers geselecteerd.</span>
+        ) : selectedRecipients.map((recipient) => (
+          <button key={recipient.id} className="recipient-chip" type="button" onClick={() => onRemove(recipient.id)} title="Ontvanger verwijderen">
+            <span>{recipient.name}</span>
+            <small>{recipient.email}</small>
+            <strong aria-hidden="true">x</strong>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) {
     return '-';
@@ -537,6 +596,22 @@ function toSettingsForm(settings?: BackupSettings, recipients: BackupReportRecip
   };
 }
 
-function toggleId(values: string[], id: string): string[] {
-  return values.includes(id) ? values.filter((value) => value !== id) : [...values, id];
+function addId(values: string[], id: string): string[] {
+  return values.includes(id) ? values : [...values, id];
+}
+
+function recipientLabel(recipient: BackupReportRecipient): string {
+  return `${recipient.name} <${recipient.email}>`;
+}
+
+function findRecipientBySearch(recipients: BackupReportRecipient[], search: string): BackupReportRecipient | null {
+  const normalized = search.trim().toLowerCase();
+  if (normalized === '') {
+    return null;
+  }
+
+  return recipients.find((recipient) => {
+    const label = recipientLabel(recipient).toLowerCase();
+    return label === normalized || recipient.email.toLowerCase() === normalized || recipient.name.toLowerCase() === normalized;
+  }) ?? null;
 }

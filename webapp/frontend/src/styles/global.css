@@ -1466,6 +1466,57 @@ select[multiple] {
   padding: 8px 10px;
 }
 
+.recipient-picker {
+  display: grid;
+  gap: 10px;
+}
+
+.recipient-picker__input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.recipient-picker__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.recipient-chip {
+  display: inline-grid;
+  grid-template-columns: minmax(0, auto) minmax(0, auto) auto;
+  gap: 6px;
+  align-items: center;
+  max-width: 100%;
+  min-height: 34px;
+  border: 1px solid #2c3b50;
+  border-radius: 999px;
+  background: #111a27;
+  color: #f4f8fc;
+  padding: 5px 10px;
+  text-align: left;
+}
+
+.recipient-chip span,
+.recipient-chip small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recipient-chip small {
+  color: #8ea0b5;
+  font-size: 0.78rem;
+}
+
+.recipient-chip strong {
+  color: #7dd3fc;
+  font-size: 0.9rem;
+}
+
 .form-grid__wide {
   grid-column: 1 / -1;
 }
