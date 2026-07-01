@@ -10,12 +10,12 @@ WorkingDirectory=/opt/dis/webapp/backend
 ExecStart=/usr/bin/php artisan schedule:work
 Restart=always
 RestartSec=5
-NoNewPrivileges=true
+NoNewPrivileges=false
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
 CapabilityBoundingSet=
-RestrictSUIDSGID=true
+RestrictSUIDSGID=false
 LockPersonality=true
 ReadWritePaths=/opt/dis-data /opt/dis/webapp/backend/storage /opt/dis/storage
 

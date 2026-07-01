@@ -234,6 +234,7 @@ EOF
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/web-update-runner.sh" /usr/local/bin/dis-update-runner
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-verify-runner.sh" /usr/local/bin/dis-backup-verify
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-restore-runner.sh" /usr/local/bin/dis-backup-restore
+  install_php_fpm_privileged_helpers_override
 }
 
 install_update_privileges() {

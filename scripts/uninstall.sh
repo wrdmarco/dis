@@ -209,6 +209,8 @@ fi
 
 log "Removing DIS PHP configuration"
 run_cmd rm -f -- "/etc/php/${PHP_VERSION}/fpm/conf.d/99-dis-security.ini" "/etc/php/${PHP_VERSION}/fpm/conf.d/99-dis-opcache.ini"
+run_cmd rm -f -- "/etc/systemd/system/${PHP_FPM_SERVICE}.service.d/dis-privileged-helpers.conf"
+run_cmd rmdir "/etc/systemd/system/${PHP_FPM_SERVICE}.service.d" >/dev/null 2>&1 || true
 if systemctl list-unit-files "${PHP_FPM_SERVICE}.service" >/dev/null 2>&1; then
   run_cmd systemctl reload "${PHP_FPM_SERVICE}" >/dev/null 2>&1 || true
 fi

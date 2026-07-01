@@ -67,6 +67,21 @@ ensure_directory() {
   run_cmd install -d -m "$mode" -o "$owner" -g "$group" "$path"
 }
 
+install_php_fpm_privileged_helpers_override() {
+  local override_dir override_file
+
+  override_dir="/etc/systemd/system/${PHP_FPM_SERVICE}.service.d"
+  override_file="${override_dir}/dis-privileged-helpers.conf"
+
+  ensure_directory "${override_dir}" root root 0755
+  cat > "${override_file}" <<'EOF'
+[Service]
+NoNewPrivileges=false
+RestrictSUIDSGID=false
+EOF
+  run_cmd chmod 0644 "${override_file}"
+}
+
 write_maintenance_page() {
   local page_path
   page_path="${DIS_INSTALL_PATH}/maintenance/__dis_maintenance.html"

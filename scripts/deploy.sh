@@ -104,6 +104,7 @@ run_cmd install -m 0755 "${APP_ROOT}/scripts/backup-verify-runner.sh" /usr/local
 run_cmd install -m 0755 "${APP_ROOT}/scripts/backup-restore-runner.sh" /usr/local/bin/dis-backup-restore
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/php/security.ini" "/etc/php/${PHP_VERSION}/fpm/conf.d/99-dis-security.ini"
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/php/opcache.ini" "/etc/php/${PHP_VERSION}/fpm/conf.d/99-dis-opcache.ini"
+install_php_fpm_privileged_helpers_override
 run_cmd install -m 0440 "${APP_ROOT}/infrastructure/sudoers/dis-update" /etc/sudoers.d/dis-update
 run_cmd visudo -cf /etc/sudoers.d/dis-update
 run_cmd install -m 0644 "${NGINX_SOURCE}" "/etc/nginx/sites-available/${NGINX_SITE_NAME}"
