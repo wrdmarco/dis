@@ -280,7 +280,35 @@ final class IncidentService
 
     private function refreshDroneFlightContextWhenLocated(Incident $incident): void
     {
-        $context = $this->droneFlightContextService->previewForIncident($incident);
+        try {
+            $context = $this->droneFlightContextService->previewForIncident($incident);
+        } catch (Throwable $exception) {
+            report($exception);
+            $context = [
+                'generated_at' => now()->toIso8601String(),
+                'location' => [
+                    'label' => $incident->location_label,
+                    'latitude' => $incident->latitude,
+                    'longitude' => $incident->longitude,
+                ],
+                'airspace' => [
+                    'provider' => 'Aeret Drone PreFlight',
+                    'status' => 'unavailable',
+                    'summary' => 'Drone vluchtcheck kon niet worden opgehaald. Controleer Aeret handmatig.',
+                    'no_fly_zones' => [],
+                    'notams' => [],
+                    'restrictions' => [],
+                    'errors' => [$exception->getMessage()],
+                ],
+                'weather' => [
+                    'provider' => 'Open-Meteo',
+                    'status' => 'unavailable',
+                    'summary' => 'Weerdata kon niet worden opgehaald.',
+                    'errors' => [$exception->getMessage()],
+                ],
+                'checklist' => [],
+            ];
+        }
 
         $incident->forceFill(['drone_flight_context' => $context])->save();
     }

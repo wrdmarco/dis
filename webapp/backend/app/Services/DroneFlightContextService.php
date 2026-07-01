@@ -14,18 +14,31 @@ final class DroneFlightContextService
      */
     public function preview(float $latitude, float $longitude, ?string $locationLabel = null): array
     {
-        return [
+        $base = [
             'generated_at' => now()->toIso8601String(),
             'location' => [
                 'label' => $locationLabel,
                 'latitude' => round($latitude, 7),
                 'longitude' => round($longitude, 7),
             ],
-            'map' => $this->mapData($latitude, $longitude),
-            'airspace' => $this->airspaceData($latitude, $longitude),
-            'weather' => $this->weatherData($latitude, $longitude),
             'checklist' => $this->checklist(),
         ];
+
+        try {
+            return $base + [
+                'map' => $this->mapData($latitude, $longitude),
+                'airspace' => $this->airspaceData($latitude, $longitude),
+                'weather' => $this->weatherData($latitude, $longitude),
+            ];
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return $base + [
+                'map' => $this->fallbackMapData($latitude, $longitude, $exception->getMessage()),
+                'airspace' => $this->airspaceUnavailable($exception->getMessage()),
+                'weather' => $this->weatherUnavailable($exception->getMessage()),
+            ];
+        }
     }
 
     /**
@@ -74,20 +87,30 @@ final class DroneFlightContextService
     /**
      * @return array<string, mixed>
      */
+    private function fallbackMapData(float $latitude, float $longitude, string $error): array
+    {
+        return [
+            'provider' => 'Aeret Drone PreFlight',
+            'status' => 'unavailable',
+            'aeret_url' => null,
+            'openstreetmap_url' => sprintf(
+                'https://www.openstreetmap.org/?mlat=%1$.6f&mlon=%2$.6f#map=16/%1$.6f/%2$.6f',
+                $latitude,
+                $longitude,
+            ),
+            'errors' => [$error],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     private function airspaceData(float $latitude, float $longitude): array
     {
         $apiUrl = SystemSetting::string('drone.aeret_api_url', is_string(config('dis.drone_flight.aeret_api_url')) ? (string) config('dis.drone_flight.aeret_api_url') : null);
 
         if (! is_string($apiUrl) || trim($apiUrl) === '') {
-            return [
-                'provider' => 'Aeret Drone PreFlight',
-                'status' => 'not_configured',
-                'summary' => 'Aeret API endpoint is niet geconfigureerd. Controleer de Aeret dronekaart en NOTAM handmatig voor inzet.',
-                'no_fly_zones' => [],
-                'notams' => [],
-                'restrictions' => [],
-                'errors' => ['AERET_API_URL ontbreekt.'],
-            ];
+            return $this->airspaceUnavailable('AERET_API_URL ontbreekt.', 'not_configured', 'Aeret API endpoint is niet geconfigureerd. Controleer de Aeret dronekaart en NOTAM handmatig voor inzet.');
         }
 
         try {
@@ -107,15 +130,7 @@ final class DroneFlightContextService
             $response = $request->get($apiUrl);
 
             if (! $response->successful()) {
-                return [
-                    'provider' => 'Aeret Drone PreFlight',
-                    'status' => 'unavailable',
-                    'summary' => 'Aeret/NOTAM gegevens konden niet worden opgehaald.',
-                    'no_fly_zones' => [],
-                    'notams' => [],
-                    'restrictions' => [],
-                    'errors' => ['Aeret API HTTP '.$response->status()],
-                ];
+                return $this->airspaceUnavailable('Aeret API HTTP '.$response->status());
             }
 
             $payload = $response->json();
@@ -133,16 +148,24 @@ final class DroneFlightContextService
         } catch (Throwable $exception) {
             report($exception);
 
-            return [
-                'provider' => 'Aeret Drone PreFlight',
-                'status' => 'unavailable',
-                'summary' => 'Aeret/NOTAM gegevens konden niet worden opgehaald.',
-                'no_fly_zones' => [],
-                'notams' => [],
-                'restrictions' => [],
-                'errors' => [$exception->getMessage()],
-            ];
+            return $this->airspaceUnavailable($exception->getMessage());
         }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function airspaceUnavailable(string $error, string $status = 'unavailable', string $summary = 'Aeret/NOTAM gegevens konden niet worden opgehaald.'): array
+    {
+        return [
+            'provider' => 'Aeret Drone PreFlight',
+            'status' => $status,
+            'summary' => $summary,
+            'no_fly_zones' => [],
+            'notams' => [],
+            'restrictions' => [],
+            'errors' => [$error],
+        ];
     }
 
     /**

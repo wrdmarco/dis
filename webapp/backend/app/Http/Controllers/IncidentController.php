@@ -15,6 +15,7 @@ use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Throwable;
 
 final class IncidentController extends Controller
 {
@@ -114,11 +115,47 @@ final class IncidentController extends Controller
             'location_label' => ['nullable', 'string', 'max:255'],
         ]);
 
-        return ApiResponse::success($this->droneFlightContextService->preview(
-            (float) $data['latitude'],
-            (float) $data['longitude'],
-            $data['location_label'] ?? null,
-        ));
+        try {
+            return ApiResponse::success($this->droneFlightContextService->preview(
+                (float) $data['latitude'],
+                (float) $data['longitude'],
+                $data['location_label'] ?? null,
+            ));
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return ApiResponse::success([
+                'generated_at' => now()->toIso8601String(),
+                'location' => [
+                    'label' => $data['location_label'] ?? null,
+                    'latitude' => round((float) $data['latitude'], 7),
+                    'longitude' => round((float) $data['longitude'], 7),
+                ],
+                'map' => [
+                    'provider' => 'Aeret Drone PreFlight',
+                    'status' => 'unavailable',
+                    'aeret_url' => null,
+                    'openstreetmap_url' => null,
+                    'errors' => [$exception->getMessage()],
+                ],
+                'airspace' => [
+                    'provider' => 'Aeret Drone PreFlight',
+                    'status' => 'unavailable',
+                    'summary' => 'Drone vluchtcheck kon niet worden opgehaald. Controleer Aeret handmatig.',
+                    'no_fly_zones' => [],
+                    'notams' => [],
+                    'restrictions' => [],
+                    'errors' => [$exception->getMessage()],
+                ],
+                'weather' => [
+                    'provider' => 'Open-Meteo',
+                    'status' => 'unavailable',
+                    'summary' => 'Weerdata kon niet worden opgehaald.',
+                    'errors' => [$exception->getMessage()],
+                ],
+                'checklist' => [],
+            ]);
+        }
     }
 
     public function show(Incident $incident): JsonResponse
