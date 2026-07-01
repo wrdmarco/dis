@@ -37,7 +37,7 @@ final class RunScheduledBackup extends Command
         }
 
         $this->writeRuntimeConfig($target);
-        $result = Process::timeout(900)->run(['sudo', '-n', $this->bashBinary(), $this->scriptPath('backup.sh')]);
+        $result = Process::timeout(900)->run($this->backupCommand($target));
         $output = trim($result->output().$result->errorOutput());
 
         if (! $result->successful()) {
@@ -132,6 +132,18 @@ final class RunScheduledBackup extends Command
     private function bashBinary(): string
     {
         return is_executable('/usr/bin/bash') ? '/usr/bin/bash' : '/bin/bash';
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function backupCommand(string $target): array
+    {
+        if ($target === 'local') {
+            return [$this->bashBinary(), $this->scriptPath('backup.sh')];
+        }
+
+        return ['sudo', '-n', $this->bashBinary(), $this->scriptPath('backup.sh')];
     }
 
     private function shellValue(string $value): string

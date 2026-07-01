@@ -21,7 +21,12 @@ ensure_data_links "${APP_ROOT}"
 
 BACKUP_ROOT="$(resolve_backup_root "${APP_ROOT}")"
 TARGET="${BACKUP_ROOT}/${STAMP}"
-run_cmd install -d -m 0750 -o root -g "${DIS_GROUP}" "${TARGET}"
+if [ "${EUID}" -eq 0 ]; then
+  run_cmd install -d -m 0750 -o root -g "${DIS_GROUP}" "${TARGET}"
+else
+  run_cmd install -d -m 0750 "${TARGET}"
+  run_cmd chgrp "${DIS_GROUP}" "${TARGET}" 2>/dev/null || true
+fi
 
 allow_app_backup_read() {
   local path="$1"

@@ -191,7 +191,7 @@ final class BackupController extends Controller
         $target = $this->requestTarget($request);
         $this->ensureTargetReady($target);
         $this->writeRuntimeConfig($target);
-        $result = Process::timeout(900)->run(['sudo', '-n', $this->bashBinary(), $this->scriptPath('backup.sh')]);
+        $result = Process::timeout(900)->run($this->backupCommand($target));
         $output = $this->cleanOutput($result->output().$result->errorOutput());
         $reportRecipients = $result->successful()
             ? $backupReports->sendSuccess($target, $output !== '' ? $output : 'Manual backup completed.')
@@ -376,6 +376,18 @@ final class BackupController extends Controller
     private function bashBinary(): string
     {
         return is_executable('/usr/bin/bash') ? '/usr/bin/bash' : '/bin/bash';
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function backupCommand(string $target): array
+    {
+        if ($target === 'local') {
+            return [$this->bashBinary(), $this->scriptPath('backup.sh')];
+        }
+
+        return ['sudo', '-n', $this->bashBinary(), $this->scriptPath('backup.sh')];
     }
 
     /**
