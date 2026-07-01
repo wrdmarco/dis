@@ -7,7 +7,7 @@ Type=simple
 User=dis
 Group=dis
 WorkingDirectory=/opt/dis/webapp/backend
-ExecStart=/usr/bin/php artisan queue:work redis --queue=default,push,broadcasts --sleep=1 --tries=3 --timeout=90
+ExecStart=/usr/bin/php artisan queue:work redis --queue=default,push,broadcasts --sleep=1 --tries=3 --timeout=180
 Restart=always
 RestartSec=5
 NoNewPrivileges=false

@@ -368,6 +368,7 @@ final class IncidentReportService
         $tileSize = 256;
         $width = 720;
         $height = 260;
+        $deadline = microtime(true) + 2.5;
         $scale = (2 ** $zoom) * $tileSize;
         $sinLatitude = sin(deg2rad(max(-85.05112878, min(85.05112878, $latitude))));
         $centerX = (($longitude + 180) / 360) * $scale;
@@ -400,18 +401,29 @@ final class IncidentReportService
 
         for ($tileX = $firstTileX; $tileX <= $lastTileX; $tileX++) {
             for ($tileY = $firstTileY; $tileY <= $lastTileY; $tileY++) {
+                if (microtime(true) >= $deadline) {
+                    break 2;
+                }
+
                 if ($tileY < 0 || $tileY > $maxTile) {
                     continue;
                 }
 
                 $wrappedTileX = (($tileX % ($maxTile + 1)) + ($maxTile + 1)) % ($maxTile + 1);
                 foreach ($this->mapTileUrls($zoom, $tileY, $wrappedTileX) as $index => $url) {
-                    $response = Http::timeout(4)
-                        ->retry(1, 150)
-                        ->withHeaders([
-                            'User-Agent' => 'DIS Incident Report/1.0 (https://dis.wrdmarco.nl)',
-                        ])
-                        ->get($url);
+                    if (microtime(true) >= $deadline) {
+                        break 2;
+                    }
+
+                    try {
+                        $response = Http::timeout(1)
+                            ->withHeaders([
+                                'User-Agent' => 'DIS Incident Report/1.0 (https://dis.wrdmarco.nl)',
+                            ])
+                            ->get($url);
+                    } catch (Throwable) {
+                        continue;
+                    }
 
                     if (! $response->ok()) {
                         continue;

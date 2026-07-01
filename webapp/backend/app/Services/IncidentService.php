@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Events\IncidentChanged;
+use App\Jobs\GenerateIncidentReport;
 use App\Models\Incident;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -112,7 +113,7 @@ final class IncidentService
             if (array_key_exists('status', $data) && $data['status'] !== $beforeStatus && in_array($data['status'], ['resolved', 'cancelled'], true)) {
                 $this->locationService->stopForIncident($incident->refresh(), $actor);
                 $this->resetAcceptedRecipientsToAvailable($incident->refresh(), $actor, $data['status']);
-                DB::afterCommit(fn (): ?string => $this->incidentReportService->ensureStored($incident->refresh()));
+                DB::afterCommit(fn () => GenerateIncidentReport::dispatch((string) $incident->getKey()));
             }
 
             $this->auditService->record('incidents.updated', $incident, $actor);
