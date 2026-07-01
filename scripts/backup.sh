@@ -68,12 +68,12 @@ PGPASSWORD="${DB_PASSWORD}" run_cmd pg_dump \
   "${DB_DATABASE}"
 
 log "Archiving storage and configuration"
-run_cmd tar -C "${DIS_DATA_PATH}" -czf "${TARGET}/storage.tar.gz" \
+run_cmd tar --warning=no-file-changed --ignore-failed-read -C "${DIS_DATA_PATH}" -czf "${TARGET}/storage.tar.gz" \
   storage \
   webapp/backend/storage \
   secrets
 log "Archiving software source and module manifests"
-run_cmd tar -C "${APP_ROOT}" -czf "${TARGET}/source.tar.gz" \
+run_cmd tar --warning=no-file-changed --ignore-failed-read -C "${APP_ROOT}" -czf "${TARGET}/source.tar.gz" \
   --exclude='./.git' \
   --exclude='./backup' \
   --exclude='./storage' \
