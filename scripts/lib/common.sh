@@ -148,6 +148,7 @@ load_data_path_from_env() {
 ensure_data_layout() {
   ensure_directory "${DIS_DATA_PATH}" root "${DIS_GROUP}" 0750
   ensure_directory "${DIS_DATA_PATH}/backup" root "${DIS_GROUP}" 0770
+  ensure_directory "${DIS_DATA_PATH}/backup-requests" root "${DIS_GROUP}" 0770
   ensure_directory "${DIS_DATA_PATH}/secrets" root "${DIS_GROUP}" 0750
   ensure_directory "${DIS_DATA_PATH}/storage" "${DIS_USER}" "${DIS_GROUP}" 0750
   ensure_directory "${DIS_DATA_PATH}/storage/app" "${DIS_USER}" "${DIS_GROUP}" 0750

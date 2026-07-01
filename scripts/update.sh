@@ -232,9 +232,15 @@ exec bash "${DIS_INSTALL_PATH}/update.sh" "\$@"
 EOF
   run_cmd chmod 0755 /usr/local/bin/update
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/web-update-runner.sh" /usr/local/bin/dis-update-runner
+  run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-request-worker.sh" /usr/local/bin/dis-backup-request-worker
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-verify-runner.sh" /usr/local/bin/dis-backup-verify
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-restore-runner.sh" /usr/local/bin/dis-backup-restore
   install_php_fpm_privileged_helpers_override
+  run_cmd install -m 0644 "${DIS_INSTALL_PATH}/infrastructure/systemd/dis-backup-request.service" /etc/systemd/system/dis-backup-request.service
+  run_cmd install -m 0644 "${DIS_INSTALL_PATH}/infrastructure/systemd/dis-backup-request.path" /etc/systemd/system/dis-backup-request.path
+  run_cmd systemctl daemon-reload
+  run_cmd systemctl enable dis-backup-request.path >/dev/null 2>&1 || true
+  run_cmd systemctl start dis-backup-request.path
 }
 
 install_update_privileges() {

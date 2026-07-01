@@ -34,6 +34,7 @@ ensure_directory "${APP_ROOT}/storage/tmp" "${DIS_USER}" "${DIS_GROUP}" 0750
 ensure_directory "${APP_ROOT}/backup" root "${DIS_GROUP}" 0770
 ensure_directory "${APP_ROOT}/secrets" root "${DIS_GROUP}" 0750
 ensure_directory "${DIS_DATA_PATH}/backup" root "${DIS_GROUP}" 0770
+ensure_directory "${DIS_DATA_PATH}/backup-requests" root "${DIS_GROUP}" 0770
 ensure_directory "${DIS_DATA_PATH}/secrets" root "${DIS_GROUP}" 0750
 
 if [ -f "${APP_ROOT}/.env" ]; then
@@ -96,6 +97,12 @@ if [ -d "${DIS_DATA_PATH}/backup" ]; then
   run_cmd chmod 0770 "${DIS_DATA_PATH}/backup" || true
   run_cmd find "${DIS_DATA_PATH}/backup" -mindepth 1 -type d -exec chmod 0750 {} + || true
   run_cmd find "${DIS_DATA_PATH}/backup" -type f -exec chmod 0640 {} + || true
+fi
+
+if [ -d "${DIS_DATA_PATH}/backup-requests" ]; then
+  run_cmd chgrp -R "${DIS_GROUP}" "${DIS_DATA_PATH}/backup-requests" || true
+  run_cmd chmod 0770 "${DIS_DATA_PATH}/backup-requests" || true
+  run_cmd find "${DIS_DATA_PATH}/backup-requests" -type f -exec chmod 0640 {} + || true
 fi
 
 if [ -d "/mnt/dis-backup" ] && mountpoint -q /mnt/dis-backup; then

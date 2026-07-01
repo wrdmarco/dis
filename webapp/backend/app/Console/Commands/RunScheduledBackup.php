@@ -7,7 +7,6 @@ use App\Services\AuditService;
 use App\Services\BackupReportService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Process;
 
 final class RunScheduledBackup extends Command
 {
@@ -37,16 +36,16 @@ final class RunScheduledBackup extends Command
         }
 
         $this->writeRuntimeConfig($target);
-        $result = Process::timeout(900)->run($this->backupCommand($target));
-        $output = trim($result->output().$result->errorOutput());
+        $result = $this->runBackupRequest('create', $target, null, 900);
+        $output = trim($result['output']);
 
-        if (! $result->successful()) {
+        if ($result['exit_code'] !== 0) {
             $cleanOutput = $this->cleanOutput($output !== '' ? $output : 'Automatic backup failed.');
             $auditService->record('backups.automatic_failed', SystemSetting::class, null, [
                 'target' => $target,
-                'exit_code' => $result->exitCode(),
+                'exit_code' => $result['exit_code'],
                 'output' => mb_substr($cleanOutput, 0, 1000),
-                'report_recipients' => $backupReports->sendFailed($target, $result->exitCode(), $cleanOutput),
+                'report_recipients' => $backupReports->sendFailed($target, $result['exit_code'], $cleanOutput),
             ]);
             $this->error($cleanOutput);
 
@@ -122,28 +121,55 @@ final class RunScheduledBackup extends Command
         chmod($path, 0640);
     }
 
-    private function scriptPath(string $script): string
-    {
-        $path = dirname(base_path(), 2).'/scripts/'.$script;
-
-        return realpath($path) ?: $path;
-    }
-
-    private function bashBinary(): string
-    {
-        return is_executable('/usr/bin/bash') ? '/usr/bin/bash' : '/bin/bash';
-    }
-
     /**
-     * @return list<string>
+     * @return array{exit_code: int, output: string}
      */
-    private function backupCommand(string $target): array
+    private function runBackupRequest(string $operation, string $target, ?string $backupPath, int $timeoutSeconds): array
     {
-        if ($target === 'local') {
-            return [$this->bashBinary(), $this->scriptPath('backup.sh')];
+        $root = $this->backupRequestRoot();
+        if (! is_dir($root) && ! mkdir($root, 0770, true) && ! is_dir($root)) {
+            return ['exit_code' => 1, 'output' => 'Backup request map kon niet worden aangemaakt.'];
+        }
+        @chmod($root, 0770);
+
+        $id = bin2hex(random_bytes(16));
+        $temporary = $root.'/'.$id.'.tmp';
+        $pending = $root.'/'.$id.'.pending';
+        $result = $root.'/'.$id.'.result';
+        file_put_contents($temporary, json_encode([
+            'operation' => $operation,
+            'target' => $target,
+            'backup_path' => $backupPath,
+            'created_at' => now('UTC')->toIso8601String(),
+        ], JSON_THROW_ON_ERROR)."\n", LOCK_EX);
+        @chmod($temporary, 0660);
+        rename($temporary, $pending);
+
+        $deadline = microtime(true) + $timeoutSeconds;
+        while (microtime(true) < $deadline) {
+            if (is_file($result)) {
+                $decoded = json_decode((string) file_get_contents($result), true);
+                @unlink($result);
+
+                return [
+                    'exit_code' => (int) ($decoded['exit_code'] ?? 1),
+                    'output' => is_string($decoded['output'] ?? null) ? $decoded['output'] : 'Backup runner gaf geen geldige uitvoer terug.',
+                ];
+            }
+
+            usleep(500000);
         }
 
-        return ['sudo', '-n', $this->bashBinary(), $this->scriptPath('backup.sh')];
+        @unlink($pending);
+
+        return ['exit_code' => 124, 'output' => 'Backup runner reageerde niet binnen de verwachte tijd. Controleer de DIS backup request service.'];
+    }
+
+    private function backupRequestRoot(): string
+    {
+        $dataPath = rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/');
+
+        return $dataPath.'/backup-requests';
     }
 
     private function shellValue(string $value): string

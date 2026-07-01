@@ -174,7 +174,7 @@ SQL
 confirm "This will uninstall DIS service configuration from this server."
 
 log "Stopping and disabling DIS services"
-for service in dis-queue dis-scheduler dis-websocket dis-backup.timer dis-backup; do
+for service in dis-queue dis-scheduler dis-websocket dis-backup-request.path dis-backup-request dis-backup.timer dis-backup; do
   if systemctl list-unit-files "${service}.service" >/dev/null 2>&1 || systemctl list-unit-files "${service}" >/dev/null 2>&1; then
     run_cmd systemctl disable --now "${service}" >/dev/null 2>&1 || true
   fi
@@ -185,6 +185,8 @@ for unit in \
   /etc/systemd/system/dis-queue.service \
   /etc/systemd/system/dis-scheduler.service \
   /etc/systemd/system/dis-websocket.service \
+  /etc/systemd/system/dis-backup-request.service \
+  /etc/systemd/system/dis-backup-request.path \
   /etc/systemd/system/dis-backup.service \
   /etc/systemd/system/dis-backup.timer; do
   if [ -e "${unit}" ]; then

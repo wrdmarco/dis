@@ -191,19 +191,20 @@ final class BackupController extends Controller
         $target = $this->requestTarget($request);
         $this->ensureTargetReady($target);
         $this->writeRuntimeConfig($target);
-        $result = Process::timeout(900)->run($this->backupCommand($target));
-        $output = $this->cleanOutput($result->output().$result->errorOutput());
-        $reportRecipients = $result->successful()
+        $result = $this->runBackupRequest('create', $target, null, 900);
+        $output = $this->cleanOutput($result['output']);
+        $successful = $result['exit_code'] === 0;
+        $reportRecipients = $successful
             ? $backupReports->sendSuccess($target, $output !== '' ? $output : 'Manual backup completed.')
-            : $backupReports->sendFailed($target, $result->exitCode(), $output !== '' ? $output : 'Manual backup failed.');
+            : $backupReports->sendFailed($target, $result['exit_code'], $output !== '' ? $output : 'Manual backup failed.');
 
         $this->auditService->record('backups.created', SystemSetting::class, $request->user(), [
             'target' => $target,
-            'successful' => $result->successful(),
+            'successful' => $successful,
             'report_recipients' => $reportRecipients,
         ], null, $request);
 
-        if (! $result->successful()) {
+        if (! $successful) {
             return ApiResponse::error('backup_failed', $output ?: 'Backup maken mislukt.', 500);
         }
 
@@ -221,16 +222,17 @@ final class BackupController extends Controller
         $this->ensureTargetReady($target);
         $this->writeRuntimeConfig($target);
         $path = $this->backupPath($backup, $target);
-        $result = Process::timeout(600)->run(['sudo', '-n', '/usr/local/bin/dis-backup-verify', $path]);
-        $output = $this->cleanOutput($result->output().$result->errorOutput());
+        $result = $this->runBackupRequest('verify', $target, $path, 600);
+        $output = $this->cleanOutput($result['output']);
+        $successful = $result['exit_code'] === 0;
 
         $this->auditService->record('backups.verified', SystemSetting::class, $request->user(), [
             'backup' => $backup,
             'target' => $target,
-            'successful' => $result->successful(),
+            'successful' => $successful,
         ], null, $request);
 
-        if (! $result->successful()) {
+        if (! $successful) {
             return ApiResponse::error('backup_verify_failed', $output ?: 'Backup verificatie mislukt.', 422);
         }
 
@@ -255,16 +257,17 @@ final class BackupController extends Controller
         $this->ensureTargetReady($target);
         $this->writeRuntimeConfig($target);
         $path = $this->backupPath($backup, $target);
-        $result = Process::timeout(1200)->run(['sudo', '-n', '/usr/local/bin/dis-backup-restore', $path]);
-        $output = $this->cleanOutput($result->output().$result->errorOutput());
+        $result = $this->runBackupRequest('restore', $target, $path, 1200);
+        $output = $this->cleanOutput($result['output']);
+        $successful = $result['exit_code'] === 0;
 
         $this->auditService->record('backups.restored', SystemSetting::class, $request->user(), [
             'backup' => $backup,
             'target' => $target,
-            'successful' => $result->successful(),
+            'successful' => $successful,
         ], null, $request);
 
-        if (! $result->successful()) {
+        if (! $successful) {
             return ApiResponse::error('backup_restore_failed', $output ?: 'Backup restore mislukt.', 500);
         }
 
@@ -307,9 +310,9 @@ final class BackupController extends Controller
 
         try {
             $this->extractBackupZip($uploadedPath, $path);
-            $verify = Process::timeout(600)->run(['sudo', '-n', '/usr/local/bin/dis-backup-verify', $path]);
-            $verifyOutput = $this->cleanOutput($verify->output().$verify->errorOutput());
-            if (! $verify->successful()) {
+            $verify = $this->runBackupRequest('verify', 'local', $path, 600);
+            $verifyOutput = $this->cleanOutput($verify['output']);
+            if ($verify['exit_code'] !== 0) {
                 $this->deleteDirectory($path, $root);
                 $this->auditService->record('backups.upload_restore_failed', SystemSetting::class, $request->user(), [
                     'backup' => $backupId,
@@ -321,17 +324,17 @@ final class BackupController extends Controller
             }
 
             $this->writeRuntimeConfig('local');
-            $restore = Process::timeout(1200)->run(['sudo', '-n', '/usr/local/bin/dis-backup-restore', $path]);
-            $restoreOutput = $this->cleanOutput($restore->output().$restore->errorOutput());
+            $restore = $this->runBackupRequest('restore', 'local', $path, 1200);
+            $restoreOutput = $this->cleanOutput($restore['output']);
             $output = trim($verifyOutput."\n".$restoreOutput);
 
             $this->auditService->record('backups.upload_restored', SystemSetting::class, $request->user(), [
                 'backup' => $backupId,
                 'filename' => $file->getClientOriginalName(),
-                'successful' => $restore->successful(),
+                'successful' => $restore['exit_code'] === 0,
             ], null, $request);
 
-            if (! $restore->successful()) {
+            if ($restore['exit_code'] !== 0) {
                 return ApiResponse::error('backup_upload_restore_failed', $restoreOutput ?: 'Backup restore mislukt.', 500);
             }
 
@@ -366,28 +369,57 @@ final class BackupController extends Controller
             : rtrim(base_path('../..'), '/').'/backup';
     }
 
-    private function scriptPath(string $script): string
-    {
-        $path = dirname(base_path(), 2).'/scripts/'.$script;
-
-        return realpath($path) ?: $path;
-    }
-
-    private function bashBinary(): string
-    {
-        return is_executable('/usr/bin/bash') ? '/usr/bin/bash' : '/bin/bash';
-    }
-
     /**
-     * @return list<string>
+     * @return array{exit_code: int, output: string}
      */
-    private function backupCommand(string $target): array
+    private function runBackupRequest(string $operation, string $target, ?string $backupPath, int $timeoutSeconds): array
     {
-        if ($target === 'local') {
-            return [$this->bashBinary(), $this->scriptPath('backup.sh')];
+        $root = $this->backupRequestRoot();
+        if (! is_dir($root) && ! mkdir($root, 0770, true) && ! is_dir($root)) {
+            return ['exit_code' => 1, 'output' => 'Backup request map kon niet worden aangemaakt.'];
+        }
+        @chmod($root, 0770);
+
+        $id = bin2hex(random_bytes(16));
+        $payload = [
+            'operation' => $operation,
+            'target' => $target,
+            'backup_path' => $backupPath,
+            'created_at' => now('UTC')->toIso8601String(),
+        ];
+        $temporary = $root.'/'.$id.'.tmp';
+        $pending = $root.'/'.$id.'.pending';
+        $result = $root.'/'.$id.'.result';
+
+        file_put_contents($temporary, json_encode($payload, JSON_THROW_ON_ERROR)."\n", LOCK_EX);
+        @chmod($temporary, 0660);
+        rename($temporary, $pending);
+
+        $deadline = microtime(true) + $timeoutSeconds;
+        while (microtime(true) < $deadline) {
+            if (is_file($result)) {
+                $decoded = json_decode((string) file_get_contents($result), true);
+                @unlink($result);
+
+                return [
+                    'exit_code' => (int) ($decoded['exit_code'] ?? 1),
+                    'output' => is_string($decoded['output'] ?? null) ? $decoded['output'] : 'Backup runner gaf geen geldige uitvoer terug.',
+                ];
+            }
+
+            usleep(500000);
         }
 
-        return ['sudo', '-n', $this->bashBinary(), $this->scriptPath('backup.sh')];
+        @unlink($pending);
+
+        return ['exit_code' => 124, 'output' => 'Backup runner reageerde niet binnen de verwachte tijd. Controleer de DIS backup request service.'];
+    }
+
+    private function backupRequestRoot(): string
+    {
+        $dataPath = rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/');
+
+        return $dataPath.'/backup-requests';
     }
 
     /**

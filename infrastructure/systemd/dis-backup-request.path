@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch DIS backup requests
+
+[Path]
+PathExistsGlob=/opt/dis-data/backup-requests/*.pending
+Unit=dis-backup-request.service
+
+[Install]
+WantedBy=multi-user.target

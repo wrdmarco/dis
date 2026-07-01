@@ -100,6 +100,7 @@ exec bash "${APP_ROOT}/update.sh" "\$@"
 EOF
 run_cmd chmod 0755 /usr/local/bin/update
 run_cmd install -m 0755 "${APP_ROOT}/scripts/web-update-runner.sh" /usr/local/bin/dis-update-runner
+run_cmd install -m 0755 "${APP_ROOT}/scripts/backup-request-worker.sh" /usr/local/bin/dis-backup-request-worker
 run_cmd install -m 0755 "${APP_ROOT}/scripts/backup-verify-runner.sh" /usr/local/bin/dis-backup-verify
 run_cmd install -m 0755 "${APP_ROOT}/scripts/backup-restore-runner.sh" /usr/local/bin/dis-backup-restore
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/php/security.ini" "/etc/php/${PHP_VERSION}/fpm/conf.d/99-dis-security.ini"
@@ -113,8 +114,11 @@ run_cmd rm -f /etc/nginx/sites-enabled/default
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-queue.service" /etc/systemd/system/dis-queue.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-scheduler.service" /etc/systemd/system/dis-scheduler.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-websocket.service" /etc/systemd/system/dis-websocket.service
+run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-backup-request.service" /etc/systemd/system/dis-backup-request.service
+run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-backup-request.path" /etc/systemd/system/dis-backup-request.path
 run_cmd systemctl daemon-reload
-run_cmd systemctl enable dis-queue dis-scheduler dis-websocket
+run_cmd systemctl enable dis-queue dis-scheduler dis-websocket dis-backup-request.path
+run_cmd systemctl start dis-backup-request.path
 run_cmd nginx -t
 
 log "Restarting services"
