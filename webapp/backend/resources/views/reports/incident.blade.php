@@ -109,7 +109,7 @@
         <tr><th>Aanvragende organisatie</th><td>{{ $incident->requesting_organization ?: '-' }}{{ $incident->requesting_unit ? ' - '.$incident->requesting_unit : '' }}</td></tr>
         <tr><th>Contact ter plaatse</th><td>{{ $incident->on_scene_contact_name ?: '-' }}{{ $incident->on_scene_contact_role ? ' - '.$incident->on_scene_contact_role : '' }}{{ $incident->on_scene_contact_phone ? ' - '.$incident->on_scene_contact_phone : '' }}</td></tr>
         <tr><th>Prioriteit</th><td>{{ ucfirst($incident->priority) }}</td></tr>
-        <tr><th>Locatie</th><td>{{ $incident->location_label ?: '-' }}</td></tr>
+        <tr><th>Opkomstlocatie</th><td>{{ $incident->location_label ?: '-' }}</td></tr>
         <tr><th>Team</th><td>{{ $incident->team ? $incident->team->code.' - '.$incident->team->name : '-' }}</td></tr>
         <tr><th>Coordinator</th><td>{{ $incident->coordinator?->name ?? $incident->coordinator_name ?? '-' }}</td></tr>
         <tr><th>Aangemaakt door</th><td>{{ $incident->creator?->name ?? $incident->created_by_name ?? '-' }}</td></tr>

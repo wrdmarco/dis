@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Events\AvailabilityChanged;
+use App\Events\IncidentChanged;
 use App\Models\AvailabilityStatus;
+use App\Models\Incident;
 use App\Models\User;
 use App\Models\UserVacation;
 use Illuminate\Support\Facades\DB;
@@ -53,6 +55,9 @@ final class StatusService
         });
 
         $this->dispatchAvailabilityChanged($record);
+        if ($status === 'on_scene') {
+            $this->transitionAcceptedIncidentsToInProgressWhenEveryoneOnScene($user, $actor);
+        }
 
         return $record;
     }
@@ -86,6 +91,88 @@ final class StatusService
     {
         try {
             AvailabilityChanged::dispatch($status);
+        } catch (Throwable $exception) {
+            report($exception);
+        }
+    }
+
+    private function transitionAcceptedIncidentsToInProgressWhenEveryoneOnScene(User $user, User $actor): void
+    {
+        $incidents = Incident::query()
+            ->whereIn('status', ['active', 'dispatching'])
+            ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
+                ->whereIn('status', ['sent', 'escalated'])
+                ->whereHas('recipients', fn ($recipients) => $recipients
+                    ->where('user_id', $user->id)
+                    ->where('response_status', 'accepted')))
+            ->with(['dispatchRequests' => fn ($dispatches) => $dispatches
+                ->whereIn('status', ['sent', 'escalated'])
+                ->with('recipients')])
+            ->get();
+
+        foreach ($incidents as $incident) {
+            $acceptedUserIds = $incident->dispatchRequests
+                ->flatMap(fn ($dispatch) => $dispatch->recipients)
+                ->filter(fn ($recipient): bool => $recipient->response_status === 'accepted')
+                ->pluck('user_id')
+                ->unique()
+                ->values();
+
+            if ($acceptedUserIds->isEmpty()) {
+                continue;
+            }
+
+            $latestStatuses = AvailabilityStatus::query()
+                ->latestPerUser()
+                ->whereIn('user_id', $acceptedUserIds->all())
+                ->pluck('status', 'user_id');
+
+            $everyoneOnScene = $acceptedUserIds
+                ->every(fn (string $userId): bool => $latestStatuses->get($userId) === 'on_scene');
+
+            if ($everyoneOnScene) {
+                $this->transitionIncidentStatus(
+                    $incident,
+                    $actor,
+                    'in_progress',
+                    'Automatisch naar uitvoering gezet omdat alle geaccepteerde opkomers op locatie zijn.',
+                );
+            }
+        }
+    }
+
+    private function transitionIncidentStatus(Incident $incident, User $actor, string $status, string $reason): void
+    {
+        DB::transaction(function () use ($incident, $actor, $status, $reason): void {
+            $incident->refresh();
+            if (! in_array($incident->status, ['active', 'dispatching'], true) || $incident->status === $status) {
+                return;
+            }
+
+            $previousStatus = $incident->status;
+            $incident->forceFill(['status' => $status])->save();
+            $incident->statusHistory()->create([
+                'from_status' => $previousStatus,
+                'to_status' => $status,
+                'changed_by' => $actor->id,
+                'changed_by_name' => $actor->name,
+                'changed_by_email' => $actor->email,
+                'reason' => $reason,
+                'created_at' => now(),
+            ]);
+
+            $this->auditService->record('incidents.status_auto_updated', $incident, $actor, [
+                'from_status' => $previousStatus,
+                'to_status' => $status,
+            ], $reason);
+            $this->dispatchIncidentChanged($incident->refresh(), 'status_auto_updated');
+        });
+    }
+
+    private function dispatchIncidentChanged(Incident $incident, string $action): void
+    {
+        try {
+            IncidentChanged::dispatch($incident, $action);
         } catch (Throwable $exception) {
             report($exception);
         }

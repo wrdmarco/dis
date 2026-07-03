@@ -8,6 +8,7 @@ use App\Models\Incident;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 final class IncidentService
@@ -80,6 +81,10 @@ final class IncidentService
             }
 
             if (array_key_exists('status', $data)) {
+                if ($incident->status === 'draft' && $data['status'] === 'dispatching') {
+                    throw ValidationException::withMessages(['status' => ['Activeer het concept voordat de alarmering wordt verstuurd.']]);
+                }
+
                 $data = $this->applyStatusTimestamps($incident, $data);
             }
 
@@ -106,7 +111,7 @@ final class IncidentService
                 ]);
             }
 
-            if ($beforeStatus === 'draft' && ($data['status'] ?? null) === 'active') {
+            if ($beforeStatus === 'active' && ($data['status'] ?? null) === 'dispatching') {
                 $this->dispatchService->createAndSendForIncidentActivation($incident->refresh(), $actor, $statusReason);
             }
 

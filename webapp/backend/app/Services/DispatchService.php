@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Events\DispatchChanged;
+use App\Events\IncidentChanged;
 use App\Jobs\SendFcmNotification;
+use App\Models\AvailabilityStatus;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
@@ -164,6 +166,15 @@ final class DispatchService
                 }
             }
 
+            if ($dispatch->incident !== null) {
+                $this->transitionIncidentStatus(
+                    $dispatch->incident,
+                    $actor,
+                    'dispatching',
+                    'Automatisch naar alarmeren gezet nadat de alarmering is verstuurd.',
+                );
+            }
+
             $this->auditService->record('dispatch.sent', $dispatch, $actor);
             $this->broadcastDispatchChange($dispatch, 'sent');
 
@@ -178,6 +189,9 @@ final class DispatchService
         $this->auditService->record('dispatch.responded', $dispatch, $actor, ['response' => $response]);
         $this->syncResponseToUserDevices($dispatch, $actor, $response);
         $this->broadcastDispatchChange($dispatch->refresh(), 'responded');
+        if ($response === 'accepted') {
+            $this->transitionIncidentToInProgressWhenEveryoneOnScene($dispatch->refresh(), $actor);
+        }
 
         return $recipient;
     }
@@ -219,6 +233,9 @@ final class DispatchService
             'response' => $response,
         ]);
         $this->broadcastDispatchChange($dispatch->refresh(), 'recipient_response_overridden');
+        if ($response === 'accepted') {
+            $this->transitionIncidentToInProgressWhenEveryoneOnScene($dispatch->refresh(), $actor);
+        }
 
         return $recipient->refresh()->load('user');
     }
@@ -562,6 +579,83 @@ final class DispatchService
     {
         try {
             DispatchChanged::dispatch($dispatch, $action);
+        } catch (Throwable $exception) {
+            report($exception);
+        }
+    }
+
+    private function transitionIncidentStatus(Incident $incident, User $actor, string $status, string $reason): void
+    {
+        $incident->refresh();
+        if (in_array($incident->status, ['resolved', 'cancelled', $status], true)) {
+            return;
+        }
+
+        if ($status === 'dispatching' && ! in_array($incident->status, ['draft', 'active'], true)) {
+            return;
+        }
+
+        $previousStatus = $incident->status;
+        $incident->forceFill(['status' => $status])->save();
+        $incident->statusHistory()->create([
+            'from_status' => $previousStatus,
+            'to_status' => $status,
+            'changed_by' => $actor->id,
+            'changed_by_name' => $actor->name,
+            'changed_by_email' => $actor->email,
+            'reason' => $reason,
+            'created_at' => now(),
+        ]);
+
+        $this->auditService->record('incidents.status_auto_updated', $incident, $actor, [
+            'from_status' => $previousStatus,
+            'to_status' => $status,
+        ], $reason);
+        $this->broadcastIncidentChange($incident->refresh(), 'status_auto_updated');
+    }
+
+    private function transitionIncidentToInProgressWhenEveryoneOnScene(DispatchRequest $dispatch, User $actor): void
+    {
+        $dispatch->loadMissing(['incident.dispatchRequests.recipients']);
+        $incident = $dispatch->incident;
+        if ($incident === null || ! in_array($incident->status, ['active', 'dispatching'], true)) {
+            return;
+        }
+
+        $acceptedUserIds = $incident->dispatchRequests
+            ->whereIn('status', ['sent', 'escalated'])
+            ->flatMap(fn (DispatchRequest $existingDispatch) => $existingDispatch->recipients)
+            ->filter(fn (DispatchRecipient $recipient): bool => $recipient->response_status === 'accepted')
+            ->pluck('user_id')
+            ->unique()
+            ->values();
+
+        if ($acceptedUserIds->isEmpty()) {
+            return;
+        }
+
+        $latestStatuses = AvailabilityStatus::query()
+            ->latestPerUser()
+            ->whereIn('user_id', $acceptedUserIds->all())
+            ->pluck('status', 'user_id');
+
+        $everyoneOnScene = $acceptedUserIds
+            ->every(fn (string $userId): bool => $latestStatuses->get($userId) === 'on_scene');
+
+        if ($everyoneOnScene) {
+            $this->transitionIncidentStatus(
+                $incident,
+                $actor,
+                'in_progress',
+                'Automatisch naar uitvoering gezet omdat alle geaccepteerde opkomers op locatie zijn.',
+            );
+        }
+    }
+
+    private function broadcastIncidentChange(Incident $incident, string $action): void
+    {
+        try {
+            IncidentChanged::dispatch($incident, $action);
         } catch (Throwable $exception) {
             report($exception);
         }

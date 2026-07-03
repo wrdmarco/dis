@@ -53,6 +53,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
 
   const latestDispatch = dispatches.data?.[0] ?? null;
   const showDraftPanel = incident.data?.status === 'draft';
+  const showDispatchPanel = incident.data?.status === 'active';
   const reportAvailable = incident.data?.status === 'resolved' || incident.data?.status === 'cancelled';
   const recipientCount = latestDispatch?.recipients?.length ?? preview.data?.recipients.length ?? 0;
   const liveSharedCount = liveLocations.data?.filter((location) => location.location_is_current === true || location.sharing_status === 'shared').length ?? 0;
@@ -130,7 +131,30 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
     try {
       await api.patch(`/incidents/${incidentId}`, {
         status: 'active',
-        status_reason: 'Melding geactiveerd en alarmering verstuurd.',
+        status_reason: 'Concept geactiveerd voor alarmering.',
+      });
+      await incident.reload();
+      await preview.reload();
+      await dispatches.reload();
+      await timeline.reload();
+    } catch (err) {
+      setDispatchError(err instanceof ApiClientError ? err.message : 'Concept kon niet worden geactiveerd.');
+    } finally {
+      setDispatching(false);
+    }
+  };
+
+  const sendAlarm = async () => {
+    if (!incidentId) {
+      return;
+    }
+
+    setDispatchError(null);
+    setDispatching(true);
+    try {
+      await api.patch(`/incidents/${incidentId}`, {
+        status: 'dispatching',
+        status_reason: 'Alarmering verstuurd.',
       });
       await incident.reload();
       await preview.reload();
@@ -401,7 +425,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                   <MetaItem icon={<MessageSquare size={16} />} label="Melder" value={reporterLabel(incident.data)} />
                   <MetaItem icon={<RadioTower size={16} />} label="Aanvrager" value={requesterLabel(incident.data)} />
                   <MetaItem icon={<Users size={16} />} label="Ter plaatse" value={onSceneContactLabel(incident.data)} />
-                  <MetaItem icon={<MapPin size={16} />} label="Locatie" value={incident.data.location_label ?? '-'} />
+                  <MetaItem icon={<MapPin size={16} />} label="Opkomstlocatie" value={incident.data.location_label ?? '-'} />
                   <MetaItem icon={<Users size={16} />} label="Teams" value={incidentTeamsLabel(incident.data)} />
                   <MetaItem icon={<RadioTower size={16} />} label="Coordinator" value={incident.data.coordinator?.name ?? '-'} />
                   <MetaItem icon={<Clock size={16} />} label="Geopend" value={formatDate(incident.data.opened_at)} />
@@ -430,9 +454,25 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
 
       {showDraftPanel && canManageIncidents ? (
         <Panel
+          title="Concept"
+          action={(
+            <button className="primary-button" type="button" onClick={activateIncident} disabled={dispatching}>
+              <Send size={16} /> {dispatching ? 'Activeren...' : 'Activeren'}
+            </button>
+          )}
+        >
+          <div className="panel-body">
+            <p className="form-note">Activeer het concept voordat de alarmering wordt verstuurd.</p>
+            {dispatchError ? <p className="form-error">{dispatchError}</p> : null}
+          </div>
+        </Panel>
+      ) : null}
+
+      {showDispatchPanel && canManageIncidents ? (
+        <Panel
           title="Alarmeringsconcept"
           action={(
-            <button className="primary-button" type="button" onClick={activateIncident} disabled={dispatching || preview.loading || (preview.data?.recipients.length ?? 0) === 0}>
+            <button className="primary-button" type="button" onClick={() => void sendAlarm()} disabled={dispatching || preview.loading || (preview.data?.recipients.length ?? 0) === 0}>
               <Send size={16} /> {dispatching ? 'Versturen...' : 'Melding versturen'}
             </button>
           )}

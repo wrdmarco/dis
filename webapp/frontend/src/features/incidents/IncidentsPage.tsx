@@ -208,7 +208,7 @@ function IncidentCard({ incident, mode }: { incident: Incident; mode: IncidentPa
       </header>
       <strong>{incident.title}</strong>
       <div className="incident-card__meta">
-        <MetaLine icon={<MapPin size={15} />} value={incident.location_label ?? 'Geen locatie'} />
+        <MetaLine icon={<MapPin size={15} />} value={incident.location_label ?? 'Geen opkomstlocatie'} />
         <MetaLine icon={<Users size={15} />} value={incidentTeamsLabel(incident)} />
         <MetaLine icon={<RadioTower size={15} />} value={incident.coordinator?.name ?? 'Geen coordinator'} />
         <MetaLine icon={<Clock size={15} />} value={mode === 'archive' ? `Gesloten: ${formatDate(incident.closed_at)}` : `Geopend: ${formatDate(incident.opened_at)}`} />
@@ -511,7 +511,7 @@ function DroneFlightContextPanel({ context, loading, error }: { context: DroneFl
       <header>
         <div>
           <span>Drone vluchtcheck</span>
-          <strong>{loading ? 'Ophalen...' : context ? 'Locatie beoordeeld' : 'Wacht op locatie'}</strong>
+          <strong>{loading ? 'Ophalen...' : context ? 'Opkomstlocatie beoordeeld' : 'Wacht op opkomstlocatie'}</strong>
         </div>
         <Plane size={20} />
       </header>
@@ -547,7 +547,7 @@ function DroneFlightContextPanel({ context, loading, error }: { context: DroneFl
           ) : null}
         </div>
       ) : (
-        <p className="muted-text">Vul een adres of coordinaten in om weer, no-fly/NOTAM status en dronekaart te tonen.</p>
+        <p className="muted-text">Vul een opkomstlocatie of coordinaten in om weer, no-fly/NOTAM status en dronekaart te tonen.</p>
       )}
     </section>
   );
@@ -581,7 +581,7 @@ function LocationPicker(props: {
     <div className="location-picker form-grid__wide">
       <div className="location-picker__search">
         <label>
-          Locatie zoeken
+          Opkomstlocatie
           <div className="input-with-icon">
             <Search size={16} />
             <input
@@ -620,7 +620,7 @@ function LocationPicker(props: {
         ) : (
           <div className="location-picker__empty">
             <MapPin size={28} />
-            <span>Zoek een locatie om de kaart te tonen.</span>
+            <span>Zoek een opkomstlocatie om de kaart te tonen.</span>
           </div>
         )}
       </div>
