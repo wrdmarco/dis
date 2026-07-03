@@ -88,6 +88,21 @@ if [ -d "${BACKEND_DIR}" ]; then
   fi
 fi
 
+DATA_BACKEND_STORAGE="${DIS_DATA_PATH}/webapp/backend/storage"
+if [ -d "${DATA_BACKEND_STORAGE}" ]; then
+  run_cmd chown -R "${DIS_USER}:${DIS_GROUP}" "${DATA_BACKEND_STORAGE}" || true
+  run_cmd find "${DATA_BACKEND_STORAGE}" -type d -exec chmod 0770 {} + || true
+  run_cmd find "${DATA_BACKEND_STORAGE}" -type f -exec chmod 0660 {} + || true
+
+  if id www-data >/dev/null 2>&1; then
+    run_cmd chown -R "www-data:${DIS_GROUP}" "${DATA_BACKEND_STORAGE}" || true
+    run_cmd find "${DATA_BACKEND_STORAGE}" -type d -exec chmod 0770 {} + || true
+    run_cmd find "${DATA_BACKEND_STORAGE}" -type f -exec chmod 0660 {} + || true
+    run_cmd setfacl -R -m "u:www-data:rwx" "${DATA_BACKEND_STORAGE}" || true
+    run_cmd setfacl -R -d -m "u:www-data:rwx" "${DATA_BACKEND_STORAGE}" || true
+  fi
+fi
+
 if [ -d "${APP_ROOT}/backup" ]; then
   run_cmd chgrp -R "${DIS_GROUP}" "${APP_ROOT}/backup" || true
   run_cmd chmod 0770 "${APP_ROOT}/backup" || true
