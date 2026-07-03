@@ -62,7 +62,11 @@ if [ -f "${BACKEND_DIR}/composer.json" ]; then
   else
     log "Skipping database seeders. Set RUN_SEEDERS=1 only for first install or intentional reseeding."
   fi
-  run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" dis:self-check
+  if id www-data >/dev/null 2>&1; then
+    run_cmd runuser -u www-data -- php "${BACKEND_DIR}/artisan" dis:self-check
+  else
+    run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" dis:self-check
+  fi
 fi
 
 if [ -f "${FRONTEND_DIR}/package.json" ]; then
