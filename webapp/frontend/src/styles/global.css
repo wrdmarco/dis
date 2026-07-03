@@ -1071,6 +1071,36 @@ a:hover {
   color: #f8fafc;
 }
 
+.push-template-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #26364b;
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(18, 31, 47, 0.92), rgba(9, 15, 24, 0.98)),
+    #0b1119;
+  padding: 0;
+  overflow: hidden;
+}
+
+.push-template-card + .push-template-card {
+  margin-top: 8px;
+}
+
+.push-template-card h3 {
+  margin: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid #26364b;
+  background: rgba(128, 199, 255, 0.08);
+  color: #f8fafc;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+}
+
+.push-template-card > .form-grid {
+  padding: 14px;
+}
+
 .branding-logo-row {
   display: flex;
   gap: 18px;
@@ -2843,6 +2873,7 @@ body,
 .checkbox-card,
 .permission-grid .check-label,
 .push-summary,
+.push-template-card,
 .public-status-summary,
 .public-status-card,
 .setup-panel,

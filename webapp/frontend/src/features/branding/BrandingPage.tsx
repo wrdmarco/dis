@@ -262,14 +262,17 @@ export function BrandingPage() {
           {activeTab === 'mailTemplates' ? (
             <div className="stacked-section">
               <div className="form-grid">
-                <label className="form-grid__wide">
-                  Uitnodiging onderwerp
-                  <input maxLength={160} value={form.welcomeSubject} onChange={(event) => setForm((current) => ({ ...current, welcomeSubject: event.target.value }))} />
-                </label>
-                <label className="form-grid__wide">
-                  Uitnodiging tekst
-                  <textarea rows={9} maxLength={4000} value={form.welcomeBody} onChange={(event) => setForm((current) => ({ ...current, welcomeBody: event.target.value }))} />
-                </label>
+                <TemplateFields
+                  title="Uitnodiging"
+                  titleLabel="Onderwerp"
+                  titleValue={form.welcomeSubject}
+                  bodyLabel="Tekst"
+                  bodyValue={form.welcomeBody}
+                  bodyRows={9}
+                  bodyMaxLength={4000}
+                  onTitleChange={(value) => setForm((current) => ({ ...current, welcomeSubject: value }))}
+                  onBodyChange={(value) => setForm((current) => ({ ...current, welcomeBody: value }))}
+                />
               </div>
               <div className="metadata-example">
                 <strong>Beschikbare tokens</strong>
@@ -281,22 +284,28 @@ export function BrandingPage() {
           {activeTab === 'expiryTemplates' ? (
             <div className="stacked-section">
               <div className="form-grid">
-                <label className="form-grid__wide">
-                  Certificaat verloop onderwerp
-                  <input maxLength={160} value={form.certificationExpirySubject} onChange={(event) => setForm((current) => ({ ...current, certificationExpirySubject: event.target.value }))} />
-                </label>
-                <label className="form-grid__wide">
-                  Certificaat verloop tekst
-                  <textarea rows={9} maxLength={4000} value={form.certificationExpiryBody} onChange={(event) => setForm((current) => ({ ...current, certificationExpiryBody: event.target.value }))} />
-                </label>
-                <label className="form-grid__wide">
-                  Asset verloop onderwerp
-                  <input maxLength={160} value={form.assetExpirySubject} onChange={(event) => setForm((current) => ({ ...current, assetExpirySubject: event.target.value }))} />
-                </label>
-                <label className="form-grid__wide">
-                  Asset verloop tekst
-                  <textarea rows={9} maxLength={4000} value={form.assetExpiryBody} onChange={(event) => setForm((current) => ({ ...current, assetExpiryBody: event.target.value }))} />
-                </label>
+                <TemplateFields
+                  title="Certificaat verloop"
+                  titleLabel="Onderwerp"
+                  titleValue={form.certificationExpirySubject}
+                  bodyLabel="Tekst"
+                  bodyValue={form.certificationExpiryBody}
+                  bodyRows={9}
+                  bodyMaxLength={4000}
+                  onTitleChange={(value) => setForm((current) => ({ ...current, certificationExpirySubject: value }))}
+                  onBodyChange={(value) => setForm((current) => ({ ...current, certificationExpiryBody: value }))}
+                />
+                <TemplateFields
+                  title="Asset verloop"
+                  titleLabel="Onderwerp"
+                  titleValue={form.assetExpirySubject}
+                  bodyLabel="Tekst"
+                  bodyValue={form.assetExpiryBody}
+                  bodyRows={9}
+                  bodyMaxLength={4000}
+                  onTitleChange={(value) => setForm((current) => ({ ...current, assetExpirySubject: value }))}
+                  onBodyChange={(value) => setForm((current) => ({ ...current, assetExpiryBody: value }))}
+                />
               </div>
               <div className="metadata-example">
                 <strong>Beschikbare tokens</strong>
@@ -327,37 +336,47 @@ export function BrandingPage() {
           {activeTab === 'pushTemplates' ? (
             <div className="stacked-section">
               <div className="form-grid">
-                <PushTemplateFields
+                <TemplateFields
                   title="Vooraankondiging"
+                  titleLabel="Titel"
                   titleValue={form.pushPreannouncementTitle}
+                  bodyLabel="Bericht"
                   bodyValue={form.pushPreannouncementBody}
                   onTitleChange={(value) => setForm((current) => ({ ...current, pushPreannouncementTitle: value }))}
                   onBodyChange={(value) => setForm((current) => ({ ...current, pushPreannouncementBody: value }))}
                 />
-                <PushTemplateFields
+                <TemplateFields
                   title="Alarmering"
+                  titleLabel="Titel"
                   titleValue={form.pushDispatchTitle}
+                  bodyLabel="Bericht"
                   bodyValue={form.pushDispatchBody}
                   onTitleChange={(value) => setForm((current) => ({ ...current, pushDispatchTitle: value }))}
                   onBodyChange={(value) => setForm((current) => ({ ...current, pushDispatchBody: value }))}
                 />
-                <PushTemplateFields
+                <TemplateFields
                   title="Alarmering bij urgente opschaling ondanks niet beschikbaar"
+                  titleLabel="Titel"
                   titleValue={form.pushUnavailableEscalationTitle}
+                  bodyLabel="Bericht"
                   bodyValue={form.pushUnavailableEscalationBody}
                   onTitleChange={(value) => setForm((current) => ({ ...current, pushUnavailableEscalationTitle: value }))}
                   onBodyChange={(value) => setForm((current) => ({ ...current, pushUnavailableEscalationBody: value }))}
                 />
-                <PushTemplateFields
+                <TemplateFields
                   title="Nadere info"
+                  titleLabel="Titel"
                   titleValue={form.pushAdditionalInfoTitle}
+                  bodyLabel="Bericht"
                   bodyValue={form.pushAdditionalInfoBody}
                   onTitleChange={(value) => setForm((current) => ({ ...current, pushAdditionalInfoTitle: value }))}
                   onBodyChange={(value) => setForm((current) => ({ ...current, pushAdditionalInfoBody: value }))}
                 />
-                <PushTemplateFields
+                <TemplateFields
                   title="Annulering"
+                  titleLabel="Titel"
                   titleValue={form.pushCancellationTitle}
+                  bodyLabel="Bericht"
                   bodyValue={form.pushCancellationBody}
                   onTitleChange={(value) => setForm((current) => ({ ...current, pushCancellationTitle: value }))}
                   onBodyChange={(value) => setForm((current) => ({ ...current, pushCancellationBody: value }))}
@@ -424,16 +443,24 @@ function toBrandingForm(settings: SystemSetting[]): BrandingForm {
   };
 }
 
-function PushTemplateFields({
+function TemplateFields({
   title,
+  titleLabel,
   titleValue,
+  bodyLabel,
   bodyValue,
+  bodyRows = 4,
+  bodyMaxLength = 2000,
   onTitleChange,
   onBodyChange,
 }: {
   title: string;
+  titleLabel: string;
   titleValue: string;
+  bodyLabel: string;
   bodyValue: string;
+  bodyRows?: number;
+  bodyMaxLength?: number;
   onTitleChange: (value: string) => void;
   onBodyChange: (value: string) => void;
 }) {
@@ -442,12 +469,12 @@ function PushTemplateFields({
       <h3>{title}</h3>
       <div className="form-grid">
         <label>
-          Titel
+          {titleLabel}
           <input maxLength={160} value={titleValue} onChange={(event) => onTitleChange(event.target.value)} />
         </label>
         <label className="form-grid__wide">
-          Bericht
-          <textarea rows={4} maxLength={2000} value={bodyValue} onChange={(event) => onBodyChange(event.target.value)} />
+          {bodyLabel}
+          <textarea rows={bodyRows} maxLength={bodyMaxLength} value={bodyValue} onChange={(event) => onBodyChange(event.target.value)} />
         </label>
       </div>
     </section>
