@@ -22,13 +22,13 @@ final class ReportingController extends Controller
         }
 
         try {
-            $pdf = $reports->storedPdf($incident);
-            if ($pdf === null) {
+            $pdfPath = $reports->storedPdfPath($incident);
+            if ($pdfPath === null) {
                 $reports->ensureStored($incident);
-                $pdf = $reports->storedPdf($incident->refresh());
+                $pdfPath = $reports->storedPdfPath($incident->refresh());
             }
 
-            if ($pdf === null) {
+            if ($pdfPath === null) {
                 $message = $incident->report_generation_error !== null && $incident->report_generation_error !== ''
                     ? 'Incidentrapport kon niet worden gemaakt: '.$incident->report_generation_error
                     : 'Het opgeslagen incidentrapport is nog niet beschikbaar.';
@@ -36,9 +36,8 @@ final class ReportingController extends Controller
                 return ApiResponse::error('incident_report_unavailable', $message, 503);
             }
 
-            return response($pdf, 200, [
+            return response()->download($pdfPath, $reports->filename($incident), [
                 'Content-Type' => 'application/pdf',
-                'Content-Disposition' => 'attachment; filename="'.$reports->filename($incident).'"',
             ]);
         } catch (Throwable $exception) {
             report($exception);

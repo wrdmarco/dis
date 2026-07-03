@@ -145,6 +145,23 @@ final class IncidentReportService
         }
     }
 
+    public function storedPdfPath(Incident $incident): ?string
+    {
+        if (! is_string($incident->report_pdf_path) || $incident->report_pdf_path === '') {
+            return null;
+        }
+
+        try {
+            return Storage::disk('local')->exists($incident->report_pdf_path)
+                ? Storage::disk('local')->path($incident->report_pdf_path)
+                : null;
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return null;
+        }
+    }
+
     public function filename(Incident $incident): string
     {
         return Str::slug($incident->reference.'-'.$incident->title).'.pdf';
