@@ -7,6 +7,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\User;
 use App\Services\AuditService;
 use App\Services\TwoFactorService;
+use App\Services\UserService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,6 +20,7 @@ final class AuthController extends Controller
     public function __construct(
         private readonly AuditService $auditService,
         private readonly TwoFactorService $twoFactorService,
+        private readonly UserService $userService,
     ) {}
 
     public function login(LoginRequest $request): JsonResponse
@@ -228,6 +230,16 @@ final class AuthController extends Controller
     public function me(Request $request): JsonResponse
     {
         return ApiResponse::success(MobileApiPayload::user($request->user()?->load(['roles', 'teams'])));
+    }
+
+    public function updateMe(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:160'],
+            'home_city' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        return ApiResponse::success(MobileApiPayload::user($this->userService->updateOwnProfile($request->user(), $data)));
     }
 
     public function logout(Request $request): Response

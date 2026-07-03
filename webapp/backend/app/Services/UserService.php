@@ -106,6 +106,28 @@ final class UserService
         });
     }
 
+    /**
+     * @param array<string, mixed> $data
+     */
+    public function updateOwnProfile(User $user, array $data): User
+    {
+        $data = $this->resolveHomeCityData([
+            'name' => trim((string) ($data['name'] ?? $user->name)),
+            'home_city' => $data['home_city'] ?? null,
+        ], $user);
+
+        return DB::transaction(function () use ($user, $data): User {
+            $before = $user->only(array_keys($data));
+            $user->update($data);
+            $this->auditService->record('users.profile_updated', $user, $user, [
+                'before' => $before,
+                'after' => $user->only(array_keys($data)),
+            ]);
+
+            return $user->refresh()->load(['roles.permissions', 'teams']);
+        });
+    }
+
     public function delete(User $user, User $actor): void
     {
         if ($user->is($actor)) {
