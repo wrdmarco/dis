@@ -89,6 +89,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/incidents/{incident}/close', [IncidentController::class, 'close'])->middleware('permission:incidents.manage');
     Route::post('/incidents/{incident}/cancel', [IncidentController::class, 'cancel'])->middleware('permission:incidents.manage');
     Route::get('/incidents/{incident}/timeline', [IncidentController::class, 'timeline'])->middleware('permission:incidents.view');
+    Route::get('/incidents/{incident}/report', [ReportingController::class, 'incidentPdf'])->middleware('permission:incidents.view');
     Route::get('/incidents/{incident}/report.pdf', [ReportingController::class, 'incidentPdf'])->middleware('permission:incidents.view');
     Route::get('/incidents/{incident}/dispatch-preview', [IncidentController::class, 'dispatchPreview'])->middleware('permission:dispatch.view');
     Route::get('/incidents/{incident}/dispatches', [DispatchController::class, 'incidentDispatches'])->middleware('permission:dispatch.view');

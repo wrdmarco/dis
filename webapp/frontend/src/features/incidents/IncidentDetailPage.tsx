@@ -297,7 +297,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
     setReportDownloading(true);
     setReportError(null);
     try {
-      const response = await api.download(`/incidents/${incidentId}/report.pdf`);
+      const response = await api.download(`/incidents/${incidentId}/report`);
       const url = URL.createObjectURL(response.blob);
       const link = document.createElement('a');
       link.href = url;

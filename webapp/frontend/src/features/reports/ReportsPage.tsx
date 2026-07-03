@@ -25,7 +25,7 @@ export function ReportsPage() {
     setReportError(null);
 
     try {
-      const response = await api.download(`/incidents/${incident.id}/report.pdf`);
+      const response = await api.download(`/incidents/${incident.id}/report`);
       const url = URL.createObjectURL(response.blob);
       const link = document.createElement('a');
       link.href = url;
