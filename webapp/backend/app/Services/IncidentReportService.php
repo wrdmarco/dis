@@ -60,8 +60,8 @@ final class IncidentReportService
 
     public function pdf(Incident $incident): string
     {
-        $tempDir = $this->writableReportDirectory(storage_path('app/report-temp'));
-        $fontDir = $this->writableReportDirectory(storage_path('app/report-fonts'));
+        $tempDir = $this->writableReportDirectory();
+        $fontDir = $tempDir;
 
         $options = new Options();
         $options->set('isRemoteEnabled', false);
@@ -97,28 +97,33 @@ final class IncidentReportService
         return $dompdf->output();
     }
 
-    private function writableReportDirectory(string $path): string
+    private function writableReportDirectory(): string
     {
-        try {
-            File::ensureDirectoryExists($path, 0770, true);
-            @chmod($path, 0770);
-        } catch (Throwable) {
-            // Fall back below when the configured storage path is not writable.
+        $candidates = [
+            rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'dis-reports',
+            storage_path('tmp/report-render'),
+            storage_path('app/report-temp'),
+        ];
+
+        foreach ($candidates as $path) {
+            try {
+                File::ensureDirectoryExists($path, 0770, true);
+                @chmod($path, 0770);
+                $probe = @tempnam($path, 'dis-report-probe-');
+                if (is_string($probe) && str_starts_with($probe, rtrim($path, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR)) {
+                    @unlink($probe);
+
+                    return $path;
+                }
+                if (is_string($probe)) {
+                    @unlink($probe);
+                }
+            } catch (Throwable) {
+                // Try the next candidate.
+            }
         }
 
-        if (is_dir($path) && is_writable($path)) {
-            return $path;
-        }
-
-        $fallback = storage_path('tmp');
-        try {
-            File::ensureDirectoryExists($fallback, 0770, true);
-            @chmod($fallback, 0770);
-        } catch (Throwable) {
-            // Fall back to PHP's system temp directory below.
-        }
-
-        return is_dir($fallback) && is_writable($fallback) ? $fallback : sys_get_temp_dir();
+        return sys_get_temp_dir();
     }
 
     public function ensureStored(Incident $incident): ?string
