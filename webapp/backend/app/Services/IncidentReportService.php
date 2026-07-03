@@ -102,7 +102,7 @@ final class IncidentReportService
     private function writableReportDirectory(): string
     {
         $candidates = [
-            rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'dis-reports',
+            sys_get_temp_dir(),
             storage_path('tmp/report-render'),
             storage_path('app/report-temp'),
         ];
