@@ -150,19 +150,19 @@ ensure_data_layout() {
   ensure_directory "${DIS_DATA_PATH}/backup" root "${DIS_GROUP}" 0770
   ensure_directory "${DIS_DATA_PATH}/backup-requests" root "${DIS_GROUP}" 0770
   ensure_directory "${DIS_DATA_PATH}/secrets" root "${DIS_GROUP}" 0750
-  ensure_directory "${DIS_DATA_PATH}/storage" "${DIS_USER}" "${DIS_GROUP}" 0750
-  ensure_directory "${DIS_DATA_PATH}/storage/app" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/storage" "${DIS_USER}" "${DIS_GROUP}" 0770
+  ensure_directory "${DIS_DATA_PATH}/storage/app" "${DIS_USER}" "${DIS_GROUP}" 0770
   ensure_directory "${DIS_DATA_PATH}/storage/generated" root root 0755
-  ensure_directory "${DIS_DATA_PATH}/storage/logs" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/storage/logs" "${DIS_USER}" "${DIS_GROUP}" 0770
   ensure_directory "${DIS_DATA_PATH}/storage/releases" "${DIS_USER}" "${DIS_GROUP}" 0750
-  ensure_directory "${DIS_DATA_PATH}/storage/tmp" "${DIS_USER}" "${DIS_GROUP}" 0750
-  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage" "${DIS_USER}" "${DIS_GROUP}" 0750
-  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/app" "${DIS_USER}" "${DIS_GROUP}" 0750
-  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework/cache" "${DIS_USER}" "${DIS_GROUP}" 0750
-  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework/sessions" "${DIS_USER}" "${DIS_GROUP}" 0750
-  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework/views" "${DIS_USER}" "${DIS_GROUP}" 0750
-  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/logs" "${DIS_USER}" "${DIS_GROUP}" 0750
-  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/composer" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_directory "${DIS_DATA_PATH}/storage/tmp" "${DIS_USER}" "${DIS_GROUP}" 0770
+  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage" "${DIS_USER}" "${DIS_GROUP}" 0770
+  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/app" "${DIS_USER}" "${DIS_GROUP}" 0770
+  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework/cache" "${DIS_USER}" "${DIS_GROUP}" 0770
+  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework/sessions" "${DIS_USER}" "${DIS_GROUP}" 0770
+  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework/views" "${DIS_USER}" "${DIS_GROUP}" 0770
+  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/logs" "${DIS_USER}" "${DIS_GROUP}" 0770
+  ensure_directory "${DIS_DATA_PATH}/webapp/backend/storage/composer" "${DIS_USER}" "${DIS_GROUP}" 0770
 }
 
 migrate_path_to_data() {

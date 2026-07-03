@@ -60,14 +60,15 @@ final class IncidentReportService
 
     public function pdf(Incident $incident): string
     {
-        $this->ensureReportRuntimeDirectories();
+        $tempDir = $this->writableReportDirectory(storage_path('app/report-temp'));
+        $fontDir = $this->writableReportDirectory(storage_path('app/report-fonts'));
 
         $options = new Options();
         $options->set('isRemoteEnabled', false);
         $options->set('defaultFont', 'DejaVu Sans');
-        $options->set('tempDir', storage_path('app/report-temp'));
-        $options->set('fontDir', storage_path('app/report-fonts'));
-        $options->set('fontCache', storage_path('app/report-fonts'));
+        $options->set('tempDir', $tempDir);
+        $options->set('fontDir', $fontDir);
+        $options->set('fontCache', $fontDir);
 
         $data = $this->data($incident);
         try {
@@ -96,10 +97,28 @@ final class IncidentReportService
         return $dompdf->output();
     }
 
-    private function ensureReportRuntimeDirectories(): void
+    private function writableReportDirectory(string $path): string
     {
-        File::ensureDirectoryExists(storage_path('app/report-temp'), 0770, true);
-        File::ensureDirectoryExists(storage_path('app/report-fonts'), 0770, true);
+        try {
+            File::ensureDirectoryExists($path, 0770, true);
+            @chmod($path, 0770);
+        } catch (Throwable) {
+            // Fall back below when the configured storage path is not writable.
+        }
+
+        if (is_dir($path) && is_writable($path)) {
+            return $path;
+        }
+
+        $fallback = storage_path('tmp');
+        try {
+            File::ensureDirectoryExists($fallback, 0770, true);
+            @chmod($fallback, 0770);
+        } catch (Throwable) {
+            // Fall back to PHP's system temp directory below.
+        }
+
+        return is_dir($fallback) && is_writable($fallback) ? $fallback : sys_get_temp_dir();
     }
 
     public function ensureStored(Incident $incident): ?string
