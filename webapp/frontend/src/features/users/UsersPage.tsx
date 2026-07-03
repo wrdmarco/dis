@@ -14,6 +14,7 @@ interface UserFormState {
   name: string;
   email: string;
   phoneNumber: string;
+  homeCity: string;
   password: string;
   sendWelcomeMail: boolean;
   accountStatus: User['account_status'];
@@ -27,6 +28,7 @@ const emptyForm: UserFormState = {
   name: '',
   email: '',
   phoneNumber: '',
+  homeCity: '',
   password: '',
   sendWelcomeMail: true,
   accountStatus: 'active',
@@ -109,6 +111,7 @@ export function UsersPage() {
       name: user.name,
       email: user.email,
       phoneNumber: user.phone_number ?? '',
+      homeCity: user.home_city ?? '',
       password: '',
       sendWelcomeMail: false,
       accountStatus: user.account_status,
@@ -194,6 +197,7 @@ export function UsersPage() {
       name: form.name,
       email: form.email,
       phone_number: form.phoneNumber || null,
+      home_city: form.homeCity.trim() === '' ? null : form.homeCity.trim(),
       account_status: form.accountStatus,
       role_ids: form.roleIds,
       team_ids: form.teamIds,
@@ -280,12 +284,13 @@ export function UsersPage() {
       >
         <ResourceState loading={users.loading} error={users.error} empty={(users.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Naam</th><th>E-mail</th><th>Account</th><th>Push</th><th>Teams</th><th>Rollen</th><th>Actie</th></tr></thead>
+            <thead><tr><th>Naam</th><th>E-mail</th><th>Woonplaats</th><th>Account</th><th>Push</th><th>Teams</th><th>Rollen</th><th>Actie</th></tr></thead>
             <tbody>
               {users.data?.map((user) => (
                 <tr key={user.id}>
                   <td>{user.name}</td>
                   <td>{user.email}</td>
+                  <td>{user.home_city ?? '-'}</td>
                   <td><StatusPill value={user.account_status} tone={user.account_status === 'active' ? 'good' : 'bad'} /></td>
                   <td>{user.push_enabled ? 'Actief' : 'Uit'}</td>
                   <td>{user.teams?.map((team) => team.code).join(', ') || '-'}</td>
@@ -325,6 +330,11 @@ export function UsersPage() {
               <label>
                 Telefoonnummer
                 <input value={form.phoneNumber} onChange={(event) => setForm((current) => ({ ...current, phoneNumber: event.target.value }))} />
+              </label>
+              <label>
+                Woonplaats
+                <input value={form.homeCity} maxLength={120} onChange={(event) => setForm((current) => ({ ...current, homeCity: event.target.value }))} />
+                <small>Globale plaats voor geschatte ETA-ringen, geen exact adres.</small>
               </label>
               <label>
                 Accountstatus

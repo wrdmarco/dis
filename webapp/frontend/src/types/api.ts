@@ -64,6 +64,11 @@ export interface User {
   name: string;
   email: string;
   phone_number?: string | null;
+  home_city?: string | null;
+  home_latitude?: string | null;
+  home_longitude?: string | null;
+  home_geocoded_at?: string | null;
+  home_geocode_source?: string | null;
   account_status: 'active' | 'suspended' | 'blocked';
   last_login_at?: string | null;
   push_enabled: boolean;

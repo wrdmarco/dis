@@ -17,7 +17,10 @@ use Throwable;
 
 final class UserService
 {
-    public function __construct(private readonly AuditService $auditService) {}
+    public function __construct(
+        private readonly AuditService $auditService,
+        private readonly GeocodingService $geocodingService,
+    ) {}
 
     /**
      * @param array<string, mixed> $data
@@ -40,6 +43,8 @@ final class UserService
             $data['password'] = Str::random(32).'Aa1!';
         }
 
+        $data = $this->resolveHomeCityData($data);
+
         $user = DB::transaction(function () use ($data, $roleIds, $teamIds, $actor): User {
             $user = User::query()->create($data);
             $this->syncRoles($user, is_array($roleIds) ? $roleIds : [], $actor);
@@ -61,6 +66,8 @@ final class UserService
      */
     public function update(User $user, array $data, User $actor): User
     {
+        $data = $this->resolveHomeCityData($data, $user);
+
         return DB::transaction(function () use ($user, $data, $actor): User {
             $roleIds = $data['role_ids'] ?? null;
             $teamIds = $data['team_ids'] ?? null;
@@ -271,6 +278,41 @@ final class UserService
         if (! $actor->hasPermission('roles.manage')) {
             throw ValidationException::withMessages(['roles' => ['Je hebt geen rechten om rollen aan te passen.']]);
         }
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function resolveHomeCityData(array $data, ?User $user = null): array
+    {
+        if (! array_key_exists('home_city', $data)) {
+            return $data;
+        }
+
+        $homeCity = trim((string) ($data['home_city'] ?? ''));
+        if ($homeCity === '') {
+            $data['home_city'] = null;
+            $data['home_latitude'] = null;
+            $data['home_longitude'] = null;
+            $data['home_geocoded_at'] = null;
+            $data['home_geocode_source'] = null;
+
+            return $data;
+        }
+
+        $data['home_city'] = $homeCity;
+        if ($user !== null && trim((string) $user->home_city) === $homeCity) {
+            return $data;
+        }
+
+        $coordinates = $this->geocodingService->coordinatesFor($homeCity);
+        $data['home_latitude'] = $coordinates === null ? null : number_format((float) $coordinates['latitude'], 2, '.', '');
+        $data['home_longitude'] = $coordinates === null ? null : number_format((float) $coordinates['longitude'], 2, '.', '');
+        $data['home_geocoded_at'] = $coordinates === null ? null : now();
+        $data['home_geocode_source'] = $coordinates === null ? null : (string) config('dis.geocoding.provider', 'nominatim');
+
+        return $data;
     }
 
     /**

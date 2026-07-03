@@ -22,7 +22,8 @@ final class UserRepository extends BaseRepository
             ->when($filters['search'] ?? null, function ($query, string $search): void {
                 $query->where(function ($nested) use ($search): void {
                     $nested->where('name', 'ilike', "%{$search}%")
-                        ->orWhere('email', 'ilike', "%{$search}%");
+                        ->orWhere('email', 'ilike', "%{$search}%")
+                        ->orWhere('home_city', 'ilike', "%{$search}%");
                 });
             })
             ->when($filters['status'] ?? null, fn ($query, string $status) => $query->where('account_status', $status))
@@ -32,4 +33,3 @@ final class UserRepository extends BaseRepository
             ->paginate(min(max($perPage, 1), 100));
     }
 }
-
