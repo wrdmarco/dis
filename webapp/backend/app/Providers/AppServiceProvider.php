@@ -54,8 +54,9 @@ final class AppServiceProvider extends ServiceProvider
 
         foreach ($directories as $directory) {
             if (! is_dir($directory)) {
-                @mkdir($directory, 0750, true);
+                @mkdir($directory, 0770, true);
             }
+            @chmod($directory, 0770);
         }
 
         if (is_dir(storage_path('tmp')) && is_writable(storage_path('tmp'))) {

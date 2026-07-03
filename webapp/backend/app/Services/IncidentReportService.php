@@ -91,6 +91,8 @@ final class IncidentReportService
      */
     private function renderPdf(Options $options, array $data): string
     {
+        $this->ensureWritableDirectory(storage_path('framework/views'));
+
         set_error_handler(static function (int $severity, string $message): bool {
             if (str_contains($message, 'tempnam(): file created in the system')) {
                 return true;
@@ -141,6 +143,16 @@ final class IncidentReportService
         $this->lastReportTempDir = sys_get_temp_dir();
 
         return sys_get_temp_dir();
+    }
+
+    private function ensureWritableDirectory(string $path): void
+    {
+        try {
+            File::ensureDirectoryExists($path, 0770, true);
+            @chmod($path, 0770);
+        } catch (Throwable) {
+            // Let the normal render error handling report the real failure.
+        }
     }
 
     public function ensureStored(Incident $incident): ?string
