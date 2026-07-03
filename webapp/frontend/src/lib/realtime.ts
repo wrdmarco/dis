@@ -13,12 +13,18 @@ export interface RealtimeOptions {
   onSystemUpdateStatus?: (payload: unknown) => void;
 }
 
-export function createRealtime(options: RealtimeOptions): Echo<'reverb'> {
+export function createRealtime(options: RealtimeOptions): Echo<'reverb'> | null {
+  const appKey = process.env.NEXT_PUBLIC_REVERB_APP_KEY;
+
+  if (appKey === undefined || appKey.trim() === '') {
+    return null;
+  }
+
   window.Pusher = Pusher;
 
   const echo = new Echo<'reverb'>({
     broadcaster: 'reverb',
-    key: process.env.NEXT_PUBLIC_REVERB_APP_KEY,
+    key: appKey,
     wsHost: process.env.NEXT_PUBLIC_WEBSOCKET_HOST ?? window.location.hostname,
     wsPort: Number(process.env.NEXT_PUBLIC_WEBSOCKET_PORT ?? 80),
     forceTLS: false,

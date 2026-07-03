@@ -181,6 +181,10 @@ export function AdminPage() {
     });
 
     return () => {
+      if (echo === null) {
+        return;
+      }
+
       echo.leave('private-admin.system');
     };
   }, [canViewSystemHealth, reloadSystemVersionSilently, token]);

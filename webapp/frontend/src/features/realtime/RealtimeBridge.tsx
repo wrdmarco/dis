@@ -18,6 +18,10 @@ export function RealtimeBridge({ onOperationalEvent }: { onOperationalEvent: () 
     const echo = createRealtime({ token, onOperationalEvent: () => callbackRef.current() });
 
     return () => {
+      if (echo === null) {
+        return;
+      }
+
       echo.leave('private-operations');
       echo.disconnect();
     };

@@ -112,10 +112,6 @@ if [ "$(env_value REVERB_APP_KEY)" = "change-this-reverb-key" ] || [ -z "$(env_v
   set_env REVERB_APP_KEY "$(random_hex 16)"
 fi
 
-if [ "$(env_value VITE_REVERB_APP_KEY)" = "change-this-reverb-key" ] || [ -z "$(env_value VITE_REVERB_APP_KEY)" ]; then
-  set_env VITE_REVERB_APP_KEY "$(env_value REVERB_APP_KEY)"
-fi
-
 if [ "$(env_value REVERB_APP_SECRET)" = "change-this-reverb-secret" ] || [ -z "$(env_value REVERB_APP_SECRET)" ]; then
   set_env REVERB_APP_SECRET "$(random_hex 32)"
 fi
@@ -140,11 +136,11 @@ run_cmd chown -h "${DIS_USER}:${DIS_GROUP}" "${APP_ROOT}/webapp/backend/.env"
 
 log "Creating frontend production environment"
 cat > "${APP_ROOT}/webapp/frontend/.env.production" <<EOF
-VITE_API_BASE_URL=/api
-VITE_REVERB_APP_KEY=$(env_value REVERB_APP_KEY)
-VITE_WEBSOCKET_HOST=${DOMAIN}
-VITE_WEBSOCKET_PORT=80
-VITE_WEBSOCKET_SCHEME=ws
+NEXT_PUBLIC_API_BASE_URL=/api
+NEXT_PUBLIC_REVERB_APP_KEY=$(env_value REVERB_APP_KEY)
+NEXT_PUBLIC_WEBSOCKET_HOST=${DOMAIN}
+NEXT_PUBLIC_WEBSOCKET_PORT=80
+NEXT_PUBLIC_WEBSOCKET_SCHEME=ws
 EOF
 run_cmd chown "${DIS_USER}:${DIS_GROUP}" "${APP_ROOT}/webapp/frontend/.env.production"
 run_cmd chmod 0640 "${APP_ROOT}/webapp/frontend/.env.production"
