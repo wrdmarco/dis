@@ -407,12 +407,19 @@ final class IncidentReportService
             number_format($latitude, 5, '.', ''),
             number_format($longitude, 5, '.', ''),
         ]));
-        $cachePath = 'report-map-snapshots/'.$cacheKey.'.svg';
+        $cachePath = 'report-map-snapshots/'.$cacheKey.'.png';
 
         if (Storage::disk('local')->exists($cachePath)) {
             return [
                 'available' => true,
-                'data_uri' => 'data:image/svg+xml;base64,'.base64_encode(Storage::disk('local')->get($cachePath)),
+                'data_uri' => 'data:image/png;base64,'.base64_encode(Storage::disk('local')->get($cachePath)),
+            ];
+        }
+
+        if (! function_exists('imagecreatetruecolor')) {
+            return [
+                'available' => false,
+                'data_uri' => null,
             ];
         }
 
@@ -451,7 +458,7 @@ final class IncidentReportService
                     }
 
                     $tiles[] = [
-                        'data_uri' => 'data:image/png;base64,'.base64_encode($response->body()),
+                        'body' => $response->body(),
                         'left' => round(($tileX * $tileSize) - $left, 2),
                         'top' => round(($tileY * $tileSize) - $top, 2),
                     ];
@@ -466,50 +473,69 @@ final class IncidentReportService
             ];
         }
 
-        $svg = $this->mapSnapshotSvg($width, $height, $tiles);
-        Storage::disk('local')->put($cachePath, $svg);
+        $png = $this->mapSnapshotPng($width, $height, $tiles);
+        if ($png === null) {
+            return [
+                'available' => false,
+                'data_uri' => null,
+            ];
+        }
+
+        Storage::disk('local')->put($cachePath, $png);
 
         return [
             'available' => true,
-            'data_uri' => 'data:image/svg+xml;base64,'.base64_encode($svg),
+            'data_uri' => 'data:image/png;base64,'.base64_encode($png),
         ];
     }
 
     /**
-     * @param array<int, array{data_uri: string, left: float, top: float}> $tiles
+     * @param array<int, array{body: string, left: float, top: float}> $tiles
      */
-    private function mapSnapshotSvg(int $width, int $height, array $tiles): string
+    private function mapSnapshotPng(int $width, int $height, array $tiles): ?string
     {
-        $images = collect($tiles)
-            ->map(fn (array $tile): string => sprintf(
-                '<image href="%s" x="%s" y="%s" width="256" height="256" preserveAspectRatio="none" />',
-                e($tile['data_uri']),
-                number_format($tile['left'], 2, '.', ''),
-                number_format($tile['top'], 2, '.', ''),
-            ))
-            ->implode('');
+        $canvas = imagecreatetruecolor($width, $height);
+        if ($canvas === false) {
+            return null;
+        }
 
-        $centerX = number_format($width / 2, 2, '.', '');
-        $centerY = number_format($height / 2, 2, '.', '');
-        $labelY = $height - 17;
-        $labelTextY = $height - 8;
-        $attributionX = $width - 132;
-        $attributionY = $height - 21;
-        $attributionTextX = $width - 96;
-        $attributionTextY = $height - 9;
+        $background = imagecolorallocate($canvas, 232, 243, 248);
+        $red = imagecolorallocate($canvas, 220, 38, 38);
+        $white = imagecolorallocate($canvas, 255, 255, 255);
+        $text = imagecolorallocate($canvas, 15, 23, 42);
+        $muted = imagecolorallocate($canvas, 71, 85, 105);
+        $border = imagecolorallocate($canvas, 219, 229, 240);
+        imagefilledrectangle($canvas, 0, 0, $width, $height, $background);
 
-        return <<<SVG
-<svg xmlns="http://www.w3.org/2000/svg" width="{$width}" height="{$height}" viewBox="0 0 {$width} {$height}">
-  <rect width="{$width}" height="{$height}" fill="#e8f3f8"/>
-  {$images}
-  <circle cx="{$centerX}" cy="{$centerY}" r="16" fill="none" stroke="#dc2626" stroke-width="2"/>
-  <circle cx="{$centerX}" cy="{$centerY}" r="8" fill="#dc2626" stroke="#ffffff" stroke-width="3"/>
-  <rect x="10" y="{$labelY}" width="94" height="22" rx="5" fill="#ffffff" stroke="#dbe5f0"/>
-  <text x="18" y="{$labelTextY}" font-family="DejaVu Sans, Arial, sans-serif" font-size="10" fill="#0f172a">Incidentlocatie</text>
-  <rect x="{$attributionX}" y="{$attributionY}" width="122" height="18" rx="4" fill="#ffffff" fill-opacity="0.92"/>
-  <text x="{$attributionTextX}" y="{$attributionTextY}" font-family="DejaVu Sans, Arial, sans-serif" font-size="8" fill="#475569">Esri Imagery + labels</text>
-</svg>
-SVG;
+        foreach ($tiles as $tile) {
+            $image = @imagecreatefromstring($tile['body']);
+            if ($image === false) {
+                continue;
+            }
+
+            imagecopy($canvas, $image, (int) round($tile['left']), (int) round($tile['top']), 0, 0, 256, 256);
+            imagedestroy($image);
+        }
+
+        $centerX = (int) round($width / 2);
+        $centerY = (int) round($height / 2);
+        imageellipse($canvas, $centerX, $centerY, 32, 32, $red);
+        imagefilledellipse($canvas, $centerX, $centerY, 16, 16, $red);
+        imageellipse($canvas, $centerX, $centerY, 19, 19, $white);
+
+        imagefilledrectangle($canvas, 10, $height - 29, 104, $height - 7, $white);
+        imagerectangle($canvas, 10, $height - 29, 104, $height - 7, $border);
+        imagestring($canvas, 2, 18, $height - 24, 'Incidentlocatie', $text);
+
+        imagefilledrectangle($canvas, $width - 132, $height - 25, $width - 10, $height - 7, $white);
+        imagestring($canvas, 1, $width - 96, $height - 21, 'Esri Imagery + labels', $muted);
+
+        ob_start();
+        imagepng($canvas, null, 6);
+        $png = ob_get_clean();
+        imagedestroy($canvas);
+
+        return is_string($png) && $png !== '' ? $png : null;
     }
 
     /**
