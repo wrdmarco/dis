@@ -262,6 +262,33 @@ export interface AvailabilityStatus {
   user?: User;
 }
 
+export interface AvailabilityScheduleDay {
+  day_of_week: number;
+  is_available: boolean;
+  note?: string | null;
+  source: 'default' | 'pattern';
+}
+
+export interface AvailabilityOverride {
+  id: string;
+  user_id: string;
+  starts_at: string;
+  ends_at: string;
+  is_available: boolean;
+  note?: string | null;
+}
+
+export interface AvailabilitySchedule {
+  user_id: string;
+  week_pattern: AvailabilityScheduleDay[];
+  overrides: AvailabilityOverride[];
+  today: {
+    is_available: boolean;
+    source: 'default' | 'pattern' | 'week_pattern' | 'override';
+    note?: string | null;
+  };
+}
+
 export interface UserVacation {
   id: string;
   user_id: string;

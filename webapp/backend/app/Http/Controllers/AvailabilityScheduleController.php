@@ -1,0 +1,141 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Responses\ApiResponse;
+use App\Models\AvailabilityOverride;
+use App\Models\AvailabilityWeekPattern;
+use App\Models\User;
+use App\Services\AvailabilityScheduleService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+final class AvailabilityScheduleController extends Controller
+{
+    public function __construct(private readonly AvailabilityScheduleService $service) {}
+
+    public function mine(Request $request): JsonResponse
+    {
+        return ApiResponse::success($this->schedulePayload($request->user()));
+    }
+
+    public function show(User $user): JsonResponse
+    {
+        return ApiResponse::success($this->schedulePayload($user));
+    }
+
+    public function updateMine(Request $request): JsonResponse
+    {
+        return $this->updatePattern($request, $request->user());
+    }
+
+    public function updateForUser(Request $request, User $user): JsonResponse
+    {
+        return $this->updatePattern($request, $user);
+    }
+
+    public function storeMineOverride(Request $request): JsonResponse
+    {
+        return $this->storeOverride($request, $request->user());
+    }
+
+    public function storeUserOverride(Request $request, User $user): JsonResponse
+    {
+        return $this->storeOverride($request, $user);
+    }
+
+    public function deleteOverride(Request $request, AvailabilityOverride $override): JsonResponse
+    {
+        if (
+            $override->user_id !== $request->user()?->id
+            && $request->user()?->hasPermission('status.override') !== true
+        ) {
+            abort(403);
+        }
+
+        $this->service->deleteOverride($override->load('user'), $request->user());
+
+        return ApiResponse::success(null);
+    }
+
+    private function updatePattern(Request $request, User $user): JsonResponse
+    {
+        $data = $request->validate([
+            'patterns' => ['required', 'array', 'size:7'],
+            'patterns.*.day_of_week' => ['required', 'integer', 'between:1,7'],
+            'patterns.*.is_available' => ['required', 'boolean'],
+            'patterns.*.note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $patterns = collect($data['patterns'])
+            ->unique('day_of_week')
+            ->values();
+        if ($patterns->count() !== 7) {
+            abort(422, 'Iedere weekdag moet precies een keer worden opgegeven.');
+        }
+
+        $this->service->replaceWeekPattern($user, $patterns->all(), $request->user());
+
+        return ApiResponse::success($this->schedulePayload($user));
+    }
+
+    private function storeOverride(Request $request, User $user): JsonResponse
+    {
+        $data = $request->validate([
+            'starts_at' => ['required', 'date'],
+            'ends_at' => ['required', 'date', 'after_or_equal:starts_at'],
+            'is_available' => ['required', 'boolean'],
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $this->service->createOverride($user, $data, $request->user());
+
+        return ApiResponse::success($this->schedulePayload($user), 201);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function schedulePayload(User $user): array
+    {
+        $patterns = AvailabilityWeekPattern::query()
+            ->where('user_id', $user->id)
+            ->orderBy('day_of_week')
+            ->get()
+            ->keyBy('day_of_week');
+
+        $weekPattern = collect(range(1, 7))
+            ->map(function (int $day) use ($patterns): array {
+                $pattern = $patterns->get($day);
+
+                return [
+                    'day_of_week' => $day,
+                    'is_available' => $pattern?->is_available ?? true,
+                    'note' => $pattern?->note,
+                    'source' => $pattern === null ? 'default' : 'pattern',
+                ];
+            })
+            ->values();
+
+        $overrides = AvailabilityOverride::query()
+            ->where('user_id', $user->id)
+            ->whereDate('ends_at', '>=', today()->subDays(7))
+            ->orderBy('starts_at')
+            ->get()
+            ->map(fn (AvailabilityOverride $override): array => [
+                'id' => $override->id,
+                'starts_at' => $override->starts_at?->toDateString(),
+                'ends_at' => $override->ends_at?->toDateString(),
+                'is_available' => (bool) $override->is_available,
+                'note' => $override->note,
+            ])
+            ->values();
+
+        return [
+            'user_id' => $user->id,
+            'week_pattern' => $weekPattern,
+            'overrides' => $overrides,
+            'today' => $this->service->availabilityFor($user),
+        ];
+    }
+}

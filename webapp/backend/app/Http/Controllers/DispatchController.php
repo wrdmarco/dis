@@ -89,9 +89,15 @@ final class DispatchController extends Controller
         $data = $request->validate([
             'team_ids' => ['sometimes', 'array'],
             'team_ids.*' => ['ulid', 'exists:teams,id'],
+            'include_unavailable' => ['sometimes', 'boolean'],
         ]);
 
-        return ApiResponse::success(MobileApiPayload::dispatch($this->service->escalate($dispatch, $request->user(), $data['team_ids'] ?? [])->load(['incident', 'targetTeam', 'recipients.user'])));
+        return ApiResponse::success(MobileApiPayload::dispatch($this->service->escalate(
+            $dispatch,
+            $request->user(),
+            $data['team_ids'] ?? [],
+            $request->boolean('include_unavailable'),
+        )->load(['incident', 'targetTeam', 'recipients.user'])));
     }
 
     public function reAlert(Request $request, DispatchRequest $dispatch): JsonResponse

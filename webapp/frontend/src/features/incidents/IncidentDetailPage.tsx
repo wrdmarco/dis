@@ -40,6 +40,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const [dispatchActionMessage, setDispatchActionMessage] = useState<string | null>(null);
   const [escalationModalOpen, setEscalationModalOpen] = useState(false);
   const [escalationTeamIds, setEscalationTeamIds] = useState<string[]>([]);
+  const [escalationIncludeUnavailable, setEscalationIncludeUnavailable] = useState(false);
   const [escalationError, setEscalationError] = useState<string | null>(null);
   const [recipientUpdatingId, setRecipientUpdatingId] = useState<string | null>(null);
   const [recipientUpdateMessage, setRecipientUpdateMessage] = useState<string | null>(null);
@@ -63,6 +64,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const canOverrideStatus = hasPermission('status.override');
   const dispatchedTeamIds = dispatchTargetTeamIds(dispatches.data ?? []);
   const escalationTeams = (teams.data ?? []).filter((team) => team.is_operational && !dispatchedTeamIds.includes(team.id));
+  const canEscalateUnavailable = incident.data?.priority === 'high' || incident.data?.priority === 'critical';
 
   useEffect(() => {
     const currentIncident = incident.data;
@@ -192,6 +194,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
 
   const openEscalationModal = () => {
     setEscalationTeamIds([]);
+    setEscalationIncludeUnavailable(false);
     setEscalationError(null);
     setDispatchActionMessage(null);
     setEscalationModalOpen(true);
@@ -218,10 +221,12 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
     try {
       await api.post<DispatchRequest>(`/dispatches/${latestDispatch.id}/escalate`, {
         team_ids: escalationTeamIds,
+        include_unavailable: escalationIncludeUnavailable,
       });
-      setDispatchActionMessage(`Opgeschaald naar ${selectedLabels}. De extra teams zijn aan het incident gekoppeld en gealarmeerd.`);
+      setDispatchActionMessage(`Opgeschaald naar ${selectedLabels}. De extra teams zijn aan het incident gekoppeld en gealarmeerd${escalationIncludeUnavailable ? ', inclusief niet-beschikbare teamleden.' : '.'}`);
       setEscalationModalOpen(false);
       setEscalationTeamIds([]);
+      setEscalationIncludeUnavailable(false);
       await incident.reload();
       await preview.reload();
       await dispatches.reload();
@@ -688,6 +693,21 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                   <p className="form-note">Er zijn geen extra operationele teams beschikbaar die nog niet zijn gealarmeerd.</p>
                 )}
               </div>
+              {canEscalateUnavailable ? (
+                <label className="checkbox-card">
+                  <input
+                    type="checkbox"
+                    checked={escalationIncludeUnavailable}
+                    onChange={(event) => setEscalationIncludeUnavailable(event.target.checked)}
+                  />
+                  <span>
+                    <strong>Ook niet-beschikbare teamleden alarmeren</strong>
+                    <small>Alleen voor urgente incidenten. Push moet actief zijn en certificeringen blijven verplicht.</small>
+                  </span>
+                </label>
+              ) : (
+                <p className="form-note">Niet-beschikbare teamleden kunnen alleen bij urgente incidenten worden meegealarmeerd.</p>
+              )}
               {escalationError ? <p className="form-error">{escalationError}</p> : null}
               <div className="form-actions">
                 <button className="secondary-button" type="button" onClick={() => setEscalationModalOpen(false)}>Annuleren</button>

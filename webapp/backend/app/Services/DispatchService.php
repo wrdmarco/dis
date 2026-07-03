@@ -20,7 +20,10 @@ use Throwable;
 
 final class DispatchService
 {
-    public function __construct(private readonly AuditService $auditService) {}
+    public function __construct(
+        private readonly AuditService $auditService,
+        private readonly AvailabilityScheduleService $availabilityScheduleService,
+    ) {}
 
     /**
      * @param array<string, mixed> $data
@@ -37,7 +40,7 @@ final class DispatchService
                 throw ValidationException::withMessages(['team_code' => ['Het gekozen team bestaat niet.']]);
             }
 
-            $eligibility = $this->eligibleUsers($targetTeam);
+            $eligibility = $this->eligibleUsers($targetTeam, (bool) ($data['include_unavailable'] ?? false));
             $eligible = $eligibility['users'];
             if ($eligible->isEmpty()) {
                 throw ValidationException::withMessages(['team_code' => [$eligibility['message']]]);
@@ -450,15 +453,21 @@ final class DispatchService
     /**
      * @param array<int, string> $teamIds
      */
-    public function escalate(DispatchRequest $dispatch, User $actor, array $teamIds = []): DispatchRequest
+    public function escalate(DispatchRequest $dispatch, User $actor, array $teamIds = [], bool $includeUnavailable = false): DispatchRequest
     {
         if ($dispatch->status === 'cancelled') {
             throw ValidationException::withMessages(['dispatch' => ['Een geannuleerde alarmering kan niet worden opgeschaald.']]);
         }
 
         $dispatch->loadMissing(['incident.dispatchRequests', 'incident.teams']);
+        if ($includeUnavailable && ! in_array($dispatch->incident?->priority, ['high', 'critical'], true)) {
+            throw ValidationException::withMessages([
+                'include_unavailable' => ['Niet-beschikbare teamleden mogen alleen bij urgente incidenten worden gealarmeerd.'],
+            ]);
+        }
+
         $newTeams = $this->teamsForEscalation($dispatch, $teamIds);
-        $eligibility = $newTeams->mapWithKeys(fn (Team $team): array => [$team->id => $this->eligibleUsers($team)]);
+        $eligibility = $newTeams->mapWithKeys(fn (Team $team): array => [$team->id => $this->eligibleUsers($team, $includeUnavailable)]);
         $blocked = $eligibility->filter(fn (array $result): bool => $result['users']->isEmpty());
 
         if ($blocked->isNotEmpty()) {
@@ -467,7 +476,7 @@ final class DispatchService
             ]);
         }
 
-        return DB::transaction(function () use ($dispatch, $actor, $newTeams): DispatchRequest {
+        return DB::transaction(function () use ($dispatch, $actor, $newTeams, $includeUnavailable): DispatchRequest {
             $incident = $dispatch->incident;
             if ($incident !== null && $newTeams->isNotEmpty()) {
                 $incident->teams()->syncWithoutDetaching($newTeams->pluck('id')->all());
@@ -478,6 +487,7 @@ final class DispatchService
                         'priority' => $dispatch->priority,
                         'message' => $dispatch->message ?: $this->defaultDispatchMessage($incident),
                         'target_team_id' => $team->id,
+                        'include_unavailable' => $includeUnavailable,
                     ], $actor);
 
                     $this->markSent($created, $actor);
@@ -488,6 +498,7 @@ final class DispatchService
             $this->auditService->record('dispatch.escalated', $dispatch, $actor, [
                 'added_team_ids' => $newTeams->pluck('id')->values()->all(),
                 'added_team_codes' => $newTeams->pluck('code')->values()->all(),
+                'include_unavailable' => $includeUnavailable,
             ]);
             $this->broadcastDispatchChange($dispatch->refresh(), 'escalated');
 
@@ -610,7 +621,7 @@ final class DispatchService
     /**
      * @return array{users: Collection<int, User>, message: string}
      */
-    private function eligibleUsers(Team $targetTeam): array
+    private function eligibleUsers(Team $targetTeam, bool $includeUnavailable = false): array
     {
         $targetTeam->loadMissing('requiredCertifications');
         $requiredCertificationIds = $targetTeam->requiredCertifications->pluck('id');
@@ -640,9 +651,11 @@ final class DispatchService
         $tokenUsers = $pushEnabledUsers
             ->filter(fn (User $user): bool => $user->fcmTokens->isNotEmpty())
             ->values();
-        $availableUsers = $tokenUsers
-            ->filter(fn (User $user): bool => $user->statuses->first()?->is_available === true)
-            ->values();
+        $availableUsers = $includeUnavailable
+            ? $tokenUsers
+            : $tokenUsers
+                ->filter(fn (User $user): bool => $this->isOperationallyAvailable($user))
+                ->values();
         $certifiedUsers = $availableUsers
             ->filter(fn (User $user): bool => $this->hasRequiredCertifications($user, $requiredCertificationIds))
             ->values();
@@ -659,6 +672,16 @@ final class DispatchService
                 'required_certifications' => $requiredCertificationIds->count(),
             ]),
         ];
+    }
+
+    private function isOperationallyAvailable(User $user): bool
+    {
+        $latestStatus = $user->statuses->first();
+        if ($latestStatus !== null && $latestStatus->is_available !== true) {
+            return false;
+        }
+
+        return $this->availabilityScheduleService->isAvailable($user);
     }
 
     /**

@@ -3,6 +3,7 @@
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AdminDeveloperController;
 use App\Http\Controllers\AdminPushController;
+use App\Http\Controllers\AvailabilityScheduleController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BackupController;
@@ -117,8 +118,15 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
 
     Route::get('/status/me', [StatusController::class, 'me']);
     Route::patch('/status/me', [StatusController::class, 'updateMe']);
+    Route::get('/availability-schedule/me', [AvailabilityScheduleController::class, 'mine']);
+    Route::patch('/availability-schedule/me/week-pattern', [AvailabilityScheduleController::class, 'updateMine']);
+    Route::post('/availability-schedule/me/overrides', [AvailabilityScheduleController::class, 'storeMineOverride']);
+    Route::delete('/availability-schedule/overrides/{override}', [AvailabilityScheduleController::class, 'deleteOverride']);
     Route::get('/status/users', [StatusController::class, 'users'])->middleware('permission:status.view');
     Route::post('/status/users/{user}/override', [StatusController::class, 'override'])->middleware('permission:status.override');
+    Route::get('/status/users/{user}/availability-schedule', [AvailabilityScheduleController::class, 'show'])->middleware('permission:status.view');
+    Route::patch('/status/users/{user}/availability-schedule/week-pattern', [AvailabilityScheduleController::class, 'updateForUser'])->middleware('permission:status.override');
+    Route::post('/status/users/{user}/availability-schedule/overrides', [AvailabilityScheduleController::class, 'storeUserOverride'])->middleware('permission:status.override');
     Route::get('/status/history', [StatusController::class, 'history'])->middleware('permission:status.view');
     Route::get('/status/audit', [StatusAuditController::class, 'index'])->middleware('permission:status.audit.view');
     Route::get('/vacations/mine', [VacationController::class, 'mine']);
