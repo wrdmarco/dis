@@ -92,6 +92,57 @@ final class DispatchService
     }
 
     /**
+     * @return array{queued_tokens: int, recipient_users: int}
+     */
+    public function sendPreannouncementForIncidentActivation(Incident $incident, User $actor, ?string $message = null): array
+    {
+        $targetTeams = $this->targetTeams($incident, []);
+        $recipients = collect();
+        foreach ($targetTeams as $targetTeam) {
+            $recipients = $recipients->merge($this->eligibleUsers($targetTeam)['users']);
+        }
+        $recipients = $recipients->unique('id')->values();
+
+        $notificationBody = trim((string) $message);
+        if ($notificationBody === '') {
+            $notificationBody = 'Vooraankondiging: '.$this->defaultDispatchMessage($incident);
+        }
+
+        $queuedTokens = 0;
+        foreach ($recipients as $user) {
+            foreach ($user->fcmTokens->where('is_active', true) as $token) {
+                SendFcmNotification::dispatch(
+                    (string) $token->id,
+                    'incident_preannouncement',
+                    'D.I.S vooraankondiging',
+                    $notificationBody,
+                    [
+                        'type' => 'incident_preannouncement',
+                        'incident_id' => (string) $incident->id,
+                        'incident_reference' => (string) $incident->reference,
+                        'incident_title' => (string) $incident->title,
+                        'incident_location' => (string) $incident->location_label,
+                        'dispatch_message' => $notificationBody,
+                        'priority' => (string) $incident->priority,
+                    ],
+                )->onQueue('push');
+                $queuedTokens++;
+            }
+        }
+
+        $this->auditService->record('incidents.preannouncement_sent', $incident, $actor, [
+            'team_ids' => $targetTeams->pluck('id')->values()->all(),
+            'recipient_users' => $recipients->count(),
+            'queued_tokens' => $queuedTokens,
+        ]);
+
+        return [
+            'queued_tokens' => $queuedTokens,
+            'recipient_users' => $recipients->count(),
+        ];
+    }
+
+    /**
      * @return array{team: array<string, mixed>|null, recipients: list<array<string, mixed>>, blocked_reason: string|null}
      */
     public function previewForIncident(Incident $incident): array

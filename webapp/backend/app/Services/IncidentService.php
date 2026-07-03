@@ -111,6 +111,10 @@ final class IncidentService
                 ]);
             }
 
+            if ($beforeStatus !== 'active' && ($data['status'] ?? null) === 'active') {
+                $this->dispatchService->sendPreannouncementForIncidentActivation($incident->refresh(), $actor, $statusReason);
+            }
+
             if ($beforeStatus === 'active' && ($data['status'] ?? null) === 'dispatching') {
                 $this->dispatchService->createAndSendForIncidentActivation($incident->refresh(), $actor, $statusReason);
             }
