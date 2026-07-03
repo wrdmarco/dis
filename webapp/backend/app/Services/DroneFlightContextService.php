@@ -311,9 +311,7 @@ final class DroneFlightContextService
     private function aeretMapUrl(): string
     {
         $configured = SystemSetting::string('drone.aeret_map_url', (string) config('dis.drone_flight.aeret_map_url')) ?? '';
-        $configured = trim($configured);
-
-        return $configured === 'https://dronepreflight.nl/' ? 'https://aeret.kaartviewer.nl/?@dpf_basic' : $configured;
+        return trim($configured);
     }
 
     private function aeretUrlWithCoordinates(string $url, float $latitude, float $longitude): ?string

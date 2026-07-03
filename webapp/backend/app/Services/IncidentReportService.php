@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AvailabilityStatus;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
+use App\Models\SystemSetting;
 use Dompdf\Dompdf;
 use Dompdf\Options;
 use Illuminate\Support\Collection;
@@ -325,10 +326,9 @@ final class IncidentReportService
         }
 
         $flightMap = is_array($droneFlightContext['map'] ?? null) ? $droneFlightContext['map'] : [];
-        $aeretUrl = $this->aeretReportUrl($latitude, $longitude);
-        if ($aeretUrl === null && is_string($flightMap['aeret_url'] ?? null)) {
-            $aeretUrl = $flightMap['aeret_url'];
-        }
+        $aeretUrl = is_string($flightMap['aeret_url'] ?? null)
+            ? $flightMap['aeret_url']
+            : $this->aeretReportUrl($latitude, $longitude);
         try {
             $mapSnapshot = $this->satelliteMapSnapshot($latitude, $longitude);
         } catch (Throwable $exception) {
@@ -509,16 +509,52 @@ SVG;
 
     private function aeretReportUrl(float $latitude, float $longitude): ?string
     {
-        [$x, $y] = $this->wgs84ToRd($latitude, $longitude);
+        $configured = trim(SystemSetting::string('drone.aeret_map_url', (string) config('dis.drone_flight.aeret_map_url')) ?? '');
+        if ($configured === '') {
+            return null;
+        }
 
-        return 'https://aeret.kaartviewer.nl/?@dpf_basic&'.http_build_query([
+        return $this->aeretUrlWithCoordinates($configured, $latitude, $longitude);
+    }
+
+    private function aeretUrlWithCoordinates(string $url, float $latitude, float $longitude): ?string
+    {
+        if (trim($url) === '') {
+            return null;
+        }
+
+        if (! str_contains($url, 'aeret.kaartviewer.nl')) {
+            $separator = str_contains($url, '?') ? '&' : '?';
+
+            return $url.$separator.http_build_query([
+                'lat' => round($latitude, 7),
+                'lon' => round($longitude, 7),
+            ], '', '&', PHP_QUERY_RFC3986);
+        }
+
+        [$x, $y] = $this->wgs84ToRd($latitude, $longitude);
+        $parts = parse_url($url);
+        $query = [];
+        if (is_string($parts['query'] ?? null) && $parts['query'] !== '') {
+            parse_str($parts['query'], $query);
+        }
+
+        unset($query['@dpf_basic']);
+        $query = array_merge($query, [
             'catalogus' => '1',
             'v' => '5',
             'website' => 'dpf_basic',
             'x' => round($x, 2),
             'y' => round($y, 2),
             'zoom' => '9',
-        ], '', '&', PHP_QUERY_RFC3986);
+        ]);
+
+        $scheme = $parts['scheme'] ?? 'https';
+        $host = $parts['host'] ?? 'aeret.kaartviewer.nl';
+        $path = $parts['path'] ?? '/';
+        $queryString = http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+
+        return $scheme.'://'.$host.$path.'?@dpf_basic'.($queryString === '' ? '' : '&'.$queryString);
     }
 
     /**
