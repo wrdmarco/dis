@@ -278,12 +278,12 @@ export function StatusPage() {
                         <label className="checkbox-card" key={day.day_of_week}>
                           <input
                             type="checkbox"
-                            checked={!day.is_available}
-                            onChange={(event) => updateScheduleDay(day.day_of_week, !event.target.checked)}
+                            checked={day.is_available}
+                            onChange={(event) => updateScheduleDay(day.day_of_week, event.target.checked)}
                           />
                           <span>
                             <strong>{dayLabel(day.day_of_week)}</strong>
-                            <small>{day.is_available ? 'Standaard beschikbaar' : 'Standaard niet beschikbaar'}</small>
+                            <small>{day.is_available ? 'Beschikbaar' : 'Niet beschikbaar'}</small>
                           </span>
                         </label>
                       ))}
