@@ -104,7 +104,7 @@ final class IncidentReportService
 
         if (is_string($incident->report_pdf_path)
             && $incident->report_pdf_path !== ''
-            && Storage::disk('local')->exists($incident->report_pdf_path)) {
+            && $this->storedReportExists($incident->report_pdf_path)) {
             return $incident->report_pdf_path;
         }
 
@@ -134,9 +134,15 @@ final class IncidentReportService
             return null;
         }
 
-        return Storage::disk('local')->exists($incident->report_pdf_path)
-            ? Storage::disk('local')->get($incident->report_pdf_path)
-            : null;
+        try {
+            return Storage::disk('local')->exists($incident->report_pdf_path)
+                ? Storage::disk('local')->get($incident->report_pdf_path)
+                : null;
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return null;
+        }
     }
 
     public function filename(Incident $incident): string
@@ -147,6 +153,17 @@ final class IncidentReportService
     private function reportPath(Incident $incident): string
     {
         return 'incident-reports/'.$incident->id.'/'.$this->filename($incident);
+    }
+
+    private function storedReportExists(string $path): bool
+    {
+        try {
+            return Storage::disk('local')->exists($path);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return false;
+        }
     }
 
     /**
