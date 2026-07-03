@@ -29,6 +29,8 @@ final class UpdateIncidentRequest extends FormRequest
             'priority' => ['sometimes', 'in:low,normal,high,critical'],
             'status' => ['sometimes', 'in:draft,active,dispatching,in_progress,resolved,cancelled'],
             'status_reason' => ['nullable', 'string', 'max:1000'],
+            'direct_dispatch' => ['sometimes', 'boolean'],
+            'dispatch_recipient_count' => ['nullable', 'integer', 'min:1', 'max:200'],
             'location_label' => ['nullable', 'string', 'max:255'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],

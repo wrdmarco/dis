@@ -40,7 +40,7 @@ final class DispatchService
                 throw ValidationException::withMessages(['team_code' => ['Het gekozen team bestaat niet.']]);
             }
 
-            $eligibility = $this->eligibleUsers($targetTeam, (bool) ($data['include_unavailable'] ?? false));
+            $eligibility = $this->selectDispatchUsers($incident, $targetTeam, $data, (bool) ($data['include_unavailable'] ?? false));
             $eligible = $eligibility['users'];
             if ($eligible->isEmpty()) {
                 throw ValidationException::withMessages(['team_code' => [$eligibility['message']]]);
@@ -75,7 +75,7 @@ final class DispatchService
         });
     }
 
-    public function createAndSendForIncidentActivation(Incident $incident, User $actor, ?string $message = null): ?DispatchRequest
+    public function createAndSendForIncidentActivation(Incident $incident, User $actor, ?string $message = null, array $options = []): ?DispatchRequest
     {
         $existingDrafts = $incident->dispatchRequests()
             ->where('status', 'draft')
@@ -96,15 +96,24 @@ final class DispatchService
         }
 
         $dispatch = null;
+        $remaining = $this->requestedRecipientCount($options);
         foreach ($this->targetTeams($incident, []) as $targetTeam) {
+            if ($remaining !== null && $remaining <= 0) {
+                break;
+            }
+
             $created = $this->create($incident, [
                 'priority' => $incident->priority === 'low' ? 'normal' : $incident->priority,
                 'message' => $message ?: $this->defaultDispatchMessage($incident),
                 'target_team_id' => $targetTeam->id,
-            ], $actor);
+                'dispatch_recipient_count' => $remaining,
+            ] + $options, $actor);
 
             $sent = $this->markSent($created, $actor);
             $dispatch ??= $sent;
+            if ($remaining !== null) {
+                $remaining -= $sent->recipients()->count();
+            }
         }
 
         return $dispatch;
@@ -113,7 +122,7 @@ final class DispatchService
     /**
      * @return array{queued_tokens: int, recipient_users: int}
      */
-    public function sendPreannouncementForIncidentActivation(Incident $incident, User $actor, ?string $message = null): array
+    public function sendPreannouncementForIncidentActivation(Incident $incident, User $actor, ?string $message = null, array $options = []): array
     {
         $place = $this->placeNameFromLocation($incident->location_label);
         $tokens = $this->pushTemplateTokens($incident, ['place' => $place ?? '']);
@@ -127,7 +136,12 @@ final class DispatchService
         $queuedTokens = 0;
         $recipientCount = 0;
         $dispatches = collect();
+        $remaining = $this->requestedRecipientCount($options);
         foreach ($this->targetTeams($incident, []) as $targetTeam) {
+            if ($remaining !== null && $remaining <= 0) {
+                break;
+            }
+
             $dispatch = $incident->dispatchRequests()
                 ->where('status', 'draft')
                 ->where('target_team_id', $targetTeam->id)
@@ -138,12 +152,16 @@ final class DispatchService
                     'priority' => $incident->priority === 'low' ? 'normal' : $incident->priority,
                     'message' => $notificationBody,
                     'target_team_id' => $targetTeam->id,
-                ], $actor);
+                    'dispatch_recipient_count' => $remaining,
+                ] + $options, $actor);
             }
 
             $dispatch->load(['recipients.user.fcmTokens']);
             $dispatches->push($dispatch);
             $recipientCount += $dispatch->recipients->count();
+            if ($remaining !== null) {
+                $remaining -= $dispatch->recipients->count();
+            }
 
             foreach ($dispatch->recipients as $recipient) {
                 foreach ($recipient->user?->fcmTokens->where('is_active', true) ?? [] as $token) {
@@ -243,7 +261,7 @@ final class DispatchService
     /**
      * @return array{team: array<string, mixed>|null, recipients: list<array<string, mixed>>, blocked_reason: string|null}
      */
-    public function previewForIncident(Incident $incident): array
+    public function previewForIncident(Incident $incident, array $options = []): array
     {
         $targetTeams = $this->targetTeams($incident, []);
         if ($targetTeams->isEmpty()) {
@@ -258,13 +276,17 @@ final class DispatchService
         $eligibleUsers = collect();
         $blockedReasons = [];
         foreach ($targetTeams as $targetTeam) {
-            $eligibility = $this->eligibleUsers($targetTeam);
+            $eligibility = $this->eligibleUsers($targetTeam, (bool) ($options['include_unavailable'] ?? false));
             $eligibleUsers = $eligibleUsers->merge($eligibility['users']);
             if ($eligibility['users']->isEmpty()) {
                 $blockedReasons[] = $eligibility['message'];
             }
         }
-        $eligibleUsers = $eligibleUsers->unique('id')->values();
+        $eligibleUsers = $this->rankUsersByIncidentEta($incident, $eligibleUsers->unique('id')->values());
+        $requestedCount = $this->requestedRecipientCount($options);
+        if ($requestedCount !== null) {
+            $eligibleUsers = $eligibleUsers->take($requestedCount)->values();
+        }
         $primaryTeam = $targetTeams->first();
 
         return [
@@ -283,6 +305,8 @@ final class DispatchService
                     'id' => $user->id,
                     'name' => $user->name,
                     'email' => $user->email,
+                    'home_city' => $user->home_city,
+                    'eta_minutes' => $this->estimatedEtaMinutesForUser($incident, $user),
                     'teams' => $user->teams->map(fn (Team $team): array => [
                         'id' => $team->id,
                         'code' => $team->code,
@@ -654,6 +678,24 @@ final class DispatchService
     /**
      * @return array{users: Collection<int, User>, message: string}
      */
+    private function selectDispatchUsers(Incident $incident, Team $targetTeam, array $data, bool $includeUnavailable = false): array
+    {
+        $eligibility = $this->eligibleUsers($targetTeam, $includeUnavailable);
+        $users = $this->rankUsersByIncidentEta($incident, $eligibility['users']);
+        $requestedCount = $this->requestedRecipientCount($data);
+        if ($requestedCount !== null) {
+            $users = $users->take($requestedCount)->values();
+        }
+
+        return [
+            'users' => $users,
+            'message' => $eligibility['message'],
+        ];
+    }
+
+    /**
+     * @return array{users: Collection<int, User>, message: string}
+     */
     private function eligibleUsers(Team $targetTeam, bool $includeUnavailable = false): array
     {
         $targetTeam->loadMissing('requiredCertifications');
@@ -671,6 +713,7 @@ final class DispatchService
                 'fcmTokens' => fn ($tokens) => $tokens->where('is_active', true),
                 'statuses' => fn ($statuses) => $statuses->latestPerUser(),
                 'teams',
+                'roles',
             ])
             ->whereHas('teams', fn ($teams) => $teams->whereIn('code', $teamCodes))
             ->get();
@@ -715,6 +758,91 @@ final class DispatchService
         }
 
         return $this->availabilityScheduleService->isAvailable($user);
+    }
+
+    private function requestedRecipientCount(array $data): ?int
+    {
+        $count = $data['dispatch_recipient_count'] ?? null;
+        if ($count === null || $count === '') {
+            return null;
+        }
+
+        $count = (int) $count;
+
+        return $count > 0 ? $count : null;
+    }
+
+    /**
+     * @param Collection<int, User> $users
+     * @return Collection<int, User>
+     */
+    private function rankUsersByIncidentEta(Incident $incident, Collection $users): Collection
+    {
+        return $users
+            ->map(fn (User $user): array => [
+                'user' => $user,
+                'eta_minutes' => $this->estimatedEtaMinutesForUser($incident, $user),
+                'distance_km' => $this->distanceKmForUser($incident, $user),
+            ])
+            ->sort(function (array $left, array $right): int {
+                return (($left['eta_minutes'] ?? PHP_INT_MAX) <=> ($right['eta_minutes'] ?? PHP_INT_MAX))
+                    ?: (($left['distance_km'] ?? PHP_INT_MAX) <=> ($right['distance_km'] ?? PHP_INT_MAX))
+                    ?: strcmp($left['user']->name, $right['user']->name);
+            })
+            ->pluck('user')
+            ->values();
+    }
+
+    private function estimatedEtaMinutesForUser(Incident $incident, User $user): ?int
+    {
+        $distanceKm = $this->distanceKmForUser($incident, $user);
+        if ($distanceKm === null) {
+            return null;
+        }
+
+        $speedKmh = max(1.0, (float) config('dis.dispatch.estimated_eta_speed_kmh', 60));
+        $ringMinutes = max(1, (int) config('dis.dispatch.eta_ring_minutes', 15));
+        $minutes = ($distanceKm / $speedKmh) * 60;
+
+        return max($ringMinutes, (int) ceil($minutes / $ringMinutes) * $ringMinutes);
+    }
+
+    private function distanceKmForUser(Incident $incident, User $user): ?float
+    {
+        $incidentLatitude = $this->coordinate($incident->latitude, -90, 90);
+        $incidentLongitude = $this->coordinate($incident->longitude, -180, 180);
+        $homeLatitude = $this->coordinate($user->home_latitude, -90, 90);
+        $homeLongitude = $this->coordinate($user->home_longitude, -180, 180);
+        if ($incidentLatitude === null || $incidentLongitude === null || $homeLatitude === null || $homeLongitude === null) {
+            return null;
+        }
+
+        return $this->distanceKm($homeLatitude, $homeLongitude, $incidentLatitude, $incidentLongitude);
+    }
+
+    private function coordinate(mixed $value, float $minimum, float $maximum): ?float
+    {
+        if ($value === null || $value === '' || ! is_numeric($value)) {
+            return null;
+        }
+
+        $coordinate = (float) $value;
+        if (! is_finite($coordinate) || $coordinate < $minimum || $coordinate > $maximum) {
+            return null;
+        }
+
+        return $coordinate;
+    }
+
+    private function distanceKm(float $fromLatitude, float $fromLongitude, float $toLatitude, float $toLongitude): float
+    {
+        $earthRadiusKm = 6371.0;
+        $latitudeDelta = deg2rad($toLatitude - $fromLatitude);
+        $longitudeDelta = deg2rad($toLongitude - $fromLongitude);
+        $a = sin($latitudeDelta / 2) ** 2
+            + cos(deg2rad($fromLatitude)) * cos(deg2rad($toLatitude)) * sin($longitudeDelta / 2) ** 2;
+
+        return $earthRadiusKm * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 
     /**

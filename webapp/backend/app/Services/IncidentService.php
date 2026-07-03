@@ -72,16 +72,20 @@ final class IncidentService
         return DB::transaction(function () use ($incident, $data, $actor): Incident {
             $beforeStatus = $incident->status;
             $statusReason = $data['status_reason'] ?? null;
+            $directDispatch = (bool) ($data['direct_dispatch'] ?? false);
+            $dispatchOptions = $this->dispatchOptionsFromPayload($data);
             $data = $this->resolveLocationCoordinates($data, $incident);
             $teamIds = array_key_exists('team_ids', $data) ? $this->teamIdsFromPayload($data) : null;
             unset($data['status_reason']);
+            unset($data['direct_dispatch']);
+            unset($data['dispatch_recipient_count']);
             unset($data['team_ids']);
             if (is_array($teamIds)) {
                 $data['team_id'] = $teamIds[0] ?? null;
             }
 
             if (array_key_exists('status', $data)) {
-                if ($incident->status === 'draft' && $data['status'] === 'dispatching') {
+                if ($incident->status === 'draft' && $data['status'] === 'dispatching' && ! $directDispatch) {
                     throw ValidationException::withMessages(['status' => ['Activeer het concept voordat de alarmering wordt verstuurd.']]);
                 }
 
@@ -112,11 +116,11 @@ final class IncidentService
             }
 
             if ($beforeStatus !== 'active' && ($data['status'] ?? null) === 'active') {
-                $this->dispatchService->sendPreannouncementForIncidentActivation($incident->refresh(), $actor, $statusReason);
+                $this->dispatchService->sendPreannouncementForIncidentActivation($incident->refresh(), $actor, $statusReason, $dispatchOptions);
             }
 
-            if ($beforeStatus === 'active' && ($data['status'] ?? null) === 'dispatching') {
-                $this->dispatchService->createAndSendForIncidentActivation($incident->refresh(), $actor, $statusReason);
+            if (($beforeStatus === 'active' || ($beforeStatus === 'draft' && $directDispatch)) && ($data['status'] ?? null) === 'dispatching') {
+                $this->dispatchService->createAndSendForIncidentActivation($incident->refresh(), $actor, $statusReason, $dispatchOptions);
             }
 
             if ($beforeStatus === 'active' && ($data['status'] ?? null) === 'cancelled') {
@@ -134,6 +138,20 @@ final class IncidentService
 
             return $incident->load(['coordinator', 'team', 'teams', 'statusHistory']);
         });
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function dispatchOptionsFromPayload(array $data): array
+    {
+        $options = [];
+        if (array_key_exists('dispatch_recipient_count', $data) && $data['dispatch_recipient_count'] !== null && $data['dispatch_recipient_count'] !== '') {
+            $options['dispatch_recipient_count'] = (int) $data['dispatch_recipient_count'];
+        }
+
+        return $options;
     }
 
     public function close(Incident $incident, User $actor, ?string $reason): Incident

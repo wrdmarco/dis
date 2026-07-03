@@ -18,7 +18,8 @@ final class StoreDispatchRequest extends FormRequest
             'message' => ['required', 'string', 'max:2000'],
             'target_team_id' => ['nullable', 'ulid', 'exists:teams,id'],
             'team_code' => ['nullable', 'in:OCP,TUI'],
+            'include_unavailable' => ['sometimes', 'boolean'],
+            'dispatch_recipient_count' => ['nullable', 'integer', 'min:1', 'max:200'],
         ];
     }
 }
-

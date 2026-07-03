@@ -289,9 +289,14 @@ final class IncidentController extends Controller
         return ApiResponse::success($statusItems->concat($dispatchItems)->concat($operatorStatusItems)->sortByDesc('created_at')->values());
     }
 
-    public function dispatchPreview(Incident $incident): JsonResponse
+    public function dispatchPreview(Request $request, Incident $incident): JsonResponse
     {
-        return ApiResponse::success($this->dispatchService->previewForIncident($incident));
+        $data = $request->validate([
+            'dispatch_recipient_count' => ['nullable', 'integer', 'min:1', 'max:200'],
+            'include_unavailable' => ['sometimes', 'boolean'],
+        ]);
+
+        return ApiResponse::success($this->dispatchService->previewForIncident($incident, $data));
     }
 
     private function operatorStatusLabel(string $status): string

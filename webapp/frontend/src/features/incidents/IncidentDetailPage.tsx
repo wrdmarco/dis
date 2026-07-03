@@ -19,8 +19,11 @@ const LIVE_LOCATION_STALE_MS = 5 * 60 * 1000;
 export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const router = useRouter();
   const { api, hasPermission } = useAuth();
+  const [dispatchRecipientCount, setDispatchRecipientCount] = useState('');
+  const dispatchRecipientCountNumber = Number.parseInt(dispatchRecipientCount, 10);
+  const dispatchPreviewUrl = `/incidents/${incidentId}/dispatch-preview${Number.isFinite(dispatchRecipientCountNumber) && dispatchRecipientCountNumber > 0 ? `?dispatch_recipient_count=${dispatchRecipientCountNumber}` : ''}`;
   const incident = useApiResource<Incident>(`/incidents/${incidentId}`, Boolean(incidentId));
-  const preview = useApiResource<DispatchPreview>(`/incidents/${incidentId}/dispatch-preview`, Boolean(incidentId));
+  const preview = useApiResource<DispatchPreview>(dispatchPreviewUrl, Boolean(incidentId));
   const dispatches = useApiResource<DispatchRequest[]>(`/incidents/${incidentId}/dispatches`, Boolean(incidentId));
   const liveLocations = useApiResource<IncidentLiveLocation[]>(`/incidents/${incidentId}/live-locations`, Boolean(incidentId));
   const timeline = useApiResource<IncidentTimelineItem[]>(`/incidents/${incidentId}/timeline`, Boolean(incidentId));
@@ -135,6 +138,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
       await api.patch(`/incidents/${incidentId}`, {
         status: 'active',
         status_reason: 'Vooraankondiging verstuurd.',
+        ...dispatchRecipientCountPayload(dispatchRecipientCount),
       });
       await incident.reload();
       await preview.reload();
@@ -158,6 +162,8 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
       await api.patch(`/incidents/${incidentId}`, {
         status: 'dispatching',
         status_reason: 'Alarmering verstuurd.',
+        direct_dispatch: incident.data?.status === 'draft',
+        ...dispatchRecipientCountPayload(dispatchRecipientCount),
       });
       await incident.reload();
       await preview.reload();
@@ -462,15 +468,25 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
         <Panel
           title="Concept"
           action={(
-            <button className="primary-button" type="button" onClick={activateIncident} disabled={dispatching}>
-              <Send size={16} /> {dispatching ? 'Vooraankondigen...' : 'Vooraankondiging versturen'}
-            </button>
+            <div className="actions-row">
+              <button className="secondary-button" type="button" onClick={activateIncident} disabled={dispatching || preview.loading || (preview.data?.recipients.length ?? 0) === 0}>
+                <Send size={16} /> {dispatching ? 'Vooraankondigen...' : 'Vooraankondiging'}
+              </button>
+              <button className="primary-button" type="button" onClick={() => void sendAlarm()} disabled={dispatching || preview.loading || (preview.data?.recipients.length ?? 0) === 0}>
+                <BellRing size={16} /> {dispatching ? 'Alarmeren...' : 'Direct alarmeren'}
+              </button>
+            </div>
           )}
         >
+          <ResourceState loading={preview.loading} error={preview.error} empty={false}>
           <div className="panel-body">
-            <p className="form-note">Verstuur eerst een normale vooraankondiging naar de geselecteerde groep. Daarna kan de alarmering worden verstuurd.</p>
+            <p className="form-note">Kies voor een vooraankondiging of alarmeer direct. Beide acties gebruiken de ETA-ringen op basis van globale woonplaats.</p>
+            <DispatchRingControls value={dispatchRecipientCount} onChange={setDispatchRecipientCount} />
+            <DispatchPreviewSummary preview={preview.data} />
+            {preview.data?.blocked_reason ? <p className="form-error">{preview.data.blocked_reason}</p> : null}
             {dispatchError ? <p className="form-error">{dispatchError}</p> : null}
           </div>
+          </ResourceState>
         </Panel>
       ) : null}
 
@@ -485,6 +501,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
         >
           <ResourceState loading={preview.loading} error={preview.error} empty={false}>
             <div className="panel-body">
+              <DispatchRingControls value={dispatchRecipientCount} onChange={setDispatchRecipientCount} />
               <div className="draft-dispatch">
                 <div>
                   <span>Teams</span>
@@ -503,7 +520,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                     <article key={recipient.id}>
                       <strong>{recipient.name}</strong>
                       <span>{recipient.email}</span>
-                      <small>{recipient.teams?.map((team) => team.code).join(', ') || '-'}</small>
+                      <small>{recipientPreviewMeta(recipient)}</small>
                     </article>
                   ))}
                 </div>
@@ -936,6 +953,69 @@ function previewTeamsLabel(preview?: DispatchPreview | null): string {
   const teams = preview?.teams?.length ? preview.teams : preview?.team ? [preview.team] : [];
 
   return teams.map((team) => `${team.code} - ${team.name}`).join(', ') || '-';
+}
+
+function dispatchRecipientCountPayload(value: string): Record<string, number> {
+  const count = Number.parseInt(value, 10);
+
+  return Number.isFinite(count) && count > 0 ? { dispatch_recipient_count: count } : {};
+}
+
+function recipientPreviewMeta(recipient: DispatchPreview['recipients'][number]): string {
+  const parts = [
+    recipient.home_city || null,
+    recipient.eta_minutes ? `ETA-ring ${recipient.eta_minutes} min` : 'ETA onbekend',
+    recipient.teams?.map((team) => team.code).join(', ') || null,
+  ].filter((value): value is string => Boolean(value));
+
+  return parts.join(' - ') || '-';
+}
+
+function DispatchRingControls({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="inline-form inline-form--compact">
+      <label>
+        Aantal te alarmeren
+        <input
+          type="number"
+          min={1}
+          max={200}
+          value={value}
+          placeholder="Alle geschikte mensen"
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <small>Leeg betekent: iedereen die voldoet. Ingevuld betekent: eerst 15 min ETA, daarna 30, 45, enzovoort.</small>
+      </label>
+    </div>
+  );
+}
+
+function DispatchPreviewSummary({ preview }: { preview?: DispatchPreview | null }) {
+  return (
+    <>
+      <div className="draft-dispatch">
+        <div>
+          <span>Teams</span>
+          <strong>{previewTeamsLabel(preview)}</strong>
+        </div>
+        <div>
+          <span>Te alarmeren</span>
+          <strong>{preview?.recipients.length ?? 0}</strong>
+        </div>
+      </div>
+      {(preview?.recipients.length ?? 0) > 0 ? (
+        <div className="draft-recipient-grid">
+          {preview?.recipients.map((recipient) => (
+            <article key={recipient.id}>
+              <strong>{recipient.name}</strong>
+              <span>{recipient.email}</span>
+              <small>{recipientPreviewMeta(recipient)}</small>
+            </article>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 function SummaryItem({ label, value }: { label: string; value: string }) {

@@ -24,6 +24,10 @@ return [
         'user_agent' => env('GEOCODING_USER_AGENT'),
         'country_codes' => env('GEOCODING_COUNTRY_CODES', 'nl,be,de'),
     ],
+    'dispatch' => [
+        'eta_ring_minutes' => (int) env('DISPATCH_ETA_RING_MINUTES', 15),
+        'estimated_eta_speed_kmh' => (float) env('DISPATCH_ESTIMATED_ETA_SPEED_KMH', 60),
+    ],
     'updates' => [
         'android_application_id' => env('ANDROID_APPLICATION_ID', 'nl.wrdmarco.dis'),
     ],
