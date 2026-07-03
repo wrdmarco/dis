@@ -15,9 +15,10 @@ use Throwable;
 
 final class ReportingController extends Controller
 {
-    public function incidentPdf(string $incidentId, IncidentReportService $reports): Response
+    public function incidentPdf(string $incidentId): Response
     {
         try {
+            $reports = app(IncidentReportService::class);
             $incident = Incident::query()->find($incidentId);
             if ($incident === null) {
                 return ApiResponse::error('incident_not_found', 'Incident niet gevonden.', 404);
