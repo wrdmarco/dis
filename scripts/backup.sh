@@ -80,6 +80,7 @@ run_cmd tar --warning=no-file-changed --ignore-failed-read -C "${APP_ROOT}" -czf
   --exclude='./webapp/backend/vendor' \
   --exclude='./webapp/backend/storage' \
   --exclude='./webapp/frontend/node_modules' \
+  --exclude='./webapp/frontend/.next' \
   --exclude='./webapp/frontend/dist' \
   --exclude='./webapp/frontend/.vite' \
   --exclude='./webapp/frontend/.cache' \

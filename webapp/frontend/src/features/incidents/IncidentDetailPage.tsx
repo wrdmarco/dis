@@ -1,6 +1,8 @@
+'use client';
+
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
 import { BellRing, Clock, CloudSun, Download, MapPin, MessageSquare, Pencil, Plane, RadioTower, RefreshCw, Send, Trash2, TrendingUp, Users, X } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -14,9 +16,8 @@ import { IncidentForm, type IncidentFormState, incidentPayload } from './Inciden
 
 const LIVE_LOCATION_STALE_MS = 5 * 60 * 1000;
 
-export function IncidentDetailPage() {
-  const { incidentId } = useParams();
-  const navigate = useNavigate();
+export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
+  const router = useRouter();
   const { api, hasPermission } = useAuth();
   const incident = useApiResource<Incident>(`/incidents/${incidentId}`, Boolean(incidentId));
   const preview = useApiResource<DispatchPreview>(`/incidents/${incidentId}/dispatch-preview`, Boolean(incidentId));
@@ -344,7 +345,7 @@ export function IncidentDetailPage() {
     setIncidentError(null);
     try {
       await api.delete(`/incidents/${incidentId}`);
-      navigate('/incidents', { replace: true });
+      router.replace('/incidents');
     } catch (err) {
       setIncidentError(err instanceof ApiClientError ? err.message : 'Incident kon niet worden verwijderd.');
     } finally {

@@ -185,6 +185,7 @@ for unit in \
   /etc/systemd/system/dis-queue.service \
   /etc/systemd/system/dis-scheduler.service \
   /etc/systemd/system/dis-websocket.service \
+  /etc/systemd/system/dis-frontend.service \
   /etc/systemd/system/dis-backup-request.service \
   /etc/systemd/system/dis-backup-request.path \
   /etc/systemd/system/dis-backup.service \

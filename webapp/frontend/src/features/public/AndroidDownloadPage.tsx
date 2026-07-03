@@ -1,6 +1,6 @@
 import { Download, ShieldCheck, Smartphone } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { apiBaseUrl } from '../../lib/apiClient';
 import type { AppVersion, ApiResponse } from '../../types/api';
@@ -56,7 +56,7 @@ export function AndroidDownloadPage() {
     };
   }, []);
 
-  const setupUrl = window.location.origin;
+  const setupUrl = typeof window === 'undefined' ? '' : window.location.origin;
 
   return (
     <main className="public-download-shell">
@@ -83,7 +83,7 @@ export function AndroidDownloadPage() {
         ) : null}
 
         <div className="public-download-panel__actions">
-          <Link className="secondary-button" to="/login">
+          <Link className="secondary-button" href="/login">
             Command Center
           </Link>
         </div>

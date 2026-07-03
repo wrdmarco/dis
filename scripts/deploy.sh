@@ -65,9 +65,6 @@ if [ -f "${BACKEND_DIR}/composer.json" ]; then
 fi
 
 if [ -f "${FRONTEND_DIR}/package.json" ]; then
-  next_frontend_dist="${FRONTEND_DIR}/dist-next"
-  previous_frontend_dist="${FRONTEND_DIR}/dist-previous"
-
   log "Building frontend"
   if [ -f "${FRONTEND_DIR}/package-lock.json" ]; then
     log "Installing frontend dependencies from package-lock.json"
@@ -78,14 +75,9 @@ if [ -f "${FRONTEND_DIR}/package.json" ]; then
   else
     run_cmd npm --prefix "${FRONTEND_DIR}" install
   fi
-  run_cmd rm -rf "${next_frontend_dist}" "${previous_frontend_dist}"
-  run_cmd npm --prefix "${FRONTEND_DIR}" run build -- --outDir dist-next
-  if [ -d "${FRONTEND_DIR}/dist" ]; then
-    run_cmd mv "${FRONTEND_DIR}/dist" "${previous_frontend_dist}"
-  fi
-  run_cmd mv "${next_frontend_dist}" "${FRONTEND_DIR}/dist"
-  run_cmd chown -R "${DIS_USER}:${DIS_GROUP}" "${FRONTEND_DIR}/dist"
-  run_cmd rm -rf "${previous_frontend_dist}"
+  run_cmd rm -rf "${FRONTEND_DIR}/.next"
+  run_cmd npm --prefix "${FRONTEND_DIR}" run build
+  run_cmd chown -R "${DIS_USER}:${DIS_GROUP}" "${FRONTEND_DIR}/.next" "${FRONTEND_DIR}/node_modules"
 fi
 
 log "Installing Nginx and systemd configuration"
@@ -114,15 +106,16 @@ run_cmd rm -f /etc/nginx/sites-enabled/default
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-queue.service" /etc/systemd/system/dis-queue.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-scheduler.service" /etc/systemd/system/dis-scheduler.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-websocket.service" /etc/systemd/system/dis-websocket.service
+run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-frontend.service" /etc/systemd/system/dis-frontend.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-backup-request.service" /etc/systemd/system/dis-backup-request.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-backup-request.path" /etc/systemd/system/dis-backup-request.path
 run_cmd systemctl daemon-reload
-run_cmd systemctl enable dis-queue dis-scheduler dis-websocket dis-backup-request.path
+run_cmd systemctl enable dis-queue dis-scheduler dis-websocket dis-frontend dis-backup-request.path
 run_cmd systemctl start dis-backup-request.path
 run_cmd nginx -t
 
 log "Restarting services"
-for service in dis-queue dis-scheduler dis-websocket "${PHP_FPM_SERVICE}" nginx; do
+for service in dis-queue dis-scheduler dis-websocket dis-frontend "${PHP_FPM_SERVICE}" nginx; do
   if systemctl list-unit-files "${service}.service" >/dev/null 2>&1; then
     run_cmd systemctl restart "${service}"
   fi

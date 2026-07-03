@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState, type ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Archive, Clock, CloudSun, FileText, MapPin, Plane, Plus, RadioTower, Search, Users, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -47,7 +48,7 @@ const archiveIncidentStatuses: Incident['status'][] = ['resolved', 'cancelled'];
 
 export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) {
   const { api, hasPermission } = useAuth();
-  const navigate = useNavigate();
+  const router = useRouter();
   const incidents = useApiResource<Incident[]>(incidentListPath(mode));
   const users = useApiResource<User[]>('/users?per_page=200');
   const teams = useApiResource<Team[]>('/teams');
@@ -74,7 +75,7 @@ export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) 
       setForm(emptyIncidentForm);
       setCreateModalOpen(false);
       await incidents.reload();
-      navigate(`/incidents/${response.data.id}`);
+      router.push(`/incidents/${response.data.id}`);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Incident kon niet worden aangemaakt.');
     } finally {
@@ -177,7 +178,7 @@ function incidentListPath(mode: IncidentPageMode): string {
 
 function IncidentCard({ incident, mode }: { incident: Incident; mode: IncidentPageMode }) {
   return (
-    <Link className={`incident-card incident-card--${incident.status}`} to={`/incidents/${incident.id}`}>
+    <Link className={`incident-card incident-card--${incident.status}`} href={`/incidents/${incident.id}`}>
       <header>
         <span className="incident-card__reference">{incident.reference}</span>
         <div className="incident-card__badges">

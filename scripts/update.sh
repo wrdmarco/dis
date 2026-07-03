@@ -94,6 +94,7 @@ ensure_runtime_git_excludes() {
     "/webapp/backend/storage/logs/" \
     "/webapp/backend/storage/app/backup-config.env" \
     "/webapp/frontend/dist/" \
+    "/webapp/frontend/.next/" \
     "/webapp/frontend/.vite/" \
     "/webapp/frontend/.cache/" \
     "/webapp/frontend/node_modules/.vite/" \
@@ -271,6 +272,7 @@ clear_application_caches() {
     "${backend_dir}/storage/framework/cache/data/"* \
     "${backend_dir}/storage/framework/views/"* \
     "${frontend_dir}/.vite" \
+    "${frontend_dir}/.next/cache" \
     "${frontend_dir}/.cache" \
     "${frontend_dir}/node_modules/.vite" \
     "${frontend_dir}/node_modules/.cache" \
@@ -412,6 +414,7 @@ reset_git_worktree_for_update() {
     webapp/backend/storage/app/backup-config.env \
     webapp/frontend/dist-next \
     webapp/frontend/dist-previous \
+    webapp/frontend/.next \
     webapp/frontend/.vite \
     webapp/frontend/.cache \
     webapp/frontend/node_modules/.vite \

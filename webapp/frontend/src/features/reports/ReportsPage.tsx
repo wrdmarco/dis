@@ -1,6 +1,6 @@
 import { type ReactNode, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Download, FileText, MessageCircleOff, Users } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -64,7 +64,7 @@ export function ReportsPage() {
               <tbody>
                 {reportIncidents.data?.map((incident) => (
                   <tr key={incident.id}>
-                    <td><Link to={`/incidents/${incident.id}`}>{incident.reference}</Link></td>
+                    <td><Link href={`/incidents/${incident.id}`}>{incident.reference}</Link></td>
                     <td>{incident.title}</td>
                     <td><StatusPill value={incident.status} tone={incident.status === 'resolved' ? 'good' : 'warn'} /></td>
                     <td>{incident.team?.code ?? '-'}</td>
@@ -138,7 +138,7 @@ export function ReportsPage() {
                     <span className="field-label">Laatste meldingen zonder reactie</span>
                     {userStat.recent_no_response.map((incident) => (
                       <div key={`${userStat.user?.id}-${incident.incident_id}-${incident.sent_at}`}>
-                        {incident.incident_id ? <Link to={`/incidents/${incident.incident_id}`}>{incident.reference}</Link> : <span>{incident.reference ?? '-'}</span>}
+                        {incident.incident_id ? <Link href={`/incidents/${incident.incident_id}`}>{incident.reference}</Link> : <span>{incident.reference ?? '-'}</span>}
                         <span>{incident.title ?? '-'}</span>
                         <small>{formatDateTime(incident.sent_at)}</small>
                       </div>
@@ -168,7 +168,7 @@ export function ReportsPage() {
             <tbody>
               {statistics.data?.incidents.map((incident) => (
                 <tr key={incident.id ?? incident.reference}>
-                  <td>{incident.id ? <Link to={`/incidents/${incident.id}`}>{incident.reference}</Link> : incident.reference}</td>
+                  <td>{incident.id ? <Link href={`/incidents/${incident.id}`}>{incident.reference}</Link> : incident.reference}</td>
                   <td>{incident.title ?? '-'}</td>
                   <td>{formatDateTime(incident.sent_at)}</td>
                   <td>{incident.total_alerts}</td>
@@ -213,7 +213,7 @@ function incidentLink(incident?: DispatchStatisticsIncidentSummary | null): Reac
   }
 
   return (
-    <Link to={`/incidents/${incident.incident_id}`}>
+    <Link href={`/incidents/${incident.incident_id}`}>
       {incident.reference ?? 'Incident'}
       <span className="inline-date"> {formatDateTime(incident.sent_at)}</span>
     </Link>

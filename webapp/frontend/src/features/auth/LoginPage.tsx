@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import { KeyRound, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { ApiClientError } from '../../lib/apiClient';
@@ -15,7 +15,7 @@ interface LoginBranding {
 
 export function LoginPage() {
   const { api, isAuthenticated, login, verifyTwoFactor, startTwoFactorSetup, enableTwoFactor } = useAuth();
-  const navigate = useNavigate();
+  const router = useRouter();
   const [branding, setBranding] = useState<LoginBranding>({
     tenant_name: 'Nationaal Droneteam',
     login_title: 'D.I.S Command Center',
@@ -38,9 +38,11 @@ export function LoginPage() {
       .catch(() => undefined);
   }, [api]);
 
-  if (isAuthenticated && !requiresTwoFactor && !requiresTwoFactorSetup) {
-    return <Navigate to="/" replace />;
-  }
+  useEffect(() => {
+    if (isAuthenticated && !requiresTwoFactor && !requiresTwoFactorSetup) {
+      router.replace('/');
+    }
+  }, [isAuthenticated, requiresTwoFactor, requiresTwoFactorSetup, router]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -49,7 +51,7 @@ export function LoginPage() {
     try {
       if (requiresTwoFactor) {
         await verifyTwoFactor(code);
-        navigate('/', { replace: true });
+        router.replace('/');
         return;
       }
 
@@ -64,7 +66,7 @@ export function LoginPage() {
       if (result.requires_2fa) {
         setRequiresTwoFactor(true);
       } else {
-        navigate('/', { replace: true });
+        router.replace('/');
       }
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Inloggen mislukt.');
@@ -81,7 +83,7 @@ export function LoginPage() {
       const result = await enableTwoFactor(code);
       setRecoveryCodes(result.recovery_codes);
       setRequiresTwoFactorSetup(false);
-      navigate('/', { replace: true });
+      router.replace('/');
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'MFA inschakelen mislukt.');
     } finally {

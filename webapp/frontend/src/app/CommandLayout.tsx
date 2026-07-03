@@ -1,4 +1,5 @@
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, ClipboardCheck, DatabaseBackup, Gauge, KeyRound, LogOut, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -112,10 +113,10 @@ interface BrandingState {
   logo_data_url: string;
 }
 
-export function CommandLayout() {
+export function CommandLayout({ children }: { children: React.ReactNode }) {
   const { user, api, clearSession, canUseWebConsole, hasPermission } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
+  const router = useRouter();
+  const pathname = usePathname();
   const [branding, setBranding] = useState<BrandingState>({
     name: 'D.I.S Operationeel Beeld',
     short_name: 'DIS',
@@ -132,7 +133,7 @@ export function CommandLayout() {
   const logout = async () => {
     await api.post('/auth/logout').catch(() => undefined);
     clearSession();
-    navigate('/login', { replace: true });
+    router.replace('/login');
   };
   const visibleNavGroups = canUseWebConsole()
     ? navGroups
@@ -142,7 +143,7 @@ export function CommandLayout() {
       }))
       .filter((group) => group.items.length > 0)
     : profileOnlyNavGroups;
-  const currentNavItem = currentNavForPath(visibleNavGroups, location.pathname);
+  const currentNavItem = currentNavForPath(visibleNavGroups, pathname);
 
   return (
     <div className="command-layout">
@@ -162,17 +163,16 @@ export function CommandLayout() {
                 {group.items.map((item) => {
                   const Icon = item.icon;
                   return (
-                    <NavLink
+                    <Link
                       key={item.to}
-                      to={item.to}
-                      end={item.end}
-                      className={({ isActive }) => `nav__item ${isActive ? 'nav__item--active' : ''}`}
+                      href={item.to}
+                      className={`nav__item ${isActivePath(pathname, item) ? 'nav__item--active' : ''}`}
                       onFocus={() => void preloadRoute(item.to)}
                       onMouseEnter={() => void preloadRoute(item.to)}
                     >
                       <Icon aria-hidden size={18} />
                       <span>{item.label}</span>
-                    </NavLink>
+                    </Link>
                   );
                 })}
               </div>
@@ -192,20 +192,24 @@ export function CommandLayout() {
               <strong>{user?.name ?? 'Operator'}</strong>
               <span>{user?.email}</span>
             </div>
-            <NavLink to={PROFILE_PATH} className={({ isActive }) => `icon-button ${isActive ? 'icon-button--active' : ''}`} aria-label="Profiel">
+            <Link href={PROFILE_PATH} className={`icon-button ${pathname === PROFILE_PATH ? 'icon-button--active' : ''}`} aria-label="Profiel">
               <UserRound size={18} />
-            </NavLink>
+            </Link>
             <button className="icon-button" type="button" onClick={logout} aria-label="Uitloggen">
               <LogOut size={18} />
             </button>
           </div>
         </header>
         <main className="content" id="main-content" tabIndex={-1}>
-          <Outlet />
+          {children}
         </main>
       </div>
     </div>
   );
+}
+
+function isActivePath(pathname: string, item: NavItem): boolean {
+  return pathname === item.to || (!item.end && pathname.startsWith(`${item.to}/`));
 }
 
 function preloadRoute(path: string): Promise<unknown> | undefined {

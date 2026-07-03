@@ -151,6 +151,10 @@ export function useAuth(): AuthContextValue {
 }
 
 function storedToken(): string | null {
+  if (!isBrowser()) {
+    return null;
+  }
+
   const persistentToken = localStorage.getItem(tokenKey);
   if (persistentToken !== null) {
     return persistentToken;
@@ -168,7 +172,15 @@ function storedToken(): string | null {
 }
 
 function storedTokenPurpose(): SessionPurpose {
+  if (!isBrowser()) {
+    return 'full';
+  }
+
   const purpose = localStorage.getItem(tokenPurposeKey) ?? sessionStorage.getItem(tokenPurposeKey);
 
   return purpose === 'mfa' ? 'mfa' : 'full';
+}
+
+function isBrowser(): boolean {
+  return typeof window !== 'undefined';
 }

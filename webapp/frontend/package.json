@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",
-    "build": "next build && node scripts/copy-next-export.mjs",
-    "preview": "next dev --hostname 0.0.0.0",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1 --port 3000",
+    "preview": "next start --hostname 127.0.0.1 --port 3000",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -17,8 +18,7 @@
     "pusher-js": "^8.4.0",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "react-router-dom": "^7.0.0"
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",

@@ -1,6 +1,6 @@
 import { CheckCircle2, ChevronLeft, ChevronRight, Mail, Rocket, Settings, ShieldCheck, Smartphone, UserRound } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { FirebaseSetupWizard } from '../../components/FirebaseSetupWizard';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { apiBaseUrl } from '../../lib/apiClient';
@@ -43,7 +43,7 @@ interface SetupForm {
 
 const initialForm: SetupForm = {
   tenantName: 'Nationaal Droneteam',
-  publicUrl: window.location.origin,
+  publicUrl: '',
   adminName: '',
   adminEmail: '',
   adminPassword: '',
@@ -126,6 +126,10 @@ export function SetupWizardPage() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    setForm((current) => current.publicUrl ? current : { ...current, publicUrl: window.location.origin });
   }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -228,7 +232,7 @@ export function SetupWizardPage() {
               <strong>Setup is afgerond.</strong>
               <p>Verdere wijzigingen beheer je via het adminpaneel.</p>
             </div>
-            <Link className="primary-button" to={completed ? '/' : '/login'}>{completed ? 'Naar dashboard' : 'Naar login'}</Link>
+            <Link className="primary-button" href={completed ? '/' : '/login'}>{completed ? 'Naar dashboard' : 'Naar login'}</Link>
           </div>
         ) : null}
 
@@ -272,7 +276,7 @@ export function SetupWizardPage() {
                   {saving ? 'Opslaan...' : 'Setup afronden'}
                 </button>
               )}
-              <Link className="secondary-button" to="/download">APK pagina</Link>
+              <Link className="secondary-button" href="/download">APK pagina</Link>
             </div>
           </form>
         ) : null}

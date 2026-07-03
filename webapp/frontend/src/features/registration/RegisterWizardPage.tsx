@@ -1,6 +1,7 @@
 import { CheckCircle2, ChevronLeft, ChevronRight, KeyRound, ShieldCheck, Smartphone, UserRound } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { ApiClientError, apiBaseUrl } from '../../lib/apiClient';
 import type { ApiResponse, TwoFactorEnableResult, TwoFactorSetup, User } from '../../types/api';
@@ -25,8 +26,8 @@ interface Step {
 }
 
 export function RegisterWizardPage() {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const { setSession, enableTwoFactor, refreshMe } = useAuth();
   const email = searchParams.get('email') ?? '';
   const token = searchParams.get('token') ?? '';
@@ -55,7 +56,7 @@ export function RegisterWizardPage() {
 
   const currentStep = steps[Math.min(stepIndex, steps.length - 1)];
   const downloadUrl = completed?.download_url ?? invite?.download_url ?? '/download';
-  const setupUrl = window.location.origin;
+  const setupUrl = typeof window === 'undefined' ? '' : window.location.origin;
   const canSubmitAccount = password.length > 0 && password === passwordConfirmation;
   const canSubmitMfa = /^\d{6}$/.test(twoFactorCode);
   const installStepIndex = Math.max(steps.findIndex((step) => step.key === 'install'), 0);
@@ -178,7 +179,7 @@ export function RegisterWizardPage() {
 
   function finish() {
     void refreshMe().catch(() => null);
-    navigate('/');
+    router.push('/');
   }
 
   function canOpenStep(step: Step): boolean {
@@ -265,7 +266,7 @@ export function RegisterWizardPage() {
               <strong>Registratie niet beschikbaar.</strong>
               <p>Vraag een beheerder om een nieuwe uitnodiging.</p>
             </div>
-            <Link className="secondary-button" to="/login">Naar login</Link>
+            <Link className="secondary-button" href="/login">Naar login</Link>
           </div>
         ) : null}
       </section>
