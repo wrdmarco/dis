@@ -15,13 +15,18 @@ use Throwable;
 
 final class ReportingController extends Controller
 {
-    public function incidentPdf(Incident $incident, IncidentReportService $reports): Response
+    public function incidentPdf(string $incidentId, IncidentReportService $reports): Response
     {
-        if (! in_array($incident->status, ['resolved', 'cancelled'], true)) {
-            return ApiResponse::error('incident_not_closed', 'Een rapport kan pas worden gemaakt als het incident is afgerond of geannuleerd.', 422);
-        }
-
         try {
+            $incident = Incident::query()->find($incidentId);
+            if ($incident === null) {
+                return ApiResponse::error('incident_not_found', 'Incident niet gevonden.', 404);
+            }
+
+            if (! in_array($incident->status, ['resolved', 'cancelled'], true)) {
+                return ApiResponse::error('incident_not_closed', 'Een rapport kan pas worden gemaakt als het incident is afgerond of geannuleerd.', 422);
+            }
+
             $pdfPath = $reports->storedPdfPath($incident);
             if ($pdfPath === null) {
                 $reports->ensureStored($incident);
