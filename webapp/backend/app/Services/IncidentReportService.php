@@ -91,16 +91,6 @@ final class IncidentReportService
      */
     private function renderPdf(Options $options, array $data): string
     {
-        $dompdf = new Dompdf($options);
-        $dompdf->loadHtml(view('reports.incident', $data)->render());
-        $dompdf->setPaper('a4', 'portrait');
-        $this->renderDompdf($dompdf);
-
-        return $dompdf->output();
-    }
-
-    private function renderDompdf(Dompdf $dompdf): void
-    {
         set_error_handler(static function (int $severity, string $message): bool {
             if (str_contains($message, 'tempnam(): file created in the system')) {
                 return true;
@@ -110,7 +100,12 @@ final class IncidentReportService
         });
 
         try {
+            $dompdf = new Dompdf($options);
+            $dompdf->loadHtml(view('reports.incident', $data)->render());
+            $dompdf->setPaper('a4', 'portrait');
             $dompdf->render();
+
+            return $dompdf->output();
         } finally {
             restore_error_handler();
         }
