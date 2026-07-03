@@ -107,7 +107,7 @@ export class ApiClient {
   }
 }
 
-export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '/api';
+export const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? '/api';
 
 function readValidationMessage(payload: unknown): string | null {
   if (payload === null || typeof payload !== 'object') {
