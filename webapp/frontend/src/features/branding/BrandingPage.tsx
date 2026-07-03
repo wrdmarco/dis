@@ -5,7 +5,7 @@ import { useApiResource } from '../../lib/useApiResource';
 import type { SystemSetting } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 
-type BrandingTab = 'general' | 'logo' | 'templates' | 'expiry';
+type BrandingTab = 'general' | 'logo' | 'templates' | 'pushTemplates' | 'expiry';
 
 interface BrandingForm {
   brandName: string;
@@ -24,12 +24,23 @@ interface BrandingForm {
   assetWarningDaysBeforeExpiry: string;
   assetExpirySubject: string;
   assetExpiryBody: string;
+  pushPreannouncementTitle: string;
+  pushPreannouncementBody: string;
+  pushDispatchTitle: string;
+  pushDispatchBody: string;
+  pushUnavailableEscalationTitle: string;
+  pushUnavailableEscalationBody: string;
+  pushAdditionalInfoTitle: string;
+  pushAdditionalInfoBody: string;
+  pushCancellationTitle: string;
+  pushCancellationBody: string;
 }
 
 const brandingTabs: Array<{ id: BrandingTab; label: string }> = [
   { id: 'general', label: 'Algemeen' },
   { id: 'logo', label: 'Logo' },
   { id: 'templates', label: 'Mail templates' },
+  { id: 'pushTemplates', label: 'Push templates' },
   { id: 'expiry', label: 'Verloopmails' },
 ];
 
@@ -66,6 +77,16 @@ Verloopdatum: {{expires_at}}
 Status: {{status_text}}
 
 Werk de assetgegevens bij zodra dit is afgehandeld.`;
+const DEFAULT_PUSH_PREANNOUNCEMENT_TITLE = 'D.I.S vooraankondiging';
+const DEFAULT_PUSH_PREANNOUNCEMENT_BODY = 'Ben je beschikbaar voor een melding in {{place}}?';
+const DEFAULT_PUSH_DISPATCH_TITLE = 'NDT Alarmering';
+const DEFAULT_PUSH_DISPATCH_BODY = '{{message}}';
+const DEFAULT_PUSH_UNAVAILABLE_ESCALATION_TITLE = 'NDT urgente opschaling';
+const DEFAULT_PUSH_UNAVAILABLE_ESCALATION_BODY = '{{reason}} {{availability_reason}} {{message}}';
+const DEFAULT_PUSH_ADDITIONAL_INFO_TITLE = 'D.I.S aanvullende info';
+const DEFAULT_PUSH_ADDITIONAL_INFO_BODY = '{{message}}';
+const DEFAULT_PUSH_CANCELLATION_TITLE = 'D.I.S geannuleerd';
+const DEFAULT_PUSH_CANCELLATION_BODY = 'De vooraankondiging in {{place}} is geannuleerd.';
 
 export function BrandingPage() {
   const { api } = useAuth();
@@ -105,6 +126,16 @@ export function BrandingPage() {
           'asset.warning_days_before_expiry': numberSetting(form.assetWarningDaysBeforeExpiry, 30),
           'mail.template.asset_expiry_subject': textSetting(form.assetExpirySubject, DEFAULT_ASSET_EXPIRY_SUBJECT),
           'mail.template.asset_expiry_body': textSetting(form.assetExpiryBody, DEFAULT_ASSET_EXPIRY_BODY),
+          'push.template.preannouncement_title': textSetting(form.pushPreannouncementTitle, DEFAULT_PUSH_PREANNOUNCEMENT_TITLE),
+          'push.template.preannouncement_body': textSetting(form.pushPreannouncementBody, DEFAULT_PUSH_PREANNOUNCEMENT_BODY),
+          'push.template.dispatch_title': textSetting(form.pushDispatchTitle, DEFAULT_PUSH_DISPATCH_TITLE),
+          'push.template.dispatch_body': textSetting(form.pushDispatchBody, DEFAULT_PUSH_DISPATCH_BODY),
+          'push.template.dispatch_unavailable_escalation_title': textSetting(form.pushUnavailableEscalationTitle, DEFAULT_PUSH_UNAVAILABLE_ESCALATION_TITLE),
+          'push.template.dispatch_unavailable_escalation_body': textSetting(form.pushUnavailableEscalationBody, DEFAULT_PUSH_UNAVAILABLE_ESCALATION_BODY),
+          'push.template.additional_info_title': textSetting(form.pushAdditionalInfoTitle, DEFAULT_PUSH_ADDITIONAL_INFO_TITLE),
+          'push.template.additional_info_body': textSetting(form.pushAdditionalInfoBody, DEFAULT_PUSH_ADDITIONAL_INFO_BODY),
+          'push.template.cancellation_title': textSetting(form.pushCancellationTitle, DEFAULT_PUSH_CANCELLATION_TITLE),
+          'push.template.cancellation_body': textSetting(form.pushCancellationBody, DEFAULT_PUSH_CANCELLATION_BODY),
         },
       });
       await settings.reload();
@@ -281,6 +312,56 @@ export function BrandingPage() {
             </div>
           ) : null}
 
+          {activeTab === 'pushTemplates' ? (
+            <div className="stacked-section">
+              <div className="form-grid">
+                <PushTemplateFields
+                  title="Vooraankondiging"
+                  titleValue={form.pushPreannouncementTitle}
+                  bodyValue={form.pushPreannouncementBody}
+                  onTitleChange={(value) => setForm((current) => ({ ...current, pushPreannouncementTitle: value }))}
+                  onBodyChange={(value) => setForm((current) => ({ ...current, pushPreannouncementBody: value }))}
+                />
+                <PushTemplateFields
+                  title="Alarmering"
+                  titleValue={form.pushDispatchTitle}
+                  bodyValue={form.pushDispatchBody}
+                  onTitleChange={(value) => setForm((current) => ({ ...current, pushDispatchTitle: value }))}
+                  onBodyChange={(value) => setForm((current) => ({ ...current, pushDispatchBody: value }))}
+                />
+                <PushTemplateFields
+                  title="Alarmering bij urgente opschaling ondanks niet beschikbaar"
+                  titleValue={form.pushUnavailableEscalationTitle}
+                  bodyValue={form.pushUnavailableEscalationBody}
+                  onTitleChange={(value) => setForm((current) => ({ ...current, pushUnavailableEscalationTitle: value }))}
+                  onBodyChange={(value) => setForm((current) => ({ ...current, pushUnavailableEscalationBody: value }))}
+                />
+                <PushTemplateFields
+                  title="Nadere info"
+                  titleValue={form.pushAdditionalInfoTitle}
+                  bodyValue={form.pushAdditionalInfoBody}
+                  onTitleChange={(value) => setForm((current) => ({ ...current, pushAdditionalInfoTitle: value }))}
+                  onBodyChange={(value) => setForm((current) => ({ ...current, pushAdditionalInfoBody: value }))}
+                />
+                <PushTemplateFields
+                  title="Annulering"
+                  titleValue={form.pushCancellationTitle}
+                  bodyValue={form.pushCancellationBody}
+                  onTitleChange={(value) => setForm((current) => ({ ...current, pushCancellationTitle: value }))}
+                  onBodyChange={(value) => setForm((current) => ({ ...current, pushCancellationBody: value }))}
+                />
+              </div>
+              <div className="metadata-example">
+                <strong>Beschikbare tokens</strong>
+                <pre>{'{{place}}, {{message}}, {{reference}}, {{title}}, {{location}}, {{priority}}, {{reason}}, {{availability_reason}}'}</pre>
+              </div>
+              <div className="metadata-example">
+                <strong>Reason bij niet beschikbaar maar opgeschaald</strong>
+                <pre>{'{{reason}} = Urgente opschaling: de coordinator heeft gekozen om ook niet-beschikbare teamleden te alarmeren.\n{{availability_reason}} = persoonlijke beschikbaarheidsreden, bijvoorbeeld status niet beschikbaar of vast weekpatroon.'}</pre>
+              </div>
+            </div>
+          ) : null}
+
           <div className="metadata-example">
             <strong>Voorbeeld</strong>
             <pre>{`${form.brandShortName || 'DIS'}\n${form.tenantName || 'Nationaal Droneteam'}\n${form.brandName || 'D.I.S Operationeel Beeld'}\n${form.loginTitle || 'D.I.S Command Center'}`}</pre>
@@ -318,7 +399,47 @@ function toBrandingForm(settings: SystemSetting[]): BrandingForm {
     assetWarningDaysBeforeExpiry: String(asNumber(byKey.get('asset.warning_days_before_expiry'), 30)),
     assetExpirySubject: asString(byKey.get('mail.template.asset_expiry_subject')) || DEFAULT_ASSET_EXPIRY_SUBJECT,
     assetExpiryBody: asString(byKey.get('mail.template.asset_expiry_body')) || DEFAULT_ASSET_EXPIRY_BODY,
+    pushPreannouncementTitle: asString(byKey.get('push.template.preannouncement_title')) || DEFAULT_PUSH_PREANNOUNCEMENT_TITLE,
+    pushPreannouncementBody: asString(byKey.get('push.template.preannouncement_body')) || DEFAULT_PUSH_PREANNOUNCEMENT_BODY,
+    pushDispatchTitle: asString(byKey.get('push.template.dispatch_title')) || DEFAULT_PUSH_DISPATCH_TITLE,
+    pushDispatchBody: asString(byKey.get('push.template.dispatch_body')) || DEFAULT_PUSH_DISPATCH_BODY,
+    pushUnavailableEscalationTitle: asString(byKey.get('push.template.dispatch_unavailable_escalation_title')) || DEFAULT_PUSH_UNAVAILABLE_ESCALATION_TITLE,
+    pushUnavailableEscalationBody: asString(byKey.get('push.template.dispatch_unavailable_escalation_body')) || DEFAULT_PUSH_UNAVAILABLE_ESCALATION_BODY,
+    pushAdditionalInfoTitle: asString(byKey.get('push.template.additional_info_title')) || DEFAULT_PUSH_ADDITIONAL_INFO_TITLE,
+    pushAdditionalInfoBody: asString(byKey.get('push.template.additional_info_body')) || DEFAULT_PUSH_ADDITIONAL_INFO_BODY,
+    pushCancellationTitle: asString(byKey.get('push.template.cancellation_title')) || DEFAULT_PUSH_CANCELLATION_TITLE,
+    pushCancellationBody: asString(byKey.get('push.template.cancellation_body')) || DEFAULT_PUSH_CANCELLATION_BODY,
   };
+}
+
+function PushTemplateFields({
+  title,
+  titleValue,
+  bodyValue,
+  onTitleChange,
+  onBodyChange,
+}: {
+  title: string;
+  titleValue: string;
+  bodyValue: string;
+  onTitleChange: (value: string) => void;
+  onBodyChange: (value: string) => void;
+}) {
+  return (
+    <section className="form-grid__wide push-template-card">
+      <h3>{title}</h3>
+      <div className="form-grid">
+        <label>
+          Titel
+          <input maxLength={160} value={titleValue} onChange={(event) => onTitleChange(event.target.value)} />
+        </label>
+        <label className="form-grid__wide">
+          Bericht
+          <textarea rows={4} maxLength={2000} value={bodyValue} onChange={(event) => onBodyChange(event.target.value)} />
+        </label>
+      </div>
+    </section>
+  );
 }
 
 function asString(value: unknown): string {
