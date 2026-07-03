@@ -191,11 +191,11 @@ write_frontend_env() {
 
   log "Refreshing frontend production environment"
   cat > "${DIS_INSTALL_PATH}/webapp/frontend/.env.production" <<EOF
-VITE_API_BASE_URL=/api
-VITE_REVERB_APP_KEY=$(env_value REVERB_APP_KEY)
-VITE_WEBSOCKET_HOST=${host}
-VITE_WEBSOCKET_PORT=80
-VITE_WEBSOCKET_SCHEME=ws
+NEXT_PUBLIC_API_BASE_URL=/api
+NEXT_PUBLIC_REVERB_APP_KEY=$(env_value REVERB_APP_KEY)
+NEXT_PUBLIC_WEBSOCKET_HOST=${host}
+NEXT_PUBLIC_WEBSOCKET_PORT=80
+NEXT_PUBLIC_WEBSOCKET_SCHEME=ws
 EOF
   run_cmd chown "${DIS_USER}:${DIS_GROUP}" "${DIS_INSTALL_PATH}/webapp/frontend/.env.production"
   run_cmd chmod 0640 "${DIS_INSTALL_PATH}/webapp/frontend/.env.production"

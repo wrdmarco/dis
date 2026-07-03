@@ -18,12 +18,12 @@ export function createRealtime(options: RealtimeOptions): Echo<'reverb'> {
 
   const echo = new Echo<'reverb'>({
     broadcaster: 'reverb',
-    key: import.meta.env.VITE_REVERB_APP_KEY,
-    wsHost: import.meta.env.VITE_WEBSOCKET_HOST ?? window.location.hostname,
-    wsPort: Number(import.meta.env.VITE_WEBSOCKET_PORT ?? 80),
+    key: process.env.NEXT_PUBLIC_REVERB_APP_KEY,
+    wsHost: process.env.NEXT_PUBLIC_WEBSOCKET_HOST ?? window.location.hostname,
+    wsPort: Number(process.env.NEXT_PUBLIC_WEBSOCKET_PORT ?? 80),
     forceTLS: false,
     enabledTransports: ['ws'],
-    authEndpoint: `${import.meta.env.VITE_API_BASE_URL ?? '/api'}/broadcasting/auth`,
+    authEndpoint: `${process.env.NEXT_PUBLIC_API_BASE_URL ?? '/api'}/broadcasting/auth`,
     auth: {
       headers: {
         Authorization: `Bearer ${options.token}`,
