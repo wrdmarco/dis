@@ -152,9 +152,13 @@ final class IncidentReportService
         }
 
         try {
-            return Storage::disk('local')->exists($incident->report_pdf_path)
-                ? Storage::disk('local')->path($incident->report_pdf_path)
-                : null;
+            if (! Storage::disk('local')->exists($incident->report_pdf_path)) {
+                return null;
+            }
+
+            $path = Storage::disk('local')->path($incident->report_pdf_path);
+
+            return is_readable($path) ? $path : null;
         } catch (Throwable $exception) {
             report($exception);
 
@@ -175,7 +179,11 @@ final class IncidentReportService
     private function storedReportExists(string $path): bool
     {
         try {
-            return Storage::disk('local')->exists($path);
+            if (! Storage::disk('local')->exists($path)) {
+                return false;
+            }
+
+            return is_readable(Storage::disk('local')->path($path));
         } catch (Throwable $exception) {
             report($exception);
 
