@@ -61,8 +61,8 @@ if [ -d "${BACKEND_DIR}" ]; then
   ensure_directory "${BACKEND_DIR}/bootstrap/cache" "${DIS_USER}" "${DIS_GROUP}" 0750
 
   run_cmd chown -R "${DIS_USER}:${DIS_GROUP}" "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache"
-  run_cmd find "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache" -type d -exec chmod 0750 {} +
-  run_cmd find "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache" -type f -exec chmod 0640 {} +
+  run_cmd find "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache" -type d -exec chmod 0770 {} +
+  run_cmd find "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache" -type f -exec chmod 0660 {} +
 
   if [ -d "${BACKEND_DIR}/vendor" ]; then
     run_cmd chown -R "${DIS_USER}:${DIS_GROUP}" "${BACKEND_DIR}/vendor"
@@ -74,6 +74,9 @@ if [ -d "${BACKEND_DIR}" ]; then
   run_cmd chown -h "${DIS_USER}:${DIS_GROUP}" "${BACKEND_DIR}/.env"
 
   if id www-data >/dev/null 2>&1; then
+    run_cmd chown -R "www-data:${DIS_GROUP}" "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache" || true
+    run_cmd find "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache" -type d -exec chmod 0770 {} + || true
+    run_cmd find "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache" -type f -exec chmod 0660 {} + || true
     if [ -f "${APP_ROOT}/.env" ]; then
       run_cmd setfacl -m "u:www-data:r--" "${APP_ROOT}/.env" || true
     fi

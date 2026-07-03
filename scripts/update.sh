@@ -558,6 +558,7 @@ if [ "${SYSTEM_UPDATES_AVAILABLE}" = "0" ] && [ "${APP_UPDATES_AVAILABLE}" = "0"
   install_update_privileges
   self_heal_permissions
   clear_application_caches
+  self_heal_permissions
   exit 0
 fi
 
@@ -594,6 +595,7 @@ if [ "${UPDATE_APP}" = "1" ]; then
     install_update_privileges
     self_heal_permissions
     clear_application_caches
+    self_heal_permissions
     assert_backend_routes
   else
     log "Skipping DIS application deploy."
@@ -601,6 +603,7 @@ if [ "${UPDATE_APP}" = "1" ]; then
     install_update_privileges
     self_heal_permissions
     clear_application_caches
+    self_heal_permissions
     assert_backend_routes
   fi
 fi
