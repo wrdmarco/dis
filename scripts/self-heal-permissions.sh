@@ -101,6 +101,18 @@ if [ -d "${DATA_BACKEND_STORAGE}" ]; then
     run_cmd setfacl -R -m "u:www-data:rwx" "${DATA_BACKEND_STORAGE}" || true
     run_cmd setfacl -R -d -m "u:www-data:rwx" "${DATA_BACKEND_STORAGE}" || true
   fi
+
+  for runtime_dir in \
+    "${DATA_BACKEND_STORAGE}/app" \
+    "${DATA_BACKEND_STORAGE}/framework/cache" \
+    "${DATA_BACKEND_STORAGE}/framework/sessions" \
+    "${DATA_BACKEND_STORAGE}/framework/views" \
+    "${DATA_BACKEND_STORAGE}/logs" \
+    "${DATA_BACKEND_STORAGE}/tmp"; do
+    if [ -d "${runtime_dir}" ]; then
+      run_cmd chmod -R u+rwX,g+rwX,o+rwX "${runtime_dir}" || true
+    fi
+  done
 fi
 
 if [ -d "${APP_ROOT}/backup" ]; then
