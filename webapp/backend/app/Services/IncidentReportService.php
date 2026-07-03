@@ -169,7 +169,12 @@ final class IncidentReportService
 
         try {
             $path = $this->reportPath($incident);
-            Storage::disk('local')->put($path, $this->pdf($incident));
+            $absolutePath = $this->absoluteReportPath($path);
+            $this->ensureWritableDirectory(dirname($absolutePath));
+            if (File::put($absolutePath, $this->pdf($incident)) === false) {
+                throw new \RuntimeException('Incidentrapport kon niet worden opgeslagen op '.$absolutePath.'.');
+            }
+            @chmod($absolutePath, 0660);
             $incident->forceFill([
                 'report_pdf_path' => $path,
                 'report_generated_at' => now(),
@@ -198,8 +203,10 @@ final class IncidentReportService
         }
 
         try {
-            return Storage::disk('local')->exists($incident->report_pdf_path)
-                ? Storage::disk('local')->get($incident->report_pdf_path)
+            $path = $this->absoluteReportPath($incident->report_pdf_path);
+
+            return is_file($path) && is_readable($path)
+                ? (string) file_get_contents($path)
                 : null;
         } catch (Throwable $exception) {
             $this->safeReport($exception);
@@ -215,11 +222,10 @@ final class IncidentReportService
         }
 
         try {
-            if (! Storage::disk('local')->exists($incident->report_pdf_path)) {
+            $path = $this->absoluteReportPath($incident->report_pdf_path);
+            if (! is_file($path)) {
                 return null;
             }
-
-            $path = Storage::disk('local')->path($incident->report_pdf_path);
 
             return is_readable($path) ? $path : null;
         } catch (Throwable $exception) {
@@ -239,14 +245,17 @@ final class IncidentReportService
         return 'incident-reports/'.$incident->id.'/'.$this->filename($incident);
     }
 
+    private function absoluteReportPath(string $path): string
+    {
+        return rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/').'/webapp/backend/storage/app/'.ltrim($path, '/');
+    }
+
     private function storedReportExists(string $path): bool
     {
         try {
-            if (! Storage::disk('local')->exists($path)) {
-                return false;
-            }
+            $absolutePath = $this->absoluteReportPath($path);
 
-            return is_readable(Storage::disk('local')->path($path));
+            return is_file($absolutePath) && is_readable($absolutePath);
         } catch (Throwable $exception) {
             $this->safeReport($exception);
 
