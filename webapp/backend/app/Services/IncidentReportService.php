@@ -9,6 +9,7 @@ use App\Models\SystemSetting;
 use Dompdf\Dompdf;
 use Dompdf\Options;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -59,8 +60,7 @@ final class IncidentReportService
 
     public function pdf(Incident $incident): string
     {
-        Storage::disk('local')->makeDirectory('report-temp');
-        Storage::disk('local')->makeDirectory('report-fonts');
+        $this->ensureReportRuntimeDirectories();
 
         $options = new Options();
         $options->set('isRemoteEnabled', false);
@@ -94,6 +94,12 @@ final class IncidentReportService
         $dompdf->render();
 
         return $dompdf->output();
+    }
+
+    private function ensureReportRuntimeDirectories(): void
+    {
+        File::ensureDirectoryExists(storage_path('app/report-temp'), 0770, true);
+        File::ensureDirectoryExists(storage_path('app/report-fonts'), 0770, true);
     }
 
     public function ensureStored(Incident $incident): ?string
