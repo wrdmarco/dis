@@ -51,6 +51,9 @@ final class MobileApiPayload
                 'name' => $team->name,
                 'type' => $team->type,
             ])->values(),
+            'statuses' => $user->relationLoaded('statuses')
+                ? $user->statuses->map(fn (AvailabilityStatus $status): array => self::statusSummary($status))->values()
+                : [],
         ];
     }
 
@@ -87,6 +90,20 @@ final class MobileApiPayload
             'is_available' => (bool) $status->is_available,
             'effective_at' => self::dateTime($status->effective_at),
             'user' => $status->relationLoaded('user') ? self::user($status->user) : null,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function statusSummary(AvailabilityStatus $status): array
+    {
+        return [
+            'id' => $status->id,
+            'user_id' => $status->user_id,
+            'status' => $status->status,
+            'is_available' => (bool) $status->is_available,
+            'effective_at' => self::dateTime($status->effective_at),
         ];
     }
 
