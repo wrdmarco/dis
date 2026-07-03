@@ -34,6 +34,8 @@ interface PushTemplateForm {
   preannouncementBody: string;
   dispatchTitle: string;
   dispatchBody: string;
+  unavailableEscalationTitle: string;
+  unavailableEscalationBody: string;
   additionalInfoTitle: string;
   additionalInfoBody: string;
   cancellationTitle: string;
@@ -45,6 +47,8 @@ const defaultTemplates: PushTemplateForm = {
   preannouncementBody: 'Ben je beschikbaar voor een melding in {{place}}?',
   dispatchTitle: 'NDT Alarmering',
   dispatchBody: '{{message}}',
+  unavailableEscalationTitle: 'NDT urgente opschaling',
+  unavailableEscalationBody: '{{reason}} {{availability_reason}} {{message}}',
   additionalInfoTitle: 'D.I.S aanvullende info',
   additionalInfoBody: '{{message}}',
   cancellationTitle: 'D.I.S geannuleerd',
@@ -115,6 +119,8 @@ export function PushPage() {
           'push.template.preannouncement_body': textSetting(templates.preannouncementBody, defaultTemplates.preannouncementBody),
           'push.template.dispatch_title': textSetting(templates.dispatchTitle, defaultTemplates.dispatchTitle),
           'push.template.dispatch_body': textSetting(templates.dispatchBody, defaultTemplates.dispatchBody),
+          'push.template.dispatch_unavailable_escalation_title': textSetting(templates.unavailableEscalationTitle, defaultTemplates.unavailableEscalationTitle),
+          'push.template.dispatch_unavailable_escalation_body': textSetting(templates.unavailableEscalationBody, defaultTemplates.unavailableEscalationBody),
           'push.template.additional_info_title': textSetting(templates.additionalInfoTitle, defaultTemplates.additionalInfoTitle),
           'push.template.additional_info_body': textSetting(templates.additionalInfoBody, defaultTemplates.additionalInfoBody),
           'push.template.cancellation_title': textSetting(templates.cancellationTitle, defaultTemplates.cancellationTitle),
@@ -249,6 +255,13 @@ export function PushPage() {
               onBodyChange={(value) => setTemplates((current) => ({ ...current, dispatchBody: value }))}
             />
             <TemplateFields
+              title="Alarmering bij urgente opschaling ondanks niet beschikbaar"
+              titleValue={templates.unavailableEscalationTitle}
+              bodyValue={templates.unavailableEscalationBody}
+              onTitleChange={(value) => setTemplates((current) => ({ ...current, unavailableEscalationTitle: value }))}
+              onBodyChange={(value) => setTemplates((current) => ({ ...current, unavailableEscalationBody: value }))}
+            />
+            <TemplateFields
               title="Nadere info"
               titleValue={templates.additionalInfoTitle}
               bodyValue={templates.additionalInfoBody}
@@ -265,7 +278,7 @@ export function PushPage() {
           </div>
           <div className="metadata-example">
             <strong>Beschikbare tokens</strong>
-            <pre>{'{{place}}, {{message}}, {{reference}}, {{title}}, {{location}}, {{priority}}'}</pre>
+            <pre>{'{{place}}, {{message}}, {{reference}}, {{title}}, {{location}}, {{priority}}, {{reason}}, {{availability_reason}}'}</pre>
           </div>
           <div className="metadata-example">
             <strong>Voorbeeld vooraankondiging</strong>
@@ -348,6 +361,8 @@ function toPushTemplateForm(settings: SystemSetting[]): PushTemplateForm {
     preannouncementBody: asString(byKey.get('push.template.preannouncement_body')) || defaultTemplates.preannouncementBody,
     dispatchTitle: asString(byKey.get('push.template.dispatch_title')) || defaultTemplates.dispatchTitle,
     dispatchBody: asString(byKey.get('push.template.dispatch_body')) || defaultTemplates.dispatchBody,
+    unavailableEscalationTitle: asString(byKey.get('push.template.dispatch_unavailable_escalation_title')) || defaultTemplates.unavailableEscalationTitle,
+    unavailableEscalationBody: asString(byKey.get('push.template.dispatch_unavailable_escalation_body')) || defaultTemplates.unavailableEscalationBody,
     additionalInfoTitle: asString(byKey.get('push.template.additional_info_title')) || defaultTemplates.additionalInfoTitle,
     additionalInfoBody: asString(byKey.get('push.template.additional_info_body')) || defaultTemplates.additionalInfoBody,
     cancellationTitle: asString(byKey.get('push.template.cancellation_title')) || defaultTemplates.cancellationTitle,
@@ -372,6 +387,8 @@ const sampleTokens: Record<string, string> = {
   title: 'Zoekactie',
   location: 'Apeldoorn',
   priority: 'normal',
+  reason: 'Urgente opschaling: de coordinator heeft gekozen om ook niet-beschikbare teamleden te alarmeren.',
+  availability_reason: 'Je actuele status staat op niet beschikbaar.',
 };
 
 function renderTemplate(template: string, tokens: Record<string, string>): string {

@@ -55,6 +55,7 @@ final class DispatchService
                 'status' => 'draft',
                 'priority' => $data['priority'],
                 'message' => $data['message'],
+                'includes_unavailable_recipients' => (bool) ($data['include_unavailable'] ?? false),
             ]);
 
             foreach ($eligible as $user) {
@@ -299,7 +300,11 @@ final class DispatchService
         return DB::transaction(function () use ($dispatch, $actor): DispatchRequest {
         $dispatch->update(['status' => 'sent', 'sent_at' => now()]);
         $dispatch->recipients()->whereNull('notified_at')->update(['notified_at' => now()]);
-        $dispatch->load(['incident', 'recipients.user.fcmTokens']);
+        $dispatch->load([
+            'incident',
+            'recipients.user.fcmTokens',
+            'recipients.user.statuses' => fn ($statuses) => $statuses->latestPerUser(),
+        ]);
         $dispatchTitle = $this->pushTemplate('dispatch_title', 'NDT Alarmering', $this->pushTemplateTokens($dispatch->incident));
 
         foreach ($dispatch->recipients as $recipient) {
@@ -307,13 +312,31 @@ final class DispatchService
                     continue;
                 }
 
+                $user = $recipient->user;
+                $unavailableEscalation = $dispatch->includes_unavailable_recipients
+                    && $user !== null
+                    && ! $this->isOperationallyAvailable($user);
+                $notificationTitle = $unavailableEscalation
+                    ? $this->pushTemplate(
+                        'dispatch_unavailable_escalation_title',
+                        'NDT urgente opschaling',
+                        $this->pushTemplateTokens($dispatch->incident),
+                    )
+                    : $dispatchTitle;
+                $notificationBody = $unavailableEscalation && $user !== null
+                    ? $this->unavailableEscalationNotificationBody($dispatch, $user)
+                    : $this->notificationBody($dispatch);
+                $notificationData = $this->notificationData($dispatch) + [
+                    'unavailable_escalation' => $unavailableEscalation ? 'true' : 'false',
+                ];
+
                 foreach ($recipient->user?->fcmTokens->where('is_active', true) ?? [] as $token) {
                     SendFcmNotification::dispatch(
                         (string) $token->id,
                         'dispatch_request',
-                        $dispatchTitle,
-                        $this->notificationBody($dispatch),
-                        $this->notificationData($dispatch),
+                        $notificationTitle,
+                        $notificationBody,
+                        $notificationData,
                         (string) $dispatch->id,
                     )->onQueue('push');
                 }
@@ -907,6 +930,57 @@ final class DispatchService
         }
 
         return $message === '' ? $prefix : "$prefix - $message";
+    }
+
+    private function unavailableEscalationNotificationBody(DispatchRequest $dispatch, User $user): string
+    {
+        $message = trim((string) $dispatch->message);
+        if ($message === '' && $dispatch->incident !== null) {
+            $message = $this->defaultDispatchMessage($dispatch->incident);
+        }
+
+        $tokens = $this->pushTemplateTokens($dispatch->incident, [
+            'message' => $message,
+            'reason' => 'Urgente opschaling: de coordinator heeft gekozen om ook niet-beschikbare teamleden te alarmeren.',
+            'availability_reason' => $this->unavailableReason($user),
+        ]);
+
+        return $this->pushTemplate(
+            'dispatch_unavailable_escalation_body',
+            '{{reason}} {{availability_reason}} {{message}}',
+            $tokens,
+        );
+    }
+
+    private function unavailableReason(User $user): string
+    {
+        $latestStatus = $user->statuses->first();
+        if ($latestStatus !== null && $latestStatus->is_available !== true) {
+            return 'Je actuele status staat op '.match ($latestStatus->status) {
+                'unavailable' => 'niet beschikbaar.',
+                'resting' => 'rust.',
+                'suspended' => 'geblokkeerd.',
+                'assigned' => 'toegewezen.',
+                'vacation' => 'vakantie.',
+                default => $latestStatus->status.'.',
+            };
+        }
+
+        $availability = $this->availabilityScheduleService->availabilityFor($user);
+        if ($availability['is_available'] === false) {
+            $source = match ($availability['source']) {
+                'override' => 'een ingeplande uitzondering',
+                'week_pattern' => 'je vaste weekpatroon',
+                default => 'je beschikbaarheidsschema',
+            };
+            $note = trim((string) ($availability['note'] ?? ''));
+
+            return $note === ''
+                ? "Je staat niet beschikbaar volgens {$source}."
+                : "Je staat niet beschikbaar volgens {$source}: {$note}.";
+        }
+
+        return 'Je stond niet beschikbaar op het moment van alarmeren.';
     }
 
     /**

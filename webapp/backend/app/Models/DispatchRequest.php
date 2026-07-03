@@ -20,13 +20,18 @@ final class DispatchRequest extends Model
         'status',
         'priority',
         'message',
+        'includes_unavailable_recipients',
         'sent_at',
         'cancelled_at',
     ];
 
     protected function casts(): array
     {
-        return ['sent_at' => 'immutable_datetime', 'cancelled_at' => 'immutable_datetime'];
+        return [
+            'includes_unavailable_recipients' => 'boolean',
+            'sent_at' => 'immutable_datetime',
+            'cancelled_at' => 'immutable_datetime',
+        ];
     }
 
     public function incident(): BelongsTo
