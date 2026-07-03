@@ -92,10 +92,6 @@ return Application::configure(basePath: dirname(__DIR__))
             if ($request->attributes->has('request_id')) {
                 $details['request_id'] = $request->attributes->get('request_id');
             }
-            if ($request->is('api/incidents/*/report') || $request->is('api/incidents/*/report.pdf')) {
-                $details['exception'] = class_basename($exception);
-                $details['message'] = mb_substr($exception->getMessage(), 0, 500);
-            }
 
             return ApiResponse::error('server_error', 'Server error.', 500, $details);
         });
