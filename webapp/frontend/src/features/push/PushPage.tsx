@@ -1,10 +1,10 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Send, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
-import type { ManualPushResult, PushDeliveryLog, Role, Team, User } from '../../types/api';
+import type { ManualPushResult, PushDeliveryLog, Role, SystemSetting, Team, User } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 
 interface ManualPushForm {
@@ -29,14 +29,46 @@ interface PushOptions {
   users: User[];
 }
 
+interface PushTemplateForm {
+  preannouncementTitle: string;
+  preannouncementBody: string;
+  dispatchTitle: string;
+  dispatchBody: string;
+  additionalInfoTitle: string;
+  additionalInfoBody: string;
+  cancellationTitle: string;
+  cancellationBody: string;
+}
+
+const defaultTemplates: PushTemplateForm = {
+  preannouncementTitle: 'D.I.S vooraankondiging',
+  preannouncementBody: 'Ben je beschikbaar voor een melding in {{place}}?',
+  dispatchTitle: 'NDT Alarmering',
+  dispatchBody: '{{message}}',
+  additionalInfoTitle: 'D.I.S aanvullende info',
+  additionalInfoBody: '{{message}}',
+  cancellationTitle: 'D.I.S geannuleerd',
+  cancellationBody: 'De vooraankondiging in {{place}} is geannuleerd.',
+};
+
 export function PushPage() {
   const { api } = useAuth();
   const options = useApiResource<PushOptions>('/admin/push/options');
   const logs = useApiResource<PushDeliveryLog[]>('/admin/push/logs?per_page=10');
+  const settings = useApiResource<SystemSetting[]>('/admin/settings');
+  const initialTemplates = useMemo(() => toPushTemplateForm(settings.data ?? []), [settings.data]);
   const [form, setForm] = useState<ManualPushForm>(emptyPushForm);
+  const [templates, setTemplates] = useState<PushTemplateForm>(initialTemplates);
   const [sending, setSending] = useState(false);
+  const [savingTemplates, setSavingTemplates] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [templateMessage, setTemplateMessage] = useState<string | null>(null);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTemplates(initialTemplates);
+  }, [initialTemplates]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -69,6 +101,33 @@ export function PushPage() {
         ? current[field].filter((candidate) => candidate !== value)
         : [...current[field], value],
     }));
+  }
+
+  async function saveTemplates() {
+    setSavingTemplates(true);
+    setTemplateMessage(null);
+    setTemplateError(null);
+
+    try {
+      await api.patch('/admin/settings', {
+        settings: {
+          'push.template.preannouncement_title': textSetting(templates.preannouncementTitle, defaultTemplates.preannouncementTitle),
+          'push.template.preannouncement_body': textSetting(templates.preannouncementBody, defaultTemplates.preannouncementBody),
+          'push.template.dispatch_title': textSetting(templates.dispatchTitle, defaultTemplates.dispatchTitle),
+          'push.template.dispatch_body': textSetting(templates.dispatchBody, defaultTemplates.dispatchBody),
+          'push.template.additional_info_title': textSetting(templates.additionalInfoTitle, defaultTemplates.additionalInfoTitle),
+          'push.template.additional_info_body': textSetting(templates.additionalInfoBody, defaultTemplates.additionalInfoBody),
+          'push.template.cancellation_title': textSetting(templates.cancellationTitle, defaultTemplates.cancellationTitle),
+          'push.template.cancellation_body': textSetting(templates.cancellationBody, defaultTemplates.cancellationBody),
+        },
+      });
+      await settings.reload();
+      setTemplateMessage('Push templates zijn opgeslagen.');
+    } catch (err) {
+      setTemplateError(err instanceof Error ? err.message : 'Push templates opslaan mislukt.');
+    } finally {
+      setSavingTemplates(false);
+    }
   }
 
   const resourcesLoading = options.loading;
@@ -172,6 +231,56 @@ export function PushPage() {
         </ResourceState>
       </Panel>
 
+      <Panel title="Push templates">
+        <ResourceState loading={settings.loading} error={settings.error} empty={false}>
+          <div className="form-grid">
+            <TemplateFields
+              title="Vooraankondiging"
+              titleValue={templates.preannouncementTitle}
+              bodyValue={templates.preannouncementBody}
+              onTitleChange={(value) => setTemplates((current) => ({ ...current, preannouncementTitle: value }))}
+              onBodyChange={(value) => setTemplates((current) => ({ ...current, preannouncementBody: value }))}
+            />
+            <TemplateFields
+              title="Alarmering"
+              titleValue={templates.dispatchTitle}
+              bodyValue={templates.dispatchBody}
+              onTitleChange={(value) => setTemplates((current) => ({ ...current, dispatchTitle: value }))}
+              onBodyChange={(value) => setTemplates((current) => ({ ...current, dispatchBody: value }))}
+            />
+            <TemplateFields
+              title="Nadere info"
+              titleValue={templates.additionalInfoTitle}
+              bodyValue={templates.additionalInfoBody}
+              onTitleChange={(value) => setTemplates((current) => ({ ...current, additionalInfoTitle: value }))}
+              onBodyChange={(value) => setTemplates((current) => ({ ...current, additionalInfoBody: value }))}
+            />
+            <TemplateFields
+              title="Annulering"
+              titleValue={templates.cancellationTitle}
+              bodyValue={templates.cancellationBody}
+              onTitleChange={(value) => setTemplates((current) => ({ ...current, cancellationTitle: value }))}
+              onBodyChange={(value) => setTemplates((current) => ({ ...current, cancellationBody: value }))}
+            />
+          </div>
+          <div className="metadata-example">
+            <strong>Beschikbare tokens</strong>
+            <pre>{'{{place}}, {{message}}, {{reference}}, {{title}}, {{location}}, {{priority}}'}</pre>
+          </div>
+          <div className="metadata-example">
+            <strong>Voorbeeld vooraankondiging</strong>
+            <pre>{`${renderTemplate(templates.preannouncementTitle, sampleTokens)}\n${renderTemplate(templates.preannouncementBody, sampleTokens)}`}</pre>
+          </div>
+          {templateError ? <p className="form-error">{templateError}</p> : null}
+          {templateMessage ? <p className="form-note">{templateMessage}</p> : null}
+          <div className="actions-row">
+            <button className="primary-button" type="button" onClick={() => void saveTemplates()} disabled={savingTemplates}>
+              {savingTemplates ? 'Opslaan...' : 'Templates opslaan'}
+            </button>
+          </div>
+        </ResourceState>
+      </Panel>
+
       <Panel title="Laatste afleverpogingen">
         <ResourceState loading={logs.loading} error={logs.error} empty={(logs.data?.length ?? 0) === 0}>
           <table className="data-table">
@@ -197,6 +306,77 @@ function recipientCount(form: ManualPushForm): number {
   return form.teamIds.length + form.roleIds.length + form.userIds.length;
 }
 
+function TemplateFields({
+  title,
+  titleValue,
+  bodyValue,
+  onTitleChange,
+  onBodyChange,
+}: {
+  title: string;
+  titleValue: string;
+  bodyValue: string;
+  onTitleChange: (value: string) => void;
+  onBodyChange: (value: string) => void;
+}) {
+  return (
+    <section className="form-grid__wide push-template-card">
+      <h3>{title}</h3>
+      <div className="form-grid">
+        <label>
+          Titel
+          <input maxLength={160} value={titleValue} onChange={(event) => onTitleChange(event.target.value)} />
+        </label>
+        <label className="form-grid__wide">
+          Bericht
+          <textarea rows={4} maxLength={2000} value={bodyValue} onChange={(event) => onBodyChange(event.target.value)} />
+        </label>
+      </div>
+    </section>
+  );
+}
+
 function formatDate(value?: string | null): string {
   return formatDateTime(value);
+}
+
+function toPushTemplateForm(settings: SystemSetting[]): PushTemplateForm {
+  const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
+
+  return {
+    preannouncementTitle: asString(byKey.get('push.template.preannouncement_title')) || defaultTemplates.preannouncementTitle,
+    preannouncementBody: asString(byKey.get('push.template.preannouncement_body')) || defaultTemplates.preannouncementBody,
+    dispatchTitle: asString(byKey.get('push.template.dispatch_title')) || defaultTemplates.dispatchTitle,
+    dispatchBody: asString(byKey.get('push.template.dispatch_body')) || defaultTemplates.dispatchBody,
+    additionalInfoTitle: asString(byKey.get('push.template.additional_info_title')) || defaultTemplates.additionalInfoTitle,
+    additionalInfoBody: asString(byKey.get('push.template.additional_info_body')) || defaultTemplates.additionalInfoBody,
+    cancellationTitle: asString(byKey.get('push.template.cancellation_title')) || defaultTemplates.cancellationTitle,
+    cancellationBody: asString(byKey.get('push.template.cancellation_body')) || defaultTemplates.cancellationBody,
+  };
+}
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function textSetting(value: string, fallback: string): string {
+  const text = value.trim();
+
+  return text === '' ? fallback : text;
+}
+
+const sampleTokens: Record<string, string> = {
+  place: 'Apeldoorn',
+  message: 'Reactie vereist - DIS-20260704-ABCD',
+  reference: 'DIS-20260704-ABCD',
+  title: 'Zoekactie',
+  location: 'Apeldoorn',
+  priority: 'normal',
+};
+
+function renderTemplate(template: string, tokens: Record<string, string>): string {
+  return Object.entries(tokens).reduce(
+    (result, [key, value]) => result.replaceAll(`{{${key}}}`, value),
+    template,
+  );
 }

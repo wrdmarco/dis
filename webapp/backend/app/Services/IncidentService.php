@@ -119,6 +119,10 @@ final class IncidentService
                 $this->dispatchService->createAndSendForIncidentActivation($incident->refresh(), $actor, $statusReason);
             }
 
+            if ($beforeStatus === 'active' && ($data['status'] ?? null) === 'cancelled') {
+                $this->dispatchService->sendCancellationForActiveIncident($incident->refresh(), $actor);
+            }
+
             if (array_key_exists('status', $data) && $data['status'] !== $beforeStatus && in_array($data['status'], ['resolved', 'cancelled'], true)) {
                 $this->locationService->stopForIncident($incident->refresh(), $actor);
                 $this->resetAcceptedRecipientsToAvailable($incident->refresh(), $actor, $data['status']);

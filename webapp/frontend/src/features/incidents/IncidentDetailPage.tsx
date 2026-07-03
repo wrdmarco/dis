@@ -131,14 +131,14 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
     try {
       await api.patch(`/incidents/${incidentId}`, {
         status: 'active',
-        status_reason: 'Concept geactiveerd voor alarmering.',
+        status_reason: 'Vooraankondiging verstuurd.',
       });
       await incident.reload();
       await preview.reload();
       await dispatches.reload();
       await timeline.reload();
     } catch (err) {
-      setDispatchError(err instanceof ApiClientError ? err.message : 'Concept kon niet worden geactiveerd.');
+      setDispatchError(err instanceof ApiClientError ? err.message : 'Vooraankondiging kon niet worden verstuurd.');
     } finally {
       setDispatching(false);
     }
@@ -457,12 +457,12 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
           title="Concept"
           action={(
             <button className="primary-button" type="button" onClick={activateIncident} disabled={dispatching}>
-              <Send size={16} /> {dispatching ? 'Activeren...' : 'Activeren'}
+              <Send size={16} /> {dispatching ? 'Vooraankondigen...' : 'Vooraankondiging versturen'}
             </button>
           )}
         >
           <div className="panel-body">
-            <p className="form-note">Activeer het concept voordat de alarmering wordt verstuurd.</p>
+            <p className="form-note">Verstuur eerst een normale vooraankondiging naar de geselecteerde groep. Daarna kan de alarmering worden verstuurd.</p>
             {dispatchError ? <p className="form-error">{dispatchError}</p> : null}
           </div>
         </Panel>
@@ -514,25 +514,25 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
               <>
                 <div className="dispatch-toolbar">
                   <div>
-                    <span>Laatste alarmering</span>
+                    <span>{latestDispatch.status === 'draft' ? 'Laatste vooraankondiging' : 'Laatste alarmering'}</span>
                     <strong>{dispatchStatusLabel(latestDispatch.status)}</strong>
                   </div>
                   {canManageDispatches ? <div className="dispatch-toolbar__actions">
-                    <button className="secondary-button" type="button" onClick={openEscalationModal} disabled={dispatchAction !== null || latestDispatch.status === 'cancelled' || latestDispatch.status === 'escalated'}>
+                    <button className="secondary-button" type="button" onClick={openEscalationModal} disabled={dispatchAction !== null || latestDispatch.status === 'draft' || latestDispatch.status === 'cancelled' || latestDispatch.status === 'escalated'}>
                       <TrendingUp size={16} /> {dispatchAction === 'escalate' ? 'Opschalen...' : 'Opschalen'}
                     </button>
-                    <button className="secondary-button" type="button" onClick={() => void runDispatchAction('realert')} disabled={dispatchAction !== null || latestDispatch.status === 'cancelled' || countResponses(latestDispatch, 'pending') === 0}>
+                    <button className="secondary-button" type="button" onClick={() => void runDispatchAction('realert')} disabled={dispatchAction !== null || latestDispatch.status === 'draft' || latestDispatch.status === 'cancelled' || countResponses(latestDispatch, 'pending') === 0}>
                       <BellRing size={16} /> {dispatchAction === 'realert' ? 'Heralarmeren...' : 'Heralarmeren'}
                     </button>
                   </div> : null}
                 </div>
                 {dispatchActionMessage ? <p className={dispatchActionMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{dispatchActionMessage}</p> : null}
                 <div className="summary-grid">
-                  <SummaryItem label="Alarmering" value={dispatchStatusLabel(latestDispatch.status)} />
+                  <SummaryItem label={latestDispatch.status === 'draft' ? 'Vooraankondiging' : 'Alarmering'} value={dispatchStatusLabel(latestDispatch.status)} />
                   <SummaryItem label="Team" value={latestDispatch.target_team?.code ?? '-'} />
                   <SummaryItem label="Verstuurd" value={formatDate(latestDispatch.sent_at)} />
-                  <SummaryItem label="Komt" value={String(countResponses(latestDispatch, 'accepted'))} />
-                  <SummaryItem label="Komt niet" value={String(countResponses(latestDispatch, 'declined'))} />
+                  <SummaryItem label={latestDispatch.status === 'draft' ? 'Beschikbaar' : 'Komt'} value={String(countResponses(latestDispatch, 'accepted'))} />
+                  <SummaryItem label={latestDispatch.status === 'draft' ? 'Niet beschikbaar' : 'Komt niet'} value={String(countResponses(latestDispatch, 'declined'))} />
                   <SummaryItem label="Nog geen reactie" value={String(countResponses(latestDispatch, 'pending'))} />
                   <SummaryItem label="Onderweg" value={String(countOperatorStatuses(latestDispatch, 'en_route'))} />
                   <SummaryItem label="Op locatie" value={String(countOperatorStatuses(latestDispatch, 'on_scene'))} />
@@ -550,7 +550,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                           <span>{recipient.user?.email ?? '-'}</span>
                         </div>
                         <div className="recipient-row__states">
-                          <StatusPill value={responseLabel(recipient.response_status)} tone={recipient.response_status === 'accepted' ? 'good' : recipient.response_status === 'declined' ? 'bad' : undefined} />
+                          <StatusPill value={responseLabel(recipient.response_status, latestDispatch.status === 'draft')} tone={recipient.response_status === 'accepted' ? 'good' : recipient.response_status === 'declined' ? 'bad' : undefined} />
                           <StatusPill value={operatorStatusLabel(userStatus)} tone={operatorStatusTone(userStatus)} />
                           <StatusPill value={locationSharingLabel(location?.sharing_status)} tone={location?.sharing_status === 'shared' ? 'good' : location?.sharing_status === 'declined' ? 'bad' : 'neutral'} />
                         </div>
@@ -563,11 +563,11 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                             value={recipient.response_status}
                             disabled={recipientUpdatingId === recipient.id || latestDispatch.status === 'cancelled'}
                             onChange={(event) => void updateRecipientResponse(recipient.id, event.target.value as 'pending' | 'accepted' | 'declined' | 'no_response')}
-                            aria-label={`Opkomststatus aanpassen voor ${recipient.user?.name ?? recipient.user_id}`}
+                            aria-label={`Reactie aanpassen voor ${recipient.user?.name ?? recipient.user_id}`}
                           >
                             <option value="pending">Wacht op reactie</option>
-                            <option value="accepted">Komt</option>
-                            <option value="declined">Komt niet</option>
+                            <option value="accepted">{latestDispatch.status === 'draft' ? 'Beschikbaar' : 'Komt'}</option>
+                            <option value="declined">{latestDispatch.status === 'draft' ? 'Niet beschikbaar' : 'Komt niet'}</option>
                             <option value="no_response">Geen reactie</option>
                           </select>
                         ) : null}
@@ -1136,7 +1136,7 @@ function priorityLabel(priority: string): string {
 function dispatchStatusLabel(status: string): string {
   switch (status) {
     case 'draft':
-      return 'Concept';
+      return 'Vooraankondiging';
     case 'sent':
       return 'Verstuurd';
     case 'escalated':
@@ -1165,12 +1165,12 @@ function timelineTypeLabel(type: IncidentTimelineItem['type']): string {
   }
 }
 
-function responseLabel(value: string): string {
+function responseLabel(value: string, availabilityMode = false): string {
   switch (value) {
     case 'accepted':
-      return 'komt';
+      return availabilityMode ? 'beschikbaar' : 'komt';
     case 'declined':
-      return 'komt niet';
+      return availabilityMode ? 'niet beschikbaar' : 'komt niet';
     case 'no_response':
       return 'geen reactie';
     default:

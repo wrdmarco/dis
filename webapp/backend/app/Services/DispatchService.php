@@ -9,6 +9,7 @@ use App\Models\AvailabilityStatus;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
+use App\Models\SystemSetting;
 use App\Models\Team;
 use App\Models\Certification;
 use App\Models\User;
@@ -72,7 +73,21 @@ final class DispatchService
 
     public function createAndSendForIncidentActivation(Incident $incident, User $actor, ?string $message = null): ?DispatchRequest
     {
-        if ($incident->dispatchRequests()->whereIn('status', ['draft', 'sent'])->exists()) {
+        $existingDrafts = $incident->dispatchRequests()
+            ->where('status', 'draft')
+            ->with(['incident', 'recipients.user.fcmTokens'])
+            ->get();
+
+        if ($existingDrafts->isNotEmpty()) {
+            $sentDispatch = null;
+            foreach ($existingDrafts as $draft) {
+                $sentDispatch ??= $this->markSent($draft, $actor);
+            }
+
+            return $sentDispatch;
+        }
+
+        if ($incident->dispatchRequests()->where('status', 'sent')->exists()) {
             return null;
         }
 
@@ -96,42 +111,121 @@ final class DispatchService
      */
     public function sendPreannouncementForIncidentActivation(Incident $incident, User $actor, ?string $message = null): array
     {
-        $targetTeams = $this->targetTeams($incident, []);
-        $recipients = collect();
-        foreach ($targetTeams as $targetTeam) {
-            $recipients = $recipients->merge($this->eligibleUsers($targetTeam)['users']);
-        }
-        $recipients = $recipients->unique('id')->values();
-
-        $notificationBody = trim((string) $message);
-        if ($notificationBody === '') {
-            $notificationBody = 'Vooraankondiging: '.$this->defaultDispatchMessage($incident);
-        }
+        $place = $this->placeNameFromLocation($incident->location_label);
+        $tokens = $this->pushTemplateTokens($incident, ['place' => $place ?? '']);
+        $notificationTitle = $this->pushTemplate('preannouncement_title', 'D.I.S vooraankondiging', $tokens);
+        $notificationBody = $this->pushTemplate(
+            'preannouncement_body',
+            $place === null ? 'Ben je beschikbaar voor een melding?' : 'Ben je beschikbaar voor een melding in {{place}}?',
+            $tokens,
+        );
 
         $queuedTokens = 0;
-        foreach ($recipients as $user) {
-            foreach ($user->fcmTokens->where('is_active', true) as $token) {
+        $recipientCount = 0;
+        $dispatches = collect();
+        foreach ($this->targetTeams($incident, []) as $targetTeam) {
+            $dispatch = $incident->dispatchRequests()
+                ->where('status', 'draft')
+                ->where('target_team_id', $targetTeam->id)
+                ->first();
+
+            if ($dispatch === null) {
+                $dispatch = $this->create($incident, [
+                    'priority' => $incident->priority === 'low' ? 'normal' : $incident->priority,
+                    'message' => $notificationBody,
+                    'target_team_id' => $targetTeam->id,
+                ], $actor);
+            }
+
+            $dispatch->load(['recipients.user.fcmTokens']);
+            $dispatches->push($dispatch);
+            $recipientCount += $dispatch->recipients->count();
+
+            foreach ($dispatch->recipients as $recipient) {
+                foreach ($recipient->user?->fcmTokens->where('is_active', true) ?? [] as $token) {
+                    SendFcmNotification::dispatch(
+                        (string) $token->id,
+                        'incident_preannouncement',
+                        $notificationTitle,
+                        $notificationBody,
+                        [
+                            'type' => 'incident_preannouncement',
+                            'incident_id' => (string) $incident->id,
+                            'dispatch_id' => (string) $dispatch->id,
+                        ],
+                        (string) $dispatch->id,
+                    )->onQueue('push');
+                    $queuedTokens++;
+                }
+            }
+
+            $dispatch->recipients()->whereNull('notified_at')->update(['notified_at' => now()]);
+            $this->broadcastDispatchChange($dispatch->refresh(), 'preannouncement_sent');
+        }
+
+        $this->auditService->record('incidents.preannouncement_sent', $incident, $actor, [
+            'dispatch_ids' => $dispatches->pluck('id')->values()->all(),
+            'recipient_users' => $recipientCount,
+            'queued_tokens' => $queuedTokens,
+        ]);
+
+        return [
+            'queued_tokens' => $queuedTokens,
+            'recipient_users' => $recipientCount,
+        ];
+    }
+
+    /**
+     * @return array{queued_tokens: int, recipient_users: int}
+     */
+    public function sendCancellationForActiveIncident(Incident $incident, User $actor): array
+    {
+        $incident->load([
+            'dispatchRequests.recipients.user.fcmTokens',
+        ]);
+
+        $recipients = $incident->dispatchRequests
+            ->where('status', 'draft')
+            ->flatMap(fn (DispatchRequest $dispatch): Collection => $dispatch->recipients)
+            ->unique('user_id')
+            ->values();
+
+        if ($recipients->isEmpty()) {
+            foreach ($this->targetTeams($incident, []) as $targetTeam) {
+                $recipients = $recipients->merge(
+                    $this->eligibleUsers($targetTeam)['users']
+                        ->map(fn (User $user): object => (object) ['user' => $user, 'user_id' => $user->id]),
+                );
+            }
+            $recipients = $recipients->unique('user_id')->values();
+        }
+
+        $place = $this->placeNameFromLocation($incident->location_label);
+        $tokens = $this->pushTemplateTokens($incident, ['place' => $place ?? '']);
+        $title = $this->pushTemplate('cancellation_title', 'D.I.S geannuleerd', $tokens);
+        $body = $this->pushTemplate(
+            'cancellation_body',
+            $place === null ? 'De vooraankondiging is geannuleerd.' : 'De vooraankondiging in {{place}} is geannuleerd.',
+            $tokens,
+        );
+
+        $queuedTokens = 0;
+        foreach ($recipients as $recipient) {
+            foreach ($recipient->user?->fcmTokens->where('is_active', true) ?? [] as $token) {
                 SendFcmNotification::dispatch(
                     (string) $token->id,
-                    'incident_preannouncement',
-                    'D.I.S vooraankondiging',
-                    $notificationBody,
+                    'incident_cancelled',
+                    $title,
+                    $body,
                     [
-                        'type' => 'incident_preannouncement',
-                        'incident_id' => (string) $incident->id,
-                        'incident_reference' => (string) $incident->reference,
-                        'incident_title' => (string) $incident->title,
-                        'incident_location' => (string) $incident->location_label,
-                        'dispatch_message' => $notificationBody,
-                        'priority' => (string) $incident->priority,
+                        'type' => 'incident_cancelled',
                     ],
                 )->onQueue('push');
                 $queuedTokens++;
             }
         }
 
-        $this->auditService->record('incidents.preannouncement_sent', $incident, $actor, [
-            'team_ids' => $targetTeams->pluck('id')->values()->all(),
+        $this->auditService->record('incidents.active_cancelled_notification_sent', $incident, $actor, [
             'recipient_users' => $recipients->count(),
             'queued_tokens' => $queuedTokens,
         ]);
@@ -200,16 +294,21 @@ final class DispatchService
     public function markSent(DispatchRequest $dispatch, User $actor): DispatchRequest
     {
         return DB::transaction(function () use ($dispatch, $actor): DispatchRequest {
-            $dispatch->update(['status' => 'sent', 'sent_at' => now()]);
-            $dispatch->recipients()->whereNull('notified_at')->update(['notified_at' => now()]);
-            $dispatch->load(['incident', 'recipients.user.fcmTokens']);
+        $dispatch->update(['status' => 'sent', 'sent_at' => now()]);
+        $dispatch->recipients()->whereNull('notified_at')->update(['notified_at' => now()]);
+        $dispatch->load(['incident', 'recipients.user.fcmTokens']);
+        $dispatchTitle = $this->pushTemplate('dispatch_title', 'NDT Alarmering', $this->pushTemplateTokens($dispatch->incident));
 
-            foreach ($dispatch->recipients as $recipient) {
+        foreach ($dispatch->recipients as $recipient) {
+                if (! in_array($recipient->response_status, ['pending', 'accepted'], true)) {
+                    continue;
+                }
+
                 foreach ($recipient->user?->fcmTokens->where('is_active', true) ?? [] as $token) {
                     SendFcmNotification::dispatch(
                         (string) $token->id,
                         'dispatch_request',
-                        'NDT Alarmering',
+                        $dispatchTitle,
                         $this->notificationBody($dispatch),
                         $this->notificationData($dispatch),
                         (string) $dispatch->id,
@@ -314,13 +413,16 @@ final class DispatchService
             ->values();
 
         $queuedTokens = 0;
+        $tokens = $this->pushTemplateTokens($dispatch->incident, ['message' => $message]);
+        $title = $this->pushTemplate('additional_info_title', 'D.I.S aanvullende info', $tokens);
+        $body = $this->pushTemplate('additional_info_body', '{{message}}', $tokens);
         foreach ($recipients as $recipient) {
             foreach ($recipient->user?->fcmTokens->where('is_active', true) ?? [] as $token) {
-                SendFcmNotification::dispatch(
-                    (string) $token->id,
-                    'dispatch_update',
-                    'D.I.S aanvullende info',
-                    $message,
+                    SendFcmNotification::dispatch(
+                        (string) $token->id,
+                        'dispatch_update',
+                        $title,
+                        $body,
                     [
                         'type' => 'dispatch_update',
                         'dispatch_id' => (string) $dispatch->id,
@@ -723,6 +825,25 @@ final class DispatchService
         return implode(' - ', array_values(array_filter($parts, fn (?string $part): bool => filled($part))));
     }
 
+    private function placeNameFromLocation(?string $location): ?string
+    {
+        $value = trim((string) $location);
+        if ($value === '') {
+            return null;
+        }
+
+        $segments = array_values(array_filter(array_map('trim', preg_split('/[,;|-]/', $value) ?: [])));
+        $place = $segments !== [] ? end($segments) : $value;
+        if (! is_string($place) || $place === '') {
+            return null;
+        }
+
+        $place = trim((string) preg_replace('/\b[1-9][0-9]{3}\s?[A-Z]{2}\b/i', '', $place));
+        $place = trim((string) preg_replace('/\s+/', ' ', $place));
+
+        return $place === '' ? null : $place;
+    }
+
     /**
      * @return array<string, string>
      */
@@ -751,11 +872,54 @@ final class DispatchService
             $message = $this->defaultDispatchMessage($dispatch->incident);
         }
 
+        if ($dispatch->incident !== null) {
+            $message = $this->pushTemplate('dispatch_body', $message, $this->pushTemplateTokens($dispatch->incident, [
+                'message' => $message,
+            ]));
+        }
+
         $prefix = trim((string) $prefix);
         if ($prefix === '') {
             return $message;
         }
 
         return $message === '' ? $prefix : "$prefix - $message";
+    }
+
+    /**
+     * @param array<string, string> $extra
+     * @return array<string, string>
+     */
+    private function pushTemplateTokens(?Incident $incident, array $extra = []): array
+    {
+        $place = $extra['place'] ?? $this->placeNameFromLocation($incident?->location_label) ?? '';
+
+        return array_merge([
+            'reference' => (string) ($incident?->reference ?? ''),
+            'title' => (string) ($incident?->title ?? ''),
+            'location' => (string) ($incident?->location_label ?? ''),
+            'place' => $place,
+            'priority' => (string) ($incident?->priority ?? ''),
+            'message' => '',
+        ], $extra);
+    }
+
+    /**
+     * @param array<string, string> $tokens
+     */
+    private function pushTemplate(string $name, string $default, array $tokens): string
+    {
+        $template = SystemSetting::string("push.template.{$name}", $default) ?? $default;
+        $replacements = [];
+        foreach ($tokens as $key => $value) {
+            $replacements['{{'.$key.'}}'] = $value;
+        }
+
+        $rendered = trim(strtr($template, $replacements));
+        if ($rendered !== '') {
+            return $rendered;
+        }
+
+        return trim(strtr($default, $replacements));
     }
 }

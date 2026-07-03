@@ -30,7 +30,7 @@ final class IncidentController extends Controller
     {
         if ($request->boolean('active_alarms')) {
             $userId = $request->user()->id;
-            $activeDispatchStatuses = ['sent', 'escalated'];
+            $activeDispatchStatuses = ['draft', 'sent', 'escalated'];
             $incidents = Incident::query()
                 ->with([
                     'coordinator',
@@ -73,6 +73,16 @@ final class IncidentController extends Controller
                     $payload = MobileApiPayload::incident($incident);
                     $dispatch = $incident->dispatchRequests->first();
                     $recipient = $dispatch?->recipients->first();
+                    if ($dispatch?->status === 'draft') {
+                        $place = $this->placeNameFromLocation($incident->location_label);
+                        $payload['reference'] = 'Vooraankondiging';
+                        $payload['title'] = $place === null
+                            ? 'Beschikbaar voor melding?'
+                            : "Beschikbaar voor melding in {$place}?";
+                        $payload['description'] = null;
+                        $payload['location_label'] = $place;
+                        $payload['priority'] = 'normal';
+                    }
                     $payload['active_dispatch'] = $dispatch === null ? null : [
                         'id' => $dispatch->id,
                         'status' => $dispatch->status,
@@ -291,5 +301,24 @@ final class IncidentController extends Controller
             'on_scene' => 'Op locatie',
             default => $status,
         };
+    }
+
+    private function placeNameFromLocation(?string $location): ?string
+    {
+        $value = trim((string) $location);
+        if ($value === '') {
+            return null;
+        }
+
+        $segments = array_values(array_filter(array_map('trim', preg_split('/[,;|-]/', $value) ?: [])));
+        $place = $segments !== [] ? end($segments) : $value;
+        if (! is_string($place) || $place === '') {
+            return null;
+        }
+
+        $place = trim((string) preg_replace('/\b[1-9][0-9]{3}\s?[A-Z]{2}\b/i', '', $place));
+        $place = trim((string) preg_replace('/\s+/', ' ', $place));
+
+        return $place === '' ? null : $place;
     }
 }
