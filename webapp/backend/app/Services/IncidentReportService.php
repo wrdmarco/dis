@@ -94,9 +94,26 @@ final class IncidentReportService
         $dompdf = new Dompdf($options);
         $dompdf->loadHtml(view('reports.incident', $data)->render());
         $dompdf->setPaper('a4', 'portrait');
-        $dompdf->render();
+        $this->renderDompdf($dompdf);
 
         return $dompdf->output();
+    }
+
+    private function renderDompdf(Dompdf $dompdf): void
+    {
+        set_error_handler(static function (int $severity, string $message): bool {
+            if (str_contains($message, 'tempnam(): file created in the system')) {
+                return true;
+            }
+
+            return false;
+        });
+
+        try {
+            $dompdf->render();
+        } finally {
+            restore_error_handler();
+        }
     }
 
     private function writableReportDirectory(): string
