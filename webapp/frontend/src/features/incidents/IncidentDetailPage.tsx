@@ -53,6 +53,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const [deletingIncident, setDeletingIncident] = useState(false);
 
   const latestDispatch = dispatches.data?.[0] ?? null;
+  const latestDispatchIsPreannouncement = latestDispatch?.status === 'draft';
   const showDraftPanel = incident.data?.status === 'draft';
   const showDispatchPanel = incident.data?.status === 'active';
   const reportAvailable = incident.data?.status === 'resolved' || incident.data?.status === 'cancelled';
@@ -441,7 +442,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                 <SummaryItem label="Incidentstatus" value={incidentStatusLabel(incident.data.status)} />
                 <SummaryItem label="Prioriteit" value={priorityLabel(incident.data.priority)} />
                 <SummaryItem label="Ontvangers" value={String(recipientCount)} />
-                <SummaryItem label="Komt" value={latestDispatch ? String(countResponses(latestDispatch, 'accepted')) : '-'} />
+                <SummaryItem label={latestDispatchIsPreannouncement ? 'Beschikbaar' : 'Komt'} value={latestDispatch ? String(countResponses(latestDispatch, 'accepted')) : '-'} />
                 <SummaryItem label="Onderweg" value={latestDispatch ? String(countOperatorStatuses(latestDispatch, 'en_route')) : '-'} />
                 <SummaryItem label="Live locaties" value={String(liveSharedCount)} />
               </div>
@@ -546,7 +547,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                   {latestDispatch.recipients?.map((recipient) => {
                     const userStatus = recipient.user?.statuses?.[0]?.status;
                     const location = liveLocations.data?.find((item) => item.user_id === recipient.user_id);
-                    const canEditOperatorStatus = canOverrideStatus && recipient.response_status === 'accepted' && recipient.user_id !== '';
+                    const canEditOperatorStatus = canOverrideStatus && !latestDispatchIsPreannouncement && recipient.response_status === 'accepted' && recipient.user_id !== '';
 
                     return (
                       <article className={`recipient-row recipient-row--${recipient.response_status}`} key={recipient.id}>
@@ -592,7 +593,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                   })}
                 </div>
                 {recipientUpdateMessage ? <p className={recipientUpdateMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{recipientUpdateMessage}</p> : null}
-                {canManageDispatches ? (
+                {canManageDispatches && !latestDispatchIsPreannouncement ? (
                   <form className="inline-message-form" onSubmit={sendAdditionalInfo}>
                     <label>
                       Nadere info voor opkomende gebruikers

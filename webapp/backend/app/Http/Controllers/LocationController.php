@@ -71,6 +71,7 @@ final class LocationController extends Controller
         }
 
         $acceptedRecipients = $incident->dispatchRequests()
+            ->whereIn('status', ['sent', 'escalated'])
             ->with(['recipients.user'])
             ->latest()
             ->get()

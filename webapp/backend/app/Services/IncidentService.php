@@ -337,6 +337,7 @@ final class IncidentService
             : 'Incident geannuleerd; gebruiker automatisch weer beschikbaar gezet.';
 
         $incident->dispatchRequests
+            ->whereIn('status', ['sent', 'escalated'])
             ->flatMap(fn ($dispatch) => $dispatch->recipients)
             ->filter(fn ($recipient): bool => $recipient->response_status === 'accepted'
                 && $recipient->user !== null

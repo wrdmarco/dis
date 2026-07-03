@@ -174,6 +174,7 @@ final class LocationService
     private function ensureAcceptedRecipient(Incident $incident, User $target): void
     {
         $isAcceptedRecipient = $incident->dispatchRequests()
+            ->whereIn('status', ['sent', 'escalated'])
             ->whereHas('recipients', fn ($recipients) => $recipients
                 ->where('user_id', $target->id)
                 ->where('response_status', 'accepted'))

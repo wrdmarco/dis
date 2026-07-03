@@ -298,7 +298,17 @@ final class DispatchService
     public function markSent(DispatchRequest $dispatch, User $actor): DispatchRequest
     {
         return DB::transaction(function () use ($dispatch, $actor): DispatchRequest {
+        $wasPreannouncement = $dispatch->status === 'draft';
         $dispatch->update(['status' => 'sent', 'sent_at' => now()]);
+        if ($wasPreannouncement) {
+            $dispatch->recipients()
+                ->where('response_status', 'accepted')
+                ->update([
+                    'response_status' => 'pending',
+                    'response_note' => 'Was beschikbaar bij de vooraankondiging; wacht op reactie op de alarmering.',
+                    'responded_at' => null,
+                ]);
+        }
         $dispatch->recipients()->whereNull('notified_at')->update(['notified_at' => now()]);
         $dispatch->load([
             'incident',
