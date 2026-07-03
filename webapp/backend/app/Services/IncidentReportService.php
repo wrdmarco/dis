@@ -17,6 +17,8 @@ use Throwable;
 
 final class IncidentReportService
 {
+    private ?string $lastReportTempDir = null;
+
     public function __construct(private readonly DroneFlightContextService $droneFlightContextService) {}
 
     /**
@@ -112,6 +114,7 @@ final class IncidentReportService
                 $probe = @tempnam($path, 'dis-report-probe-');
                 if (is_string($probe) && str_starts_with($probe, rtrim($path, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR)) {
                     @unlink($probe);
+                    $this->lastReportTempDir = $path;
 
                     return $path;
                 }
@@ -122,6 +125,8 @@ final class IncidentReportService
                 // Try the next candidate.
             }
         }
+
+        $this->lastReportTempDir = sys_get_temp_dir();
 
         return sys_get_temp_dir();
     }
@@ -150,8 +155,12 @@ final class IncidentReportService
             return $path;
         } catch (Throwable $exception) {
             $this->safeReport($exception);
+            $message = $exception->getMessage();
+            if ($this->lastReportTempDir !== null) {
+                $message .= ' Tempmap: '.$this->lastReportTempDir;
+            }
             $incident->forceFill([
-                'report_generation_error' => mb_substr($exception->getMessage(), 0, 2000),
+                'report_generation_error' => mb_substr($message, 0, 2000),
             ])->save();
 
             return null;
