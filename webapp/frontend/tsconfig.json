@@ -19,9 +19,6 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "preserve",
-    "types": [
-      "vitest/globals"
-    ],
     "incremental": true,
     "plugins": [
       {
@@ -32,9 +29,7 @@
   "include": [
     "app",
     "next-env.d.ts",
-    "scripts/**/*.mjs",
     "src",
-    "tests",
     ".next/types/**/*.ts"
   ],
   "exclude": [

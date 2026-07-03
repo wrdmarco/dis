@@ -8,8 +8,7 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 3000",
     "preview": "next start --hostname 127.0.0.1 --port 3000",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "laravel-echo": "^2.2.0",
@@ -21,14 +20,11 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "^6.6.3",
-    "@testing-library/react": "^16.1.0",
     "@types/node": "^26.0.0",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "typescript": "^5.7.0"
   },
   "engines": {
     "node": ">=22.0.0"
