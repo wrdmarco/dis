@@ -15,6 +15,16 @@ import { RealtimeBridge } from '../realtime/RealtimeBridge';
 export interface IncidentFormState {
   title: string;
   description: string;
+  reporterName: string;
+  reporterPhone: string;
+  requestingOrganization: string;
+  requestingUnit: string;
+  onSceneContactName: string;
+  onSceneContactPhone: string;
+  onSceneContactRole: string;
+  operationalObjective: string;
+  requiredResources: string;
+  requiredQualification: string;
   priority: Incident['priority'];
   status: Incident['status'];
   locationLabel: string;
@@ -27,6 +37,16 @@ export interface IncidentFormState {
 const emptyIncidentForm: IncidentFormState = {
   title: '',
   description: '',
+  reporterName: '',
+  reporterPhone: '',
+  requestingOrganization: '',
+  requestingUnit: '',
+  onSceneContactName: '',
+  onSceneContactPhone: '',
+  onSceneContactRole: '',
+  operationalObjective: '',
+  requiredResources: '',
+  requiredQualification: '',
   priority: 'normal',
   status: 'draft',
   locationLabel: '',
@@ -358,6 +378,34 @@ export function IncidentForm(props: {
         <textarea value={form.description} rows={5} onChange={(event) => updateForm(onChange, 'description', event.target.value)} required />
       </label>
       <label>
+        Naam melder
+        <input value={form.reporterName} maxLength={180} onChange={(event) => updateForm(onChange, 'reporterName', event.target.value)} />
+      </label>
+      <label>
+        Telefoonnummer melder
+        <input value={form.reporterPhone} maxLength={40} inputMode="tel" autoComplete="tel" onChange={(event) => updateForm(onChange, 'reporterPhone', event.target.value)} />
+      </label>
+      <label>
+        Aanvragende organisatie
+        <input value={form.requestingOrganization} maxLength={180} onChange={(event) => updateForm(onChange, 'requestingOrganization', event.target.value)} />
+      </label>
+      <label>
+        Dienst / eenheid
+        <input value={form.requestingUnit} maxLength={180} onChange={(event) => updateForm(onChange, 'requestingUnit', event.target.value)} />
+      </label>
+      <label>
+        Contact ter plaatse
+        <input value={form.onSceneContactName} maxLength={180} onChange={(event) => updateForm(onChange, 'onSceneContactName', event.target.value)} />
+      </label>
+      <label>
+        Telefoon ter plaatse
+        <input value={form.onSceneContactPhone} maxLength={40} inputMode="tel" autoComplete="tel" onChange={(event) => updateForm(onChange, 'onSceneContactPhone', event.target.value)} />
+      </label>
+      <label className="form-grid__wide">
+        Functie / rol contactpersoon
+        <input value={form.onSceneContactRole} maxLength={120} onChange={(event) => updateForm(onChange, 'onSceneContactRole', event.target.value)} />
+      </label>
+      <label>
         Prioriteit
         <select value={form.priority} onChange={(event) => updateForm(onChange, 'priority', event.target.value as Incident['priority'])}>
           <option value="low">Laag</option>
@@ -414,6 +462,33 @@ export function IncidentForm(props: {
           <option value="">Niet toegewezen</option>
           {users.map((user) => <option key={user.id} value={user.id}>{user.name} - {user.email}</option>)}
         </select>
+      </label>
+      <label className="form-grid__wide">
+        Operationeel doel
+        <textarea
+          value={form.operationalObjective}
+          rows={4}
+          placeholder="Bijvoorbeeld: overzicht, zoeken, warmtebeeld, livestream, mapping, foto/video of ondersteuning commandovoering."
+          onChange={(event) => updateForm(onChange, 'operationalObjective', event.target.value)}
+        />
+      </label>
+      <label className="form-grid__wide">
+        Benodigde middelen
+        <textarea
+          value={form.requiredResources}
+          rows={4}
+          placeholder="Bijvoorbeeld: drone type, warmtebeeld, zoomcamera, verlichting, voertuig, extra piloot of waarnemer."
+          onChange={(event) => updateForm(onChange, 'requiredResources', event.target.value)}
+        />
+      </label>
+      <label className="form-grid__wide">
+        Vereiste certificering / rol
+        <textarea
+          value={form.requiredQualification}
+          rows={3}
+          placeholder="Leg specifieke bevoegdheden, rollen of certificeringen vast die voor deze inzet nodig zijn."
+          onChange={(event) => updateForm(onChange, 'requiredQualification', event.target.value)}
+        />
       </label>
       {teamsError ? <p className="form-error form-grid__wide">Teams laden mislukt: {teamsError}</p> : null}
       {usersError ? <p className="form-error form-grid__wide">Coordinators laden mislukt: {usersError}</p> : null}
@@ -726,6 +801,16 @@ export function incidentPayload(form: IncidentFormState): Record<string, unknown
   return {
     title: form.title.trim(),
     description: form.description.trim(),
+    reporter_name: form.reporterName.trim() === '' ? null : form.reporterName,
+    reporter_phone: form.reporterPhone.trim() === '' ? null : form.reporterPhone,
+    requesting_organization: form.requestingOrganization.trim() === '' ? null : form.requestingOrganization,
+    requesting_unit: form.requestingUnit.trim() === '' ? null : form.requestingUnit,
+    on_scene_contact_name: form.onSceneContactName.trim() === '' ? null : form.onSceneContactName,
+    on_scene_contact_phone: form.onSceneContactPhone.trim() === '' ? null : form.onSceneContactPhone,
+    on_scene_contact_role: form.onSceneContactRole.trim() === '' ? null : form.onSceneContactRole,
+    operational_objective: form.operationalObjective.trim() === '' ? null : form.operationalObjective,
+    required_resources: form.requiredResources.trim() === '' ? null : form.requiredResources,
+    required_qualification: form.requiredQualification.trim() === '' ? null : form.requiredQualification,
     priority: form.priority,
     status: form.status,
     location_label: form.locationLabel.trim() === '' ? null : form.locationLabel,

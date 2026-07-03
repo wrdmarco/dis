@@ -398,6 +398,9 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                   <p>{incident.data.description ?? 'Geen omschrijving vastgelegd.'}</p>
                 </div>
                 <dl className="incident-meta">
+                  <MetaItem icon={<MessageSquare size={16} />} label="Melder" value={reporterLabel(incident.data)} />
+                  <MetaItem icon={<RadioTower size={16} />} label="Aanvrager" value={requesterLabel(incident.data)} />
+                  <MetaItem icon={<Users size={16} />} label="Ter plaatse" value={onSceneContactLabel(incident.data)} />
                   <MetaItem icon={<MapPin size={16} />} label="Locatie" value={incident.data.location_label ?? '-'} />
                   <MetaItem icon={<Users size={16} />} label="Teams" value={incidentTeamsLabel(incident.data)} />
                   <MetaItem icon={<RadioTower size={16} />} label="Coordinator" value={incident.data.coordinator?.name ?? '-'} />
@@ -415,6 +418,11 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
               </div>
               {incidentError && !editModalOpen ? <p className="form-error">{incidentError}</p> : null}
               {reportError ? <p className="form-error">{reportError}</p> : null}
+              <div className="incident-overview incident-overview--text">
+                <SummaryItem label="Operationeel doel" value={incident.data.operational_objective ?? '-'} />
+                <SummaryItem label="Benodigde middelen" value={incident.data.required_resources ?? '-'} />
+                <SummaryItem label="Vereiste certificering / rol" value={incident.data.required_qualification ?? '-'} />
+              </div>
             </div>
           ) : null}
         </ResourceState>
@@ -798,6 +806,16 @@ function formFromIncident(incident: Incident): IncidentFormState {
   return {
     title: incident.title,
     description: incident.description ?? '',
+    reporterName: incident.reporter_name ?? '',
+    reporterPhone: incident.reporter_phone ?? '',
+    requestingOrganization: incident.requesting_organization ?? '',
+    requestingUnit: incident.requesting_unit ?? '',
+    onSceneContactName: incident.on_scene_contact_name ?? '',
+    onSceneContactPhone: incident.on_scene_contact_phone ?? '',
+    onSceneContactRole: incident.on_scene_contact_role ?? '',
+    operationalObjective: incident.operational_objective ?? '',
+    requiredResources: incident.required_resources ?? '',
+    requiredQualification: incident.required_qualification ?? '',
     priority: incident.priority,
     status: incident.status,
     locationLabel: incident.location_label ?? '',
@@ -806,6 +824,29 @@ function formFromIncident(incident: Incident): IncidentFormState {
     coordinatorId: incident.coordinator?.id ?? '',
     teamIds: incident.teams?.length ? incident.teams.map((team) => team.id) : incident.team?.id ? [incident.team.id] : [],
   };
+}
+
+function reporterLabel(incident: Incident): string {
+  const name = incident.reporter_name?.trim() || '-';
+  const phone = incident.reporter_phone?.trim();
+
+  return phone ? `${name} - ${phone}` : name;
+}
+
+function requesterLabel(incident: Incident): string {
+  const organization = incident.requesting_organization?.trim() || '-';
+  const unit = incident.requesting_unit?.trim();
+
+  return unit ? `${organization} - ${unit}` : organization;
+}
+
+function onSceneContactLabel(incident: Incident): string {
+  const name = incident.on_scene_contact_name?.trim() || '-';
+  const role = incident.on_scene_contact_role?.trim();
+  const phone = incident.on_scene_contact_phone?.trim();
+  const details = [role, phone].filter((value): value is string => Boolean(value));
+
+  return details.length > 0 ? `${name} - ${details.join(' - ')}` : name;
 }
 
 function incidentTeamsLabel(incident: Incident): string {

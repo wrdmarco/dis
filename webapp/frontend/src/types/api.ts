@@ -123,6 +123,16 @@ export interface Incident {
   reference: string;
   title: string;
   description?: string | null;
+  reporter_name?: string | null;
+  reporter_phone?: string | null;
+  requesting_organization?: string | null;
+  requesting_unit?: string | null;
+  on_scene_contact_name?: string | null;
+  on_scene_contact_phone?: string | null;
+  on_scene_contact_role?: string | null;
+  operational_objective?: string | null;
+  required_resources?: string | null;
+  required_qualification?: string | null;
   priority: 'low' | 'normal' | 'high' | 'critical';
   status: 'draft' | 'active' | 'dispatching' | 'in_progress' | 'resolved' | 'cancelled';
   is_test?: boolean;

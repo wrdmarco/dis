@@ -1393,6 +1393,19 @@ a:hover {
   white-space: nowrap;
 }
 
+.incident-overview--text {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.incident-overview--text > div {
+  align-content: start;
+}
+
+.incident-overview--text strong {
+  white-space: normal;
+  overflow: visible;
+}
+
 .data-table {
   width: 100%;
   border-collapse: collapse;

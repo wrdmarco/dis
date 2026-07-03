@@ -42,6 +42,8 @@
         .aeret-link-card { padding: 14px 16px; border: 1px solid #bfdbfe; border-radius: 9px; background: #eff6ff; }
         .aeret-link-card strong { display: block; margin-bottom: 6px; color: #0f172a; font-size: 13px; }
         .aeret-link-card span { display: block; margin-top: 4px; color: #475569; }
+        .aeret-snapshot { display: block; width: 100%; height: 320px; margin-bottom: 8px; border: 1px solid #cbd5e1; border-radius: 9px; object-fit: cover; }
+        .snapshot-note { margin: 0 0 8px 0; color: #64748b; font-size: 9px; }
         .flight-grid { width: 100%; border-collapse: separate; border-spacing: 8px; margin-left: -8px; margin-right: -8px; }
         .flight-card { padding: 10px 12px; border: 1px solid #d8e1ec; border-radius: 8px; background: #f8fafc; vertical-align: top; }
         .flight-card h3 { margin-bottom: 6px; color: #0f172a; font-size: 12px; }
@@ -103,11 +105,17 @@
     <h2>Incidentgegevens</h2>
     <table class="details">
         <tr><th>Omschrijving</th><td>{{ $incident->description ?: '-' }}</td></tr>
+        <tr><th>Melder</th><td>{{ $incident->reporter_name ?: '-' }}{{ $incident->reporter_phone ? ' - '.$incident->reporter_phone : '' }}</td></tr>
+        <tr><th>Aanvragende organisatie</th><td>{{ $incident->requesting_organization ?: '-' }}{{ $incident->requesting_unit ? ' - '.$incident->requesting_unit : '' }}</td></tr>
+        <tr><th>Contact ter plaatse</th><td>{{ $incident->on_scene_contact_name ?: '-' }}{{ $incident->on_scene_contact_role ? ' - '.$incident->on_scene_contact_role : '' }}{{ $incident->on_scene_contact_phone ? ' - '.$incident->on_scene_contact_phone : '' }}</td></tr>
         <tr><th>Prioriteit</th><td>{{ ucfirst($incident->priority) }}</td></tr>
         <tr><th>Locatie</th><td>{{ $incident->location_label ?: '-' }}</td></tr>
         <tr><th>Team</th><td>{{ $incident->team ? $incident->team->code.' - '.$incident->team->name : '-' }}</td></tr>
         <tr><th>Coordinator</th><td>{{ $incident->coordinator?->name ?? $incident->coordinator_name ?? '-' }}</td></tr>
         <tr><th>Aangemaakt door</th><td>{{ $incident->creator?->name ?? $incident->created_by_name ?? '-' }}</td></tr>
+        <tr><th>Operationeel doel</th><td>{{ $incident->operational_objective ?: '-' }}</td></tr>
+        <tr><th>Benodigde middelen</th><td>{{ $incident->required_resources ?: '-' }}</td></tr>
+        <tr><th>Vereiste certificering / rol</th><td>{{ $incident->required_qualification ?: '-' }}</td></tr>
     </table>
 </section>
 
@@ -195,9 +203,13 @@
                 <td class="flight-card" colspan="2">
                     <h3>Aeret kaart</h3>
                     @if ($flightMap || $aeretUrl)
+                        @if (! empty($map['aeret_snapshot_data_uri']))
+                            <p class="snapshot-note">Snapshot vastgelegd bij rapportgeneratie. De actuele Aeret-kaart kan later wijzigen.</p>
+                            <img class="aeret-snapshot" src="{{ $map['aeret_snapshot_data_uri'] }}" alt="Aeret kaart snapshot">
+                        @endif
                         <div class="aeret-link-card">
                             <strong>Open de actuele Aeret Drone PreFlight kaart</strong>
-                            <span>De interactieve Aeret-kaart wordt extern opgebouwd met actuele kaartlagen. In dit rapport staat daarom de directe link naar dezelfde incidentlocatie.</span>
+                            <span>De interactieve Aeret-kaart wordt extern opgebouwd met actuele kaartlagen. Dit rapport bevat een snapshot en de directe link naar dezelfde incidentlocatie.</span>
                             <span>Latitude: {{ $map['latitude_label'] ?? '-' }} | Longitude: {{ $map['longitude_label'] ?? '-' }}</span>
                         </div>
                         <dl>
