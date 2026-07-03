@@ -31,7 +31,7 @@ final class DroneFlightContextService
                 'weather' => $this->weatherData($latitude, $longitude),
             ];
         } catch (Throwable $exception) {
-            report($exception);
+            $this->safeReport($exception);
 
             return $base + [
                 'map' => $this->fallbackMapData($latitude, $longitude, $exception->getMessage()),
@@ -146,7 +146,7 @@ final class DroneFlightContextService
                 'errors' => [],
             ];
         } catch (Throwable $exception) {
-            report($exception);
+            $this->safeReport($exception);
 
             return $this->airspaceUnavailable($exception->getMessage());
         }
@@ -224,7 +224,7 @@ final class DroneFlightContextService
                 'errors' => [],
             ];
         } catch (Throwable $exception) {
-            report($exception);
+            $this->safeReport($exception);
 
             return $this->weatherUnavailable($exception->getMessage());
         }
@@ -251,6 +251,15 @@ final class DroneFlightContextService
             'summary' => 'Weerdata kon niet worden opgehaald.',
             'errors' => [$error],
         ];
+    }
+
+    private function safeReport(Throwable $exception): void
+    {
+        try {
+            report($exception);
+        } catch (Throwable) {
+            // Logging failures should not block flight context fallbacks.
+        }
     }
 
     /**

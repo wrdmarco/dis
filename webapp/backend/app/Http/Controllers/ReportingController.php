@@ -46,7 +46,11 @@ final class ReportingController extends Controller
                 'Content-Type' => 'application/pdf',
             ]);
         } catch (Throwable $exception) {
-            report($exception);
+            try {
+                report($exception);
+            } catch (Throwable) {
+                // Logging must not hide the actual report download failure.
+            }
 
             return ApiResponse::error('incident_report_failed', 'Incidentrapport kon niet worden opgehaald: '.mb_substr($exception->getMessage(), 0, 500), 500, [
                 'exception' => class_basename($exception),

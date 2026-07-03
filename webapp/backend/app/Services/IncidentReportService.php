@@ -73,7 +73,7 @@ final class IncidentReportService
         try {
             return $this->renderPdf($options, $data);
         } catch (Throwable $exception) {
-            report($exception);
+            $this->safeReport($exception);
         }
 
         $data['map']['snapshot_data_uri'] = null;
@@ -119,7 +119,7 @@ final class IncidentReportService
 
             return $path;
         } catch (Throwable $exception) {
-            report($exception);
+            $this->safeReport($exception);
             $incident->forceFill([
                 'report_generation_error' => mb_substr($exception->getMessage(), 0, 2000),
             ])->save();
@@ -139,7 +139,7 @@ final class IncidentReportService
                 ? Storage::disk('local')->get($incident->report_pdf_path)
                 : null;
         } catch (Throwable $exception) {
-            report($exception);
+            $this->safeReport($exception);
 
             return null;
         }
@@ -160,7 +160,7 @@ final class IncidentReportService
 
             return is_readable($path) ? $path : null;
         } catch (Throwable $exception) {
-            report($exception);
+            $this->safeReport($exception);
 
             return null;
         }
@@ -185,7 +185,7 @@ final class IncidentReportService
 
             return is_readable(Storage::disk('local')->path($path));
         } catch (Throwable $exception) {
-            report($exception);
+            $this->safeReport($exception);
 
             return false;
         }
@@ -374,7 +374,7 @@ final class IncidentReportService
         try {
             $mapSnapshot = $this->satelliteMapSnapshot($latitude, $longitude);
         } catch (Throwable $exception) {
-            report($exception);
+            $this->safeReport($exception);
             $mapSnapshot = [
                 'available' => false,
                 'data_uri' => null,
@@ -670,6 +670,15 @@ final class IncidentReportService
         $coordinate = (float) $value;
 
         return is_finite($coordinate) ? $coordinate : null;
+    }
+
+    private function safeReport(Throwable $exception): void
+    {
+        try {
+            report($exception);
+        } catch (Throwable) {
+            // A logging backend failure must not block incident report generation.
+        }
     }
 
     private function responseLabel(string $status): string
