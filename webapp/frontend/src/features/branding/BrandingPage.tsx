@@ -5,7 +5,7 @@ import { useApiResource } from '../../lib/useApiResource';
 import type { SystemSetting } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 
-type BrandingTab = 'general' | 'logo' | 'templates' | 'pushTemplates' | 'expiry';
+type BrandingTab = 'general' | 'logo' | 'mailTemplates' | 'pushTemplates' | 'expiryTemplates' | 'expiry';
 
 interface BrandingForm {
   brandName: string;
@@ -39,8 +39,9 @@ interface BrandingForm {
 const brandingTabs: Array<{ id: BrandingTab; label: string }> = [
   { id: 'general', label: 'Algemeen' },
   { id: 'logo', label: 'Logo' },
-  { id: 'templates', label: 'Mail templates' },
+  { id: 'mailTemplates', label: 'Mail templates' },
   { id: 'pushTemplates', label: 'Push templates' },
+  { id: 'expiryTemplates', label: 'Verloopmail templates' },
   { id: 'expiry', label: 'Verloopmails' },
 ];
 
@@ -258,7 +259,7 @@ export function BrandingPage() {
             </div>
           ) : null}
 
-          {activeTab === 'templates' ? (
+          {activeTab === 'mailTemplates' ? (
             <div className="stacked-section">
               <div className="form-grid">
                 <label className="form-grid__wide">
@@ -269,6 +270,17 @@ export function BrandingPage() {
                   Uitnodiging tekst
                   <textarea rows={9} maxLength={4000} value={form.welcomeBody} onChange={(event) => setForm((current) => ({ ...current, welcomeBody: event.target.value }))} />
                 </label>
+              </div>
+              <div className="metadata-example">
+                <strong>Beschikbare tokens</strong>
+                <pre>{'{{app_name}}, {{tenant_name}}, {{name}}, {{email}}, {{registration_url}}, {{admin_app_note}}, {{download_url}}'}</pre>
+              </div>
+            </div>
+          ) : null}
+
+          {activeTab === 'expiryTemplates' ? (
+            <div className="stacked-section">
+              <div className="form-grid">
                 <label className="form-grid__wide">
                   Certificaat verloop onderwerp
                   <input maxLength={160} value={form.certificationExpirySubject} onChange={(event) => setForm((current) => ({ ...current, certificationExpirySubject: event.target.value }))} />
@@ -288,7 +300,7 @@ export function BrandingPage() {
               </div>
               <div className="metadata-example">
                 <strong>Beschikbare tokens</strong>
-                <pre>{'{{app_name}}, {{tenant_name}}, {{name}}, {{email}}, {{registration_url}}, {{admin_app_note}}, {{certification_name}}, {{certificate_number}}, {{asset_name}}, {{asset_tag}}, {{asset_type}}, {{serial_number}}, {{expires_at}}, {{days_until_expiry}}, {{expiry_status}}, {{status_text}}, {{download_url}}'}</pre>
+                <pre>{'{{app_name}}, {{tenant_name}}, {{name}}, {{email}}, {{certification_name}}, {{certificate_number}}, {{asset_name}}, {{asset_tag}}, {{asset_type}}, {{serial_number}}, {{expires_at}}, {{days_until_expiry}}, {{expiry_status}}, {{status_text}}, {{download_url}}'}</pre>
               </div>
             </div>
           ) : null}
