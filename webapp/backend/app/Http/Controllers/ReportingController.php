@@ -11,6 +11,7 @@ use DateTimeInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Throwable;
 
 final class ReportingController extends Controller
 {
@@ -20,24 +21,32 @@ final class ReportingController extends Controller
             return ApiResponse::error('incident_not_closed', 'Een rapport kan pas worden gemaakt als het incident is afgerond of geannuleerd.', 422);
         }
 
-        $pdf = $reports->storedPdf($incident);
-        if ($pdf === null) {
-            $reports->ensureStored($incident);
-            $pdf = $reports->storedPdf($incident->refresh());
+        try {
+            $pdf = $reports->storedPdf($incident);
+            if ($pdf === null) {
+                $reports->ensureStored($incident);
+                $pdf = $reports->storedPdf($incident->refresh());
+            }
+
+            if ($pdf === null) {
+                $message = $incident->report_generation_error !== null && $incident->report_generation_error !== ''
+                    ? 'Incidentrapport kon niet worden gemaakt: '.$incident->report_generation_error
+                    : 'Het opgeslagen incidentrapport is nog niet beschikbaar.';
+
+                return ApiResponse::error('incident_report_unavailable', $message, 503);
+            }
+
+            return response($pdf, 200, [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'attachment; filename="'.$reports->filename($incident).'"',
+            ]);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return ApiResponse::error('incident_report_failed', 'Incidentrapport kon niet worden opgehaald: '.mb_substr($exception->getMessage(), 0, 500), 500, [
+                'exception' => class_basename($exception),
+            ]);
         }
-
-        if ($pdf === null) {
-            $message = $incident->report_generation_error !== null && $incident->report_generation_error !== ''
-                ? 'Incidentrapport kon niet worden gemaakt: '.$incident->report_generation_error
-                : 'Het opgeslagen incidentrapport is nog niet beschikbaar.';
-
-            return ApiResponse::error('incident_report_unavailable', $message, 503);
-        }
-
-        return response($pdf, 200, [
-            'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'attachment; filename="'.$reports->filename($incident).'"',
-        ]);
     }
 
     public function dispatchStatistics(Request $request, DispatchStatisticsService $statistics): JsonResponse
