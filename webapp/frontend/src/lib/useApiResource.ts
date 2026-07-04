@@ -8,6 +8,7 @@ interface ResourceState<T> {
   error: string | null;
   reload: () => Promise<void>;
   silentReload: () => Promise<void>;
+  mutate: (next: T | null | ((current: T | null) => T | null)) => void;
 }
 
 export function useApiResource<T>(path: string, enabled = true): ResourceState<T> {
@@ -42,6 +43,9 @@ export function useApiResource<T>(path: string, enabled = true): ResourceState<T
 
   const reload = useCallback(() => load(), [load]);
   const silentReload = useCallback(() => load({ silent: true }), [load]);
+  const mutate = useCallback((next: T | null | ((current: T | null) => T | null)) => {
+    setData((current) => typeof next === 'function' ? (next as (value: T | null) => T | null)(current) : next);
+  }, []);
 
-  return { data, loading, error, reload, silentReload };
+  return { data, loading, error, reload, silentReload, mutate };
 }

@@ -8,7 +8,7 @@ import { ApiClientError } from '../../lib/apiClient';
 import { droneTypeLabel } from '../../lib/droneTypes';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { Asset, Certification, DroneType, TwoFactorSetup, UserCertification, UserVacation } from '../../types/api';
+import type { Asset, AvailabilitySchedule, AvailabilityOverride, Certification, DroneType, TwoFactorSetup, UserCertification } from '../../types/api';
 
 type OwnAssetStatus = 'ready' | 'maintenance' | 'unavailable';
 
@@ -40,8 +40,8 @@ function emptyCertificationForm() {
 
 export function ProfilePage() {
   const { api, user, startTwoFactorSetup, enableTwoFactor, disableTwoFactor } = useAuth();
-  const vacations = useApiResource<UserVacation[]>('/vacations/mine');
   const assets = useApiResource<Asset[]>('/assets/mine');
+  const schedule = useApiResource<AvailabilitySchedule>('/availability-schedule/me');
   const droneTypes = useApiResource<DroneType[]>('/drone-types');
   const certificationOptions = useApiResource<Certification[]>('/certifications/options');
   const userCertifications = useApiResource<UserCertification[]>('/certifications/me');
@@ -49,10 +49,10 @@ export function ProfilePage() {
   const [enableCode, setEnableCode] = useState('');
   const [disablePassword, setDisablePassword] = useState('');
   const [disableCode, setDisableCode] = useState('');
-  const [vacationForm, setVacationForm] = useState({ startsAt: todayInputValue(), endsAt: todayInputValue(), note: '' });
+  const [overrideForm, setOverrideForm] = useState({ startsAt: todayInputValue(), endsAt: todayInputValue(), isAvailable: false, note: '' });
   const [assetForm, setAssetForm] = useState(emptyAssetForm());
   const [certificationForm, setCertificationForm] = useState(emptyCertificationForm());
-  const [savingVacation, setSavingVacation] = useState(false);
+  const [savingSchedule, setSavingSchedule] = useState(false);
   const [savingAsset, setSavingAsset] = useState(false);
   const [savingCertification, setSavingCertification] = useState(false);
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
@@ -60,8 +60,8 @@ export function ProfilePage() {
   const [autoSetupStarted, setAutoSetupStarted] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [vacationMessage, setVacationMessage] = useState<string | null>(null);
-  const [vacationError, setVacationError] = useState<string | null>(null);
+  const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [assetMessage, setAssetMessage] = useState<string | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
   const [certificationMessage, setCertificationMessage] = useState<string | null>(null);
@@ -133,36 +133,92 @@ export function ProfilePage() {
     }
   }
 
-  async function submitVacation(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSavingVacation(true);
-    setVacationError(null);
-    setVacationMessage(null);
+  function updateScheduleDay(dayOfWeek: number, isAvailable: boolean) {
+    schedule.mutate((current) => current === null ? current : {
+      ...current,
+      week_pattern: current.week_pattern.map((day) => day.day_of_week === dayOfWeek ? { ...day, is_available: isAvailable } : day),
+    });
+  }
+
+  async function saveWeekPattern() {
+    if (schedule.data === null) {
+      return;
+    }
+
+    setSavingSchedule(true);
+    setScheduleError(null);
+    setScheduleMessage(null);
     try {
-      await api.post<UserVacation>('/vacations/mine', {
-        starts_at: vacationForm.startsAt,
-        ends_at: vacationForm.endsAt,
-        note: vacationForm.note.trim() === '' ? null : vacationForm.note.trim(),
+      const response = await api.patch<AvailabilitySchedule>('/availability-schedule/me/week-pattern', {
+        patterns: schedule.data.week_pattern.map((day) => ({
+          day_of_week: day.day_of_week,
+          is_available: day.is_available,
+          note: day.note ?? null,
+        })),
       });
-      setVacationForm({ startsAt: todayInputValue(), endsAt: todayInputValue(), note: '' });
-      setVacationMessage('Vakantie opgeslagen.');
-      await vacations.reload();
+      schedule.mutate(response.data);
+      setScheduleMessage('Beschikbaarheidsschema opgeslagen.');
     } catch (err) {
-      setVacationError(err instanceof ApiClientError ? err.message : 'Vakantie kon niet worden opgeslagen.');
+      setScheduleError(err instanceof ApiClientError ? err.message : 'Beschikbaarheidsschema kon niet worden opgeslagen.');
     } finally {
-      setSavingVacation(false);
+      setSavingSchedule(false);
     }
   }
 
-  async function cancelVacation(vacation: UserVacation) {
-    setVacationError(null);
-    setVacationMessage(null);
+  async function submitOverride(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingSchedule(true);
+    setScheduleError(null);
+    setScheduleMessage(null);
     try {
-      await api.delete(`/vacations/${vacation.id}`);
-      setVacationMessage('Vakantie ingetrokken.');
-      await vacations.reload();
+      const response = await api.post<AvailabilitySchedule>('/availability-schedule/me/overrides', {
+        starts_at: overrideForm.startsAt,
+        ends_at: overrideForm.endsAt,
+        is_available: overrideForm.isAvailable,
+        note: overrideForm.note.trim() === '' ? null : overrideForm.note.trim(),
+      });
+      schedule.mutate(response.data);
+      setOverrideForm({ startsAt: todayInputValue(), endsAt: todayInputValue(), isAvailable: false, note: '' });
+      setScheduleMessage('Uitzondering opgeslagen.');
     } catch (err) {
-      setVacationError(err instanceof ApiClientError ? err.message : 'Vakantie kon niet worden ingetrokken.');
+      setScheduleError(err instanceof ApiClientError ? err.message : 'Uitzondering kon niet worden opgeslagen.');
+    } finally {
+      setSavingSchedule(false);
+    }
+  }
+
+  async function deleteOverride(overrideId: string) {
+    setSavingSchedule(true);
+    setScheduleError(null);
+    setScheduleMessage(null);
+    try {
+      await api.delete(`/availability-schedule/overrides/${overrideId}`);
+      await schedule.reload();
+      setScheduleMessage('Uitzondering verwijderd.');
+    } catch (err) {
+      setScheduleError(err instanceof ApiClientError ? err.message : 'Uitzondering kon niet worden verwijderd.');
+    } finally {
+      setSavingSchedule(false);
+    }
+  }
+
+  async function planCalendarDay(date: string, isAvailable: boolean) {
+    setSavingSchedule(true);
+    setScheduleError(null);
+    setScheduleMessage(null);
+    try {
+      const response = await api.post<AvailabilitySchedule>('/availability-schedule/me/overrides', {
+        starts_at: date,
+        ends_at: date,
+        is_available: isAvailable,
+        note: 'Gepland via kalender',
+      });
+      schedule.mutate(response.data);
+      setScheduleMessage(`${formatDate(date)} gepland als ${isAvailable ? 'beschikbaar' : 'niet beschikbaar'}.`);
+    } catch (err) {
+      setScheduleError(err instanceof ApiClientError ? err.message : 'Kalenderdag kon niet worden opgeslagen.');
+    } finally {
+      setSavingSchedule(false);
     }
   }
 
@@ -315,29 +371,73 @@ export function ProfilePage() {
         </div>
       </Panel>
 
-      <Panel title="Mijn vakantie">
-        <form className="form-grid" onSubmit={submitVacation}>
-          <label>
-            Begindatum
-            <input type="date" value={vacationForm.startsAt} onChange={(event) => setVacationForm((current) => ({ ...current, startsAt: event.target.value }))} />
-          </label>
-          <label>
-            Einddatum
-            <input type="date" value={vacationForm.endsAt} onChange={(event) => setVacationForm((current) => ({ ...current, endsAt: event.target.value }))} />
-          </label>
-          <label className="form-grid__wide">
-            Notitie
-            <input value={vacationForm.note} maxLength={1000} onChange={(event) => setVacationForm((current) => ({ ...current, note: event.target.value }))} />
-          </label>
-          {vacationError ? <p className="form-error form-grid__wide">{vacationError}</p> : null}
-          {vacationMessage ? <p className="form-note form-grid__wide">{vacationMessage}</p> : null}
-          <div className="actions-row form-grid__wide">
-            <button className="primary-button" type="submit" disabled={savingVacation || vacationForm.startsAt === '' || vacationForm.endsAt === ''}>
-              {savingVacation ? 'Opslaan...' : 'Vakantie opgeven'}
-            </button>
-          </div>
-        </form>
-        <VacationTable vacations={vacations.data ?? []} loading={vacations.loading} error={vacations.error} onCancel={cancelVacation} />
+      <Panel title="Mijn beschikbaarheid">
+        <ResourceState loading={schedule.loading} error={schedule.error ?? scheduleError} empty={schedule.data === null}>
+          {schedule.data !== null ? (
+            <div className="panel-body">
+              <div className="summary-grid">
+                <SummaryItem label="Vandaag" value={schedule.data.today.is_available ? 'Beschikbaar' : 'Niet beschikbaar'} />
+                <SummaryItem label="Bron" value={availabilitySourceLabel(schedule.data.today.source)} />
+              </div>
+              <div>
+                <strong>Vast weekpatroon</strong>
+                <div className="checkbox-grid checkbox-grid--dense">
+                  {schedule.data.week_pattern.map((day) => (
+                    <label className="checkbox-card" key={day.day_of_week}>
+                      <input
+                        type="checkbox"
+                        checked={day.is_available}
+                        onChange={(event) => updateScheduleDay(day.day_of_week, event.target.checked)}
+                      />
+                      <span>
+                        <strong>{dayLabel(day.day_of_week)}</strong>
+                        <small>{day.is_available ? 'Beschikbaar' : 'Niet beschikbaar'}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <div className="actions-row">
+                  <button className="primary-button" type="button" onClick={() => void saveWeekPattern()} disabled={savingSchedule}>
+                    {savingSchedule ? 'Opslaan...' : 'Weekpatroon opslaan'}
+                  </button>
+                </div>
+              </div>
+
+              <form className="form-grid" onSubmit={submitOverride}>
+                <h3 className="form-grid__wide">Uitzondering</h3>
+                <label>
+                  Vanaf
+                  <input type="date" value={overrideForm.startsAt} onChange={(event) => setOverrideForm((current) => ({ ...current, startsAt: event.target.value }))} required />
+                </label>
+                <label>
+                  Tot en met
+                  <input type="date" value={overrideForm.endsAt} onChange={(event) => setOverrideForm((current) => ({ ...current, endsAt: event.target.value }))} required />
+                </label>
+                <label>
+                  Status
+                  <select value={overrideForm.isAvailable ? 'available' : 'unavailable'} onChange={(event) => setOverrideForm((current) => ({ ...current, isAvailable: event.target.value === 'available' }))}>
+                    <option value="unavailable">Niet beschikbaar</option>
+                    <option value="available">Beschikbaar</option>
+                  </select>
+                </label>
+                <label className="form-grid__wide">
+                  Notitie
+                  <input value={overrideForm.note} maxLength={1000} onChange={(event) => setOverrideForm((current) => ({ ...current, note: event.target.value }))} />
+                </label>
+                <div className="actions-row form-grid__wide">
+                  <button className="secondary-button" type="submit" disabled={savingSchedule || overrideForm.startsAt === '' || overrideForm.endsAt === ''}>
+                    Uitzondering toevoegen
+                  </button>
+                </div>
+              </form>
+
+              <AvailabilityOverrideList schedule={schedule.data} saving={savingSchedule} onDelete={deleteOverride} />
+              <AvailabilityCalendar schedule={schedule.data} saving={savingSchedule} onPlanDay={planCalendarDay} />
+              {scheduleError ? <p className="form-error">{scheduleError}</p> : null}
+              {scheduleMessage ? <p className="form-note">{scheduleMessage}</p> : null}
+            </div>
+          ) : null}
+        </ResourceState>
       </Panel>
 
       <Panel title="Mijn assets">
@@ -550,36 +650,65 @@ export function ProfilePage() {
   );
 }
 
-function VacationTable({ vacations, loading, error, onCancel }: { vacations: UserVacation[]; loading: boolean; error: string | null; onCancel: (vacation: UserVacation) => Promise<void> }) {
+function SummaryItem({ label, value }: { label: string; value: string }) {
   return (
-    <ResourceState loading={loading} error={error} empty={vacations.length === 0}>
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Begin</th>
-            <th>Einde</th>
-            <th>Status</th>
-            <th>Notitie</th>
-            <th>Actie</th>
-          </tr>
-        </thead>
-        <tbody>
-          {vacations.map((vacation) => (
-            <tr key={vacation.id}>
-              <td>{formatDate(vacation.starts_at)}</td>
-              <td>{formatDate(vacation.ends_at)}</td>
-              <td><StatusPill value={vacation.status} tone={vacation.status === 'active' ? 'warn' : vacation.status === 'cancelled' ? 'bad' : 'neutral'} /></td>
-              <td>{vacation.note ?? '-'}</td>
-              <td>
-                {vacation.status === 'scheduled' || vacation.status === 'active' ? (
-                  <button className="secondary-button" type="button" onClick={() => void onCancel(vacation)}>Intrekken</button>
-                ) : '-'}
-              </td>
-            </tr>
+    <div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function AvailabilityOverrideList({ schedule, saving, onDelete }: { schedule: AvailabilitySchedule; saving: boolean; onDelete: (overrideId: string) => Promise<void> }) {
+  return (
+    <div>
+      <strong>Geplande uitzonderingen</strong>
+      {schedule.overrides.length > 0 ? (
+        <div className="recipient-list">
+          {schedule.overrides.map((override) => (
+            <article className="recipient-row" key={override.id}>
+              <div className="recipient-row__identity">
+                <strong>{override.is_available ? 'Beschikbaar' : 'Niet beschikbaar'}</strong>
+                <span>{formatDate(override.starts_at)} t/m {formatDate(override.ends_at)}</span>
+                {override.note ? <small>{override.note}</small> : null}
+              </div>
+              <button className="danger-button" type="button" onClick={() => void onDelete(override.id)} disabled={saving}>
+                <Trash2 size={16} /> Verwijderen
+              </button>
+            </article>
           ))}
-        </tbody>
-      </table>
-    </ResourceState>
+        </div>
+      ) : (
+        <p className="form-note">Geen uitzonderingen vastgelegd.</p>
+      )}
+    </div>
+  );
+}
+
+function AvailabilityCalendar({ schedule, saving, onPlanDay }: { schedule: AvailabilitySchedule; saving: boolean; onPlanDay: (date: string, isAvailable: boolean) => Promise<void> }) {
+  const days = nextCalendarDays(42);
+  return (
+    <div>
+      <strong>Kalender vooruit plannen</strong>
+      <div className="checkbox-grid checkbox-grid--dense">
+        {days.map((date) => {
+          const state = availabilityForDate(schedule, date);
+          return (
+            <button
+              className={state.is_available ? 'secondary-button' : 'danger-button'}
+              type="button"
+              key={date}
+              disabled={saving}
+              onClick={() => void onPlanDay(date, !state.is_available)}
+              title="Klik om beschikbaar/niet beschikbaar te wisselen"
+            >
+              {shortDateLabel(date)} - {state.is_available ? 'Beschikbaar' : 'Niet beschikbaar'}
+            </button>
+          );
+        })}
+      </div>
+      <p className="form-note">Klik een dag om die datum als uitzondering vooruit te plannen.</p>
+    </div>
   );
 }
 
@@ -708,6 +837,84 @@ function dateParts(value?: string | null): { input: string; display: string } | 
     input: `${year}-${month}-${day}`,
     display: `${day}-${month}-${year}`,
   };
+}
+
+function dayLabel(dayOfWeek: number): string {
+  return ['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag'][dayOfWeek - 1] ?? String(dayOfWeek);
+}
+
+function availabilitySourceLabel(source: AvailabilitySchedule['today']['source']): string {
+  switch (source) {
+    case 'override':
+      return 'Uitzondering';
+    case 'pattern':
+    case 'week_pattern':
+      return 'Weekpatroon';
+    default:
+      return 'Standaard beschikbaar';
+  }
+}
+
+function nextCalendarDays(count: number): string[] {
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() + index);
+
+    return inputDateValue(date);
+  });
+}
+
+function inputDateValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
+function shortDateLabel(value: string): string {
+  const date = dateFromInput(value);
+  if (date === null) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat('nl-NL', { weekday: 'short', day: '2-digit', month: '2-digit' }).format(date);
+}
+
+function availabilityForDate(schedule: AvailabilitySchedule, dateValue: string): { is_available: boolean; source: string } {
+  const override = schedule.overrides.find((candidate) => dateInRange(dateValue, candidate));
+  if (override !== undefined) {
+    return { is_available: override.is_available, source: 'override' };
+  }
+
+  const date = dateFromInput(dateValue);
+  if (date === null) {
+    return { is_available: true, source: 'default' };
+  }
+
+  const dayOfWeek = date.getDay() === 0 ? 7 : date.getDay();
+  const pattern = schedule.week_pattern.find((day) => day.day_of_week === dayOfWeek);
+
+  return {
+    is_available: pattern?.is_available ?? true,
+    source: pattern?.source ?? 'default',
+  };
+}
+
+function dateInRange(dateValue: string, override: AvailabilityOverride): boolean {
+  return dateValue >= override.starts_at && dateValue <= override.ends_at;
+}
+
+function dateFromInput(value: string): Date | null {
+  const parts = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (parts === null) {
+    return null;
+  }
+
+  return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]), 12, 0, 0, 0);
 }
 
 function ownAssetStatus(status: Asset['status']): OwnAssetStatus {
