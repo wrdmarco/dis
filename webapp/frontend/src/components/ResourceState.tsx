@@ -13,9 +13,10 @@ export function ResourceState({
 }) {
   if (loading) {
     return (
-      <div className="resource-state" role="status" aria-live="polite">
+      <div className="resource-state resource-state--loading" role="status" aria-live="polite">
         <Loader2 aria-hidden className="spin" size={18} />
         <span>Gegevens laden</span>
+        <span className="resource-state__pulse" aria-hidden />
       </div>
     );
   }
@@ -30,7 +31,7 @@ export function ResourceState({
   }
 
   if (empty) {
-    return <div className="resource-state" role="status">Geen gegevens beschikbaar</div>;
+    return <div className="resource-state resource-state--empty" role="status">Geen gegevens beschikbaar</div>;
   }
 
   return <>{children}</>;
