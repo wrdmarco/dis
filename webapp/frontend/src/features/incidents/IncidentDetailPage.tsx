@@ -455,9 +455,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
               {incidentError && !editModalOpen ? <p className="form-error">{incidentError}</p> : null}
               {reportError ? <p className="form-error">{reportError}</p> : null}
               <div className="incident-overview incident-overview--text">
-                <SummaryItem label="Operationeel doel" value={incident.data.operational_objective ?? '-'} />
                 <SummaryItem label="Benodigde middelen" value={incident.data.required_resources ?? '-'} />
-                <SummaryItem label="Vereiste certificering / rol" value={incident.data.required_qualification ?? '-'} />
               </div>
             </div>
           ) : null}
@@ -891,9 +889,7 @@ function formFromIncident(incident: Incident): IncidentFormState {
     onSceneContactName: incident.on_scene_contact_name ?? '',
     onSceneContactPhone: incident.on_scene_contact_phone ?? '',
     onSceneContactRole: incident.on_scene_contact_role ?? '',
-    operationalObjective: incident.operational_objective ?? '',
     requiredResources: incident.required_resources ?? '',
-    requiredQualification: incident.required_qualification ?? '',
     priority: incident.priority,
     status: incident.status,
     locationLabel: incident.location_label ?? '',

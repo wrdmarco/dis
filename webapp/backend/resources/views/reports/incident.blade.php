@@ -113,9 +113,7 @@
         <tr><th>Team</th><td>{{ $incident->team ? $incident->team->code.' - '.$incident->team->name : '-' }}</td></tr>
         <tr><th>Coordinator</th><td>{{ $incident->coordinator?->name ?? $incident->coordinator_name ?? '-' }}</td></tr>
         <tr><th>Aangemaakt door</th><td>{{ $incident->creator?->name ?? $incident->created_by_name ?? '-' }}</td></tr>
-        <tr><th>Operationeel doel</th><td>{{ $incident->operational_objective ?: '-' }}</td></tr>
         <tr><th>Benodigde middelen</th><td>{{ $incident->required_resources ?: '-' }}</td></tr>
-        <tr><th>Vereiste certificering / rol</th><td>{{ $incident->required_qualification ?: '-' }}</td></tr>
     </table>
 </section>
 
