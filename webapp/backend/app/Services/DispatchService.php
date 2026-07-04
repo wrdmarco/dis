@@ -167,11 +167,11 @@ final class DispatchService
                 foreach ($recipient->user?->fcmTokens->where('is_active', true) ?? [] as $token) {
                     SendFcmNotification::dispatch(
                         (string) $token->id,
-                        'incident_preannouncement',
+                        'manual_admin',
                         $notificationTitle,
                         $notificationBody,
                         [
-                            'type' => 'incident_preannouncement',
+                            'type' => 'manual_admin',
                             'action_mode' => 'availability',
                             'incident_id' => (string) $incident->id,
                             'dispatch_id' => (string) $dispatch->id,
