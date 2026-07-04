@@ -428,8 +428,8 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                   <span className="incident-reference">{incident.data.reference}</span>
                   <h3>{incident.data.title}</h3>
                   <div className="incident-hero__badges">
-                    <StatusPill value={incident.data.priority} tone={incident.data.priority === 'critical' ? 'bad' : 'warn'} />
-                    <StatusPill value={incident.data.status} />
+                    <StatusPill value={priorityLabel(incident.data.priority)} tone={incident.data.priority === 'critical' ? 'bad' : incident.data.priority === 'high' ? 'warn' : 'neutral'} />
+                    <StatusPill value={incidentStatusLabel(incident.data.status)} tone={incident.data.status === 'resolved' ? 'good' : incident.data.status === 'cancelled' ? 'bad' : incident.data.status === 'draft' ? 'neutral' : 'warn'} />
                   </div>
                   <p>{incident.data.description ?? 'Geen omschrijving vastgelegd.'}</p>
                 </div>
@@ -671,7 +671,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
 
       {escalationModalOpen && latestDispatch && canManageDispatches ? (
         <div className="modal-backdrop" role="presentation">
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="incident-escalation-title">
+          <section className="modal modal--incident-action" role="dialog" aria-modal="true" aria-labelledby="incident-escalation-title">
             <header className="modal__header">
               <h2 id="incident-escalation-title">Incident opschalen</h2>
               <button className="icon-button" type="button" onClick={() => setEscalationModalOpen(false)} aria-label="Sluiten">
@@ -687,7 +687,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                 <SummaryItem label="Al gealarmeerd" value={dispatchTeamsLabel(dispatches.data ?? [])} />
                 <SummaryItem label="Laatste alarmering" value={dispatchStatusLabel(latestDispatch.status)} />
               </div>
-              <div>
+              <div className="modal-section">
                 <strong>Extra teams</strong>
                 {escalationTeams.length > 0 ? (
                   <div className="checkbox-grid checkbox-grid--dense">
@@ -738,7 +738,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
 
       {editModalOpen && editForm !== null && canManageIncidents ? (
         <div className="modal-backdrop" role="presentation">
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="incident-edit-title">
+          <section className="modal modal--incident-form" role="dialog" aria-modal="true" aria-labelledby="incident-edit-title">
             <header className="modal__header">
               <h2 id="incident-edit-title">Incident aanpassen</h2>
               <button className="icon-button" type="button" onClick={() => setEditModalOpen(false)} aria-label="Sluiten">

@@ -153,7 +153,7 @@ export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) 
 
       {createModalOpen && canManageIncidents ? (
         <div className="modal-backdrop" role="presentation">
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="incident-create-title">
+          <section className="modal modal--incident-form" role="dialog" aria-modal="true" aria-labelledby="incident-create-title">
             <header className="modal__header">
               <h2 id="incident-create-title">Incident aanmaken</h2>
               <button className="icon-button" type="button" onClick={() => setCreateModalOpen(false)} aria-label="Sluiten">
@@ -365,6 +365,7 @@ export function IncidentForm(props: {
 
   return (
     <form className="form-grid" onSubmit={onSubmit}>
+      <FormSectionTitle title="Incidentgegevens" />
       <label className="form-grid__wide">
         Titel
         <input value={form.title} maxLength={180} onChange={(event) => updateForm(onChange, 'title', event.target.value)} required />
@@ -373,6 +374,7 @@ export function IncidentForm(props: {
         Details
         <textarea value={form.description} rows={5} onChange={(event) => updateForm(onChange, 'description', event.target.value)} required />
       </label>
+      <FormSectionTitle title="Melder en aanvraag" />
       <label>
         Naam melder
         <input value={form.reporterName} maxLength={180} onChange={(event) => updateForm(onChange, 'reporterName', event.target.value)} />
@@ -401,6 +403,7 @@ export function IncidentForm(props: {
         Functie / rol contactpersoon
         <input value={form.onSceneContactRole} maxLength={120} onChange={(event) => updateForm(onChange, 'onSceneContactRole', event.target.value)} />
       </label>
+      <FormSectionTitle title="Prioriteit en teams" />
       <label>
         Prioriteit
         <select value={form.priority} onChange={(event) => updateForm(onChange, 'priority', event.target.value as Incident['priority'])}>
@@ -439,6 +442,7 @@ export function IncidentForm(props: {
           ))}
         </div>
       </div>
+      <FormSectionTitle title="Opkomstlocatie" />
       <LocationPicker
         form={form}
         suggestions={locationSuggestions}
@@ -459,6 +463,7 @@ export function IncidentForm(props: {
           {users.map((user) => <option key={user.id} value={user.id}>{user.name} - {user.email}</option>)}
         </select>
       </label>
+      <FormSectionTitle title="Middelen en vluchtcheck" />
       <label className="form-grid__wide">
         Benodigde middelen
         <textarea
@@ -480,6 +485,14 @@ export function IncidentForm(props: {
         </button>
       </div>
     </form>
+  );
+}
+
+function FormSectionTitle({ title }: { title: string }) {
+  return (
+    <div className="form-section-title form-grid__wide">
+      <span>{title}</span>
+    </div>
   );
 }
 

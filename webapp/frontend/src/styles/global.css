@@ -3812,6 +3812,213 @@ textarea:focus {
   gap: 14px;
 }
 
+/* Incident workspace polish: dense, operational, and easier to scan under pressure. */
+.incident-page .panel-body,
+.incident-detail-page .panel-body {
+  gap: 14px;
+}
+
+.incident-list-view {
+  gap: 14px;
+}
+
+.incident-list-summary > div,
+.incident-overview > div,
+.summary-grid > div,
+.draft-dispatch > div {
+  position: relative;
+  overflow: hidden;
+}
+
+.incident-list-summary > div::before,
+.incident-overview > div::before,
+.summary-grid > div::before,
+.draft-dispatch > div::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--dis-blue), rgba(125, 211, 167, 0.28));
+}
+
+.incident-list-summary strong,
+.incident-overview strong,
+.summary-grid strong,
+.draft-dispatch strong {
+  color: var(--dis-text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.incident-card {
+  position: relative;
+  align-content: start;
+  overflow: hidden;
+}
+
+.incident-card::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(128, 199, 255, 0.36), transparent 72%);
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.incident-card:hover::after {
+  opacity: 1;
+}
+
+.incident-card > strong {
+  min-height: 2.7em;
+}
+
+.incident-card__meta {
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.incident-hero {
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(18, 34, 53, 0.7), rgba(9, 13, 18, 0.88)),
+    var(--dis-field);
+  padding: 16px;
+}
+
+.incident-hero__main {
+  min-width: 0;
+}
+
+.incident-hero h3 {
+  font-size: clamp(1.25rem, 2vw, 1.7rem);
+}
+
+.incident-meta {
+  border-left-color: rgba(128, 199, 255, 0.18);
+}
+
+.incident-meta dt svg {
+  flex: 0 0 auto;
+  color: var(--dis-blue);
+}
+
+.incident-meta dd {
+  color: var(--dis-muted-strong);
+}
+
+.form-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  color: var(--dis-text-strong);
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.form-section-title::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: linear-gradient(90deg, rgba(128, 199, 255, 0.42), transparent);
+}
+
+.modal--incident-form {
+  width: min(1040px, calc(100vw - 32px));
+}
+
+.modal--incident-action {
+  width: min(760px, calc(100vw - 32px));
+}
+
+.modal--incident-form .form-grid {
+  padding: 16px;
+}
+
+.modal--incident-action .panel-body {
+  padding: 16px;
+}
+
+.modal-section {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(17, 29, 43, 0.5), rgba(9, 13, 18, 0.88)),
+    var(--dis-field);
+  padding: 12px;
+}
+
+.modal-section > strong {
+  color: var(--dis-text-strong);
+}
+
+.location-picker {
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(17, 29, 43, 0.44), rgba(9, 13, 18, 0.88)),
+    var(--dis-field);
+  padding: 12px;
+}
+
+.location-picker__map {
+  min-height: 240px;
+}
+
+.drone-flight-panel {
+  background:
+    linear-gradient(180deg, rgba(18, 34, 53, 0.54), rgba(9, 13, 18, 0.9)),
+    var(--dis-field);
+}
+
+.dispatch-toolbar {
+  background:
+    linear-gradient(90deg, rgba(128, 199, 255, 0.1), rgba(11, 17, 25, 0.94)),
+    var(--dis-field);
+}
+
+.recipient-row {
+  grid-template-columns: minmax(220px, 1.05fr) minmax(220px, 1fr) minmax(150px, 0.65fr) minmax(170px, 0.7fr);
+}
+
+.recipient-row__states {
+  align-items: center;
+}
+
+.recipient-row select {
+  min-height: 40px;
+}
+
+.inline-message-form {
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(17, 29, 43, 0.5), rgba(9, 13, 18, 0.9)),
+    var(--dis-field);
+  padding: 12px;
+}
+
+.inline-message-form textarea {
+  min-height: 104px;
+}
+
+.live-map__table {
+  min-width: 820px;
+}
+
+.incident-timeline {
+  padding-top: 14px;
+}
+
+.incident-timeline__item {
+  grid-template-columns: 150px minmax(0, 1fr);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

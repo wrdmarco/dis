@@ -96,19 +96,301 @@ write_maintenance_page() {
   <meta http-equiv="refresh" content="20">
   <title>D.I.S onderhoud</title>
   <style>
-    :root { color-scheme: dark; font-family: Arial, sans-serif; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #070d16; color: #f8fafc; }
-    main { width: min(520px, calc(100vw - 40px)); padding: 28px; border: 1px solid #1f3148; border-radius: 8px; background: #101927; box-shadow: 0 18px 60px rgba(0, 0, 0, .28); }
-    span { display: block; color: #60c7ed; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
-    h1 { margin: 10px 0 8px; font-size: 28px; line-height: 1.15; }
-    p { margin: 0; color: #cbd5e1; font-size: 16px; line-height: 1.5; }
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --bg: #070d16;
+      --surface: rgba(13, 20, 31, .88);
+      --surface-strong: #101927;
+      --border: #223349;
+      --blue: #80c7ff;
+      --green: #7dd3a7;
+      --text: #f8fbff;
+      --muted: #aebdd0;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 18% 18%, rgba(128, 199, 255, .16), transparent 30%),
+        radial-gradient(circle at 84% 74%, rgba(125, 211, 167, .1), transparent 32%),
+        linear-gradient(145deg, #060a10 0%, var(--bg) 46%, #0d1724 100%);
+      color: var(--text);
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(90deg, rgba(128, 199, 255, .045) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(128, 199, 255, .035) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent);
+    }
+
+    .sky {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .lane {
+      position: absolute;
+      left: -180px;
+      width: 170px;
+      height: 70px;
+      animation: fly 13s linear infinite;
+      opacity: .92;
+    }
+
+    .lane--one { top: 12%; animation-duration: 12s; }
+    .lane--two { top: 31%; animation-duration: 16s; animation-delay: -6s; transform: scale(.78); opacity: .68; }
+    .lane--three { top: 68%; animation-duration: 18s; animation-delay: -11s; transform: scale(.9); opacity: .72; }
+
+    .drone {
+      width: 170px;
+      height: 70px;
+      filter: drop-shadow(0 10px 22px rgba(0, 0, 0, .42));
+    }
+
+    .rotor {
+      transform-origin: center;
+      animation: rotor .36s linear infinite;
+    }
+
+    .beam {
+      opacity: .22;
+      animation: scan 2.4s ease-in-out infinite;
+    }
+
+    main {
+      position: relative;
+      z-index: 1;
+      width: min(760px, calc(100vw - 40px));
+      border: 1px solid rgba(128, 199, 255, .24);
+      border-radius: 8px;
+      background:
+        linear-gradient(180deg, rgba(17, 29, 43, .94), rgba(9, 13, 18, .96)),
+        var(--surface);
+      box-shadow:
+        0 28px 96px rgba(0, 0, 0, .52),
+        inset 0 1px 0 rgba(255, 255, 255, .04);
+      overflow: hidden;
+    }
+
+    main::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto;
+      height: 3px;
+      background: linear-gradient(90deg, var(--blue), var(--green), transparent);
+    }
+
+    .content {
+      display: grid;
+      gap: 22px;
+      padding: clamp(24px, 5vw, 44px);
+    }
+
+    .status {
+      display: inline-flex;
+      width: fit-content;
+      align-items: center;
+      gap: 10px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .status::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--green);
+      box-shadow: 0 0 0 6px rgba(125, 211, 167, .12);
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 12ch;
+      font-size: clamp(38px, 7vw, 72px);
+      line-height: .94;
+      letter-spacing: 0;
+    }
+
+    p {
+      max-width: 58ch;
+      margin: 0;
+      color: var(--muted);
+      font-size: clamp(16px, 2vw, 18px);
+      line-height: 1.55;
+    }
+
+    .telemetry {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .telemetry div {
+      min-height: 76px;
+      display: grid;
+      gap: 6px;
+      align-content: center;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(7, 12, 18, .62);
+      padding: 12px;
+    }
+
+    .telemetry span {
+      color: #8193a9;
+      font-size: 12px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .telemetry strong {
+      color: var(--text);
+      font-size: 17px;
+    }
+
+    @keyframes fly {
+      from { translate: -12vw 0; }
+      to { translate: calc(100vw + 220px) 0; }
+    }
+
+    @keyframes rotor {
+      to { rotate: 360deg; }
+    }
+
+    @keyframes scan {
+      0%, 100% { opacity: .12; }
+      50% { opacity: .34; }
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: .95; }
+      50% { transform: scale(1.28); opacity: .62; }
+    }
+
+    @media (max-width: 680px) {
+      body { place-items: end center; padding: 18px; }
+      main { width: 100%; }
+      .content { padding: 24px; }
+      .telemetry { grid-template-columns: 1fr; }
+      .lane--two { top: 22%; }
+      .lane--three { top: 48%; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .lane, .rotor, .beam, .status::before { animation: none; }
+      .lane { transform: none; translate: 18vw 0; }
+      .lane--two, .lane--three { display: none; }
+    }
   </style>
 </head>
 <body>
+  <div class="sky" aria-hidden="true">
+    <div class="lane lane--one">
+      <svg class="drone" viewBox="0 0 170 70" role="img" aria-label="">
+        <path class="beam" d="M82 40 L52 70 H118 L88 40Z" fill="#80c7ff"/>
+        <g fill="none" stroke="#80c7ff" stroke-width="4" stroke-linecap="round">
+          <path d="M50 34 H120"/>
+          <path d="M85 22 V46"/>
+          <path d="M62 34 L42 20"/>
+          <path d="M108 34 L128 20"/>
+        </g>
+        <g fill="#101927" stroke="#d6f3ff" stroke-width="3">
+          <ellipse cx="85" cy="34" rx="23" ry="11"/>
+          <circle cx="42" cy="20" r="7"/>
+          <circle cx="128" cy="20" r="7"/>
+          <circle cx="42" cy="49" r="7"/>
+          <circle cx="128" cy="49" r="7"/>
+        </g>
+        <g class="rotor" fill="none" stroke="#d6f3ff" stroke-width="2">
+          <path d="M23 20 H61"/>
+          <path d="M109 20 H147"/>
+          <path d="M23 49 H61"/>
+          <path d="M109 49 H147"/>
+        </g>
+        <circle cx="85" cy="34" r="4" fill="#7dd3a7"/>
+      </svg>
+    </div>
+    <div class="lane lane--two">
+      <svg class="drone" viewBox="0 0 170 70" role="img" aria-label="">
+        <path class="beam" d="M82 40 L52 70 H118 L88 40Z" fill="#80c7ff"/>
+        <g fill="none" stroke="#80c7ff" stroke-width="4" stroke-linecap="round">
+          <path d="M50 34 H120"/>
+          <path d="M85 22 V46"/>
+          <path d="M62 34 L42 20"/>
+          <path d="M108 34 L128 20"/>
+        </g>
+        <g fill="#101927" stroke="#d6f3ff" stroke-width="3">
+          <ellipse cx="85" cy="34" rx="23" ry="11"/>
+          <circle cx="42" cy="20" r="7"/>
+          <circle cx="128" cy="20" r="7"/>
+          <circle cx="42" cy="49" r="7"/>
+          <circle cx="128" cy="49" r="7"/>
+        </g>
+        <g class="rotor" fill="none" stroke="#d6f3ff" stroke-width="2">
+          <path d="M23 20 H61"/>
+          <path d="M109 20 H147"/>
+          <path d="M23 49 H61"/>
+          <path d="M109 49 H147"/>
+        </g>
+        <circle cx="85" cy="34" r="4" fill="#7dd3a7"/>
+      </svg>
+    </div>
+    <div class="lane lane--three">
+      <svg class="drone" viewBox="0 0 170 70" role="img" aria-label="">
+        <path class="beam" d="M82 40 L52 70 H118 L88 40Z" fill="#80c7ff"/>
+        <g fill="none" stroke="#80c7ff" stroke-width="4" stroke-linecap="round">
+          <path d="M50 34 H120"/>
+          <path d="M85 22 V46"/>
+          <path d="M62 34 L42 20"/>
+          <path d="M108 34 L128 20"/>
+        </g>
+        <g fill="#101927" stroke="#d6f3ff" stroke-width="3">
+          <ellipse cx="85" cy="34" rx="23" ry="11"/>
+          <circle cx="42" cy="20" r="7"/>
+          <circle cx="128" cy="20" r="7"/>
+          <circle cx="42" cy="49" r="7"/>
+          <circle cx="128" cy="49" r="7"/>
+        </g>
+        <g class="rotor" fill="none" stroke="#d6f3ff" stroke-width="2">
+          <path d="M23 20 H61"/>
+          <path d="M109 20 H147"/>
+          <path d="M23 49 H61"/>
+          <path d="M109 49 H147"/>
+        </g>
+        <circle cx="85" cy="34" r="4" fill="#7dd3a7"/>
+      </svg>
+    </div>
+  </div>
   <main>
-    <span>D.I.S update</span>
-    <h1>Tijdelijk onderhoud</h1>
-    <p>Het systeem wordt bijgewerkt. Deze pagina ververst automatisch.</p>
+    <div class="content">
+      <span class="status">Onderhoud actief</span>
+      <h1>Drone Inzet Systeem wordt bijgewerkt</h1>
+      <p>De operationele omgeving staat tijdelijk in onderhoud. De app en webconsole komen automatisch terug zodra de controle is afgerond.</p>
+      <section class="telemetry" aria-label="Onderhoudsstatus">
+        <div><span>Status</span><strong>Update in uitvoering</strong></div>
+        <div><span>Monitoring</span><strong>Automatisch verversen</strong></div>
+        <div><span>Terugkeer</span><strong>Na afronding update</strong></div>
+      </section>
+    </div>
   </main>
 </body>
 </html>
@@ -149,6 +431,7 @@ ensure_data_layout() {
   ensure_directory "${DIS_DATA_PATH}" root "${DIS_GROUP}" 0750
   ensure_directory "${DIS_DATA_PATH}/backup" root "${DIS_GROUP}" 0770
   ensure_directory "${DIS_DATA_PATH}/backup-requests" root "${DIS_GROUP}" 0770
+  ensure_directory "${DIS_DATA_PATH}/playwright-browsers" "${DIS_USER}" "${DIS_GROUP}" 0770
   ensure_directory "${DIS_DATA_PATH}/secrets" root "${DIS_GROUP}" 0750
   ensure_directory "${DIS_DATA_PATH}/storage" "${DIS_USER}" "${DIS_GROUP}" 0770
   ensure_directory "${DIS_DATA_PATH}/storage/app" "${DIS_USER}" "${DIS_GROUP}" 0770
