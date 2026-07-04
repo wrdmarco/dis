@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, Gauge, KeyRound, LogOut, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../features/auth/AuthContext';
 
 interface NavItem {
@@ -137,15 +137,16 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
     clearSession();
     router.replace('/login');
   };
-  const visibleNavGroups = canUseWebConsole()
+  const visibleNavGroups = useMemo(() => canUseWebConsole()
     ? navGroups
       .map((group) => ({
         ...group,
         items: group.items.filter((item) => canShowNavItem(item, hasPermission)),
       }))
       .filter((group) => group.items.length > 0)
-    : profileOnlyNavGroups;
-  const currentNavItem = currentNavForPath(visibleNavGroups, pathname);
+    : profileOnlyNavGroups,
+  [canUseWebConsole, hasPermission]);
+  const currentNavItem = useMemo(() => currentNavForPath(visibleNavGroups, pathname), [pathname, visibleNavGroups]);
 
   return (
     <div className="command-layout">

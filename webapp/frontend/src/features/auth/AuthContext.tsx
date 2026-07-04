@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { ApiClient, apiBaseUrl } from '../../lib/apiClient';
 import type { TwoFactorEnableResult, TwoFactorSetup, User } from '../../types/api';
 
@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [sessionPurpose, setSessionPurpose] = useState<SessionPurpose>(() => storedTokenPurpose());
   const [user, setUser] = useState<User | null>(null);
 
-  const clearSession = () => {
+  const clearSession = useCallback(() => {
     sessionStorage.removeItem(tokenKey);
     sessionStorage.removeItem(tokenPurposeKey);
     localStorage.removeItem(tokenKey);
@@ -45,7 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     setSessionPurpose('full');
     setUser(null);
-  };
+  }, []);
 
   const api = useMemo(
     () =>
@@ -54,10 +54,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         getToken: storedToken,
         onUnauthenticated: clearSession,
       }),
-    [],
+    [clearSession],
   );
 
-  const setSession = (nextToken: string, nextUser?: User | null, purpose: SessionPurpose = 'full') => {
+  const setSession = useCallback((nextToken: string, nextUser?: User | null, purpose: SessionPurpose = 'full') => {
     localStorage.setItem(tokenKey, nextToken);
     localStorage.setItem(tokenPurposeKey, purpose);
     sessionStorage.removeItem(tokenKey);
@@ -67,39 +67,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (nextUser !== undefined) {
       setUser(purpose === 'full' ? nextUser : null);
     }
-  };
+  }, []);
 
-  const login = async (email: string, password: string): Promise<LoginResult> => {
+  const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
     const response = await api.post<LoginResult>('/auth/login', { email, password, device_name: 'DIS Command Center', client_type: 'web' });
     const isMfaChallenge = response.data.requires_2fa === true || response.data.requires_2fa_setup === true;
     setSession(response.data.token, response.data.user ?? null, isMfaChallenge ? 'mfa' : 'full');
     return response.data;
-  };
+  }, [api, setSession]);
 
-  const verifyTwoFactor = async (code: string): Promise<User> => {
+  const verifyTwoFactor = useCallback(async (code: string): Promise<User> => {
     const response = await api.post<{ token: string; user: User }>('/auth/2fa/verify', { code, device_name: 'DIS Command Center', client_type: 'web' });
     setSession(response.data.token, response.data.user, 'full');
     return response.data.user;
-  };
+  }, [api, setSession]);
 
-  const startTwoFactorSetup = async (): Promise<TwoFactorSetup> => {
+  const startTwoFactorSetup = useCallback(async (): Promise<TwoFactorSetup> => {
     const response = await api.post<TwoFactorSetup>('/auth/2fa/setup');
     return response.data;
-  };
+  }, [api]);
 
-  const enableTwoFactor = async (code: string): Promise<TwoFactorEnableResult> => {
+  const enableTwoFactor = useCallback(async (code: string): Promise<TwoFactorEnableResult> => {
     const response = await api.post<TwoFactorEnableResult>('/auth/2fa/enable', { code, device_name: 'DIS Command Center', client_type: 'web' });
     setSession(response.data.token, response.data.user, 'full');
     return response.data;
-  };
+  }, [api, setSession]);
 
-  const disableTwoFactor = async (password: string, code: string): Promise<User> => {
+  const disableTwoFactor = useCallback(async (password: string, code: string): Promise<User> => {
     const response = await api.post<User>('/auth/2fa/disable', { password, code });
     setUser(response.data);
     return response.data;
-  };
+  }, [api]);
 
-  const refreshMe = async (): Promise<User | null> => {
+  const refreshMe = useCallback(async (): Promise<User | null> => {
     if (storedToken() === null) {
       return null;
     }
@@ -110,33 +110,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const response = await api.get<User>('/auth/me');
     setUser(response.data);
     return response.data;
-  };
+  }, [api]);
 
-  const hasPermission = (permission: string): boolean =>
-    user?.roles?.some((role) => role.can_use_admin_app && role.permissions?.some((candidate) => candidate.name === permission)) ?? false;
+  const hasPermission = useCallback((permission: string): boolean =>
+    user?.roles?.some((role) => role.can_use_admin_app && role.permissions?.some((candidate) => candidate.name === permission)) ?? false,
+  [user]);
 
-  const canUseWebConsole = (): boolean =>
-    user?.roles?.some((role) => role.can_use_admin_app) ?? false;
+  const canUseWebConsole = useCallback((): boolean =>
+    user?.roles?.some((role) => role.can_use_admin_app) ?? false,
+  [user]);
+
+  const contextValue = useMemo<AuthContextValue>(() => ({
+    api,
+    token,
+    user,
+    isAuthenticated: token !== null && sessionPurpose === 'full',
+    setSession,
+    clearSession,
+    login,
+    verifyTwoFactor,
+    startTwoFactorSetup,
+    enableTwoFactor,
+    disableTwoFactor,
+    refreshMe,
+    hasPermission,
+    canUseWebConsole,
+  }), [
+    api,
+    token,
+    user,
+    sessionPurpose,
+    setSession,
+    clearSession,
+    login,
+    verifyTwoFactor,
+    startTwoFactorSetup,
+    enableTwoFactor,
+    disableTwoFactor,
+    refreshMe,
+    hasPermission,
+    canUseWebConsole,
+  ]);
 
   return (
-    <AuthContext.Provider
-      value={{
-        api,
-        token,
-        user,
-        isAuthenticated: token !== null && sessionPurpose === 'full',
-        setSession,
-        clearSession,
-        login,
-        verifyTwoFactor,
-        startTwoFactorSetup,
-        enableTwoFactor,
-        disableTwoFactor,
-        refreshMe,
-        hasPermission,
-        canUseWebConsole,
-      }}
-    >
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );

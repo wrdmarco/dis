@@ -552,18 +552,26 @@ interface RecipientSelectorProps {
 }
 
 function RecipientSelector({ label, placeholder, datalistId, recipients, selectedIds, search, onSearch, onAdd, onRemove }: RecipientSelectorProps) {
-  const selectedRecipients = selectedIds
-    .map((id) => recipients.find((recipient) => recipient.id === id))
-    .filter((recipient): recipient is BackupReportRecipient => recipient !== undefined);
-  const availableRecipients = recipients.filter((recipient) => !selectedIds.includes(recipient.id));
+  const recipientById = useMemo(() => new Map(recipients.map((recipient) => [recipient.id, recipient])), [recipients]);
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedRecipients = useMemo(
+    () => selectedIds
+      .map((id) => recipientById.get(id))
+      .filter((recipient): recipient is BackupReportRecipient => recipient !== undefined),
+    [recipientById, selectedIds],
+  );
+  const availableRecipients = useMemo(
+    () => recipients.filter((recipient) => !selectedIdSet.has(recipient.id)),
+    [recipients, selectedIdSet],
+  );
+  const searchableRecipient = useMemo(() => findRecipientBySearch(availableRecipients, search), [availableRecipients, search]);
 
   function addFromSearch() {
-    const recipient = findRecipientBySearch(availableRecipients, search);
-    if (recipient === null) {
+    if (searchableRecipient === null) {
       return;
     }
 
-    onAdd(recipient.id);
+    onAdd(searchableRecipient.id);
     onSearch('');
   }
 
@@ -584,7 +592,7 @@ function RecipientSelector({ label, placeholder, datalistId, recipients, selecte
               }
             }}
           />
-          <button className="secondary-button" type="button" onClick={addFromSearch} disabled={findRecipientBySearch(availableRecipients, search) === null}>
+          <button className="secondary-button" type="button" onClick={addFromSearch} disabled={searchableRecipient === null}>
             Toevoegen
           </button>
         </div>

@@ -1074,31 +1074,44 @@ a:hover {
 .push-template-card {
   display: grid;
   gap: 14px;
-  border: 1px solid #26364b;
+  border: 1px solid var(--dis-border-strong);
   border-radius: 8px;
   background:
-    linear-gradient(180deg, rgba(18, 31, 47, 0.92), rgba(9, 15, 24, 0.98)),
-    #0b1119;
+    linear-gradient(180deg, rgba(18, 31, 47, 0.98), rgba(9, 15, 24, 0.98)),
+    var(--dis-field);
   padding: 0;
   overflow: hidden;
+  box-shadow: inset 3px 0 0 var(--dis-blue);
 }
 
 .push-template-card + .push-template-card {
-  margin-top: 8px;
+  margin-top: 14px;
 }
 
 .push-template-card h3 {
   margin: 0;
-  padding: 12px 14px;
-  border-bottom: 1px solid #26364b;
-  background: rgba(128, 199, 255, 0.08);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--dis-border-strong);
+  background:
+    linear-gradient(90deg, rgba(128, 199, 255, 0.14), rgba(128, 199, 255, 0.04)),
+    var(--dis-surface-2);
   color: #f8fafc;
   font-size: 0.95rem;
   letter-spacing: 0;
 }
 
 .push-template-card > .form-grid {
-  padding: 14px;
+  padding: 16px;
+  background: rgba(3, 7, 12, 0.16);
+}
+
+.push-template-card label {
+  color: var(--dis-text-strong);
+}
+
+.push-template-card input,
+.push-template-card textarea {
+  background: rgba(4, 10, 18, 0.92);
 }
 
 .branding-logo-row {
@@ -2357,6 +2370,55 @@ select[multiple] {
 .modal__header h2 {
   margin: 0;
   font-size: 1rem;
+}
+
+.modal .form-grid,
+.modal .confirm-dialog {
+  padding: 16px;
+}
+
+.modal .actions-row {
+  position: sticky;
+  bottom: 0;
+  margin: 0 -16px -16px;
+  border-top: 1px solid var(--dis-border);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 34, 0.86), rgba(15, 23, 34, 0.98)),
+    var(--dis-surface);
+  padding: 12px 16px;
+  backdrop-filter: blur(10px);
+}
+
+.modal__header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background:
+    linear-gradient(180deg, rgba(17, 29, 43, 0.98), rgba(13, 20, 30, 0.96)),
+    var(--dis-surface);
+}
+
+.modal label,
+.form-grid label,
+.form label {
+  min-width: 0;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.modal input,
+.modal select,
+.modal textarea {
+  font-weight: 500;
+}
+
+.modal textarea {
+  min-height: 96px;
+}
+
+.modal .section-heading,
+.modal .stacked-section {
+  border-radius: 8px;
 }
 
 .confirm-dialog {

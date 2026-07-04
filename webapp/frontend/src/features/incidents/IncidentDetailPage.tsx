@@ -1,6 +1,6 @@
 'use client';
 
-import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { BellRing, Clock, CloudSun, Download, MapPin, MessageSquare, Pencil, Plane, RadioTower, RefreshCw, Send, Trash2, TrendingUp, Users, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Panel } from '../../components/Panel';
@@ -69,6 +69,10 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const dispatchedTeamIds = dispatchTargetTeamIds(dispatches.data ?? []);
   const escalationTeams = (teams.data ?? []).filter((team) => team.is_operational && !dispatchedTeamIds.includes(team.id));
   const canEscalateUnavailable = incident.data?.priority === 'high' || incident.data?.priority === 'critical';
+  const liveLocationByUserId = useMemo(
+    () => new Map((liveLocations.data ?? []).map((location) => [location.user_id, location])),
+    [liveLocations.data],
+  );
 
   useEffect(() => {
     const currentIncident = incident.data;
@@ -561,7 +565,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                 <div className="recipient-list">
                   {latestDispatch.recipients?.map((recipient) => {
                     const userStatus = recipient.user?.statuses?.[0]?.status;
-                    const location = liveLocations.data?.find((item) => item.user_id === recipient.user_id);
+                    const location = liveLocationByUserId.get(recipient.user_id);
                     const canEditOperatorStatus = canOverrideStatus && !latestDispatchIsPreannouncement && recipient.response_status === 'accepted' && recipient.user_id !== '';
 
                     return (
