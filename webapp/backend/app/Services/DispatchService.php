@@ -518,6 +518,7 @@ final class DispatchService
                         $body,
                     [
                         'type' => 'dispatch_update',
+                        'action_mode' => 'additional_info',
                         'dispatch_id' => (string) $dispatch->id,
                         'incident_id' => (string) $dispatch->incident_id,
                     ],
