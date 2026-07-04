@@ -150,7 +150,7 @@ final class DispatchService
             if ($dispatch === null) {
                 $dispatch = $this->create($incident, [
                     'priority' => $incident->priority === 'low' ? 'normal' : $incident->priority,
-                    'message' => $notificationBody,
+                    'message' => $message ?: $this->defaultDispatchMessage($incident),
                     'target_team_id' => $targetTeam->id,
                     'dispatch_recipient_count' => $remaining,
                 ] + $options, $actor);
@@ -323,8 +323,14 @@ final class DispatchService
     public function markSent(DispatchRequest $dispatch, User $actor): DispatchRequest
     {
         return DB::transaction(function () use ($dispatch, $actor): DispatchRequest {
-        $wasPreannouncement = $dispatch->status === 'draft';
-        $dispatch->update(['status' => 'sent', 'sent_at' => now()]);
+        $wasPreannouncement = $dispatch->status === 'draft'
+            && $dispatch->recipients()->whereNotNull('notified_at')->exists();
+        $updates = ['status' => 'sent', 'sent_at' => now()];
+        if ($wasPreannouncement && $dispatch->incident !== null) {
+            $updates['message'] = $this->defaultDispatchMessage($dispatch->incident);
+        }
+
+        $dispatch->update($updates);
         if ($wasPreannouncement) {
             $dispatch->recipients()
                 ->where('response_status', 'accepted')
@@ -1155,13 +1161,36 @@ final class DispatchService
     private function pushTemplateTokens(?Incident $incident, array $extra = []): array
     {
         $place = $extra['place'] ?? $this->placeNameFromLocation($incident?->location_label) ?? '';
+        $address = (string) ($incident?->location_label ?? '');
+        $latitude = (string) ($incident?->latitude ?? '');
+        $longitude = (string) ($incident?->longitude ?? '');
+        $coordinates = trim($latitude.($latitude !== '' && $longitude !== '' ? ', ' : '').$longitude);
 
         return array_merge([
             'reference' => (string) ($incident?->reference ?? ''),
             'title' => (string) ($incident?->title ?? ''),
-            'location' => (string) ($incident?->location_label ?? ''),
+            'description' => (string) ($incident?->description ?? ''),
+            'location' => $address,
+            'address' => $address,
             'place' => $place,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'coordinates' => $coordinates,
             'priority' => (string) ($incident?->priority ?? ''),
+            'status' => (string) ($incident?->status ?? ''),
+            'reporter_name' => (string) ($incident?->reporter_name ?? ''),
+            'reporter_phone' => (string) ($incident?->reporter_phone ?? ''),
+            'requesting_organization' => (string) ($incident?->requesting_organization ?? ''),
+            'requesting_unit' => (string) ($incident?->requesting_unit ?? ''),
+            'on_scene_contact_name' => (string) ($incident?->on_scene_contact_name ?? ''),
+            'on_scene_contact_phone' => (string) ($incident?->on_scene_contact_phone ?? ''),
+            'on_scene_contact_role' => (string) ($incident?->on_scene_contact_role ?? ''),
+            'required_resources' => (string) ($incident?->required_resources ?? ''),
+            'coordinator_name' => (string) ($incident?->coordinator_name ?? ''),
+            'created_by_name' => (string) ($incident?->created_by_name ?? ''),
+            'created_at' => (string) ($incident?->created_at?->format('d-m-Y H:i') ?? ''),
+            'opened_at' => (string) ($incident?->opened_at?->format('d-m-Y H:i') ?? ''),
+            'closed_at' => (string) ($incident?->closed_at?->format('d-m-Y H:i') ?? ''),
             'message' => '',
         ], $extra);
     }

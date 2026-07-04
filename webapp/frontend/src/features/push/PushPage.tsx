@@ -54,6 +54,26 @@ const defaultTemplates: PushTemplateForm = {
   cancellationTitle: 'D.I.S geannuleerd',
   cancellationBody: 'De vooraankondiging in {{place}} is geannuleerd.',
 };
+const PUSH_TEMPLATE_TOKEN_HELP = `{{reference}} = incidentnummer
+{{title}} = incidenttitel
+{{description}} = omschrijving
+{{address}} = volledig adres of locatieveld
+{{place}} = plaatsnaam uit het locatieveld
+{{location}} = hetzelfde als adres, voor bestaande templates
+{{latitude}} / {{longitude}} = losse coordinaten
+{{coordinates}} = coordinaten samen
+{{priority}} = prioriteit
+{{status}} = incidentstatus
+{{reporter_name}} / {{reporter_phone}} = melder
+{{requesting_organization}} / {{requesting_unit}} = aanvrager
+{{on_scene_contact_name}} / {{on_scene_contact_phone}} / {{on_scene_contact_role}} = contact ter plaatse
+{{required_resources}} = benodigde middelen
+{{coordinator_name}} = coordinator
+{{created_by_name}} = aangemaakt door
+{{created_at}} / {{opened_at}} / {{closed_at}} = tijden
+{{message}} = standaard incidentbericht
+{{reason}} = reden van opschaling
+{{availability_reason}} = waarom iemand niet beschikbaar stond`;
 
 export function PushPage() {
   const { api } = useAuth();
@@ -278,7 +298,11 @@ export function PushPage() {
           </div>
           <div className="metadata-example">
             <strong>Beschikbare tokens</strong>
-            <pre>{'{{place}}, {{message}}, {{reference}}, {{title}}, {{location}}, {{priority}}, {{reason}}, {{availability_reason}}'}</pre>
+            <pre>{PUSH_TEMPLATE_TOKEN_HELP}</pre>
+          </div>
+          <div className="metadata-example">
+            <strong>Voorbeeld alarmering</strong>
+            <pre>{'Melding {{reference}}\n{{title}}\nAdres: {{address}}\nPlaats: {{place}}\nContact: {{on_scene_contact_name}} - {{on_scene_contact_phone}}\nMiddelen: {{required_resources}}'}</pre>
           </div>
           <div className="metadata-example">
             <strong>Voorbeeld vooraankondiging</strong>
@@ -341,7 +365,7 @@ function TemplateFields({
           <input maxLength={160} value={titleValue} onChange={(event) => onTitleChange(event.target.value)} />
         </label>
         <label className="form-grid__wide">
-          Bericht
+          Berichtopbouw
           <textarea rows={4} maxLength={2000} value={bodyValue} onChange={(event) => onBodyChange(event.target.value)} />
         </label>
       </div>
@@ -381,12 +405,31 @@ function textSetting(value: string, fallback: string): string {
 }
 
 const sampleTokens: Record<string, string> = {
+  address: 'Hoofdstraat 10, 7311 AA Apeldoorn',
   place: 'Apeldoorn',
   message: 'Reactie vereist - DIS-20260704-ABCD',
   reference: 'DIS-20260704-ABCD',
   title: 'Zoekactie',
-  location: 'Apeldoorn',
+  description: 'Vermist persoon, ondersteuning met warmtebeeld gevraagd.',
+  location: 'Hoofdstraat 10, 7311 AA Apeldoorn',
+  latitude: '52.2112',
+  longitude: '5.9699',
+  coordinates: '52.2112, 5.9699',
   priority: 'normal',
+  status: 'active',
+  reporter_name: 'M. Jansen',
+  reporter_phone: '0612345678',
+  requesting_organization: 'Politie',
+  requesting_unit: 'Eenheid Oost-Nederland',
+  on_scene_contact_name: 'B. de Vries',
+  on_scene_contact_phone: '0687654321',
+  on_scene_contact_role: 'OVD-P',
+  required_resources: 'Warmtebeeld, zoomcamera, extra waarnemer',
+  coordinator_name: 'Coordinator DIS',
+  created_by_name: 'Meldkamer',
+  created_at: '04-07-2026 14:10',
+  opened_at: '04-07-2026 14:15',
+  closed_at: '',
   reason: 'Urgente opschaling: de coordinator heeft gekozen om ook niet-beschikbare teamleden te alarmeren.',
   availability_reason: 'Je actuele status staat op niet beschikbaar.',
 };
