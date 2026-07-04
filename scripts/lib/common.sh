@@ -143,33 +143,24 @@ write_maintenance_page() {
       overflow: hidden;
     }
 
-    .lane {
+    .drone-lane {
       position: absolute;
-      left: -180px;
-      width: 170px;
-      height: 70px;
+      left: -260px;
+      top: 18%;
+      width: 240px;
+      height: 110px;
       animation: fly 13s linear infinite;
       opacity: .92;
+      filter: drop-shadow(0 18px 28px rgba(0, 0, 0, .48));
     }
 
-    .lane--one { top: 12%; animation-duration: 12s; }
-    .lane--two { top: 31%; animation-duration: 16s; animation-delay: -6s; transform: scale(.78); opacity: .68; }
-    .lane--three { top: 68%; animation-duration: 18s; animation-delay: -11s; transform: scale(.9); opacity: .72; }
+    .drone-lane:nth-child(2) { top: 42%; animation-duration: 17s; animation-delay: -7s; transform: scale(.78); opacity: .7; }
+    .drone-lane:nth-child(3) { top: 70%; animation-duration: 19s; animation-delay: -12s; transform: scale(.92); opacity: .74; }
 
-    .drone {
-      width: 170px;
-      height: 70px;
-      filter: drop-shadow(0 10px 22px rgba(0, 0, 0, .42));
-    }
-
-    .rotor {
+    .rotor-disc {
       transform-origin: center;
-      animation: rotor .36s linear infinite;
-    }
-
-    .beam {
-      opacity: .22;
-      animation: scan 2.4s ease-in-out infinite;
+      animation: rotor .3s linear infinite;
+      opacity: .76;
     }
 
     main {
@@ -269,16 +260,11 @@ write_maintenance_page() {
 
     @keyframes fly {
       from { translate: -12vw 0; }
-      to { translate: calc(100vw + 220px) 0; }
+      to { translate: calc(100vw + 300px) 0; }
     }
 
     @keyframes rotor {
       to { rotate: 360deg; }
-    }
-
-    @keyframes scan {
-      0%, 100% { opacity: .12; }
-      50% { opacity: .34; }
     }
 
     @keyframes pulse {
@@ -291,94 +277,49 @@ write_maintenance_page() {
       main { width: 100%; }
       .content { padding: 24px; }
       .telemetry { grid-template-columns: 1fr; }
-      .lane--two { top: 22%; }
-      .lane--three { top: 48%; }
+      .drone-lane:nth-child(2) { top: 30%; }
+      .drone-lane:nth-child(3) { display: none; }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .lane, .rotor, .beam, .status::before { animation: none; }
-      .lane { transform: none; translate: 18vw 0; }
-      .lane--two, .lane--three { display: none; }
+      .drone-lane, .rotor-disc, .status::before { animation: none; }
+      .drone-lane { translate: 18vw 0; }
+      .drone-lane:nth-child(2), .drone-lane:nth-child(3) { display: none; }
     }
   </style>
 </head>
 <body>
   <div class="sky" aria-hidden="true">
-    <div class="lane lane--one">
-      <svg class="drone" viewBox="0 0 170 70" role="img" aria-label="">
-        <path class="beam" d="M82 40 L52 70 H118 L88 40Z" fill="#80c7ff"/>
-        <g fill="none" stroke="#80c7ff" stroke-width="4" stroke-linecap="round">
-          <path d="M50 34 H120"/>
-          <path d="M85 22 V46"/>
-          <path d="M62 34 L42 20"/>
-          <path d="M108 34 L128 20"/>
-        </g>
-        <g fill="#101927" stroke="#d6f3ff" stroke-width="3">
-          <ellipse cx="85" cy="34" rx="23" ry="11"/>
-          <circle cx="42" cy="20" r="7"/>
-          <circle cx="128" cy="20" r="7"/>
-          <circle cx="42" cy="49" r="7"/>
-          <circle cx="128" cy="49" r="7"/>
-        </g>
-        <g class="rotor" fill="none" stroke="#d6f3ff" stroke-width="2">
-          <path d="M23 20 H61"/>
-          <path d="M109 20 H147"/>
-          <path d="M23 49 H61"/>
-          <path d="M109 49 H147"/>
-        </g>
-        <circle cx="85" cy="34" r="4" fill="#7dd3a7"/>
-      </svg>
-    </div>
-    <div class="lane lane--two">
-      <svg class="drone" viewBox="0 0 170 70" role="img" aria-label="">
-        <path class="beam" d="M82 40 L52 70 H118 L88 40Z" fill="#80c7ff"/>
-        <g fill="none" stroke="#80c7ff" stroke-width="4" stroke-linecap="round">
-          <path d="M50 34 H120"/>
-          <path d="M85 22 V46"/>
-          <path d="M62 34 L42 20"/>
-          <path d="M108 34 L128 20"/>
-        </g>
-        <g fill="#101927" stroke="#d6f3ff" stroke-width="3">
-          <ellipse cx="85" cy="34" rx="23" ry="11"/>
-          <circle cx="42" cy="20" r="7"/>
-          <circle cx="128" cy="20" r="7"/>
-          <circle cx="42" cy="49" r="7"/>
-          <circle cx="128" cy="49" r="7"/>
-        </g>
-        <g class="rotor" fill="none" stroke="#d6f3ff" stroke-width="2">
-          <path d="M23 20 H61"/>
-          <path d="M109 20 H147"/>
-          <path d="M23 49 H61"/>
-          <path d="M109 49 H147"/>
-        </g>
-        <circle cx="85" cy="34" r="4" fill="#7dd3a7"/>
-      </svg>
-    </div>
-    <div class="lane lane--three">
-      <svg class="drone" viewBox="0 0 170 70" role="img" aria-label="">
-        <path class="beam" d="M82 40 L52 70 H118 L88 40Z" fill="#80c7ff"/>
-        <g fill="none" stroke="#80c7ff" stroke-width="4" stroke-linecap="round">
-          <path d="M50 34 H120"/>
-          <path d="M85 22 V46"/>
-          <path d="M62 34 L42 20"/>
-          <path d="M108 34 L128 20"/>
-        </g>
-        <g fill="#101927" stroke="#d6f3ff" stroke-width="3">
-          <ellipse cx="85" cy="34" rx="23" ry="11"/>
-          <circle cx="42" cy="20" r="7"/>
-          <circle cx="128" cy="20" r="7"/>
-          <circle cx="42" cy="49" r="7"/>
-          <circle cx="128" cy="49" r="7"/>
-        </g>
-        <g class="rotor" fill="none" stroke="#d6f3ff" stroke-width="2">
-          <path d="M23 20 H61"/>
-          <path d="M109 20 H147"/>
-          <path d="M23 49 H61"/>
-          <path d="M109 49 H147"/>
-        </g>
-        <circle cx="85" cy="34" r="4" fill="#7dd3a7"/>
-      </svg>
-    </div>
+    <svg class="drone-lane" viewBox="0 0 240 110" role="img" aria-label="">
+      <defs><linearGradient id="body-a" x1="64" x2="174" y1="35" y2="76" gradientUnits="userSpaceOnUse"><stop stop-color="#e8f4ff"/><stop offset=".42" stop-color="#9bb3c9"/><stop offset="1" stop-color="#26384a"/></linearGradient><radialGradient id="rotor-a" cx="50%" cy="50%" r="50%"><stop stop-color="#f4fbff" stop-opacity=".48"/><stop offset=".58" stop-color="#a9dfff" stop-opacity=".16"/><stop offset="1" stop-color="#a9dfff" stop-opacity="0"/></radialGradient></defs>
+      <path d="M118 61 L64 108 H176 L124 61Z" fill="#80c7ff" opacity=".12"/>
+      <g class="rotor-disc"><ellipse cx="43" cy="24" rx="37" ry="9" fill="url(#rotor-a)"/><ellipse cx="197" cy="24" rx="37" ry="9" fill="url(#rotor-a)"/><ellipse cx="43" cy="80" rx="37" ry="9" fill="url(#rotor-a)"/><ellipse cx="197" cy="80" rx="37" ry="9" fill="url(#rotor-a)"/></g>
+      <g fill="none" stroke="#8fb0c9" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M93 50 L52 27"/><path d="M147 50 L188 27"/><path d="M92 61 L52 78"/><path d="M148 61 L188 78"/><path d="M88 86 C103 96 137 96 152 86"/></g>
+      <g fill="#162131" stroke="#d6edf8" stroke-width="2.5"><circle cx="43" cy="24" r="10"/><circle cx="197" cy="24" r="10"/><circle cx="43" cy="80" r="10"/><circle cx="197" cy="80" r="10"/></g>
+      <path d="M88 48 C92 33 106 26 120 26 C134 26 148 33 152 48 L158 65 C148 75 133 80 120 80 C107 80 92 75 82 65Z" fill="url(#body-a)" stroke="#e8f4ff" stroke-width="2.5"/>
+      <path d="M98 48 H142" stroke="#334a5f" stroke-width="3" stroke-linecap="round" opacity=".7"/><rect x="107" y="70" width="26" height="17" rx="7" fill="#111a26" stroke="#d6edf8" stroke-width="2"/><circle cx="120" cy="79" r="5" fill="#0c1119" stroke="#80c7ff" stroke-width="2"/><circle cx="89" cy="60" r="3" fill="#ef4444"/><circle cx="151" cy="60" r="3" fill="#7dd3a7"/>
+      <g fill="none" stroke="#eef8ff" stroke-width="2" stroke-linecap="round" opacity=".82"><path d="M15 24 H71"/><path d="M169 24 H225"/><path d="M15 80 H71"/><path d="M169 80 H225"/></g>
+    </svg>
+    <svg class="drone-lane" viewBox="0 0 240 110" role="img" aria-label="">
+      <defs><linearGradient id="body-b" x1="64" x2="174" y1="35" y2="76" gradientUnits="userSpaceOnUse"><stop stop-color="#e8f4ff"/><stop offset=".42" stop-color="#9bb3c9"/><stop offset="1" stop-color="#26384a"/></linearGradient><radialGradient id="rotor-b" cx="50%" cy="50%" r="50%"><stop stop-color="#f4fbff" stop-opacity=".48"/><stop offset=".58" stop-color="#a9dfff" stop-opacity=".16"/><stop offset="1" stop-color="#a9dfff" stop-opacity="0"/></radialGradient></defs>
+      <path d="M118 61 L64 108 H176 L124 61Z" fill="#80c7ff" opacity=".12"/>
+      <g class="rotor-disc"><ellipse cx="43" cy="24" rx="37" ry="9" fill="url(#rotor-b)"/><ellipse cx="197" cy="24" rx="37" ry="9" fill="url(#rotor-b)"/><ellipse cx="43" cy="80" rx="37" ry="9" fill="url(#rotor-b)"/><ellipse cx="197" cy="80" rx="37" ry="9" fill="url(#rotor-b)"/></g>
+      <g fill="none" stroke="#8fb0c9" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M93 50 L52 27"/><path d="M147 50 L188 27"/><path d="M92 61 L52 78"/><path d="M148 61 L188 78"/><path d="M88 86 C103 96 137 96 152 86"/></g>
+      <g fill="#162131" stroke="#d6edf8" stroke-width="2.5"><circle cx="43" cy="24" r="10"/><circle cx="197" cy="24" r="10"/><circle cx="43" cy="80" r="10"/><circle cx="197" cy="80" r="10"/></g>
+      <path d="M88 48 C92 33 106 26 120 26 C134 26 148 33 152 48 L158 65 C148 75 133 80 120 80 C107 80 92 75 82 65Z" fill="url(#body-b)" stroke="#e8f4ff" stroke-width="2.5"/>
+      <path d="M98 48 H142" stroke="#334a5f" stroke-width="3" stroke-linecap="round" opacity=".7"/><rect x="107" y="70" width="26" height="17" rx="7" fill="#111a26" stroke="#d6edf8" stroke-width="2"/><circle cx="120" cy="79" r="5" fill="#0c1119" stroke="#80c7ff" stroke-width="2"/><circle cx="89" cy="60" r="3" fill="#ef4444"/><circle cx="151" cy="60" r="3" fill="#7dd3a7"/>
+      <g fill="none" stroke="#eef8ff" stroke-width="2" stroke-linecap="round" opacity=".82"><path d="M15 24 H71"/><path d="M169 24 H225"/><path d="M15 80 H71"/><path d="M169 80 H225"/></g>
+    </svg>
+    <svg class="drone-lane" viewBox="0 0 240 110" role="img" aria-label="">
+      <defs><linearGradient id="body-c" x1="64" x2="174" y1="35" y2="76" gradientUnits="userSpaceOnUse"><stop stop-color="#e8f4ff"/><stop offset=".42" stop-color="#9bb3c9"/><stop offset="1" stop-color="#26384a"/></linearGradient><radialGradient id="rotor-c" cx="50%" cy="50%" r="50%"><stop stop-color="#f4fbff" stop-opacity=".48"/><stop offset=".58" stop-color="#a9dfff" stop-opacity=".16"/><stop offset="1" stop-color="#a9dfff" stop-opacity="0"/></radialGradient></defs>
+      <path d="M118 61 L64 108 H176 L124 61Z" fill="#80c7ff" opacity=".12"/>
+      <g class="rotor-disc"><ellipse cx="43" cy="24" rx="37" ry="9" fill="url(#rotor-c)"/><ellipse cx="197" cy="24" rx="37" ry="9" fill="url(#rotor-c)"/><ellipse cx="43" cy="80" rx="37" ry="9" fill="url(#rotor-c)"/><ellipse cx="197" cy="80" rx="37" ry="9" fill="url(#rotor-c)"/></g>
+      <g fill="none" stroke="#8fb0c9" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M93 50 L52 27"/><path d="M147 50 L188 27"/><path d="M92 61 L52 78"/><path d="M148 61 L188 78"/><path d="M88 86 C103 96 137 96 152 86"/></g>
+      <g fill="#162131" stroke="#d6edf8" stroke-width="2.5"><circle cx="43" cy="24" r="10"/><circle cx="197" cy="24" r="10"/><circle cx="43" cy="80" r="10"/><circle cx="197" cy="80" r="10"/></g>
+      <path d="M88 48 C92 33 106 26 120 26 C134 26 148 33 152 48 L158 65 C148 75 133 80 120 80 C107 80 92 75 82 65Z" fill="url(#body-c)" stroke="#e8f4ff" stroke-width="2.5"/>
+      <path d="M98 48 H142" stroke="#334a5f" stroke-width="3" stroke-linecap="round" opacity=".7"/><rect x="107" y="70" width="26" height="17" rx="7" fill="#111a26" stroke="#d6edf8" stroke-width="2"/><circle cx="120" cy="79" r="5" fill="#0c1119" stroke="#80c7ff" stroke-width="2"/><circle cx="89" cy="60" r="3" fill="#ef4444"/><circle cx="151" cy="60" r="3" fill="#7dd3a7"/>
+      <g fill="none" stroke="#eef8ff" stroke-width="2" stroke-linecap="round" opacity=".82"><path d="M15 24 H71"/><path d="M169 24 H225"/><path d="M15 80 H71"/><path d="M169 80 H225"/></g>
+    </svg>
   </div>
   <main>
     <div class="content">
