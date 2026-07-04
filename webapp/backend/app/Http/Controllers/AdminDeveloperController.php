@@ -10,6 +10,7 @@ use App\Services\SystemUpdateStatusService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Validation\Rule;
 use Symfony\Component\Process\PhpExecutableFinder;
@@ -166,6 +167,42 @@ final class AdminDeveloperController extends Controller
         $this->auditService->record('system.update_started_developer_api', SystemSetting::class, null, ['update_system' => $updateSystem], null, $request);
 
         return ApiResponse::success($this->updateStatus->current(), 202);
+    }
+
+    public function developerMaintenance(Request $request): JsonResponse
+    {
+        $this->developerAccess->authorize($request, DeveloperAccessService::SCOPE_SYSTEM_UPDATE);
+
+        $data = $request->validate([
+            'enabled' => ['required', 'boolean'],
+        ]);
+
+        $enabled = (bool) $data['enabled'];
+        $root = realpath(base_path('../..')) ?: base_path('../..');
+        $maintenanceDirectory = $root.'/maintenance';
+        $lockPath = $maintenanceDirectory.'/frontend.lock';
+        $pagePath = $maintenanceDirectory.'/__dis_maintenance.html';
+
+        if ($enabled) {
+            File::ensureDirectoryExists($maintenanceDirectory);
+            if (! is_file($pagePath)) {
+                File::put($pagePath, $this->maintenancePageHtml());
+            }
+            File::put($lockPath, now()->toIso8601String());
+            $this->runArtisanMaintenanceCommand('down', ['--render' => 'errors::503']);
+        } else {
+            $this->runArtisanMaintenanceCommand('up');
+            if (is_file($lockPath)) {
+                File::delete($lockPath);
+            }
+        }
+
+        $this->auditService->record('system.maintenance_'.($enabled ? 'enabled' : 'disabled').'_developer_api', SystemSetting::class, null, [], null, $request);
+
+        return ApiResponse::success([
+            'enabled' => $enabled,
+            'frontend_lock' => is_file($lockPath),
+        ]);
     }
 
     public function developerLogs(Request $request): JsonResponse
@@ -525,6 +562,48 @@ final class AdminDeveloperController extends Controller
         }
 
         return true;
+    }
+
+    /**
+     * @param array<string, string> $options
+     */
+    private function runArtisanMaintenanceCommand(string $command, array $options = []): void
+    {
+        $arguments = [base_path('artisan'), $command];
+        foreach ($options as $key => $value) {
+            $arguments[] = $key.'='.$value;
+        }
+
+        Process::run([(new PhpExecutableFinder())->find() ?: PHP_BINARY, ...$arguments]);
+    }
+
+    private function maintenancePageHtml(): string
+    {
+        return <<<'HTML'
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>D.I.S onderhoud</title>
+  <style>
+    html, body { height: 100%; margin: 0; font-family: Arial, sans-serif; background: #07111f; color: #f5f8fb; }
+    body { display: grid; place-items: center; padding: 24px; box-sizing: border-box; }
+    main { max-width: 720px; border: 1px solid #26384f; border-radius: 12px; padding: 28px; background: #101a28; }
+    span { color: #67d7f5; font-size: 12px; font-weight: 800; text-transform: uppercase; }
+    h1 { margin: 10px 0; font-size: clamp(28px, 6vw, 48px); }
+    p { color: #b8c7d8; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <main>
+    <span>Onderhoud actief</span>
+    <h1>D.I.S is tijdelijk niet beschikbaar</h1>
+    <p>De operationele omgeving staat tijdelijk in onderhoud. De app en webconsole komen automatisch terug zodra de controle is afgerond.</p>
+  </main>
+</body>
+</html>
+HTML;
     }
 
     private function tailFile(string $path, int $maxBytes): string
