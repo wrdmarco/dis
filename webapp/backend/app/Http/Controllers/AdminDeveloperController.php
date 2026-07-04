@@ -184,24 +184,18 @@ final class AdminDeveloperController extends Controller
         $pagePath = $maintenanceDirectory.'/__dis_maintenance.html';
 
         if ($enabled) {
-            File::ensureDirectoryExists($maintenanceDirectory);
-            if (! is_file($pagePath)) {
-                File::put($pagePath, $this->maintenancePageHtml());
-            }
-            File::put($lockPath, now()->toIso8601String());
             $this->runArtisanMaintenanceCommand('down', ['--render' => 'errors::503']);
+            $frontendLock = $this->tryWriteFrontendMaintenanceLock($maintenanceDirectory, $pagePath, $lockPath);
         } else {
             $this->runArtisanMaintenanceCommand('up');
-            if (is_file($lockPath)) {
-                File::delete($lockPath);
-            }
+            $frontendLock = ! $this->tryDeleteFrontendMaintenanceLock($lockPath) && is_file($lockPath);
         }
 
         $this->auditService->record('system.maintenance_'.($enabled ? 'enabled' : 'disabled').'_developer_api', SystemSetting::class, null, [], null, $request);
 
         return ApiResponse::success([
             'enabled' => $enabled,
-            'frontend_lock' => is_file($lockPath),
+            'frontend_lock' => $frontendLock,
         ]);
     }
 
@@ -575,6 +569,34 @@ final class AdminDeveloperController extends Controller
         }
 
         Process::run([(new PhpExecutableFinder())->find() ?: PHP_BINARY, ...$arguments]);
+    }
+
+    private function tryWriteFrontendMaintenanceLock(string $directory, string $pagePath, string $lockPath): bool
+    {
+        try {
+            File::ensureDirectoryExists($directory);
+            if (! is_file($pagePath)) {
+                File::put($pagePath, $this->maintenancePageHtml());
+            }
+            File::put($lockPath, now()->toIso8601String());
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function tryDeleteFrontendMaintenanceLock(string $lockPath): bool
+    {
+        try {
+            if (is_file($lockPath)) {
+                File::delete($lockPath);
+            }
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     private function maintenancePageHtml(): string
