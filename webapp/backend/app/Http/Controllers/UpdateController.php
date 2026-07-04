@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rules\File;
 use Illuminate\Validation\ValidationException;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use ZipArchive;
 
 final class UpdateController extends Controller
@@ -149,12 +149,12 @@ final class UpdateController extends Controller
             'version_name' => $data['version_name'],
             'status' => $data['status'],
             'artifact_sha256' => $sha256,
-            'download_url' => url('/api/updates/android/'.$path.'/download'),
+            'download_url' => $this->androidDirectDownloadUrl($path),
             'release_notes' => $data['release_notes'] ?? null,
             'created_by' => $request->user()?->id,
         ]);
 
-        $version->update(['download_url' => url('/api/updates/android/'.$version->id.'/download')]);
+        $version->update(['download_url' => $this->androidDirectDownloadUrl($path)]);
         $this->auditService->record('updates.android_apk_uploaded', $version, $request->user(), [
             'artifact_path' => $path,
             'artifact_size_bytes' => $apkSize,
@@ -355,6 +355,11 @@ final class UpdateController extends Controller
         return 'android-apks/'.$filename;
     }
 
+    private function androidDirectDownloadUrl(string $path): string
+    {
+        return url('/apk/'.basename($path));
+    }
+
     private function pruneOldAndroidArtifacts(AppVersion $currentVersion): int
     {
         $currentPath = $this->androidArtifactPath($currentVersion);
@@ -421,7 +426,7 @@ final class UpdateController extends Controller
         ];
     }
 
-    public function downloadAndroid(AppVersion $version): BinaryFileResponse
+    public function downloadAndroid(AppVersion $version): RedirectResponse
     {
         abort_unless($version->platform === 'android' && $version->download_url !== null, 404);
 
@@ -430,9 +435,7 @@ final class UpdateController extends Controller
 
         abort_unless(Storage::disk('local')->exists($path), 404);
 
-        return response()->download(Storage::disk('local')->path($path), $filename, [
-            'Content-Type' => 'application/vnd.android.package-archive',
-        ]);
+        return redirect()->away($this->androidDirectDownloadUrl($path));
     }
 
     public function update(Request $request, AppVersion $version): JsonResponse
