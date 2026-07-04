@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, ClipboardCheck, DatabaseBackup, Gauge, KeyRound, LogOut, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, Gauge, KeyRound, LogOut, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../features/auth/AuthContext';
@@ -40,6 +40,7 @@ const navGroups: NavGroup[] = [
       { to: '/incidents', label: 'Actieve meldingen', icon: RadioTower, end: true, permissions: ['incidents.view'] },
       { to: '/incidents/archive', label: 'Archief', icon: Archive, permissions: ['incidents.view'] },
       { to: '/operationele-status', label: 'Status', icon: Workflow, permissions: ['status.view'] },
+      { to: '/agenda', label: 'Agenda', icon: CalendarDays },
       { to: '/proefalarmering', label: 'Proefalarmering', icon: BellRing, permissions: ['dispatch.manage'] },
       { to: '/push', label: 'Pushmeldingen', icon: Send, permissions: ['push.manage'] },
       { to: '/reports', label: 'Statistieken', icon: BarChart3, permissions: ['incidents.view', 'dispatch.view'] },
@@ -98,6 +99,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/certifications': () => import('../features/certifications/CertificationsPage'),
   '/verloop': () => import('../features/expiry/ExpiryPage'),
   '/updates': () => import('../features/updates/UpdatesPage'),
+  '/agenda': () => import('../features/calendar/CalendarPage'),
   '/admin': () => import('../features/admin/AdminPage'),
   '/branding': () => import('../features/branding/BrandingPage'),
   '/audit': () => import('../features/audit/AuditLogPage'),

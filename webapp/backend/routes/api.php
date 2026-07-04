@@ -8,6 +8,7 @@ use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BackupController;
 use App\Http\Controllers\BrandingController;
+use App\Http\Controllers\CalendarEventController;
 use App\Http\Controllers\CertificationController;
 use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\DispatchController;
@@ -117,6 +118,9 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/reports/incidents', [ReportingController::class, 'incidents'])->middleware('permission:incidents.view');
     Route::get('/reports/dispatch-statistics', [ReportingController::class, 'dispatchStatistics'])->middleware('permission:dispatch.view');
     Route::get('/expiry-overview', [ExpiryOverviewController::class, 'index']);
+    Route::get('/calendar-events', [CalendarEventController::class, 'index']);
+    Route::post('/calendar-events', [CalendarEventController::class, 'store'])->middleware('permission:settings.manage');
+    Route::delete('/calendar-events/{calendarEvent}', [CalendarEventController::class, 'destroy'])->middleware('permission:settings.manage');
 
     Route::get('/status/me', [StatusController::class, 'me']);
     Route::patch('/status/me', [StatusController::class, 'updateMe']);

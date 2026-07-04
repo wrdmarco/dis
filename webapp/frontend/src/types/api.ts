@@ -305,6 +305,20 @@ export interface UserVacation {
   user?: Pick<User, 'id' | 'name' | 'email'> | null;
 }
 
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  type: 'training' | 'open_day' | 'meeting' | 'exercise' | 'other';
+  starts_at: string;
+  ends_at?: string | null;
+  location_label?: string | null;
+  description?: string | null;
+  team_id?: string | null;
+  team?: Pick<Team, 'id' | 'code' | 'name' | 'type'> | null;
+  created_by_name?: string | null;
+  created_at?: string | null;
+}
+
 export interface StatusAuditEntry {
   id: string;
   action: 'status.updated' | 'status.system_updated';
