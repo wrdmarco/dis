@@ -172,6 +172,7 @@ final class DispatchService
                         $notificationBody,
                         [
                             'type' => 'incident_preannouncement',
+                            'action_mode' => 'availability',
                             'incident_id' => (string) $incident->id,
                             'dispatch_id' => (string) $dispatch->id,
                         ],
@@ -394,28 +395,54 @@ final class DispatchService
 
     public function respond(DispatchRequest $dispatch, User $actor, string $response, ?string $note): DispatchRecipient
     {
+        $isPreannouncement = $dispatch->status === 'draft';
         $recipient = $dispatch->recipients()->where('user_id', $actor->id)->firstOrFail();
-        $recipient->update(['response_status' => $response, 'response_note' => $note, 'responded_at' => now()]);
-        $this->auditService->record('dispatch.responded', $dispatch, $actor, ['response' => $response]);
+        $recipient->update([
+            'response_status' => $response,
+            'response_note' => $note ?? $this->defaultResponseNote($response, $isPreannouncement),
+            'responded_at' => now(),
+        ]);
+        $this->auditService->record('dispatch.responded', $dispatch, $actor, [
+            'response' => $response,
+            'action_mode' => $isPreannouncement ? 'availability' : 'attendance',
+        ]);
         $this->syncResponseToUserDevices($dispatch, $actor, $response);
         $this->broadcastDispatchChange($dispatch->refresh(), 'responded');
-        if ($response === 'accepted') {
+        if (! $isPreannouncement && $response === 'accepted') {
             $this->transitionIncidentToInProgressWhenEveryoneOnScene($dispatch->refresh(), $actor);
         }
 
         return $recipient;
     }
 
+    private function defaultResponseNote(string $response, bool $isPreannouncement): ?string
+    {
+        if (! $isPreannouncement) {
+            return null;
+        }
+
+        return match ($response) {
+            'accepted' => 'Beschikbaar voor eventuele inzet.',
+            'declined' => 'Niet beschikbaar voor eventuele inzet.',
+            default => null,
+        };
+    }
+
     private function syncResponseToUserDevices(DispatchRequest $dispatch, User $actor, string $response): void
     {
+        $actionMode = $dispatch->status === 'draft' ? 'availability' : 'attendance';
+        $title = $actionMode === 'availability' ? 'D.I.S beschikbaarheid bijgewerkt' : 'D.I.S alarmering bijgewerkt';
+        $body = $actionMode === 'availability' ? 'Je beschikbaarheid is verwerkt.' : 'Je reactie is verwerkt.';
+
         foreach ($actor->fcmTokens()->where('is_active', true)->get() as $token) {
             SendFcmNotification::dispatch(
                 (string) $token->id,
                 'dispatch_response_sync',
-                'D.I.S alarmering bijgewerkt',
-                'Je reactie is verwerkt.',
+                $title,
+                $body,
                 [
                     'type' => 'dispatch_response_sync',
+                    'action_mode' => $actionMode,
                     'dispatch_id' => (string) $dispatch->id,
                     'incident_id' => (string) $dispatch->incident_id,
                     'response' => $response,
@@ -443,7 +470,7 @@ final class DispatchService
             'response' => $response,
         ]);
         $this->broadcastDispatchChange($dispatch->refresh(), 'recipient_response_overridden');
-        if ($response === 'accepted') {
+        if ($dispatch->status !== 'draft' && $response === 'accepted') {
             $this->transitionIncidentToInProgressWhenEveryoneOnScene($dispatch->refresh(), $actor);
         }
 

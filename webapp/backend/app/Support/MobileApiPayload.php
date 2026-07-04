@@ -168,6 +168,7 @@ final class MobileApiPayload
             'incident_id' => $dispatch->incident_id,
             'target_team_id' => $dispatch->target_team_id,
             'status' => $dispatch->status,
+            'action_mode' => $dispatch->status === 'draft' ? 'availability' : 'attendance',
             'priority' => $dispatch->priority,
             'message' => $dispatch->message,
             'sent_at' => self::dateTime($dispatch->sent_at),
