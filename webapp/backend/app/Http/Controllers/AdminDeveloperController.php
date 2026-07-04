@@ -183,19 +183,23 @@ final class AdminDeveloperController extends Controller
         $lockPath = $maintenanceDirectory.'/frontend.lock';
         $pagePath = $maintenanceDirectory.'/__dis_maintenance.html';
 
-        if ($enabled) {
-            $this->runArtisanMaintenanceCommand('down', ['--render' => 'errors::503']);
-            $frontendLock = $this->tryWriteFrontendMaintenanceLock($maintenanceDirectory, $pagePath, $lockPath);
-        } else {
-            $this->runArtisanMaintenanceCommand('up');
-            $frontendLock = ! $this->tryDeleteFrontendMaintenanceLock($lockPath) && is_file($lockPath);
+        $scriptSucceeded = $this->runMaintenanceScript($enabled);
+        if (! $scriptSucceeded) {
+            if ($enabled) {
+                $this->runArtisanMaintenanceCommand('down', ['--render' => 'errors::503']);
+                $this->tryWriteFrontendMaintenanceLock($maintenanceDirectory, $pagePath, $lockPath);
+            } else {
+                $this->runArtisanMaintenanceCommand('up');
+                $this->tryDeleteFrontendMaintenanceLock($lockPath);
+            }
         }
 
         $this->auditService->record('system.maintenance_'.($enabled ? 'enabled' : 'disabled').'_developer_api', SystemSetting::class, null, [], null, $request);
 
         return ApiResponse::success([
             'enabled' => $enabled,
-            'frontend_lock' => $frontendLock,
+            'frontend_lock' => is_file($lockPath),
+            'script_succeeded' => $scriptSucceeded,
         ]);
     }
 
@@ -569,6 +573,20 @@ final class AdminDeveloperController extends Controller
         }
 
         Process::run([(new PhpExecutableFinder())->find() ?: PHP_BINARY, ...$arguments]);
+    }
+
+    private function runMaintenanceScript(bool $enabled): bool
+    {
+        $root = realpath(base_path('../..')) ?: base_path('../..');
+        $script = $root.'/scripts/maintenance.sh';
+        if (! is_file($script)) {
+            return false;
+        }
+
+        $bash = is_file('/usr/bin/bash') ? '/usr/bin/bash' : '/bin/bash';
+        $result = Process::run(['sudo', '-n', $bash, $script, $enabled ? 'enable' : 'disable']);
+
+        return $result->successful();
     }
 
     private function tryWriteFrontendMaintenanceLock(string $directory, string $pagePath, string $lockPath): bool
