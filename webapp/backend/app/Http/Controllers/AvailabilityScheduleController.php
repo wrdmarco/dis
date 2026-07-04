@@ -84,6 +84,7 @@ final class AvailabilityScheduleController extends Controller
         $data = $request->validate([
             'starts_at' => ['required', 'date'],
             'ends_at' => ['required', 'date', 'after_or_equal:starts_at'],
+            'day_part' => ['nullable', 'string', 'in:all_day,morning,afternoon,evening'],
             'is_available' => ['required', 'boolean'],
             'note' => ['nullable', 'string', 'max:1000'],
         ]);
@@ -126,6 +127,7 @@ final class AvailabilityScheduleController extends Controller
                 'id' => $override->id,
                 'starts_at' => $override->starts_at?->toDateString(),
                 'ends_at' => $override->ends_at?->toDateString(),
+                'day_part' => $override->day_part ?? 'all_day',
                 'is_available' => (bool) $override->is_available,
                 'note' => $override->note,
             ])

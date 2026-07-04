@@ -10,7 +10,7 @@ final class AvailabilityOverride extends Model
 {
     use UsesUlids;
 
-    protected $fillable = ['user_id', 'starts_at', 'ends_at', 'is_available', 'note', 'created_by'];
+    protected $fillable = ['user_id', 'starts_at', 'ends_at', 'day_part', 'is_available', 'note', 'created_by'];
 
     protected function casts(): array
     {

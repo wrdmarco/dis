@@ -669,7 +669,7 @@ function AvailabilityOverrideList({ schedule, saving, onDelete }: { schedule: Av
             <article className="recipient-row" key={override.id}>
               <div className="recipient-row__identity">
                 <strong>{override.is_available ? 'Beschikbaar' : 'Niet beschikbaar'}</strong>
-                <span>{formatDate(override.starts_at)} t/m {formatDate(override.ends_at)}</span>
+                <span>{formatDate(override.starts_at)} t/m {formatDate(override.ends_at)} · {availabilityDayPartLabel(override.day_part)}</span>
                 {override.note ? <small>{override.note}</small> : null}
               </div>
               <button className="danger-button" type="button" onClick={() => void onDelete(override.id)} disabled={saving}>
@@ -885,7 +885,7 @@ function shortDateLabel(value: string): string {
 }
 
 function availabilityForDate(schedule: AvailabilitySchedule, dateValue: string): { is_available: boolean; source: string } {
-  const override = schedule.overrides.find((candidate) => dateInRange(dateValue, candidate));
+  const override = schedule.overrides.find((candidate) => dateInRange(dateValue, candidate) && (candidate.day_part ?? 'all_day') === 'all_day');
   if (override !== undefined) {
     return { is_available: override.is_available, source: 'override' };
   }
@@ -902,6 +902,20 @@ function availabilityForDate(schedule: AvailabilitySchedule, dateValue: string):
     is_available: pattern?.is_available ?? true,
     source: pattern?.source ?? 'default',
   };
+}
+
+function availabilityDayPartLabel(dayPart: AvailabilityOverride['day_part']): string {
+  switch (dayPart ?? 'all_day') {
+    case 'morning':
+      return 'Ochtend';
+    case 'afternoon':
+      return 'Middag';
+    case 'evening':
+      return 'Avond';
+    case 'all_day':
+    default:
+      return 'Hele dag';
+  }
 }
 
 function dateInRange(dateValue: string, override: AvailabilityOverride): boolean {

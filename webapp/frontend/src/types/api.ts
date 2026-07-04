@@ -280,6 +280,7 @@ export interface AvailabilityOverride {
   user_id: string;
   starts_at: string;
   ends_at: string;
+  day_part?: 'all_day' | 'morning' | 'afternoon' | 'evening';
   is_available: boolean;
   note?: string | null;
 }
