@@ -11,7 +11,10 @@ use Illuminate\Support\Facades\DB;
 
 final class AvailabilityScheduleService
 {
-    public function __construct(private readonly AuditService $auditService) {}
+    public function __construct(
+        private readonly AuditService $auditService,
+        private readonly StatusService $statusService,
+    ) {}
 
     public function isAvailable(User $user, ?CarbonImmutable $date = null): bool
     {
@@ -83,6 +86,8 @@ final class AvailabilityScheduleService
                 ])->values()->all(),
             ]);
 
+            $this->syncCurrentStatusForToday($user, $actor);
+
             return $records;
         });
     }
@@ -106,6 +111,7 @@ final class AvailabilityScheduleService
             'ends_at' => $override->ends_at?->toDateString(),
             'is_available' => $override->is_available,
         ]);
+        $this->syncCurrentStatusForToday($user, $actor);
 
         return $override;
     }
@@ -121,6 +127,32 @@ final class AvailabilityScheduleService
         $override->delete();
         if ($user !== null) {
             $this->auditService->record('availability.override_deleted', $user, $actor, $metadata);
+            $this->syncCurrentStatusForToday($user, $actor);
         }
+    }
+
+    private function syncCurrentStatusForToday(User $user, User $actor): void
+    {
+        $availability = $this->availabilityFor($user);
+        $latestStatus = $user->statuses()
+            ->orderByDesc('effective_at')
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($latestStatus !== null && ! in_array($latestStatus->status, ['available', 'unavailable'], true)) {
+            return;
+        }
+
+        $targetStatus = $availability['is_available'] ? 'available' : 'unavailable';
+        if ($latestStatus?->status === $targetStatus) {
+            return;
+        }
+
+        $reason = $availability['source'] === 'override'
+            ? 'Automatisch bijgewerkt vanuit dagplanning beschikbaarheid.'
+            : 'Automatisch bijgewerkt vanuit vast beschikbaarheidspatroon.';
+
+        $this->statusService->setStatus($user, $targetStatus, $actor, $reason, true);
     }
 }
