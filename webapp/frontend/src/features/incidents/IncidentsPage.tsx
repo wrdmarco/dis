@@ -448,14 +448,8 @@ export function IncidentForm(props: {
         suggestions={locationSuggestions}
         onChange={onChange}
       />
-      <label>
-        Latitude
-        <input type="number" step="any" min="-90" max="90" value={form.latitude} onChange={(event) => updateForm(onChange, 'latitude', event.target.value)} />
-      </label>
-      <label>
-        Longitude
-        <input type="number" step="any" min="-180" max="180" value={form.longitude} onChange={(event) => updateForm(onChange, 'longitude', event.target.value)} />
-      </label>
+      <input type="hidden" name="latitude" value={form.latitude} />
+      <input type="hidden" name="longitude" value={form.longitude} />
       <label className="form-grid__wide">
         Coordinator
         <select value={form.coordinatorId} onChange={(event) => updateForm(onChange, 'coordinatorId', event.target.value)}>
