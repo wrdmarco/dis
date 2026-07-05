@@ -11,7 +11,7 @@ use Illuminate\Validation\ValidationException;
 final class PilotIncidentReportFormService
 {
     public const SETTING_KEY = 'pilot_report.form_fields';
-    private const CUSTOM_KEY_PATTERN = '/^custom_[a-z0-9_]{2,40}$/';
+    private const FIELD_KEY_PATTERN = '/^[a-z][a-z0-9_]{1,60}$/';
     private const FIELD_TYPES = ['text', 'textarea', 'number', 'select', 'checkbox', 'radio'];
     private const OPTION_SOURCES = ['manual', 'user_drones'];
 
@@ -21,30 +21,13 @@ final class PilotIncidentReportFormService
     public function fields(?User $user = null): array
     {
         $setting = SystemSetting::query()->where('key', self::SETTING_KEY)->first();
-        if ($setting === null) {
-            return $this->defaultFields();
-        }
+        $fields = $setting === null || ! is_array($setting->value)
+            ? $this->defaultFields()
+            : $setting->value;
 
-        $stored = is_array($setting->value) ? $setting->value : [];
-        $defaults = collect($this->defaultFields())->keyBy('key');
-
-        return collect($stored)
+        return collect($fields)
             ->filter(fn (mixed $field): bool => is_array($field))
-            ->map(function (array $field) use ($defaults): array {
-                $key = (string) ($field['key'] ?? '');
-                $default = $defaults->get($key);
-                if ($default === null) {
-                    return $this->normalizeCustomField($field);
-                }
-
-                return [
-                    ...$default,
-                    'label' => $this->cleanLabel($field['label'] ?? $default['label']),
-                    'visible' => is_bool($field['visible'] ?? null) ? $field['visible'] : $default['visible'],
-                    'required' => is_bool($field['required'] ?? null) ? $field['required'] : $default['required'],
-                    'is_custom' => false,
-                ];
-            })
+            ->map(fn (array $field): array => $this->normalizeField($field))
             ->map(fn (array $field): array => $this->withResolvedOptions($field, $user))
             ->values()
             ->all();
@@ -56,7 +39,6 @@ final class PilotIncidentReportFormService
      */
     public function validateFields(array $fields): array
     {
-        $defaults = collect($this->defaultFields())->keyBy('key');
         $seen = [];
         $validated = [];
 
@@ -66,39 +48,16 @@ final class PilotIncidentReportFormService
             }
 
             $key = (string) ($field['key'] ?? '');
-            $default = $defaults->get($key);
-
             if (isset($seen[$key])) {
                 throw ValidationException::withMessages(["fields.$index.key" => ['Dubbel inzetrapport veld.']]);
             }
             $seen[$key] = true;
 
-            if ($default === null) {
-                if (! $this->isCustomKey($key)) {
-                    throw ValidationException::withMessages(["fields.$index.key" => ['Extra veld sleutel moet beginnen met custom_ en alleen kleine letters, cijfers en underscores bevatten.']]);
-                }
-
-                $validated[] = $this->normalizeCustomField($field, $index);
-                continue;
-            }
-
-            $visible = filter_var($field['visible'] ?? $default['visible'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-            $required = filter_var($field['required'] ?? $default['required'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-            $visible = $visible ?? $default['visible'];
-            $required = $required ?? $default['required'];
-
-            $validated[] = [
-                ...$default,
-                'label' => $this->cleanLabel($field['label'] ?? $default['label']),
-                'visible' => $visible,
-                'required' => $visible && $required,
-                'option_source' => 'manual',
-                'is_custom' => false,
-            ];
+            $validated[] = $this->normalizeField($field, $index);
         }
 
         if (! collect($validated)->contains(fn (array $field): bool => $field['visible'])) {
-            throw ValidationException::withMessages(['fields' => ['Minimaal één zichtbaar veld moet verplicht zijn.']]);
+            throw ValidationException::withMessages(['fields' => ['Minimaal een veld moet zichtbaar zijn.']]);
         }
 
         return $validated;
@@ -119,8 +78,8 @@ final class PilotIncidentReportFormService
             }
 
             $fieldRules = [];
-            $fieldRules[] = $field['visible'] && $field['required'] ? 'required' : 'nullable';
-            $target = ($field['is_custom'] ?? false) === true ? 'custom_fields.'.$field['key'] : $field['key'];
+            $fieldRules[] = $field['required'] === true ? 'required' : 'nullable';
+            $target = 'custom_fields.'.$field['key'];
 
             if ($field['type'] === 'number') {
                 $fieldRules[] = 'integer';
@@ -155,7 +114,7 @@ final class PilotIncidentReportFormService
 
         $values = [];
         foreach ($this->fields() as $field) {
-            if (($field['is_custom'] ?? false) !== true || ($field['visible'] ?? true) !== true) {
+            if (($field['visible'] ?? true) !== true) {
                 continue;
             }
 
@@ -180,35 +139,30 @@ final class PilotIncidentReportFormService
     }
 
     /**
-     * @return array<int, array{key: string, label: string, type: string, visible: bool, required: bool, max_length?: int, max?: int}>
+     * @return array<int, array<string, mixed>>
      */
     public function defaultFields(): array
     {
         return [
-            ['key' => 'summary', 'label' => 'Samenvatting', 'type' => 'textarea', 'visible' => true, 'required' => true, 'max_length' => 5000, 'option_source' => 'manual', 'is_custom' => false],
-            ['key' => 'observations', 'label' => 'Waarnemingen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'option_source' => 'manual', 'is_custom' => false],
-            ['key' => 'actions_taken', 'label' => 'Uitgevoerde acties', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'option_source' => 'manual', 'is_custom' => false],
-            ['key' => 'result', 'label' => 'Resultaat', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'option_source' => 'manual', 'is_custom' => false],
-            ['key' => 'equipment_used', 'label' => 'Gebruikte middelen', 'type' => 'text', 'visible' => true, 'required' => false, 'max_length' => 5000, 'option_source' => 'manual', 'is_custom' => false],
-            ['key' => 'flight_minutes', 'label' => 'Vluchtduur in minuten', 'type' => 'number', 'visible' => true, 'required' => false, 'max' => 1440, 'option_source' => 'manual', 'is_custom' => false],
-            ['key' => 'issues', 'label' => 'Bijzonderheden of problemen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'option_source' => 'manual', 'is_custom' => false],
+            ['key' => 'summary', 'label' => 'Samenvatting', 'type' => 'textarea', 'visible' => true, 'required' => true, 'max_length' => 5000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
+            ['key' => 'observations', 'label' => 'Waarnemingen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
+            ['key' => 'actions_taken', 'label' => 'Uitgevoerde acties', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
+            ['key' => 'result', 'label' => 'Resultaat', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
+            ['key' => 'equipment_used', 'label' => 'Gebruikte middelen', 'type' => 'text', 'visible' => true, 'required' => false, 'max_length' => 5000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
+            ['key' => 'flight_minutes', 'label' => 'Vluchtduur in minuten', 'type' => 'number', 'visible' => true, 'required' => false, 'max_length' => 1000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
+            ['key' => 'issues', 'label' => 'Bijzonderheden of problemen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
         ];
-    }
-
-    private function isCustomKey(string $key): bool
-    {
-        return preg_match(self::CUSTOM_KEY_PATTERN, $key) === 1;
     }
 
     /**
      * @param array<string, mixed> $field
      * @return array<string, mixed>
      */
-    private function normalizeCustomField(array $field, ?int $index = null): array
+    private function normalizeField(array $field, ?int $index = null): array
     {
         $key = (string) ($field['key'] ?? '');
-        if (! $this->isCustomKey($key)) {
-            throw ValidationException::withMessages([$index === null ? 'fields.key' : "fields.$index.key" => ['Extra veld sleutel is ongeldig.']]);
+        if (preg_match(self::FIELD_KEY_PATTERN, $key) !== 1) {
+            throw ValidationException::withMessages([$index === null ? 'fields.key' : "fields.$index.key" => ['Veldsleutel moet beginnen met een kleine letter en mag alleen kleine letters, cijfers en underscores bevatten.']]);
         }
 
         $type = (string) ($field['type'] ?? 'text');
@@ -219,7 +173,6 @@ final class PilotIncidentReportFormService
         $visible = filter_var($field['visible'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true;
         $required = filter_var($field['required'] ?? false, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? false;
         $optionSource = $this->cleanOptionSource($field['option_source'] ?? 'manual', $type);
-        $options = $this->cleanOptions($field['options'] ?? [], $type, $optionSource, $index);
 
         return [
             'key' => $key,
@@ -230,14 +183,11 @@ final class PilotIncidentReportFormService
             'max_length' => $type === 'textarea' ? 5000 : 1000,
             'max' => 1440,
             'option_source' => $optionSource,
-            'options' => $options,
+            'options' => $this->cleanOptions($field['options'] ?? [], $type, $optionSource, $index),
             'is_custom' => true,
         ];
     }
 
-    /**
-     * @return array<int, array{label: string, value: string}>
-     */
     private function cleanOptionSource(mixed $source, string $type): string
     {
         if (! in_array($type, ['select', 'radio'], true)) {
@@ -254,11 +204,7 @@ final class PilotIncidentReportFormService
      */
     private function cleanOptions(mixed $options, string $type, string $optionSource, ?int $index): array
     {
-        if (! in_array($type, ['select', 'radio'], true)) {
-            return [];
-        }
-
-        if ($optionSource !== 'manual') {
+        if (! in_array($type, ['select', 'radio'], true) || $optionSource !== 'manual') {
             return [];
         }
 
@@ -308,7 +254,6 @@ final class PilotIncidentReportFormService
             return $field + ['option_source' => 'manual', 'options' => []];
         }
 
-        $field['option_source'] = $this->cleanOptionSource($field['option_source'] ?? 'manual', (string) $field['type']);
         $field['options'] = $this->resolvedOptions($field, $user);
 
         return $field;
@@ -347,7 +292,6 @@ final class PilotIncidentReportFormService
     private function cleanLabel(mixed $label): string
     {
         $value = trim(is_string($label) ? $label : '');
-
         if ($value === '') {
             throw ValidationException::withMessages(['fields.label' => ['Label is verplicht.']]);
         }

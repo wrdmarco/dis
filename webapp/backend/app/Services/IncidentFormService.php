@@ -9,7 +9,7 @@ use Illuminate\Validation\ValidationException;
 final class IncidentFormService
 {
     public const SETTING_KEY = 'incident.form_fields';
-    private const CUSTOM_KEY_PATTERN = '/^custom_[a-z0-9_]{2,40}$/';
+    private const FIELD_KEY_PATTERN = '/^[a-z][a-z0-9_]{1,60}$/';
     private const FIELD_TYPES = ['text', 'textarea', 'number', 'select', 'checkbox', 'radio'];
 
     /**
@@ -135,8 +135,8 @@ final class IncidentFormService
     private function normalizeField(array $field, ?int $index = null): array
     {
         $key = (string) ($field['key'] ?? '');
-        if (preg_match(self::CUSTOM_KEY_PATTERN, $key) !== 1) {
-            throw ValidationException::withMessages([$index === null ? 'fields.key' : "fields.$index.key" => ['Extra veld sleutel moet beginnen met custom_ en alleen kleine letters, cijfers en underscores bevatten.']]);
+        if (preg_match(self::FIELD_KEY_PATTERN, $key) !== 1) {
+            throw ValidationException::withMessages([$index === null ? 'fields.key' : "fields.$index.key" => ['Veldsleutel moet beginnen met een kleine letter en mag alleen kleine letters, cijfers en underscores bevatten.']]);
         }
 
         $type = (string) ($field['type'] ?? 'text');
