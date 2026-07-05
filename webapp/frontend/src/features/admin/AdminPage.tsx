@@ -1451,6 +1451,12 @@ function ConfigurableFormEditor(props: {
                       Beschikbaar in pushmelding
                     </label>
                   ) : null}
+                  {field.type !== 'section' ? (
+                    <label className="check-label">
+                      <input type="checkbox" checked={field.available_in_operator_app ?? true} disabled={field.locked === true} onChange={(event) => onUpdate(field.key, { available_in_operator_app: event.target.checked })} />
+                      Beschikbaar in operator-app
+                    </label>
+                  ) : null}
                   {['select', 'radio'].includes(field.type) ? (
                     <div className="form-builder-card__options">
                       <label>
@@ -1698,6 +1704,7 @@ function newCustomFormField(fields: ConfigurableFormField[]): ConfigurableFormFi
     option_source: 'manual',
     options: [],
     expose_to_push: true,
+    available_in_operator_app: true,
     is_custom: true,
   };
 }

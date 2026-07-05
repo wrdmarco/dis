@@ -561,6 +561,7 @@ export interface ConfigurableFormField {
   section?: string | null;
   locked?: boolean;
   expose_to_push?: boolean;
+  available_in_operator_app?: boolean;
   is_custom?: boolean;
 }
 

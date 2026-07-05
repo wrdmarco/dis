@@ -64,7 +64,7 @@ export function ReportsPage() {
 
     try {
       const [configResponse, reportResponse] = await Promise.all([
-        api.get<PilotReportFormConfig>(`/pilot-report/form-config?user_id=${encodeURIComponent(user.user_id)}`),
+        api.get<PilotReportFormConfig>(`/pilot-report/form-config?target=web&user_id=${encodeURIComponent(user.user_id)}`),
         api.get<PilotIncidentReport>(`/incidents/${incident.id}/pilot-reports/${user.user_id}`),
       ]);
       setAdminReportFields(configResponse.data.fields);

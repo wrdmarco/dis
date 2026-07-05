@@ -14,11 +14,13 @@ final class IncidentFormController extends Controller
         private readonly IncidentFormService $formService,
     ) {}
 
-    public function show(): JsonResponse
+    public function show(Request $request): JsonResponse
     {
+        $target = (string) $request->query('target', $request->is('api/admin/*') ? 'web' : 'operator');
+
         return ApiResponse::success([
-            'fields' => $this->formService->fields(),
-            'layout' => $this->formService->layout(),
+            'fields' => $this->formService->fields(operatorOnly: $target === 'operator'),
+            'layout' => $target === 'operator' ? [] : $this->formService->layout(),
         ]);
     }
 
@@ -41,6 +43,6 @@ final class IncidentFormController extends Controller
             ['value' => $layout, 'is_sensitive' => false, 'updated_by' => $request->user()?->id],
         );
 
-        return $this->show();
+        return $this->show($request);
     }
 }

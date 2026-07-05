@@ -70,7 +70,7 @@ export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) 
   const incidents = useApiResource<Incident[]>(incidentListPath(mode));
   const users = useApiResource<User[]>('/users?per_page=200');
   const teams = useApiResource<Team[]>('/teams');
-  const incidentFormConfig = useApiResource<IncidentFormConfig>('/incident-form/config');
+  const incidentFormConfig = useApiResource<IncidentFormConfig>('/incident-form/config?target=web');
   const [form, setForm] = useState<IncidentFormState>(emptyIncidentForm);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);

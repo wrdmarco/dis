@@ -16,17 +16,22 @@ final class IncidentFormService
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function fields(): array
+    public function fields(bool $operatorOnly = false): array
     {
         $stored = SystemSetting::value(self::SETTING_KEY, null);
         $fields = is_array($stored) && $stored !== [] ? $stored : $this->defaultFields();
 
-        return $this->withRequiredDefaultFields(collect($fields)
+        $fields = $this->withRequiredDefaultFields(collect($fields)
             ->filter(fn (mixed $field): bool => is_array($field))
             ->map(fn (array $field): array => $this->normalizeField($field))
             ->values())
-            ->values()
-            ->all();
+            ->values();
+
+        if ($operatorOnly) {
+            $fields = $fields->filter(fn (array $field): bool => ($field['available_in_operator_app'] ?? true) === true);
+        }
+
+        return $fields->values()->all();
     }
 
     /**
@@ -195,6 +200,7 @@ final class IncidentFormService
             'section' => $this->cleanSection($field['section'] ?? null),
             'locked' => $this->isRequiredDefaultField($key),
             'expose_to_push' => filter_var($field['expose_to_push'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true,
+            'available_in_operator_app' => filter_var($field['available_in_operator_app'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true,
             'is_custom' => true,
         ];
     }
@@ -205,14 +211,14 @@ final class IncidentFormService
     private function defaultFields(): array
     {
         return [
-            ['key' => 'reporter_name', 'label' => 'Naam melder', 'type' => 'text', 'visible' => true, 'required' => true, 'width' => 'half', 'expose_to_push' => true],
-            ['key' => 'reporter_phone', 'label' => 'Telefoonnummer melder', 'type' => 'text', 'visible' => true, 'required' => true, 'width' => 'half', 'expose_to_push' => false],
-            ['key' => 'requesting_organization', 'label' => 'Aanvragende organisatie', 'type' => 'text', 'visible' => true, 'required' => true, 'width' => 'full', 'expose_to_push' => true],
-            ['key' => 'requesting_unit', 'label' => 'Dienst / eenheid', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => true],
-            ['key' => 'on_scene_contact_name', 'label' => 'Contact ter plaatse', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => false],
-            ['key' => 'on_scene_contact_phone', 'label' => 'Telefoon ter plaatse', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => false],
-            ['key' => 'on_scene_contact_role', 'label' => 'Functie / rol contactpersoon', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => false],
-            ['key' => 'required_resources', 'label' => 'Benodigde middelen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'width' => 'full', 'expose_to_push' => true],
+            ['key' => 'reporter_name', 'label' => 'Naam melder', 'type' => 'text', 'visible' => true, 'required' => true, 'width' => 'half', 'expose_to_push' => true, 'available_in_operator_app' => true],
+            ['key' => 'reporter_phone', 'label' => 'Telefoonnummer melder', 'type' => 'text', 'visible' => true, 'required' => true, 'width' => 'half', 'expose_to_push' => false, 'available_in_operator_app' => true],
+            ['key' => 'requesting_organization', 'label' => 'Aanvragende organisatie', 'type' => 'text', 'visible' => true, 'required' => true, 'width' => 'full', 'expose_to_push' => true, 'available_in_operator_app' => true],
+            ['key' => 'requesting_unit', 'label' => 'Dienst / eenheid', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => true, 'available_in_operator_app' => true],
+            ['key' => 'on_scene_contact_name', 'label' => 'Contact ter plaatse', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => false, 'available_in_operator_app' => false],
+            ['key' => 'on_scene_contact_phone', 'label' => 'Telefoon ter plaatse', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => false, 'available_in_operator_app' => false],
+            ['key' => 'on_scene_contact_role', 'label' => 'Functie / rol contactpersoon', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => false, 'available_in_operator_app' => false],
+            ['key' => 'required_resources', 'label' => 'Benodigde middelen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'width' => 'full', 'expose_to_push' => true, 'available_in_operator_app' => true],
         ];
     }
 
@@ -233,6 +239,7 @@ final class IncidentFormService
             $current['visible'] = true;
             $current['required'] = true;
             $current['locked'] = true;
+            $current['available_in_operator_app'] = true;
             $byKey->put($field['key'], $current);
         }
 

@@ -18,19 +18,24 @@ final class PilotIncidentReportFormService
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function fields(?User $user = null): array
+    public function fields(?User $user = null, bool $operatorOnly = false): array
     {
         $setting = SystemSetting::query()->where('key', self::SETTING_KEY)->first();
         $fields = $setting === null || ! is_array($setting->value)
             ? $this->defaultFields()
             : $setting->value;
 
-        return collect($fields)
+        $fields = collect($fields)
             ->filter(fn (mixed $field): bool => is_array($field))
             ->map(fn (array $field): array => $this->normalizeField($field))
             ->map(fn (array $field): array => $this->withResolvedOptions($field, $user))
-            ->values()
-            ->all();
+            ->values();
+
+        if ($operatorOnly) {
+            $fields = $fields->filter(fn (array $field): bool => ($field['available_in_operator_app'] ?? true) === true);
+        }
+
+        return $fields->values()->all();
     }
 
     /**
@@ -198,6 +203,7 @@ final class PilotIncidentReportFormService
             'options' => $this->cleanOptions($field['options'] ?? [], $type, $optionSource, $index),
             'width' => $this->cleanWidth($field['width'] ?? null, $type),
             'section' => $this->cleanSection($field['section'] ?? null),
+            'available_in_operator_app' => filter_var($field['available_in_operator_app'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true,
             'is_custom' => true,
         ];
     }

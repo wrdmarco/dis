@@ -31,7 +31,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const internalNotes = useApiResource<IncidentInternalNotes>(`/incidents/${incidentId}/internal-notes`, Boolean(incidentId) && hasPermission('incidents.manage'));
   const users = useApiResource<User[]>('/users?per_page=200');
   const teams = useApiResource<Team[]>('/teams');
-  const incidentFormConfig = useApiResource<IncidentFormConfig>('/incident-form/config');
+  const incidentFormConfig = useApiResource<IncidentFormConfig>('/incident-form/config?target=web');
   const [editForm, setEditForm] = useState<IncidentFormState | null>(null);
   const [statusReason, setStatusReason] = useState('');
   const [editModalOpen, setEditModalOpen] = useState(false);

@@ -26,7 +26,9 @@ final class PilotIncidentReportController extends Controller
             $targetUser = User::query()->findOrFail((string) $request->query('user_id'));
         }
 
-        return ApiResponse::success(['fields' => $this->formService->fields($targetUser)]);
+        $target = (string) $request->query('target', $request->is('api/admin/*') ? 'web' : 'operator');
+
+        return ApiResponse::success(['fields' => $this->formService->fields($targetUser, operatorOnly: $target === 'operator')]);
     }
 
     public function updateFormConfig(Request $request): JsonResponse
