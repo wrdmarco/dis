@@ -18,6 +18,7 @@ final class Incident extends Model
         'reference',
         'title',
         'description',
+        'internal_notes',
         'reporter_name',
         'reporter_phone',
         'requesting_organization',

@@ -225,6 +225,24 @@ final class IncidentController extends Controller
         );
     }
 
+    public function internalNotes(Incident $incident): JsonResponse
+    {
+        return ApiResponse::success($this->service->internalNotes($incident));
+    }
+
+    public function updateInternalNotes(Request $request, Incident $incident): JsonResponse
+    {
+        $data = $request->validate([
+            'internal_notes' => ['nullable', 'string', 'max:20000'],
+        ]);
+
+        return ApiResponse::success($this->service->updateInternalNotes(
+            $incident,
+            $request->user(),
+            $data['internal_notes'] ?? null,
+        ));
+    }
+
     public function destroy(Request $request, Incident $incident): Response
     {
         $this->service->delete($incident, $request->user());

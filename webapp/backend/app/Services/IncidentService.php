@@ -184,6 +184,40 @@ final class IncidentService
         return $this->update($incident, ['status' => 'cancelled', 'closed_at' => now(), 'status_reason' => $reason], $actor);
     }
 
+    /**
+     * @return array{internal_notes: string|null, updated_at: string|null}
+     */
+    public function internalNotes(Incident $incident): array
+    {
+        return [
+            'internal_notes' => $incident->internal_notes,
+            'updated_at' => $incident->updated_at?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @return array{internal_notes: string|null, updated_at: string|null}
+     */
+    public function updateInternalNotes(Incident $incident, User $actor, ?string $notes): array
+    {
+        if (in_array($incident->status, ['resolved', 'cancelled'], true)) {
+            throw ValidationException::withMessages([
+                'internal_notes' => ['Kladblokregels kunnen alleen op een actief incident worden aangepast.'],
+            ]);
+        }
+
+        $notes = trim((string) $notes);
+        $incident->forceFill(['internal_notes' => $notes === '' ? null : $notes])->save();
+
+        $this->auditService->record('incidents.internal_notes_updated', $incident, $actor, [
+            'reference' => $incident->reference,
+            'has_internal_notes' => $notes !== '',
+        ]);
+        $this->broadcastIncidentChange($incident->refresh(), 'internal_notes_updated');
+
+        return $this->internalNotes($incident);
+    }
+
     public function delete(Incident $incident, User $actor): void
     {
         DB::transaction(function () use ($incident, $actor): void {

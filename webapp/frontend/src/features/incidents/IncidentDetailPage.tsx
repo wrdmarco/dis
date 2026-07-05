@@ -10,7 +10,7 @@ import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { DispatchPreview, DispatchRequest, DroneFlightContext, Incident, IncidentFormConfig, IncidentLiveLocation, IncidentTimelineItem, ReportIncident, Team, User } from '../../types/api';
+import type { DispatchPreview, DispatchRequest, DroneFlightContext, Incident, IncidentFormConfig, IncidentInternalNotes, IncidentLiveLocation, IncidentTimelineItem, ReportIncident, Team, User } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 import { IncidentForm, type IncidentFormState, incidentPayload } from './IncidentsPage';
 
@@ -28,6 +28,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const liveLocations = useApiResource<IncidentLiveLocation[]>(`/incidents/${incidentId}/live-locations`, Boolean(incidentId));
   const timeline = useApiResource<IncidentTimelineItem[]>(`/incidents/${incidentId}/timeline`, Boolean(incidentId));
   const reportIncidents = useApiResource<ReportIncident[]>('/reports/incidents?limit=100', Boolean(incidentId));
+  const internalNotes = useApiResource<IncidentInternalNotes>(`/incidents/${incidentId}/internal-notes`, Boolean(incidentId) && hasPermission('incidents.manage'));
   const users = useApiResource<User[]>('/users?per_page=200');
   const teams = useApiResource<Team[]>('/teams');
   const incidentFormConfig = useApiResource<IncidentFormConfig>('/incident-form/config');
@@ -42,6 +43,9 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const [additionalInfo, setAdditionalInfo] = useState('');
   const [additionalInfoSending, setAdditionalInfoSending] = useState(false);
   const [additionalInfoMessage, setAdditionalInfoMessage] = useState<string | null>(null);
+  const [internalNotesText, setInternalNotesText] = useState('');
+  const [internalNotesSaving, setInternalNotesSaving] = useState(false);
+  const [internalNotesMessage, setInternalNotesMessage] = useState<string | null>(null);
   const [dispatchAction, setDispatchAction] = useState<'escalate' | 'realert' | null>(null);
   const [dispatchActionMessage, setDispatchActionMessage] = useState<string | null>(null);
   const [escalationModalOpen, setEscalationModalOpen] = useState(false);
@@ -102,6 +106,10 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
 
     return () => window.clearInterval(timer);
   }, [incident.data?.status, incidentId, liveLocations.silentReload]);
+
+  useEffect(() => {
+    setInternalNotesText(internalNotes.data?.internal_notes ?? '');
+  }, [internalNotes.data?.internal_notes]);
 
   function openEditModal() {
     if (incident.data !== undefined && incident.data !== null) {
@@ -211,6 +219,24 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
       setAdditionalInfoMessage(err instanceof ApiClientError ? err.message : 'Nadere info kon niet worden verzonden.');
     } finally {
       setAdditionalInfoSending(false);
+    }
+  };
+
+  const saveInternalNotes = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setInternalNotesSaving(true);
+    setInternalNotesMessage(null);
+    try {
+      const response = await api.patch<IncidentInternalNotes>(`/incidents/${incidentId}/internal-notes`, {
+        internal_notes: internalNotesText,
+      });
+      internalNotes.mutate(response.data);
+      setInternalNotesMessage('Kladblokregels opgeslagen.');
+      await timeline.silentReload();
+    } catch (err) {
+      setInternalNotesMessage(err instanceof ApiClientError ? err.message : 'Kladblokregels konden niet worden opgeslagen.');
+    } finally {
+      setInternalNotesSaving(false);
     }
   };
 
@@ -476,6 +502,31 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
           ) : null}
         </ResourceState>
       </Panel>
+
+      {canManageIncidents && incident.data && !['resolved', 'cancelled'].includes(incident.data.status) ? (
+        <Panel title="Meldkamer kladblok">
+          <ResourceState loading={internalNotes.loading} error={internalNotes.error} empty={false}>
+            <form className="panel-body" onSubmit={saveInternalNotes}>
+              <label>
+                Interne vrije tekst
+                <textarea
+                  value={internalNotesText}
+                  rows={6}
+                  maxLength={20000}
+                  onChange={(event) => setInternalNotesText(event.target.value)}
+                  placeholder="Kladblokregels..."
+                />
+              </label>
+              <div className="form-actions">
+                <button className="primary-button" type="submit" disabled={internalNotesSaving}>
+                  <MessageSquare size={16} /> {internalNotesSaving ? 'Opslaan...' : 'Kladblok opslaan'}
+                </button>
+              </div>
+              {internalNotesMessage ? <p className={internalNotesMessage.includes('kon') || internalNotesMessage.includes('alleen') ? 'form-error' : 'form-note'}>{internalNotesMessage}</p> : null}
+            </form>
+          </ResourceState>
+        </Panel>
+      ) : null}
 
       {showDraftPanel && canManageIncidents ? (
         <Panel

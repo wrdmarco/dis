@@ -166,6 +166,11 @@ export interface Incident {
   } | null;
 }
 
+export interface IncidentInternalNotes {
+  internal_notes?: string | null;
+  updated_at?: string | null;
+}
+
 export interface DroneFlightContext {
   generated_at?: string | null;
   location?: {
