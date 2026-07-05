@@ -593,7 +593,7 @@ export interface IncidentFormConfig {
 }
 
 export interface IncidentFormLayoutItem {
-  key: 'incident_details' | 'reporter_request' | 'priority_teams' | 'location' | 'coordinator' | 'resources' | 'drone_context' | 'custom_fields' | string;
+  key: string;
   label: string;
   visible: boolean;
   width?: 'half' | 'full';

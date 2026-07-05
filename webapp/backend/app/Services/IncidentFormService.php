@@ -201,13 +201,33 @@ final class IncidentFormService
     private function defaultLayout(): array
     {
         return [
-            ['key' => 'incident_details', 'label' => 'Incidentgegevens', 'visible' => true, 'width' => 'full'],
-            ['key' => 'reporter_request', 'label' => 'Melder en aanvraag', 'visible' => true, 'width' => 'full'],
-            ['key' => 'priority_teams', 'label' => 'Prioriteit en teams', 'visible' => true, 'width' => 'full'],
-            ['key' => 'location', 'label' => 'Opkomstlocatie', 'visible' => true, 'width' => 'full'],
+            ['key' => 'section_incident', 'label' => 'Sectie: incident', 'visible' => true, 'width' => 'full'],
+            ['key' => 'title', 'label' => 'Titel', 'visible' => true, 'width' => 'full'],
+            ['key' => 'description', 'label' => 'Details', 'visible' => true, 'width' => 'full'],
+            ['key' => 'section_reporter', 'label' => 'Sectie: melder en aanvraag', 'visible' => true, 'width' => 'full'],
+            ['key' => 'reporter_name', 'label' => 'Naam melder', 'visible' => true, 'width' => 'half'],
+            ['key' => 'reporter_phone', 'label' => 'Telefoonnummer melder', 'visible' => true, 'width' => 'half'],
+            ['key' => 'requesting_organization', 'label' => 'Aanvragende organisatie', 'visible' => true, 'width' => 'half'],
+            ['key' => 'requesting_unit', 'label' => 'Dienst / eenheid', 'visible' => true, 'width' => 'half'],
+            ['key' => 'on_scene_contact_name', 'label' => 'Contact ter plaatse', 'visible' => true, 'width' => 'half'],
+            ['key' => 'on_scene_contact_phone', 'label' => 'Telefoon ter plaatse', 'visible' => true, 'width' => 'half'],
+            ['key' => 'on_scene_contact_role', 'label' => 'Functie / rol contactpersoon', 'visible' => true, 'width' => 'full'],
+            ['key' => 'section_dispatch', 'label' => 'Sectie: inzet', 'visible' => true, 'width' => 'full'],
+            ['key' => 'priority', 'label' => 'Prioriteit', 'visible' => true, 'width' => 'half'],
+            ['key' => 'status', 'label' => 'Status', 'visible' => true, 'width' => 'half'],
+            ['key' => 'teams', 'label' => 'Teams', 'visible' => true, 'width' => 'full'],
             ['key' => 'coordinator', 'label' => 'Coordinator', 'visible' => true, 'width' => 'full'],
-            ['key' => 'resources', 'label' => 'Middelen', 'visible' => true, 'width' => 'full'],
-            ['key' => 'drone_context', 'label' => 'Drone vluchtcheck', 'visible' => true, 'width' => 'full'],
+            ['key' => 'section_location', 'label' => 'Sectie: locatie', 'visible' => true, 'width' => 'full'],
+            ['key' => 'location_search', 'label' => 'Adres zoeken', 'visible' => true, 'width' => 'half'],
+            ['key' => 'location_map', 'label' => 'Kaart opkomstlocatie', 'visible' => true, 'width' => 'half'],
+            ['key' => 'section_resources', 'label' => 'Sectie: middelen', 'visible' => true, 'width' => 'full'],
+            ['key' => 'required_resources', 'label' => 'Benodigde middelen', 'visible' => true, 'width' => 'full'],
+            ['key' => 'section_drone', 'label' => 'Sectie: drone vluchtcheck', 'visible' => true, 'width' => 'full'],
+            ['key' => 'drone_status', 'label' => 'Drone vluchtcheck status', 'visible' => true, 'width' => 'full'],
+            ['key' => 'drone_weather', 'label' => 'Weer', 'visible' => true, 'width' => 'half'],
+            ['key' => 'drone_airspace', 'label' => 'Luchtruim', 'visible' => true, 'width' => 'half'],
+            ['key' => 'drone_aeret_link', 'label' => 'Aeret link', 'visible' => true, 'width' => 'full'],
+            ['key' => 'drone_aeret_map', 'label' => 'Aeret kaart', 'visible' => true, 'width' => 'full'],
             ['key' => 'custom_fields', 'label' => 'Extra velden', 'visible' => true, 'width' => 'full'],
         ];
     }
@@ -228,6 +248,72 @@ final class IncidentFormService
             }
 
             $key = (string) ($item['key'] ?? '');
+            if ($key === 'incident_details') {
+                foreach (['section_incident', 'title', 'description'] as $replacementKey) {
+                    if (! isset($seen[$replacementKey])) {
+                        $replacement = $defaults->get($replacementKey);
+                        $seen[$replacementKey] = true;
+                        $normalized[] = $replacement;
+                    }
+                }
+                continue;
+            }
+
+            if ($key === 'reporter_request') {
+                foreach (['section_reporter', 'reporter_name', 'reporter_phone', 'requesting_organization', 'requesting_unit', 'on_scene_contact_name', 'on_scene_contact_phone', 'on_scene_contact_role'] as $replacementKey) {
+                    if (! isset($seen[$replacementKey])) {
+                        $replacement = $defaults->get($replacementKey);
+                        $seen[$replacementKey] = true;
+                        $normalized[] = $replacement;
+                    }
+                }
+                continue;
+            }
+
+            if ($key === 'priority_teams') {
+                foreach (['section_dispatch', 'priority', 'status', 'teams'] as $replacementKey) {
+                    if (! isset($seen[$replacementKey])) {
+                        $replacement = $defaults->get($replacementKey);
+                        $seen[$replacementKey] = true;
+                        $normalized[] = $replacement;
+                    }
+                }
+                continue;
+            }
+
+            if ($key === 'location') {
+                foreach (['section_location', 'location_search', 'location_map'] as $replacementKey) {
+                    if (! isset($seen[$replacementKey])) {
+                        $replacement = $defaults->get($replacementKey);
+                        $seen[$replacementKey] = true;
+                        $normalized[] = $replacement;
+                    }
+                }
+                continue;
+            }
+
+            if ($key === 'resources') {
+                foreach (['section_resources', 'required_resources'] as $replacementKey) {
+                    if (! isset($seen[$replacementKey])) {
+                        $replacement = $defaults->get($replacementKey);
+                        $seen[$replacementKey] = true;
+                        $normalized[] = $replacement;
+                    }
+                }
+                continue;
+            }
+
+            if ($key === 'drone_context') {
+                foreach (['section_drone', 'drone_status', 'drone_weather', 'drone_airspace', 'drone_aeret_link', 'drone_aeret_map'] as $replacementKey) {
+                    if (! isset($seen[$replacementKey])) {
+                        $replacement = $defaults->get($replacementKey);
+                        $seen[$replacementKey] = true;
+                        $normalized[] = $replacement;
+                    }
+                }
+                continue;
+            }
+
             if (! $defaults->has($key) || isset($seen[$key])) {
                 continue;
             }

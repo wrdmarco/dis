@@ -423,13 +423,120 @@ function IncidentFormBlock(props: {
   flightContextError: string | null;
   onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
 }) {
-  const wide = props.item.width !== 'half';
-  const wrapperClass = wide ? 'form-grid__wide form-grid' : 'form-grid';
+  const wideClass = props.item.width === 'half' ? undefined : 'form-grid__wide';
 
   switch (props.item.key) {
+    case 'section_incident':
+      return <FormSectionTitle title="Incidentgegevens" />;
+    case 'title':
+      return (
+        <label className={wideClass}>
+          Titel
+          <input value={props.form.title} maxLength={180} onChange={(event) => updateForm(props.onChange, 'title', event.target.value)} required />
+        </label>
+      );
+    case 'description':
+      return (
+        <label className={wideClass}>
+          Details
+          <textarea value={props.form.description} rows={5} onChange={(event) => updateForm(props.onChange, 'description', event.target.value)} required />
+        </label>
+      );
+    case 'section_reporter':
+      return <FormSectionTitle title="Melder en aanvraag" />;
+    case 'reporter_name':
+      return <label className={wideClass}>Naam melder<input value={props.form.reporterName} maxLength={180} onChange={(event) => updateForm(props.onChange, 'reporterName', event.target.value)} /></label>;
+    case 'reporter_phone':
+      return <label className={wideClass}>Telefoonnummer melder<input value={props.form.reporterPhone} maxLength={40} inputMode="tel" autoComplete="tel" onChange={(event) => updateForm(props.onChange, 'reporterPhone', event.target.value)} /></label>;
+    case 'requesting_organization':
+      return <label className={wideClass}>Aanvragende organisatie<input value={props.form.requestingOrganization} maxLength={180} onChange={(event) => updateForm(props.onChange, 'requestingOrganization', event.target.value)} /></label>;
+    case 'requesting_unit':
+      return <label className={wideClass}>Dienst / eenheid<input value={props.form.requestingUnit} maxLength={180} onChange={(event) => updateForm(props.onChange, 'requestingUnit', event.target.value)} /></label>;
+    case 'on_scene_contact_name':
+      return <label className={wideClass}>Contact ter plaatse<input value={props.form.onSceneContactName} maxLength={180} onChange={(event) => updateForm(props.onChange, 'onSceneContactName', event.target.value)} /></label>;
+    case 'on_scene_contact_phone':
+      return <label className={wideClass}>Telefoon ter plaatse<input value={props.form.onSceneContactPhone} maxLength={40} inputMode="tel" autoComplete="tel" onChange={(event) => updateForm(props.onChange, 'onSceneContactPhone', event.target.value)} /></label>;
+    case 'on_scene_contact_role':
+      return <label className={wideClass}>Functie / rol contactpersoon<input value={props.form.onSceneContactRole} maxLength={120} onChange={(event) => updateForm(props.onChange, 'onSceneContactRole', event.target.value)} /></label>;
+    case 'section_dispatch':
+      return <FormSectionTitle title="Inzet" />;
+    case 'priority':
+      return (
+        <label className={wideClass}>
+          Prioriteit
+          <select value={props.form.priority} onChange={(event) => updateForm(props.onChange, 'priority', event.target.value as Incident['priority'])}>
+            <option value="low">Laag</option>
+            <option value="normal">Normaal</option>
+            <option value="high">Hoog</option>
+            <option value="critical">Kritiek</option>
+          </select>
+        </label>
+      );
+    case 'status':
+      return (
+        <label className={wideClass}>
+          Status
+          <select value={props.form.status} onChange={(event) => updateForm(props.onChange, 'status', event.target.value as Incident['status'])}>
+            <option value="draft">Concept</option>
+            <option value="active">Actief</option>
+            <option value="dispatching">Alarmeren</option>
+            <option value="in_progress">In uitvoering</option>
+            <option value="resolved">Afgerond</option>
+            <option value="cancelled">Geannuleerd</option>
+          </select>
+        </label>
+      );
+    case 'teams':
+      return (
+        <div className={wideClass}>
+          <span className="field-label">Teams</span>
+          <div className="checkbox-grid">
+            {props.teams.map((team) => (
+              <label className="checkbox-card" key={team.id}>
+                <input type="checkbox" checked={props.form.teamIds.includes(team.id)} onChange={() => toggleTeam(props.onChange, team.id)} />
+                <span><strong>{team.code} - {team.name}</strong><small>{team.type}</small></span>
+              </label>
+            ))}
+          </div>
+          {props.teamsError ? <p className="form-error">Teams laden mislukt: {props.teamsError}</p> : null}
+        </div>
+      );
+    case 'section_location':
+      return <FormSectionTitle title="Opkomstlocatie" />;
+    case 'location_search':
+      return (
+        <>
+          <LocationSearch form={props.form} suggestions={props.locationSuggestions} onChange={props.onChange} className={wideClass} />
+          <input type="hidden" name="latitude" value={props.form.latitude} />
+          <input type="hidden" name="longitude" value={props.form.longitude} />
+        </>
+      );
+    case 'location_map':
+      return <LocationMap form={props.form} className={wideClass} />;
+    case 'section_resources':
+      return <FormSectionTitle title="Middelen" />;
+    case 'required_resources':
+      return (
+        <label className={wideClass}>
+          Benodigde middelen
+          <textarea value={props.form.requiredResources} rows={4} placeholder="Bijvoorbeeld: drone type, warmtebeeld, zoomcamera, verlichting, voertuig, extra piloot of waarnemer." onChange={(event) => updateForm(props.onChange, 'requiredResources', event.target.value)} />
+        </label>
+      );
+    case 'section_drone':
+      return <FormSectionTitle title="Drone vluchtcheck" />;
+    case 'drone_status':
+      return <DroneFlightStatus context={props.flightContext} loading={props.flightContextLoading} error={props.flightContextError} className={wideClass} />;
+    case 'drone_weather':
+      return <DroneWeatherModule context={props.flightContext} className={wideClass} />;
+    case 'drone_airspace':
+      return <DroneAirspaceModule context={props.flightContext} className={wideClass} />;
+    case 'drone_aeret_link':
+      return <DroneAeretLinkModule context={props.flightContext} className={wideClass} />;
+    case 'drone_aeret_map':
+      return <DroneAeretMapModule context={props.flightContext} className={wideClass} />;
     case 'incident_details':
       return (
-        <div className={wrapperClass}>
+        <div className="form-grid__wide form-grid">
           <FormSectionTitle title="Incidentgegevens" />
           <label className="form-grid__wide">
             Titel
@@ -443,7 +550,7 @@ function IncidentFormBlock(props: {
       );
     case 'reporter_request':
       return (
-        <div className={wrapperClass}>
+        <div className="form-grid__wide form-grid">
           <FormSectionTitle title="Melder en aanvraag" />
           <label>Naam melder<input value={props.form.reporterName} maxLength={180} onChange={(event) => updateForm(props.onChange, 'reporterName', event.target.value)} /></label>
           <label>Telefoonnummer melder<input value={props.form.reporterPhone} maxLength={40} inputMode="tel" autoComplete="tel" onChange={(event) => updateForm(props.onChange, 'reporterPhone', event.target.value)} /></label>
@@ -456,7 +563,7 @@ function IncidentFormBlock(props: {
       );
     case 'priority_teams':
       return (
-        <div className={wrapperClass}>
+        <div className="form-grid__wide form-grid">
           <FormSectionTitle title="Prioriteit en teams" />
           <label>
             Prioriteit
@@ -494,7 +601,7 @@ function IncidentFormBlock(props: {
       );
     case 'location':
       return (
-        <div className={wrapperClass}>
+        <div className="form-grid__wide form-grid">
           <FormSectionTitle title="Opkomstlocatie" />
           <LocationPicker form={props.form} suggestions={props.locationSuggestions} onChange={props.onChange} />
           <input type="hidden" name="latitude" value={props.form.latitude} />
@@ -503,20 +610,20 @@ function IncidentFormBlock(props: {
       );
     case 'coordinator':
       return (
-        <div className={wrapperClass}>
-          <label className="form-grid__wide">
+        <div className={wideClass}>
+          <label>
             Coordinator
             <select value={props.form.coordinatorId} onChange={(event) => updateForm(props.onChange, 'coordinatorId', event.target.value)}>
               <option value="">Niet toegewezen</option>
               {props.users.map((user) => <option key={user.id} value={user.id}>{user.name} - {user.email}</option>)}
             </select>
           </label>
-          {props.usersError ? <p className="form-error form-grid__wide">Coordinators laden mislukt: {props.usersError}</p> : null}
+          {props.usersError ? <p className="form-error">Coordinators laden mislukt: {props.usersError}</p> : null}
         </div>
       );
     case 'resources':
       return (
-        <div className={wrapperClass}>
+        <div className="form-grid__wide form-grid">
           <FormSectionTitle title="Middelen" />
           <label className="form-grid__wide">
             Benodigde middelen
@@ -535,20 +642,159 @@ function IncidentFormBlock(props: {
 
 function incidentFormLayout(layout: IncidentFormLayoutItem[]): IncidentFormLayoutItem[] {
   const defaults: IncidentFormLayoutItem[] = [
-    { key: 'incident_details', label: 'Incidentgegevens', visible: true, width: 'full' },
-    { key: 'reporter_request', label: 'Melder en aanvraag', visible: true, width: 'full' },
-    { key: 'priority_teams', label: 'Prioriteit en teams', visible: true, width: 'full' },
-    { key: 'location', label: 'Opkomstlocatie', visible: true, width: 'full' },
+    { key: 'section_incident', label: 'Sectie: incident', visible: true, width: 'full' },
+    { key: 'title', label: 'Titel', visible: true, width: 'full' },
+    { key: 'description', label: 'Details', visible: true, width: 'full' },
+    { key: 'section_reporter', label: 'Sectie: melder en aanvraag', visible: true, width: 'full' },
+    { key: 'reporter_name', label: 'Naam melder', visible: true, width: 'half' },
+    { key: 'reporter_phone', label: 'Telefoonnummer melder', visible: true, width: 'half' },
+    { key: 'requesting_organization', label: 'Aanvragende organisatie', visible: true, width: 'half' },
+    { key: 'requesting_unit', label: 'Dienst / eenheid', visible: true, width: 'half' },
+    { key: 'on_scene_contact_name', label: 'Contact ter plaatse', visible: true, width: 'half' },
+    { key: 'on_scene_contact_phone', label: 'Telefoon ter plaatse', visible: true, width: 'half' },
+    { key: 'on_scene_contact_role', label: 'Functie / rol contactpersoon', visible: true, width: 'full' },
+    { key: 'section_dispatch', label: 'Sectie: inzet', visible: true, width: 'full' },
+    { key: 'priority', label: 'Prioriteit', visible: true, width: 'half' },
+    { key: 'status', label: 'Status', visible: true, width: 'half' },
+    { key: 'teams', label: 'Teams', visible: true, width: 'full' },
     { key: 'coordinator', label: 'Coordinator', visible: true, width: 'full' },
-    { key: 'resources', label: 'Middelen', visible: true, width: 'full' },
-    { key: 'drone_context', label: 'Drone vluchtcheck', visible: true, width: 'full' },
+    { key: 'section_location', label: 'Sectie: locatie', visible: true, width: 'full' },
+    { key: 'location_search', label: 'Adres zoeken', visible: true, width: 'half' },
+    { key: 'location_map', label: 'Kaart opkomstlocatie', visible: true, width: 'half' },
+    { key: 'section_resources', label: 'Sectie: middelen', visible: true, width: 'full' },
+    { key: 'required_resources', label: 'Benodigde middelen', visible: true, width: 'full' },
+    { key: 'section_drone', label: 'Sectie: drone vluchtcheck', visible: true, width: 'full' },
+    { key: 'drone_status', label: 'Drone vluchtcheck status', visible: true, width: 'full' },
+    { key: 'drone_weather', label: 'Weer', visible: true, width: 'half' },
+    { key: 'drone_airspace', label: 'Luchtruim', visible: true, width: 'half' },
+    { key: 'drone_aeret_link', label: 'Aeret link', visible: true, width: 'full' },
+    { key: 'drone_aeret_map', label: 'Aeret kaart', visible: true, width: 'full' },
     { key: 'custom_fields', label: 'Extra velden', visible: true, width: 'full' },
   ];
   const defaultKeys = new Set(defaults.map((item) => item.key));
-  const merged = layout.filter((item) => defaultKeys.has(item.key));
+  const merged = expandLegacyIncidentLayout(layout).filter((item) => defaultKeys.has(item.key));
   const missing = defaults.filter((item) => !merged.some((candidate) => candidate.key === item.key));
 
   return [...merged, ...missing];
+}
+
+function expandLegacyIncidentLayout(layout: IncidentFormLayoutItem[]): IncidentFormLayoutItem[] {
+  const replacements: Record<string, IncidentFormLayoutItem[]> = {
+    incident_details: [
+      { key: 'section_incident', label: 'Sectie: incident', visible: true, width: 'full' },
+      { key: 'title', label: 'Titel', visible: true, width: 'full' },
+      { key: 'description', label: 'Details', visible: true, width: 'full' },
+    ],
+    reporter_request: [
+      { key: 'section_reporter', label: 'Sectie: melder en aanvraag', visible: true, width: 'full' },
+      { key: 'reporter_name', label: 'Naam melder', visible: true, width: 'half' },
+      { key: 'reporter_phone', label: 'Telefoonnummer melder', visible: true, width: 'half' },
+      { key: 'requesting_organization', label: 'Aanvragende organisatie', visible: true, width: 'half' },
+      { key: 'requesting_unit', label: 'Dienst / eenheid', visible: true, width: 'half' },
+      { key: 'on_scene_contact_name', label: 'Contact ter plaatse', visible: true, width: 'half' },
+      { key: 'on_scene_contact_phone', label: 'Telefoon ter plaatse', visible: true, width: 'half' },
+      { key: 'on_scene_contact_role', label: 'Functie / rol contactpersoon', visible: true, width: 'full' },
+    ],
+    priority_teams: [
+      { key: 'section_dispatch', label: 'Sectie: inzet', visible: true, width: 'full' },
+      { key: 'priority', label: 'Prioriteit', visible: true, width: 'half' },
+      { key: 'status', label: 'Status', visible: true, width: 'half' },
+      { key: 'teams', label: 'Teams', visible: true, width: 'full' },
+    ],
+    location: [
+      { key: 'section_location', label: 'Sectie: locatie', visible: true, width: 'full' },
+      { key: 'location_search', label: 'Adres zoeken', visible: true, width: 'half' },
+      { key: 'location_map', label: 'Kaart opkomstlocatie', visible: true, width: 'half' },
+    ],
+    resources: [
+      { key: 'section_resources', label: 'Sectie: middelen', visible: true, width: 'full' },
+      { key: 'required_resources', label: 'Benodigde middelen', visible: true, width: 'full' },
+    ],
+    drone_context: [
+      { key: 'section_drone', label: 'Sectie: drone vluchtcheck', visible: true, width: 'full' },
+      { key: 'drone_status', label: 'Drone vluchtcheck status', visible: true, width: 'full' },
+      { key: 'drone_weather', label: 'Weer', visible: true, width: 'half' },
+      { key: 'drone_airspace', label: 'Luchtruim', visible: true, width: 'half' },
+      { key: 'drone_aeret_link', label: 'Aeret link', visible: true, width: 'full' },
+      { key: 'drone_aeret_map', label: 'Aeret kaart', visible: true, width: 'full' },
+    ],
+  };
+
+  const seen = new Set<string>();
+  return layout.flatMap((item) => replacements[item.key] ?? [item]).filter((item) => {
+    if (seen.has(item.key)) {
+      return false;
+    }
+    seen.add(item.key);
+    return true;
+  });
+}
+
+function DroneFlightStatus({ context, loading, error, className }: { context: DroneFlightContext | null; loading: boolean; error: string | null; className?: string }) {
+  return (
+    <section className={`drone-flight-panel ${className ?? ''}`} aria-live="polite">
+      <header>
+        <div>
+          <span>Drone vluchtcheck</span>
+          <strong>{loading ? 'Ophalen...' : context ? 'Opkomstlocatie beoordeeld' : 'Wacht op opkomstlocatie'}</strong>
+        </div>
+        <Plane size={20} />
+      </header>
+      {error ? <p className="form-error">{error}</p> : null}
+      {!context && !error ? <p className="muted-text">Vul een opkomstlocatie of coordinaten in om de drone-informatie op te halen.</p> : null}
+    </section>
+  );
+}
+
+function DroneWeatherModule({ context, className }: { context: DroneFlightContext | null; className?: string }) {
+  return (
+    <div className={className}>
+      <FlightInfoCard
+        icon={<CloudSun size={18} />}
+        title="Weer"
+        items={[
+          ['Temperatuur', formatFlightMetric(context?.weather?.temperature_c, ' C')],
+          ['Wind', formatFlightMetric(context?.weather?.wind_speed_kmh, ' km/u')],
+          ['Windstoten', formatFlightMetric(context?.weather?.wind_gust_kmh, ' km/u')],
+          ['Zicht', formatVisibility(context?.weather?.visibility_m)],
+          ['Samenvatting', context?.weather?.summary ?? '-'],
+        ]}
+      />
+    </div>
+  );
+}
+
+function DroneAirspaceModule({ context, className }: { context: DroneFlightContext | null; className?: string }) {
+  return (
+    <div className={className}>
+      <FlightInfoCard
+        icon={<Plane size={18} />}
+        title="Luchtruim"
+        items={[
+          ['Aeret', airspaceStatusLabel(context?.airspace?.status)],
+          ['No-fly zones', String(context?.airspace?.no_fly_zones?.length ?? 0)],
+          ['NOTAM', String(context?.airspace?.notams?.length ?? 0)],
+          ['Samenvatting', context?.airspace?.summary ?? '-'],
+        ]}
+      />
+    </div>
+  );
+}
+
+function DroneAeretLinkModule({ context, className }: { context: DroneFlightContext | null; className?: string }) {
+  if (!context?.map?.aeret_url) {
+    return <p className={`muted-text ${className ?? ''}`}>Aeret link verschijnt zodra de locatie bekend is.</p>;
+  }
+
+  return <div className={`drone-flight-links ${className ?? ''}`}><a href={context.map.aeret_url} target="_blank" rel="noreferrer">Open Aeret dronekaart</a></div>;
+}
+
+function DroneAeretMapModule({ context, className }: { context: DroneFlightContext | null; className?: string }) {
+  if (!context?.map?.aeret_url) {
+    return <p className={`muted-text ${className ?? ''}`}>Aeret kaart verschijnt zodra de locatie bekend is.</p>;
+  }
+
+  return <iframe className={`drone-flight-aeret-frame ${className ?? ''}`} title="Aeret dronekaart" src={context.map.aeret_url} loading="lazy" />;
 }
 
 function DroneFlightContextPanel({ context, loading, error }: { context: DroneFlightContext | null; loading: boolean; error: string | null }) {
@@ -886,55 +1132,75 @@ function LocationPicker(props: {
   onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
 }) {
   const { form, suggestions, onChange } = props;
-  const hasCoordinates = form.latitude.trim() !== '' && form.longitude.trim() !== '';
 
   return (
     <div className="location-picker form-grid__wide">
-      <div className="location-picker__search">
-        <label>
-          Opkomstlocatie
-          <div className="input-with-icon">
-            <Search size={16} />
-            <input
-              value={form.locationLabel}
-              maxLength={255}
-              placeholder="Adres, bedrijf, gebouw, gebied of rendez-vous punt"
-              autoComplete="off"
-              onChange={(event) => updateForm(onChange, 'locationLabel', event.target.value)}
-              onBlur={() => void resolveLocation(form, suggestions, onChange)}
-            />
-          </div>
-        </label>
-        {suggestions.length > 0 ? (
-          <div className="location-picker__results">
-            {suggestions.map((suggestion) => (
-              <button
-                key={suggestion.id}
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => void selectLocationSuggestion(suggestion, onChange)}
-              >
-                <MapPin size={15} />
-                <span>{suggestion.label}</span>
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
-      <div className="location-picker__map">
-        {hasCoordinates ? (
-          <iframe
-            title="Geselecteerde locatie"
-            src={mapPreviewUrl(form.latitude, form.longitude)}
-            loading="lazy"
+      <LocationSearch form={form} suggestions={suggestions} onChange={onChange} />
+      <LocationMap form={form} />
+    </div>
+  );
+}
+
+function LocationSearch(props: {
+  form: IncidentFormState;
+  suggestions: LocationSuggestion[];
+  className?: string;
+  onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
+}) {
+  const { form, suggestions, className, onChange } = props;
+
+  return (
+    <div className={`location-picker__search ${className ?? ''}`}>
+      <label>
+        Opkomstlocatie
+        <div className="input-with-icon">
+          <Search size={16} />
+          <input
+            value={form.locationLabel}
+            maxLength={255}
+            placeholder="Adres, bedrijf, gebouw, gebied of rendez-vous punt"
+            autoComplete="off"
+            onChange={(event) => updateForm(onChange, 'locationLabel', event.target.value)}
+            onBlur={() => void resolveLocation(form, suggestions, onChange)}
           />
-        ) : (
-          <div className="location-picker__empty">
-            <MapPin size={28} />
-            <span>Zoek een opkomstlocatie om de kaart te tonen.</span>
-          </div>
-        )}
-      </div>
+        </div>
+      </label>
+      {suggestions.length > 0 ? (
+        <div className="location-picker__results">
+          {suggestions.map((suggestion) => (
+            <button
+              key={suggestion.id}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => void selectLocationSuggestion(suggestion, onChange)}
+            >
+              <MapPin size={15} />
+              <span>{suggestion.label}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function LocationMap({ form, className }: { form: IncidentFormState; className?: string }) {
+  const hasCoordinates = form.latitude.trim() !== '' && form.longitude.trim() !== '';
+
+  return (
+    <div className={`location-picker__map ${className ?? ''}`}>
+      {hasCoordinates ? (
+        <iframe
+          title="Geselecteerde locatie"
+          src={mapPreviewUrl(form.latitude, form.longitude)}
+          loading="lazy"
+        />
+      ) : (
+        <div className="location-picker__empty">
+          <MapPin size={28} />
+          <span>Zoek een opkomstlocatie om de kaart te tonen.</span>
+        </div>
+      )}
     </div>
   );
 }
