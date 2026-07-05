@@ -1234,7 +1234,7 @@ function ConfigurableFormEditor(props: {
         <button className="secondary-button" type="button" onClick={onAdd}>Extra veld toevoegen</button>
       </div>
       <table className="data-table">
-        <thead><tr><th>Volgorde</th><th>Sleutel</th><th>Label</th><th>Type</th><th>Zichtbaar</th><th>Verplicht</th><th>Opties</th><th></th></tr></thead>
+        <thead><tr><th>Volgorde</th><th>Label</th><th>Type</th><th>Zichtbaar</th><th>Verplicht</th><th>Opties</th><th></th></tr></thead>
         <tbody>
           {fields.map((field, index) => (
               <tr key={field.key}>
@@ -1245,14 +1245,14 @@ function ConfigurableFormEditor(props: {
                   </div>
                 </td>
                 <td>
+                  <input type="hidden" value={field.key} readOnly />
                   <input
-                    className="mono"
-                    value={field.key}
-                    onChange={(event) => onUpdate(field.key, { key: normalizeFieldKey(event.target.value) })}
+                    value={field.label}
+                    onChange={(event) => {
+                      const label = event.target.value;
+                      onUpdate(field.key, { label, key: generateFieldKey(label, fields, field.key) });
+                    }}
                   />
-                </td>
-                <td>
-                  <input value={field.label} onChange={(event) => onUpdate(field.key, { label: event.target.value })} />
                 </td>
                 <td>
                   <select
@@ -1312,7 +1312,7 @@ function ConfigurableFormEditor(props: {
         </tbody>
       </table>
       {fields.length === 0 ? <p className="muted-text">Nog geen variabele velden ingesteld.</p> : null}
-      <p className="form-note">Sleutels moeten beginnen met een letter en mogen kleine letters, cijfers en underscores bevatten. Opties voor dropdown en radio: een optie per regel.</p>
+      <p className="form-note">Veldsleutels worden automatisch uit het label gemaakt. Opties voor dropdown en radio: een optie per regel.</p>
     </div>
   );
 }
@@ -1350,9 +1350,22 @@ function moveFormField<T extends ConfigurableFormField>(fields: T[], key: string
   return next;
 }
 
-function normalizeFieldKey(value: string): string {
-  const normalized = value.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^_+/, '').replace(/_+/g, '_');
-  return /^[a-z]/.test(normalized) ? normalized : `veld_${normalized}`;
+function generateFieldKey(label: string, fields: ConfigurableFormField[], currentKey?: string): string {
+  const normalized = label
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, '_')
+    .replace(/^_+/, '')
+    .replace(/_+/g, '_')
+    .replace(/_+$/, '');
+  const base = /^[a-z]/.test(normalized) && normalized.length >= 2 ? normalized : 'veld';
+  let key = base.slice(0, 60);
+  let index = 2;
+  while (fields.some((field) => field.key !== currentKey && field.key === key)) {
+    const suffix = `_${index}`;
+    key = `${base.slice(0, 60 - suffix.length)}${suffix}`;
+    index += 1;
+  }
+  return key;
 }
 
 function defaultFieldOptions(options?: Array<{ label: string; value: string }>): Array<{ label: string; value: string }> {
