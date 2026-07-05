@@ -1159,7 +1159,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
 
       {activeTab === 'pilotReport' ? (
         <Panel title="Inzetrapport formulier">
-          <ResourceState loading={pilotReportFormConfig.loading} error={pilotReportFormConfig.error} empty={pilotReportFields.length === 0}>
+          <ResourceState loading={pilotReportFormConfig.loading} error={pilotReportFormConfig.error} empty={false}>
             <ConfigurableFormEditor
               fields={pilotReportFields}
               description="Bouw het inzetrapport volledig op uit variabele velden. Oude vaste rapportkolommen blijven alleen bestaan voor historische rapporten."
