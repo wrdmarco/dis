@@ -80,6 +80,10 @@ if [ -f "${FRONTEND_DIR}/package.json" ]; then
   else
     run_cmd npm --prefix "${FRONTEND_DIR}" install
   fi
+  if [ -f "${FRONTEND_DIR}/node_modules/.bin/playwright" ]; then
+    ensure_directory "${DIS_DATA_PATH}/playwright-browsers" "${DIS_USER}" "${DIS_GROUP}" 0770
+    run_cmd env PLAYWRIGHT_BROWSERS_PATH="${DIS_DATA_PATH}/playwright-browsers" npm --prefix "${FRONTEND_DIR}" exec -- playwright install --with-deps chromium
+  fi
   run_cmd rm -rf "${FRONTEND_DIR}/.next"
   run_cmd npm --prefix "${FRONTEND_DIR}" run build
   run_cmd chown -R "${DIS_USER}:${DIS_GROUP}" "${FRONTEND_DIR}/.next" "${FRONTEND_DIR}/node_modules"
