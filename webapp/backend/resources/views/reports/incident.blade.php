@@ -69,6 +69,32 @@
     $formatMinutes = fn ($value) => $value === null ? '-' : $value.' min';
     $formatFlightValue = fn ($value, string $suffix = '') => $value === null || $value === '' ? '-' : $value.$suffix;
     $formatFlightItem = fn ($item) => is_scalar($item) ? (string) $item : json_encode($item, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $formatCustomValue = function ($value): string {
+        if ($value === null || $value === '') {
+            return '-';
+        }
+        if (is_bool($value)) {
+            return $value ? 'Ja' : 'Nee';
+        }
+        if (is_array($value)) {
+            if (array_key_exists('start', $value) || array_key_exists('end', $value)) {
+                $start = trim((string) ($value['start'] ?? ''));
+                $end = trim((string) ($value['end'] ?? ''));
+                $duration = isset($value['duration_minutes']) && is_numeric($value['duration_minutes'])
+                    ? ' ('.(int) $value['duration_minutes'].' min)'
+                    : '';
+                $range = trim($start.($start !== '' && $end !== '' ? ' - ' : '').$end);
+
+                return $range === '' ? '-' : $range.$duration;
+            }
+
+            $parts = array_filter(array_map(fn ($item) => is_scalar($item) ? trim((string) $item) : '', $value));
+
+            return $parts === [] ? '-' : implode(', ', $parts);
+        }
+
+        return trim((string) $value) === '' ? '-' : trim((string) $value);
+    };
     $responseLabel = fn ($value) => match ($value) {
         'accepted' => 'Komt',
         'declined' => 'Komt niet',
@@ -115,7 +141,7 @@
         <tr><th>Aangemaakt door</th><td>{{ $incident->creator?->name ?? $incident->created_by_name ?? '-' }}</td></tr>
         <tr><th>Benodigde middelen</th><td>{{ $incident->required_resources ?: '-' }}</td></tr>
         @foreach (($incident->custom_fields ?? []) as $customKey => $customValue)
-            <tr><th>{{ $customKey }}</th><td>{{ is_bool($customValue) ? ($customValue ? 'Ja' : 'Nee') : ($customValue ?? '-') }}</td></tr>
+            <tr><th>{{ $customKey }}</th><td>{{ $formatCustomValue($customValue) }}</td></tr>
         @endforeach
     </table>
 </section>
@@ -310,7 +336,7 @@
                         <br><span class="muted">Middelen: {{ $report->equipment_used }}</span>
                     @endif
                     @foreach (($report->custom_fields ?? []) as $customKey => $customValue)
-                        <br><span class="muted">{{ $customKey }}: {{ is_bool($customValue) ? ($customValue ? 'Ja' : 'Nee') : ($customValue ?? '-') }}</span>
+                        <br><span class="muted">{{ $customKey }}: {{ $formatCustomValue($customValue) }}</span>
                     @endforeach
                 </td>
             </tr>
