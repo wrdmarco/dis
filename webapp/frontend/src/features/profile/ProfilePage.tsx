@@ -8,9 +8,12 @@ import { ApiClientError } from '../../lib/apiClient';
 import { droneTypeLabel } from '../../lib/droneTypes';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { Asset, AvailabilitySchedule, AvailabilityScheduleDay, Certification, DroneType, TwoFactorSetup, UserCertification } from '../../types/api';
+import type { Asset, AvailabilityOverride, AvailabilitySchedule, AvailabilityScheduleDay, Certification, DroneType, TwoFactorSetup, UserCertification } from '../../types/api';
 
 type OwnAssetStatus = 'ready' | 'maintenance' | 'unavailable';
+type AvailabilityDayPart = NonNullable<AvailabilityOverride['day_part']>;
+
+const availabilityDayParts: AvailabilityDayPart[] = ['morning', 'afternoon', 'evening'];
 
 function emptyAssetForm() {
   return {
@@ -173,6 +176,27 @@ export function ProfilePage() {
       setScheduleMessage('Werkplanning opgeslagen.');
     } catch (err) {
       setScheduleError(err instanceof ApiClientError ? err.message : 'Werkplanning kon niet worden opgeslagen.');
+    } finally {
+      setSavingSchedule(false);
+    }
+  }
+
+  async function planDayPart(date: string, dayPart: AvailabilityDayPart, isAvailable: boolean) {
+    setSavingSchedule(true);
+    setScheduleError(null);
+    setScheduleMessage(null);
+    try {
+      const response = await api.post<AvailabilitySchedule>('/availability-schedule/me/overrides', {
+        starts_at: date,
+        ends_at: date,
+        day_part: dayPart,
+        is_available: isAvailable,
+        note: `Gepland via werkplanning: ${availabilityDayPartLabel(dayPart).toLowerCase()}`,
+      });
+      schedule.mutate(response.data);
+      setScheduleMessage(`${shortDateLabel(date)} ${availabilityDayPartLabel(dayPart).toLowerCase()} gepland als ${isAvailable ? 'beschikbaar' : 'niet beschikbaar'}.`);
+    } catch (err) {
+      setScheduleError(err instanceof ApiClientError ? err.message : 'Dagdeel kon niet worden opgeslagen.');
     } finally {
       setSavingSchedule(false);
     }
@@ -355,9 +379,9 @@ export function ProfilePage() {
         </ResourceState>
       </Panel>
 
-      {workPlanOpen && workPlanDraft !== null ? (
+      {workPlanOpen && workPlanDraft !== null && schedule.data !== null ? (
         <div className="modal-backdrop" role="presentation">
-          <section className="modal modal--narrow" role="dialog" aria-modal="true" aria-labelledby="work-plan-title">
+          <section className="modal work-plan-modal" role="dialog" aria-modal="true" aria-labelledby="work-plan-title">
             <header className="modal__header">
               <div>
                 <span className="modal__eyebrow">Profiel</span>
@@ -368,22 +392,61 @@ export function ProfilePage() {
               </button>
             </header>
             <div className="panel-body">
-              <p className="form-note">Vink de dagen aan waarop je standaard beschikbaar bent. Uitgevinkt betekent standaard niet beschikbaar.</p>
-              <div className="checkbox-grid checkbox-grid--dense">
-                {workPlanDraft.map((day) => (
-                  <label className="checkbox-card" key={day.day_of_week}>
-                    <input
-                      type="checkbox"
-                      checked={day.is_available}
-                      onChange={(event) => updateWorkPlanDay(day.day_of_week, event.target.checked)}
-                    />
-                    <span>
-                      <strong>{dayLabel(day.day_of_week)}</strong>
-                      <small>{day.is_available ? 'Beschikbaar' : 'Niet beschikbaar'}</small>
-                    </span>
-                  </label>
-                ))}
-              </div>
+              <section className="stacked-section">
+                <div className="section-heading">
+                  <strong>Standaard per week</strong>
+                  <span>Vink de dagen aan waarop je standaard beschikbaar bent.</span>
+                </div>
+                <div className="checkbox-grid checkbox-grid--dense">
+                  {workPlanDraft.map((day) => (
+                    <label className="checkbox-card" key={day.day_of_week}>
+                      <input
+                        type="checkbox"
+                        checked={day.is_available}
+                        onChange={(event) => updateWorkPlanDay(day.day_of_week, event.target.checked)}
+                      />
+                      <span>
+                        <strong>{dayLabel(day.day_of_week)}</strong>
+                        <small>{day.is_available ? 'Beschikbaar' : 'Niet beschikbaar'}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </section>
+              <section className="stacked-section">
+                <div className="section-heading">
+                  <strong>2 weken vooruit plannen</strong>
+                  <span>Wijzig per dagdeel. De knop wisselt tussen beschikbaar en niet beschikbaar.</span>
+                </div>
+                <div className="daypart-planner">
+                  {nextCalendarDays(14).map((date) => (
+                    <article className="daypart-planner-row" key={date}>
+                      <div>
+                        <strong>{shortDateLabel(date)}</strong>
+                        <span>{formatDate(date)}</span>
+                      </div>
+                      <div className="daypart-planner-actions">
+                        {availabilityDayParts.map((dayPart) => {
+                          const state = availabilityForDatePart(schedule.data!, date, dayPart);
+                          return (
+                            <button
+                              className={state.is_available ? 'secondary-button' : 'danger-button'}
+                              type="button"
+                              key={dayPart}
+                              disabled={savingSchedule}
+                              onClick={() => void planDayPart(date, dayPart, !state.is_available)}
+                              title={`${availabilityDayPartLabel(dayPart)} wisselen naar ${state.is_available ? 'niet beschikbaar' : 'beschikbaar'}`}
+                            >
+                              {availabilityDayPartLabel(dayPart)}: {state.is_available ? 'Aan' : 'Uit'}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+              {scheduleMessage ? <p className="form-note">{scheduleMessage}</p> : null}
               {scheduleError ? <p className="form-error">{scheduleError}</p> : null}
             </div>
             <div className="actions-row">
@@ -771,6 +834,83 @@ function availabilitySourceLabel(source: AvailabilitySchedule['today']['source']
     default:
       return 'Standaard beschikbaar';
   }
+}
+
+function nextCalendarDays(count: number): string[] {
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() + index);
+
+    return inputDateValue(date);
+  });
+}
+
+function inputDateValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
+function shortDateLabel(value: string): string {
+  const date = dateFromInput(value);
+  if (date === null) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat('nl-NL', { weekday: 'short', day: '2-digit', month: '2-digit' }).format(date);
+}
+
+function availabilityForDatePart(schedule: AvailabilitySchedule, dateValue: string, dayPart: AvailabilityDayPart): { is_available: boolean; source: string } {
+  const override = schedule.overrides.find((candidate) => dateInRange(dateValue, candidate) && candidate.day_part === dayPart)
+    ?? schedule.overrides.find((candidate) => dateInRange(dateValue, candidate) && (candidate.day_part ?? 'all_day') === 'all_day');
+  if (override !== undefined) {
+    return { is_available: override.is_available, source: 'planning' };
+  }
+
+  const date = dateFromInput(dateValue);
+  if (date === null) {
+    return { is_available: true, source: 'default' };
+  }
+
+  const dayOfWeek = date.getDay() === 0 ? 7 : date.getDay();
+  const pattern = schedule.week_pattern.find((day) => day.day_of_week === dayOfWeek);
+
+  return {
+    is_available: pattern?.is_available ?? true,
+    source: pattern?.source ?? 'default',
+  };
+}
+
+function availabilityDayPartLabel(dayPart: AvailabilityDayPart): string {
+  switch (dayPart) {
+    case 'morning':
+      return 'Ochtend';
+    case 'afternoon':
+      return 'Middag';
+    case 'evening':
+      return 'Avond';
+    case 'all_day':
+    default:
+      return 'Hele dag';
+  }
+}
+
+function dateInRange(dateValue: string, override: AvailabilityOverride): boolean {
+  return dateValue >= override.starts_at && dateValue <= override.ends_at;
+}
+
+function dateFromInput(value: string): Date | null {
+  const parts = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (parts === null) {
+    return null;
+  }
+
+  return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]), 12, 0, 0, 0);
 }
 
 function ownAssetStatus(status: Asset['status']): OwnAssetStatus {

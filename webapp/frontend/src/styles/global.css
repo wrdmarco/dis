@@ -2348,6 +2348,50 @@ select[multiple] {
   background: rgba(127, 29, 29, 0.18);
 }
 
+.work-plan-modal {
+  width: min(1040px, 100%);
+}
+
+.daypart-planner {
+  display: grid;
+  gap: 8px;
+}
+
+.daypart-planner-row {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 10px;
+}
+
+.daypart-planner-row > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.daypart-planner-row > div:first-child span {
+  color: #8ea0b5;
+  font-size: 0.78rem;
+}
+
+.daypart-planner-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.daypart-planner-actions button {
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px;
+  font-size: 0.78rem;
+  white-space: normal;
+}
+
 .push-composer {
   display: grid;
   gap: 16px;
@@ -4651,6 +4695,11 @@ pre {
 
   .work-plan-card__header {
     display: grid;
+  }
+
+  .daypart-planner-row,
+  .daypart-planner-actions {
+    grid-template-columns: 1fr;
   }
 }
 
