@@ -193,15 +193,20 @@ final class AvailabilityScheduleService
      */
     public function createOverride(User $user, array $data, User $actor): AvailabilityOverride
     {
-        $override = AvailabilityOverride::query()->create([
-            'user_id' => $user->id,
-            'starts_at' => $data['starts_at'],
-            'ends_at' => $data['ends_at'],
-            'day_part' => $data['day_part'] ?? self::DAY_PART_ALL_DAY,
-            'is_available' => $data['is_available'],
-            'note' => $data['note'] ?? null,
-            'created_by' => $actor->id,
-        ]);
+        $dayPart = $data['day_part'] ?? self::DAY_PART_ALL_DAY;
+        $override = AvailabilityOverride::query()->updateOrCreate(
+            [
+                'user_id' => $user->id,
+                'starts_at' => $data['starts_at'],
+                'ends_at' => $data['ends_at'],
+                'day_part' => $dayPart,
+            ],
+            [
+                'is_available' => $data['is_available'],
+                'note' => $data['note'] ?? null,
+                'created_by' => $actor->id,
+            ],
+        );
 
         $this->auditService->record('availability.override_created', $user, $actor, [
             'starts_at' => $override->starts_at?->toDateString(),
@@ -251,11 +256,7 @@ final class AvailabilityScheduleService
 
         $reason = $pushDisabled
             ? 'Pushmeldingen staan uit; automatisch niet beschikbaar.'
-            : (
-                $availability['source'] === 'override'
-                    ? 'Automatisch bijgewerkt vanuit beschikbaarheidsplanning.'
-                    : 'Automatisch bijgewerkt vanuit vast beschikbaarheidspatroon.'
-            );
+            : null;
 
         $this->statusService->setStatus($user, $targetStatus, $actor, $reason, true);
 

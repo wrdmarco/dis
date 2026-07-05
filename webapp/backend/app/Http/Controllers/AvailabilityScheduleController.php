@@ -142,6 +142,7 @@ final class AvailabilityScheduleController extends Controller
             ->where('user_id', $user->id)
             ->whereDate('ends_at', '>=', today()->subDays(7))
             ->orderBy('starts_at')
+            ->orderByDesc('updated_at')
             ->get()
             ->map(fn (AvailabilityOverride $override): array => [
                 'id' => $override->id,

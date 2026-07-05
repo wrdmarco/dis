@@ -675,7 +675,7 @@ final class AdminDeveloperController extends Controller
     @keyframes fly { from { translate: -12vw 0; } to { translate: calc(100vw + 300px) 0; } }
     @keyframes rotor { to { rotate: 360deg; } }
     @keyframes pulse { 0%, 100% { transform: scale(1); opacity: .95; } 50% { transform: scale(1.28); opacity: .62; } }
-    @media (max-width: 680px) { body { place-items: end center; padding: 18px; } main { width: 100%; padding: 24px; } .drone-lane:nth-child(2) { top: 30%; } .drone-lane:nth-child(3) { display: none; } }
+    @media (max-width: 680px) { body { min-height: 100svh; overflow-y: auto; place-items: center; padding: 18px; } main { width: min(100%, 420px); padding: 22px 20px 24px; } span { font-size: 11px; gap: 8px; } h1 { max-width: 100%; margin: 18px 0 12px; font-size: clamp(30px, 10vw, 42px); line-height: 1.02; } p { font-size: 15px; line-height: 1.5; } .drone-lane { width: 176px; height: 82px; left: -190px; top: 12%; opacity: .46; filter: drop-shadow(0 12px 18px rgba(0, 0, 0, .42)); } .drone-lane:nth-child(2) { top: 76%; opacity: .28; } .drone-lane:nth-child(3) { display: none; } }
     @media (prefers-reduced-motion: reduce) { .drone-lane, .rotor-disc, span::before { animation: none; } .drone-lane { translate: 18vw 0; } .drone-lane:nth-child(2), .drone-lane:nth-child(3) { display: none; } }
   </style>
 </head>

@@ -892,7 +892,8 @@ function availabilityForDatePart(schedule: AvailabilitySchedule, dateValue: stri
   }
 
   const dayOfWeek = date.getDay() === 0 ? 7 : date.getDay();
-  const pattern = schedule.week_pattern.find((day) => day.day_of_week === dayOfWeek);
+  const pattern = schedule.week_day_parts?.find((day) => day.day_of_week === dayOfWeek && day.day_part === dayPart)
+    ?? schedule.week_pattern.find((day) => day.day_of_week === dayOfWeek);
 
   return {
     is_available: pattern?.is_available ?? true,
