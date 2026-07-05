@@ -137,6 +137,22 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
     setMobileNavOpen(false);
   }, [pathname]);
 
+  useEffect(() => {
+    if (!mobileNavOpen) {
+      return undefined;
+    }
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileNavOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', closeOnEscape);
+
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [mobileNavOpen]);
+
   const logout = async () => {
     await api.post('/auth/logout').catch(() => undefined);
     clearSession();
@@ -191,7 +207,9 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
       </aside>
-      <button className={`mobile-nav-backdrop ${mobileNavOpen ? 'mobile-nav-backdrop--open' : ''}`} type="button" onClick={() => setMobileNavOpen(false)} aria-label="Menu sluiten" />
+      {mobileNavOpen ? (
+        <button className="mobile-nav-backdrop mobile-nav-backdrop--open" type="button" onClick={() => setMobileNavOpen(false)} aria-label="Menu sluiten" />
+      ) : null}
       <div className="workspace">
         <header className="topbar">
           <button

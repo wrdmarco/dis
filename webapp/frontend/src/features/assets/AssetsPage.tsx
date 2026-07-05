@@ -482,13 +482,3 @@ function SummaryItem({ label, value }: { label: string; value: number }) {
     </div>
   );
 }
-
-function droneTypeCapabilities(type: DroneType): string {
-  const capabilities = [
-    type.has_thermal ? 'Thermal' : 'Geen thermal',
-    type.has_spotlight ? 'Externe lamp' : 'Geen externe lamp',
-    type.has_speaker ? 'Speaker' : 'Geen speaker',
-  ];
-
-  return capabilities.join(' / ');
-}

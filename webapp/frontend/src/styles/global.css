@@ -551,12 +551,6 @@ a:hover {
   overflow: hidden;
 }
 
-.topbar__menu,
-.sidebar__close,
-.mobile-nav-backdrop {
-  display: none;
-}
-
 .brand {
   display: flex;
   align-items: center;
@@ -720,6 +714,12 @@ a:hover {
   place-items: center;
   color: #d7e7f8;
   background: #172333;
+}
+
+.topbar__menu,
+.sidebar__close,
+.mobile-nav-backdrop {
+  display: none;
 }
 
 .icon-button--active,
@@ -1257,12 +1257,6 @@ a:hover {
 .test-alert-hero p {
   margin: 0;
   color: #8ea0b5;
-}
-
-.status-overview {
-  display: grid;
-  gap: 16px;
-  padding: 16px;
 }
 
 .operational-status {
@@ -4055,11 +4049,6 @@ textarea:focus {
     var(--dis-surface);
 }
 
-.status-overview {
-  display: grid;
-  gap: 14px;
-}
-
 /* Incident workspace polish: dense, operational, and easier to scan under pressure. */
 .incident-page .panel-body,
 .incident-detail-page .panel-body {
@@ -4591,7 +4580,6 @@ td .table-actions {
 .branding-logo-preview,
 .firebase-wizard,
 .test-alert-hero,
-.status-overview,
 .download-channel-list {
   isolation: isolate;
 }
@@ -4614,7 +4602,6 @@ td .table-actions {
   min-width: 0;
 }
 
-.status-overview .data-table,
 .download-channel-list,
 .public-status-grid {
   min-width: 0;
@@ -4811,7 +4798,7 @@ pre {
     position: fixed;
     top: 0;
     left: 0;
-    z-index: 20;
+    z-index: 60;
     width: min(86vw, 340px);
     height: 100dvh;
     overflow-y: auto;
@@ -4841,7 +4828,7 @@ pre {
   .mobile-nav-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 19;
+    z-index: 50;
     display: block;
     border: 0;
     background: rgba(0, 0, 0, 0);
@@ -4945,6 +4932,9 @@ pre {
   .topbar {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "menu title"
+      "operator operator";
     align-items: flex-start;
     gap: 10px;
     min-height: 0;
@@ -4952,7 +4942,18 @@ pre {
   }
 
   .topbar__menu {
+    grid-area: menu;
     align-self: start;
+    width: 44px;
+    height: 44px;
+    border: 1px solid #2c3b50;
+    background: #101925;
+  }
+
+  .topbar__title {
+    grid-area: title;
+    gap: 3px;
+    min-width: 0;
   }
 
   .topbar h1 {
@@ -4965,13 +4966,8 @@ pre {
     font-size: 0.68rem;
   }
 
-  .topbar__title {
-    gap: 3px;
-    min-width: 0;
-  }
-
   .operator {
-    grid-column: 1 / -1;
+    grid-area: operator;
     max-width: none;
     width: 100%;
     justify-content: space-between;
@@ -5045,8 +5041,7 @@ pre {
 
   .panel-body,
   .operational-status,
-  .incident-list-view,
-  .status-overview {
+  .incident-list-view {
     padding: 12px;
   }
 
