@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, Gauge, KeyRound, LogOut, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, Gauge, KeyRound, LogOut, Menu, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../features/auth/AuthContext';
@@ -119,6 +119,7 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
   const { user, api, clearSession, canUseWebConsole, hasPermission } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [branding, setBranding] = useState<BrandingState>({
     name: 'D.I.S Operationeel Beeld',
     short_name: 'DIS',
@@ -131,6 +132,10 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
       .then((response) => setBranding(response.data))
       .catch(() => undefined);
   }, [api]);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
 
   const logout = async () => {
     await api.post('/auth/logout').catch(() => undefined);
@@ -151,12 +156,15 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="command-layout">
       <a className="skip-link" href="#main-content">Naar hoofdinhoud</a>
-      <aside className="sidebar">
+      <aside className={`sidebar ${mobileNavOpen ? 'sidebar--open' : ''}`} id="mobile-navigation">
         <div className="brand">
           <span className="brand__mark">
             {branding.logo_data_url ? <img src={branding.logo_data_url} alt="" /> : branding.short_name}
           </span>
           <span className="brand__text">Command Center</span>
+          <button className="icon-button sidebar__close" type="button" onClick={() => setMobileNavOpen(false)} aria-label="Menu sluiten">
+            <X size={18} />
+          </button>
         </div>
         <nav className="nav" aria-label="Hoofdnavigatie">
           {visibleNavGroups.map((group) => (
@@ -183,8 +191,19 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
       </aside>
+      <button className={`mobile-nav-backdrop ${mobileNavOpen ? 'mobile-nav-backdrop--open' : ''}`} type="button" onClick={() => setMobileNavOpen(false)} aria-label="Menu sluiten" />
       <div className="workspace">
         <header className="topbar">
+          <button
+            className="icon-button topbar__menu"
+            type="button"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Menu openen"
+            aria-controls="mobile-navigation"
+            aria-expanded={mobileNavOpen}
+          >
+            <Menu size={18} />
+          </button>
           <div className="topbar__title">
             <span className="topbar__eyebrow">{currentNavItem?.groupLabel ?? branding.tenant_name}</span>
             <h1>{currentNavItem?.item.label ?? branding.name}</h1>
