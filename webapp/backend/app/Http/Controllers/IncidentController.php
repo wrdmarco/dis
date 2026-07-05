@@ -5,8 +5,11 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Incidents\StoreIncidentRequest;
 use App\Http\Requests\Incidents\UpdateIncidentRequest;
 use App\Http\Responses\ApiResponse;
+use App\Models\AuditLog;
 use App\Models\AvailabilityStatus;
+use App\Models\DispatchRequest;
 use App\Models\Incident;
+use App\Models\SystemSetting;
 use App\Repositories\IncidentRepository;
 use App\Services\DispatchService;
 use App\Services\DroneFlightContextService;
@@ -19,6 +22,10 @@ use Throwable;
 
 final class IncidentController extends Controller
 {
+    private const DEFAULT_APP_VISIBLE_TIMELINE_TYPES = ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status'];
+    private const ALL_TIMELINE_TYPES = ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status', 'internal_notes', 'audit'];
+    private const APP_VISIBLE_TIMELINE_TYPES = ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status', 'audit'];
+
     public function __construct(
         private readonly IncidentRepository $incidents,
         private readonly IncidentService $service,
@@ -269,7 +276,7 @@ final class IncidentController extends Controller
         return ApiResponse::success(MobileApiPayload::incident($this->service->cancel($incident, $request->user(), $request->input('reason'))));
     }
 
-    public function timeline(Incident $incident): JsonResponse
+    public function timeline(Request $request, Incident $incident): JsonResponse
     {
         $dispatches = $incident->dispatchRequests()
             ->with(['recipients.user', 'messages.sender'])
@@ -334,7 +341,7 @@ final class IncidentController extends Controller
         $operatorStatusItems = collect();
         if ($recipientStartsByUser->isNotEmpty()) {
             $firstRelevantStatusAt = $recipientStartsByUser->min();
-            $operatorStatusItems = AvailabilityStatus::query()
+        $operatorStatusItems = AvailabilityStatus::query()
                 ->with('user')
                 ->whereIn('user_id', $recipientStartsByUser->keys())
                 ->whereIn('status', ['en_route', 'on_scene'])
@@ -351,7 +358,110 @@ final class IncidentController extends Controller
                 ]);
         }
 
-        return ApiResponse::success($statusItems->concat($dispatchItems)->concat($operatorStatusItems)->sortByDesc('created_at')->values());
+        $internalNoteItem = collect($incident->internal_notes === null || trim((string) $incident->internal_notes) === '' ? [] : [[
+            'id' => $incident->id.'-internal-notes',
+            'type' => 'internal_notes',
+            'label' => 'Meldkamer kladblok',
+            'message' => $incident->internal_notes,
+            'created_at' => MobileApiPayload::dateTime($incident->updated_at),
+        ]]);
+
+        $auditItems = $this->incidentAuditTimelineItems($incident, $dispatches->pluck('id')->values()->all());
+
+        $items = $statusItems
+            ->concat($dispatchItems)
+            ->concat($operatorStatusItems)
+            ->concat($internalNoteItem)
+            ->concat($auditItems)
+            ->sortByDesc('created_at')
+            ->values();
+
+        if ($request->user()?->hasPermission('incidents.manage') !== true) {
+            $visibleTypes = $this->appVisibleTimelineTypes();
+            $items = $items
+                ->filter(fn (array $item): bool => in_array((string) $item['type'], $visibleTypes, true))
+                ->values();
+        }
+
+        return ApiResponse::success($items);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function appVisibleTimelineTypes(): array
+    {
+        $value = SystemSetting::value('incident.timeline.app_visible_types', self::DEFAULT_APP_VISIBLE_TIMELINE_TYPES);
+        if (! is_array($value)) {
+            return self::DEFAULT_APP_VISIBLE_TIMELINE_TYPES;
+        }
+
+        return array_values(array_intersect(self::APP_VISIBLE_TIMELINE_TYPES, array_filter($value, 'is_string')));
+    }
+
+    /**
+     * @param list<string> $dispatchIds
+     */
+    private function incidentAuditTimelineItems(Incident $incident, array $dispatchIds): \Illuminate\Support\Collection
+    {
+        $incidentId = (string) $incident->id;
+
+        return AuditLog::query()
+            ->where(function ($query) use ($incidentId, $dispatchIds): void {
+                $query
+                    ->where(function ($target) use ($incidentId): void {
+                        $target->where('target_type', Incident::class)->where('target_id', $incidentId);
+                    })
+                    ->orWhere(function ($metadata) use ($incidentId): void {
+                        $metadata->where('metadata->incident_id', $incidentId);
+                    });
+
+                if ($dispatchIds !== []) {
+                    $query->orWhere(function ($dispatches) use ($dispatchIds): void {
+                        $dispatches->where('target_type', DispatchRequest::class)->whereIn('target_id', $dispatchIds);
+                    });
+                }
+            })
+            ->whereNotIn('action', ['incidents.created'])
+            ->latest('created_at')
+            ->limit(200)
+            ->get()
+            ->map(fn (AuditLog $log): array => [
+                'id' => $log->id,
+                'type' => 'audit',
+                'label' => $this->auditActionLabel($log->action),
+                'message' => $log->reason,
+                'created_at' => MobileApiPayload::dateTime($log->created_at),
+            ]);
+    }
+
+    private function auditActionLabel(string $action): string
+    {
+        return match ($action) {
+            'incidents.updated' => 'Incident bijgewerkt',
+            'incidents.deleted' => 'Incident verwijderd',
+            'incidents.status_auto_updated' => 'Incidentstatus automatisch bijgewerkt',
+            'incidents.preannouncement_sent' => 'Vooraankondiging verstuurd',
+            'incidents.active_cancelled_notification_sent' => 'Annulering verstuurd',
+            'incidents.internal_notes_updated' => 'Meldkamer kladblok bijgewerkt',
+            'dispatch.created' => 'Alarmeringsconcept gemaakt',
+            'dispatch.sent' => 'Alarmering verstuurd',
+            'dispatch.responded' => 'Reactie verwerkt',
+            'dispatch.recipient_response_overridden' => 'Reactie aangepast',
+            'dispatch.additional_info_sent' => 'Nadere info verstuurd',
+            'dispatch.escalated' => 'Opgeschaald',
+            'dispatch.realerted' => 'Heralarmering verstuurd',
+            'location.share_requested' => 'Live locatie gevraagd',
+            'location.sharing_stopped_for_incident' => 'Live locatie gestopt',
+            'location.consent_enabled' => 'Live locatie toegestaan',
+            'location.consent_declined' => 'Live locatie geweigerd',
+            'location.consent_revoked' => 'Live locatie ingetrokken',
+            'pilot_incident_report.prepared' => 'Inzetrapport klaargezet',
+            'pilot_incident_report.opened_by_admin' => 'Inzetrapport geopend door beheerder',
+            'pilot_incident_report.submitted' => 'Inzetrapport ingediend',
+            'pilot_incident_report.submitted_by_admin' => 'Inzetrapport namens gebruiker ingediend',
+            default => str_replace('_', ' ', str_replace('.', ' - ', $action)),
+        };
     }
 
     public function dispatchPreview(Request $request, Incident $incident): JsonResponse

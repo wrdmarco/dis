@@ -60,6 +60,15 @@ interface PasswordPolicySettingsForm {
   uncompromised: boolean;
 }
 
+const incidentTimelineVisibilityOptions = [
+  { value: 'status', label: 'Incidentstatus' },
+  { value: 'dispatch', label: 'Alarmeringen' },
+  { value: 'dispatch_response', label: 'Reacties/opkomst' },
+  { value: 'dispatch_message', label: 'Nadere info' },
+  { value: 'operator_status', label: 'Operationele status' },
+  { value: 'audit', label: 'Auditacties' },
+] as const;
+
 type AdminTab = 'firebase' | 'mail' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'pilotReport' | 'incidentForm' | 'settings';
 type AdminPageMode = 'admin' | 'forms';
 
@@ -152,6 +161,9 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const [incidentFormSaving, setIncidentFormSaving] = useState(false);
   const [incidentFormMessage, setIncidentFormMessage] = useState<string | null>(null);
   const [incidentFormError, setIncidentFormError] = useState<string | null>(null);
+  const [timelineVisibilitySaving, setTimelineVisibilitySaving] = useState(false);
+  const [timelineVisibilityMessage, setTimelineVisibilityMessage] = useState<string | null>(null);
+  const [timelineVisibilityError, setTimelineVisibilityError] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(mobileSettings);
@@ -438,6 +450,25 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       setManagedError(error instanceof Error ? error.message : 'Wachtwoordeisen opslaan mislukt.');
     } finally {
       setManagedSaving(false);
+    }
+  }
+
+  async function saveTimelineVisibility(nextTypes: string[]) {
+    setTimelineVisibilitySaving(true);
+    setTimelineVisibilityError(null);
+    setTimelineVisibilityMessage(null);
+    try {
+      await api.patch('/admin/settings', {
+        settings: {
+          'incident.timeline.app_visible_types': nextTypes,
+        },
+      });
+      await settings.reload();
+      setTimelineVisibilityMessage('Zichtbaarheid voor appgebruikers is opgeslagen.');
+    } catch (error) {
+      setTimelineVisibilityError(error instanceof ApiClientError ? error.message : 'Zichtbaarheid opslaan mislukt.');
+    } finally {
+      setTimelineVisibilitySaving(false);
     }
   }
 
@@ -1204,6 +1235,13 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       {activeTab === 'settings' ? (
         <Panel title="Systeeminstellingen">
           <ResourceState loading={settings.loading} error={settings.error} empty={(settings.data?.length ?? 0) === 0}>
+            <IncidentTimelineVisibilitySettings
+              visibleTypes={incidentTimelineVisibleTypes(settings.data ?? [])}
+              saving={timelineVisibilitySaving}
+              message={timelineVisibilityMessage}
+              error={timelineVisibilityError}
+              onSave={saveTimelineVisibility}
+            />
             <table className="data-table">
               <thead><tr><th>Key</th><th>Waarde</th></tr></thead>
               <tbody>
@@ -1218,6 +1256,46 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
           </ResourceState>
         </Panel>
       ) : null}
+    </div>
+  );
+}
+
+function IncidentTimelineVisibilitySettings(props: {
+  visibleTypes: string[];
+  saving: boolean;
+  message: string | null;
+  error: string | null;
+  onSave: (types: string[]) => Promise<void>;
+}) {
+  const toggle = (type: string, checked: boolean) => {
+    const next = checked
+      ? [...props.visibleTypes, type]
+      : props.visibleTypes.filter((value) => value !== type);
+
+    void props.onSave(Array.from(new Set(next)));
+  };
+
+  return (
+    <div className="stacked-section">
+      <div>
+        <h3>Zichtbaarheid incidentlog mobiele app</h3>
+        <p className="muted-text">Beheerders zien altijd de volledige incidentlog. Deze instelling bepaalt alleen wat appgebruikers mogen zien.</p>
+      </div>
+      <div className="checkbox-grid">
+        {incidentTimelineVisibilityOptions.map((option) => (
+          <label className="checkbox-card" key={option.value}>
+            <input
+              type="checkbox"
+              checked={props.visibleTypes.includes(option.value)}
+              disabled={props.saving}
+              onChange={(event) => toggle(option.value, event.target.checked)}
+            />
+            <span><strong>{option.label}</strong></span>
+          </label>
+        ))}
+      </div>
+      {props.error ? <p className="form-error">{props.error}</p> : null}
+      {props.message ? <p className="success-text">{props.message}</p> : null}
     </div>
   );
 }
@@ -1534,6 +1612,17 @@ function toPasswordPolicySettingsForm(settings: SystemSetting[]): PasswordPolicy
     requiresSymbols: asBoolean(byKey.get('security.password_requires_symbols'), true),
     uncompromised: asBoolean(byKey.get('security.password_uncompromised'), true),
   };
+}
+
+function incidentTimelineVisibleTypes(settings: SystemSetting[]): string[] {
+  const value = settings.find((setting) => setting.key === 'incident.timeline.app_visible_types')?.value;
+  if (!Array.isArray(value)) {
+    return ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status'];
+  }
+
+  const allowed = new Set(incidentTimelineVisibilityOptions.map((option) => option.value));
+
+  return value.filter((item): item is string => typeof item === 'string' && allowed.has(item as (typeof incidentTimelineVisibilityOptions)[number]['value']));
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

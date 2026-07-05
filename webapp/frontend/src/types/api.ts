@@ -252,7 +252,7 @@ export interface DispatchPreview {
 
 export interface IncidentTimelineItem {
   id: string;
-  type: 'status' | 'dispatch' | 'dispatch_response' | 'dispatch_message' | 'operator_status';
+  type: 'status' | 'dispatch' | 'dispatch_response' | 'dispatch_message' | 'operator_status' | 'internal_notes' | 'audit';
   label: string;
   message?: string | null;
   created_at?: string | null;

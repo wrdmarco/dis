@@ -393,6 +393,7 @@ final class AdminController extends Controller
             'certification.warning_days_before_expiry',
             'asset.warning_days_before_expiry' => $this->validateIntegerSetting($key, $value, 1, 365),
             'updates.android.application_id' => $this->validateAndroidApplicationIdSetting($key, $value),
+            'incident.timeline.app_visible_types' => $this->validateStringArraySetting($key, $value, ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status', 'audit']),
             default => throw ValidationException::withMessages(["settings.$key" => ['Deze instelling mag niet via deze pagina worden aangepast.']]),
         };
     }
@@ -536,6 +537,27 @@ final class AdminController extends Controller
         }
 
         return $value;
+    }
+
+    /**
+     * @param list<string> $allowed
+     * @return list<string>
+     */
+    private function validateStringArraySetting(string $key, mixed $value, array $allowed): array
+    {
+        if (! is_array($value)) {
+            throw ValidationException::withMessages(["settings.$key" => ['De instelling moet een lijst zijn.']]);
+        }
+
+        $cleaned = [];
+        foreach ($value as $item) {
+            if (! is_string($item) || ! in_array($item, $allowed, true)) {
+                throw ValidationException::withMessages(["settings.$key" => ['De instelling bevat een onbekend logtype.']]);
+            }
+            $cleaned[] = $item;
+        }
+
+        return array_values(array_unique($cleaned));
     }
 
     private function validateIntegerSetting(string $key, mixed $value, int $min, int $max): int

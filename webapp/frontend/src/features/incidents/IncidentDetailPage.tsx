@@ -519,7 +519,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
               </label>
               <div className="form-actions">
                 <button className="primary-button" type="submit" disabled={internalNotesSaving}>
-                  <MessageSquare size={16} /> {internalNotesSaving ? 'Opslaan...' : 'Kladblok opslaan'}
+                  <MessageSquare size={16} /> {internalNotesSaving ? 'Versturen...' : 'Kladblok verzenden'}
                 </button>
               </div>
               {internalNotesMessage ? <p className={internalNotesMessage.includes('kon') || internalNotesMessage.includes('alleen') ? 'form-error' : 'form-note'}>{internalNotesMessage}</p> : null}
@@ -1357,6 +1357,10 @@ function timelineTypeLabel(type: IncidentTimelineItem['type']): string {
       return 'Nadere info';
     case 'operator_status':
       return 'Operationele status';
+    case 'internal_notes':
+      return 'Meldkamer kladblok';
+    case 'audit':
+      return 'Audit';
     default:
       return type;
   }
