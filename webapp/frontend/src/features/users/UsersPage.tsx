@@ -18,6 +18,7 @@ interface UserFormState {
   password: string;
   sendWelcomeMail: boolean;
   accountStatus: User['account_status'];
+  maxOperatorDevices: string;
   roleIds: string[];
   teamIds: string[];
   backupReportSuccess: boolean;
@@ -32,6 +33,7 @@ const emptyForm: UserFormState = {
   password: '',
   sendWelcomeMail: true,
   accountStatus: 'active',
+  maxOperatorDevices: '1',
   roleIds: [],
   teamIds: [],
   backupReportSuccess: false,
@@ -62,6 +64,7 @@ export function UsersPage() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [resettingMfa, setResettingMfa] = useState(false);
+  const [resettingLoginLock, setResettingLoginLock] = useState(false);
   const [resendingInvitation, setResendingInvitation] = useState(false);
   const [invitationMessage, setInvitationMessage] = useState<string | null>(null);
   const isSystemAdministrator = currentUser?.roles?.some((role) => role.name === 'system-administrator') ?? false;
@@ -85,6 +88,7 @@ export function UsersPage() {
       setError(null);
       setInvitationMessage(null);
       setResendingInvitation(false);
+      setResettingLoginLock(false);
     }
   }, [modalMode]);
 
@@ -115,6 +119,7 @@ export function UsersPage() {
       password: '',
       sendWelcomeMail: false,
       accountStatus: user.account_status,
+      maxOperatorDevices: String(user.max_operator_devices ?? 1),
       roleIds: user.roles?.map((role) => role.id) ?? [],
       teamIds: user.teams?.map((team) => team.id) ?? [],
       backupReportSuccess: user.mail_preferences?.backup_report?.success ?? false,
@@ -167,6 +172,25 @@ export function UsersPage() {
     }
   }
 
+  async function resetLoginLock() {
+    if (editingUser === null) {
+      return;
+    }
+
+    setResettingLoginLock(true);
+    setError(null);
+    try {
+      const response = await api.post<User>(`/users/${editingUser.id}/login-lock/reset`);
+      setEditingUser(response.data);
+      setUserDetail((current) => current === null ? response.data : { ...current, ...response.data });
+      await users.reload();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Loginvergrendeling resetten mislukt.');
+    } finally {
+      setResettingLoginLock(false);
+    }
+  }
+
   async function resendInvitation() {
     if (editingUser === null) {
       return;
@@ -199,6 +223,7 @@ export function UsersPage() {
       phone_number: form.phoneNumber || null,
       home_city: form.homeCity.trim() === '' ? null : form.homeCity.trim(),
       account_status: form.accountStatus,
+      max_operator_devices: Math.max(1, Number(form.maxOperatorDevices || 1)),
       role_ids: form.roleIds,
       team_ids: form.teamIds,
       mail_preferences: {
@@ -284,26 +309,32 @@ export function UsersPage() {
       >
         <ResourceState loading={users.loading} error={users.error} empty={(users.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Naam</th><th>E-mail</th><th>Woonplaats</th><th>Account</th><th>Push</th><th>Teams</th><th>Rollen</th><th>Actie</th></tr></thead>
+            <thead><tr><th>Naam</th><th>E-mail</th><th>Woonplaats</th><th>Account</th><th>Online</th><th>Push</th><th>Teams</th><th>Rollen</th><th>Actie</th></tr></thead>
             <tbody>
-              {users.data?.map((user) => (
-                <tr key={user.id}>
-                  <td>{user.name}</td>
-                  <td>{user.email}</td>
-                  <td>{user.home_city ?? '-'}</td>
-                  <td><StatusPill value={user.account_status} tone={user.account_status === 'active' ? 'good' : 'bad'} /></td>
-                  <td>{user.push_enabled ? 'Actief' : 'Uit'}</td>
-                  <td>{user.teams?.map((team) => team.code).join(', ') || '-'}</td>
-                  <td>{user.roles?.map((role) => role.display_name).join(', ') || '-'}</td>
-                  <td>
-                    <div className="table-actions">
-                      <button className="secondary-button" type="button" onClick={() => openEditModal(user)}>
-                        <Eye size={16} /> Details
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {users.data?.map((user) => {
+                const onlineDevices = user.fcm_tokens?.filter((token) => token.client_type !== 'admin' && token.is_online).length ?? 0;
+                const activeDevices = user.fcm_tokens?.filter((token) => token.client_type !== 'admin' && token.is_active).length ?? 0;
+
+                return (
+                  <tr key={user.id}>
+                    <td>{user.name}</td>
+                    <td>{user.email}</td>
+                    <td>{user.home_city ?? '-'}</td>
+                    <td><StatusPill value={user.account_status} tone={user.account_status === 'active' ? 'good' : 'bad'} /></td>
+                    <td><StatusPill value={onlineDevices > 0 ? `Online (${onlineDevices})` : 'Offline'} tone={onlineDevices > 0 ? 'good' : 'neutral'} /></td>
+                    <td>{user.push_enabled ? `Actief (${activeDevices}/${user.max_operator_devices ?? 1})` : 'Uit'}</td>
+                    <td>{user.teams?.map((team) => team.code).join(', ') || '-'}</td>
+                    <td>{user.roles?.map((role) => role.display_name).join(', ') || '-'}</td>
+                    <td>
+                      <div className="table-actions">
+                        <button className="secondary-button" type="button" onClick={() => openEditModal(user)}>
+                          <Eye size={16} /> Details
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </ResourceState>
@@ -343,6 +374,17 @@ export function UsersPage() {
                   <option value="suspended">Geschorst</option>
                   <option value="blocked">Geblokkeerd</option>
                 </select>
+              </label>
+              <label>
+                Max operator-devices
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={form.maxOperatorDevices}
+                  onChange={(event) => setForm((current) => ({ ...current, maxOperatorDevices: event.target.value }))}
+                />
+                <small>Standaard 1. Admin-apps tellen niet mee.</small>
               </label>
               <label className="form-grid__wide">
                 Wachtwoord
@@ -480,6 +522,27 @@ export function UsersPage() {
                   <div className="actions-row">
                     <button className="secondary-button" type="button" disabled={resettingMfa || !(userDetail ?? editingUser).two_factor_enabled} onClick={() => void resetUserMfa()}>
                       <KeyRound size={16} /> {resettingMfa ? 'Resetten...' : 'MFA resetten'}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {modalMode === 'edit' && editingUser !== null && canManageUsers ? (
+                <div className="form-grid__wide stacked-section">
+                  <span className="field-label">Loginbeveiliging</span>
+                  <dl className="definition-grid">
+                    <dt>Mislukte pogingen</dt>
+                    <dd>{(userDetail ?? editingUser).failed_login_attempts ?? 0} / 5</dd>
+                    <dt>Vergrendeld tot</dt>
+                    <dd>{formatDateTime((userDetail ?? editingUser).login_locked_until)}</dd>
+                  </dl>
+                  <div className="actions-row">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={resettingLoginLock || (((userDetail ?? editingUser).failed_login_attempts ?? 0) === 0 && !(userDetail ?? editingUser).login_locked_until)}
+                      onClick={() => void resetLoginLock()}
+                    >
+                      <KeyRound size={16} /> {resettingLoginLock ? 'Resetten...' : 'Loginlock resetten'}
                     </button>
                   </div>
                 </div>
@@ -854,14 +917,15 @@ function UserOperationalDetails({
         {!loading && fcmTokens.length === 0 ? <p className="muted-text">Geen toestellen gekoppeld.</p> : null}
         {fcmTokens.length > 0 ? (
           <table className="data-table compact-table">
-            <thead><tr><th>Toestel</th><th>Android</th><th>App</th><th>Status</th><th>Laatst gezien</th></tr></thead>
+            <thead><tr><th>Naam</th><th>Type</th><th>Toestel</th><th>App</th><th>Status</th><th>Laatst gezien</th></tr></thead>
             <tbody>
               {fcmTokens.map((token) => (
                 <tr key={token.id}>
-                  <td>{deviceLabel(token.device_manufacturer, token.device_model, token.device_id)}</td>
-                  <td>{token.android_version ? `${token.android_version}${token.sdk_version ? ` (SDK ${token.sdk_version})` : ''}` : '-'}</td>
+                  <td>{token.device_name ?? deviceLabel(token.device_manufacturer, token.device_model, token.device_id)}</td>
+                  <td>{deviceTypeLabel(token.device_type)} / {token.client_type ?? 'operator'}</td>
+                  <td>{deviceLabel(token.device_manufacturer, token.device_model, token.device_id)}{token.android_version ? ` - Android ${token.android_version}${token.sdk_version ? ` SDK ${token.sdk_version}` : ''}` : ''}</td>
                   <td>{token.app_version ?? '-'}</td>
-                  <td><StatusPill value={token.is_active ? 'Actief' : 'Uitgeschakeld'} tone={token.is_active ? 'good' : 'neutral'} /></td>
+                  <td><StatusPill value={token.is_online ? 'Online' : token.is_active ? 'Offline' : 'Uitgeschakeld'} tone={token.is_online ? 'good' : token.is_active ? 'neutral' : 'bad'} /></td>
                   <td>{formatDateTime(token.last_seen_at)}</td>
                 </tr>
               ))}
@@ -877,6 +941,18 @@ function deviceLabel(manufacturer?: string | null, model?: string | null, fallba
   const label = [manufacturer, model].filter((value) => value !== undefined && value !== null && value !== '').join(' ');
 
   return label || fallback || '-';
+}
+
+function deviceTypeLabel(type?: string | null): string {
+  if (type === 'tablet') {
+    return 'Tablet';
+  }
+
+  if (type === 'phone') {
+    return 'Telefoon';
+  }
+
+  return 'Onbekend';
 }
 
 function formatDate(value?: string | null): string {

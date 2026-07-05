@@ -375,6 +375,7 @@ final class AdminController extends Controller
             'retention.push_logs_days',
             'retention.audit_logs_days',
             'retention.location_days' => $this->validateIntegerSetting($key, $value, 1, 3650),
+            'devices.heartbeat_interval_minutes' => $this->validateIntegerSetting($key, $value, 1, 60),
             PasswordPolicy::MIN_LENGTH_KEY => $this->validateIntegerSetting($key, $value, 8, 128),
             PasswordPolicy::MIXED_CASE_KEY,
             PasswordPolicy::NUMBERS_KEY,

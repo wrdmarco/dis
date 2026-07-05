@@ -26,6 +26,19 @@ final class DeviceController extends Controller
         return response()->noContent();
     }
 
+    public function heartbeat(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'device_id' => ['required', 'string', 'max:180'],
+            'client_type' => ['nullable', 'in:operator,admin'],
+            'device_type' => ['nullable', 'in:phone,tablet'],
+            'device_name' => ['nullable', 'string', 'max:120'],
+            'app_version' => ['nullable', 'string', 'max:80'],
+        ]);
+
+        return ApiResponse::success($this->service->heartbeat($request->user(), $data));
+    }
+
     public function revoke(Request $request, FcmToken $token): Response
     {
         $this->service->revokeFcmToken($request->user(), $token);

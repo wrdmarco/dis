@@ -14,6 +14,7 @@ final class SystemSettingSeeder extends Seeder
     private array $settings = [
         'dispatch.response_timeout_seconds' => ['value' => 300, 'is_sensitive' => false],
         'dispatch.escalation_enabled' => ['value' => true, 'is_sensitive' => false],
+        'devices.heartbeat_interval_minutes' => ['value' => 15, 'is_sensitive' => false],
         'test_alert.schedule_enabled' => ['value' => false, 'is_sensitive' => false],
         'test_alert.schedule_day_of_week' => ['value' => 1, 'is_sensitive' => false],
         'test_alert.schedule_time' => ['value' => '09:00', 'is_sensitive' => false],

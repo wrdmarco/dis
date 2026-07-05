@@ -31,12 +31,15 @@ final class User extends Authenticatable
         'home_geocode_source',
         'account_status',
         'push_enabled',
+        'max_operator_devices',
         'mail_preferences',
         'two_factor_enabled',
         'two_factor_secret',
         'two_factor_recovery_codes',
         'two_factor_confirmed_at',
         'last_login_at',
+        'failed_login_attempts',
+        'login_locked_until',
     ];
 
     protected $hidden = [
@@ -51,6 +54,7 @@ final class User extends Authenticatable
         return [
             'email_verified_at' => 'immutable_datetime',
             'push_enabled' => 'boolean',
+            'max_operator_devices' => 'integer',
             'home_latitude' => 'decimal:2',
             'home_longitude' => 'decimal:2',
             'home_geocoded_at' => 'immutable_datetime',
@@ -60,6 +64,8 @@ final class User extends Authenticatable
             'two_factor_recovery_codes' => 'encrypted:array',
             'two_factor_confirmed_at' => 'immutable_datetime',
             'last_login_at' => 'immutable_datetime',
+            'failed_login_attempts' => 'integer',
+            'login_locked_until' => 'immutable_datetime',
             'password' => 'hashed',
         ];
     }

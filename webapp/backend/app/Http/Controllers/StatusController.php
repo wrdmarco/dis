@@ -50,7 +50,10 @@ final class StatusController extends Controller
             AvailabilityStatus::query()
                 ->latestPerUser()
                 ->whereHas('user')
-                ->with('user')
+                ->with(['user.fcmTokens' => fn ($tokens) => $tokens
+                    ->where('client_type', 'operator')
+                    ->where('is_active', true)
+                    ->latest('last_seen_at')])
                 ->latest('effective_at')
                 ->paginate((int) $request->integer('per_page', 25)),
             fn (AvailabilityStatus $status): array => MobileApiPayload::status(

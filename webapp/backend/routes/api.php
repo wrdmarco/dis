@@ -48,6 +48,7 @@ Route::get('/branding', [BrandingController::class, 'show'])->middleware('thrott
 Route::post('/developer/android/upload', [UpdateController::class, 'developerUploadAndroid'])->middleware('throttle:developer-upload');
 Route::post('/developer/system/maintenance', [AdminDeveloperController::class, 'developerMaintenance'])->middleware('throttle:developer-update');
 Route::post('/developer/system/update', [AdminDeveloperController::class, 'developerRunUpdate'])->middleware('throttle:developer-update');
+Route::post('/developer/users/login-lock/reset', [AdminDeveloperController::class, 'developerResetLoginLock'])->middleware('throttle:developer-update');
 Route::get('/developer/logs', [AdminDeveloperController::class, 'developerLogs'])->middleware('throttle:developer-logs');
 Route::get('/developer/logs/{filename}', [AdminDeveloperController::class, 'developerLog'])->where('filename', '[A-Za-z0-9._-]+\.log')->middleware('throttle:developer-logs');
 Route::get('/health', [HealthController::class, 'public'])->middleware('throttle:api');
@@ -73,6 +74,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
         Route::post('/users/{user}/teams', [UserController::class, 'assignTeam'])->middleware('permission:teams.manage');
         Route::delete('/users/{user}/teams/{team}', [UserController::class, 'removeTeam'])->middleware('permission:teams.manage');
         Route::post('/users/{user}/2fa/reset', [UserController::class, 'resetTwoFactor'])->middleware('permission:users.manage');
+        Route::post('/users/{user}/login-lock/reset', [UserController::class, 'resetLoginLock'])->middleware('permission:users.manage');
         Route::post('/users/{user}/invitation/resend', [UserController::class, 'resendInvitation'])->middleware('permission:users.manage');
         Route::get('/users/{user}/audit', [UserController::class, 'audit'])->middleware('permission:audit.view');
 
@@ -173,6 +175,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::delete('/users/{user}/certifications/{userCertification}', [CertificationController::class, 'deleteUserCertification'])->middleware('permission:certifications.manage');
 
     Route::post('/devices/fcm-token', [DeviceController::class, 'register'])->middleware('throttle:push-token');
+    Route::post('/devices/heartbeat', [DeviceController::class, 'heartbeat'])->middleware('throttle:push-token');
     Route::delete('/devices/fcm-token/{token}', [DeviceController::class, 'revoke']);
     Route::get('/devices', [DeviceController::class, 'index']);
 

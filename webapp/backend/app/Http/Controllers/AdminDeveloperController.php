@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiResponse;
 use App\Models\SystemSetting;
+use App\Models\User;
 use App\Services\AuditService;
 use App\Services\DeveloperAccessService;
 use App\Services\SystemUpdateStatusService;
@@ -222,6 +223,45 @@ final class AdminDeveloperController extends Controller
         return ApiResponse::success([
             'logs' => $logs,
             'updater' => $this->updateStatus->current(),
+        ]);
+    }
+
+    public function developerResetLoginLock(Request $request): JsonResponse
+    {
+        $this->developerAccess->authorize($request, DeveloperAccessService::SCOPE_USER_UNLOCK);
+
+        $data = $request->validate([
+            'email' => ['required_without:user_id', 'email:rfc', 'max:255'],
+            'user_id' => ['required_without:email', 'ulid'],
+        ]);
+
+        $user = User::query()
+            ->when(isset($data['user_id']), fn ($query) => $query->whereKey($data['user_id']))
+            ->when(isset($data['email']), fn ($query) => $query->where('email', $data['email']))
+            ->first();
+
+        if ($user === null) {
+            return ApiResponse::error('user_not_found', 'Gebruiker niet gevonden.', 404);
+        }
+
+        $before = [
+            'failed_login_attempts' => (int) $user->failed_login_attempts,
+            'login_locked_until' => $user->login_locked_until?->toIso8601String(),
+        ];
+        $user->forceFill([
+            'failed_login_attempts' => 0,
+            'login_locked_until' => null,
+        ])->save();
+
+        $this->auditService->record('developer.user_login_lock_reset', $user, null, [
+            'before' => $before,
+        ], null, $request);
+
+        return ApiResponse::success([
+            'id' => $user->id,
+            'email' => $user->email,
+            'failed_login_attempts' => 0,
+            'login_locked_until' => null,
         ]);
     }
 

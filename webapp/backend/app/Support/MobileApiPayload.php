@@ -23,7 +23,14 @@ final class MobileApiPayload
             return null;
         }
 
-        $user->loadMissing(['roles.permissions', 'teams']);
+        $user->loadMissing([
+            'roles.permissions',
+            'teams',
+            'fcmTokens' => fn ($tokens) => $tokens
+                ->where('client_type', 'operator')
+                ->where('is_active', true)
+                ->latest('last_seen_at'),
+        ]);
 
         return [
             'id' => $user->id,
@@ -34,7 +41,10 @@ final class MobileApiPayload
             'home_latitude' => $user->home_latitude,
             'home_longitude' => $user->home_longitude,
             'account_status' => $user->account_status,
+            'failed_login_attempts' => (int) ($user->failed_login_attempts ?? 0),
+            'login_locked_until' => self::dateTime($user->login_locked_until),
             'push_enabled' => (bool) $user->push_enabled,
+            'max_operator_devices' => (int) ($user->max_operator_devices ?? 1),
             'two_factor_enabled' => (bool) $user->two_factor_enabled,
             'roles' => $user->roles->map(fn ($role): array => [
                 'id' => $role->id,
@@ -58,6 +68,24 @@ final class MobileApiPayload
             'statuses' => $user->relationLoaded('statuses')
                 ? $user->statuses->map(fn (AvailabilityStatus $status): array => self::statusSummary($status))->values()
                 : [],
+            'fcm_tokens' => $user->fcmTokens->map(fn ($token): array => [
+                'id' => $token->id,
+                'user_id' => $token->user_id,
+                'device_id' => $token->device_id,
+                'device_type' => $token->device_type,
+                'device_name' => $token->device_name,
+                'device_manufacturer' => $token->device_manufacturer,
+                'device_model' => $token->device_model,
+                'android_version' => $token->android_version,
+                'sdk_version' => $token->sdk_version,
+                'platform' => $token->platform,
+                'client_type' => $token->client_type,
+                'app_version' => $token->app_version,
+                'is_active' => (bool) $token->is_active,
+                'is_online' => (bool) $token->is_online,
+                'last_seen_at' => self::dateTime($token->last_seen_at),
+                'revoked_at' => self::dateTime($token->revoked_at),
+            ])->values(),
         ];
     }
 

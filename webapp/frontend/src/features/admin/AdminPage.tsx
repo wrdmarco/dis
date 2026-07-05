@@ -44,6 +44,7 @@ interface ManagedSettingsForm {
   pushLogRetentionDays: string;
   auditLogRetentionDays: string;
   locationRetentionDays: string;
+  deviceHeartbeatIntervalMinutes: string;
   androidApplicationId: string;
   aeretMapUrl: string;
   aeretApiUrl: string;
@@ -76,9 +77,10 @@ const developerScopeLabels: Record<string, string> = {
   android_upload: 'Android upload',
   system_update: 'Update starten',
   logs_read: 'Logs lezen',
+  user_unlock: 'Gebruiker unlocken',
 };
 
-const defaultDeveloperScopes = ['android_upload', 'system_update', 'logs_read'];
+const defaultDeveloperScopes = ['android_upload', 'system_update', 'logs_read', 'user_unlock'];
 
 interface DeveloperKeyForm {
   scopes: string[];
@@ -316,6 +318,7 @@ export function AdminPage() {
         'retention.push_logs_days': Number(managedForm.pushLogRetentionDays || 90),
         'retention.audit_logs_days': Number(managedForm.auditLogRetentionDays || 3650),
         'retention.location_days': Number(managedForm.locationRetentionDays || 30),
+        'devices.heartbeat_interval_minutes': Number(managedForm.deviceHeartbeatIntervalMinutes || 15),
         'updates.android.application_id': managedForm.androidApplicationId,
         'drone.aeret_map_url': managedForm.aeretMapUrl.trim() === '' ? null : managedForm.aeretMapUrl,
         'drone.aeret_api_url': managedForm.aeretApiUrl.trim() === '' ? null : managedForm.aeretApiUrl,
@@ -747,6 +750,11 @@ export function AdminPage() {
               Locatie retentie dagen
               <input type="number" min="1" value={managedForm.locationRetentionDays} onChange={(event) => setManagedForm((current) => ({ ...current, locationRetentionDays: event.target.value }))} />
             </label>
+            <label>
+              Operator heartbeat minuten
+              <input type="number" min="1" max="60" value={managedForm.deviceHeartbeatIntervalMinutes} onChange={(event) => setManagedForm((current) => ({ ...current, deviceHeartbeatIntervalMinutes: event.target.value }))} />
+              <small>Standaard 15. Offline na ongeveer 2x dit interval.</small>
+            </label>
             <label className="form-grid__wide">
               Aeret dronekaart URL
               <input value={managedForm.aeretMapUrl} placeholder="https://aeret.kaartviewer.nl/?@dpf_basic" onChange={(event) => setManagedForm((current) => ({ ...current, aeretMapUrl: event.target.value }))} />
@@ -862,6 +870,8 @@ export function AdminPage() {
               <dd className="mono">POST /api/developer/system/update</dd>
               <dt>Logs endpoint</dt>
               <dd className="mono">GET /api/developer/logs</dd>
+              <dt>Unlock endpoint</dt>
+              <dd className="mono">POST /api/developer/users/login-lock/reset</dd>
               <dt>Header</dt>
               <dd className="mono">X-DIS-Developer-Key</dd>
             </dl>
@@ -1162,6 +1172,7 @@ function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
     pushLogRetentionDays: asStringOrNumber(byKey.get('retention.push_logs_days'), '90'),
     auditLogRetentionDays: asStringOrNumber(byKey.get('retention.audit_logs_days'), '3650'),
     locationRetentionDays: asStringOrNumber(byKey.get('retention.location_days'), '30'),
+    deviceHeartbeatIntervalMinutes: asStringOrNumber(byKey.get('devices.heartbeat_interval_minutes'), '15'),
     androidApplicationId: asString(byKey.get('updates.android.application_id')) || 'nl.wrdmarco.dis',
     aeretMapUrl: asString(byKey.get('drone.aeret_map_url')) || 'https://aeret.kaartviewer.nl/?@dpf_basic',
     aeretApiUrl: asString(byKey.get('drone.aeret_api_url')),

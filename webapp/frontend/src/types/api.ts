@@ -71,7 +71,10 @@ export interface User {
   home_geocode_source?: string | null;
   account_status: 'active' | 'suspended' | 'blocked';
   last_login_at?: string | null;
+  failed_login_attempts?: number;
+  login_locked_until?: string | null;
   push_enabled: boolean;
+  max_operator_devices: number;
   two_factor_enabled: boolean;
   roles?: Role[];
   teams?: Team[];
@@ -91,13 +94,17 @@ export interface FcmToken {
   id: string;
   user_id: string;
   device_id: string;
+  device_type?: 'phone' | 'tablet' | null;
+  device_name?: string | null;
   device_manufacturer?: string | null;
   device_model?: string | null;
   android_version?: string | null;
   sdk_version?: string | null;
   platform: string;
+  client_type?: 'operator' | 'admin' | string;
   app_version?: string | null;
   is_active: boolean;
+  is_online?: boolean;
   last_seen_at?: string | null;
   revoked_at?: string | null;
   token_preview: string;

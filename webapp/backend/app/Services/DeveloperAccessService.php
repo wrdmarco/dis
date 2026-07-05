@@ -12,11 +12,13 @@ final class DeveloperAccessService
     public const SCOPE_ANDROID_UPLOAD = 'android_upload';
     public const SCOPE_SYSTEM_UPDATE = 'system_update';
     public const SCOPE_LOGS_READ = 'logs_read';
+    public const SCOPE_USER_UNLOCK = 'user_unlock';
 
     public const SCOPES = [
         self::SCOPE_ANDROID_UPLOAD,
         self::SCOPE_SYSTEM_UPDATE,
         self::SCOPE_LOGS_READ,
+        self::SCOPE_USER_UNLOCK,
     ];
 
     public function __construct(

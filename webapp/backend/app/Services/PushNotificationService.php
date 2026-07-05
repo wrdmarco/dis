@@ -29,10 +29,10 @@ final class PushNotificationService
 
         /** @var Collection<int, User> $users */
         $users = User::query()
-            ->with(['fcmTokens' => fn ($tokens) => $tokens->where('is_active', true)])
+            ->with(['fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens)])
             ->where('account_status', 'active')
             ->where('push_enabled', true)
-            ->whereHas('fcmTokens', fn ($tokens) => $tokens->where('is_active', true))
+            ->whereHas('fcmTokens', fn ($tokens) => $this->onlineOperatorTokenQuery($tokens))
             ->where(function (Builder $query) use ($data): void {
                 $teamIds = $this->expandTeamIds($data['team_ids'] ?? []);
                 $roleIds = $data['role_ids'] ?? [];
@@ -147,5 +147,13 @@ final class PushNotificationService
         if (! is_array($credentials) || ! filled($credentials['client_email'] ?? null) || ! filled($credentials['private_key'] ?? null)) {
             throw ValidationException::withMessages(['firebase' => ['Firebase service account is not configured.']]);
         }
+    }
+
+    private function onlineOperatorTokenQuery($tokens)
+    {
+        return $tokens
+            ->where('is_active', true)
+            ->where('client_type', 'operator')
+            ->where('last_seen_at', '>=', now()->subMinutes(max(2, SystemSetting::integer('devices.heartbeat_interval_minutes', 15) * 2)));
     }
 }

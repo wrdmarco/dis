@@ -27,7 +27,21 @@ final class AuthController extends Controller
     {
         $user = User::query()->with(['roles.permissions', 'teams'])->where('email', $request->validated('email'))->first();
 
+        if ($user !== null && $this->isLoginLocked($user)) {
+            $this->auditService->record('auth.login_temporarily_locked', $user, $user, [
+                'failed_login_attempts' => $user->failed_login_attempts,
+                'login_locked_until' => $user->login_locked_until?->toIso8601String(),
+            ], null, $request);
+
+            return ApiResponse::error('login_temporarily_locked', 'Account tijdelijk vergrendeld door te veel mislukte loginpogingen.', 423, [
+                'login_locked_until' => $user->login_locked_until?->toIso8601String(),
+            ]);
+        }
+
         if ($user === null || ! Hash::check($request->validated('password'), $user->password)) {
+            if ($user !== null) {
+                $this->recordFailedLoginAttempt($user, $request);
+            }
             $this->auditService->record('auth.login_failed', User::class, null, ['email' => $request->validated('email')], null, $request);
             throw ValidationException::withMessages(['email' => ['The provided credentials are invalid.']]);
         }
@@ -47,6 +61,7 @@ final class AuthController extends Controller
 
             return ApiResponse::error('app_access_denied', 'Deze rol geeft geen toegang tot deze app.', 403);
         }
+        $this->resetLoginFailures($user);
         $requiresTwoFactor = $user->roles->contains(fn ($role) => $role->requires_two_factor);
         if ($requiresTwoFactor && ! $user->two_factor_enabled) {
             $secret = $this->twoFactorService->generateSecret();
@@ -77,7 +92,11 @@ final class AuthController extends Controller
             return ApiResponse::success(['requires_2fa' => true, 'token' => $token], 202);
         }
 
-        $user->forceFill(['last_login_at' => now()])->save();
+        $user->forceFill([
+            'last_login_at' => now(),
+            'failed_login_attempts' => 0,
+            'login_locked_until' => null,
+        ])->save();
         $this->auditService->record('auth.login_succeeded', $user, $user, [], null, $request);
 
         return ApiResponse::success([
@@ -108,7 +127,12 @@ final class AuthController extends Controller
         }
 
         $request->user()?->currentAccessToken()?->delete();
-        $user->forceFill(['two_factor_confirmed_at' => now(), 'last_login_at' => now()])->save();
+        $user->forceFill([
+            'two_factor_confirmed_at' => now(),
+            'last_login_at' => now(),
+            'failed_login_attempts' => 0,
+            'login_locked_until' => null,
+        ])->save();
         $this->auditService->record('auth.2fa_verified', $user, $user, [], null, $request);
 
         return ApiResponse::success([
@@ -175,6 +199,8 @@ final class AuthController extends Controller
             'two_factor_confirmed_at' => now(),
             'two_factor_recovery_codes' => $this->twoFactorService->generateRecoveryCodes(),
             'last_login_at' => now(),
+            'failed_login_attempts' => 0,
+            'login_locked_until' => null,
         ])->save();
         $request->user()?->currentAccessToken()?->delete();
         $this->auditService->record('auth.2fa_enabled', $user, $user, [], null, $request);
@@ -315,5 +341,52 @@ final class AuthController extends Controller
             'admin_android' => $user->canUseAdminApp(),
             default => true,
         };
+    }
+
+    private function isLoginLocked(User $user): bool
+    {
+        if ($user->login_locked_until === null) {
+            return false;
+        }
+
+        if ($user->login_locked_until->isFuture()) {
+            return true;
+        }
+
+        $user->forceFill([
+            'failed_login_attempts' => 0,
+            'login_locked_until' => null,
+        ])->save();
+
+        return false;
+    }
+
+    private function recordFailedLoginAttempt(User $user, Request $request): void
+    {
+        $attempts = min(255, (int) $user->failed_login_attempts + 1);
+        $lockedUntil = $attempts >= 5 ? now()->addMinutes(5) : null;
+        $user->forceFill([
+            'failed_login_attempts' => $attempts,
+            'login_locked_until' => $lockedUntil,
+        ])->save();
+
+        if ($lockedUntil !== null) {
+            $this->auditService->record('auth.login_lockout_started', $user, $user, [
+                'failed_login_attempts' => $attempts,
+                'login_locked_until' => $lockedUntil->toIso8601String(),
+            ], null, $request);
+        }
+    }
+
+    private function resetLoginFailures(User $user): void
+    {
+        if ((int) $user->failed_login_attempts === 0 && $user->login_locked_until === null) {
+            return;
+        }
+
+        $user->forceFill([
+            'failed_login_attempts' => 0,
+            'login_locked_until' => null,
+        ])->save();
     }
 }

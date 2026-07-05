@@ -22,8 +22,11 @@ export function StatusPage() {
   const sortedItems = [...items].sort((left, right) => Number(left.is_available) - Number(right.is_available)
     || (left.next_available_at?.at ?? '').localeCompare(right.next_available_at?.at ?? '')
     || (left.user?.name ?? '').localeCompare(right.user?.name ?? ''));
+  const onlineItems = sortedItems.filter((item) => isUserOnline(item));
+  const offlineItems = sortedItems.filter((item) => !isUserOnline(item));
   const availableCount = items.filter((item) => item.is_available).length;
   const unavailableCount = items.filter((item) => !item.is_available).length;
+  const onlineCount = onlineItems.length;
   const onSceneCount = items.filter((item) => item.status === 'on_scene').length;
   const returningCount = items.filter((item) => !item.is_available && item.next_available_at !== null && item.next_available_at !== undefined).length;
   const canOverrideStatus = hasPermission('status.override');
@@ -66,49 +69,12 @@ export function StatusPage() {
             <div className="operational-status__summary">
               <SummaryItem icon={<ShieldCheck size={18} />} label="Nu beschikbaar" value={String(availableCount)} />
               <SummaryItem icon={<Clock3 size={18} />} label="Niet beschikbaar" value={String(unavailableCount)} />
+              <SummaryItem label="Online" value={String(onlineCount)} />
               <SummaryItem icon={<UsersRound size={18} />} label="Wordt later beschikbaar" value={String(returningCount)} />
               <SummaryItem label="Op locatie" value={String(onSceneCount)} />
             </div>
-            <table className="data-table operational-status__table">
-              <thead>
-                <tr>
-                  <th>Gebruiker</th>
-                  <th>Status</th>
-                  <th>Weer beschikbaar</th>
-                  <th>Laatst gewijzigd</th>
-                  <th>Actie</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedItems.map((item) => (
-                  <tr key={item.id}>
-                    <td>
-                      <div className="operator-cell">
-                        <strong>{item.user?.name ?? '-'}</strong>
-                        <span>{teamLabel(item)}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="status-cell">
-                        <StatusPill value={item.is_available ? 'available' : item.status} tone={statusTone(item)} />
-                        {item.reason ? <small>{item.reason}</small> : item.is_system_applied ? <small>Volgens beschikbaarheidsplanner</small> : null}
-                      </div>
-                    </td>
-                    <td>{nextAvailabilityLabel(item)}</td>
-                    <td>{formatDateTime(item.effective_at)}</td>
-                    <td>
-                      {canOverrideStatus ? (
-                        <div className="table-actions">
-                          <button className="secondary-button" type="button" onClick={() => openEditModal(item)}>
-                            <Pencil size={16} /> Status
-                          </button>
-                        </div>
-                      ) : '-'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <StatusTable title="Online operators" items={onlineItems} canOverrideStatus={canOverrideStatus} onEdit={openEditModal} />
+            <StatusTable title="Offline operators" items={offlineItems} canOverrideStatus={canOverrideStatus} onEdit={openEditModal} />
           </div>
         </ResourceState>
       </Panel>
@@ -158,6 +124,92 @@ export function StatusPage() {
 
     </div>
   );
+}
+
+function StatusTable({
+  title,
+  items,
+  canOverrideStatus,
+  onEdit,
+}: {
+  title: string;
+  items: AvailabilityStatus[];
+  canOverrideStatus: boolean;
+  onEdit: (item: AvailabilityStatus) => void;
+}) {
+  return (
+    <div className="stacked-section">
+      <span className="field-label">{title}</span>
+      {items.length === 0 ? <p className="muted-text">Geen gebruikers in deze groep.</p> : (
+        <table className="data-table operational-status__table">
+          <thead>
+            <tr>
+              <th>Gebruiker</th>
+              <th>Device</th>
+              <th>Status</th>
+              <th>Weer beschikbaar</th>
+              <th>Laatst gewijzigd</th>
+              <th>Actie</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id}>
+                <td>
+                  <div className="operator-cell">
+                    <strong>{item.user?.name ?? '-'}</strong>
+                    <span>{teamLabel(item)}</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="status-cell">
+                    <StatusPill value={isUserOnline(item) ? 'Online' : 'Offline'} tone={isUserOnline(item) ? 'good' : 'neutral'} />
+                    <small>{deviceSeenLabel(item)}</small>
+                  </div>
+                </td>
+                <td>
+                  <div className="status-cell">
+                    <StatusPill value={item.is_available ? 'available' : item.status} tone={statusTone(item)} />
+                    {item.reason ? <small>{item.reason}</small> : item.is_system_applied ? <small>Volgens beschikbaarheidsplanner</small> : null}
+                  </div>
+                </td>
+                <td>{nextAvailabilityLabel(item)}</td>
+                <td>{formatDateTime(item.effective_at)}</td>
+                <td>
+                  {canOverrideStatus ? (
+                    <div className="table-actions">
+                      <button className="secondary-button" type="button" onClick={() => onEdit(item)}>
+                        <Pencil size={16} /> Status
+                      </button>
+                    </div>
+                  ) : '-'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function isUserOnline(item: AvailabilityStatus): boolean {
+  return item.user?.fcm_tokens?.some((token) => token.client_type !== 'admin' && token.is_online) ?? false;
+}
+
+function deviceSeenLabel(item: AvailabilityStatus): string {
+  const token = [...(item.user?.fcm_tokens ?? [])]
+    .filter((candidate) => candidate.client_type !== 'admin')
+    .sort((left, right) => (right.last_seen_at ?? '').localeCompare(left.last_seen_at ?? ''))[0];
+
+  if (token === undefined) {
+    return 'Geen operator-device';
+  }
+
+  const hardwareName = [token.device_manufacturer, token.device_model].filter(Boolean).join(' ');
+  const name = token.device_name ?? (hardwareName || token.device_id);
+
+  return `${name} - ${formatDateTime(token.last_seen_at)}`;
 }
 
 function SummaryItem({ icon, label, value }: { icon?: ReactNode; label: string; value: string }) {

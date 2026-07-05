@@ -23,6 +23,7 @@ final class StoreUserRequest extends FormRequest
             'phone_number' => ['nullable', 'string', 'max:40'],
             'home_city' => ['nullable', 'string', 'max:120'],
             'account_status' => ['nullable', 'in:active,suspended,blocked'],
+            'max_operator_devices' => ['nullable', 'integer', 'min:1', 'max:20'],
             'role_ids' => ['nullable', 'array'],
             'role_ids.*' => ['ulid', 'exists:roles,id'],
             'team_ids' => ['nullable', 'array'],

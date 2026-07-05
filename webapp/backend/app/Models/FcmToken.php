@@ -5,14 +5,19 @@ namespace App\Models;
 use App\Models\Concerns\UsesUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\SystemSetting;
 
 final class FcmToken extends Model
 {
     use UsesUlids;
 
+    private static ?int $onlineThresholdMinutes = null;
+
     protected $fillable = [
         'user_id',
         'device_id',
+        'device_type',
+        'device_name',
         'device_manufacturer',
         'device_model',
         'android_version',
@@ -20,15 +25,33 @@ final class FcmToken extends Model
         'token',
         'token_hash',
         'platform',
+        'client_type',
         'app_version',
         'is_active',
         'last_seen_at',
         'revoked_at',
     ];
 
+    protected $appends = ['is_online'];
+
     protected function casts(): array
     {
         return ['is_active' => 'boolean', 'last_seen_at' => 'immutable_datetime', 'revoked_at' => 'immutable_datetime'];
+    }
+
+    public function getIsOnlineAttribute(): bool
+    {
+        return (bool) $this->is_active
+            && $this->client_type === 'operator'
+            && $this->last_seen_at !== null
+            && $this->last_seen_at->greaterThanOrEqualTo(now()->subMinutes($this->onlineThresholdMinutes()));
+    }
+
+    private function onlineThresholdMinutes(): int
+    {
+        self::$onlineThresholdMinutes ??= max(2, SystemSetting::integer('devices.heartbeat_interval_minutes', 15) * 2);
+
+        return self::$onlineThresholdMinutes;
     }
 
     public function user(): BelongsTo

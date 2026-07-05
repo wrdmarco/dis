@@ -279,6 +279,18 @@ final class UserService
         return $user->refresh()->load(['roles', 'teams']);
     }
 
+    public function resetLoginLock(User $user, User $actor): User
+    {
+        $user->forceFill([
+            'failed_login_attempts' => 0,
+            'login_locked_until' => null,
+        ])->save();
+
+        $this->auditService->record('users.login_lock_reset', $user, $actor);
+
+        return $user->refresh()->load(['roles', 'teams']);
+    }
+
     public function resendWelcomeMail(User $user, User $actor): User
     {
         if ($user->last_login_at !== null) {

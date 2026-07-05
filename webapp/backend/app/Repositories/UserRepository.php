@@ -18,7 +18,14 @@ final class UserRepository extends BaseRepository
     public function search(array $filters, int $perPage): LengthAwarePaginator
     {
         return User::query()
-            ->with(['roles', 'teams'])
+            ->with([
+                'roles',
+                'teams',
+                'fcmTokens' => fn ($tokens) => $tokens
+                    ->where('client_type', 'operator')
+                    ->where('is_active', true)
+                    ->latest('last_seen_at'),
+            ])
             ->when($filters['search'] ?? null, function ($query, string $search): void {
                 $query->where(function ($nested) use ($search): void {
                     $nested->where('name', 'ilike', "%{$search}%")

@@ -91,6 +91,11 @@ final class UserController extends Controller
         return ApiResponse::success($this->service->resetTwoFactor($user, $request->user()));
     }
 
+    public function resetLoginLock(Request $request, User $user): JsonResponse
+    {
+        return ApiResponse::success($this->service->resetLoginLock($user, $request->user()));
+    }
+
     public function resendInvitation(Request $request, User $user): JsonResponse
     {
         return ApiResponse::success($this->service->resendWelcomeMail($user, $request->user()));

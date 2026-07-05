@@ -79,7 +79,7 @@ final class DispatchService
     {
         $existingDrafts = $incident->dispatchRequests()
             ->where('status', 'draft')
-            ->with(['incident', 'recipients.user.fcmTokens'])
+            ->with(['incident', 'recipients.user.fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens)])
             ->get();
 
         if ($existingDrafts->isNotEmpty()) {
@@ -156,7 +156,7 @@ final class DispatchService
                 ] + $options, $actor);
             }
 
-            $dispatch->load(['recipients.user.fcmTokens']);
+            $dispatch->load(['recipients.user.fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens)]);
             $dispatches->push($dispatch);
             $recipientCount += $dispatch->recipients->count();
             if ($remaining !== null) {
@@ -164,7 +164,7 @@ final class DispatchService
             }
 
             foreach ($dispatch->recipients as $recipient) {
-                foreach ($recipient->user?->fcmTokens->where('is_active', true) ?? [] as $token) {
+                foreach ($recipient->user?->fcmTokens ?? [] as $token) {
                     SendFcmNotification::dispatch(
                         (string) $token->id,
                         'dispatch_update',
@@ -204,7 +204,7 @@ final class DispatchService
     public function sendCancellationForActiveIncident(Incident $incident, User $actor): array
     {
         $incident->load([
-            'dispatchRequests.recipients.user.fcmTokens',
+            'dispatchRequests.recipients.user.fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens),
         ]);
 
         $recipients = $incident->dispatchRequests
@@ -234,7 +234,7 @@ final class DispatchService
 
         $queuedTokens = 0;
         foreach ($recipients as $recipient) {
-            foreach ($recipient->user?->fcmTokens->where('is_active', true) ?? [] as $token) {
+            foreach ($recipient->user?->fcmTokens ?? [] as $token) {
                 SendFcmNotification::dispatch(
                     (string) $token->id,
                     'incident_cancelled',
@@ -331,6 +331,12 @@ final class DispatchService
         }
 
         $dispatch->update($updates);
+        $dispatch->recipients()
+            ->whereDoesntHave('user.fcmTokens', fn ($tokens) => $this->onlineOperatorTokenQuery($tokens))
+            ->delete();
+        if (! $dispatch->recipients()->exists()) {
+            throw ValidationException::withMessages(['dispatch' => ['Er zijn geen online operator-devices meer beschikbaar voor deze alarmering.']]);
+        }
         if ($wasPreannouncement) {
             $dispatch->recipients()
                 ->where('response_status', 'accepted')
@@ -343,7 +349,7 @@ final class DispatchService
         $dispatch->recipients()->whereNull('notified_at')->update(['notified_at' => now()]);
         $dispatch->load([
             'incident',
-            'recipients.user.fcmTokens',
+            'recipients.user.fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens),
             'recipients.user.statuses' => fn ($statuses) => $statuses->latestPerUser(),
         ]);
         $dispatchTitle = $this->pushTemplate('dispatch_title', 'NDT Alarmering', $this->pushTemplateTokens($dispatch->incident));
@@ -371,7 +377,7 @@ final class DispatchService
                     'unavailable_escalation' => $unavailableEscalation ? 'true' : 'false',
                 ];
 
-                foreach ($recipient->user?->fcmTokens->where('is_active', true) ?? [] as $token) {
+                foreach ($recipient->user?->fcmTokens ?? [] as $token) {
                     SendFcmNotification::dispatch(
                         (string) $token->id,
                         'dispatch_request',
@@ -770,7 +776,7 @@ final class DispatchService
         $teamUsers = User::query()
             ->with([
                 'certifications',
-                'fcmTokens' => fn ($tokens) => $tokens->where('is_active', true),
+                'fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens),
                 'statuses' => fn ($statuses) => $statuses->latestPerUser(),
                 'teams',
                 'roles',
@@ -784,12 +790,12 @@ final class DispatchService
         $pushEnabledUsers = $activeUsers
             ->filter(fn (User $user): bool => (bool) $user->push_enabled)
             ->values();
-        $tokenUsers = $pushEnabledUsers
+        $onlineTokenUsers = $pushEnabledUsers
             ->filter(fn (User $user): bool => $user->fcmTokens->isNotEmpty())
             ->values();
         $availableUsers = $includeUnavailable
-            ? $tokenUsers
-            : $tokenUsers
+            ? $onlineTokenUsers
+            : $onlineTokenUsers
                 ->filter(fn (User $user): bool => $this->isOperationallyAvailable($user))
                 ->values();
         $certifiedUsers = $availableUsers
@@ -802,7 +808,7 @@ final class DispatchService
                 'team_users' => $teamUsers->count(),
                 'active_users' => $activeUsers->count(),
                 'push_enabled_users' => $pushEnabledUsers->count(),
-                'active_token_users' => $tokenUsers->count(),
+                'active_token_users' => $onlineTokenUsers->count(),
                 'available_users' => $availableUsers->count(),
                 'certified_users' => $certifiedUsers->count(),
                 'required_certifications' => $requiredCertificationIds->count(),
@@ -945,7 +951,7 @@ final class DispatchService
         }
 
         if ($counts['active_token_users'] === 0) {
-            return "$prefix Teamleden hebben geen actieve push-token.";
+            return "$prefix Teamleden hebben geen online operator-device.";
         }
 
         if ($counts['available_users'] === 0) {
@@ -970,6 +976,14 @@ final class DispatchService
             $team->code,
             ...$team->alertTeams->pluck('code')->all(),
         ]));
+    }
+
+    private function onlineOperatorTokenQuery($tokens)
+    {
+        return $tokens
+            ->where('is_active', true)
+            ->where('client_type', 'operator')
+            ->where('last_seen_at', '>=', now()->subMinutes(max(2, SystemSetting::integer('devices.heartbeat_interval_minutes', 15) * 2)));
     }
 
     public function broadcastDispatchChange(DispatchRequest $dispatch, string $action): void
