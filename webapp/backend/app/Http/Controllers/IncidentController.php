@@ -96,6 +96,9 @@ final class IncidentController extends Controller
                             $closedIncident
                                 ->whereIn('status', ['resolved', 'cancelled'])
                                 ->where('is_test', false)
+                                ->whereDoesntHave('pilotReports', fn ($reports) => $reports
+                                    ->where('user_id', $userId)
+                                    ->where('status', 'submitted'))
                                 ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
                                     ->whereIn('status', $attendanceDispatchStatuses)
                                     ->whereHas('recipients', fn ($recipients) => $recipients

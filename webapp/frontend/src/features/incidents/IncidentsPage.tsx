@@ -618,11 +618,13 @@ async function fetchLocationSuggestions(query: string, signal: AbortSignal): Pro
     fetchPdokLocationSuggestions(query, signal),
     fetchPhotonLocationSuggestions(query, signal),
   ]);
+  const pdokSuggestions = pdok.status === 'fulfilled' ? pdok.value : [];
+  const photonSuggestions = osm.status === 'fulfilled' ? osm.value : [];
+  const suggestions = looksLikeAddressQuery(query)
+    ? [...pdokSuggestions, ...photonSuggestions]
+    : [...photonSuggestions, ...pdokSuggestions];
 
-  return uniqueLocationSuggestions([
-    ...(pdok.status === 'fulfilled' ? pdok.value : []),
-    ...(osm.status === 'fulfilled' ? osm.value : []),
-  ]).slice(0, 8);
+  return uniqueLocationSuggestions(suggestions).slice(0, 8);
 }
 
 async function fetchPdokLocationSuggestions(query: string, signal: AbortSignal): Promise<LocationSuggestion[]> {
@@ -680,13 +682,14 @@ async function fetchPhotonLocationSuggestions(query: string, signal: AbortSignal
       const longitude = coordinates?.[0];
       const latitude = coordinates?.[1];
       const label = photonLabel(feature.properties);
+      const displayLabel = photonDisplayLabel(query, label);
       if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || label === '') {
         return null;
       }
 
       return {
-        id: `photon:${feature.properties?.osm_id ?? index}:${latitude}:${longitude}:${encodeURIComponent(label)}`,
-        label,
+        id: `photon:${feature.properties?.osm_id ?? index}:${latitude}:${longitude}:${encodeURIComponent(displayLabel)}`,
+        label: displayLabel,
       };
     })
     .filter((item): item is LocationSuggestion => item !== null)
@@ -781,7 +784,9 @@ async function geocodeAddress(form: IncidentFormState, onChange: (updater: (curr
   }
 
   try {
-    const resolved = await geocodePdokAddress(query) ?? await geocodePhotonLocation(query);
+    const resolved = looksLikeAddressQuery(query)
+      ? await geocodePdokAddress(query) ?? await geocodePhotonLocation(query)
+      : await geocodePhotonLocation(query) ?? await geocodePdokAddress(query);
     if (resolved === null) {
       return;
     }
@@ -790,6 +795,10 @@ async function geocodeAddress(form: IncidentFormState, onChange: (updater: (curr
   } catch {
     // Manual coordinates remain available when the geocoder cannot be reached.
   }
+}
+
+function looksLikeAddressQuery(query: string): boolean {
+  return /\d/.test(query);
 }
 
 async function geocodePdokAddress(query: string): Promise<Pick<IncidentFormState, 'locationLabel' | 'latitude' | 'longitude'> | null> {
@@ -863,6 +872,18 @@ function photonLabel(properties?: {
     properties.state,
     properties.country,
   ].filter((part): part is string => typeof part === 'string' && part.trim() !== '').join(', ');
+}
+
+function photonDisplayLabel(query: string, label: string): string {
+  const normalizedQuery = query.trim();
+  if (normalizedQuery === '') {
+    return label;
+  }
+
+  const queryWords = normalizedQuery.toLocaleLowerCase('nl-NL').split(/\s+/).filter((word) => word.length > 2);
+  const normalizedLabel = label.toLocaleLowerCase('nl-NL');
+  const missingImportantWord = queryWords.some((word) => !normalizedLabel.includes(word));
+  return missingImportantWord ? `${normalizedQuery} - ${label}` : label;
 }
 
 function coordinatesFromPdokMatch(match?: { centroide_ll?: string; weergavenaam?: string }): Pick<IncidentFormState, 'locationLabel' | 'latitude' | 'longitude'> | null {
