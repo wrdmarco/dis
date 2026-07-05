@@ -102,6 +102,8 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/pilot-report/form-config', [PilotIncidentReportController::class, 'formConfig'])->middleware('permission:incidents.view');
     Route::get('/incidents/{incident}/pilot-report', [PilotIncidentReportController::class, 'show'])->middleware('permission:incidents.view');
     Route::patch('/incidents/{incident}/pilot-report', [PilotIncidentReportController::class, 'update'])->middleware('permission:incidents.view');
+    Route::get('/incidents/{incident}/pilot-reports/{user}', [PilotIncidentReportController::class, 'showForUser'])->middleware('permission:incidents.manage');
+    Route::patch('/incidents/{incident}/pilot-reports/{user}', [PilotIncidentReportController::class, 'updateForUser'])->middleware('permission:incidents.manage');
     Route::get('/incidents/{incidentId}/report', [ReportingController::class, 'incidentPdf'])->middleware('permission:incidents.view');
     Route::get('/incidents/{incidentId}/report.pdf', [ReportingController::class, 'incidentPdf'])->middleware('permission:incidents.view');
     Route::get('/incidents/{incident}/dispatch-preview', [IncidentController::class, 'dispatchPreview'])->middleware('permission:dispatch.view');

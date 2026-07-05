@@ -43,7 +43,7 @@ const navGroups: NavGroup[] = [
       { to: '/calendar', label: 'Agenda', icon: CalendarDays },
       { to: '/test-alert', label: 'Proefalarmering', icon: BellRing, permissions: ['dispatch.manage'] },
       { to: '/push', label: 'Pushmeldingen', icon: Send, permissions: ['push.manage'] },
-      { to: '/reports', label: 'Statistieken', icon: BarChart3, permissions: ['incidents.view', 'dispatch.view'] },
+      { to: '/reports', label: 'Rapporten', icon: BarChart3, permissions: ['incidents.view', 'dispatch.view'] },
     ],
   },
   {

@@ -75,7 +75,10 @@ final class DispatchService
         });
     }
 
-    public function createAndSendForIncidentActivation(Incident $incident, User $actor, ?string $message = null, array $options = []): ?DispatchRequest
+    /**
+     * @return array{dispatch: DispatchRequest|null, warnings: list<string>}
+     */
+    public function createAndSendForIncidentActivation(Incident $incident, User $actor, ?string $message = null, array $options = []): array
     {
         $existingDrafts = $incident->dispatchRequests()
             ->where('status', 'draft')
@@ -84,43 +87,66 @@ final class DispatchService
 
         if ($existingDrafts->isNotEmpty()) {
             $sentDispatch = null;
+            $warnings = [];
             foreach ($existingDrafts as $draft) {
-                $sentDispatch ??= $this->markSent($draft, $actor);
+                try {
+                    $sent = $this->markSent($draft, $actor);
+                    $sentDispatch ??= $sent;
+                } catch (ValidationException $exception) {
+                    $warnings = array_merge($warnings, $this->validationMessages($exception));
+                }
             }
 
-            return $sentDispatch;
+            if ($sentDispatch === null) {
+                throw ValidationException::withMessages([
+                    'dispatch' => $warnings !== [] ? $warnings : ['Er zijn geen alarmeerbare gebruikers beschikbaar voor deze alarmering.'],
+                ]);
+            }
+
+            return ['dispatch' => $sentDispatch, 'warnings' => array_values(array_unique($warnings))];
         }
 
         if ($incident->dispatchRequests()->where('status', 'sent')->exists()) {
-            return null;
+            return ['dispatch' => null, 'warnings' => []];
         }
 
         $dispatch = null;
+        $warnings = [];
         $remaining = $this->requestedRecipientCount($options);
         foreach ($this->targetTeams($incident, []) as $targetTeam) {
             if ($remaining !== null && $remaining <= 0) {
                 break;
             }
 
-            $created = $this->create($incident, [
-                'priority' => $incident->priority === 'low' ? 'normal' : $incident->priority,
-                'message' => $message ?: $this->defaultDispatchMessage($incident),
-                'target_team_id' => $targetTeam->id,
-                'dispatch_recipient_count' => $remaining,
-            ] + $options, $actor);
+            try {
+                $created = $this->create($incident, [
+                    'priority' => $incident->priority === 'low' ? 'normal' : $incident->priority,
+                    'message' => $message ?: $this->defaultDispatchMessage($incident),
+                    'target_team_id' => $targetTeam->id,
+                    'dispatch_recipient_count' => $remaining,
+                ] + $options, $actor);
 
-            $sent = $this->markSent($created, $actor);
-            $dispatch ??= $sent;
-            if ($remaining !== null) {
-                $remaining -= $sent->recipients()->count();
+                $sent = $this->markSent($created, $actor);
+                $dispatch ??= $sent;
+                if ($remaining !== null) {
+                    $remaining -= $sent->recipients()->count();
+                }
+            } catch (ValidationException $exception) {
+                $warnings = array_merge($warnings, $this->validationMessages($exception));
             }
         }
 
-        return $dispatch;
+        if ($dispatch === null) {
+            throw ValidationException::withMessages([
+                'dispatch' => $warnings !== [] ? $warnings : ['Er zijn geen alarmeerbare gebruikers beschikbaar voor deze alarmering.'],
+            ]);
+        }
+
+        return ['dispatch' => $dispatch, 'warnings' => array_values(array_unique($warnings))];
     }
 
     /**
-     * @return array{queued_tokens: int, recipient_users: int}
+     * @return array{queued_tokens: int, recipient_users: int, warnings: list<string>}
      */
     public function sendPreannouncementForIncidentActivation(Incident $incident, User $actor, ?string $message = null, array $options = []): array
     {
@@ -136,6 +162,7 @@ final class DispatchService
         $queuedTokens = 0;
         $recipientCount = 0;
         $dispatches = collect();
+        $warnings = [];
         $remaining = $this->requestedRecipientCount($options);
         foreach ($this->targetTeams($incident, []) as $targetTeam) {
             if ($remaining !== null && $remaining <= 0) {
@@ -148,12 +175,17 @@ final class DispatchService
                 ->first();
 
             if ($dispatch === null) {
-                $dispatch = $this->create($incident, [
-                    'priority' => $incident->priority === 'low' ? 'normal' : $incident->priority,
-                    'message' => $message ?: $this->defaultDispatchMessage($incident),
-                    'target_team_id' => $targetTeam->id,
-                    'dispatch_recipient_count' => $remaining,
-                ] + $options, $actor);
+                try {
+                    $dispatch = $this->create($incident, [
+                        'priority' => $incident->priority === 'low' ? 'normal' : $incident->priority,
+                        'message' => $message ?: $this->defaultDispatchMessage($incident),
+                        'target_team_id' => $targetTeam->id,
+                        'dispatch_recipient_count' => $remaining,
+                    ] + $options, $actor);
+                } catch (ValidationException $exception) {
+                    $warnings = array_merge($warnings, $this->validationMessages($exception));
+                    continue;
+                }
             }
 
             $dispatch->load(['recipients.user.fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens)]);
@@ -186,15 +218,23 @@ final class DispatchService
             $this->broadcastDispatchChange($dispatch->refresh(), 'preannouncement_sent');
         }
 
+        if ($recipientCount === 0) {
+            throw ValidationException::withMessages([
+                'dispatch' => $warnings !== [] ? $warnings : ['Er zijn geen alarmeerbare gebruikers beschikbaar voor deze vooraankondiging.'],
+            ]);
+        }
+
         $this->auditService->record('incidents.preannouncement_sent', $incident, $actor, [
             'dispatch_ids' => $dispatches->pluck('id')->values()->all(),
             'recipient_users' => $recipientCount,
             'queued_tokens' => $queuedTokens,
+            'warnings' => array_values(array_unique($warnings)),
         ]);
 
         return [
             'queued_tokens' => $queuedTokens,
             'recipient_users' => $recipientCount,
+            'warnings' => array_values(array_unique($warnings)),
         ];
     }
 
@@ -260,7 +300,7 @@ final class DispatchService
     }
 
     /**
-     * @return array{team: array<string, mixed>|null, recipients: list<array<string, mixed>>, blocked_reason: string|null}
+     * @return array{team: array<string, mixed>|null, recipients: list<array<string, mixed>>, blocked_reason: string|null, warnings: list<string>}
      */
     public function previewForIncident(Incident $incident, array $options = []): array
     {
@@ -271,6 +311,7 @@ final class DispatchService
                 'teams' => [],
                 'recipients' => [],
                 'blocked_reason' => 'Er is geen geldig team voor deze melding gekozen.',
+                'warnings' => [],
             ];
         }
 
@@ -317,6 +358,7 @@ final class DispatchService
                 ->values()
                 ->all(),
             'blocked_reason' => $eligibleUsers->isEmpty() ? implode(' ', array_unique($blockedReasons)) : null,
+            'warnings' => $eligibleUsers->isEmpty() ? [] : array_values(array_unique($blockedReasons)),
         ];
     }
 
@@ -963,6 +1005,23 @@ final class DispatchService
         }
 
         return "$prefix Controleer team, push-token, beschikbaarheid en certificeringen.";
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function validationMessages(ValidationException $exception): array
+    {
+        $messages = [];
+        foreach ($exception->errors() as $fieldMessages) {
+            foreach ($fieldMessages as $message) {
+                if (is_string($message) && trim($message) !== '') {
+                    $messages[] = $message;
+                }
+            }
+        }
+
+        return array_values(array_unique($messages));
     }
 
     /**

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Incidents\UpdatePilotIncidentReportRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\Incident;
+use App\Models\User;
 use App\Services\PilotIncidentReportService;
 use App\Services\PilotIncidentReportFormService;
 use App\Support\MobileApiPayload;
@@ -20,7 +21,12 @@ final class PilotIncidentReportController extends Controller
 
     public function formConfig(Request $request): JsonResponse
     {
-        return ApiResponse::success(['fields' => $this->formService->fields($request->user())]);
+        $targetUser = $request->user();
+        if ($request->filled('user_id') && $request->user()?->hasPermission('incidents.manage') === true) {
+            $targetUser = User::query()->findOrFail((string) $request->query('user_id'));
+        }
+
+        return ApiResponse::success(['fields' => $this->formService->fields($targetUser)]);
     }
 
     public function updateFormConfig(Request $request): JsonResponse
@@ -50,6 +56,22 @@ final class PilotIncidentReportController extends Controller
     {
         return ApiResponse::success(MobileApiPayload::pilotIncidentReport(
             $this->service->submit($incident, $request->user(), $request->validated()),
+        ));
+    }
+
+    public function showForUser(Request $request, Incident $incident, User $user): JsonResponse
+    {
+        return ApiResponse::success(MobileApiPayload::pilotIncidentReport(
+            $this->service->showForActor($incident, $user, $request->user()),
+        ));
+    }
+
+    public function updateForUser(Request $request, Incident $incident, User $user): JsonResponse
+    {
+        $data = $request->validate($this->formService->validationRules($user));
+
+        return ApiResponse::success(MobileApiPayload::pilotIncidentReport(
+            $this->service->submitForActor($incident, $user, $request->user(), $data),
         ));
     }
 }

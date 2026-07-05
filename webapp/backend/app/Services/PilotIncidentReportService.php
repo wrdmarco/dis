@@ -43,6 +43,19 @@ final class PilotIncidentReportService
         return $this->ensureReport($incident, $user)->refresh();
     }
 
+    public function showForActor(Incident $incident, User $user, User $actor): PilotIncidentReport
+    {
+        $this->assertCanReport($incident, $user);
+
+        $report = $this->ensureReport($incident, $user)->refresh();
+        $this->auditService->record('pilot_incident_report.opened_by_admin', $report, $actor, [
+            'incident_id' => $incident->id,
+            'user_id' => $user->id,
+        ]);
+
+        return $report;
+    }
+
     /**
      * @param array<string, mixed> $data
      */
@@ -51,7 +64,25 @@ final class PilotIncidentReportService
         $this->assertCanReport($incident, $user);
         $this->assertCanSubmit($incident, $user);
 
-        $report = DB::transaction(function () use ($incident, $user, $data): PilotIncidentReport {
+        return $this->storeSubmission($incident, $user, $user, $data, 'pilot_incident_report.submitted');
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    public function submitForActor(Incident $incident, User $user, User $actor, array $data): PilotIncidentReport
+    {
+        $this->assertCanReport($incident, $user);
+
+        return $this->storeSubmission($incident, $user, $actor, $data, 'pilot_incident_report.submitted_by_admin');
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function storeSubmission(Incident $incident, User $user, User $actor, array $data, string $auditAction): PilotIncidentReport
+    {
+        $report = DB::transaction(function () use ($incident, $user, $actor, $data, $auditAction): PilotIncidentReport {
             $report = $this->ensureReport($incident, $user);
             $report->fill([
                 'summary' => $data['summary'] ?? null,
@@ -66,9 +97,10 @@ final class PilotIncidentReportService
                 'submitted_at' => now(),
             ])->save();
 
-            $this->auditService->record('pilot_incident_report.submitted', $report, $user, [
+            $this->auditService->record($auditAction, $report, $actor, [
                 'incident_id' => $incident->id,
                 'user_id' => $user->id,
+                'submitted_for_user_id' => $user->id,
             ]);
 
             return $report->refresh();

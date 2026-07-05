@@ -1681,6 +1681,28 @@ a:hover {
   font-size: 1.5rem;
 }
 
+.missing-report-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  min-width: 12rem;
+}
+
+.missing-report-list span,
+.missing-report-list button {
+  border: 1px solid #203047;
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: #dce7f7;
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
+.missing-report-list button {
+  cursor: pointer;
+}
+
 .summary-grid--compact {
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
@@ -5179,6 +5201,65 @@ pre {
   .form-config-table input[type="checkbox"] {
     width: 44px;
     height: 44px;
+  }
+
+  .reports-table {
+    display: table;
+    overflow: visible;
+    white-space: normal;
+  }
+
+  .reports-table thead {
+    display: none;
+  }
+
+  .reports-table tbody,
+  .reports-table tr,
+  .reports-table td {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .reports-table tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  .reports-table tr {
+    border: 1px solid rgba(142, 160, 181, 0.22);
+    border-radius: 8px;
+    background: rgba(11, 18, 32, 0.72);
+    overflow: hidden;
+  }
+
+  .reports-table td {
+    border-bottom: 1px solid rgba(142, 160, 181, 0.14);
+    padding: 12px;
+    white-space: normal;
+  }
+
+  .reports-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .reports-table td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 6px;
+    color: #8ea0b5;
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  .reports-table .secondary-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .missing-report-list {
+    min-width: 0;
   }
 
   .form-grid,

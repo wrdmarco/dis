@@ -10,7 +10,7 @@ import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { DispatchPreview, DispatchRequest, DroneFlightContext, Incident, IncidentFormConfig, IncidentLiveLocation, IncidentTimelineItem, Team, User } from '../../types/api';
+import type { DispatchPreview, DispatchRequest, DroneFlightContext, Incident, IncidentFormConfig, IncidentLiveLocation, IncidentTimelineItem, ReportIncident, Team, User } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 import { IncidentForm, type IncidentFormState, incidentPayload } from './IncidentsPage';
 
@@ -27,6 +27,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const dispatches = useApiResource<DispatchRequest[]>(`/incidents/${incidentId}/dispatches`, Boolean(incidentId));
   const liveLocations = useApiResource<IncidentLiveLocation[]>(`/incidents/${incidentId}/live-locations`, Boolean(incidentId));
   const timeline = useApiResource<IncidentTimelineItem[]>(`/incidents/${incidentId}/timeline`, Boolean(incidentId));
+  const reportIncidents = useApiResource<ReportIncident[]>('/reports/incidents?limit=100', Boolean(incidentId));
   const users = useApiResource<User[]>('/users?per_page=200');
   const teams = useApiResource<Team[]>('/teams');
   const incidentFormConfig = useApiResource<IncidentFormConfig>('/incident-form/config');
@@ -37,6 +38,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const [incidentError, setIncidentError] = useState<string | null>(null);
   const [dispatching, setDispatching] = useState(false);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
+  const [dispatchNotice, setDispatchNotice] = useState<string | null>(null);
   const [additionalInfo, setAdditionalInfo] = useState('');
   const [additionalInfoSending, setAdditionalInfoSending] = useState(false);
   const [additionalInfoMessage, setAdditionalInfoMessage] = useState<string | null>(null);
@@ -73,6 +75,10 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const liveLocationByUserId = useMemo(
     () => new Map((liveLocations.data ?? []).map((location) => [location.user_id, location])),
     [liveLocations.data],
+  );
+  const reportIncident = useMemo(
+    () => (reportIncidents.data ?? []).find((item) => item.id === incidentId) ?? null,
+    [incidentId, reportIncidents.data],
   );
 
   useEffect(() => {
@@ -138,13 +144,15 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
     }
 
     setDispatchError(null);
+    setDispatchNotice(null);
     setDispatching(true);
     try {
-      await api.patch(`/incidents/${incidentId}`, {
+      const response = await api.patch<Incident>(`/incidents/${incidentId}`, {
         status: 'active',
         status_reason: 'Vooraankondiging verstuurd.',
         ...dispatchRecipientCountPayload(dispatchRecipientCount),
       });
+      setDispatchNotice(warningsMessage(response.meta));
       await incident.reload();
       await preview.reload();
       await dispatches.reload();
@@ -162,14 +170,16 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
     }
 
     setDispatchError(null);
+    setDispatchNotice(null);
     setDispatching(true);
     try {
-      await api.patch(`/incidents/${incidentId}`, {
+      const response = await api.patch<Incident>(`/incidents/${incidentId}`, {
         status: 'dispatching',
         status_reason: 'Alarmering verstuurd.',
         direct_dispatch: incident.data?.status === 'draft',
         ...dispatchRecipientCountPayload(dispatchRecipientCount),
       });
+      setDispatchNotice(warningsMessage(response.meta));
       await incident.reload();
       await preview.reload();
       await dispatches.reload();
@@ -487,6 +497,8 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
             <DispatchRingControls value={dispatchRecipientCount} onChange={setDispatchRecipientCount} />
             <DispatchPreviewSummary preview={preview.data} />
             {preview.data?.blocked_reason ? <p className="form-error">{preview.data.blocked_reason}</p> : null}
+            {previewWarningsMessage(preview.data) ? <p className="form-note">{previewWarningsMessage(preview.data)}</p> : null}
+            {dispatchNotice ? <p className="form-note">{dispatchNotice}</p> : null}
             {dispatchError ? <p className="form-error">{dispatchError}</p> : null}
           </div>
           </ResourceState>
@@ -516,6 +528,8 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                 </div>
               </div>
               {preview.data?.blocked_reason ? <p className="form-error">{preview.data.blocked_reason}</p> : null}
+              {previewWarningsMessage(preview.data) ? <p className="form-note">{previewWarningsMessage(preview.data)}</p> : null}
+              {dispatchNotice ? <p className="form-note">{dispatchNotice}</p> : null}
               {dispatchError ? <p className="form-error">{dispatchError}</p> : null}
               {(preview.data?.recipients.length ?? 0) > 0 ? (
                 <div className="draft-recipient-grid">
@@ -630,6 +644,34 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
           </div>
         </ResourceState>
       </Panel>
+
+      {reportIncident ? (
+        <Panel
+          title="Inzetrapporten"
+          action={canManageIncidents && reportIncident.missing_pilot_report_count > 0 ? (
+            <button className="secondary-button" type="button" onClick={() => router.push('/reports')}>
+              Naar rapporten
+            </button>
+          ) : null}
+        >
+          <div className="panel-body">
+            <div className="summary-grid">
+              <SummaryItem label="Rapportstatus" value={reportIncident.report_status === 'final' ? 'Definitief' : 'Concept'} />
+              <SummaryItem label="Ingediend" value={`${reportIncident.submitted_pilot_report_count}/${reportIncident.expected_pilot_report_count}`} />
+              <SummaryItem label="Ontbreekt" value={String(reportIncident.missing_pilot_report_count)} />
+            </div>
+            {reportIncident.missing_pilot_report_count > 0 ? (
+              <div className="missing-report-list">
+                {reportIncident.missing_pilot_reports.map((report) => (
+                  <span key={report.user_id}>{report.name}</span>
+                ))}
+              </div>
+            ) : (
+              <p className="form-note">Alle inzetrapporten zijn binnen.</p>
+            )}
+          </div>
+        </Panel>
+      ) : null}
 
       <Panel title="Kaart en live locaties">
         <ResourceState loading={liveLocations.loading} error={liveLocations.error} empty={false}>
@@ -1487,4 +1529,26 @@ function worldMarkerStyle(point: { latitude: number; longitude: number }, center
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+function previewWarningsMessage(preview?: DispatchPreview | null): string | null {
+  return warningsMessage(preview?.warnings === undefined ? undefined : { warnings: preview.warnings });
+}
+
+function warningsMessage(meta: unknown): string | null {
+  if (meta === null || typeof meta !== 'object') {
+    return null;
+  }
+
+  const warnings = (meta as { warnings?: unknown }).warnings;
+  if (!Array.isArray(warnings)) {
+    return null;
+  }
+
+  const messages = warnings.filter((warning): warning is string => typeof warning === 'string' && warning.trim() !== '');
+  if (messages.length === 0) {
+    return null;
+  }
+
+  return `Let op: ${messages.join(' ')}`;
 }

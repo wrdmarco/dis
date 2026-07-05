@@ -13,6 +13,9 @@ use Throwable;
 
 final class IncidentService
 {
+    /** @var list<string> */
+    private array $lastDispatchWarnings = [];
+
     public function __construct(
         private readonly AuditService $auditService,
         private readonly DroneFlightContextService $droneFlightContextService,
@@ -71,6 +74,8 @@ final class IncidentService
      */
     public function update(Incident $incident, array $data, User $actor): Incident
     {
+        $this->lastDispatchWarnings = [];
+
         return DB::transaction(function () use ($incident, $data, $actor): Incident {
             $beforeStatus = $incident->status;
             $statusReason = $data['status_reason'] ?? null;
@@ -121,11 +126,13 @@ final class IncidentService
             }
 
             if ($beforeStatus !== 'active' && ($data['status'] ?? null) === 'active') {
-                $this->dispatchService->sendPreannouncementForIncidentActivation($incident->refresh(), $actor, $statusReason, $dispatchOptions);
+                $result = $this->dispatchService->sendPreannouncementForIncidentActivation($incident->refresh(), $actor, $statusReason, $dispatchOptions);
+                $this->lastDispatchWarnings = $result['warnings'];
             }
 
             if (($beforeStatus === 'active' || ($beforeStatus === 'draft' && $directDispatch)) && ($data['status'] ?? null) === 'dispatching') {
-                $this->dispatchService->createAndSendForIncidentActivation($incident->refresh(), $actor, $statusReason, $dispatchOptions);
+                $result = $this->dispatchService->createAndSendForIncidentActivation($incident->refresh(), $actor, $statusReason, $dispatchOptions);
+                $this->lastDispatchWarnings = $result['warnings'];
             }
 
             if ($beforeStatus === 'active' && ($data['status'] ?? null) === 'cancelled') {
@@ -143,6 +150,14 @@ final class IncidentService
 
             return $incident->load(['coordinator', 'team', 'teams', 'statusHistory']);
         });
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function lastDispatchWarnings(): array
+    {
+        return $this->lastDispatchWarnings;
     }
 
     /**

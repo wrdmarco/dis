@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState } from 'react';
+import { type FormEvent, type ReactNode, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Download, FileText, MessageCircleOff, Users } from 'lucide-react';
 import Link from 'next/link';
 import { Panel } from '../../components/Panel';
@@ -8,17 +8,31 @@ import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { DispatchStatistics, DispatchStatisticsIncidentSummary, ReportIncident } from '../../types/api';
+import type { ConfigurableFormField, DispatchStatistics, DispatchStatisticsIncidentSummary, PilotIncidentReport, PilotReportFormConfig, ReportIncident } from '../../types/api';
 
 export function ReportsPage() {
   const { api } = useAuth();
   const [incidentLimit, setIncidentLimit] = useState(5);
   const [reportDownloadingId, setReportDownloadingId] = useState<string | null>(null);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [adminReportTarget, setAdminReportTarget] = useState<{ incident: ReportIncident; user: ReportIncident['missing_pilot_reports'][number] } | null>(null);
+  const [adminReportFields, setAdminReportFields] = useState<ConfigurableFormField[]>([]);
+  const [adminReportValues, setAdminReportValues] = useState<Record<string, unknown>>({});
+  const [adminReportLoading, setAdminReportLoading] = useState(false);
+  const [adminReportSaving, setAdminReportSaving] = useState(false);
+  const [adminReportError, setAdminReportError] = useState<string | null>(null);
   const resourcePath = useMemo(() => `/reports/dispatch-statistics?incident_limit=${incidentLimit}`, [incidentLimit]);
   const statistics = useApiResource<DispatchStatistics>(resourcePath);
   const reportIncidents = useApiResource<ReportIncident[]>('/reports/incidents?limit=50');
   const summary = statistics.data?.summary;
+  const reportSummary = useMemo(() => {
+    const incidents = reportIncidents.data ?? [];
+    const finalReports = incidents.filter((incident) => incident.report_status === 'final').length;
+    const missingReports = incidents.reduce((total, incident) => total + incident.missing_pilot_report_count, 0);
+    const submittedReports = incidents.reduce((total, incident) => total + incident.submitted_pilot_report_count, 0);
+
+    return { incidents: incidents.length, finalReports, missingReports, submittedReports };
+  }, [reportIncidents.data]);
 
   async function downloadReport(incident: ReportIncident) {
     setReportDownloadingId(incident.id);
@@ -41,38 +55,91 @@ export function ReportsPage() {
     }
   }
 
+  async function openAdminPilotReport(incident: ReportIncident, user: ReportIncident['missing_pilot_reports'][number]) {
+    setAdminReportTarget({ incident, user });
+    setAdminReportFields([]);
+    setAdminReportValues({});
+    setAdminReportError(null);
+    setAdminReportLoading(true);
+
+    try {
+      const [configResponse, reportResponse] = await Promise.all([
+        api.get<PilotReportFormConfig>(`/pilot-report/form-config?user_id=${encodeURIComponent(user.user_id)}`),
+        api.get<PilotIncidentReport>(`/incidents/${incident.id}/pilot-reports/${user.user_id}`),
+      ]);
+      setAdminReportFields(configResponse.data.fields);
+      setAdminReportValues(reportResponse.data.custom_fields ?? {});
+    } catch (err) {
+      setAdminReportError(err instanceof ApiClientError ? err.message : 'Inzetrapport kon niet worden geladen.');
+    } finally {
+      setAdminReportLoading(false);
+    }
+  }
+
+  async function saveAdminPilotReport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (adminReportTarget === null) {
+      return;
+    }
+
+    setAdminReportSaving(true);
+    setAdminReportError(null);
+    try {
+      await api.patch(`/incidents/${adminReportTarget.incident.id}/pilot-reports/${adminReportTarget.user.user_id}`, {
+        custom_fields: adminReportValues,
+      });
+      setAdminReportTarget(null);
+      await reportIncidents.reload();
+    } catch (err) {
+      setAdminReportError(err instanceof ApiClientError ? err.message : 'Inzetrapport kon niet worden opgeslagen.');
+    } finally {
+      setAdminReportSaving(false);
+    }
+  }
+
   return (
     <div className="page-stack reports-page">
+      <div className="stats-grid">
+        <StatCard icon={<FileText />} label="Incidentrapporten" value={String(reportSummary.incidents)} />
+        <StatCard icon={<CheckCircle2 />} label="Definitief" value={String(reportSummary.finalReports)} tone="good" />
+        <StatCard icon={<AlertTriangle />} label="Vluchtrapporten missen" value={String(reportSummary.missingReports)} tone={reportSummary.missingReports > 0 ? 'warn' : 'good'} />
+        <StatCard icon={<Users />} label="Vluchtrapporten binnen" value={String(reportSummary.submittedReports)} />
+      </div>
+
       <Panel title="Incidentrapporten">
         <ResourceState loading={reportIncidents.loading} error={reportIncidents.error} empty={(reportIncidents.data?.length ?? 0) === 0}>
           <div className="panel-body">
             {reportError ? <p className="form-error">{reportError}</p> : null}
-            <table className="data-table">
+            <table className="data-table reports-table">
               <thead>
                 <tr>
                   <th>Referentie</th>
                   <th>Titel</th>
-                  <th>Status</th>
+                  <th>Incident</th>
+                  <th>Rapportstatus</th>
                   <th>Team</th>
                   <th>Gesloten</th>
-                  <th>Ontvangers</th>
-                  <th>Komt</th>
-                  <th>Geen reactie</th>
-                  <th>Rapport</th>
+                  <th>Vluchtrapporten</th>
+                  <th>Ontbreekt</th>
+                  <th>PDF</th>
                 </tr>
               </thead>
               <tbody>
                 {reportIncidents.data?.map((incident) => (
                   <tr key={incident.id}>
-                    <td><Link href={`/incidents/${incident.id}`}>{incident.reference}</Link></td>
-                    <td>{incident.title}</td>
-                    <td><StatusPill value={incident.status} tone={incident.status === 'resolved' ? 'good' : 'warn'} /></td>
-                    <td>{incident.team?.code ?? '-'}</td>
-                    <td>{formatDateTime(incident.closed_at)}</td>
-                    <td>{incident.recipient_count}</td>
-                    <td>{incident.accepted}</td>
-                    <td>{incident.no_response}</td>
-                    <td>
+                    <td data-label="Referentie"><Link href={`/incidents/${incident.id}`}>{incident.reference}</Link></td>
+                    <td data-label="Titel">{incident.title}</td>
+                    <td data-label="Incident"><StatusPill value={incidentStatusLabel(incident.status)} tone={incident.status === 'resolved' ? 'good' : 'warn'} /></td>
+                    <td data-label="Rapport"><StatusPill value={incident.report_status === 'final' ? 'Definitief' : 'Concept'} tone={incident.report_status === 'final' ? 'good' : 'warn'} /></td>
+                    <td data-label="Team">{incident.team?.code ?? '-'}</td>
+                    <td data-label="Gesloten">{formatDateTime(incident.closed_at)}</td>
+                    <td data-label="Vluchtrapporten">
+                      {incident.submitted_pilot_report_count}/{incident.expected_pilot_report_count}
+                    </td>
+                    <td data-label="Ontbreekt">
+                      <MissingPilotReports incident={incident} onFill={openAdminPilotReport} />
+                    </td>
+                    <td data-label="Rapport">
                       <button className="secondary-button" type="button" onClick={() => void downloadReport(incident)} disabled={reportDownloadingId === incident.id}>
                         {reportDownloadingId === incident.id ? <FileText size={16} /> : <Download size={16} />}
                         {reportDownloadingId === incident.id ? 'Maken...' : 'PDF'}
@@ -181,8 +248,144 @@ export function ReportsPage() {
           </table>
         </ResourceState>
       </Panel>
+
+      {adminReportTarget ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal modal--incident-form" role="dialog" aria-modal="true" aria-labelledby="admin-pilot-report-title">
+            <header className="modal__header">
+              <h2 id="admin-pilot-report-title">Inzetrapport invullen</h2>
+              <button className="icon-button" type="button" onClick={() => setAdminReportTarget(null)} aria-label="Sluiten">×</button>
+            </header>
+            <form className="form-grid" onSubmit={saveAdminPilotReport}>
+              <div className="form-grid__wide">
+                <span className="field-label">Namens</span>
+                <strong>{adminReportTarget.user.name}</strong>
+                <p className="muted-text">{adminReportTarget.incident.reference} - {adminReportTarget.incident.title}</p>
+              </div>
+              {adminReportLoading ? <p className="form-grid__wide muted-text">Inzetrapport laden...</p> : null}
+              {adminReportFields.filter((field) => field.visible).map((field) => (
+                <PilotReportField
+                  field={field}
+                  value={adminReportValues[field.key]}
+                  onChange={(value) => setAdminReportValues((current) => ({ ...current, [field.key]: value }))}
+                  key={field.key}
+                />
+              ))}
+              {adminReportError ? <p className="form-error form-grid__wide">{adminReportError}</p> : null}
+              <div className="form-actions form-grid__wide">
+                <button className="secondary-button" type="button" onClick={() => setAdminReportTarget(null)}>Annuleren</button>
+                <button className="primary-button" type="submit" disabled={adminReportLoading || adminReportSaving}>
+                  {adminReportSaving ? 'Opslaan...' : 'Rapport opslaan'}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function MissingPilotReports({ incident, onFill }: { incident: ReportIncident; onFill: (incident: ReportIncident, user: ReportIncident['missing_pilot_reports'][number]) => void }) {
+  if (incident.missing_pilot_report_count === 0) {
+    return <span className="muted-text">Compleet</span>;
+  }
+
+  return (
+    <div className="missing-report-list">
+      {incident.missing_pilot_reports.map((report) => (
+        <button className="secondary-button" type="button" onClick={() => onFill(incident, report)} key={report.user_id} title={report.email ?? undefined}>
+          {report.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function PilotReportField({ field, value, onChange }: { field: ConfigurableFormField; value: unknown; onChange: (value: unknown) => void }) {
+  const label = field.required ? `${field.label} *` : field.label;
+
+  if (field.type === 'textarea') {
+    return <label className="form-grid__wide">{label}<textarea value={asFormString(value)} required={field.required} rows={4} onChange={(event) => onChange(event.target.value)} /></label>;
+  }
+
+  if (field.type === 'number') {
+    return <label>{label}<input type="number" min="0" value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value === '' ? null : Number(event.target.value))} /></label>;
+  }
+
+  if (field.type === 'flight_time') {
+    const flightTime = flightTimeValue(value);
+    return (
+      <div className="form-grid__wide">
+        <span className="field-label">{label}</span>
+        <div className="form-grid">
+          <label>Start<input type="time" value={flightTime.start} required={field.required} onChange={(event) => onChange({ ...flightTime, start: event.target.value })} /></label>
+          <label>Eind<input type="time" value={flightTime.end} required={field.required} onChange={(event) => onChange({ ...flightTime, end: event.target.value })} /></label>
+        </div>
+      </div>
+    );
+  }
+
+  if (field.type === 'select') {
+    return <label>{label}<select value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value)}><option value="">Selecteer</option>{(field.options ?? []).map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>;
+  }
+
+  if (field.type === 'radio') {
+    return (
+      <div className="form-grid__wide">
+        <span className="field-label">{label}</span>
+        <div className="checkbox-grid">
+          {(field.options ?? []).map((option) => (
+            <label className="checkbox-card" key={option.value}>
+              <input type="radio" name={`pilot-report-${field.key}`} checked={asFormString(value) === option.value} required={field.required} onChange={() => onChange(option.value)} />
+              <span><strong>{option.label}</strong></span>
+            </label>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (field.type === 'checkbox') {
+    return <label className="checkbox-card form-grid__wide"><input type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} /><span><strong>{label}</strong></span></label>;
+  }
+
+  return <label>{label}<input value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value)} /></label>;
+}
+
+function asFormString(value: unknown): string {
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+}
+
+function flightTimeValue(value: unknown): { start: string; end: string } {
+  if (value !== null && typeof value === 'object') {
+    const candidate = value as { start?: unknown; end?: unknown };
+    return {
+      start: typeof candidate.start === 'string' ? candidate.start : '',
+      end: typeof candidate.end === 'string' ? candidate.end : '',
+    };
+  }
+
+  return { start: '', end: '' };
+}
+
+function incidentStatusLabel(status: ReportIncident['status']): string {
+  switch (status) {
+    case 'resolved':
+      return 'Afgerond';
+    case 'cancelled':
+      return 'Geannuleerd';
+    case 'draft':
+      return 'Concept';
+    case 'active':
+      return 'Actief';
+    case 'dispatching':
+      return 'Alarmeren';
+    case 'in_progress':
+      return 'Uitvoering';
+    default:
+      return status;
+  }
 }
 
 function StatCard({ icon, label, value, sub, tone = 'neutral' }: { icon: ReactNode; label: string; value: string; sub?: string; tone?: 'neutral' | 'good' | 'warn' | 'bad' }) {

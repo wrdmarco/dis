@@ -13,7 +13,10 @@ export interface LaravelValidationErrorBody {
 
 export interface ApiResponse<T> {
   data: T;
-  meta?: PaginationMeta;
+  meta?: PaginationMeta | {
+    warnings?: string[];
+    [key: string]: unknown;
+  };
   error?: {
     code: string;
     message: string;
@@ -239,6 +242,7 @@ export interface DispatchPreview {
     teams?: Array<Pick<Team, 'id' | 'code' | 'name'>>;
   }>;
   blocked_reason?: string | null;
+  warnings?: string[];
 }
 
 export interface IncidentTimelineItem {
@@ -556,6 +560,25 @@ export interface PilotReportFormConfig {
   fields: PilotReportFormField[];
 }
 
+export interface PilotIncidentReport {
+  id: string;
+  incident_id: string;
+  user_id: string;
+  user_name?: string | null;
+  status: 'draft' | 'submitted' | string;
+  summary?: string | null;
+  observations?: string | null;
+  actions_taken?: string | null;
+  result?: string | null;
+  issues?: string | null;
+  equipment_used?: string | null;
+  flight_minutes?: number | null;
+  custom_fields?: Record<string, unknown>;
+  prepared_at?: string | null;
+  submitted_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface IncidentFormConfig {
   fields: ConfigurableFormField[];
 }
@@ -627,11 +650,23 @@ export interface ReportIncident {
   coordinator?: Pick<User, 'id' | 'name' | 'email'> | null;
   opened_at?: string | null;
   closed_at?: string | null;
+  report_generated_at?: string | null;
+  report_available?: boolean;
+  report_status: 'draft' | 'final';
   latest_dispatch_sent_at?: string | null;
   recipient_count: number;
   accepted: number;
   declined: number;
   no_response: number;
+  expected_pilot_report_count: number;
+  submitted_pilot_report_count: number;
+  missing_pilot_report_count: number;
+  missing_pilot_reports: Array<{
+    user_id: string;
+    name: string;
+    email?: string | null;
+    responded_at?: string | null;
+  }>;
 }
 
 export interface TwoFactorSetup {

@@ -215,7 +215,14 @@ final class IncidentController extends Controller
 
     public function update(UpdateIncidentRequest $request, Incident $incident): JsonResponse
     {
-        return ApiResponse::success(MobileApiPayload::incident($this->service->update($incident, $request->validated(), $request->user())));
+        $updated = $this->service->update($incident, $request->validated(), $request->user());
+        $warnings = $this->service->lastDispatchWarnings();
+
+        return ApiResponse::success(
+            MobileApiPayload::incident($updated),
+            200,
+            $warnings === [] ? [] : ['warnings' => $warnings],
+        );
     }
 
     public function destroy(Request $request, Incident $incident): Response
