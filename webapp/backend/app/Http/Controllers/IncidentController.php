@@ -30,48 +30,74 @@ final class IncidentController extends Controller
     {
         if ($request->boolean('active_alarms')) {
             $userId = $request->user()->id;
-            $activeDispatchStatuses = ['draft', 'sent', 'escalated'];
+            $attendanceDispatchStatuses = ['sent', 'escalated'];
             $incidents = Incident::query()
                 ->with([
                     'coordinator',
                     'team',
                     'teams',
                     'dispatchRequests' => fn ($dispatches) => $dispatches
-                        ->whereIn('status', $activeDispatchStatuses)
-                        ->whereHas('recipients', fn ($recipients) => $recipients
-                            ->where('user_id', $userId)
-                            ->whereIn('response_status', ['pending', 'accepted']))
+                        ->where(function ($query) use ($userId, $attendanceDispatchStatuses): void {
+                            $query
+                                ->where(function ($preannouncement) use ($userId): void {
+                                    $preannouncement
+                                        ->where('status', 'draft')
+                                        ->whereHas('recipients', fn ($recipients) => $recipients
+                                            ->where('user_id', $userId)
+                                            ->where('response_status', 'pending'));
+                                })
+                                ->orWhere(function ($attendance) use ($userId, $attendanceDispatchStatuses): void {
+                                    $attendance
+                                        ->whereIn('status', $attendanceDispatchStatuses)
+                                        ->whereHas('recipients', fn ($recipients) => $recipients
+                                            ->where('user_id', $userId)
+                                            ->whereIn('response_status', ['pending', 'accepted']));
+                                });
+                        })
                         ->with(['recipients' => fn ($recipients) => $recipients->where('user_id', $userId)])
                         ->latest(),
                 ])
-                ->where(function ($query) use ($userId, $activeDispatchStatuses): void {
+                ->where(function ($query) use ($userId, $attendanceDispatchStatuses): void {
                     $query
-                        ->where(function ($normalIncident) use ($userId, $activeDispatchStatuses): void {
+                        ->where(function ($normalIncident) use ($userId, $attendanceDispatchStatuses): void {
                             $normalIncident
                                 ->whereNotIn('status', ['resolved', 'cancelled'])
                                 ->where('is_test', false)
                                 ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
-                                    ->whereIn('status', $activeDispatchStatuses)
-                                    ->whereHas('recipients', fn ($recipients) => $recipients
-                                        ->where('user_id', $userId)
-                                        ->whereIn('response_status', ['pending', 'accepted'])));
+                                    ->where(function ($dispatchQuery) use ($userId, $attendanceDispatchStatuses): void {
+                                        $dispatchQuery
+                                            ->where(function ($preannouncement) use ($userId): void {
+                                                $preannouncement
+                                                    ->where('status', 'draft')
+                                                    ->whereHas('recipients', fn ($recipients) => $recipients
+                                                        ->where('user_id', $userId)
+                                                        ->where('response_status', 'pending'));
+                                            })
+                                            ->orWhere(function ($attendance) use ($userId, $attendanceDispatchStatuses): void {
+                                                $attendance
+                                                    ->whereIn('status', $attendanceDispatchStatuses)
+                                                    ->whereHas('recipients', fn ($recipients) => $recipients
+                                                        ->where('user_id', $userId)
+                                                        ->whereIn('response_status', ['pending', 'accepted']));
+                                            });
+                                    }));
                         })
-                        ->orWhere(function ($testIncident) use ($userId, $activeDispatchStatuses): void {
+                        ->orWhere(function ($testIncident) use ($userId): void {
                             $testIncident
                                 ->whereNotIn('status', ['resolved', 'cancelled'])
                                 ->where('is_test', true)
                                 ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
-                                    ->whereIn('status', $activeDispatchStatuses)
+                                    ->whereIn('status', ['draft', 'sent', 'escalated'])
                                     ->whereHas('recipients', fn ($recipients) => $recipients
                                         ->where('user_id', $userId)
                                         ->where('response_status', 'pending')));
                         })
-                        ->orWhere(function ($closedIncident) use ($userId, $activeDispatchStatuses): void {
+                        ->orWhere(function ($closedIncident) use ($userId, $attendanceDispatchStatuses): void {
                             $closedIncident
                                 ->whereIn('status', ['resolved', 'cancelled'])
                                 ->where('is_test', false)
                                 ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
-                                    ->whereIn('status', $activeDispatchStatuses)
+                                    ->whereIn('status', $attendanceDispatchStatuses)
                                     ->whereHas('recipients', fn ($recipients) => $recipients
                                         ->where('user_id', $userId)
                                         ->where('response_status', 'accepted')));
