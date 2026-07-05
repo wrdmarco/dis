@@ -271,6 +271,51 @@
 </section>
 
 <section class="section">
+    <h2>Inzetverslagen piloten</h2>
+    <table class="table">
+        <thead>
+        <tr>
+            <th>Piloot</th>
+            <th>Ingediend</th>
+            <th>Vluchtduur</th>
+            <th>Samenvatting</th>
+            <th>Acties en resultaat</th>
+            <th>Bijzonderheden</th>
+        </tr>
+        </thead>
+        <tbody>
+        @forelse ($pilotReports as $report)
+            <tr>
+                <td>{{ $report->user_name ?: 'Verwijderde gebruiker' }}<br><span class="muted">{{ $report->user_email ?: '-' }}</span></td>
+                <td>{{ $formatDate($report->submitted_at) }}</td>
+                <td>{{ $formatMinutes($report->flight_minutes) }}</td>
+                <td>
+                    {{ $report->summary ?: '-' }}
+                    @if ($report->observations)
+                        <br><span class="muted">Waarnemingen: {{ $report->observations }}</span>
+                    @endif
+                </td>
+                <td>
+                    {{ $report->actions_taken ?: '-' }}
+                    @if ($report->result)
+                        <br><span class="muted">Resultaat: {{ $report->result }}</span>
+                    @endif
+                </td>
+                <td>
+                    {{ $report->issues ?: '-' }}
+                    @if ($report->equipment_used)
+                        <br><span class="muted">Middelen: {{ $report->equipment_used }}</span>
+                    @endif
+                </td>
+            </tr>
+        @empty
+            <tr><td colspan="6">Geen ingevulde inzetverslagen geregistreerd.</td></tr>
+        @endforelse
+        </tbody>
+    </table>
+</section>
+
+<section class="section">
     <h2>Volledige log</h2>
     <div class="timeline">
         @forelse ($timeline as $item)

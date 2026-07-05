@@ -11,6 +11,7 @@ use Dompdf\Options;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Throwable;
@@ -37,11 +38,17 @@ final class IncidentReportService
         $travelRows = $this->travelRows($dispatches);
         $timeline = $this->timeline($incident, $dispatches);
         $droneFlightContext = $incident->drone_flight_context ?? $this->droneFlightContextService->previewForIncident($incident);
+        $pilotReports = $incident->pilotReports()
+            ->where('status', 'submitted')
+            ->oldest('submitted_at')
+            ->oldest()
+            ->get();
 
         return [
             'incident' => $incident,
             'dispatches' => $dispatches,
             'travelRows' => $travelRows,
+            'pilotReports' => $pilotReports,
             'timeline' => $timeline,
             'map' => $this->mapData($incident, is_array($droneFlightContext) ? $droneFlightContext : null),
             'droneFlightContext' => $droneFlightContext,
@@ -162,29 +169,17 @@ final class IncidentReportService
             return $incident->report_pdf_path;
         }
 
-        try {
-            $path = $this->reportPath($incident);
-            $absolutePath = $this->absoluteReportPath($path);
-            $this->ensureWritableDirectory(dirname($absolutePath));
-            if (File::put($absolutePath, $this->pdf($incident)) === false) {
-                throw new \RuntimeException('Incidentrapport kon niet worden opgeslagen op '.$absolutePath.'.');
-            }
-            @chmod($absolutePath, 0660);
-            $incident->forceFill([
-                'report_pdf_path' => $path,
-                'report_generated_at' => now(),
-                'report_generation_error' => null,
-            ])->save();
+        return $this->storePdf($incident);
+    }
 
-            return $path;
-        } catch (Throwable $exception) {
-            $this->safeReport($exception);
-            $incident->forceFill([
-                'report_generation_error' => mb_substr($exception->getMessage(), 0, 2000),
-            ])->save();
-
+    public function refreshStored(Incident $incident): ?string
+    {
+        if (! in_array($incident->status, ['resolved', 'cancelled'], true)
+            && (! is_string($incident->report_pdf_path) || $incident->report_pdf_path === '')) {
             return null;
         }
+
+        return $this->storePdf($incident);
     }
 
     public function storedPdf(Incident $incident): ?string
@@ -251,6 +246,33 @@ final class IncidentReportService
             $this->safeReport($exception);
 
             return false;
+        }
+    }
+
+    private function storePdf(Incident $incident): ?string
+    {
+        try {
+            $path = $this->reportPath($incident);
+            $absolutePath = $this->absoluteReportPath($path);
+            $this->ensureWritableDirectory(dirname($absolutePath));
+            if (File::put($absolutePath, $this->pdf($incident)) === false) {
+                throw new \RuntimeException('Incidentrapport kon niet worden opgeslagen op '.$absolutePath.'.');
+            }
+            @chmod($absolutePath, 0660);
+            $incident->forceFill([
+                'report_pdf_path' => $path,
+                'report_generated_at' => now(),
+                'report_generation_error' => null,
+            ])->save();
+
+            return $path;
+        } catch (Throwable $exception) {
+            $this->safeReport($exception);
+            $incident->forceFill([
+                'report_generation_error' => mb_substr($exception->getMessage(), 0, 2000),
+            ])->save();
+
+            return null;
         }
     }
 
@@ -454,7 +476,7 @@ final class IncidentReportService
             'marker_y' => 50.0,
             'snapshot_data_uri' => $mapSnapshot['data_uri'],
             'snapshot_available' => $mapSnapshot['available'],
-            'aeret_snapshot_data_uri' => null,
+            'aeret_snapshot_data_uri' => $this->aeretMapSnapshot($aeretUrl),
             'aeret_url' => $aeretUrl,
             'openstreetmap_url' => sprintf(
                 'https://www.openstreetmap.org/?mlat=%1$.6f&mlon=%2$.6f#map=16/%1$.6f/%2$.6f',
@@ -462,6 +484,52 @@ final class IncidentReportService
                 $longitude,
             ),
         ];
+    }
+
+    private function aeretMapSnapshot(?string $aeretUrl): ?string
+    {
+        if (! is_string($aeretUrl) || trim($aeretUrl) === '') {
+            return null;
+        }
+
+        $cacheKey = sha1('aeret-report|'.$aeretUrl);
+        $cachePath = $this->absoluteReportSupportPath('report-map-snapshots/aeret-'.$cacheKey.'.png');
+        if (is_file($cachePath) && is_readable($cachePath)) {
+            return 'data:image/png;base64,'.base64_encode((string) file_get_contents($cachePath));
+        }
+
+        $script = realpath(base_path('../../scripts/aeret-snapshot.mjs'));
+        if (! is_string($script) || ! is_file($script)) {
+            return null;
+        }
+
+        $node = (string) (env('NODE_BINARY') ?: 'node');
+        $temporaryPath = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'dis-aeret-'.$cacheKey.'.png';
+
+        try {
+            @unlink($temporaryPath);
+            $result = Process::timeout(50)->run([$node, $script, $aeretUrl, $temporaryPath, '1200', '720']);
+            if (! $result->successful() || ! is_file($temporaryPath) || filesize($temporaryPath) === 0) {
+                return null;
+            }
+
+            $this->ensureWritableDirectory(dirname($cachePath));
+            File::copy($temporaryPath, $cachePath);
+            @chmod($cachePath, 0660);
+
+            return 'data:image/png;base64,'.base64_encode((string) file_get_contents($cachePath));
+        } catch (Throwable $exception) {
+            $this->safeReport($exception);
+
+            return null;
+        } finally {
+            @unlink($temporaryPath);
+        }
+    }
+
+    private function absoluteReportSupportPath(string $path): string
+    {
+        return rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/').'/webapp/backend/storage/app/'.ltrim($path, '/');
     }
 
     /**

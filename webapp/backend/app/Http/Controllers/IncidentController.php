@@ -44,11 +44,11 @@ final class IncidentController extends Controller
                         ->with(['recipients' => fn ($recipients) => $recipients->where('user_id', $userId)])
                         ->latest(),
                 ])
-                ->whereNotIn('status', ['resolved', 'cancelled'])
                 ->where(function ($query) use ($userId, $activeDispatchStatuses): void {
                     $query
                         ->where(function ($normalIncident) use ($userId, $activeDispatchStatuses): void {
                             $normalIncident
+                                ->whereNotIn('status', ['resolved', 'cancelled'])
                                 ->where('is_test', false)
                                 ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
                                     ->whereIn('status', $activeDispatchStatuses)
@@ -58,12 +58,23 @@ final class IncidentController extends Controller
                         })
                         ->orWhere(function ($testIncident) use ($userId, $activeDispatchStatuses): void {
                             $testIncident
+                                ->whereNotIn('status', ['resolved', 'cancelled'])
                                 ->where('is_test', true)
                                 ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
                                     ->whereIn('status', $activeDispatchStatuses)
                                     ->whereHas('recipients', fn ($recipients) => $recipients
                                         ->where('user_id', $userId)
                                         ->where('response_status', 'pending')));
+                        })
+                        ->orWhere(function ($closedIncident) use ($userId, $activeDispatchStatuses): void {
+                            $closedIncident
+                                ->whereIn('status', ['resolved', 'cancelled'])
+                                ->where('is_test', false)
+                                ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
+                                    ->whereIn('status', $activeDispatchStatuses)
+                                    ->whereHas('recipients', fn ($recipients) => $recipients
+                                        ->where('user_id', $userId)
+                                        ->where('response_status', 'accepted')));
                         });
                 })
                 ->latest()

@@ -9,6 +9,7 @@ use App\Models\Certification;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
+use App\Models\PilotIncidentReport;
 use App\Models\User;
 use DateTimeInterface;
 
@@ -121,7 +122,7 @@ final class MobileApiPayload
             'status' => $status->status,
             'is_available' => (bool) $status->is_available,
             'is_system_applied' => (bool) $status->is_system_applied,
-            'reason' => $status->reason,
+            'reason' => self::statusReason($status),
             'effective_at' => self::dateTime($status->effective_at),
             'next_availability_change' => $nextAvailabilityChange,
             'next_available_at' => $nextAvailableAt,
@@ -141,6 +142,20 @@ final class MobileApiPayload
             'is_available' => (bool) $status->is_available,
             'effective_at' => self::dateTime($status->effective_at),
         ];
+    }
+
+    private static function statusReason(AvailabilityStatus $status): ?string
+    {
+        $reason = trim((string) $status->reason);
+        if ($reason === '') {
+            return null;
+        }
+
+        if ((bool) $status->is_system_applied && str_contains(mb_strtolower($reason), 'beschikbaarheidspatroon')) {
+            return null;
+        }
+
+        return $reason;
     }
 
     /**
@@ -185,6 +200,30 @@ final class MobileApiPayload
             ])->values(),
             'opened_at' => self::dateTime($incident->opened_at),
             'closed_at' => self::dateTime($incident->closed_at),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function pilotIncidentReport(PilotIncidentReport $report): array
+    {
+        return [
+            'id' => $report->id,
+            'incident_id' => $report->incident_id,
+            'user_id' => $report->user_id,
+            'user_name' => $report->user_name,
+            'status' => $report->status,
+            'summary' => $report->summary,
+            'observations' => $report->observations,
+            'actions_taken' => $report->actions_taken,
+            'result' => $report->result,
+            'issues' => $report->issues,
+            'equipment_used' => $report->equipment_used,
+            'flight_minutes' => $report->flight_minutes,
+            'prepared_at' => self::dateTime($report->prepared_at),
+            'submitted_at' => self::dateTime($report->submitted_at),
+            'updated_at' => self::dateTime($report->updated_at),
         ];
     }
 

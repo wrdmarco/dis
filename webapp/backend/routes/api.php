@@ -19,6 +19,7 @@ use App\Http\Controllers\IncidentController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MobileConfigController;
 use App\Http\Controllers\PasswordController;
+use App\Http\Controllers\PilotIncidentReportController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\ReportingController;
 use App\Http\Controllers\SetupController;
@@ -95,6 +96,8 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/incidents/{incident}/close', [IncidentController::class, 'close'])->middleware('permission:incidents.manage');
     Route::post('/incidents/{incident}/cancel', [IncidentController::class, 'cancel'])->middleware('permission:incidents.manage');
     Route::get('/incidents/{incident}/timeline', [IncidentController::class, 'timeline'])->middleware('permission:incidents.view');
+    Route::get('/incidents/{incident}/pilot-report', [PilotIncidentReportController::class, 'show'])->middleware('permission:incidents.view');
+    Route::patch('/incidents/{incident}/pilot-report', [PilotIncidentReportController::class, 'update'])->middleware('permission:incidents.view');
     Route::get('/incidents/{incidentId}/report', [ReportingController::class, 'incidentPdf'])->middleware('permission:incidents.view');
     Route::get('/incidents/{incidentId}/report.pdf', [ReportingController::class, 'incidentPdf'])->middleware('permission:incidents.view');
     Route::get('/incidents/{incident}/dispatch-preview', [IncidentController::class, 'dispatchPreview'])->middleware('permission:dispatch.view');

@@ -89,4 +89,9 @@ final class Incident extends Model
     {
         return $this->hasMany(DispatchRequest::class);
     }
+
+    public function pilotReports(): HasMany
+    {
+        return $this->hasMany(PilotIncidentReport::class);
+    }
 }

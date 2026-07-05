@@ -16,7 +16,10 @@ final class GenerateIncidentReport implements ShouldQueue
 
     public int $timeout = 120;
 
-    public function __construct(public readonly string $incidentId) {}
+    public function __construct(
+        public readonly string $incidentId,
+        public readonly bool $refreshExisting = false,
+    ) {}
 
     public function handle(IncidentReportService $reports): void
     {
@@ -26,7 +29,9 @@ final class GenerateIncidentReport implements ShouldQueue
         }
 
         try {
-            $reports->ensureStored($incident);
+            $this->refreshExisting
+                ? $reports->refreshStored($incident)
+                : $reports->ensureStored($incident);
         } catch (Throwable $exception) {
             report($exception);
             $incident->forceFill([
