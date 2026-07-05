@@ -715,16 +715,42 @@ final class DispatchService
     private function selectDispatchUsers(Incident $incident, Team $targetTeam, array $data, bool $includeUnavailable = false): array
     {
         $eligibility = $this->eligibleUsers($targetTeam, $includeUnavailable);
-        $users = $this->rankUsersByIncidentEta($incident, $eligibility['users']);
+        $alreadyAcceptedUserIds = $this->acceptedAttendanceUserIds($incident);
+        $users = $this->rankUsersByIncidentEta(
+            $incident,
+            $eligibility['users']
+                ->reject(fn (User $user): bool => $alreadyAcceptedUserIds->contains($user->id))
+                ->values(),
+        );
         $requestedCount = $this->requestedRecipientCount($data);
         if ($requestedCount !== null) {
             $users = $users->take($requestedCount)->values();
         }
+        $message = $eligibility['message'];
+        if ($users->isEmpty() && $eligibility['users']->isNotEmpty()) {
+            $message = "Alle alarmeerbare gebruikers voor team {$targetTeam->code} hebben voor dit incident al aangegeven dat ze komen.";
+        }
 
         return [
             'users' => $users,
-            'message' => $eligibility['message'],
+            'message' => $message,
         ];
+    }
+
+    /**
+     * @return Collection<int, string>
+     */
+    private function acceptedAttendanceUserIds(Incident $incident): Collection
+    {
+        $incident->loadMissing('dispatchRequests.recipients');
+
+        return $incident->dispatchRequests
+            ->whereIn('status', ['sent', 'escalated'])
+            ->flatMap(fn (DispatchRequest $dispatch): Collection => $dispatch->recipients)
+            ->filter(fn (DispatchRecipient $recipient): bool => $recipient->response_status === 'accepted')
+            ->pluck('user_id')
+            ->unique()
+            ->values();
     }
 
     /**

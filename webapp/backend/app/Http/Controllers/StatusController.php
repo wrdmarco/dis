@@ -49,6 +49,7 @@ final class StatusController extends Controller
         return ApiResponse::paginated(
             AvailabilityStatus::query()
                 ->latestPerUser()
+                ->whereHas('user')
                 ->with('user')
                 ->latest('effective_at')
                 ->paginate((int) $request->integer('per_page', 25)),

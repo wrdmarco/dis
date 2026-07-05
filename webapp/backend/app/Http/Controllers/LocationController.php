@@ -80,34 +80,48 @@ final class LocationController extends Controller
             ->unique('user_id')
             ->values();
 
+        $acceptedUserIds = $acceptedRecipients->pluck('user_id')->unique()->values();
+        $activeConsentUserIds = LocationSharingConsent::query()
+            ->where('incident_id', $incident->id)
+            ->where('is_active', true)
+            ->pluck('user_id');
+        $locationUserIds = $acceptedUserIds
+            ->merge($activeConsentUserIds)
+            ->unique()
+            ->values();
+
         $consents = LocationSharingConsent::query()
             ->with('user')
             ->where('incident_id', $incident->id)
-            ->whereIn('user_id', $acceptedRecipients->pluck('user_id'))
+            ->whereIn('user_id', $locationUserIds)
             ->get();
 
         $latestLocations = LocationUpdate::query()
+            ->with('user')
             ->where('incident_id', $incident->id)
-            ->whereIn('user_id', $acceptedRecipients->pluck('user_id'))
+            ->whereIn('user_id', $locationUserIds)
             ->orderByDesc('recorded_at')
             ->get()
             ->unique('user_id')
             ->keyBy('user_id');
 
+        $acceptedRecipientsByUser = $acceptedRecipients->keyBy('user_id');
         $consentsByUser = $consents->keyBy('user_id');
 
-        return ApiResponse::success($acceptedRecipients
-            ->map(function ($recipient) use ($consentsByUser, $latestLocations, $incident): array {
-                $consent = $consentsByUser->get($recipient->user_id);
-                $location = $latestLocations->get($recipient->user_id);
+        return ApiResponse::success($locationUserIds
+            ->map(function (string $userId) use ($acceptedRecipientsByUser, $consentsByUser, $latestLocations, $incident): array {
+                $recipient = $acceptedRecipientsByUser->get($userId);
+                $consent = $consentsByUser->get($userId);
+                $location = $latestLocations->get($userId);
+                $user = $recipient?->user ?? $consent?->user ?? $location?->user;
                 $sharingStatus = $this->locationSharingStatus($consent, $location);
 
                 return [
-                    'user_id' => $recipient->user_id,
-                    'user' => $recipient->user === null ? null : [
-                        'id' => $recipient->user->id,
-                        'name' => $recipient->user->name,
-                        'email' => $recipient->user->email,
+                    'user_id' => $userId,
+                    'user' => $user === null ? null : [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
                     ],
                     'sharing_status' => $sharingStatus,
                     'location_is_current' => $this->isCurrentLocation($location),

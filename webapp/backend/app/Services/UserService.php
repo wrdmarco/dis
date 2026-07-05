@@ -152,6 +152,7 @@ final class UserService
             $user->tokens()->delete();
             $user->roles()->detach();
             $user->teams()->detach();
+            $this->deleteUserOwnedOperationalData($user);
 
             $this->auditService->record('users.deleted', $user, $actor, [
                 'name' => $user->name,
@@ -160,6 +161,49 @@ final class UserService
 
             $user->forceDelete();
         });
+    }
+
+    private function deleteUserOwnedOperationalData(User $user): void
+    {
+        $now = now();
+        $userId = $user->id;
+
+        $personalAssetIds = DB::table('asset_assignments')
+            ->select('asset_id')
+            ->where('user_id', $userId)
+            ->whereNull('incident_id')
+            ->whereNotExists(function ($query) use ($userId): void {
+                $query->selectRaw('1')
+                    ->from('asset_assignments as other_assignments')
+                    ->whereColumn('other_assignments.asset_id', 'asset_assignments.asset_id')
+                    ->where(function ($otherAssignments) use ($userId): void {
+                        $otherAssignments
+                            ->where('other_assignments.user_id', '<>', $userId)
+                            ->orWhereNotNull('other_assignments.incident_id');
+                    });
+            })
+            ->pluck('asset_id');
+
+        if ($personalAssetIds->isNotEmpty()) {
+            DB::table('assets')
+                ->whereIn('id', $personalAssetIds)
+                ->whereNull('deleted_at')
+                ->update([
+                    'status' => 'unavailable',
+                    'deleted_at' => $now,
+                    'updated_at' => $now,
+                ]);
+        }
+
+        DB::table('availability_week_patterns')->where('user_id', $userId)->delete();
+        DB::table('availability_overrides')->where('user_id', $userId)->delete();
+        DB::table('user_vacations')->where('user_id', $userId)->delete();
+        DB::table('user_certifications')->where('user_id', $userId)->delete();
+        DB::table('asset_assignments')->where('user_id', $userId)->delete();
+        DB::table('location_sharing_consents')->where('user_id', $userId)->delete();
+        DB::table('location_updates')->where('user_id', $userId)->delete();
+        DB::table('fcm_tokens')->where('user_id', $userId)->delete();
+        DB::table('password_reset_tokens')->where('email', $user->email)->delete();
     }
 
     public function assignRole(User $user, Role $role, User $actor): void

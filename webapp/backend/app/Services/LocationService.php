@@ -137,6 +137,7 @@ final class LocationService
 
         try {
             LocationUpdated::dispatch($location);
+            $this->broadcastLocationSharingChange($incident);
         } catch (Throwable $exception) {
             report($exception);
         }
@@ -173,6 +174,16 @@ final class LocationService
 
     private function ensureAcceptedRecipient(Incident $incident, User $target): void
     {
+        $hasActiveConsent = LocationSharingConsent::query()
+            ->where('incident_id', $incident->id)
+            ->where('user_id', $target->id)
+            ->where('is_active', true)
+            ->exists();
+
+        if ($hasActiveConsent) {
+            return;
+        }
+
         $isAcceptedRecipient = $incident->dispatchRequests()
             ->whereIn('status', ['sent', 'escalated'])
             ->whereHas('recipients', fn ($recipients) => $recipients
