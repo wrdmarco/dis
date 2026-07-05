@@ -979,6 +979,18 @@ function MetaItem({ icon, label, value }: { icon: ReactNode; label: string; valu
 }
 
 function formFromIncident(incident: Incident): IncidentFormState {
+  const customFields = {
+    ...(incident.custom_fields ?? {}),
+    reporter_name: (incident.custom_fields ?? {}).reporter_name ?? incident.reporter_name ?? '',
+    reporter_phone: (incident.custom_fields ?? {}).reporter_phone ?? incident.reporter_phone ?? '',
+    requesting_organization: (incident.custom_fields ?? {}).requesting_organization ?? incident.requesting_organization ?? '',
+    requesting_unit: (incident.custom_fields ?? {}).requesting_unit ?? incident.requesting_unit ?? '',
+    on_scene_contact_name: (incident.custom_fields ?? {}).on_scene_contact_name ?? incident.on_scene_contact_name ?? '',
+    on_scene_contact_phone: (incident.custom_fields ?? {}).on_scene_contact_phone ?? incident.on_scene_contact_phone ?? '',
+    on_scene_contact_role: (incident.custom_fields ?? {}).on_scene_contact_role ?? incident.on_scene_contact_role ?? '',
+    required_resources: (incident.custom_fields ?? {}).required_resources ?? incident.required_resources ?? '',
+  };
+
   return {
     title: incident.title,
     description: incident.description ?? '',
@@ -997,7 +1009,7 @@ function formFromIncident(incident: Incident): IncidentFormState {
     longitude: incident.longitude ?? '',
     coordinatorId: incident.coordinator?.id ?? '',
     teamIds: incident.teams?.length ? incident.teams.map((team) => team.id) : incident.team?.id ? [incident.team.id] : [],
-    customFields: incident.custom_fields ?? {},
+    customFields,
   };
 }
 

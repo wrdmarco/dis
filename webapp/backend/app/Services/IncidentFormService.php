@@ -18,11 +18,13 @@ final class IncidentFormService
      */
     public function fields(): array
     {
-        $stored = SystemSetting::value(self::SETTING_KEY, []);
+        $stored = SystemSetting::value(self::SETTING_KEY, null);
+        $fields = is_array($stored) && $stored !== [] ? $stored : $this->defaultFields();
 
-        return collect(is_array($stored) ? $stored : [])
+        return $this->withRequiredDefaultFields(collect($fields)
             ->filter(fn (mixed $field): bool => is_array($field))
             ->map(fn (array $field): array => $this->normalizeField($field))
+            ->values())
             ->values()
             ->all();
     }
@@ -69,7 +71,7 @@ final class IncidentFormService
             $validated[] = $this->normalizeField($field, $index);
         }
 
-        return $validated;
+        return $this->withRequiredDefaultFields(collect($validated))->values()->all();
     }
 
     /**
@@ -191,8 +193,55 @@ final class IncidentFormService
             'options' => $this->cleanOptions($field['options'] ?? [], $type, $index),
             'width' => $this->cleanWidth($field['width'] ?? null, $type),
             'section' => $this->cleanSection($field['section'] ?? null),
+            'locked' => $this->isRequiredDefaultField($key),
+            'expose_to_push' => filter_var($field['expose_to_push'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true,
             'is_custom' => true,
         ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function defaultFields(): array
+    {
+        return [
+            ['key' => 'reporter_name', 'label' => 'Naam melder', 'type' => 'text', 'visible' => true, 'required' => true, 'width' => 'half', 'expose_to_push' => true],
+            ['key' => 'reporter_phone', 'label' => 'Telefoonnummer melder', 'type' => 'text', 'visible' => true, 'required' => true, 'width' => 'half', 'expose_to_push' => false],
+            ['key' => 'requesting_organization', 'label' => 'Aanvragende organisatie', 'type' => 'text', 'visible' => true, 'required' => true, 'width' => 'full', 'expose_to_push' => true],
+            ['key' => 'requesting_unit', 'label' => 'Dienst / eenheid', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => true],
+            ['key' => 'on_scene_contact_name', 'label' => 'Contact ter plaatse', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => false],
+            ['key' => 'on_scene_contact_phone', 'label' => 'Telefoon ter plaatse', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => false],
+            ['key' => 'on_scene_contact_role', 'label' => 'Functie / rol contactpersoon', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => false],
+            ['key' => 'required_resources', 'label' => 'Benodigde middelen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'width' => 'full', 'expose_to_push' => true],
+        ];
+    }
+
+    private function withRequiredDefaultFields($fields)
+    {
+        $byKey = $fields->keyBy('key');
+        foreach ($this->defaultFields() as $field) {
+            if (! $this->isRequiredDefaultField((string) $field['key'])) {
+                continue;
+            }
+
+            if (! $byKey->has($field['key'])) {
+                $byKey->put($field['key'], $this->normalizeField($field));
+                continue;
+            }
+
+            $current = $byKey->get($field['key']);
+            $current['visible'] = true;
+            $current['required'] = true;
+            $current['locked'] = true;
+            $byKey->put($field['key'], $current);
+        }
+
+        return $byKey->values();
+    }
+
+    private function isRequiredDefaultField(string $key): bool
+    {
+        return in_array($key, ['reporter_name', 'reporter_phone', 'requesting_organization'], true);
     }
 
     /**
@@ -201,34 +250,24 @@ final class IncidentFormService
     private function defaultLayout(): array
     {
         return [
-            ['key' => 'section_incident', 'label' => 'Sectie: incident', 'visible' => true, 'width' => 'full'],
-            ['key' => 'title', 'label' => 'Titel', 'visible' => true, 'width' => 'full'],
-            ['key' => 'description', 'label' => 'Details', 'visible' => true, 'width' => 'full'],
-            ['key' => 'section_reporter', 'label' => 'Sectie: melder en aanvraag', 'visible' => true, 'width' => 'full'],
-            ['key' => 'reporter_name', 'label' => 'Naam melder', 'visible' => true, 'width' => 'half'],
-            ['key' => 'reporter_phone', 'label' => 'Telefoonnummer melder', 'visible' => true, 'width' => 'half'],
-            ['key' => 'requesting_organization', 'label' => 'Aanvragende organisatie', 'visible' => true, 'width' => 'half'],
-            ['key' => 'requesting_unit', 'label' => 'Dienst / eenheid', 'visible' => true, 'width' => 'half'],
-            ['key' => 'on_scene_contact_name', 'label' => 'Contact ter plaatse', 'visible' => true, 'width' => 'half'],
-            ['key' => 'on_scene_contact_phone', 'label' => 'Telefoon ter plaatse', 'visible' => true, 'width' => 'half'],
-            ['key' => 'on_scene_contact_role', 'label' => 'Functie / rol contactpersoon', 'visible' => true, 'width' => 'full'],
+            ['key' => 'section_incident', 'label' => 'Sectie: incident', 'visible' => true, 'width' => 'full', 'locked' => true],
+            ['key' => 'title', 'label' => 'Titel', 'visible' => true, 'width' => 'full', 'locked' => true],
+            ['key' => 'description', 'label' => 'Details', 'visible' => true, 'width' => 'full', 'locked' => true],
             ['key' => 'section_dispatch', 'label' => 'Sectie: inzet', 'visible' => true, 'width' => 'full'],
             ['key' => 'priority', 'label' => 'Prioriteit', 'visible' => true, 'width' => 'half'],
             ['key' => 'status', 'label' => 'Status', 'visible' => true, 'width' => 'half'],
             ['key' => 'teams', 'label' => 'Teams', 'visible' => true, 'width' => 'full'],
             ['key' => 'coordinator', 'label' => 'Coordinator', 'visible' => true, 'width' => 'full'],
-            ['key' => 'section_location', 'label' => 'Sectie: locatie', 'visible' => true, 'width' => 'full'],
-            ['key' => 'location_search', 'label' => 'Adres zoeken', 'visible' => true, 'width' => 'half'],
-            ['key' => 'location_map', 'label' => 'Kaart opkomstlocatie', 'visible' => true, 'width' => 'half'],
-            ['key' => 'section_resources', 'label' => 'Sectie: middelen', 'visible' => true, 'width' => 'full'],
-            ['key' => 'required_resources', 'label' => 'Benodigde middelen', 'visible' => true, 'width' => 'full'],
+            ['key' => 'section_location', 'label' => 'Sectie: locatie', 'visible' => true, 'width' => 'full', 'locked' => true],
+            ['key' => 'location_search', 'label' => 'Adres zoeken', 'visible' => true, 'width' => 'half', 'locked' => true],
+            ['key' => 'location_map', 'label' => 'Kaart opkomstlocatie', 'visible' => true, 'width' => 'half', 'locked' => true],
             ['key' => 'section_drone', 'label' => 'Sectie: drone vluchtcheck', 'visible' => true, 'width' => 'full'],
             ['key' => 'drone_status', 'label' => 'Drone vluchtcheck status', 'visible' => true, 'width' => 'full'],
             ['key' => 'drone_weather', 'label' => 'Weer', 'visible' => true, 'width' => 'half'],
             ['key' => 'drone_airspace', 'label' => 'Luchtruim', 'visible' => true, 'width' => 'half'],
             ['key' => 'drone_aeret_link', 'label' => 'Aeret link', 'visible' => true, 'width' => 'full'],
             ['key' => 'drone_aeret_map', 'label' => 'Aeret kaart', 'visible' => true, 'width' => 'full'],
-            ['key' => 'custom_fields', 'label' => 'Extra velden', 'visible' => true, 'width' => 'full'],
+            ['key' => 'custom_fields', 'label' => 'Dynamische velden', 'visible' => true, 'width' => 'full', 'locked' => true],
         ];
     }
 
@@ -260,13 +299,6 @@ final class IncidentFormService
             }
 
             if ($key === 'reporter_request') {
-                foreach (['section_reporter', 'reporter_name', 'reporter_phone', 'requesting_organization', 'requesting_unit', 'on_scene_contact_name', 'on_scene_contact_phone', 'on_scene_contact_role'] as $replacementKey) {
-                    if (! isset($seen[$replacementKey])) {
-                        $replacement = $defaults->get($replacementKey);
-                        $seen[$replacementKey] = true;
-                        $normalized[] = $replacement;
-                    }
-                }
                 continue;
             }
 
@@ -293,13 +325,6 @@ final class IncidentFormService
             }
 
             if ($key === 'resources') {
-                foreach (['section_resources', 'required_resources'] as $replacementKey) {
-                    if (! isset($seen[$replacementKey])) {
-                        $replacement = $defaults->get($replacementKey);
-                        $seen[$replacementKey] = true;
-                        $normalized[] = $replacement;
-                    }
-                }
                 continue;
             }
 
@@ -323,8 +348,9 @@ final class IncidentFormService
             $normalized[] = [
                 'key' => $key,
                 'label' => (string) ($default['label'] ?? $key),
-                'visible' => filter_var($item['visible'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true,
+                'visible' => ($default['locked'] ?? false) === true ? true : (filter_var($item['visible'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true),
                 'width' => in_array(($item['width'] ?? 'full'), ['half', 'full'], true) ? (string) $item['width'] : 'full',
+                'locked' => (bool) ($default['locked'] ?? false),
             ];
         }
 

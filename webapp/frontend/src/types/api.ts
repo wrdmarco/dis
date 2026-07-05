@@ -559,6 +559,8 @@ export interface ConfigurableFormField {
   options?: FormFieldOption[];
   width?: 'half' | 'full';
   section?: string | null;
+  locked?: boolean;
+  expose_to_push?: boolean;
   is_custom?: boolean;
 }
 
@@ -597,6 +599,7 @@ export interface IncidentFormLayoutItem {
   label: string;
   visible: boolean;
   width?: 'half' | 'full';
+  locked?: boolean;
 }
 
 export interface SystemSetting {

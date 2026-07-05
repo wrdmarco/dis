@@ -1249,6 +1249,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
           <ResourceState loading={incidentFormConfig.loading} error={incidentFormConfig.error} empty={false}>
             <IncidentFormLayoutEditor
               layout={incidentFormLayout}
+              customFields={incidentFormFields}
               onMove={moveIncidentLayoutItem}
               onReorder={reorderIncidentLayoutItem}
               onUpdate={updateIncidentLayoutItem}
@@ -1435,13 +1436,19 @@ function ConfigurableFormEditor(props: {
                     </label>
                   ) : null}
                   <label className="check-label">
-                    <input type="checkbox" checked={field.visible} onChange={(event) => onUpdate(field.key, { visible: event.target.checked })} />
+                    <input type="checkbox" checked={field.visible} disabled={field.locked === true} onChange={(event) => onUpdate(field.key, { visible: event.target.checked })} />
                     Zichtbaar
                   </label>
                   {field.type !== 'section' ? (
                     <label className="check-label">
-                      <input type="checkbox" checked={field.required} disabled={!field.visible} onChange={(event) => onUpdate(field.key, { required: event.target.checked })} />
+                      <input type="checkbox" checked={field.required} disabled={!field.visible || field.locked === true} onChange={(event) => onUpdate(field.key, { required: event.target.checked })} />
                       Verplicht
+                    </label>
+                  ) : null}
+                  {field.type !== 'section' ? (
+                    <label className="check-label">
+                      <input type="checkbox" checked={field.expose_to_push ?? true} onChange={(event) => onUpdate(field.key, { expose_to_push: event.target.checked })} />
+                      Beschikbaar in pushmelding
                     </label>
                   ) : null}
                   {['select', 'radio'].includes(field.type) ? (
@@ -1474,7 +1481,7 @@ function ConfigurableFormEditor(props: {
               <div className="form-builder-card__actions">
                 <button className="secondary-button" type="button" disabled={index === 0} onClick={() => onMove?.(field.key, -1)}>Omhoog</button>
                 <button className="secondary-button" type="button" disabled={index === fields.length - 1} onClick={() => onMove?.(field.key, 1)}>Omlaag</button>
-                <button className="danger-button" type="button" onClick={() => onRemove(field.key)}>Verwijderen</button>
+                <button className="danger-button" type="button" disabled={field.locked === true} onClick={() => onRemove(field.key)}>Verwijderen</button>
               </div>
             </article>
           ))}
@@ -1549,6 +1556,7 @@ function FormFieldPreview({ field }: { field: ConfigurableFormField }) {
 
 function IncidentFormLayoutEditor(props: {
   layout: IncidentFormLayoutItem[];
+  customFields: ConfigurableFormField[];
   onMove: (key: string, direction: -1 | 1) => void;
   onReorder: (sourceKey: string, targetKey: string) => void;
   onUpdate: (key: string, changes: Partial<IncidentFormLayoutItem>) => void;
@@ -1563,51 +1571,113 @@ function IncidentFormLayoutEditor(props: {
           <p className="muted-text">Bouw het incidentformulier voor de webapp uit losse modules. Standaardvelden, locatiekaart en Aeret onderdelen zijn modules; de mobiele app gebruikt deze indeling niet.</p>
         </div>
       </div>
-      <div className="form-builder__list">
-        {props.layout.map((item, index) => (
-          <article
-            className="form-builder-card"
-            draggable
-            key={item.key}
-            onDragStart={() => setDraggingKey(item.key)}
-            onDragEnd={() => setDraggingKey(null)}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              event.preventDefault();
-              if (draggingKey !== null && draggingKey !== item.key) {
-                props.onReorder(draggingKey, item.key);
-              }
-            }}
-          >
-            <div className="form-builder-card__handle" aria-hidden="true">::</div>
-            <div className="form-builder-card__body">
-              <div className="form-builder-card__header">
-                <strong>{item.label}</strong>
-                <span className="muted-text mono">{item.key}</span>
+      <div className="form-builder__workspace">
+        <div className="form-builder__list">
+          {props.layout.map((item, index) => (
+            <article
+              className="form-builder-card"
+              draggable
+              key={item.key}
+              onDragStart={() => setDraggingKey(item.key)}
+              onDragEnd={() => setDraggingKey(null)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                if (draggingKey !== null && draggingKey !== item.key) {
+                  props.onReorder(draggingKey, item.key);
+                }
+              }}
+            >
+              <div className="form-builder-card__handle" aria-hidden="true">::</div>
+              <div className="form-builder-card__body">
+                <div className="form-builder-card__header">
+                  <strong>{item.label}</strong>
+                  <span className="muted-text mono">{item.key}</span>
+                </div>
+                <div className="form-builder-card__grid">
+                  <label className="check-label">
+                    <input type="checkbox" checked={item.visible} disabled={item.locked === true} onChange={(event) => props.onUpdate(item.key, { visible: event.target.checked })} />
+                    Zichtbaar
+                  </label>
+                  <label>
+                    Breedte
+                    <select value={item.width ?? 'full'} onChange={(event) => props.onUpdate(item.key, { width: event.target.value as IncidentFormLayoutItem['width'] })}>
+                      <option value="full">Volle breedte</option>
+                      <option value="half">Naast elkaar</option>
+                    </select>
+                  </label>
+                </div>
               </div>
-              <div className="form-builder-card__grid">
-                <label className="check-label">
-                  <input type="checkbox" checked={item.visible} onChange={(event) => props.onUpdate(item.key, { visible: event.target.checked })} />
-                  Zichtbaar
-                </label>
-                <label>
-                  Breedte
-                  <select value={item.width ?? 'full'} onChange={(event) => props.onUpdate(item.key, { width: event.target.value as IncidentFormLayoutItem['width'] })}>
-                    <option value="full">Volle breedte</option>
-                    <option value="half">Naast elkaar</option>
-                  </select>
-                </label>
+              <div className="form-builder-card__actions">
+                <button className="secondary-button" type="button" disabled={index === 0} onClick={() => props.onMove(item.key, -1)}>Omhoog</button>
+                <button className="secondary-button" type="button" disabled={index === props.layout.length - 1} onClick={() => props.onMove(item.key, 1)}>Omlaag</button>
               </div>
-            </div>
-            <div className="form-builder-card__actions">
-              <button className="secondary-button" type="button" disabled={index === 0} onClick={() => props.onMove(item.key, -1)}>Omhoog</button>
-              <button className="secondary-button" type="button" disabled={index === props.layout.length - 1} onClick={() => props.onMove(item.key, 1)}>Omlaag</button>
-            </div>
-          </article>
-        ))}
+            </article>
+          ))}
+        </div>
+        <div className="form-builder__preview" aria-label="Compleet voorbeeld incidentformulier">
+          <div>
+            <span className="modal__eyebrow">Compleet voorbeeld</span>
+            <h3>Incidentformulier webapp</h3>
+          </div>
+          <div className="form-grid">
+            {props.layout.filter((item) => item.visible).map((item) => (
+              <div
+                className={item.width === 'half' ? 'form-builder-preview-module' : 'form-builder-preview-module form-grid__wide'}
+                draggable
+                key={item.key}
+                onDragStart={() => setDraggingKey(item.key)}
+                onDragEnd={() => setDraggingKey(null)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (draggingKey !== null && draggingKey !== item.key) {
+                    props.onReorder(draggingKey, item.key);
+                  }
+                }}
+              >
+                <IncidentModulePreview item={{ ...item, width: 'full' }} fields={props.customFields} />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
+}
+
+function IncidentModulePreview({ item, fields }: { item: IncidentFormLayoutItem; fields: ConfigurableFormField[] }) {
+  const className = item.width === 'half' ? undefined : 'form-grid__wide';
+
+  if (item.key.startsWith('section_')) {
+    return <div className="form-grid__wide section-heading"><h3>{item.label.replace('Sectie: ', '')}</h3></div>;
+  }
+
+  if (item.key === 'custom_fields') {
+    return (
+      <>
+        {fields.filter((field) => field.visible).map((field) => <FormFieldPreview field={field} key={field.key} />)}
+      </>
+    );
+  }
+
+  if (item.key === 'description') {
+    return <label className={className}>Details *<textarea rows={3} readOnly value="" placeholder="Beschrijving" /></label>;
+  }
+
+  if (item.key === 'teams') {
+    return <div className={className}><span className="field-label">Teams</span><div className="checkbox-grid"><label className="checkbox-card"><input type="checkbox" disabled /><span><strong>OCP - Operationeel</strong></span></label></div></div>;
+  }
+
+  if (item.key === 'location_map' || item.key === 'drone_aeret_map') {
+    return <div className={`location-picker__map ${className ?? ''}`}><div className="location-picker__empty"><span>{item.label}</span></div></div>;
+  }
+
+  if (item.key === 'drone_weather' || item.key === 'drone_airspace') {
+    return <div className={className}><article className="drone-flight-card"><h4>{item.label}</h4><dl><div><dt>Status</dt><dd>Voorbeeld</dd></div></dl></article></div>;
+  }
+
+  return <label className={className}>{item.label}{item.locked ? ' *' : ''}<input readOnly placeholder={item.label} /></label>;
 }
 
 function newCustomFormField(fields: ConfigurableFormField[]): ConfigurableFormField {
@@ -1627,6 +1697,7 @@ function newCustomFormField(fields: ConfigurableFormField[]): ConfigurableFormFi
     width: 'half',
     option_source: 'manual',
     options: [],
+    expose_to_push: true,
     is_custom: true,
   };
 }
@@ -1680,34 +1751,24 @@ function reorderFormField<T extends ConfigurableFormField>(fields: T[], sourceKe
 
 function defaultIncidentFormLayout(): IncidentFormLayoutItem[] {
   return [
-    { key: 'section_incident', label: 'Sectie: incident', visible: true, width: 'full' },
-    { key: 'title', label: 'Titel', visible: true, width: 'full' },
-    { key: 'description', label: 'Details', visible: true, width: 'full' },
-    { key: 'section_reporter', label: 'Sectie: melder en aanvraag', visible: true, width: 'full' },
-    { key: 'reporter_name', label: 'Naam melder', visible: true, width: 'half' },
-    { key: 'reporter_phone', label: 'Telefoonnummer melder', visible: true, width: 'half' },
-    { key: 'requesting_organization', label: 'Aanvragende organisatie', visible: true, width: 'half' },
-    { key: 'requesting_unit', label: 'Dienst / eenheid', visible: true, width: 'half' },
-    { key: 'on_scene_contact_name', label: 'Contact ter plaatse', visible: true, width: 'half' },
-    { key: 'on_scene_contact_phone', label: 'Telefoon ter plaatse', visible: true, width: 'half' },
-    { key: 'on_scene_contact_role', label: 'Functie / rol contactpersoon', visible: true, width: 'full' },
+    { key: 'section_incident', label: 'Sectie: incident', visible: true, width: 'full', locked: true },
+    { key: 'title', label: 'Titel', visible: true, width: 'full', locked: true },
+    { key: 'description', label: 'Details', visible: true, width: 'full', locked: true },
     { key: 'section_dispatch', label: 'Sectie: inzet', visible: true, width: 'full' },
     { key: 'priority', label: 'Prioriteit', visible: true, width: 'half' },
     { key: 'status', label: 'Status', visible: true, width: 'half' },
     { key: 'teams', label: 'Teams', visible: true, width: 'full' },
     { key: 'coordinator', label: 'Coordinator', visible: true, width: 'full' },
-    { key: 'section_location', label: 'Sectie: locatie', visible: true, width: 'full' },
-    { key: 'location_search', label: 'Adres zoeken', visible: true, width: 'half' },
-    { key: 'location_map', label: 'Kaart opkomstlocatie', visible: true, width: 'half' },
-    { key: 'section_resources', label: 'Sectie: middelen', visible: true, width: 'full' },
-    { key: 'required_resources', label: 'Benodigde middelen', visible: true, width: 'full' },
+    { key: 'section_location', label: 'Sectie: locatie', visible: true, width: 'full', locked: true },
+    { key: 'location_search', label: 'Adres zoeken', visible: true, width: 'half', locked: true },
+    { key: 'location_map', label: 'Kaart opkomstlocatie', visible: true, width: 'half', locked: true },
     { key: 'section_drone', label: 'Sectie: drone vluchtcheck', visible: true, width: 'full' },
     { key: 'drone_status', label: 'Drone vluchtcheck status', visible: true, width: 'full' },
     { key: 'drone_weather', label: 'Weer', visible: true, width: 'half' },
     { key: 'drone_airspace', label: 'Luchtruim', visible: true, width: 'half' },
     { key: 'drone_aeret_link', label: 'Aeret link', visible: true, width: 'full' },
     { key: 'drone_aeret_map', label: 'Aeret kaart', visible: true, width: 'full' },
-    { key: 'custom_fields', label: 'Extra velden', visible: true, width: 'full' },
+    { key: 'custom_fields', label: 'Dynamische velden', visible: true, width: 'full', locked: true },
   ];
 }
 

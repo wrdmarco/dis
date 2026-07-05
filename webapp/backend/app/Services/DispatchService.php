@@ -1279,14 +1279,14 @@ final class DispatchService
             'coordinates' => $coordinates,
             'priority' => (string) ($incident?->priority ?? ''),
             'status' => (string) ($incident?->status ?? ''),
-            'reporter_name' => (string) ($incident?->reporter_name ?? ''),
-            'reporter_phone' => (string) ($incident?->reporter_phone ?? ''),
-            'requesting_organization' => (string) ($incident?->requesting_organization ?? ''),
-            'requesting_unit' => (string) ($incident?->requesting_unit ?? ''),
-            'on_scene_contact_name' => (string) ($incident?->on_scene_contact_name ?? ''),
-            'on_scene_contact_phone' => (string) ($incident?->on_scene_contact_phone ?? ''),
-            'on_scene_contact_role' => (string) ($incident?->on_scene_contact_role ?? ''),
-            'required_resources' => (string) ($incident?->required_resources ?? ''),
+            'reporter_name' => $this->legacyFieldToken($incident, 'reporter_name'),
+            'reporter_phone' => $this->legacyFieldToken($incident, 'reporter_phone'),
+            'requesting_organization' => $this->legacyFieldToken($incident, 'requesting_organization'),
+            'requesting_unit' => $this->legacyFieldToken($incident, 'requesting_unit'),
+            'on_scene_contact_name' => $this->legacyFieldToken($incident, 'on_scene_contact_name'),
+            'on_scene_contact_phone' => $this->legacyFieldToken($incident, 'on_scene_contact_phone'),
+            'on_scene_contact_role' => $this->legacyFieldToken($incident, 'on_scene_contact_role'),
+            'required_resources' => $this->legacyFieldToken($incident, 'required_resources'),
             'coordinator_name' => (string) ($incident?->coordinator_name ?? ''),
             'created_by_name' => (string) ($incident?->created_by_name ?? ''),
             'created_at' => (string) ($incident?->created_at?->format('d-m-Y H:i') ?? ''),
@@ -1294,6 +1294,26 @@ final class DispatchService
             'closed_at' => (string) ($incident?->closed_at?->format('d-m-Y H:i') ?? ''),
             'message' => '',
         ], $this->customFieldTokens($incident), $extra);
+    }
+
+    private function legacyFieldToken(?Incident $incident, string $key): string
+    {
+        if (! $this->fieldExposedToPush($key)) {
+            return '';
+        }
+
+        return (string) ($incident?->{$key} ?? '');
+    }
+
+    private function fieldExposedToPush(string $key): bool
+    {
+        foreach ($this->incidentFormService->fields() as $field) {
+            if (($field['key'] ?? null) === $key) {
+                return ($field['expose_to_push'] ?? true) === true;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -1307,7 +1327,7 @@ final class DispatchService
 
         $tokens = [];
         foreach ($this->incidentFormService->fields() as $field) {
-            if (($field['type'] ?? null) === 'section') {
+            if (($field['type'] ?? null) === 'section' || ($field['expose_to_push'] ?? true) !== true) {
                 continue;
             }
 

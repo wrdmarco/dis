@@ -1981,6 +1981,18 @@ select[multiple] {
   background: #0d1521;
 }
 
+.form-builder-preview-module {
+  min-width: 0;
+  padding: 8px;
+  border: 1px dashed #2d435d;
+  border-radius: 8px;
+  cursor: grab;
+}
+
+.form-builder-preview-module:active {
+  cursor: grabbing;
+}
+
 .template-variable-bank {
   padding: 12px;
   border: 1px solid #1f2b3a;

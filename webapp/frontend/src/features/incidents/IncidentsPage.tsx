@@ -645,31 +645,21 @@ function incidentFormLayout(layout: IncidentFormLayoutItem[]): IncidentFormLayou
     { key: 'section_incident', label: 'Sectie: incident', visible: true, width: 'full' },
     { key: 'title', label: 'Titel', visible: true, width: 'full' },
     { key: 'description', label: 'Details', visible: true, width: 'full' },
-    { key: 'section_reporter', label: 'Sectie: melder en aanvraag', visible: true, width: 'full' },
-    { key: 'reporter_name', label: 'Naam melder', visible: true, width: 'half' },
-    { key: 'reporter_phone', label: 'Telefoonnummer melder', visible: true, width: 'half' },
-    { key: 'requesting_organization', label: 'Aanvragende organisatie', visible: true, width: 'half' },
-    { key: 'requesting_unit', label: 'Dienst / eenheid', visible: true, width: 'half' },
-    { key: 'on_scene_contact_name', label: 'Contact ter plaatse', visible: true, width: 'half' },
-    { key: 'on_scene_contact_phone', label: 'Telefoon ter plaatse', visible: true, width: 'half' },
-    { key: 'on_scene_contact_role', label: 'Functie / rol contactpersoon', visible: true, width: 'full' },
     { key: 'section_dispatch', label: 'Sectie: inzet', visible: true, width: 'full' },
     { key: 'priority', label: 'Prioriteit', visible: true, width: 'half' },
     { key: 'status', label: 'Status', visible: true, width: 'half' },
     { key: 'teams', label: 'Teams', visible: true, width: 'full' },
     { key: 'coordinator', label: 'Coordinator', visible: true, width: 'full' },
-    { key: 'section_location', label: 'Sectie: locatie', visible: true, width: 'full' },
-    { key: 'location_search', label: 'Adres zoeken', visible: true, width: 'half' },
-    { key: 'location_map', label: 'Kaart opkomstlocatie', visible: true, width: 'half' },
-    { key: 'section_resources', label: 'Sectie: middelen', visible: true, width: 'full' },
-    { key: 'required_resources', label: 'Benodigde middelen', visible: true, width: 'full' },
+    { key: 'section_location', label: 'Sectie: locatie', visible: true, width: 'full', locked: true },
+    { key: 'location_search', label: 'Adres zoeken', visible: true, width: 'half', locked: true },
+    { key: 'location_map', label: 'Kaart opkomstlocatie', visible: true, width: 'half', locked: true },
     { key: 'section_drone', label: 'Sectie: drone vluchtcheck', visible: true, width: 'full' },
     { key: 'drone_status', label: 'Drone vluchtcheck status', visible: true, width: 'full' },
     { key: 'drone_weather', label: 'Weer', visible: true, width: 'half' },
     { key: 'drone_airspace', label: 'Luchtruim', visible: true, width: 'half' },
     { key: 'drone_aeret_link', label: 'Aeret link', visible: true, width: 'full' },
     { key: 'drone_aeret_map', label: 'Aeret kaart', visible: true, width: 'full' },
-    { key: 'custom_fields', label: 'Extra velden', visible: true, width: 'full' },
+    { key: 'custom_fields', label: 'Dynamische velden', visible: true, width: 'full', locked: true },
   ];
   const defaultKeys = new Set(defaults.map((item) => item.key));
   const merged = expandLegacyIncidentLayout(layout).filter((item) => defaultKeys.has(item.key));
@@ -685,16 +675,7 @@ function expandLegacyIncidentLayout(layout: IncidentFormLayoutItem[]): IncidentF
       { key: 'title', label: 'Titel', visible: true, width: 'full' },
       { key: 'description', label: 'Details', visible: true, width: 'full' },
     ],
-    reporter_request: [
-      { key: 'section_reporter', label: 'Sectie: melder en aanvraag', visible: true, width: 'full' },
-      { key: 'reporter_name', label: 'Naam melder', visible: true, width: 'half' },
-      { key: 'reporter_phone', label: 'Telefoonnummer melder', visible: true, width: 'half' },
-      { key: 'requesting_organization', label: 'Aanvragende organisatie', visible: true, width: 'half' },
-      { key: 'requesting_unit', label: 'Dienst / eenheid', visible: true, width: 'half' },
-      { key: 'on_scene_contact_name', label: 'Contact ter plaatse', visible: true, width: 'half' },
-      { key: 'on_scene_contact_phone', label: 'Telefoon ter plaatse', visible: true, width: 'half' },
-      { key: 'on_scene_contact_role', label: 'Functie / rol contactpersoon', visible: true, width: 'full' },
-    ],
+    reporter_request: [],
     priority_teams: [
       { key: 'section_dispatch', label: 'Sectie: inzet', visible: true, width: 'full' },
       { key: 'priority', label: 'Prioriteit', visible: true, width: 'half' },
@@ -706,10 +687,7 @@ function expandLegacyIncidentLayout(layout: IncidentFormLayoutItem[]): IncidentF
       { key: 'location_search', label: 'Adres zoeken', visible: true, width: 'half' },
       { key: 'location_map', label: 'Kaart opkomstlocatie', visible: true, width: 'half' },
     ],
-    resources: [
-      { key: 'section_resources', label: 'Sectie: middelen', visible: true, width: 'full' },
-      { key: 'required_resources', label: 'Benodigde middelen', visible: true, width: 'full' },
-    ],
+    resources: [],
     drone_context: [
       { key: 'section_drone', label: 'Sectie: drone vluchtcheck', visible: true, width: 'full' },
       { key: 'drone_status', label: 'Drone vluchtcheck status', visible: true, width: 'full' },
@@ -1558,17 +1536,27 @@ function airspaceStatusLabel(status?: string | null): string {
 }
 
 export function incidentPayload(form: IncidentFormState): Record<string, unknown> {
+  const customFields = form.customFields;
+  const legacyValue = (key: string, fallback: string): string | null => {
+    const value = customFields[key];
+    if (typeof value === 'string') {
+      return value.trim() === '' ? null : value;
+    }
+
+    return fallback.trim() === '' ? null : fallback;
+  };
+
   return {
     title: form.title.trim(),
     description: form.description.trim(),
-    reporter_name: form.reporterName.trim() === '' ? null : form.reporterName,
-    reporter_phone: form.reporterPhone.trim() === '' ? null : form.reporterPhone,
-    requesting_organization: form.requestingOrganization.trim() === '' ? null : form.requestingOrganization,
-    requesting_unit: form.requestingUnit.trim() === '' ? null : form.requestingUnit,
-    on_scene_contact_name: form.onSceneContactName.trim() === '' ? null : form.onSceneContactName,
-    on_scene_contact_phone: form.onSceneContactPhone.trim() === '' ? null : form.onSceneContactPhone,
-    on_scene_contact_role: form.onSceneContactRole.trim() === '' ? null : form.onSceneContactRole,
-    required_resources: form.requiredResources.trim() === '' ? null : form.requiredResources,
+    reporter_name: legacyValue('reporter_name', form.reporterName),
+    reporter_phone: legacyValue('reporter_phone', form.reporterPhone),
+    requesting_organization: legacyValue('requesting_organization', form.requestingOrganization),
+    requesting_unit: legacyValue('requesting_unit', form.requestingUnit),
+    on_scene_contact_name: legacyValue('on_scene_contact_name', form.onSceneContactName),
+    on_scene_contact_phone: legacyValue('on_scene_contact_phone', form.onSceneContactPhone),
+    on_scene_contact_role: legacyValue('on_scene_contact_role', form.onSceneContactRole),
+    required_resources: legacyValue('required_resources', form.requiredResources),
     priority: form.priority,
     status: form.status,
     location_label: form.locationLabel.trim() === '' ? null : form.locationLabel,
@@ -1577,7 +1565,7 @@ export function incidentPayload(form: IncidentFormState): Record<string, unknown
     coordinator_id: form.coordinatorId === '' ? null : form.coordinatorId,
     team_id: form.teamIds[0] ?? null,
     team_ids: form.teamIds,
-    custom_fields: form.customFields,
+    custom_fields: customFields,
   };
 }
 

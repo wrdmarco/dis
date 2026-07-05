@@ -572,7 +572,7 @@ function appendToken(value: string, token: string): string {
 
 function incidentFormVariables(fields: ConfigurableFormField[]): Array<{ key: string; label: string }> {
   return fields
-    .filter((field) => field.visible && field.type !== 'section')
+    .filter((field) => field.visible && field.type !== 'section' && (field.expose_to_push ?? true))
     .map((field) => ({ key: `field_${field.key}`, label: `Formulierveld: ${field.label}` }));
 }
 
@@ -584,8 +584,11 @@ function pushVariablesFor(kind: 'preannouncement' | 'dispatch' | 'unavailable' |
     ? []
     : [{ key: 'message', label: 'Standaard bericht' }];
 
+  const availableIncidentFieldKeys = new Set(incidentFields.map((field) => field.key.replace(/^field_/, '')));
+  const controlledLegacyKeys = new Set(['reporter_name', 'reporter_phone', 'requesting_organization', 'requesting_unit', 'on_scene_contact_name', 'on_scene_contact_phone', 'on_scene_contact_role', 'required_resources']);
   const base = basePushVariables
     .filter(([key]) => key !== 'message')
+    .filter(([key]) => !controlledLegacyKeys.has(key) || availableIncidentFieldKeys.has(key))
     .map(([key, label]) => ({ key, label }));
 
   return [...base, ...message, ...extras, ...incidentFields];
