@@ -13,6 +13,7 @@ final class PilotIncidentReportService
 {
     public function __construct(
         private readonly AuditService $auditService,
+        private readonly PilotIncidentReportFormService $formService,
         private readonly IncidentReportService $incidentReportService,
     ) {}
 
@@ -60,6 +61,7 @@ final class PilotIncidentReportService
                 'issues' => $data['issues'] ?? null,
                 'equipment_used' => $data['equipment_used'] ?? null,
                 'flight_minutes' => $data['flight_minutes'] ?? null,
+                'custom_fields' => $this->formService->normalizeCustomValues($data),
                 'status' => 'submitted',
                 'submitted_at' => now(),
             ])->save();

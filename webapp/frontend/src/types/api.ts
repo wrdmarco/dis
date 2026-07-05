@@ -143,6 +143,7 @@ export interface Incident {
   on_scene_contact_phone?: string | null;
   on_scene_contact_role?: string | null;
   required_resources?: string | null;
+  custom_fields?: Record<string, unknown>;
   priority: 'low' | 'normal' | 'high' | 'critical';
   status: 'draft' | 'active' | 'dispatching' | 'in_progress' | 'resolved' | 'cancelled';
   is_test?: boolean;
@@ -531,18 +532,31 @@ export interface SystemVersionState {
   updater: SystemUpdateStatus;
 }
 
-export interface PilotReportFormField {
-  key: 'summary' | 'observations' | 'actions_taken' | 'result' | 'equipment_used' | 'flight_minutes' | 'issues';
+export interface FormFieldOption {
   label: string;
-  type: 'text' | 'textarea' | 'number';
+  value: string;
+}
+
+export interface ConfigurableFormField {
+  key: string;
+  label: string;
+  type: 'text' | 'textarea' | 'number' | 'select' | 'checkbox' | 'radio';
   visible: boolean;
   required: boolean;
   max_length?: number;
   max?: number;
+  options?: FormFieldOption[];
+  is_custom?: boolean;
 }
+
+export type PilotReportFormField = ConfigurableFormField;
 
 export interface PilotReportFormConfig {
   fields: PilotReportFormField[];
+}
+
+export interface IncidentFormConfig {
+  fields: ConfigurableFormField[];
 }
 
 export interface SystemSetting {

@@ -10,7 +10,7 @@ import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { DispatchPreview, DispatchRequest, DroneFlightContext, Incident, IncidentLiveLocation, IncidentTimelineItem, Team, User } from '../../types/api';
+import type { DispatchPreview, DispatchRequest, DroneFlightContext, Incident, IncidentFormConfig, IncidentLiveLocation, IncidentTimelineItem, Team, User } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 import { IncidentForm, type IncidentFormState, incidentPayload } from './IncidentsPage';
 
@@ -29,6 +29,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const timeline = useApiResource<IncidentTimelineItem[]>(`/incidents/${incidentId}/timeline`, Boolean(incidentId));
   const users = useApiResource<User[]>('/users?per_page=200');
   const teams = useApiResource<Team[]>('/teams');
+  const incidentFormConfig = useApiResource<IncidentFormConfig>('/incident-form/config');
   const [editForm, setEditForm] = useState<IncidentFormState | null>(null);
   const [statusReason, setStatusReason] = useState('');
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -753,6 +754,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
               form={editForm}
               users={users.data ?? []}
               teams={teams.data ?? []}
+              customFields={incidentFormConfig.data?.fields ?? []}
               usersError={users.error}
               teamsError={teams.error}
               saving={savingIncident}
@@ -901,6 +903,7 @@ function formFromIncident(incident: Incident): IncidentFormState {
     longitude: incident.longitude ?? '',
     coordinatorId: incident.coordinator?.id ?? '',
     teamIds: incident.teams?.length ? incident.teams.map((team) => team.id) : incident.team?.id ? [incident.team.id] : [],
+    customFields: incident.custom_fields ?? {},
   };
 }
 

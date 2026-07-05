@@ -6,7 +6,7 @@ import { parseFirebaseJson } from '../../lib/firebaseConfigImport';
 import { formatDateTime } from '../../lib/dateTime';
 import { createRealtime } from '../../lib/realtime';
 import { useApiResource } from '../../lib/useApiResource';
-import type { DeveloperAccessState, FcmToken, PilotReportFormConfig, PilotReportFormField, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
+import type { ConfigurableFormField, DeveloperAccessState, FcmToken, IncidentFormConfig, PilotReportFormConfig, PilotReportFormField, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { useEffect, useMemo, useState } from 'react';
 import { ApiClientError } from '../../lib/apiClient';
@@ -60,7 +60,7 @@ interface PasswordPolicySettingsForm {
   uncompromised: boolean;
 }
 
-type AdminTab = 'firebase' | 'mail' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'pilotReport' | 'settings';
+type AdminTab = 'firebase' | 'mail' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'pilotReport' | 'incidentForm' | 'settings';
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'firebase', label: 'Firebase' },
@@ -71,6 +71,7 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'version', label: 'Versie' },
   { id: 'tokens', label: 'Tokens' },
   { id: 'pilotReport', label: 'Inzetrapport' },
+  { id: 'incidentForm', label: 'Incidentformulier' },
   { id: 'settings', label: 'Instellingen' },
 ];
 
@@ -115,6 +116,7 @@ export function AdminPage() {
   const developerAccess = useApiResource<DeveloperAccessState>('/admin/developer-access', canManageSettings);
   const systemVersion = useApiResource<SystemVersionState>('/admin/system/version', canViewSystemHealth);
   const pilotReportFormConfig = useApiResource<PilotReportFormConfig>('/admin/pilot-report/form-config', canManageSettings);
+  const incidentFormConfig = useApiResource<IncidentFormConfig>('/admin/incident-form/config', canManageSettings);
   const mobileSettings = useMemo(() => toMobileSettingsForm(settings.data ?? []), [settings.data]);
   const managedSettings = useMemo(() => toManagedSettingsForm(settings.data ?? []), [settings.data]);
   const passwordPolicySettings = useMemo(() => toPasswordPolicySettingsForm(settings.data ?? []), [settings.data]);
@@ -122,6 +124,7 @@ export function AdminPage() {
   const [managedForm, setManagedForm] = useState<ManagedSettingsForm>(managedSettings);
   const [passwordPolicyForm, setPasswordPolicyForm] = useState<PasswordPolicySettingsForm>(passwordPolicySettings);
   const [pilotReportFields, setPilotReportFields] = useState<PilotReportFormField[]>([]);
+  const [incidentFormFields, setIncidentFormFields] = useState<ConfigurableFormField[]>([]);
   const [activeTab, setActiveTab] = useState<AdminTab>('firebase');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -141,6 +144,9 @@ export function AdminPage() {
   const [pilotReportSaving, setPilotReportSaving] = useState(false);
   const [pilotReportMessage, setPilotReportMessage] = useState<string | null>(null);
   const [pilotReportError, setPilotReportError] = useState<string | null>(null);
+  const [incidentFormSaving, setIncidentFormSaving] = useState(false);
+  const [incidentFormMessage, setIncidentFormMessage] = useState<string | null>(null);
+  const [incidentFormError, setIncidentFormError] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(mobileSettings);
@@ -163,6 +169,10 @@ export function AdminPage() {
   useEffect(() => {
     setPilotReportFields(pilotReportFormConfig.data?.fields ?? []);
   }, [pilotReportFormConfig.data?.fields]);
+
+  useEffect(() => {
+    setIncidentFormFields(incidentFormConfig.data?.fields ?? []);
+  }, [incidentFormConfig.data?.fields]);
 
   useEffect(() => {
     setUpdaterStatus(systemVersion.data?.updater ?? null);
@@ -526,7 +536,25 @@ export function AdminPage() {
     }
   }
 
-  function updatePilotReportField(key: PilotReportFormField['key'], changes: Partial<PilotReportFormField>) {
+  async function saveIncidentFormConfig() {
+    setIncidentFormSaving(true);
+    setIncidentFormError(null);
+    setIncidentFormMessage(null);
+    try {
+      const response = await api.patch<IncidentFormConfig>('/admin/incident-form/config', {
+        fields: incidentFormFields,
+      });
+      setIncidentFormFields(response.data.fields);
+      setIncidentFormMessage('Incidentformulier is opgeslagen.');
+      await incidentFormConfig.reload();
+    } catch (error) {
+      setIncidentFormError(error instanceof ApiClientError ? error.message : 'Incidentformulier opslaan mislukt.');
+    } finally {
+      setIncidentFormSaving(false);
+    }
+  }
+
+  function updatePilotReportField(key: string, changes: Partial<PilotReportFormField>) {
     setPilotReportFields((current) => current.map((field) => {
       if (field.key !== key) {
         return field;
@@ -535,6 +563,33 @@ export function AdminPage() {
       const next = { ...field, ...changes };
       return next.visible ? next : { ...next, required: false };
     }));
+  }
+
+  function addPilotReportField() {
+    setPilotReportFields((current) => [...current, newCustomFormField(current)]);
+  }
+
+  function removePilotReportField(key: string) {
+    setPilotReportFields((current) => current.filter((field) => field.key !== key || field.is_custom !== true));
+  }
+
+  function updateIncidentFormField(key: string, changes: Partial<ConfigurableFormField>) {
+    setIncidentFormFields((current) => current.map((field) => {
+      if (field.key !== key) {
+        return field;
+      }
+
+      const next = { ...field, ...changes };
+      return next.visible ? next : { ...next, required: false };
+    }));
+  }
+
+  function addIncidentFormField() {
+    setIncidentFormFields((current) => [...current, newCustomFormField(current)]);
+  }
+
+  function removeIncidentFormField(key: string) {
+    setIncidentFormFields((current) => current.filter((field) => field.key !== key));
   }
 
   return (
@@ -1092,34 +1147,39 @@ export function AdminPage() {
       {activeTab === 'pilotReport' ? (
         <Panel title="Inzetrapport formulier">
           <ResourceState loading={pilotReportFormConfig.loading} error={pilotReportFormConfig.error} empty={pilotReportFields.length === 0}>
-            <p className="form-note">
-              Pas de labels, zichtbaarheid en verplichte velden aan. De mobiele app gebruikt deze configuratie automatisch bij het inzetrapport.
-            </p>
-            <table className="data-table">
-              <thead><tr><th>Veld</th><th>Label</th><th>Zichtbaar</th><th>Verplicht</th><th>Type</th></tr></thead>
-              <tbody>
-                {pilotReportFields.map((field) => (
-                  <tr key={field.key}>
-                    <td className="mono">{field.key}</td>
-                    <td>
-                      <input value={field.label} onChange={(event) => updatePilotReportField(field.key, { label: event.target.value })} />
-                    </td>
-                    <td>
-                      <input type="checkbox" checked={field.visible} onChange={(event) => updatePilotReportField(field.key, { visible: event.target.checked })} />
-                    </td>
-                    <td>
-                      <input type="checkbox" checked={field.required} disabled={!field.visible} onChange={(event) => updatePilotReportField(field.key, { required: event.target.checked })} />
-                    </td>
-                    <td>{field.type}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <ConfigurableFormEditor
+              fields={pilotReportFields}
+              description="Pas vaste velden aan of voeg extra velden toe. De mobiele app gebruikt deze configuratie automatisch bij het inzetrapport."
+              onAdd={addPilotReportField}
+              onRemove={removePilotReportField}
+              onUpdate={updatePilotReportField}
+            />
             {pilotReportError ? <p className="form-error">{pilotReportError}</p> : null}
             {pilotReportMessage ? <p className="success-text">{pilotReportMessage}</p> : null}
             <div className="actions-row">
               <button className="primary-button" type="button" onClick={() => void savePilotReportFormConfig()} disabled={pilotReportSaving}>
                 {pilotReportSaving ? 'Opslaan...' : 'Formulier opslaan'}
+              </button>
+            </div>
+          </ResourceState>
+        </Panel>
+      ) : null}
+
+      {activeTab === 'incidentForm' ? (
+        <Panel title="Incidentformulier">
+          <ResourceState loading={incidentFormConfig.loading} error={incidentFormConfig.error} empty={false}>
+            <ConfigurableFormEditor
+              fields={incidentFormFields}
+              description="Beheer extra velden voor het incident-aanmaakformulier. Kernvelden zoals titel, locatie, prioriteit en teams blijven verplicht onderdeel van de incidentflow."
+              onAdd={addIncidentFormField}
+              onRemove={removeIncidentFormField}
+              onUpdate={updateIncidentFormField}
+            />
+            {incidentFormError ? <p className="form-error">{incidentFormError}</p> : null}
+            {incidentFormMessage ? <p className="success-text">{incidentFormMessage}</p> : null}
+            <div className="actions-row">
+              <button className="primary-button" type="button" onClick={() => void saveIncidentFormConfig()} disabled={incidentFormSaving}>
+                {incidentFormSaving ? 'Opslaan...' : 'Formulier opslaan'}
               </button>
             </div>
           </ResourceState>
@@ -1145,6 +1205,131 @@ export function AdminPage() {
       ) : null}
     </div>
   );
+}
+
+function ConfigurableFormEditor(props: {
+  fields: ConfigurableFormField[];
+  description: string;
+  onAdd: () => void;
+  onRemove: (key: string) => void;
+  onUpdate: (key: string, changes: Partial<ConfigurableFormField>) => void;
+}) {
+  const { fields, description, onAdd, onRemove, onUpdate } = props;
+
+  return (
+    <div className="page-stack">
+      <p className="form-note">{description}</p>
+      <div className="actions-row">
+        <button className="secondary-button" type="button" onClick={onAdd}>Extra veld toevoegen</button>
+      </div>
+      <table className="data-table">
+        <thead><tr><th>Sleutel</th><th>Label</th><th>Type</th><th>Zichtbaar</th><th>Verplicht</th><th>Opties</th><th></th></tr></thead>
+        <tbody>
+          {fields.map((field) => {
+            const isCustom = field.is_custom === true;
+            return (
+              <tr key={field.key}>
+                <td>
+                  {isCustom ? (
+                    <input
+                      className="mono"
+                      value={field.key}
+                      onChange={(event) => onUpdate(field.key, { key: normalizeCustomFieldKey(event.target.value) })}
+                    />
+                  ) : (
+                    <span className="mono">{field.key}</span>
+                  )}
+                </td>
+                <td>
+                  <input value={field.label} onChange={(event) => onUpdate(field.key, { label: event.target.value })} />
+                </td>
+                <td>
+                  <select
+                    value={field.type}
+                    disabled={!isCustom}
+                    onChange={(event) => onUpdate(field.key, {
+                      type: event.target.value as ConfigurableFormField['type'],
+                      options: ['select', 'radio'].includes(event.target.value) ? defaultFieldOptions(field.options) : [],
+                    })}
+                  >
+                    <option value="text">Tekst</option>
+                    <option value="textarea">Grote tekst</option>
+                    <option value="number">Getal</option>
+                    <option value="select">Dropdown</option>
+                    <option value="checkbox">Checkbox</option>
+                    <option value="radio">Radioknoppen</option>
+                  </select>
+                </td>
+                <td>
+                  <input type="checkbox" checked={field.visible} onChange={(event) => onUpdate(field.key, { visible: event.target.checked })} />
+                </td>
+                <td>
+                  <input type="checkbox" checked={field.required} disabled={!field.visible} onChange={(event) => onUpdate(field.key, { required: event.target.checked })} />
+                </td>
+                <td>
+                  {['select', 'radio'].includes(field.type) ? (
+                    <textarea
+                      value={(field.options ?? []).map((option) => option.label).join('\n')}
+                      rows={3}
+                      onChange={(event) => onUpdate(field.key, { options: optionsFromTextarea(event.target.value) })}
+                    />
+                  ) : (
+                    <span className="muted-text">Niet nodig</span>
+                  )}
+                </td>
+                <td>
+                  {isCustom ? (
+                    <button className="secondary-button" type="button" onClick={() => onRemove(field.key)}>Verwijderen</button>
+                  ) : null}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {fields.length === 0 ? <p className="muted-text">Nog geen extra velden ingesteld.</p> : null}
+      <p className="form-note">Sleutels voor extra velden moeten beginnen met custom_. Opties voor dropdown en radio: een optie per regel.</p>
+    </div>
+  );
+}
+
+function newCustomFormField(fields: ConfigurableFormField[]): ConfigurableFormField {
+  let index = fields.length + 1;
+  let key = `custom_veld_${index}`;
+  while (fields.some((field) => field.key === key)) {
+    index += 1;
+    key = `custom_veld_${index}`;
+  }
+
+  return {
+    key,
+    label: 'Nieuw veld',
+    type: 'text',
+    visible: true,
+    required: false,
+    options: [],
+    is_custom: true,
+  };
+}
+
+function normalizeCustomFieldKey(value: string): string {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^_+/, '');
+  return normalized.startsWith('custom_') ? normalized : `custom_${normalized}`;
+}
+
+function defaultFieldOptions(options?: Array<{ label: string; value: string }>): Array<{ label: string; value: string }> {
+  return options !== undefined && options.length >= 2 ? options : [
+    { label: 'Optie 1', value: 'Optie 1' },
+    { label: 'Optie 2', value: 'Optie 2' },
+  ];
+}
+
+function optionsFromTextarea(value: string): Array<{ label: string; value: string }> {
+  return value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => ({ label: line, value: line }));
 }
 
 function formatDate(value?: string | null): string {

@@ -9,7 +9,7 @@ import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { DroneFlightContext, Incident, Team, User } from '../../types/api';
+import type { ConfigurableFormField, DroneFlightContext, Incident, IncidentFormConfig, Team, User } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 
 export interface IncidentFormState {
@@ -30,6 +30,7 @@ export interface IncidentFormState {
   longitude: string;
   coordinatorId: string;
   teamIds: string[];
+  customFields: Record<string, unknown>;
 }
 
 const emptyIncidentForm: IncidentFormState = {
@@ -50,6 +51,7 @@ const emptyIncidentForm: IncidentFormState = {
   longitude: '',
   coordinatorId: '',
   teamIds: [],
+  customFields: {},
 };
 
 interface LocationSuggestion {
@@ -68,6 +70,7 @@ export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) 
   const incidents = useApiResource<Incident[]>(incidentListPath(mode));
   const users = useApiResource<User[]>('/users?per_page=200');
   const teams = useApiResource<Team[]>('/teams');
+  const incidentFormConfig = useApiResource<IncidentFormConfig>('/incident-form/config');
   const [form, setForm] = useState<IncidentFormState>(emptyIncidentForm);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -164,6 +167,7 @@ export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) 
               form={form}
               users={users.data ?? []}
               teams={teams.data ?? []}
+              customFields={incidentFormConfig.data?.fields ?? []}
               usersError={users.error}
               teamsError={teams.error}
               saving={creating}
@@ -288,6 +292,7 @@ export function IncidentForm(props: {
   form: IncidentFormState;
   users: User[];
   teams: Team[];
+  customFields?: ConfigurableFormField[];
   usersError?: string | null;
   teamsError?: string | null;
   saving: boolean;
@@ -299,7 +304,7 @@ export function IncidentForm(props: {
   onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
 }) {
   const { api } = useAuth();
-  const { form, users, teams, usersError, teamsError, saving, error, extraFields, submitLabel, onCancel, onSubmit, onChange } = props;
+  const { form, users, teams, customFields = [], usersError, teamsError, saving, error, extraFields, submitLabel, onCancel, onSubmit, onChange } = props;
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
   const [flightContext, setFlightContext] = useState<DroneFlightContext | null>(null);
   const [flightContextLoading, setFlightContextLoading] = useState(false);
@@ -470,6 +475,7 @@ export function IncidentForm(props: {
       {teamsError ? <p className="form-error form-grid__wide">Teams laden mislukt: {teamsError}</p> : null}
       {usersError ? <p className="form-error form-grid__wide">Coordinators laden mislukt: {usersError}</p> : null}
       <DroneFlightContextPanel context={flightContext} loading={flightContextLoading} error={flightContextError} />
+      <DynamicIncidentFields fields={customFields} values={form.customFields} onChange={onChange} />
       {extraFields}
       {error ? <p className="form-error form-grid__wide">{error}</p> : null}
       <div className="actions-row form-grid__wide">
@@ -538,6 +544,102 @@ function DroneFlightContextPanel({ context, loading, error }: { context: DroneFl
   );
 }
 
+function DynamicIncidentFields(props: {
+  fields: ConfigurableFormField[];
+  values: Record<string, unknown>;
+  onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
+}) {
+  const visibleFields = props.fields.filter((field) => field.visible);
+  if (visibleFields.length === 0) {
+    return null;
+  }
+
+  return (
+    <>
+      <FormSectionTitle title="Extra gegevens" />
+      {visibleFields.map((field) => (
+        <DynamicIncidentField
+          field={field}
+          value={props.values[field.key]}
+          onChange={(value) => updateCustomField(props.onChange, field.key, value)}
+          key={field.key}
+        />
+      ))}
+    </>
+  );
+}
+
+function DynamicIncidentField(props: {
+  field: ConfigurableFormField;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  const { field, value, onChange } = props;
+  const label = field.required ? `${field.label} *` : field.label;
+
+  if (field.type === 'textarea') {
+    return (
+      <label className="form-grid__wide">
+        {label}
+        <textarea value={asFormString(value)} rows={4} required={field.required} onChange={(event) => onChange(event.target.value)} />
+      </label>
+    );
+  }
+
+  if (field.type === 'number') {
+    return (
+      <label>
+        {label}
+        <input type="number" value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value === '' ? null : Number(event.target.value))} />
+      </label>
+    );
+  }
+
+  if (field.type === 'select') {
+    return (
+      <label>
+        {label}
+        <select value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value)}>
+          <option value="">Selecteer</option>
+          {(field.options ?? []).map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
+        </select>
+      </label>
+    );
+  }
+
+  if (field.type === 'radio') {
+    return (
+      <div className="form-grid__wide">
+        <span className="field-label">{label}</span>
+        <div className="checkbox-grid">
+          {(field.options ?? []).map((option) => (
+            <label className="checkbox-card" key={option.value}>
+              <input type="radio" name={field.key} checked={asFormString(value) === option.value} required={field.required} onChange={() => onChange(option.value)} />
+              <span><strong>{option.label}</strong></span>
+            </label>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (field.type === 'checkbox') {
+    return (
+      <label className="checkbox-card form-grid__wide">
+        <input type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} />
+        <span><strong>{label}</strong></span>
+      </label>
+    );
+  }
+
+  return (
+    <label>
+      {label}
+      <input value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
 function FlightInfoCard({ icon, title, items }: { icon: ReactNode; title: string; items: Array<[string, string]> }) {
   return (
     <article className="drone-flight-card">
@@ -552,6 +654,32 @@ function FlightInfoCard({ icon, title, items }: { icon: ReactNode; title: string
       </dl>
     </article>
   );
+}
+
+function updateCustomField(
+  setForm: (updater: (current: IncidentFormState) => IncidentFormState) => void,
+  key: string,
+  value: unknown,
+) {
+  setForm((current) => ({
+    ...current,
+    customFields: {
+      ...current.customFields,
+      [key]: value,
+    },
+  }));
+}
+
+function asFormString(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    return String(value);
+  }
+
+  return '';
 }
 
 function LocationPicker(props: {
@@ -985,6 +1113,7 @@ export function incidentPayload(form: IncidentFormState): Record<string, unknown
     coordinator_id: form.coordinatorId === '' ? null : form.coordinatorId,
     team_id: form.teamIds[0] ?? null,
     team_ids: form.teamIds,
+    custom_fields: form.customFields,
   };
 }
 

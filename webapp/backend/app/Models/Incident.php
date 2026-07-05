@@ -26,6 +26,7 @@ final class Incident extends Model
         'on_scene_contact_phone',
         'on_scene_contact_role',
         'required_resources',
+        'custom_fields',
         'priority',
         'status',
         'is_test',
@@ -52,6 +53,7 @@ final class Incident extends Model
         return [
             'latitude' => 'decimal:7',
             'longitude' => 'decimal:7',
+            'custom_fields' => 'array',
             'drone_flight_context' => 'array',
             'is_test' => 'boolean',
             'report_generated_at' => 'immutable_datetime',

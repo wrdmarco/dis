@@ -18,6 +18,7 @@ final class IncidentService
         private readonly DroneFlightContextService $droneFlightContextService,
         private readonly DispatchService $dispatchService,
         private readonly GeocodingService $geocodingService,
+        private readonly IncidentFormService $incidentFormService,
         private readonly IncidentReportService $incidentReportService,
         private readonly LocationService $locationService,
         private readonly StatusService $statusService,
@@ -30,6 +31,7 @@ final class IncidentService
     {
         return DB::transaction(function () use ($data, $actor): Incident {
             $data = $this->resolveLocationCoordinates($data);
+            $data['custom_fields'] = $this->incidentFormService->normalizeCustomValues($data);
             $teamIds = $this->teamIdsFromPayload($data);
             unset($data['team_ids']);
             $data['team_id'] = $teamIds[0] ?? null;
@@ -75,6 +77,9 @@ final class IncidentService
             $directDispatch = (bool) ($data['direct_dispatch'] ?? false);
             $dispatchOptions = $this->dispatchOptionsFromPayload($data);
             $data = $this->resolveLocationCoordinates($data, $incident);
+            if (array_key_exists('custom_fields', $data)) {
+                $data['custom_fields'] = $this->incidentFormService->normalizeCustomValues($data);
+            }
             $teamIds = array_key_exists('team_ids', $data) ? $this->teamIdsFromPayload($data) : null;
             unset($data['status_reason']);
             unset($data['direct_dispatch']);

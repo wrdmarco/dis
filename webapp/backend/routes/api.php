@@ -16,6 +16,7 @@ use App\Http\Controllers\DroneTypeController;
 use App\Http\Controllers\ExpiryOverviewController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\IncidentController;
+use App\Http\Controllers\IncidentFormController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MobileConfigController;
 use App\Http\Controllers\PasswordController;
@@ -89,6 +90,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
 
     Route::get('/incidents', [IncidentController::class, 'index'])->middleware('permission:incidents.view');
     Route::post('/incidents', [IncidentController::class, 'store'])->middleware('permission:incidents.manage');
+    Route::get('/incident-form/config', [IncidentFormController::class, 'show'])->middleware('permission:incidents.view');
     Route::post('/incidents/flight-context-preview', [IncidentController::class, 'flightContextPreview'])->middleware('permission:incidents.manage');
     Route::get('/incidents/{incident}', [IncidentController::class, 'show'])->middleware('permission:incidents.view');
     Route::patch('/incidents/{incident}', [IncidentController::class, 'update'])->middleware('permission:incidents.manage');
@@ -230,6 +232,8 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::patch('/admin/updates/ios/{version}', [UpdateController::class, 'update'])->middleware('permission:updates.manage');
     Route::get('/admin/pilot-report/form-config', [PilotIncidentReportController::class, 'formConfig'])->middleware('permission:settings.manage');
     Route::patch('/admin/pilot-report/form-config', [PilotIncidentReportController::class, 'updateFormConfig'])->middleware('permission:settings.manage');
+    Route::get('/admin/incident-form/config', [IncidentFormController::class, 'show'])->middleware('permission:settings.manage');
+    Route::patch('/admin/incident-form/config', [IncidentFormController::class, 'update'])->middleware('permission:settings.manage');
     Route::get('/admin/health', [HealthController::class, 'admin'])->middleware('permission:system.health');
     Route::get('/admin/queues', [HealthController::class, 'queues'])->middleware('permission:system.health');
     Route::get('/admin/websocket-status', [HealthController::class, 'websocket'])->middleware('permission:system.health');

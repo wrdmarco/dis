@@ -114,6 +114,9 @@
         <tr><th>Coordinator</th><td>{{ $incident->coordinator?->name ?? $incident->coordinator_name ?? '-' }}</td></tr>
         <tr><th>Aangemaakt door</th><td>{{ $incident->creator?->name ?? $incident->created_by_name ?? '-' }}</td></tr>
         <tr><th>Benodigde middelen</th><td>{{ $incident->required_resources ?: '-' }}</td></tr>
+        @foreach (($incident->custom_fields ?? []) as $customKey => $customValue)
+            <tr><th>{{ $customKey }}</th><td>{{ is_bool($customValue) ? ($customValue ? 'Ja' : 'Nee') : ($customValue ?? '-') }}</td></tr>
+        @endforeach
     </table>
 </section>
 
@@ -306,6 +309,9 @@
                     @if ($report->equipment_used)
                         <br><span class="muted">Middelen: {{ $report->equipment_used }}</span>
                     @endif
+                    @foreach (($report->custom_fields ?? []) as $customKey => $customValue)
+                        <br><span class="muted">{{ $customKey }}: {{ is_bool($customValue) ? ($customValue ? 'Ja' : 'Nee') : ($customValue ?? '-') }}</span>
+                    @endforeach
                 </td>
             </tr>
         @empty

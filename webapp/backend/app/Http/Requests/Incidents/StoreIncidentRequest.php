@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Incidents;
 
+use App\Services\IncidentFormService;
 use Illuminate\Foundation\Http\FormRequest;
 
 final class StoreIncidentRequest extends FormRequest
@@ -33,6 +34,6 @@ final class StoreIncidentRequest extends FormRequest
             'team_id' => ['nullable', 'ulid', 'exists:teams,id'],
             'team_ids' => ['nullable', 'array'],
             'team_ids.*' => ['ulid', 'exists:teams,id'],
-        ];
+        ] + app(IncidentFormService::class)->validationRules();
     }
 }
