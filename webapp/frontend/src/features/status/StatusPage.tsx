@@ -72,6 +72,7 @@ export function StatusPage() {
                   <th>E-mail</th>
                   <th>Status</th>
                   <th>Beschikbaar</th>
+                  <th>Planning</th>
                   <th>Laatst gewijzigd</th>
                   <th>Actie</th>
                 </tr>
@@ -81,8 +82,15 @@ export function StatusPage() {
                   <tr key={item.id}>
                     <td>{item.user?.name ?? '-'}</td>
                     <td>{item.user?.email ?? '-'}</td>
-                    <td><StatusPill value={item.status} tone={statusTone(item)} /></td>
+                    <td>
+                      <div className="status-cell">
+                        <StatusPill value={item.status} tone={statusTone(item)} />
+                        {item.is_system_applied ? <small>Planner</small> : null}
+                        {item.reason ? <small>{item.reason}</small> : null}
+                      </div>
+                    </td>
                     <td>{item.is_available ? 'Ja' : 'Nee'} </td>
+                    <td>{nextAvailabilityLabel(item)}</td>
                     <td>{formatDateTime(item.effective_at)}</td>
                     <td>
                       {canOverrideStatus ? (
@@ -175,4 +183,15 @@ function statusTone(item: AvailabilityStatus): 'neutral' | 'good' | 'warn' | 'ba
   }
 
   return 'neutral';
+}
+
+function nextAvailabilityLabel(item: AvailabilityStatus): string {
+  const next = item.next_availability_change;
+  if (next === null || next === undefined) {
+    return '-';
+  }
+
+  const prefix = next.is_available ? 'Beschikbaar vanaf' : 'Niet beschikbaar vanaf';
+
+  return `${prefix} ${formatDateTime(next.at)}`;
 }

@@ -27,6 +27,28 @@ final class AvailabilityScheduleService
     }
 
     /**
+     * @return array{checked: int, updated: int}
+     */
+    public function syncCurrentStatuses(?User $actor = null): array
+    {
+        $checked = 0;
+        $updated = 0;
+
+        User::query()
+            ->orderBy('id')
+            ->chunkById(100, function (Collection $users) use ($actor, &$checked, &$updated): void {
+                foreach ($users as $user) {
+                    $checked++;
+                    if ($this->syncCurrentStatusForToday($user, $actor)) {
+                        $updated++;
+                    }
+                }
+            });
+
+        return ['checked' => $checked, 'updated' => $updated];
+    }
+
+    /**
      * @return array{is_available: bool, source: string, note: string|null}
      */
     public function availabilityFor(User $user, ?CarbonImmutable $date = null): array
@@ -67,6 +89,33 @@ final class AvailabilityScheduleService
             'source' => 'default',
             'note' => null,
         ];
+    }
+
+    /**
+     * @return array{at: string, is_available: bool, source: string, note: string|null}|null
+     */
+    public function nextAvailabilityChange(User $user, ?CarbonImmutable $from = null, int $daysAhead = 14): ?array
+    {
+        if (! $user->push_enabled) {
+            return null;
+        }
+
+        $from ??= CarbonImmutable::now();
+        $current = $this->availabilityFor($user, $from);
+
+        foreach ($this->availabilityCheckpoints($from, $daysAhead) as $checkpoint) {
+            $availability = $this->availabilityFor($user, $checkpoint);
+            if ($availability['is_available'] !== $current['is_available']) {
+                return [
+                    'at' => $checkpoint->toIso8601String(),
+                    'is_available' => $availability['is_available'],
+                    'source' => $availability['source'],
+                    'note' => $availability['note'],
+                ];
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -142,7 +191,7 @@ final class AvailabilityScheduleService
         }
     }
 
-    private function syncCurrentStatusForToday(User $user, User $actor): void
+    private function syncCurrentStatusForToday(User $user, ?User $actor): bool
     {
         $availability = $this->availabilityFor($user);
         $latestStatus = $user->statuses()
@@ -152,19 +201,49 @@ final class AvailabilityScheduleService
             ->first();
 
         if ($latestStatus !== null && ! in_array($latestStatus->status, ['available', 'unavailable'], true)) {
-            return;
+            return false;
         }
 
-        $targetStatus = $availability['is_available'] ? 'available' : 'unavailable';
+        $pushDisabled = ! $user->push_enabled;
+        $targetStatus = $availability['is_available'] && ! $pushDisabled ? 'available' : 'unavailable';
         if ($latestStatus?->status === $targetStatus) {
-            return;
+            return false;
         }
 
-        $reason = $availability['source'] === 'override'
-            ? 'Automatisch bijgewerkt vanuit beschikbaarheidsplanning.'
-            : 'Automatisch bijgewerkt vanuit vast beschikbaarheidspatroon.';
+        $reason = $pushDisabled
+            ? 'Pushmeldingen staan uit; automatisch niet beschikbaar.'
+            : (
+                $availability['source'] === 'override'
+                    ? 'Automatisch bijgewerkt vanuit beschikbaarheidsplanning.'
+                    : 'Automatisch bijgewerkt vanuit vast beschikbaarheidspatroon.'
+            );
 
         $this->statusService->setStatus($user, $targetStatus, $actor, $reason, true);
+
+        return true;
+    }
+
+    /**
+     * @return array<int, CarbonImmutable>
+     */
+    private function availabilityCheckpoints(CarbonImmutable $from, int $daysAhead): array
+    {
+        $start = $from->startOfDay();
+        $checkpoints = [];
+
+        for ($dayOffset = 0; $dayOffset <= $daysAhead; $dayOffset++) {
+            $day = $start->addDays($dayOffset);
+            foreach ([0, 12, 18] as $hour) {
+                $checkpoint = $day->setTime($hour, 0);
+                if ($checkpoint->greaterThan($from)) {
+                    $checkpoints[] = $checkpoint;
+                }
+            }
+        }
+
+        usort($checkpoints, fn (CarbonImmutable $left, CarbonImmutable $right): int => $left <=> $right);
+
+        return $checkpoints;
     }
 
     private function dayPartFor(CarbonImmutable $date): string

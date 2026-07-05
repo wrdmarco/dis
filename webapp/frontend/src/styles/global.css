@@ -1471,6 +1471,17 @@ a:hover {
   text-transform: uppercase;
 }
 
+.status-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.status-cell small {
+  color: #8ea0b5;
+  line-height: 1.35;
+  white-space: normal;
+}
+
 .table-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2275,6 +2286,24 @@ select[multiple] {
   margin-top: 3px;
   color: #8ea0b5;
   line-height: 1.35;
+}
+
+.availability-calendar-card {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.availability-daypart-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.availability-daypart-row button {
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px;
+  font-size: 0.78rem;
+  white-space: normal;
 }
 
 .push-composer {

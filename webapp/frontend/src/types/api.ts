@@ -264,7 +264,15 @@ export interface AvailabilityStatus {
   user_id: string;
   status: string;
   is_available: boolean;
+  is_system_applied?: boolean;
+  reason?: string | null;
   effective_at: string;
+  next_availability_change?: {
+    at: string;
+    is_available: boolean;
+    source: 'default' | 'pattern' | 'week_pattern' | 'override' | string;
+    note?: string | null;
+  } | null;
   user?: User;
 }
 

@@ -16,7 +16,7 @@ final class StatusService
 {
     public function __construct(private readonly AuditService $auditService) {}
 
-    public function setStatus(User $user, string $status, User $actor, ?string $reason = null, bool $systemApplied = false): AvailabilityStatus
+    public function setStatus(User $user, string $status, ?User $actor, ?string $reason = null, bool $systemApplied = false): AvailabilityStatus
     {
         $record = DB::transaction(function () use ($user, $status, $actor, $reason, $systemApplied): AvailabilityStatus {
             $previousStatus = $this->latestStatus($user);
@@ -37,9 +37,9 @@ final class StatusService
                 'status' => $status,
                 'is_available' => $isAvailable,
                 'is_system_applied' => $systemApplied,
-                'changed_by' => $actor->id,
-                'changed_by_name' => $actor->name,
-                'changed_by_email' => $actor->email,
+                'changed_by' => $actor?->id,
+                'changed_by_name' => $actor?->name,
+                'changed_by_email' => $actor?->email,
                 'reason' => $reason,
                 'effective_at' => now(),
             ]);
@@ -55,7 +55,7 @@ final class StatusService
         });
 
         $this->dispatchAvailabilityChanged($record);
-        if ($status === 'on_scene') {
+        if ($status === 'on_scene' && $actor !== null) {
             $this->transitionAcceptedIncidentsToInProgressWhenEveryoneOnScene($user, $actor);
         }
 

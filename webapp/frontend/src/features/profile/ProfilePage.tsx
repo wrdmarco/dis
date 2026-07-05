@@ -11,6 +11,9 @@ import { useAuth } from '../auth/AuthContext';
 import type { Asset, AvailabilitySchedule, AvailabilityOverride, Certification, DroneType, TwoFactorSetup, UserCertification } from '../../types/api';
 
 type OwnAssetStatus = 'ready' | 'maintenance' | 'unavailable';
+type AvailabilityDayPart = NonNullable<AvailabilityOverride['day_part']>;
+
+const availabilityDayParts: AvailabilityDayPart[] = ['morning', 'afternoon', 'evening'];
 
 function emptyAssetForm() {
   return {
@@ -49,7 +52,7 @@ export function ProfilePage() {
   const [enableCode, setEnableCode] = useState('');
   const [disablePassword, setDisablePassword] = useState('');
   const [disableCode, setDisableCode] = useState('');
-  const [overrideForm, setOverrideForm] = useState({ startsAt: todayInputValue(), endsAt: todayInputValue(), isAvailable: false, note: '' });
+  const [overrideForm, setOverrideForm] = useState({ startsAt: todayInputValue(), endsAt: todayInputValue(), dayPart: 'all_day' as AvailabilityDayPart, isAvailable: false, note: '' });
   const [assetForm, setAssetForm] = useState(emptyAssetForm());
   const [certificationForm, setCertificationForm] = useState(emptyCertificationForm());
   const [savingSchedule, setSavingSchedule] = useState(false);
@@ -174,11 +177,12 @@ export function ProfilePage() {
       const response = await api.post<AvailabilitySchedule>('/availability-schedule/me/overrides', {
         starts_at: overrideForm.startsAt,
         ends_at: overrideForm.endsAt,
+        day_part: overrideForm.dayPart,
         is_available: overrideForm.isAvailable,
         note: overrideForm.note.trim() === '' ? null : overrideForm.note.trim(),
       });
       schedule.mutate(response.data);
-      setOverrideForm({ startsAt: todayInputValue(), endsAt: todayInputValue(), isAvailable: false, note: '' });
+      setOverrideForm({ startsAt: todayInputValue(), endsAt: todayInputValue(), dayPart: 'all_day', isAvailable: false, note: '' });
       setScheduleMessage('Uitzondering opgeslagen.');
     } catch (err) {
       setScheduleError(err instanceof ApiClientError ? err.message : 'Uitzondering kon niet worden opgeslagen.');
@@ -202,7 +206,7 @@ export function ProfilePage() {
     }
   }
 
-  async function planCalendarDay(date: string, isAvailable: boolean) {
+  async function planCalendarDay(date: string, dayPart: AvailabilityDayPart, isAvailable: boolean) {
     setSavingSchedule(true);
     setScheduleError(null);
     setScheduleMessage(null);
@@ -210,11 +214,12 @@ export function ProfilePage() {
       const response = await api.post<AvailabilitySchedule>('/availability-schedule/me/overrides', {
         starts_at: date,
         ends_at: date,
+        day_part: dayPart,
         is_available: isAvailable,
-        note: 'Gepland via kalender',
+        note: `Gepland via kalender: ${availabilityDayPartLabel(dayPart).toLowerCase()}`,
       });
       schedule.mutate(response.data);
-      setScheduleMessage(`${formatDate(date)} gepland als ${isAvailable ? 'beschikbaar' : 'niet beschikbaar'}.`);
+      setScheduleMessage(`${formatDate(date)} ${availabilityDayPartLabel(dayPart).toLowerCase()} gepland als ${isAvailable ? 'beschikbaar' : 'niet beschikbaar'}.`);
     } catch (err) {
       setScheduleError(err instanceof ApiClientError ? err.message : 'Kalenderdag kon niet worden opgeslagen.');
     } finally {
@@ -418,6 +423,15 @@ export function ProfilePage() {
                   <select value={overrideForm.isAvailable ? 'available' : 'unavailable'} onChange={(event) => setOverrideForm((current) => ({ ...current, isAvailable: event.target.value === 'available' }))}>
                     <option value="unavailable">Niet beschikbaar</option>
                     <option value="available">Beschikbaar</option>
+                  </select>
+                </label>
+                <label>
+                  Dagdeel
+                  <select value={overrideForm.dayPart} onChange={(event) => setOverrideForm((current) => ({ ...current, dayPart: event.target.value as AvailabilityDayPart }))}>
+                    <option value="all_day">Hele dag</option>
+                    <option value="morning">Ochtend</option>
+                    <option value="afternoon">Middag</option>
+                    <option value="evening">Avond</option>
                   </select>
                 </label>
                 <label className="form-grid__wide">
@@ -685,29 +699,41 @@ function AvailabilityOverrideList({ schedule, saving, onDelete }: { schedule: Av
   );
 }
 
-function AvailabilityCalendar({ schedule, saving, onPlanDay }: { schedule: AvailabilitySchedule; saving: boolean; onPlanDay: (date: string, isAvailable: boolean) => Promise<void> }) {
+function AvailabilityCalendar({ schedule, saving, onPlanDay }: { schedule: AvailabilitySchedule; saving: boolean; onPlanDay: (date: string, dayPart: AvailabilityDayPart, isAvailable: boolean) => Promise<void> }) {
   const days = nextCalendarDays(42);
   return (
     <div>
       <strong>Kalender vooruit plannen</strong>
       <div className="checkbox-grid checkbox-grid--dense">
         {days.map((date) => {
-          const state = availabilityForDate(schedule, date);
           return (
-            <button
-              className={state.is_available ? 'secondary-button' : 'danger-button'}
-              type="button"
-              key={date}
-              disabled={saving}
-              onClick={() => void onPlanDay(date, !state.is_available)}
-              title="Klik om beschikbaar/niet beschikbaar te wisselen"
-            >
-              {shortDateLabel(date)} - {state.is_available ? 'Beschikbaar' : 'Niet beschikbaar'}
-            </button>
+            <article className="checkbox-card availability-calendar-card" key={date}>
+              <span>
+                <strong>{shortDateLabel(date)}</strong>
+                <small>Plan per dagdeel</small>
+              </span>
+              <div className="availability-daypart-row">
+                {availabilityDayParts.map((dayPart) => {
+                  const state = availabilityForDatePart(schedule, date, dayPart);
+                  return (
+                    <button
+                      className={state.is_available ? 'secondary-button' : 'danger-button'}
+                      type="button"
+                      key={dayPart}
+                      disabled={saving}
+                      onClick={() => void onPlanDay(date, dayPart, !state.is_available)}
+                      title={`${availabilityDayPartLabel(dayPart)} wisselen naar ${state.is_available ? 'niet beschikbaar' : 'beschikbaar'}`}
+                    >
+                      {availabilityDayPartShortLabel(dayPart)}: {state.is_available ? 'Beschikbaar' : 'Niet beschikbaar'}
+                    </button>
+                  );
+                })}
+              </div>
+            </article>
           );
         })}
       </div>
-      <p className="form-note">Klik een dag om die datum als uitzondering vooruit te plannen.</p>
+      <p className="form-note">Klik een dagdeel om die datum als uitzondering vooruit te plannen. Een specifiek dagdeel overschrijft een hele-dag uitzondering.</p>
     </div>
   );
 }
@@ -884,8 +910,9 @@ function shortDateLabel(value: string): string {
   return new Intl.DateTimeFormat('nl-NL', { weekday: 'short', day: '2-digit', month: '2-digit' }).format(date);
 }
 
-function availabilityForDate(schedule: AvailabilitySchedule, dateValue: string): { is_available: boolean; source: string } {
-  const override = schedule.overrides.find((candidate) => dateInRange(dateValue, candidate) && (candidate.day_part ?? 'all_day') === 'all_day');
+function availabilityForDatePart(schedule: AvailabilitySchedule, dateValue: string, dayPart: AvailabilityDayPart): { is_available: boolean; source: string } {
+  const override = schedule.overrides.find((candidate) => dateInRange(dateValue, candidate) && candidate.day_part === dayPart)
+    ?? schedule.overrides.find((candidate) => dateInRange(dateValue, candidate) && (candidate.day_part ?? 'all_day') === 'all_day');
   if (override !== undefined) {
     return { is_available: override.is_available, source: 'override' };
   }
@@ -906,6 +933,20 @@ function availabilityForDate(schedule: AvailabilitySchedule, dateValue: string):
 
 function availabilityDayPartLabel(dayPart: AvailabilityOverride['day_part']): string {
   switch (dayPart ?? 'all_day') {
+    case 'morning':
+      return 'Ochtend';
+    case 'afternoon':
+      return 'Middag';
+    case 'evening':
+      return 'Avond';
+    case 'all_day':
+    default:
+      return 'Hele dag';
+  }
+}
+
+function availabilityDayPartShortLabel(dayPart: AvailabilityDayPart): string {
+  switch (dayPart) {
     case 'morning':
       return 'Ochtend';
     case 'afternoon':
