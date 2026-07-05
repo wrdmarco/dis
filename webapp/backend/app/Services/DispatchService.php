@@ -23,6 +23,7 @@ final class DispatchService
     public function __construct(
         private readonly AuditService $auditService,
         private readonly AvailabilityScheduleService $availabilityScheduleService,
+        private readonly IncidentFormService $incidentFormService,
     ) {}
 
     /**
@@ -1292,7 +1293,59 @@ final class DispatchService
             'opened_at' => (string) ($incident?->opened_at?->format('d-m-Y H:i') ?? ''),
             'closed_at' => (string) ($incident?->closed_at?->format('d-m-Y H:i') ?? ''),
             'message' => '',
-        ], $extra);
+        ], $this->customFieldTokens($incident), $extra);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function customFieldTokens(?Incident $incident): array
+    {
+        if ($incident === null || ! is_array($incident->custom_fields)) {
+            return [];
+        }
+
+        $tokens = [];
+        foreach ($this->incidentFormService->fields() as $field) {
+            if (($field['type'] ?? null) === 'section') {
+                continue;
+            }
+
+            $key = (string) ($field['key'] ?? '');
+            if ($key === '') {
+                continue;
+            }
+
+            $value = $incident->custom_fields[$key] ?? null;
+            $tokens['field_'.$key] = $this->stringifyCustomFieldValue($value);
+        }
+
+        return $tokens;
+    }
+
+    private function stringifyCustomFieldValue(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        if (is_bool($value)) {
+            return $value ? 'Ja' : 'Nee';
+        }
+
+        if (is_array($value)) {
+            if (isset($value['start'], $value['end'])) {
+                $duration = isset($value['duration_minutes']) && is_numeric($value['duration_minutes'])
+                    ? ' ('.(int) $value['duration_minutes'].' min)'
+                    : '';
+
+                return trim((string) $value['start'].' - '.(string) $value['end'].$duration);
+            }
+
+            return implode(', ', array_map(fn (mixed $item): string => is_scalar($item) ? (string) $item : '', $value));
+        }
+
+        return trim((string) $value);
     }
 
     /**

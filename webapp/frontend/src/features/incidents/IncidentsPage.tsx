@@ -575,7 +575,12 @@ function DynamicIncidentField(props: {
   onChange: (value: unknown) => void;
 }) {
   const { field, value, onChange } = props;
+  if (field.type === 'section') {
+    return <FormSectionTitle title={field.label} />;
+  }
+
   const label = field.required ? `${field.label} *` : field.label;
+  const className = field.width === 'full' ? 'form-grid__wide' : undefined;
 
   if (field.type === 'textarea') {
     return (
@@ -588,7 +593,7 @@ function DynamicIncidentField(props: {
 
   if (field.type === 'number') {
     return (
-      <label>
+      <label className={className}>
         {label}
         <input type="number" value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value === '' ? null : Number(event.target.value))} />
       </label>
@@ -608,7 +613,7 @@ function DynamicIncidentField(props: {
 
   if (field.type === 'select') {
     return (
-      <label>
+      <label className={className}>
         {label}
         <select value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value)}>
           <option value="">Selecteer</option>
@@ -644,7 +649,7 @@ function DynamicIncidentField(props: {
   }
 
   return (
-    <label>
+    <label className={className}>
       {label}
       <input value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value)} />
     </label>

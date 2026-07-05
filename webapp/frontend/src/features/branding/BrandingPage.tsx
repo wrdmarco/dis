@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { useApiResource } from '../../lib/useApiResource';
-import type { SystemSetting } from '../../types/api';
+import type { ConfigurableFormField, IncidentFormConfig, SystemSetting } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 
 type BrandingTab = 'general' | 'logo' | 'mailTemplates' | 'pushTemplates' | 'expiryTemplates' | 'expiry';
@@ -109,10 +109,34 @@ const PUSH_TEMPLATE_TOKEN_HELP = `{{reference}} = incidentnummer
 {{reason}} = reden van opschaling
 {{availability_reason}} = waarom iemand niet beschikbaar stond`;
 
+const basePushVariables = [
+  ['reference', 'Incidentnummer'],
+  ['title', 'Incidenttitel'],
+  ['description', 'Omschrijving'],
+  ['address', 'Adres/locatie'],
+  ['place', 'Plaatsnaam'],
+  ['priority', 'Prioriteit'],
+  ['status', 'Status'],
+  ['reporter_name', 'Melder naam'],
+  ['reporter_phone', 'Melder telefoon'],
+  ['requesting_organization', 'Aanvragende organisatie'],
+  ['requesting_unit', 'Dienst/eenheid'],
+  ['on_scene_contact_name', 'Contact ter plaatse'],
+  ['on_scene_contact_phone', 'Telefoon ter plaatse'],
+  ['on_scene_contact_role', 'Rol ter plaatse'],
+  ['required_resources', 'Benodigde middelen'],
+  ['coordinator_name', 'Coordinator'],
+  ['created_by_name', 'Aangemaakt door'],
+  ['created_at', 'Aangemaakt op'],
+  ['message', 'Standaard bericht'],
+] as const;
+
 export function BrandingPage() {
   const { api } = useAuth();
   const settings = useApiResource<SystemSetting[]>('/admin/settings');
+  const incidentFormConfig = useApiResource<IncidentFormConfig>('/admin/incident-form/config');
   const initialForm = useMemo(() => toBrandingForm(settings.data ?? []), [settings.data]);
+  const incidentFieldVariables = useMemo(() => incidentFormVariables(incidentFormConfig.data?.fields ?? []), [incidentFormConfig.data?.fields]);
   const [form, setForm] = useState<BrandingForm>(initialForm);
   const [activeTab, setActiveTab] = useState<BrandingTab>('general');
   const [saving, setSaving] = useState(false);
@@ -362,6 +386,7 @@ export function BrandingPage() {
                   titleValue={form.pushPreannouncementTitle}
                   bodyLabel="Beschikbaarheidsvraag"
                   bodyValue={form.pushPreannouncementBody}
+                  variables={pushVariablesFor('preannouncement', incidentFieldVariables)}
                   onTitleChange={(value) => setForm((current) => ({ ...current, pushPreannouncementTitle: value }))}
                   onBodyChange={(value) => setForm((current) => ({ ...current, pushPreannouncementBody: value }))}
                 />
@@ -371,6 +396,7 @@ export function BrandingPage() {
                   titleValue={form.pushDispatchTitle}
                   bodyLabel="Berichtopbouw"
                   bodyValue={form.pushDispatchBody}
+                  variables={pushVariablesFor('dispatch', incidentFieldVariables)}
                   onTitleChange={(value) => setForm((current) => ({ ...current, pushDispatchTitle: value }))}
                   onBodyChange={(value) => setForm((current) => ({ ...current, pushDispatchBody: value }))}
                 />
@@ -380,6 +406,7 @@ export function BrandingPage() {
                   titleValue={form.pushUnavailableEscalationTitle}
                   bodyLabel="Bericht"
                   bodyValue={form.pushUnavailableEscalationBody}
+                  variables={pushVariablesFor('unavailable', incidentFieldVariables)}
                   onTitleChange={(value) => setForm((current) => ({ ...current, pushUnavailableEscalationTitle: value }))}
                   onBodyChange={(value) => setForm((current) => ({ ...current, pushUnavailableEscalationBody: value }))}
                 />
@@ -389,6 +416,7 @@ export function BrandingPage() {
                   titleValue={form.pushAdditionalInfoTitle}
                   bodyLabel="Bericht"
                   bodyValue={form.pushAdditionalInfoBody}
+                  variables={pushVariablesFor('additional', incidentFieldVariables)}
                   onTitleChange={(value) => setForm((current) => ({ ...current, pushAdditionalInfoTitle: value }))}
                   onBodyChange={(value) => setForm((current) => ({ ...current, pushAdditionalInfoBody: value }))}
                 />
@@ -398,13 +426,14 @@ export function BrandingPage() {
                   titleValue={form.pushCancellationTitle}
                   bodyLabel="Bericht"
                   bodyValue={form.pushCancellationBody}
+                  variables={pushVariablesFor('cancellation', incidentFieldVariables)}
                   onTitleChange={(value) => setForm((current) => ({ ...current, pushCancellationTitle: value }))}
                   onBodyChange={(value) => setForm((current) => ({ ...current, pushCancellationBody: value }))}
                 />
               </div>
               <div className="metadata-example">
                 <strong>Beschikbare tokens</strong>
-                <pre>{PUSH_TEMPLATE_TOKEN_HELP}</pre>
+                <pre>{PUSH_TEMPLATE_TOKEN_HELP}{incidentFieldVariables.length > 0 ? `\n${incidentFieldVariables.map((variable) => `{{${variable.key}}} = ${variable.label}`).join('\n')}` : ''}</pre>
               </div>
               <div className="metadata-example">
                 <strong>Voorbeeld alarmering</strong>
@@ -475,6 +504,7 @@ function TemplateFields({
   bodyValue,
   bodyRows = 4,
   bodyMaxLength = 2000,
+  variables = [],
   onTitleChange,
   onBodyChange,
 }: {
@@ -485,9 +515,20 @@ function TemplateFields({
   bodyValue: string;
   bodyRows?: number;
   bodyMaxLength?: number;
+  variables?: Array<{ key: string; label: string }>;
   onTitleChange: (value: string) => void;
   onBodyChange: (value: string) => void;
 }) {
+  const insertVariable = (key: string, target: 'title' | 'body') => {
+    const token = `{{${key}}}`;
+    if (target === 'title') {
+      onTitleChange(appendToken(titleValue, token));
+      return;
+    }
+
+    onBodyChange(appendToken(bodyValue, token));
+  };
+
   return (
     <section className="form-grid__wide push-template-card">
       <h3>{title}</h3>
@@ -501,8 +542,53 @@ function TemplateFields({
           <textarea rows={bodyRows} maxLength={bodyMaxLength} value={bodyValue} onChange={(event) => onBodyChange(event.target.value)} />
         </label>
       </div>
+      {variables.length > 0 ? (
+        <div className="template-variable-bank">
+          <strong>Variabelen voor deze melding</strong>
+          <div className="template-variable-bank__grid">
+            {variables.map((variable) => (
+              <div className="template-variable" key={variable.key}>
+                <span><code>{`{{${variable.key}}}`}</code><small>{variable.label}</small></span>
+                <div className="actions-row">
+                  <button className="secondary-button" type="button" onClick={() => insertVariable(variable.key, 'title')}>Titel</button>
+                  <button className="secondary-button" type="button" onClick={() => insertVariable(variable.key, 'body')}>Tekst</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
+}
+
+function appendToken(value: string, token: string): string {
+  if (value.trim() === '') {
+    return token;
+  }
+
+  return `${value}${value.endsWith('\n') ? '' : ' '}${token}`;
+}
+
+function incidentFormVariables(fields: ConfigurableFormField[]): Array<{ key: string; label: string }> {
+  return fields
+    .filter((field) => field.visible && field.type !== 'section')
+    .map((field) => ({ key: `field_${field.key}`, label: `Formulierveld: ${field.label}` }));
+}
+
+function pushVariablesFor(kind: 'preannouncement' | 'dispatch' | 'unavailable' | 'additional' | 'cancellation', incidentFields: Array<{ key: string; label: string }>): Array<{ key: string; label: string }> {
+  const extras = kind === 'unavailable'
+    ? [{ key: 'reason', label: 'Reden opschaling' }, { key: 'availability_reason', label: 'Waarom niet beschikbaar' }]
+    : [];
+  const message = kind === 'preannouncement' || kind === 'cancellation'
+    ? []
+    : [{ key: 'message', label: 'Standaard bericht' }];
+
+  const base = basePushVariables
+    .filter(([key]) => key !== 'message')
+    .map(([key, label]) => ({ key, label }));
+
+  return [...base, ...message, ...extras, ...incidentFields];
 }
 
 function asString(value: unknown): string {

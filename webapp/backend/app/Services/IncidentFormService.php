@@ -10,7 +10,7 @@ final class IncidentFormService
 {
     public const SETTING_KEY = 'incident.form_fields';
     private const FIELD_KEY_PATTERN = '/^[a-z][a-z0-9_]{1,60}$/';
-    private const FIELD_TYPES = ['text', 'textarea', 'number', 'flight_time', 'select', 'checkbox', 'radio'];
+    private const FIELD_TYPES = ['section', 'text', 'textarea', 'number', 'flight_time', 'select', 'checkbox', 'radio'];
 
     /**
      * @return array<int, array<string, mixed>>
@@ -64,6 +64,9 @@ final class IncidentFormService
             if (($field['visible'] ?? true) !== true) {
                 continue;
             }
+            if (($field['type'] ?? null) === 'section') {
+                continue;
+            }
 
             $fieldRules = [];
             if ($partial) {
@@ -109,6 +112,9 @@ final class IncidentFormService
         $values = [];
         foreach ($this->fields() as $field) {
             if (($field['visible'] ?? true) !== true) {
+                continue;
+            }
+            if (($field['type'] ?? null) === 'section') {
                 continue;
             }
 
@@ -158,12 +164,32 @@ final class IncidentFormService
             'label' => $this->cleanLabel($field['label'] ?? ''),
             'type' => $type,
             'visible' => $visible,
-            'required' => $visible && $required,
+            'required' => $type !== 'section' && $visible && $required,
             'max_length' => $type === 'textarea' ? 5000 : 1000,
             'max' => 999999,
             'options' => $this->cleanOptions($field['options'] ?? [], $type, $index),
+            'width' => $this->cleanWidth($field['width'] ?? null, $type),
+            'section' => $this->cleanSection($field['section'] ?? null),
             'is_custom' => true,
         ];
+    }
+
+    private function cleanWidth(mixed $width, string $type): string
+    {
+        if ($type === 'section') {
+            return 'full';
+        }
+
+        $value = is_string($width) ? $width : 'half';
+
+        return in_array($value, ['half', 'full'], true) ? $value : 'half';
+    }
+
+    private function cleanSection(mixed $section): ?string
+    {
+        $value = trim(is_string($section) ? $section : '');
+
+        return $value === '' ? null : mb_substr($value, 0, 80);
     }
 
     private function cleanLabel(mixed $label): string

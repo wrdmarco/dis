@@ -549,13 +549,15 @@ export interface FormFieldOption {
 export interface ConfigurableFormField {
   key: string;
   label: string;
-  type: 'text' | 'textarea' | 'number' | 'flight_time' | 'select' | 'checkbox' | 'radio';
+  type: 'section' | 'text' | 'textarea' | 'number' | 'flight_time' | 'select' | 'checkbox' | 'radio';
   visible: boolean;
   required: boolean;
   max_length?: number;
   max?: number;
   option_source?: 'manual' | 'user_drones';
   options?: FormFieldOption[];
+  width?: 'half' | 'full';
+  section?: string | null;
   is_custom?: boolean;
 }
 

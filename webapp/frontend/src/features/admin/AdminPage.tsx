@@ -605,12 +605,20 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     setPilotReportFields((current) => [...current, newCustomFormField(current)]);
   }
 
+  function addPilotReportSection() {
+    setPilotReportFields((current) => [...current, newSectionFormField(current)]);
+  }
+
   function removePilotReportField(key: string) {
     setPilotReportFields((current) => current.filter((field) => field.key !== key));
   }
 
   function movePilotReportField(key: string, direction: -1 | 1) {
     setPilotReportFields((current) => moveFormField(current, key, direction));
+  }
+
+  function reorderPilotReportField(sourceKey: string, targetKey: string) {
+    setPilotReportFields((current) => reorderFormField(current, sourceKey, targetKey));
   }
 
   function updateIncidentFormField(key: string, changes: Partial<ConfigurableFormField>) {
@@ -628,12 +636,20 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     setIncidentFormFields((current) => [...current, newCustomFormField(current)]);
   }
 
+  function addIncidentFormSection() {
+    setIncidentFormFields((current) => [...current, newSectionFormField(current)]);
+  }
+
   function removeIncidentFormField(key: string) {
     setIncidentFormFields((current) => current.filter((field) => field.key !== key));
   }
 
   function moveIncidentFormField(key: string, direction: -1 | 1) {
     setIncidentFormFields((current) => moveFormField(current, key, direction));
+  }
+
+  function reorderIncidentFormField(sourceKey: string, targetKey: string) {
+    setIncidentFormFields((current) => reorderFormField(current, sourceKey, targetKey));
   }
 
   return (
@@ -1195,7 +1211,9 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               fields={pilotReportFields}
               description="Bouw het inzetrapport volledig op uit variabele velden. Oude vaste rapportkolommen blijven alleen bestaan voor historische rapporten."
               onAdd={addPilotReportField}
+              onAddSection={addPilotReportSection}
               onMove={movePilotReportField}
+              onReorder={reorderPilotReportField}
               onRemove={removePilotReportField}
               onUpdate={updatePilotReportField}
             />
@@ -1217,7 +1235,9 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               fields={incidentFormFields}
               description="Beheer variabele velden voor het incident-aanmaakformulier. Operationele kerngegevens blijven onderdeel van de incidentflow."
               onAdd={addIncidentFormField}
+              onAddSection={addIncidentFormSection}
               onMove={moveIncidentFormField}
+              onReorder={reorderIncidentFormField}
               onRemove={removeIncidentFormField}
               onUpdate={updateIncidentFormField}
             />
@@ -1304,101 +1324,205 @@ function ConfigurableFormEditor(props: {
   fields: ConfigurableFormField[];
   description: string;
   onAdd: () => void;
+  onAddSection: () => void;
   onMove?: (key: string, direction: -1 | 1) => void;
+  onReorder: (sourceKey: string, targetKey: string) => void;
   onRemove: (key: string) => void;
   onUpdate: (key: string, changes: Partial<ConfigurableFormField>) => void;
 }) {
-  const { fields, description, onAdd, onMove, onRemove, onUpdate } = props;
+  const { fields, description, onAdd, onAddSection, onMove, onReorder, onRemove, onUpdate } = props;
+  const [draggingKey, setDraggingKey] = useState<string | null>(null);
 
   return (
-    <div className="page-stack">
-      <p className="form-note">{description}</p>
-      <div className="actions-row">
-        <button className="secondary-button" type="button" onClick={onAdd}>Extra veld toevoegen</button>
+    <div className="form-builder">
+      <div className="form-builder__toolbar">
+        <p className="form-note">{description}</p>
+        <div className="actions-row">
+          <button className="secondary-button" type="button" onClick={onAddSection}>Sectie toevoegen</button>
+          <button className="primary-button" type="button" onClick={onAdd}>Veld toevoegen</button>
+        </div>
       </div>
-      <table className="data-table form-config-table">
-        <thead><tr><th>Volgorde</th><th>Label</th><th>Type</th><th>Zichtbaar</th><th>Verplicht</th><th>Opties</th><th></th></tr></thead>
-        <tbody>
+
+      <div className="form-builder__workspace">
+        <div className="form-builder__list" aria-label="Formuliervelden">
+          {fields.length === 0 ? <p className="muted-text">Nog geen velden ingesteld. Voeg een sectie of veld toe.</p> : null}
           {fields.map((field, index) => (
-              <tr key={field.key}>
-                <td data-label="Volgorde">
-                  <div className="actions-row">
-                    <button className="secondary-button" type="button" disabled={index === 0} onClick={() => onMove?.(field.key, -1)}>Omhoog</button>
-                    <button className="secondary-button" type="button" disabled={index === fields.length - 1} onClick={() => onMove?.(field.key, 1)}>Omlaag</button>
-                  </div>
-                </td>
-                <td data-label="Label">
-                  <input type="hidden" value={field.key} readOnly />
-                  <input
-                    value={field.label}
-                    onChange={(event) => {
-                      const label = event.target.value;
-                      onUpdate(field.key, { label, key: generateFieldKey(label, fields, field.key) });
-                    }}
-                  />
-                </td>
-                <td data-label="Type">
-                  <select
-                    value={field.type}
-                    onChange={(event) => onUpdate(field.key, {
-                      type: event.target.value as ConfigurableFormField['type'],
-                      option_source: 'manual',
-                      options: ['select', 'radio'].includes(event.target.value) ? defaultFieldOptions(field.options) : [],
-                    })}
-                  >
-                    <option value="text">Tekst</option>
-                    <option value="textarea">Grote tekst</option>
-                    <option value="number">Getal</option>
-                    <option value="flight_time">Vluchttijd</option>
-                    <option value="select">Dropdown</option>
-                    <option value="checkbox">Checkbox</option>
-                    <option value="radio">Radioknoppen</option>
-                  </select>
-                </td>
-                <td data-label="Zichtbaar">
-                  <input type="checkbox" checked={field.visible} onChange={(event) => onUpdate(field.key, { visible: event.target.checked })} />
-                </td>
-                <td data-label="Verplicht">
-                  <input type="checkbox" checked={field.required} disabled={!field.visible} onChange={(event) => onUpdate(field.key, { required: event.target.checked })} />
-                </td>
-                <td data-label="Opties">
-                  {['select', 'radio'].includes(field.type) ? (
-                    <div className="page-stack">
-                      <select
-                        value={field.option_source ?? 'manual'}
-                        onChange={(event) => onUpdate(field.key, {
-                          option_source: event.target.value as ConfigurableFormField['option_source'],
-                          options: event.target.value === 'manual' ? defaultFieldOptions(field.options) : [],
-                        })}
-                      >
-                        <option value="manual">Handmatige opties</option>
-                        <option value="user_drones">Drones van gebruiker</option>
+            <article
+              className={field.type === 'section' ? 'form-builder-card form-builder-card--section' : 'form-builder-card'}
+              draggable
+              key={field.key}
+              onDragStart={() => setDraggingKey(field.key)}
+              onDragEnd={() => setDraggingKey(null)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                if (draggingKey !== null && draggingKey !== field.key) {
+                  onReorder(draggingKey, field.key);
+                }
+              }}
+            >
+              <div className="form-builder-card__handle" aria-hidden="true">::</div>
+              <div className="form-builder-card__body">
+                <div className="form-builder-card__header">
+                  <strong>{field.type === 'section' ? 'Sectie' : field.label}</strong>
+                  <span className="muted-text mono">{field.key}</span>
+                </div>
+                <div className="form-builder-card__grid">
+                  <label>
+                    Label
+                    <input
+                      value={field.label}
+                      onChange={(event) => {
+                        const label = event.target.value;
+                        onUpdate(field.key, { label, key: generateFieldKey(label, fields, field.key) });
+                      }}
+                    />
+                  </label>
+                  <label>
+                    Type
+                    <select
+                      value={field.type}
+                      onChange={(event) => {
+                        const type = event.target.value as ConfigurableFormField['type'];
+                        onUpdate(field.key, {
+                          type,
+                          width: type === 'section' || type === 'textarea' || type === 'radio' || type === 'checkbox' || type === 'flight_time' ? 'full' : field.width ?? 'half',
+                          required: type === 'section' ? false : field.required,
+                          option_source: 'manual',
+                          options: ['select', 'radio'].includes(type) ? defaultFieldOptions(field.options) : [],
+                        });
+                      }}
+                    >
+                      <option value="section">Sectie</option>
+                      <option value="text">Tekst</option>
+                      <option value="textarea">Grote tekst</option>
+                      <option value="number">Getal</option>
+                      <option value="flight_time">Vluchttijd</option>
+                      <option value="select">Dropdown</option>
+                      <option value="checkbox">Checkbox</option>
+                      <option value="radio">Radioknoppen</option>
+                    </select>
+                  </label>
+                  {field.type !== 'section' ? (
+                    <label>
+                      Breedte
+                      <select value={field.width ?? 'half'} onChange={(event) => onUpdate(field.key, { width: event.target.value as ConfigurableFormField['width'] })}>
+                        <option value="half">Naast elkaar</option>
+                        <option value="full">Volle breedte</option>
                       </select>
+                    </label>
+                  ) : null}
+                  <label className="check-label">
+                    <input type="checkbox" checked={field.visible} onChange={(event) => onUpdate(field.key, { visible: event.target.checked })} />
+                    Zichtbaar
+                  </label>
+                  {field.type !== 'section' ? (
+                    <label className="check-label">
+                      <input type="checkbox" checked={field.required} disabled={!field.visible} onChange={(event) => onUpdate(field.key, { required: event.target.checked })} />
+                      Verplicht
+                    </label>
+                  ) : null}
+                  {['select', 'radio'].includes(field.type) ? (
+                    <div className="form-builder-card__options">
+                      <label>
+                        Optiebron
+                        <select
+                          value={field.option_source ?? 'manual'}
+                          onChange={(event) => onUpdate(field.key, {
+                            option_source: event.target.value as ConfigurableFormField['option_source'],
+                            options: event.target.value === 'manual' ? defaultFieldOptions(field.options) : [],
+                          })}
+                        >
+                          <option value="manual">Handmatige opties</option>
+                          <option value="user_drones">Drones van gebruiker</option>
+                        </select>
+                      </label>
                       {(field.option_source ?? 'manual') === 'manual' ? (
-                        <textarea
-                          value={(field.options ?? []).map((option) => option.label).join('\n')}
-                          rows={3}
-                          onChange={(event) => onUpdate(field.key, { options: optionsFromTextarea(event.target.value) })}
-                        />
+                        <label>
+                          Opties
+                          <textarea value={(field.options ?? []).map((option) => option.label).join('\n')} rows={3} onChange={(event) => onUpdate(field.key, { options: optionsFromTextarea(event.target.value) })} />
+                        </label>
                       ) : (
-                        <span className="muted-text">Wordt in de app gevuld met actief gekoppelde drones van de piloot.</span>
+                        <p className="muted-text">Wordt gevuld met actief gekoppelde drones van de piloot.</p>
                       )}
                     </div>
-                  ) : (
-                    <span className="muted-text">Niet nodig</span>
-                  )}
-                </td>
-                <td data-label="Actie">
-                  <button className="secondary-button" type="button" onClick={() => onRemove(field.key)}>Verwijderen</button>
-                </td>
-              </tr>
+                  ) : null}
+                </div>
+              </div>
+              <div className="form-builder-card__actions">
+                <button className="secondary-button" type="button" disabled={index === 0} onClick={() => onMove?.(field.key, -1)}>Omhoog</button>
+                <button className="secondary-button" type="button" disabled={index === fields.length - 1} onClick={() => onMove?.(field.key, 1)}>Omlaag</button>
+                <button className="danger-button" type="button" onClick={() => onRemove(field.key)}>Verwijderen</button>
+              </div>
+            </article>
           ))}
-        </tbody>
-      </table>
-      {fields.length === 0 ? <p className="muted-text">Nog geen variabele velden ingesteld.</p> : null}
-      <p className="form-note">Veldsleutels worden automatisch uit het label gemaakt. Opties voor dropdown en radio: een optie per regel.</p>
+        </div>
+
+        <div className="form-builder__preview" aria-label="Voorbeeld formulier">
+          <div>
+            <span className="modal__eyebrow">Voorbeeld</span>
+            <h3>Zo komt het formulier eruit te zien</h3>
+          </div>
+          <div className="form-grid">
+            {fields.filter((field) => field.visible).map((field) => <FormFieldPreview field={field} key={field.key} />)}
+          </div>
+        </div>
+      </div>
+      <p className="form-note">Sleep velden om de volgorde te wijzigen. Veldsleutels worden automatisch uit het label gemaakt.</p>
     </div>
   );
+}
+
+function FormFieldPreview({ field }: { field: ConfigurableFormField }) {
+  const className = field.width === 'full' || field.type === 'section' || ['textarea', 'radio', 'checkbox', 'flight_time'].includes(field.type)
+    ? 'form-grid__wide'
+    : undefined;
+  const label = field.required ? `${field.label} *` : field.label;
+
+  if (field.type === 'section') {
+    return <div className="form-grid__wide section-heading"><h3>{field.label}</h3></div>;
+  }
+
+  if (field.type === 'textarea') {
+    return <label className={className}>{label}<textarea rows={3} readOnly value="" placeholder="Tekstveld" /></label>;
+  }
+
+  if (field.type === 'number') {
+    return <label className={className}>{label}<input type="number" readOnly placeholder="0" /></label>;
+  }
+
+  if (field.type === 'flight_time') {
+    return (
+      <div className={className}>
+        <span className="field-label">{label}</span>
+        <div className="form-grid">
+          <label>Start<input type="time" readOnly /></label>
+          <label>Eind<input type="time" readOnly /></label>
+        </div>
+      </div>
+    );
+  }
+
+  if (field.type === 'select') {
+    return <label className={className}>{label}<select disabled><option>{field.options?.[0]?.label ?? 'Selecteer'}</option></select></label>;
+  }
+
+  if (field.type === 'radio') {
+    return (
+      <div className={className}>
+        <span className="field-label">{label}</span>
+        <div className="checkbox-grid">
+          {(field.options ?? []).slice(0, 3).map((option) => <label className="checkbox-card" key={option.value}><input type="radio" disabled /><span><strong>{option.label}</strong></span></label>)}
+        </div>
+      </div>
+    );
+  }
+
+  if (field.type === 'checkbox') {
+    return <label className={`checkbox-card ${className ?? ''}`}><input type="checkbox" disabled /><span><strong>{label}</strong></span></label>;
+  }
+
+  return <label className={className}>{label}<input readOnly placeholder="Tekst" /></label>;
 }
 
 function newCustomFormField(fields: ConfigurableFormField[]): ConfigurableFormField {
@@ -1415,6 +1539,28 @@ function newCustomFormField(fields: ConfigurableFormField[]): ConfigurableFormFi
     type: 'text',
     visible: true,
     required: false,
+    width: 'half',
+    option_source: 'manual',
+    options: [],
+    is_custom: true,
+  };
+}
+
+function newSectionFormField(fields: ConfigurableFormField[]): ConfigurableFormField {
+  let index = fields.length + 1;
+  let key = `sectie_${index}`;
+  while (fields.some((field) => field.key === key)) {
+    index += 1;
+    key = `sectie_${index}`;
+  }
+
+  return {
+    key,
+    label: 'Nieuwe sectie',
+    type: 'section',
+    visible: true,
+    required: false,
+    width: 'full',
     option_source: 'manual',
     options: [],
     is_custom: true,
@@ -1431,6 +1577,19 @@ function moveFormField<T extends ConfigurableFormField>(fields: T[], key: string
   const next = [...fields];
   const [field] = next.splice(index, 1);
   next.splice(nextIndex, 0, field);
+  return next;
+}
+
+function reorderFormField<T extends ConfigurableFormField>(fields: T[], sourceKey: string, targetKey: string): T[] {
+  const sourceIndex = fields.findIndex((field) => field.key === sourceKey);
+  const targetIndex = fields.findIndex((field) => field.key === targetKey);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
+    return fields;
+  }
+
+  const next = [...fields];
+  const [field] = next.splice(sourceIndex, 1);
+  next.splice(targetIndex, 0, field);
   return next;
 }
 

@@ -21,8 +21,6 @@ interface UserFormState {
   maxOperatorDevices: string;
   roleIds: string[];
   teamIds: string[];
-  backupReportSuccess: boolean;
-  backupReportFailed: boolean;
 }
 
 const emptyForm: UserFormState = {
@@ -36,8 +34,6 @@ const emptyForm: UserFormState = {
   maxOperatorDevices: '1',
   roleIds: [],
   teamIds: [],
-  backupReportSuccess: false,
-  backupReportFailed: false,
 };
 
 export function UsersPage() {
@@ -122,8 +118,6 @@ export function UsersPage() {
       maxOperatorDevices: String(user.max_operator_devices ?? 1),
       roleIds: user.roles?.map((role) => role.id) ?? [],
       teamIds: user.teams?.map((team) => team.id) ?? [],
-      backupReportSuccess: user.mail_preferences?.backup_report?.success ?? false,
-      backupReportFailed: user.mail_preferences?.backup_report?.failed ?? false,
     });
     setError(null);
     setInvitationMessage(null);
@@ -226,12 +220,6 @@ export function UsersPage() {
       max_operator_devices: Math.max(1, Number(form.maxOperatorDevices || 1)),
       role_ids: form.roleIds,
       team_ids: form.teamIds,
-      mail_preferences: {
-        backup_report: {
-          success: form.backupReportSuccess,
-          failed: form.backupReportFailed,
-        },
-      },
     };
 
     if (form.password !== '') {
@@ -448,33 +436,6 @@ export function UsersPage() {
                   </div>
                 </ResourceState>
               </div> : null}
-              <div className="form-grid__wide">
-                <span className="field-label">Backuprapporten</span>
-                <div className="checkbox-grid">
-                  <label className="checkbox-card">
-                    <input
-                      type="checkbox"
-                      checked={form.backupReportSuccess}
-                      onChange={(event) => setForm((current) => ({ ...current, backupReportSuccess: event.target.checked }))}
-                    />
-                    <span>
-                      <strong>Succes ontvangen</strong>
-                      <small>Mail sturen als de automatische backup is gelukt.</small>
-                    </span>
-                  </label>
-                  <label className="checkbox-card">
-                    <input
-                      type="checkbox"
-                      checked={form.backupReportFailed}
-                      onChange={(event) => setForm((current) => ({ ...current, backupReportFailed: event.target.checked }))}
-                    />
-                    <span>
-                      <strong>Fout ontvangen</strong>
-                      <small>Mail sturen als de automatische backup mislukt.</small>
-                    </span>
-                  </label>
-                </div>
-              </div>
               {modalMode === 'edit' ? (
                 <UserOperationalDetails
                   user={userDetail}

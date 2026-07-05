@@ -7,6 +7,7 @@ use App\Services\AuditService;
 use App\Services\BackupReportService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Process;
 
 final class RunScheduledBackup extends Command
 {
@@ -37,6 +38,10 @@ final class RunScheduledBackup extends Command
 
         $this->writeRuntimeConfig($target);
         $result = $this->runBackupRequest('create', $target, null, 900);
+        if ($result['exit_code'] === 124 || str_contains($result['output'], 'Backup request map kon niet worden aangemaakt')) {
+            $this->warn('Backup request worker reageerde niet. Directe fallback wordt geprobeerd.');
+            $result = $this->runDirectBackup($target, 900);
+        }
         $output = trim($result['output']);
 
         if ($result['exit_code'] !== 0) {
@@ -163,6 +168,37 @@ final class RunScheduledBackup extends Command
         @unlink($pending);
 
         return ['exit_code' => 124, 'output' => 'Backup runner reageerde niet binnen de verwachte tijd. Controleer de DIS backup request service.'];
+    }
+
+    /**
+     * @return array{exit_code: int, output: string}
+     */
+    private function runDirectBackup(string $target, int $timeoutSeconds): array
+    {
+        $script = base_path('../../scripts/backup.sh');
+        if (! is_file($script)) {
+            return ['exit_code' => 127, 'output' => 'Backup script niet gevonden.'];
+        }
+
+        $result = Process::timeout($timeoutSeconds)
+            ->env([
+                'APP_ROOT' => base_path('../..'),
+                'BACKUP_TARGET' => $target,
+                'BACKUP_ROOT' => SystemSetting::string('backup.local_path', '/opt/dis-data/backup') ?? '/opt/dis-data/backup',
+                'BACKUP_RETENTION_COUNT' => (string) max(0, SystemSetting::integer('backup.retention_count', 7)),
+                'BACKUP_SAMBA_SHARE' => SystemSetting::string('backup.samba.share', '') ?? '',
+                'BACKUP_SAMBA_MOUNT' => SystemSetting::string('backup.samba.mount', '/mnt/dis-backup') ?? '/mnt/dis-backup',
+                'BACKUP_SAMBA_USERNAME' => SystemSetting::string('backup.samba.username', '') ?? '',
+                'BACKUP_SAMBA_PASSWORD' => SystemSetting::string('backup.samba.password', '') ?? '',
+                'BACKUP_SAMBA_DOMAIN' => SystemSetting::string('backup.samba.domain', '') ?? '',
+                'BACKUP_SAMBA_VERSION' => SystemSetting::string('backup.samba.version', '3.1.1') ?? '3.1.1',
+            ])
+            ->run(['sudo', 'bash', $script]);
+
+        return [
+            'exit_code' => $result->exitCode() ?? 1,
+            'output' => $result->output().$result->errorOutput(),
+        ];
     }
 
     private function backupRequestRoot(): string

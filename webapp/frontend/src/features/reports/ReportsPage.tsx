@@ -303,14 +303,19 @@ function MissingPilotReports({ incident, onFill }: { incident: ReportIncident; o
 }
 
 function PilotReportField({ field, value, onChange }: { field: ConfigurableFormField; value: unknown; onChange: (value: unknown) => void }) {
+  if (field.type === 'section') {
+    return <div className="form-grid__wide section-heading"><h3>{field.label}</h3></div>;
+  }
+
   const label = field.required ? `${field.label} *` : field.label;
+  const className = field.width === 'full' ? 'form-grid__wide' : undefined;
 
   if (field.type === 'textarea') {
     return <label className="form-grid__wide">{label}<textarea value={asFormString(value)} required={field.required} rows={4} onChange={(event) => onChange(event.target.value)} /></label>;
   }
 
   if (field.type === 'number') {
-    return <label>{label}<input type="number" min="0" value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value === '' ? null : Number(event.target.value))} /></label>;
+    return <label className={className}>{label}<input type="number" min="0" value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value === '' ? null : Number(event.target.value))} /></label>;
   }
 
   if (field.type === 'flight_time') {
@@ -327,7 +332,7 @@ function PilotReportField({ field, value, onChange }: { field: ConfigurableFormF
   }
 
   if (field.type === 'select') {
-    return <label>{label}<select value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value)}><option value="">Selecteer</option>{(field.options ?? []).map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>;
+    return <label className={className}>{label}<select value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value)}><option value="">Selecteer</option>{(field.options ?? []).map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>;
   }
 
   if (field.type === 'radio') {
@@ -350,7 +355,7 @@ function PilotReportField({ field, value, onChange }: { field: ConfigurableFormF
     return <label className="checkbox-card form-grid__wide"><input type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} /><span><strong>{label}</strong></span></label>;
   }
 
-  return <label>{label}<input value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value)} /></label>;
+  return <label className={className}>{label}<input value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value)} /></label>;
 }
 
 function asFormString(value: unknown): string {

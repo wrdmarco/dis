@@ -12,7 +12,7 @@ final class PilotIncidentReportFormService
 {
     public const SETTING_KEY = 'pilot_report.form_fields';
     private const FIELD_KEY_PATTERN = '/^[a-z][a-z0-9_]{1,60}$/';
-    private const FIELD_TYPES = ['text', 'textarea', 'number', 'flight_time', 'select', 'checkbox', 'radio'];
+    private const FIELD_TYPES = ['section', 'text', 'textarea', 'number', 'flight_time', 'select', 'checkbox', 'radio'];
     private const OPTION_SOURCES = ['manual', 'user_drones'];
 
     /**
@@ -56,7 +56,7 @@ final class PilotIncidentReportFormService
             $validated[] = $this->normalizeField($field, $index);
         }
 
-        if (! collect($validated)->contains(fn (array $field): bool => $field['visible'])) {
+        if (! collect($validated)->contains(fn (array $field): bool => $field['visible'] && $field['type'] !== 'section')) {
             throw ValidationException::withMessages(['fields' => ['Minimaal een veld moet zichtbaar zijn.']]);
         }
 
@@ -74,6 +74,9 @@ final class PilotIncidentReportFormService
 
         foreach ($this->fields($user) as $field) {
             if (($field['visible'] ?? true) !== true) {
+                continue;
+            }
+            if (($field['type'] ?? null) === 'section') {
                 continue;
             }
 
@@ -119,6 +122,9 @@ final class PilotIncidentReportFormService
         $values = [];
         foreach ($this->fields() as $field) {
             if (($field['visible'] ?? true) !== true) {
+                continue;
+            }
+            if (($field['type'] ?? null) === 'section') {
                 continue;
             }
 
@@ -185,13 +191,33 @@ final class PilotIncidentReportFormService
             'label' => $this->cleanLabel($field['label'] ?? ''),
             'type' => $type,
             'visible' => $visible,
-            'required' => $visible && $required,
+            'required' => $type !== 'section' && $visible && $required,
             'max_length' => $type === 'textarea' ? 5000 : 1000,
             'max' => 1440,
             'option_source' => $optionSource,
             'options' => $this->cleanOptions($field['options'] ?? [], $type, $optionSource, $index),
+            'width' => $this->cleanWidth($field['width'] ?? null, $type),
+            'section' => $this->cleanSection($field['section'] ?? null),
             'is_custom' => true,
         ];
+    }
+
+    private function cleanWidth(mixed $width, string $type): string
+    {
+        if ($type === 'section') {
+            return 'full';
+        }
+
+        $value = is_string($width) ? $width : 'half';
+
+        return in_array($value, ['half', 'full'], true) ? $value : 'half';
+    }
+
+    private function cleanSection(mixed $section): ?string
+    {
+        $value = trim(is_string($section) ? $section : '');
+
+        return $value === '' ? null : mb_substr($value, 0, 80);
     }
 
     private function cleanOptionSource(mixed $source, string $type): string
