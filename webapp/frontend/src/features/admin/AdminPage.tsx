@@ -1280,6 +1280,7 @@ function ConfigurableFormEditor(props: {
                     disabled={!isCustom}
                     onChange={(event) => onUpdate(field.key, {
                       type: event.target.value as ConfigurableFormField['type'],
+                      option_source: 'manual',
                       options: ['select', 'radio'].includes(event.target.value) ? defaultFieldOptions(field.options) : [],
                     })}
                   >
@@ -1299,11 +1300,27 @@ function ConfigurableFormEditor(props: {
                 </td>
                 <td>
                   {['select', 'radio'].includes(field.type) ? (
-                    <textarea
-                      value={(field.options ?? []).map((option) => option.label).join('\n')}
-                      rows={3}
-                      onChange={(event) => onUpdate(field.key, { options: optionsFromTextarea(event.target.value) })}
-                    />
+                    <div className="page-stack">
+                      <select
+                        value={field.option_source ?? 'manual'}
+                        onChange={(event) => onUpdate(field.key, {
+                          option_source: event.target.value as ConfigurableFormField['option_source'],
+                          options: event.target.value === 'manual' ? defaultFieldOptions(field.options) : [],
+                        })}
+                      >
+                        <option value="manual">Handmatige opties</option>
+                        <option value="user_drones">Drones van gebruiker</option>
+                      </select>
+                      {(field.option_source ?? 'manual') === 'manual' ? (
+                        <textarea
+                          value={(field.options ?? []).map((option) => option.label).join('\n')}
+                          rows={3}
+                          onChange={(event) => onUpdate(field.key, { options: optionsFromTextarea(event.target.value) })}
+                        />
+                      ) : (
+                        <span className="muted-text">Wordt in de app gevuld met actief gekoppelde drones van de piloot.</span>
+                      )}
+                    </div>
                   ) : (
                     <span className="muted-text">Niet nodig</span>
                   )}
@@ -1336,19 +1353,20 @@ function newCustomFormField(fields: ConfigurableFormField[]): ConfigurableFormFi
     type: 'text',
     visible: true,
     required: false,
+    option_source: 'manual',
     options: [],
     is_custom: true,
   };
 }
 
 const pilotReportBaseFields: ConfigurableFormField[] = [
-  { key: 'summary', label: 'Samenvatting', type: 'textarea', visible: true, required: true, max_length: 5000, is_custom: false },
-  { key: 'observations', label: 'Waarnemingen', type: 'textarea', visible: true, required: false, max_length: 5000, is_custom: false },
-  { key: 'actions_taken', label: 'Uitgevoerde acties', type: 'textarea', visible: true, required: false, max_length: 5000, is_custom: false },
-  { key: 'result', label: 'Resultaat', type: 'textarea', visible: true, required: false, max_length: 5000, is_custom: false },
-  { key: 'equipment_used', label: 'Gebruikte middelen', type: 'text', visible: true, required: false, max_length: 5000, is_custom: false },
-  { key: 'flight_minutes', label: 'Vluchtduur in minuten', type: 'number', visible: true, required: false, max: 1440, is_custom: false },
-  { key: 'issues', label: 'Bijzonderheden of problemen', type: 'textarea', visible: true, required: false, max_length: 5000, is_custom: false },
+  { key: 'summary', label: 'Samenvatting', type: 'textarea', visible: true, required: true, max_length: 5000, option_source: 'manual', is_custom: false },
+  { key: 'observations', label: 'Waarnemingen', type: 'textarea', visible: true, required: false, max_length: 5000, option_source: 'manual', is_custom: false },
+  { key: 'actions_taken', label: 'Uitgevoerde acties', type: 'textarea', visible: true, required: false, max_length: 5000, option_source: 'manual', is_custom: false },
+  { key: 'result', label: 'Resultaat', type: 'textarea', visible: true, required: false, max_length: 5000, option_source: 'manual', is_custom: false },
+  { key: 'equipment_used', label: 'Gebruikte middelen', type: 'text', visible: true, required: false, max_length: 5000, option_source: 'manual', is_custom: false },
+  { key: 'flight_minutes', label: 'Vluchtduur in minuten', type: 'number', visible: true, required: false, max: 1440, option_source: 'manual', is_custom: false },
+  { key: 'issues', label: 'Bijzonderheden of problemen', type: 'textarea', visible: true, required: false, max_length: 5000, option_source: 'manual', is_custom: false },
 ];
 
 function moveFormField<T extends ConfigurableFormField>(fields: T[], key: string, direction: -1 | 1): T[] {

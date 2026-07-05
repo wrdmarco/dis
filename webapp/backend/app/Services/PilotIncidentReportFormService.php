@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use App\Models\Asset;
 use App\Models\SystemSetting;
+use App\Models\User;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -11,11 +13,12 @@ final class PilotIncidentReportFormService
     public const SETTING_KEY = 'pilot_report.form_fields';
     private const CUSTOM_KEY_PATTERN = '/^custom_[a-z0-9_]{2,40}$/';
     private const FIELD_TYPES = ['text', 'textarea', 'number', 'select', 'checkbox', 'radio'];
+    private const OPTION_SOURCES = ['manual', 'user_drones'];
 
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function fields(): array
+    public function fields(?User $user = null): array
     {
         $setting = SystemSetting::query()->where('key', self::SETTING_KEY)->first();
         if ($setting === null) {
@@ -42,6 +45,7 @@ final class PilotIncidentReportFormService
                     'is_custom' => false,
                 ];
             })
+            ->map(fn (array $field): array => $this->withResolvedOptions($field, $user))
             ->values()
             ->all();
     }
@@ -88,6 +92,7 @@ final class PilotIncidentReportFormService
                 'label' => $this->cleanLabel($field['label'] ?? $default['label']),
                 'visible' => $visible,
                 'required' => $visible && $required,
+                'option_source' => 'manual',
                 'is_custom' => false,
             ];
         }
@@ -100,15 +105,15 @@ final class PilotIncidentReportFormService
     }
 
     /**
-     * @return array<string, list<string>>
+     * @return array<string, list<mixed>>
      */
-    public function validationRules(): array
+    public function validationRules(?User $user = null): array
     {
         $rules = [
             'custom_fields' => ['nullable', 'array'],
         ];
 
-        foreach ($this->fields() as $field) {
+        foreach ($this->fields($user) as $field) {
             if (($field['visible'] ?? true) !== true) {
                 continue;
             }
@@ -125,7 +130,7 @@ final class PilotIncidentReportFormService
                 $fieldRules[] = 'boolean';
             } elseif (in_array($field['type'], ['select', 'radio'], true)) {
                 $fieldRules[] = 'string';
-                $fieldRules[] = Rule::in(array_column($field['options'] ?? [], 'value'));
+                $fieldRules[] = Rule::in(array_column($this->resolvedOptions($field, $user), 'value'));
             } else {
                 $fieldRules[] = 'string';
                 $fieldRules[] = 'max:'.(int) ($field['max_length'] ?? 5000);
@@ -180,13 +185,13 @@ final class PilotIncidentReportFormService
     public function defaultFields(): array
     {
         return [
-            ['key' => 'summary', 'label' => 'Samenvatting', 'type' => 'textarea', 'visible' => true, 'required' => true, 'max_length' => 5000, 'is_custom' => false],
-            ['key' => 'observations', 'label' => 'Waarnemingen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'is_custom' => false],
-            ['key' => 'actions_taken', 'label' => 'Uitgevoerde acties', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'is_custom' => false],
-            ['key' => 'result', 'label' => 'Resultaat', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'is_custom' => false],
-            ['key' => 'equipment_used', 'label' => 'Gebruikte middelen', 'type' => 'text', 'visible' => true, 'required' => false, 'max_length' => 5000, 'is_custom' => false],
-            ['key' => 'flight_minutes', 'label' => 'Vluchtduur in minuten', 'type' => 'number', 'visible' => true, 'required' => false, 'max' => 1440, 'is_custom' => false],
-            ['key' => 'issues', 'label' => 'Bijzonderheden of problemen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'is_custom' => false],
+            ['key' => 'summary', 'label' => 'Samenvatting', 'type' => 'textarea', 'visible' => true, 'required' => true, 'max_length' => 5000, 'option_source' => 'manual', 'is_custom' => false],
+            ['key' => 'observations', 'label' => 'Waarnemingen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'option_source' => 'manual', 'is_custom' => false],
+            ['key' => 'actions_taken', 'label' => 'Uitgevoerde acties', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'option_source' => 'manual', 'is_custom' => false],
+            ['key' => 'result', 'label' => 'Resultaat', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'option_source' => 'manual', 'is_custom' => false],
+            ['key' => 'equipment_used', 'label' => 'Gebruikte middelen', 'type' => 'text', 'visible' => true, 'required' => false, 'max_length' => 5000, 'option_source' => 'manual', 'is_custom' => false],
+            ['key' => 'flight_minutes', 'label' => 'Vluchtduur in minuten', 'type' => 'number', 'visible' => true, 'required' => false, 'max' => 1440, 'option_source' => 'manual', 'is_custom' => false],
+            ['key' => 'issues', 'label' => 'Bijzonderheden of problemen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'option_source' => 'manual', 'is_custom' => false],
         ];
     }
 
@@ -213,7 +218,8 @@ final class PilotIncidentReportFormService
 
         $visible = filter_var($field['visible'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true;
         $required = filter_var($field['required'] ?? false, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? false;
-        $options = $this->cleanOptions($field['options'] ?? [], $type, $index);
+        $optionSource = $this->cleanOptionSource($field['option_source'] ?? 'manual', $type);
+        $options = $this->cleanOptions($field['options'] ?? [], $type, $optionSource, $index);
 
         return [
             'key' => $key,
@@ -223,6 +229,7 @@ final class PilotIncidentReportFormService
             'required' => $visible && $required,
             'max_length' => $type === 'textarea' ? 5000 : 1000,
             'max' => 1440,
+            'option_source' => $optionSource,
             'options' => $options,
             'is_custom' => true,
         ];
@@ -231,9 +238,27 @@ final class PilotIncidentReportFormService
     /**
      * @return array<int, array{label: string, value: string}>
      */
-    private function cleanOptions(mixed $options, string $type, ?int $index): array
+    private function cleanOptionSource(mixed $source, string $type): string
     {
         if (! in_array($type, ['select', 'radio'], true)) {
+            return 'manual';
+        }
+
+        $value = is_string($source) ? $source : 'manual';
+
+        return in_array($value, self::OPTION_SOURCES, true) ? $value : 'manual';
+    }
+
+    /**
+     * @return array<int, array{label: string, value: string}>
+     */
+    private function cleanOptions(mixed $options, string $type, string $optionSource, ?int $index): array
+    {
+        if (! in_array($type, ['select', 'radio'], true)) {
+            return [];
+        }
+
+        if ($optionSource !== 'manual') {
             return [];
         }
 
@@ -271,6 +296,52 @@ final class PilotIncidentReportFormService
         }
 
         return $cleaned;
+    }
+
+    /**
+     * @param array<string, mixed> $field
+     * @return array<string, mixed>
+     */
+    private function withResolvedOptions(array $field, ?User $user): array
+    {
+        if (! in_array($field['type'] ?? null, ['select', 'radio'], true)) {
+            return $field + ['option_source' => 'manual', 'options' => []];
+        }
+
+        $field['option_source'] = $this->cleanOptionSource($field['option_source'] ?? 'manual', (string) $field['type']);
+        $field['options'] = $this->resolvedOptions($field, $user);
+
+        return $field;
+    }
+
+    /**
+     * @param array<string, mixed> $field
+     * @return array<int, array{label: string, value: string}>
+     */
+    private function resolvedOptions(array $field, ?User $user): array
+    {
+        if (($field['option_source'] ?? 'manual') !== 'user_drones') {
+            return is_array($field['options'] ?? null) ? $field['options'] : [];
+        }
+
+        if ($user === null) {
+            return [];
+        }
+
+        return Asset::query()
+            ->where('type', 'drone')
+            ->whereHas('assignments', fn ($assignments) => $assignments
+                ->where('user_id', $user->id)
+                ->whereNull('released_at'))
+            ->with('droneType')
+            ->orderBy('asset_tag')
+            ->get()
+            ->map(fn (Asset $asset): array => [
+                'label' => trim(($asset->asset_tag ? $asset->asset_tag.' - ' : '').$asset->name.($asset->droneType ? ' ('.$asset->droneType->manufacturer.' '.$asset->droneType->model.')' : '')),
+                'value' => (string) $asset->id,
+            ])
+            ->values()
+            ->all();
     }
 
     private function cleanLabel(mixed $label): string

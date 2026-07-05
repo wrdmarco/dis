@@ -18,9 +18,9 @@ final class PilotIncidentReportController extends Controller
         private readonly PilotIncidentReportFormService $formService,
     ) {}
 
-    public function formConfig(): JsonResponse
+    public function formConfig(Request $request): JsonResponse
     {
-        return ApiResponse::success(['fields' => $this->formService->fields()]);
+        return ApiResponse::success(['fields' => $this->formService->fields($request->user())]);
     }
 
     public function updateFormConfig(Request $request): JsonResponse

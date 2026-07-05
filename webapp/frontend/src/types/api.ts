@@ -545,6 +545,7 @@ export interface ConfigurableFormField {
   required: boolean;
   max_length?: number;
   max?: number;
+  option_source?: 'manual' | 'user_drones';
   options?: FormFieldOption[];
   is_custom?: boolean;
 }
