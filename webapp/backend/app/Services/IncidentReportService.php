@@ -23,7 +23,7 @@ final class IncidentReportService
     /**
      * @return array<string, mixed>
      */
-    public function data(Incident $incident): array
+    public function data(Incident $incident, bool $preserveExistingMaps = false): array
     {
         $incident->loadMissing(['creator', 'coordinator', 'team']);
         $dispatches = $incident->dispatchRequests()
@@ -50,7 +50,7 @@ final class IncidentReportService
             'travelRows' => $travelRows,
             'pilotReports' => $pilotReports,
             'timeline' => $timeline,
-            'map' => $this->mapData($incident, is_array($droneFlightContext) ? $droneFlightContext : null),
+            'map' => $this->mapData($incident, is_array($droneFlightContext) ? $droneFlightContext : null, $preserveExistingMaps),
             'droneFlightContext' => $droneFlightContext,
             'summary' => [
                 'recipients' => $travelRows->count(),
@@ -65,7 +65,7 @@ final class IncidentReportService
         ];
     }
 
-    public function pdf(Incident $incident): string
+    public function pdf(Incident $incident, bool $preserveExistingMaps = false): string
     {
         $tempDir = $this->writableReportDirectory();
         $fontDir = $tempDir;
@@ -77,7 +77,7 @@ final class IncidentReportService
         $options->set('fontDir', $fontDir);
         $options->set('fontCache', $fontDir);
 
-        $data = $this->data($incident);
+        $data = $this->data($incident, $preserveExistingMaps);
         try {
             return $this->renderPdf($options, $data);
         } catch (Throwable $exception) {
@@ -172,14 +172,18 @@ final class IncidentReportService
         return $this->storePdf($incident);
     }
 
-    public function refreshStored(Incident $incident): ?string
+    public function refreshStored(Incident $incident, bool $preserveExistingMaps = false): ?string
     {
         if (! in_array($incident->status, ['resolved', 'cancelled'], true)
             && (! is_string($incident->report_pdf_path) || $incident->report_pdf_path === '')) {
             return null;
         }
 
-        return $this->storePdf($incident);
+        $hasStoredReport = is_string($incident->report_pdf_path)
+            && $incident->report_pdf_path !== ''
+            && $this->storedReportExists($incident->report_pdf_path);
+
+        return $this->storePdf($incident, $preserveExistingMaps && $hasStoredReport);
     }
 
     public function storedPdf(Incident $incident): ?string
@@ -249,13 +253,13 @@ final class IncidentReportService
         }
     }
 
-    private function storePdf(Incident $incident): ?string
+    private function storePdf(Incident $incident, bool $preserveExistingMaps = false): ?string
     {
         try {
             $path = $this->reportPath($incident);
             $absolutePath = $this->absoluteReportPath($path);
             $this->ensureWritableDirectory(dirname($absolutePath));
-            if (File::put($absolutePath, $this->pdf($incident)) === false) {
+            if (File::put($absolutePath, $this->pdf($incident, $preserveExistingMaps)) === false) {
                 throw new \RuntimeException('Incidentrapport kon niet worden opgeslagen op '.$absolutePath.'.');
             }
             @chmod($absolutePath, 0660);
@@ -430,7 +434,7 @@ final class IncidentReportService
     /**
      * @return array<string, mixed>
      */
-    private function mapData(Incident $incident, ?array $droneFlightContext): array
+    private function mapData(Incident $incident, ?array $droneFlightContext, bool $preserveExistingMaps = false): array
     {
         $latitude = $this->coordinate($incident->latitude);
         $longitude = $this->coordinate($incident->longitude);
@@ -457,7 +461,7 @@ final class IncidentReportService
             ? $flightMap['aeret_url']
             : $this->aeretReportUrl($latitude, $longitude);
         try {
-            $mapSnapshot = $this->satelliteMapSnapshot($latitude, $longitude);
+            $mapSnapshot = $this->satelliteMapSnapshot($latitude, $longitude, $preserveExistingMaps);
         } catch (Throwable $exception) {
             $this->safeReport($exception);
             $mapSnapshot = [
@@ -476,7 +480,7 @@ final class IncidentReportService
             'marker_y' => 50.0,
             'snapshot_data_uri' => $mapSnapshot['data_uri'],
             'snapshot_available' => $mapSnapshot['available'],
-            'aeret_snapshot_data_uri' => $this->aeretMapSnapshot($aeretUrl),
+            'aeret_snapshot_data_uri' => $this->aeretMapSnapshot($aeretUrl, $preserveExistingMaps),
             'aeret_url' => $aeretUrl,
             'openstreetmap_url' => sprintf(
                 'https://www.openstreetmap.org/?mlat=%1$.6f&mlon=%2$.6f#map=16/%1$.6f/%2$.6f',
@@ -486,7 +490,7 @@ final class IncidentReportService
         ];
     }
 
-    private function aeretMapSnapshot(?string $aeretUrl): ?string
+    private function aeretMapSnapshot(?string $aeretUrl, bool $cacheOnly = false): ?string
     {
         if (! is_string($aeretUrl) || trim($aeretUrl) === '') {
             return null;
@@ -496,6 +500,10 @@ final class IncidentReportService
         $cachePath = $this->absoluteReportSupportPath('report-map-snapshots/aeret-'.$cacheKey.'.png');
         if (is_file($cachePath) && is_readable($cachePath)) {
             return 'data:image/png;base64,'.base64_encode((string) file_get_contents($cachePath));
+        }
+
+        if ($cacheOnly) {
+            return null;
         }
 
         $script = realpath(base_path('../../scripts/aeret-snapshot.mjs'));
@@ -535,7 +543,7 @@ final class IncidentReportService
     /**
      * @return array{available: bool, data_uri: string|null}
      */
-    private function satelliteMapSnapshot(float $latitude, float $longitude): array
+    private function satelliteMapSnapshot(float $latitude, float $longitude, bool $cacheOnly = false): array
     {
         $zoom = 16;
         $tileSize = 256;
@@ -569,6 +577,13 @@ final class IncidentReportService
             return [
                 'available' => true,
                 'data_uri' => 'data:image/png;base64,'.base64_encode(Storage::disk('local')->get($cachePath)),
+            ];
+        }
+
+        if ($cacheOnly) {
+            return [
+                'available' => false,
+                'data_uri' => null,
             ];
         }
 

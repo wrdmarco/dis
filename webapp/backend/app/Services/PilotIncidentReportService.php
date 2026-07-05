@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Jobs\GenerateIncidentReport;
 use App\Models\Incident;
 use App\Models\PilotIncidentReport;
 use App\Models\User;
@@ -12,7 +11,10 @@ use Illuminate\Validation\ValidationException;
 
 final class PilotIncidentReportService
 {
-    public function __construct(private readonly AuditService $auditService) {}
+    public function __construct(
+        private readonly AuditService $auditService,
+        private readonly IncidentReportService $incidentReportService,
+    ) {}
 
     public function ensureForOnScene(User $user, User $actor): void
     {
@@ -70,7 +72,7 @@ final class PilotIncidentReportService
             return $report->refresh();
         });
 
-        GenerateIncidentReport::dispatch($incident->id, true)->afterCommit();
+        $this->incidentReportService->refreshStored($incident->refresh(), preserveExistingMaps: true);
 
         return $report;
     }
