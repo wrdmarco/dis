@@ -1395,10 +1395,7 @@ function ConfigurableFormEditor(props: {
                     Label
                     <input
                       value={field.label}
-                      onChange={(event) => {
-                        const label = event.target.value;
-                        onUpdate(field.key, { label, key: generateFieldKey(label, fields, field.key) });
-                      }}
+                      onChange={(event) => onUpdate(field.key, { label: event.target.value })}
                     />
                   </label>
                   <label>
@@ -1503,7 +1500,7 @@ function ConfigurableFormEditor(props: {
           </div>
         </div>
       </div>
-      <p className="form-note">Sleep velden om de volgorde te wijzigen. Veldsleutels worden automatisch uit het label gemaakt.</p>
+      <p className="form-note">Sleep velden om de volgorde te wijzigen. Nieuwe velden krijgen automatisch een vaste veldsleutel; labelwijzigingen worden pas actief na opslaan.</p>
     </div>
   );
 }
