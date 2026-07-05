@@ -144,13 +144,13 @@ export function ProfilePage() {
 
     setScheduleError(null);
     setScheduleMessage(null);
-    setWorkPlanDraft(schedule.data.week_pattern.map((day) => ({ ...day })));
+    setWorkPlanDraft(weekDayPartPattern(schedule.data).map((day) => ({ ...day })));
     setWorkPlanOpen(true);
   }
 
-  function updateWorkPlanDay(dayOfWeek: number, isAvailable: boolean) {
+  function updateWorkPlanDayPart(dayOfWeek: number, dayPart: AvailabilityDayPart, isAvailable: boolean) {
     setWorkPlanDraft((current) => current === null ? current : current.map((day) => (
-      day.day_of_week === dayOfWeek ? { ...day, is_available: isAvailable } : day
+      day.day_of_week === dayOfWeek && day.day_part === dayPart ? { ...day, is_available: isAvailable } : day
     )));
   }
 
@@ -166,16 +166,16 @@ export function ProfilePage() {
       const response = await api.patch<AvailabilitySchedule>('/availability-schedule/me/week-pattern', {
         patterns: workPlanDraft.map((day) => ({
           day_of_week: day.day_of_week,
+          day_part: day.day_part,
           is_available: day.is_available,
           note: day.note ?? null,
         })),
       });
       schedule.mutate(response.data);
-      setWorkPlanOpen(false);
-      setWorkPlanDraft(null);
-      setScheduleMessage('Werkplanning opgeslagen.');
+      setWorkPlanDraft(weekDayPartPattern(response.data).map((day) => ({ ...day })));
+      setScheduleMessage('Vaste dagdelen opgeslagen.');
     } catch (err) {
-      setScheduleError(err instanceof ApiClientError ? err.message : 'Werkplanning kon niet worden opgeslagen.');
+      setScheduleError(err instanceof ApiClientError ? err.message : 'Vaste dagdelen konden niet worden opgeslagen.');
     } finally {
       setSavingSchedule(false);
     }
@@ -358,19 +358,17 @@ export function ProfilePage() {
               <div className="summary-grid">
                 <SummaryItem label="Vandaag" value={schedule.data.today.is_available ? 'Beschikbaar' : 'Niet beschikbaar'} />
                 <SummaryItem label="Bron" value={availabilitySourceLabel(schedule.data.today.source)} />
-                <SummaryItem label="Werkdagen" value={String(schedule.data.week_pattern.filter((day) => day.is_available).length)} />
               </div>
               <div className="work-plan-card">
                 <div className="work-plan-card__header">
                   <div>
-                    <strong>Vaste werkplanning</strong>
-                    <p>Deze weekplanning bepaalt je standaard beschikbaarheid. Afwijkingen beheer je niet meer op deze profielpagina.</p>
+                    <strong>Dagdelenplanning</strong>
+                    <p>Plan je beschikbaarheid voor de komende twee weken per ochtend, middag en avond.</p>
                   </div>
                   <button className="primary-button" type="button" onClick={openWorkPlan} disabled={savingSchedule}>
-                    Werkplanning aanpassen
+                    Dagdelen plannen
                   </button>
                 </div>
-                <WorkPlanSummary days={schedule.data.week_pattern} />
               </div>
               {scheduleError ? <p className="form-error">{scheduleError}</p> : null}
               {scheduleMessage ? <p className="form-note">{scheduleMessage}</p> : null}
@@ -385,7 +383,7 @@ export function ProfilePage() {
             <header className="modal__header">
               <div>
                 <span className="modal__eyebrow">Profiel</span>
-                <h2 id="work-plan-title">Vaste werkplanning</h2>
+                <h2 id="work-plan-title">Dagdelen plannen</h2>
               </div>
               <button className="icon-button" type="button" onClick={() => { setWorkPlanOpen(false); setWorkPlanDraft(null); }} aria-label="Sluiten">
                 <X size={18} />
@@ -394,29 +392,39 @@ export function ProfilePage() {
             <div className="panel-body">
               <section className="stacked-section">
                 <div className="section-heading">
-                  <strong>Standaard per week</strong>
-                  <span>Vink de dagen aan waarop je standaard beschikbaar bent.</span>
+                  <strong>Vaste weekdagen per dagdeel</strong>
+                  <span>Stel je standaard beschikbaarheid in voor ochtend, middag en avond.</span>
                 </div>
-                <div className="checkbox-grid checkbox-grid--dense">
-                  {workPlanDraft.map((day) => (
-                    <label className="checkbox-card" key={day.day_of_week}>
-                      <input
-                        type="checkbox"
-                        checked={day.is_available}
-                        onChange={(event) => updateWorkPlanDay(day.day_of_week, event.target.checked)}
-                      />
-                      <span>
-                        <strong>{dayLabel(day.day_of_week)}</strong>
-                        <small>{day.is_available ? 'Beschikbaar' : 'Niet beschikbaar'}</small>
-                      </span>
-                    </label>
+                <div className="week-daypart-grid">
+                  {rangeDays().map((dayOfWeek) => (
+                    <article className="week-daypart-row" key={dayOfWeek}>
+                      <strong>{dayLabel(dayOfWeek)}</strong>
+                      <div className="daypart-planner-actions">
+                        {availabilityDayParts.map((dayPart) => {
+                          const state = workPlanDraft.find((day) => day.day_of_week === dayOfWeek && day.day_part === dayPart);
+                          const isAvailable = state?.is_available ?? true;
+                          return (
+                            <button
+                              className={isAvailable ? 'secondary-button' : 'danger-button'}
+                              type="button"
+                              key={dayPart}
+                              disabled={savingSchedule}
+                              onClick={() => updateWorkPlanDayPart(dayOfWeek, dayPart, !isAvailable)}
+                              title={`${dayLabel(dayOfWeek)} ${availabilityDayPartLabel(dayPart).toLowerCase()} standaard ${isAvailable ? 'niet beschikbaar' : 'beschikbaar'} zetten`}
+                            >
+                              {availabilityDayPartLabel(dayPart)}: {isAvailable ? 'Aan' : 'Uit'}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </article>
                   ))}
                 </div>
               </section>
               <section className="stacked-section">
                 <div className="section-heading">
                   <strong>2 weken vooruit plannen</strong>
-                  <span>Wijzig per dagdeel. De knop wisselt tussen beschikbaar en niet beschikbaar.</span>
+                  <span>Gebruik dit voor afwijkingen op je vaste weekdagen.</span>
                 </div>
                 <div className="daypart-planner">
                   {nextCalendarDays(14).map((date) => (
@@ -451,10 +459,10 @@ export function ProfilePage() {
             </div>
             <div className="actions-row">
               <button className="secondary-button" type="button" onClick={() => { setWorkPlanOpen(false); setWorkPlanDraft(null); }} disabled={savingSchedule}>
-                Annuleren
+                Sluiten
               </button>
               <button className="primary-button" type="button" onClick={() => void saveWorkPlan()} disabled={savingSchedule}>
-                {savingSchedule ? 'Opslaan...' : 'Werkplanning opslaan'}
+                {savingSchedule ? 'Opslaan...' : 'Vaste dagdelen opslaan'}
               </button>
             </div>
           </section>
@@ -680,19 +688,6 @@ function SummaryItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function WorkPlanSummary({ days }: { days: AvailabilityScheduleDay[] }) {
-  return (
-    <div className="work-plan-days">
-      {days.map((day) => (
-        <div className={day.is_available ? 'work-plan-day work-plan-day--available' : 'work-plan-day work-plan-day--unavailable'} key={day.day_of_week}>
-          <span>{dayLabel(day.day_of_week).slice(0, 2)}</span>
-          <strong>{day.is_available ? 'Aan' : 'Uit'}</strong>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function AssetTable({
   assets,
   loading,
@@ -822,6 +817,25 @@ function dateParts(value?: string | null): { input: string; display: string } | 
 
 function dayLabel(dayOfWeek: number): string {
   return ['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag'][dayOfWeek - 1] ?? String(dayOfWeek);
+}
+
+function rangeDays(): number[] {
+  return [1, 2, 3, 4, 5, 6, 7];
+}
+
+function weekDayPartPattern(schedule: AvailabilitySchedule): AvailabilityScheduleDay[] {
+  return rangeDays().flatMap((dayOfWeek) => availabilityDayParts.map((dayPart) => {
+    const specific = schedule.week_day_parts?.find((day) => day.day_of_week === dayOfWeek && day.day_part === dayPart);
+    const fallback = schedule.week_pattern.find((day) => day.day_of_week === dayOfWeek);
+
+    return {
+      day_of_week: dayOfWeek,
+      day_part: dayPart,
+      is_available: specific?.is_available ?? fallback?.is_available ?? true,
+      note: specific?.note ?? fallback?.note ?? null,
+      source: specific?.source ?? fallback?.source ?? 'default',
+    };
+  }));
 }
 
 function availabilitySourceLabel(source: AvailabilitySchedule['today']['source']): string {

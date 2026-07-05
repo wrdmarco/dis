@@ -10,7 +10,7 @@ final class AvailabilityWeekPattern extends Model
 {
     use UsesUlids;
 
-    protected $fillable = ['user_id', 'day_of_week', 'is_available', 'note', 'created_by'];
+    protected $fillable = ['user_id', 'day_of_week', 'day_part', 'is_available', 'note', 'created_by'];
 
     protected function casts(): array
     {

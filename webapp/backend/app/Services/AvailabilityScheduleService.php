@@ -75,6 +75,9 @@ final class AvailabilityScheduleService
         $pattern = AvailabilityWeekPattern::query()
             ->where('user_id', $user->id)
             ->where('day_of_week', $date->dayOfWeekIso)
+            ->whereIn('day_part', [self::DAY_PART_ALL_DAY, $dayPart])
+            ->orderByRaw("case when day_part = ? then 0 else 1 end", [$dayPart])
+            ->latest('updated_at')
             ->first();
         if ($pattern !== null) {
             return [
@@ -119,7 +122,7 @@ final class AvailabilityScheduleService
     }
 
     /**
-     * @param array<int, array{day_of_week: int, is_available: bool, note?: string|null}> $patterns
+     * @param array<int, array{day_of_week: int, day_part?: string|null, is_available: bool, note?: string|null}> $patterns
      * @return Collection<int, AvailabilityWeekPattern>
      */
     public function replaceWeekPattern(User $user, array $patterns, User $actor): Collection
@@ -130,6 +133,7 @@ final class AvailabilityScheduleService
                 ->map(fn (array $pattern): AvailabilityWeekPattern => AvailabilityWeekPattern::query()->create([
                     'user_id' => $user->id,
                     'day_of_week' => $pattern['day_of_week'],
+                    'day_part' => $pattern['day_part'] ?? self::DAY_PART_ALL_DAY,
                     'is_available' => $pattern['is_available'],
                     'note' => $pattern['note'] ?? null,
                     'created_by' => $actor->id,
@@ -139,6 +143,7 @@ final class AvailabilityScheduleService
             $this->auditService->record('availability.week_pattern_updated', $user, $actor, [
                 'days' => $records->map(fn (AvailabilityWeekPattern $record): array => [
                     'day_of_week' => $record->day_of_week,
+                    'day_part' => $record->day_part,
                     'is_available' => $record->is_available,
                 ])->values()->all(),
             ]);

@@ -278,6 +278,7 @@ export interface AvailabilityStatus {
 
 export interface AvailabilityScheduleDay {
   day_of_week: number;
+  day_part?: 'all_day' | 'morning' | 'afternoon' | 'evening';
   is_available: boolean;
   note?: string | null;
   source: 'default' | 'pattern';
@@ -296,6 +297,7 @@ export interface AvailabilityOverride {
 export interface AvailabilitySchedule {
   user_id: string;
   week_pattern: AvailabilityScheduleDay[];
+  week_day_parts?: AvailabilityScheduleDay[];
   overrides: AvailabilityOverride[];
   today: {
     is_available: boolean;

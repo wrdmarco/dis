@@ -2310,44 +2310,6 @@ select[multiple] {
   line-height: 1.45;
 }
 
-.work-plan-days {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.work-plan-day {
-  display: grid;
-  gap: 4px;
-  min-height: 58px;
-  align-content: center;
-  border: 1px solid #26364a;
-  border-radius: 6px;
-  background: #101a27;
-  padding: 8px;
-  text-align: center;
-}
-
-.work-plan-day span {
-  color: #8ea0b5;
-  font-size: 0.78rem;
-}
-
-.work-plan-day strong {
-  color: #f8fafc;
-  font-size: 0.86rem;
-}
-
-.work-plan-day--available {
-  border-color: rgba(52, 211, 153, 0.42);
-  background: rgba(6, 78, 59, 0.22);
-}
-
-.work-plan-day--unavailable {
-  border-color: rgba(248, 113, 113, 0.35);
-  background: rgba(127, 29, 29, 0.18);
-}
-
 .work-plan-modal {
   width: min(1040px, 100%);
 }
@@ -2355,6 +2317,22 @@ select[multiple] {
 .daypart-planner {
   display: grid;
   gap: 8px;
+}
+
+.week-daypart-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.week-daypart-row {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 10px;
 }
 
 .daypart-planner-row {
@@ -4686,7 +4664,6 @@ pre {
   .setup-review,
   .setup-stepper,
   .push-targets,
-  .work-plan-days,
   .checkbox-grid--dense,
   .form-grid,
   .summary-grid {
@@ -4697,6 +4674,7 @@ pre {
     display: grid;
   }
 
+  .week-daypart-row,
   .daypart-planner-row,
   .daypart-planner-actions {
     grid-template-columns: 1fr;

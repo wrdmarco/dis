@@ -61,17 +61,19 @@ final class AvailabilityScheduleController extends Controller
     private function updatePattern(Request $request, User $user): JsonResponse
     {
         $data = $request->validate([
-            'patterns' => ['required', 'array', 'size:7'],
+            'patterns' => ['required', 'array', 'min:7', 'max:21'],
             'patterns.*.day_of_week' => ['required', 'integer', 'between:1,7'],
+            'patterns.*.day_part' => ['nullable', 'string', 'in:all_day,morning,afternoon,evening'],
             'patterns.*.is_available' => ['required', 'boolean'],
             'patterns.*.note' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $patterns = collect($data['patterns'])
-            ->unique('day_of_week')
+            ->map(fn (array $pattern): array => $pattern + ['day_part' => 'all_day'])
+            ->unique(fn (array $pattern): string => $pattern['day_of_week'].'-'.$pattern['day_part'])
             ->values();
-        if ($patterns->count() !== 7) {
-            abort(422, 'Iedere weekdag moet precies een keer worden opgegeven.');
+        if ($patterns->count() !== count($data['patterns'])) {
+            abort(422, 'Iedere combinatie van weekdag en dagdeel mag precies een keer worden opgegeven.');
         }
 
         $this->service->replaceWeekPattern($user, $patterns->all(), $request->user());
@@ -102,20 +104,38 @@ final class AvailabilityScheduleController extends Controller
         $patterns = AvailabilityWeekPattern::query()
             ->where('user_id', $user->id)
             ->orderBy('day_of_week')
+            ->orderBy('day_part')
             ->get()
-            ->keyBy('day_of_week');
+            ->keyBy(fn (AvailabilityWeekPattern $pattern): string => $pattern->day_of_week.'-'.($pattern->day_part ?? 'all_day'));
 
         $weekPattern = collect(range(1, 7))
             ->map(function (int $day) use ($patterns): array {
-                $pattern = $patterns->get($day);
+                $pattern = $patterns->get($day.'-all_day');
 
                 return [
                     'day_of_week' => $day,
+                    'day_part' => 'all_day',
                     'is_available' => $pattern?->is_available ?? true,
                     'note' => $pattern?->note,
                     'source' => $pattern === null ? 'default' : 'pattern',
                 ];
             })
+            ->values();
+        $weekDayParts = collect(range(1, 7))
+            ->flatMap(fn (int $day): array => collect(['morning', 'afternoon', 'evening'])
+                ->map(function (string $dayPart) use ($patterns, $day): array {
+                    $pattern = $patterns->get($day.'-'.$dayPart)
+                        ?? $patterns->get($day.'-all_day');
+
+                    return [
+                        'day_of_week' => $day,
+                        'day_part' => $dayPart,
+                        'is_available' => $pattern?->is_available ?? true,
+                        'note' => $pattern?->note,
+                        'source' => $pattern === null ? 'default' : 'pattern',
+                    ];
+                })
+                ->all())
             ->values();
 
         $overrides = AvailabilityOverride::query()
@@ -136,6 +156,7 @@ final class AvailabilityScheduleController extends Controller
         return [
             'user_id' => $user->id,
             'week_pattern' => $weekPattern,
+            'week_day_parts' => $weekDayParts,
             'overrides' => $overrides,
             'today' => $this->service->availabilityFor($user),
         ];
