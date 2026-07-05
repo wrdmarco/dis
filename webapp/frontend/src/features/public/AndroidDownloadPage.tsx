@@ -19,8 +19,9 @@ type Channel = {
 
 export function AndroidDownloadPage() {
   const [channels, setChannels] = useState<Channel[]>([
-    { key: 'operator', title: 'Operator app', latest: null },
-    { key: 'admin', title: 'Admin app', applicationId: 'nl.wrdmarco.dis.admin', latest: null },
+    { key: 'operator-android', title: 'Operator Android', latest: null },
+    { key: 'admin-android', title: 'Admin Android', applicationId: 'nl.wrdmarco.dis.admin', latest: null },
+    { key: 'operator-ios', title: 'Operator iPhone', applicationId: 'nl.wrdmarco.dis.ios', latest: null },
   ]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,14 +34,15 @@ export function AndroidDownloadPage() {
       setError(null);
       try {
         const nextChannels = await Promise.all([
-          loadChannel('operator', 'Operator app'),
-          loadChannel('admin', 'Admin app', 'nl.wrdmarco.dis.admin'),
+          loadChannel('android', 'operator-android', 'Operator Android'),
+          loadChannel('android', 'admin-android', 'Admin Android', 'nl.wrdmarco.dis.admin'),
+          loadChannel('ios', 'operator-ios', 'Operator iPhone', 'nl.wrdmarco.dis.ios'),
         ]);
 
         if (!cancelled) setChannels(nextChannels);
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'APK informatie kon niet worden geladen.');
+          setError(err instanceof Error ? err.message : 'App informatie kon niet worden geladen.');
         }
       } finally {
         if (!cancelled) {
@@ -65,9 +67,9 @@ export function AndroidDownloadPage() {
           <Smartphone aria-hidden size={30} />
         </div>
         <span className="topbar__eyebrow">Nationaal Droneteam</span>
-        <h1 id="download-title">D.I.S Android APK</h1>
+        <h1 id="download-title">D.I.S mobiele apps</h1>
 
-        {loading ? <p className="public-download-panel__status">APK informatie laden...</p> : null}
+        {loading ? <p className="public-download-panel__status">App informatie laden...</p> : null}
         {error ? <p className="form-error">{error}</p> : null}
 
         {!loading && !error ? (
@@ -79,7 +81,7 @@ export function AndroidDownloadPage() {
         ) : null}
 
         {!loading && !error && channels.every((channel) => channel.latest === null) ? (
-          <p className="public-download-panel__status">Er is nog geen Android APK gepubliceerd.</p>
+          <p className="public-download-panel__status">Er is nog geen mobiele app gepubliceerd.</p>
         ) : null}
 
         <div className="public-download-panel__actions">
@@ -91,10 +93,10 @@ export function AndroidDownloadPage() {
         <div className="download-setup-qr">
           <div>
             <strong>Setup URL</strong>
-            <p>Scan deze QR-code bij de eerste start van de Android app.</p>
+            <p>Scan deze QR-code bij de eerste start van de mobiele app.</p>
             <code>{setupUrl}</code>
           </div>
-          <TotpQrCode value={setupUrl} alt="QR-code met DIS setup URL" helpText="Scan met de Android app om deze server te koppelen." />
+          <TotpQrCode value={setupUrl} alt="QR-code met DIS setup URL" helpText="Scan met de mobiele app om deze server te koppelen." />
         </div>
 
         <div className="download-integrity">
@@ -106,17 +108,17 @@ export function AndroidDownloadPage() {
   );
 }
 
-async function loadChannel(key: string, title: string, applicationId?: string): Promise<Channel> {
+async function loadChannel(platform: 'android' | 'ios', key: string, title: string, applicationId?: string): Promise<Channel> {
   const params = new URLSearchParams({ version_code: '0' });
   if (applicationId) params.set('application_id', applicationId);
 
-  const response = await fetch(`${apiBaseUrl}/updates/android/current?${params.toString()}`, {
+  const response = await fetch(`${apiBaseUrl}/updates/${platform}/current?${params.toString()}`, {
     headers: { Accept: 'application/json' },
   });
   const payload = (await response.json()) as ApiResponse<AndroidUpdatePolicy>;
 
   if (!response.ok) {
-    throw new Error('APK informatie kon niet worden geladen.');
+    throw new Error('App informatie kon niet worden geladen.');
   }
 
   return { key, title, applicationId, latest: payload.data.latest };
@@ -137,7 +139,7 @@ function DownloadChannelCard({ channel }: { channel: Channel }) {
         <strong>{latest?.version_name ?? '-'}</strong>
       </div>
       <div>
-        <span>Version code</span>
+        <span>Buildnummer</span>
         <strong>{latest?.version_code ?? '-'}</strong>
       </div>
       <div>
@@ -150,10 +152,10 @@ function DownloadChannelCard({ channel }: { channel: Channel }) {
       </div>
       <a className={`primary-button ${canDownload ? '' : 'primary-button--disabled'}`} href={canDownload || undefined}>
         <Download aria-hidden size={18} />
-        {channel.title} downloaden
+        {channel.title} openen
       </a>
       {latest && !canDownload ? (
-        <p className="public-download-panel__status">Deze versie is geregistreerd, maar het APK-bestand ontbreekt nog.</p>
+        <p className="public-download-panel__status">Deze versie is geregistreerd, maar er is nog geen downloadlink.</p>
       ) : null}
     </div>
   );

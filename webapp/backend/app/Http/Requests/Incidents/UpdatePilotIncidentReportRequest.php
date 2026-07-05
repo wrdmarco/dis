@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Incidents;
 
 use Illuminate\Foundation\Http\FormRequest;
+use App\Services\PilotIncidentReportFormService;
 
 final class UpdatePilotIncidentReportRequest extends FormRequest
 {
@@ -11,14 +12,6 @@ final class UpdatePilotIncidentReportRequest extends FormRequest
      */
     public function rules(): array
     {
-        return [
-            'summary' => ['required', 'string', 'max:5000'],
-            'observations' => ['nullable', 'string', 'max:5000'],
-            'actions_taken' => ['nullable', 'string', 'max:5000'],
-            'result' => ['nullable', 'string', 'max:5000'],
-            'issues' => ['nullable', 'string', 'max:5000'],
-            'equipment_used' => ['nullable', 'string', 'max:5000'],
-            'flight_minutes' => ['nullable', 'integer', 'min:0', 'max:1440'],
-        ];
+        return app(PilotIncidentReportFormService::class)->validationRules();
     }
 }

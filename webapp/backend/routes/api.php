@@ -45,6 +45,7 @@ Route::post('/setup/complete', [SetupController::class, 'complete'])->middleware
 Route::get('/mobile/config', [MobileConfigController::class, 'show'])->middleware('throttle:mobile-public');
 Route::get('/updates/android/current', [UpdateController::class, 'androidCurrent'])->middleware('throttle:mobile-public');
 Route::get('/updates/android/{version}/download', [UpdateController::class, 'downloadAndroid'])->middleware('throttle:mobile-public');
+Route::get('/updates/ios/current', [UpdateController::class, 'iosCurrent'])->middleware('throttle:mobile-public');
 Route::get('/branding', [BrandingController::class, 'show'])->middleware('throttle:api');
 Route::post('/developer/android/upload', [UpdateController::class, 'developerUploadAndroid'])->middleware('throttle:developer-upload');
 Route::post('/developer/system/maintenance', [AdminDeveloperController::class, 'developerMaintenance'])->middleware('throttle:developer-update');
@@ -96,6 +97,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/incidents/{incident}/close', [IncidentController::class, 'close'])->middleware('permission:incidents.manage');
     Route::post('/incidents/{incident}/cancel', [IncidentController::class, 'cancel'])->middleware('permission:incidents.manage');
     Route::get('/incidents/{incident}/timeline', [IncidentController::class, 'timeline'])->middleware('permission:incidents.view');
+    Route::get('/pilot-report/form-config', [PilotIncidentReportController::class, 'formConfig'])->middleware('permission:incidents.view');
     Route::get('/incidents/{incident}/pilot-report', [PilotIncidentReportController::class, 'show'])->middleware('permission:incidents.view');
     Route::patch('/incidents/{incident}/pilot-report', [PilotIncidentReportController::class, 'update'])->middleware('permission:incidents.view');
     Route::get('/incidents/{incidentId}/report', [ReportingController::class, 'incidentPdf'])->middleware('permission:incidents.view');
@@ -223,6 +225,11 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/admin/updates/android', [UpdateController::class, 'store'])->middleware('permission:updates.manage');
     Route::post('/admin/updates/android/upload', [UpdateController::class, 'uploadAndroid'])->middleware('permission:updates.manage');
     Route::patch('/admin/updates/android/{version}', [UpdateController::class, 'update'])->middleware('permission:updates.manage');
+    Route::get('/admin/updates/ios', [UpdateController::class, 'indexIos'])->middleware('permission:updates.manage');
+    Route::post('/admin/updates/ios', [UpdateController::class, 'storeIos'])->middleware('permission:updates.manage');
+    Route::patch('/admin/updates/ios/{version}', [UpdateController::class, 'update'])->middleware('permission:updates.manage');
+    Route::get('/admin/pilot-report/form-config', [PilotIncidentReportController::class, 'formConfig'])->middleware('permission:settings.manage');
+    Route::patch('/admin/pilot-report/form-config', [PilotIncidentReportController::class, 'updateFormConfig'])->middleware('permission:settings.manage');
     Route::get('/admin/health', [HealthController::class, 'admin'])->middleware('permission:system.health');
     Route::get('/admin/queues', [HealthController::class, 'queues'])->middleware('permission:system.health');
     Route::get('/admin/websocket-status', [HealthController::class, 'websocket'])->middleware('permission:system.health');

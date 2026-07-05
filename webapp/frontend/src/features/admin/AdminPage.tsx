@@ -6,7 +6,7 @@ import { parseFirebaseJson } from '../../lib/firebaseConfigImport';
 import { formatDateTime } from '../../lib/dateTime';
 import { createRealtime } from '../../lib/realtime';
 import { useApiResource } from '../../lib/useApiResource';
-import type { DeveloperAccessState, FcmToken, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
+import type { DeveloperAccessState, FcmToken, PilotReportFormConfig, PilotReportFormField, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { useEffect, useMemo, useState } from 'react';
 import { ApiClientError } from '../../lib/apiClient';
@@ -60,7 +60,7 @@ interface PasswordPolicySettingsForm {
   uncompromised: boolean;
 }
 
-type AdminTab = 'firebase' | 'mail' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'settings';
+type AdminTab = 'firebase' | 'mail' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'pilotReport' | 'settings';
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'firebase', label: 'Firebase' },
@@ -70,6 +70,7 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'developer', label: 'Ontwikkel' },
   { id: 'version', label: 'Versie' },
   { id: 'tokens', label: 'Tokens' },
+  { id: 'pilotReport', label: 'Inzetrapport' },
   { id: 'settings', label: 'Instellingen' },
 ];
 
@@ -113,12 +114,14 @@ export function AdminPage() {
   const tokens = useApiResource<FcmToken[]>('/admin/push/tokens?per_page=100', canManagePush);
   const developerAccess = useApiResource<DeveloperAccessState>('/admin/developer-access', canManageSettings);
   const systemVersion = useApiResource<SystemVersionState>('/admin/system/version', canViewSystemHealth);
+  const pilotReportFormConfig = useApiResource<PilotReportFormConfig>('/admin/pilot-report/form-config', canManageSettings);
   const mobileSettings = useMemo(() => toMobileSettingsForm(settings.data ?? []), [settings.data]);
   const managedSettings = useMemo(() => toManagedSettingsForm(settings.data ?? []), [settings.data]);
   const passwordPolicySettings = useMemo(() => toPasswordPolicySettingsForm(settings.data ?? []), [settings.data]);
   const [form, setForm] = useState<MobileSettingsForm>(mobileSettings);
   const [managedForm, setManagedForm] = useState<ManagedSettingsForm>(managedSettings);
   const [passwordPolicyForm, setPasswordPolicyForm] = useState<PasswordPolicySettingsForm>(passwordPolicySettings);
+  const [pilotReportFields, setPilotReportFields] = useState<PilotReportFormField[]>([]);
   const [activeTab, setActiveTab] = useState<AdminTab>('firebase');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -135,6 +138,9 @@ export function AdminPage() {
   const [updateActionError, setUpdateActionError] = useState<string | null>(null);
   const [updateStarting, setUpdateStarting] = useState(false);
   const [rebootStarting, setRebootStarting] = useState(false);
+  const [pilotReportSaving, setPilotReportSaving] = useState(false);
+  const [pilotReportMessage, setPilotReportMessage] = useState<string | null>(null);
+  const [pilotReportError, setPilotReportError] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(mobileSettings);
@@ -153,6 +159,10 @@ export function AdminPage() {
   useEffect(() => {
     setPasswordPolicyForm(passwordPolicySettings);
   }, [passwordPolicySettings]);
+
+  useEffect(() => {
+    setPilotReportFields(pilotReportFormConfig.data?.fields ?? []);
+  }, [pilotReportFormConfig.data?.fields]);
 
   useEffect(() => {
     setUpdaterStatus(systemVersion.data?.updater ?? null);
@@ -496,6 +506,35 @@ export function AdminPage() {
     } finally {
       setRebootStarting(false);
     }
+  }
+
+  async function savePilotReportFormConfig() {
+    setPilotReportSaving(true);
+    setPilotReportError(null);
+    setPilotReportMessage(null);
+    try {
+      const response = await api.patch<PilotReportFormConfig>('/admin/pilot-report/form-config', {
+        fields: pilotReportFields,
+      });
+      setPilotReportFields(response.data.fields);
+      setPilotReportMessage('Inzetrapport formulier is opgeslagen.');
+      await pilotReportFormConfig.reload();
+    } catch (error) {
+      setPilotReportError(error instanceof ApiClientError ? error.message : 'Inzetrapport formulier opslaan mislukt.');
+    } finally {
+      setPilotReportSaving(false);
+    }
+  }
+
+  function updatePilotReportField(key: PilotReportFormField['key'], changes: Partial<PilotReportFormField>) {
+    setPilotReportFields((current) => current.map((field) => {
+      if (field.key !== key) {
+        return field;
+      }
+
+      const next = { ...field, ...changes };
+      return next.visible ? next : { ...next, required: false };
+    }));
   }
 
   return (
@@ -1046,6 +1085,43 @@ export function AdminPage() {
                 ))}
               </tbody>
             </table>
+          </ResourceState>
+        </Panel>
+      ) : null}
+
+      {activeTab === 'pilotReport' ? (
+        <Panel title="Inzetrapport formulier">
+          <ResourceState loading={pilotReportFormConfig.loading} error={pilotReportFormConfig.error} empty={pilotReportFields.length === 0}>
+            <p className="form-note">
+              Pas de labels, zichtbaarheid en verplichte velden aan. De mobiele app gebruikt deze configuratie automatisch bij het inzetrapport.
+            </p>
+            <table className="data-table">
+              <thead><tr><th>Veld</th><th>Label</th><th>Zichtbaar</th><th>Verplicht</th><th>Type</th></tr></thead>
+              <tbody>
+                {pilotReportFields.map((field) => (
+                  <tr key={field.key}>
+                    <td className="mono">{field.key}</td>
+                    <td>
+                      <input value={field.label} onChange={(event) => updatePilotReportField(field.key, { label: event.target.value })} />
+                    </td>
+                    <td>
+                      <input type="checkbox" checked={field.visible} onChange={(event) => updatePilotReportField(field.key, { visible: event.target.checked })} />
+                    </td>
+                    <td>
+                      <input type="checkbox" checked={field.required} disabled={!field.visible} onChange={(event) => updatePilotReportField(field.key, { required: event.target.checked })} />
+                    </td>
+                    <td>{field.type}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {pilotReportError ? <p className="form-error">{pilotReportError}</p> : null}
+            {pilotReportMessage ? <p className="success-text">{pilotReportMessage}</p> : null}
+            <div className="actions-row">
+              <button className="primary-button" type="button" onClick={() => void savePilotReportFormConfig()} disabled={pilotReportSaving}>
+                {pilotReportSaving ? 'Opslaan...' : 'Formulier opslaan'}
+              </button>
+            </div>
           </ResourceState>
         </Panel>
       ) : null}

@@ -26,17 +26,28 @@ final class UpdateController extends Controller
 
     public function androidCurrent(Request $request): JsonResponse
     {
+        return $this->current($request, 'android', $this->androidApplicationId($request));
+    }
+
+    public function iosCurrent(Request $request): JsonResponse
+    {
+        return $this->current($request, 'ios', $this->iosApplicationId($request));
+    }
+
+    private function current(Request $request, string $platform, string $applicationId): JsonResponse
+    {
         $versionCode = (int) $request->integer('version_code', 0);
-        $applicationId = $this->androidApplicationId($request);
         $notSupported = AppVersion::query()
-            ->where('platform', 'android')
+            ->where('platform', $platform)
             ->where('application_id', $applicationId)
             ->where('version_code', $versionCode)
             ->whereIn('status', ['not_supported', 'blocked'])
             ->exists();
-        $minimumSupportedVersionCode = SystemSetting::integer($this->minimumSupportedVersionCodeKey($applicationId), 1);
+        $minimumSupportedVersionCode = $platform === 'android'
+            ? SystemSetting::integer($this->minimumSupportedVersionCodeKey($applicationId), 1)
+            : 1;
         $latest = AppVersion::query()
-            ->where('platform', 'android')
+            ->where('platform', $platform)
             ->where('application_id', $applicationId)
             ->whereIn('status', ['supported', 'deprecated'])
             ->orderByDesc('version_code')
@@ -50,9 +61,19 @@ final class UpdateController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        return $this->indexPlatform($request, 'android');
+    }
+
+    public function indexIos(Request $request): JsonResponse
+    {
+        return $this->indexPlatform($request, 'ios');
+    }
+
+    private function indexPlatform(Request $request, string $platform): JsonResponse
+    {
         return ApiResponse::paginated(
             AppVersion::query()
-                ->where('platform', 'android')
+                ->where('platform', $platform)
                 ->when($request->input('application_id'), fn ($query, string $applicationId) => $query->where('application_id', $applicationId))
                 ->orderByDesc('version_code')
                 ->paginate((int) $request->integer('per_page', 25)),
@@ -60,6 +81,16 @@ final class UpdateController extends Controller
     }
 
     public function store(Request $request): JsonResponse
+    {
+        return $this->storePlatform($request, 'android');
+    }
+
+    public function storeIos(Request $request): JsonResponse
+    {
+        return $this->storePlatform($request, 'ios');
+    }
+
+    private function storePlatform(Request $request, string $platform): JsonResponse
     {
         $data = $request->validate([
             'application_id' => ['nullable', 'string', 'max:190'],
@@ -70,14 +101,16 @@ final class UpdateController extends Controller
             'download_url' => ['nullable', 'url', 'max:2048'],
             'release_notes' => ['nullable', 'string', 'max:10000'],
         ]);
-        $data['application_id'] = $this->normalizeAndroidApplicationId($data['application_id'] ?? null);
+        $data['application_id'] = $platform === 'android'
+            ? $this->normalizeAndroidApplicationId($data['application_id'] ?? null)
+            : $this->normalizeIosApplicationId($data['application_id'] ?? null);
 
         $version = AppVersion::query()->updateOrCreate([
-            'platform' => 'android',
+            'platform' => $platform,
             'application_id' => $data['application_id'],
             'version_code' => $data['version_code'],
-        ], $data + ['platform' => 'android', 'created_by' => $request->user()?->id]);
-        $this->auditService->record('updates.android_created', $version, $request->user());
+        ], $data + ['platform' => $platform, 'created_by' => $request->user()?->id]);
+        $this->auditService->record("updates.{$platform}_created", $version, $request->user());
 
         return ApiResponse::success($version, 201);
     }
@@ -331,11 +364,23 @@ final class UpdateController extends Controller
         return $this->normalizeAndroidApplicationId($request->query('application_id'));
     }
 
+    private function iosApplicationId(Request $request): string
+    {
+        return $this->normalizeIosApplicationId($request->query('application_id'));
+    }
+
     private function normalizeAndroidApplicationId(mixed $applicationId): string
     {
         $value = is_string($applicationId) ? trim($applicationId) : '';
 
         return $value !== '' ? $value : (string) config('dis.updates.android_application_id', 'nl.wrdmarco.dis');
+    }
+
+    private function normalizeIosApplicationId(mixed $applicationId): string
+    {
+        $value = is_string($applicationId) ? trim($applicationId) : '';
+
+        return $value !== '' ? $value : 'nl.wrdmarco.dis.ios';
     }
 
     private function minimumSupportedVersionCodeKey(string $applicationId): string
@@ -446,7 +491,7 @@ final class UpdateController extends Controller
             'download_url' => ['nullable', 'url', 'max:2048'],
             'release_notes' => ['nullable', 'string', 'max:10000'],
         ]));
-        $this->auditService->record('updates.android_updated', $version, $request->user());
+        $this->auditService->record("updates.{$version->platform}_updated", $version, $request->user());
 
         return ApiResponse::success($version->refresh());
     }

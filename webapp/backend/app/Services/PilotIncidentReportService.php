@@ -53,7 +53,7 @@ final class PilotIncidentReportService
         $report = DB::transaction(function () use ($incident, $user, $data): PilotIncidentReport {
             $report = $this->ensureReport($incident, $user);
             $report->fill([
-                'summary' => $data['summary'],
+                'summary' => $data['summary'] ?? null,
                 'observations' => $data['observations'] ?? null,
                 'actions_taken' => $data['actions_taken'] ?? null,
                 'result' => $data['result'] ?? null,

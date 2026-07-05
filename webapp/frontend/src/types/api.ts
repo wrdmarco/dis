@@ -531,6 +531,20 @@ export interface SystemVersionState {
   updater: SystemUpdateStatus;
 }
 
+export interface PilotReportFormField {
+  key: 'summary' | 'observations' | 'actions_taken' | 'result' | 'equipment_used' | 'flight_minutes' | 'issues';
+  label: string;
+  type: 'text' | 'textarea' | 'number';
+  visible: boolean;
+  required: boolean;
+  max_length?: number;
+  max?: number;
+}
+
+export interface PilotReportFormConfig {
+  fields: PilotReportFormField[];
+}
+
 export interface SystemSetting {
   key: string;
   value: unknown;
