@@ -1259,6 +1259,93 @@ a:hover {
   padding: 16px;
 }
 
+.operational-status {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.operational-status__summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.operational-status__summary > div {
+  position: relative;
+  min-height: 78px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "icon label"
+    "icon value";
+  gap: 3px 10px;
+  align-content: center;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 12px;
+}
+
+.operational-status__summary svg {
+  grid-area: icon;
+  align-self: center;
+  color: #7dd3fc;
+}
+
+.operational-status__summary span {
+  grid-area: label;
+  color: #8ea0b5;
+  font-size: 0.78rem;
+}
+
+.operational-status__summary strong {
+  grid-area: value;
+  color: #f8fafc;
+  font-size: 1.45rem;
+}
+
+.operational-status__table th:nth-child(1) {
+  width: 28%;
+}
+
+.operational-status__table th:nth-child(2) {
+  width: 24%;
+}
+
+.operational-status__table th:nth-child(3) {
+  width: 24%;
+}
+
+.operational-status__table th:nth-child(4) {
+  width: 16%;
+}
+
+.operational-status__table th:nth-child(5) {
+  width: 8%;
+}
+
+.operator-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.operator-cell strong {
+  overflow: hidden;
+  color: #f8fafc;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operator-cell span {
+  overflow: hidden;
+  color: #8ea0b5;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .incident-list-view {
   display: grid;
   gap: 16px;

@@ -1,5 +1,5 @@
-import { type FormEvent, useState } from 'react';
-import { Pencil, X } from 'lucide-react';
+import { type FormEvent, type ReactNode, useState } from 'react';
+import { Clock3, Pencil, ShieldCheck, UsersRound, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -19,9 +19,13 @@ export function StatusPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const items = statuses.data ?? [];
+  const sortedItems = [...items].sort((left, right) => Number(left.is_available) - Number(right.is_available)
+    || (left.next_available_at?.at ?? '').localeCompare(right.next_available_at?.at ?? '')
+    || (left.user?.name ?? '').localeCompare(right.user?.name ?? ''));
   const availableCount = items.filter((item) => item.is_available).length;
   const unavailableCount = items.filter((item) => !item.is_available).length;
   const onSceneCount = items.filter((item) => item.status === 'on_scene').length;
+  const returningCount = items.filter((item) => !item.is_available && item.next_available_at !== null && item.next_available_at !== undefined).length;
   const canOverrideStatus = hasPermission('status.override');
 
   function openEditModal(item: AvailabilityStatus) {
@@ -56,40 +60,40 @@ export function StatusPage() {
   return (
     <div className="page-stack">
       <RealtimeBridge onOperationalEvent={() => void statuses.silentReload()} />
-      <Panel title="Gebruikersstatussen">
+      <Panel title="Operational status">
         <ResourceState loading={statuses.loading} error={statuses.error} empty={items.length === 0}>
-          <div className="status-overview">
-            <div className="summary-grid">
-              <SummaryItem label="Gebruikers" value={String(items.length)} />
-              <SummaryItem label="Beschikbaar" value={String(availableCount)} />
-              <SummaryItem label="Niet beschikbaar" value={String(unavailableCount)} />
+          <div className="operational-status">
+            <div className="operational-status__summary">
+              <SummaryItem icon={<ShieldCheck size={18} />} label="Nu beschikbaar" value={String(availableCount)} />
+              <SummaryItem icon={<Clock3 size={18} />} label="Niet beschikbaar" value={String(unavailableCount)} />
+              <SummaryItem icon={<UsersRound size={18} />} label="Wordt later beschikbaar" value={String(returningCount)} />
               <SummaryItem label="Op locatie" value={String(onSceneCount)} />
             </div>
-            <table className="data-table">
+            <table className="data-table operational-status__table">
               <thead>
                 <tr>
                   <th>Gebruiker</th>
-                  <th>E-mail</th>
                   <th>Status</th>
-                  <th>Beschikbaar</th>
-                  <th>Planning</th>
+                  <th>Weer beschikbaar</th>
                   <th>Laatst gewijzigd</th>
                   <th>Actie</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
+                {sortedItems.map((item) => (
                   <tr key={item.id}>
-                    <td>{item.user?.name ?? '-'}</td>
-                    <td>{item.user?.email ?? '-'}</td>
                     <td>
-                      <div className="status-cell">
-                        <StatusPill value={item.status} tone={statusTone(item)} />
-                        {item.is_system_applied ? <small>Planner</small> : null}
-                        {item.reason ? <small>{item.reason}</small> : null}
+                      <div className="operator-cell">
+                        <strong>{item.user?.name ?? '-'}</strong>
+                        <span>{teamLabel(item)}</span>
                       </div>
                     </td>
-                    <td>{item.is_available ? 'Ja' : 'Nee'} </td>
+                    <td>
+                      <div className="status-cell">
+                        <StatusPill value={item.is_available ? 'available' : item.status} tone={statusTone(item)} />
+                        {item.reason ? <small>{item.reason}</small> : item.is_system_applied ? <small>Volgens beschikbaarheidsplanner</small> : null}
+                      </div>
+                    </td>
                     <td>{nextAvailabilityLabel(item)}</td>
                     <td>{formatDateTime(item.effective_at)}</td>
                     <td>
@@ -156,9 +160,10 @@ export function StatusPage() {
   );
 }
 
-function SummaryItem({ label, value }: { label: string; value: string }) {
+function SummaryItem({ icon, label, value }: { icon?: ReactNode; label: string; value: string }) {
   return (
     <div>
+      {icon}
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
@@ -186,16 +191,31 @@ function statusTone(item: AvailabilityStatus): 'neutral' | 'good' | 'warn' | 'ba
 }
 
 function nextAvailabilityLabel(item: AvailabilityStatus): string {
+  if (item.is_available) {
+    return 'Nu beschikbaar';
+  }
+
   if (!item.is_available && item.next_available_at !== null && item.next_available_at !== undefined) {
-    return `Beschikbaar vanaf ${formatDateTime(item.next_available_at.at)}`;
+    return formatDateTime(item.next_available_at.at);
   }
 
   const next = item.next_availability_change;
   if (next === null || next === undefined) {
-    return '-';
+    return 'Geen planning bekend';
   }
 
-  const prefix = next.is_available ? 'Beschikbaar vanaf' : 'Niet beschikbaar vanaf';
+  if (!next.is_available) {
+    return 'Geen beschikbaar moment bekend';
+  }
 
-  return `${prefix} ${formatDateTime(next.at)}`;
+  return formatDateTime(next.at);
+}
+
+function teamLabel(item: AvailabilityStatus): string {
+  const teams = item.user?.teams ?? [];
+  if (teams.length === 0) {
+    return item.user?.home_city ?? '';
+  }
+
+  return teams.map((team) => team.code || team.name).join(', ');
 }
