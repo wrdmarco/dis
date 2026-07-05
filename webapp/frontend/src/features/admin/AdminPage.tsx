@@ -569,8 +569,16 @@ export function AdminPage() {
     setPilotReportFields((current) => [...current, newCustomFormField(current)]);
   }
 
+  function addPilotReportBaseField(field: ConfigurableFormField) {
+    setPilotReportFields((current) => current.some((candidate) => candidate.key === field.key) ? current : [...current, field]);
+  }
+
   function removePilotReportField(key: string) {
-    setPilotReportFields((current) => current.filter((field) => field.key !== key || field.is_custom !== true));
+    setPilotReportFields((current) => current.filter((field) => field.key !== key));
+  }
+
+  function movePilotReportField(key: string, direction: -1 | 1) {
+    setPilotReportFields((current) => moveFormField(current, key, direction));
   }
 
   function updateIncidentFormField(key: string, changes: Partial<ConfigurableFormField>) {
@@ -590,6 +598,10 @@ export function AdminPage() {
 
   function removeIncidentFormField(key: string) {
     setIncidentFormFields((current) => current.filter((field) => field.key !== key));
+  }
+
+  function moveIncidentFormField(key: string, direction: -1 | 1) {
+    setIncidentFormFields((current) => moveFormField(current, key, direction));
   }
 
   return (
@@ -1149,8 +1161,11 @@ export function AdminPage() {
           <ResourceState loading={pilotReportFormConfig.loading} error={pilotReportFormConfig.error} empty={pilotReportFields.length === 0}>
             <ConfigurableFormEditor
               fields={pilotReportFields}
-              description="Pas vaste velden aan of voeg extra velden toe. De mobiele app gebruikt deze configuratie automatisch bij het inzetrapport."
+              description="Bouw het inzetrapport op uit vaste en extra velden. Verwijder vaste velden die je niet wilt tonen; ze blijven alleen beschikbaar voor oude rapporten."
+              availableBaseFields={pilotReportBaseFields}
               onAdd={addPilotReportField}
+              onAddBaseField={addPilotReportBaseField}
+              onMove={movePilotReportField}
               onRemove={removePilotReportField}
               onUpdate={updatePilotReportField}
             />
@@ -1172,6 +1187,7 @@ export function AdminPage() {
               fields={incidentFormFields}
               description="Beheer extra velden voor het incident-aanmaakformulier. Kernvelden zoals titel, locatie, prioriteit en teams blijven verplicht onderdeel van de incidentflow."
               onAdd={addIncidentFormField}
+              onMove={moveIncidentFormField}
               onRemove={removeIncidentFormField}
               onUpdate={updateIncidentFormField}
             />
@@ -1210,25 +1226,40 @@ export function AdminPage() {
 function ConfigurableFormEditor(props: {
   fields: ConfigurableFormField[];
   description: string;
+  availableBaseFields?: ConfigurableFormField[];
   onAdd: () => void;
+  onAddBaseField?: (field: ConfigurableFormField) => void;
+  onMove?: (key: string, direction: -1 | 1) => void;
   onRemove: (key: string) => void;
   onUpdate: (key: string, changes: Partial<ConfigurableFormField>) => void;
 }) {
-  const { fields, description, onAdd, onRemove, onUpdate } = props;
+  const { fields, description, availableBaseFields = [], onAdd, onAddBaseField, onMove, onRemove, onUpdate } = props;
+  const missingBaseFields = availableBaseFields.filter((field) => !fields.some((candidate) => candidate.key === field.key));
 
   return (
     <div className="page-stack">
       <p className="form-note">{description}</p>
       <div className="actions-row">
         <button className="secondary-button" type="button" onClick={onAdd}>Extra veld toevoegen</button>
+        {missingBaseFields.map((field) => (
+          <button className="secondary-button" type="button" key={field.key} onClick={() => onAddBaseField?.(field)}>
+            {field.label} toevoegen
+          </button>
+        ))}
       </div>
       <table className="data-table">
-        <thead><tr><th>Sleutel</th><th>Label</th><th>Type</th><th>Zichtbaar</th><th>Verplicht</th><th>Opties</th><th></th></tr></thead>
+        <thead><tr><th>Volgorde</th><th>Sleutel</th><th>Label</th><th>Type</th><th>Zichtbaar</th><th>Verplicht</th><th>Opties</th><th></th></tr></thead>
         <tbody>
-          {fields.map((field) => {
+          {fields.map((field, index) => {
             const isCustom = field.is_custom === true;
             return (
               <tr key={field.key}>
+                <td>
+                  <div className="actions-row">
+                    <button className="secondary-button" type="button" disabled={index === 0} onClick={() => onMove?.(field.key, -1)}>Omhoog</button>
+                    <button className="secondary-button" type="button" disabled={index === fields.length - 1} onClick={() => onMove?.(field.key, 1)}>Omlaag</button>
+                  </div>
+                </td>
                 <td>
                   {isCustom ? (
                     <input
@@ -1278,9 +1309,7 @@ function ConfigurableFormEditor(props: {
                   )}
                 </td>
                 <td>
-                  {isCustom ? (
-                    <button className="secondary-button" type="button" onClick={() => onRemove(field.key)}>Verwijderen</button>
-                  ) : null}
+                  <button className="secondary-button" type="button" onClick={() => onRemove(field.key)}>Verwijderen</button>
                 </td>
               </tr>
             );
@@ -1310,6 +1339,29 @@ function newCustomFormField(fields: ConfigurableFormField[]): ConfigurableFormFi
     options: [],
     is_custom: true,
   };
+}
+
+const pilotReportBaseFields: ConfigurableFormField[] = [
+  { key: 'summary', label: 'Samenvatting', type: 'textarea', visible: true, required: true, max_length: 5000, is_custom: false },
+  { key: 'observations', label: 'Waarnemingen', type: 'textarea', visible: true, required: false, max_length: 5000, is_custom: false },
+  { key: 'actions_taken', label: 'Uitgevoerde acties', type: 'textarea', visible: true, required: false, max_length: 5000, is_custom: false },
+  { key: 'result', label: 'Resultaat', type: 'textarea', visible: true, required: false, max_length: 5000, is_custom: false },
+  { key: 'equipment_used', label: 'Gebruikte middelen', type: 'text', visible: true, required: false, max_length: 5000, is_custom: false },
+  { key: 'flight_minutes', label: 'Vluchtduur in minuten', type: 'number', visible: true, required: false, max: 1440, is_custom: false },
+  { key: 'issues', label: 'Bijzonderheden of problemen', type: 'textarea', visible: true, required: false, max_length: 5000, is_custom: false },
+];
+
+function moveFormField<T extends ConfigurableFormField>(fields: T[], key: string, direction: -1 | 1): T[] {
+  const index = fields.findIndex((field) => field.key === key);
+  const nextIndex = index + direction;
+  if (index < 0 || nextIndex < 0 || nextIndex >= fields.length) {
+    return fields;
+  }
+
+  const next = [...fields];
+  const [field] = next.splice(index, 1);
+  next.splice(nextIndex, 0, field);
+  return next;
 }
 
 function normalizeCustomFieldKey(value: string): string {

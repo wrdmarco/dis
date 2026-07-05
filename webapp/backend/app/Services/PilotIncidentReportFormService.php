@@ -17,32 +17,33 @@ final class PilotIncidentReportFormService
      */
     public function fields(): array
     {
-        $stored = SystemSetting::value(self::SETTING_KEY, []);
-        $storedByKey = collect(is_array($stored) ? $stored : [])->keyBy(fn ($field): string => (string) ($field['key'] ?? ''));
-        $defaults = collect($this->defaultFields())
-            ->map(function (array $default) use ($storedByKey): array {
-                $storedField = $storedByKey->get($default['key']);
-                if (! is_array($storedField)) {
-                    return $default;
+        $setting = SystemSetting::query()->where('key', self::SETTING_KEY)->first();
+        if ($setting === null) {
+            return $this->defaultFields();
+        }
+
+        $stored = is_array($setting->value) ? $setting->value : [];
+        $defaults = collect($this->defaultFields())->keyBy('key');
+
+        return collect($stored)
+            ->filter(fn (mixed $field): bool => is_array($field))
+            ->map(function (array $field) use ($defaults): array {
+                $key = (string) ($field['key'] ?? '');
+                $default = $defaults->get($key);
+                if ($default === null) {
+                    return $this->normalizeCustomField($field);
                 }
 
                 return [
                     ...$default,
-                    'label' => $this->cleanLabel($storedField['label'] ?? $default['label']),
-                    'visible' => is_bool($storedField['visible'] ?? null) ? $storedField['visible'] : $default['visible'],
-                    'required' => is_bool($storedField['required'] ?? null) ? $storedField['required'] : $default['required'],
+                    'label' => $this->cleanLabel($field['label'] ?? $default['label']),
+                    'visible' => is_bool($field['visible'] ?? null) ? $field['visible'] : $default['visible'],
+                    'required' => is_bool($field['required'] ?? null) ? $field['required'] : $default['required'],
                     'is_custom' => false,
                 ];
-            });
-
-        $custom = collect(is_array($stored) ? $stored : [])
-            ->filter(fn (mixed $field): bool => is_array($field) && $this->isCustomKey((string) ($field['key'] ?? '')))
-            ->map(function (array $field): array {
-                return $this->normalizeCustomField($field);
             })
-            ->values();
-
-        return $defaults->concat($custom)->values()->all();
+            ->values()
+            ->all();
     }
 
     /**
@@ -91,13 +92,7 @@ final class PilotIncidentReportFormService
             ];
         }
 
-        foreach ($defaults as $key => $default) {
-            if (! isset($seen[$key])) {
-                $validated[] = $default;
-            }
-        }
-
-        if (! collect($validated)->contains(fn (array $field): bool => $field['visible'] && $field['required'])) {
+        if (! collect($validated)->contains(fn (array $field): bool => $field['visible'])) {
             throw ValidationException::withMessages(['fields' => ['Minimaal één zichtbaar veld moet verplicht zijn.']]);
         }
 
