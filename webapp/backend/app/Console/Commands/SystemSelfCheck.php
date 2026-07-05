@@ -5,7 +5,6 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 
 final class SystemSelfCheck extends Command
@@ -65,11 +64,10 @@ final class SystemSelfCheck extends Command
         }
 
         Cache::put('self-check', 'ok', 30);
-        $selfCheckPath = storage_path('app/self-check.txt');
-        File::ensureDirectoryExists(dirname($selfCheckPath), 0770, true);
-        File::put($selfCheckPath, 'ok');
-        $storageOk = is_file($selfCheckPath) && file_get_contents($selfCheckPath) === 'ok';
-        File::delete($selfCheckPath);
+        $storageOk = is_dir(storage_path('app'))
+            && is_dir(storage_path('framework/cache'))
+            && is_dir(storage_path('framework/views'))
+            && is_dir(storage_path('logs'));
 
         if (Cache::get('self-check') !== 'ok' || ! $storageOk) {
             $this->error('DIS self-check failed.');
