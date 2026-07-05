@@ -21,6 +21,7 @@ const homeRedirectCandidates = [
   { to: '/assets', permissions: ['assets.view'] },
   { to: '/certifications', permissions: ['certifications.view'] },
   { to: '/updates', permissions: ['updates.manage'] },
+  { to: '/forms', permissions: ['settings.manage'] },
   { to: '/admin', permissions: ['settings.manage'] },
   { to: '/system', permissions: ['system.health'] },
 ] as const;

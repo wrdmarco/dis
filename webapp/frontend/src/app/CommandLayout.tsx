@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, Gauge, KeyRound, LogOut, Menu, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow, X } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, FileText, Gauge, KeyRound, LogOut, Menu, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../features/auth/AuthContext';
@@ -66,6 +66,7 @@ const navGroups: NavGroup[] = [
     label: 'Beheer',
     items: [
       { to: '/updates', label: 'App updates', icon: Smartphone, permissions: ['updates.manage'] },
+      { to: '/forms', label: 'Formulieren', icon: FileText, permissions: ['settings.manage'] },
       { to: '/admin', label: 'Admin', icon: Shield, permissions: ['settings.manage'] },
       { to: '/branding', label: 'Branding', icon: Palette, permissions: ['settings.manage'] },
       { to: '/audit', label: 'Audit', icon: ScrollText, permissions: ['audit.view', 'status.audit.view'], anyPermission: true },
@@ -99,6 +100,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/certifications': () => import('../features/certifications/CertificationsPage'),
   '/expiry': () => import('../features/expiry/ExpiryPage'),
   '/updates': () => import('../features/updates/UpdatesPage'),
+  '/forms': () => import('../features/admin/AdminPage'),
   '/calendar': () => import('../features/calendar/CalendarPage'),
   '/admin': () => import('../features/admin/AdminPage'),
   '/branding': () => import('../features/branding/BrandingPage'),

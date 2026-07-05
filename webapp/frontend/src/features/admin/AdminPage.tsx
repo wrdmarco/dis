@@ -61,6 +61,7 @@ interface PasswordPolicySettingsForm {
 }
 
 type AdminTab = 'firebase' | 'mail' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'pilotReport' | 'incidentForm' | 'settings';
+type AdminPageMode = 'admin' | 'forms';
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'firebase', label: 'Firebase' },
@@ -70,9 +71,12 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'developer', label: 'Ontwikkel' },
   { id: 'version', label: 'Versie' },
   { id: 'tokens', label: 'Tokens' },
+  { id: 'settings', label: 'Instellingen' },
+];
+
+const formTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'pilotReport', label: 'Inzetrapport' },
   { id: 'incidentForm', label: 'Incidentformulier' },
-  { id: 'settings', label: 'Instellingen' },
 ];
 
 const developerScopeLabels: Record<string, string> = {
@@ -105,18 +109,19 @@ function adminTabAllowed(
   return permissions.canManageSettings;
 }
 
-export function AdminPage() {
+export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const { api, token, hasPermission } = useAuth();
+  const availableTabs = mode === 'forms' ? formTabs : adminTabs;
   const canManageSettings = hasPermission('settings.manage');
   const canManagePush = hasPermission('push.manage');
   const canViewSystemHealth = hasPermission('system.health');
-  const visibleAdminTabs = adminTabs.filter((tab) => adminTabAllowed(tab.id, { canManageSettings, canManagePush, canViewSystemHealth }));
-  const settings = useApiResource<SystemSetting[]>('/admin/settings', canManageSettings);
-  const tokens = useApiResource<FcmToken[]>('/admin/push/tokens?per_page=100', canManagePush);
-  const developerAccess = useApiResource<DeveloperAccessState>('/admin/developer-access', canManageSettings);
-  const systemVersion = useApiResource<SystemVersionState>('/admin/system/version', canViewSystemHealth);
-  const pilotReportFormConfig = useApiResource<PilotReportFormConfig>('/admin/pilot-report/form-config', canManageSettings);
-  const incidentFormConfig = useApiResource<IncidentFormConfig>('/admin/incident-form/config', canManageSettings);
+  const visibleAdminTabs = availableTabs.filter((tab) => adminTabAllowed(tab.id, { canManageSettings, canManagePush, canViewSystemHealth }));
+  const settings = useApiResource<SystemSetting[]>('/admin/settings', canManageSettings && mode === 'admin');
+  const tokens = useApiResource<FcmToken[]>('/admin/push/tokens?per_page=100', canManagePush && mode === 'admin');
+  const developerAccess = useApiResource<DeveloperAccessState>('/admin/developer-access', canManageSettings && mode === 'admin');
+  const systemVersion = useApiResource<SystemVersionState>('/admin/system/version', canViewSystemHealth && mode === 'admin');
+  const pilotReportFormConfig = useApiResource<PilotReportFormConfig>('/admin/pilot-report/form-config', canManageSettings && mode === 'forms');
+  const incidentFormConfig = useApiResource<IncidentFormConfig>('/admin/incident-form/config', canManageSettings && mode === 'forms');
   const mobileSettings = useMemo(() => toMobileSettingsForm(settings.data ?? []), [settings.data]);
   const managedSettings = useMemo(() => toManagedSettingsForm(settings.data ?? []), [settings.data]);
   const passwordPolicySettings = useMemo(() => toPasswordPolicySettingsForm(settings.data ?? []), [settings.data]);
@@ -125,7 +130,7 @@ export function AdminPage() {
   const [passwordPolicyForm, setPasswordPolicyForm] = useState<PasswordPolicySettingsForm>(passwordPolicySettings);
   const [pilotReportFields, setPilotReportFields] = useState<PilotReportFormField[]>([]);
   const [incidentFormFields, setIncidentFormFields] = useState<ConfigurableFormField[]>([]);
-  const [activeTab, setActiveTab] = useState<AdminTab>('firebase');
+  const [activeTab, setActiveTab] = useState<AdminTab>(mode === 'forms' ? 'pilotReport' : 'firebase');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [managedSaving, setManagedSaving] = useState(false);
