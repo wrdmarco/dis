@@ -595,6 +595,17 @@ function DynamicIncidentField(props: {
     );
   }
 
+  if (field.type === 'flight_time') {
+    return (
+      <FlightTimeField
+        label={label}
+        value={value}
+        required={field.required}
+        onChange={onChange}
+      />
+    );
+  }
+
   if (field.type === 'select') {
     return (
       <label>
@@ -638,6 +649,133 @@ function DynamicIncidentField(props: {
       <input value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
+}
+
+function FlightTimeField(props: {
+  label: string;
+  value: unknown;
+  required: boolean;
+  onChange: (value: unknown) => void;
+}) {
+  const value = flightTimeValue(props.value);
+  const update = (part: 'start' | 'end', nextValue: string) => {
+    props.onChange({
+      ...value,
+      [part]: normalizeTimeInput(nextValue),
+    });
+  };
+
+  return (
+    <div className="form-grid__wide">
+      <span className="field-label">{props.label}</span>
+      <div className="form-grid">
+        <TimePartFields label="Start" value={value.start} required={props.required} onChange={(next) => update('start', next)} />
+        <TimePartFields label="Eind" value={value.end} required={props.required} onChange={(next) => update('end', next)} />
+      </div>
+      <small>{flightTimeSummary(value)}</small>
+    </div>
+  );
+}
+
+function TimePartFields(props: {
+  label: string;
+  value: string;
+  required: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [hours, minutes] = timeParts(props.value);
+  const update = (nextHours: number, nextMinutes: number) => {
+    props.onChange(formatTimeParts(nextHours, nextMinutes));
+  };
+
+  return (
+    <div className="form-grid">
+      <label>
+        {props.label} uur
+        <input
+          type="number"
+          min="0"
+          max="24"
+          value={hours}
+          required={props.required}
+          onChange={(event) => update(Number(event.target.value || 0), minutes)}
+        />
+      </label>
+      <label>
+        {props.label} min
+        <input
+          type="number"
+          min="0"
+          max="59"
+          value={minutes}
+          required={props.required}
+          onChange={(event) => update(hours, Number(event.target.value || 0))}
+        />
+      </label>
+    </div>
+  );
+}
+
+function flightTimeValue(value: unknown): { start: string; end: string } {
+  if (typeof value === 'object' && value !== null) {
+    const record = value as Record<string, unknown>;
+    return {
+      start: normalizeTimeInput(record.start),
+      end: normalizeTimeInput(record.end),
+    };
+  }
+
+  return { start: '', end: '' };
+}
+
+function normalizeTimeInput(value: unknown): string {
+  const time = typeof value === 'string' ? value : '';
+  return /^([01]\d|2[0-4]):[0-5]\d$/.test(time) ? time : '';
+}
+
+function flightTimeSummary(value: { start: string; end: string }): string {
+  const duration = flightDurationMinutes(value.start, value.end);
+  if (duration === null) {
+    return 'Vul start- en eindtijd in.';
+  }
+
+  const hours = Math.floor(duration / 60);
+  const minutes = duration % 60;
+  return `Duur: ${hours} uur ${minutes} minuten.`;
+}
+
+function flightDurationMinutes(start: string, end: string): number | null {
+  if (!normalizeTimeInput(start) || !normalizeTimeInput(end)) {
+    return null;
+  }
+
+  const [startHour, startMinute] = start.split(':').map(Number);
+  const [endHour, endMinute] = end.split(':').map(Number);
+  const startTotal = startHour * 60 + startMinute;
+  let endTotal = endHour * 60 + endMinute;
+  if (endTotal < startTotal) {
+    endTotal += 24 * 60;
+  }
+
+  return endTotal - startTotal;
+}
+
+function timeParts(value: string): [number, number] {
+  const normalized = normalizeTimeInput(value);
+  if (normalized === '') {
+    return [0, 0];
+  }
+
+  const [hours, minutes] = normalized.split(':').map(Number);
+  return [hours, minutes];
+}
+
+function formatTimeParts(hours: number, minutes: number): string {
+  return `${clampTimePart(hours, 0, 24).toString().padStart(2, '0')}:${clampTimePart(minutes, 0, 59).toString().padStart(2, '0')}`;
+}
+
+function clampTimePart(value: number, min: number, max: number): number {
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, Math.floor(value))) : min;
 }
 
 function FlightInfoCard({ icon, title, items }: { icon: ReactNode; title: string; items: Array<[string, string]> }) {

@@ -10,7 +10,7 @@ final class IncidentFormService
 {
     public const SETTING_KEY = 'incident.form_fields';
     private const FIELD_KEY_PATTERN = '/^[a-z][a-z0-9_]{1,60}$/';
-    private const FIELD_TYPES = ['text', 'textarea', 'number', 'select', 'checkbox', 'radio'];
+    private const FIELD_TYPES = ['text', 'textarea', 'number', 'flight_time', 'select', 'checkbox', 'radio'];
 
     /**
      * @return array<int, array<string, mixed>>
@@ -75,6 +75,10 @@ final class IncidentFormService
                 $fieldRules[] = 'integer';
                 $fieldRules[] = 'min:0';
                 $fieldRules[] = 'max:999999';
+            } elseif ($field['type'] === 'flight_time') {
+                $fieldRules[] = 'array';
+                $rules['custom_fields.'.$field['key'].'.start'] = [$partial ? 'sometimes' : ($field['required'] === true ? 'required' : 'nullable'), 'regex:/^([01]\d|2[0-4]):[0-5]\d$/'];
+                $rules['custom_fields.'.$field['key'].'.end'] = [$partial ? 'sometimes' : ($field['required'] === true ? 'required' : 'nullable'), 'regex:/^([01]\d|2[0-4]):[0-5]\d$/'];
             } elseif ($field['type'] === 'checkbox') {
                 $fieldRules[] = 'boolean';
             } elseif (in_array($field['type'], ['select', 'radio'], true)) {
@@ -118,6 +122,8 @@ final class IncidentFormService
                 $values[$key] = null;
             } elseif ($field['type'] === 'number') {
                 $values[$key] = (int) $value;
+            } elseif ($field['type'] === 'flight_time') {
+                $values[$key] = $this->normalizeFlightTimeValue($value);
             } elseif ($field['type'] === 'checkbox') {
                 $values[$key] = filter_var($value, FILTER_VALIDATE_BOOLEAN);
             } else {
@@ -213,5 +219,45 @@ final class IncidentFormService
         }
 
         return $cleaned;
+    }
+
+    /**
+     * @return array{start: string|null, end: string|null, duration_minutes: int|null}
+     */
+    private function normalizeFlightTimeValue(mixed $value): array
+    {
+        $start = is_array($value) && is_string($value['start'] ?? null) ? $value['start'] : null;
+        $end = is_array($value) && is_string($value['end'] ?? null) ? $value['end'] : null;
+
+        return [
+            'start' => $this->cleanTimeValue($start),
+            'end' => $this->cleanTimeValue($end),
+            'duration_minutes' => $this->flightDurationMinutes($start, $end),
+        ];
+    }
+
+    private function cleanTimeValue(?string $value): ?string
+    {
+        $time = trim((string) $value);
+        return preg_match('/^([01]\d|2[0-4]):[0-5]\d$/', $time) === 1 ? $time : null;
+    }
+
+    private function flightDurationMinutes(?string $start, ?string $end): ?int
+    {
+        $start = $this->cleanTimeValue($start);
+        $end = $this->cleanTimeValue($end);
+        if ($start === null || $end === null) {
+            return null;
+        }
+
+        [$startHour, $startMinute] = array_map('intval', explode(':', $start));
+        [$endHour, $endMinute] = array_map('intval', explode(':', $end));
+        $startTotal = $startHour * 60 + $startMinute;
+        $endTotal = $endHour * 60 + $endMinute;
+        if ($endTotal < $startTotal) {
+            $endTotal += 24 * 60;
+        }
+
+        return $endTotal - $startTotal;
     }
 }

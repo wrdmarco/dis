@@ -1238,18 +1238,18 @@ function ConfigurableFormEditor(props: {
       <div className="actions-row">
         <button className="secondary-button" type="button" onClick={onAdd}>Extra veld toevoegen</button>
       </div>
-      <table className="data-table">
+      <table className="data-table form-config-table">
         <thead><tr><th>Volgorde</th><th>Label</th><th>Type</th><th>Zichtbaar</th><th>Verplicht</th><th>Opties</th><th></th></tr></thead>
         <tbody>
           {fields.map((field, index) => (
               <tr key={field.key}>
-                <td>
+                <td data-label="Volgorde">
                   <div className="actions-row">
                     <button className="secondary-button" type="button" disabled={index === 0} onClick={() => onMove?.(field.key, -1)}>Omhoog</button>
                     <button className="secondary-button" type="button" disabled={index === fields.length - 1} onClick={() => onMove?.(field.key, 1)}>Omlaag</button>
                   </div>
                 </td>
-                <td>
+                <td data-label="Label">
                   <input type="hidden" value={field.key} readOnly />
                   <input
                     value={field.label}
@@ -1259,7 +1259,7 @@ function ConfigurableFormEditor(props: {
                     }}
                   />
                 </td>
-                <td>
+                <td data-label="Type">
                   <select
                     value={field.type}
                     onChange={(event) => onUpdate(field.key, {
@@ -1271,18 +1271,19 @@ function ConfigurableFormEditor(props: {
                     <option value="text">Tekst</option>
                     <option value="textarea">Grote tekst</option>
                     <option value="number">Getal</option>
+                    <option value="flight_time">Vluchttijd</option>
                     <option value="select">Dropdown</option>
                     <option value="checkbox">Checkbox</option>
                     <option value="radio">Radioknoppen</option>
                   </select>
                 </td>
-                <td>
+                <td data-label="Zichtbaar">
                   <input type="checkbox" checked={field.visible} onChange={(event) => onUpdate(field.key, { visible: event.target.checked })} />
                 </td>
-                <td>
+                <td data-label="Verplicht">
                   <input type="checkbox" checked={field.required} disabled={!field.visible} onChange={(event) => onUpdate(field.key, { required: event.target.checked })} />
                 </td>
-                <td>
+                <td data-label="Opties">
                   {['select', 'radio'].includes(field.type) ? (
                     <div className="page-stack">
                       <select
@@ -1309,7 +1310,7 @@ function ConfigurableFormEditor(props: {
                     <span className="muted-text">Niet nodig</span>
                   )}
                 </td>
-                <td>
+                <td data-label="Actie">
                   <button className="secondary-button" type="button" onClick={() => onRemove(field.key)}>Verwijderen</button>
                 </td>
               </tr>

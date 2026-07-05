@@ -540,7 +540,7 @@ export interface FormFieldOption {
 export interface ConfigurableFormField {
   key: string;
   label: string;
-  type: 'text' | 'textarea' | 'number' | 'select' | 'checkbox' | 'radio';
+  type: 'text' | 'textarea' | 'number' | 'flight_time' | 'select' | 'checkbox' | 'radio';
   visible: boolean;
   required: boolean;
   max_length?: number;

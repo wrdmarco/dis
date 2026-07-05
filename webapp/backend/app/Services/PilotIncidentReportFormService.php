@@ -12,7 +12,7 @@ final class PilotIncidentReportFormService
 {
     public const SETTING_KEY = 'pilot_report.form_fields';
     private const FIELD_KEY_PATTERN = '/^[a-z][a-z0-9_]{1,60}$/';
-    private const FIELD_TYPES = ['text', 'textarea', 'number', 'select', 'checkbox', 'radio'];
+    private const FIELD_TYPES = ['text', 'textarea', 'number', 'flight_time', 'select', 'checkbox', 'radio'];
     private const OPTION_SOURCES = ['manual', 'user_drones'];
 
     /**
@@ -85,6 +85,10 @@ final class PilotIncidentReportFormService
                 $fieldRules[] = 'integer';
                 $fieldRules[] = 'min:0';
                 $fieldRules[] = 'max:'.(int) ($field['max'] ?? 1440);
+            } elseif ($field['type'] === 'flight_time') {
+                $fieldRules[] = 'array';
+                $rules[$target.'.start'] = [$field['required'] === true ? 'required' : 'nullable', 'regex:/^([01]\d|2[0-4]):[0-5]\d$/'];
+                $rules[$target.'.end'] = [$field['required'] === true ? 'required' : 'nullable', 'regex:/^([01]\d|2[0-4]):[0-5]\d$/'];
             } elseif ($field['type'] === 'checkbox') {
                 $fieldRules[] = 'boolean';
             } elseif (in_array($field['type'], ['select', 'radio'], true)) {
@@ -128,6 +132,8 @@ final class PilotIncidentReportFormService
                 $values[$key] = null;
             } elseif ($field['type'] === 'number') {
                 $values[$key] = (int) $value;
+            } elseif ($field['type'] === 'flight_time') {
+                $values[$key] = $this->normalizeFlightTimeValue($value);
             } elseif ($field['type'] === 'checkbox') {
                 $values[$key] = filter_var($value, FILTER_VALIDATE_BOOLEAN);
             } else {
@@ -149,7 +155,7 @@ final class PilotIncidentReportFormService
             ['key' => 'actions_taken', 'label' => 'Uitgevoerde acties', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
             ['key' => 'result', 'label' => 'Resultaat', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
             ['key' => 'equipment_used', 'label' => 'Gebruikte middelen', 'type' => 'text', 'visible' => true, 'required' => false, 'max_length' => 5000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
-            ['key' => 'flight_minutes', 'label' => 'Vluchtduur in minuten', 'type' => 'number', 'visible' => true, 'required' => false, 'max_length' => 1000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
+            ['key' => 'flight_time', 'label' => 'Vluchttijd', 'type' => 'flight_time', 'visible' => true, 'required' => false, 'max_length' => 1000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
             ['key' => 'issues', 'label' => 'Bijzonderheden of problemen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
         ];
     }
@@ -301,5 +307,45 @@ final class PilotIncidentReportFormService
         }
 
         return $value;
+    }
+
+    /**
+     * @return array{start: string|null, end: string|null, duration_minutes: int|null}
+     */
+    private function normalizeFlightTimeValue(mixed $value): array
+    {
+        $start = is_array($value) && is_string($value['start'] ?? null) ? $value['start'] : null;
+        $end = is_array($value) && is_string($value['end'] ?? null) ? $value['end'] : null;
+
+        return [
+            'start' => $this->cleanTimeValue($start),
+            'end' => $this->cleanTimeValue($end),
+            'duration_minutes' => $this->flightDurationMinutes($start, $end),
+        ];
+    }
+
+    private function cleanTimeValue(?string $value): ?string
+    {
+        $time = trim((string) $value);
+        return preg_match('/^([01]\d|2[0-4]):[0-5]\d$/', $time) === 1 ? $time : null;
+    }
+
+    private function flightDurationMinutes(?string $start, ?string $end): ?int
+    {
+        $start = $this->cleanTimeValue($start);
+        $end = $this->cleanTimeValue($end);
+        if ($start === null || $end === null) {
+            return null;
+        }
+
+        [$startHour, $startMinute] = array_map('intval', explode(':', $start));
+        [$endHour, $endMinute] = array_map('intval', explode(':', $end));
+        $startTotal = $startHour * 60 + $startMinute;
+        $endTotal = $endHour * 60 + $endMinute;
+        if ($endTotal < $startTotal) {
+            $endTotal += 24 * 60;
+        }
+
+        return $endTotal - $startTotal;
     }
 }

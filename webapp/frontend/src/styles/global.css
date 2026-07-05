@@ -5114,6 +5114,73 @@ pre {
     padding: 10px 12px;
   }
 
+  .form-config-table {
+    display: table;
+    overflow: visible;
+    white-space: normal;
+  }
+
+  .form-config-table thead {
+    display: none;
+  }
+
+  .form-config-table tbody,
+  .form-config-table tr,
+  .form-config-table td {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .form-config-table tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  .form-config-table tr {
+    border: 1px solid rgba(142, 160, 181, 0.22);
+    border-radius: 8px;
+    background: rgba(11, 18, 32, 0.72);
+    overflow: hidden;
+  }
+
+  .form-config-table td {
+    border-bottom: 1px solid rgba(142, 160, 181, 0.14);
+    padding: 12px;
+    white-space: normal;
+  }
+
+  .form-config-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .form-config-table td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 6px;
+    color: #8ea0b5;
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  .form-config-table .actions-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .form-config-table input:not([type="checkbox"]),
+  .form-config-table select,
+  .form-config-table textarea {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .form-config-table input[type="checkbox"] {
+    width: 44px;
+    height: 44px;
+  }
+
   .form-grid,
   .modal .form-grid,
   .modal > .form-grid,
