@@ -1,9 +1,10 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, FileText, Gauge, KeyRound, LogOut, Menu, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow, X } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, Download, FileText, Gauge, KeyRound, LogOut, Menu, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../features/auth/AuthContext';
+import type { User } from '../types/api';
 
 interface NavItem {
   to: string;
@@ -12,6 +13,7 @@ interface NavItem {
   end?: boolean;
   permissions?: string[];
   anyPermission?: boolean;
+  requiresAppAccess?: boolean;
 }
 
 interface NavGroup {
@@ -26,6 +28,7 @@ const navGroups: NavGroup[] = [
     label: 'Account',
     items: [
       { to: PROFILE_PATH, label: 'Profiel', icon: UserRound },
+      { to: '/download', label: 'Software', icon: Download, requiresAppAccess: true },
     ],
   },
   {
@@ -81,6 +84,7 @@ const profileOnlyNavGroups: NavGroup[] = [
     label: 'Account',
     items: [
       { to: PROFILE_PATH, label: 'Profiel', icon: UserRound },
+      { to: '/download', label: 'Software', icon: Download, requiresAppAccess: true },
     ],
   },
 ];
@@ -100,6 +104,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/certifications': () => import('../features/certifications/CertificationsPage'),
   '/expiry': () => import('../features/expiry/ExpiryPage'),
   '/updates': () => import('../features/updates/UpdatesPage'),
+  '/download': () => import('../features/public/AndroidDownloadPage'),
   '/forms': () => import('../features/admin/AdminPage'),
   '/calendar': () => import('../features/calendar/CalendarPage'),
   '/admin': () => import('../features/admin/AdminPage'),
@@ -164,11 +169,16 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
     ? navGroups
       .map((group) => ({
         ...group,
-        items: group.items.filter((item) => canShowNavItem(item, hasPermission)),
+        items: group.items.filter((item) => canShowNavItem(item, hasPermission, user)),
       }))
       .filter((group) => group.items.length > 0)
-    : profileOnlyNavGroups,
-  [canUseWebConsole, hasPermission]);
+    : profileOnlyNavGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => canShowNavItem(item, hasPermission, user)),
+      }))
+      .filter((group) => group.items.length > 0),
+  [canUseWebConsole, hasPermission, user]);
   const currentNavItem = useMemo(() => currentNavForPath(visibleNavGroups, pathname), [pathname, visibleNavGroups]);
 
   return (
@@ -276,7 +286,11 @@ function currentNavForPath(groups: NavGroup[], pathname: string): { groupLabel: 
   return match;
 }
 
-function canShowNavItem(item: NavItem, hasPermission: (permission: string) => boolean): boolean {
+function canShowNavItem(item: NavItem, hasPermission: (permission: string) => boolean, user: User | null): boolean {
+  if (item.requiresAppAccess && !canUseAnyMobileApp(user)) {
+    return false;
+  }
+
   if (!item.permissions || item.permissions.length === 0) {
     return true;
   }
@@ -286,4 +300,8 @@ function canShowNavItem(item: NavItem, hasPermission: (permission: string) => bo
   }
 
   return item.permissions.every(hasPermission);
+}
+
+function canUseAnyMobileApp(user: User | null): boolean {
+  return user?.roles?.some((role) => role.can_use_operator_app || role.can_use_admin_app) ?? false;
 }

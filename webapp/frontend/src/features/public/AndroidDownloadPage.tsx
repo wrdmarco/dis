@@ -1,9 +1,10 @@
 import { Download, ShieldCheck, Smartphone } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { apiBaseUrl } from '../../lib/apiClient';
 import type { AppVersion, ApiResponse } from '../../types/api';
+import { useAuth } from '../auth/AuthContext';
 
 interface AndroidUpdatePolicy {
   update_required: boolean;
@@ -13,16 +14,20 @@ interface AndroidUpdatePolicy {
 type Channel = {
   key: string;
   title: string;
+  access: 'operator' | 'admin';
+  platform: 'android' | 'ios';
   applicationId?: string;
   latest: AppVersion | null;
 };
 
 export function AndroidDownloadPage() {
-  const [channels, setChannels] = useState<Channel[]>([
-    { key: 'operator-android', title: 'Operator Android', latest: null },
-    { key: 'admin-android', title: 'Admin Android', applicationId: 'nl.wrdmarco.dis.admin', latest: null },
-    { key: 'operator-ios', title: 'Operator iPhone', applicationId: 'nl.wrdmarco.dis.ios', latest: null },
-  ]);
+  const { user } = useAuth();
+  const canUseOperatorApp = user?.roles?.some((role) => role.can_use_operator_app) === true;
+  const canUseAdminApp = user?.roles?.some((role) => role.can_use_admin_app) === true;
+  const allowedChannelDefinitions = useMemo(() => channelDefinitions.filter((channel) =>
+    channel.access === 'operator' ? canUseOperatorApp : canUseAdminApp,
+  ), [canUseAdminApp, canUseOperatorApp]);
+  const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,14 +35,19 @@ export function AndroidDownloadPage() {
     let cancelled = false;
 
     async function loadLatestVersion() {
+      if (allowedChannelDefinitions.length === 0) {
+        setChannels([]);
+        setLoading(false);
+        setError(null);
+        return;
+      }
+
       setLoading(true);
       setError(null);
       try {
-        const nextChannels = await Promise.all([
-          loadChannel('android', 'operator-android', 'Operator Android'),
-          loadChannel('android', 'admin-android', 'Admin Android', 'nl.wrdmarco.dis.admin'),
-          loadChannel('ios', 'operator-ios', 'Operator iPhone', 'nl.wrdmarco.dis.ios'),
-        ]);
+        const nextChannels = await Promise.all(allowedChannelDefinitions.map((channel) =>
+          loadChannel(channel.platform, channel.key, channel.title, channel.access, channel.applicationId),
+        ));
 
         if (!cancelled) setChannels(nextChannels);
       } catch (err) {
@@ -56,12 +66,12 @@ export function AndroidDownloadPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [allowedChannelDefinitions]);
 
   const setupUrl = typeof window === 'undefined' ? '' : window.location.origin;
 
   return (
-    <main className="public-download-shell">
+    <div className="public-download-shell">
       <section className="public-download-panel" aria-labelledby="download-title">
         <div className="public-download-panel__mark">
           <Smartphone aria-hidden size={30} />
@@ -80,7 +90,11 @@ export function AndroidDownloadPage() {
           </div>
         ) : null}
 
-        {!loading && !error && channels.every((channel) => channel.latest === null) ? (
+        {!loading && !error && allowedChannelDefinitions.length === 0 ? (
+          <p className="public-download-panel__status">Er is geen software beschikbaar voor jouw account.</p>
+        ) : null}
+
+        {!loading && !error && allowedChannelDefinitions.length > 0 && channels.every((channel) => channel.latest === null) ? (
           <p className="public-download-panel__status">Er is nog geen mobiele app gepubliceerd.</p>
         ) : null}
 
@@ -104,11 +118,17 @@ export function AndroidDownloadPage() {
           <span>Controleer de SHA-256 hash na download wanneer deze beschikbaar is.</span>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
 
-async function loadChannel(platform: 'android' | 'ios', key: string, title: string, applicationId?: string): Promise<Channel> {
+const channelDefinitions: Array<Omit<Channel, 'latest'>> = [
+  { key: 'operator-android', title: 'Operator Android', access: 'operator', platform: 'android' },
+  { key: 'admin-android', title: 'Admin Android', access: 'admin', platform: 'android', applicationId: 'nl.wrdmarco.dis.admin' },
+  { key: 'operator-ios', title: 'Operator iPhone', access: 'operator', platform: 'ios', applicationId: 'nl.wrdmarco.dis.ios' },
+];
+
+async function loadChannel(platform: 'android' | 'ios', key: string, title: string, access: 'operator' | 'admin', applicationId?: string): Promise<Channel> {
   const params = new URLSearchParams({ version_code: '0' });
   if (applicationId) params.set('application_id', applicationId);
 
@@ -121,7 +141,7 @@ async function loadChannel(platform: 'android' | 'ios', key: string, title: stri
     throw new Error('App informatie kon niet worden geladen.');
   }
 
-  return { key, title, applicationId, latest: payload.data.latest };
+  return { key, title, access, platform, applicationId, latest: payload.data.latest };
 }
 
 function DownloadChannelCard({ channel }: { channel: Channel }) {

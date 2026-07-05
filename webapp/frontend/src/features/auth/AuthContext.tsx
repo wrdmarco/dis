@@ -113,11 +113,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [api]);
 
   const hasPermission = useCallback((permission: string): boolean =>
-    user?.roles?.some((role) => role.can_use_admin_app && role.permissions?.some((candidate) => candidate.name === permission)) ?? false,
+    user?.roles?.some((role) => role.permissions?.some((candidate) => candidate.name === permission)) ?? false,
   [user]);
 
   const canUseWebConsole = useCallback((): boolean =>
-    user?.roles?.some((role) => role.can_use_admin_app) ?? false,
+    user !== null,
   [user]);
 
   const contextValue = useMemo<AuthContextValue>(() => ({
