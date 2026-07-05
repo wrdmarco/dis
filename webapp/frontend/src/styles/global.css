@@ -2012,6 +2012,62 @@ select[multiple] {
   color: #8ea0b5;
 }
 
+.permission-category-list {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.permission-category {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0d1521;
+}
+
+.permission-category header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.permission-category h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.permission-category header span {
+  color: #8ea0b5;
+  font-size: 0.85rem;
+}
+
+.permission-card code {
+  color: #7dd3fc;
+  font-size: 0.78rem;
+  word-break: break-word;
+}
+
+.role-permission-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.role-permission-summary span,
+.role-permission-summary strong {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 1px solid #1f2b3a;
+  border-radius: 999px;
+  background: #0d1521;
+  font-size: 0.82rem;
+}
+
 .recipient-chip {
   display: inline-grid;
   grid-template-columns: minmax(0, auto) minmax(0, auto) auto;

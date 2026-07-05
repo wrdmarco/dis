@@ -144,6 +144,10 @@ export function RolesPage() {
         )}
       >
         {roleError ? <p className="form-error">{roleError}</p> : null}
+        <div className="metadata-example">
+          <strong>Standaard voor iedere ingelogde gebruiker</strong>
+          <p>Iedere gebruiker kan altijd het eigen profiel bekijken en de eigen profielgegevens beheren waar dat is toegestaan. Dat is basisfunctionaliteit en staat daarom niet als aparte permissie in rollen.</p>
+        </div>
         <ResourceState loading={roles.loading} error={roles.error} empty={(roles.data?.length ?? 0) === 0}>
           <table className="data-table">
             <thead><tr><th>Naam</th><th>Apps</th><th>2FA</th><th>Permissies</th><th>Gebruikers</th><th>Actie</th></tr></thead>
@@ -170,7 +174,12 @@ export function RolesPage() {
                     <td><strong>{role.display_name}</strong><br /><span className="mono">{role.name}</span></td>
                     <td>{role.can_use_operator_app ? 'Operator' : '-'} / {role.can_use_admin_app ? 'Admin' : '-'}</td>
                     <td>{role.requires_two_factor ? 'Verplicht' : 'Niet verplicht'}</td>
-                    <td>{role.permissions?.length ?? 0}</td>
+                    <td>
+                      <div className="role-permission-summary">
+                        {(role.permissions ?? []).slice(0, 4).map((permission) => <span key={permission.id}>{permission.display_name}</span>)}
+                        {(role.permissions?.length ?? 0) > 4 ? <strong>+{(role.permissions?.length ?? 0) - 4}</strong> : null}
+                      </div>
+                    </td>
                     <td>{userCount}</td>
                     <td>
                       <div className="table-actions">
@@ -226,12 +235,30 @@ export function RolesPage() {
               </label>
             </div>
             <ResourceState loading={permissions.loading} error={permissions.error} empty={(permissions.data?.length ?? 0) === 0}>
-              <div className="permission-grid">
-                {permissions.data?.map((permission) => (
-                  <label className="check-label" key={permission.id}>
-                    <input type="checkbox" checked={roleForm.permissionIds.includes(permission.id)} onChange={() => toggleRolePermission(permission.id)} />
-                    {permission.display_name}
-                  </label>
+              <div className="metadata-example">
+                <strong>Standaard toegang</strong>
+                <p>Eigen profiel bekijken en waar toegestaan eigen profielgegevens wijzigen is voor iedere ingelogde gebruiker beschikbaar. Kies hieronder alleen extra rechten voor beheer, incidenten, alarmering en systeemfuncties.</p>
+              </div>
+              <div className="permission-category-list">
+                {permissionGroups(permissions.data ?? []).map((group) => (
+                  <section className="permission-category" key={group.category}>
+                    <header>
+                      <h3>{permissionCategoryLabel(group.category)}</h3>
+                      <span>{group.permissions.length} rechten</span>
+                    </header>
+                    <div className="permission-grid">
+                      {group.permissions.map((permission) => (
+                        <label className="checkbox-card permission-card" key={permission.id}>
+                          <input type="checkbox" checked={roleForm.permissionIds.includes(permission.id)} onChange={() => toggleRolePermission(permission.id)} />
+                          <span>
+                            <strong>{permission.display_name}</strong>
+                            <small>{permission.description ?? permission.name}</small>
+                            <code>{permission.name}</code>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </section>
                 ))}
               </div>
             </ResourceState>
@@ -295,4 +322,50 @@ function slugRoleName(value: string): string {
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/-{2,}/g, '-')
     .replace(/^-+/, '');
+}
+
+function permissionGroups(permissions: Permission[]): Array<{ category: string; permissions: Permission[] }> {
+  const groups = new Map<string, Permission[]>();
+  for (const permission of permissions) {
+    const category = permission.category || 'other';
+    groups.set(category, [...(groups.get(category) ?? []), permission]);
+  }
+
+  return Array.from(groups.entries())
+    .map(([category, items]) => ({
+      category,
+      permissions: [...items].sort((left, right) => left.display_name.localeCompare(right.display_name)),
+    }))
+    .sort((left, right) => permissionCategoryLabel(left.category).localeCompare(permissionCategoryLabel(right.category)));
+}
+
+function permissionCategoryLabel(category: string): string {
+  switch (category) {
+    case 'user_management':
+      return 'Gebruikers';
+    case 'role_management':
+      return 'Rollen en rechten';
+    case 'team_management':
+      return 'Teams';
+    case 'incident_management':
+      return 'Incidenten';
+    case 'dispatch_management':
+      return 'Alarmering';
+    case 'status_management':
+      return 'Operationele status';
+    case 'asset_management':
+      return 'Middelen';
+    case 'certification_management':
+      return 'Certificaten';
+    case 'audit_log_access':
+      return 'Audit';
+    case 'update_management':
+      return 'Updates';
+    case 'push_management':
+      return 'Pushmeldingen';
+    case 'system_configuration':
+      return 'Systeem';
+    default:
+      return category;
+  }
 }

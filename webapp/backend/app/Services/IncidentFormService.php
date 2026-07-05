@@ -9,6 +9,7 @@ use Illuminate\Validation\ValidationException;
 final class IncidentFormService
 {
     public const SETTING_KEY = 'incident.form_fields';
+    public const LAYOUT_SETTING_KEY = 'incident.form_layout';
     private const FIELD_KEY_PATTERN = '/^[a-z][a-z0-9_]{1,60}$/';
     private const FIELD_TYPES = ['section', 'text', 'textarea', 'number', 'flight_time', 'select', 'checkbox', 'radio'];
 
@@ -24,6 +25,26 @@ final class IncidentFormService
             ->map(fn (array $field): array => $this->normalizeField($field))
             ->values()
             ->all();
+    }
+
+    /**
+     * @return array<int, array{key: string, label: string, visible: bool, width: string}>
+     */
+    public function layout(): array
+    {
+        $stored = SystemSetting::value(self::LAYOUT_SETTING_KEY, null);
+        $items = is_array($stored) ? $stored : $this->defaultLayout();
+
+        return $this->normalizeLayout($items);
+    }
+
+    /**
+     * @param array<int, mixed> $layout
+     * @return array<int, array{key: string, label: string, visible: bool, width: string}>
+     */
+    public function validateLayout(array $layout): array
+    {
+        return $this->normalizeLayout($layout);
     }
 
     /**
@@ -172,6 +193,62 @@ final class IncidentFormService
             'section' => $this->cleanSection($field['section'] ?? null),
             'is_custom' => true,
         ];
+    }
+
+    /**
+     * @return array<int, array{key: string, label: string, visible: bool, width: string}>
+     */
+    private function defaultLayout(): array
+    {
+        return [
+            ['key' => 'incident_details', 'label' => 'Incidentgegevens', 'visible' => true, 'width' => 'full'],
+            ['key' => 'reporter_request', 'label' => 'Melder en aanvraag', 'visible' => true, 'width' => 'full'],
+            ['key' => 'priority_teams', 'label' => 'Prioriteit en teams', 'visible' => true, 'width' => 'full'],
+            ['key' => 'location', 'label' => 'Opkomstlocatie', 'visible' => true, 'width' => 'full'],
+            ['key' => 'coordinator', 'label' => 'Coordinator', 'visible' => true, 'width' => 'full'],
+            ['key' => 'resources', 'label' => 'Middelen', 'visible' => true, 'width' => 'full'],
+            ['key' => 'drone_context', 'label' => 'Drone vluchtcheck', 'visible' => true, 'width' => 'full'],
+            ['key' => 'custom_fields', 'label' => 'Extra velden', 'visible' => true, 'width' => 'full'],
+        ];
+    }
+
+    /**
+     * @param array<int, mixed> $layout
+     * @return array<int, array{key: string, label: string, visible: bool, width: string}>
+     */
+    private function normalizeLayout(array $layout): array
+    {
+        $defaults = collect($this->defaultLayout())->keyBy('key');
+        $seen = [];
+        $normalized = [];
+
+        foreach ($layout as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $key = (string) ($item['key'] ?? '');
+            if (! $defaults->has($key) || isset($seen[$key])) {
+                continue;
+            }
+
+            $default = $defaults->get($key);
+            $seen[$key] = true;
+            $normalized[] = [
+                'key' => $key,
+                'label' => (string) ($default['label'] ?? $key),
+                'visible' => filter_var($item['visible'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true,
+                'width' => in_array(($item['width'] ?? 'full'), ['half', 'full'], true) ? (string) $item['width'] : 'full',
+            ];
+        }
+
+        foreach ($defaults as $key => $default) {
+            if (! isset($seen[$key])) {
+                $normalized[] = $default;
+            }
+        }
+
+        return $normalized;
     }
 
     private function cleanWidth(mixed $width, string $type): string

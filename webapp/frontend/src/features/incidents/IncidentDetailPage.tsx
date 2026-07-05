@@ -848,6 +848,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
               users={users.data ?? []}
               teams={teams.data ?? []}
               customFields={incidentFormConfig.data?.fields ?? []}
+              layout={incidentFormConfig.data?.layout ?? []}
               usersError={users.error}
               teamsError={teams.error}
               saving={savingIncident}

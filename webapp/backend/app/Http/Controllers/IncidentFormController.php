@@ -16,22 +16,31 @@ final class IncidentFormController extends Controller
 
     public function show(): JsonResponse
     {
-        return ApiResponse::success(['fields' => $this->formService->fields()]);
+        return ApiResponse::success([
+            'fields' => $this->formService->fields(),
+            'layout' => $this->formService->layout(),
+        ]);
     }
 
     public function update(Request $request): JsonResponse
     {
         $data = $request->validate([
             'fields' => ['required', 'array'],
+            'layout' => ['nullable', 'array'],
         ]);
 
         $fields = $this->formService->validateFields($data['fields']);
+        $layout = $this->formService->validateLayout($data['layout'] ?? []);
 
         SystemSetting::query()->updateOrCreate(
             ['key' => IncidentFormService::SETTING_KEY],
             ['value' => $fields, 'is_sensitive' => false, 'updated_by' => $request->user()?->id],
         );
+        SystemSetting::query()->updateOrCreate(
+            ['key' => IncidentFormService::LAYOUT_SETTING_KEY],
+            ['value' => $layout, 'is_sensitive' => false, 'updated_by' => $request->user()?->id],
+        );
 
-        return ApiResponse::success(['fields' => $this->formService->fields()]);
+        return $this->show();
     }
 }

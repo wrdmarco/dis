@@ -9,7 +9,7 @@ import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { ConfigurableFormField, DroneFlightContext, Incident, IncidentFormConfig, Team, User } from '../../types/api';
+import type { ConfigurableFormField, DroneFlightContext, Incident, IncidentFormConfig, IncidentFormLayoutItem, Team, User } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 
 export interface IncidentFormState {
@@ -168,6 +168,7 @@ export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) 
               users={users.data ?? []}
               teams={teams.data ?? []}
               customFields={incidentFormConfig.data?.fields ?? []}
+              layout={incidentFormConfig.data?.layout ?? []}
               usersError={users.error}
               teamsError={teams.error}
               saving={creating}
@@ -293,6 +294,7 @@ export function IncidentForm(props: {
   users: User[];
   teams: Team[];
   customFields?: ConfigurableFormField[];
+  layout?: IncidentFormLayoutItem[];
   usersError?: string | null;
   teamsError?: string | null;
   saving: boolean;
@@ -304,7 +306,7 @@ export function IncidentForm(props: {
   onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
 }) {
   const { api } = useAuth();
-  const { form, users, teams, customFields = [], usersError, teamsError, saving, error, extraFields, submitLabel, onCancel, onSubmit, onChange } = props;
+  const { form, users, teams, customFields = [], layout = [], usersError, teamsError, saving, error, extraFields, submitLabel, onCancel, onSubmit, onChange } = props;
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
   const [flightContext, setFlightContext] = useState<DroneFlightContext | null>(null);
   const [flightContextLoading, setFlightContextLoading] = useState(false);
@@ -370,112 +372,23 @@ export function IncidentForm(props: {
 
   return (
     <form className="form-grid" onSubmit={onSubmit}>
-      <FormSectionTitle title="Incidentgegevens" />
-      <label className="form-grid__wide">
-        Titel
-        <input value={form.title} maxLength={180} onChange={(event) => updateForm(onChange, 'title', event.target.value)} required />
-      </label>
-      <label className="form-grid__wide">
-        Details
-        <textarea value={form.description} rows={5} onChange={(event) => updateForm(onChange, 'description', event.target.value)} required />
-      </label>
-      <FormSectionTitle title="Melder en aanvraag" />
-      <label>
-        Naam melder
-        <input value={form.reporterName} maxLength={180} onChange={(event) => updateForm(onChange, 'reporterName', event.target.value)} />
-      </label>
-      <label>
-        Telefoonnummer melder
-        <input value={form.reporterPhone} maxLength={40} inputMode="tel" autoComplete="tel" onChange={(event) => updateForm(onChange, 'reporterPhone', event.target.value)} />
-      </label>
-      <label>
-        Aanvragende organisatie
-        <input value={form.requestingOrganization} maxLength={180} onChange={(event) => updateForm(onChange, 'requestingOrganization', event.target.value)} />
-      </label>
-      <label>
-        Dienst / eenheid
-        <input value={form.requestingUnit} maxLength={180} onChange={(event) => updateForm(onChange, 'requestingUnit', event.target.value)} />
-      </label>
-      <label>
-        Contact ter plaatse
-        <input value={form.onSceneContactName} maxLength={180} onChange={(event) => updateForm(onChange, 'onSceneContactName', event.target.value)} />
-      </label>
-      <label>
-        Telefoon ter plaatse
-        <input value={form.onSceneContactPhone} maxLength={40} inputMode="tel" autoComplete="tel" onChange={(event) => updateForm(onChange, 'onSceneContactPhone', event.target.value)} />
-      </label>
-      <label className="form-grid__wide">
-        Functie / rol contactpersoon
-        <input value={form.onSceneContactRole} maxLength={120} onChange={(event) => updateForm(onChange, 'onSceneContactRole', event.target.value)} />
-      </label>
-      <FormSectionTitle title="Prioriteit en teams" />
-      <label>
-        Prioriteit
-        <select value={form.priority} onChange={(event) => updateForm(onChange, 'priority', event.target.value as Incident['priority'])}>
-          <option value="low">Laag</option>
-          <option value="normal">Normaal</option>
-          <option value="high">Hoog</option>
-          <option value="critical">Kritiek</option>
-        </select>
-      </label>
-      <label>
-        Status
-        <select value={form.status} onChange={(event) => updateForm(onChange, 'status', event.target.value as Incident['status'])}>
-          <option value="draft">Concept</option>
-          <option value="active">Actief</option>
-          <option value="dispatching">Alarmeren</option>
-          <option value="in_progress">In uitvoering</option>
-          <option value="resolved">Afgerond</option>
-          <option value="cancelled">Geannuleerd</option>
-        </select>
-      </label>
-      <div className="form-grid__wide">
-        <span className="field-label">Teams</span>
-        <div className="checkbox-grid">
-          {teams.map((team) => (
-            <label className="checkbox-card" key={team.id}>
-              <input
-                type="checkbox"
-                checked={form.teamIds.includes(team.id)}
-                onChange={() => toggleTeam(onChange, team.id)}
-              />
-              <span>
-                <strong>{team.code} - {team.name}</strong>
-                <small>{team.type}</small>
-              </span>
-            </label>
-          ))}
-        </div>
-      </div>
-      <FormSectionTitle title="Opkomstlocatie" />
-      <LocationPicker
-        form={form}
-        suggestions={locationSuggestions}
-        onChange={onChange}
-      />
-      <input type="hidden" name="latitude" value={form.latitude} />
-      <input type="hidden" name="longitude" value={form.longitude} />
-      <label className="form-grid__wide">
-        Coordinator
-        <select value={form.coordinatorId} onChange={(event) => updateForm(onChange, 'coordinatorId', event.target.value)}>
-          <option value="">Niet toegewezen</option>
-          {users.map((user) => <option key={user.id} value={user.id}>{user.name} - {user.email}</option>)}
-        </select>
-      </label>
-      <FormSectionTitle title="Middelen en vluchtcheck" />
-      <label className="form-grid__wide">
-        Benodigde middelen
-        <textarea
-          value={form.requiredResources}
-          rows={4}
-          placeholder="Bijvoorbeeld: drone type, warmtebeeld, zoomcamera, verlichting, voertuig, extra piloot of waarnemer."
-          onChange={(event) => updateForm(onChange, 'requiredResources', event.target.value)}
+      {incidentFormLayout(layout).map((item) => item.visible ? (
+        <IncidentFormBlock
+          key={item.key}
+          item={item}
+          form={form}
+          users={users}
+          teams={teams}
+          customFields={customFields}
+          usersError={usersError}
+          teamsError={teamsError}
+          locationSuggestions={locationSuggestions}
+          flightContext={flightContext}
+          flightContextLoading={flightContextLoading}
+          flightContextError={flightContextError}
+          onChange={onChange}
         />
-      </label>
-      {teamsError ? <p className="form-error form-grid__wide">Teams laden mislukt: {teamsError}</p> : null}
-      {usersError ? <p className="form-error form-grid__wide">Coordinators laden mislukt: {usersError}</p> : null}
-      <DroneFlightContextPanel context={flightContext} loading={flightContextLoading} error={flightContextError} />
-      <DynamicIncidentFields fields={customFields} values={form.customFields} onChange={onChange} />
+      ) : null)}
       {extraFields}
       {error ? <p className="form-error form-grid__wide">{error}</p> : null}
       <div className="actions-row form-grid__wide">
@@ -494,6 +407,148 @@ function FormSectionTitle({ title }: { title: string }) {
       <span>{title}</span>
     </div>
   );
+}
+
+function IncidentFormBlock(props: {
+  item: IncidentFormLayoutItem;
+  form: IncidentFormState;
+  users: User[];
+  teams: Team[];
+  customFields: ConfigurableFormField[];
+  usersError?: string | null;
+  teamsError?: string | null;
+  locationSuggestions: LocationSuggestion[];
+  flightContext: DroneFlightContext | null;
+  flightContextLoading: boolean;
+  flightContextError: string | null;
+  onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
+}) {
+  const wide = props.item.width !== 'half';
+  const wrapperClass = wide ? 'form-grid__wide form-grid' : 'form-grid';
+
+  switch (props.item.key) {
+    case 'incident_details':
+      return (
+        <div className={wrapperClass}>
+          <FormSectionTitle title="Incidentgegevens" />
+          <label className="form-grid__wide">
+            Titel
+            <input value={props.form.title} maxLength={180} onChange={(event) => updateForm(props.onChange, 'title', event.target.value)} required />
+          </label>
+          <label className="form-grid__wide">
+            Details
+            <textarea value={props.form.description} rows={5} onChange={(event) => updateForm(props.onChange, 'description', event.target.value)} required />
+          </label>
+        </div>
+      );
+    case 'reporter_request':
+      return (
+        <div className={wrapperClass}>
+          <FormSectionTitle title="Melder en aanvraag" />
+          <label>Naam melder<input value={props.form.reporterName} maxLength={180} onChange={(event) => updateForm(props.onChange, 'reporterName', event.target.value)} /></label>
+          <label>Telefoonnummer melder<input value={props.form.reporterPhone} maxLength={40} inputMode="tel" autoComplete="tel" onChange={(event) => updateForm(props.onChange, 'reporterPhone', event.target.value)} /></label>
+          <label>Aanvragende organisatie<input value={props.form.requestingOrganization} maxLength={180} onChange={(event) => updateForm(props.onChange, 'requestingOrganization', event.target.value)} /></label>
+          <label>Dienst / eenheid<input value={props.form.requestingUnit} maxLength={180} onChange={(event) => updateForm(props.onChange, 'requestingUnit', event.target.value)} /></label>
+          <label>Contact ter plaatse<input value={props.form.onSceneContactName} maxLength={180} onChange={(event) => updateForm(props.onChange, 'onSceneContactName', event.target.value)} /></label>
+          <label>Telefoon ter plaatse<input value={props.form.onSceneContactPhone} maxLength={40} inputMode="tel" autoComplete="tel" onChange={(event) => updateForm(props.onChange, 'onSceneContactPhone', event.target.value)} /></label>
+          <label className="form-grid__wide">Functie / rol contactpersoon<input value={props.form.onSceneContactRole} maxLength={120} onChange={(event) => updateForm(props.onChange, 'onSceneContactRole', event.target.value)} /></label>
+        </div>
+      );
+    case 'priority_teams':
+      return (
+        <div className={wrapperClass}>
+          <FormSectionTitle title="Prioriteit en teams" />
+          <label>
+            Prioriteit
+            <select value={props.form.priority} onChange={(event) => updateForm(props.onChange, 'priority', event.target.value as Incident['priority'])}>
+              <option value="low">Laag</option>
+              <option value="normal">Normaal</option>
+              <option value="high">Hoog</option>
+              <option value="critical">Kritiek</option>
+            </select>
+          </label>
+          <label>
+            Status
+            <select value={props.form.status} onChange={(event) => updateForm(props.onChange, 'status', event.target.value as Incident['status'])}>
+              <option value="draft">Concept</option>
+              <option value="active">Actief</option>
+              <option value="dispatching">Alarmeren</option>
+              <option value="in_progress">In uitvoering</option>
+              <option value="resolved">Afgerond</option>
+              <option value="cancelled">Geannuleerd</option>
+            </select>
+          </label>
+          <div className="form-grid__wide">
+            <span className="field-label">Teams</span>
+            <div className="checkbox-grid">
+              {props.teams.map((team) => (
+                <label className="checkbox-card" key={team.id}>
+                  <input type="checkbox" checked={props.form.teamIds.includes(team.id)} onChange={() => toggleTeam(props.onChange, team.id)} />
+                  <span><strong>{team.code} - {team.name}</strong><small>{team.type}</small></span>
+                </label>
+              ))}
+            </div>
+          </div>
+          {props.teamsError ? <p className="form-error form-grid__wide">Teams laden mislukt: {props.teamsError}</p> : null}
+        </div>
+      );
+    case 'location':
+      return (
+        <div className={wrapperClass}>
+          <FormSectionTitle title="Opkomstlocatie" />
+          <LocationPicker form={props.form} suggestions={props.locationSuggestions} onChange={props.onChange} />
+          <input type="hidden" name="latitude" value={props.form.latitude} />
+          <input type="hidden" name="longitude" value={props.form.longitude} />
+        </div>
+      );
+    case 'coordinator':
+      return (
+        <div className={wrapperClass}>
+          <label className="form-grid__wide">
+            Coordinator
+            <select value={props.form.coordinatorId} onChange={(event) => updateForm(props.onChange, 'coordinatorId', event.target.value)}>
+              <option value="">Niet toegewezen</option>
+              {props.users.map((user) => <option key={user.id} value={user.id}>{user.name} - {user.email}</option>)}
+            </select>
+          </label>
+          {props.usersError ? <p className="form-error form-grid__wide">Coordinators laden mislukt: {props.usersError}</p> : null}
+        </div>
+      );
+    case 'resources':
+      return (
+        <div className={wrapperClass}>
+          <FormSectionTitle title="Middelen" />
+          <label className="form-grid__wide">
+            Benodigde middelen
+            <textarea value={props.form.requiredResources} rows={4} placeholder="Bijvoorbeeld: drone type, warmtebeeld, zoomcamera, verlichting, voertuig, extra piloot of waarnemer." onChange={(event) => updateForm(props.onChange, 'requiredResources', event.target.value)} />
+          </label>
+        </div>
+      );
+    case 'drone_context':
+      return <DroneFlightContextPanel context={props.flightContext} loading={props.flightContextLoading} error={props.flightContextError} />;
+    case 'custom_fields':
+      return <DynamicIncidentFields fields={props.customFields} values={props.form.customFields} onChange={props.onChange} />;
+    default:
+      return null;
+  }
+}
+
+function incidentFormLayout(layout: IncidentFormLayoutItem[]): IncidentFormLayoutItem[] {
+  const defaults: IncidentFormLayoutItem[] = [
+    { key: 'incident_details', label: 'Incidentgegevens', visible: true, width: 'full' },
+    { key: 'reporter_request', label: 'Melder en aanvraag', visible: true, width: 'full' },
+    { key: 'priority_teams', label: 'Prioriteit en teams', visible: true, width: 'full' },
+    { key: 'location', label: 'Opkomstlocatie', visible: true, width: 'full' },
+    { key: 'coordinator', label: 'Coordinator', visible: true, width: 'full' },
+    { key: 'resources', label: 'Middelen', visible: true, width: 'full' },
+    { key: 'drone_context', label: 'Drone vluchtcheck', visible: true, width: 'full' },
+    { key: 'custom_fields', label: 'Extra velden', visible: true, width: 'full' },
+  ];
+  const defaultKeys = new Set(defaults.map((item) => item.key));
+  const merged = layout.filter((item) => defaultKeys.has(item.key));
+  const missing = defaults.filter((item) => !merged.some((candidate) => candidate.key === item.key));
+
+  return [...merged, ...missing];
 }
 
 function DroneFlightContextPanel({ context, loading, error }: { context: DroneFlightContext | null; loading: boolean; error: string | null }) {

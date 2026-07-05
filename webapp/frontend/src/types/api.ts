@@ -48,6 +48,7 @@ export interface Permission {
   name: string;
   category: string;
   display_name: string;
+  description?: string | null;
 }
 
 export interface Team {
@@ -588,6 +589,14 @@ export interface PilotIncidentReport {
 
 export interface IncidentFormConfig {
   fields: ConfigurableFormField[];
+  layout?: IncidentFormLayoutItem[];
+}
+
+export interface IncidentFormLayoutItem {
+  key: 'incident_details' | 'reporter_request' | 'priority_teams' | 'location' | 'coordinator' | 'resources' | 'drone_context' | 'custom_fields' | string;
+  label: string;
+  visible: boolean;
+  width?: 'half' | 'full';
 }
 
 export interface SystemSetting {

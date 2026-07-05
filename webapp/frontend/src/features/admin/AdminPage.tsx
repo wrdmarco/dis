@@ -6,7 +6,7 @@ import { parseFirebaseJson } from '../../lib/firebaseConfigImport';
 import { formatDateTime } from '../../lib/dateTime';
 import { createRealtime } from '../../lib/realtime';
 import { useApiResource } from '../../lib/useApiResource';
-import type { ConfigurableFormField, DeveloperAccessState, FcmToken, IncidentFormConfig, PilotReportFormConfig, PilotReportFormField, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
+import type { ConfigurableFormField, DeveloperAccessState, FcmToken, IncidentFormConfig, IncidentFormLayoutItem, PilotReportFormConfig, PilotReportFormField, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { useEffect, useMemo, useState } from 'react';
 import { ApiClientError } from '../../lib/apiClient';
@@ -139,6 +139,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const [passwordPolicyForm, setPasswordPolicyForm] = useState<PasswordPolicySettingsForm>(passwordPolicySettings);
   const [pilotReportFields, setPilotReportFields] = useState<PilotReportFormField[]>([]);
   const [incidentFormFields, setIncidentFormFields] = useState<ConfigurableFormField[]>([]);
+  const [incidentFormLayout, setIncidentFormLayout] = useState<IncidentFormLayoutItem[]>(defaultIncidentFormLayout());
   const [activeTab, setActiveTab] = useState<AdminTab>(mode === 'forms' ? 'pilotReport' : 'firebase');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -189,7 +190,8 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
 
   useEffect(() => {
     setIncidentFormFields(incidentFormConfig.data?.fields ?? []);
-  }, [incidentFormConfig.data?.fields]);
+    setIncidentFormLayout(incidentFormConfig.data?.layout ?? defaultIncidentFormLayout());
+  }, [incidentFormConfig.data?.fields, incidentFormConfig.data?.layout]);
 
   useEffect(() => {
     setUpdaterStatus(systemVersion.data?.updater ?? null);
@@ -579,8 +581,10 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     try {
       const response = await api.patch<IncidentFormConfig>('/admin/incident-form/config', {
         fields: incidentFormFields,
+        layout: incidentFormLayout,
       });
       setIncidentFormFields(response.data.fields);
+      setIncidentFormLayout(response.data.layout ?? defaultIncidentFormLayout());
       setIncidentFormMessage('Incidentformulier is opgeslagen.');
       await incidentFormConfig.reload();
     } catch (error) {
@@ -650,6 +654,18 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
 
   function reorderIncidentFormField(sourceKey: string, targetKey: string) {
     setIncidentFormFields((current) => reorderFormField(current, sourceKey, targetKey));
+  }
+
+  function updateIncidentLayoutItem(key: string, changes: Partial<IncidentFormLayoutItem>) {
+    setIncidentFormLayout((current) => current.map((item) => item.key === key ? { ...item, ...changes } : item));
+  }
+
+  function moveIncidentLayoutItem(key: string, direction: -1 | 1) {
+    setIncidentFormLayout((current) => moveLayoutItem(current, key, direction));
+  }
+
+  function reorderIncidentLayoutItem(sourceKey: string, targetKey: string) {
+    setIncidentFormLayout((current) => reorderLayoutItem(current, sourceKey, targetKey));
   }
 
   return (
@@ -1217,6 +1233,12 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               onRemove={removePilotReportField}
               onUpdate={updatePilotReportField}
             />
+            <IncidentFormLayoutEditor
+              layout={incidentFormLayout}
+              onMove={moveIncidentLayoutItem}
+              onReorder={reorderIncidentLayoutItem}
+              onUpdate={updateIncidentLayoutItem}
+            />
             {pilotReportError ? <p className="form-error">{pilotReportError}</p> : null}
             {pilotReportMessage ? <p className="success-text">{pilotReportMessage}</p> : null}
             <div className="actions-row">
@@ -1525,6 +1547,69 @@ function FormFieldPreview({ field }: { field: ConfigurableFormField }) {
   return <label className={className}>{label}<input readOnly placeholder="Tekst" /></label>;
 }
 
+function IncidentFormLayoutEditor(props: {
+  layout: IncidentFormLayoutItem[];
+  onMove: (key: string, direction: -1 | 1) => void;
+  onReorder: (sourceKey: string, targetKey: string) => void;
+  onUpdate: (key: string, changes: Partial<IncidentFormLayoutItem>) => void;
+}) {
+  const [draggingKey, setDraggingKey] = useState<string | null>(null);
+
+  return (
+    <div className="form-builder form-layout-editor">
+      <div className="form-builder__toolbar">
+        <div>
+          <h3>Indeling vaste incidentblokken</h3>
+          <p className="muted-text">Verplaats vaste blokken zoals locatie, middelen en drone vluchtcheck. De inhoud blijft server-side gevalideerd.</p>
+        </div>
+      </div>
+      <div className="form-builder__list">
+        {props.layout.map((item, index) => (
+          <article
+            className="form-builder-card"
+            draggable
+            key={item.key}
+            onDragStart={() => setDraggingKey(item.key)}
+            onDragEnd={() => setDraggingKey(null)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              if (draggingKey !== null && draggingKey !== item.key) {
+                props.onReorder(draggingKey, item.key);
+              }
+            }}
+          >
+            <div className="form-builder-card__handle" aria-hidden="true">::</div>
+            <div className="form-builder-card__body">
+              <div className="form-builder-card__header">
+                <strong>{item.label}</strong>
+                <span className="muted-text mono">{item.key}</span>
+              </div>
+              <div className="form-builder-card__grid">
+                <label className="check-label">
+                  <input type="checkbox" checked={item.visible} onChange={(event) => props.onUpdate(item.key, { visible: event.target.checked })} />
+                  Zichtbaar
+                </label>
+                <label>
+                  Breedte
+                  <select value={item.width ?? 'full'} onChange={(event) => props.onUpdate(item.key, { width: event.target.value as IncidentFormLayoutItem['width'] })}>
+                    <option value="full">Volle breedte</option>
+                    <option value="half">Naast elkaar</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div className="form-builder-card__actions">
+              <button className="secondary-button" type="button" disabled={index === 0} onClick={() => props.onMove(item.key, -1)}>Omhoog</button>
+              <button className="secondary-button" type="button" disabled={index === props.layout.length - 1} onClick={() => props.onMove(item.key, 1)}>Omlaag</button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function newCustomFormField(fields: ConfigurableFormField[]): ConfigurableFormField {
   let index = fields.length + 1;
   let key = `veld_${index}`;
@@ -1590,6 +1675,45 @@ function reorderFormField<T extends ConfigurableFormField>(fields: T[], sourceKe
   const next = [...fields];
   const [field] = next.splice(sourceIndex, 1);
   next.splice(targetIndex, 0, field);
+  return next;
+}
+
+function defaultIncidentFormLayout(): IncidentFormLayoutItem[] {
+  return [
+    { key: 'incident_details', label: 'Incidentgegevens', visible: true, width: 'full' },
+    { key: 'reporter_request', label: 'Melder en aanvraag', visible: true, width: 'full' },
+    { key: 'priority_teams', label: 'Prioriteit en teams', visible: true, width: 'full' },
+    { key: 'location', label: 'Opkomstlocatie', visible: true, width: 'full' },
+    { key: 'coordinator', label: 'Coordinator', visible: true, width: 'full' },
+    { key: 'resources', label: 'Middelen', visible: true, width: 'full' },
+    { key: 'drone_context', label: 'Drone vluchtcheck', visible: true, width: 'full' },
+    { key: 'custom_fields', label: 'Extra velden', visible: true, width: 'full' },
+  ];
+}
+
+function moveLayoutItem(items: IncidentFormLayoutItem[], key: string, direction: -1 | 1): IncidentFormLayoutItem[] {
+  const index = items.findIndex((item) => item.key === key);
+  const nextIndex = index + direction;
+  if (index < 0 || nextIndex < 0 || nextIndex >= items.length) {
+    return items;
+  }
+
+  const next = [...items];
+  const [item] = next.splice(index, 1);
+  next.splice(nextIndex, 0, item);
+  return next;
+}
+
+function reorderLayoutItem(items: IncidentFormLayoutItem[], sourceKey: string, targetKey: string): IncidentFormLayoutItem[] {
+  const sourceIndex = items.findIndex((item) => item.key === sourceKey);
+  const targetIndex = items.findIndex((item) => item.key === targetKey);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
+    return items;
+  }
+
+  const next = [...items];
+  const [item] = next.splice(sourceIndex, 1);
+  next.splice(targetIndex, 0, item);
   return next;
 }
 
