@@ -147,6 +147,12 @@ final class LocationService
 
     public function stopForIncident(Incident $incident, User $actor): void
     {
+        $activeConsents = LocationSharingConsent::query()
+            ->with(['user.fcmTokens' => fn ($tokens) => $tokens->where('is_active', true)])
+            ->where('incident_id', $incident->id)
+            ->where('is_active', true)
+            ->get();
+
         $updated = LocationSharingConsent::query()
             ->where('incident_id', $incident->id)
             ->where('is_active', true)
@@ -157,7 +163,39 @@ final class LocationService
         }
 
         $this->auditService->record('location.sharing_stopped_for_incident', $incident, $actor, ['consent_count' => $updated]);
+        $this->sendLocationSharingStoppedNotifications($incident, $activeConsents);
         $this->broadcastLocationSharingChange($incident);
+    }
+
+    public function stopForUser(User $user, User $actor): void
+    {
+        $activeConsents = LocationSharingConsent::query()
+            ->with(['incident', 'user.fcmTokens' => fn ($tokens) => $tokens->where('is_active', true)])
+            ->where('user_id', $user->id)
+            ->where('is_active', true)
+            ->get();
+
+        if ($activeConsents->isEmpty()) {
+            return;
+        }
+
+        LocationSharingConsent::query()
+            ->whereIn('id', $activeConsents->pluck('id'))
+            ->update(['is_active' => false, 'revoked_at' => now()]);
+
+        foreach ($activeConsents->groupBy('incident_id') as $incidentConsents) {
+            $incident = $incidentConsents->first()?->incident;
+            if ($incident === null) {
+                continue;
+            }
+
+            $this->auditService->record('location.sharing_stopped_for_user', $incident, $actor, [
+                'user_id' => $user->id,
+                'user_name' => $user->name,
+            ]);
+            $this->sendLocationSharingStoppedNotifications($incident, $incidentConsents);
+            $this->broadcastLocationSharingChange($incident);
+        }
     }
 
     public function isClosedForLocationSharing(Incident $incident): bool
@@ -202,6 +240,26 @@ final class LocationService
             IncidentChanged::dispatch($incident->refresh(), 'location_sharing_changed');
         } catch (Throwable $exception) {
             report($exception);
+        }
+    }
+
+    private function sendLocationSharingStoppedNotifications(Incident $incident, iterable $activeConsents): void
+    {
+        foreach ($activeConsents as $consent) {
+            foreach ($consent->user?->fcmTokens ?? [] as $token) {
+                SendFcmNotification::dispatch(
+                    (string) $token->id,
+                    'location_sharing_stopped',
+                    'Live locatie gestopt',
+                    'Live locatie delen is gestopt voor dit incident.',
+                    [
+                        'type' => 'location_sharing_stopped',
+                        'incident_id' => (string) $incident->id,
+                        'incident_reference' => (string) $incident->reference,
+                    ],
+                    null,
+                )->onQueue('push');
+            }
         }
     }
 }

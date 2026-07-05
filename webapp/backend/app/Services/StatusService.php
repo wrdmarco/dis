@@ -14,7 +14,10 @@ use Throwable;
 
 final class StatusService
 {
-    public function __construct(private readonly AuditService $auditService) {}
+    public function __construct(
+        private readonly AuditService $auditService,
+        private readonly LocationService $locationService,
+    ) {}
 
     public function setStatus(User $user, string $status, ?User $actor, ?string $reason = null, bool $systemApplied = false): AvailabilityStatus
     {
@@ -56,6 +59,7 @@ final class StatusService
 
         $this->dispatchAvailabilityChanged($record);
         if ($status === 'on_scene' && $actor !== null) {
+            $this->locationService->stopForUser($user, $actor);
             $this->transitionAcceptedIncidentsToInProgressWhenEveryoneOnScene($user, $actor);
         }
 

@@ -176,6 +176,7 @@ final class IncidentService
                 'deleted_related_data' => true,
             ]);
 
+            $this->locationService->stopForIncident($incident, $actor);
             $this->broadcastIncidentChange($incident, 'deleted');
             $incident->forceDelete();
 
