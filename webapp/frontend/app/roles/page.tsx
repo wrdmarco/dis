@@ -1,5 +1,12 @@
-import { redirect } from 'next/navigation';
+'use client';
+
+import { RolesPage } from '../../src/features/roles/RolesPage';
+import { ProtectedShell } from '../../src/next/RouteShell';
 
 export default function Page() {
-  redirect('/rollen');
+  return (
+    <ProtectedShell permissions={['roles.manage']}>
+      <RolesPage />
+    </ProtectedShell>
+  );
 }

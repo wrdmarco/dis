@@ -10,7 +10,7 @@ import { RealtimeBridge } from '../realtime/RealtimeBridge';
 export function DashboardPage() {
   const incidents = useApiResource<Incident[]>('/incidents?status=active');
   const dispatches = useApiResource<DispatchRequest[]>('/dispatches');
-  const statuses = useApiResource<AvailabilityStatus[]>('/status/users');
+  const statuses = useApiResource<AvailabilityStatus[]>('/availability-statuses/users');
   const assets = useApiResource<Asset[]>('/assets');
 
   const available = statuses.data?.filter((status) => status.is_available).length ?? 0;
@@ -51,7 +51,7 @@ export function DashboardPage() {
         </div>
         <div className="dashboard-hero__actions">
           <Link className="primary-button" href="/incidents">Incidenten openen <ArrowRight aria-hidden size={16} /></Link>
-          <Link className="secondary-button" href="/operationele-status">Beschikbaarheid</Link>
+          <Link className="secondary-button" href="/operational-status">Beschikbaarheid</Link>
         </div>
       </section>
 

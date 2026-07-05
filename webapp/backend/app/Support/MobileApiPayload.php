@@ -85,7 +85,7 @@ final class MobileApiPayload
     /**
      * @return array<string, mixed>
      */
-    public static function status(AvailabilityStatus $status, ?array $nextAvailabilityChange = null): array
+    public static function status(AvailabilityStatus $status, ?array $nextAvailabilityChange = null, ?array $nextAvailableAt = null): array
     {
         return [
             'id' => $status->id,
@@ -96,6 +96,7 @@ final class MobileApiPayload
             'reason' => $status->reason,
             'effective_at' => self::dateTime($status->effective_at),
             'next_availability_change' => $nextAvailabilityChange,
+            'next_available_at' => $nextAvailableAt,
             'user' => $status->relationLoaded('user') ? self::user($status->user) : null,
         ];
     }

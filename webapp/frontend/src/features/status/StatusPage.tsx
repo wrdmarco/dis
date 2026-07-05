@@ -12,7 +12,7 @@ import { RealtimeBridge } from '../realtime/RealtimeBridge';
 
 export function StatusPage() {
   const { api, hasPermission } = useAuth();
-  const statuses = useApiResource<AvailabilityStatus[]>('/status/users?per_page=200');
+  const statuses = useApiResource<AvailabilityStatus[]>('/availability-statuses/users?per_page=200');
   const [editingStatus, setEditingStatus] = useState<AvailabilityStatus | null>(null);
   const [status, setStatus] = useState('available');
   const [reason, setReason] = useState('');
@@ -40,7 +40,7 @@ export function StatusPage() {
     setSaving(true);
     setError(null);
     try {
-      await api.post(`/status/users/${editingStatus.user_id}/override`, {
+      await api.post(`/availability-statuses/users/${editingStatus.user_id}/override`, {
         status,
         reason: reason.trim() === '' ? null : reason,
       });
@@ -186,6 +186,10 @@ function statusTone(item: AvailabilityStatus): 'neutral' | 'good' | 'warn' | 'ba
 }
 
 function nextAvailabilityLabel(item: AvailabilityStatus): string {
+  if (!item.is_available && item.next_available_at !== null && item.next_available_at !== undefined) {
+    return `Beschikbaar vanaf ${formatDateTime(item.next_available_at.at)}`;
+  }
+
   const next = item.next_availability_change;
   if (next === null || next === undefined) {
     return '-';

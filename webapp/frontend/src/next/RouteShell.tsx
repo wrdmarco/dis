@@ -16,13 +16,13 @@ interface ProtectedShellProps {
 const homeRedirectCandidates = [
   { to: '/dashboard', permissions: ['incidents.view', 'dispatch.view', 'status.view', 'assets.view'] },
   { to: '/incidents', permissions: ['incidents.view'] },
-  { to: '/operationele-status', permissions: ['status.view'] },
+  { to: '/operational-status', permissions: ['status.view'] },
   { to: '/users', permissions: ['users.view'] },
   { to: '/assets', permissions: ['assets.view'] },
   { to: '/certifications', permissions: ['certifications.view'] },
   { to: '/updates', permissions: ['updates.manage'] },
   { to: '/admin', permissions: ['settings.manage'] },
-  { to: '/systeem', permissions: ['system.health'] },
+  { to: '/system', permissions: ['system.health'] },
 ] as const;
 
 export function ProtectedShell({ children, permissions = [], anyPermission = false, allowProfileOnly = false }: ProtectedShellProps) {

@@ -122,6 +122,40 @@ final class AvailabilityScheduleService
     }
 
     /**
+     * @return array{at: string, source: string, note: string|null}|null
+     */
+    public function nextAvailableAt(User $user, ?CarbonImmutable $from = null, int $daysAhead = 14): ?array
+    {
+        if (! $user->push_enabled) {
+            return null;
+        }
+
+        $from ??= CarbonImmutable::now();
+
+        $current = $this->availabilityFor($user, $from);
+        if ($current['is_available'] === true) {
+            return [
+                'at' => $from->toIso8601String(),
+                'source' => $current['source'],
+                'note' => $current['note'],
+            ];
+        }
+
+        foreach ($this->availabilityCheckpoints($from, $daysAhead) as $checkpoint) {
+            $availability = $this->availabilityFor($user, $checkpoint);
+            if ($availability['is_available'] === true) {
+                return [
+                    'at' => $checkpoint->toIso8601String(),
+                    'source' => $availability['source'],
+                    'note' => $availability['note'],
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * @param array<int, array{day_of_week: int, day_part?: string|null, is_available: bool, note?: string|null}> $patterns
      * @return Collection<int, AvailabilityWeekPattern>
      */

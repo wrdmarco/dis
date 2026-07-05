@@ -295,7 +295,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
     setOperatorStatusUpdatingUserId(userId);
     setRecipientUpdateMessage(null);
     try {
-      await api.post(`/status/users/${userId}/override`, {
+      await api.post(`/availability-statuses/users/${userId}/override`, {
         status,
         reason: 'Handmatig aangepast vanuit incidentdetail.',
       });

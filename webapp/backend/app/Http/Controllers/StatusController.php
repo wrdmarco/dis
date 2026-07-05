@@ -31,6 +31,7 @@ final class StatusController extends Controller
         return ApiResponse::success($status === null ? null : MobileApiPayload::status(
             $status,
             $this->availabilityScheduleService->nextAvailabilityChange($request->user()),
+            $this->availabilityScheduleService->nextAvailableAt($request->user()),
         ));
     }
 
@@ -39,6 +40,7 @@ final class StatusController extends Controller
         return ApiResponse::success(MobileApiPayload::status(
             $this->service->setStatus($request->user(), $request->validated('status'), $request->user(), $request->validated('reason')),
             $this->availabilityScheduleService->nextAvailabilityChange($request->user()),
+            $this->availabilityScheduleService->nextAvailableAt($request->user()),
         ));
     }
 
@@ -53,6 +55,7 @@ final class StatusController extends Controller
             fn (AvailabilityStatus $status): array => MobileApiPayload::status(
                 $status,
                 $status->user === null ? null : $this->availabilityScheduleService->nextAvailabilityChange($status->user),
+                $status->user === null ? null : $this->availabilityScheduleService->nextAvailableAt($status->user),
             ),
         );
     }
@@ -62,6 +65,7 @@ final class StatusController extends Controller
         return ApiResponse::success(MobileApiPayload::status(
             $this->service->setStatus($user, $request->validated('status'), $request->user(), $request->validated('reason')),
             $this->availabilityScheduleService->nextAvailabilityChange($user),
+            $this->availabilityScheduleService->nextAvailableAt($user),
         ));
     }
 

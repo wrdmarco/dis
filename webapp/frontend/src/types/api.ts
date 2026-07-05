@@ -273,6 +273,11 @@ export interface AvailabilityStatus {
     source: 'default' | 'pattern' | 'week_pattern' | 'override' | string;
     note?: string | null;
   } | null;
+  next_available_at?: {
+    at: string;
+    source: 'default' | 'pattern' | 'week_pattern' | 'override' | string;
+    note?: string | null;
+  } | null;
   user?: User;
 }
 
