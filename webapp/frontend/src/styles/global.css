@@ -6836,3 +6836,55 @@ pre {
   background: var(--dis-blue-soft);
   color: var(--dis-blue);
 }
+
+:root[data-theme="light"] .public-download-shell {
+  min-height: auto;
+  place-items: stretch;
+  background:
+    radial-gradient(circle at 16% 0%, rgba(11, 111, 174, 0.08), transparent 26%),
+    linear-gradient(180deg, #f8fbff 0%, var(--dis-bg) 58%, #e7eef7 100%);
+}
+
+:root[data-theme="light"] .public-download-panel {
+  width: 100%;
+  border-color: var(--dis-border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.98)),
+    var(--dis-surface);
+  color: var(--dis-text);
+  box-shadow: 0 16px 40px rgba(18, 37, 57, 0.08);
+}
+
+:root[data-theme="light"] .public-download-panel__mark {
+  border: 1px solid #bdd3e7;
+  background: var(--dis-blue-soft);
+  color: var(--dis-blue);
+}
+
+:root[data-theme="light"] .public-download-panel h1 {
+  color: var(--dis-text-strong);
+}
+
+:root[data-theme="light"] .public-download-panel__status {
+  color: var(--dis-muted);
+}
+
+:root[data-theme="light"] .public-download-panel__actions {
+  border-color: var(--dis-border);
+}
+
+:root[data-theme="light"] .danger-button {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #991b1b;
+}
+
+:root[data-theme="light"] .danger-button:hover {
+  border-color: #fb7185;
+  background: #ffe4e6;
+  color: #881337;
+}
+
+:root[data-theme="light"] .error-text {
+  color: #991b1b;
+}
