@@ -6888,3 +6888,87 @@ pre {
 :root[data-theme="light"] .error-text {
   color: #991b1b;
 }
+
+/* Profile page: force all local cards/forms/tables to light surfaces after global dark polish rules. */
+:root[data-theme="light"] .profile-page .panel,
+:root[data-theme="light"] .profile-page .panel-body,
+:root[data-theme="light"] .profile-page .definition-grid,
+:root[data-theme="light"] .profile-page .summary-grid > div,
+:root[data-theme="light"] .profile-page .resource-state,
+:root[data-theme="light"] .profile-page .work-plan-card,
+:root[data-theme="light"] .profile-page .mfa-card,
+:root[data-theme="light"] .profile-page .totp-qr,
+:root[data-theme="light"] .profile-page .checkbox-card,
+:root[data-theme="light"] .profile-page .field-display,
+:root[data-theme="light"] .profile-page .stacked-section,
+:root[data-theme="light"] .profile-page .section-heading,
+:root[data-theme="light"] .profile-page .week-daypart-row,
+:root[data-theme="light"] .profile-page .daypart-planner-row,
+:root[data-theme="light"] .profile-page .data-table,
+:root[data-theme="light"] .profile-page .data-table thead,
+:root[data-theme="light"] .profile-page .data-table tbody,
+:root[data-theme="light"] .profile-page .data-table tr,
+:root[data-theme="light"] .profile-page .data-table th,
+:root[data-theme="light"] .profile-page .data-table td {
+  border-color: var(--dis-border) !important;
+  background: var(--dis-surface) !important;
+  color: var(--dis-text) !important;
+}
+
+:root[data-theme="light"] .profile-page .panel__header,
+:root[data-theme="light"] .profile-page .modal__header,
+:root[data-theme="light"] .profile-page .modal .actions-row {
+  border-color: var(--dis-border) !important;
+  background: var(--dis-surface-2) !important;
+}
+
+:root[data-theme="light"] .profile-page .form-grid,
+:root[data-theme="light"] .profile-page form.form-grid,
+:root[data-theme="light"] .profile-page .actions-row {
+  background: transparent !important;
+}
+
+:root[data-theme="light"] .profile-page input,
+:root[data-theme="light"] .profile-page select,
+:root[data-theme="light"] .profile-page textarea,
+:root[data-theme="light"] .profile-page .segmented-control {
+  border-color: var(--dis-border) !important;
+  background: #ffffff !important;
+  color: var(--dis-text-strong) !important;
+}
+
+:root[data-theme="light"] .profile-page .segmented-control__item {
+  color: var(--dis-text) !important;
+}
+
+:root[data-theme="light"] .profile-page .segmented-control__item--active {
+  background: var(--dis-blue) !important;
+  color: #ffffff !important;
+}
+
+:root[data-theme="light"] .profile-page .panel__header h2,
+:root[data-theme="light"] .profile-page .definition-grid dd,
+:root[data-theme="light"] .profile-page .summary-grid strong,
+:root[data-theme="light"] .profile-page .work-plan-card strong,
+:root[data-theme="light"] .profile-page .mfa-card strong,
+:root[data-theme="light"] .profile-page .section-heading strong,
+:root[data-theme="light"] .profile-page .week-daypart-row strong,
+:root[data-theme="light"] .profile-page .daypart-planner-row strong,
+:root[data-theme="light"] .profile-page .data-table td:first-child {
+  color: var(--dis-text-strong) !important;
+}
+
+:root[data-theme="light"] .profile-page .definition-grid dt,
+:root[data-theme="light"] .profile-page .summary-grid span,
+:root[data-theme="light"] .profile-page .work-plan-card p,
+:root[data-theme="light"] .profile-page .mfa-card p,
+:root[data-theme="light"] .profile-page .section-heading span,
+:root[data-theme="light"] .profile-page .daypart-planner-row span,
+:root[data-theme="light"] .profile-page .data-table th {
+  color: var(--dis-muted) !important;
+}
+
+:root[data-theme="light"] .profile-page .modal {
+  border-color: var(--dis-border) !important;
+  background: var(--dis-surface) !important;
+}

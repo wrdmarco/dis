@@ -352,7 +352,7 @@ export function ProfilePage() {
   }
 
   return (
-    <div className="page-stack">
+    <div className="page-stack profile-page">
       <Panel title="Profiel">
         <div className="definition-grid">
           <dt>Naam</dt>
