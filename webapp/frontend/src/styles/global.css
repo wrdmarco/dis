@@ -6972,3 +6972,234 @@ pre {
   border-color: var(--dis-border) !important;
   background: var(--dis-surface) !important;
 }
+
+/* Final light-mode enforcement across all console pages and modals. */
+:root[data-theme="light"] .page-stack > .panel,
+:root[data-theme="light"] .two-column > .panel,
+:root[data-theme="light"] .panel,
+:root[data-theme="light"] .panel-body,
+:root[data-theme="light"] .modal,
+:root[data-theme="light"] .modal-section,
+:root[data-theme="light"] .definition-grid,
+:root[data-theme="light"] .summary-card,
+:root[data-theme="light"] .summary-grid > div,
+:root[data-theme="light"] .incident-list-summary > div,
+:root[data-theme="light"] .incident-overview > div,
+:root[data-theme="light"] .incident-overview,
+:root[data-theme="light"] .incident-overview--text > div,
+:root[data-theme="light"] .incident-meta,
+:root[data-theme="light"] .incident-hero,
+:root[data-theme="light"] .incident-card,
+:root[data-theme="light"] .draft-dispatch > div,
+:root[data-theme="light"] .draft-recipient-grid article,
+:root[data-theme="light"] .dispatch-toolbar,
+:root[data-theme="light"] .recipient-row,
+:root[data-theme="light"] .incident-timeline__item,
+:root[data-theme="light"] .drone-flight-panel,
+:root[data-theme="light"] .drone-flight-card,
+:root[data-theme="light"] .drone-flight-list,
+:root[data-theme="light"] .drone-flight-map-card,
+:root[data-theme="light"] .drone-flight-aeret-frame,
+:root[data-theme="light"] .form-builder-card,
+:root[data-theme="light"] .form-builder__preview,
+:root[data-theme="light"] .form-builder-palette,
+:root[data-theme="light"] .form-builder-canvas,
+:root[data-theme="light"] .form-builder-properties,
+:root[data-theme="light"] .form-builder-canvas-item,
+:root[data-theme="light"] .form-builder-dropzone,
+:root[data-theme="light"] .form-builder-property-note,
+:root[data-theme="light"] .form-builder-preview-module,
+:root[data-theme="light"] .template-variable-bank,
+:root[data-theme="light"] .template-variable,
+:root[data-theme="light"] .permission-category,
+:root[data-theme="light"] .permission-card,
+:root[data-theme="light"] .permission-grid .check-label,
+:root[data-theme="light"] .role-permission-summary,
+:root[data-theme="light"] .location-picker,
+:root[data-theme="light"] .location-picker__map,
+:root[data-theme="light"] .location-picker__results button,
+:root[data-theme="light"] .checkbox-card,
+:root[data-theme="light"] .mfa-card,
+:root[data-theme="light"] .push-summary,
+:root[data-theme="light"] .push-template-card,
+:root[data-theme="light"] .download-card > div,
+:root[data-theme="light"] .download-card__qr,
+:root[data-theme="light"] .download-setup-qr,
+:root[data-theme="light"] .download-source-admin__card,
+:root[data-theme="light"] .work-plan-card,
+:root[data-theme="light"] .work-plan-modal,
+:root[data-theme="light"] .week-daypart-row,
+:root[data-theme="light"] .daypart-planner-row,
+:root[data-theme="light"] .resource-state,
+:root[data-theme="light"] .metadata-example,
+:root[data-theme="light"] .setup-panel,
+:root[data-theme="light"] .setup-review div,
+:root[data-theme="light"] .setup-stepper__item,
+:root[data-theme="light"] .firebase-wizard__tab,
+:root[data-theme="light"] .firebase-step,
+:root[data-theme="light"] .branding-logo-preview,
+:root[data-theme="light"] .dashboard-hero,
+:root[data-theme="light"] .dashboard-signal,
+:root[data-theme="light"] .dashboard-metric,
+:root[data-theme="light"] .dashboard-incident,
+:root[data-theme="light"] .dashboard-dispatch,
+:root[data-theme="light"] .dashboard-asset,
+:root[data-theme="light"] .dashboard-person,
+:root[data-theme="light"] .data-table,
+:root[data-theme="light"] .data-table thead,
+:root[data-theme="light"] .data-table tbody,
+:root[data-theme="light"] .data-table tr,
+:root[data-theme="light"] .form-config-table tr,
+:root[data-theme="light"] .reports-table tr {
+  border-color: var(--dis-border) !important;
+  background: var(--dis-surface) !important;
+  color: var(--dis-text) !important;
+}
+
+:root[data-theme="light"] .panel__header,
+:root[data-theme="light"] .modal__header,
+:root[data-theme="light"] .admin-tabs,
+:root[data-theme="light"] .section-heading,
+:root[data-theme="light"] .modal .actions-row,
+:root[data-theme="light"] .modal .form-actions,
+:root[data-theme="light"] .setup-actions {
+  border-color: var(--dis-border) !important;
+  background: var(--dis-surface-2) !important;
+  color: var(--dis-text) !important;
+}
+
+:root[data-theme="light"] .form,
+:root[data-theme="light"] .form-grid,
+:root[data-theme="light"] .inline-form,
+:root[data-theme="light"] .inline-form--compact,
+:root[data-theme="light"] .actions-row,
+:root[data-theme="light"] .table-actions,
+:root[data-theme="light"] .form-builder,
+:root[data-theme="light"] .form-builder__workspace,
+:root[data-theme="light"] .form-builder-studio,
+:root[data-theme="light"] .dashboard-grid,
+:root[data-theme="light"] .dashboard-grid--secondary,
+:root[data-theme="light"] .incident-detail,
+:root[data-theme="light"] .incident-list-view,
+:root[data-theme="light"] .recipient-list,
+:root[data-theme="light"] .drone-flight-grid,
+:root[data-theme="light"] .drone-flight-detail {
+  background: transparent !important;
+}
+
+:root[data-theme="light"] .data-table th,
+:root[data-theme="light"] .form-config-table td::before,
+:root[data-theme="light"] .reports-table td::before {
+  border-color: var(--dis-border) !important;
+  background: var(--dis-surface-2) !important;
+  color: var(--dis-muted) !important;
+}
+
+:root[data-theme="light"] .data-table td,
+:root[data-theme="light"] .form-config-table td,
+:root[data-theme="light"] .reports-table td {
+  border-color: var(--dis-border) !important;
+  background: var(--dis-surface) !important;
+  color: var(--dis-text) !important;
+}
+
+:root[data-theme="light"] input,
+:root[data-theme="light"] select,
+:root[data-theme="light"] textarea,
+:root[data-theme="light"] .field-display,
+:root[data-theme="light"] .segmented-control {
+  border-color: var(--dis-border) !important;
+  background: #ffffff !important;
+  color: var(--dis-text-strong) !important;
+}
+
+:root[data-theme="light"] pre,
+:root[data-theme="light"] code,
+:root[data-theme="light"] .mono {
+  border-color: var(--dis-border) !important;
+  background: #f4f7fb !important;
+  color: #1c2938 !important;
+}
+
+:root[data-theme="light"] .panel__header h2,
+:root[data-theme="light"] h1,
+:root[data-theme="light"] h2,
+:root[data-theme="light"] h3,
+:root[data-theme="light"] h4,
+:root[data-theme="light"] strong,
+:root[data-theme="light"] .data-table td:first-child,
+:root[data-theme="light"] .incident-card > strong,
+:root[data-theme="light"] .incident-hero h3,
+:root[data-theme="light"] .dispatch-toolbar strong,
+:root[data-theme="light"] .recipient-row__identity strong,
+:root[data-theme="light"] .recipient-row__time strong,
+:root[data-theme="light"] .form-builder-dropzone strong,
+:root[data-theme="light"] .operational-map-card a {
+  color: var(--dis-text-strong) !important;
+}
+
+:root[data-theme="light"] span,
+:root[data-theme="light"] small,
+:root[data-theme="light"] dt,
+:root[data-theme="light"] .muted-text,
+:root[data-theme="light"] .panel-body p,
+:root[data-theme="light"] .field-label,
+:root[data-theme="light"] .form-builder-palette__item small,
+:root[data-theme="light"] .form-builder-canvas-item__bar small,
+:root[data-theme="light"] .template-variable small,
+:root[data-theme="light"] .incident-card__meta > span,
+:root[data-theme="light"] .recipient-row__identity span,
+:root[data-theme="light"] .recipient-row__time span,
+:root[data-theme="light"] .drone-flight-card dt,
+:root[data-theme="light"] .drone-flight-map-card span,
+:root[data-theme="light"] .dashboard-metric span {
+  color: var(--dis-muted) !important;
+}
+
+:root[data-theme="light"] .primary-button {
+  background: var(--dis-blue) !important;
+  color: #ffffff !important;
+}
+
+:root[data-theme="light"] .secondary-button,
+:root[data-theme="light"] .admin-tab,
+:root[data-theme="light"] .drone-flight-links a {
+  border-color: var(--dis-border) !important;
+  background: #ffffff !important;
+  color: var(--dis-text) !important;
+}
+
+:root[data-theme="light"] .secondary-button:hover,
+:root[data-theme="light"] .admin-tab:hover,
+:root[data-theme="light"] .drone-flight-links a:hover {
+  border-color: var(--dis-blue) !important;
+  background: var(--dis-blue-soft) !important;
+  color: var(--dis-blue) !important;
+}
+
+:root[data-theme="light"] .form-builder-card--section,
+:root[data-theme="light"] .form-builder-palette__item--active,
+:root[data-theme="light"] .form-builder-palette__item--selected,
+:root[data-theme="light"] .form-builder-canvas-item--selected,
+:root[data-theme="light"] .admin-tab--active,
+:root[data-theme="light"] .segmented-control__item--active {
+  border-color: var(--dis-blue) !important;
+  background: var(--dis-blue-soft) !important;
+  color: var(--dis-blue) !important;
+}
+
+:root[data-theme="light"] .resource-state--error,
+:root[data-theme="light"] .form-error {
+  border-color: #fecaca !important;
+  background: #fff1f2 !important;
+  color: #991b1b !important;
+}
+
+:root[data-theme="light"] .form-note,
+:root[data-theme="light"] .success-text,
+:root[data-theme="light"] .inline-success,
+:root[data-theme="light"] .setup-complete {
+  border-color: #bbf7d0 !important;
+  background: #f0fdf4 !important;
+  color: #166534 !important;
+}
