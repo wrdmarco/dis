@@ -532,7 +532,7 @@ final class IncidentReportService
             return null;
         }
 
-        $cacheKey = sha1('aeret-report|'.$aeretUrl);
+        $cacheKey = sha1('aeret-report-clean-v2|'.$aeretUrl);
         $cachePath = $this->absoluteReportSupportPath('report-map-snapshots/aeret-'.$cacheKey.'.png');
         if (is_file($cachePath) && is_readable($cachePath)) {
             return 'data:image/png;base64,'.base64_encode((string) file_get_contents($cachePath));
@@ -798,7 +798,7 @@ final class IncidentReportService
 
         unset($query['@dpf_basic']);
         $query = array_merge($query, [
-            'catalogus' => '1',
+            'catalogus' => '0',
             'v' => '5',
             'website' => 'dpf_basic',
             'x' => round($x, 2),
