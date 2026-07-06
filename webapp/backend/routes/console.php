@@ -7,6 +7,7 @@ Schedule::command('dis:prune-operational-data')->dailyAt('03:45');
 Schedule::command('dis:send-certification-expiry-mails')->dailyAt('08:00');
 Schedule::command('dis:apply-vacation-statuses')->everyFiveMinutes();
 Schedule::command('dis:apply-availability-schedule-statuses')->everyMinute();
+Schedule::command('dis:send-device-presence-ping')->everyFifteenMinutes()->withoutOverlapping();
 Schedule::command('dis:send-scheduled-test-alert')->everyMinute();
 Schedule::command('dis:run-scheduled-backup')->everyMinute();
 Schedule::command('dis:self-check')->everyFiveMinutes();

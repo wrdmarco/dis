@@ -28,6 +28,7 @@ return Application::configure(basePath: dirname(__DIR__))
         App\Console\Commands\ApplyVacationStatuses::class,
         App\Console\Commands\PruneOperationalData::class,
         App\Console\Commands\RunSystemUpdateCommand::class,
+        App\Console\Commands\SendDevicePresencePing::class,
         App\Console\Commands\SendScheduledTestAlert::class,
         App\Console\Commands\SystemSelfCheck::class,
     ])
