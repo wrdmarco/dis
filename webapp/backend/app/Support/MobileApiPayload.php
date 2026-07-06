@@ -8,6 +8,7 @@ use App\Models\AvailabilityStatus;
 use App\Models\Certification;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
+use App\Models\DroneType;
 use App\Models\Incident;
 use App\Models\PilotIncidentReport;
 use App\Models\User;
@@ -116,13 +117,15 @@ final class MobileApiPayload
      */
     public static function status(AvailabilityStatus $status, ?array $nextAvailabilityChange = null, ?array $nextAvailableAt = null): array
     {
+        $offline = self::statusUserIsOffline($status);
+
         return [
             'id' => $status->id,
             'user_id' => $status->user_id,
-            'status' => $status->status,
-            'is_available' => (bool) $status->is_available,
+            'status' => $offline ? 'unavailable' : $status->status,
+            'is_available' => $offline ? false : (bool) $status->is_available,
             'is_system_applied' => (bool) $status->is_system_applied,
-            'reason' => self::statusReason($status),
+            'reason' => $offline ? 'Offline: geen online operator-device.' : self::statusReason($status),
             'effective_at' => self::dateTime($status->effective_at),
             'next_availability_change' => $nextAvailabilityChange,
             'next_available_at' => $nextAvailableAt,
@@ -156,6 +159,22 @@ final class MobileApiPayload
         }
 
         return $reason;
+    }
+
+    private static function statusUserIsOffline(AvailabilityStatus $status): bool
+    {
+        if (! $status->relationLoaded('user') || $status->user === null) {
+            return false;
+        }
+
+        $status->user->loadMissing([
+            'fcmTokens' => fn ($tokens) => $tokens
+                ->where('client_type', 'operator')
+                ->where('is_active', true)
+                ->latest('last_seen_at'),
+        ]);
+
+        return ! $status->user->fcmTokens->contains(fn ($token): bool => (bool) $token->is_online);
     }
 
     /**
@@ -308,7 +327,7 @@ final class MobileApiPayload
     /**
      * @return array<string, mixed>
      */
-    public static function droneType(\App\Models\DroneType $droneType): array
+    public static function droneType(DroneType $droneType): array
     {
         return [
             'id' => $droneType->id,
