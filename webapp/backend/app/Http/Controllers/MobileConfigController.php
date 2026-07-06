@@ -19,7 +19,7 @@ final class MobileConfigController extends Controller
             'api_base_url' => $this->normalizeApiBaseUrl(
                 is_string($apiBaseUrl) && $apiBaseUrl !== '' ? $apiBaseUrl : $request->getSchemeAndHttpHost(),
             ),
-            'device_heartbeat_interval_minutes' => SystemSetting::integer('devices.heartbeat_interval_minutes', 15),
+            'device_heartbeat_interval_minutes' => max(15, SystemSetting::integer('devices.heartbeat_interval_minutes', 15)),
             'firebase' => $firebase,
         ]);
     }

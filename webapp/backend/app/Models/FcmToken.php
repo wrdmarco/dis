@@ -47,7 +47,7 @@ final class FcmToken extends Model
 
     public static function onlineThresholdMinutes(): int
     {
-        return max(2, SystemSetting::integer('devices.heartbeat_interval_minutes', 15) * 2);
+        return max(15, SystemSetting::integer('devices.heartbeat_interval_minutes', 15)) * 2;
     }
 
     public function user(): BelongsTo

@@ -357,7 +357,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
         'retention.push_logs_days': Number(managedForm.pushLogRetentionDays || 90),
         'retention.audit_logs_days': Number(managedForm.auditLogRetentionDays || 3650),
         'retention.location_days': Number(managedForm.locationRetentionDays || 30),
-        'devices.heartbeat_interval_minutes': Number(managedForm.deviceHeartbeatIntervalMinutes || 15),
+        'devices.heartbeat_interval_minutes': Number(normalizeHeartbeatInterval(managedForm.deviceHeartbeatIntervalMinutes)),
         'updates.android.application_id': managedForm.androidApplicationId,
         'drone.aeret_map_url': managedForm.aeretMapUrl.trim() === '' ? null : managedForm.aeretMapUrl,
         'drone.aeret_api_url': managedForm.aeretApiUrl.trim() === '' ? null : managedForm.aeretApiUrl,
@@ -939,7 +939,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
             </label>
             <label>
               Operator heartbeat minuten
-              <input type="number" min="1" max="60" value={managedForm.deviceHeartbeatIntervalMinutes} onChange={(event) => setManagedForm((current) => ({ ...current, deviceHeartbeatIntervalMinutes: event.target.value }))} />
+              <input type="number" min="15" max="60" value={managedForm.deviceHeartbeatIntervalMinutes} onChange={(event) => setManagedForm((current) => ({ ...current, deviceHeartbeatIntervalMinutes: event.target.value }))} />
               <small>Standaard 15. Offline na ongeveer 2x dit interval.</small>
             </label>
             <label className="form-grid__wide">
@@ -2487,7 +2487,7 @@ function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
     pushLogRetentionDays: asStringOrNumber(byKey.get('retention.push_logs_days'), '90'),
     auditLogRetentionDays: asStringOrNumber(byKey.get('retention.audit_logs_days'), '3650'),
     locationRetentionDays: asStringOrNumber(byKey.get('retention.location_days'), '30'),
-    deviceHeartbeatIntervalMinutes: asStringOrNumber(byKey.get('devices.heartbeat_interval_minutes'), '15'),
+    deviceHeartbeatIntervalMinutes: normalizeHeartbeatInterval(byKey.get('devices.heartbeat_interval_minutes')),
     androidApplicationId: asString(byKey.get('updates.android.application_id')) || 'nl.wrdmarco.dis',
     aeretMapUrl: asString(byKey.get('drone.aeret_map_url')) || 'https://aeret.kaartviewer.nl/?@dpf_basic',
     aeretApiUrl: asString(byKey.get('drone.aeret_api_url')),
@@ -2562,6 +2562,16 @@ function asStringOrNumber(value: unknown, fallback: string): string {
   }
 
   return typeof value === 'string' && value !== '' ? value : fallback;
+}
+
+function normalizeHeartbeatInterval(value: unknown): string {
+  const interval = Number(asStringOrNumber(value, '15'));
+
+  if (!Number.isFinite(interval)) {
+    return '15';
+  }
+
+  return String(Math.min(60, Math.max(15, Math.trunc(interval))));
 }
 
 function normalizePublicUrl(value: string): string {
