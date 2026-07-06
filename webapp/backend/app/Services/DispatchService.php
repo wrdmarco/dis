@@ -1151,16 +1151,78 @@ final class DispatchService
             return null;
         }
 
-        $segments = array_values(array_filter(array_map('trim', preg_split('/[,;|-]/', $value) ?: [])));
-        $place = $segments !== [] ? end($segments) : $value;
-        if (! is_string($place) || $place === '') {
+        $segments = array_values(array_filter(array_map(
+            fn (string $segment): string => trim($segment),
+            preg_split('/[,;|]/', $value) ?: [],
+        )));
+
+        foreach (array_reverse($segments) as $segment) {
+            $place = $this->placeFromPostalCodeSegment($segment);
+            if ($place !== null) {
+                return $place;
+            }
+        }
+
+        $wholePlace = $this->placeFromPostalCodeSegment($value);
+        if ($wholePlace !== null) {
+            return $wholePlace;
+        }
+
+        foreach (array_reverse($segments !== [] ? $segments : [$value]) as $segment) {
+            $place = $this->cleanPlaceCandidate($segment);
+            if ($place !== null) {
+                return $place;
+            }
+        }
+
+        return null;
+    }
+
+    private function placeFromPostalCodeSegment(string $segment): ?string
+    {
+        $segment = $this->cleanCountryNames($segment);
+
+        if (preg_match('/\b[1-9][0-9]{3}\s?[A-Z]{2}\s+(.+)$/i', $segment, $matches) === 1) {
+            return $this->cleanPlaceCandidate((string) $matches[1]);
+        }
+
+        if (preg_match('/\b(?:B|BE)?-?[1-9][0-9]{3}\s+(.+)$/i', $segment, $matches) === 1) {
+            return $this->cleanPlaceCandidate((string) $matches[1]);
+        }
+
+        return null;
+    }
+
+    private function cleanPlaceCandidate(string $candidate): ?string
+    {
+        $place = $this->cleanCountryNames($candidate);
+        $place = trim((string) preg_replace('/\b[1-9][0-9]{3}\s?[A-Z]{2}\b/i', '', $place));
+        $place = trim((string) preg_replace('/\b(?:B|BE)?-?[1-9][0-9]{3}\b/i', '', $place));
+        $place = trim((string) preg_replace('/\s+/', ' ', $place));
+        $place = trim($place, " \t\n\r\0\x0B,-");
+
+        if ($place === '' || $this->isCountryOnlyPlace($place)) {
             return null;
         }
 
-        $place = trim((string) preg_replace('/\b[1-9][0-9]{3}\s?[A-Z]{2}\b/i', '', $place));
-        $place = trim((string) preg_replace('/\s+/', ' ', $place));
+        return $place;
+    }
 
-        return $place === '' ? null : $place;
+    private function cleanCountryNames(string $value): string
+    {
+        return trim((string) preg_replace(
+            '/\b(?:netherlands|nederland|the netherlands|belgium|belgie|belgië|germany|duitsland|deutschland|nl|be|de)\b/i',
+            '',
+            $value,
+        ));
+    }
+
+    private function isCountryOnlyPlace(string $value): bool
+    {
+        return preg_match(
+            '/^(?:netherlands|nederland|the netherlands|belgium|belgie|belgië|germany|duitsland|deutschland|nl|be|de)$/i',
+            trim($value),
+        ) === 1;
     }
 
     /**
