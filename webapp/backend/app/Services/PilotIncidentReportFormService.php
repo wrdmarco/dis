@@ -211,6 +211,7 @@ final class PilotIncidentReportFormService
             'phone_countries' => $type === 'phone' ? $this->cleanPhoneCountries($field['phone_countries'] ?? self::DEFAULT_PHONE_COUNTRIES) : [],
             'width' => $this->cleanWidth($field['width'] ?? null, $type),
             'section' => $this->cleanSection($field['section'] ?? null),
+            'expose_to_push' => false,
             'available_in_operator_app' => filter_var($field['available_in_operator_app'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true,
             'is_custom' => true,
         ];

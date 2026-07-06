@@ -88,27 +88,6 @@ const DEFAULT_PUSH_ADDITIONAL_INFO_TITLE = 'D.I.S aanvullende info';
 const DEFAULT_PUSH_ADDITIONAL_INFO_BODY = '{{message}}';
 const DEFAULT_PUSH_CANCELLATION_TITLE = 'D.I.S geannuleerd';
 const DEFAULT_PUSH_CANCELLATION_BODY = 'De vooraankondiging in {{place}} is geannuleerd.';
-const PUSH_TEMPLATE_TOKEN_HELP = `{{reference}} = incidentnummer
-{{title}} = incidenttitel
-{{description}} = omschrijving
-{{address}} = volledig adres of locatieveld
-{{place}} = plaatsnaam uit het locatieveld
-{{location}} = hetzelfde als adres, voor bestaande templates
-{{latitude}} / {{longitude}} = losse coordinaten
-{{coordinates}} = coordinaten samen
-{{priority}} = prioriteit
-{{status}} = incidentstatus
-{{reporter_name}} / {{reporter_phone}} = melder
-{{requesting_organization}} / {{requesting_unit}} = aanvrager
-{{on_scene_contact_name}} / {{on_scene_contact_phone}} / {{on_scene_contact_role}} = contact ter plaatse
-{{required_resources}} = benodigde middelen
-{{coordinator_name}} = coordinator
-{{created_by_name}} = aangemaakt door
-{{created_at}} / {{opened_at}} / {{closed_at}} = tijden
-{{message}} = standaard incidentbericht
-{{reason}} = reden van opschaling
-{{availability_reason}} = waarom iemand niet beschikbaar stond`;
-
 const basePushVariables = [
   ['reference', 'Incidentnummer'],
   ['title', 'Incidenttitel'],
@@ -433,7 +412,7 @@ export function BrandingPage() {
               </div>
               <div className="metadata-example">
                 <strong>Beschikbare tokens</strong>
-                <pre>{PUSH_TEMPLATE_TOKEN_HELP}{incidentFieldVariables.length > 0 ? `\n${incidentFieldVariables.map((variable) => `{{${variable.key}}} = ${variable.label}`).join('\n')}` : ''}</pre>
+                <pre>{pushTemplateHelpText(incidentFieldVariables)}</pre>
               </div>
               <div className="metadata-example">
                 <strong>Voorbeeld alarmering</strong>
@@ -573,7 +552,21 @@ function appendToken(value: string, token: string): string {
 function incidentFormVariables(fields: ConfigurableFormField[]): Array<{ key: string; label: string }> {
   return fields
     .filter((field) => field.visible && field.type !== 'section' && (field.expose_to_push ?? true))
+    .filter((field) => field.key !== 'reporter_name' && field.key !== 'reporter_phone')
     .map((field) => ({ key: `field_${field.key}`, label: `Formulierveld: ${field.label}` }));
+}
+
+function pushTemplateHelpText(incidentFields: Array<{ key: string; label: string }>): string {
+  const base = pushVariablesFor('unavailable', incidentFields)
+    .filter((variable, index, variables) => variables.findIndex((candidate) => candidate.key === variable.key) === index)
+    .map((variable) => `{{${variable.key}}} = ${variable.label}`);
+
+  return [
+    ...base,
+    '',
+    'Nieuwe incidentvelden staan hier automatisch tussen als ze bij Formulieren zichtbaar zijn en Beschikbaar in pushmelding aan staat.',
+    'Vluchtrapportvelden worden niet als pushmelding-variabelen gebruikt.',
+  ].join('\n');
 }
 
 function pushVariablesFor(kind: 'preannouncement' | 'dispatch' | 'unavailable' | 'additional' | 'cancellation', incidentFields: Array<{ key: string; label: string }>): Array<{ key: string; label: string }> {
@@ -585,7 +578,7 @@ function pushVariablesFor(kind: 'preannouncement' | 'dispatch' | 'unavailable' |
     : [{ key: 'message', label: 'Standaard bericht' }];
 
   const availableIncidentFieldKeys = new Set(incidentFields.map((field) => field.key.replace(/^field_/, '')));
-  const controlledLegacyKeys = new Set(['reporter_name', 'reporter_phone', 'requesting_organization', 'requesting_unit', 'on_scene_contact_name', 'on_scene_contact_phone', 'on_scene_contact_role', 'required_resources']);
+  const controlledLegacyKeys = new Set(['requesting_organization', 'requesting_unit', 'on_scene_contact_name', 'on_scene_contact_phone', 'on_scene_contact_role', 'required_resources']);
   const base = basePushVariables
     .filter(([key]) => key !== 'message')
     .filter(([key]) => !controlledLegacyKeys.has(key) || availableIncidentFieldKeys.has(key))

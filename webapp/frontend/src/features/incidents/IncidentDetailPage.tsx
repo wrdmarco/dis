@@ -994,8 +994,8 @@ function formFromIncident(incident: Incident): IncidentFormState {
   return {
     title: incident.title,
     description: incident.description ?? '',
-    reporterName: incident.reporter_name ?? '',
-    reporterPhone: incident.reporter_phone ?? '',
+    reporterName: String((incident.custom_fields ?? {}).reporter_name ?? incident.reporter_name ?? ''),
+    reporterPhone: String((incident.custom_fields ?? {}).reporter_phone ?? incident.reporter_phone ?? ''),
     requestingOrganization: incident.requesting_organization ?? '',
     requestingUnit: incident.requesting_unit ?? '',
     onSceneContactName: incident.on_scene_contact_name ?? '',

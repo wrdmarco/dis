@@ -14,11 +14,12 @@ final class IncidentFormService
     private const FIELD_TYPES = ['section', 'text', 'textarea', 'number', 'phone', 'flight_time', 'select', 'checkbox', 'radio'];
     private const DEFAULT_PHONE_COUNTRIES = ['31', '32'];
     private const SUPPORTED_PHONE_COUNTRIES = ['31', '32'];
+    private const FIXED_FIELD_KEYS = ['reporter_name', 'reporter_phone'];
 
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function fields(bool $operatorOnly = false): array
+    public function fields(?string $target = null): array
     {
         $stored = SystemSetting::value(self::SETTING_KEY, null);
         $fields = is_array($stored) && $stored !== [] ? $stored : $this->defaultFields();
@@ -26,11 +27,12 @@ final class IncidentFormService
         $fields = $this->withRequiredDefaultFields(collect($fields)
             ->filter(fn (mixed $field): bool => is_array($field))
             ->map(fn (array $field): array => $this->normalizeField($field))
+            ->reject(fn (array $field): bool => $this->isFixedFieldKey((string) $field['key']))
             ->values())
             ->values();
 
-        if ($operatorOnly) {
-            $fields = $fields->filter(fn (array $field): bool => ($field['available_in_operator_app'] ?? true) === true);
+        if ($target === 'operator') {
+            return [];
         }
 
         return $fields->values()->all();
@@ -71,6 +73,9 @@ final class IncidentFormService
             }
 
             $key = (string) ($field['key'] ?? '');
+            if ($this->isFixedFieldKey($key)) {
+                continue;
+            }
             if (isset($seen[$key])) {
                 throw ValidationException::withMessages(["fields.$index.key" => ['Dubbel incidentveld.']]);
             }
@@ -208,7 +213,7 @@ final class IncidentFormService
             'section' => $this->cleanSection($field['section'] ?? null),
             'locked' => $this->isRequiredDefaultField($key),
             'expose_to_push' => filter_var($field['expose_to_push'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true,
-            'available_in_operator_app' => filter_var($field['available_in_operator_app'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true,
+            'available_in_operator_app' => false,
             'is_custom' => true,
         ];
     }
@@ -219,14 +224,12 @@ final class IncidentFormService
     private function defaultFields(): array
     {
         return [
-            ['key' => 'reporter_name', 'label' => 'Naam melder', 'type' => 'text', 'visible' => true, 'required' => true, 'width' => 'half', 'expose_to_push' => true, 'available_in_operator_app' => true],
-            ['key' => 'reporter_phone', 'label' => 'Telefoonnummer melder', 'type' => 'phone', 'visible' => true, 'required' => true, 'width' => 'half', 'phone_countries' => self::DEFAULT_PHONE_COUNTRIES, 'expose_to_push' => false, 'available_in_operator_app' => true],
-            ['key' => 'requesting_organization', 'label' => 'Aanvragende organisatie', 'type' => 'text', 'visible' => true, 'required' => true, 'width' => 'full', 'expose_to_push' => true, 'available_in_operator_app' => true],
-            ['key' => 'requesting_unit', 'label' => 'Dienst / eenheid', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => true, 'available_in_operator_app' => true],
+            ['key' => 'requesting_organization', 'label' => 'Aanvragende organisatie', 'type' => 'text', 'visible' => true, 'required' => true, 'width' => 'full', 'expose_to_push' => true, 'available_in_operator_app' => false],
+            ['key' => 'requesting_unit', 'label' => 'Dienst / eenheid', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => true, 'available_in_operator_app' => false],
             ['key' => 'on_scene_contact_name', 'label' => 'Contact ter plaatse', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => false, 'available_in_operator_app' => false],
             ['key' => 'on_scene_contact_phone', 'label' => 'Telefoon ter plaatse', 'type' => 'phone', 'visible' => true, 'required' => false, 'width' => 'half', 'phone_countries' => self::DEFAULT_PHONE_COUNTRIES, 'expose_to_push' => false, 'available_in_operator_app' => false],
             ['key' => 'on_scene_contact_role', 'label' => 'Functie / rol contactpersoon', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => false, 'available_in_operator_app' => false],
-            ['key' => 'required_resources', 'label' => 'Benodigde middelen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'width' => 'full', 'expose_to_push' => true, 'available_in_operator_app' => true],
+            ['key' => 'required_resources', 'label' => 'Benodigde middelen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'width' => 'full', 'expose_to_push' => true, 'available_in_operator_app' => false],
         ];
     }
 
@@ -247,7 +250,7 @@ final class IncidentFormService
             $current['visible'] = true;
             $current['required'] = true;
             $current['locked'] = true;
-            $current['available_in_operator_app'] = true;
+            $current['available_in_operator_app'] = false;
             $byKey->put($field['key'], $current);
         }
 
@@ -256,7 +259,12 @@ final class IncidentFormService
 
     private function isRequiredDefaultField(string $key): bool
     {
-        return in_array($key, ['reporter_name', 'reporter_phone', 'requesting_organization'], true);
+        return in_array($key, ['requesting_organization'], true);
+    }
+
+    private function isFixedFieldKey(string $key): bool
+    {
+        return in_array($key, self::FIXED_FIELD_KEYS, true);
     }
 
     /**
@@ -279,6 +287,9 @@ final class IncidentFormService
             ['key' => 'section_incident', 'label' => 'Sectie: incident', 'visible' => true, 'width' => 'full', 'locked' => true],
             ['key' => 'title', 'label' => 'Titel', 'visible' => true, 'width' => 'full', 'locked' => true],
             ['key' => 'description', 'label' => 'Details', 'visible' => true, 'width' => 'full', 'locked' => true],
+            ['key' => 'section_reporter', 'label' => 'Sectie: melder', 'visible' => true, 'width' => 'full', 'locked' => true],
+            ['key' => 'reporter_name', 'label' => 'Naam melder', 'visible' => true, 'width' => 'half', 'locked' => true],
+            ['key' => 'reporter_phone', 'label' => 'Telefoonnummer melder', 'visible' => true, 'width' => 'half', 'locked' => true],
             ['key' => 'section_dispatch', 'label' => 'Sectie: inzet', 'visible' => true, 'width' => 'full'],
             ['key' => 'priority', 'label' => 'Prioriteit', 'visible' => true, 'width' => 'half'],
             ['key' => 'status', 'label' => 'Status', 'visible' => true, 'width' => 'half'],
@@ -342,7 +353,7 @@ final class IncidentFormService
             }
 
             if ($key === 'reporter_request') {
-                foreach ($customFieldKeys as $replacementKey) {
+                foreach (['section_reporter', 'reporter_name', 'reporter_phone', ...$customFieldKeys] as $replacementKey) {
                     if (! isset($seen[$replacementKey])) {
                         $replacement = $defaults->get($replacementKey);
                         $seen[$replacementKey] = true;

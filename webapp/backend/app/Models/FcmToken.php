@@ -11,8 +11,6 @@ final class FcmToken extends Model
 {
     use UsesUlids;
 
-    private static ?int $onlineThresholdMinutes = null;
-
     protected $fillable = [
         'user_id',
         'device_id',
@@ -44,14 +42,12 @@ final class FcmToken extends Model
         return (bool) $this->is_active
             && $this->client_type === 'operator'
             && $this->last_seen_at !== null
-            && $this->last_seen_at->greaterThanOrEqualTo(now()->subMinutes($this->onlineThresholdMinutes()));
+            && $this->last_seen_at->greaterThan(now()->subMinutes(self::onlineThresholdMinutes()));
     }
 
-    private function onlineThresholdMinutes(): int
+    public static function onlineThresholdMinutes(): int
     {
-        self::$onlineThresholdMinutes ??= max(2, SystemSetting::integer('devices.heartbeat_interval_minutes', 15) * 2);
-
-        return self::$onlineThresholdMinutes;
+        return max(2, SystemSetting::integer('devices.heartbeat_interval_minutes', 15) * 2);
     }
 
     public function user(): BelongsTo

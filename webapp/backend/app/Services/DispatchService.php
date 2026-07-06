@@ -8,6 +8,7 @@ use App\Jobs\SendFcmNotification;
 use App\Models\AvailabilityStatus;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
+use App\Models\FcmToken;
 use App\Models\Incident;
 use App\Models\SystemSetting;
 use App\Models\Team;
@@ -1043,7 +1044,7 @@ final class DispatchService
         return $tokens
             ->where('is_active', true)
             ->where('client_type', 'operator')
-            ->where('last_seen_at', '>=', now()->subMinutes(max(2, SystemSetting::integer('devices.heartbeat_interval_minutes', 15) * 2)));
+            ->where('last_seen_at', '>', now()->subMinutes(FcmToken::onlineThresholdMinutes()));
     }
 
     public function broadcastDispatchChange(DispatchRequest $dispatch, string $action): void

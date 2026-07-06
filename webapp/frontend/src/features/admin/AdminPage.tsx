@@ -562,7 +562,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     setPilotReportMessage(null);
     try {
       const response = await api.patch<PilotReportFormConfig>('/admin/pilot-report/form-config', {
-        fields: pilotReportFields,
+        fields: pilotReportFields.map((field) => ({ ...field, expose_to_push: false })),
       });
       setPilotReportFields(response.data.fields);
       setPilotReportMessage('Inzetrapport formulier is opgeslagen.');
@@ -580,7 +580,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     setIncidentFormMessage(null);
     try {
       const response = await api.patch<IncidentFormConfig>('/admin/incident-form/config', {
-        fields: incidentFormFields,
+        fields: incidentFormFields.map((field) => ({ ...field, available_in_operator_app: false })),
         layout: incidentFormLayout,
       });
       setIncidentFormFields(response.data.fields);
@@ -600,17 +600,17 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
         return field;
       }
 
-      const next = { ...field, ...changes };
+      const next = { ...field, ...changes, expose_to_push: false };
       return next.visible ? next : { ...next, required: false };
     }));
   }
 
   function addPilotReportField(type: ConfigurableFormField['type'] = 'text') {
-    setPilotReportFields((current) => [...current, newCustomFormField(current, type)]);
+    setPilotReportFields((current) => [...current, newCustomFormField(current, type, { exposeToPush: false })]);
   }
 
   function addPilotReportSection() {
-    setPilotReportFields((current) => [...current, newSectionFormField(current)]);
+    setPilotReportFields((current) => [...current, newSectionFormField(current, { exposeToPush: false })]);
   }
 
   function removePilotReportField(key: string) {
@@ -631,7 +631,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
         return field;
       }
 
-      const next = { ...field, ...changes };
+      const next = { ...field, ...changes, available_in_operator_app: false };
       return next.visible ? next : { ...next, required: false };
     }));
     setIncidentFormLayout((current) => current.map((item) => item.key === customFieldLayoutKey(key)
@@ -646,7 +646,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
 
   function addIncidentFormField(type: ConfigurableFormField['type'] = 'text') {
     setIncidentFormFields((current) => {
-      const field = newCustomFormField(current, type);
+      const field = newCustomFormField(current, type, { availableInOperatorApp: false });
       setIncidentFormLayout((layout) => [...layout, customFieldLayoutItem(field)]);
       return [...current, field];
     });
@@ -654,7 +654,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
 
   function addIncidentFormSection() {
     setIncidentFormFields((current) => {
-      const field = newSectionFormField(current);
+      const field = newSectionFormField(current, { availableInOperatorApp: false });
       setIncidentFormLayout((layout) => [...layout, customFieldLayoutItem(field)]);
       return [...current, field];
     });
@@ -1243,6 +1243,9 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
             <ConfigurableFormEditor
               fields={pilotReportFields}
               description="Bouw het inzetrapport volledig op uit variabele velden. Oude vaste rapportkolommen blijven alleen bestaan voor historische rapporten."
+              showPushExposure={false}
+              showOperatorAvailability
+              availabilityHint="Inzetrapportvelden kunnen in de operator-app staan, maar worden nooit als pushmelding-variabelen gebruikt."
               onAdd={addPilotReportField}
               onAddSection={addPilotReportSection}
               onMove={movePilotReportField}
@@ -1273,7 +1276,10 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
             />
             <ConfigurableFormEditor
               fields={incidentFormFields}
-              description="Beheer extra variabele velden. De webapp bouwt het incidentformulier met de modules hierboven; de mobiele app blijft hiervan los."
+              description="Beheer extra variabele velden. De webapp en admin-app gebruiken deze velden; de operator-app krijgt het incidentformulier niet."
+              showPushExposure
+              showOperatorAvailability={false}
+              availabilityHint="Incidentvelden zijn beschikbaar in webapp en admin-app. Ze worden niet naar de operator-app gestuurd."
               onAdd={addIncidentFormField}
               onAddSection={addIncidentFormSection}
               onMove={moveIncidentFormField}
@@ -1363,6 +1369,9 @@ function IncidentTimelineVisibilitySettings(props: {
 function ConfigurableFormEditor(props: {
   fields: ConfigurableFormField[];
   description: string;
+  showPushExposure?: boolean;
+  showOperatorAvailability?: boolean;
+  availabilityHint?: string;
   onAdd: (type?: ConfigurableFormField['type']) => void;
   onAddSection: () => void;
   onMove?: (key: string, direction: -1 | 1) => void;
@@ -1370,7 +1379,19 @@ function ConfigurableFormEditor(props: {
   onRemove: (key: string) => void;
   onUpdate: (key: string, changes: Partial<ConfigurableFormField>) => void;
 }) {
-  const { fields, description, onAdd, onAddSection, onMove, onReorder, onRemove, onUpdate } = props;
+  const {
+    fields,
+    description,
+    showPushExposure = true,
+    showOperatorAvailability = true,
+    availabilityHint,
+    onAdd,
+    onAddSection,
+    onMove,
+    onReorder,
+    onRemove,
+    onUpdate,
+  } = props;
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [draggingPaletteType, setDraggingPaletteType] = useState<ConfigurableFormField['type'] | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -1489,7 +1510,13 @@ function ConfigurableFormEditor(props: {
           </div>
         </section>
 
-        <FormFieldPropertiesPanel field={selectedField} onUpdate={onUpdate} />
+        <FormFieldPropertiesPanel
+          field={selectedField}
+          showPushExposure={showPushExposure}
+          showOperatorAvailability={showOperatorAvailability}
+          availabilityHint={availabilityHint}
+          onUpdate={onUpdate}
+        />
       </div>
     </div>
   );
@@ -1497,9 +1524,12 @@ function ConfigurableFormEditor(props: {
 
 function FormFieldPropertiesPanel(props: {
   field: ConfigurableFormField | null;
+  showPushExposure: boolean;
+  showOperatorAvailability: boolean;
+  availabilityHint?: string;
   onUpdate: (key: string, changes: Partial<ConfigurableFormField>) => void;
 }) {
-  const { field, onUpdate } = props;
+  const { field, showPushExposure, showOperatorAvailability, availabilityHint, onUpdate } = props;
 
   if (field === null) {
     return (
@@ -1559,14 +1589,19 @@ function FormFieldPropertiesPanel(props: {
             <input type="checkbox" checked={field.required} disabled={!field.visible || field.locked === true} onChange={(event) => onUpdate(field.key, { required: event.target.checked })} />
             Verplicht
           </label>
-          <label className="check-label">
-            <input type="checkbox" checked={field.expose_to_push ?? true} onChange={(event) => onUpdate(field.key, { expose_to_push: event.target.checked })} />
-            Beschikbaar in pushmelding
-          </label>
-          <label className="check-label">
-            <input type="checkbox" checked={field.available_in_operator_app ?? true} disabled={field.locked === true} onChange={(event) => onUpdate(field.key, { available_in_operator_app: event.target.checked })} />
-            Beschikbaar in operator-app
-          </label>
+          {showPushExposure ? (
+            <label className="check-label">
+              <input type="checkbox" checked={field.expose_to_push ?? true} onChange={(event) => onUpdate(field.key, { expose_to_push: event.target.checked })} />
+              Beschikbaar in pushmelding
+            </label>
+          ) : null}
+          {showOperatorAvailability ? (
+            <label className="check-label">
+              <input type="checkbox" checked={field.available_in_operator_app ?? true} disabled={field.locked === true} onChange={(event) => onUpdate(field.key, { available_in_operator_app: event.target.checked })} />
+              Beschikbaar in operator-app
+            </label>
+          ) : null}
+          {availabilityHint ? <p className="muted-text">{availabilityHint}</p> : null}
         </>
       ) : null}
       {['select', 'radio'].includes(field.type) ? (
@@ -1978,7 +2013,11 @@ function formBuilderCanvasItemClass(field: ConfigurableFormField): string {
   return wide ? 'form-builder-canvas-item form-grid__wide' : 'form-builder-canvas-item';
 }
 
-function newCustomFormField(fields: ConfigurableFormField[], type: ConfigurableFormField['type'] = 'text'): ConfigurableFormField {
+function newCustomFormField(
+  fields: ConfigurableFormField[],
+  type: ConfigurableFormField['type'] = 'text',
+  options: { exposeToPush?: boolean; availableInOperatorApp?: boolean } = {},
+): ConfigurableFormField {
   let index = fields.length + 1;
   let key = `veld_${index}`;
   while (fields.some((field) => field.key === key)) {
@@ -1996,8 +2035,8 @@ function newCustomFormField(fields: ConfigurableFormField[], type: ConfigurableF
     option_source: 'manual',
     options: ['select', 'radio'].includes(type) ? defaultFieldOptions() : [],
     phone_countries: type === 'phone' ? ['31', '32'] : [],
-    expose_to_push: true,
-    available_in_operator_app: true,
+    expose_to_push: options.exposeToPush ?? true,
+    available_in_operator_app: options.availableInOperatorApp ?? true,
     is_custom: true,
   };
 }
@@ -2006,7 +2045,10 @@ function defaultFieldLabel(type: ConfigurableFormField['type']): string {
   return type === 'section' ? 'Nieuwe sectie' : `Nieuw ${fieldTypeLabel(type).toLowerCase()} veld`;
 }
 
-function newSectionFormField(fields: ConfigurableFormField[]): ConfigurableFormField {
+function newSectionFormField(
+  fields: ConfigurableFormField[],
+  options: { exposeToPush?: boolean; availableInOperatorApp?: boolean } = {},
+): ConfigurableFormField {
   let index = fields.length + 1;
   let key = `sectie_${index}`;
   while (fields.some((field) => field.key === key)) {
@@ -2024,6 +2066,8 @@ function newSectionFormField(fields: ConfigurableFormField[]): ConfigurableFormF
     option_source: 'manual',
     options: [],
     phone_countries: [],
+    expose_to_push: options.exposeToPush ?? true,
+    available_in_operator_app: options.availableInOperatorApp ?? true,
     is_custom: true,
   };
 }
@@ -2099,6 +2143,9 @@ function defaultIncidentFormLayout(fields: ConfigurableFormField[] = []): Incide
     { key: 'section_incident', label: 'Sectie: incident', visible: true, width: 'full', locked: true },
     { key: 'title', label: 'Titel', visible: true, width: 'full', locked: true },
     { key: 'description', label: 'Details', visible: true, width: 'full', locked: true },
+    { key: 'section_reporter', label: 'Sectie: melder', visible: true, width: 'full', locked: true },
+    { key: 'reporter_name', label: 'Naam melder', visible: true, width: 'half', locked: true },
+    { key: 'reporter_phone', label: 'Telefoonnummer melder', visible: true, width: 'half', locked: true },
     { key: 'section_dispatch', label: 'Sectie: inzet', visible: true, width: 'full' },
     { key: 'priority', label: 'Prioriteit', visible: true, width: 'half' },
     { key: 'status', label: 'Status', visible: true, width: 'half' },

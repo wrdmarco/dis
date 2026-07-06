@@ -659,6 +659,9 @@ function incidentFormLayout(layout: IncidentFormLayoutItem[], customFields: Conf
     { key: 'section_incident', label: 'Sectie: incident', visible: true, width: 'full' },
     { key: 'title', label: 'Titel', visible: true, width: 'full' },
     { key: 'description', label: 'Details', visible: true, width: 'full' },
+    { key: 'section_reporter', label: 'Sectie: melder', visible: true, width: 'full', locked: true },
+    { key: 'reporter_name', label: 'Naam melder', visible: true, width: 'half', locked: true },
+    { key: 'reporter_phone', label: 'Telefoonnummer melder', visible: true, width: 'half', locked: true },
     { key: 'section_dispatch', label: 'Sectie: inzet', visible: true, width: 'full' },
     { key: 'priority', label: 'Prioriteit', visible: true, width: 'half' },
     { key: 'status', label: 'Status', visible: true, width: 'half' },
@@ -689,7 +692,11 @@ function expandLegacyIncidentLayout(layout: IncidentFormLayoutItem[], customFiel
       { key: 'title', label: 'Titel', visible: true, width: 'full' },
       { key: 'description', label: 'Details', visible: true, width: 'full' },
     ],
-    reporter_request: [],
+    reporter_request: [
+      { key: 'section_reporter', label: 'Sectie: melder', visible: true, width: 'full' },
+      { key: 'reporter_name', label: 'Naam melder', visible: true, width: 'half' },
+      { key: 'reporter_phone', label: 'Telefoonnummer melder', visible: true, width: 'half' },
+    ],
     priority_teams: [
       { key: 'section_dispatch', label: 'Sectie: inzet', visible: true, width: 'full' },
       { key: 'priority', label: 'Prioriteit', visible: true, width: 'half' },
@@ -1600,7 +1607,7 @@ function airspaceStatusLabel(status?: string | null): string {
 }
 
 export function incidentPayload(form: IncidentFormState): Record<string, unknown> {
-  const customFields = form.customFields;
+  const customFields = omitFixedIncidentFields(form.customFields);
   const legacyValue = (key: string, fallback: string): string | null => {
     const value = customFields[key];
     if (typeof value === 'string') {
@@ -1613,8 +1620,8 @@ export function incidentPayload(form: IncidentFormState): Record<string, unknown
   return {
     title: form.title.trim(),
     description: form.description.trim(),
-    reporter_name: legacyValue('reporter_name', form.reporterName),
-    reporter_phone: legacyValue('reporter_phone', form.reporterPhone),
+    reporter_name: form.reporterName.trim() === '' ? null : form.reporterName,
+    reporter_phone: form.reporterPhone.trim() === '' ? null : form.reporterPhone,
     requesting_organization: legacyValue('requesting_organization', form.requestingOrganization),
     requesting_unit: legacyValue('requesting_unit', form.requestingUnit),
     on_scene_contact_name: legacyValue('on_scene_contact_name', form.onSceneContactName),
@@ -1631,6 +1638,14 @@ export function incidentPayload(form: IncidentFormState): Record<string, unknown
     team_ids: form.teamIds,
     custom_fields: customFields,
   };
+}
+
+function omitFixedIncidentFields(fields: Record<string, unknown>): Record<string, unknown> {
+  const { reporter_name: _reporterName, reporter_phone: _reporterPhone, ...remaining } = fields;
+  void _reporterName;
+  void _reporterPhone;
+
+  return remaining;
 }
 
 function incidentTeamsLabel(incident: Incident): string {

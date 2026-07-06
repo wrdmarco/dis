@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, Download, FileText, Gauge, KeyRound, LogOut, Menu, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow, X } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, Download, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../features/auth/AuthContext';
@@ -41,6 +41,7 @@ const navGroups: NavGroup[] = [
     label: 'Operatie',
     items: [
       { to: '/incidents', label: 'Actieve meldingen', icon: RadioTower, end: true, permissions: ['incidents.view'] },
+      { to: '/operational-map', label: 'Kaart', icon: MapIcon, permissions: ['incidents.view'] },
       { to: '/incidents/archive', label: 'Archief', icon: Archive, permissions: ['incidents.view'] },
       { to: '/operational-status', label: 'Status', icon: Workflow, permissions: ['status.view'] },
       { to: '/calendar', label: 'Agenda', icon: CalendarDays },
@@ -92,6 +93,7 @@ const profileOnlyNavGroups: NavGroup[] = [
 const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/dashboard': () => import('../features/dashboard/DashboardPage'),
   '/incidents': () => import('../features/incidents/IncidentsPage'),
+  '/operational-map': () => import('../features/incidents/IncidentMapPage'),
   '/incidents/archive': () => import('../features/incidents/IncidentsPage'),
   '/operational-status': () => import('../features/status/StatusPage'),
   '/test-alert': () => import('../features/test-alerts/TestAlertPage'),

@@ -19,7 +19,7 @@ final class IncidentFormController extends Controller
         $target = (string) $request->query('target', $request->is('api/admin/*') ? 'web' : 'operator');
 
         return ApiResponse::success([
-            'fields' => $this->formService->fields(operatorOnly: $target === 'operator'),
+            'fields' => $this->formService->fields(target: $target),
             'layout' => $target === 'operator' ? [] : $this->formService->layout(),
         ]);
     }

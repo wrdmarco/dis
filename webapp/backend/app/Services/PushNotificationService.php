@@ -154,6 +154,6 @@ final class PushNotificationService
         return $tokens
             ->where('is_active', true)
             ->where('client_type', 'operator')
-            ->where('last_seen_at', '>=', now()->subMinutes(max(2, SystemSetting::integer('devices.heartbeat_interval_minutes', 15) * 2)));
+            ->where('last_seen_at', '>', now()->subMinutes(FcmToken::onlineThresholdMinutes()));
     }
 }

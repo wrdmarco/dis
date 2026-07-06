@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
 import { Clock3, Pencil, ShieldCheck, UsersRound, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -30,6 +30,14 @@ export function StatusPage() {
   const onSceneCount = items.filter((item) => item.status === 'on_scene').length;
   const returningCount = items.filter((item) => !item.is_available && item.next_available_at !== null && item.next_available_at !== undefined).length;
   const canOverrideStatus = hasPermission('status.override');
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void statuses.silentReload();
+    }, 60_000);
+
+    return () => window.clearInterval(interval);
+  }, [statuses.silentReload]);
 
   function openEditModal(item: AvailabilityStatus) {
     setEditingStatus(item);
