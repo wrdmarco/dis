@@ -602,6 +602,8 @@ export interface PilotIncidentReport {
   custom_fields?: Record<string, unknown>;
   prepared_at?: string | null;
   submitted_at?: string | null;
+  finalized_at?: string | null;
+  can_edit?: boolean;
   updated_at?: string | null;
 }
 
@@ -698,11 +700,18 @@ export interface ReportIncident {
   expected_pilot_report_count: number;
   submitted_pilot_report_count: number;
   missing_pilot_report_count: number;
+  unfinalized_pilot_report_count?: number;
   missing_pilot_reports: Array<{
     user_id: string;
     name: string;
     email?: string | null;
     responded_at?: string | null;
+  }>;
+  unfinalized_pilot_reports?: Array<{
+    user_id: string;
+    name: string;
+    email?: string | null;
+    submitted_at?: string | null;
   }>;
 }
 

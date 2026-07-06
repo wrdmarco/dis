@@ -26,6 +26,7 @@ final class PilotIncidentReport extends Model
         'custom_fields',
         'prepared_at',
         'submitted_at',
+        'finalized_at',
     ];
 
     protected function casts(): array
@@ -35,6 +36,7 @@ final class PilotIncidentReport extends Model
             'custom_fields' => 'array',
             'prepared_at' => 'immutable_datetime',
             'submitted_at' => 'immutable_datetime',
+            'finalized_at' => 'immutable_datetime',
         ];
     }
 
@@ -46,5 +48,15 @@ final class PilotIncidentReport extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class)->withTrashed();
+    }
+
+    public function canBeEdited(): bool
+    {
+        return $this->finalized_at === null;
+    }
+
+    public function isFinalized(): bool
+    {
+        return $this->finalized_at !== null;
     }
 }

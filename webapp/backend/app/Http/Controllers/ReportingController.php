@@ -28,11 +28,8 @@ final class ReportingController extends Controller
                 return ApiResponse::error('incident_not_closed', 'Een rapport kan pas worden gemaakt als het incident is afgerond of geannuleerd.', 422);
             }
 
-            $pdfPath = $reports->storedPdfPath($incident);
-            if ($pdfPath === null) {
-                $reports->ensureStored($incident);
-                $pdfPath = $reports->storedPdfPath($incident->refresh());
-            }
+            $reports->ensureStored($incident);
+            $pdfPath = $reports->storedPdfPath($incident->refresh());
 
             if ($pdfPath === null) {
                 $message = $incident->report_generation_error !== null && $incident->report_generation_error !== ''
@@ -67,7 +64,7 @@ final class ReportingController extends Controller
         return ApiResponse::success($statistics->overview((int) ($data['incident_limit'] ?? 5)));
     }
 
-    public function incidents(Request $request): JsonResponse
+    public function incidents(Request $request, IncidentReportService $reports): JsonResponse
     {
         $data = $request->validate([
             'limit' => ['nullable', 'integer', 'min:1', 'max:100'],
@@ -77,7 +74,7 @@ final class ReportingController extends Controller
             ->with([
                 'team',
                 'coordinator',
-                'pilotReports',
+                'pilotReports.user' => fn ($query) => $query->withTrashed(),
                 'dispatchRequests.recipients.user' => fn ($query) => $query->withTrashed(),
             ])
             ->where('is_test', false)
@@ -99,6 +96,7 @@ final class ReportingController extends Controller
                     ->where('status', 'submitted')
                     ->filter(fn ($report): bool => is_string($report->user_id) && $report->user_id !== '')
                     ->keyBy('user_id');
+                $acceptedUserIds = $acceptedRecipients->pluck('user_id');
                 $missingReports = $acceptedRecipients
                     ->filter(fn ($recipient): bool => ! $submittedReports->has($recipient->user_id))
                     ->map(fn ($recipient): array => [
@@ -106,6 +104,15 @@ final class ReportingController extends Controller
                         'name' => $recipient->user?->name ?? $recipient->user_name ?? 'Onbekende gebruiker',
                         'email' => $recipient->user?->email ?? $recipient->user_email,
                         'responded_at' => MobileApiPayload::dateTime($recipient->responded_at),
+                    ])
+                    ->values();
+                $unfinalizedReports = $submittedReports
+                    ->filter(fn ($report, mixed $userId): bool => $acceptedUserIds->contains($userId) && $report->finalized_at === null)
+                    ->map(fn ($report): array => [
+                        'user_id' => $report->user_id,
+                        'name' => $report->user?->name ?? $report->user_name ?? 'Onbekende gebruiker',
+                        'email' => $report->user?->email ?? $report->user_email,
+                        'submitted_at' => MobileApiPayload::dateTime($report->submitted_at),
                     ])
                     ->values();
                 $latestDispatchAt = $incident->dispatchRequests
@@ -116,6 +123,8 @@ final class ReportingController extends Controller
                 $expectedReportCount = $acceptedRecipients->count();
                 $submittedReportCount = $submittedReports->count();
                 $missingReportCount = $missingReports->count();
+                $unfinalizedReportCount = $unfinalizedReports->count();
+                $reportStatus = $missingReportCount === 0 && $unfinalizedReportCount === 0 ? 'final' : 'draft';
 
                 return [
                     'id' => $incident->id,
@@ -137,7 +146,7 @@ final class ReportingController extends Controller
                     'closed_at' => MobileApiPayload::dateTime($incident->closed_at),
                     'report_generated_at' => MobileApiPayload::dateTime($incident->report_generated_at),
                     'report_available' => is_string($incident->report_pdf_path) && $incident->report_pdf_path !== '',
-                    'report_status' => $missingReportCount === 0 ? 'final' : 'draft',
+                    'report_status' => $reportStatus,
                     'latest_dispatch_sent_at' => MobileApiPayload::dateTime($latestDispatchAt),
                     'recipient_count' => $recipients->count(),
                     'accepted' => $recipients->where('response_status', 'accepted')->count(),
@@ -146,7 +155,9 @@ final class ReportingController extends Controller
                     'expected_pilot_report_count' => $expectedReportCount,
                     'submitted_pilot_report_count' => $submittedReportCount,
                     'missing_pilot_report_count' => $missingReportCount,
+                    'unfinalized_pilot_report_count' => $unfinalizedReportCount,
                     'missing_pilot_reports' => $missingReports,
+                    'unfinalized_pilot_reports' => $unfinalizedReports,
                 ];
             })
             ->values();

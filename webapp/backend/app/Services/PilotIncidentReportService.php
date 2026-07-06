@@ -84,6 +84,9 @@ final class PilotIncidentReportService
     {
         $report = DB::transaction(function () use ($incident, $user, $actor, $data, $auditAction): PilotIncidentReport {
             $report = $this->ensureReport($incident, $user);
+            $this->assertReportCanBeEdited($report);
+
+            $submittedAt = $report->submitted_at ?? now();
             $customFields = $this->formService->normalizeCustomValues($data);
             $standardValues = $this->standardValuesFromCustomFields($customFields);
             $report->fill([
@@ -96,7 +99,7 @@ final class PilotIncidentReportService
                 'flight_minutes' => $data['flight_minutes'] ?? $standardValues['flight_minutes'],
                 'custom_fields' => $customFields,
                 'status' => 'submitted',
-                'submitted_at' => now(),
+                'submitted_at' => $submittedAt,
             ])->save();
 
             $this->auditService->record($auditAction, $report, $actor, [
@@ -111,6 +114,33 @@ final class PilotIncidentReportService
         $this->incidentReportService->refreshStored($incident->refresh(), preserveExistingMaps: true);
 
         return $report;
+    }
+
+    public function finalize(Incident $incident, User $user, User $actor): PilotIncidentReport
+    {
+        $this->assertCanReport($incident, $user);
+
+        $report = $this->existingReport($incident, $user);
+        if ($report === null || $report->status !== 'submitted') {
+            throw ValidationException::withMessages([
+                'report' => ['Dit inzetverslag moet eerst worden ingediend voordat het definitief kan worden gemaakt.'],
+            ]);
+        }
+
+        if ($report->isFinalized()) {
+            return $report;
+        }
+
+        $report->forceFill(['finalized_at' => now()])->save();
+        $this->auditService->record($actor->is($user) ? 'pilot_incident_report.finalized' : 'pilot_incident_report.finalized_by_admin', $report, $actor, [
+            'incident_id' => $incident->id,
+            'user_id' => $user->id,
+            'submitted_for_user_id' => $user->id,
+        ]);
+
+        $this->incidentReportService->refreshStored($incident->refresh(), preserveExistingMaps: true);
+
+        return $report->refresh();
     }
 
     /**
@@ -205,6 +235,17 @@ final class PilotIncidentReportService
         }
 
         $this->assertOnScene($user);
+    }
+
+    private function assertReportCanBeEdited(PilotIncidentReport $report): void
+    {
+        if ($report->canBeEdited()) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'report' => ['Dit inzetverslag is definitief en kan niet meer worden aangepast.'],
+        ]);
     }
 
     /**

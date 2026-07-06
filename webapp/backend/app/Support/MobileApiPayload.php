@@ -245,6 +245,8 @@ final class MobileApiPayload
             'custom_fields' => $report->custom_fields ?? [],
             'prepared_at' => self::dateTime($report->prepared_at),
             'submitted_at' => self::dateTime($report->submitted_at),
+            'finalized_at' => self::dateTime($report->finalized_at),
+            'can_edit' => $report->canBeEdited(),
             'updated_at' => self::dateTime($report->updated_at),
         ];
     }

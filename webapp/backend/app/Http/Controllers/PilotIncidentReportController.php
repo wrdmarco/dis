@@ -61,6 +61,13 @@ final class PilotIncidentReportController extends Controller
         ));
     }
 
+    public function finalize(Request $request, Incident $incident): JsonResponse
+    {
+        return ApiResponse::success(MobileApiPayload::pilotIncidentReport(
+            $this->service->finalize($incident, $request->user(), $request->user()),
+        ));
+    }
+
     public function showForUser(Request $request, Incident $incident, User $user): JsonResponse
     {
         return ApiResponse::success(MobileApiPayload::pilotIncidentReport(
@@ -74,6 +81,13 @@ final class PilotIncidentReportController extends Controller
 
         return ApiResponse::success(MobileApiPayload::pilotIncidentReport(
             $this->service->submitForActor($incident, $user, $request->user(), $data),
+        ));
+    }
+
+    public function finalizeForUser(Request $request, Incident $incident, User $user): JsonResponse
+    {
+        return ApiResponse::success(MobileApiPayload::pilotIncidentReport(
+            $this->service->finalize($incident, $user, $request->user()),
         ));
     }
 }

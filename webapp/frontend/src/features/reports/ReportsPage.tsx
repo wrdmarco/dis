@@ -16,6 +16,7 @@ export function ReportsPage() {
   const [reportDownloadingId, setReportDownloadingId] = useState<string | null>(null);
   const [reportError, setReportError] = useState<string | null>(null);
   const [adminReportTarget, setAdminReportTarget] = useState<{ incident: ReportIncident; user: ReportIncident['missing_pilot_reports'][number] } | null>(null);
+  const [adminReport, setAdminReport] = useState<PilotIncidentReport | null>(null);
   const [adminReportFields, setAdminReportFields] = useState<ConfigurableFormField[]>([]);
   const [adminReportValues, setAdminReportValues] = useState<Record<string, unknown>>({});
   const [adminReportLoading, setAdminReportLoading] = useState(false);
@@ -57,6 +58,7 @@ export function ReportsPage() {
 
   async function openAdminPilotReport(incident: ReportIncident, user: ReportIncident['missing_pilot_reports'][number]) {
     setAdminReportTarget({ incident, user });
+    setAdminReport(null);
     setAdminReportFields([]);
     setAdminReportValues({});
     setAdminReportError(null);
@@ -68,6 +70,7 @@ export function ReportsPage() {
         api.get<PilotIncidentReport>(`/incidents/${incident.id}/pilot-reports/${user.user_id}`),
       ]);
       setAdminReportFields(configResponse.data.fields);
+      setAdminReport(reportResponse.data);
       setAdminReportValues(reportResponse.data.custom_fields ?? {});
     } catch (err) {
       setAdminReportError(err instanceof ApiClientError ? err.message : 'Inzetrapport kon niet worden geladen.');
@@ -85,13 +88,31 @@ export function ReportsPage() {
     setAdminReportSaving(true);
     setAdminReportError(null);
     try {
-      await api.patch(`/incidents/${adminReportTarget.incident.id}/pilot-reports/${adminReportTarget.user.user_id}`, {
+      const response = await api.patch<PilotIncidentReport>(`/incidents/${adminReportTarget.incident.id}/pilot-reports/${adminReportTarget.user.user_id}`, {
         custom_fields: adminReportValues,
       });
-      setAdminReportTarget(null);
+      setAdminReport(response.data);
       await reportIncidents.reload();
     } catch (err) {
       setAdminReportError(err instanceof ApiClientError ? err.message : 'Inzetrapport kon niet worden opgeslagen.');
+    } finally {
+      setAdminReportSaving(false);
+    }
+  }
+
+  async function finalizeAdminPilotReport() {
+    if (adminReportTarget === null || adminReport?.status !== 'submitted' || adminReport.can_edit === false) {
+      return;
+    }
+
+    setAdminReportSaving(true);
+    setAdminReportError(null);
+    try {
+      const response = await api.post<PilotIncidentReport>(`/incidents/${adminReportTarget.incident.id}/pilot-reports/${adminReportTarget.user.user_id}/finalize`, {});
+      setAdminReport(response.data);
+      await reportIncidents.reload();
+    } catch (err) {
+      setAdminReportError(err instanceof ApiClientError ? err.message : 'Inzetrapport kon niet definitief worden gemaakt.');
     } finally {
       setAdminReportSaving(false);
     }
@@ -120,7 +141,7 @@ export function ReportsPage() {
                   <th>Team</th>
                   <th>Gesloten</th>
                   <th>Vluchtrapporten</th>
-                  <th>Ontbreekt</th>
+                  <th>Status inzetrapporten</th>
                   <th>PDF</th>
                 </tr>
               </thead>
@@ -136,7 +157,7 @@ export function ReportsPage() {
                     <td data-label="Vluchtrapporten">
                       {incident.submitted_pilot_report_count}/{incident.expected_pilot_report_count}
                     </td>
-                    <td data-label="Ontbreekt">
+                    <td data-label="Status inzetrapporten">
                       <MissingPilotReports incident={incident} onFill={openAdminPilotReport} />
                     </td>
                     <td data-label="Rapport">
@@ -262,21 +283,32 @@ export function ReportsPage() {
                 <strong>{adminReportTarget.user.name}</strong>
                 <p className="muted-text">{adminReportTarget.incident.reference} - {adminReportTarget.incident.title}</p>
               </div>
+              {adminReport?.can_edit === false ? (
+                <p className="form-note form-grid__wide">Dit inzetrapport is definitief en kan niet meer worden aangepast.</p>
+              ) : adminReport?.status === 'submitted' ? (
+                <p className="form-note form-grid__wide">Dit inzetrapport is ingediend en blijft wijzigbaar totdat het definitief wordt gemaakt.</p>
+              ) : null}
               {adminReportLoading ? <p className="form-grid__wide muted-text">Inzetrapport laden...</p> : null}
               {adminReportFields.filter((field) => field.visible).map((field) => (
                 <PilotReportField
                   field={field}
                   value={adminReportValues[field.key]}
                   onChange={(value) => setAdminReportValues((current) => ({ ...current, [field.key]: value }))}
+                  disabled={adminReport?.can_edit === false}
                   key={field.key}
                 />
               ))}
               {adminReportError ? <p className="form-error form-grid__wide">{adminReportError}</p> : null}
               <div className="form-actions form-grid__wide">
                 <button className="secondary-button" type="button" onClick={() => setAdminReportTarget(null)}>Annuleren</button>
-                <button className="primary-button" type="submit" disabled={adminReportLoading || adminReportSaving}>
+                <button className="primary-button" type="submit" disabled={adminReportLoading || adminReportSaving || adminReport?.can_edit === false}>
                   {adminReportSaving ? 'Opslaan...' : 'Rapport opslaan'}
                 </button>
+                {adminReport?.status === 'submitted' && adminReport.can_edit !== false ? (
+                  <button className="secondary-button" type="button" onClick={() => void finalizeAdminPilotReport()} disabled={adminReportSaving}>
+                    Definitief maken
+                  </button>
+                ) : null}
               </div>
             </form>
           </section>
@@ -287,22 +319,28 @@ export function ReportsPage() {
 }
 
 function MissingPilotReports({ incident, onFill }: { incident: ReportIncident; onFill: (incident: ReportIncident, user: ReportIncident['missing_pilot_reports'][number]) => void }) {
-  if (incident.missing_pilot_report_count === 0) {
-    return <span className="muted-text">Compleet</span>;
+  const unfinalized = incident.unfinalized_pilot_reports ?? [];
+  if (incident.missing_pilot_report_count === 0 && unfinalized.length === 0) {
+    return <span className="muted-text">Compleet en definitief</span>;
   }
 
   return (
     <div className="missing-report-list">
+      {unfinalized.map((report) => (
+        <button className="secondary-button" type="button" onClick={() => onFill(incident, report)} key={`unfinalized-${report.user_id}`} title={report.email ?? undefined}>
+          {report.name} definitief maken
+        </button>
+      ))}
       {incident.missing_pilot_reports.map((report) => (
-        <button className="secondary-button" type="button" onClick={() => onFill(incident, report)} key={report.user_id} title={report.email ?? undefined}>
-          {report.name}
+        <button className="secondary-button" type="button" onClick={() => onFill(incident, report)} key={`missing-${report.user_id}`} title={report.email ?? undefined}>
+          {report.name} invullen
         </button>
       ))}
     </div>
   );
 }
 
-function PilotReportField({ field, value, onChange }: { field: ConfigurableFormField; value: unknown; onChange: (value: unknown) => void }) {
+function PilotReportField({ field, value, onChange, disabled = false }: { field: ConfigurableFormField; value: unknown; onChange: (value: unknown) => void; disabled?: boolean }) {
   if (field.type === 'section') {
     return <div className="form-grid__wide section-heading"><h3>{field.label}</h3></div>;
   }
@@ -311,11 +349,11 @@ function PilotReportField({ field, value, onChange }: { field: ConfigurableFormF
   const className = field.width === 'full' ? 'form-grid__wide' : undefined;
 
   if (field.type === 'textarea') {
-    return <label className="form-grid__wide">{label}<textarea value={asFormString(value)} required={field.required} rows={4} onChange={(event) => onChange(event.target.value)} /></label>;
+    return <label className="form-grid__wide">{label}<textarea value={asFormString(value)} required={field.required} rows={4} disabled={disabled} onChange={(event) => onChange(event.target.value)} /></label>;
   }
 
   if (field.type === 'number') {
-    return <label className={className}>{label}<input type="number" min="0" value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value === '' ? null : Number(event.target.value))} /></label>;
+    return <label className={className}>{label}<input type="number" min="0" value={asFormString(value)} required={field.required} disabled={disabled} onChange={(event) => onChange(event.target.value === '' ? null : Number(event.target.value))} /></label>;
   }
 
   if (field.type === 'phone') {
@@ -330,6 +368,7 @@ function PilotReportField({ field, value, onChange }: { field: ConfigurableFormF
           title={`Gebruik een internationaal nummer met ${phoneCountryLabels(field)}.`}
           value={asFormString(value)}
           required={field.required}
+          disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
         />
       </label>
@@ -342,15 +381,15 @@ function PilotReportField({ field, value, onChange }: { field: ConfigurableFormF
       <div className="form-grid__wide">
         <span className="field-label">{label}</span>
         <div className="form-grid">
-          <label>Start<input type="time" value={flightTime.start} required={field.required} onChange={(event) => onChange({ ...flightTime, start: event.target.value })} /></label>
-          <label>Eind<input type="time" value={flightTime.end} required={field.required} onChange={(event) => onChange({ ...flightTime, end: event.target.value })} /></label>
+          <label>Start<input type="time" value={flightTime.start} required={field.required} disabled={disabled} onChange={(event) => onChange({ ...flightTime, start: event.target.value })} /></label>
+          <label>Eind<input type="time" value={flightTime.end} required={field.required} disabled={disabled} onChange={(event) => onChange({ ...flightTime, end: event.target.value })} /></label>
         </div>
       </div>
     );
   }
 
   if (field.type === 'select') {
-    return <label className={className}>{label}<select value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value)}><option value="">Selecteer</option>{(field.options ?? []).map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>;
+    return <label className={className}>{label}<select value={asFormString(value)} required={field.required} disabled={disabled} onChange={(event) => onChange(event.target.value)}><option value="">Selecteer</option>{(field.options ?? []).map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>;
   }
 
   if (field.type === 'radio') {
@@ -360,7 +399,7 @@ function PilotReportField({ field, value, onChange }: { field: ConfigurableFormF
         <div className="checkbox-grid">
           {(field.options ?? []).map((option) => (
             <label className="checkbox-card" key={option.value}>
-              <input type="radio" name={`pilot-report-${field.key}`} checked={asFormString(value) === option.value} required={field.required} onChange={() => onChange(option.value)} />
+              <input type="radio" name={`pilot-report-${field.key}`} checked={asFormString(value) === option.value} required={field.required} disabled={disabled} onChange={() => onChange(option.value)} />
               <span><strong>{option.label}</strong></span>
             </label>
           ))}
@@ -370,10 +409,10 @@ function PilotReportField({ field, value, onChange }: { field: ConfigurableFormF
   }
 
   if (field.type === 'checkbox') {
-    return <label className="checkbox-card form-grid__wide"><input type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} /><span><strong>{label}</strong></span></label>;
+    return <label className="checkbox-card form-grid__wide"><input type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span><strong>{label}</strong></span></label>;
   }
 
-  return <label className={className}>{label}<input value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value)} /></label>;
+  return <label className={className}>{label}<input value={asFormString(value)} required={field.required} disabled={disabled} onChange={(event) => onChange(event.target.value)} /></label>;
 }
 
 function asFormString(value: unknown): string {

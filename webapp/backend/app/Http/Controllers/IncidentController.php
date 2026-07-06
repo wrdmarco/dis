@@ -478,6 +478,8 @@ final class IncidentController extends Controller
             'pilot_incident_report.opened_by_admin' => 'Inzetrapport geopend door beheerder',
             'pilot_incident_report.submitted' => 'Inzetrapport ingediend',
             'pilot_incident_report.submitted_by_admin' => 'Inzetrapport namens gebruiker ingediend',
+            'pilot_incident_report.finalized' => 'Inzetrapport definitief gemaakt',
+            'pilot_incident_report.finalized_by_admin' => 'Inzetrapport namens gebruiker definitief gemaakt',
             default => str_replace('_', ' ', str_replace('.', ' - ', $action)),
         };
     }

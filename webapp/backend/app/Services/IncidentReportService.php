@@ -374,7 +374,7 @@ final class IncidentReportService
             return $incident->report_pdf_path;
         }
 
-        if ($hasStoredReport && $this->missingPilotReportCount($incident) > 0) {
+        if ($hasStoredReport && ! $this->reportCanBeFinalized($incident)) {
             return $incident->report_pdf_path;
         }
 
@@ -468,7 +468,7 @@ final class IncidentReportService
     {
         try {
             $path = $this->reportPath($incident);
-            $isFinal = $this->missingPilotReportCount($incident) === 0;
+            $isFinal = $this->reportCanBeFinalized($incident);
             $absolutePath = $this->absoluteReportPath($path);
             $this->ensureWritableDirectory(dirname($absolutePath));
             if (File::put($absolutePath, $this->pdf($incident, $preserveExistingMaps)) === false) {
@@ -493,22 +493,15 @@ final class IncidentReportService
         }
     }
 
-    private function missingPilotReportCount(Incident $incident): int
+    public function reportCanBeFinalized(Incident $incident): bool
     {
-        $dispatches = $incident->dispatchRequests()
-            ->with('recipients')
-            ->whereIn('status', ['sent', 'escalated'])
-            ->get();
+        return $this->missingPilotReportCount($incident) === 0
+            && $this->unfinalizedPilotReportCount($incident) === 0;
+    }
 
-        $acceptedUserIds = $dispatches
-            ->flatMap(fn (DispatchRequest $dispatch) => $dispatch->recipients)
-            ->filter(fn ($recipient): bool => $recipient->response_status === 'accepted'
-                && is_string($recipient->user_id)
-                && $recipient->user_id !== '')
-            ->pluck('user_id')
-            ->unique()
-            ->values();
-
+    public function missingPilotReportCount(Incident $incident): int
+    {
+        $acceptedUserIds = $this->acceptedPilotReportUserIds($incident);
         if ($acceptedUserIds->isEmpty()) {
             return 0;
         }
@@ -523,6 +516,41 @@ final class IncidentReportService
         return $acceptedUserIds
             ->diff($submittedUserIds)
             ->count();
+    }
+
+    public function unfinalizedPilotReportCount(Incident $incident): int
+    {
+        $acceptedUserIds = $this->acceptedPilotReportUserIds($incident);
+        if ($acceptedUserIds->isEmpty()) {
+            return 0;
+        }
+
+        return $incident->pilotReports()
+            ->where('status', 'submitted')
+            ->whereIn('user_id', $acceptedUserIds->all())
+            ->get()
+            ->filter(fn (PilotIncidentReport $report): bool => ! $report->isFinalized())
+            ->count();
+    }
+
+    /**
+     * @return Collection<int, string>
+     */
+    private function acceptedPilotReportUserIds(Incident $incident): Collection
+    {
+        $dispatches = $incident->dispatchRequests()
+            ->with('recipients')
+            ->whereIn('status', ['sent', 'escalated'])
+            ->get();
+
+        return $dispatches
+            ->flatMap(fn (DispatchRequest $dispatch) => $dispatch->recipients)
+            ->filter(fn ($recipient): bool => $recipient->response_status === 'accepted'
+                && is_string($recipient->user_id)
+                && $recipient->user_id !== '')
+            ->pluck('user_id')
+            ->unique()
+            ->values();
     }
 
     /**
