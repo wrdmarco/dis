@@ -84,15 +84,17 @@ final class PilotIncidentReportService
     {
         $report = DB::transaction(function () use ($incident, $user, $actor, $data, $auditAction): PilotIncidentReport {
             $report = $this->ensureReport($incident, $user);
+            $customFields = $this->formService->normalizeCustomValues($data);
+            $standardValues = $this->standardValuesFromCustomFields($customFields);
             $report->fill([
-                'summary' => $data['summary'] ?? null,
-                'observations' => $data['observations'] ?? null,
-                'actions_taken' => $data['actions_taken'] ?? null,
-                'result' => $data['result'] ?? null,
-                'issues' => $data['issues'] ?? null,
-                'equipment_used' => $data['equipment_used'] ?? null,
-                'flight_minutes' => $data['flight_minutes'] ?? null,
-                'custom_fields' => $this->formService->normalizeCustomValues($data),
+                'summary' => $data['summary'] ?? $standardValues['summary'],
+                'observations' => $data['observations'] ?? $standardValues['observations'],
+                'actions_taken' => $data['actions_taken'] ?? $standardValues['actions_taken'],
+                'result' => $data['result'] ?? $standardValues['result'],
+                'issues' => $data['issues'] ?? $standardValues['issues'],
+                'equipment_used' => $data['equipment_used'] ?? $standardValues['equipment_used'],
+                'flight_minutes' => $data['flight_minutes'] ?? $standardValues['flight_minutes'],
+                'custom_fields' => $customFields,
                 'status' => 'submitted',
                 'submitted_at' => now(),
             ])->save();
@@ -109,6 +111,43 @@ final class PilotIncidentReportService
         $this->incidentReportService->refreshStored($incident->refresh(), preserveExistingMaps: true);
 
         return $report;
+    }
+
+    /**
+     * @param array<string, mixed> $customFields
+     * @return array{summary: ?string, observations: ?string, actions_taken: ?string, result: ?string, issues: ?string, equipment_used: ?string, flight_minutes: ?int}
+     */
+    private function standardValuesFromCustomFields(array $customFields): array
+    {
+        return [
+            'summary' => $this->stringValue($customFields['summary'] ?? null),
+            'observations' => $this->stringValue($customFields['observations'] ?? null),
+            'actions_taken' => $this->stringValue($customFields['actions_taken'] ?? null),
+            'result' => $this->stringValue($customFields['result'] ?? null),
+            'issues' => $this->stringValue($customFields['issues'] ?? null),
+            'equipment_used' => $this->stringValue($customFields['equipment_used'] ?? null),
+            'flight_minutes' => $this->flightMinutesFromValue($customFields['flight_time'] ?? null),
+        ];
+    }
+
+    private function stringValue(mixed $value): ?string
+    {
+        if (! is_scalar($value)) {
+            return null;
+        }
+
+        $text = trim((string) $value);
+
+        return $text === '' ? null : $text;
+    }
+
+    private function flightMinutesFromValue(mixed $value): ?int
+    {
+        if (is_array($value) && isset($value['duration_minutes']) && is_numeric($value['duration_minutes'])) {
+            return (int) $value['duration_minutes'];
+        }
+
+        return null;
     }
 
     private function ensureReport(Incident $incident, User $user): PilotIncidentReport

@@ -3,8 +3,10 @@
 namespace App\Services;
 
 use App\Models\AvailabilityStatus;
+use App\Models\Asset;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
+use App\Models\PilotIncidentReport;
 use App\Models\SystemSetting;
 use Dompdf\Dompdf;
 use Dompdf\Options;
@@ -17,7 +19,21 @@ use Throwable;
 
 final class IncidentReportService
 {
-    public function __construct(private readonly DroneFlightContextService $droneFlightContextService) {}
+    private const PILOT_STANDARD_FIELD_KEYS = [
+        'summary',
+        'observations',
+        'actions_taken',
+        'result',
+        'issues',
+        'equipment_used',
+        'flight_time',
+        'flight_minutes',
+    ];
+
+    public function __construct(
+        private readonly DroneFlightContextService $droneFlightContextService,
+        private readonly PilotIncidentReportFormService $pilotReportFormService,
+    ) {}
 
     /**
      * @return array<string, mixed>
@@ -38,6 +54,7 @@ final class IncidentReportService
         $timeline = $this->timeline($incident, $dispatches);
         $droneFlightContext = $incident->drone_flight_context ?? $this->droneFlightContextService->previewForIncident($incident);
         $pilotReports = $incident->pilotReports()
+            ->with(['user' => fn ($query) => $query->withTrashed()])
             ->where('status', 'submitted')
             ->oldest('submitted_at')
             ->oldest()
@@ -48,6 +65,7 @@ final class IncidentReportService
             'dispatches' => $dispatches,
             'travelRows' => $travelRows,
             'pilotReports' => $pilotReports,
+            'pilotReportRows' => $this->pilotReportRows($pilotReports),
             'timeline' => $timeline,
             'map' => $this->mapData($incident, is_array($droneFlightContext) ? $droneFlightContext : null, $preserveExistingMaps),
             'droneFlightContext' => $droneFlightContext,
@@ -62,6 +80,155 @@ final class IncidentReportService
             'generatedAt' => now(),
             'timezone' => config('app.timezone', 'Europe/Amsterdam'),
         ];
+    }
+
+    /**
+     * @param Collection<int, PilotIncidentReport> $pilotReports
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function pilotReportRows(Collection $pilotReports): Collection
+    {
+        return $pilotReports->map(function (PilotIncidentReport $report): array {
+            $customFields = is_array($report->custom_fields) ? $report->custom_fields : [];
+            $fields = collect($this->pilotReportFormService->fields($report->user))
+                ->keyBy(fn (array $field): string => (string) $field['key']);
+
+            return [
+                'user_name' => $report->user_name ?: 'Verwijderde gebruiker',
+                'user_email' => $report->user_email ?: '-',
+                'submitted_at' => $report->submitted_at,
+                'flight_minutes' => $report->flight_minutes ?? $this->flightMinutesFromCustomValue($customFields['flight_time'] ?? null),
+                'summary' => $this->standardPilotText($report->summary, $customFields, 'summary'),
+                'observations' => $this->standardPilotText($report->observations, $customFields, 'observations'),
+                'actions_taken' => $this->standardPilotText($report->actions_taken, $customFields, 'actions_taken'),
+                'result' => $this->standardPilotText($report->result, $customFields, 'result'),
+                'issues' => $this->standardPilotText($report->issues, $customFields, 'issues'),
+                'equipment_used' => $this->standardPilotText($report->equipment_used, $customFields, 'equipment_used'),
+                'extra_fields' => $this->pilotExtraFields($customFields, $fields),
+            ];
+        })->values();
+    }
+
+    /**
+     * @param array<string, mixed> $customFields
+     * @param Collection<string, array<string, mixed>> $fields
+     * @return array<int, array{label: string, value: string}>
+     */
+    private function pilotExtraFields(array $customFields, Collection $fields): array
+    {
+        $rows = [];
+        foreach ($customFields as $key => $value) {
+            if (in_array($key, self::PILOT_STANDARD_FIELD_KEYS, true)) {
+                continue;
+            }
+
+            $field = $fields->get($key);
+            if (is_array($field) && ($field['type'] ?? null) === 'section') {
+                continue;
+            }
+
+            $formatted = $this->pilotCustomDisplayValue(is_array($field) ? $field : null, $value);
+            if ($formatted === '-') {
+                continue;
+            }
+
+            $rows[] = [
+                'label' => is_array($field) ? (string) ($field['label'] ?? $key) : Str::headline(str_replace('_', ' ', (string) $key)),
+                'value' => $formatted,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param array<string, mixed>|null $field
+     */
+    private function pilotCustomDisplayValue(?array $field, mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '-';
+        }
+
+        if (($field['option_source'] ?? 'manual') === 'user_drones' && is_scalar($value)) {
+            return $this->assetLabelById((string) $value) ?? (string) $value;
+        }
+
+        if (is_array($field) && in_array($field['type'] ?? null, ['select', 'radio'], true)) {
+            foreach (($field['options'] ?? []) as $option) {
+                if (is_array($option) && (string) ($option['value'] ?? '') === (string) $value) {
+                    return (string) ($option['label'] ?? $value);
+                }
+            }
+        }
+
+        if (is_bool($value)) {
+            return $value ? 'Ja' : 'Nee';
+        }
+
+        if (is_array($value)) {
+            if (array_key_exists('start', $value) || array_key_exists('end', $value)) {
+                $start = trim((string) ($value['start'] ?? ''));
+                $end = trim((string) ($value['end'] ?? ''));
+                $duration = isset($value['duration_minutes']) && is_numeric($value['duration_minutes'])
+                    ? ' ('.(int) $value['duration_minutes'].' min)'
+                    : '';
+                $range = trim($start.($start !== '' && $end !== '' ? ' - ' : '').$end);
+
+                return $range === '' ? '-' : $range.$duration;
+            }
+
+            $parts = array_filter(array_map(fn ($item) => is_scalar($item) ? trim((string) $item) : '', $value));
+
+            return $parts === [] ? '-' : implode(', ', $parts);
+        }
+
+        $text = trim((string) $value);
+
+        return $text === '' ? '-' : $text;
+    }
+
+    private function standardPilotText(mixed $storedValue, array $customFields, string $key): ?string
+    {
+        $value = is_scalar($storedValue) ? trim((string) $storedValue) : '';
+        if ($value !== '') {
+            return $value;
+        }
+
+        $customValue = $customFields[$key] ?? null;
+        if (! is_scalar($customValue)) {
+            return null;
+        }
+
+        $text = trim((string) $customValue);
+
+        return $text === '' ? null : $text;
+    }
+
+    private function flightMinutesFromCustomValue(mixed $value): ?int
+    {
+        if (is_array($value) && isset($value['duration_minutes']) && is_numeric($value['duration_minutes'])) {
+            return (int) $value['duration_minutes'];
+        }
+
+        return null;
+    }
+
+    private function assetLabelById(string $assetId): ?string
+    {
+        $asset = Asset::query()->with('droneType')->find($assetId);
+        if (! $asset instanceof Asset) {
+            return null;
+        }
+
+        $name = trim($asset->name);
+        $type = trim($asset->droneType ? $asset->droneType->manufacturer.' '.$asset->droneType->model : '');
+
+        if ($type === '' || strcasecmp($name, $type) === 0) {
+            return $name !== '' ? $name : 'Drone';
+        }
+
+        return trim(($name !== '' ? $name : 'Drone').' ('.$type.')');
     }
 
     public function pdf(Incident $incident, bool $preserveExistingMaps = false): string

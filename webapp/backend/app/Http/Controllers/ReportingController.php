@@ -29,7 +29,10 @@ final class ReportingController extends Controller
             }
 
             $pdfPath = $reports->storedPdfPath($incident);
-            if ($pdfPath === null) {
+            if ($pdfPath !== null) {
+                $reports->refreshStored($incident, preserveExistingMaps: true);
+                $pdfPath = $reports->storedPdfPath($incident->refresh());
+            } else {
                 $reports->ensureStored($incident);
                 $pdfPath = $reports->storedPdfPath($incident->refresh());
             }

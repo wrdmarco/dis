@@ -313,30 +313,30 @@
         </tr>
         </thead>
         <tbody>
-        @forelse ($pilotReports as $report)
+        @forelse ($pilotReportRows as $report)
             <tr>
-                <td>{{ $report->user_name ?: 'Verwijderde gebruiker' }}<br><span class="muted">{{ $report->user_email ?: '-' }}</span></td>
-                <td>{{ $formatDate($report->submitted_at) }}</td>
-                <td>{{ $formatMinutes($report->flight_minutes) }}</td>
+                <td>{{ $report['user_name'] }}<br><span class="muted">{{ $report['user_email'] }}</span></td>
+                <td>{{ $formatDate($report['submitted_at']) }}</td>
+                <td>{{ $formatMinutes($report['flight_minutes']) }}</td>
                 <td>
-                    {{ $report->summary ?: '-' }}
-                    @if ($report->observations)
-                        <br><span class="muted">Waarnemingen: {{ $report->observations }}</span>
+                    {{ $report['summary'] ?: '-' }}
+                    @if ($report['observations'])
+                        <br><span class="muted">Waarnemingen: {{ $report['observations'] }}</span>
                     @endif
                 </td>
                 <td>
-                    {{ $report->actions_taken ?: '-' }}
-                    @if ($report->result)
-                        <br><span class="muted">Resultaat: {{ $report->result }}</span>
+                    {{ $report['actions_taken'] ?: '-' }}
+                    @if ($report['result'])
+                        <br><span class="muted">Resultaat: {{ $report['result'] }}</span>
                     @endif
                 </td>
                 <td>
-                    {{ $report->issues ?: '-' }}
-                    @if ($report->equipment_used)
-                        <br><span class="muted">Middelen: {{ $report->equipment_used }}</span>
+                    {{ $report['issues'] ?: '-' }}
+                    @if ($report['equipment_used'])
+                        <br><span class="muted">Middelen: {{ $report['equipment_used'] }}</span>
                     @endif
-                    @foreach (($report->custom_fields ?? []) as $customKey => $customValue)
-                        <br><span class="muted">{{ $customKey }}: {{ $formatCustomValue($customValue) }}</span>
+                    @foreach ($report['extra_fields'] as $extraField)
+                        <br><span class="muted">{{ $extraField['label'] }}: {{ $extraField['value'] }}</span>
                     @endforeach
                 </td>
             </tr>
