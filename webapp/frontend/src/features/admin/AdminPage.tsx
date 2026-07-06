@@ -1685,87 +1685,200 @@ function IncidentFormLayoutEditor(props: {
   onUpdate: (key: string, changes: Partial<IncidentFormLayoutItem>) => void;
 }) {
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  const [draggingPaletteKey, setDraggingPaletteKey] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const visibleLayout = props.layout.filter((item) => item.visible);
+  const selectedItem = props.layout.find((item) => item.key === selectedKey)
+    ?? visibleLayout[0]
+    ?? props.layout[0]
+    ?? null;
+
+  function selectModule(key: string) {
+    setSelectedKey(key);
+  }
+
+  function placeModule(key: string, beforeKey?: string) {
+    props.onUpdate(key, { visible: true });
+    if (beforeKey !== undefined && key !== beforeKey) {
+      props.onReorder(key, beforeKey);
+    }
+    selectModule(key);
+  }
 
   return (
-    <div className="form-builder form-layout-editor">
-      <div className="form-builder__toolbar">
+    <div className="form-builder form-builder--studio form-layout-editor">
+      <div className="form-builder__toolbar form-builder__toolbar--studio">
         <div>
-          <h3>Webformulier modules</h3>
+          <h3>Incidentformulier builder</h3>
           <p className="muted-text">Bouw het incidentformulier voor de webapp uit losse modules. Standaardvelden, locatiekaart en Aeret onderdelen zijn modules; de mobiele app gebruikt deze indeling niet.</p>
         </div>
+        <p className="muted-text">Sleep modules naar het canvas om ze te plaatsen of te verplaatsen. Verborgen modules blijven beschikbaar in de modulebank.</p>
       </div>
-      <div className="form-builder__workspace">
-        <div className="form-builder__list">
-          {props.layout.map((item, index) => (
-            <article
-              className="form-builder-card"
-              draggable
-              key={item.key}
-              onDragStart={() => setDraggingKey(item.key)}
-              onDragEnd={() => setDraggingKey(null)}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.preventDefault();
-                if (draggingKey !== null && draggingKey !== item.key) {
-                  props.onReorder(draggingKey, item.key);
-                }
-              }}
-            >
-              <div className="form-builder-card__handle" aria-hidden="true">::</div>
-              <div className="form-builder-card__body">
-                <div className="form-builder-card__header">
-                  <strong>{layoutItemLabel(item, props.customFields)}</strong>
-                  <span className="muted-text mono">{item.key}</span>
-                </div>
-                <div className="form-builder-card__grid">
-                  <label className="check-label">
-                    <input type="checkbox" checked={item.visible} disabled={item.locked === true} onChange={(event) => props.onUpdate(item.key, { visible: event.target.checked })} />
-                    Zichtbaar
-                  </label>
-                  <label>
-                    Breedte
-                    <select value={item.width ?? 'full'} onChange={(event) => props.onUpdate(item.key, { width: event.target.value as IncidentFormLayoutItem['width'] })}>
-                      <option value="full">Volle breedte</option>
-                      <option value="half">Naast elkaar</option>
-                    </select>
-                  </label>
-                </div>
-              </div>
-              <div className="form-builder-card__actions">
-                <button className="secondary-button" type="button" disabled={index === 0} onClick={() => props.onMove(item.key, -1)}>Omhoog</button>
-                <button className="secondary-button" type="button" disabled={index === props.layout.length - 1} onClick={() => props.onMove(item.key, 1)}>Omlaag</button>
-              </div>
-            </article>
-          ))}
-        </div>
-        <div className="form-builder__preview" aria-label="Compleet voorbeeld incidentformulier">
-          <div>
-            <span className="modal__eyebrow">Compleet voorbeeld</span>
-            <h3>Incidentformulier webapp</h3>
+
+      <div className="form-builder-studio form-builder-studio--incident">
+        <aside className="form-builder-palette" aria-label="Incidentmodules">
+          <h4>Modules</h4>
+          <div className="form-builder-palette__grid">
+            {props.layout.map((item) => {
+              const label = layoutItemLabel(item, props.customFields);
+              const isSelected = selectedItem?.key === item.key;
+              return (
+                <button
+                  className={`form-builder-palette__item ${item.visible ? 'form-builder-palette__item--active' : ''} ${isSelected ? 'form-builder-palette__item--selected' : ''}`}
+                  draggable
+                  key={item.key}
+                  type="button"
+                  onClick={() => {
+                    if (!item.visible) {
+                      placeModule(item.key);
+                      return;
+                    }
+                    selectModule(item.key);
+                  }}
+                  onDragStart={() => setDraggingPaletteKey(item.key)}
+                  onDragEnd={() => setDraggingPaletteKey(null)}
+                >
+                  <span>{label}</span>
+                  <small>{incidentModuleDescription(item)}</small>
+                </button>
+              );
+            })}
           </div>
+        </aside>
+
+        <section
+          className="form-builder-canvas"
+          aria-label="Incidentformulier canvas"
+          onDragOver={(event) => {
+            if (draggingPaletteKey !== null || draggingKey !== null) {
+              event.preventDefault();
+            }
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            if (draggingPaletteKey !== null) {
+              placeModule(draggingPaletteKey);
+              setDraggingPaletteKey(null);
+            }
+          }}
+        >
+          <header className="form-builder-canvas__header">
+            <div>
+              <span className="modal__eyebrow">Canvas</span>
+              <h3>Incidentformulier webapp</h3>
+            </div>
+            <span className="muted-text">{visibleLayout.length} zichtbaar</span>
+          </header>
           <div className="form-grid">
-            {props.layout.filter((item) => item.visible).map((item) => (
-              <div
-                className={item.width === 'half' ? 'form-builder-preview-module' : 'form-builder-preview-module form-grid__wide'}
+            {visibleLayout.length === 0 ? (
+              <div className="form-builder-dropzone form-grid__wide">
+                <strong>Sleep hier incidentmodules naartoe</strong>
+                <span>Gelockte modules kunnen niet verborgen worden.</span>
+              </div>
+            ) : null}
+            {visibleLayout.map((item, index) => (
+              <article
+                className={`${incidentCanvasItemClass(item)} ${selectedItem?.key === item.key ? 'form-builder-canvas-item--selected' : ''}`}
                 draggable
                 key={item.key}
-                onDragStart={() => setDraggingKey(item.key)}
+                onClick={() => selectModule(item.key)}
+                onDragStart={() => {
+                  setDraggingKey(item.key);
+                  selectModule(item.key);
+                }}
                 onDragEnd={() => setDraggingKey(null)}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => {
                   event.preventDefault();
                   if (draggingKey !== null && draggingKey !== item.key) {
                     props.onReorder(draggingKey, item.key);
+                    return;
+                  }
+                  if (draggingPaletteKey !== null) {
+                    placeModule(draggingPaletteKey, item.key);
+                    setDraggingPaletteKey(null);
                   }
                 }}
               >
-                <IncidentModulePreview item={{ ...item, label: layoutItemLabel(item, props.customFields), width: 'full' }} fields={props.customFields} />
-              </div>
+                <div className="form-builder-canvas-item__bar">
+                  <span aria-hidden="true">::</span>
+                  <strong>{layoutItemLabel(item, props.customFields)}</strong>
+                  <small>{incidentModuleTypeLabel(item)}</small>
+                </div>
+                <IncidentModulePreview item={{ ...item, label: layoutItemLabel(item, props.customFields) }} fields={props.customFields} />
+                <div className="form-builder-canvas-item__actions">
+                  <button className="icon-button" type="button" disabled={index === 0} onClick={(event) => { event.stopPropagation(); props.onMove(item.key, -1); }} aria-label="Module omhoog">↑</button>
+                  <button className="icon-button" type="button" disabled={index === visibleLayout.length - 1} onClick={(event) => { event.stopPropagation(); props.onMove(item.key, 1); }} aria-label="Module omlaag">↓</button>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={item.locked === true}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      props.onUpdate(item.key, { visible: false });
+                    }}
+                  >
+                    Verbergen
+                  </button>
+                </div>
+              </article>
             ))}
           </div>
-        </div>
+        </section>
+
+        <IncidentModulePropertiesPanel
+          item={selectedItem}
+          fields={props.customFields}
+          onUpdate={props.onUpdate}
+        />
       </div>
     </div>
+  );
+}
+
+function IncidentModulePropertiesPanel(props: {
+  item: IncidentFormLayoutItem | null;
+  fields: ConfigurableFormField[];
+  onUpdate: (key: string, changes: Partial<IncidentFormLayoutItem>) => void;
+}) {
+  const { item, fields, onUpdate } = props;
+
+  if (item === null) {
+    return (
+      <aside className="form-builder-properties">
+        <h4>Eigenschappen</h4>
+        <p className="muted-text">Selecteer een module om de eigenschappen te wijzigen.</p>
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="form-builder-properties" aria-label="Module-eigenschappen">
+      <div>
+        <span className="modal__eyebrow">Eigenschappen</span>
+        <h4>{layoutItemLabel(item, fields)}</h4>
+        <code>{item.key}</code>
+      </div>
+      <label>
+        Label
+        <input value={item.label} onChange={(event) => onUpdate(item.key, { label: event.target.value })} />
+      </label>
+      <label>
+        Breedte
+        <select value={item.width ?? 'full'} onChange={(event) => onUpdate(item.key, { width: event.target.value as IncidentFormLayoutItem['width'] })}>
+          <option value="full">Volle breedte</option>
+          <option value="half">Naast elkaar</option>
+        </select>
+      </label>
+      <label className="check-label">
+        <input type="checkbox" checked={item.visible} disabled={item.locked === true} onChange={(event) => onUpdate(item.key, { visible: event.target.checked })} />
+        Zichtbaar
+      </label>
+      <div className="form-builder-property-note">
+        <strong>{incidentModuleTypeLabel(item)}</strong>
+        <span>{item.locked === true ? 'Verplicht onderdeel. Deze module kan niet verborgen worden.' : 'Deze module kan worden verborgen of verplaatst.'}</span>
+      </div>
+    </aside>
   );
 }
 
@@ -1806,6 +1919,42 @@ function IncidentModulePreview({ item, fields }: { item: IncidentFormLayoutItem;
   }
 
   return <label className={className}>{item.label}{item.locked ? ' *' : ''}<input readOnly placeholder={item.label} /></label>;
+}
+
+function incidentCanvasItemClass(item: IncidentFormLayoutItem): string {
+  const wide = item.width !== 'half' || item.key.startsWith('section_') || item.key === 'location_map' || item.key === 'drone_aeret_map';
+  return wide ? 'form-builder-canvas-item form-grid__wide' : 'form-builder-canvas-item';
+}
+
+function incidentModuleTypeLabel(item: IncidentFormLayoutItem): string {
+  if (item.key.startsWith('section_')) {
+    return 'Sectie';
+  }
+
+  if (item.key.startsWith('custom_field:')) {
+    return 'Custom veld';
+  }
+
+  if (item.key.includes('map')) {
+    return 'Kaartmodule';
+  }
+
+  if (item.key.startsWith('drone_')) {
+    return 'Drone module';
+  }
+
+  if (item.locked === true) {
+    return 'Vast veld';
+  }
+
+  return 'Module';
+}
+
+function incidentModuleDescription(item: IncidentFormLayoutItem): string {
+  const visibility = item.visible ? 'Op canvas' : 'Verborgen';
+  const lockState = item.locked === true ? 'verplicht' : incidentModuleTypeLabel(item).toLowerCase();
+
+  return `${visibility} - ${lockState}`;
 }
 
 const formBuilderPalette: Array<{ type: ConfigurableFormField['type']; label: string; description: string }> = [

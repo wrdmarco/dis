@@ -2086,6 +2086,15 @@ select[multiple] {
   background: #0e2131;
 }
 
+.form-builder-palette__item--active {
+  border-color: #2f5f83;
+}
+
+.form-builder-palette__item--selected {
+  border-color: #70bdf8;
+  box-shadow: 0 0 0 1px rgba(112, 189, 248, 0.3);
+}
+
 .form-builder-palette__item small,
 .form-builder-canvas-item__bar small {
   color: #8ea0b5;
@@ -2161,6 +2170,20 @@ select[multiple] {
   margin-top: 6px;
   overflow-wrap: anywhere;
   color: #8ea0b5;
+}
+
+.form-builder-property-note {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid #26384f;
+  border-radius: 8px;
+  background: #09111b;
+}
+
+.form-builder-property-note span {
+  color: #8ea0b5;
+  font-size: 0.88rem;
 }
 
 .template-variable-bank {
