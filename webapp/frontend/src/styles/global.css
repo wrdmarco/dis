@@ -6459,3 +6459,289 @@ pre {
   background: #f0fdf4;
   color: #166534;
 }
+
+/* UX Pro Max light-mode completion: shared surfaces that still had local dark styling. */
+:root[data-theme="light"] body {
+  background: var(--dis-bg);
+}
+
+:root[data-theme="light"] .command-layout,
+:root[data-theme="light"] .content {
+  background:
+    linear-gradient(180deg, rgba(237, 242, 247, 0.98), rgba(248, 251, 255, 0.98)),
+    var(--dis-bg);
+}
+
+:root[data-theme="light"] .sidebar {
+  border-color: var(--dis-border);
+  background:
+    linear-gradient(180deg, #ffffff, #f5f8fc),
+    var(--dis-surface);
+  box-shadow: 18px 0 42px rgba(18, 37, 57, 0.08);
+}
+
+:root[data-theme="light"] .topbar,
+:root[data-theme="light"] .operator,
+:root[data-theme="light"] .nav__group {
+  border-color: var(--dis-border);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+:root[data-theme="light"] .topbar__menu,
+:root[data-theme="light"] .sidebar__close,
+:root[data-theme="light"] .icon-button {
+  border-color: var(--dis-border);
+  background: #ffffff;
+  color: var(--dis-text);
+}
+
+:root[data-theme="light"] .topbar__menu:hover,
+:root[data-theme="light"] .sidebar__close:hover,
+:root[data-theme="light"] .icon-button:hover {
+  border-color: var(--dis-blue);
+  background: var(--dis-blue-soft);
+  color: var(--dis-blue);
+}
+
+:root[data-theme="light"] .mobile-nav-backdrop--open {
+  background: rgba(15, 23, 42, 0.28);
+}
+
+:root[data-theme="light"] .modal {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.98)),
+    var(--dis-surface);
+}
+
+:root[data-theme="light"] .modal .actions-row,
+:root[data-theme="light"] .modal .form-actions {
+  border-color: var(--dis-border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(248, 251, 255, 0.98)),
+    var(--dis-surface);
+}
+
+:root[data-theme="light"] .form label,
+:root[data-theme="light"] .form-grid label,
+:root[data-theme="light"] .check-label,
+:root[data-theme="light"] .checkbox-card,
+:root[data-theme="light"] .field-display,
+:root[data-theme="light"] .form-builder-canvas-item__bar,
+:root[data-theme="light"] .form-builder-palette__item,
+:root[data-theme="light"] .template-variable {
+  color: var(--dis-text);
+}
+
+:root[data-theme="light"] .recent-list > div,
+:root[data-theme="light"] .restore-upload,
+:root[data-theme="light"] .recipient-picker,
+:root[data-theme="light"] .stacked-section,
+:root[data-theme="light"] .definition-grid,
+:root[data-theme="light"] .form-builder-card,
+:root[data-theme="light"] .form-builder__preview,
+:root[data-theme="light"] .form-builder-palette,
+:root[data-theme="light"] .form-builder-canvas,
+:root[data-theme="light"] .form-builder-properties,
+:root[data-theme="light"] .form-builder-canvas-item,
+:root[data-theme="light"] .form-builder-dropzone,
+:root[data-theme="light"] .form-builder-property-note,
+:root[data-theme="light"] .template-variable-bank,
+:root[data-theme="light"] .template-variable,
+:root[data-theme="light"] .permission-category,
+:root[data-theme="light"] .permission-card,
+:root[data-theme="light"] .role-permission-summary,
+:root[data-theme="light"] .location-picker,
+:root[data-theme="light"] .location-picker__map,
+:root[data-theme="light"] .drone-flight-aeret-frame,
+:root[data-theme="light"] .operational-map__summary > div,
+:root[data-theme="light"] .operational-map-card,
+:root[data-theme="light"] .dashboard-signal,
+:root[data-theme="light"] .dashboard-metric,
+:root[data-theme="light"] .dashboard-incident,
+:root[data-theme="light"] .dashboard-dispatch,
+:root[data-theme="light"] .dashboard-asset,
+:root[data-theme="light"] .dashboard-person,
+:root[data-theme="light"] .work-plan-card,
+:root[data-theme="light"] .work-plan-modal,
+:root[data-theme="light"] .week-daypart-row,
+:root[data-theme="light"] .daypart-planner-row,
+:root[data-theme="light"] .resource-state {
+  border-color: var(--dis-border);
+  background: var(--dis-surface);
+  box-shadow: 0 12px 30px rgba(18, 37, 57, 0.05);
+}
+
+:root[data-theme="light"] .form-builder-card--section,
+:root[data-theme="light"] .form-builder-palette__item--active,
+:root[data-theme="light"] .form-builder-palette__item--selected,
+:root[data-theme="light"] .form-builder-canvas-item--selected {
+  border-color: var(--dis-blue);
+  background: var(--dis-blue-soft);
+  box-shadow: 0 0 0 1px rgba(11, 111, 174, 0.16);
+}
+
+:root[data-theme="light"] .form-builder-palette__item:hover,
+:root[data-theme="light"] .form-builder-palette__item:focus-visible,
+:root[data-theme="light"] .form-builder-preview-module:hover {
+  border-color: var(--dis-blue);
+  background: #f1f8ff;
+}
+
+:root[data-theme="light"] .form-builder-preview-module,
+:root[data-theme="light"] .form-builder-dropzone {
+  border-color: #b7c9dd;
+}
+
+:root[data-theme="light"] .form-builder-card__handle,
+:root[data-theme="light"] .form-builder-canvas-item__bar > span,
+:root[data-theme="light"] .form-builder-palette__item small,
+:root[data-theme="light"] .form-builder-canvas-item__bar small,
+:root[data-theme="light"] .form-builder-properties code,
+:root[data-theme="light"] .form-builder-property-note span,
+:root[data-theme="light"] .template-variable small,
+:root[data-theme="light"] .permission-category header span,
+:root[data-theme="light"] .role-permission-summary span,
+:root[data-theme="light"] .role-permission-summary strong,
+:root[data-theme="light"] .location-picker__empty,
+:root[data-theme="light"] .operational-map__livebar small,
+:root[data-theme="light"] .operational-map__summary small,
+:root[data-theme="light"] .operational-map-card small,
+:root[data-theme="light"] .dashboard-incident__main span,
+:root[data-theme="light"] .dashboard-dispatch__body span,
+:root[data-theme="light"] .dashboard-asset__body span,
+:root[data-theme="light"] .dashboard-incident__location,
+:root[data-theme="light"] .dashboard-metric span,
+:root[data-theme="light"] .dashboard-gauge small {
+  color: var(--dis-muted);
+}
+
+:root[data-theme="light"] .form-builder-dropzone strong,
+:root[data-theme="light"] .template-variable code,
+:root[data-theme="light"] .permission-category h3,
+:root[data-theme="light"] .permission-card code,
+:root[data-theme="light"] .operational-map__livebar,
+:root[data-theme="light"] .operational-map__summary strong,
+:root[data-theme="light"] .operational-map-card a,
+:root[data-theme="light"] .dashboard-incident__main strong,
+:root[data-theme="light"] .dashboard-dispatch__body strong,
+:root[data-theme="light"] .dashboard-asset__body strong,
+:root[data-theme="light"] .dashboard-person strong,
+:root[data-theme="light"] .dashboard-metric strong,
+:root[data-theme="light"] .dashboard-gauge span {
+  color: var(--dis-text-strong);
+}
+
+:root[data-theme="light"] .status-pill {
+  background: #eef4fb;
+  color: #33465d;
+}
+
+:root[data-theme="light"] .status-pill--good {
+  background: #dcfce7;
+  color: #166534;
+}
+
+:root[data-theme="light"] .status-pill--warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+:root[data-theme="light"] .status-pill--bad {
+  background: #ffe4e6;
+  color: #9f1239;
+}
+
+:root[data-theme="light"] .dashboard-hero {
+  border-color: var(--dis-border);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(244, 248, 252, 0.96)),
+    repeating-linear-gradient(90deg, rgba(11, 111, 174, 0.055) 0 1px, transparent 1px 74px);
+  box-shadow: 0 18px 46px rgba(18, 37, 57, 0.08);
+}
+
+:root[data-theme="light"] .dashboard-kpi-grid .kpi:hover,
+:root[data-theme="light"] .dashboard-incident:hover,
+:root[data-theme="light"] .dashboard-incident:focus-visible {
+  border-color: var(--dis-border-strong);
+  background: #f3f8fd;
+}
+
+:root[data-theme="light"] .dashboard-gauge {
+  background:
+    radial-gradient(circle at center, #ffffff 0 58%, transparent 59%),
+    conic-gradient(var(--dashboard-good) var(--dashboard-gauge), #d9e4f0 0);
+  box-shadow: inset 0 0 0 1px var(--dis-border);
+}
+
+:root[data-theme="light"] .dashboard-asset__icon,
+:root[data-theme="light"] .operational-map__summary span {
+  background: var(--dis-blue-soft);
+  color: var(--dis-blue);
+}
+
+:root[data-theme="light"] .operational-map-page--fullscreen,
+:root[data-theme="light"] .operational-map-page--fullscreen .panel,
+:root[data-theme="light"] .operational-map-page:fullscreen {
+  background: #dfeaf4;
+}
+
+:root[data-theme="light"] .operational-map-page--fullscreen .panel__header,
+:root[data-theme="light"] .operational-map-page--fullscreen .operational-map__livebar,
+:root[data-theme="light"] .operational-map__empty-state {
+  border-color: rgba(125, 143, 165, 0.36);
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--dis-text-strong);
+}
+
+:root[data-theme="light"] .operational-map__livebar {
+  border-color: #b9dcf6;
+  background: #f2f8fe;
+}
+
+:root[data-theme="light"] .operational-map__canvas {
+  border-color: var(--dis-border);
+  background: #e7f0f8;
+  box-shadow:
+    0 18px 44px rgba(18, 37, 57, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+:root[data-theme="light"] .operational-map__shade {
+  fill: rgba(255, 255, 255, 0.12);
+}
+
+:root[data-theme="light"] .operational-map__marker text {
+  fill: #07111e;
+  stroke: rgba(255, 255, 255, 0.92);
+}
+
+:root[data-theme="light"] .operational-map__route-line {
+  filter: drop-shadow(0 1px 3px rgba(18, 37, 57, 0.24));
+}
+
+:root[data-theme="light"] .operational-map__marker circle:first-child {
+  stroke: #ffffff;
+}
+
+:root[data-theme="light"] .form-config-table tr,
+:root[data-theme="light"] .reports-table tr {
+  border-color: var(--dis-border);
+  background: var(--dis-surface);
+}
+
+:root[data-theme="light"] .form-config-table td,
+:root[data-theme="light"] .reports-table td {
+  border-color: #e1eaf4;
+}
+
+:root[data-theme="light"] .form-config-table td::before,
+:root[data-theme="light"] .reports-table td::before {
+  color: var(--dis-muted);
+}
+
+:root[data-theme="light"] pre,
+:root[data-theme="light"] code {
+  border-color: var(--dis-border);
+  background: #f4f7fb;
+  color: #1c2938;
+}
