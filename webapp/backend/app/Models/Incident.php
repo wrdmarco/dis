@@ -37,6 +37,7 @@ final class Incident extends Model
         'drone_flight_context',
         'report_pdf_path',
         'report_generated_at',
+        'report_finalized_at',
         'report_generation_error',
         'created_by',
         'created_by_name',
@@ -58,6 +59,7 @@ final class Incident extends Model
             'drone_flight_context' => 'array',
             'is_test' => 'boolean',
             'report_generated_at' => 'immutable_datetime',
+            'report_finalized_at' => 'immutable_datetime',
             'opened_at' => 'immutable_datetime',
             'closed_at' => 'immutable_datetime',
         ];

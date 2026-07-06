@@ -366,18 +366,35 @@ final class IncidentReportService
             return null;
         }
 
-        if (is_string($incident->report_pdf_path)
+        $hasStoredReport = is_string($incident->report_pdf_path)
             && $incident->report_pdf_path !== ''
-            && $this->storedReportExists($incident->report_pdf_path)) {
+            && $this->storedReportExists($incident->report_pdf_path);
+
+        if ($hasStoredReport && $incident->report_finalized_at !== null) {
             return $incident->report_pdf_path;
         }
 
-        return $this->storePdf($incident);
+        if ($hasStoredReport && $this->missingPilotReportCount($incident) > 0) {
+            return $incident->report_pdf_path;
+        }
+
+        return $this->storePdf($incident, $hasStoredReport);
     }
 
     public function refreshStored(Incident $incident, bool $preserveExistingMaps = false): ?string
     {
-        return $this->ensureStored($incident);
+        if (! in_array($incident->status, ['resolved', 'cancelled'], true)) {
+            return null;
+        }
+
+        if (is_string($incident->report_pdf_path)
+            && $incident->report_pdf_path !== ''
+            && $this->storedReportExists($incident->report_pdf_path)
+            && $incident->report_finalized_at !== null) {
+            return $incident->report_pdf_path;
+        }
+
+        return $this->storePdf($incident, $preserveExistingMaps);
     }
 
     public function storedPdf(Incident $incident): ?string
@@ -451,6 +468,7 @@ final class IncidentReportService
     {
         try {
             $path = $this->reportPath($incident);
+            $isFinal = $this->missingPilotReportCount($incident) === 0;
             $absolutePath = $this->absoluteReportPath($path);
             $this->ensureWritableDirectory(dirname($absolutePath));
             if (File::put($absolutePath, $this->pdf($incident, $preserveExistingMaps)) === false) {
@@ -460,6 +478,7 @@ final class IncidentReportService
             $incident->forceFill([
                 'report_pdf_path' => $path,
                 'report_generated_at' => now(),
+                'report_finalized_at' => $isFinal ? now() : null,
                 'report_generation_error' => null,
             ])->save();
 
@@ -472,6 +491,38 @@ final class IncidentReportService
 
             return null;
         }
+    }
+
+    private function missingPilotReportCount(Incident $incident): int
+    {
+        $dispatches = $incident->dispatchRequests()
+            ->with('recipients')
+            ->whereIn('status', ['sent', 'escalated'])
+            ->get();
+
+        $acceptedUserIds = $dispatches
+            ->flatMap(fn (DispatchRequest $dispatch) => $dispatch->recipients)
+            ->filter(fn ($recipient): bool => $recipient->response_status === 'accepted'
+                && is_string($recipient->user_id)
+                && $recipient->user_id !== '')
+            ->pluck('user_id')
+            ->unique()
+            ->values();
+
+        if ($acceptedUserIds->isEmpty()) {
+            return 0;
+        }
+
+        $submittedUserIds = $incident->pilotReports()
+            ->where('status', 'submitted')
+            ->whereNotNull('user_id')
+            ->pluck('user_id')
+            ->unique()
+            ->values();
+
+        return $acceptedUserIds
+            ->diff($submittedUserIds)
+            ->count();
     }
 
     /**
@@ -674,7 +725,7 @@ final class IncidentReportService
             'marker_y' => 50.0,
             'snapshot_data_uri' => $mapSnapshot['data_uri'],
             'snapshot_available' => $mapSnapshot['available'],
-            'aeret_snapshot_data_uri' => $this->aeretMapSnapshot($aeretUrl),
+            'aeret_snapshot_data_uri' => $this->aeretMapSnapshot($aeretUrl, $preserveExistingMaps),
             'aeret_url' => $aeretUrl,
             'openstreetmap_url' => sprintf(
                 'https://www.openstreetmap.org/?mlat=%1$.6f&mlon=%2$.6f#map=16/%1$.6f/%2$.6f',
