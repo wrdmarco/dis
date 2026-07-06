@@ -39,10 +39,10 @@
         .map-detail-box strong { display: block; margin-bottom: 5px; color: #0f172a; font-size: 13px; }
         .map-detail-box span { display: block; margin-top: 5px; color: #475569; }
         .map-url { margin-top: 8px; color: #0369a1; font-size: 9px; word-break: break-all; }
-        .aeret-link-card { padding: 14px 16px; border: 1px solid #bfdbfe; border-radius: 9px; background: #eff6ff; }
+        .aeret-link-card { padding: 10px 12px; border: 1px solid #bfdbfe; border-radius: 9px; background: #eff6ff; }
         .aeret-link-card strong { display: block; margin-bottom: 6px; color: #0f172a; font-size: 13px; }
         .aeret-link-card span { display: block; margin-top: 4px; color: #475569; }
-        .aeret-snapshot { display: block; width: 100%; height: 320px; margin-bottom: 8px; border: 1px solid #cbd5e1; border-radius: 9px; object-fit: cover; }
+        .aeret-snapshot { display: block; width: 100%; height: 360px; margin-bottom: 8px; border: 1px solid #cbd5e1; border-radius: 9px; object-fit: cover; object-position: center center; }
         .snapshot-note { margin: 0 0 8px 0; color: #64748b; font-size: 9px; }
         .flight-grid { width: 100%; border-collapse: separate; border-spacing: 8px; margin-left: -8px; margin-right: -8px; }
         .flight-card { padding: 10px 12px; border: 1px solid #d8e1ec; border-radius: 8px; background: #f8fafc; vertical-align: top; }
@@ -231,19 +231,15 @@
                     <h3>Aeret kaart</h3>
                     @if ($flightMap || $aeretUrl)
                         @if (! empty($map['aeret_snapshot_data_uri']))
-                            <p class="snapshot-note">Snapshot vastgelegd bij rapportgeneratie. De actuele Aeret-kaart kan later wijzigen.</p>
                             <img class="aeret-snapshot" src="{{ $map['aeret_snapshot_data_uri'] }}" alt="Aeret kaart snapshot">
+                            <p class="map-url">Aeret kaart: {{ $aeretUrl ?? '-' }}</p>
+                        @else
+                            <div class="aeret-link-card">
+                                <strong>Open de actuele Aeret Drone PreFlight kaart</strong>
+                                <span>Snapshot kon niet worden vastgelegd. Gebruik deze link voor de actuele kaart op dezelfde incidentlocatie.</span>
+                            </div>
+                            <p class="map-url">Aeret kaart: {{ $aeretUrl ?? '-' }}</p>
                         @endif
-                        <div class="aeret-link-card">
-                            <strong>Open de actuele Aeret Drone PreFlight kaart</strong>
-                            <span>De interactieve Aeret-kaart wordt extern opgebouwd met actuele kaartlagen. Dit rapport bevat een snapshot en de directe link naar dezelfde incidentlocatie.</span>
-                            <span>Latitude: {{ $map['latitude_label'] ?? '-' }} | Longitude: {{ $map['longitude_label'] ?? '-' }}</span>
-                        </div>
-                        <dl>
-                            <dt>Bron</dt><dd>{{ $flightMap['provider'] ?? 'Aeret Drone PreFlight' }}</dd>
-                            <dt>Status</dt><dd>{{ $flightMap['status'] ?? '-' }}</dd>
-                        </dl>
-                        <p class="map-url">Aeret kaart: {{ $aeretUrl ?? '-' }}</p>
                     @else
                         <p class="muted">Geen Aeret kaart opgeslagen.</p>
                     @endif

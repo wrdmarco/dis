@@ -38,7 +38,9 @@ try {
   await page.waitForTimeout(3500);
   await cleanAeretOverlays(page);
   await page.waitForTimeout(500);
-  await page.screenshot({ path: outputPath, fullPage: false, type: 'png' });
+  if (!await captureAeretMap(page, outputPath)) {
+    await page.screenshot({ path: outputPath, fullPage: false, type: 'png' });
+  }
 } finally {
   if (browser) {
     await browser.close();
@@ -93,5 +95,51 @@ async function cleanAeretOverlays(page) {
       element.style.setProperty('visibility', 'hidden', 'important');
       element.setAttribute('data-dis-report-hidden', 'true');
     }
+
+    const fixedPanels = Array.from(document.body.querySelectorAll('*'))
+      .filter((element) => {
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        const text = (element.textContent ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+        return (
+          ['fixed', 'absolute', 'sticky'].includes(style.position) &&
+          rect.width >= 120 &&
+          rect.height >= 50 &&
+          rect.width * rect.height <= viewportArea * 0.35 &&
+          (
+            text.includes('catalogus') ||
+            text.includes('disclaimer') ||
+            text.includes('drone preflight') ||
+            text.includes('kaartlagen') ||
+            text.includes('layers')
+          )
+        );
+      });
+
+    for (const element of fixedPanels) {
+      element.style.setProperty('display', 'none', 'important');
+      element.style.setProperty('visibility', 'hidden', 'important');
+      element.setAttribute('data-dis-report-hidden', 'true');
+    }
   });
+}
+
+async function captureAeretMap(page, outputPath) {
+  const candidates = [
+    '.leaflet-container',
+    '.mapboxgl-map',
+    'canvas',
+  ];
+
+  for (const selector of candidates) {
+    const locator = page.locator(selector).first();
+    const box = await locator.boundingBox().catch(() => null);
+    if (box && box.width >= 600 && box.height >= 350) {
+      await locator.screenshot({ path: outputPath, type: 'png' });
+      return true;
+    }
+  }
+
+  return false;
 }

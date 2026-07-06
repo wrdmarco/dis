@@ -683,7 +683,7 @@ final class IncidentReportService
             'marker_y' => 50.0,
             'snapshot_data_uri' => $mapSnapshot['data_uri'],
             'snapshot_available' => $mapSnapshot['available'],
-            'aeret_snapshot_data_uri' => $this->aeretMapSnapshot($aeretUrl, $preserveExistingMaps),
+            'aeret_snapshot_data_uri' => $this->aeretMapSnapshot($aeretUrl),
             'aeret_url' => $aeretUrl,
             'openstreetmap_url' => sprintf(
                 'https://www.openstreetmap.org/?mlat=%1$.6f&mlon=%2$.6f#map=16/%1$.6f/%2$.6f',
@@ -699,7 +699,7 @@ final class IncidentReportService
             return null;
         }
 
-        $cacheKey = sha1('aeret-report-clean-v2|'.$aeretUrl);
+        $cacheKey = sha1('aeret-report-clean-v3|'.$aeretUrl);
         $cachePath = $this->absoluteReportSupportPath('report-map-snapshots/aeret-'.$cacheKey.'.png');
         if (is_file($cachePath) && is_readable($cachePath)) {
             return 'data:image/png;base64,'.base64_encode((string) file_get_contents($cachePath));
