@@ -29,6 +29,12 @@ final class GenerateIncidentReport implements ShouldQueue
         }
 
         try {
+            if ($this->refreshExisting) {
+                $reports->refreshStored($incident, preserveExistingMaps: true);
+
+                return;
+            }
+
             $reports->ensureStored($incident);
         } catch (Throwable $exception) {
             report($exception);

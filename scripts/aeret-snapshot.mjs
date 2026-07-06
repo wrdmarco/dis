@@ -121,6 +121,34 @@ async function cleanAeretOverlays(page) {
       element.style.setProperty('visibility', 'hidden', 'important');
       element.setAttribute('data-dis-report-hidden', 'true');
     }
+
+    const noisySelectors = [
+      '.leaflet-control-container',
+      '[class*="catalog" i]',
+      '[class*="disclaimer" i]',
+      '[class*="sidebar" i]',
+      '[class*="side-bar" i]',
+      '[class*="panel" i]',
+      '[class*="dialog" i]',
+      '[class*="modal" i]',
+      '[class*="popup" i]',
+      '[class*="toast" i]',
+      '[role="dialog"]',
+      '[aria-modal="true"]',
+    ];
+
+    for (const selector of noisySelectors) {
+      for (const element of document.querySelectorAll(selector)) {
+        const rect = element.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) {
+          continue;
+        }
+
+        element.style.setProperty('display', 'none', 'important');
+        element.style.setProperty('visibility', 'hidden', 'important');
+        element.setAttribute('data-dis-report-hidden', 'true');
+      }
+    }
   });
 }
 

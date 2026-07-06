@@ -769,7 +769,7 @@ final class IncidentReportService
             return null;
         }
 
-        $cacheKey = sha1('aeret-report-clean-v3|'.$aeretUrl);
+        $cacheKey = sha1('aeret-report-clean-v4|'.$aeretUrl);
         $cachePath = $this->absoluteReportSupportPath('report-map-snapshots/aeret-'.$cacheKey.'.png');
         if (is_file($cachePath) && is_readable($cachePath)) {
             return 'data:image/png;base64,'.base64_encode((string) file_get_contents($cachePath));

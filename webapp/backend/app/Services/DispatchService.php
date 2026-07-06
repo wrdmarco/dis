@@ -1201,7 +1201,7 @@ final class DispatchService
         $place = trim((string) preg_replace('/\s+/', ' ', $place));
         $place = trim($place, " \t\n\r\0\x0B,-");
 
-        if ($place === '' || $this->isCountryOnlyPlace($place)) {
+        if ($place === '' || $this->isCountryOnlyPlace($place) || $this->isProvinceOnlyPlace($place)) {
             return null;
         }
 
@@ -1221,6 +1221,14 @@ final class DispatchService
     {
         return preg_match(
             '/^(?:netherlands|nederland|the netherlands|belgium|belgie|belgië|germany|duitsland|deutschland|nl|be|de)$/i',
+            trim($value),
+        ) === 1;
+    }
+
+    private function isProvinceOnlyPlace(string $value): bool
+    {
+        return preg_match(
+            '/^(?:north holland|noord-holland|south holland|zuid-holland|utrecht|gelderland|flevoland|friesland|fryslan|groningen|drenthe|overijssel|zeeland|north brabant|noord-brabant|limburg|antwerpen|vlaams-brabant|waals-brabant|west-vlaanderen|oost-vlaanderen|henegouwen|luik|luxemburg|namen|brussels|brussel)$/i',
             trim($value),
         ) === 1;
     }

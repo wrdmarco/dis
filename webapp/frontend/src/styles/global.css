@@ -17,8 +17,8 @@
   --dis-blue: #80c7ff;
   --dis-blue-soft: #122235;
   --dis-blue-panel: #102033;
-  background: #090d12;
-  color: #e7eef7;
+  background: var(--dis-bg);
+  color: var(--dis-text);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -41,8 +41,8 @@
   --dis-blue: #0b6fae;
   --dis-blue-soft: #e4f3ff;
   --dis-blue-panel: #d9efff;
-  background: #edf2f7;
-  color: #1c2938;
+  background: var(--dis-bg);
+  color: var(--dis-text);
 }
 
 * {
@@ -53,7 +53,8 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #090d12;
+  background: var(--dis-bg);
+  color: var(--dis-text);
 }
 
 button,
@@ -64,7 +65,7 @@ textarea {
 }
 
 a {
-  color: #80c7ff;
+  color: var(--dis-blue);
   text-decoration: none;
 }
 
@@ -2491,7 +2492,7 @@ select[multiple] {
   display: grid;
   place-items: center;
   gap: 8px;
-  color: #8ea0b5;
+  color: var(--dis-muted);
   text-align: center;
   padding: 18px;
 }
@@ -2503,9 +2504,9 @@ select[multiple] {
 }
 
 .drone-flight-panel {
-  border: 1px solid #243449;
+  border: 1px solid var(--dis-border);
   border-radius: 8px;
-  background: #0b1119;
+  background: var(--dis-field);
   padding: 14px;
 }
 
@@ -2520,7 +2521,7 @@ select[multiple] {
 .drone-flight-panel > header span,
 .drone-flight-map-card span {
   display: block;
-  color: #8ea0b5;
+  color: var(--dis-muted);
   font-size: 12px;
 }
 
@@ -2528,21 +2529,21 @@ select[multiple] {
 .drone-flight-map-card strong {
   display: block;
   margin-top: 2px;
-  color: #eff6ff;
+  color: var(--dis-text-strong);
   font-size: 16px;
 }
 
 .drone-flight-map-card {
-  border: 1px solid #243449;
+  border: 1px solid var(--dis-border);
   border-radius: 8px;
-  background: #0b1119;
+  background: var(--dis-field);
   padding: 14px 16px;
 }
 
 .drone-flight-map-card small {
   display: block;
   margin-top: 4px;
-  color: #8ea0b5;
+  color: var(--dis-muted);
 }
 
 .drone-flight-grid {
@@ -2554,9 +2555,9 @@ select[multiple] {
 .drone-flight-card,
 .drone-flight-list {
   min-width: 0;
-  border: 1px solid #1f2b3a;
+  border: 1px solid var(--dis-border);
   border-radius: 8px;
-  background: #0d1520;
+  background: var(--dis-surface);
   padding: 12px;
 }
 
@@ -2566,7 +2567,7 @@ select[multiple] {
   align-items: center;
   gap: 8px;
   margin: 0 0 10px;
-  color: #eff6ff;
+  color: var(--dis-text-strong);
   font-size: 14px;
 }
 
@@ -2583,13 +2584,13 @@ select[multiple] {
 }
 
 .drone-flight-card dt {
-  color: #8ea0b5;
+  color: var(--dis-muted);
 }
 
 .drone-flight-card dd {
   min-width: 0;
   margin: 0;
-  color: #d7e7f8;
+  color: var(--dis-text);
   overflow-wrap: anywhere;
 }
 
@@ -2600,23 +2601,23 @@ select[multiple] {
 }
 
 .drone-flight-links a {
-  border: 1px solid #256a92;
+  border: 1px solid var(--dis-border-strong);
   border-radius: 6px;
-  color: #7dd3fc;
+  color: var(--dis-blue);
   padding: 7px 10px;
   text-decoration: none;
 }
 
 .drone-flight-links a:hover {
-  border-color: #7dd3fc;
+  border-color: var(--dis-blue);
 }
 
 .drone-flight-aeret-frame {
   width: 100%;
   min-height: 360px;
-  border: 1px solid #243449;
+  border: 1px solid var(--dis-border);
   border-radius: 8px;
-  background: #0b1119;
+  background: var(--dis-field);
 }
 
 .drone-flight-list-row {
@@ -2635,7 +2636,7 @@ select[multiple] {
 .drone-flight-list li,
 .drone-flight-list p,
 .muted-text {
-  color: #aebdd0;
+  color: var(--dis-muted-strong);
   overflow-wrap: anywhere;
 }
 
@@ -2643,7 +2644,7 @@ select[multiple] {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #aebdd0;
+  color: var(--dis-muted-strong);
   padding: 16px;
 }
 
@@ -2660,14 +2661,14 @@ select[multiple] {
 .settings-group {
   display: grid;
   gap: 14px;
-  border-top: 1px solid #1f2b3a;
+  border-top: 1px solid var(--dis-border);
   margin-top: 18px;
   padding-top: 18px;
 }
 
 .settings-group h3 {
   margin: 0;
-  color: #f8fafc;
+  color: var(--dis-text-strong);
   font-size: .95rem;
   font-weight: 800;
   letter-spacing: 0;
@@ -2676,14 +2677,14 @@ select[multiple] {
 .inline-message-form {
   display: grid;
   gap: 10px;
-  border-top: 1px solid #1f2b3a;
+  border-top: 1px solid var(--dis-border);
   padding-top: 14px;
 }
 
 .inline-message-form label {
   display: grid;
   gap: 6px;
-  color: #aebdd0;
+  color: var(--dis-muted-strong);
 }
 
 .inline-message-form .primary-button {
@@ -2703,10 +2704,10 @@ select[multiple] {
   width: 960px;
   max-width: none;
   height: 380px;
-  border: 1px solid #243449;
+  border: 1px solid var(--dis-border);
   border-radius: 8px;
   overflow: hidden;
-  background: #0b1119;
+  background: var(--dis-field);
 }
 
 .live-map__tile {
@@ -5562,6 +5563,56 @@ pre {
 
   .resource-state {
     min-height: 116px;
+  }
+}
+
+@media (max-width: 680px) {
+  .form-builder,
+  .form-builder--studio,
+  .form-builder-studio,
+  .form-builder-canvas,
+  .form-builder-palette,
+  .form-builder-properties {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .form-builder__toolbar,
+  .form-builder-canvas__header,
+  .form-builder-canvas-item__bar,
+  .form-builder-canvas-item__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .form-builder-canvas-item__bar {
+    gap: 6px;
+  }
+
+  .form-builder-canvas-item__bar strong,
+  .form-builder-canvas-item__bar small,
+  .form-builder-palette__item span,
+  .form-builder-palette__item small {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .form-builder-canvas-item__actions {
+    width: 100%;
+  }
+
+  .form-builder-canvas-item__actions > button,
+  .form-builder-properties button,
+  .form-builder-palette__item {
+    width: 100%;
+  }
+
+  .form-builder-properties textarea,
+  .form-builder-properties input,
+  .form-builder-properties select {
+    min-width: 0;
+    width: 100%;
   }
 }
 
