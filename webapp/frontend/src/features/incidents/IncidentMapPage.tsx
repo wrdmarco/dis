@@ -5,17 +5,21 @@ import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
-import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
-import type { Incident, IncidentLiveLocation, Team } from '../../types/api';
+import type { Incident, IncidentLiveLocation } from '../../types/api';
 
 const OPEN_INCIDENTS_PATH = '/incidents?status=draft,active,dispatching,in_progress';
 const MAP_WIDTH = 1280;
 const MAP_HEIGHT = 720;
 const INCIDENT_COLORS = ['#7dd3fc', '#fbbf24', '#a7f3d0', '#fca5a5', '#c4b5fd', '#fdba74', '#93c5fd', '#f0abfc'];
-const DEFAULT_CENTER = { latitude: 52.1326, longitude: 5.2913 };
+const NL_BE_OVERVIEW_POINTS: MapPoint[] = [
+  { latitude: 53.65, longitude: 2.35 },
+  { latitude: 53.65, longitude: 7.35 },
+  { latitude: 49.45, longitude: 2.35 },
+  { latitude: 49.45, longitude: 7.35 },
+];
 
 export function IncidentMapPage() {
   const { api } = useAuth();
@@ -174,7 +178,7 @@ export function IncidentMapPage() {
     <div ref={fullscreenRootRef} className={`page-stack operational-map-page ${isFullscreen ? 'operational-map-page--fullscreen' : ''} ${fullscreenMode === 'browser' ? 'operational-map-page--browser-fullscreen' : ''}`}>
       <RealtimeBridge onOperationalEvent={handleRealtimeEvent} />
       <Panel title="Operationele kaart" action={panelAction}>
-        <ResourceState loading={incidents.loading && models.length === 0} error={incidents.error} empty={models.length === 0}>
+        <ResourceState loading={incidents.loading && models.length === 0} error={incidents.error} empty={false}>
           <div className="operational-map">
             {locationError ? <p className="form-error">{locationError}</p> : null}
             <div className="operational-map__livebar" aria-live="polite">
@@ -201,7 +205,7 @@ function OperationsMap({ models }: { models: IncidentMapModel[] }) {
     ...(model.incidentPoint ? [model.incidentPoint] : []),
     ...model.liveLocations,
   ]);
-  const mapPoints = points.length > 0 ? points : [DEFAULT_CENTER];
+  const mapPoints = points.length > 0 ? points : NL_BE_OVERVIEW_POINTS;
   const viewport = mapViewport(mapPoints);
   const center = centerFor(mapPoints);
   const centerWorld = latLonToWorld(center.latitude, center.longitude, viewport.zoom);
@@ -209,7 +213,7 @@ function OperationsMap({ models }: { models: IncidentMapModel[] }) {
 
   return (
     <div className="operational-map__canvas">
-      <svg className="operational-map__svg" viewBox={`0 0 ${viewport.width} ${viewport.height}`} role="img" aria-label="Kaart met incidenten en live gebruikerslocaties">
+      <svg className="operational-map__svg" viewBox={`0 0 ${viewport.width} ${viewport.height}`} role="img" aria-label={models.length > 0 ? 'Kaart met incidenten en live gebruikerslocaties' : 'Kaart van Nederland en Belgie zonder actieve incidenten'}>
         {tiles.map((tile) => (
           <image
             key={`${tile.x}-${tile.y}-${tile.z}`}
@@ -265,6 +269,12 @@ function OperationsMap({ models }: { models: IncidentMapModel[] }) {
           />
         )))}
       </svg>
+      {models.length === 0 ? (
+        <div className="operational-map__empty-state">
+          <strong>Geen actieve incidenten</strong>
+          <span>Nederland en Belgie blijven als standaardkaart zichtbaar.</span>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -300,6 +310,10 @@ function MapMarker({
 }
 
 function IncidentMapList({ models }: { models: IncidentMapModel[] }) {
+  if (models.length === 0) {
+    return null;
+  }
+
   return (
     <div className="operational-map__list">
       {models.map((model) => (
@@ -310,26 +324,8 @@ function IncidentMapList({ models }: { models: IncidentMapModel[] }) {
               <Link href={`/incidents/${model.incident.id}`}>{model.incident.title}</Link>
               <small>{model.incident.location_label ?? 'Geen locatie bekend'}</small>
             </div>
-            <StatusPill value={incidentStatusLabel(model.incident.status)} tone={incidentTone(model.incident.status)} />
+            <StatusPill value={priorityLabel(model.incident.priority)} tone={priorityTone(model.incident.priority)} />
           </header>
-          <dl>
-            <div>
-              <dt>Teams</dt>
-              <dd>{incidentTeamsLabel(model.incident)}</dd>
-            </div>
-            <div>
-              <dt>Live</dt>
-              <dd>{model.liveLocations.length}/{model.locations.length}</dd>
-            </div>
-          </dl>
-          <div className="operational-map-card__users">
-            {model.locations.length > 0 ? model.locations.map((location) => (
-              <span key={location.user_id} className={isLiveLocation(location) ? 'operational-map-card__user operational-map-card__user--live' : 'operational-map-card__user'}>
-                {location.user?.name ?? location.user_id}
-                <small>{locationMeta(location)}</small>
-              </span>
-            )) : <span className="form-note">Nog geen gekoppelde gebruikers.</span>}
-          </div>
         </article>
       ))}
     </div>
@@ -404,33 +400,6 @@ function isLiveLocation(location: IncidentLiveLocation): boolean {
   return point !== null && (location.location_is_current === true || location.sharing_status === 'shared' || location.sharing_status === 'stale');
 }
 
-function locationMeta(location: IncidentLiveLocation): string {
-  const parts = [
-    locationStatusLabel(location),
-    location.eta_minutes ? `ETA ${location.eta_minutes} min` : null,
-    location.recorded_at ? formatDateTime(location.recorded_at) : null,
-  ].filter((value): value is string => typeof value === 'string' && value !== '');
-
-  return parts.join(' - ') || '-';
-}
-
-function locationStatusLabel(location: IncidentLiveLocation): string {
-  switch (location.sharing_status) {
-    case 'shared':
-      return 'Live gedeeld';
-    case 'stale':
-      return 'Locatie verlopen';
-    case 'consented':
-      return 'Toestemming gegeven';
-    case 'requested':
-      return 'Locatie gevraagd';
-    case 'declined':
-      return 'Geweigerd';
-    default:
-      return 'Geen live locatie';
-  }
-}
-
 function shortMapLabel(value: string, maxLength: number): string {
   const trimmed = value.trim();
   if (trimmed.length <= maxLength) {
@@ -440,40 +409,29 @@ function shortMapLabel(value: string, maxLength: number): string {
   return `${trimmed.slice(0, Math.max(0, maxLength - 1)).trim()}...`;
 }
 
-function incidentTeamsLabel(incident: Incident): string {
-  const teams = incident.teams?.length ? incident.teams : incident.team ? [incident.team] : [];
-  return teams.map((team: Team) => `${team.code} - ${team.name}`).join(', ') || 'Geen team';
-}
-
-function incidentStatusLabel(status: Incident['status']): string {
-  switch (status) {
-    case 'draft':
-      return 'Concept';
-    case 'active':
-      return 'Actief';
-    case 'dispatching':
-      return 'Alarmeren';
-    case 'in_progress':
-      return 'In uitvoering';
-    case 'resolved':
-      return 'Afgerond';
-    case 'cancelled':
-      return 'Geannuleerd';
+function priorityLabel(priority: Incident['priority']): string {
+  switch (priority) {
+    case 'critical':
+      return 'Kritiek';
+    case 'high':
+      return 'Hoog';
+    case 'normal':
+      return 'Normaal';
+    case 'low':
+      return 'Laag';
     default:
-      return status;
+      return priority;
   }
 }
 
-function incidentTone(status: Incident['status']): 'neutral' | 'good' | 'warn' | 'bad' {
-  switch (status) {
-    case 'active':
-    case 'dispatching':
-    case 'in_progress':
-      return 'warn';
-    case 'resolved':
-      return 'good';
-    case 'cancelled':
+function priorityTone(priority: Incident['priority']): 'neutral' | 'good' | 'warn' | 'bad' {
+  switch (priority) {
+    case 'critical':
       return 'bad';
+    case 'high':
+      return 'warn';
+    case 'low':
+      return 'good';
     default:
       return 'neutral';
   }

@@ -2917,6 +2917,32 @@ select[multiple] {
   fill: rgba(3, 7, 12, 0.26);
 }
 
+.operational-map__empty-state {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 2;
+  display: grid;
+  gap: 3px;
+  max-width: min(360px, calc(100% - 32px));
+  padding: 11px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 8px;
+  background: rgba(4, 10, 18, 0.76);
+  color: var(--dis-text-strong);
+  backdrop-filter: blur(14px);
+}
+
+.operational-map__empty-state strong {
+  font-size: 0.92rem;
+}
+
+.operational-map__empty-state span {
+  color: var(--dis-muted-strong);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .operational-map__route-line {
   stroke-width: 3;
   stroke-linecap: round;
@@ -3008,56 +3034,6 @@ select[multiple] {
   white-space: nowrap;
 }
 
-.operational-map-card dl {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  margin: 0;
-}
-
-.operational-map-card dt {
-  color: var(--dis-muted-strong);
-  font-size: 0.72rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.operational-map-card dd {
-  margin: 2px 0 0;
-  color: var(--dis-text);
-}
-
-.operational-map-card__users {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.operational-map-card__user {
-  max-width: 100%;
-  display: grid;
-  gap: 2px;
-  padding: 7px 9px;
-  border: 1px solid rgba(142, 160, 181, 0.22);
-  border-radius: 8px;
-  color: var(--dis-text);
-  background: rgba(9, 13, 18, 0.48);
-  font-size: 0.86rem;
-  font-weight: 760;
-}
-
-.operational-map-card__user--live {
-  border-color: rgba(125, 211, 252, 0.42);
-  background: rgba(128, 199, 255, 0.1);
-}
-
-.operational-map-card__user small {
-  max-width: 260px;
-  color: var(--dis-muted-strong);
-  font-size: 0.74rem;
-  font-weight: 650;
-}
-
 @media (max-width: 760px) {
   .operational-map {
     padding: 12px;
@@ -3106,8 +3082,7 @@ select[multiple] {
     display: none;
   }
 
-  .operational-map-card header,
-  .operational-map-card dl {
+  .operational-map-card header {
     grid-template-columns: minmax(0, 1fr);
   }
 }
