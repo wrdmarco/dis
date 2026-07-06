@@ -12,8 +12,7 @@ if (!url || !outputPath) {
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 process.env.PLAYWRIGHT_BROWSERS_PATH ||= '/opt/dis-data/playwright-browsers';
-const frontendPackage = resolve(scriptDir, '../webapp/frontend/package.json');
-const requireFromFrontend = createRequire(frontendPackage);
+const requireFromFrontend = createRequire(resolve(scriptDir, '../webapp/frontend/package.json'));
 const { chromium } = requireFromFrontend('playwright');
 
 const width = Number.parseInt(widthArg ?? '1200', 10);
@@ -23,7 +22,7 @@ let browser;
 try {
   browser = await chromium.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--ignore-certificate-errors'],
   });
   const page = await browser.newPage({
     viewport: {
@@ -33,9 +32,9 @@ try {
     deviceScaleFactor: 1,
   });
 
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => undefined);
-  await page.waitForTimeout(3500);
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => undefined);
+  await page.waitForTimeout(5000);
   await cleanAeretOverlays(page);
   await page.waitForTimeout(500);
   if (!await captureAeretMap(page, outputPath)) {
@@ -136,8 +135,12 @@ async function captureAeretMap(page, outputPath) {
     const locator = page.locator(selector).first();
     const box = await locator.boundingBox().catch(() => null);
     if (box && box.width >= 600 && box.height >= 350) {
-      await locator.screenshot({ path: outputPath, type: 'png' });
-      return true;
+      const captured = await locator.screenshot({ path: outputPath, type: 'png' })
+        .then(() => true)
+        .catch(() => false);
+      if (captured) {
+        return true;
+      }
     }
   }
 

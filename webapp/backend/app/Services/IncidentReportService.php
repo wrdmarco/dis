@@ -719,8 +719,10 @@ final class IncidentReportService
 
         try {
             @unlink($temporaryPath);
-            $result = Process::timeout(50)->run([$node, $script, $aeretUrl, $temporaryPath, '1200', '720']);
+            $result = Process::timeout(120)->run([$node, $script, $aeretUrl, $temporaryPath, '1200', '720']);
             if (! $result->successful() || ! is_file($temporaryPath) || filesize($temporaryPath) === 0) {
+                $this->safeReport(new \RuntimeException('Aeret snapshot failed: '.mb_substr(trim($result->errorOutput() ?: $result->output() ?: 'no output'), 0, 1000)));
+
                 return null;
             }
 
