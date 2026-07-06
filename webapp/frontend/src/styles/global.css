@@ -7138,9 +7138,6 @@ pre {
   color: var(--dis-text-strong) !important;
 }
 
-:root[data-theme="light"] span,
-:root[data-theme="light"] small,
-:root[data-theme="light"] dt,
 :root[data-theme="light"] .muted-text,
 :root[data-theme="light"] .panel-body p,
 :root[data-theme="light"] .field-label,
@@ -7202,4 +7199,212 @@ pre {
   border-color: #bbf7d0 !important;
   background: #f0fdf4 !important;
   color: #166534 !important;
+}
+
+/* Light-mode parity pass: keep every reusable console surface on light tokens. */
+:root[data-theme="light"] .command-layout,
+:root[data-theme="light"] .workspace,
+:root[data-theme="light"] .content {
+  background: var(--dis-bg) !important;
+  color: var(--dis-text) !important;
+}
+
+:root[data-theme="light"] .page-stack > section,
+:root[data-theme="light"] .page-stack > article,
+:root[data-theme="light"] .page-stack > div:not(.admin-tabs):not(.form-builder):not(.form-builder-studio):not(.form-builder__toolbar):not(.form-builder__workspace):not(.actions-row):not(.form-grid):not(.summary-grid):not(.kpi-grid),
+:root[data-theme="light"] .panel,
+:root[data-theme="light"] .panel-body,
+:root[data-theme="light"] .modal,
+:root[data-theme="light"] .modal-section,
+:root[data-theme="light"] .table-wrap,
+:root[data-theme="light"] .summary-grid > div,
+:root[data-theme="light"] .summary-card,
+:root[data-theme="light"] .resource-state,
+:root[data-theme="light"] .empty-panel,
+:root[data-theme="light"] .stacked-section,
+:root[data-theme="light"] .definition-grid,
+:root[data-theme="light"] .field-display,
+:root[data-theme="light"] .test-alert-hero,
+:root[data-theme="light"] .operational-status__summary > div,
+:root[data-theme="light"] .status-cell,
+:root[data-theme="light"] .stat-card,
+:root[data-theme="light"] .user-stat-card,
+:root[data-theme="light"] .recent-list > div,
+:root[data-theme="light"] .kpi,
+:root[data-theme="light"] .dashboard-signal,
+:root[data-theme="light"] .dashboard-metric,
+:root[data-theme="light"] .dashboard-incident,
+:root[data-theme="light"] .dashboard-dispatch,
+:root[data-theme="light"] .dashboard-asset,
+:root[data-theme="light"] .dashboard-person,
+:root[data-theme="light"] .incident-list-summary > div,
+:root[data-theme="light"] .incident-card,
+:root[data-theme="light"] .incident-hero,
+:root[data-theme="light"] .incident-meta,
+:root[data-theme="light"] .incident-overview,
+:root[data-theme="light"] .incident-overview > div,
+:root[data-theme="light"] .incident-overview--text > div,
+:root[data-theme="light"] .incident-timeline__item,
+:root[data-theme="light"] .draft-dispatch > div,
+:root[data-theme="light"] .draft-recipient-grid article,
+:root[data-theme="light"] .dispatch-toolbar,
+:root[data-theme="light"] .recipient-row,
+:root[data-theme="light"] .recipient-picker,
+:root[data-theme="light"] .form-builder-card,
+:root[data-theme="light"] .form-builder__preview,
+:root[data-theme="light"] .form-builder-palette,
+:root[data-theme="light"] .form-builder-canvas,
+:root[data-theme="light"] .form-builder-properties,
+:root[data-theme="light"] .form-builder-canvas-item,
+:root[data-theme="light"] .form-builder-dropzone,
+:root[data-theme="light"] .form-builder-property-note,
+:root[data-theme="light"] .form-builder-preview-module,
+:root[data-theme="light"] .template-variable-bank,
+:root[data-theme="light"] .template-variable,
+:root[data-theme="light"] .permission-category,
+:root[data-theme="light"] .permission-card,
+:root[data-theme="light"] .role-permission-summary,
+:root[data-theme="light"] .permission-grid .check-label,
+:root[data-theme="light"] .checkbox-card,
+:root[data-theme="light"] .push-summary,
+:root[data-theme="light"] .push-targets__section,
+:root[data-theme="light"] .push-template-card,
+:root[data-theme="light"] .download-channel-list,
+:root[data-theme="light"] .download-card > div,
+:root[data-theme="light"] .download-card__hash,
+:root[data-theme="light"] .download-card__qr,
+:root[data-theme="light"] .download-setup-qr,
+:root[data-theme="light"] .download-source-admin,
+:root[data-theme="light"] .download-source-admin__card,
+:root[data-theme="light"] .download-integrity,
+:root[data-theme="light"] .mfa-card,
+:root[data-theme="light"] .totp-qr,
+:root[data-theme="light"] .tenant-qr,
+:root[data-theme="light"] .work-plan-card,
+:root[data-theme="light"] .work-plan-modal,
+:root[data-theme="light"] .week-daypart-row,
+:root[data-theme="light"] .daypart-planner-row,
+:root[data-theme="light"] .location-picker,
+:root[data-theme="light"] .location-picker__map,
+:root[data-theme="light"] .location-picker__results button,
+:root[data-theme="light"] .drone-flight-panel,
+:root[data-theme="light"] .drone-flight-card,
+:root[data-theme="light"] .drone-flight-list,
+:root[data-theme="light"] .drone-flight-list-row,
+:root[data-theme="light"] .drone-flight-map-card,
+:root[data-theme="light"] .drone-flight-aeret-frame,
+:root[data-theme="light"] .drone-flight-empty,
+:root[data-theme="light"] .public-download-panel,
+:root[data-theme="light"] .public-status-summary,
+:root[data-theme="light"] .public-status-card,
+:root[data-theme="light"] .setup-panel,
+:root[data-theme="light"] .setup-section,
+:root[data-theme="light"] .setup-review div,
+:root[data-theme="light"] .setup-stepper__item,
+:root[data-theme="light"] .firebase-wizard,
+:root[data-theme="light"] .firebase-wizard__tab,
+:root[data-theme="light"] .firebase-step,
+:root[data-theme="light"] .metadata-example,
+:root[data-theme="light"] .branding-logo-preview,
+:root[data-theme="light"] .restore-upload,
+:root[data-theme="light"] .data-table,
+:root[data-theme="light"] .data-table thead,
+:root[data-theme="light"] .data-table tbody,
+:root[data-theme="light"] .data-table tr,
+:root[data-theme="light"] .data-table th,
+:root[data-theme="light"] .data-table td,
+:root[data-theme="light"] .form-config-table tr,
+:root[data-theme="light"] .reports-table tr {
+  border-color: var(--dis-border) !important;
+  background: var(--dis-surface) !important;
+  background-image: none !important;
+  color: var(--dis-text) !important;
+  box-shadow: 0 12px 30px rgba(18, 37, 57, 0.05) !important;
+}
+
+:root[data-theme="light"] .panel__header,
+:root[data-theme="light"] .modal__header,
+:root[data-theme="light"] .admin-tabs,
+:root[data-theme="light"] .section-heading,
+:root[data-theme="light"] .settings-group,
+:root[data-theme="light"] .form-builder__toolbar,
+:root[data-theme="light"] .form-builder-canvas__header,
+:root[data-theme="light"] .form-builder-canvas-item__bar,
+:root[data-theme="light"] .modal .actions-row,
+:root[data-theme="light"] .modal .form-actions,
+:root[data-theme="light"] .setup-actions {
+  border-color: var(--dis-border) !important;
+  background: var(--dis-surface-2) !important;
+  background-image: none !important;
+  color: var(--dis-text) !important;
+}
+
+:root[data-theme="light"] .form,
+:root[data-theme="light"] .form-grid,
+:root[data-theme="light"] .inline-form,
+:root[data-theme="light"] .inline-form--compact,
+:root[data-theme="light"] .actions-row,
+:root[data-theme="light"] .table-actions,
+:root[data-theme="light"] .form-builder,
+:root[data-theme="light"] .form-builder-studio,
+:root[data-theme="light"] .form-builder__workspace,
+:root[data-theme="light"] .dashboard-grid,
+:root[data-theme="light"] .dashboard-grid--secondary,
+:root[data-theme="light"] .summary-grid,
+:root[data-theme="light"] .kpi-grid,
+:root[data-theme="light"] .checkbox-grid,
+:root[data-theme="light"] .incident-detail,
+:root[data-theme="light"] .incident-list-view,
+:root[data-theme="light"] .recipient-list,
+:root[data-theme="light"] .drone-flight-grid {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="light"] input,
+:root[data-theme="light"] select,
+:root[data-theme="light"] textarea,
+:root[data-theme="light"] .segmented-control {
+  border-color: var(--dis-border) !important;
+  background: #ffffff !important;
+  background-image: none !important;
+  color: var(--dis-text-strong) !important;
+}
+
+:root[data-theme="light"] .status-pill {
+  border-color: #d7e2ee !important;
+  background: #eef4fb !important;
+  color: #33465d !important;
+}
+
+:root[data-theme="light"] .status-pill--good {
+  border-color: #bbf7d0 !important;
+  background: #dcfce7 !important;
+  color: #166534 !important;
+}
+
+:root[data-theme="light"] .status-pill--warn {
+  border-color: #fde68a !important;
+  background: #fef3c7 !important;
+  color: #92400e !important;
+}
+
+:root[data-theme="light"] .status-pill--bad {
+  border-color: #fecdd3 !important;
+  background: #ffe4e6 !important;
+  color: #9f1239 !important;
+}
+
+:root[data-theme="light"] .status-pill--info,
+:root[data-theme="light"] .status-pill--neutral,
+:root[data-theme="light"] .form-builder-card--section,
+:root[data-theme="light"] .form-builder-palette__item--active,
+:root[data-theme="light"] .form-builder-palette__item--selected,
+:root[data-theme="light"] .form-builder-canvas-item--selected,
+:root[data-theme="light"] .admin-tab--active,
+:root[data-theme="light"] .segmented-control__item--active {
+  border-color: var(--dis-blue) !important;
+  background: var(--dis-blue-soft) !important;
+  color: var(--dis-blue) !important;
 }
