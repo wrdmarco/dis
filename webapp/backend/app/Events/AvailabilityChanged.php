@@ -3,6 +3,7 @@
 namespace App\Events;
 
 use App\Models\AvailabilityStatus;
+use App\Support\ApiDateTime;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
@@ -37,7 +38,7 @@ final class AvailabilityChanged implements ShouldBroadcastNow
             'user_id' => $this->status->user_id,
             'status' => $this->status->status,
             'is_available' => $this->status->is_available,
-            'effective_at' => $this->status->effective_at?->toIso8601String(),
+            'effective_at' => ApiDateTime::dateTime($this->status->effective_at),
         ];
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiResponse;
 use App\Models\SystemSetting;
+use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -16,7 +17,7 @@ final class HealthController extends Controller
     {
         return ApiResponse::success([
             'status' => 'ok',
-            'timestamp' => now()->toIso8601String(),
+            'timestamp' => ApiDateTime::now(),
         ]);
     }
 
@@ -26,7 +27,7 @@ final class HealthController extends Controller
 
         $checks = [
             'status' => $this->overallStatus($services),
-            'generated_at' => now()->toIso8601String(),
+            'generated_at' => ApiDateTime::now(),
             'services' => $services,
             'database' => $this->checkDatabase(),
             'cache' => $this->checkCache(),
@@ -41,7 +42,7 @@ final class HealthController extends Controller
                 'project_configured' => filled(SystemSetting::string('firebase.project_id', config('dis.push.fcm_project_id'))),
                 'service_account_configured' => $this->firebaseServiceAccountConfigured(),
             ],
-            'timestamp' => now()->toIso8601String(),
+            'timestamp' => ApiDateTime::now(),
         ];
 
         return ApiResponse::success($checks);

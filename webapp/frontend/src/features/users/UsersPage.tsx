@@ -5,7 +5,7 @@ import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { assetDisplayLabel } from '../../lib/assetLabels';
-import { formatDateTime } from '../../lib/dateTime';
+import { formatDateOnly, formatDateTime, todayAmsterdamDateInputValue } from '../../lib/dateTime';
 import { droneTypeLabel } from '../../lib/droneTypes';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
@@ -918,17 +918,9 @@ function deviceTypeLabel(type?: string | null): string {
 }
 
 function formatDate(value?: string | null): string {
-  if (value === undefined || value === null || value === '') {
-    return '-';
-  }
-
-  return new Intl.DateTimeFormat('nl-NL', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  }).format(new Date(value));
+  return formatDateOnly(value);
 }
 
 function todayInputValue(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayAmsterdamDateInputValue();
 }

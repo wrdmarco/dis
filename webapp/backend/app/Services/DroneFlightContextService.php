@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Incident;
 use App\Models\SystemSetting;
+use App\Support\ApiDateTime;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
@@ -15,7 +16,7 @@ final class DroneFlightContextService
     public function preview(float $latitude, float $longitude, ?string $locationLabel = null): array
     {
         $base = [
-            'generated_at' => now()->toIso8601String(),
+            'generated_at' => ApiDateTime::now(),
             'location' => [
                 'label' => $locationLabel,
                 'latitude' => round($latitude, 7),

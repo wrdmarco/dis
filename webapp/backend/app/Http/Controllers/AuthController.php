@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\AuditService;
 use App\Services\TwoFactorService;
 use App\Services\UserService;
+use App\Support\ApiDateTime;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,11 +31,11 @@ final class AuthController extends Controller
         if ($user !== null && $this->isLoginLocked($user)) {
             $this->auditService->record('auth.login_temporarily_locked', $user, $user, [
                 'failed_login_attempts' => $user->failed_login_attempts,
-                'login_locked_until' => $user->login_locked_until?->toIso8601String(),
+                'login_locked_until' => ApiDateTime::dateTime($user->login_locked_until),
             ], null, $request);
 
             return ApiResponse::error('login_temporarily_locked', 'Account tijdelijk vergrendeld door te veel mislukte loginpogingen.', 423, [
-                'login_locked_until' => $user->login_locked_until?->toIso8601String(),
+                'login_locked_until' => ApiDateTime::dateTime($user->login_locked_until),
             ]);
         }
 
@@ -378,7 +379,7 @@ final class AuthController extends Controller
         if ($lockedUntil !== null) {
             $this->auditService->record('auth.login_lockout_started', $user, $user, [
                 'failed_login_attempts' => $attempts,
-                'login_locked_until' => $lockedUntil->toIso8601String(),
+                'login_locked_until' => ApiDateTime::dateTime($lockedUntil),
             ], null, $request);
         }
     }

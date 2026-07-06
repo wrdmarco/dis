@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Events\SystemUpdateStatusChanged;
+use App\Support\ApiDateTime;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Process;
@@ -77,7 +78,7 @@ final class SystemUpdateStatusService
     {
         $this->store([
             'state' => 'running',
-            'started_at' => now()->toIso8601String(),
+            'started_at' => ApiDateTime::now(),
             'finished_at' => null,
             'exit_code' => null,
             'message' => $message,
@@ -85,7 +86,7 @@ final class SystemUpdateStatusService
             'runner_log_offset' => $this->runnerLogSize(),
             'runner_pid' => null,
             'runner_unit' => null,
-            'last_log_at' => now()->toIso8601String(),
+            'last_log_at' => ApiDateTime::now(),
             'reboot_required' => $this->rebootRequired(),
         ]);
     }
@@ -94,7 +95,7 @@ final class SystemUpdateStatusService
     {
         $status = $this->current();
         $status['runner_pid'] = $pid;
-        $status['last_log_at'] = now()->toIso8601String();
+        $status['last_log_at'] = ApiDateTime::now();
         $this->store($status);
     }
 
@@ -102,7 +103,7 @@ final class SystemUpdateStatusService
     {
         $status = $this->current();
         $status['runner_unit'] = $unit;
-        $status['last_log_at'] = now()->toIso8601String();
+        $status['last_log_at'] = ApiDateTime::now();
         $this->store($status);
     }
 
@@ -113,7 +114,7 @@ final class SystemUpdateStatusService
         $log[] = $line;
         $status['log'] = array_slice($log, -self::LOG_LIMIT);
         $status['message'] = $line;
-        $status['last_log_at'] = now()->toIso8601String();
+        $status['last_log_at'] = ApiDateTime::now();
         if (($status['state'] ?? null) === 'running' && $this->isSuccessfulCompletionLine($line)) {
             $status = $this->successfulStatus($status);
         }
@@ -124,12 +125,12 @@ final class SystemUpdateStatusService
     {
         $status = $this->current();
         $status['state'] = $exitCode === 0 ? 'succeeded' : 'failed';
-        $status['finished_at'] = now()->toIso8601String();
+        $status['finished_at'] = ApiDateTime::now();
         $status['exit_code'] = $exitCode;
         $status['message'] = $exitCode === 0 ? 'Update afgerond.' : 'Update mislukt.';
         $status['runner_pid'] = null;
         $status['runner_unit'] = null;
-        $status['last_log_at'] = now()->toIso8601String();
+        $status['last_log_at'] = ApiDateTime::now();
         $status['reboot_required'] = $this->rebootRequired();
         if ($exitCode === 0 && $status['reboot_required'] === true) {
             $status['message'] = 'Update afgerond. Serverherstart vereist.';
@@ -209,7 +210,7 @@ final class SystemUpdateStatusService
         }
         $status['log'] = array_slice($log, -self::LOG_LIMIT);
         $status['message'] = end($lines) ?: ($status['message'] ?? 'Update draait.');
-        $status['last_log_at'] = now()->toIso8601String();
+        $status['last_log_at'] = ApiDateTime::now();
         $this->store($status);
 
         return $status;
@@ -353,12 +354,12 @@ final class SystemUpdateStatusService
     private function successfulStatus(array $status): array
     {
         $status['state'] = 'succeeded';
-        $status['finished_at'] = now()->toIso8601String();
+        $status['finished_at'] = ApiDateTime::now();
         $status['exit_code'] = 0;
         $status['message'] = 'Update afgerond.';
         $status['runner_pid'] = null;
         $status['runner_unit'] = null;
-        $status['last_log_at'] = now()->toIso8601String();
+        $status['last_log_at'] = ApiDateTime::now();
         $status['reboot_required'] = $this->rebootRequired();
 
         return $status;
@@ -400,13 +401,13 @@ final class SystemUpdateStatusService
         $log = is_array($status['log'] ?? null) ? $status['log'] : [];
         $log[] = $message;
         $status['state'] = 'failed';
-        $status['finished_at'] = now()->toIso8601String();
+        $status['finished_at'] = ApiDateTime::now();
         $status['exit_code'] = $exitCode;
         $status['message'] = $message;
         $status['log'] = array_slice($log, -self::LOG_LIMIT);
         $status['runner_pid'] = null;
         $status['runner_unit'] = null;
-        $status['last_log_at'] = now()->toIso8601String();
+        $status['last_log_at'] = ApiDateTime::now();
         $status['reboot_required'] = $this->rebootRequired();
 
         return $status;

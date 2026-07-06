@@ -13,6 +13,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Services\AuditService;
 use App\Services\PasswordPolicy;
+use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
@@ -257,7 +258,7 @@ final class AdminController extends Controller
                 'ip_address' => $log->ip_address,
                 'metadata' => is_array($log->metadata) ? $log->metadata : [],
                 'reason' => $log->reason,
-                'created_at' => $log->created_at?->toIso8601String(),
+                'created_at' => ApiDateTime::dateTime($log->created_at),
             ];
         });
     }

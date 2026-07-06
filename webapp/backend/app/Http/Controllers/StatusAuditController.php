@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Responses\ApiResponse;
 use App\Models\AuditLog;
 use App\Models\User;
+use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -64,7 +65,7 @@ final class StatusAuditController extends Controller
                 'to_status' => $metadata['to_status'] ?? ($metadata['status'] ?? null),
                 'is_system_applied' => (bool) ($metadata['is_system_applied'] ?? $log->action === 'status.system_updated'),
                 'reason' => $log->reason,
-                'created_at' => $log->created_at?->toIso8601String(),
+                'created_at' => ApiDateTime::dateTime($log->created_at),
             ];
         })->values());
     }

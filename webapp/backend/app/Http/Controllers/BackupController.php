@@ -7,6 +7,7 @@ use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\AuditService;
 use App\Services\BackupReportService;
+use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Process;
@@ -385,7 +386,7 @@ final class BackupController extends Controller
             'operation' => $operation,
             'target' => $target,
             'backup_path' => $backupPath,
-            'created_at' => now('UTC')->toIso8601String(),
+            'created_at' => ApiDateTime::now(),
         ];
         $temporary = $root.'/'.$id.'.tmp';
         $pending = $root.'/'.$id.'.pending';

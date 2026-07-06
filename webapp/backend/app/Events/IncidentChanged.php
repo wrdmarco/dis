@@ -3,6 +3,7 @@
 namespace App\Events;
 
 use App\Models\Incident;
+use App\Support\ApiDateTime;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
@@ -39,7 +40,7 @@ final class IncidentChanged implements ShouldBroadcastNow
             'priority' => $this->incident->priority,
             'status' => $this->incident->status,
             'action' => $this->action,
-            'updated_at' => $this->incident->updated_at?->toIso8601String(),
+            'updated_at' => ApiDateTime::dateTime($this->incident->updated_at),
         ];
     }
 }

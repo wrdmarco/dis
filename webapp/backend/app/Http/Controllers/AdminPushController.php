@@ -9,6 +9,7 @@ use App\Models\Role;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\PushNotificationService;
+use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -120,8 +121,8 @@ final class AdminPushController extends Controller
             'app_version' => $token->app_version,
             'is_active' => (bool) $token->is_active,
             'is_online' => (bool) $token->is_online,
-            'last_seen_at' => $token->last_seen_at?->toIso8601String(),
-            'revoked_at' => $token->revoked_at?->toIso8601String(),
+            'last_seen_at' => ApiDateTime::dateTime($token->last_seen_at),
+            'revoked_at' => ApiDateTime::dateTime($token->revoked_at),
             'token_preview' => $this->tokenPreview($token->token),
             'token_hash' => $token->token_hash ?? hash('sha256', $token->token),
             'user' => $token->user,

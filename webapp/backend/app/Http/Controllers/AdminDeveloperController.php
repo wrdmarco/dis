@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\AuditService;
 use App\Services\DeveloperAccessService;
 use App\Services\SystemUpdateStatusService;
+use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -49,8 +50,8 @@ final class AdminDeveloperController extends Controller
         $scopes = array_values(array_unique($data['scopes'] ?? DeveloperAccessService::SCOPES));
         $allowedIps = $this->normalizedDeveloperAllowedIps($data['allowed_ips'] ?? []);
         $expiresAt = isset($data['expires_at'])
-            ? Carbon::parse((string) $data['expires_at'])->toIso8601String()
-            : now()->addDays(30)->toIso8601String();
+            ? ApiDateTime::dateTime(Carbon::parse((string) $data['expires_at']))
+            : ApiDateTime::dateTime(now()->addDays(30));
 
         $plainTextKey = 'dis_dev_'.bin2hex(random_bytes(32));
         SystemSetting::query()->updateOrCreate(
@@ -62,7 +63,7 @@ final class AdminDeveloperController extends Controller
                     'scopes' => $scopes,
                     'expires_at' => $expiresAt,
                     'allowed_ips' => $allowedIps,
-                    'generated_at' => now()->toIso8601String(),
+                    'generated_at' => ApiDateTime::now(),
                     'disabled_at' => null,
                 ],
                 'is_sensitive' => true,
@@ -91,7 +92,7 @@ final class AdminDeveloperController extends Controller
                     'expires_at' => null,
                     'allowed_ips' => [],
                     'generated_at' => null,
-                    'disabled_at' => now()->toIso8601String(),
+                    'disabled_at' => ApiDateTime::now(),
                 ],
                 'is_sensitive' => true,
                 'updated_by' => $request->user()?->id,
@@ -246,7 +247,7 @@ final class AdminDeveloperController extends Controller
 
         $before = [
             'failed_login_attempts' => (int) $user->failed_login_attempts,
-            'login_locked_until' => $user->login_locked_until?->toIso8601String(),
+            'login_locked_until' => ApiDateTime::dateTime($user->login_locked_until),
         ];
         $user->forceFill([
             'failed_login_attempts' => 0,
@@ -636,7 +637,7 @@ final class AdminDeveloperController extends Controller
             if (! is_file($pagePath)) {
                 File::put($pagePath, $this->maintenancePageHtml());
             }
-            File::put($lockPath, now()->toIso8601String());
+            File::put($lockPath, ApiDateTime::now());
 
             return true;
         } catch (\Throwable) {

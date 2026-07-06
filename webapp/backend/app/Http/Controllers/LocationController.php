@@ -8,6 +8,7 @@ use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
 use App\Models\User;
 use App\Services\LocationService;
+use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -126,15 +127,15 @@ final class LocationController extends Controller
                     'sharing_status' => $sharingStatus,
                     'location_is_current' => $this->isCurrentLocation($location),
                     'consent_active' => (bool) ($consent?->is_active ?? false),
-                    'requested_at' => $consent?->updated_at?->toIso8601String(),
-                    'consented_at' => $consent?->is_active === true ? $consent->consented_at?->toIso8601String() : null,
-                    'revoked_at' => $consent?->revoked_at?->toIso8601String(),
-                    'declined_at' => $consent?->declined_at?->toIso8601String(),
+                    'requested_at' => ApiDateTime::dateTime($consent?->updated_at),
+                    'consented_at' => $consent?->is_active === true ? ApiDateTime::dateTime($consent->consented_at) : null,
+                    'revoked_at' => ApiDateTime::dateTime($consent?->revoked_at),
+                    'declined_at' => ApiDateTime::dateTime($consent?->declined_at),
                     'refusal_reason' => $consent?->refusal_reason,
                     'latitude' => $location?->latitude,
                     'longitude' => $location?->longitude,
                     'accuracy_meters' => $location?->accuracy_meters,
-                    'recorded_at' => $location?->recorded_at?->toIso8601String(),
+                    'recorded_at' => ApiDateTime::dateTime($location?->recorded_at),
                     'eta_minutes' => $this->etaMinutes($incident, $location),
                 ];
             })

@@ -7,6 +7,7 @@ use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -76,7 +77,7 @@ final class SetupController extends Controller
 
             $settings = [
                 'app.setup_completed' => true,
-                'app.setup_completed_at' => now()->toIso8601String(),
+                'app.setup_completed_at' => ApiDateTime::now(),
                 'app.public_url' => $publicUrl,
                 'mobile.tenant_name' => $data['tenant_name'],
                 'mobile.api_base_url' => $publicUrl.'/api',

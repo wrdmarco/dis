@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AvailabilityOverride;
 use App\Models\AvailabilityWeekPattern;
 use App\Models\User;
+use App\Support\ApiDateTime;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -110,7 +111,7 @@ final class AvailabilityScheduleService
             $availability = $this->availabilityFor($user, $checkpoint);
             if ($availability['is_available'] !== $current['is_available']) {
                 return [
-                    'at' => $checkpoint->toIso8601String(),
+                    'at' => ApiDateTime::dateTime($checkpoint),
                     'is_available' => $availability['is_available'],
                     'source' => $availability['source'],
                     'note' => $availability['note'],
@@ -135,7 +136,7 @@ final class AvailabilityScheduleService
         $current = $this->availabilityFor($user, $from);
         if ($current['is_available'] === true) {
             return [
-                'at' => $from->toIso8601String(),
+                'at' => ApiDateTime::dateTime($from),
                 'source' => $current['source'],
                 'note' => $current['note'],
             ];
@@ -145,7 +146,7 @@ final class AvailabilityScheduleService
             $availability = $this->availabilityFor($user, $checkpoint);
             if ($availability['is_available'] === true) {
                 return [
-                    'at' => $checkpoint->toIso8601String(),
+                    'at' => ApiDateTime::dateTime($checkpoint),
                     'source' => $availability['source'],
                     'note' => $availability['note'],
                 ];

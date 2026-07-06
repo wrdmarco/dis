@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\SystemSetting;
 use App\Services\AuditService;
 use App\Services\BackupReportService;
+use App\Support\ApiDateTime;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Process;
@@ -59,7 +60,7 @@ final class RunScheduledBackup extends Command
 
         SystemSetting::query()->updateOrCreate(
             ['key' => 'backup.auto.last_run_at'],
-            ['value' => now()->toIso8601String(), 'is_sensitive' => false, 'updated_by' => null],
+            ['value' => ApiDateTime::now(), 'is_sensitive' => false, 'updated_by' => null],
         );
 
         $auditService->record('backups.automatic_created', SystemSetting::class, null, [
@@ -145,7 +146,7 @@ final class RunScheduledBackup extends Command
             'operation' => $operation,
             'target' => $target,
             'backup_path' => $backupPath,
-            'created_at' => now('UTC')->toIso8601String(),
+            'created_at' => ApiDateTime::now(),
         ], JSON_THROW_ON_ERROR)."\n", LOCK_EX);
         @chmod($temporary, 0660);
         rename($temporary, $pending);

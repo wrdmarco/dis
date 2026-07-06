@@ -3,7 +3,7 @@ import { FirebaseSetupWizard } from '../../components/FirebaseSetupWizard';
 import { ResourceState } from '../../components/ResourceState';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { parseFirebaseJson } from '../../lib/firebaseConfigImport';
-import { formatDateTime } from '../../lib/dateTime';
+import { dateInputValueInAmsterdam, formatDateTime } from '../../lib/dateTime';
 import { createRealtime } from '../../lib/realtime';
 import { useApiResource } from '../../lib/useApiResource';
 import type { ConfigurableFormField, DeveloperAccessState, FcmToken, IncidentFormConfig, IncidentFormLayoutItem, PilotReportFormConfig, PilotReportFormField, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
@@ -2396,7 +2396,7 @@ function defaultDeveloperKeyForm(): DeveloperKeyForm {
 
   return {
     scopes: [...defaultDeveloperScopes],
-    expiresAt: expiresAt.toISOString().slice(0, 10),
+    expiresAt: dateInputValueInAmsterdam(expiresAt),
     allowedIps: '',
   };
 }

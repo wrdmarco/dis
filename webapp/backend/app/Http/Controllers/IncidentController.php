@@ -14,6 +14,7 @@ use App\Repositories\IncidentRepository;
 use App\Services\DispatchService;
 use App\Services\DroneFlightContextService;
 use App\Services\IncidentService;
+use App\Support\ApiDateTime;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -182,7 +183,7 @@ final class IncidentController extends Controller
             report($exception);
 
             return ApiResponse::success([
-                'generated_at' => now()->toIso8601String(),
+                'generated_at' => ApiDateTime::now(),
                 'location' => [
                     'label' => $data['location_label'] ?? null,
                     'latitude' => round((float) $data['latitude'], 7),

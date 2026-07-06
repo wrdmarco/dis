@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
+import { formatDateOnly } from '../../lib/dateTime';
 import { droneTypeLabel } from '../../lib/droneTypes';
 import { useApiResource } from '../../lib/useApiResource';
 import type { ExpiryOverview } from '../../types/api';
@@ -149,15 +150,7 @@ function groupByDeadline<T>(items: T[], getDate: (item: T) => string | null | un
 }
 
 function formatDate(value?: string | null): string {
-  if (value === undefined || value === null || value === '') {
-    return '-';
-  }
-
-  return new Intl.DateTimeFormat('nl-NL', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  }).format(new Date(value));
+  return formatDateOnly(value);
 }
 
 function deadlineLabel(value?: string | null): string {

@@ -3,6 +3,7 @@
 namespace App\Events;
 
 use App\Models\LocationUpdate;
+use App\Support\ApiDateTime;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
@@ -37,7 +38,7 @@ final class LocationUpdated implements ShouldBroadcastNow
             'latitude' => $this->locationUpdate->latitude,
             'longitude' => $this->locationUpdate->longitude,
             'accuracy_meters' => $this->locationUpdate->accuracy_meters,
-            'recorded_at' => $this->locationUpdate->recorded_at?->toIso8601String(),
+            'recorded_at' => ApiDateTime::dateTime($this->locationUpdate->recorded_at),
         ];
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Events;
 
 use App\Models\DispatchRequest;
+use App\Support\ApiDateTime;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
@@ -38,7 +39,7 @@ final class DispatchChanged implements ShouldBroadcastNow
             'status' => $this->dispatch->status,
             'priority' => $this->dispatch->priority,
             'action' => $this->action,
-            'sent_at' => $this->dispatch->sent_at?->toIso8601String(),
+            'sent_at' => ApiDateTime::dateTime($this->dispatch->sent_at),
         ];
     }
 }

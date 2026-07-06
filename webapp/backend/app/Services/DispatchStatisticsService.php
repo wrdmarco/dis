@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
+use App\Support\ApiDateTime;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -126,7 +127,7 @@ final class DispatchStatisticsService
                     'id' => $incident?->id,
                     'reference' => $incident?->reference,
                     'title' => $incident?->title,
-                    'sent_at' => $first?->dispatchRequest?->sent_at?->toIso8601String(),
+                    'sent_at' => ApiDateTime::dateTime($first?->dispatchRequest?->sent_at),
                     'total_alerts' => $total,
                     'accepted' => $rows->where('response_status', 'accepted')->count(),
                     'declined' => $rows->where('response_status', 'declined')->count(),
@@ -152,9 +153,9 @@ final class DispatchStatisticsService
             'incident_id' => $incident->id,
             'reference' => $incident->reference,
             'title' => $incident->title,
-            'sent_at' => $dispatch->sent_at?->toIso8601String(),
+            'sent_at' => ApiDateTime::dateTime($dispatch->sent_at),
             'response_status' => $recipient->response_status,
-            'responded_at' => $recipient->responded_at?->toIso8601String(),
+            'responded_at' => ApiDateTime::dateTime($recipient->responded_at),
         ];
     }
 

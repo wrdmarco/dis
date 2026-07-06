@@ -6,6 +6,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\CalendarEvent;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -95,8 +96,8 @@ final class CalendarEventController extends Controller
             'id' => $event->id,
             'title' => $event->title,
             'type' => $event->type,
-            'starts_at' => $event->starts_at?->toJSON(),
-            'ends_at' => $event->ends_at?->toJSON(),
+            'starts_at' => ApiDateTime::dateTime($event->starts_at),
+            'ends_at' => ApiDateTime::dateTime($event->ends_at),
             'location_label' => $event->location_label,
             'description' => $event->description,
             'team_id' => $event->team_id,
@@ -107,7 +108,7 @@ final class CalendarEventController extends Controller
                 'type' => $event->team->type,
             ],
             'created_by_name' => $event->creator?->name,
-            'created_at' => $event->created_at?->toJSON(),
+            'created_at' => ApiDateTime::dateTime($event->created_at),
         ];
     }
 

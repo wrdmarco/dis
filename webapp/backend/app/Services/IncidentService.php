@@ -6,6 +6,7 @@ use App\Events\IncidentChanged;
 use App\Jobs\GenerateIncidentReport;
 use App\Models\Incident;
 use App\Models\User;
+use App\Support\ApiDateTime;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -191,7 +192,7 @@ final class IncidentService
     {
         return [
             'internal_notes' => $incident->internal_notes,
-            'updated_at' => $incident->updated_at?->toIso8601String(),
+            'updated_at' => ApiDateTime::dateTime($incident->updated_at),
         ];
     }
 
@@ -377,7 +378,7 @@ final class IncidentService
         } catch (Throwable $exception) {
             report($exception);
             $context = [
-                'generated_at' => now()->toIso8601String(),
+                'generated_at' => ApiDateTime::now(),
                 'location' => [
                     'label' => $incident->location_label,
                     'latitude' => $incident->latitude,

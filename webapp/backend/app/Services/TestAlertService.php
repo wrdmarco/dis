@@ -8,6 +8,7 @@ use App\Models\DispatchRequest;
 use App\Models\Incident;
 use App\Models\SystemSetting;
 use App\Models\User;
+use App\Support\ApiDateTime;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -215,7 +216,7 @@ final class TestAlertService
         SystemSetting::query()->updateOrCreate(
             ['key' => 'test_alert.schedule_last_run_at'],
             [
-                'value' => $now->toIso8601String(),
+                'value' => ApiDateTime::dateTime($now),
                 'is_sensitive' => false,
                 'updated_by' => null,
             ],
