@@ -7408,3 +7408,125 @@ pre {
   background: var(--dis-blue-soft) !important;
   color: var(--dis-blue) !important;
 }
+
+/* Form pages need a complete light-mode skin because the builder has its own nested canvas model. */
+:root[data-theme="light"] .form-builder--studio {
+  color: var(--dis-text) !important;
+}
+
+:root[data-theme="light"] .form-builder--studio .form-builder__toolbar,
+:root[data-theme="light"] .form-builder--studio .form-builder-palette,
+:root[data-theme="light"] .form-builder--studio .form-builder-canvas,
+:root[data-theme="light"] .form-builder--studio .form-builder-properties,
+:root[data-theme="light"] .form-builder--studio .form-builder-card,
+:root[data-theme="light"] .form-builder--studio .form-builder-card__body,
+:root[data-theme="light"] .form-builder--studio .form-builder-card__grid,
+:root[data-theme="light"] .form-builder--studio .form-builder-card__options,
+:root[data-theme="light"] .form-builder--studio .form-builder-canvas-item,
+:root[data-theme="light"] .form-builder--studio .form-builder-preview-module,
+:root[data-theme="light"] .form-builder--studio .form-builder-property-note,
+:root[data-theme="light"] .form-builder--studio .template-variable-bank,
+:root[data-theme="light"] .form-builder--studio .template-variable,
+:root[data-theme="light"] .form-builder--studio .checkbox-card,
+:root[data-theme="light"] .form-builder--studio .location-picker__map,
+:root[data-theme="light"] .form-builder--studio .drone-flight-card,
+:root[data-theme="light"] .form-builder--studio .section-heading,
+:root[data-theme="light"] .form-builder--studio .form-note {
+  border-color: var(--dis-border) !important;
+  background: var(--dis-surface) !important;
+  background-image: none !important;
+  color: var(--dis-text) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="light"] .form-builder--studio .form-builder__toolbar,
+:root[data-theme="light"] .form-builder--studio .form-builder-canvas__header,
+:root[data-theme="light"] .form-builder--studio .form-builder-canvas-item__bar,
+:root[data-theme="light"] .form-builder--studio .form-builder-canvas-item__actions {
+  border-color: var(--dis-border) !important;
+  background: var(--dis-surface-2) !important;
+  background-image: none !important;
+  color: var(--dis-text) !important;
+}
+
+:root[data-theme="light"] .form-builder--studio .form-builder-palette__item {
+  border-color: var(--dis-border) !important;
+  background: #ffffff !important;
+  background-image: none !important;
+  color: var(--dis-text-strong) !important;
+}
+
+:root[data-theme="light"] .form-builder--studio .form-builder-palette__item:hover,
+:root[data-theme="light"] .form-builder--studio .form-builder-palette__item:focus-visible,
+:root[data-theme="light"] .form-builder--studio .form-builder-preview-module:hover {
+  border-color: var(--dis-blue) !important;
+  background: var(--dis-blue-soft) !important;
+  color: var(--dis-blue) !important;
+}
+
+:root[data-theme="light"] .form-builder--studio .form-builder-palette__item--active,
+:root[data-theme="light"] .form-builder--studio .form-builder-palette__item--selected,
+:root[data-theme="light"] .form-builder--studio .form-builder-card--section,
+:root[data-theme="light"] .form-builder--studio .form-builder-canvas-item--selected {
+  border-color: var(--dis-blue) !important;
+  background: var(--dis-blue-soft) !important;
+  background-image: none !important;
+  color: var(--dis-blue) !important;
+  box-shadow: 0 0 0 1px rgba(11, 111, 174, 0.18) !important;
+}
+
+:root[data-theme="light"] .form-builder--studio .form-grid,
+:root[data-theme="light"] .form-builder--studio .checkbox-grid,
+:root[data-theme="light"] .form-builder--studio .form-builder-palette__grid,
+:root[data-theme="light"] .form-builder--studio .template-variable-bank__grid {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="light"] .form-builder--studio label,
+:root[data-theme="light"] .form-builder--studio .check-label,
+:root[data-theme="light"] .form-builder--studio .field-label,
+:root[data-theme="light"] .form-builder--studio .modal__eyebrow,
+:root[data-theme="light"] .form-builder--studio .form-builder-canvas-item__bar,
+:root[data-theme="light"] .form-builder--studio .form-builder-properties code,
+:root[data-theme="light"] .form-builder--studio .template-variable code {
+  color: var(--dis-text) !important;
+}
+
+:root[data-theme="light"] .form-builder--studio small,
+:root[data-theme="light"] .form-builder--studio .muted-text,
+:root[data-theme="light"] .form-builder--studio .form-builder-card__handle,
+:root[data-theme="light"] .form-builder--studio .form-builder-canvas-item__bar > span,
+:root[data-theme="light"] .form-builder--studio .form-builder-canvas-item__bar small,
+:root[data-theme="light"] .form-builder--studio .form-builder-palette__item small,
+:root[data-theme="light"] .form-builder--studio .form-builder-property-note span,
+:root[data-theme="light"] .form-builder--studio .location-picker__empty,
+:root[data-theme="light"] .form-builder--studio .drone-flight-card dt {
+  color: var(--dis-muted) !important;
+}
+
+:root[data-theme="light"] .form-builder--studio h3,
+:root[data-theme="light"] .form-builder--studio h4,
+:root[data-theme="light"] .form-builder--studio strong,
+:root[data-theme="light"] .form-builder--studio .drone-flight-card dd {
+  color: var(--dis-text-strong) !important;
+}
+
+:root[data-theme="light"] .form-builder--studio .form-builder-dropzone {
+  border-color: #b7c9dd !important;
+  background: #f8fbff !important;
+  color: var(--dis-muted) !important;
+}
+
+:root[data-theme="light"] .form-config-table,
+:root[data-theme="light"] .form-config-table thead,
+:root[data-theme="light"] .form-config-table tbody,
+:root[data-theme="light"] .form-config-table tr,
+:root[data-theme="light"] .form-config-table th,
+:root[data-theme="light"] .form-config-table td {
+  border-color: var(--dis-border) !important;
+  background: var(--dis-surface) !important;
+  background-image: none !important;
+  color: var(--dis-text) !important;
+}
