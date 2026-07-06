@@ -464,6 +464,17 @@ export interface AppVersion {
   download_url?: string | null;
 }
 
+export type SoftwareDownloadSource = 'direct' | 'app_store';
+
+export interface SoftwareDownloadChannelOptions {
+  source: SoftwareDownloadSource;
+  app_store_url?: string | null;
+}
+
+export interface SoftwareDownloadOptions {
+  channels: Record<string, SoftwareDownloadChannelOptions>;
+}
+
 export interface DeveloperAccessState {
   enabled: boolean;
   configured: boolean;
@@ -550,13 +561,14 @@ export interface FormFieldOption {
 export interface ConfigurableFormField {
   key: string;
   label: string;
-  type: 'section' | 'text' | 'textarea' | 'number' | 'flight_time' | 'select' | 'checkbox' | 'radio';
+  type: 'section' | 'text' | 'textarea' | 'number' | 'phone' | 'flight_time' | 'select' | 'checkbox' | 'radio';
   visible: boolean;
   required: boolean;
   max_length?: number;
   max?: number;
   option_source?: 'manual' | 'user_drones';
   options?: FormFieldOption[];
+  phone_countries?: string[];
   width?: 'half' | 'full';
   section?: string | null;
   locked?: boolean;

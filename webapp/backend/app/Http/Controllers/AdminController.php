@@ -393,6 +393,12 @@ final class AdminController extends Controller
             'certification.warning_days_before_expiry',
             'asset.warning_days_before_expiry' => $this->validateIntegerSetting($key, $value, 1, 365),
             'updates.android.application_id' => $this->validateAndroidApplicationIdSetting($key, $value),
+            'software.download.operator_android.source',
+            'software.download.admin_android.source',
+            'software.download.operator_ios.source' => $this->validateStringIn($key, $value, ['direct', 'app_store']),
+            'software.download.operator_android.app_store_url',
+            'software.download.admin_android.app_store_url',
+            'software.download.operator_ios.app_store_url' => $this->validateNullableUrlSetting($key, $value, 2048),
             'incident.timeline.app_visible_types' => $this->validateStringArraySetting($key, $value, ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status', 'audit']),
             default => throw ValidationException::withMessages(["settings.$key" => ['Deze instelling mag niet via deze pagina worden aangepast.']]),
         };

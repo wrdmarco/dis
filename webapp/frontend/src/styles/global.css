@@ -829,6 +829,14 @@ a:hover {
   grid-column: 1 / -1;
 }
 
+.download-card__qr {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
 .download-card > .primary-button,
 .download-card > .secondary-button {
   grid-column: 1 / -1;
@@ -865,6 +873,32 @@ a:hover {
 
 .download-setup-qr .totp-qr {
   width: 220px;
+}
+
+.download-source-admin {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.download-source-admin__card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 14px;
+}
+
+.download-source-admin__card span {
+  display: block;
+  color: #8ea0b5;
+  font-size: 0.86rem;
+}
+
+.download-source-admin__card strong {
+  display: block;
+  margin-top: 4px;
 }
 
 .mfa-card {
@@ -5226,6 +5260,8 @@ pre {
   .inline-form,
   .inline-form--compact,
   .download-card,
+  .download-card__qr,
+  .download-source-admin,
   .download-setup-qr,
   .firebase-wizard__intro,
   .permission-grid,

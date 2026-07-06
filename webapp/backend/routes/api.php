@@ -66,6 +66,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
 
     Route::middleware('two_factor.complete')->group(function (): void {
         Route::post('/auth/2fa/disable', [AuthController::class, 'disableTwoFactor'])->middleware('throttle:two-factor');
+        Route::get('/software/download-options', [UpdateController::class, 'downloadOptions']);
 
         Route::get('/users', [UserController::class, 'index'])->middleware('permission:users.view');
         Route::post('/users', [UserController::class, 'store'])->middleware('permission:users.manage');

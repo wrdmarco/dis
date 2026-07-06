@@ -1,9 +1,9 @@
-import { Download, ShieldCheck, Smartphone } from 'lucide-react';
+import { Download, ShieldCheck, Smartphone, Store } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { apiBaseUrl } from '../../lib/apiClient';
-import type { AppVersion, ApiResponse } from '../../types/api';
+import type { AppVersion, ApiResponse, SoftwareDownloadChannelOptions, SoftwareDownloadOptions } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 
 interface AndroidUpdatePolicy {
@@ -21,13 +21,14 @@ type Channel = {
 };
 
 export function AndroidDownloadPage() {
-  const { user } = useAuth();
+  const { api, user } = useAuth();
   const canUseOperatorApp = user?.roles?.some((role) => role.can_use_operator_app) === true;
   const canUseAdminApp = user?.roles?.some((role) => role.can_use_admin_app) === true;
   const allowedChannelDefinitions = useMemo(() => channelDefinitions.filter((channel) =>
     channel.access === 'operator' ? canUseOperatorApp : canUseAdminApp,
   ), [canUseAdminApp, canUseOperatorApp]);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [downloadOptions, setDownloadOptions] = useState<Record<string, SoftwareDownloadChannelOptions>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,11 +46,17 @@ export function AndroidDownloadPage() {
       setLoading(true);
       setError(null);
       try {
-        const nextChannels = await Promise.all(allowedChannelDefinitions.map((channel) =>
-          loadChannel(channel.platform, channel.key, channel.title, channel.access, channel.applicationId),
-        ));
+        const [nextChannels, options] = await Promise.all([
+          Promise.all(allowedChannelDefinitions.map((channel) =>
+            loadChannel(channel.platform, channel.key, channel.title, channel.access, channel.applicationId),
+          )),
+          api.get<SoftwareDownloadOptions>('/software/download-options'),
+        ]);
 
-        if (!cancelled) setChannels(nextChannels);
+        if (!cancelled) {
+          setChannels(nextChannels);
+          setDownloadOptions(options.data.channels);
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'App informatie kon niet worden geladen.');
@@ -66,9 +73,7 @@ export function AndroidDownloadPage() {
     return () => {
       cancelled = true;
     };
-  }, [allowedChannelDefinitions]);
-
-  const setupUrl = typeof window === 'undefined' ? '' : window.location.origin;
+  }, [allowedChannelDefinitions, api]);
 
   return (
     <div className="public-download-shell">
@@ -85,7 +90,7 @@ export function AndroidDownloadPage() {
         {!loading && !error ? (
           <div className="download-channel-list">
             {channels.map((channel) => (
-              <DownloadChannelCard key={channel.key} channel={channel} />
+              <DownloadChannelCard key={channel.key} channel={channel} options={downloadOptions[channel.key]} />
             ))}
           </div>
         ) : null}
@@ -102,15 +107,6 @@ export function AndroidDownloadPage() {
           <Link className="secondary-button" href="/login">
             Command Center
           </Link>
-        </div>
-
-        <div className="download-setup-qr">
-          <div>
-            <strong>Setup URL</strong>
-            <p>Scan deze QR-code bij de eerste start van de mobiele app.</p>
-            <code>{setupUrl}</code>
-          </div>
-          <TotpQrCode value={setupUrl} alt="QR-code met DIS setup URL" helpText="Scan met de mobiele app om deze server te koppelen." />
         </div>
 
         <div className="download-integrity">
@@ -144,9 +140,15 @@ async function loadChannel(platform: 'android' | 'ios', key: string, title: stri
   return { key, title, access, platform, applicationId, latest: payload.data.latest };
 }
 
-function DownloadChannelCard({ channel }: { channel: Channel }) {
+function DownloadChannelCard({ channel, options }: { channel: Channel; options?: SoftwareDownloadChannelOptions }) {
   const latest = channel.latest;
-  const canDownload = latest?.download_url;
+  const source = options?.source ?? 'direct';
+  const appStoreUrl = options?.app_store_url?.trim() ?? '';
+  const directUrl = latest?.download_url ?? '';
+  const downloadUrl = source === 'app_store' ? appStoreUrl : directUrl;
+  const canDownload = downloadUrl !== '';
+  const sourceLabel = source === 'app_store' ? storeLabel(channel.platform) : 'Directe download';
+  const qrUrl = resolveBrowserUrl(downloadUrl);
 
   return (
     <div className="download-card">
@@ -163,20 +165,64 @@ function DownloadChannelCard({ channel }: { channel: Channel }) {
         <strong>{latest?.version_code ?? '-'}</strong>
       </div>
       <div>
-        <span>Status</span>
-        <strong>{latest?.status ?? 'niet gepubliceerd'}</strong>
+        <span>Downloadbron</span>
+        <strong>{sourceLabel}</strong>
       </div>
+      {source === 'direct' ? (
+        <div>
+          <span>Status</span>
+          <strong>{latest?.status ?? 'niet gepubliceerd'}</strong>
+        </div>
+      ) : null}
       <div className="download-card__hash">
         <span>SHA-256</span>
-        <code>{latest?.artifact_sha256 ?? '-'}</code>
+        <code>{source === 'direct' ? latest?.artifact_sha256 ?? '-' : 'Appstore-download'}</code>
       </div>
-      <a className={`primary-button ${canDownload ? '' : 'primary-button--disabled'}`} href={canDownload || undefined}>
-        <Download aria-hidden size={18} />
+      <a className={`primary-button ${canDownload ? '' : 'primary-button--disabled'}`} href={canDownload ? downloadUrl : undefined}>
+        {source === 'app_store' ? <Store aria-hidden size={18} /> : <Download aria-hidden size={18} />}
         {channel.title} openen
       </a>
-      {latest && !canDownload ? (
-        <p className="public-download-panel__status">Deze versie is geregistreerd, maar er is nog geen downloadlink.</p>
+      {qrUrl ? (
+        <div className="download-card__qr">
+          <div>
+            <span>QR-code download</span>
+            <strong>Scan om deze app te openen</strong>
+            <code>{qrUrl}</code>
+          </div>
+          <TotpQrCode value={qrUrl} alt={`QR-code download ${channel.title}`} helpText="Scan om de downloadlink te openen." />
+        </div>
       ) : null}
+      {!canDownload ? <p className="public-download-panel__status">{missingDownloadText(source, latest)}</p> : null}
     </div>
   );
+}
+
+function storeLabel(platform: Channel['platform']): string {
+  return platform === 'ios' ? 'Apple App Store/TestFlight' : 'Google Play';
+}
+
+function missingDownloadText(source: SoftwareDownloadChannelOptions['source'], latest: AppVersion | null): string {
+  if (source === 'app_store') {
+    return 'Deze app staat op appstore-download, maar de appstore-link is nog niet ingesteld.';
+  }
+
+  return latest
+    ? 'Deze versie is geregistreerd, maar er is nog geen downloadlink.'
+    : 'Er is nog geen mobiele app gepubliceerd.';
+}
+
+function resolveBrowserUrl(url: string): string {
+  if (url === '') {
+    return '';
+  }
+
+  if (typeof window === 'undefined') {
+    return url;
+  }
+
+  try {
+    return new URL(url, window.location.origin).toString();
+  } catch {
+    return url;
+  }
 }
