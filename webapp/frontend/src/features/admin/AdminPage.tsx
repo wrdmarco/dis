@@ -8,7 +8,7 @@ import { createRealtime } from '../../lib/realtime';
 import { useApiResource } from '../../lib/useApiResource';
 import type { ConfigurableFormField, DeveloperAccessState, FcmToken, IncidentFormConfig, IncidentFormLayoutItem, PilotReportFormConfig, PilotReportFormField, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiClientError } from '../../lib/apiClient';
 
 interface MobileSettingsForm {
@@ -1366,6 +1366,102 @@ function IncidentTimelineVisibilitySettings(props: {
   );
 }
 
+function useFormBuilderDragAutoScroll(isDragging: boolean) {
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  const frameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isDragging) {
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+      pointerRef.current = null;
+      return undefined;
+    }
+
+    const stop = () => {
+      pointerRef.current = null;
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+    };
+
+    const scrollTick = () => {
+      frameRef.current = null;
+      const pointer = pointerRef.current;
+      if (pointer === null) {
+        return;
+      }
+
+      const threshold = Math.min(140, Math.max(76, window.innerHeight * 0.16));
+      let delta = 0;
+
+      if (pointer.y < threshold) {
+        delta = -Math.ceil(((threshold - pointer.y) / threshold) * 30);
+      } else if (pointer.y > window.innerHeight - threshold) {
+        delta = Math.ceil(((pointer.y - (window.innerHeight - threshold)) / threshold) * 30);
+      }
+
+      if (delta !== 0) {
+        scrollNearestBuilderContainer(pointer.x, pointer.y, delta);
+        frameRef.current = window.requestAnimationFrame(scrollTick);
+      }
+    };
+
+    const onDragOver = (event: DragEvent) => {
+      pointerRef.current = { x: event.clientX, y: event.clientY };
+      if (frameRef.current === null) {
+        frameRef.current = window.requestAnimationFrame(scrollTick);
+      }
+    };
+
+    window.addEventListener('dragover', onDragOver, true);
+    window.addEventListener('drop', stop, true);
+    window.addEventListener('dragend', stop, true);
+
+    return () => {
+      window.removeEventListener('dragover', onDragOver, true);
+      window.removeEventListener('drop', stop, true);
+      window.removeEventListener('dragend', stop, true);
+      stop();
+    };
+  }, [isDragging]);
+}
+
+function scrollNearestBuilderContainer(x: number, y: number, delta: number) {
+  const target = document.elementFromPoint(x, y);
+  const scrollable = findScrollableParent(target);
+
+  if (scrollable !== null) {
+    const previousTop = scrollable.scrollTop;
+    scrollable.scrollTop += delta;
+    if (scrollable.scrollTop !== previousTop) {
+      return;
+    }
+  }
+
+  window.scrollBy({ top: delta, left: 0, behavior: 'auto' });
+}
+
+function findScrollableParent(element: Element | null): HTMLElement | null {
+  let current = element instanceof HTMLElement ? element : null;
+
+  while (current !== null && current !== document.body) {
+    const style = window.getComputedStyle(current);
+    const canScroll = /(auto|scroll)/.test(style.overflowY) && current.scrollHeight > current.clientHeight;
+
+    if (canScroll) {
+      return current;
+    }
+
+    current = current.parentElement;
+  }
+
+  return null;
+}
+
 function ConfigurableFormEditor(props: {
   fields: ConfigurableFormField[];
   description: string;
@@ -1396,6 +1492,7 @@ function ConfigurableFormEditor(props: {
   const [draggingPaletteType, setDraggingPaletteType] = useState<ConfigurableFormField['type'] | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const selectedField = fields.find((field) => field.key === selectedKey) ?? fields[0] ?? null;
+  useFormBuilderDragAutoScroll(draggingKey !== null || draggingPaletteType !== null);
 
   function selectField(key: string) {
     setSelectedKey(key);
@@ -1750,6 +1847,7 @@ function IncidentFormLayoutEditor(props: {
     ?? visibleLayout[0]
     ?? props.layout[0]
     ?? null;
+  useFormBuilderDragAutoScroll(draggingKey !== null || draggingPaletteKey !== null);
 
   function selectModule(key: string) {
     setSelectedKey(key);
