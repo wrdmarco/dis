@@ -377,16 +377,7 @@ final class IncidentReportService
 
     public function refreshStored(Incident $incident, bool $preserveExistingMaps = false): ?string
     {
-        if (! in_array($incident->status, ['resolved', 'cancelled'], true)
-            && (! is_string($incident->report_pdf_path) || $incident->report_pdf_path === '')) {
-            return null;
-        }
-
-        $hasStoredReport = is_string($incident->report_pdf_path)
-            && $incident->report_pdf_path !== ''
-            && $this->storedReportExists($incident->report_pdf_path);
-
-        return $this->storePdf($incident, $preserveExistingMaps && $hasStoredReport);
+        return $this->ensureStored($incident);
     }
 
     public function storedPdf(Incident $incident): ?string

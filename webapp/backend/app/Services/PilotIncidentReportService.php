@@ -108,7 +108,7 @@ final class PilotIncidentReportService
             return $report->refresh();
         });
 
-        $this->incidentReportService->refreshStored($incident->refresh(), preserveExistingMaps: true);
+        $this->incidentReportService->ensureStored($incident->refresh());
 
         return $report;
     }
