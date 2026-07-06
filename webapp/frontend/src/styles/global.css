@@ -6745,3 +6745,94 @@ pre {
   background: #f4f7fb;
   color: #1c2938;
 }
+
+/* Targeted light-mode cleanup for profile and software/download pages. */
+:root[data-theme="light"] .download-channel-list,
+:root[data-theme="light"] .download-card,
+:root[data-theme="light"] .download-card__qr,
+:root[data-theme="light"] .download-card__hash,
+:root[data-theme="light"] .download-setup-qr,
+:root[data-theme="light"] .download-source-admin,
+:root[data-theme="light"] .mfa-card,
+:root[data-theme="light"] .totp-qr,
+:root[data-theme="light"] .tenant-qr,
+:root[data-theme="light"] .work-plan-card,
+:root[data-theme="light"] .week-daypart-row,
+:root[data-theme="light"] .daypart-planner-row {
+  color: var(--dis-text);
+}
+
+:root[data-theme="light"] .download-card > div,
+:root[data-theme="light"] .download-card__qr,
+:root[data-theme="light"] .download-setup-qr,
+:root[data-theme="light"] .download-source-admin__card,
+:root[data-theme="light"] .mfa-card,
+:root[data-theme="light"] .totp-qr,
+:root[data-theme="light"] .tenant-qr,
+:root[data-theme="light"] .work-plan-card,
+:root[data-theme="light"] .week-daypart-row,
+:root[data-theme="light"] .daypart-planner-row {
+  border-color: var(--dis-border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.98)),
+    var(--dis-surface);
+  box-shadow: 0 12px 30px rgba(18, 37, 57, 0.05);
+}
+
+:root[data-theme="light"] .download-setup-qr::before,
+:root[data-theme="light"] .mfa-card::before,
+:root[data-theme="light"] .work-plan-card::before {
+  background: linear-gradient(180deg, rgba(11, 111, 174, 0.58), rgba(22, 163, 74, 0.2));
+}
+
+:root[data-theme="light"] .download-card span,
+:root[data-theme="light"] .download-integrity,
+:root[data-theme="light"] .download-setup-qr p,
+:root[data-theme="light"] .download-source-admin__card span,
+:root[data-theme="light"] .mfa-card p,
+:root[data-theme="light"] .totp-qr span,
+:root[data-theme="light"] .work-plan-card__header p,
+:root[data-theme="light"] .daypart-planner-row > div:first-child span,
+:root[data-theme="light"] .checkbox-card small {
+  color: var(--dis-muted);
+}
+
+:root[data-theme="light"] .download-card strong,
+:root[data-theme="light"] .download-source-admin__card strong,
+:root[data-theme="light"] .work-plan-card strong,
+:root[data-theme="light"] .week-daypart-row strong,
+:root[data-theme="light"] .daypart-planner-row strong {
+  color: var(--dis-text-strong);
+}
+
+:root[data-theme="light"] .download-card code,
+:root[data-theme="light"] .download-setup-qr code,
+:root[data-theme="light"] .tenant-qr code,
+:root[data-theme="light"] .download-integrity code {
+  border: 1px solid var(--dis-border);
+  border-radius: 6px;
+  background: #f1f6fb;
+  color: #1c2938;
+}
+
+:root[data-theme="light"] .mfa-card__icon {
+  background: var(--dis-blue-soft);
+  color: var(--dis-blue);
+}
+
+:root[data-theme="light"] .totp-qr img {
+  border: 1px solid var(--dis-border);
+  background: #ffffff;
+}
+
+:root[data-theme="light"] .daypart-planner-actions .secondary-button {
+  border-color: var(--dis-border);
+  background: #ffffff;
+  color: var(--dis-text);
+}
+
+:root[data-theme="light"] .daypart-planner-actions .secondary-button:hover {
+  border-color: var(--dis-blue);
+  background: var(--dis-blue-soft);
+  color: var(--dis-blue);
+}
