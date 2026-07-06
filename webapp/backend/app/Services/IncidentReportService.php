@@ -12,7 +12,6 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -108,7 +107,7 @@ final class IncidentReportService
 
         try {
             $dompdf = new Dompdf($options);
-            $dompdf->loadHtml(view('reports.incident', $data)->render());
+            $dompdf->loadHtml($this->renderReportHtml($data));
             $dompdf->setPaper('a4', 'portrait');
             $dompdf->render();
 
@@ -116,6 +115,43 @@ final class IncidentReportService
         } finally {
             restore_error_handler();
         }
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function renderReportHtml(array $data): string
+    {
+        try {
+            return view('reports.incident', $data)->render();
+        } catch (Throwable $exception) {
+            if (! $this->isMissingCompiledReportView($exception)) {
+                throw $exception;
+            }
+
+            $this->safeReport($exception);
+            $this->compileReportView();
+
+            return view('reports.incident', $data)->render();
+        }
+    }
+
+    private function isMissingCompiledReportView(Throwable $exception): bool
+    {
+        $message = $exception->getMessage();
+
+        return str_contains($message, 'File does not exist at path')
+            && str_contains($message, 'storage/framework/views')
+            && str_contains($message, 'reports/incident.blade.php');
+    }
+
+    private function compileReportView(): void
+    {
+        $compiledPath = (string) config('view.compiled', storage_path('framework/views'));
+        $this->ensureWritableDirectory($compiledPath);
+
+        $viewPath = resource_path('views/reports/incident.blade.php');
+        app('blade.compiler')->compile($viewPath);
     }
 
     private function writableReportDirectory(): string
@@ -571,12 +607,12 @@ final class IncidentReportService
             number_format($latitude, 5, '.', ''),
             number_format($longitude, 5, '.', ''),
         ]));
-        $cachePath = 'report-map-snapshots/'.$cacheKey.'.png';
+        $cachePath = $this->absoluteReportSupportPath('report-map-snapshots/'.$cacheKey.'.png');
 
-        if (Storage::disk('local')->exists($cachePath)) {
+        if (is_file($cachePath) && is_readable($cachePath)) {
             return [
                 'available' => true,
-                'data_uri' => 'data:image/png;base64,'.base64_encode(Storage::disk('local')->get($cachePath)),
+                'data_uri' => 'data:image/png;base64,'.base64_encode((string) file_get_contents($cachePath)),
             ];
         }
 
@@ -652,7 +688,14 @@ final class IncidentReportService
             ];
         }
 
-        Storage::disk('local')->put($cachePath, $png);
+        try {
+            $this->ensureWritableDirectory(dirname($cachePath));
+            if (File::put($cachePath, $png) !== false) {
+                @chmod($cachePath, 0660);
+            }
+        } catch (Throwable) {
+            // Snapshot caching is best-effort; the report can still embed this render directly.
+        }
 
         return [
             'available' => true,
