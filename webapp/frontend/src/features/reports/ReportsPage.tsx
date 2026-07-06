@@ -318,6 +318,24 @@ function PilotReportField({ field, value, onChange }: { field: ConfigurableFormF
     return <label className={className}>{label}<input type="number" min="0" value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value === '' ? null : Number(event.target.value))} /></label>;
   }
 
+  if (field.type === 'phone') {
+    return (
+      <label className={className}>
+        {label}
+        <input
+          type="tel"
+          inputMode="tel"
+          pattern={phonePattern(field)}
+          placeholder={phonePlaceholder(field)}
+          title={`Gebruik een internationaal nummer met ${phoneCountryLabels(field)}.`}
+          value={asFormString(value)}
+          required={field.required}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </label>
+    );
+  }
+
   if (field.type === 'flight_time') {
     const flightTime = flightTimeValue(value);
     return (
@@ -360,6 +378,24 @@ function PilotReportField({ field, value, onChange }: { field: ConfigurableFormF
 
 function asFormString(value: unknown): string {
   return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+}
+
+function phoneCountries(field: ConfigurableFormField): string[] {
+  const supported = ['31', '32'];
+  const values = (field.phone_countries ?? []).filter((country) => supported.includes(country));
+  return values.length > 0 ? values : supported;
+}
+
+function phonePattern(field: ConfigurableFormField): string {
+  return `^\\+(${phoneCountries(field).join('|')})[\\s-]?[1-9](?:[\\s-]?[0-9]){7,11}$`;
+}
+
+function phonePlaceholder(field: ConfigurableFormField): string {
+  return phoneCountries(field).includes('31') ? '+31612345678' : '+32470123456';
+}
+
+function phoneCountryLabels(field: ConfigurableFormField): string {
+  return phoneCountries(field).map((country) => `+${country}`).join(' of ');
 }
 
 function flightTimeValue(value: unknown): { start: string; end: string } {

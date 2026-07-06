@@ -372,7 +372,7 @@ export function IncidentForm(props: {
 
   return (
     <form className="form-grid" onSubmit={onSubmit}>
-      {incidentFormLayout(layout).map((item) => item.visible ? (
+      {incidentFormLayout(layout, customFields).map((item) => item.visible ? (
         <IncidentFormBlock
           key={item.key}
           item={item}
@@ -636,11 +636,25 @@ function IncidentFormBlock(props: {
     case 'custom_fields':
       return <DynamicIncidentFields fields={props.customFields} values={props.form.customFields} onChange={props.onChange} />;
     default:
+      if (props.item.key.startsWith('custom_field:')) {
+        const field = props.customFields.find((candidate) => props.item.key === customFieldLayoutKey(candidate.key));
+        if (field === undefined || !field.visible) {
+          return null;
+        }
+
+        return (
+          <DynamicIncidentField
+            field={{ ...field, width: props.item.width ?? field.width }}
+            value={props.form.customFields[field.key]}
+            onChange={(value) => updateCustomField(props.onChange, field.key, value)}
+          />
+        );
+      }
       return null;
   }
 }
 
-function incidentFormLayout(layout: IncidentFormLayoutItem[]): IncidentFormLayoutItem[] {
+function incidentFormLayout(layout: IncidentFormLayoutItem[], customFields: ConfigurableFormField[]): IncidentFormLayoutItem[] {
   const defaults: IncidentFormLayoutItem[] = [
     { key: 'section_incident', label: 'Sectie: incident', visible: true, width: 'full' },
     { key: 'title', label: 'Titel', visible: true, width: 'full' },
@@ -659,16 +673,16 @@ function incidentFormLayout(layout: IncidentFormLayoutItem[]): IncidentFormLayou
     { key: 'drone_airspace', label: 'Luchtruim', visible: true, width: 'half' },
     { key: 'drone_aeret_link', label: 'Aeret link', visible: true, width: 'full' },
     { key: 'drone_aeret_map', label: 'Aeret kaart', visible: true, width: 'full' },
-    { key: 'custom_fields', label: 'Dynamische velden', visible: true, width: 'full', locked: true },
+    ...customFields.map(customFieldLayoutItem),
   ];
   const defaultKeys = new Set(defaults.map((item) => item.key));
-  const merged = expandLegacyIncidentLayout(layout).filter((item) => defaultKeys.has(item.key));
+  const merged = expandLegacyIncidentLayout(layout, customFields).filter((item) => defaultKeys.has(item.key));
   const missing = defaults.filter((item) => !merged.some((candidate) => candidate.key === item.key));
 
   return [...merged, ...missing];
 }
 
-function expandLegacyIncidentLayout(layout: IncidentFormLayoutItem[]): IncidentFormLayoutItem[] {
+function expandLegacyIncidentLayout(layout: IncidentFormLayoutItem[], customFields: ConfigurableFormField[]): IncidentFormLayoutItem[] {
   const replacements: Record<string, IncidentFormLayoutItem[]> = {
     incident_details: [
       { key: 'section_incident', label: 'Sectie: incident', visible: true, width: 'full' },
@@ -688,6 +702,7 @@ function expandLegacyIncidentLayout(layout: IncidentFormLayoutItem[]): IncidentF
       { key: 'location_map', label: 'Kaart opkomstlocatie', visible: true, width: 'half' },
     ],
     resources: [],
+    custom_fields: customFields.map(customFieldLayoutItem),
     drone_context: [
       { key: 'section_drone', label: 'Sectie: drone vluchtcheck', visible: true, width: 'full' },
       { key: 'drone_status', label: 'Drone vluchtcheck status', visible: true, width: 'full' },
@@ -706,6 +721,19 @@ function expandLegacyIncidentLayout(layout: IncidentFormLayoutItem[]): IncidentF
     seen.add(item.key);
     return true;
   });
+}
+
+function customFieldLayoutKey(fieldKey: string): string {
+  return `custom_field:${fieldKey}`;
+}
+
+function customFieldLayoutItem(field: ConfigurableFormField): IncidentFormLayoutItem {
+  return {
+    key: customFieldLayoutKey(field.key),
+    label: field.label,
+    visible: field.visible,
+    width: field.width ?? (field.type === 'section' ? 'full' : 'half'),
+  };
 }
 
 function DroneFlightStatus({ context, loading, error, className }: { context: DroneFlightContext | null; loading: boolean; error: string | null; className?: string }) {
@@ -875,6 +903,24 @@ function DynamicIncidentField(props: {
       <label className={className}>
         {label}
         <input type="number" value={asFormString(value)} required={field.required} onChange={(event) => onChange(event.target.value === '' ? null : Number(event.target.value))} />
+      </label>
+    );
+  }
+
+  if (field.type === 'phone') {
+    return (
+      <label className={className}>
+        {label}
+        <input
+          type="tel"
+          inputMode="tel"
+          pattern={phonePattern(field)}
+          placeholder={phonePlaceholder(field)}
+          title={`Gebruik een internationaal nummer met ${phoneCountryLabels(field)}.`}
+          value={asFormString(value)}
+          required={field.required}
+          onChange={(event) => onChange(event.target.value)}
+        />
       </label>
     );
   }
@@ -1102,6 +1148,24 @@ function asFormString(value: unknown): string {
   }
 
   return '';
+}
+
+function phoneCountries(field: ConfigurableFormField): string[] {
+  const supported = ['31', '32'];
+  const values = (field.phone_countries ?? []).filter((country) => supported.includes(country));
+  return values.length > 0 ? values : supported;
+}
+
+function phonePattern(field: ConfigurableFormField): string {
+  return `^\\+(${phoneCountries(field).join('|')})[\\s-]?[1-9](?:[\\s-]?[0-9]){7,11}$`;
+}
+
+function phonePlaceholder(field: ConfigurableFormField): string {
+  return phoneCountries(field).includes('31') ? '+31612345678' : '+32470123456';
+}
+
+function phoneCountryLabels(field: ConfigurableFormField): string {
+  return phoneCountries(field).map((country) => `+${country}`).join(' of ');
 }
 
 function LocationPicker(props: {

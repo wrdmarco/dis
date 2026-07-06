@@ -11,7 +11,9 @@ final class IncidentFormService
     public const SETTING_KEY = 'incident.form_fields';
     public const LAYOUT_SETTING_KEY = 'incident.form_layout';
     private const FIELD_KEY_PATTERN = '/^[a-z][a-z0-9_]{1,60}$/';
-    private const FIELD_TYPES = ['section', 'text', 'textarea', 'number', 'flight_time', 'select', 'checkbox', 'radio'];
+    private const FIELD_TYPES = ['section', 'text', 'textarea', 'number', 'phone', 'flight_time', 'select', 'checkbox', 'radio'];
+    private const DEFAULT_PHONE_COUNTRIES = ['31', '32'];
+    private const SUPPORTED_PHONE_COUNTRIES = ['31', '32'];
 
     /**
      * @return array<int, array<string, mixed>>
@@ -35,7 +37,7 @@ final class IncidentFormService
     }
 
     /**
-     * @return array<int, array{key: string, label: string, visible: bool, width: string}>
+     * @return array<int, array{key: string, label: string, visible: bool, width: string, locked?: bool}>
      */
     public function layout(): array
     {
@@ -106,6 +108,9 @@ final class IncidentFormService
                 $fieldRules[] = 'integer';
                 $fieldRules[] = 'min:0';
                 $fieldRules[] = 'max:999999';
+            } elseif ($field['type'] === 'phone') {
+                $fieldRules[] = 'string';
+                $fieldRules[] = 'regex:'.$this->phonePattern($field['phone_countries'] ?? self::DEFAULT_PHONE_COUNTRIES);
             } elseif ($field['type'] === 'flight_time') {
                 $fieldRules[] = 'array';
                 $rules['custom_fields.'.$field['key'].'.start'] = [$partial ? 'sometimes' : ($field['required'] === true ? 'required' : 'nullable'), 'regex:/^([01]\d|2[0-4]):[0-5]\d$/'];
@@ -156,6 +161,8 @@ final class IncidentFormService
                 $values[$key] = null;
             } elseif ($field['type'] === 'number') {
                 $values[$key] = (int) $value;
+            } elseif ($field['type'] === 'phone') {
+                $values[$key] = $this->normalizePhoneValue($value);
             } elseif ($field['type'] === 'flight_time') {
                 $values[$key] = $this->normalizeFlightTimeValue($value);
             } elseif ($field['type'] === 'checkbox') {
@@ -193,9 +200,10 @@ final class IncidentFormService
             'type' => $type,
             'visible' => $visible,
             'required' => $type !== 'section' && $visible && $required,
-            'max_length' => $type === 'textarea' ? 5000 : 1000,
+            'max_length' => $type === 'textarea' ? 5000 : ($type === 'phone' ? 20 : 1000),
             'max' => 999999,
             'options' => $this->cleanOptions($field['options'] ?? [], $type, $index),
+            'phone_countries' => $type === 'phone' ? $this->cleanPhoneCountries($field['phone_countries'] ?? self::DEFAULT_PHONE_COUNTRIES) : [],
             'width' => $this->cleanWidth($field['width'] ?? null, $type),
             'section' => $this->cleanSection($field['section'] ?? null),
             'locked' => $this->isRequiredDefaultField($key),
@@ -212,11 +220,11 @@ final class IncidentFormService
     {
         return [
             ['key' => 'reporter_name', 'label' => 'Naam melder', 'type' => 'text', 'visible' => true, 'required' => true, 'width' => 'half', 'expose_to_push' => true, 'available_in_operator_app' => true],
-            ['key' => 'reporter_phone', 'label' => 'Telefoonnummer melder', 'type' => 'text', 'visible' => true, 'required' => true, 'width' => 'half', 'expose_to_push' => false, 'available_in_operator_app' => true],
+            ['key' => 'reporter_phone', 'label' => 'Telefoonnummer melder', 'type' => 'phone', 'visible' => true, 'required' => true, 'width' => 'half', 'phone_countries' => self::DEFAULT_PHONE_COUNTRIES, 'expose_to_push' => false, 'available_in_operator_app' => true],
             ['key' => 'requesting_organization', 'label' => 'Aanvragende organisatie', 'type' => 'text', 'visible' => true, 'required' => true, 'width' => 'full', 'expose_to_push' => true, 'available_in_operator_app' => true],
             ['key' => 'requesting_unit', 'label' => 'Dienst / eenheid', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => true, 'available_in_operator_app' => true],
             ['key' => 'on_scene_contact_name', 'label' => 'Contact ter plaatse', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => false, 'available_in_operator_app' => false],
-            ['key' => 'on_scene_contact_phone', 'label' => 'Telefoon ter plaatse', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => false, 'available_in_operator_app' => false],
+            ['key' => 'on_scene_contact_phone', 'label' => 'Telefoon ter plaatse', 'type' => 'phone', 'visible' => true, 'required' => false, 'width' => 'half', 'phone_countries' => self::DEFAULT_PHONE_COUNTRIES, 'expose_to_push' => false, 'available_in_operator_app' => false],
             ['key' => 'on_scene_contact_role', 'label' => 'Functie / rol contactpersoon', 'type' => 'text', 'visible' => true, 'required' => false, 'width' => 'half', 'expose_to_push' => false, 'available_in_operator_app' => false],
             ['key' => 'required_resources', 'label' => 'Benodigde middelen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'width' => 'full', 'expose_to_push' => true, 'available_in_operator_app' => true],
         ];
@@ -252,9 +260,20 @@ final class IncidentFormService
     }
 
     /**
-     * @return array<int, array{key: string, label: string, visible: bool, width: string}>
+     * @return array<int, array{key: string, label: string, visible: bool, width: string, locked?: bool}>
      */
     private function defaultLayout(): array
+    {
+        return [
+            ...$this->fixedDefaultLayout(),
+            ...$this->customFieldLayoutItems(),
+        ];
+    }
+
+    /**
+     * @return array<int, array{key: string, label: string, visible: bool, width: string, locked?: bool}>
+     */
+    private function fixedDefaultLayout(): array
     {
         return [
             ['key' => 'section_incident', 'label' => 'Sectie: incident', 'visible' => true, 'width' => 'full', 'locked' => true],
@@ -274,17 +293,34 @@ final class IncidentFormService
             ['key' => 'drone_airspace', 'label' => 'Luchtruim', 'visible' => true, 'width' => 'half'],
             ['key' => 'drone_aeret_link', 'label' => 'Aeret link', 'visible' => true, 'width' => 'full'],
             ['key' => 'drone_aeret_map', 'label' => 'Aeret kaart', 'visible' => true, 'width' => 'full'],
-            ['key' => 'custom_fields', 'label' => 'Dynamische velden', 'visible' => true, 'width' => 'full', 'locked' => true],
         ];
     }
 
     /**
+     * @return array<int, array{key: string, label: string, visible: bool, width: string, locked?: bool}>
+     */
+    private function customFieldLayoutItems(): array
+    {
+        return collect($this->fields())
+            ->map(fn (array $field): array => [
+                'key' => 'custom_field:'.$field['key'],
+                'label' => (string) $field['label'],
+                'visible' => (bool) ($field['visible'] ?? true),
+                'width' => in_array(($field['width'] ?? 'half'), ['half', 'full'], true) ? (string) $field['width'] : 'half',
+                'locked' => false,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
      * @param array<int, mixed> $layout
-     * @return array<int, array{key: string, label: string, visible: bool, width: string}>
+     * @return array<int, array{key: string, label: string, visible: bool, width: string, locked?: bool}>
      */
     private function normalizeLayout(array $layout): array
     {
         $defaults = collect($this->defaultLayout())->keyBy('key');
+        $customFieldKeys = collect($this->customFieldLayoutItems())->pluck('key')->all();
         $seen = [];
         $normalized = [];
 
@@ -306,6 +342,13 @@ final class IncidentFormService
             }
 
             if ($key === 'reporter_request') {
+                foreach ($customFieldKeys as $replacementKey) {
+                    if (! isset($seen[$replacementKey])) {
+                        $replacement = $defaults->get($replacementKey);
+                        $seen[$replacementKey] = true;
+                        $normalized[] = $replacement;
+                    }
+                }
                 continue;
             }
 
@@ -332,6 +375,17 @@ final class IncidentFormService
             }
 
             if ($key === 'resources') {
+                continue;
+            }
+
+            if ($key === 'custom_fields') {
+                foreach ($customFieldKeys as $replacementKey) {
+                    if (! isset($seen[$replacementKey])) {
+                        $replacement = $defaults->get($replacementKey);
+                        $seen[$replacementKey] = true;
+                        $normalized[] = $replacement;
+                    }
+                }
                 continue;
             }
 
@@ -444,6 +498,30 @@ final class IncidentFormService
     }
 
     /**
+     * @return list<string>
+     */
+    private function cleanPhoneCountries(mixed $countries): array
+    {
+        $values = is_array($countries) ? $countries : self::DEFAULT_PHONE_COUNTRIES;
+        $cleaned = collect($values)
+            ->filter(fn (mixed $country): bool => is_string($country) || is_numeric($country))
+            ->map(fn (mixed $country): string => preg_replace('/\D/', '', (string) $country) ?? '')
+            ->filter(fn (string $country): bool => in_array($country, self::SUPPORTED_PHONE_COUNTRIES, true))
+            ->unique()
+            ->values()
+            ->all();
+
+        return $cleaned === [] ? self::DEFAULT_PHONE_COUNTRIES : $cleaned;
+    }
+
+    private function phonePattern(mixed $countries): string
+    {
+        $countryPattern = implode('|', array_map('preg_quote', $this->cleanPhoneCountries($countries)));
+
+        return '/^\+('.$countryPattern.')[\s-]?[1-9](?:[\s-]?[0-9]){7,11}$/';
+    }
+
+    /**
      * @return array{start: string|null, end: string|null, duration_minutes: int|null}
      */
     private function normalizeFlightTimeValue(mixed $value): array
@@ -456,6 +534,11 @@ final class IncidentFormService
             'end' => $this->cleanTimeValue($end),
             'duration_minutes' => $this->flightDurationMinutes($start, $end),
         ];
+    }
+
+    private function normalizePhoneValue(mixed $value): string
+    {
+        return preg_replace('/[^\d+]/', '', trim((string) $value)) ?? '';
     }
 
     private function cleanTimeValue(?string $value): ?string
