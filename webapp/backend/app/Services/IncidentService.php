@@ -207,12 +207,18 @@ final class IncidentService
         }
 
         $notes = trim((string) $notes);
-        $incident->forceFill(['internal_notes' => $notes === '' ? null : $notes])->save();
+        if ($notes === '') {
+            throw ValidationException::withMessages([
+                'internal_notes' => ['Vul eerst een kladblokregel in.'],
+            ]);
+        }
 
-        $this->auditService->record('incidents.internal_notes_updated', $incident, $actor, [
+        $this->auditService->record('incidents.internal_note_added', $incident, $actor, [
             'reference' => $incident->reference,
-            'has_internal_notes' => $notes !== '',
-        ]);
+            'visible_to_app_users' => false,
+        ], $notes);
+
+        $incident->forceFill(['internal_notes' => null])->save();
         $this->broadcastIncidentChange($incident->refresh(), 'internal_notes_updated');
 
         return $this->internalNotes($incident);

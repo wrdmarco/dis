@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Maximize2, Minimize2, Navigation, RadioTower, RefreshCw, UsersRound } from 'lucide-react';
 import { Panel } from '../../components/Panel';
@@ -20,11 +20,13 @@ const DEFAULT_CENTER = { latitude: 52.1326, longitude: 5.2913 };
 export function IncidentMapPage() {
   const { api } = useAuth();
   const incidents = useApiResource<Incident[]>(OPEN_INCIDENTS_PATH);
+  const fullscreenRootRef = useRef<HTMLDivElement | null>(null);
   const [locationsByIncident, setLocationsByIncident] = useState<Record<string, IncidentLiveLocation[]>>({});
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationsLoading, setLocationsLoading] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fullscreenMode, setFullscreenMode] = useState<'none' | 'browser' | 'web'>('none');
   const incidentItems = useMemo(() => incidents.data ?? [], [incidents.data]);
+  const isFullscreen = fullscreenMode !== 'none';
 
   const loadLiveLocations = useCallback(async (items: Incident[], options?: { silent?: boolean }) => {
     if (items.length === 0) {
@@ -61,7 +63,7 @@ export function IncidentMapPage() {
     const interval = window.setInterval(() => {
       void incidents.silentReload();
       void loadLiveLocations(incidentItems, { silent: true });
-    }, 30_000);
+    }, 10_000);
 
     return () => window.clearInterval(interval);
   }, [incidentItems, incidents.silentReload, loadLiveLocations]);
@@ -75,7 +77,7 @@ export function IncidentMapPage() {
     document.body.style.overflow = 'hidden';
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsFullscreen(false);
+        void exitFullscreen();
       }
     };
 
@@ -86,6 +88,21 @@ export function IncidentMapPage() {
       window.removeEventListener('keydown', closeOnEscape);
     };
   }, [isFullscreen]);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      if (document.fullscreenElement === fullscreenRootRef.current) {
+        setFullscreenMode('browser');
+        return;
+      }
+
+      setFullscreenMode((current) => current === 'browser' ? 'none' : current);
+    };
+
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
 
   const models = useMemo(() => buildIncidentMapModels(incidentItems, locationsByIncident), [incidentItems, locationsByIncident]);
   const summary = useMemo(() => ({
@@ -99,6 +116,42 @@ export function IncidentMapPage() {
     await loadLiveLocations(incidentItems);
   }
 
+  async function enterFullscreen() {
+    const root = fullscreenRootRef.current;
+    if (root === null) {
+      setFullscreenMode('web');
+      return;
+    }
+
+    try {
+      if (root.requestFullscreen !== undefined) {
+        await root.requestFullscreen();
+        setFullscreenMode('browser');
+        return;
+      }
+    } catch {
+      // Browser fullscreen can be blocked by browser policy; fall back to an in-page fullscreen layer.
+    }
+
+    setFullscreenMode('web');
+  }
+
+  async function exitFullscreen() {
+    if (document.fullscreenElement === fullscreenRootRef.current) {
+      await document.exitFullscreen().catch(() => undefined);
+    }
+    setFullscreenMode('none');
+  }
+
+  function toggleFullscreen() {
+    if (isFullscreen) {
+      void exitFullscreen();
+      return;
+    }
+
+    void enterFullscreen();
+  }
+
   function handleRealtimeEvent() {
     void incidents.silentReload();
     void loadLiveLocations(incidentItems, { silent: true });
@@ -110,7 +163,7 @@ export function IncidentMapPage() {
         <RefreshCw size={16} />
         Verversen
       </button>
-      <button className="secondary-button" type="button" onClick={() => setIsFullscreen((current) => !current)} aria-pressed={isFullscreen}>
+      <button className="secondary-button" type="button" onClick={toggleFullscreen} aria-pressed={isFullscreen}>
         {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
         {isFullscreen ? 'Normaal' : 'Fullscreen'}
       </button>
@@ -118,12 +171,17 @@ export function IncidentMapPage() {
   );
 
   return (
-    <div className={`page-stack operational-map-page ${isFullscreen ? 'operational-map-page--fullscreen' : ''}`}>
+    <div ref={fullscreenRootRef} className={`page-stack operational-map-page ${isFullscreen ? 'operational-map-page--fullscreen' : ''} ${fullscreenMode === 'browser' ? 'operational-map-page--browser-fullscreen' : ''}`}>
       <RealtimeBridge onOperationalEvent={handleRealtimeEvent} />
       <Panel title="Operationele kaart" action={panelAction}>
         <ResourceState loading={incidents.loading && models.length === 0} error={incidents.error} empty={models.length === 0}>
           <div className="operational-map">
             {locationError ? <p className="form-error">{locationError}</p> : null}
+            <div className="operational-map__livebar" aria-live="polite">
+              <span className="operational-map__live-dot" aria-hidden />
+              Live kaart
+              <small>Automatisch bijgewerkt elke 10 seconden en bij realtime incidentupdates.</small>
+            </div>
             <div className="operational-map__summary" aria-label="Kaart samenvatting">
               <SummaryItem icon={<RadioTower size={18} />} label="Open incidenten" value={String(summary.incidents)} />
               <SummaryItem icon={<Navigation size={18} />} label="Live op kaart" value={String(summary.liveUsers)} />

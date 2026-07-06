@@ -14,26 +14,21 @@ final class StoreIncidentRequest extends FormRequest
 
     public function rules(): array
     {
-        return [
-            'title' => ['required', 'string', 'max:180'],
-            'description' => ['required', 'string', 'max:10000'],
-            'reporter_name' => ['nullable', 'string', 'max:180'],
-            'reporter_phone' => ['nullable', 'string', 'max:40'],
+        $incidentForm = app(IncidentFormService::class);
+
+        return $incidentForm->fixedInputValidationRules() + [
             'requesting_organization' => ['nullable', 'string', 'max:180'],
             'requesting_unit' => ['nullable', 'string', 'max:180'],
             'on_scene_contact_name' => ['nullable', 'string', 'max:180'],
             'on_scene_contact_phone' => ['nullable', 'string', 'max:40'],
             'on_scene_contact_role' => ['nullable', 'string', 'max:120'],
             'required_resources' => ['nullable', 'string', 'max:5000'],
-            'priority' => ['required', 'in:low,normal,high,critical'],
-            'status' => ['nullable', 'in:draft,active,dispatching,in_progress,resolved,cancelled'],
-            'location_label' => ['nullable', 'string', 'max:255'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'coordinator_id' => ['nullable', 'ulid', 'exists:users,id'],
             'team_id' => ['nullable', 'ulid', 'exists:teams,id'],
             'team_ids' => ['nullable', 'array'],
             'team_ids.*' => ['ulid', 'exists:teams,id'],
-        ] + app(IncidentFormService::class)->validationRules();
+        ] + $incidentForm->validationRules();
     }
 }

@@ -1932,9 +1932,23 @@ function IncidentModulePropertiesPanel(props: {
         <input type="checkbox" checked={item.visible} disabled={item.locked === true} onChange={(event) => onUpdate(item.key, { visible: event.target.checked })} />
         Zichtbaar
       </label>
+      {isFixedIncidentInputModule(item) ? (
+        <>
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={incidentLayoutItemRequired(item)}
+              disabled={!item.visible || isAlwaysRequiredIncidentModule(item)}
+              onChange={(event) => onUpdate(item.key, { required: event.target.checked })}
+            />
+            Verplicht
+          </label>
+          <p className="muted-text">Vaste invoerregels zijn altijd beschikbaar als pushvariabele.</p>
+        </>
+      ) : null}
       <div className="form-builder-property-note">
         <strong>{incidentModuleTypeLabel(item)}</strong>
-        <span>{item.locked === true ? 'Verplicht onderdeel. Deze module kan niet verborgen worden.' : 'Deze module kan worden verborgen of verplaatst.'}</span>
+        <span>{item.locked === true ? 'Vast onderdeel. Deze module kan niet verborgen worden.' : 'Deze module kan worden verborgen of verplaatst.'}</span>
       </div>
     </aside>
   );
@@ -1961,7 +1975,7 @@ function IncidentModulePreview({ item, fields }: { item: IncidentFormLayoutItem;
   }
 
   if (item.key === 'description') {
-    return <label className={className}>Details *<textarea rows={3} readOnly value="" placeholder="Beschrijving" /></label>;
+    return <label className={className}>Details{incidentLayoutItemRequired(item) ? ' *' : ''}<textarea rows={3} readOnly value="" placeholder="Beschrijving" /></label>;
   }
 
   if (item.key === 'teams') {
@@ -1976,7 +1990,7 @@ function IncidentModulePreview({ item, fields }: { item: IncidentFormLayoutItem;
     return <div className={className}><article className="drone-flight-card"><h4>{item.label}</h4><dl><div><dt>Status</dt><dd>Voorbeeld</dd></div></dl></article></div>;
   }
 
-  return <label className={className}>{item.label}{item.locked ? ' *' : ''}<input readOnly placeholder={item.label} /></label>;
+  return <label className={className}>{item.label}{incidentLayoutItemRequired(item) ? ' *' : ''}<input readOnly placeholder={item.label} /></label>;
 }
 
 function incidentCanvasItemClass(item: IncidentFormLayoutItem): string {
@@ -2010,7 +2024,7 @@ function incidentModuleTypeLabel(item: IncidentFormLayoutItem): string {
 
 function incidentModuleDescription(item: IncidentFormLayoutItem): string {
   const visibility = item.visible ? 'Op canvas' : 'Verborgen';
-  const lockState = item.locked === true ? 'verplicht' : incidentModuleTypeLabel(item).toLowerCase();
+  const lockState = item.locked === true ? 'vast' : incidentModuleTypeLabel(item).toLowerCase();
 
   return `${visibility} - ${lockState}`;
 }
@@ -2108,6 +2122,30 @@ function customFieldLayoutItem(field: ConfigurableFormField): IncidentFormLayout
   };
 }
 
+const fixedIncidentInputModuleKeys = new Set([
+  'title',
+  'description',
+  'reporter_name',
+  'reporter_phone',
+  'priority',
+  'status',
+  'location_search',
+]);
+
+const alwaysRequiredIncidentModuleKeys = new Set(['title', 'description', 'priority']);
+
+function isFixedIncidentInputModule(item: IncidentFormLayoutItem): boolean {
+  return fixedIncidentInputModuleKeys.has(item.key);
+}
+
+function isAlwaysRequiredIncidentModule(item: IncidentFormLayoutItem): boolean {
+  return alwaysRequiredIncidentModuleKeys.has(item.key);
+}
+
+function incidentLayoutItemRequired(item: IncidentFormLayoutItem): boolean {
+  return isAlwaysRequiredIncidentModule(item) || item.required === true;
+}
+
 function layoutItemLabel(item: IncidentFormLayoutItem, fields: ConfigurableFormField[]): string {
   if (!item.key.startsWith('custom_field:')) {
     return item.label;
@@ -2164,18 +2202,18 @@ function reorderFormField<T extends ConfigurableFormField>(fields: T[], sourceKe
 function defaultIncidentFormLayout(fields: ConfigurableFormField[] = []): IncidentFormLayoutItem[] {
   return [
     { key: 'section_incident', label: 'Sectie: incident', visible: true, width: 'full', locked: true },
-    { key: 'title', label: 'Titel', visible: true, width: 'full', locked: true },
-    { key: 'description', label: 'Details', visible: true, width: 'full', locked: true },
+    { key: 'title', label: 'Titel', visible: true, width: 'full', locked: true, required: true, expose_to_push: true },
+    { key: 'description', label: 'Details', visible: true, width: 'full', locked: true, required: true, expose_to_push: true },
     { key: 'section_reporter', label: 'Sectie: melder', visible: true, width: 'full', locked: true },
-    { key: 'reporter_name', label: 'Naam melder', visible: true, width: 'half', locked: true },
-    { key: 'reporter_phone', label: 'Telefoonnummer melder', visible: true, width: 'half', locked: true },
+    { key: 'reporter_name', label: 'Naam melder', visible: true, width: 'half', locked: true, required: false, expose_to_push: true },
+    { key: 'reporter_phone', label: 'Telefoonnummer melder', visible: true, width: 'half', locked: true, required: false, expose_to_push: true },
     { key: 'section_dispatch', label: 'Sectie: inzet', visible: true, width: 'full' },
-    { key: 'priority', label: 'Prioriteit', visible: true, width: 'half' },
-    { key: 'status', label: 'Status', visible: true, width: 'half' },
+    { key: 'priority', label: 'Prioriteit', visible: true, width: 'half', required: true, expose_to_push: true },
+    { key: 'status', label: 'Status', visible: true, width: 'half', required: false, expose_to_push: true },
     { key: 'teams', label: 'Teams', visible: true, width: 'full' },
     { key: 'coordinator', label: 'Coordinator', visible: true, width: 'full' },
     { key: 'section_location', label: 'Sectie: locatie', visible: true, width: 'full', locked: true },
-    { key: 'location_search', label: 'Adres zoeken', visible: true, width: 'half', locked: true },
+    { key: 'location_search', label: 'Adres zoeken', visible: true, width: 'half', locked: true, required: false, expose_to_push: true },
     { key: 'location_map', label: 'Kaart opkomstlocatie', visible: true, width: 'half', locked: true },
     { key: 'section_drone', label: 'Sectie: drone vluchtcheck', visible: true, width: 'full' },
     { key: 'drone_status', label: 'Drone vluchtcheck status', visible: true, width: 'full' },

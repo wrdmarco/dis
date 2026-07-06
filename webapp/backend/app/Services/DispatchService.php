@@ -1308,6 +1308,10 @@ final class DispatchService
 
     private function fieldExposedToPush(string $key): bool
     {
+        if ($this->incidentFormService->isFixedPushVariableKey($key)) {
+            return true;
+        }
+
         foreach ($this->incidentFormService->fields() as $field) {
             if (($field['key'] ?? null) === $key) {
                 return ($field['expose_to_push'] ?? true) === true;

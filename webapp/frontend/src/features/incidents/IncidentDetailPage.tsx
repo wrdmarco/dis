@@ -231,7 +231,8 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
         internal_notes: internalNotesText,
       });
       internalNotes.mutate(response.data);
-      setInternalNotesMessage('Kladblokregels opgeslagen.');
+      setInternalNotesText('');
+      setInternalNotesMessage('Kladblokregel aan log toegevoegd.');
       await timeline.silentReload();
     } catch (err) {
       setInternalNotesMessage(err instanceof ApiClientError ? err.message : 'Kladblokregels konden niet worden opgeslagen.');
@@ -508,17 +509,17 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
           <ResourceState loading={internalNotes.loading} error={internalNotes.error} empty={false}>
             <form className="panel-body" onSubmit={saveInternalNotes}>
               <label>
-                Interne vrije tekst
+                Nieuwe kladblokregel
                 <textarea
                   value={internalNotesText}
                   rows={6}
                   maxLength={20000}
                   onChange={(event) => setInternalNotesText(event.target.value)}
-                  placeholder="Kladblokregels..."
+                  placeholder="Kladblokregel..."
                 />
               </label>
               <div className="form-actions">
-                <button className="primary-button" type="submit" disabled={internalNotesSaving}>
+                <button className="primary-button" type="submit" disabled={internalNotesSaving || internalNotesText.trim() === ''}>
                   <MessageSquare size={16} /> {internalNotesSaving ? 'Versturen...' : 'Kladblok verzenden'}
                 </button>
               </div>
@@ -849,6 +850,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
               teams={teams.data ?? []}
               customFields={incidentFormConfig.data?.fields ?? []}
               layout={incidentFormConfig.data?.layout ?? []}
+              enforceConfiguredRequiredFixedInputs={false}
               usersError={users.error}
               teamsError={teams.error}
               saving={savingIncident}

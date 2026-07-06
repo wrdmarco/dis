@@ -300,13 +300,14 @@ export function IncidentForm(props: {
   saving: boolean;
   error?: string | null;
   extraFields?: ReactNode;
+  enforceConfiguredRequiredFixedInputs?: boolean;
   submitLabel: string;
   onCancel: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
 }) {
   const { api } = useAuth();
-  const { form, users, teams, customFields = [], layout = [], usersError, teamsError, saving, error, extraFields, submitLabel, onCancel, onSubmit, onChange } = props;
+  const { form, users, teams, customFields = [], layout = [], usersError, teamsError, saving, error, extraFields, enforceConfiguredRequiredFixedInputs = true, submitLabel, onCancel, onSubmit, onChange } = props;
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
   const [flightContext, setFlightContext] = useState<DroneFlightContext | null>(null);
   const [flightContextLoading, setFlightContextLoading] = useState(false);
@@ -370,9 +371,11 @@ export function IncidentForm(props: {
     };
   }, [api, form.latitude, form.longitude, form.locationLabel]);
 
+  const activeLayout = incidentFormLayout(layout, customFields);
+
   return (
     <form className="form-grid" onSubmit={onSubmit}>
-      {incidentFormLayout(layout, customFields).map((item) => item.visible ? (
+      {activeLayout.map((item) => item.visible ? (
         <IncidentFormBlock
           key={item.key}
           item={item}
@@ -386,6 +389,7 @@ export function IncidentForm(props: {
           flightContext={flightContext}
           flightContextLoading={flightContextLoading}
           flightContextError={flightContextError}
+          enforceConfiguredRequiredFixedInputs={enforceConfiguredRequiredFixedInputs}
           onChange={onChange}
         />
       ) : null)}
@@ -393,7 +397,7 @@ export function IncidentForm(props: {
       {error ? <p className="form-error form-grid__wide">{error}</p> : null}
       <div className="actions-row form-grid__wide">
         <button className="secondary-button" type="button" onClick={onCancel}>Annuleren</button>
-        <button className="primary-button" type="submit" disabled={saving || form.title.trim() === '' || form.description.trim() === ''}>
+        <button className="primary-button" type="submit" disabled={saving || hasMissingRequiredFixedIncidentInput(activeLayout, form, enforceConfiguredRequiredFixedInputs)}>
           {saving ? 'Opslaan...' : submitLabel}
         </button>
       </div>
@@ -421,9 +425,12 @@ function IncidentFormBlock(props: {
   flightContext: DroneFlightContext | null;
   flightContextLoading: boolean;
   flightContextError: string | null;
+  enforceConfiguredRequiredFixedInputs: boolean;
   onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
 }) {
   const wideClass = props.item.width === 'half' ? undefined : 'form-grid__wide';
+  const required = incidentLayoutItemRequired(props.item, props.enforceConfiguredRequiredFixedInputs);
+  const requiredMark = required ? ' *' : '';
 
   switch (props.item.key) {
     case 'section_incident':
@@ -431,23 +438,23 @@ function IncidentFormBlock(props: {
     case 'title':
       return (
         <label className={wideClass}>
-          Titel
-          <input value={props.form.title} maxLength={180} onChange={(event) => updateForm(props.onChange, 'title', event.target.value)} required />
+          Titel{requiredMark}
+          <input value={props.form.title} maxLength={180} onChange={(event) => updateForm(props.onChange, 'title', event.target.value)} required={required} />
         </label>
       );
     case 'description':
       return (
         <label className={wideClass}>
-          Details
-          <textarea value={props.form.description} rows={5} onChange={(event) => updateForm(props.onChange, 'description', event.target.value)} required />
+          Details{requiredMark}
+          <textarea value={props.form.description} rows={5} onChange={(event) => updateForm(props.onChange, 'description', event.target.value)} required={required} />
         </label>
       );
     case 'section_reporter':
       return <FormSectionTitle title="Melder en aanvraag" />;
     case 'reporter_name':
-      return <label className={wideClass}>Naam melder<input value={props.form.reporterName} maxLength={180} onChange={(event) => updateForm(props.onChange, 'reporterName', event.target.value)} /></label>;
+      return <label className={wideClass}>Naam melder{requiredMark}<input value={props.form.reporterName} maxLength={180} required={required} onChange={(event) => updateForm(props.onChange, 'reporterName', event.target.value)} /></label>;
     case 'reporter_phone':
-      return <label className={wideClass}>Telefoonnummer melder<input value={props.form.reporterPhone} maxLength={40} inputMode="tel" autoComplete="tel" onChange={(event) => updateForm(props.onChange, 'reporterPhone', event.target.value)} /></label>;
+      return <label className={wideClass}>Telefoonnummer melder{requiredMark}<input value={props.form.reporterPhone} maxLength={40} inputMode="tel" autoComplete="tel" required={required} onChange={(event) => updateForm(props.onChange, 'reporterPhone', event.target.value)} /></label>;
     case 'requesting_organization':
       return <label className={wideClass}>Aanvragende organisatie<input value={props.form.requestingOrganization} maxLength={180} onChange={(event) => updateForm(props.onChange, 'requestingOrganization', event.target.value)} /></label>;
     case 'requesting_unit':
@@ -463,8 +470,8 @@ function IncidentFormBlock(props: {
     case 'priority':
       return (
         <label className={wideClass}>
-          Prioriteit
-          <select value={props.form.priority} onChange={(event) => updateForm(props.onChange, 'priority', event.target.value as Incident['priority'])}>
+          Prioriteit{requiredMark}
+          <select value={props.form.priority} required={required} onChange={(event) => updateForm(props.onChange, 'priority', event.target.value as Incident['priority'])}>
             <option value="low">Laag</option>
             <option value="normal">Normaal</option>
             <option value="high">Hoog</option>
@@ -475,8 +482,8 @@ function IncidentFormBlock(props: {
     case 'status':
       return (
         <label className={wideClass}>
-          Status
-          <select value={props.form.status} onChange={(event) => updateForm(props.onChange, 'status', event.target.value as Incident['status'])}>
+          Status{requiredMark}
+          <select value={props.form.status} required={required} onChange={(event) => updateForm(props.onChange, 'status', event.target.value as Incident['status'])}>
             <option value="draft">Concept</option>
             <option value="active">Actief</option>
             <option value="dispatching">Alarmeren</option>
@@ -506,7 +513,7 @@ function IncidentFormBlock(props: {
     case 'location_search':
       return (
         <>
-          <LocationSearch form={props.form} suggestions={props.locationSuggestions} onChange={props.onChange} className={wideClass} />
+          <LocationSearch form={props.form} suggestions={props.locationSuggestions} onChange={props.onChange} className={wideClass} required={required} />
           <input type="hidden" name="latitude" value={props.form.latitude} />
           <input type="hidden" name="longitude" value={props.form.longitude} />
         </>
@@ -539,11 +546,11 @@ function IncidentFormBlock(props: {
         <div className="form-grid__wide form-grid">
           <FormSectionTitle title="Incidentgegevens" />
           <label className="form-grid__wide">
-            Titel
+            Titel *
             <input value={props.form.title} maxLength={180} onChange={(event) => updateForm(props.onChange, 'title', event.target.value)} required />
           </label>
           <label className="form-grid__wide">
-            Details
+            Details *
             <textarea value={props.form.description} rows={5} onChange={(event) => updateForm(props.onChange, 'description', event.target.value)} required />
           </label>
         </div>
@@ -657,18 +664,18 @@ function IncidentFormBlock(props: {
 function incidentFormLayout(layout: IncidentFormLayoutItem[], customFields: ConfigurableFormField[]): IncidentFormLayoutItem[] {
   const defaults: IncidentFormLayoutItem[] = [
     { key: 'section_incident', label: 'Sectie: incident', visible: true, width: 'full' },
-    { key: 'title', label: 'Titel', visible: true, width: 'full' },
-    { key: 'description', label: 'Details', visible: true, width: 'full' },
+    { key: 'title', label: 'Titel', visible: true, width: 'full', required: true, expose_to_push: true },
+    { key: 'description', label: 'Details', visible: true, width: 'full', required: true, expose_to_push: true },
     { key: 'section_reporter', label: 'Sectie: melder', visible: true, width: 'full', locked: true },
-    { key: 'reporter_name', label: 'Naam melder', visible: true, width: 'half', locked: true },
-    { key: 'reporter_phone', label: 'Telefoonnummer melder', visible: true, width: 'half', locked: true },
+    { key: 'reporter_name', label: 'Naam melder', visible: true, width: 'half', locked: true, required: false, expose_to_push: true },
+    { key: 'reporter_phone', label: 'Telefoonnummer melder', visible: true, width: 'half', locked: true, required: false, expose_to_push: true },
     { key: 'section_dispatch', label: 'Sectie: inzet', visible: true, width: 'full' },
-    { key: 'priority', label: 'Prioriteit', visible: true, width: 'half' },
-    { key: 'status', label: 'Status', visible: true, width: 'half' },
+    { key: 'priority', label: 'Prioriteit', visible: true, width: 'half', required: true, expose_to_push: true },
+    { key: 'status', label: 'Status', visible: true, width: 'half', required: false, expose_to_push: true },
     { key: 'teams', label: 'Teams', visible: true, width: 'full' },
     { key: 'coordinator', label: 'Coordinator', visible: true, width: 'full' },
     { key: 'section_location', label: 'Sectie: locatie', visible: true, width: 'full', locked: true },
-    { key: 'location_search', label: 'Adres zoeken', visible: true, width: 'half', locked: true },
+    { key: 'location_search', label: 'Adres zoeken', visible: true, width: 'half', locked: true, required: false, expose_to_push: true },
     { key: 'location_map', label: 'Kaart opkomstlocatie', visible: true, width: 'half', locked: true },
     { key: 'section_drone', label: 'Sectie: drone vluchtcheck', visible: true, width: 'full' },
     { key: 'drone_status', label: 'Drone vluchtcheck status', visible: true, width: 'full' },
@@ -679,7 +686,10 @@ function incidentFormLayout(layout: IncidentFormLayoutItem[], customFields: Conf
     ...customFields.map(customFieldLayoutItem),
   ];
   const defaultKeys = new Set(defaults.map((item) => item.key));
-  const merged = expandLegacyIncidentLayout(layout, customFields).filter((item) => defaultKeys.has(item.key));
+  const defaultsByKey = new Map(defaults.map((item) => [item.key, item]));
+  const merged = expandLegacyIncidentLayout(layout, customFields)
+    .filter((item) => defaultKeys.has(item.key))
+    .map((item) => ({ ...defaultsByKey.get(item.key), ...item }));
   const missing = defaults.filter((item) => !merged.some((candidate) => candidate.key === item.key));
 
   return [...merged, ...missing];
@@ -741,6 +751,47 @@ function customFieldLayoutItem(field: ConfigurableFormField): IncidentFormLayout
     visible: field.visible,
     width: field.width ?? (field.type === 'section' ? 'full' : 'half'),
   };
+}
+
+const fixedIncidentInputModuleKeys = new Set([
+  'title',
+  'description',
+  'reporter_name',
+  'reporter_phone',
+  'priority',
+  'status',
+  'location_search',
+]);
+
+const alwaysRequiredIncidentModuleKeys = new Set(['title', 'description', 'priority']);
+
+function incidentLayoutItemRequired(item: IncidentFormLayoutItem, enforceConfiguredRequired = true): boolean {
+  return alwaysRequiredIncidentModuleKeys.has(item.key) || (enforceConfiguredRequired && item.required === true);
+}
+
+function hasMissingRequiredFixedIncidentInput(layout: IncidentFormLayoutItem[], form: IncidentFormState, enforceConfiguredRequired: boolean): boolean {
+  return layout.some((item) => item.visible && fixedIncidentInputModuleKeys.has(item.key) && incidentLayoutItemRequired(item, enforceConfiguredRequired) && fixedIncidentValue(item.key, form).trim() === '');
+}
+
+function fixedIncidentValue(key: string, form: IncidentFormState): string {
+  switch (key) {
+    case 'title':
+      return form.title;
+    case 'description':
+      return form.description;
+    case 'reporter_name':
+      return form.reporterName;
+    case 'reporter_phone':
+      return form.reporterPhone;
+    case 'priority':
+      return form.priority;
+    case 'status':
+      return form.status;
+    case 'location_search':
+      return form.locationLabel;
+    default:
+      return '';
+  }
 }
 
 function DroneFlightStatus({ context, loading, error, className }: { context: DroneFlightContext | null; loading: boolean; error: string | null; className?: string }) {
@@ -1194,14 +1245,15 @@ function LocationSearch(props: {
   form: IncidentFormState;
   suggestions: LocationSuggestion[];
   className?: string;
+  required?: boolean;
   onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
 }) {
-  const { form, suggestions, className, onChange } = props;
+  const { form, suggestions, className, required = false, onChange } = props;
 
   return (
     <div className={`location-picker__search ${className ?? ''}`}>
       <label>
-        Opkomstlocatie
+        Opkomstlocatie{required ? ' *' : ''}
         <div className="input-with-icon">
           <Search size={16} />
           <input
@@ -1209,6 +1261,7 @@ function LocationSearch(props: {
             maxLength={255}
             placeholder="Adres, bedrijf, gebouw, gebied of rendez-vous punt"
             autoComplete="off"
+            required={required}
             onChange={(event) => updateForm(onChange, 'locationLabel', event.target.value)}
             onBlur={() => void resolveLocation(form, suggestions, onChange)}
           />

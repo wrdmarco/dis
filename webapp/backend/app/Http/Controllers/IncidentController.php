@@ -358,7 +358,22 @@ final class IncidentController extends Controller
                 ]);
         }
 
-        $internalNoteItem = collect($incident->internal_notes === null || trim((string) $incident->internal_notes) === '' ? [] : [[
+        $internalNoteItems = AuditLog::query()
+            ->where('target_type', Incident::class)
+            ->where('target_id', (string) $incident->id)
+            ->where('action', 'incidents.internal_note_added')
+            ->latest('created_at')
+            ->limit(200)
+            ->get()
+            ->map(fn (AuditLog $log): array => [
+                'id' => $log->id,
+                'type' => 'internal_notes',
+                'label' => 'Meldkamer kladblok',
+                'message' => $log->reason,
+                'created_at' => MobileApiPayload::dateTime($log->created_at),
+            ]);
+
+        $legacyInternalNoteItem = collect($incident->internal_notes === null || trim((string) $incident->internal_notes) === '' ? [] : [[
             'id' => $incident->id.'-internal-notes',
             'type' => 'internal_notes',
             'label' => 'Meldkamer kladblok',
@@ -371,7 +386,8 @@ final class IncidentController extends Controller
         $items = $statusItems
             ->concat($dispatchItems)
             ->concat($operatorStatusItems)
-            ->concat($internalNoteItem)
+            ->concat($internalNoteItems)
+            ->concat($legacyInternalNoteItem)
             ->concat($auditItems)
             ->sortByDesc('created_at')
             ->values();
@@ -422,7 +438,7 @@ final class IncidentController extends Controller
                     });
                 }
             })
-            ->whereNotIn('action', ['incidents.created'])
+            ->whereNotIn('action', ['incidents.created', 'incidents.internal_note_added'])
             ->latest('created_at')
             ->limit(200)
             ->get()
@@ -444,6 +460,7 @@ final class IncidentController extends Controller
             'incidents.preannouncement_sent' => 'Vooraankondiging verstuurd',
             'incidents.active_cancelled_notification_sent' => 'Annulering verstuurd',
             'incidents.internal_notes_updated' => 'Meldkamer kladblok bijgewerkt',
+            'incidents.internal_note_added' => 'Meldkamer kladblok',
             'dispatch.created' => 'Alarmeringsconcept gemaakt',
             'dispatch.sent' => 'Alarmering verstuurd',
             'dispatch.responded' => 'Reactie verwerkt',

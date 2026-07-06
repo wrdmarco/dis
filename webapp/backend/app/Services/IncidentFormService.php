@@ -15,6 +15,24 @@ final class IncidentFormService
     private const DEFAULT_PHONE_COUNTRIES = ['31', '32'];
     private const SUPPORTED_PHONE_COUNTRIES = ['31', '32'];
     private const FIXED_FIELD_KEYS = ['reporter_name', 'reporter_phone'];
+    private const FIXED_INPUT_LAYOUT_KEYS = ['title', 'description', 'reporter_name', 'reporter_phone', 'priority', 'status', 'location_search'];
+    private const ALWAYS_REQUIRED_LAYOUT_KEYS = ['title', 'description', 'priority'];
+    private const FIXED_PUSH_VARIABLE_KEYS = [
+        'title',
+        'description',
+        'address',
+        'place',
+        'priority',
+        'status',
+        'reporter_name',
+        'reporter_phone',
+        'requesting_organization',
+        'requesting_unit',
+        'on_scene_contact_name',
+        'on_scene_contact_phone',
+        'on_scene_contact_role',
+        'required_resources',
+    ];
 
     /**
      * @return array<int, array<string, mixed>>
@@ -39,7 +57,7 @@ final class IncidentFormService
     }
 
     /**
-     * @return array<int, array{key: string, label: string, visible: bool, width: string, locked?: bool}>
+     * @return array<int, array<string, mixed>>
      */
     public function layout(): array
     {
@@ -51,7 +69,7 @@ final class IncidentFormService
 
     /**
      * @param array<int, mixed> $layout
-     * @return array<int, array{key: string, label: string, visible: bool, width: string}>
+     * @return array<int, array<string, mixed>>
      */
     public function validateLayout(array $layout): array
     {
@@ -134,6 +152,29 @@ final class IncidentFormService
         }
 
         return $rules;
+    }
+
+    /**
+     * @return array<string, list<mixed>>
+     */
+    public function fixedInputValidationRules(bool $partial = false, bool $enforceConfigurableRequired = true): array
+    {
+        $requiredKeys = array_flip($this->requiredFixedLayoutKeys($enforceConfigurableRequired));
+
+        return [
+            'title' => $this->fixedTextRules('title', $requiredKeys, $partial, 180),
+            'description' => $this->fixedTextRules('description', $requiredKeys, $partial, 10000),
+            'reporter_name' => $this->fixedTextRules('reporter_name', $requiredKeys, $partial, 180),
+            'reporter_phone' => $this->fixedTextRules('reporter_phone', $requiredKeys, $partial, 40),
+            'priority' => $this->fixedEnumRules('priority', $requiredKeys, $partial, ['low', 'normal', 'high', 'critical']),
+            'status' => $this->fixedEnumRules('status', $requiredKeys, $partial, ['draft', 'active', 'dispatching', 'in_progress', 'resolved', 'cancelled']),
+            'location_label' => $this->fixedTextRules('location_search', $requiredKeys, $partial, 255),
+        ];
+    }
+
+    public function isFixedPushVariableKey(string $key): bool
+    {
+        return in_array($key, self::FIXED_PUSH_VARIABLE_KEYS, true);
     }
 
     /**
@@ -268,7 +309,7 @@ final class IncidentFormService
     }
 
     /**
-     * @return array<int, array{key: string, label: string, visible: bool, width: string, locked?: bool}>
+     * @return array<int, array<string, mixed>>
      */
     private function defaultLayout(): array
     {
@@ -279,24 +320,24 @@ final class IncidentFormService
     }
 
     /**
-     * @return array<int, array{key: string, label: string, visible: bool, width: string, locked?: bool}>
+     * @return array<int, array<string, mixed>>
      */
     private function fixedDefaultLayout(): array
     {
         return [
             ['key' => 'section_incident', 'label' => 'Sectie: incident', 'visible' => true, 'width' => 'full', 'locked' => true],
-            ['key' => 'title', 'label' => 'Titel', 'visible' => true, 'width' => 'full', 'locked' => true],
-            ['key' => 'description', 'label' => 'Details', 'visible' => true, 'width' => 'full', 'locked' => true],
+            ['key' => 'title', 'label' => 'Titel', 'visible' => true, 'width' => 'full', 'locked' => true, 'required' => true, 'expose_to_push' => true],
+            ['key' => 'description', 'label' => 'Details', 'visible' => true, 'width' => 'full', 'locked' => true, 'required' => true, 'expose_to_push' => true],
             ['key' => 'section_reporter', 'label' => 'Sectie: melder', 'visible' => true, 'width' => 'full', 'locked' => true],
-            ['key' => 'reporter_name', 'label' => 'Naam melder', 'visible' => true, 'width' => 'half', 'locked' => true],
-            ['key' => 'reporter_phone', 'label' => 'Telefoonnummer melder', 'visible' => true, 'width' => 'half', 'locked' => true],
+            ['key' => 'reporter_name', 'label' => 'Naam melder', 'visible' => true, 'width' => 'half', 'locked' => true, 'required' => false, 'expose_to_push' => true],
+            ['key' => 'reporter_phone', 'label' => 'Telefoonnummer melder', 'visible' => true, 'width' => 'half', 'locked' => true, 'required' => false, 'expose_to_push' => true],
             ['key' => 'section_dispatch', 'label' => 'Sectie: inzet', 'visible' => true, 'width' => 'full'],
-            ['key' => 'priority', 'label' => 'Prioriteit', 'visible' => true, 'width' => 'half'],
-            ['key' => 'status', 'label' => 'Status', 'visible' => true, 'width' => 'half'],
+            ['key' => 'priority', 'label' => 'Prioriteit', 'visible' => true, 'width' => 'half', 'required' => true, 'expose_to_push' => true],
+            ['key' => 'status', 'label' => 'Status', 'visible' => true, 'width' => 'half', 'required' => false, 'expose_to_push' => true],
             ['key' => 'teams', 'label' => 'Teams', 'visible' => true, 'width' => 'full'],
             ['key' => 'coordinator', 'label' => 'Coordinator', 'visible' => true, 'width' => 'full'],
             ['key' => 'section_location', 'label' => 'Sectie: locatie', 'visible' => true, 'width' => 'full', 'locked' => true],
-            ['key' => 'location_search', 'label' => 'Adres zoeken', 'visible' => true, 'width' => 'half', 'locked' => true],
+            ['key' => 'location_search', 'label' => 'Adres zoeken', 'visible' => true, 'width' => 'half', 'locked' => true, 'required' => false, 'expose_to_push' => true],
             ['key' => 'location_map', 'label' => 'Kaart opkomstlocatie', 'visible' => true, 'width' => 'half', 'locked' => true],
             ['key' => 'section_drone', 'label' => 'Sectie: drone vluchtcheck', 'visible' => true, 'width' => 'full'],
             ['key' => 'drone_status', 'label' => 'Drone vluchtcheck status', 'visible' => true, 'width' => 'full'],
@@ -308,7 +349,7 @@ final class IncidentFormService
     }
 
     /**
-     * @return array<int, array{key: string, label: string, visible: bool, width: string, locked?: bool}>
+     * @return array<int, array<string, mixed>>
      */
     private function customFieldLayoutItems(): array
     {
@@ -326,7 +367,7 @@ final class IncidentFormService
 
     /**
      * @param array<int, mixed> $layout
-     * @return array<int, array{key: string, label: string, visible: bool, width: string, locked?: bool}>
+     * @return array<int, array<string, mixed>>
      */
     private function normalizeLayout(array $layout): array
     {
@@ -417,13 +458,24 @@ final class IncidentFormService
 
             $default = $defaults->get($key);
             $seen[$key] = true;
-            $normalized[] = [
+            $visible = ($default['locked'] ?? false) === true
+                ? true
+                : (filter_var($item['visible'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true);
+            $width = in_array(($item['width'] ?? $default['width'] ?? 'full'), ['half', 'full'], true)
+                ? (string) ($item['width'] ?? $default['width'] ?? 'full')
+                : (string) ($default['width'] ?? 'full');
+            $normalizedItem = [
                 'key' => $key,
                 'label' => (string) ($default['label'] ?? $key),
-                'visible' => ($default['locked'] ?? false) === true ? true : (filter_var($item['visible'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true),
-                'width' => in_array(($item['width'] ?? 'full'), ['half', 'full'], true) ? (string) $item['width'] : 'full',
+                'visible' => $visible,
+                'width' => $width,
                 'locked' => (bool) ($default['locked'] ?? false),
             ];
+            if ($this->isFixedInputLayoutKey($key)) {
+                $normalizedItem['required'] = $this->normalizeFixedLayoutRequired($key, $item, $visible);
+                $normalizedItem['expose_to_push'] = true;
+            }
+            $normalized[] = $normalizedItem;
         }
 
         foreach ($defaults as $key => $default) {
@@ -433,6 +485,80 @@ final class IncidentFormService
         }
 
         return $normalized;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function requiredFixedLayoutKeys(bool $enforceConfigurableRequired): array
+    {
+        return collect($this->layout())
+            ->filter(fn (array $item): bool => $this->isFixedInputLayoutKey((string) ($item['key'] ?? ''))
+                && ($item['visible'] ?? true) === true
+                && ($this->isAlwaysRequiredLayoutKey((string) ($item['key'] ?? '')) || ($enforceConfigurableRequired && ($item['required'] ?? false) === true)))
+            ->map(fn (array $item): string => (string) $item['key'])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param array<string, int> $requiredKeys
+     * @return list<mixed>
+     */
+    private function fixedTextRules(string $layoutKey, array $requiredKeys, bool $partial, int $max): array
+    {
+        $rules = [];
+        if ($partial) {
+            $rules[] = 'sometimes';
+        }
+        $rules[] = isset($requiredKeys[$layoutKey]) ? 'required' : 'nullable';
+        $rules[] = 'string';
+        $rules[] = 'max:'.$max;
+
+        return $rules;
+    }
+
+    /**
+     * @param array<string, int> $requiredKeys
+     * @param list<string> $values
+     * @return list<mixed>
+     */
+    private function fixedEnumRules(string $layoutKey, array $requiredKeys, bool $partial, array $values): array
+    {
+        $rules = [];
+        if ($partial) {
+            $rules[] = 'sometimes';
+            if (isset($requiredKeys[$layoutKey])) {
+                $rules[] = 'required';
+            }
+        } else {
+            $rules[] = isset($requiredKeys[$layoutKey]) ? 'required' : 'nullable';
+        }
+        $rules[] = Rule::in($values);
+
+        return $rules;
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     */
+    private function normalizeFixedLayoutRequired(string $key, array $item, bool $visible): bool
+    {
+        if ($this->isAlwaysRequiredLayoutKey($key)) {
+            return true;
+        }
+
+        return $visible && (filter_var($item['required'] ?? false, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? false);
+    }
+
+    private function isFixedInputLayoutKey(string $key): bool
+    {
+        return in_array($key, self::FIXED_INPUT_LAYOUT_KEYS, true);
+    }
+
+    private function isAlwaysRequiredLayoutKey(string $key): bool
+    {
+        return in_array($key, self::ALWAYS_REQUIRED_LAYOUT_KEYS, true);
     }
 
     private function cleanWidth(mixed $width, string $type): string

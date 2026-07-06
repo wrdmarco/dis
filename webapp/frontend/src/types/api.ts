@@ -613,6 +613,8 @@ export interface IncidentFormLayoutItem {
   visible: boolean;
   width?: 'half' | 'full';
   locked?: boolean;
+  required?: boolean;
+  expose_to_push?: boolean;
 }
 
 export interface SystemSetting {
