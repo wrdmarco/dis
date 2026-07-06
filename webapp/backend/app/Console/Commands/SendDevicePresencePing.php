@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\SendFcmNotification;
 use App\Models\FcmToken;
+use App\Models\SystemSetting;
 use Illuminate\Console\Command;
 
 final class SendDevicePresencePing extends Command
@@ -14,9 +15,15 @@ final class SendDevicePresencePing extends Command
 
     public function handle(): int
     {
+        $heartbeatIntervalMinutes = max(15, SystemSetting::integer('devices.heartbeat_interval_minutes', 15));
         $tokens = FcmToken::query()
             ->where('client_type', 'operator')
             ->where('is_active', true)
+            ->where(function ($query) use ($heartbeatIntervalMinutes): void {
+                $query
+                    ->whereNull('last_seen_at')
+                    ->orWhere('last_seen_at', '<=', now()->subMinutes($heartbeatIntervalMinutes));
+            })
             ->whereHas('user', fn ($query) => $query
                 ->where('account_status', 'active')
                 ->where('push_enabled', true))
