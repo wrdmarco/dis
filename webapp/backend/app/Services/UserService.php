@@ -111,10 +111,21 @@ final class UserService
      */
     public function updateOwnProfile(User $user, array $data): User
     {
+        $themeProvided = array_key_exists('theme', $data);
+        $preferences = is_array($user->mail_preferences) ? $user->mail_preferences : [];
+        if (array_key_exists('theme', $data)) {
+            $preferences['ui'] = is_array($preferences['ui'] ?? null) ? $preferences['ui'] : [];
+            $preferences['ui']['theme'] = $data['theme'];
+            unset($data['theme']);
+        }
+
         $data = $this->resolveHomeCityData([
             'name' => trim((string) ($data['name'] ?? $user->name)),
             'home_city' => $data['home_city'] ?? null,
         ], $user);
+        if ($themeProvided) {
+            $data['mail_preferences'] = $preferences;
+        }
 
         return DB::transaction(function () use ($user, $data): User {
             $before = $user->only(array_keys($data));

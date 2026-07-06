@@ -87,6 +87,9 @@ export interface User {
   asset_assignments?: AssetAssignment[];
   fcm_tokens?: FcmToken[];
   mail_preferences?: {
+    ui?: {
+      theme?: 'dark' | 'light';
+    };
     backup_report?: {
       success?: boolean;
       failed?: boolean;

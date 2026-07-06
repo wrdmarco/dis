@@ -48,6 +48,7 @@ final class MobileApiPayload
             'push_enabled' => (bool) $user->push_enabled,
             'max_operator_devices' => (int) ($user->max_operator_devices ?? 1),
             'two_factor_enabled' => (bool) $user->two_factor_enabled,
+            'mail_preferences' => is_array($user->mail_preferences) ? $user->mail_preferences : null,
             'roles' => $user->roles->map(fn ($role): array => [
                 'id' => $role->id,
                 'name' => $role->name,

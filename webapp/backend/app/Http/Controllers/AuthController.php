@@ -263,6 +263,7 @@ final class AuthController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:160'],
             'home_city' => ['nullable', 'string', 'max:120'],
+            'theme' => ['sometimes', 'string', 'in:dark,light'],
         ]);
 
         return ApiResponse::success(MobileApiPayload::user($this->userService->updateOwnProfile($request->user(), $data)));

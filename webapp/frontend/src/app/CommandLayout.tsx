@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, Download, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, UserRound, Users, Workflow, X } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, Download, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, Moon, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../features/auth/AuthContext';
@@ -125,7 +125,7 @@ interface BrandingState {
 }
 
 export function CommandLayout({ children }: { children: React.ReactNode }) {
-  const { user, api, clearSession, canUseWebConsole, hasPermission } = useAuth();
+  const { user, api, clearSession, canUseWebConsole, hasPermission, theme, setThemePreference } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -141,6 +141,11 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
       .then((response) => setBranding(response.data))
       .catch(() => undefined);
   }, [api]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+  }, [theme]);
 
   useEffect(() => {
     setMobileNavOpen(false);
@@ -249,6 +254,15 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
             <Link href={PROFILE_PATH} className={`icon-button ${pathname === PROFILE_PATH ? 'icon-button--active' : ''}`} aria-label="Profiel">
               <UserRound size={18} />
             </Link>
+            <button
+              className="icon-button"
+              type="button"
+              onClick={() => void setThemePreference(theme === 'dark' ? 'light' : 'dark').catch(() => undefined)}
+              aria-label={theme === 'dark' ? 'Lichte modus aanzetten' : 'Donkere modus aanzetten'}
+              title={theme === 'dark' ? 'Lichte modus' : 'Donkere modus'}
+            >
+              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
             <button className="icon-button" type="button" onClick={logout} aria-label="Uitloggen">
               <LogOut size={18} />
             </button>

@@ -42,7 +42,7 @@ function emptyCertificationForm() {
 }
 
 export function ProfilePage() {
-  const { api, user, startTwoFactorSetup, enableTwoFactor, disableTwoFactor } = useAuth();
+  const { api, user, theme, setThemePreference, startTwoFactorSetup, enableTwoFactor, disableTwoFactor } = useAuth();
   const assets = useApiResource<Asset[]>('/assets/mine');
   const schedule = useApiResource<AvailabilitySchedule>('/availability-schedule/me');
   const droneTypes = useApiResource<DroneType[]>('/drone-types');
@@ -61,9 +61,12 @@ export function ProfilePage() {
   const [savingCertification, setSavingCertification] = useState(false);
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [themeSaving, setThemeSaving] = useState(false);
   const [autoSetupStarted, setAutoSetupStarted] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [themeMessage, setThemeMessage] = useState<string | null>(null);
+  const [themeError, setThemeError] = useState<string | null>(null);
   const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [assetMessage, setAssetMessage] = useState<string | null>(null);
@@ -321,6 +324,20 @@ export function ProfilePage() {
     }
   }
 
+  async function updateThemePreference(nextTheme: 'dark' | 'light') {
+    setThemeSaving(true);
+    setThemeError(null);
+    setThemeMessage(null);
+    try {
+      await setThemePreference(nextTheme);
+      setThemeMessage(`Weergave ingesteld op ${nextTheme === 'dark' ? 'donker' : 'licht'}.`);
+    } catch (err) {
+      setThemeError(err instanceof ApiClientError ? err.message : 'Weergave kon niet worden opgeslagen.');
+    } finally {
+      setThemeSaving(false);
+    }
+  }
+
   function setCertificationFormFromCertification(certification: UserCertification) {
     setCertificationError(null);
     setCertificationMessage(null);
@@ -348,7 +365,20 @@ export function ProfilePage() {
           <dd>{user?.two_factor_enabled ? 'Ingeschakeld' : 'Uitgeschakeld'}</dd>
           <dt>MFA verplicht</dt>
           <dd>{mfaRequiredByRole ? 'Ja, door rol' : 'Nee'}</dd>
+          <dt>Weergave</dt>
+          <dd>
+            <div className="segmented-control" role="group" aria-label="Weergave">
+              <button className={theme === 'dark' ? 'segmented-control__item segmented-control__item--active' : 'segmented-control__item'} type="button" onClick={() => void updateThemePreference('dark')} disabled={themeSaving}>
+                Donker
+              </button>
+              <button className={theme === 'light' ? 'segmented-control__item segmented-control__item--active' : 'segmented-control__item'} type="button" onClick={() => void updateThemePreference('light')} disabled={themeSaving}>
+                Licht
+              </button>
+            </div>
+          </dd>
         </div>
+        {themeMessage ? <p className="form-note">{themeMessage}</p> : null}
+        {themeError ? <p className="form-error">{themeError}</p> : null}
       </Panel>
 
       <Panel title="Mijn beschikbaarheid">

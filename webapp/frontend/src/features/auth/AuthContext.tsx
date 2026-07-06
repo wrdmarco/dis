@@ -14,9 +14,11 @@ interface AuthContextValue {
   api: ApiClient;
   token: string | null;
   user: User | null;
+  theme: ThemePreference;
   isAuthenticated: boolean;
   setSession: (token: string, user?: User | null, purpose?: SessionPurpose) => void;
   clearSession: () => void;
+  setThemePreference: (theme: ThemePreference) => Promise<void>;
   login: (email: string, password: string) => Promise<LoginResult>;
   verifyTwoFactor: (code: string) => Promise<User>;
   startTwoFactorSetup: () => Promise<TwoFactorSetup>;
@@ -30,12 +32,15 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 const tokenKey = 'dis.session.token';
 const tokenPurposeKey = 'dis.session.purpose';
+const themeKey = 'dis.theme';
 type SessionPurpose = 'full' | 'mfa';
+type ThemePreference = 'dark' | 'light';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(() => storedToken());
   const [sessionPurpose, setSessionPurpose] = useState<SessionPurpose>(() => storedTokenPurpose());
   const [user, setUser] = useState<User | null>(null);
+  const [theme, setTheme] = useState<ThemePreference>(() => storedTheme());
 
   const clearSession = useCallback(() => {
     sessionStorage.removeItem(tokenKey);
@@ -66,6 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSessionPurpose(purpose);
     if (nextUser !== undefined) {
       setUser(purpose === 'full' ? nextUser : null);
+      setTheme(themeFromUser(nextUser));
     }
   }, []);
 
@@ -96,6 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const disableTwoFactor = useCallback(async (password: string, code: string): Promise<User> => {
     const response = await api.post<User>('/auth/2fa/disable', { password, code });
     setUser(response.data);
+    setTheme(themeFromUser(response.data));
     return response.data;
   }, [api]);
 
@@ -109,8 +116,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const response = await api.get<User>('/auth/me');
     setUser(response.data);
+    setTheme(themeFromUser(response.data));
     return response.data;
   }, [api]);
+
+  const setThemePreference = useCallback(async (nextTheme: ThemePreference): Promise<void> => {
+    const currentUser = user;
+    setTheme(nextTheme);
+    localStorage.setItem(themeKey, nextTheme);
+    if (currentUser === null) {
+      return;
+    }
+
+    const response = await api.patch<User>('/auth/me', {
+      name: currentUser.name,
+      home_city: currentUser.home_city ?? null,
+      theme: nextTheme,
+    });
+    setUser(response.data);
+    setTheme(themeFromUser(response.data));
+  }, [api, user]);
 
   const hasPermission = useCallback((permission: string): boolean =>
     user?.roles?.some((role) => role.permissions?.some((candidate) => candidate.name === permission)) ?? false,
@@ -124,9 +149,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     api,
     token,
     user,
+    theme,
     isAuthenticated: token !== null && sessionPurpose === 'full',
     setSession,
     clearSession,
+    setThemePreference,
     login,
     verifyTwoFactor,
     startTwoFactorSetup,
@@ -139,9 +166,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     api,
     token,
     user,
+    theme,
     sessionPurpose,
     setSession,
     clearSession,
+    setThemePreference,
     login,
     verifyTwoFactor,
     startTwoFactorSetup,
@@ -196,6 +225,23 @@ function storedTokenPurpose(): SessionPurpose {
   const purpose = localStorage.getItem(tokenPurposeKey) ?? sessionStorage.getItem(tokenPurposeKey);
 
   return purpose === 'mfa' ? 'mfa' : 'full';
+}
+
+function storedTheme(): ThemePreference {
+  if (!isBrowser()) {
+    return 'dark';
+  }
+
+  return localStorage.getItem(themeKey) === 'light' ? 'light' : 'dark';
+}
+
+function themeFromUser(user?: User | null): ThemePreference {
+  const theme = user?.mail_preferences?.ui?.theme === 'light' ? 'light' : 'dark';
+  if (isBrowser()) {
+    localStorage.setItem(themeKey, theme);
+  }
+
+  return theme;
 }
 
 function isBrowser(): boolean {
