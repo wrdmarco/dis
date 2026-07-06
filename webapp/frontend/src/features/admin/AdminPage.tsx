@@ -1530,6 +1530,16 @@ function FormFieldPropertiesPanel(props: {
   onUpdate: (key: string, changes: Partial<ConfigurableFormField>) => void;
 }) {
   const { field, showPushExposure, showOperatorAvailability, availabilityHint, onUpdate } = props;
+  const [optionDraft, setOptionDraft] = useState<{ fieldKey: string; value: string } | null>(null);
+
+  useEffect(() => {
+    if (field === null || !['select', 'radio'].includes(field.type) || (field.option_source ?? 'manual') !== 'manual') {
+      setOptionDraft(null);
+      return;
+    }
+
+    setOptionDraft({ fieldKey: field.key, value: optionsToTextarea(field.options) });
+  }, [field?.key, field?.type, field?.option_source]);
 
   if (field === null) {
     return (
@@ -1622,7 +1632,20 @@ function FormFieldPropertiesPanel(props: {
           {(field.option_source ?? 'manual') === 'manual' ? (
             <label>
               Opties
-              <textarea value={(field.options ?? []).map((option) => option.label).join('\n')} rows={4} onChange={(event) => onUpdate(field.key, { options: optionsFromTextarea(event.target.value) })} />
+              <textarea
+                value={optionDraft?.fieldKey === field.key ? optionDraft.value : optionsToTextarea(field.options)}
+                rows={6}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setOptionDraft({ fieldKey: field.key, value });
+                  onUpdate(field.key, { options: optionsFromTextarea(value) });
+                }}
+                onBlur={(event) => {
+                  const normalized = optionsToTextarea(optionsFromTextarea(event.target.value));
+                  setOptionDraft({ fieldKey: field.key, value: normalized });
+                }}
+              />
+              <span className="form-note">Een optie per regel. Spaties in namen blijven tijdens typen staan; lege regels worden bij opslaan genegeerd.</span>
             </label>
           ) : (
             <p className="muted-text">Wordt gevuld met actief gekoppelde drones van de piloot.</p>
@@ -2215,9 +2238,13 @@ function defaultFieldOptions(options?: Array<{ label: string; value: string }>):
   ];
 }
 
+function optionsToTextarea(options?: Array<{ label: string; value: string }>): string {
+  return (options ?? []).map((option) => option.label).join('\n');
+}
+
 function optionsFromTextarea(value: string): Array<{ label: string; value: string }> {
   return value
-    .split('\n')
+    .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => ({ label: line, value: line }));
