@@ -353,11 +353,23 @@ final class PilotIncidentReportFormService
             ->orderBy('asset_tag')
             ->get()
             ->map(fn (Asset $asset): array => [
-                'label' => trim(($asset->asset_tag ? $asset->asset_tag.' - ' : '').$asset->name.($asset->droneType ? ' ('.$asset->droneType->manufacturer.' '.$asset->droneType->model.')' : '')),
+                'label' => $this->assetOptionLabel($asset),
                 'value' => (string) $asset->id,
             ])
             ->values()
             ->all();
+    }
+
+    private function assetOptionLabel(Asset $asset): string
+    {
+        $name = trim($asset->name);
+        $type = trim($asset->droneType ? $asset->droneType->manufacturer.' '.$asset->droneType->model : '');
+
+        if ($type === '' || strcasecmp($name, $type) === 0) {
+            return $name !== '' ? $name : 'Drone';
+        }
+
+        return trim(($name !== '' ? $name : 'Drone').' ('.$type.')');
     }
 
     private function cleanLabel(mixed $label): string

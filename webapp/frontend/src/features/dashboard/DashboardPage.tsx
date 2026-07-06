@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
+import { assetDisplayLabel } from '../../lib/assetLabels';
 import { useApiResource } from '../../lib/useApiResource';
 import type { Asset, AvailabilityStatus, DispatchRequest, Incident } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
@@ -144,7 +145,7 @@ export function DashboardPage() {
                   </span>
                   <div className="dashboard-asset__body">
                     <strong>{asset.name}</strong>
-                    <span>{asset.asset_tag} - {asset.type}</span>
+                    <span>{assetDisplayLabel(asset)}</span>
                   </div>
                   <StatusPill value={asset.status} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' || asset.status === 'unavailable' ? 'warn' : 'neutral'} />
                 </div>

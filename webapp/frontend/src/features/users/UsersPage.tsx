@@ -4,6 +4,7 @@ import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
+import { assetDisplayLabel } from '../../lib/assetLabels';
 import { formatDateTime } from '../../lib/dateTime';
 import { droneTypeLabel } from '../../lib/droneTypes';
 import { useApiResource } from '../../lib/useApiResource';
@@ -833,7 +834,7 @@ function UserOperationalDetails({
             <select value={assetId} onChange={(event) => setAssetId(event.target.value)} disabled={assetsLoading || user === null}>
               <option value="">Selecteer asset</option>
               {availableAssets.map((asset) => (
-                <option key={asset.id} value={asset.id}>{asset.asset_tag} - {asset.name}</option>
+                <option key={asset.id} value={asset.id}>{assetDisplayLabel(asset)}</option>
               ))}
             </select>
           </label>
@@ -858,7 +859,7 @@ function UserOperationalDetails({
 
                 return (
                   <tr key={assignment.id}>
-                    <td>{asset?.name ?? assignment.asset_id}</td>
+                    <td>{asset ? assetDisplayLabel(asset) : '-'}</td>
                     <td>{asset?.drone_type ? droneTypeLabel(asset.drone_type) : asset?.type ?? '-'}</td>
                     <td>{asset ? <StatusPill value={asset.status} tone={asset.status === 'ready' ? 'good' : asset.status === 'maintenance' ? 'warn' : 'neutral'} /> : '-'}</td>
                     <td>{options || '-'}</td>
