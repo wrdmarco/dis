@@ -14,8 +14,8 @@ const OPEN_INCIDENTS_PATH = '/incidents?status=draft,active,dispatching,in_progr
 const MAP_WIDTH = 1280;
 const MAP_HEIGHT = 720;
 const INCIDENT_COLORS = ['#7dd3fc', '#fbbf24', '#a7f3d0', '#fca5a5', '#c4b5fd', '#fdba74', '#93c5fd', '#f0abfc'];
-const NL_BE_OVERVIEW_CENTER: MapPoint = { latitude: 51.55, longitude: 4.85 };
-const NL_BE_OVERVIEW_VIEWPORT: MapViewport = { width: MAP_WIDTH, height: MAP_HEIGHT, zoom: 7 };
+const NETHERLANDS_OVERVIEW_CENTER: MapPoint = { latitude: 52.1326, longitude: 5.2913 };
+const NETHERLANDS_OVERVIEW_VIEWPORT: MapViewport = { width: MAP_WIDTH, height: MAP_HEIGHT, zoom: 7 };
 
 export function IncidentMapPage() {
   const { api } = useAuth();
@@ -202,19 +202,18 @@ function OperationsMap({ models }: { models: IncidentMapModel[] }) {
     ...model.liveLocations,
   ]);
   const hasOperationalPoints = points.length > 0;
-  const viewport = hasOperationalPoints ? mapViewport(points) : NL_BE_OVERVIEW_VIEWPORT;
-  const center = hasOperationalPoints ? centerFor(points) : NL_BE_OVERVIEW_CENTER;
+  const viewport = hasOperationalPoints ? mapViewport(points) : NETHERLANDS_OVERVIEW_VIEWPORT;
+  const center = hasOperationalPoints ? centerFor(points) : NETHERLANDS_OVERVIEW_CENTER;
   const centerWorld = latLonToWorld(center.latitude, center.longitude, viewport.zoom);
   const tiles = visibleTiles(centerWorld, viewport);
-  const tileLayer = hasOperationalPoints ? 'World_Imagery' : 'World_Topo_Map';
 
   return (
     <div className="operational-map__canvas">
-      <svg className="operational-map__svg" viewBox={`0 0 ${viewport.width} ${viewport.height}`} role="img" aria-label={models.length > 0 ? 'Kaart met incidenten en live gebruikerslocaties' : 'Kaart van Nederland en Belgie zonder actieve incidenten'}>
+      <svg className="operational-map__svg" viewBox={`0 0 ${viewport.width} ${viewport.height}`} role="img" aria-label={models.length > 0 ? 'Kaart met incidenten en live gebruikerslocaties' : 'Kaart van Nederland zonder actieve incidenten'}>
         {tiles.map((tile) => (
           <image
-            key={`${tile.x}-${tile.y}-${tile.z}`}
-            href={`https://server.arcgisonline.com/ArcGIS/rest/services/${tileLayer}/MapServer/tile/${tile.z}/${tile.y}/${tile.x}`}
+            key={`imagery-${tile.x}-${tile.y}-${tile.z}`}
+            href={`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${tile.z}/${tile.y}/${tile.x}`}
             x={tile.left}
             y={tile.top}
             width="256"
@@ -223,6 +222,17 @@ function OperationsMap({ models }: { models: IncidentMapModel[] }) {
           />
         ))}
         <rect className="operational-map__shade" x="0" y="0" width={viewport.width} height={viewport.height} />
+        {tiles.map((tile) => (
+          <image
+            key={`labels-${tile.x}-${tile.y}-${tile.z}`}
+            href={`https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/${tile.z}/${tile.y}/${tile.x}`}
+            x={tile.left}
+            y={tile.top}
+            width="256"
+            height="256"
+            preserveAspectRatio="none"
+          />
+        ))}
         {models.map((model) => model.liveLocations.map((location) => {
           if (model.incidentPoint === null) {
             return null;
@@ -269,7 +279,7 @@ function OperationsMap({ models }: { models: IncidentMapModel[] }) {
       {models.length === 0 ? (
         <div className="operational-map__empty-state">
           <strong>Geen actieve incidenten</strong>
-          <span>Nederland en Belgie blijven als standaardkaart zichtbaar.</span>
+          <span>Nederland blijft als standaardkaart zichtbaar.</span>
         </div>
       ) : null}
     </div>
