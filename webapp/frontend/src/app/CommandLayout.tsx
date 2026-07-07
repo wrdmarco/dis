@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, BarChart3, Bell, BellRing, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, Download, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, Moon, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, BookUser, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, Download, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, Moon, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../features/auth/AuthContext';
@@ -54,6 +54,7 @@ const navGroups: NavGroup[] = [
     label: 'Mensen & middelen',
     items: [
       { to: '/users', label: 'Gebruikers', icon: Users, permissions: ['users.view'] },
+      { to: '/address-book', label: 'Adresboek', icon: BookUser, permissions: ['address-book.view'] },
       { to: '/roles', label: 'Rollen', icon: KeyRound, permissions: ['roles.manage'] },
       { to: '/teams', label: 'Teams', icon: Network, permissions: ['teams.manage'] },
     ],
@@ -100,6 +101,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/push': () => import('../features/push/PushPage'),
   '/reports': () => import('../features/reports/ReportsPage'),
   '/users': () => import('../features/users/UsersPage'),
+  '/address-book': () => import('../features/address-book/AddressBookPage'),
   '/roles': () => import('../features/roles/RolesPage'),
   '/teams': () => import('../features/teams/TeamsPage'),
   '/assets': () => import('../features/assets/AssetsPage'),

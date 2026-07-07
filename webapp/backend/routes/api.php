@@ -3,6 +3,7 @@
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AdminDeveloperController;
 use App\Http\Controllers\AdminPushController;
+use App\Http\Controllers\AddressBookController;
 use App\Http\Controllers\AvailabilityScheduleController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AuthController;
@@ -82,6 +83,8 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
         Route::post('/users/{user}/login-lock/reset', [UserController::class, 'resetLoginLock'])->middleware('permission:users.manage');
         Route::post('/users/{user}/invitation/resend', [UserController::class, 'resendInvitation'])->middleware('permission:users.manage');
         Route::get('/users/{user}/audit', [UserController::class, 'audit'])->middleware('permission:audit.view');
+
+    Route::get('/address-book', [AddressBookController::class, 'index'])->middleware('permission:address-book.view');
 
     Route::get('/teams', [AdminController::class, 'teams'])->middleware('permission:incidents.view');
 

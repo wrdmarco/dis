@@ -343,6 +343,8 @@ function permissionCategoryLabel(category: string): string {
   switch (category) {
     case 'user_management':
       return 'Gebruikers';
+    case 'address_book':
+      return 'Adresboek';
     case 'role_management':
       return 'Rollen en rechten';
     case 'team_management':

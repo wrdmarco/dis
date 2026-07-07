@@ -63,6 +63,13 @@ export interface Team {
   required_certifications?: Certification[];
 }
 
+export interface AddressBookEntry {
+  id: string;
+  name: string;
+  phone_number?: string | null;
+  city?: string | null;
+}
+
 export interface User {
   id: string;
   name: string;

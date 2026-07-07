@@ -15,6 +15,7 @@ final class RoleAndPermissionSeeder extends Seeder
     private array $permissions = [
         'users.view' => ['display_name' => 'Gebruikers bekijken', 'category' => 'user_management', 'description' => 'Bekijk gebruikers, teams, rollen, devices en operationele gebruikersstatus. Eigen profiel bekijken is standaard en heeft geen aparte permissie nodig.'],
         'users.manage' => ['display_name' => 'Gebruikers beheren', 'category' => 'user_management', 'description' => 'Maak gebruikers aan, wijzig accounts, koppel rollen/teams en beheer device-limieten.'],
+        'address-book.view' => ['display_name' => 'Adresboek bekijken', 'category' => 'address_book', 'description' => 'Bekijk en doorzoek adresboekcontacten op naam, telefoonnummer en woonplaats.'],
         'roles.manage' => ['display_name' => 'Rollen en rechten beheren', 'category' => 'role_management', 'description' => 'Maak rollen aan, wijzig rolrechten en bepaal toegang tot operator- en admin-app.'],
         'teams.manage' => ['display_name' => 'Teams beheren', 'category' => 'team_management', 'description' => 'Beheer OCP, TUI, alarmeerteams en teamkoppelingen. TUI blijft een subset van OCP.'],
         'incidents.view' => ['display_name' => 'Incidenten bekijken', 'category' => 'incident_management', 'description' => 'Bekijk incidenten, details, tijdlijn en rapportstatus.'],
@@ -59,7 +60,7 @@ final class RoleAndPermissionSeeder extends Seeder
                 'users.view', 'teams.manage', 'incidents.view', 'incidents.manage',
                 'dispatch.view', 'dispatch.manage', 'status.view', 'status.override',
                 'assets.view', 'assets.manage', 'certifications.view', 'audit.view',
-                'push.manage', 'system.health',
+                'address-book.view', 'push.manage', 'system.health',
             ],
         ],
         'incident-coordinator' => [
@@ -71,7 +72,7 @@ final class RoleAndPermissionSeeder extends Seeder
             'permissions' => [
                 'users.view', 'incidents.view', 'incidents.manage', 'dispatch.view',
                 'dispatch.manage', 'status.view', 'assets.view', 'certifications.view',
-                'push.manage',
+                'address-book.view', 'push.manage',
             ],
         ],
         'operator-pilot' => [
@@ -104,7 +105,7 @@ final class RoleAndPermissionSeeder extends Seeder
             'can_use_admin_app' => true,
             'permissions' => [
                 'users.view', 'incidents.view', 'dispatch.view', 'status.view',
-                'assets.view', 'certifications.view', 'audit.view',
+                'assets.view', 'certifications.view', 'address-book.view', 'audit.view',
             ],
         ],
     ];

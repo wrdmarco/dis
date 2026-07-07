@@ -18,6 +18,7 @@ const homeRedirectCandidates = [
   { to: '/incidents', permissions: ['incidents.view'] },
   { to: '/operational-status', permissions: ['status.view'] },
   { to: '/users', permissions: ['users.view'] },
+  { to: '/address-book', permissions: ['address-book.view'] },
   { to: '/assets', permissions: ['assets.view'] },
   { to: '/certifications', permissions: ['certifications.view'] },
   { to: '/updates', permissions: ['updates.manage'] },

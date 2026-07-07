@@ -73,6 +73,22 @@ a:hover {
   text-decoration: underline;
 }
 
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+}
+
+.search-field svg {
+  flex: 0 0 auto;
+  color: var(--dis-muted);
+}
+
+.search-field input {
+  flex: 1 1 auto;
+}
+
 .skip-link {
   position: fixed;
   left: 16px;
