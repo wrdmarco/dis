@@ -583,7 +583,7 @@ final class AdminController extends Controller
     }
 
     /**
-     * @return list<array{name: string, latitude: float, longitude: float}>
+     * @return list<array{address: string, name: string, latitude: float, longitude: float}>
      */
     private function validateOperationalMapCommandCenters(string $key, mixed $value): array
     {
@@ -597,6 +597,7 @@ final class AdminController extends Controller
                 throw ValidationException::withMessages(["settings.$key.$index" => ['Elke meldkamer moet naam, latitude en longitude bevatten.']]);
             }
 
+            $address = trim((string) ($center['address'] ?? ''));
             $name = trim((string) ($center['name'] ?? ''));
             $latitude = $center['latitude'] ?? null;
             $longitude = $center['longitude'] ?? null;
@@ -612,6 +613,7 @@ final class AdminController extends Controller
             }
 
             $centers[] = [
+                'address' => mb_substr($address, 0, 240),
                 'name' => mb_substr($name, 0, 160),
                 'latitude' => round($lat, 7),
                 'longitude' => round($lon, 7),

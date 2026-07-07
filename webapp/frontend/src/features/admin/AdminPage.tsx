@@ -4,12 +4,14 @@ import { ResourceState } from '../../components/ResourceState';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { parseFirebaseJson } from '../../lib/firebaseConfigImport';
 import { dateInputValueInAmsterdam, formatDateTime } from '../../lib/dateTime';
+import { fetchLocationSuggestions, geocodeAddressLabel, lookupLocationSuggestion, type LocationSearchResult, type LocationSuggestion } from '../../lib/locationSearch';
 import { createRealtime } from '../../lib/realtime';
 import { useApiResource } from '../../lib/useApiResource';
 import type { ConfigurableFormField, DeveloperAccessState, FcmToken, IncidentFormConfig, IncidentFormLayoutItem, PilotReportFormConfig, PilotReportFormField, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiClientError } from '../../lib/apiClient';
+import { MapPin } from 'lucide-react';
 
 interface MobileSettingsForm {
   tenantName: string;
@@ -61,6 +63,7 @@ interface PasswordPolicySettingsForm {
 }
 
 interface OperationalMapCommandCenterForm {
+  address: string;
   name: string;
   latitude: string;
   longitude: string;
@@ -496,18 +499,20 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     try {
       const cleaned = commandCenters
         .map((center) => ({
+          address: center.address.trim(),
           name: center.name.trim(),
           latitude: center.latitude.trim(),
           longitude: center.longitude.trim(),
         }))
-        .filter((center) => center.name !== '' || center.latitude !== '' || center.longitude !== '');
+        .filter((center) => center.address !== '' || center.name !== '' || center.latitude !== '' || center.longitude !== '');
 
       await api.patch('/admin/settings', {
         settings: {
           'operational_map.command_centers': cleaned.map((center) => ({
+            address: center.address,
             name: center.name,
-            latitude: Number(center.latitude.replace(',', '.')),
-            longitude: Number(center.longitude.replace(',', '.')),
+            latitude: center.latitude.replace(',', '.'),
+            longitude: center.longitude.replace(',', '.'),
           })),
         },
       });
@@ -527,11 +532,25 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   }
 
   function addCommandCenter() {
-    setCommandCenters((current) => [...current, { name: '', latitude: '', longitude: '' }]);
+    setCommandCenters((current) => [...current, { address: '', name: '', latitude: '', longitude: '' }]);
   }
 
   function removeCommandCenter(index: number) {
     setCommandCenters((current) => current.filter((_, centerIndex) => centerIndex !== index));
+  }
+
+  function applyCommandCenterLocation(index: number, location: LocationSearchResult) {
+    setCommandCenters((current) => current.map((center, centerIndex) => (
+      centerIndex === index
+        ? {
+          ...center,
+          address: location.locationLabel,
+          name: center.name.trim() === '' ? location.locationLabel : center.name,
+          latitude: location.latitude,
+          longitude: location.longitude,
+        }
+        : center
+    )));
   }
 
   async function updateToken(token: FcmToken, action: 'activate' | 'revoke') {
@@ -1376,6 +1395,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               onAdd={addCommandCenter}
               onRemove={removeCommandCenter}
               onSave={saveCommandCenters}
+              onApplyLocation={applyCommandCenterLocation}
               onUpdate={updateCommandCenter}
             />
             <table className="data-table">
@@ -1442,6 +1462,7 @@ function OperationalMapCommandCenterSettings(props: {
   message: string | null;
   error: string | null;
   onAdd: () => void;
+  onApplyLocation: (index: number, location: LocationSearchResult) => void;
   onRemove: (index: number) => void;
   onSave: () => Promise<void>;
   onUpdate: (index: number, field: keyof OperationalMapCommandCenterForm, value: string) => void;
@@ -1454,40 +1475,15 @@ function OperationalMapCommandCenterSettings(props: {
       </div>
       <div className="command-center-settings">
         {props.commandCenters.map((center, index) => (
-          <div className="command-center-settings__row" key={`command-center-${index}`}>
-            <label>
-              <span>Naam</span>
-              <input
-                type="text"
-                value={center.name}
-                placeholder="Meldkamer"
-                onChange={(event) => props.onUpdate(index, 'name', event.target.value)}
-              />
-            </label>
-            <label>
-              <span>Latitude</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={center.latitude}
-                placeholder="52.0907"
-                onChange={(event) => props.onUpdate(index, 'latitude', event.target.value)}
-              />
-            </label>
-            <label>
-              <span>Longitude</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={center.longitude}
-                placeholder="5.1214"
-                onChange={(event) => props.onUpdate(index, 'longitude', event.target.value)}
-              />
-            </label>
-            <button className="secondary-button" type="button" onClick={() => props.onRemove(index)} disabled={props.saving}>
-              Verwijderen
-            </button>
-          </div>
+          <CommandCenterSettingsRow
+            center={center}
+            index={index}
+            key={`command-center-${index}`}
+            saving={props.saving}
+            onApplyLocation={props.onApplyLocation}
+            onRemove={props.onRemove}
+            onUpdate={props.onUpdate}
+          />
         ))}
         {props.commandCenters.length === 0 ? <p className="muted-text">Er zijn nog geen meldkamers ingesteld.</p> : null}
       </div>
@@ -1499,6 +1495,117 @@ function OperationalMapCommandCenterSettings(props: {
           {props.saving ? 'Opslaan...' : 'Meldkamers opslaan'}
         </button>
       </div>
+    </div>
+  );
+}
+
+function CommandCenterSettingsRow(props: {
+  center: OperationalMapCommandCenterForm;
+  index: number;
+  saving: boolean;
+  onApplyLocation: (index: number, location: LocationSearchResult) => void;
+  onRemove: (index: number) => void;
+  onUpdate: (index: number, field: keyof OperationalMapCommandCenterForm, value: string) => void;
+}) {
+  const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
+
+  useEffect(() => {
+    const query = props.center.address.trim();
+    if (query.length < 3) {
+      setSuggestions([]);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      void fetchLocationSuggestions(query, controller.signal).then(setSuggestions).catch(() => undefined);
+    }, 220);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [props.center.address]);
+
+  async function selectSuggestion(suggestion: LocationSuggestion) {
+    props.onUpdate(props.index, 'address', suggestion.label);
+    setSuggestions([]);
+    const resolved = await lookupLocationSuggestion(suggestion);
+    if (resolved !== null) {
+      props.onApplyLocation(props.index, resolved);
+    }
+  }
+
+  async function resolveTypedAddress() {
+    if (suggestions.some((suggestion) => suggestion.label === props.center.address.trim())) {
+      return;
+    }
+
+    const resolved = await geocodeAddressLabel(props.center.address);
+    if (resolved !== null) {
+      props.onApplyLocation(props.index, resolved);
+    }
+  }
+
+  return (
+    <div className="command-center-settings__row">
+      <label className="command-center-settings__address">
+        <span>Adres zoeken</span>
+        <input
+          type="search"
+          value={props.center.address}
+          placeholder="Zoek op naam, plaats of adres"
+          onBlur={() => void resolveTypedAddress()}
+          onChange={(event) => props.onUpdate(props.index, 'address', event.target.value)}
+        />
+        {suggestions.length > 0 ? (
+          <div className="location-picker__results command-center-settings__suggestions">
+            {suggestions.map((suggestion) => (
+              <button
+                key={suggestion.id}
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => void selectSuggestion(suggestion)}
+              >
+                <MapPin size={14} />
+                <span>{suggestion.label}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </label>
+      <label>
+        <span>Naam</span>
+        <input
+          type="text"
+          value={props.center.name}
+          placeholder="Meldkamer"
+          onChange={(event) => props.onUpdate(props.index, 'name', event.target.value)}
+        />
+      </label>
+      <label>
+        <span>Latitude</span>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={props.center.latitude}
+          placeholder="52.0907"
+          onChange={(event) => props.onUpdate(props.index, 'latitude', event.target.value)}
+        />
+      </label>
+      <label>
+        <span>Longitude</span>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={props.center.longitude}
+          placeholder="5.1214"
+          onChange={(event) => props.onUpdate(props.index, 'longitude', event.target.value)}
+        />
+      </label>
+      <button className="secondary-button" type="button" onClick={() => props.onRemove(props.index)} disabled={props.saving}>
+        Verwijderen
+      </button>
     </div>
   );
 }
@@ -2684,6 +2791,7 @@ function toOperationalMapCommandCenters(settings: SystemSetting[]): OperationalM
     const record = item as Record<string, unknown>;
 
     return [{
+      address: typeof record.address === 'string' ? record.address : '',
       name: typeof record.name === 'string' ? record.name : '',
       latitude: record.latitude === undefined || record.latitude === null ? '' : String(record.latitude),
       longitude: record.longitude === undefined || record.longitude === null ? '' : String(record.longitude),

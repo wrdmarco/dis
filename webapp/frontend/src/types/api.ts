@@ -179,6 +179,7 @@ export interface OperationalMapLayers {
 export interface OperationalMapCommandCenter {
   id: string;
   name: string;
+  address?: string | null;
   latitude: number | string;
   longitude: number | string;
 }

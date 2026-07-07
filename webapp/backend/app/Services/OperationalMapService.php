@@ -10,7 +10,7 @@ final class OperationalMapService
 {
     /**
      * @return array{
-     *     command_centers: list<array{id: string, name: string, latitude: float, longitude: float}>,
+     *     command_centers: list<array{id: string, name: string, address: string|null, latitude: float, longitude: float}>,
      *     historical_incidents: list<array{id: string, reference: string, title: string, status: string, priority: string, location_label: string|null, latitude: float, longitude: float, closed_at: string|null}>,
      *     pilot_homes: list<array{id: string, name: string, home_city: string|null, latitude: float, longitude: float, teams: list<string>}>
      * }
@@ -25,7 +25,7 @@ final class OperationalMapService
     }
 
     /**
-     * @return list<array{id: string, name: string, latitude: float, longitude: float}>
+     * @return list<array{id: string, name: string, address: string|null, latitude: float, longitude: float}>
      */
     private function commandCenters(): array
     {
@@ -51,6 +51,7 @@ final class OperationalMapService
             $centers[] = [
                 'id' => (string) ($center['id'] ?? 'command-center-'.$index),
                 'name' => $name,
+                'address' => is_string($center['address'] ?? null) ? $center['address'] : null,
                 'latitude' => $latitude,
                 'longitude' => $longitude,
             ];

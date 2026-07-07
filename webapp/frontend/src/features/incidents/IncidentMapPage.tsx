@@ -437,7 +437,6 @@ function CommandCenterMarker({
       <line x1={position.x} y1={position.y - 24} x2={position.x} y2={position.y + 14} />
       <path d={`M ${position.x} ${position.y - 24} L ${position.x + 27} ${position.y - 18} L ${position.x} ${position.y - 10} Z`} />
       <circle cx={position.x} cy={position.y + 14} r="5" />
-      <LayerMarkerLabel x={position.x + 16} y={position.y - 1} label={point.name} />
     </g>
   );
 }
@@ -458,7 +457,6 @@ function HistoricalIncidentMarker({
       <title>{`${point.reference} - ${point.title}`}</title>
       <path d={`M ${position.x} ${position.y - 22} C ${position.x - 13} ${position.y - 22}, ${position.x - 18} ${position.y - 7}, ${position.x} ${position.y + 18} C ${position.x + 18} ${position.y - 7}, ${position.x + 13} ${position.y - 22}, ${position.x} ${position.y - 22} Z`} />
       <circle cx={position.x} cy={position.y - 8} r="6" />
-      <LayerMarkerLabel x={position.x + 18} y={position.y + 2} label={point.title} />
     </g>
   );
 }
@@ -480,13 +478,8 @@ function PilotHomeMarker({
       <title>{label}</title>
       <path d={`M ${position.x - 17} ${position.y - 4} L ${position.x} ${position.y - 19} L ${position.x + 17} ${position.y - 4}`} />
       <path d={`M ${position.x - 12} ${position.y - 3} L ${position.x - 12} ${position.y + 15} L ${position.x + 12} ${position.y + 15} L ${position.x + 12} ${position.y - 3} Z`} />
-      <LayerMarkerLabel x={position.x + 19} y={position.y + 6} label={point.name} />
     </g>
   );
-}
-
-function LayerMarkerLabel({ x, y, label }: { x: number; y: number; label: string }) {
-  return <text x={x} y={y}>{shortMapLabel(label, 28)}</text>;
 }
 
 function IncidentMapList({ models }: { models: IncidentMapModel[] }) {

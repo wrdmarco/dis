@@ -2964,7 +2964,7 @@ select[multiple] {
 
 .command-center-settings__row {
   display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) minmax(130px, 1fr) minmax(130px, 1fr) auto;
+  grid-template-columns: minmax(260px, 1.8fr) minmax(180px, 1.2fr) minmax(130px, 0.8fr) minmax(130px, 0.8fr) auto;
   gap: 10px;
   align-items: end;
   padding: 12px;
@@ -2976,6 +2976,7 @@ select[multiple] {
 }
 
 .command-center-settings__row label {
+  position: relative;
   display: grid;
   gap: 6px;
 }
@@ -2985,6 +2986,16 @@ select[multiple] {
   font-size: 0.78rem;
   font-weight: 820;
   text-transform: uppercase;
+}
+
+.command-center-settings__address {
+  min-width: 0;
+}
+
+.command-center-settings__suggestions {
+  top: calc(100% + 6px);
+  bottom: auto;
+  z-index: 30;
 }
 
 .operational-map {
