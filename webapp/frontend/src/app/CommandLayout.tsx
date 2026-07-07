@@ -78,6 +78,12 @@ const navGroups: NavGroup[] = [
       { to: '/system', label: 'Systeem', icon: Bell, permissions: ['system.health'] },
     ],
   },
+  {
+    label: 'Test',
+    items: [
+      { to: '/test', label: 'Test', icon: MapIcon, permissions: ['incidents.view'] },
+    ],
+  },
 ];
 
 const profileOnlyNavGroups: NavGroup[] = [
@@ -94,6 +100,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/dashboard': () => import('../features/dashboard/DashboardPage'),
   '/incidents': () => import('../features/incidents/IncidentsPage'),
   '/operational-map': () => import('../features/incidents/IncidentMapPage'),
+  '/test': () => import('../features/incidents/IncidentMapPage'),
   '/incidents/archive': () => import('../features/incidents/IncidentsPage'),
   '/operational-status': () => import('../features/status/StatusPage'),
   '/test-alert': () => import('../features/test-alerts/TestAlertPage'),
