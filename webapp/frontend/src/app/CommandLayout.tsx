@@ -100,7 +100,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/dashboard': () => import('../features/dashboard/DashboardPage'),
   '/incidents': () => import('../features/incidents/IncidentsPage'),
   '/operational-map': () => import('../features/incidents/IncidentMapPage'),
-  '/test': () => import('../features/incidents/IncidentMapPage'),
+  '/test': () => import('../features/test-map/TestMapPage'),
   '/incidents/archive': () => import('../features/incidents/IncidentsPage'),
   '/operational-status': () => import('../features/status/StatusPage'),
   '/test-alert': () => import('../features/test-alerts/TestAlertPage'),
