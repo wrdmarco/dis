@@ -60,6 +60,12 @@ interface PasswordPolicySettingsForm {
   uncompromised: boolean;
 }
 
+interface OperationalMapCommandCenterForm {
+  name: string;
+  latitude: string;
+  longitude: string;
+}
+
 const incidentTimelineVisibilityOptions = [
   { value: 'status', label: 'Incidentstatus' },
   { value: 'dispatch', label: 'Alarmeringen' },
@@ -134,9 +140,11 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const mobileSettings = useMemo(() => toMobileSettingsForm(settings.data ?? []), [settings.data]);
   const managedSettings = useMemo(() => toManagedSettingsForm(settings.data ?? []), [settings.data]);
   const passwordPolicySettings = useMemo(() => toPasswordPolicySettingsForm(settings.data ?? []), [settings.data]);
+  const operationalMapCommandCenters = useMemo(() => toOperationalMapCommandCenters(settings.data ?? []), [settings.data]);
   const [form, setForm] = useState<MobileSettingsForm>(mobileSettings);
   const [managedForm, setManagedForm] = useState<ManagedSettingsForm>(managedSettings);
   const [passwordPolicyForm, setPasswordPolicyForm] = useState<PasswordPolicySettingsForm>(passwordPolicySettings);
+  const [commandCenters, setCommandCenters] = useState<OperationalMapCommandCenterForm[]>(operationalMapCommandCenters);
   const [pilotReportFields, setPilotReportFields] = useState<PilotReportFormField[]>([]);
   const [incidentFormFields, setIncidentFormFields] = useState<ConfigurableFormField[]>([]);
   const [incidentFormLayout, setIncidentFormLayout] = useState<IncidentFormLayoutItem[]>(defaultIncidentFormLayout());
@@ -165,6 +173,9 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const [timelineVisibilitySaving, setTimelineVisibilitySaving] = useState(false);
   const [timelineVisibilityMessage, setTimelineVisibilityMessage] = useState<string | null>(null);
   const [timelineVisibilityError, setTimelineVisibilityError] = useState<string | null>(null);
+  const [commandCentersSaving, setCommandCentersSaving] = useState(false);
+  const [commandCentersMessage, setCommandCentersMessage] = useState<string | null>(null);
+  const [commandCentersError, setCommandCentersError] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(mobileSettings);
@@ -183,6 +194,10 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   useEffect(() => {
     setPasswordPolicyForm(passwordPolicySettings);
   }, [passwordPolicySettings]);
+
+  useEffect(() => {
+    setCommandCenters(operationalMapCommandCenters);
+  }, [operationalMapCommandCenters]);
 
   useEffect(() => {
     setPilotReportFields(pilotReportFormConfig.data?.fields ?? []);
@@ -472,6 +487,51 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     } finally {
       setTimelineVisibilitySaving(false);
     }
+  }
+
+  async function saveCommandCenters() {
+    setCommandCentersSaving(true);
+    setCommandCentersError(null);
+    setCommandCentersMessage(null);
+    try {
+      const cleaned = commandCenters
+        .map((center) => ({
+          name: center.name.trim(),
+          latitude: center.latitude.trim(),
+          longitude: center.longitude.trim(),
+        }))
+        .filter((center) => center.name !== '' || center.latitude !== '' || center.longitude !== '');
+
+      await api.patch('/admin/settings', {
+        settings: {
+          'operational_map.command_centers': cleaned.map((center) => ({
+            name: center.name,
+            latitude: Number(center.latitude.replace(',', '.')),
+            longitude: Number(center.longitude.replace(',', '.')),
+          })),
+        },
+      });
+      await settings.reload();
+      setCommandCentersMessage('Meldkamers zijn opgeslagen.');
+    } catch (error) {
+      setCommandCentersError(error instanceof ApiClientError ? error.message : 'Meldkamers opslaan mislukt.');
+    } finally {
+      setCommandCentersSaving(false);
+    }
+  }
+
+  function updateCommandCenter(index: number, field: keyof OperationalMapCommandCenterForm, value: string) {
+    setCommandCenters((current) => current.map((center, centerIndex) => (
+      centerIndex === index ? { ...center, [field]: value } : center
+    )));
+  }
+
+  function addCommandCenter() {
+    setCommandCenters((current) => [...current, { name: '', latitude: '', longitude: '' }]);
+  }
+
+  function removeCommandCenter(index: number) {
+    setCommandCenters((current) => current.filter((_, centerIndex) => centerIndex !== index));
   }
 
   async function updateToken(token: FcmToken, action: 'activate' | 'revoke') {
@@ -1308,6 +1368,16 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               error={timelineVisibilityError}
               onSave={saveTimelineVisibility}
             />
+            <OperationalMapCommandCenterSettings
+              commandCenters={commandCenters}
+              saving={commandCentersSaving}
+              message={commandCentersMessage}
+              error={commandCentersError}
+              onAdd={addCommandCenter}
+              onRemove={removeCommandCenter}
+              onSave={saveCommandCenters}
+              onUpdate={updateCommandCenter}
+            />
             <table className="data-table">
               <thead><tr><th>Key</th><th>Waarde</th></tr></thead>
               <tbody>
@@ -1362,6 +1432,73 @@ function IncidentTimelineVisibilitySettings(props: {
       </div>
       {props.error ? <p className="form-error">{props.error}</p> : null}
       {props.message ? <p className="success-text">{props.message}</p> : null}
+    </div>
+  );
+}
+
+function OperationalMapCommandCenterSettings(props: {
+  commandCenters: OperationalMapCommandCenterForm[];
+  saving: boolean;
+  message: string | null;
+  error: string | null;
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+  onSave: () => Promise<void>;
+  onUpdate: (index: number, field: keyof OperationalMapCommandCenterForm, value: string) => void;
+}) {
+  return (
+    <div className="stacked-section">
+      <div>
+        <h3>Meldkamers op operationele kaart</h3>
+        <p className="muted-text">Deze vlaggetjes staan standaard aan op de grote kaart. Gebruik echte, globale coördinaten van de meldkamerlocaties.</p>
+      </div>
+      <div className="command-center-settings">
+        {props.commandCenters.map((center, index) => (
+          <div className="command-center-settings__row" key={`command-center-${index}`}>
+            <label>
+              <span>Naam</span>
+              <input
+                type="text"
+                value={center.name}
+                placeholder="Meldkamer"
+                onChange={(event) => props.onUpdate(index, 'name', event.target.value)}
+              />
+            </label>
+            <label>
+              <span>Latitude</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={center.latitude}
+                placeholder="52.0907"
+                onChange={(event) => props.onUpdate(index, 'latitude', event.target.value)}
+              />
+            </label>
+            <label>
+              <span>Longitude</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={center.longitude}
+                placeholder="5.1214"
+                onChange={(event) => props.onUpdate(index, 'longitude', event.target.value)}
+              />
+            </label>
+            <button className="secondary-button" type="button" onClick={() => props.onRemove(index)} disabled={props.saving}>
+              Verwijderen
+            </button>
+          </div>
+        ))}
+        {props.commandCenters.length === 0 ? <p className="muted-text">Er zijn nog geen meldkamers ingesteld.</p> : null}
+      </div>
+      {props.error ? <p className="form-error">{props.error}</p> : null}
+      {props.message ? <p className="success-text">{props.message}</p> : null}
+      <div className="actions-row">
+        <button className="secondary-button" type="button" onClick={props.onAdd} disabled={props.saving}>Meldkamer toevoegen</button>
+        <button className="primary-button" type="button" onClick={() => void props.onSave()} disabled={props.saving}>
+          {props.saving ? 'Opslaan...' : 'Meldkamers opslaan'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -2531,6 +2668,27 @@ function toPasswordPolicySettingsForm(settings: SystemSetting[]): PasswordPolicy
     requiresSymbols: asBoolean(byKey.get('security.password_requires_symbols'), true),
     uncompromised: asBoolean(byKey.get('security.password_uncompromised'), true),
   };
+}
+
+function toOperationalMapCommandCenters(settings: SystemSetting[]): OperationalMapCommandCenterForm[] {
+  const value = settings.find((setting) => setting.key === 'operational_map.command_centers')?.value;
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    if (typeof item !== 'object' || item === null) {
+      return [];
+    }
+
+    const record = item as Record<string, unknown>;
+
+    return [{
+      name: typeof record.name === 'string' ? record.name : '',
+      latitude: record.latitude === undefined || record.latitude === null ? '' : String(record.latitude),
+      longitude: record.longitude === undefined || record.longitude === null ? '' : String(record.longitude),
+    }];
+  });
 }
 
 function incidentTimelineVisibleTypes(settings: SystemSetting[]): string[] {

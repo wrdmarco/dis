@@ -15,6 +15,7 @@ final class SystemSettingSeeder extends Seeder
         'dispatch.response_timeout_seconds' => ['value' => 300, 'is_sensitive' => false],
         'dispatch.escalation_enabled' => ['value' => true, 'is_sensitive' => false],
         'incident.timeline.app_visible_types' => ['value' => ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status'], 'is_sensitive' => false],
+        'operational_map.command_centers' => ['value' => [], 'is_sensitive' => false],
         'devices.heartbeat_interval_minutes' => ['value' => 15, 'is_sensitive' => false],
         'test_alert.schedule_enabled' => ['value' => false, 'is_sensitive' => false],
         'test_alert.schedule_day_of_week' => ['value' => 1, 'is_sensitive' => false],

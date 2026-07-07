@@ -170,6 +170,40 @@ export interface Incident {
   } | null;
 }
 
+export interface OperationalMapLayers {
+  command_centers: OperationalMapCommandCenter[];
+  historical_incidents: OperationalMapHistoricalIncident[];
+  pilot_homes: OperationalMapPilotHome[];
+}
+
+export interface OperationalMapCommandCenter {
+  id: string;
+  name: string;
+  latitude: number | string;
+  longitude: number | string;
+}
+
+export interface OperationalMapHistoricalIncident {
+  id: string;
+  reference: string;
+  title: string;
+  status: Incident['status'];
+  priority: Incident['priority'];
+  location_label?: string | null;
+  latitude: number | string;
+  longitude: number | string;
+  closed_at?: string | null;
+}
+
+export interface OperationalMapPilotHome {
+  id: string;
+  name: string;
+  home_city?: string | null;
+  latitude: number | string;
+  longitude: number | string;
+  teams: string[];
+}
+
 export interface IncidentInternalNotes {
   internal_notes?: string | null;
   updated_at?: string | null;

@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Maximize2, Minimize2, Navigation, RadioTower, RefreshCw, UsersRound } from 'lucide-react';
+import { ChevronDown, Flag, Home, Layers3, MapPin, Maximize2, Minimize2, Navigation, RadioTower, RefreshCw, UsersRound } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -8,23 +8,32 @@ import { ApiClientError } from '../../lib/apiClient';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
-import type { Incident, IncidentLiveLocation } from '../../types/api';
+import type { Incident, IncidentLiveLocation, OperationalMapLayers } from '../../types/api';
 
 const OPEN_INCIDENTS_PATH = '/incidents?status=draft,active,dispatching,in_progress';
+const MAP_LAYERS_PATH = '/operational-map/layers';
 const MAP_WIDTH = 1280;
 const MAP_HEIGHT = 720;
 const INCIDENT_COLORS = ['#7dd3fc', '#fbbf24', '#a7f3d0', '#fca5a5', '#c4b5fd', '#fdba74', '#93c5fd', '#f0abfc'];
 const NETHERLANDS_OVERVIEW_CENTER: MapPoint = { latitude: 52.1326, longitude: 5.2913 };
 const NETHERLANDS_OVERVIEW_VIEWPORT: MapViewport = { width: MAP_WIDTH, height: MAP_HEIGHT, zoom: 7 };
+const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
+  commandCenters: true,
+  historicalIncidents: false,
+  pilotHomes: false,
+};
 
 export function IncidentMapPage() {
   const { api } = useAuth();
   const incidents = useApiResource<Incident[]>(OPEN_INCIDENTS_PATH);
+  const mapLayers = useApiResource<OperationalMapLayers>(MAP_LAYERS_PATH);
   const fullscreenRootRef = useRef<HTMLDivElement | null>(null);
   const [locationsByIncident, setLocationsByIncident] = useState<Record<string, IncidentLiveLocation[]>>({});
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [fullscreenMode, setFullscreenMode] = useState<'none' | 'browser' | 'web'>('none');
+  const [layerVisibility, setLayerVisibility] = useState<MapLayerVisibility>(DEFAULT_LAYER_VISIBILITY);
+  const [layerFilterOpen, setLayerFilterOpen] = useState(false);
   const incidentItems = useMemo(() => incidents.data ?? [], [incidents.data]);
   const isFullscreen = fullscreenMode !== 'none';
 
@@ -105,6 +114,7 @@ export function IncidentMapPage() {
   }, []);
 
   const models = useMemo(() => buildIncidentMapModels(incidentItems, locationsByIncident), [incidentItems, locationsByIncident]);
+  const layerModels = useMemo(() => buildOperationalLayerModels(mapLayers.data), [mapLayers.data]);
   const summary = useMemo(() => ({
     incidents: models.length,
     liveUsers: models.reduce((total, model) => total + model.liveLocations.length, 0),
@@ -113,6 +123,7 @@ export function IncidentMapPage() {
 
   async function refresh() {
     await incidents.reload();
+    await mapLayers.reload();
     await loadLiveLocations(incidentItems);
   }
 
@@ -154,12 +165,58 @@ export function IncidentMapPage() {
 
   function handleRealtimeEvent() {
     void incidents.silentReload();
+    void mapLayers.silentReload();
     void loadLiveLocations(incidentItems, { silent: true });
+  }
+
+  function toggleLayer(layer: keyof MapLayerVisibility) {
+    setLayerVisibility((current) => ({
+      ...current,
+      [layer]: !current[layer],
+    }));
   }
 
   const panelAction = (
     <div className="operational-map__actions">
-      <button className="secondary-button" type="button" onClick={refresh} disabled={incidents.loading || locationsLoading}>
+      <div className="operational-map__layer-filter">
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => setLayerFilterOpen((open) => !open)}
+          aria-expanded={layerFilterOpen}
+          aria-haspopup="menu"
+        >
+          <Layers3 size={16} />
+          Lagen
+          <ChevronDown size={15} />
+        </button>
+        {layerFilterOpen ? (
+          <div className="operational-map__layer-menu" role="menu">
+            <LayerToggle
+              checked={layerVisibility.commandCenters}
+              icon={<Flag size={16} />}
+              label="Meldkamers"
+              count={layerModels.commandCenters.length}
+              onChange={() => toggleLayer('commandCenters')}
+            />
+            <LayerToggle
+              checked={layerVisibility.historicalIncidents}
+              icon={<MapPin size={16} />}
+              label="Eerdere inzetten"
+              count={layerModels.historicalIncidents.length}
+              onChange={() => toggleLayer('historicalIncidents')}
+            />
+            <LayerToggle
+              checked={layerVisibility.pilotHomes}
+              icon={<Home size={16} />}
+              label="Woonplaatsen piloten"
+              count={layerModels.pilotHomes.length}
+              onChange={() => toggleLayer('pilotHomes')}
+            />
+          </div>
+        ) : null}
+      </div>
+      <button className="secondary-button" type="button" onClick={refresh} disabled={incidents.loading || mapLayers.loading || locationsLoading}>
         <RefreshCw size={16} />
         Verversen
       </button>
@@ -174,7 +231,7 @@ export function IncidentMapPage() {
     <div ref={fullscreenRootRef} className={`page-stack operational-map-page ${isFullscreen ? 'operational-map-page--fullscreen' : ''} ${fullscreenMode === 'browser' ? 'operational-map-page--browser-fullscreen' : ''}`}>
       <RealtimeBridge onOperationalEvent={handleRealtimeEvent} />
       <Panel title="Operationele kaart" action={panelAction}>
-        <ResourceState loading={incidents.loading && models.length === 0} error={incidents.error} empty={false}>
+        <ResourceState loading={(incidents.loading && models.length === 0) || (mapLayers.loading && mapLayers.data == null)} error={incidents.error ?? mapLayers.error} empty={false}>
           <div className="operational-map">
             {locationError ? <p className="form-error">{locationError}</p> : null}
             <div className="operational-map__livebar" aria-live="polite">
@@ -187,7 +244,7 @@ export function IncidentMapPage() {
               <SummaryItem icon={<Navigation size={18} />} label="Live op kaart" value={String(summary.liveUsers)} />
               <SummaryItem icon={<UsersRound size={18} />} label="Gekoppelde gebruikers" value={String(summary.linkedUsers)} />
             </div>
-            <OperationsMap models={models} />
+            <OperationsMap models={models} layers={layerModels} layerVisibility={layerVisibility} />
             <IncidentMapList models={models} />
           </div>
         </ResourceState>
@@ -196,14 +253,28 @@ export function IncidentMapPage() {
   );
 }
 
-function OperationsMap({ models }: { models: IncidentMapModel[] }) {
+function OperationsMap({
+  models,
+  layers,
+  layerVisibility,
+}: {
+  models: IncidentMapModel[];
+  layers: OperationalLayerModels;
+  layerVisibility: MapLayerVisibility;
+}) {
   const points = models.flatMap((model) => [
     ...(model.incidentPoint ? [model.incidentPoint] : []),
     ...model.liveLocations,
   ]);
-  const hasOperationalPoints = points.length > 0;
-  const viewport = hasOperationalPoints ? mapViewport(points) : NETHERLANDS_OVERVIEW_VIEWPORT;
-  const center = hasOperationalPoints ? centerFor(points) : NETHERLANDS_OVERVIEW_CENTER;
+  const visibleLayerPoints = [
+    ...(layerVisibility.commandCenters ? layers.commandCenters : []),
+    ...(layerVisibility.historicalIncidents ? layers.historicalIncidents : []),
+    ...(layerVisibility.pilotHomes ? layers.pilotHomes : []),
+  ];
+  const allPoints = [...points, ...visibleLayerPoints];
+  const hasOperationalPoints = allPoints.length > 0;
+  const viewport = hasOperationalPoints ? mapViewport(allPoints) : NETHERLANDS_OVERVIEW_VIEWPORT;
+  const center = hasOperationalPoints ? centerFor(allPoints) : NETHERLANDS_OVERVIEW_CENTER;
   const centerWorld = latLonToWorld(center.latitude, center.longitude, viewport.zoom);
   const tiles = visibleTiles(centerWorld, viewport);
 
@@ -275,6 +346,15 @@ function OperationsMap({ models }: { models: IncidentMapModel[] }) {
             type="user"
           />
         )))}
+        {layerVisibility.commandCenters ? layers.commandCenters.map((centerPoint) => (
+          <CommandCenterMarker key={centerPoint.id} point={centerPoint} centerWorld={centerWorld} viewport={viewport} />
+        )) : null}
+        {layerVisibility.historicalIncidents ? layers.historicalIncidents.map((incident) => (
+          <HistoricalIncidentMarker key={incident.id} point={incident} centerWorld={centerWorld} viewport={viewport} />
+        )) : null}
+        {layerVisibility.pilotHomes ? layers.pilotHomes.map((homePoint) => (
+          <PilotHomeMarker key={homePoint.id} point={homePoint} centerWorld={centerWorld} viewport={viewport} />
+        )) : null}
       </svg>
       {models.length === 0 ? (
         <div className="operational-map__empty-state">
@@ -283,6 +363,30 @@ function OperationsMap({ models }: { models: IncidentMapModel[] }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function LayerToggle({
+  checked,
+  icon,
+  label,
+  count,
+  onChange,
+}: {
+  checked: boolean;
+  icon: ReactNode;
+  label: string;
+  count: number;
+  onChange: () => void;
+}) {
+  return (
+    <label className="operational-map__layer-option" role="menuitemcheckbox" aria-checked={checked}>
+      <input type="checkbox" checked={checked} onChange={onChange} />
+      <span className="operational-map__layer-check" aria-hidden />
+      <span className="operational-map__layer-icon" aria-hidden>{icon}</span>
+      <span>{label}</span>
+      <small>{count}</small>
+    </label>
   );
 }
 
@@ -314,6 +418,75 @@ function MapMarker({
       <text x={labelX} y={labelY} textAnchor={labelAnchor}>{shortMapLabel(label, type === 'incident' ? 38 : 26)}</text>
     </g>
   );
+}
+
+function CommandCenterMarker({
+  point,
+  centerWorld,
+  viewport,
+}: {
+  point: CommandCenterMapPoint;
+  centerWorld: WorldPoint;
+  viewport: MapViewport;
+}) {
+  const position = markerPosition(point, centerWorld, viewport);
+
+  return (
+    <g className="operational-map__marker operational-map__marker--command-center">
+      <title>{point.name}</title>
+      <line x1={position.x} y1={position.y - 24} x2={position.x} y2={position.y + 14} />
+      <path d={`M ${position.x} ${position.y - 24} L ${position.x + 27} ${position.y - 18} L ${position.x} ${position.y - 10} Z`} />
+      <circle cx={position.x} cy={position.y + 14} r="5" />
+      <LayerMarkerLabel x={position.x + 16} y={position.y - 1} label={point.name} />
+    </g>
+  );
+}
+
+function HistoricalIncidentMarker({
+  point,
+  centerWorld,
+  viewport,
+}: {
+  point: HistoricalIncidentMapPoint;
+  centerWorld: WorldPoint;
+  viewport: MapViewport;
+}) {
+  const position = markerPosition(point, centerWorld, viewport);
+
+  return (
+    <g className="operational-map__marker operational-map__marker--historical">
+      <title>{`${point.reference} - ${point.title}`}</title>
+      <path d={`M ${position.x} ${position.y - 22} C ${position.x - 13} ${position.y - 22}, ${position.x - 18} ${position.y - 7}, ${position.x} ${position.y + 18} C ${position.x + 18} ${position.y - 7}, ${position.x + 13} ${position.y - 22}, ${position.x} ${position.y - 22} Z`} />
+      <circle cx={position.x} cy={position.y - 8} r="6" />
+      <LayerMarkerLabel x={position.x + 18} y={position.y + 2} label={point.title} />
+    </g>
+  );
+}
+
+function PilotHomeMarker({
+  point,
+  centerWorld,
+  viewport,
+}: {
+  point: PilotHomeMapPoint;
+  centerWorld: WorldPoint;
+  viewport: MapViewport;
+}) {
+  const position = markerPosition(point, centerWorld, viewport);
+  const label = point.homeCity ? `${point.name} - ${point.homeCity}` : point.name;
+
+  return (
+    <g className="operational-map__marker operational-map__marker--pilot-home">
+      <title>{label}</title>
+      <path d={`M ${position.x - 17} ${position.y - 4} L ${position.x} ${position.y - 19} L ${position.x + 17} ${position.y - 4}`} />
+      <path d={`M ${position.x - 12} ${position.y - 3} L ${position.x - 12} ${position.y + 15} L ${position.x + 12} ${position.y + 15} L ${position.x + 12} ${position.y - 3} Z`} />
+      <LayerMarkerLabel x={position.x + 19} y={position.y + 6} label={point.name} />
+    </g>
+  );
+}
+
+function LayerMarkerLabel({ x, y, label }: { x: number; y: number; label: string }) {
+  return <text x={x} y={y}>{shortMapLabel(label, 28)}</text>;
 }
 
 function IncidentMapList({ models }: { models: IncidentMapModel[] }) {
@@ -357,14 +530,77 @@ interface IncidentMapModel {
   liveLocations: UserMapPoint[];
 }
 
+interface MapLayerVisibility {
+  commandCenters: boolean;
+  historicalIncidents: boolean;
+  pilotHomes: boolean;
+}
+
+interface OperationalLayerModels {
+  commandCenters: CommandCenterMapPoint[];
+  historicalIncidents: HistoricalIncidentMapPoint[];
+  pilotHomes: PilotHomeMapPoint[];
+}
+
 interface MapPoint {
   latitude: number;
   longitude: number;
 }
 
+interface CommandCenterMapPoint extends MapPoint {
+  id: string;
+  name: string;
+}
+
+interface HistoricalIncidentMapPoint extends MapPoint {
+  id: string;
+  reference: string;
+  title: string;
+}
+
+interface PilotHomeMapPoint extends MapPoint {
+  id: string;
+  name: string;
+  homeCity: string | null;
+}
+
 interface UserMapPoint extends MapPoint {
   userId: string;
   name: string;
+}
+
+function buildOperationalLayerModels(layers: OperationalMapLayers | null): OperationalLayerModels {
+  return {
+    commandCenters: (layers?.command_centers ?? []).flatMap((center) => {
+      const point = coordinatePoint(center.latitude, center.longitude);
+      return point === null ? [] : [{
+        id: center.id,
+        name: center.name,
+        latitude: point.latitude,
+        longitude: point.longitude,
+      }];
+    }),
+    historicalIncidents: (layers?.historical_incidents ?? []).flatMap((incident) => {
+      const point = coordinatePoint(incident.latitude, incident.longitude);
+      return point === null ? [] : [{
+        id: incident.id,
+        reference: incident.reference,
+        title: incident.title,
+        latitude: point.latitude,
+        longitude: point.longitude,
+      }];
+    }),
+    pilotHomes: (layers?.pilot_homes ?? []).flatMap((home) => {
+      const point = coordinatePoint(home.latitude, home.longitude);
+      return point === null ? [] : [{
+        id: home.id,
+        name: home.name,
+        homeCity: home.home_city ?? null,
+        latitude: point.latitude,
+        longitude: point.longitude,
+      }];
+    }),
+  };
 }
 
 function buildIncidentMapModels(incidents: Incident[], locationsByIncident: Record<string, IncidentLiveLocation[]>): IncidentMapModel[] {

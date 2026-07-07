@@ -19,6 +19,7 @@ use App\Http\Controllers\IncidentController;
 use App\Http\Controllers\IncidentFormController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MobileConfigController;
+use App\Http\Controllers\OperationalMapController;
 use App\Http\Controllers\PasswordController;
 use App\Http\Controllers\PilotIncidentReportController;
 use App\Http\Controllers\RegistrationController;
@@ -90,6 +91,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::patch('/test-alert/schedule', [TestAlertController::class, 'updateSchedule'])->middleware('permission:dispatch.manage');
 
     Route::get('/incidents', [IncidentController::class, 'index'])->middleware('permission:incidents.view');
+    Route::get('/operational-map/layers', [OperationalMapController::class, 'layers'])->middleware('permission:incidents.view');
     Route::post('/incidents', [IncidentController::class, 'store'])->middleware('permission:incidents.manage');
     Route::get('/incident-form/config', [IncidentFormController::class, 'show'])->middleware('permission:incidents.view');
     Route::post('/incidents/flight-context-preview', [IncidentController::class, 'flightContextPreview'])->middleware('permission:incidents.manage');

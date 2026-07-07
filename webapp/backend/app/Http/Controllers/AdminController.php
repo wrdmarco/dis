@@ -401,6 +401,7 @@ final class AdminController extends Controller
             'software.download.admin_android.app_store_url',
             'software.download.operator_ios.app_store_url' => $this->validateNullableUrlSetting($key, $value, 2048),
             'incident.timeline.app_visible_types' => $this->validateStringArraySetting($key, $value, ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status', 'audit']),
+            'operational_map.command_centers' => $this->validateOperationalMapCommandCenters($key, $value),
             default => throw ValidationException::withMessages(["settings.$key" => ['Deze instelling mag niet via deze pagina worden aangepast.']]),
         };
     }
@@ -579,6 +580,45 @@ final class AdminController extends Controller
         }
 
         return $integer;
+    }
+
+    /**
+     * @return list<array{name: string, latitude: float, longitude: float}>
+     */
+    private function validateOperationalMapCommandCenters(string $key, mixed $value): array
+    {
+        if (! is_array($value)) {
+            throw ValidationException::withMessages(["settings.$key" => ['De meldkamers moeten als lijst worden opgeslagen.']]);
+        }
+
+        $centers = [];
+        foreach ($value as $index => $center) {
+            if (! is_array($center)) {
+                throw ValidationException::withMessages(["settings.$key.$index" => ['Elke meldkamer moet naam, latitude en longitude bevatten.']]);
+            }
+
+            $name = trim((string) ($center['name'] ?? ''));
+            $latitude = $center['latitude'] ?? null;
+            $longitude = $center['longitude'] ?? null;
+
+            if ($name === '' || ! is_numeric($latitude) || ! is_numeric($longitude)) {
+                throw ValidationException::withMessages(["settings.$key.$index" => ['Elke meldkamer moet naam, latitude en longitude bevatten.']]);
+            }
+
+            $lat = (float) $latitude;
+            $lon = (float) $longitude;
+            if ($lat < -90 || $lat > 90 || $lon < -180 || $lon > 180) {
+                throw ValidationException::withMessages(["settings.$key.$index" => ['De coördinaten van een meldkamer zijn ongeldig.']]);
+            }
+
+            $centers[] = [
+                'name' => mb_substr($name, 0, 160),
+                'latitude' => round($lat, 7),
+                'longitude' => round($lon, 7),
+            ];
+        }
+
+        return $centers;
     }
 
     private function validateBooleanSetting(string $key, mixed $value): bool
