@@ -20,6 +20,7 @@ use App\Http\Controllers\IncidentController;
 use App\Http\Controllers\IncidentFormController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MobileConfigController;
+use App\Http\Controllers\MobilePairingController;
 use App\Http\Controllers\OperationalMapController;
 use App\Http\Controllers\PasswordController;
 use App\Http\Controllers\PilotIncidentReportController;
@@ -39,6 +40,7 @@ use Illuminate\Support\Facades\Route;
 Broadcast::routes(['middleware' => ['auth:sanctum', 'operational']]);
 
 Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
+Route::post('/auth/mobile-pairing/consume', [MobilePairingController::class, 'consume'])->middleware('throttle:login');
 Route::post('/auth/password/forgot', [PasswordController::class, 'forgot'])->middleware('throttle:password-reset');
 Route::post('/auth/password/reset', [PasswordController::class, 'reset'])->middleware('throttle:password-reset');
 Route::get('/registration/invite', [RegistrationController::class, 'show'])->middleware('throttle:api');
@@ -69,6 +71,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::middleware('two_factor.complete')->group(function (): void {
         Route::post('/auth/2fa/disable', [AuthController::class, 'disableTwoFactor'])->middleware('throttle:two-factor');
         Route::get('/software/download-options', [UpdateController::class, 'downloadOptions']);
+        Route::post('/auth/mobile-pairing', [MobilePairingController::class, 'create'])->middleware('throttle:api');
 
         Route::get('/users', [UserController::class, 'index'])->middleware('permission:users.view');
         Route::post('/users', [UserController::class, 'store'])->middleware('permission:users.manage');

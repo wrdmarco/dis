@@ -1,9 +1,10 @@
 import { Download, ShieldCheck, Smartphone, Store } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { apiBaseUrl } from '../../lib/apiClient';
-import type { AppVersion, ApiResponse, SoftwareDownloadChannelOptions, SoftwareDownloadOptions } from '../../types/api';
+import type { ApiClient } from '../../lib/apiClient';
+import type { AppVersion, ApiResponse, MobilePairingClientType, MobilePairingCode, SoftwareDownloadChannelOptions, SoftwareDownloadOptions } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 
 interface AndroidUpdatePolicy {
@@ -90,7 +91,7 @@ export function AndroidDownloadPage() {
         {!loading && !error ? (
           <div className="download-channel-list">
             {channels.map((channel) => (
-              <DownloadChannelCard key={channel.key} channel={channel} options={downloadOptions[channel.key]} />
+              <DownloadChannelCard key={channel.key} api={api} channel={channel} options={downloadOptions[channel.key]} />
             ))}
           </div>
         ) : null}
@@ -140,7 +141,7 @@ async function loadChannel(platform: 'android' | 'ios', key: string, title: stri
   return { key, title, access, platform, applicationId, latest: payload.data.latest };
 }
 
-function DownloadChannelCard({ channel, options }: { channel: Channel; options?: SoftwareDownloadChannelOptions }) {
+function DownloadChannelCard({ api, channel, options }: { api: ApiClient; channel: Channel; options?: SoftwareDownloadChannelOptions }) {
   const latest = channel.latest;
   const source = options?.source ?? 'direct';
   const appStoreUrl = options?.app_store_url?.trim() ?? '';
@@ -192,9 +193,151 @@ function DownloadChannelCard({ channel, options }: { channel: Channel; options?:
           <TotpQrCode value={qrUrl} alt={`QR-code download ${channel.title}`} helpText="Scan om de downloadlink te openen." />
         </div>
       ) : null}
+      <MobilePairingPanel api={api} channel={channel} />
       {!canDownload ? <p className="public-download-panel__status">{missingDownloadText(source, latest)}</p> : null}
     </div>
   );
+}
+
+function MobilePairingPanel({ api, channel }: { api: ApiClient; channel: Channel }) {
+  const clientType = pairingClientType(channel);
+  const [enabled, setEnabled] = useState(false);
+  const [pairing, setPairing] = useState<MobilePairingCode | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+
+  const loadPairing = useCallback(async () => {
+    if (clientType === null) {
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await api.post<MobilePairingCode>('/auth/mobile-pairing', { client_type: clientType });
+      setPairing(response.data);
+      setSecondsLeft(response.data.ttl_seconds);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Koppelcode kon niet worden gemaakt.');
+    } finally {
+      setLoading(false);
+    }
+  }, [api, clientType]);
+
+  useEffect(() => {
+    if (!enabled || clientType === null) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let refreshTimer: number | undefined;
+
+    async function refreshCode() {
+      if (cancelled) {
+        return;
+      }
+      await loadPairing();
+    }
+
+    void refreshCode();
+    refreshTimer = window.setInterval(() => void refreshCode(), 15_000);
+
+    return () => {
+      cancelled = true;
+      if (refreshTimer !== undefined) {
+        window.clearInterval(refreshTimer);
+      }
+    };
+  }, [clientType, enabled, loadPairing]);
+
+  useEffect(() => {
+    if (!enabled || pairing === null) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      const nextSeconds = Math.max(0, Math.ceil((new Date(pairing.expires_at).getTime() - Date.now()) / 1000));
+      setSecondsLeft(nextSeconds);
+    }, 500);
+
+    return () => window.clearInterval(timer);
+  }, [enabled, pairing]);
+
+  if (clientType === null) {
+    return null;
+  }
+
+  if (!enabled) {
+    return (
+      <div className="mobile-pairing">
+        <div>
+          <span>App koppelen</span>
+          <strong>{channel.title}</strong>
+          <p>Koppel dit account aan de mobiele app met een eenmalige code.</p>
+        </div>
+        <button className="secondary-button" type="button" onClick={() => setEnabled(true)}>
+          Koppelcode tonen
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mobile-pairing mobile-pairing--active">
+      <div className="mobile-pairing__header">
+        <div>
+          <span>App koppelen</span>
+          <strong>{channel.title}</strong>
+          <p>Deze code vernieuwt automatisch elke 15 seconden.</p>
+        </div>
+        <button className="secondary-button" type="button" onClick={() => void loadPairing()} disabled={loading}>
+          Vernieuwen
+        </button>
+      </div>
+      {error ? <p className="form-error">{error}</p> : null}
+      {pairing ? (
+        <div className="mobile-pairing__grid">
+          <div className="mobile-pairing__manual">
+            <span>Handmatig koppelen</span>
+            <label>
+              Server
+              <input value={pairing.server_url} readOnly onFocus={(event) => event.currentTarget.select()} />
+            </label>
+            <label>
+              Koppelcode
+              <input className="mono" value={pairing.code} readOnly onFocus={(event) => event.currentTarget.select()} />
+            </label>
+            <small>Nog {secondsLeft} seconden geldig.</small>
+            <a className="primary-button" href={pairing.deeplink_url}>
+              Open app en koppel dit toestel
+            </a>
+          </div>
+          <div className="mobile-pairing__qr">
+            <TotpQrCode value={pairing.qr_payload} alt={`QR-code app koppelen ${channel.title}`} helpText="Scan deze QR-code in de mobiele app." />
+          </div>
+        </div>
+      ) : (
+        <p className="public-download-panel__status">{loading ? 'Koppelcode maken...' : 'Nog geen koppelcode gemaakt.'}</p>
+      )}
+    </div>
+  );
+}
+
+function pairingClientType(channel: Channel): MobilePairingClientType | null {
+  if (channel.key === 'operator-android') {
+    return 'operator_android';
+  }
+
+  if (channel.key === 'admin-android') {
+    return 'admin_android';
+  }
+
+  if (channel.key === 'operator-ios') {
+    return 'operator_ios';
+  }
+
+  return null;
 }
 
 function storeLabel(platform: Channel['platform']): string {

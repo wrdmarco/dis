@@ -7833,3 +7833,85 @@ pre {
   background-image: none !important;
   color: var(--dis-text) !important;
 }
+
+.mobile-pairing {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--dis-border, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dis-surface-muted, var(--surface-muted)) 72%, transparent);
+}
+
+.mobile-pairing > div > span,
+.mobile-pairing__header span,
+.mobile-pairing__manual > span {
+  display: block;
+  color: var(--dis-muted, var(--muted));
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.mobile-pairing strong {
+  display: block;
+  margin-top: 2px;
+}
+
+.mobile-pairing p,
+.mobile-pairing small {
+  margin: 4px 0 0;
+  color: var(--dis-muted, var(--muted));
+}
+
+.mobile-pairing--active {
+  background: color-mix(in srgb, var(--dis-surface, var(--surface)) 88%, var(--dis-blue, var(--accent)) 12%);
+}
+
+.mobile-pairing__header,
+.mobile-pairing__grid {
+  display: grid;
+  gap: 12px;
+}
+
+.mobile-pairing__header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.mobile-pairing__grid {
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  align-items: start;
+}
+
+.mobile-pairing__manual {
+  display: grid;
+  gap: 10px;
+}
+
+.mobile-pairing__manual label {
+  display: grid;
+  gap: 5px;
+  color: var(--dis-text-strong, var(--text));
+  font-weight: 700;
+}
+
+.mobile-pairing__manual input {
+  width: 100%;
+}
+
+.mobile-pairing__qr {
+  display: flex;
+  justify-content: center;
+}
+
+@media (max-width: 720px) {
+  .mobile-pairing__header,
+  .mobile-pairing__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mobile-pairing__header .secondary-button {
+    width: 100%;
+  }
+}

@@ -528,6 +528,20 @@ export interface SoftwareDownloadOptions {
   channels: Record<string, SoftwareDownloadChannelOptions>;
 }
 
+export type MobilePairingClientType = 'operator_android' | 'operator_ios' | 'admin_android';
+
+export interface MobilePairingCode {
+  id: string;
+  server_url: string;
+  api_base_url: string;
+  client_type: MobilePairingClientType;
+  code: string;
+  expires_at: string;
+  ttl_seconds: number;
+  deeplink_url: string;
+  qr_payload: string;
+}
+
 export interface DeveloperAccessState {
   enabled: boolean;
   configured: boolean;
