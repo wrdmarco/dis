@@ -1,15 +1,16 @@
-import { FormEvent, useEffect, useState } from 'react';
-import { KeyRound, ShieldCheck, Trash2, X } from 'lucide-react';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { KeyRound, Plus, RefreshCw, ShieldCheck, Smartphone, Tablet, Trash2, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { ApiClientError } from '../../lib/apiClient';
+import { formatDateTime } from '../../lib/dateTime';
 import { droneTypeLabel } from '../../lib/droneTypes';
 import { countryOptions, regionOptionsForCountry } from '../../lib/profileLocation';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { Asset, AvailabilityOverride, AvailabilitySchedule, AvailabilityScheduleDay, Certification, DroneType, TwoFactorSetup, UserCertification } from '../../types/api';
+import type { Asset, AvailabilityOverride, AvailabilitySchedule, AvailabilityScheduleDay, Certification, DroneType, FcmToken, MobilePairingClientType, MobilePairingCode, TwoFactorSetup, User, UserCertification } from '../../types/api';
 
 type OwnAssetStatus = 'ready' | 'maintenance' | 'unavailable';
 type AvailabilityDayPart = NonNullable<AvailabilityOverride['day_part']>;
@@ -23,6 +24,12 @@ interface ProfileFormState {
   homeCity: string;
   homeRegion: string;
   homeCountry: string;
+}
+
+interface PairingClientOption {
+  value: MobilePairingClientType;
+  label: string;
+  description: string;
 }
 
 const emptyProfileForm: ProfileFormState = {
@@ -63,6 +70,7 @@ function emptyCertificationForm() {
 export function ProfilePage() {
   const { api, user, theme, setThemePreference, startTwoFactorSetup, enableTwoFactor, disableTwoFactor, refreshMe } = useAuth();
   const assets = useApiResource<Asset[]>('/assets/mine');
+  const devices = useApiResource<FcmToken[]>('/devices');
   const schedule = useApiResource<AvailabilitySchedule>('/availability-schedule/me');
   const droneTypes = useApiResource<DroneType[]>('/drone-types');
   const certificationOptions = useApiResource<Certification[]>('/certifications/options');
@@ -73,13 +81,20 @@ export function ProfilePage() {
   const [disableCode, setDisableCode] = useState('');
   const [workPlanOpen, setWorkPlanOpen] = useState(false);
   const [workPlanDraft, setWorkPlanDraft] = useState<AvailabilityScheduleDay[] | null>(null);
+  const [addDeviceOpen, setAddDeviceOpen] = useState(false);
+  const [deviceToDelete, setDeviceToDelete] = useState<FcmToken | null>(null);
   const [profileForm, setProfileForm] = useState<ProfileFormState>(emptyProfileForm);
   const [assetForm, setAssetForm] = useState(emptyAssetForm());
   const [certificationForm, setCertificationForm] = useState(emptyCertificationForm());
+  const [pairingClientType, setPairingClientType] = useState<MobilePairingClientType | ''>('');
+  const [pairing, setPairing] = useState<MobilePairingCode | null>(null);
+  const [pairingSecondsLeft, setPairingSecondsLeft] = useState(0);
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingAsset, setSavingAsset] = useState(false);
   const [savingCertification, setSavingCertification] = useState(false);
+  const [savingDeviceId, setSavingDeviceId] = useState<string | null>(null);
+  const [pairingLoading, setPairingLoading] = useState(false);
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [themeSaving, setThemeSaving] = useState(false);
@@ -94,11 +109,15 @@ export function ProfilePage() {
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [assetMessage, setAssetMessage] = useState<string | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
+  const [deviceMessage, setDeviceMessage] = useState<string | null>(null);
+  const [deviceError, setDeviceError] = useState<string | null>(null);
+  const [pairingError, setPairingError] = useState<string | null>(null);
   const [certificationMessage, setCertificationMessage] = useState<string | null>(null);
   const [certificationError, setCertificationError] = useState<string | null>(null);
   const selectedAssetDroneType = droneTypes.data?.find((type) => type.id === assetForm.droneTypeId) ?? null;
   const assetSupportsSpotlight = assetForm.type === 'drone' && selectedAssetDroneType?.has_spotlight === true;
   const assetSupportsSpeaker = assetForm.type === 'drone' && selectedAssetDroneType?.has_speaker === true;
+  const pairingOptions = pairingClientOptions(user);
 
   const mfaRequired = user?.mfa_required === true;
 
@@ -125,6 +144,63 @@ export function ProfilePage() {
       homeCountry: user.home_country ?? 'NL',
     });
   }, [user]);
+
+  const loadPairingCode = useCallback(async (clientType: MobilePairingClientType | '') => {
+    if (clientType === '') {
+      return;
+    }
+
+    setPairingLoading(true);
+    setPairingError(null);
+    try {
+      const response = await api.post<MobilePairingCode>('/auth/mobile-pairing', { client_type: clientType });
+      setPairing(response.data);
+      setPairingSecondsLeft(response.data.ttl_seconds);
+    } catch (err) {
+      setPairingError(err instanceof ApiClientError ? err.message : 'Koppelcode kon niet worden gemaakt.');
+    } finally {
+      setPairingLoading(false);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    if (!addDeviceOpen || pairingClientType === '') {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let refreshTimer: number | undefined;
+
+    async function refreshPairingCode() {
+      if (cancelled) {
+        return;
+      }
+      await loadPairingCode(pairingClientType);
+    }
+
+    void refreshPairingCode();
+    refreshTimer = window.setInterval(() => void refreshPairingCode(), 15_000);
+
+    return () => {
+      cancelled = true;
+      if (refreshTimer !== undefined) {
+        window.clearInterval(refreshTimer);
+      }
+    };
+  }, [addDeviceOpen, loadPairingCode, pairingClientType]);
+
+  useEffect(() => {
+    if (!addDeviceOpen || pairing === null) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      const nextSeconds = Math.max(0, Math.ceil((new Date(pairing.expires_at).getTime() - Date.now()) / 1000));
+      setPairingSecondsLeft(nextSeconds);
+    }, 500);
+
+    return () => window.clearInterval(timer);
+  }, [addDeviceOpen, pairing]);
 
   async function startSetup() {
     setBusy(true);
@@ -397,6 +473,50 @@ export function ProfilePage() {
     }
   }
 
+  function openAddDeviceModal() {
+    setDeviceError(null);
+    setDeviceMessage(null);
+    setPairingError(null);
+    setPairing(null);
+    setPairingSecondsLeft(0);
+    setPairingClientType(pairingOptions[0]?.value ?? '');
+    setAddDeviceOpen(true);
+  }
+
+  function closeAddDeviceModal() {
+    setAddDeviceOpen(false);
+    setPairing(null);
+    setPairingError(null);
+    setPairingSecondsLeft(0);
+    void devices.reload();
+    void refreshMe();
+  }
+
+  async function refreshPairingCodeManually() {
+    await loadPairingCode(pairingClientType);
+  }
+
+  async function confirmDeleteDevice() {
+    if (deviceToDelete === null) {
+      return;
+    }
+
+    setSavingDeviceId(deviceToDelete.id);
+    setDeviceError(null);
+    setDeviceMessage(null);
+    try {
+      await api.delete<null>(`/devices/fcm-token/${deviceToDelete.id}`);
+      devices.mutate((current) => current?.filter((token) => token.id !== deviceToDelete.id) ?? []);
+      await Promise.all([devices.reload(), refreshMe()]);
+      setDeviceMessage('Toestel verwijderd.');
+      setDeviceToDelete(null);
+    } catch (err) {
+      setDeviceError(err instanceof ApiClientError ? err.message : 'Toestel kon niet worden verwijderd.');
+    } finally {
+      setSavingDeviceId(null);
+    }
+  }
+
   function setCertificationFormFromCertification(certification: UserCertification) {
     setCertificationError(null);
     setCertificationMessage(null);
@@ -502,6 +622,139 @@ export function ProfilePage() {
           </div>
         </form>
       </Panel>
+
+      <Panel title="Mijn toestellen">
+        <div className="device-management-card">
+          <div>
+            <strong>Gekoppelde toestellen</strong>
+            <p>Beheer de mobiele toestellen die pushmeldingen voor jouw account mogen ontvangen.</p>
+          </div>
+          <button className="primary-button" type="button" onClick={openAddDeviceModal}>
+            <Plus size={16} /> Toestel toevoegen
+          </button>
+        </div>
+        {deviceError ? <p className="form-error">{deviceError}</p> : null}
+        {deviceMessage ? <p className="form-note">{deviceMessage}</p> : null}
+        <DeviceCards
+          devices={devices.data ?? []}
+          loading={devices.loading}
+          error={devices.error}
+          busyDeviceId={savingDeviceId}
+          onDelete={(device) => setDeviceToDelete(device)}
+        />
+      </Panel>
+
+      {addDeviceOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal device-pairing-modal" role="dialog" aria-modal="true" aria-labelledby="device-pairing-title">
+            <header className="modal__header">
+              <div>
+                <span className="modal__eyebrow">Profiel</span>
+                <h2 id="device-pairing-title">Toestel toevoegen</h2>
+              </div>
+              <button className="icon-button" type="button" onClick={closeAddDeviceModal} aria-label="Sluiten">
+                <X size={18} />
+              </button>
+            </header>
+            <div className="device-pairing-body">
+              {pairingOptions.length === 0 ? (
+                <p className="form-error">Je account heeft geen toegang tot de mobiele operator- of admin app.</p>
+              ) : (
+                <>
+                  <div className="device-pairing-intro">
+                    <Smartphone aria-hidden size={20} />
+                    <div>
+                      <strong>Open de mobiele app en scan de QR-code.</strong>
+                      <span>De code is eenmalig en wordt automatisch vernieuwd.</span>
+                    </div>
+                  </div>
+                  <label>
+                    App
+                    <select
+                      value={pairingClientType}
+                      onChange={(event) => {
+                        const nextClientType = event.target.value as MobilePairingClientType;
+                        setPairingClientType(nextClientType);
+                        setPairing(null);
+                        setPairingError(null);
+                        setPairingSecondsLeft(0);
+                      }}
+                    >
+                      {pairingOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    <small>{pairingOptions.find((option) => option.value === pairingClientType)?.description}</small>
+                  </label>
+                  {pairingError ? <p className="form-error">{pairingError}</p> : null}
+                  {pairing ? (
+                    <div className="device-pairing-grid">
+                      <div className="device-pairing-manual">
+                        <span>Handmatig koppelen</span>
+                        <label>
+                          Server
+                          <input value={pairing.server_url} readOnly onFocus={(event) => event.currentTarget.select()} />
+                        </label>
+                        <label>
+                          Koppelcode
+                          <input className="mono" value={pairing.code} readOnly onFocus={(event) => event.currentTarget.select()} />
+                        </label>
+                        <small>Nog {pairingSecondsLeft} seconden geldig.</small>
+                        <a className="primary-button" href={pairing.deeplink_url}>
+                          Open app en koppel dit toestel
+                        </a>
+                      </div>
+                      <div className="device-pairing-qr">
+                        <TotpQrCode value={pairing.qr_payload} alt="QR-code toestel koppelen" helpText="Scan deze QR-code in de mobiele app." />
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="resource-state resource-state--loading">{pairingLoading ? 'Koppelcode maken...' : 'Nog geen koppelcode gemaakt.'}</p>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="actions-row">
+              <button className="secondary-button" type="button" onClick={closeAddDeviceModal}>
+                Sluiten
+              </button>
+              {pairingOptions.length > 0 ? (
+                <button className="primary-button" type="button" onClick={() => void refreshPairingCodeManually()} disabled={pairingLoading || pairingClientType === ''}>
+                  <RefreshCw size={16} /> Vernieuwen
+                </button>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {deviceToDelete ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal modal--narrow" role="dialog" aria-modal="true" aria-labelledby="delete-device-title">
+            <header className="modal__header">
+              <div>
+                <span className="modal__eyebrow">Profiel</span>
+                <h2 id="delete-device-title">Toestel verwijderen?</h2>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setDeviceToDelete(null)} aria-label="Sluiten">
+                <X size={18} />
+              </button>
+            </header>
+            <div className="confirm-dialog">
+              <p>Weet je zeker dat je <strong>{deviceDisplayName(deviceToDelete)}</strong> wilt verwijderen?</p>
+              <p>Dit toestel ontvangt daarna geen pushmeldingen meer en telt niet meer mee als gekoppeld toestel.</p>
+            </div>
+            <div className="actions-row">
+              <button className="secondary-button" type="button" onClick={() => setDeviceToDelete(null)} disabled={savingDeviceId !== null}>
+                Annuleren
+              </button>
+              <button className="danger-button" type="button" onClick={() => void confirmDeleteDevice()} disabled={savingDeviceId !== null}>
+                {savingDeviceId === deviceToDelete.id ? 'Verwijderen...' : 'Toestel verwijderen'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <Panel title="Mijn beschikbaarheid">
         <ResourceState loading={schedule.loading} error={schedule.error ?? scheduleError} empty={schedule.data === null}>
@@ -838,6 +1091,140 @@ function SummaryItem({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function DeviceCards({
+  devices,
+  loading,
+  error,
+  busyDeviceId,
+  onDelete,
+}: {
+  devices: FcmToken[];
+  loading: boolean;
+  error: string | null;
+  busyDeviceId: string | null;
+  onDelete: (device: FcmToken) => void;
+}) {
+  return (
+    <ResourceState loading={loading} error={error} empty={devices.length === 0}>
+      <div className="device-card-grid">
+        {devices.map((device) => {
+          const DeviceIcon = device.device_type === 'tablet' ? Tablet : Smartphone;
+          const status = deviceStatus(device);
+
+          return (
+            <article className="device-card" key={device.id}>
+              <div className="device-card__icon">
+                <DeviceIcon aria-hidden size={20} />
+              </div>
+              <div className="device-card__content">
+                <div className="device-card__title">
+                  <strong>{deviceDisplayName(device)}</strong>
+                  <StatusPill value={status.label} tone={status.tone} />
+                </div>
+                <dl className="device-card__meta">
+                  <div>
+                    <dt>Type</dt>
+                    <dd>{deviceTypeLabel(device.device_type)} / {deviceClientLabel(device.client_type)}</dd>
+                  </div>
+                  <div>
+                    <dt>Platform</dt>
+                    <dd>{devicePlatformLabel(device.platform)}{device.app_version ? ` ${device.app_version}` : ''}</dd>
+                  </div>
+                  <div>
+                    <dt>Hardware</dt>
+                    <dd>{deviceHardwareLabel(device)}</dd>
+                  </div>
+                  <div>
+                    <dt>Laatst gezien</dt>
+                    <dd>{formatDateTime(device.last_seen_at)}</dd>
+                  </div>
+                </dl>
+              </div>
+              <div className="device-card__actions">
+                <button className="secondary-button" type="button" onClick={() => onDelete(device)} disabled={busyDeviceId === device.id}>
+                  <Trash2 size={16} /> Verwijderen
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </ResourceState>
+  );
+}
+
+function pairingClientOptions(user?: User | null): PairingClientOption[] {
+  const roles = user?.roles ?? [];
+  const canUseOperatorApp = roles.some((role) => role.can_use_operator_app);
+  const canUseAdminApp = roles.some((role) => role.can_use_admin_app);
+  const options: PairingClientOption[] = [];
+
+  if (canUseOperatorApp) {
+    options.push({ value: 'operator', label: 'Operator app', description: 'Voor de operationele app op Android en iPhone.' });
+  }
+
+  if (canUseAdminApp) {
+    options.push({ value: 'admin', label: 'Admin app', description: 'Voor de mobiele admin app op Android en iPhone.' });
+  }
+
+  return options;
+}
+
+function deviceDisplayName(device: FcmToken): string {
+  return device.device_name?.trim() || deviceHardwareLabel(device);
+}
+
+function deviceHardwareLabel(device: FcmToken): string {
+  const hardware = [device.device_manufacturer, device.device_model].filter(Boolean).join(' ').trim();
+
+  return hardware || device.device_id;
+}
+
+function deviceTypeLabel(type?: string | null): string {
+  switch (type) {
+    case 'phone':
+      return 'Telefoon';
+    case 'tablet':
+      return 'Tablet';
+    default:
+      return 'Onbekend';
+  }
+}
+
+function deviceClientLabel(clientType?: string | null): string {
+  switch (clientType) {
+    case 'admin':
+      return 'Admin app';
+    case 'operator':
+      return 'Operator app';
+    default:
+      return clientType ?? 'App';
+  }
+}
+
+function devicePlatformLabel(platform?: string | null): string {
+  switch (platform) {
+    case 'android':
+      return 'Android';
+    case 'ios':
+      return 'iOS';
+    default:
+      return platform ?? '-';
+  }
+}
+
+function deviceStatus(device: FcmToken): { label: string; tone: 'good' | 'warn' | 'neutral' | 'bad' } {
+  if (!device.is_active) {
+    return { label: 'Verwijderd', tone: 'neutral' };
+  }
+
+  if (device.client_type === 'operator') {
+    return device.is_online ? { label: 'Online', tone: 'good' } : { label: 'Offline', tone: 'warn' };
+  }
+
+  return { label: 'Actief', tone: 'neutral' };
 }
 
 function firstNameFromDisplayName(name: string): string {

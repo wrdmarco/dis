@@ -3439,6 +3439,179 @@ select[multiple] {
   line-height: 1.45;
 }
 
+.device-management-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 14px;
+}
+
+.device-management-card p {
+  margin: 4px 0 0;
+  color: #8ea0b5;
+  line-height: 1.45;
+}
+
+.device-card-grid {
+  display: grid;
+  gap: 10px;
+  padding: 0 16px 16px;
+}
+
+.device-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 14px;
+}
+
+.device-card__icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0f1722;
+  color: #7dd3fc;
+}
+
+.device-card__content {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.device-card__title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.device-card__title strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.device-card__meta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.device-card__meta div {
+  min-width: 0;
+}
+
+.device-card__meta dt {
+  margin: 0 0 3px;
+  color: #8ea0b5;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.device-card__meta dd {
+  margin: 0;
+  color: #e2e8f0;
+  overflow-wrap: anywhere;
+}
+
+.device-card__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.device-pairing-modal {
+  width: min(780px, 100%);
+}
+
+.device-pairing-body {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.device-pairing-body label {
+  display: grid;
+  gap: 6px;
+  color: #cbd5e1;
+  font-weight: 700;
+}
+
+.device-pairing-body label small {
+  color: #8ea0b5;
+  font-weight: 500;
+}
+
+.device-pairing-intro {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 12px;
+}
+
+.device-pairing-intro svg {
+  color: #7dd3fc;
+}
+
+.device-pairing-intro strong,
+.device-pairing-intro span {
+  display: block;
+}
+
+.device-pairing-intro span {
+  margin-top: 3px;
+  color: #8ea0b5;
+}
+
+.device-pairing-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+}
+
+.device-pairing-manual {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #1f2b3a;
+  border-radius: 8px;
+  background: #0b1119;
+  padding: 12px;
+}
+
+.device-pairing-manual > span {
+  color: #8ea0b5;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.device-pairing-manual > small {
+  color: #8ea0b5;
+}
+
+.device-pairing-qr {
+  min-width: 220px;
+}
+
 .work-plan-modal {
   width: min(1040px, 100%);
 }
@@ -5829,6 +6002,11 @@ pre {
     min-width: 0;
     width: 100%;
   }
+
+  .device-card__meta,
+  .device-pairing-intro {
+    grid-template-columns: 1fr;
+  }
 }
 
 @keyframes spin {
@@ -5871,9 +6049,42 @@ pre {
     display: grid;
   }
 
+  .device-management-card,
+  .device-card,
+  .device-pairing-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .device-management-card {
+    display: grid;
+  }
+
+  .device-card__actions {
+    justify-content: stretch;
+  }
+
+  .device-card__actions .secondary-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .device-card__meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .device-pairing-qr {
+    min-width: 0;
+  }
+
   .week-daypart-row,
   .daypart-planner-row,
   .daypart-planner-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .device-card__meta {
     grid-template-columns: 1fr;
   }
 }
@@ -7200,6 +7411,12 @@ pre {
 :root[data-theme="light"] .profile-page .resource-state,
 :root[data-theme="light"] .profile-page .work-plan-card,
 :root[data-theme="light"] .profile-page .mfa-card,
+:root[data-theme="light"] .profile-page .device-management-card,
+:root[data-theme="light"] .profile-page .device-card,
+:root[data-theme="light"] .profile-page .device-card__icon,
+:root[data-theme="light"] .profile-page .device-pairing-body,
+:root[data-theme="light"] .profile-page .device-pairing-intro,
+:root[data-theme="light"] .profile-page .device-pairing-manual,
 :root[data-theme="light"] .profile-page .totp-qr,
 :root[data-theme="light"] .profile-page .checkbox-card,
 :root[data-theme="light"] .profile-page .field-display,
@@ -7254,6 +7471,12 @@ pre {
 :root[data-theme="light"] .profile-page .summary-grid strong,
 :root[data-theme="light"] .profile-page .work-plan-card strong,
 :root[data-theme="light"] .profile-page .mfa-card strong,
+:root[data-theme="light"] .profile-page .device-management-card strong,
+:root[data-theme="light"] .profile-page .device-card__title strong,
+:root[data-theme="light"] .profile-page .device-card__meta dd,
+:root[data-theme="light"] .profile-page .device-pairing-body label,
+:root[data-theme="light"] .profile-page .device-pairing-intro strong,
+:root[data-theme="light"] .profile-page .device-pairing-manual > span,
 :root[data-theme="light"] .profile-page .section-heading strong,
 :root[data-theme="light"] .profile-page .week-daypart-row strong,
 :root[data-theme="light"] .profile-page .daypart-planner-row strong,
@@ -7265,6 +7488,11 @@ pre {
 :root[data-theme="light"] .profile-page .summary-grid span,
 :root[data-theme="light"] .profile-page .work-plan-card p,
 :root[data-theme="light"] .profile-page .mfa-card p,
+:root[data-theme="light"] .profile-page .device-management-card p,
+:root[data-theme="light"] .profile-page .device-card__meta dt,
+:root[data-theme="light"] .profile-page .device-pairing-body label small,
+:root[data-theme="light"] .profile-page .device-pairing-intro span,
+:root[data-theme="light"] .profile-page .device-pairing-manual > small,
 :root[data-theme="light"] .profile-page .section-heading span,
 :root[data-theme="light"] .profile-page .daypart-planner-row span,
 :root[data-theme="light"] .profile-page .data-table th {

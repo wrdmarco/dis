@@ -114,7 +114,7 @@ final class AuthController extends Controller
         $request->validate([
             'code' => ['required', 'digits:6'],
             'device_name' => ['nullable', 'string', 'max:120'],
-            'client_type' => ['nullable', 'string', 'in:web,operator_android,operator_ios,admin_android'],
+            'client_type' => ['nullable', 'string', 'in:web,operator_android,operator_ios,admin_android,admin_ios'],
         ]);
         $user = $request->user();
 
@@ -182,7 +182,7 @@ final class AuthController extends Controller
         $request->validate([
             'code' => ['required', 'digits:6'],
             'device_name' => ['nullable', 'string', 'max:120'],
-            'client_type' => ['nullable', 'string', 'in:web,operator_android,operator_ios,admin_android'],
+            'client_type' => ['nullable', 'string', 'in:web,operator_android,operator_ios,admin_android,admin_ios'],
         ]);
         $user = $request->user();
 
@@ -296,7 +296,7 @@ final class AuthController extends Controller
         $clientType = method_exists($request, 'validated')
             ? ($request->validated('client_type') ?? $request->input('client_type'))
             : $request->input('client_type');
-        if (in_array($clientType, ['web', 'operator_android', 'operator_ios', 'admin_android'], true)) {
+        if (in_array($clientType, ['web', 'operator_android', 'operator_ios', 'admin_android', 'admin_ios'], true)) {
             return (string) $clientType;
         }
 
@@ -320,13 +320,13 @@ final class AuthController extends Controller
     private function clientTypeForTokenExchange(Request $request): string
     {
         $clientType = $request->input('client_type');
-        if (in_array($clientType, ['web', 'operator_android', 'operator_ios', 'admin_android'], true)) {
+        if (in_array($clientType, ['web', 'operator_android', 'operator_ios', 'admin_android', 'admin_ios'], true)) {
             return (string) $clientType;
         }
 
         $token = $request->user()?->currentAccessToken();
         $abilities = is_array($token?->abilities ?? null) ? $token->abilities : [];
-        foreach (['web', 'operator_android', 'operator_ios', 'admin_android'] as $candidate) {
+        foreach (['web', 'operator_android', 'operator_ios', 'admin_android', 'admin_ios'] as $candidate) {
             if (in_array($this->clientAbility($candidate), $abilities, true)) {
                 return $candidate;
             }
@@ -341,7 +341,7 @@ final class AuthController extends Controller
     {
         return match ($clientType) {
             'operator_android', 'operator_ios' => 'client:operator',
-            'admin_android' => 'client:admin',
+            'admin_android', 'admin_ios' => 'client:admin',
             default => 'client:web',
         };
     }
@@ -350,7 +350,7 @@ final class AuthController extends Controller
     {
         return match ($clientType) {
             'operator_android', 'operator_ios' => $user->canUseOperatorApp(),
-            'admin_android' => $user->canUseAdminApp(),
+            'admin_android', 'admin_ios' => $user->canUseAdminApp(),
             default => true,
         };
     }

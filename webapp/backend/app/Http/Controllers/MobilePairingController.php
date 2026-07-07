@@ -14,7 +14,7 @@ final class MobilePairingController extends Controller
     public function create(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'client_type' => ['required', 'string', 'in:operator_android,operator_ios,admin_android'],
+            'client_type' => ['required', 'string', 'in:operator,admin,operator_android,operator_ios,admin_android,admin_ios'],
         ]);
 
         $user = $request->user();
@@ -34,7 +34,7 @@ final class MobilePairingController extends Controller
     {
         $data = $request->validate([
             'code' => ['required', 'string', 'max:40'],
-            'client_type' => ['required', 'string', 'in:operator_android,operator_ios,admin_android'],
+            'client_type' => ['required', 'string', 'in:operator,admin,operator_android,operator_ios,admin_android,admin_ios'],
             'device_name' => ['nullable', 'string', 'max:120'],
         ]);
 

@@ -19,9 +19,9 @@ final class MobilePairingService
 
     public function canUseClient(User $user, string $clientType): bool
     {
-        return match ($clientType) {
-            'operator_android', 'operator_ios' => $user->canUseOperatorApp(),
-            'admin_android' => $user->canUseAdminApp(),
+        return match ($this->clientCategory($clientType)) {
+            'operator' => $user->canUseOperatorApp(),
+            'admin' => $user->canUseAdminApp(),
             default => false,
         };
     }
@@ -31,6 +31,13 @@ final class MobilePairingService
      */
     public function create(User $user, string $clientType, Request $request): array
     {
+        $pairingType = $this->clientCategory($clientType);
+        if ($pairingType === null) {
+            throw ValidationException::withMessages([
+                'client_type' => ['Onbekend app-type.'],
+            ]);
+        }
+
         $code = $this->generateManualCode();
         $normalizedCode = $this->normalizeCode($code);
         $serverUrl = $this->serverRootUrl();
@@ -43,7 +50,7 @@ final class MobilePairingService
         $pairing = MobilePairingCode::query()->create([
             'user_id' => $user->id,
             'code_hash' => $this->codeHash($normalizedCode),
-            'client_type' => $clientType,
+            'client_type' => $pairingType,
             'expires_at' => $expiresAt,
         ]);
 
@@ -51,7 +58,7 @@ final class MobilePairingService
             'id' => $pairing->id,
             'server_url' => $serverUrl,
             'api_base_url' => $this->apiBaseUrl($serverUrl),
-            'client_type' => $clientType,
+            'client_type' => $pairingType,
             'code' => $code,
             'expires_at' => ApiDateTime::dateTime($expiresAt),
             'ttl_seconds' => self::TTL_SECONDS,
@@ -60,7 +67,7 @@ final class MobilePairingService
         $payload['qr_payload'] = $payload['deeplink_url'];
 
         $this->auditService->record('auth.mobile_pairing_created', $pairing, $user, [
-            'client_type' => $clientType,
+            'client_type' => $pairingType,
             'expires_at' => $payload['expires_at'],
         ], null, $request);
 
@@ -85,7 +92,7 @@ final class MobilePairingService
                 ]);
             }
 
-            if ($pairing->client_type !== $clientType) {
+            if (! $this->pairingMatchesClient((string) $pairing->client_type, $clientType)) {
                 throw ValidationException::withMessages([
                     'client_type' => ['Deze koppelcode hoort bij een andere app.'],
                 ]);
@@ -152,9 +159,23 @@ final class MobilePairingService
 
     private function clientAbility(string $clientType): string
     {
+        return $this->clientCategory($clientType) === 'admin' ? 'client:admin' : 'client:operator';
+    }
+
+    private function pairingMatchesClient(string $pairingType, string $clientType): bool
+    {
+        $pairingCategory = $this->clientCategory($pairingType);
+        $clientCategory = $this->clientCategory($clientType);
+
+        return $pairingCategory !== null && $pairingCategory === $clientCategory;
+    }
+
+    private function clientCategory(string $clientType): ?string
+    {
         return match ($clientType) {
-            'admin_android' => 'client:admin',
-            default => 'client:operator',
+            'operator', 'operator_android', 'operator_ios' => 'operator',
+            'admin', 'admin_android', 'admin_ios' => 'admin',
+            default => null,
         };
     }
 
@@ -163,11 +184,7 @@ final class MobilePairingService
      */
     private function deeplinkUrl(array $payload): string
     {
-        $scheme = match ($payload['client_type']) {
-            'admin_android' => 'dis-admin',
-            'operator_ios' => 'dis-ios',
-            default => 'dis',
-        };
+        $scheme = $this->clientCategory((string) $payload['client_type']) === 'admin' ? 'dis-admin' : 'dis';
 
         return $scheme.'://pair?'.http_build_query([
             'server' => $payload['server_url'],

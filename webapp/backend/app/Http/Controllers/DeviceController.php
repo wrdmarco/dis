@@ -20,6 +20,7 @@ final class DeviceController extends Controller
         return ApiResponse::success(
             $request->user()
                 ?->fcmTokens()
+                ->where('is_active', true)
                 ->latest()
                 ->get()
                 ->map(fn (FcmToken $token): array => MobileApiPayload::fcmToken($token))

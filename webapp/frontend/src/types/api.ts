@@ -528,7 +528,7 @@ export interface SoftwareDownloadOptions {
   channels: Record<string, SoftwareDownloadChannelOptions>;
 }
 
-export type MobilePairingClientType = 'operator_android' | 'operator_ios' | 'admin_android';
+export type MobilePairingClientType = 'operator' | 'admin' | 'operator_android' | 'operator_ios' | 'admin_android' | 'admin_ios';
 
 export interface MobilePairingCode {
   id: string;

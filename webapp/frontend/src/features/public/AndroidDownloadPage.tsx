@@ -325,16 +325,12 @@ function MobilePairingPanel({ api, channel }: { api: ApiClient; channel: Channel
 }
 
 function pairingClientType(channel: Channel): MobilePairingClientType | null {
-  if (channel.key === 'operator-android') {
-    return 'operator_android';
+  if (channel.access === 'operator') {
+    return 'operator';
   }
 
-  if (channel.key === 'admin-android') {
-    return 'admin_android';
-  }
-
-  if (channel.key === 'operator-ios') {
-    return 'operator_ios';
+  if (channel.access === 'admin') {
+    return 'admin';
   }
 
   return null;
