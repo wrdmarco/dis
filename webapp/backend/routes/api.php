@@ -88,10 +88,10 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
 
     Route::get('/teams', [AdminController::class, 'teams'])->middleware('permission:incidents.view');
 
-    Route::get('/test-alert', [TestAlertController::class, 'show'])->middleware('permission:dispatch.view');
-    Route::post('/test-alert', [TestAlertController::class, 'send'])->middleware(['permission:dispatch.manage', 'throttle:dispatch-response']);
-    Route::get('/test-alert/schedule', [TestAlertController::class, 'schedule'])->middleware('permission:dispatch.manage');
-    Route::patch('/test-alert/schedule', [TestAlertController::class, 'updateSchedule'])->middleware('permission:dispatch.manage');
+    Route::get('/test-alert', [TestAlertController::class, 'show'])->middleware('permission:incidents.dispatch.view');
+    Route::post('/test-alert', [TestAlertController::class, 'send'])->middleware(['permission:incidents.dispatch.manage', 'throttle:dispatch-response']);
+    Route::get('/test-alert/schedule', [TestAlertController::class, 'schedule'])->middleware('permission:incidents.dispatch.manage');
+    Route::patch('/test-alert/schedule', [TestAlertController::class, 'updateSchedule'])->middleware('permission:incidents.dispatch.manage');
 
     Route::get('/incidents', [IncidentController::class, 'index'])->middleware('permission:incidents.view');
     Route::get('/operational-map/layers', [OperationalMapController::class, 'layers'])->middleware('permission:incidents.view');
@@ -116,28 +116,28 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/incidents/{incident}/pilot-reports/{user}/finalize', [PilotIncidentReportController::class, 'finalizeForUser'])->middleware('permission:incidents.manage');
     Route::get('/incidents/{incidentId}/report', [ReportingController::class, 'incidentPdf'])->middleware('permission:incidents.view');
     Route::get('/incidents/{incidentId}/report.pdf', [ReportingController::class, 'incidentPdf'])->middleware('permission:incidents.view');
-    Route::get('/incidents/{incident}/dispatch-preview', [IncidentController::class, 'dispatchPreview'])->middleware('permission:dispatch.view');
-    Route::get('/incidents/{incident}/dispatches', [DispatchController::class, 'incidentDispatches'])->middleware('permission:dispatch.view');
+    Route::get('/incidents/{incident}/dispatch-preview', [IncidentController::class, 'dispatchPreview'])->middleware('permission:incidents.dispatch.view');
+    Route::get('/incidents/{incident}/dispatches', [DispatchController::class, 'incidentDispatches'])->middleware('permission:incidents.dispatch.view');
     Route::get('/incidents/{incident}/live-locations', [LocationController::class, 'liveLocations'])->middleware('permission:incidents.view');
-    Route::post('/incidents/{incident}/location/request', [LocationController::class, 'requestSharing'])->middleware('permission:dispatch.manage');
+    Route::post('/incidents/{incident}/location/request', [LocationController::class, 'requestSharing'])->middleware('permission:incidents.dispatch.manage');
     Route::post('/incidents/{incident}/location/consent', [LocationController::class, 'consent'])->middleware('permission:incidents.view');
     Route::post('/incidents/{incident}/location/decline', [LocationController::class, 'decline'])->middleware('permission:incidents.view');
     Route::delete('/incidents/{incident}/location/consent', [LocationController::class, 'revoke'])->middleware('permission:incidents.view');
     Route::post('/incidents/{incident}/location', [LocationController::class, 'update'])->middleware('permission:incidents.view');
-    Route::post('/incidents/{incident}/dispatches', [DispatchController::class, 'store'])->middleware('permission:dispatch.manage');
+    Route::post('/incidents/{incident}/dispatches', [DispatchController::class, 'store'])->middleware('permission:incidents.dispatch.manage');
 
-    Route::get('/dispatches', [DispatchController::class, 'index'])->middleware('permission:dispatch.view');
-    Route::get('/dispatches/{dispatch}', [DispatchController::class, 'show'])->middleware('permission:dispatch.view');
-    Route::post('/dispatches/{dispatch}/send', [DispatchController::class, 'send'])->middleware('permission:dispatch.manage');
-    Route::post('/dispatches/{dispatch}/message', [DispatchController::class, 'message'])->middleware('permission:dispatch.manage');
+    Route::get('/dispatches', [DispatchController::class, 'index'])->middleware('permission:incidents.dispatch.view');
+    Route::get('/dispatches/{dispatch}', [DispatchController::class, 'show'])->middleware('permission:incidents.dispatch.view');
+    Route::post('/dispatches/{dispatch}/send', [DispatchController::class, 'send'])->middleware('permission:incidents.dispatch.manage');
+    Route::post('/dispatches/{dispatch}/message', [DispatchController::class, 'message'])->middleware('permission:incidents.dispatch.manage');
     Route::post('/dispatches/{dispatch}/respond', [DispatchController::class, 'respond'])->middleware('throttle:dispatch-response');
-    Route::patch('/dispatches/{dispatch}/recipients/{recipient}/response', [DispatchController::class, 'overrideRecipientResponse'])->middleware('permission:dispatch.manage');
-    Route::post('/dispatches/{dispatch}/cancel', [DispatchController::class, 'cancel'])->middleware('permission:dispatch.manage');
-    Route::post('/dispatches/{dispatch}/escalate', [DispatchController::class, 'escalate'])->middleware('permission:dispatch.manage');
-    Route::post('/dispatches/{dispatch}/re-alert', [DispatchController::class, 'reAlert'])->middleware('permission:dispatch.manage');
-    Route::get('/dispatches/{dispatch}/recipients', [DispatchController::class, 'recipients'])->middleware('permission:dispatch.view');
+    Route::patch('/dispatches/{dispatch}/recipients/{recipient}/response', [DispatchController::class, 'overrideRecipientResponse'])->middleware('permission:incidents.dispatch.manage');
+    Route::post('/dispatches/{dispatch}/cancel', [DispatchController::class, 'cancel'])->middleware('permission:incidents.dispatch.manage');
+    Route::post('/dispatches/{dispatch}/escalate', [DispatchController::class, 'escalate'])->middleware('permission:incidents.dispatch.manage');
+    Route::post('/dispatches/{dispatch}/re-alert', [DispatchController::class, 'reAlert'])->middleware('permission:incidents.dispatch.manage');
+    Route::get('/dispatches/{dispatch}/recipients', [DispatchController::class, 'recipients'])->middleware('permission:incidents.dispatch.view');
     Route::get('/reports/incidents', [ReportingController::class, 'incidents'])->middleware('permission:incidents.view');
-    Route::get('/reports/dispatch-statistics', [ReportingController::class, 'dispatchStatistics'])->middleware('permission:dispatch.view');
+    Route::get('/reports/dispatch-statistics', [ReportingController::class, 'dispatchStatistics'])->middleware('permission:incidents.dispatch.view');
     Route::get('/expiry-overview', [ExpiryOverviewController::class, 'index']);
     Route::get('/calendar-events', [CalendarEventController::class, 'index']);
     Route::post('/calendar-events', [CalendarEventController::class, 'store'])->middleware('permission:settings.manage');
@@ -228,12 +228,12 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::post('/admin/backups/upload-restore', [BackupController::class, 'uploadRestore'])->middleware('permission:backups.manage');
     Route::post('/admin/backups/{backup}/verify', [BackupController::class, 'verify'])->middleware('permission:backups.manage');
     Route::post('/admin/backups/{backup}/restore', [BackupController::class, 'restore'])->middleware('permission:backups.manage');
-    Route::get('/admin/push/logs', [AdminController::class, 'pushLogs'])->middleware('permission:push.manage');
-    Route::get('/admin/push/options', [AdminPushController::class, 'options'])->middleware('permission:push.manage');
-    Route::get('/admin/push/tokens', [AdminPushController::class, 'tokens'])->middleware('permission:push.manage');
-    Route::post('/admin/push/tokens/{token}/revoke', [AdminPushController::class, 'revoke'])->middleware('permission:push.manage');
-    Route::post('/admin/push/tokens/{token}/activate', [AdminPushController::class, 'activate'])->middleware('permission:push.manage');
-    Route::post('/admin/push/manual', [AdminPushController::class, 'send'])->middleware('permission:push.manage');
+    Route::get('/admin/push/logs', [AdminController::class, 'pushLogs'])->middleware('permission:settings.push.manual.send');
+    Route::get('/admin/push/options', [AdminPushController::class, 'options'])->middleware('permission:settings.push.manual.send');
+    Route::get('/admin/push/tokens', [AdminPushController::class, 'tokens'])->middleware('permission:settings.push.tokens.manage');
+    Route::post('/admin/push/tokens/{token}/revoke', [AdminPushController::class, 'revoke'])->middleware('permission:settings.push.tokens.manage');
+    Route::post('/admin/push/tokens/{token}/activate', [AdminPushController::class, 'activate'])->middleware('permission:settings.push.tokens.manage');
+    Route::post('/admin/push/manual', [AdminPushController::class, 'send'])->middleware('permission:settings.push.manual.send');
 
     Route::get('/admin/updates/android', [UpdateController::class, 'index'])->middleware('permission:updates.manage');
     Route::post('/admin/updates/android', [UpdateController::class, 'store'])->middleware('permission:updates.manage');

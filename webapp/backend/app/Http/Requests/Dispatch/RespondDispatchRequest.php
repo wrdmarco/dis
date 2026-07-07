@@ -8,7 +8,7 @@ final class RespondDispatchRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->hasPermission('dispatch.view') === true;
+        return $this->user()?->hasPermission('incidents.dispatch.view') === true;
     }
 
     public function rules(): array
@@ -19,4 +19,3 @@ final class RespondDispatchRequest extends FormRequest
         ];
     }
 }
-

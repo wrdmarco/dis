@@ -14,7 +14,7 @@ interface ProtectedShellProps {
 }
 
 const homeRedirectCandidates = [
-  { to: '/dashboard', permissions: ['incidents.view', 'dispatch.view', 'status.view', 'assets.view'] },
+  { to: '/dashboard', permissions: ['incidents.view', 'incidents.dispatch.view', 'status.view', 'assets.view'] },
   { to: '/incidents', permissions: ['incidents.view'] },
   { to: '/operational-status', permissions: ['status.view'] },
   { to: '/users', permissions: ['users.view'] },
@@ -24,6 +24,7 @@ const homeRedirectCandidates = [
   { to: '/updates', permissions: ['updates.manage'] },
   { to: '/forms', permissions: ['settings.manage'] },
   { to: '/admin', permissions: ['settings.manage'] },
+  { to: '/admin', permissions: ['settings.push.tokens.manage'] },
   { to: '/system', permissions: ['system.health'] },
 ] as const;
 

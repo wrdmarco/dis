@@ -147,6 +147,7 @@ export function RolesPage() {
         <div className="metadata-example">
           <strong>Standaard voor iedere ingelogde gebruiker</strong>
           <p>Iedere gebruiker kan altijd het eigen profiel bekijken en de eigen profielgegevens beheren waar dat is toegestaan. Dat is basisfunctionaliteit en staat daarom niet als aparte permissie in rollen.</p>
+          <p>Rond incidenten zijn rechten bewust gescheiden: incidentregistratie gaat over gegevens en status, incidentalarmering gaat over vooraankondigen, alarmeren, opkomst en opschalen.</p>
         </div>
         <ResourceState loading={roles.loading} error={roles.error} empty={(roles.data?.length ?? 0) === 0}>
           <table className="data-table">
@@ -238,6 +239,7 @@ export function RolesPage() {
               <div className="metadata-example">
                 <strong>Standaard toegang</strong>
                 <p>Eigen profiel bekijken en waar toegestaan eigen profielgegevens wijzigen is voor iedere ingelogde gebruiker beschikbaar. Kies hieronder alleen extra rechten voor beheer, incidenten, alarmering en systeemfuncties.</p>
+                <p>Let op bij incidenten en instellingen: alarmeren staat los van incidentgegevens beheren, en push tokens beheren staat los van handmatige pushmeldingen versturen.</p>
               </div>
               <div className="permission-category-list">
                 {permissionGroups(permissions.data ?? []).map((group) => (
@@ -246,6 +248,9 @@ export function RolesPage() {
                       <h3>{permissionCategoryLabel(group.category)}</h3>
                       <span>{group.permissions.length} rechten</span>
                     </header>
+                    {permissionCategoryDescription(group.category) ? (
+                      <p className="muted-text">{permissionCategoryDescription(group.category)}</p>
+                    ) : null}
                     <div className="permission-grid">
                       {group.permissions.map((permission) => (
                         <label className="checkbox-card permission-card" key={permission.id}>
@@ -352,7 +357,7 @@ function permissionCategoryLabel(category: string): string {
     case 'incident_management':
       return 'Incidenten';
     case 'dispatch_management':
-      return 'Alarmering';
+      return 'Incidentalarmering';
     case 'status_management':
       return 'Operationele status';
     case 'asset_management':
@@ -366,8 +371,19 @@ function permissionCategoryLabel(category: string): string {
     case 'push_management':
       return 'Pushmeldingen';
     case 'system_configuration':
-      return 'Systeem';
+      return 'Instellingen en systeem';
     default:
       return category;
+  }
+}
+
+function permissionCategoryDescription(category: string): string | null {
+  switch (category) {
+    case 'incident_management':
+      return 'Incidentregistratie, incidentstatus en incidentalarmering staan bij elkaar, maar blijven aparte rechten zodat iemand niet automatisch mag alarmeren omdat hij incidentgegevens mag aanpassen.';
+    case 'system_configuration':
+      return 'Systeeminstellingen, formulieren, branding, backups en pushbeheer zijn apart te verlenen. Push tokens intrekken is los van handmatige pushmeldingen versturen.';
+    default:
+      return null;
   }
 }

@@ -71,7 +71,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const liveSharedCount = liveLocations.data?.filter((location) => location.location_is_current === true || location.sharing_status === 'shared').length ?? 0;
   const canManageIncidents = hasPermission('incidents.manage');
   const canDeleteIncidents = hasPermission('incidents.delete');
-  const canManageDispatches = hasPermission('dispatch.manage');
+  const canManageDispatches = hasPermission('incidents.dispatch.manage');
   const canOverrideStatus = hasPermission('status.override');
   const dispatchedTeamIds = dispatchTargetTeamIds(dispatches.data ?? []);
   const escalationTeams = (teams.data ?? []).filter((team) => team.is_operational && !dispatchedTeamIds.includes(team.id));

@@ -114,10 +114,10 @@ interface DeveloperKeyForm {
 
 function adminTabAllowed(
   tab: AdminTab,
-  permissions: { canManageSettings: boolean; canManagePush: boolean; canViewSystemHealth: boolean },
+  permissions: { canManageSettings: boolean; canManagePushTokens: boolean; canViewSystemHealth: boolean },
 ): boolean {
   if (tab === 'tokens') {
-    return permissions.canManagePush;
+    return permissions.canManagePushTokens;
   }
 
   if (tab === 'version') {
@@ -131,11 +131,11 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const { api, token, hasPermission } = useAuth();
   const availableTabs = mode === 'forms' ? formTabs : adminTabs;
   const canManageSettings = hasPermission('settings.manage');
-  const canManagePush = hasPermission('push.manage');
+  const canManagePushTokens = hasPermission('settings.push.tokens.manage');
   const canViewSystemHealth = hasPermission('system.health');
-  const visibleAdminTabs = availableTabs.filter((tab) => adminTabAllowed(tab.id, { canManageSettings, canManagePush, canViewSystemHealth }));
+  const visibleAdminTabs = availableTabs.filter((tab) => adminTabAllowed(tab.id, { canManageSettings, canManagePushTokens, canViewSystemHealth }));
   const settings = useApiResource<SystemSetting[]>('/admin/settings', canManageSettings && mode === 'admin');
-  const tokens = useApiResource<FcmToken[]>('/admin/push/tokens?per_page=100', canManagePush && mode === 'admin');
+  const tokens = useApiResource<FcmToken[]>('/admin/push/tokens?per_page=100', canManagePushTokens && mode === 'admin');
   const developerAccess = useApiResource<DeveloperAccessState>('/admin/developer-access', canManageSettings && mode === 'admin');
   const systemVersion = useApiResource<SystemVersionState>('/admin/system/version', canViewSystemHealth && mode === 'admin');
   const pilotReportFormConfig = useApiResource<PilotReportFormConfig>('/admin/pilot-report/form-config', canManageSettings && mode === 'forms');

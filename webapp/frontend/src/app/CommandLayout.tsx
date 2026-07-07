@@ -38,7 +38,7 @@ const navGroups: NavGroup[] = [
   {
     label: 'Overzicht',
     items: [
-      { to: '/dashboard', label: 'Dashboard', icon: Gauge, permissions: ['incidents.view', 'dispatch.view', 'status.view', 'assets.view'] },
+      { to: '/dashboard', label: 'Dashboard', icon: Gauge, permissions: ['incidents.view', 'incidents.dispatch.view', 'status.view', 'assets.view'] },
     ],
   },
   {
@@ -49,9 +49,9 @@ const navGroups: NavGroup[] = [
       { to: '/incidents/archive', label: 'Archief', icon: Archive, permissions: ['incidents.view'] },
       { to: '/operational-status', label: 'Status', icon: Workflow, permissions: ['status.view'] },
       { to: '/calendar', label: 'Agenda', icon: CalendarDays },
-      { to: '/test-alert', label: 'Proefalarmering', icon: BellRing, permissions: ['dispatch.manage'] },
-      { to: '/push', label: 'Pushmeldingen', icon: Send, permissions: ['push.manage'] },
-      { to: '/reports', label: 'Rapporten', icon: BarChart3, permissions: ['incidents.view', 'dispatch.view'] },
+      { to: '/test-alert', label: 'Proefalarmering', icon: BellRing, permissions: ['incidents.dispatch.manage'] },
+      { to: '/push', label: 'Pushmeldingen', icon: Send, permissions: ['settings.push.manual.send'] },
+      { to: '/reports', label: 'Rapporten', icon: BarChart3, permissions: ['incidents.view', 'incidents.dispatch.view'] },
     ],
   },
   {
@@ -76,7 +76,7 @@ const navGroups: NavGroup[] = [
     items: [
       { to: '/updates', label: 'App updates', icon: Smartphone, permissions: ['updates.manage'] },
       { to: '/forms', label: 'Formulieren', icon: FileText, permissions: ['settings.manage'] },
-      { to: '/admin', label: 'Admin', icon: Shield, permissions: ['settings.manage'] },
+      { to: '/admin', label: 'Admin', icon: Shield, permissions: ['settings.manage', 'settings.push.tokens.manage', 'system.health'], anyPermission: true },
       { to: '/branding', label: 'Branding', icon: Palette, permissions: ['settings.manage'] },
       { to: '/audit', label: 'Audit', icon: ScrollText, permissions: ['audit.view', 'status.audit.view'], anyPermission: true },
       { to: '/backups', label: 'Backups', icon: DatabaseBackup, permissions: ['backups.manage'] },

@@ -5,7 +5,7 @@ import { ProtectedShell } from '../../src/next/RouteShell';
 
 export default function Page() {
   return (
-    <ProtectedShell permissions={['push.manage']}>
+    <ProtectedShell permissions={['settings.push.manual.send']}>
       <PushPage />
     </ProtectedShell>
   );

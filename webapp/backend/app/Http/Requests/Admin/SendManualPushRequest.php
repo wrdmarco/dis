@@ -8,7 +8,7 @@ final class SendManualPushRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        return $this->user()?->hasPermission('settings.push.manual.send') === true;
     }
 
     public function rules(): array

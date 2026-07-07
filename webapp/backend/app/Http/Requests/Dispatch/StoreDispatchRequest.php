@@ -8,7 +8,7 @@ final class StoreDispatchRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->hasPermission('dispatch.manage') === true;
+        return $this->user()?->hasPermission('incidents.dispatch.manage') === true;
     }
 
     public function rules(): array
