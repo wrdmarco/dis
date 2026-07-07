@@ -18,8 +18,8 @@ final class AeretPreflightService
     private const AIRSPACE_END_ID = 651;
     private const NOTAM_START_ID = 1;
     private const NOTAM_END_ID = 440;
-    private const REQUEST_BATCH_SIZE = 12;
-    private const REQUEST_BATCH_DELAY_MS = 180;
+    private const REQUEST_BATCH_SIZE = 50;
+    private const REQUEST_BATCH_DELAY_MS = 100;
 
     /**
      * @return array{type: string, features: list<array<string, mixed>>, meta?: array<string, mixed>}
@@ -124,7 +124,8 @@ final class AeretPreflightService
                         return array_map(
                             fn (int $objectId) => $pool
                                 ->as((string) $objectId)
-                                ->timeout(8)
+                                ->connectTimeout(3)
+                                ->timeout(6)
                                 ->acceptJson()
                                 ->get($this->featureUrl($layerId, $objectId)),
                             $ids,
