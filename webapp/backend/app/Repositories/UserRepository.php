@@ -29,8 +29,13 @@ final class UserRepository extends BaseRepository
             ->when($filters['search'] ?? null, function ($query, string $search): void {
                 $query->where(function ($nested) use ($search): void {
                     $nested->where('name', 'ilike', "%{$search}%")
+                        ->orWhere('first_name', 'ilike', "%{$search}%")
+                        ->orWhere('last_name', 'ilike', "%{$search}%")
                         ->orWhere('email', 'ilike', "%{$search}%")
-                        ->orWhere('home_city', 'ilike', "%{$search}%");
+                        ->orWhere('phone_number', 'ilike', "%{$search}%")
+                        ->orWhere('home_city', 'ilike', "%{$search}%")
+                        ->orWhere('home_region', 'ilike', "%{$search}%")
+                        ->orWhere('home_country', 'ilike', "%{$search}%");
                 });
             })
             ->when($filters['status'] ?? null, fn ($query, string $status) => $query->where('account_status', $status))

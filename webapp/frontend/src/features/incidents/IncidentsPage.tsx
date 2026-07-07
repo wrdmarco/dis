@@ -450,7 +450,7 @@ function IncidentFormBlock(props: {
     case 'reporter_name':
       return <label className={wideClass}>Naam melder{requiredMark}<input value={props.form.reporterName} maxLength={180} required={required} onChange={(event) => updateForm(props.onChange, 'reporterName', event.target.value)} /></label>;
     case 'reporter_phone':
-      return <label className={wideClass}>Telefoonnummer melder{requiredMark}<input value={props.form.reporterPhone} maxLength={40} inputMode="tel" autoComplete="tel" required={required} onChange={(event) => updateForm(props.onChange, 'reporterPhone', event.target.value)} /></label>;
+      return <label className={wideClass}>Telefoonnummer melder{requiredMark}<input value={props.form.reporterPhone} maxLength={40} inputMode="tel" autoComplete="tel" placeholder="0612345678" required={required} onChange={(event) => updateForm(props.onChange, 'reporterPhone', event.target.value)} /></label>;
     case 'requesting_organization':
       return <label className={wideClass}>Aanvragende organisatie<input value={props.form.requestingOrganization} maxLength={180} onChange={(event) => updateForm(props.onChange, 'requestingOrganization', event.target.value)} /></label>;
     case 'requesting_unit':
@@ -458,7 +458,7 @@ function IncidentFormBlock(props: {
     case 'on_scene_contact_name':
       return <label className={wideClass}>Contact ter plaatse<input value={props.form.onSceneContactName} maxLength={180} onChange={(event) => updateForm(props.onChange, 'onSceneContactName', event.target.value)} /></label>;
     case 'on_scene_contact_phone':
-      return <label className={wideClass}>Telefoon ter plaatse<input value={props.form.onSceneContactPhone} maxLength={40} inputMode="tel" autoComplete="tel" onChange={(event) => updateForm(props.onChange, 'onSceneContactPhone', event.target.value)} /></label>;
+      return <label className={wideClass}>Telefoon ter plaatse<input value={props.form.onSceneContactPhone} maxLength={40} inputMode="tel" autoComplete="tel" placeholder="0612345678" onChange={(event) => updateForm(props.onChange, 'onSceneContactPhone', event.target.value)} /></label>;
     case 'on_scene_contact_role':
       return <label className={wideClass}>Functie / rol contactpersoon<input value={props.form.onSceneContactRole} maxLength={120} onChange={(event) => updateForm(props.onChange, 'onSceneContactRole', event.target.value)} /></label>;
     case 'section_dispatch':
@@ -968,9 +968,8 @@ function DynamicIncidentField(props: {
         <input
           type="tel"
           inputMode="tel"
-          pattern={phonePattern(field)}
           placeholder={phonePlaceholder(field)}
-          title={`Gebruik een internationaal nummer met ${phoneCountryLabels(field)}.`}
+          title={`Gebruik een lokaal of internationaal nummer met ${phoneCountryLabels(field)}.`}
           value={asFormString(value)}
           required={field.required}
           onChange={(event) => onChange(event.target.value)}
@@ -1210,12 +1209,8 @@ function phoneCountries(field: ConfigurableFormField): string[] {
   return values.length > 0 ? values : supported;
 }
 
-function phonePattern(field: ConfigurableFormField): string {
-  return `^\\+(${phoneCountries(field).join('|')})[\\s-]?[1-9](?:[\\s-]?[0-9]){7,11}$`;
-}
-
 function phonePlaceholder(field: ConfigurableFormField): string {
-  return phoneCountries(field).includes('31') ? '+31612345678' : '+32470123456';
+  return phoneCountries(field).includes('31') ? '0612345678' : '0470123456';
 }
 
 function phoneCountryLabels(field: ConfigurableFormField): string {

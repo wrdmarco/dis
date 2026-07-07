@@ -7,15 +7,19 @@ import { ApiClientError } from '../../lib/apiClient';
 import { assetDisplayLabel } from '../../lib/assetLabels';
 import { formatDateOnly, formatDateTime, todayAmsterdamDateInputValue } from '../../lib/dateTime';
 import { droneTypeLabel } from '../../lib/droneTypes';
+import { countryOptions, locationLabel, regionOptionsForCountry } from '../../lib/profileLocation';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
 import type { Asset, Certification, Role, Team, User, UserVacation } from '../../types/api';
 
 interface UserFormState {
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   phoneNumber: string;
   homeCity: string;
+  homeRegion: string;
+  homeCountry: string;
   password: string;
   sendWelcomeMail: boolean;
   accountStatus: User['account_status'];
@@ -25,10 +29,13 @@ interface UserFormState {
 }
 
 const emptyForm: UserFormState = {
-  name: '',
+  firstName: '',
+  lastName: '',
   email: '',
   phoneNumber: '',
   homeCity: '',
+  homeRegion: '',
+  homeCountry: 'NL',
   password: '',
   sendWelcomeMail: true,
   accountStatus: 'active',
@@ -109,10 +116,13 @@ export function UsersPage() {
     setUserDetail(user);
     setUserDetailError(null);
     setForm({
-      name: user.name,
+      firstName: user.first_name ?? firstNameFromDisplayName(user.name),
+      lastName: user.last_name ?? lastNameFromDisplayName(user.name),
       email: user.email,
       phoneNumber: user.phone_number ?? '',
       homeCity: user.home_city ?? '',
+      homeRegion: user.home_region ?? '',
+      homeCountry: user.home_country ?? 'NL',
       password: '',
       sendWelcomeMail: false,
       accountStatus: user.account_status,
@@ -213,10 +223,13 @@ export function UsersPage() {
     setError(null);
 
     const payload: Record<string, unknown> = {
-      name: form.name,
+      first_name: form.firstName.trim(),
+      last_name: form.lastName.trim(),
       email: form.email,
       phone_number: form.phoneNumber || null,
       home_city: form.homeCity.trim() === '' ? null : form.homeCity.trim(),
+      home_region: form.homeRegion.trim() === '' ? null : form.homeRegion.trim(),
+      home_country: form.homeCountry || null,
       account_status: form.accountStatus,
       max_operator_devices: Math.max(1, Number(form.maxOperatorDevices || 1)),
       role_ids: form.roleIds,
@@ -298,7 +311,7 @@ export function UsersPage() {
       >
         <ResourceState loading={users.loading} error={users.error} empty={(users.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Naam</th><th>E-mail</th><th>Woonplaats</th><th>Account</th><th>Online</th><th>Push</th><th>Teams</th><th>Rollen</th><th>Actie</th></tr></thead>
+            <thead><tr><th>Naam</th><th>E-mail</th><th>Locatie</th><th>Account</th><th>Online</th><th>Push</th><th>Teams</th><th>Rollen</th><th>Actie</th></tr></thead>
             <tbody>
               {users.data?.map((user) => {
                 const onlineDevices = user.fcm_tokens?.filter((token) => token.client_type !== 'admin' && token.is_online).length ?? 0;
@@ -308,7 +321,7 @@ export function UsersPage() {
                   <tr key={user.id}>
                     <td>{user.name}</td>
                     <td>{user.email}</td>
-                    <td>{user.home_city ?? '-'}</td>
+                    <td>{locationLabel(user.home_city, user.home_region, user.home_country)}</td>
                     <td><StatusPill value={user.account_status} tone={user.account_status === 'active' ? 'good' : 'bad'} /></td>
                     <td><StatusPill value={onlineDevices > 0 ? `Online (${onlineDevices})` : 'Offline'} tone={onlineDevices > 0 ? 'good' : 'neutral'} /></td>
                     <td>{user.push_enabled ? `Actief (${activeDevices}/${user.max_operator_devices ?? 1})` : 'Uit'}</td>
@@ -340,8 +353,12 @@ export function UsersPage() {
             </header>
             <form className="form-grid" onSubmit={canManageUsers ? submitUser : (event) => event.preventDefault()}>
               <label>
-                Naam
-                <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
+                Voornaam
+                <input value={form.firstName} onChange={(event) => setForm((current) => ({ ...current, firstName: event.target.value }))} required maxLength={80} />
+              </label>
+              <label>
+                Achternaam
+                <input value={form.lastName} onChange={(event) => setForm((current) => ({ ...current, lastName: event.target.value }))} required maxLength={120} />
               </label>
               <label>
                 E-mail
@@ -349,12 +366,45 @@ export function UsersPage() {
               </label>
               <label>
                 Telefoonnummer
-                <input value={form.phoneNumber} onChange={(event) => setForm((current) => ({ ...current, phoneNumber: event.target.value }))} />
+                <input value={form.phoneNumber} inputMode="tel" autoComplete="tel" placeholder="+31612345678" onChange={(event) => setForm((current) => ({ ...current, phoneNumber: event.target.value }))} />
+                <small>Wordt bij opslaan internationaal gemaakt op basis van land.</small>
               </label>
               <label>
                 Woonplaats
                 <input value={form.homeCity} maxLength={120} onChange={(event) => setForm((current) => ({ ...current, homeCity: event.target.value }))} />
                 <small>Globale plaats voor geschatte ETA-ringen, geen exact adres.</small>
+              </label>
+              <label>
+                Land
+                <select
+                  value={form.homeCountry}
+                  onChange={(event) => setForm((current) => {
+                    const nextCountry = event.target.value;
+                    const nextRegions = regionOptionsForCountry(nextCountry);
+                    return {
+                      ...current,
+                      homeCountry: nextCountry,
+                      homeRegion: nextRegions.includes(current.homeRegion) ? current.homeRegion : '',
+                    };
+                  })}
+                >
+                  {countryOptions.map((country) => (
+                    <option key={country.value} value={country.value}>{country.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Provincie / regio
+                <select
+                  value={form.homeRegion}
+                  onChange={(event) => setForm((current) => ({ ...current, homeRegion: event.target.value }))}
+                  disabled={regionOptionsForCountry(form.homeCountry).length === 0}
+                >
+                  <option value="">Kies provincie/regio</option>
+                  {regionOptionsForCountry(form.homeCountry).map((region) => (
+                    <option key={region} value={region}>{region}</option>
+                  ))}
+                </select>
               </label>
               <label>
                 Accountstatus
@@ -563,6 +613,15 @@ export function UsersPage() {
 
 function hasSystemAdministratorRole(user: User): boolean {
   return user.roles?.some((role) => role.name === 'system-administrator') ?? false;
+}
+
+function firstNameFromDisplayName(name: string): string {
+  return name.trim().split(/\s+/, 1)[0] ?? '';
+}
+
+function lastNameFromDisplayName(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  return parts.length > 1 ? parts.slice(1).join(' ') : '';
 }
 
 interface UserOperationalDetailsProps {

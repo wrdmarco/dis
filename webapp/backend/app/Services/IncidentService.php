@@ -7,6 +7,8 @@ use App\Jobs\GenerateIncidentReport;
 use App\Models\Incident;
 use App\Models\User;
 use App\Support\ApiDateTime;
+use App\Support\PhoneNumber;
+use App\Support\ProfileLocation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -35,7 +37,9 @@ final class IncidentService
     {
         return DB::transaction(function () use ($data, $actor): Incident {
             $data = $this->resolveLocationCoordinates($data);
-            $data['custom_fields'] = $this->incidentFormService->normalizeCustomValues($data);
+            $phoneCountry = $this->phoneCountryFromIncidentData($data);
+            $data = $this->normalizeIncidentPhoneFields($data, $phoneCountry);
+            $data['custom_fields'] = $this->incidentFormService->normalizeCustomValues($data, $phoneCountry);
             $teamIds = $this->teamIdsFromPayload($data);
             unset($data['team_ids']);
             $data['team_id'] = $teamIds[0] ?? null;
@@ -83,8 +87,10 @@ final class IncidentService
             $directDispatch = (bool) ($data['direct_dispatch'] ?? false);
             $dispatchOptions = $this->dispatchOptionsFromPayload($data);
             $data = $this->resolveLocationCoordinates($data, $incident);
+            $phoneCountry = $this->phoneCountryFromIncidentData($data, $incident);
+            $data = $this->normalizeIncidentPhoneFields($data, $phoneCountry);
             if (array_key_exists('custom_fields', $data)) {
-                $data['custom_fields'] = $this->incidentFormService->normalizeCustomValues($data);
+                $data['custom_fields'] = $this->incidentFormService->normalizeCustomValues($data, $phoneCountry);
             }
             $teamIds = array_key_exists('team_ids', $data) ? $this->teamIdsFromPayload($data) : null;
             unset($data['status_reason']);
@@ -358,6 +364,42 @@ final class IncidentService
     private function hasCoordinatePair(mixed $latitude, mixed $longitude): bool
     {
         return $this->validCoordinate($latitude, -90, 90) && $this->validCoordinate($longitude, -180, 180);
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function phoneCountryFromIncidentData(array $data, ?Incident $incident = null): ?string
+    {
+        $locationLabel = array_key_exists('location_label', $data)
+            ? $data['location_label']
+            : $incident?->location_label;
+        $country = ProfileLocation::countryFromLocationLabel(is_string($locationLabel) ? $locationLabel : null);
+        if ($country !== null) {
+            return $country;
+        }
+
+        return ProfileLocation::countryFromCoordinates(
+            $data['latitude'] ?? $incident?->latitude,
+            $data['longitude'] ?? $incident?->longitude,
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function normalizeIncidentPhoneFields(array $data, ?string $phoneCountry): array
+    {
+        foreach (['reporter_phone', 'on_scene_contact_phone'] as $field) {
+            if (! array_key_exists($field, $data)) {
+                continue;
+            }
+
+            $data[$field] = PhoneNumber::normalize($data[$field] ?? null, $phoneCountry, $field, allowLocalWithoutCountry: $phoneCountry === null);
+        }
+
+        return $data;
     }
 
     private function validCoordinate(mixed $value, float $minimum, float $maximum): bool

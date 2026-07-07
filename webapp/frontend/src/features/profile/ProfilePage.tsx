@@ -6,6 +6,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { ApiClientError } from '../../lib/apiClient';
 import { droneTypeLabel } from '../../lib/droneTypes';
+import { countryOptions, regionOptionsForCountry } from '../../lib/profileLocation';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
 import type { Asset, AvailabilityOverride, AvailabilitySchedule, AvailabilityScheduleDay, Certification, DroneType, TwoFactorSetup, UserCertification } from '../../types/api';
@@ -14,6 +15,24 @@ type OwnAssetStatus = 'ready' | 'maintenance' | 'unavailable';
 type AvailabilityDayPart = NonNullable<AvailabilityOverride['day_part']>;
 
 const availabilityDayParts: AvailabilityDayPart[] = ['morning', 'afternoon', 'evening'];
+
+interface ProfileFormState {
+  firstName: string;
+  lastName: string;
+  phoneNumber: string;
+  homeCity: string;
+  homeRegion: string;
+  homeCountry: string;
+}
+
+const emptyProfileForm: ProfileFormState = {
+  firstName: '',
+  lastName: '',
+  phoneNumber: '',
+  homeCity: '',
+  homeRegion: '',
+  homeCountry: 'NL',
+};
 
 function emptyAssetForm() {
   return {
@@ -42,7 +61,7 @@ function emptyCertificationForm() {
 }
 
 export function ProfilePage() {
-  const { api, user, theme, setThemePreference, startTwoFactorSetup, enableTwoFactor, disableTwoFactor } = useAuth();
+  const { api, user, theme, setThemePreference, startTwoFactorSetup, enableTwoFactor, disableTwoFactor, refreshMe } = useAuth();
   const assets = useApiResource<Asset[]>('/assets/mine');
   const schedule = useApiResource<AvailabilitySchedule>('/availability-schedule/me');
   const droneTypes = useApiResource<DroneType[]>('/drone-types');
@@ -54,9 +73,11 @@ export function ProfilePage() {
   const [disableCode, setDisableCode] = useState('');
   const [workPlanOpen, setWorkPlanOpen] = useState(false);
   const [workPlanDraft, setWorkPlanDraft] = useState<AvailabilityScheduleDay[] | null>(null);
+  const [profileForm, setProfileForm] = useState<ProfileFormState>(emptyProfileForm);
   const [assetForm, setAssetForm] = useState(emptyAssetForm());
   const [certificationForm, setCertificationForm] = useState(emptyCertificationForm());
   const [savingSchedule, setSavingSchedule] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [savingAsset, setSavingAsset] = useState(false);
   const [savingCertification, setSavingCertification] = useState(false);
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
@@ -67,6 +88,8 @@ export function ProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [themeMessage, setThemeMessage] = useState<string | null>(null);
   const [themeError, setThemeError] = useState<string | null>(null);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [assetMessage, setAssetMessage] = useState<string | null>(null);
@@ -90,6 +113,21 @@ export function ProfilePage() {
     setAutoSetupStarted(true);
     void startSetup();
   }, [autoSetupStarted, mfaRequiredByRole, setup, user]);
+
+  useEffect(() => {
+    if (user === null) {
+      return;
+    }
+
+    setProfileForm({
+      firstName: user.first_name ?? firstNameFromDisplayName(user.name),
+      lastName: user.last_name ?? lastNameFromDisplayName(user.name),
+      phoneNumber: user.phone_number ?? '',
+      homeCity: user.home_city ?? '',
+      homeRegion: user.home_region ?? '',
+      homeCountry: user.home_country ?? 'NL',
+    });
+  }, [user]);
 
   async function startSetup() {
     setBusy(true);
@@ -202,6 +240,30 @@ export function ProfilePage() {
       setScheduleError(err instanceof ApiClientError ? err.message : 'Dagdeel kon niet worden opgeslagen.');
     } finally {
       setSavingSchedule(false);
+    }
+  }
+
+  async function submitProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingProfile(true);
+    setProfileError(null);
+    setProfileMessage(null);
+
+    try {
+      await api.patch('/auth/me', {
+        first_name: profileForm.firstName.trim(),
+        last_name: profileForm.lastName.trim(),
+        phone_number: profileForm.phoneNumber.trim() === '' ? null : profileForm.phoneNumber.trim(),
+        home_city: profileForm.homeCity.trim() === '' ? null : profileForm.homeCity.trim(),
+        home_region: profileForm.homeRegion.trim() === '' ? null : profileForm.homeRegion.trim(),
+        home_country: profileForm.homeCountry || null,
+      });
+      await refreshMe();
+      setProfileMessage('Profielgegevens opgeslagen.');
+    } catch (err) {
+      setProfileError(err instanceof ApiClientError ? err.message : 'Profielgegevens konden niet worden opgeslagen.');
+    } finally {
+      setSavingProfile(false);
     }
   }
 
@@ -379,6 +441,69 @@ export function ProfilePage() {
         </div>
         {themeMessage ? <p className="form-note">{themeMessage}</p> : null}
         {themeError ? <p className="form-error">{themeError}</p> : null}
+      </Panel>
+
+      <Panel title="Mijn gegevens">
+        <form className="form-grid" onSubmit={submitProfile}>
+          <label>
+            Voornaam
+            <input value={profileForm.firstName} maxLength={80} required onChange={(event) => setProfileForm((current) => ({ ...current, firstName: event.target.value }))} />
+          </label>
+          <label>
+            Achternaam
+            <input value={profileForm.lastName} maxLength={120} required onChange={(event) => setProfileForm((current) => ({ ...current, lastName: event.target.value }))} />
+          </label>
+          <label>
+            Telefoonnummer
+            <input value={profileForm.phoneNumber} inputMode="tel" autoComplete="tel" placeholder="+31612345678" required onChange={(event) => setProfileForm((current) => ({ ...current, phoneNumber: event.target.value }))} />
+            <small>Wordt bij opslaan internationaal gemaakt op basis van land.</small>
+          </label>
+          <label>
+            Woonplaats
+            <input value={profileForm.homeCity} maxLength={120} required onChange={(event) => setProfileForm((current) => ({ ...current, homeCity: event.target.value }))} />
+          </label>
+          <label>
+            Land
+            <select
+              value={profileForm.homeCountry}
+              required
+              onChange={(event) => setProfileForm((current) => {
+                const nextCountry = event.target.value;
+                const nextRegions = regionOptionsForCountry(nextCountry);
+                return {
+                  ...current,
+                  homeCountry: nextCountry,
+                  homeRegion: nextRegions.includes(current.homeRegion) ? current.homeRegion : '',
+                };
+              })}
+            >
+              {countryOptions.map((country) => (
+                <option key={country.value} value={country.value}>{country.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Provincie / regio
+            <select
+              value={profileForm.homeRegion}
+              required={regionOptionsForCountry(profileForm.homeCountry).length > 0}
+              disabled={regionOptionsForCountry(profileForm.homeCountry).length === 0}
+              onChange={(event) => setProfileForm((current) => ({ ...current, homeRegion: event.target.value }))}
+            >
+              <option value="">Kies provincie/regio</option>
+              {regionOptionsForCountry(profileForm.homeCountry).map((region) => (
+                <option key={region} value={region}>{region}</option>
+              ))}
+            </select>
+          </label>
+          {profileError ? <p className="form-error form-grid__wide">{profileError}</p> : null}
+          {profileMessage ? <p className="form-note form-grid__wide">{profileMessage}</p> : null}
+          <div className="actions-row form-grid__wide">
+            <button className="primary-button" type="submit" disabled={savingProfile}>
+              {savingProfile ? 'Opslaan...' : 'Gegevens opslaan'}
+            </button>
+          </div>
+        </form>
       </Panel>
 
       <Panel title="Mijn beschikbaarheid">
@@ -716,6 +841,15 @@ function SummaryItem({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function firstNameFromDisplayName(name: string): string {
+  return name.trim().split(/\s+/, 1)[0] ?? '';
+}
+
+function lastNameFromDisplayName(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  return parts.length > 1 ? parts.slice(1).join(' ') : '';
 }
 
 function AssetTable({

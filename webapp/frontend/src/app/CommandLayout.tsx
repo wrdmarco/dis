@@ -3,6 +3,10 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Archive, BarChart3, Bell, BellRing, BookUser, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, Download, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, Moon, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import type { FormEvent } from 'react';
+import { ApiClientError } from '../lib/apiClient';
+import type { ApiClient } from '../lib/apiClient';
+import { countryOptions, regionOptionsForCountry } from '../lib/profileLocation';
 import { useAuth } from '../features/auth/AuthContext';
 import type { User } from '../types/api';
 
@@ -127,7 +131,7 @@ interface BrandingState {
 }
 
 export function CommandLayout({ children }: { children: React.ReactNode }) {
-  const { user, api, clearSession, canUseWebConsole, hasPermission, theme, setThemePreference } = useAuth();
+  const { user, api, clearSession, canUseWebConsole, hasPermission, theme, setThemePreference, refreshMe } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -189,6 +193,7 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
       .filter((group) => group.items.length > 0),
   [canUseWebConsole, hasPermission, user]);
   const currentNavItem = useMemo(() => currentNavForPath(visibleNavGroups, pathname), [pathname, visibleNavGroups]);
+  const profileCompletionRequired = user?.profile_completion_required === true;
 
   return (
     <div className="command-layout">
@@ -274,8 +279,155 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+      {profileCompletionRequired && user !== null ? (
+        <ProfileCompletionModal user={user} api={api} refreshMe={refreshMe} />
+      ) : null}
     </div>
   );
+}
+
+interface ProfileCompletionFormState {
+  firstName: string;
+  lastName: string;
+  phoneNumber: string;
+  homeCity: string;
+  homeRegion: string;
+  homeCountry: string;
+}
+
+function ProfileCompletionModal({
+  user,
+  api,
+  refreshMe,
+}: {
+  user: User;
+  api: ApiClient;
+  refreshMe: () => Promise<User | null>;
+}) {
+  const [form, setForm] = useState<ProfileCompletionFormState>(() => profileFormFromUser(user));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const regionOptions = regionOptionsForCountry(form.homeCountry);
+
+  useEffect(() => {
+    setForm(profileFormFromUser(user));
+    setError(null);
+  }, [user]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+
+    try {
+      await api.patch<User>('/auth/me', {
+        first_name: form.firstName.trim(),
+        last_name: form.lastName.trim(),
+        phone_number: form.phoneNumber.trim(),
+        home_city: form.homeCity.trim(),
+        home_region: form.homeRegion.trim() === '' ? null : form.homeRegion.trim(),
+        home_country: form.homeCountry,
+      });
+      await refreshMe();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Gegevens konden niet worden opgeslagen.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal modal--narrow" role="dialog" aria-modal="true" aria-labelledby="profile-completion-title">
+        <header className="modal__header">
+          <div>
+            <span className="modal__eyebrow">Profiel aanvullen</span>
+            <h2 id="profile-completion-title">Vul je gegevens aan</h2>
+          </div>
+        </header>
+        <p className="muted-text">Voor de operationele bereikbaarheid zijn voornaam, achternaam, internationaal telefoonnummer en woonlocatie nodig.</p>
+        <form className="form-grid" onSubmit={submit}>
+          <label>
+            Voornaam
+            <input value={form.firstName} maxLength={80} required onChange={(event) => setForm((current) => ({ ...current, firstName: event.target.value }))} />
+          </label>
+          <label>
+            Achternaam
+            <input value={form.lastName} maxLength={120} required onChange={(event) => setForm((current) => ({ ...current, lastName: event.target.value }))} />
+          </label>
+          <label>
+            Telefoonnummer
+            <input value={form.phoneNumber} inputMode="tel" autoComplete="tel" placeholder="+31612345678" required onChange={(event) => setForm((current) => ({ ...current, phoneNumber: event.target.value }))} />
+            <small>Een Nederlands nummer zoals 0612345678 wordt opgeslagen als +31612345678.</small>
+          </label>
+          <label>
+            Woonplaats
+            <input value={form.homeCity} maxLength={120} required onChange={(event) => setForm((current) => ({ ...current, homeCity: event.target.value }))} />
+          </label>
+          <label>
+            Land
+            <select
+              value={form.homeCountry}
+              required
+              onChange={(event) => setForm((current) => {
+                const nextCountry = event.target.value;
+                const nextRegions = regionOptionsForCountry(nextCountry);
+                return {
+                  ...current,
+                  homeCountry: nextCountry,
+                  homeRegion: nextRegions.includes(current.homeRegion) ? current.homeRegion : '',
+                };
+              })}
+            >
+              {countryOptions.map((country) => (
+                <option key={country.value} value={country.value}>{country.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Provincie / regio
+            <select
+              value={form.homeRegion}
+              required={regionOptions.length > 0}
+              disabled={regionOptions.length === 0}
+              onChange={(event) => setForm((current) => ({ ...current, homeRegion: event.target.value }))}
+            >
+              <option value="">Kies provincie/regio</option>
+              {regionOptions.map((region) => (
+                <option key={region} value={region}>{region}</option>
+              ))}
+            </select>
+          </label>
+          {error ? <p className="form-error form-grid__wide">{error}</p> : null}
+          <div className="actions-row form-grid__wide">
+            <button className="primary-button" type="submit" disabled={saving}>
+              {saving ? 'Opslaan...' : 'Opslaan en doorgaan'}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function profileFormFromUser(user: User): ProfileCompletionFormState {
+  return {
+    firstName: user.first_name ?? firstNameFromDisplayName(user.name),
+    lastName: user.last_name ?? lastNameFromDisplayName(user.name),
+    phoneNumber: user.phone_number ?? '',
+    homeCity: user.home_city ?? '',
+    homeRegion: user.home_region ?? '',
+    homeCountry: user.home_country ?? 'NL',
+  };
+}
+
+function firstNameFromDisplayName(name: string): string {
+  return name.trim().split(/\s+/, 1)[0] ?? '';
+}
+
+function lastNameFromDisplayName(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  return parts.length > 1 ? parts.slice(1).join(' ') : '';
 }
 
 function isActivePath(pathname: string, item: NavItem): boolean {

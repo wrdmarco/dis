@@ -1,7 +1,8 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
+import { locationLabel } from '../../lib/profileLocation';
 import { useApiResource } from '../../lib/useApiResource';
 import type { AddressBookEntry } from '../../types/api';
 
@@ -12,10 +13,11 @@ export function AddressBookPage() {
   const resultCount = entries.data?.length ?? 0;
   const emptyText = useMemo(() => searchQuery ? 'Geen gebruikers gevonden voor deze zoekterm.' : 'Geen gebruikers beschikbaar.', [searchQuery]);
 
-  function submitSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSearchQuery(searchInput.trim());
-  }
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchQuery(searchInput.trim()), 250);
+
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
 
   function clearSearch() {
     setSearchInput('');
@@ -25,7 +27,7 @@ export function AddressBookPage() {
   return (
     <div className="page-stack">
       <Panel title="Adresboek">
-        <form className="form-grid" onSubmit={submitSearch}>
+        <div className="form-grid">
           <label className="form-grid__wide">
             Zoeken
             <span className="search-field">
@@ -33,20 +35,17 @@ export function AddressBookPage() {
               <input
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="Zoek op naam, telefoonnummer of woonplaats"
+                placeholder="Zoek op naam, telefoonnummer, woonplaats, provincie of land"
               />
             </span>
           </label>
           <div className="actions-row form-grid__wide">
-            <button className="primary-button" type="submit">
-              <Search size={16} /> Zoeken
-            </button>
             <button className="secondary-button" type="button" onClick={clearSearch} disabled={searchInput === '' && searchQuery === ''}>
               Wissen
             </button>
             <span className="muted-text">{resultCount} resultaten uit gebruikerslijst</span>
           </div>
-        </form>
+        </div>
       </Panel>
 
       <Panel title="Contacten">
@@ -57,7 +56,7 @@ export function AddressBookPage() {
                 <tr>
                   <th>Naam</th>
                   <th>Telefoonnummer</th>
-                  <th>Woonplaats</th>
+                  <th>Locatie</th>
                 </tr>
               </thead>
               <tbody>
@@ -65,7 +64,7 @@ export function AddressBookPage() {
                   <tr key={entry.id}>
                     <td><strong>{entry.name}</strong></td>
                     <td>{entry.phone_number ? <a href={`tel:${entry.phone_number}`}>{entry.phone_number}</a> : '-'}</td>
-                    <td>{entry.city || '-'}</td>
+                    <td>{locationLabel(entry.city, entry.region, entry.country)}</td>
                   </tr>
                 ))}
               </tbody>

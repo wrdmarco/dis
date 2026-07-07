@@ -21,10 +21,14 @@ final class User extends Authenticatable
 
     protected $fillable = [
         'name',
+        'first_name',
+        'last_name',
         'email',
         'password',
         'phone_number',
         'home_city',
+        'home_region',
+        'home_country',
         'home_latitude',
         'home_longitude',
         'home_geocoded_at',

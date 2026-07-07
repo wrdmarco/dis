@@ -63,8 +63,11 @@ final class SetupController extends Controller
         $publicUrl = $this->normalizePublicUrl((string) $data['public_url']);
 
         $user = DB::transaction(function () use ($data, $publicUrl): User {
+            [$firstName, $lastName] = $this->splitDisplayName((string) $data['admin_name']);
             $user = User::query()->create([
                 'name' => $data['admin_name'],
+                'first_name' => $firstName,
+                'last_name' => $lastName,
                 'email' => $data['admin_email'],
                 'password' => $data['admin_password'],
                 'account_status' => 'active',
@@ -145,5 +148,23 @@ final class SetupController extends Controller
         }
 
         return $trimmed;
+    }
+
+    /**
+     * @return array{0: string|null, 1: string|null}
+     */
+    private function splitDisplayName(string $name): array
+    {
+        $normalized = trim((string) preg_replace('/\s+/', ' ', $name));
+        if ($normalized === '') {
+            return [null, null];
+        }
+
+        $parts = explode(' ', $normalized, 2);
+
+        return [
+            $parts[0] !== '' ? $parts[0] : null,
+            isset($parts[1]) && trim($parts[1]) !== '' ? trim($parts[1]) : null,
+        ];
     }
 }

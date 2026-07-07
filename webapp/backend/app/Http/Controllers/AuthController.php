@@ -10,9 +10,11 @@ use App\Services\TwoFactorService;
 use App\Services\UserService;
 use App\Support\ApiDateTime;
 use App\Support\MobileApiPayload;
+use App\Support\ProfileLocation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -262,8 +264,12 @@ final class AuthController extends Controller
     public function updateMe(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'name' => ['required', 'string', 'max:160'],
+            'first_name' => ['sometimes', 'required', 'string', 'max:80'],
+            'last_name' => ['sometimes', 'required', 'string', 'max:120'],
+            'phone_number' => ['sometimes', 'nullable', 'string', 'max:40'],
             'home_city' => ['nullable', 'string', 'max:120'],
+            'home_region' => ['nullable', 'string', 'max:120'],
+            'home_country' => ['nullable', 'string', 'size:2', Rule::in(ProfileLocation::countryCodes())],
             'theme' => ['sometimes', 'string', 'in:dark,light'],
         ]);
 

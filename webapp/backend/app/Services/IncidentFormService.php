@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\SystemSetting;
+use App\Support\PhoneNumber;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -133,7 +134,7 @@ final class IncidentFormService
                 $fieldRules[] = 'max:999999';
             } elseif ($field['type'] === 'phone') {
                 $fieldRules[] = 'string';
-                $fieldRules[] = 'regex:'.$this->phonePattern($field['phone_countries'] ?? self::DEFAULT_PHONE_COUNTRIES);
+                $fieldRules[] = 'max:40';
             } elseif ($field['type'] === 'flight_time') {
                 $fieldRules[] = 'array';
                 $rules['custom_fields.'.$field['key'].'.start'] = [$partial ? 'sometimes' : ($field['required'] === true ? 'required' : 'nullable'), 'regex:/^([01]\d|2[0-4]):[0-5]\d$/'];
@@ -181,7 +182,7 @@ final class IncidentFormService
      * @param array<string, mixed> $data
      * @return array<string, mixed>
      */
-    public function normalizeCustomValues(array $data): array
+    public function normalizeCustomValues(array $data, ?string $phoneCountry = null): array
     {
         $incoming = $data['custom_fields'] ?? [];
         if (! is_array($incoming)) {
@@ -208,7 +209,7 @@ final class IncidentFormService
             } elseif ($field['type'] === 'number') {
                 $values[$key] = (int) $value;
             } elseif ($field['type'] === 'phone') {
-                $values[$key] = $this->normalizePhoneValue($value);
+                $values[$key] = PhoneNumber::normalize($value, $phoneCountry, 'custom_fields.'.$key, allowLocalWithoutCountry: $phoneCountry === null);
             } elseif ($field['type'] === 'flight_time') {
                 $values[$key] = $this->normalizeFlightTimeValue($value);
             } elseif ($field['type'] === 'checkbox') {
@@ -651,13 +652,6 @@ final class IncidentFormService
         return $cleaned === [] ? self::DEFAULT_PHONE_COUNTRIES : $cleaned;
     }
 
-    private function phonePattern(mixed $countries): string
-    {
-        $countryPattern = implode('|', array_map('preg_quote', $this->cleanPhoneCountries($countries)));
-
-        return '/^\+('.$countryPattern.')[\s-]?[1-9](?:[\s-]?[0-9]){7,11}$/';
-    }
-
     /**
      * @return array{start: string|null, end: string|null, duration_minutes: int|null}
      */
@@ -671,11 +665,6 @@ final class IncidentFormService
             'end' => $this->cleanTimeValue($end),
             'duration_minutes' => $this->flightDurationMinutes($start, $end),
         ];
-    }
-
-    private function normalizePhoneValue(mixed $value): string
-    {
-        return preg_replace('/[^\d+]/', '', trim((string) $value)) ?? '';
     }
 
     private function cleanTimeValue(?string $value): ?string

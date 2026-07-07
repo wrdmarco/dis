@@ -68,14 +68,20 @@ export interface AddressBookEntry {
   name: string;
   phone_number?: string | null;
   city?: string | null;
+  region?: string | null;
+  country?: string | null;
 }
 
 export interface User {
   id: string;
   name: string;
+  first_name?: string | null;
+  last_name?: string | null;
   email: string;
   phone_number?: string | null;
   home_city?: string | null;
+  home_region?: string | null;
+  home_country?: string | null;
   home_latitude?: string | null;
   home_longitude?: string | null;
   home_geocoded_at?: string | null;
@@ -87,6 +93,8 @@ export interface User {
   push_enabled: boolean;
   max_operator_devices: number;
   two_factor_enabled: boolean;
+  profile_completion_required?: boolean;
+  missing_profile_fields?: string[];
   roles?: Role[];
   teams?: Team[];
   statuses?: AvailabilityStatus[];

@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Users;
 
 use App\Services\PasswordPolicy;
+use App\Support\ProfileLocation;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -16,12 +17,16 @@ final class StoreUserRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:160'],
+            'name' => ['nullable', 'string', 'max:160'],
+            'first_name' => ['required', 'string', 'max:80'],
+            'last_name' => ['required', 'string', 'max:120'],
             'email' => ['required', 'email:rfc', 'max:255', 'unique:users,email'],
             'password' => [Rule::requiredIf(! $this->boolean('send_welcome_mail')), 'nullable', app(PasswordPolicy::class)->rule()],
             'send_welcome_mail' => ['sometimes', 'boolean'],
             'phone_number' => ['nullable', 'string', 'max:40'],
             'home_city' => ['nullable', 'string', 'max:120'],
+            'home_region' => ['nullable', 'string', 'max:120'],
+            'home_country' => ['nullable', 'string', 'size:2', Rule::in(ProfileLocation::countryCodes())],
             'account_status' => ['nullable', 'in:active,suspended,blocked'],
             'max_operator_devices' => ['nullable', 'integer', 'min:1', 'max:20'],
             'role_ids' => ['nullable', 'array'],

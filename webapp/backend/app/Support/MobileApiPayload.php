@@ -16,6 +16,7 @@ use App\Models\Incident;
 use App\Models\PilotIncidentReport;
 use App\Models\User;
 use App\Models\UserCertification;
+use App\Support\ProfileLocation;
 use DateTimeInterface;
 
 final class MobileApiPayload
@@ -41,9 +42,13 @@ final class MobileApiPayload
         return [
             'id' => $user->id,
             'name' => $user->name,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
             'email' => $user->email,
             'phone_number' => $user->phone_number,
             'home_city' => $user->home_city,
+            'home_region' => $user->home_region,
+            'home_country' => $user->home_country,
             'home_latitude' => $user->home_latitude,
             'home_longitude' => $user->home_longitude,
             'account_status' => $user->account_status,
@@ -55,6 +60,8 @@ final class MobileApiPayload
             'home_geocoded_at' => self::dateTime($user->home_geocoded_at),
             'home_geocode_source' => $user->home_geocode_source,
             'two_factor_enabled' => (bool) $user->two_factor_enabled,
+            'profile_completion_required' => self::profileCompletionMissingFields($user) !== [],
+            'missing_profile_fields' => self::profileCompletionMissingFields($user),
             'mail_preferences' => is_array($user->mail_preferences) ? $user->mail_preferences : null,
             'roles' => $user->roles->map(fn ($role): array => [
                 'id' => $role->id,
@@ -86,6 +93,34 @@ final class MobileApiPayload
                 : [],
             'fcm_tokens' => $user->fcmTokens->map(fn (FcmToken $token): array => self::fcmToken($token))->values(),
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function profileCompletionMissingFields(User $user): array
+    {
+        $missing = [];
+        if (trim((string) $user->first_name) === '') {
+            $missing[] = 'first_name';
+        }
+        if (trim((string) $user->last_name) === '') {
+            $missing[] = 'last_name';
+        }
+        if (! PhoneNumber::looksInternational($user->phone_number)) {
+            $missing[] = 'phone_number';
+        }
+        if (trim((string) $user->home_country) === '') {
+            $missing[] = 'home_country';
+        }
+        if (trim((string) $user->home_city) === '') {
+            $missing[] = 'home_city';
+        }
+        if (ProfileLocation::regionsFor($user->home_country) !== [] && trim((string) $user->home_region) === '') {
+            $missing[] = 'home_region';
+        }
+
+        return $missing;
     }
 
     /**

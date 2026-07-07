@@ -7,6 +7,8 @@ use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\Team;
 use App\Models\User;
+use App\Support\PhoneNumber;
+use App\Support\ProfileLocation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -43,6 +45,7 @@ final class UserService
             $data['password'] = Str::random(32).'Aa1!';
         }
 
+        $data = $this->prepareUserData($data);
         $data = $this->resolveHomeCityData($data);
 
         $user = DB::transaction(function () use ($data, $roleIds, $teamIds, $actor): User {
@@ -66,6 +69,7 @@ final class UserService
      */
     public function update(User $user, array $data, User $actor): User
     {
+        $data = $this->prepareUserData($data, $user);
         $data = $this->resolveHomeCityData($data, $user);
 
         return DB::transaction(function () use ($user, $data, $actor): User {
@@ -119,10 +123,15 @@ final class UserService
             unset($data['theme']);
         }
 
-        $data = $this->resolveHomeCityData([
-            'name' => trim((string) ($data['name'] ?? $user->name)),
-            'home_city' => $data['home_city'] ?? null,
-        ], $user);
+        $profileData = [];
+        foreach (['first_name', 'last_name', 'phone_number', 'home_city', 'home_region', 'home_country'] as $field) {
+            if (array_key_exists($field, $data)) {
+                $profileData[$field] = $data[$field];
+            }
+        }
+
+        $data = $this->prepareUserData($profileData, $user);
+        $data = $this->resolveHomeCityData($data, $user);
         if ($themeProvided) {
             $data['mail_preferences'] = $preferences;
         }
@@ -373,6 +382,86 @@ final class UserService
      * @param array<string, mixed> $data
      * @return array<string, mixed>
      */
+    private function prepareUserData(array $data, ?User $user = null): array
+    {
+        foreach (['first_name', 'last_name', 'home_city', 'home_region'] as $field) {
+            if (array_key_exists($field, $data)) {
+                $value = trim((string) ($data[$field] ?? ''));
+                $data[$field] = $value === '' ? null : $value;
+            }
+        }
+
+        if (array_key_exists('home_country', $data)) {
+            $country = strtoupper(trim((string) ($data['home_country'] ?? '')));
+            $data['home_country'] = $country === '' ? null : $country;
+        }
+
+        $country = $data['home_country'] ?? $user?->home_country;
+        if (array_key_exists('home_region', $data)) {
+            $this->assertRegionMatchesCountry($data['home_region'] ?? null, $country);
+        }
+
+        if (array_key_exists('phone_number', $data)) {
+            $data['phone_number'] = PhoneNumber::normalize($data['phone_number'] ?? null, is_string($country) ? $country : null);
+        }
+
+        if (array_key_exists('name', $data) && (! array_key_exists('first_name', $data) || ! array_key_exists('last_name', $data))) {
+            [$firstName, $lastName] = $this->splitDisplayName((string) ($data['name'] ?? ''));
+            if (! array_key_exists('first_name', $data)) {
+                $data['first_name'] = $firstName;
+            }
+            if (! array_key_exists('last_name', $data)) {
+                $data['last_name'] = $lastName;
+            }
+        }
+
+        if (array_key_exists('first_name', $data) || array_key_exists('last_name', $data)) {
+            $firstName = trim((string) ($data['first_name'] ?? $user?->first_name ?? ''));
+            $lastName = trim((string) ($data['last_name'] ?? $user?->last_name ?? ''));
+            $displayName = trim($firstName.' '.$lastName);
+            if ($displayName !== '') {
+                $data['name'] = $displayName;
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * @return array{0: string|null, 1: string|null}
+     */
+    private function splitDisplayName(string $name): array
+    {
+        $normalized = trim((string) preg_replace('/\s+/', ' ', $name));
+        if ($normalized === '') {
+            return [null, null];
+        }
+
+        $parts = explode(' ', $normalized, 2);
+
+        return [
+            $parts[0] !== '' ? $parts[0] : null,
+            isset($parts[1]) && trim($parts[1]) !== '' ? trim($parts[1]) : null,
+        ];
+    }
+
+    private function assertRegionMatchesCountry(mixed $region, mixed $country): void
+    {
+        $normalizedRegion = trim((string) ($region ?? ''));
+        $regions = ProfileLocation::regionsFor(is_string($country) ? $country : null);
+        if ($normalizedRegion === '' || $regions === []) {
+            return;
+        }
+
+        if (! in_array($normalizedRegion, $regions, true)) {
+            throw ValidationException::withMessages(['home_region' => ['Kies een geldige provincie of regio voor het gekozen land.']]);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
     private function resolveHomeCityData(array $data, ?User $user = null): array
     {
         if (! array_key_exists('home_city', $data)) {
@@ -391,17 +480,35 @@ final class UserService
         }
 
         $data['home_city'] = $homeCity;
-        if ($user !== null && trim((string) $user->home_city) === $homeCity) {
+        $homeRegion = trim((string) ($data['home_region'] ?? $user?->home_region ?? ''));
+        $homeCountry = strtoupper(trim((string) ($data['home_country'] ?? $user?->home_country ?? '')));
+        if (
+            $user !== null
+            && trim((string) $user->home_city) === $homeCity
+            && trim((string) $user->home_region) === $homeRegion
+            && strtoupper(trim((string) $user->home_country)) === $homeCountry
+        ) {
             return $data;
         }
 
-        $coordinates = $this->geocodingService->coordinatesFor($homeCity);
+        $coordinates = $this->geocodingService->coordinatesFor($this->homeLocationLabel($homeCity, $homeRegion, $homeCountry));
         $data['home_latitude'] = $coordinates === null ? null : number_format((float) $coordinates['latitude'], 2, '.', '');
         $data['home_longitude'] = $coordinates === null ? null : number_format((float) $coordinates['longitude'], 2, '.', '');
         $data['home_geocoded_at'] = $coordinates === null ? null : now();
         $data['home_geocode_source'] = $coordinates === null ? null : (string) config('dis.geocoding.provider', 'nominatim');
 
         return $data;
+    }
+
+    private function homeLocationLabel(string $city, string $region, string $country): string
+    {
+        return collect([
+            $city,
+            $region,
+            ProfileLocation::countryName($country),
+        ])
+            ->filter(fn (?string $part): bool => trim((string) $part) !== '')
+            ->implode(', ');
     }
 
     /**
