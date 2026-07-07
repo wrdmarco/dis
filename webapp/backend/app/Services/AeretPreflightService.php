@@ -41,7 +41,10 @@ final class AeretPreflightService
                     continue;
                 }
 
-                $distanceMeters = $this->distanceToGeometry($feature['geometry'] ?? null, $latitude, $longitude);
+                $distanceMeters = $layer['layer_id'] === self::NOTAM_LAYER_ID
+                    ? $this->distanceToNotamLocation($feature, $latitude, $longitude)
+                    : null;
+                $distanceMeters ??= $this->distanceToGeometry($feature['geometry'] ?? null, $latitude, $longitude);
                 if ($distanceMeters === null || $distanceMeters > $radiusMeters) {
                     continue;
                 }
@@ -503,6 +506,24 @@ final class AeretPreflightService
         };
     }
 
+    private function distanceToNotamLocation(array $feature, float $latitude, float $longitude): ?float
+    {
+        $properties = is_array($feature['properties'] ?? null) ? $feature['properties'] : [];
+        $notamLatitude = $this->numericProperty($properties, ['Lat', 'lat']);
+        $notamLongitude = $this->numericProperty($properties, ['Lon', 'lon']);
+        if ($notamLatitude === null || $notamLongitude === null) {
+            return null;
+        }
+
+        $radiusMeters = max(0.0, $this->numericProperty($properties, ['Radius', 'radius']) ?? 0.0);
+        $centerDistance = $this->distanceToPoint([$notamLongitude, $notamLatitude], $latitude, $longitude);
+        if ($centerDistance === null) {
+            return null;
+        }
+
+        return max(0.0, $centerDistance - $radiusMeters);
+    }
+
     private function distanceToPoint(mixed $coordinate, float $latitude, float $longitude): ?float
     {
         if (! $this->isLonLatPair($coordinate)) {
@@ -716,6 +737,27 @@ final class AeretPreflightService
             && count($coordinate) >= 2
             && is_numeric($coordinate[0] ?? null)
             && is_numeric($coordinate[1] ?? null);
+    }
+
+    /**
+     * @param array<string, mixed> $properties
+     * @param list<string> $keys
+     */
+    private function numericProperty(array $properties, array $keys): ?float
+    {
+        foreach ($keys as $key) {
+            $value = $properties[$key] ?? null;
+            if (is_string($value)) {
+                $value = str_replace(',', '.', trim($value));
+            }
+            if (is_numeric($value)) {
+                $number = (float) $value;
+
+                return is_finite($number) ? $number : null;
+            }
+        }
+
+        return null;
     }
 
     /**
