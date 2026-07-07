@@ -13,7 +13,7 @@ use Illuminate\Validation\ValidationException;
 
 final class MobilePairingService
 {
-    private const TTL_SECONDS = 15;
+    private const TTL_SECONDS = 30;
 
     public function __construct(private readonly AuditService $auditService) {}
 
