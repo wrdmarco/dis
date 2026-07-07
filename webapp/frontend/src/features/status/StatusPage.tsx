@@ -5,6 +5,7 @@ import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
+import { hasOnlineOperatorDevice, latestOperatorDevice } from '../../lib/devicePresence';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
 import type { AvailabilityStatus } from '../../types/api';
@@ -202,13 +203,11 @@ function StatusTable({
 }
 
 function isUserOnline(item: AvailabilityStatus): boolean {
-  return item.user?.fcm_tokens?.some((token) => token.client_type !== 'admin' && token.is_online) ?? false;
+  return hasOnlineOperatorDevice(item.user?.fcm_tokens ?? []);
 }
 
 function deviceSeenLabel(item: AvailabilityStatus): string {
-  const token = [...(item.user?.fcm_tokens ?? [])]
-    .filter((candidate) => candidate.client_type !== 'admin')
-    .sort((left, right) => (right.last_seen_at ?? '').localeCompare(left.last_seen_at ?? ''))[0];
+  const token = latestOperatorDevice(item.user?.fcm_tokens ?? []);
 
   if (token === undefined) {
     return 'Geen operator-device';

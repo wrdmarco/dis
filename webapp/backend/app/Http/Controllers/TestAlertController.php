@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiResponse;
+use App\Models\DispatchRequest;
 use App\Services\TestAlertService;
+use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -13,12 +15,12 @@ final class TestAlertController extends Controller
 
     public function show(Request $request): JsonResponse
     {
-        return ApiResponse::success($this->service->latestFor($request->user()));
+        return ApiResponse::success($this->dispatchPayload($this->service->latestFor($request->user())));
     }
 
     public function send(Request $request): JsonResponse
     {
-        return ApiResponse::success($this->service->send($request->user()), 201);
+        return ApiResponse::success($this->dispatchPayload($this->service->send($request->user())), 201);
     }
 
     public function schedule(): JsonResponse
@@ -36,5 +38,17 @@ final class TestAlertController extends Controller
         ]);
 
         return ApiResponse::success($this->service->updateSchedule($data, $request->user()?->id));
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function dispatchPayload(?DispatchRequest $dispatch): ?array
+    {
+        if ($dispatch === null) {
+            return null;
+        }
+
+        return MobileApiPayload::dispatch($dispatch->loadMissing(['incident', 'targetTeam', 'recipients.user']));
     }
 }

@@ -6,6 +6,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { assetDisplayLabel } from '../../lib/assetLabels';
 import { formatDateOnly, formatDateTime, todayAmsterdamDateInputValue } from '../../lib/dateTime';
+import { activeOperatorDeviceCount, onlineOperatorDeviceCount, uniqueOperatorDevices } from '../../lib/devicePresence';
 import { droneTypeLabel } from '../../lib/droneTypes';
 import { countryOptions, locationLabel, regionOptionsForCountry } from '../../lib/profileLocation';
 import { useApiResource } from '../../lib/useApiResource';
@@ -314,8 +315,8 @@ export function UsersPage() {
             <thead><tr><th>Naam</th><th>E-mail</th><th>Locatie</th><th>Account</th><th>Online</th><th>Push</th><th>Teams</th><th>Rollen</th><th>Actie</th></tr></thead>
             <tbody>
               {users.data?.map((user) => {
-                const onlineDevices = user.fcm_tokens?.filter((token) => token.client_type !== 'admin' && token.is_online).length ?? 0;
-                const activeDevices = user.fcm_tokens?.filter((token) => token.client_type !== 'admin' && token.is_active).length ?? 0;
+                const onlineDevices = onlineOperatorDeviceCount(user.fcm_tokens ?? []);
+                const activeDevices = activeOperatorDeviceCount(user.fcm_tokens ?? []);
 
                 return (
                   <tr key={user.id}>
@@ -658,7 +659,7 @@ function UserOperationalDetails({
   const { api } = useAuth();
   const userCertifications = user?.certifications ?? [];
   const assetAssignments = user?.asset_assignments ?? [];
-  const fcmTokens = user?.fcm_tokens ?? [];
+  const fcmTokens = uniqueOperatorDevices(user?.fcm_tokens ?? []);
   const assignedAssetIds = new Set(assetAssignments.map((assignment) => assignment.asset_id));
   const availableAssets = assets.filter((asset) => !assignedAssetIds.has(asset.id) && asset.status !== 'assigned' && asset.status !== 'retired');
   const userCertificationIds = new Set(userCertifications.map((certification) => certification.certification_id));

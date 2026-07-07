@@ -6,7 +6,6 @@ use App\Models\FcmToken;
 use App\Models\PersonalAccessToken;
 use App\Models\User;
 use App\Services\Firebase\FcmClient;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -26,25 +25,27 @@ final class DeviceService
     public function registerFcmToken(User $user, array $data, ?PersonalAccessToken $accessToken = null): FcmToken
     {
         return DB::transaction(function () use ($user, $data, $accessToken): FcmToken {
+            $user = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
             $clientType = (string) ($data['client_type'] ?? 'operator');
             $tokenHash = hash('sha256', (string) $data['token']);
             $token = FcmToken::query()
                 ->where('user_id', $user->id)
-                ->where(function (Builder $query) use ($tokenHash, $data, $clientType): void {
-                    $query->where('token_hash', $tokenHash)
-                        ->orWhere(function (Builder $deviceQuery) use ($data, $clientType): void {
-                            $deviceQuery
-                                ->where('device_id', $data['device_id'])
-                                ->where('client_type', $clientType);
-                        });
-                })
+                ->where('device_id', $data['device_id'])
+                ->where('client_type', $clientType)
+                ->lockForUpdate()
+                ->first();
+            $token ??= FcmToken::query()
+                ->where('user_id', $user->id)
+                ->where('token_hash', $tokenHash)
+                ->lockForUpdate()
                 ->first();
 
             if ($token === null && $clientType === 'operator') {
                 $activeOperatorDevices = $user->fcmTokens()
                     ->where('client_type', 'operator')
                     ->where('is_active', true)
-                    ->count();
+                    ->distinct()
+                    ->count('device_id');
                 $maximum = max(1, (int) ($user->max_operator_devices ?? 1));
                 if ($activeOperatorDevices >= $maximum) {
                     throw ValidationException::withMessages([
@@ -82,10 +83,13 @@ final class DeviceService
                 $user->update(['push_enabled' => true]);
             }
 
+            $duplicateDevicesRevoked = $this->revokeDuplicateActiveDeviceTokens($token);
+
             $this->auditService->record('push.token_registered', $token, $user, [
                 'client_type' => $clientType,
                 'device_type' => $payload['device_type'],
                 'device_name' => $payload['device_name'],
+                'duplicate_device_tokens_revoked' => $duplicateDevicesRevoked,
                 'old_mobile_tokens_revoked' => $this->mobileSessions->revokeSafeOldMobileTokens($user, $clientType),
             ]);
 
@@ -102,6 +106,7 @@ final class DeviceService
             ->where('device_id', $data['device_id'])
             ->where('client_type', $data['client_type'] ?? 'operator')
             ->where('is_active', true)
+            ->latest('last_seen_at')
             ->first();
 
         if ($token === null) {
@@ -122,6 +127,8 @@ final class DeviceService
         if ($accessToken !== null && (string) $previousAccessTokenId !== (string) $accessToken->id) {
             $this->mobileSessions->revokeSafeOldMobileTokens($user, $clientType);
         }
+
+        $this->revokeDuplicateActiveDeviceTokens($token->refresh());
 
         return $token->refresh();
     }
@@ -186,5 +193,19 @@ final class DeviceService
         } catch (Throwable $exception) {
             report($exception);
         }
+    }
+
+    private function revokeDuplicateActiveDeviceTokens(FcmToken $token): int
+    {
+        return FcmToken::query()
+            ->where('user_id', $token->user_id)
+            ->where('device_id', $token->device_id)
+            ->where('client_type', $token->client_type)
+            ->where('is_active', true)
+            ->where('id', '!=', $token->id)
+            ->update([
+                'is_active' => false,
+                'revoked_at' => now(),
+            ]);
     }
 }
