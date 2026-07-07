@@ -3,6 +3,7 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { Crosshair, MapPin, RefreshCw, Search } from 'lucide-react';
 import { Panel } from '../../components/Panel';
+import { ApiClientError } from '../../lib/apiClient';
 import {
   fetchLocationSuggestions,
   geocodeAddressLabel,
@@ -10,17 +11,24 @@ import {
   type LocationSearchResult,
   type LocationSuggestion,
 } from '../../lib/locationSearch';
+import type { AeretFeatureCollection, AeretGeoJsonFeature, GeoJsonGeometry, GeoJsonPosition } from '../../types/api';
+import { useAuth } from '../auth/AuthContext';
 
 const MAP_WIDTH = 1280;
 const MAP_HEIGHT = 720;
 const NETHERLANDS_CENTER: MapPoint = { latitude: 52.1326, longitude: 5.2913 };
 const NETHERLANDS_VIEWPORT: MapViewport = { width: MAP_WIDTH, height: MAP_HEIGHT, zoom: 7 };
-const SELECTED_LOCATION_ZOOM = 15;
+const SELECTED_LOCATION_ZOOM = 13;
+const AERET_RADIUS_METERS = 5000;
 
 export function TestMapPage() {
+  const { api } = useAuth();
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<LocationSearchResult | null>(null);
+  const [aeretCollection, setAeretCollection] = useState<AeretFeatureCollection | null>(null);
+  const [aeretLoading, setAeretLoading] = useState(false);
+  const [aeretError, setAeretError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const selectedPoint = useMemo(() => locationPoint(selectedLocation), [selectedLocation]);
@@ -44,6 +52,47 @@ export function TestMapPage() {
       controller.abort();
     };
   }, [query]);
+
+  useEffect(() => {
+    if (selectedPoint === null) {
+      setAeretCollection(null);
+      setAeretError(null);
+      setAeretLoading(false);
+      return undefined;
+    }
+
+    let active = true;
+    const params = new URLSearchParams({
+      latitude: selectedPoint.latitude.toFixed(7),
+      longitude: selectedPoint.longitude.toFixed(7),
+      radius_m: String(AERET_RADIUS_METERS),
+    });
+
+    setAeretLoading(true);
+    setAeretError(null);
+
+    void api.get<AeretFeatureCollection>(`/aeret/preflight/nearby?${params.toString()}`)
+      .then((response) => {
+        if (active) {
+          setAeretCollection(response.data);
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setAeretCollection(null);
+          setAeretError(err instanceof ApiClientError ? err.message : 'Aeret data kon niet worden geladen.');
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setAeretLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [api, selectedPoint]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -90,7 +139,7 @@ export function TestMapPage() {
     try {
       const resolved = await lookupLocationSuggestion(suggestion);
       if (resolved === null) {
-        setError('Geen coördinaten gevonden voor deze locatie.');
+        setError('Geen coordinaten gevonden voor deze locatie.');
         return;
       }
 
@@ -105,6 +154,8 @@ export function TestMapPage() {
 
   function resetMap() {
     setSelectedLocation(null);
+    setAeretCollection(null);
+    setAeretError(null);
     setError(null);
   }
 
@@ -162,7 +213,7 @@ export function TestMapPage() {
                 <Crosshair size={20} />
               </span>
               <div>
-                <small>GPS coördinaten</small>
+                <small>GPS coordinaten</small>
                 {selectedPoint ? (
                   <dl>
                     <div>
@@ -175,15 +226,80 @@ export function TestMapPage() {
                     </div>
                   </dl>
                 ) : (
-                  <strong>Zoek een adres om coördinaten te tonen.</strong>
+                  <strong>Zoek een adres om coordinaten te tonen.</strong>
                 )}
               </div>
             </div>
           </div>
 
-          <AddressMap selectedPoint={selectedPoint} selectedLabel={selectedLocation?.locationLabel ?? null} />
+          <AeretSummary collection={aeretCollection} loading={aeretLoading} error={aeretError} />
+          <AddressMap selectedPoint={selectedPoint} selectedLabel={selectedLocation?.locationLabel ?? null} aeretCollection={aeretCollection} />
+          <AeretFeatureList collection={aeretCollection} loading={aeretLoading} />
         </div>
       </Panel>
+    </div>
+  );
+}
+
+function AeretSummary({ collection, loading, error }: { collection: AeretFeatureCollection | null; loading: boolean; error: string | null }) {
+  if (loading) {
+    return (
+      <div className="test-map__aeret-summary" aria-live="polite">
+        <span>NOTAM en no-fly zones worden opgehaald...</span>
+      </div>
+    );
+  }
+
+  if (error !== null) {
+    return (
+      <div className="test-map__aeret-summary test-map__aeret-summary--error" aria-live="polite">
+        <span>{error}</span>
+      </div>
+    );
+  }
+
+  if (collection === null) {
+    return null;
+  }
+
+  const counts = collection.meta?.counts ?? {};
+  const total = collection.meta?.feature_count ?? collection.features.length;
+
+  return (
+    <div className="test-map__aeret-summary" aria-live="polite">
+      <strong>{total}</strong>
+      <span>objecten binnen 5 km</span>
+      <small>NOTAM {counts.notam ?? 0}</small>
+      <small>No-fly {counts.no_fly ?? 0}</small>
+      <small>Laagvlieg {counts.low_flying ?? 0}</small>
+    </div>
+  );
+}
+
+function AeretFeatureList({ collection, loading }: { collection: AeretFeatureCollection | null; loading: boolean }) {
+  if (loading || collection === null || collection.features.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="test-map__aeret-list">
+      {collection.features.slice(0, 12).map((feature) => {
+        const info = feature.properties._aeret;
+        const category = info?.category ?? 'zone';
+        const title = info?.title ?? fallbackFeatureTitle(feature);
+        const summary = info?.summary ?? featurePropertyString(feature, ['Beschrijving', 'Luchtruim', 'Uitleg']);
+
+        return (
+          <article className={`test-map__aeret-card test-map__aeret-card--${category}`} key={feature.id ?? `${title}-${info?.distance_m ?? ''}`}>
+            <header>
+              <strong>{title}</strong>
+              <span>{categoryLabel(category)}</span>
+            </header>
+            {summary ? <p>{summary}</p> : null}
+            <small>{formatDistance(info?.distance_m)} vanaf gekozen locatie</small>
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -207,7 +323,15 @@ function locationPoint(location: LocationSearchResult | null): MapPoint | null {
   return { latitude, longitude };
 }
 
-function AddressMap({ selectedPoint, selectedLabel }: { selectedPoint: MapPoint | null; selectedLabel: string | null }) {
+function AddressMap({
+  selectedPoint,
+  selectedLabel,
+  aeretCollection,
+}: {
+  selectedPoint: MapPoint | null;
+  selectedLabel: string | null;
+  aeretCollection: AeretFeatureCollection | null;
+}) {
   const center = selectedPoint ?? NETHERLANDS_CENTER;
   const viewport: MapViewport = selectedPoint === null
     ? NETHERLANDS_VIEWPORT
@@ -241,6 +365,10 @@ function AddressMap({ selectedPoint, selectedLabel }: { selectedPoint: MapPoint 
             preserveAspectRatio="none"
           />
         ))}
+        {selectedPoint ? <RadiusCircle point={selectedPoint} radiusMeters={AERET_RADIUS_METERS} centerWorld={centerWorld} viewport={viewport} /> : null}
+        {aeretCollection ? (
+          <AeretFeatureLayer features={aeretCollection.features} centerWorld={centerWorld} viewport={viewport} />
+        ) : null}
         {selectedPoint ? <LocationPin point={selectedPoint} label={selectedLabel ?? 'Geselecteerde locatie'} centerWorld={centerWorld} viewport={viewport} /> : null}
       </svg>
       {selectedPoint === null ? (
@@ -251,6 +379,86 @@ function AddressMap({ selectedPoint, selectedLabel }: { selectedPoint: MapPoint 
       ) : null}
     </div>
   );
+}
+
+function RadiusCircle({
+  point,
+  radiusMeters,
+  centerWorld,
+  viewport,
+}: {
+  point: MapPoint;
+  radiusMeters: number;
+  centerWorld: WorldPoint;
+  viewport: MapViewport;
+}) {
+  const position = markerPosition(point, centerWorld, viewport);
+  const radiusPixels = metersToPixels(radiusMeters, point.latitude, viewport.zoom);
+
+  return (
+    <g className="test-map__radius">
+      <circle cx={position.x} cy={position.y} r={radiusPixels} />
+      <text x={position.x + radiusPixels + 8} y={position.y - 8}>5 km</text>
+    </g>
+  );
+}
+
+function AeretFeatureLayer({
+  features,
+  centerWorld,
+  viewport,
+}: {
+  features: AeretGeoJsonFeature[];
+  centerWorld: WorldPoint;
+  viewport: MapViewport;
+}) {
+  return (
+    <g className="test-map__aeret-layer">
+      {features.map((feature) => (
+        <AeretFeatureShape key={feature.id ?? feature.properties._aeret?.source_url ?? JSON.stringify(feature.geometry).slice(0, 64)} feature={feature} centerWorld={centerWorld} viewport={viewport} />
+      ))}
+    </g>
+  );
+}
+
+function AeretFeatureShape({
+  feature,
+  centerWorld,
+  viewport,
+}: {
+  feature: AeretGeoJsonFeature;
+  centerWorld: WorldPoint;
+  viewport: MapViewport;
+}) {
+  const category = feature.properties._aeret?.category ?? 'zone';
+  const title = feature.properties._aeret?.title ?? fallbackFeatureTitle(feature);
+  const path = geometryPath(feature.geometry, centerWorld, viewport);
+  const point = geometryLabelPoint(feature.geometry);
+  const labelPosition = point ? markerPosition({ latitude: point[1], longitude: point[0] }, centerWorld, viewport) : null;
+
+  if (path !== '') {
+    return (
+      <g className={`test-map__aeret-feature test-map__aeret-feature--${category}`}>
+        <title>{title}</title>
+        <path d={path} />
+        {labelPosition ? <text x={labelPosition.x + 8} y={labelPosition.y - 8}>{shortMapLabel(title, 28)}</text> : null}
+      </g>
+    );
+  }
+
+  if (point !== null) {
+    const position = markerPosition({ latitude: point[1], longitude: point[0] }, centerWorld, viewport);
+
+    return (
+      <g className={`test-map__aeret-point test-map__aeret-feature--${category}`}>
+        <title>{title}</title>
+        <circle cx={position.x} cy={position.y} r="9" />
+        <text x={position.x + 13} y={position.y - 8}>{shortMapLabel(title, 28)}</text>
+      </g>
+    );
+  }
+
+  return null;
 }
 
 function LocationPin({
@@ -347,6 +555,96 @@ function markerPosition(point: MapPoint, center: WorldPoint, viewport: MapViewpo
     x: Math.round(world.x - center.x + viewport.width / 2),
     y: Math.round(world.y - center.y + viewport.height / 2),
   };
+}
+
+function metersToPixels(meters: number, latitude: number, zoom: number): number {
+  const metersPerPixel = (156543.03392 * Math.cos((latitude * Math.PI) / 180)) / (2 ** zoom);
+
+  return meters / metersPerPixel;
+}
+
+function geometryPath(geometry: GeoJsonGeometry, centerWorld: WorldPoint, viewport: MapViewport): string {
+  switch (geometry.type) {
+    case 'Polygon':
+      return polygonPath(geometry.coordinates, centerWorld, viewport);
+    case 'MultiPolygon':
+      return geometry.coordinates.map((polygon) => polygonPath(polygon, centerWorld, viewport)).join(' ');
+    case 'LineString':
+      return linePath(geometry.coordinates, centerWorld, viewport, false);
+    case 'MultiLineString':
+      return geometry.coordinates.map((line) => linePath(line, centerWorld, viewport, false)).join(' ');
+    default:
+      return '';
+  }
+}
+
+function polygonPath(polygon: GeoJsonPosition[][], centerWorld: WorldPoint, viewport: MapViewport): string {
+  return polygon.map((ring) => linePath(ring, centerWorld, viewport, true)).join(' ');
+}
+
+function linePath(points: GeoJsonPosition[], centerWorld: WorldPoint, viewport: MapViewport, close: boolean): string {
+  return points
+    .map((coordinate, index) => {
+      const position = markerPosition({ latitude: coordinate[1], longitude: coordinate[0] }, centerWorld, viewport);
+      return `${index === 0 ? 'M' : 'L'} ${position.x} ${position.y}`;
+    })
+    .join(' ') + (close ? ' Z' : '');
+}
+
+function geometryLabelPoint(geometry: GeoJsonGeometry): GeoJsonPosition | null {
+  switch (geometry.type) {
+    case 'Point':
+      return geometry.coordinates;
+    case 'MultiPoint':
+    case 'LineString':
+      return geometry.coordinates[0] ?? null;
+    case 'MultiLineString':
+    case 'Polygon':
+      return geometry.coordinates[0]?.[0] ?? null;
+    case 'MultiPolygon':
+      return geometry.coordinates[0]?.[0]?.[0] ?? null;
+    default:
+      return null;
+  }
+}
+
+function fallbackFeatureTitle(feature: AeretGeoJsonFeature): string {
+  return featurePropertyString(feature, ['NOTAM nummer', 'Naam', 'Afkorting', 'Luchtruim']) ?? 'Aeret object';
+}
+
+function featurePropertyString(feature: AeretGeoJsonFeature, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = feature.properties[key];
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value.trim();
+    }
+    if (typeof value === 'number') {
+      return String(value);
+    }
+  }
+
+  return null;
+}
+
+function categoryLabel(category: string): string {
+  switch (category) {
+    case 'notam':
+      return 'NOTAM';
+    case 'no_fly':
+      return 'No-fly';
+    case 'low_flying':
+      return 'Laagvlieg';
+    default:
+      return 'Zone';
+  }
+}
+
+function formatDistance(distance?: number): string {
+  if (distance === undefined || !Number.isFinite(distance)) {
+    return '-';
+  }
+
+  return distance >= 1000 ? `${(distance / 1000).toFixed(1)} km` : `${Math.round(distance)} m`;
 }
 
 function shortMapLabel(value: string, maxLength: number): string {

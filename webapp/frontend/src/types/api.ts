@@ -205,6 +205,55 @@ export interface OperationalMapPilotHome {
   teams: string[];
 }
 
+export type GeoJsonPosition = [number, number];
+
+export type GeoJsonGeometry =
+  | { type: 'Point'; coordinates: GeoJsonPosition }
+  | { type: 'MultiPoint'; coordinates: GeoJsonPosition[] }
+  | { type: 'LineString'; coordinates: GeoJsonPosition[] }
+  | { type: 'MultiLineString'; coordinates: GeoJsonPosition[][] }
+  | { type: 'Polygon'; coordinates: GeoJsonPosition[][] }
+  | { type: 'MultiPolygon'; coordinates: GeoJsonPosition[][][] };
+
+export interface AeretFeatureProperties {
+  [key: string]: unknown;
+  _aeret?: {
+    layer_id?: number;
+    layer_name?: string;
+    object_id?: number;
+    source_feature_id?: string | null;
+    source_url?: string;
+    category?: 'notam' | 'no_fly' | 'low_flying' | string;
+    severity?: 'notice' | 'restricted' | 'warning' | string;
+    title?: string;
+    summary?: string | null;
+    distance_m?: number;
+    within_radius_m?: number;
+  };
+}
+
+export interface AeretGeoJsonFeature {
+  type: 'Feature';
+  id?: string;
+  geometry: GeoJsonGeometry;
+  properties: AeretFeatureProperties;
+}
+
+export interface AeretFeatureCollection {
+  type: 'FeatureCollection';
+  features: AeretGeoJsonFeature[];
+  meta?: {
+    center?: {
+      latitude?: number;
+      longitude?: number;
+    };
+    radius_m?: number;
+    feature_count?: number;
+    counts?: Record<string, number>;
+    source?: string;
+  };
+}
+
 export interface IncidentInternalNotes {
   internal_notes?: string | null;
   updated_at?: string | null;
