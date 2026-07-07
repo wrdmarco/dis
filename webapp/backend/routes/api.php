@@ -3,7 +3,6 @@
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AdminDeveloperController;
 use App\Http\Controllers\AdminPushController;
-use App\Http\Controllers\AeretPreflightController;
 use App\Http\Controllers\AvailabilityScheduleController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AuthController;
@@ -93,7 +92,6 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
 
     Route::get('/incidents', [IncidentController::class, 'index'])->middleware('permission:incidents.view');
     Route::get('/operational-map/layers', [OperationalMapController::class, 'layers'])->middleware('permission:incidents.view');
-    Route::get('/aeret/preflight/nearby', [AeretPreflightController::class, 'nearby'])->middleware(['permission:incidents.view', 'throttle:api']);
     Route::post('/incidents', [IncidentController::class, 'store'])->middleware('permission:incidents.manage');
     Route::get('/incident-form/config', [IncidentFormController::class, 'show'])->middleware('permission:incidents.view');
     Route::post('/incidents/flight-context-preview', [IncidentController::class, 'flightContextPreview'])->middleware('permission:incidents.manage');
