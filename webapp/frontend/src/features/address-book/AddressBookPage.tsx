@@ -19,11 +19,6 @@ export function AddressBookPage() {
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
-  function clearSearch() {
-    setSearchInput('');
-    setSearchQuery('');
-  }
-
   return (
     <div className="page-stack">
       <Panel title="Adresboek">
@@ -39,12 +34,6 @@ export function AddressBookPage() {
               />
             </span>
           </label>
-          <div className="actions-row form-grid__wide">
-            <button className="secondary-button" type="button" onClick={clearSearch} disabled={searchInput === '' && searchQuery === ''}>
-              Wissen
-            </button>
-            <span className="muted-text">{resultCount} resultaten uit gebruikerslijst</span>
-          </div>
         </div>
       </Panel>
 
