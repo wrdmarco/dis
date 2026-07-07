@@ -3318,6 +3318,10 @@ select[multiple] {
   height: min(68dvh, 720px);
 }
 
+.test-map__osm-shade {
+  fill: rgba(3, 7, 12, 0.12);
+}
+
 .test-map__radius circle {
   fill: rgba(96, 165, 250, 0.09);
   stroke: rgba(125, 211, 252, 0.86);

@@ -344,8 +344,8 @@ function AddressMap({
       <svg className="operational-map__svg test-map__svg" viewBox={`0 0 ${viewport.width} ${viewport.height}`} role="img" aria-label={selectedPoint ? 'Kaart ingezoomd op de gevonden locatie' : 'Kaart van Nederland'}>
         {tiles.map((tile) => (
           <image
-            key={`imagery-${tile.x}-${tile.y}-${tile.z}`}
-            href={`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${tile.z}/${tile.y}/${tile.x}`}
+            key={`osm-${tile.x}-${tile.y}-${tile.z}`}
+            href={`https://tile.openstreetmap.org/${tile.z}/${tile.x}/${tile.y}.png`}
             x={tile.left}
             y={tile.top}
             width="256"
@@ -353,18 +353,7 @@ function AddressMap({
             preserveAspectRatio="none"
           />
         ))}
-        <rect className="operational-map__shade" x="0" y="0" width={viewport.width} height={viewport.height} />
-        {tiles.map((tile) => (
-          <image
-            key={`labels-${tile.x}-${tile.y}-${tile.z}`}
-            href={`https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/${tile.z}/${tile.y}/${tile.x}`}
-            x={tile.left}
-            y={tile.top}
-            width="256"
-            height="256"
-            preserveAspectRatio="none"
-          />
-        ))}
+        <rect className="operational-map__shade test-map__osm-shade" x="0" y="0" width={viewport.width} height={viewport.height} />
         {selectedPoint ? <RadiusCircle point={selectedPoint} radiusMeters={AERET_RADIUS_METERS} centerWorld={centerWorld} viewport={viewport} /> : null}
         {aeretCollection ? (
           <AeretFeatureLayer features={aeretCollection.features} centerWorld={centerWorld} viewport={viewport} />
