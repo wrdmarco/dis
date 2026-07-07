@@ -13,6 +13,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Services\AuditService;
 use App\Services\PasswordPolicy;
+use App\Services\TwoFactorService;
 use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -43,7 +44,6 @@ final class AdminController extends Controller
             'name' => ['required', 'string', 'max:120', 'unique:roles,name'],
             'display_name' => ['required', 'string', 'max:160'],
             'description' => ['nullable', 'string', 'max:2000'],
-            'requires_two_factor' => ['required', 'boolean'],
             'can_use_operator_app' => ['required', 'boolean'],
             'can_use_admin_app' => ['required', 'boolean'],
             'permission_ids' => ['nullable', 'array'],
@@ -69,7 +69,6 @@ final class AdminController extends Controller
             'name' => ['sometimes', 'string', 'max:120', Rule::unique('roles', 'name')->ignore($role->id)],
             'display_name' => ['sometimes', 'string', 'max:160'],
             'description' => ['nullable', 'string', 'max:2000'],
-            'requires_two_factor' => ['sometimes', 'boolean'],
             'can_use_operator_app' => ['sometimes', 'boolean'],
             'can_use_admin_app' => ['sometimes', 'boolean'],
             'permission_ids' => ['nullable', 'array'],
@@ -382,6 +381,7 @@ final class AdminController extends Controller
             PasswordPolicy::NUMBERS_KEY,
             PasswordPolicy::SYMBOLS_KEY,
             PasswordPolicy::UNCOMPROMISED_KEY => $this->validateBooleanSetting($key, $value),
+            TwoFactorService::REQUIRED_KEY => $this->validateBooleanSetting($key, $value),
             'security.mfa_issuer_name' => $this->validateStringSetting($key, $value, 64),
             'app.brand_name' => $this->validateStringSetting($key, $value, 120),
             'app.brand_short_name' => $this->validateStringSetting($key, $value, 12),

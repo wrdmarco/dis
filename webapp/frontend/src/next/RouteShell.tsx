@@ -61,7 +61,7 @@ export function ProtectedShell({ children, permissions = [], anyPermission = fal
       .finally(() => setChecking(false));
   }, [isAuthenticated, refreshMe, router, user]);
 
-  const requiresTwoFactorSetup = user?.roles?.some((role) => role.requires_two_factor) === true && user.two_factor_enabled !== true;
+  const requiresTwoFactorSetup = user?.mfa_required === true && user.two_factor_enabled !== true;
   const allowed = useMemo(() => {
     if (allowProfileOnly) {
       return true;

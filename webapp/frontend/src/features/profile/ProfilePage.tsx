@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { KeyRound, ShieldCheck, Trash2, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -100,19 +100,16 @@ export function ProfilePage() {
   const assetSupportsSpotlight = assetForm.type === 'drone' && selectedAssetDroneType?.has_spotlight === true;
   const assetSupportsSpeaker = assetForm.type === 'drone' && selectedAssetDroneType?.has_speaker === true;
 
-  const mfaRequiredByRole = useMemo(
-    () => user?.roles?.some((role) => role.requires_two_factor) ?? false,
-    [user?.roles],
-  );
+  const mfaRequired = user?.mfa_required === true;
 
   useEffect(() => {
-    if (!user || user.two_factor_enabled || !mfaRequiredByRole || setup !== null || autoSetupStarted) {
+    if (!user || user.two_factor_enabled || !mfaRequired || setup !== null || autoSetupStarted) {
       return;
     }
 
     setAutoSetupStarted(true);
     void startSetup();
-  }, [autoSetupStarted, mfaRequiredByRole, setup, user]);
+  }, [autoSetupStarted, mfaRequired, setup, user]);
 
   useEffect(() => {
     if (user === null) {
@@ -426,7 +423,7 @@ export function ProfilePage() {
           <dt>MFA status</dt>
           <dd>{user?.two_factor_enabled ? 'Ingeschakeld' : 'Uitgeschakeld'}</dd>
           <dt>MFA verplicht</dt>
-          <dd>{mfaRequiredByRole ? 'Ja, door rol' : 'Nee'}</dd>
+          <dd>{mfaRequired ? 'Ja, systeemwijd' : 'Nee'}</dd>
           <dt>Weergave</dt>
           <dd>
             <div className="segmented-control" role="group" aria-label="Weergave">
@@ -766,7 +763,7 @@ export function ProfilePage() {
           <div className="mfa-card__icon"><ShieldCheck size={22} /></div>
           <div>
             <strong>{user?.two_factor_enabled ? 'MFA actief' : 'MFA niet actief'}</strong>
-            <p>{mfaRequiredByRole && !user?.two_factor_enabled ? 'Stel je Authenticator app in om verder te gaan.' : 'Gebruik een authenticator app met 6-cijferige TOTP-codes.'}</p>
+            <p>{mfaRequired && !user?.two_factor_enabled ? 'Stel je Authenticator app in om verder te gaan.' : 'Gebruik een authenticator app met 6-cijferige TOTP-codes.'}</p>
           </div>
           {!user?.two_factor_enabled ? (
             <button className="primary-button" type="button" onClick={startSetup} disabled={busy}>
@@ -811,15 +808,15 @@ export function ProfilePage() {
               <input inputMode="numeric" pattern="[0-9]{6}" value={disableCode} onChange={(event) => setDisableCode(event.target.value)} required />
             </label>
             <div className="actions-row form-grid__wide">
-              <button className="secondary-button" type="submit" disabled={busy || mfaRequiredByRole}>
+              <button className="secondary-button" type="submit" disabled={busy || mfaRequired}>
                 MFA uitzetten
               </button>
             </div>
           </form>
         ) : null}
 
-        {mfaRequiredByRole && user?.two_factor_enabled ? (
-          <p className="error-text">MFA kan pas uit nadat alle rollen die MFA verplichten zijn aangepast.</p>
+        {mfaRequired && user?.two_factor_enabled ? (
+          <p className="error-text">MFA kan pas uit nadat de globale MFA-verplichting is uitgezet.</p>
         ) : null}
         {error ? <p className="error-text">{error}</p> : null}
         {message ? <p className="success-text">{message}</p> : null}

@@ -39,7 +39,7 @@ final class AdminPushController extends Controller
                 ])->values(),
             'roles' => Role::query()
                 ->orderBy('display_name')
-                ->get(['id', 'name', 'display_name', 'description', 'requires_two_factor', 'can_use_operator_app', 'can_use_admin_app'])
+                ->get(['id', 'name', 'display_name', 'description', 'can_use_operator_app', 'can_use_admin_app'])
                 ->values(),
             'users' => User::query()
                 ->where('account_status', 'active')

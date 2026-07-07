@@ -65,7 +65,7 @@ final class AuthController extends Controller
             return ApiResponse::error('app_access_denied', 'Deze rol geeft geen toegang tot deze app.', 403);
         }
         $this->resetLoginFailures($user);
-        $requiresTwoFactor = $user->roles->contains(fn ($role) => $role->requires_two_factor);
+        $requiresTwoFactor = $this->twoFactorService->isRequired();
         if ($requiresTwoFactor && ! $user->two_factor_enabled) {
             $secret = $this->twoFactorService->generateSecret();
             $user->forceFill([
@@ -230,8 +230,8 @@ final class AuthController extends Controller
             return ApiResponse::error('unauthenticated', 'Authentication is required.', 401);
         }
 
-        if ($user->roles()->where('requires_two_factor', true)->exists()) {
-            return ApiResponse::error('two_factor_required_by_role', 'Two-factor authentication is required by one or more assigned roles.', 422);
+        if ($this->twoFactorService->isRequired()) {
+            return ApiResponse::error('two_factor_required_globally', 'Multi-factor authentication is globaal verplicht.', 422);
         }
 
         if (! Hash::check((string) $request->input('password'), $user->password)) {

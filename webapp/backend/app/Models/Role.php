@@ -12,12 +12,11 @@ final class Role extends Model
 
     public const SYSTEM_ADMINISTRATOR = 'system-administrator';
 
-    protected $fillable = ['name', 'display_name', 'description', 'requires_two_factor', 'can_use_operator_app', 'can_use_admin_app'];
+    protected $fillable = ['name', 'display_name', 'description', 'can_use_operator_app', 'can_use_admin_app'];
 
     protected function casts(): array
     {
         return [
-            'requires_two_factor' => 'boolean',
             'can_use_operator_app' => 'boolean',
             'can_use_admin_app' => 'boolean',
         ];

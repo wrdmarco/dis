@@ -36,7 +36,6 @@ export interface Role {
   name: string;
   display_name: string;
   description?: string | null;
-  requires_two_factor: boolean;
   can_use_operator_app: boolean;
   can_use_admin_app: boolean;
   users_count?: number;
@@ -93,6 +92,7 @@ export interface User {
   push_enabled: boolean;
   max_operator_devices: number;
   two_factor_enabled: boolean;
+  mfa_required?: boolean;
   profile_completion_required?: boolean;
   missing_profile_fields?: string[];
   roles?: Role[];

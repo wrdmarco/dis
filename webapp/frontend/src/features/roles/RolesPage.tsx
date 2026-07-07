@@ -11,7 +11,6 @@ interface RoleFormState {
   name: string;
   displayName: string;
   description: string;
-  requiresTwoFactor: boolean;
   canUseOperatorApp: boolean;
   canUseAdminApp: boolean;
   permissionIds: string[];
@@ -53,7 +52,6 @@ export function RolesPage() {
       name: role.name,
       displayName: role.display_name,
       description: role.description ?? '',
-      requiresTwoFactor: role.requires_two_factor,
       canUseOperatorApp: role.can_use_operator_app,
       canUseAdminApp: role.can_use_admin_app,
       permissionIds: role.permissions?.map((permission) => permission.id) ?? [],
@@ -85,7 +83,6 @@ export function RolesPage() {
         name: roleForm.name.trim(),
         display_name: roleForm.displayName.trim(),
         description: roleForm.description.trim() === '' ? null : roleForm.description.trim(),
-        requires_two_factor: roleForm.requiresTwoFactor,
         can_use_operator_app: roleForm.canUseOperatorApp,
         can_use_admin_app: roleForm.canUseAdminApp,
         permission_ids: roleForm.permissionIds,
@@ -147,11 +144,12 @@ export function RolesPage() {
         <div className="metadata-example">
           <strong>Standaard voor iedere ingelogde gebruiker</strong>
           <p>Iedere gebruiker kan altijd het eigen profiel bekijken en de eigen profielgegevens beheren waar dat is toegestaan. Dat is basisfunctionaliteit en staat daarom niet als aparte permissie in rollen.</p>
+          <p>MFA wordt systeemwijd ingesteld bij Admin onder MFA en wachtwoordeisen. Rollen bepalen alleen toegang tot apps en functies.</p>
           <p>Rond incidenten zijn rechten bewust gescheiden: incidentregistratie gaat over gegevens en status, incidentalarmering gaat over vooraankondigen, alarmeren, opkomst en opschalen.</p>
         </div>
         <ResourceState loading={roles.loading} error={roles.error} empty={(roles.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Naam</th><th>Apps</th><th>2FA</th><th>Permissies</th><th>Gebruikers</th><th>Actie</th></tr></thead>
+            <thead><tr><th>Naam</th><th>Apps</th><th>Permissies</th><th>Gebruikers</th><th>Actie</th></tr></thead>
             <tbody>
               {roles.data?.map((role) => {
                 const userCount = role.users_count ?? 0;
@@ -174,7 +172,6 @@ export function RolesPage() {
                   <tr key={role.id}>
                     <td><strong>{role.display_name}</strong><br /><span className="mono">{role.name}</span></td>
                     <td>{role.can_use_operator_app ? 'Operator' : '-'} / {role.can_use_admin_app ? 'Admin' : '-'}</td>
-                    <td>{role.requires_two_factor ? 'Verplicht' : 'Niet verplicht'}</td>
                     <td>
                       <div className="role-permission-summary">
                         {(role.permissions ?? []).slice(0, 4).map((permission) => <span key={permission.id}>{permission.display_name}</span>)}
@@ -223,10 +220,6 @@ export function RolesPage() {
                 <textarea value={roleForm.description} onChange={(event) => setRoleForm((current) => ({ ...current, description: event.target.value }))} />
               </label>
               <label className="check-label">
-                <input type="checkbox" checked={roleForm.requiresTwoFactor} onChange={(event) => setRoleForm((current) => ({ ...current, requiresTwoFactor: event.target.checked }))} />
-                2FA verplicht
-              </label>
-              <label className="check-label">
                 <input type="checkbox" checked={roleForm.canUseOperatorApp} onChange={(event) => setRoleForm((current) => ({ ...current, canUseOperatorApp: event.target.checked }))} />
                 Operator app toestaan
               </label>
@@ -239,6 +232,7 @@ export function RolesPage() {
               <div className="metadata-example">
                 <strong>Standaard toegang</strong>
                 <p>Eigen profiel bekijken en waar toegestaan eigen profielgegevens wijzigen is voor iedere ingelogde gebruiker beschikbaar. Kies hieronder alleen extra rechten voor beheer, incidenten, alarmering en systeemfuncties.</p>
+                <p>MFA staat niet per rol. Gebruik de globale MFA-schakelaar bij Admin onder MFA en wachtwoordeisen.</p>
                 <p>Let op bij incidenten en instellingen: alarmeren staat los van incidentgegevens beheren, en push tokens beheren staat los van handmatige pushmeldingen versturen.</p>
               </div>
               <div className="permission-category-list">
@@ -314,7 +308,6 @@ function emptyRoleForm(): RoleFormState {
     name: '',
     displayName: '',
     description: '',
-    requiresTwoFactor: false,
     canUseOperatorApp: true,
     canUseAdminApp: false,
     permissionIds: [],

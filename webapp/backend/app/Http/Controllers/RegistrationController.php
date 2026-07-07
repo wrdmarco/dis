@@ -111,7 +111,7 @@ final class RegistrationController extends Controller
 
     private function requiresMfa(User $user): bool
     {
-        return $user->roles->contains(fn ($role): bool => (bool) $role->requires_two_factor);
+        return $this->twoFactorService->isRequired();
     }
 
     private function adminAppAllowed(User $user): bool

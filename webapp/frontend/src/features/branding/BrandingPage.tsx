@@ -52,7 +52,7 @@ Er is een account voor je aangemaakt in {{app_name}}. Rond je registratie af via
 
 {{registration_url}}
 
-Je stelt zelf je wachtwoord in en doorloopt direct de MFA-setup wanneer dat voor je rol verplicht is.
+Je stelt zelf je wachtwoord in en doorloopt direct de MFA-setup wanneer dit systeemwijd verplicht is.
 
 {{admin_app_note}}
 

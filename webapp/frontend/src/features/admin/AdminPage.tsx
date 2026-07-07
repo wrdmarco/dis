@@ -54,6 +54,7 @@ interface ManagedSettingsForm {
 }
 
 interface PasswordPolicySettingsForm {
+  mfaRequired: boolean;
   mfaIssuerName: string;
   minimumLength: string;
   requiresMixedCase: boolean;
@@ -462,6 +463,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
           'security.password_requires_numbers': passwordPolicyForm.requiresNumbers,
           'security.password_requires_symbols': passwordPolicyForm.requiresSymbols,
           'security.password_uncompromised': passwordPolicyForm.uncompromised,
+          'security.mfa_required': passwordPolicyForm.mfaRequired,
           'security.mfa_issuer_name': passwordPolicyForm.mfaIssuerName.trim() || 'D.I.S',
         },
       });
@@ -1046,6 +1048,14 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       {activeTab === 'passwords' ? (
         <Panel title="MFA en wachtwoordeisen">
           <div className="form-grid">
+            <label className="check-label form-grid__wide">
+              <input
+                type="checkbox"
+                checked={passwordPolicyForm.mfaRequired}
+                onChange={(event) => setPasswordPolicyForm((current) => ({ ...current, mfaRequired: event.target.checked }))}
+              />
+              MFA verplichten voor alle gebruikers
+            </label>
             <label>
               Authenticator naam
               <input
@@ -2768,6 +2778,7 @@ function toPasswordPolicySettingsForm(settings: SystemSetting[]): PasswordPolicy
   const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
 
   return {
+    mfaRequired: asBoolean(byKey.get('security.mfa_required'), true),
     mfaIssuerName: asString(byKey.get('security.mfa_issuer_name')) || 'D.I.S',
     minimumLength: asStringOrNumber(byKey.get('security.password_min_length'), '14'),
     requiresMixedCase: asBoolean(byKey.get('security.password_requires_mixed_case'), true),

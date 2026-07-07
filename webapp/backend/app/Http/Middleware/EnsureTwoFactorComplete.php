@@ -3,12 +3,15 @@
 namespace App\Http\Middleware;
 
 use App\Http\Responses\ApiResponse;
+use App\Services\TwoFactorService;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 final class EnsureTwoFactorComplete
 {
+    public function __construct(private readonly TwoFactorService $twoFactorService) {}
+
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
@@ -18,7 +21,7 @@ final class EnsureTwoFactorComplete
             return ApiResponse::error('two_factor_required', 'Two-factor authentication must be completed first.', 403);
         }
 
-        if ($user !== null && ! $user->two_factor_enabled && $user->roles()->where('requires_two_factor', true)->exists()) {
+        if ($user !== null && ! $user->two_factor_enabled && $this->twoFactorService->isRequired()) {
             return ApiResponse::error('two_factor_setup_required', 'Two-factor authentication setup is required for this account.', 403);
         }
 

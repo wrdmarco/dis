@@ -8,6 +8,14 @@ use Illuminate\Support\Str;
 
 final class TwoFactorService
 {
+    public const REQUIRED_KEY = 'security.mfa_required';
+    public const DEFAULT_REQUIRED = true;
+
+    public function isRequired(): bool
+    {
+        return SystemSetting::boolean(self::REQUIRED_KEY, self::DEFAULT_REQUIRED);
+    }
+
     public function generateSecret(int $length = 32): string
     {
         $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';

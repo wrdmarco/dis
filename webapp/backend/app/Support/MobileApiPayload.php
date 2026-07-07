@@ -14,8 +14,10 @@ use App\Models\DroneType;
 use App\Models\FcmToken;
 use App\Models\Incident;
 use App\Models\PilotIncidentReport;
+use App\Models\SystemSetting;
 use App\Models\User;
 use App\Models\UserCertification;
+use App\Services\TwoFactorService;
 use App\Support\ProfileLocation;
 use DateTimeInterface;
 
@@ -60,6 +62,7 @@ final class MobileApiPayload
             'home_geocoded_at' => self::dateTime($user->home_geocoded_at),
             'home_geocode_source' => $user->home_geocode_source,
             'two_factor_enabled' => (bool) $user->two_factor_enabled,
+            'mfa_required' => SystemSetting::boolean(TwoFactorService::REQUIRED_KEY, TwoFactorService::DEFAULT_REQUIRED),
             'profile_completion_required' => self::profileCompletionMissingFields($user) !== [],
             'missing_profile_fields' => self::profileCompletionMissingFields($user),
             'mail_preferences' => is_array($user->mail_preferences) ? $user->mail_preferences : null,
