@@ -18,7 +18,9 @@ const MAP_WIDTH = 1280;
 const MAP_HEIGHT = 720;
 const NETHERLANDS_CENTER: MapPoint = { latitude: 52.1326, longitude: 5.2913 };
 const NETHERLANDS_VIEWPORT: MapViewport = { width: MAP_WIDTH, height: MAP_HEIGHT, zoom: 7 };
-const SELECTED_LOCATION_ZOOM = 13;
+const SEARCH_VIEWPORT_MAX_ZOOM = 13;
+const SEARCH_VIEWPORT_MIN_ZOOM = 6;
+const SEARCH_VIEWPORT_PADDING = 96;
 const AERET_RADIUS_METERS = 5000;
 
 export function TestMapPage() {
@@ -338,13 +340,13 @@ function AddressMap({
   const center = selectedPoint ?? NETHERLANDS_CENTER;
   const viewport: MapViewport = selectedPoint === null
     ? NETHERLANDS_VIEWPORT
-    : { width: MAP_WIDTH, height: MAP_HEIGHT, zoom: SELECTED_LOCATION_ZOOM };
+    : viewportForSearchRadius(selectedPoint, AERET_RADIUS_METERS);
   const centerWorld = latLonToWorld(center.latitude, center.longitude, viewport.zoom);
   const tiles = visibleTiles(centerWorld, viewport);
 
   return (
     <div className="operational-map__canvas test-map__canvas">
-      <svg className="operational-map__svg test-map__svg" viewBox={`0 0 ${viewport.width} ${viewport.height}`} role="img" aria-label={selectedPoint ? 'Kaart ingezoomd op de gevonden locatie' : 'Kaart van Nederland'}>
+      <svg className="operational-map__svg test-map__svg" viewBox={`0 0 ${viewport.width} ${viewport.height}`} role="img" aria-label={selectedPoint ? 'Kaart met het volledige 5 km zoekgebied rond de gevonden locatie' : 'Kaart van Nederland'}>
         {tiles.map((tile) => (
           <image
             key={`osm-${tile.x}-${tile.y}-${tile.z}`}
@@ -538,6 +540,17 @@ function visibleTiles(center: WorldPoint, viewport: MapViewport): TilePosition[]
   }
 
   return tiles;
+}
+
+function viewportForSearchRadius(point: MapPoint, radiusMeters: number): MapViewport {
+  const availableRadiusPixels = (Math.min(MAP_WIDTH, MAP_HEIGHT) / 2) - SEARCH_VIEWPORT_PADDING;
+  for (let zoom = SEARCH_VIEWPORT_MAX_ZOOM; zoom >= SEARCH_VIEWPORT_MIN_ZOOM; zoom -= 1) {
+    if (metersToPixels(radiusMeters, point.latitude, zoom) <= availableRadiusPixels) {
+      return { width: MAP_WIDTH, height: MAP_HEIGHT, zoom };
+    }
+  }
+
+  return { width: MAP_WIDTH, height: MAP_HEIGHT, zoom: SEARCH_VIEWPORT_MIN_ZOOM };
 }
 
 function markerPosition(point: MapPoint, center: WorldPoint, viewport: MapViewport): { x: number; y: number } {
