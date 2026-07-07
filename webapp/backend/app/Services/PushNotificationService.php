@@ -20,6 +20,7 @@ final class PushNotificationService
         private readonly AuditService $auditService,
         private readonly StatusService $statusService,
         private readonly FcmClient $fcmClient,
+        private readonly MobileDeviceSessionService $mobileSessions,
     ) {}
 
     /**
@@ -96,9 +97,9 @@ final class PushNotificationService
             $token->update(['is_active' => false, 'revoked_at' => now()]);
             $user = $token->user;
 
-            if ($user !== null && is_string($linkedAccessTokenId) && $linkedAccessTokenId !== '') {
-                $user->tokens()->whereKey($linkedAccessTokenId)->delete();
-            }
+            $sessionCleanup = $user !== null
+                ? $this->mobileSessions->revokeLinkedAndSafeOldTokens($user, $linkedAccessTokenId, (string) $token->client_type)
+                : ['linked_access_token_revoked' => false, 'old_mobile_tokens_revoked' => 0];
 
             if ($user !== null && ! $user->fcmTokens()->where('is_active', true)->exists()) {
                 $user->update(['push_enabled' => false]);
@@ -108,8 +109,11 @@ final class PushNotificationService
             $this->auditService->record('push.token_admin_revoked', $token, $actor, [
                 'user_id' => $token->user_id,
                 'device_id' => $token->device_id,
-                'personal_access_token_revoked' => is_string($linkedAccessTokenId) && $linkedAccessTokenId !== '',
+                'personal_access_token_revoked' => $sessionCleanup['linked_access_token_revoked'],
+                'old_mobile_tokens_revoked' => $sessionCleanup['old_mobile_tokens_revoked'],
             ]);
+
+            $token->delete();
         });
     }
 

@@ -54,7 +54,7 @@ final class AdminPushController extends Controller
     {
         $tokens = FcmToken::query()
             ->with(['user.roles', 'user.teams'])
-            ->when($request->boolean('active_only'), fn ($query) => $query->where('is_active', true))
+            ->when($request->boolean('include_inactive') !== true, fn ($query) => $query->where('is_active', true))
             ->when($request->string('search')->toString() !== '', function ($query) use ($request): void {
                 $search = $request->string('search')->toString();
                 $query->where(function ($query) use ($search): void {

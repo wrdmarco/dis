@@ -17,6 +17,7 @@ final class DeviceService
         private readonly AuditService $auditService,
         private readonly StatusService $statusService,
         private readonly FcmClient $fcmClient,
+        private readonly MobileDeviceSessionService $mobileSessions,
     ) {}
 
     /**
@@ -85,6 +86,7 @@ final class DeviceService
                 'client_type' => $clientType,
                 'device_type' => $payload['device_type'],
                 'device_name' => $payload['device_name'],
+                'old_mobile_tokens_revoked' => $this->mobileSessions->revokeSafeOldMobileTokens($user, $clientType),
             ]);
 
             return $token;
@@ -106,6 +108,9 @@ final class DeviceService
             throw ValidationException::withMessages(['device_id' => ['Device is niet actief geregistreerd.']]);
         }
 
+        $previousAccessTokenId = $token->personal_access_token_id;
+        $clientType = (string) ($data['client_type'] ?? 'operator');
+
         $token->update([
             'device_type' => $data['device_type'] ?? $token->device_type,
             'device_name' => $this->deviceName($data, $token->device_name),
@@ -113,6 +118,10 @@ final class DeviceService
             'personal_access_token_id' => $accessToken?->id ?? $token->personal_access_token_id,
             'last_seen_at' => now(),
         ]);
+
+        if ($accessToken !== null && (string) $previousAccessTokenId !== (string) $accessToken->id) {
+            $this->mobileSessions->revokeSafeOldMobileTokens($user, $clientType);
+        }
 
         return $token->refresh();
     }
@@ -127,9 +136,7 @@ final class DeviceService
 
             $token->update(['is_active' => false, 'revoked_at' => now()]);
 
-            if (is_string($linkedAccessTokenId) && $linkedAccessTokenId !== '') {
-                $user->tokens()->whereKey($linkedAccessTokenId)->delete();
-            }
+            $sessionCleanup = $this->mobileSessions->revokeLinkedAndSafeOldTokens($user, $linkedAccessTokenId, (string) $token->client_type);
 
             if (! $user->fcmTokens()->where('is_active', true)->exists()) {
                 $user->update(['push_enabled' => false]);
@@ -137,8 +144,11 @@ final class DeviceService
             }
 
             $this->auditService->record('push.token_revoked', $token, $user, [
-                'personal_access_token_revoked' => is_string($linkedAccessTokenId) && $linkedAccessTokenId !== '',
+                'personal_access_token_revoked' => $sessionCleanup['linked_access_token_revoked'],
+                'old_mobile_tokens_revoked' => $sessionCleanup['old_mobile_tokens_revoked'],
             ]);
+
+            $token->delete();
         });
     }
 

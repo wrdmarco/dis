@@ -1294,7 +1294,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       ) : null}
 
       {activeTab === 'tokens' ? (
-        <Panel title="Firebase tokens">
+        <Panel title="Actieve Firebase tokens">
           {tokenActionError ? <p className="form-error">{tokenActionError}</p> : null}
           <ResourceState loading={tokens.loading} error={tokens.error} empty={(tokens.data?.length ?? 0) === 0}>
             <table className="data-table">
@@ -1313,9 +1313,9 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
                         className="primary-button"
                         type="button"
                         disabled={tokenActionId === token.id}
-                        onClick={() => void updateToken(token, token.is_active ? 'revoke' : 'activate')}
+                        onClick={() => void updateToken(token, 'revoke')}
                       >
-                        {token.is_active ? 'Intrekken' : 'Activeren'}
+                        Intrekken
                       </button>
                     </td>
                   </tr>
