@@ -68,6 +68,7 @@ export function TestMapPage() {
       radius_m: String(AERET_RADIUS_METERS),
     });
 
+    setAeretCollection(null);
     setAeretLoading(true);
     setAeretError(null);
 
@@ -272,6 +273,8 @@ function AeretSummary({ collection, loading, error }: { collection: AeretFeature
       <small>NOTAM {counts.notam ?? 0}</small>
       <small>No-fly {counts.no_fly ?? 0}</small>
       <small>Laagvlieg {counts.low_flying ?? 0}</small>
+      <small>Natura 2000 {counts.natura2000 ?? 0}</small>
+      <small>Vitale infra {counts.vital_infra ?? 0}</small>
     </div>
   );
 }
@@ -623,6 +626,10 @@ function categoryLabel(category: string): string {
       return 'No-fly';
     case 'low_flying':
       return 'Laagvlieg';
+    case 'natura2000':
+      return 'Natura 2000';
+    case 'vital_infra':
+      return 'Vitale infra';
     default:
       return 'Zone';
   }

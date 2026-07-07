@@ -223,7 +223,7 @@ export interface AeretFeatureProperties {
     object_id?: number;
     source_feature_id?: string | null;
     source_url?: string;
-    category?: 'notam' | 'no_fly' | 'low_flying' | string;
+    category?: 'notam' | 'no_fly' | 'low_flying' | 'natura2000' | 'vital_infra' | string;
     severity?: 'notice' | 'restricted' | 'warning' | string;
     title?: string;
     summary?: string | null;

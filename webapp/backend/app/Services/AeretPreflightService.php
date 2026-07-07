@@ -13,13 +13,20 @@ final class AeretPreflightService
 {
     private const BASE_URL = 'https://aeret.kaartviewer.nl/admin/v2/kaartviewerapi/bookmark/dpf_basic/bookmarkpresentation';
     private const AIRSPACE_LAYER_ID = 834;
+    private const NATURA2000_LAYER_ID = 899;
+    private const VITAL_INFRA_LAYER_ID = 1391;
     private const NOTAM_LAYER_ID = 1420;
     private const AIRSPACE_START_ID = 1;
     private const AIRSPACE_END_ID = 651;
+    private const NATURA2000_START_ID = 1;
+    private const NATURA2000_END_ID = 588;
+    private const VITAL_INFRA_START_ID = 1;
+    private const VITAL_INFRA_END_ID = 5;
     private const NOTAM_START_ID = 1;
     private const NOTAM_END_ID = 440;
     private const REQUEST_BATCH_SIZE = 50;
     private const REQUEST_BATCH_DELAY_MS = 100;
+    private const CACHE_VERSION = 'v3';
 
     /**
      * @return array{type: string, features: list<array<string, mixed>>, meta?: array<string, mixed>}
@@ -41,10 +48,13 @@ final class AeretPreflightService
                     continue;
                 }
 
+                if ($layer['layer_id'] === self::NOTAM_LAYER_ID && ! $this->isDroneRelevantNotam($feature)) {
+                    continue;
+                }
+
                 $distanceMeters = $layer['layer_id'] === self::NOTAM_LAYER_ID
                     ? $this->distanceToNotamLocation($feature, $latitude, $longitude)
-                    : null;
-                $distanceMeters ??= $this->distanceToGeometry($feature['geometry'] ?? null, $latitude, $longitude);
+                    : $this->distanceToGeometry($feature['geometry'] ?? null, $latitude, $longitude);
                 if ($distanceMeters === null || $distanceMeters > $radiusMeters) {
                     continue;
                 }
@@ -89,7 +99,7 @@ final class AeretPreflightService
             return null;
         }
 
-        $cacheKey = "aeret:feature:{$layerId}:{$objectId}:v1";
+        $cacheKey = sprintf('aeret:feature:%d:%d:%s', $layerId, $objectId, self::CACHE_VERSION);
         $cached = Cache::get($cacheKey);
         if ($cached === false) {
             return null;
@@ -115,7 +125,7 @@ final class AeretPreflightService
 
         $startId = max(1, $startId);
         $endId = max($startId, $endId);
-        $cacheKey = "aeret:layer:{$layerId}:{$startId}:{$endId}:v1";
+        $cacheKey = sprintf('aeret:layer:%d:%d:%d:%s', $layerId, $startId, $endId, self::CACHE_VERSION);
 
         return Cache::remember($cacheKey, $this->layerCacheTtl($layerId), function () use ($layerId, $startId, $endId): array {
             $features = [];
@@ -177,6 +187,8 @@ final class AeretPreflightService
     {
         return [
             ['layer_id' => self::AIRSPACE_LAYER_ID, 'start_id' => self::AIRSPACE_START_ID, 'end_id' => self::AIRSPACE_END_ID],
+            ['layer_id' => self::NATURA2000_LAYER_ID, 'start_id' => self::NATURA2000_START_ID, 'end_id' => self::NATURA2000_END_ID],
+            ['layer_id' => self::VITAL_INFRA_LAYER_ID, 'start_id' => self::VITAL_INFRA_START_ID, 'end_id' => self::VITAL_INFRA_END_ID],
             ['layer_id' => self::NOTAM_LAYER_ID, 'start_id' => self::NOTAM_START_ID, 'end_id' => self::NOTAM_END_ID],
         ];
     }
@@ -410,11 +422,33 @@ final class AeretPreflightService
     {
         $properties = is_array($feature['properties'] ?? null) ? $feature['properties'] : [];
         if ($layerId === self::NOTAM_LAYER_ID) {
+            if (! $this->hasNotamLocation($feature)) {
+                return null;
+            }
+
             return [
                 'category' => 'notam',
                 'severity' => 'notice',
                 'title' => $this->propertyString($properties, ['NOTAM nummer', 'number']) ?? 'NOTAM',
                 'summary' => $this->propertyString($properties, ['Beschrijving', 'text']),
+            ];
+        }
+
+        if ($layerId === self::NATURA2000_LAYER_ID) {
+            return [
+                'category' => 'natura2000',
+                'severity' => 'warning',
+                'title' => $this->propertyString($properties, ['Naam']) ?? 'Natura 2000',
+                'summary' => $this->propertyString($properties, ['Beschrijving']),
+            ];
+        }
+
+        if ($layerId === self::VITAL_INFRA_LAYER_ID) {
+            return [
+                'category' => 'vital_infra',
+                'severity' => 'restricted',
+                'title' => $this->propertyString($properties, ['Type']) ?? 'Vitale infrastructuur',
+                'summary' => $this->propertyString($properties, ['Beschrijving']),
             ];
         }
 
@@ -457,6 +491,47 @@ final class AeretPreflightService
         $active = $this->propertyString($properties, ['Actief', 'active']);
 
         return $active === null || in_array(strtolower(trim($active)), ['1', 'true', 'ja', 'yes', 'active'], true);
+    }
+
+    private function isDroneRelevantNotam(array $feature): bool
+    {
+        $properties = is_array($feature['properties'] ?? null) ? $feature['properties'] : [];
+        $scope = $this->propertyString($properties, ['Scope', 'scope']) ?? '';
+        $series = $this->propertyString($properties, ['Series', 'series']) ?? '';
+        $description = $this->propertyString($properties, ['Beschrijving', 'text']) ?? '';
+        $searchText = trim($scope.' '.$series.' '.$description);
+
+        if ($searchText === '') {
+            return false;
+        }
+
+        if ($this->containsAny($scope, ['Air Traffic Management', 'Aerodromes', 'Communications warnings'])) {
+            return false;
+        }
+
+        return $this->containsAny($searchText, [
+            'Navigation warnings',
+            'Unmanned aircraft',
+            'UAS',
+            'DRONE',
+            'MODEL FLYING',
+            'FIREWORKS',
+            'PJE',
+            'PARACHUTE',
+            'AIR DISPLAY',
+            'OBSTACLE',
+            'CRANE',
+            'KITE',
+            'BALLOON',
+        ]);
+    }
+
+    private function hasNotamLocation(array $feature): bool
+    {
+        $properties = is_array($feature['properties'] ?? null) ? $feature['properties'] : [];
+
+        return $this->numericProperty($properties, ['Lat', 'lat']) !== null
+            && $this->numericProperty($properties, ['Lon', 'lon']) !== null;
     }
 
     /**
@@ -516,12 +591,30 @@ final class AeretPreflightService
         }
 
         $radiusMeters = max(0.0, $this->numericProperty($properties, ['Radius', 'radius']) ?? 0.0);
+        $radiusMeters = $this->notamRadiusMeters($properties, $radiusMeters);
         $centerDistance = $this->distanceToPoint([$notamLongitude, $notamLatitude], $latitude, $longitude);
         if ($centerDistance === null) {
             return null;
         }
 
         return max(0.0, $centerDistance - $radiusMeters);
+    }
+
+    /**
+     * @param array<string, mixed> $properties
+     */
+    private function notamRadiusMeters(array $properties, float $defaultRadius): float
+    {
+        $description = $this->propertyString($properties, ['Beschrijving', 'text']) ?? '';
+        if (preg_match('/RADIUS\s+([0-9]+(?:[.,][0-9]+)?)\s*NM\b/i', $description, $matches) === 1) {
+            return (float) str_replace(',', '.', $matches[1]) * 1852.0;
+        }
+
+        if (preg_match('/RADIUS\s+([0-9]+(?:[.,][0-9]+)?)\s*M\b/i', $description, $matches) === 1) {
+            return (float) str_replace(',', '.', $matches[1]);
+        }
+
+        return $defaultRadius;
     }
 
     private function distanceToPoint(mixed $coordinate, float $latitude, float $longitude): ?float
@@ -766,7 +859,7 @@ final class AeretPreflightService
      */
     private function countsByCategory(array $features): array
     {
-        $counts = ['notam' => 0, 'no_fly' => 0, 'low_flying' => 0];
+        $counts = ['notam' => 0, 'no_fly' => 0, 'low_flying' => 0, 'natura2000' => 0, 'vital_infra' => 0];
         foreach ($features as $feature) {
             $category = $feature['properties']['_aeret']['category'] ?? null;
             if (is_string($category)) {

@@ -3383,6 +3383,18 @@ select[multiple] {
   stroke: #ddd6fe;
 }
 
+.test-map__aeret-feature--natura2000 path,
+.test-map__aeret-feature--natura2000 circle {
+  fill: #22c55e;
+  stroke: #bbf7d0;
+}
+
+.test-map__aeret-feature--vital_infra path,
+.test-map__aeret-feature--vital_infra circle {
+  fill: #fb7185;
+  stroke: #ffe4e6;
+}
+
 .test-map__aeret-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -3410,6 +3422,14 @@ select[multiple] {
 
 .test-map__aeret-card--low_flying {
   border-left-color: #a78bfa;
+}
+
+.test-map__aeret-card--natura2000 {
+  border-left-color: #22c55e;
+}
+
+.test-map__aeret-card--vital_infra {
+  border-left-color: #fb7185;
 }
 
 .test-map__aeret-card header {
