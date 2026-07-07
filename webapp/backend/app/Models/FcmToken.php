@@ -22,6 +22,7 @@ final class FcmToken extends Model
         'sdk_version',
         'token',
         'token_hash',
+        'personal_access_token_id',
         'platform',
         'client_type',
         'app_version',

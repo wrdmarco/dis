@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Devices\RegisterFcmTokenRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\FcmToken;
+use App\Models\PersonalAccessToken;
 use App\Services\DeviceService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
@@ -30,7 +31,7 @@ final class DeviceController extends Controller
 
     public function register(RegisterFcmTokenRequest $request): Response
     {
-        $this->service->registerFcmToken($request->user(), $request->validated());
+        $this->service->registerFcmToken($request->user(), $request->validated(), $this->currentPersonalAccessToken($request));
 
         return response()->noContent();
     }
@@ -45,13 +46,31 @@ final class DeviceController extends Controller
             'app_version' => ['nullable', 'string', 'max:80'],
         ]);
 
-        return ApiResponse::success(MobileApiPayload::fcmToken($this->service->heartbeat($request->user(), $data)));
+        return ApiResponse::success(MobileApiPayload::fcmToken($this->service->heartbeat($request->user(), $data, $this->currentPersonalAccessToken($request))));
     }
 
-    public function revoke(Request $request, FcmToken $token): Response
+    public function revoke(Request $request, string $token): Response
     {
-        $this->service->revokeFcmToken($request->user(), $token);
+        $fcmToken = $request->user()
+            ->fcmTokens()
+            ->whereKey($token)
+            ->firstOrFail();
+
+        $this->service->revokeFcmToken($request->user(), $fcmToken);
 
         return response()->noContent();
+    }
+
+    private function currentPersonalAccessToken(Request $request): ?PersonalAccessToken
+    {
+        $token = $request->user()?->currentAccessToken();
+
+        if (! $token instanceof PersonalAccessToken) {
+            return null;
+        }
+
+        $abilities = is_array($token->abilities ?? null) ? $token->abilities : [];
+
+        return array_intersect($abilities, ['client:operator', 'client:admin']) !== [] ? $token : null;
     }
 }

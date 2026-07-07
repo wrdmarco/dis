@@ -3,24 +3,28 @@
 namespace App\Services;
 
 use App\Models\FcmToken;
+use App\Models\PersonalAccessToken;
 use App\Models\User;
+use App\Services\Firebase\FcmClient;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 final class DeviceService
 {
     public function __construct(
         private readonly AuditService $auditService,
         private readonly StatusService $statusService,
+        private readonly FcmClient $fcmClient,
     ) {}
 
     /**
      * @param array<string, mixed> $data
      */
-    public function registerFcmToken(User $user, array $data): FcmToken
+    public function registerFcmToken(User $user, array $data, ?PersonalAccessToken $accessToken = null): FcmToken
     {
-        return DB::transaction(function () use ($user, $data): FcmToken {
+        return DB::transaction(function () use ($user, $data, $accessToken): FcmToken {
             $clientType = (string) ($data['client_type'] ?? 'operator');
             $tokenHash = hash('sha256', (string) $data['token']);
             $token = FcmToken::query()
@@ -58,6 +62,7 @@ final class DeviceService
                 'sdk_version' => $data['sdk_version'] ?? null,
                 'token' => $data['token'],
                 'token_hash' => $tokenHash,
+                'personal_access_token_id' => $accessToken?->id,
                 'platform' => $data['platform'] ?? 'android',
                 'client_type' => $clientType,
                 'app_version' => $data['app_version'] ?? null,
@@ -89,7 +94,7 @@ final class DeviceService
     /**
      * @param array<string, mixed> $data
      */
-    public function heartbeat(User $user, array $data): FcmToken
+    public function heartbeat(User $user, array $data, ?PersonalAccessToken $accessToken = null): FcmToken
     {
         $token = $user->fcmTokens()
             ->where('device_id', $data['device_id'])
@@ -105,6 +110,7 @@ final class DeviceService
             'device_type' => $data['device_type'] ?? $token->device_type,
             'device_name' => $this->deviceName($data, $token->device_name),
             'app_version' => $data['app_version'] ?? $token->app_version,
+            'personal_access_token_id' => $accessToken?->id ?? $token->personal_access_token_id,
             'last_seen_at' => now(),
         ]);
 
@@ -114,14 +120,26 @@ final class DeviceService
     public function revokeFcmToken(User $user, FcmToken $token): void
     {
         abort_unless($token->user_id === $user->id, 403);
-        $token->update(['is_active' => false, 'revoked_at' => now()]);
+        $this->notifyDeviceSessionRevoked($token);
 
-        if (! $user->fcmTokens()->where('is_active', true)->exists()) {
-            $user->update(['push_enabled' => false]);
-            $this->statusService->enforcePushUnavailable($user);
-        }
+        DB::transaction(function () use ($user, $token): void {
+            $linkedAccessTokenId = $token->personal_access_token_id;
 
-        $this->auditService->record('push.token_revoked', $token, $user);
+            $token->update(['is_active' => false, 'revoked_at' => now()]);
+
+            if (is_string($linkedAccessTokenId) && $linkedAccessTokenId !== '') {
+                $user->tokens()->whereKey($linkedAccessTokenId)->delete();
+            }
+
+            if (! $user->fcmTokens()->where('is_active', true)->exists()) {
+                $user->update(['push_enabled' => false]);
+                $this->statusService->enforcePushUnavailable($user);
+            }
+
+            $this->auditService->record('push.token_revoked', $token, $user, [
+                'personal_access_token_revoked' => is_string($linkedAccessTokenId) && $linkedAccessTokenId !== '',
+            ]);
+        });
     }
 
     /**
@@ -140,5 +158,23 @@ final class DeviceService
         ], fn ($value): bool => filled($value))));
 
         return $label !== '' ? $label : ($fallback ?: 'Android device');
+    }
+
+    private function notifyDeviceSessionRevoked(FcmToken $token): void
+    {
+        if (! $token->is_active) {
+            return;
+        }
+
+        try {
+            $this->fcmClient->send(
+                $token,
+                'Toestel verwijderd',
+                'Dit toestel is losgekoppeld van D.I.S.',
+                ['type' => 'session_revoked'],
+            );
+        } catch (Throwable $exception) {
+            report($exception);
+        }
     }
 }

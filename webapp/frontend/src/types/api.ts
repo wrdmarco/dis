@@ -131,6 +131,7 @@ export interface FcmToken {
   revoked_at?: string | null;
   token_preview: string;
   token_hash: string;
+  personal_access_token_id?: string | null;
   user?: User | null;
 }
 

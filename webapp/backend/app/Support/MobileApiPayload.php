@@ -150,6 +150,7 @@ final class MobileApiPayload
             'revoked_at' => self::dateTime($token->revoked_at),
             'token_preview' => self::tokenPreview((string) $token->token),
             'token_hash' => $token->token_hash ?? hash('sha256', (string) $token->token),
+            'personal_access_token_id' => $token->personal_access_token_id,
             'user' => $token->relationLoaded('user') ? self::user($token->user) : null,
         ];
     }

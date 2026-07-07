@@ -125,6 +125,7 @@ final class AdminPushController extends Controller
             'revoked_at' => ApiDateTime::dateTime($token->revoked_at),
             'token_preview' => $this->tokenPreview($token->token),
             'token_hash' => $token->token_hash ?? hash('sha256', $token->token),
+            'personal_access_token_id' => $token->personal_access_token_id,
             'user' => $token->user,
         ];
     }

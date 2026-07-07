@@ -7,16 +7,19 @@ use App\Models\FcmToken;
 use App\Models\SystemSetting;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\Firebase\FcmClient;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 final class PushNotificationService
 {
     public function __construct(
         private readonly AuditService $auditService,
         private readonly StatusService $statusService,
+        private readonly FcmClient $fcmClient,
     ) {}
 
     /**
@@ -86,9 +89,16 @@ final class PushNotificationService
 
     public function revokeToken(FcmToken $token, ?User $actor): void
     {
+        $this->notifyDeviceSessionRevoked($token);
+
         DB::transaction(function () use ($token, $actor): void {
+            $linkedAccessTokenId = $token->personal_access_token_id;
             $token->update(['is_active' => false, 'revoked_at' => now()]);
             $user = $token->user;
+
+            if ($user !== null && is_string($linkedAccessTokenId) && $linkedAccessTokenId !== '') {
+                $user->tokens()->whereKey($linkedAccessTokenId)->delete();
+            }
 
             if ($user !== null && ! $user->fcmTokens()->where('is_active', true)->exists()) {
                 $user->update(['push_enabled' => false]);
@@ -98,6 +108,7 @@ final class PushNotificationService
             $this->auditService->record('push.token_admin_revoked', $token, $actor, [
                 'user_id' => $token->user_id,
                 'device_id' => $token->device_id,
+                'personal_access_token_revoked' => is_string($linkedAccessTokenId) && $linkedAccessTokenId !== '',
             ]);
         });
     }
@@ -155,5 +166,23 @@ final class PushNotificationService
             ->where('is_active', true)
             ->where('client_type', 'operator')
             ->where('last_seen_at', '>', now()->subMinutes(FcmToken::onlineThresholdMinutes()));
+    }
+
+    private function notifyDeviceSessionRevoked(FcmToken $token): void
+    {
+        if (! $token->is_active) {
+            return;
+        }
+
+        try {
+            $this->fcmClient->send(
+                $token,
+                'Toestel verwijderd',
+                'Dit toestel is losgekoppeld van D.I.S.',
+                ['type' => 'session_revoked'],
+            );
+        } catch (Throwable $exception) {
+            report($exception);
+        }
     }
 }
