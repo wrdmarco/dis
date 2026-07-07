@@ -4,14 +4,18 @@ namespace App\Support;
 
 use App\Models\AppVersion;
 use App\Models\Asset;
+use App\Models\AssetAssignment;
 use App\Models\AvailabilityStatus;
+use App\Models\AuditLog;
 use App\Models\Certification;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\DroneType;
+use App\Models\FcmToken;
 use App\Models\Incident;
 use App\Models\PilotIncidentReport;
 use App\Models\User;
+use App\Models\UserCertification;
 use DateTimeInterface;
 
 final class MobileApiPayload
@@ -43,10 +47,13 @@ final class MobileApiPayload
             'home_latitude' => $user->home_latitude,
             'home_longitude' => $user->home_longitude,
             'account_status' => $user->account_status,
+            'last_login_at' => self::dateTime($user->last_login_at),
             'failed_login_attempts' => (int) ($user->failed_login_attempts ?? 0),
             'login_locked_until' => self::dateTime($user->login_locked_until),
             'push_enabled' => (bool) $user->push_enabled,
             'max_operator_devices' => (int) ($user->max_operator_devices ?? 1),
+            'home_geocoded_at' => self::dateTime($user->home_geocoded_at),
+            'home_geocode_source' => $user->home_geocode_source,
             'two_factor_enabled' => (bool) $user->two_factor_enabled,
             'mail_preferences' => is_array($user->mail_preferences) ? $user->mail_preferences : null,
             'roles' => $user->roles->map(fn ($role): array => [
@@ -71,24 +78,41 @@ final class MobileApiPayload
             'statuses' => $user->relationLoaded('statuses')
                 ? $user->statuses->map(fn (AvailabilityStatus $status): array => self::statusSummary($status))->values()
                 : [],
-            'fcm_tokens' => $user->fcmTokens->map(fn ($token): array => [
-                'id' => $token->id,
-                'user_id' => $token->user_id,
-                'device_id' => $token->device_id,
-                'device_type' => $token->device_type,
-                'device_name' => $token->device_name,
-                'device_manufacturer' => $token->device_manufacturer,
-                'device_model' => $token->device_model,
-                'android_version' => $token->android_version,
-                'sdk_version' => $token->sdk_version,
-                'platform' => $token->platform,
-                'client_type' => $token->client_type,
-                'app_version' => $token->app_version,
-                'is_active' => (bool) $token->is_active,
-                'is_online' => (bool) $token->is_online,
-                'last_seen_at' => self::dateTime($token->last_seen_at),
-                'revoked_at' => self::dateTime($token->revoked_at),
-            ])->values(),
+            'certifications' => $user->relationLoaded('certifications')
+                ? $user->certifications->map(fn (UserCertification $certification): array => self::userCertification($certification))->values()
+                : [],
+            'asset_assignments' => $user->relationLoaded('assetAssignments')
+                ? $user->assetAssignments->map(fn (AssetAssignment $assignment): array => self::assetAssignment($assignment))->values()
+                : [],
+            'fcm_tokens' => $user->fcmTokens->map(fn (FcmToken $token): array => self::fcmToken($token))->values(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function fcmToken(FcmToken $token): array
+    {
+        return [
+            'id' => $token->id,
+            'user_id' => $token->user_id,
+            'device_id' => $token->device_id,
+            'device_type' => $token->device_type,
+            'device_name' => $token->device_name,
+            'device_manufacturer' => $token->device_manufacturer,
+            'device_model' => $token->device_model,
+            'android_version' => $token->android_version,
+            'sdk_version' => $token->sdk_version,
+            'platform' => $token->platform,
+            'client_type' => $token->client_type,
+            'app_version' => $token->app_version,
+            'is_active' => (bool) $token->is_active,
+            'is_online' => (bool) $token->is_online,
+            'last_seen_at' => self::dateTime($token->last_seen_at),
+            'revoked_at' => self::dateTime($token->revoked_at),
+            'token_preview' => self::tokenPreview((string) $token->token),
+            'token_hash' => $token->token_hash ?? hash('sha256', (string) $token->token),
+            'user' => $token->relationLoaded('user') ? self::user($token->user) : null,
         ];
     }
 
@@ -317,13 +341,26 @@ final class MobileApiPayload
             'maintenance_due_at' => $asset->maintenance_due_at?->toDateString(),
             'notes' => $asset->notes,
             'active_assignment' => $activeAssignment === null ? null : [
-                'id' => $activeAssignment->id,
-                'asset_id' => $activeAssignment->asset_id,
-                'user_id' => $activeAssignment->user_id,
-                'assigned_at' => self::dateTime($activeAssignment->assigned_at),
-                'released_at' => self::dateTime($activeAssignment->released_at),
-                'user' => self::user($activeAssignment->user),
+                ...self::assetAssignment($activeAssignment),
             ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function assetAssignment(AssetAssignment $assignment): array
+    {
+        return [
+            'id' => $assignment->id,
+            'asset_id' => $assignment->asset_id,
+            'incident_id' => $assignment->incident_id,
+            'user_id' => $assignment->user_id,
+            'assigned_by' => $assignment->assigned_by,
+            'assigned_at' => self::dateTime($assignment->assigned_at),
+            'released_at' => self::dateTime($assignment->released_at),
+            'asset' => $assignment->relationLoaded('asset') && $assignment->asset !== null ? self::asset($assignment->asset) : null,
+            'user' => $assignment->relationLoaded('user') && $assignment->user !== null ? self::user($assignment->user) : null,
         ];
     }
 
@@ -371,8 +408,71 @@ final class MobileApiPayload
         ];
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    public static function userCertification(UserCertification $certification): array
+    {
+        return [
+            'id' => $certification->id,
+            'user_id' => $certification->user_id,
+            'certification_id' => $certification->certification_id,
+            'issued_at' => $certification->issued_at?->toDateString(),
+            'expires_at' => $certification->expires_at?->toDateString(),
+            'certificate_number' => $certification->certificate_number,
+            'status' => $certification->status,
+            'verified_by' => $certification->verified_by,
+            'verified_at' => self::dateTime($certification->verified_at),
+            'certification' => $certification->relationLoaded('certification') && $certification->certification !== null
+                ? self::certificationSummary($certification->certification)
+                : null,
+            'user' => $certification->relationLoaded('user') && $certification->user !== null ? self::user($certification->user) : null,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function certificationSummary(Certification $certification): array
+    {
+        return [
+            'id' => $certification->id,
+            'code' => $certification->code,
+            'name' => $certification->name,
+            'description' => $certification->description,
+            'is_required_for_dispatch' => (bool) $certification->is_required_for_dispatch,
+            'warning_days_before_expiry' => (int) $certification->warning_days_before_expiry,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function auditLog(AuditLog $log): array
+    {
+        return [
+            'id' => $log->id,
+            'action' => $log->action,
+            'actor_id' => $log->actor_id,
+            'actor_name' => $log->actor_name,
+            'actor_email' => $log->actor_email,
+            'target_type' => $log->target_type,
+            'target_id' => $log->target_id,
+            'target_name' => $log->target_name,
+            'ip_address' => $log->ip_address,
+            'metadata' => $log->metadata,
+            'reason' => $log->reason,
+            'created_at' => self::dateTime($log->created_at),
+        ];
+    }
+
     public static function dateTime(?DateTimeInterface $value): ?string
     {
         return ApiDateTime::dateTime($value);
+    }
+
+    private static function tokenPreview(string $token): string
+    {
+        return strlen($token) <= 18 ? str_repeat('*', strlen($token)) : substr($token, 0, 6).'...'.substr($token, -8);
     }
 }

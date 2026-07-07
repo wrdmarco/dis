@@ -13,8 +13,13 @@ final class ApiDateTime
             return null;
         }
 
-        return CarbonImmutable::parse($value->format(DateTimeInterface::ATOM))
-            ->setTimezone(self::timezone())
+        $localValue = CarbonImmutable::createFromFormat(
+            'Y-m-d H:i:s.u',
+            $value->format('Y-m-d H:i:s.u'),
+            self::timezone(),
+        );
+
+        return $localValue
             ->format(DateTimeInterface::ATOM);
     }
 

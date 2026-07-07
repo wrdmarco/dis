@@ -54,22 +54,36 @@ final class CertificationController extends Controller
 
     public function store(StoreCertificationRequest $request): JsonResponse
     {
-        return ApiResponse::success($this->service->create($request->validated(), $request->user()), 201);
+        return ApiResponse::success(MobileApiPayload::certification($this->service->create($request->validated(), $request->user())), 201);
     }
 
     public function update(UpdateCertificationRequest $request, Certification $certification): JsonResponse
     {
-        return ApiResponse::success($this->service->update($certification, $request->validated(), $request->user()));
+        return ApiResponse::success(MobileApiPayload::certification($this->service->update($certification, $request->validated(), $request->user())));
     }
 
     public function userCertifications(User $user): JsonResponse
     {
-        return ApiResponse::success($user->certifications()->with('certification')->get());
+        return ApiResponse::success(
+            $user->certifications()
+                ->with('certification')
+                ->get()
+                ->map(fn (UserCertification $certification): array => MobileApiPayload::userCertification($certification))
+                ->values(),
+        );
     }
 
     public function myCertifications(Request $request): JsonResponse
     {
-        return ApiResponse::success($request->user()?->certifications()->with('certification')->orderBy('expires_at')->get() ?? []);
+        return ApiResponse::success(
+            $request->user()
+                ?->certifications()
+                ->with('certification')
+                ->orderBy('expires_at')
+                ->get()
+                ->map(fn (UserCertification $certification): array => MobileApiPayload::userCertification($certification))
+                ->values() ?? [],
+        );
     }
 
     public function storeMyCertification(Request $request): JsonResponse
@@ -81,7 +95,7 @@ final class CertificationController extends Controller
             'certificate_number' => ['nullable', 'string', 'max:160'],
         ]);
 
-        return ApiResponse::success($this->service->selfAssignToUser($request->user(), $data), 201);
+        return ApiResponse::success(MobileApiPayload::userCertification($this->service->selfAssignToUser($request->user(), $data)), 201);
     }
 
     public function updateMyCertification(Request $request, UserCertification $userCertification): JsonResponse
@@ -94,7 +108,7 @@ final class CertificationController extends Controller
             'status' => ['sometimes', 'in:active,expired,revoked'],
         ]));
 
-        return ApiResponse::success($userCertification->refresh()->load('certification'));
+        return ApiResponse::success(MobileApiPayload::userCertification($userCertification->refresh()->load('certification')));
     }
 
     public function deleteMyCertification(Request $request, UserCertification $userCertification): Response
@@ -115,7 +129,7 @@ final class CertificationController extends Controller
             'status' => ['nullable', 'in:active,expired,revoked'],
         ]);
 
-        return ApiResponse::success($this->service->assignToUser($user, $data, $request->user()), 201);
+        return ApiResponse::success(MobileApiPayload::userCertification($this->service->assignToUser($user, $data, $request->user())), 201);
     }
 
     public function updateUserCertification(Request $request, User $user, UserCertification $userCertification): JsonResponse
@@ -128,7 +142,7 @@ final class CertificationController extends Controller
             'status' => ['sometimes', 'in:active,expired,revoked'],
         ]));
 
-        return ApiResponse::success($userCertification->refresh()->load('certification'));
+        return ApiResponse::success(MobileApiPayload::userCertification($userCertification->refresh()->load('certification')));
     }
 
     public function deleteUserCertification(Request $request, User $user, UserCertification $userCertification): Response

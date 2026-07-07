@@ -8,6 +8,7 @@ use App\Http\Requests\Assets\StoreAssetRequest;
 use App\Http\Requests\Assets\UpdateAssetRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\Asset;
+use App\Models\AssetAssignment;
 use App\Services\AssetService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
@@ -53,7 +54,7 @@ final class AssetController extends Controller
 
     public function store(StoreAssetRequest $request): JsonResponse
     {
-        return ApiResponse::success($this->service->create($request->validated(), $request->user()), 201);
+        return ApiResponse::success(MobileApiPayload::asset($this->service->create($request->validated(), $request->user())), 201);
     }
 
     public function storeMine(Request $request): JsonResponse
@@ -76,12 +77,12 @@ final class AssetController extends Controller
 
     public function show(Asset $asset): JsonResponse
     {
-        return ApiResponse::success($asset->load('assignments'));
+        return ApiResponse::success(MobileApiPayload::asset($asset->load(['droneType', 'activeAssignment.user'])));
     }
 
     public function update(UpdateAssetRequest $request, Asset $asset): JsonResponse
     {
-        return ApiResponse::success($this->service->update($asset, $request->validated(), $request->user()));
+        return ApiResponse::success(MobileApiPayload::asset($this->service->update($asset, $request->validated(), $request->user())));
     }
 
     public function destroy(Request $request, Asset $asset): JsonResponse
@@ -93,7 +94,7 @@ final class AssetController extends Controller
 
     public function assign(AssignAssetRequest $request, Asset $asset): JsonResponse
     {
-        return ApiResponse::success($this->service->assign($asset, $request->validated(), $request->user()), 201);
+        return ApiResponse::success(MobileApiPayload::assetAssignment($this->service->assign($asset, $request->validated(), $request->user())), 201);
     }
 
     public function release(Request $request, Asset $asset): JsonResponse
@@ -102,12 +103,19 @@ final class AssetController extends Controller
         $asset->update(['status' => 'ready']);
         AssetChanged::dispatch($asset->refresh(), 'released');
 
-        return ApiResponse::success($asset->load('assignments'));
+        return ApiResponse::success(MobileApiPayload::asset($asset->refresh()->load(['droneType', 'activeAssignment.user'])));
     }
 
     public function history(Asset $asset): JsonResponse
     {
-        return ApiResponse::success($asset->assignments()->latest('assigned_at')->get());
+        return ApiResponse::success(
+            $asset->assignments()
+                ->with(['asset.droneType', 'user'])
+                ->latest('assigned_at')
+                ->get()
+                ->map(fn (AssetAssignment $assignment): array => MobileApiPayload::assetAssignment($assignment))
+                ->values(),
+        );
     }
 
     public function updateMine(Request $request, Asset $asset): JsonResponse
@@ -125,7 +133,7 @@ final class AssetController extends Controller
             'notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        return ApiResponse::success($this->service->update($asset, $data, $request->user()));
+        return ApiResponse::success(MobileApiPayload::asset($this->service->update($asset, $data, $request->user())));
     }
 
     public function destroyMine(Request $request, Asset $asset): JsonResponse

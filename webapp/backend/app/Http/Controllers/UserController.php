@@ -11,6 +11,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Repositories\UserRepository;
 use App\Services\UserService;
+use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -31,7 +32,7 @@ final class UserController extends Controller
 
     public function show(User $user): JsonResponse
     {
-        return ApiResponse::success($user->load([
+        return ApiResponse::success(MobileApiPayload::user($user->load([
             'roles.permissions',
             'teams',
             'certifications.certification',
@@ -41,7 +42,7 @@ final class UserController extends Controller
                 ->latest('assigned_at'),
             'fcmTokens' => fn ($query) => $query
                 ->latest('last_seen_at'),
-        ]));
+        ])));
     }
 
     public function update(UpdateUserRequest $request, User $user): JsonResponse
@@ -103,6 +104,9 @@ final class UserController extends Controller
 
     public function audit(User $user): JsonResponse
     {
-        return ApiResponse::success(AuditLog::query()->where('target_id', $user->id)->latest('created_at')->paginate(50));
+        return ApiResponse::paginated(
+            AuditLog::query()->where('target_id', $user->id)->latest('created_at')->paginate(50),
+            fn (AuditLog $log): array => MobileApiPayload::auditLog($log),
+        );
     }
 }
