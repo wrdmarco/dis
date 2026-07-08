@@ -3,6 +3,7 @@
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AdminDeveloperController;
 use App\Http\Controllers\AdminPushController;
+use App\Http\Controllers\AdminStoreReviewController;
 use App\Http\Controllers\AddressBookController;
 use App\Http\Controllers\AvailabilityScheduleController;
 use App\Http\Controllers\AssetController;
@@ -60,7 +61,7 @@ Route::get('/developer/logs', [AdminDeveloperController::class, 'developerLogs']
 Route::get('/developer/logs/{filename}', [AdminDeveloperController::class, 'developerLog'])->where('filename', '[A-Za-z0-9._-]+\.log')->middleware('throttle:developer-logs');
 Route::get('/health', [HealthController::class, 'public'])->middleware('throttle:api');
 
-Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(function (): void {
+Route::middleware(['auth:sanctum', 'operational', 'audit.privileged', 'store.review'])->group(function (): void {
     Route::post('/auth/2fa/verify', [AuthController::class, 'verifyTwoFactor'])->middleware('throttle:two-factor');
     Route::post('/auth/2fa/setup', [AuthController::class, 'setupTwoFactor'])->middleware('throttle:two-factor');
     Route::post('/auth/2fa/enable', [AuthController::class, 'enableTwoFactor'])->middleware('throttle:two-factor');
@@ -215,6 +216,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged'])->group(fu
     Route::get('/status/audit-users', [AdminController::class, 'auditUsers'])->middleware('permission:status.audit.view');
     Route::get('/admin/settings', [AdminController::class, 'settings'])->middleware('permission:settings.manage');
     Route::patch('/admin/settings', [AdminController::class, 'updateSettings'])->middleware('permission:settings.manage');
+    Route::post('/admin/store-review/android-pairing', [AdminStoreReviewController::class, 'createAndroidPairing'])->middleware(['permission:settings.manage', 'throttle:api']);
     Route::post('/admin/branding/logo', [BrandingController::class, 'uploadLogo'])->middleware('permission:settings.manage');
     Route::delete('/admin/branding/logo', [BrandingController::class, 'deleteLogo'])->middleware('permission:settings.manage');
     Route::post('/admin/settings/mail/test', [AdminController::class, 'testMail'])->middleware('permission:settings.manage');

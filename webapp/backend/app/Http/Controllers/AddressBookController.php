@@ -17,6 +17,7 @@ final class AddressBookController extends Controller
         $search = trim((string) ($data['q'] ?? ''));
 
         $entries = User::query()
+            ->withoutStoreReview()
             ->select(['id', 'name', 'first_name', 'last_name', 'phone_number', 'home_city', 'home_region', 'home_country'])
             ->when($search !== '', function ($query) use ($search): void {
                 $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search).'%';

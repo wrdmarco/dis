@@ -32,6 +32,8 @@ final class UserController extends Controller
 
     public function show(User $user): JsonResponse
     {
+        $this->abortForStoreReviewUser($user);
+
         return ApiResponse::success(MobileApiPayload::user($user->load([
             'roles.permissions',
             'teams',
@@ -47,11 +49,15 @@ final class UserController extends Controller
 
     public function update(UpdateUserRequest $request, User $user): JsonResponse
     {
+        $this->abortForStoreReviewUser($user);
+
         return ApiResponse::success($this->service->update($user, $request->validated(), $request->user()));
     }
 
     public function destroy(Request $request, User $user): Response
     {
+        $this->abortForStoreReviewUser($user);
+
         $this->service->delete($user, $request->user());
 
         return response()->noContent();
@@ -59,6 +65,8 @@ final class UserController extends Controller
 
     public function assignRole(Request $request, User $user): JsonResponse
     {
+        $this->abortForStoreReviewUser($user);
+
         $request->validate(['role_id' => ['required', 'ulid', 'exists:roles,id']]);
         $this->service->assignRole($user, Role::query()->findOrFail($request->input('role_id')), $request->user());
 
@@ -67,6 +75,8 @@ final class UserController extends Controller
 
     public function removeRole(Request $request, User $user, Role $role): Response
     {
+        $this->abortForStoreReviewUser($user);
+
         $this->service->removeRole($user, $role, $request->user());
 
         return response()->noContent();
@@ -74,6 +84,8 @@ final class UserController extends Controller
 
     public function assignTeam(Request $request, User $user): JsonResponse
     {
+        $this->abortForStoreReviewUser($user);
+
         $request->validate(['team_id' => ['required', 'ulid', 'exists:teams,id']]);
         $this->service->assignTeam($user, Team::query()->findOrFail($request->input('team_id')), $request->user());
 
@@ -82,6 +94,8 @@ final class UserController extends Controller
 
     public function removeTeam(Request $request, User $user, Team $team): Response
     {
+        $this->abortForStoreReviewUser($user);
+
         $this->service->removeTeam($user, $team, $request->user());
 
         return response()->noContent();
@@ -89,24 +103,39 @@ final class UserController extends Controller
 
     public function resetTwoFactor(Request $request, User $user): JsonResponse
     {
+        $this->abortForStoreReviewUser($user);
+
         return ApiResponse::success($this->service->resetTwoFactor($user, $request->user()));
     }
 
     public function resetLoginLock(Request $request, User $user): JsonResponse
     {
+        $this->abortForStoreReviewUser($user);
+
         return ApiResponse::success($this->service->resetLoginLock($user, $request->user()));
     }
 
     public function resendInvitation(Request $request, User $user): JsonResponse
     {
+        $this->abortForStoreReviewUser($user);
+
         return ApiResponse::success($this->service->resendWelcomeMail($user, $request->user()));
     }
 
     public function audit(User $user): JsonResponse
     {
+        $this->abortForStoreReviewUser($user);
+
         return ApiResponse::paginated(
             AuditLog::query()->where('target_id', $user->id)->latest('created_at')->paginate(50),
             fn (AuditLog $log): array => MobileApiPayload::auditLog($log),
         );
+    }
+
+    private function abortForStoreReviewUser(User $user): void
+    {
+        if ($user->isStoreReviewAccount()) {
+            abort(404);
+        }
     }
 }

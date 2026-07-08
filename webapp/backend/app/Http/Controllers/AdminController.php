@@ -265,6 +265,7 @@ final class AdminController extends Controller
     public function auditUsers(): JsonResponse
     {
         return ApiResponse::success(User::query()
+            ->withoutStoreReview()
             ->orderBy('name')
             ->get(['id', 'name', 'email']));
     }

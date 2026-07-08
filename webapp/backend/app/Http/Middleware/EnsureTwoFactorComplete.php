@@ -17,6 +17,10 @@ final class EnsureTwoFactorComplete
         $user = $request->user();
         $token = $request->user()?->currentAccessToken();
 
+        if ($this->tokenHasExactAbility($token, ['client:store_review'])) {
+            return $next($request);
+        }
+
         if ($token !== null && $this->tokenHasExactAbility($token, ['2fa:pending', '2fa:setup'])) {
             return ApiResponse::error('two_factor_required', 'Two-factor authentication must be completed first.', 403);
         }

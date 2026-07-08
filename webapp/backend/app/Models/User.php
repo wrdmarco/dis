@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\UsesUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -154,6 +155,20 @@ final class User extends Authenticatable
         $this->loadMissing('roles');
 
         return $this->roles->contains(fn (Role $role): bool => (bool) $role->can_use_admin_app);
+    }
+
+    public function isStoreReviewAccount(): bool
+    {
+        return $this->account_status === 'store_review';
+    }
+
+    /**
+     * @param Builder<User> $query
+     * @return Builder<User>
+     */
+    public function scopeWithoutStoreReview(Builder $query): Builder
+    {
+        return $query->where('account_status', '!=', 'store_review');
     }
 
     public function wantsBackupReport(string $result): bool

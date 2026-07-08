@@ -13,6 +13,14 @@ final class EnsureOperationalAccess
     {
         $user = $request->user();
 
+        if ($this->isStoreReviewAccess($request)) {
+            if ($user?->isStoreReviewAccount() === true) {
+                return $next($request);
+            }
+
+            return ApiResponse::error('forbidden', 'The account is not active.', 403);
+        }
+
         if ($user !== null && $user->account_status !== 'active') {
             return ApiResponse::error('forbidden', 'The account is not active.', 403);
         }
@@ -37,9 +45,20 @@ final class EnsureOperationalAccess
         };
     }
 
+    private function isStoreReviewAccess(Request $request): bool
+    {
+        $token = $request->user()?->currentAccessToken();
+        $abilities = is_array($token?->abilities ?? null) ? $token->abilities : [];
+
+        return in_array('client:store_review', $abilities, true);
+    }
+
     private function clientType(mixed $token): string
     {
         $abilities = is_array($token?->abilities ?? null) ? $token->abilities : [];
+        if (in_array('client:store_review', $abilities, true)) {
+            return 'store_review';
+        }
         if (in_array('client:admin', $abilities, true)) {
             return 'admin';
         }

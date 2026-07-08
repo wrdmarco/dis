@@ -14,6 +14,7 @@ final class MobilePairingCode extends Model
         'user_id',
         'code_hash',
         'client_type',
+        'review_mode',
         'expires_at',
         'consumed_at',
         'consumed_ip',

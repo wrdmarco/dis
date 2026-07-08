@@ -49,7 +49,7 @@ final class StatusController extends Controller
         return ApiResponse::paginated(
             AvailabilityStatus::query()
                 ->latestPerUser()
-                ->whereHas('user')
+                ->whereHas('user', fn ($query) => $query->withoutStoreReview())
                 ->with(['user.fcmTokens' => fn ($tokens) => $tokens
                     ->where('client_type', 'operator')
                     ->where('is_active', true)

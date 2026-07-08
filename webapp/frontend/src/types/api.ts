@@ -85,7 +85,7 @@ export interface User {
   home_longitude?: string | null;
   home_geocoded_at?: string | null;
   home_geocode_source?: string | null;
-  account_status: 'active' | 'suspended' | 'blocked';
+  account_status: 'active' | 'suspended' | 'blocked' | 'store_review';
   last_login_at?: string | null;
   failed_login_attempts?: number;
   login_locked_until?: string | null;

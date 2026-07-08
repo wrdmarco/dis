@@ -8,6 +8,7 @@ use App\Http\Middleware\EnsureTwoFactorComplete;
 use App\Http\Middleware\AuditPrivilegedRequest;
 use App\Http\Middleware\RequestId;
 use App\Http\Middleware\RequirePermission;
+use App\Http\Middleware\RestrictStoreReviewAccess;
 use App\Http\Middleware\SecurityHeaders;
 use App\Http\Responses\ApiResponse;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -44,6 +45,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'audit.privileged' => AuditPrivilegedRequest::class,
             'operational' => EnsureOperationalAccess::class,
+            'store.review' => RestrictStoreReviewAccess::class,
             'two_factor.complete' => EnsureTwoFactorComplete::class,
             'permission' => RequirePermission::class,
         ]);

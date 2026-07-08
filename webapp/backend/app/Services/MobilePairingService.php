@@ -9,11 +9,17 @@ use App\Support\ApiDateTime;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 final class MobilePairingService
 {
     private const TTL_SECONDS = 30;
+    private const STORE_REVIEW_PAIRING_TTL_SECONDS = 900;
+    private const STORE_REVIEW_TOKEN_TTL_HOURS = 24;
+    private const STORE_REVIEW_MODE = 'store_android';
+    private const STORE_REVIEW_EMAIL = 'google-play-review@system.dis.local';
 
     public function __construct(private readonly AuditService $auditService) {}
 
@@ -77,6 +83,49 @@ final class MobilePairingService
     /**
      * @return array<string, mixed>
      */
+    public function createStoreReviewAndroid(User $actor, Request $request): array
+    {
+        $user = $this->storeReviewUser();
+        $code = $this->generateManualCode();
+        $normalizedCode = $this->normalizeCode($code);
+        $serverUrl = $this->serverRootUrl();
+        $expiresAt = now()->addSeconds(self::STORE_REVIEW_PAIRING_TTL_SECONDS);
+
+        MobilePairingCode::query()
+            ->where('expires_at', '<', now()->subMinute())
+            ->delete();
+
+        $pairing = MobilePairingCode::query()->create([
+            'user_id' => $user->id,
+            'code_hash' => $this->codeHash($normalizedCode),
+            'client_type' => 'operator_android',
+            'review_mode' => self::STORE_REVIEW_MODE,
+            'expires_at' => $expiresAt,
+        ]);
+
+        $payload = [
+            'id' => $pairing->id,
+            'server_url' => $serverUrl,
+            'api_base_url' => $this->apiBaseUrl($serverUrl),
+            'client_type' => 'operator_android',
+            'code' => $code,
+            'expires_at' => ApiDateTime::dateTime($expiresAt),
+            'ttl_seconds' => self::STORE_REVIEW_PAIRING_TTL_SECONDS,
+        ];
+        $payload['deeplink_url'] = $this->deeplinkUrl($payload);
+        $payload['qr_payload'] = $payload['deeplink_url'];
+
+        $this->auditService->record('auth.store_review_pairing_created', $pairing, $actor, [
+            'client_type' => 'operator_android',
+            'expires_at' => $payload['expires_at'],
+        ], null, $request);
+
+        return $payload;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     public function consume(string $code, string $clientType, string $deviceName, Request $request): array
     {
         return DB::transaction(function () use ($code, $clientType, $deviceName, $request): array {
@@ -99,6 +148,10 @@ final class MobilePairingService
             }
 
             $user = $pairing->user;
+            if ((string) ($pairing->review_mode ?? '') === self::STORE_REVIEW_MODE) {
+                return $this->consumeStoreReviewPairing($pairing, $user, $clientType, $deviceName, $request);
+            }
+
             if ($user === null || $user->account_status !== 'active') {
                 throw ValidationException::withMessages([
                     'code' => ['Deze koppelcode kan niet meer worden gebruikt.'],
@@ -134,6 +187,93 @@ final class MobilePairingService
                 'client_type' => $clientType,
             ];
         });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function consumeStoreReviewPairing(MobilePairingCode $pairing, ?User $user, string $clientType, string $deviceName, Request $request): array
+    {
+        if ($clientType !== 'operator_android') {
+            throw ValidationException::withMessages([
+                'client_type' => ['Deze koppelcode hoort bij de Android operator-app.'],
+            ]);
+        }
+
+        if ($user === null || ! $user->isStoreReviewAccount()) {
+            throw ValidationException::withMessages([
+                'code' => ['Deze koppelcode kan niet meer worden gebruikt.'],
+            ]);
+        }
+
+        $pairing->update([
+            'consumed_at' => now(),
+            'consumed_ip' => $request->ip(),
+            'consumed_user_agent' => mb_substr((string) $request->userAgent(), 0, 512),
+        ]);
+
+        $user->forceFill([
+            'last_login_at' => now(),
+            'failed_login_attempts' => 0,
+            'login_locked_until' => null,
+            'push_enabled' => true,
+        ])->save();
+
+        $tokenExpiresAt = now()->addHours(self::STORE_REVIEW_TOKEN_TTL_HOURS);
+
+        $this->auditService->record('auth.store_review_pairing_consumed', $pairing, $user, [
+            'client_type' => $clientType,
+            'device_name' => $deviceName,
+            'token_expires_at' => ApiDateTime::dateTime($tokenExpiresAt),
+        ], null, $request);
+
+        return [
+            'token' => $user->createToken(
+                $deviceName,
+                ['client:store_review'],
+                $tokenExpiresAt,
+            )->plainTextToken,
+            'user' => MobileApiPayload::user($user->load(['roles', 'teams'])),
+            'client_type' => $clientType,
+        ];
+    }
+
+    private function storeReviewUser(): User
+    {
+        $attributes = [
+            'name' => 'Google Play Review',
+            'first_name' => 'Google Play',
+            'last_name' => 'Review',
+            'phone_number' => '+31000000000',
+            'home_city' => 'Utrecht',
+            'home_region' => 'Utrecht',
+            'home_country' => 'NL',
+            'account_status' => 'store_review',
+            'push_enabled' => true,
+            'max_operator_devices' => 0,
+            'two_factor_enabled' => false,
+            'two_factor_confirmed_at' => null,
+            'mail_preferences' => [],
+        ];
+
+        /** @var User $user */
+        $user = User::withTrashed()->where('email', self::STORE_REVIEW_EMAIL)->first();
+        if ($user === null) {
+            $user = User::query()->create($attributes + [
+                'email' => self::STORE_REVIEW_EMAIL,
+                'password' => Hash::make(Str::uuid()->toString()),
+            ]);
+        } else {
+            if (method_exists($user, 'restore') && $user->trashed()) {
+                $user->restore();
+            }
+            $user->forceFill($attributes)->save();
+        }
+
+        $user->roles()->sync([]);
+        $user->teams()->sync([]);
+
+        return $user;
     }
 
     private function generateManualCode(): string

@@ -7,7 +7,7 @@ import { dateInputValueInAmsterdam, formatDateTime } from '../../lib/dateTime';
 import { fetchLocationSuggestions, geocodeAddressLabel, lookupLocationSuggestion, type LocationSearchResult, type LocationSuggestion } from '../../lib/locationSearch';
 import { createRealtime } from '../../lib/realtime';
 import { useApiResource } from '../../lib/useApiResource';
-import type { ConfigurableFormField, DeveloperAccessState, FcmToken, IncidentFormConfig, IncidentFormLayoutItem, PilotReportFormConfig, PilotReportFormField, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
+import type { ConfigurableFormField, DeveloperAccessState, FcmToken, IncidentFormConfig, IncidentFormLayoutItem, MobilePairingCode, PilotReportFormConfig, PilotReportFormField, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiClientError } from '../../lib/apiClient';
@@ -79,7 +79,7 @@ const incidentTimelineVisibilityOptions = [
   { value: 'audit', label: 'Auditacties' },
 ] as const;
 
-type AdminTab = 'firebase' | 'mail' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'pilotReport' | 'incidentForm' | 'settings';
+type AdminTab = 'firebase' | 'mail' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'store' | 'pilotReport' | 'incidentForm' | 'settings';
 type AdminPageMode = 'admin' | 'forms';
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
@@ -90,6 +90,7 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'developer', label: 'Ontwikkel' },
   { id: 'version', label: 'Versie' },
   { id: 'tokens', label: 'Tokens' },
+  { id: 'store', label: 'Store' },
   { id: 'settings', label: 'Instellingen' },
 ];
 
@@ -180,6 +181,10 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const [commandCentersSaving, setCommandCentersSaving] = useState(false);
   const [commandCentersMessage, setCommandCentersMessage] = useState<string | null>(null);
   const [commandCentersError, setCommandCentersError] = useState<string | null>(null);
+  const [storePairing, setStorePairing] = useState<MobilePairingCode | null>(null);
+  const [storePairingSecondsLeft, setStorePairingSecondsLeft] = useState(0);
+  const [storePairingLoading, setStorePairingLoading] = useState(false);
+  const [storePairingError, setStorePairingError] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(mobileSettings);
@@ -221,6 +226,18 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       setActiveTab(visibleAdminTabs[0]?.id ?? 'settings');
     }
   }, [activeTab, visibleAdminTabs]);
+
+  useEffect(() => {
+    if (storePairing === null) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      setStorePairingSecondsLeft(Math.max(0, Math.ceil((new Date(storePairing.expires_at).getTime() - Date.now()) / 1000)));
+    }, 500);
+
+    return () => window.clearInterval(timer);
+  }, [storePairing]);
 
   const reloadSystemVersionSilently = systemVersion.silentReload;
 
@@ -524,6 +541,20 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       setCommandCentersError(error instanceof ApiClientError ? error.message : 'Meldkamers opslaan mislukt.');
     } finally {
       setCommandCentersSaving(false);
+    }
+  }
+
+  async function createStoreReviewPairing() {
+    setStorePairingLoading(true);
+    setStorePairingError(null);
+    try {
+      const response = await api.post<MobilePairingCode>('/admin/store-review/android-pairing');
+      setStorePairing(response.data);
+      setStorePairingSecondsLeft(response.data.ttl_seconds);
+    } catch (error) {
+      setStorePairingError(error instanceof ApiClientError ? error.message : 'Store review-koppelcode maken mislukt.');
+    } finally {
+      setStorePairingLoading(false);
     }
   }
 
@@ -1323,6 +1354,52 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               </tbody>
             </table>
           </ResourceState>
+        </Panel>
+      ) : null}
+
+      {activeTab === 'store' ? (
+        <Panel title="Google Play review-login">
+          <div className="setup-copy">
+            <strong>Beperkte Android-login voor appstore review.</strong>
+            <p>Deze koppelcode werkt alleen in de Android operator-app. De app krijgt accountinformatie van een afgeschermde reviewgebruiker en verder lege operationele lijsten. Incidenten, statuswijzigingen, assets, certificaten en beheeracties blijven geblokkeerd. Na koppelen is de review-login maximaal 24 uur geldig.</p>
+          </div>
+          <div className="mobile-pairing mobile-pairing--active">
+            <div className="mobile-pairing__header">
+              <div>
+                <span>Android operator-app</span>
+                <strong>Google Play review</strong>
+                <p>De code is 15 minuten geldig. Na inloggen verloopt het app-token automatisch na 24 uur.</p>
+              </div>
+              <button className="secondary-button" type="button" onClick={() => void createStoreReviewPairing()} disabled={storePairingLoading}>
+                {storePairingLoading ? 'Maken...' : 'Koppelcode maken'}
+              </button>
+            </div>
+            {storePairingError ? <p className="form-error">{storePairingError}</p> : null}
+            {storePairing ? (
+              <div className="mobile-pairing__grid">
+                <div className="mobile-pairing__manual">
+                  <span>Handmatig koppelen</span>
+                  <label>
+                    Server
+                    <input value={storePairing.server_url} readOnly onFocus={(event) => event.currentTarget.select()} />
+                  </label>
+                  <label>
+                    Koppelcode
+                    <input className="mono" value={storePairing.code} readOnly onFocus={(event) => event.currentTarget.select()} />
+                  </label>
+                  <small>Nog {storePairingSecondsLeft} seconden geldig.</small>
+                  <a className="primary-button" href={storePairing.deeplink_url}>
+                    Open Android app
+                  </a>
+                </div>
+                <div className="mobile-pairing__qr">
+                  <TotpQrCode value={storePairing.qr_payload} alt="QR-code Google Play review-login" helpText="Scan deze QR-code in de Android operator-app." />
+                </div>
+              </div>
+            ) : (
+              <p className="resource-state resource-state--loading">{storePairingLoading ? 'Koppelcode maken...' : 'Nog geen store review-koppelcode gemaakt.'}</p>
+            )}
+          </div>
         </Panel>
       ) : null}
 

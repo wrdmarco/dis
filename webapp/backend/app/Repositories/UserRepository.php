@@ -18,6 +18,7 @@ final class UserRepository extends BaseRepository
     public function search(array $filters, int $perPage): LengthAwarePaginator
     {
         return User::query()
+            ->withoutStoreReview()
             ->with([
                 'roles',
                 'teams',
