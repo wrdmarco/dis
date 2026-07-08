@@ -171,7 +171,14 @@ final class MobilePairingService
                 ->lockForUpdate()
                 ->first();
 
-            if ($pairing === null || $pairing->consumed_at !== null || $pairing->expires_at->isPast()) {
+            if ($pairing === null || $pairing->expires_at->isPast()) {
+                throw ValidationException::withMessages([
+                    'code' => ['Koppelcode is verlopen of al gebruikt. Maak een nieuwe code op de softwarepagina.'],
+                ]);
+            }
+
+            $isStoreReviewPairing = (string) ($pairing->review_mode ?? '') === self::STORE_REVIEW_MODE;
+            if (! $isStoreReviewPairing && $pairing->consumed_at !== null) {
                 throw ValidationException::withMessages([
                     'code' => ['Koppelcode is verlopen of al gebruikt. Maak een nieuwe code op de softwarepagina.'],
                 ]);
@@ -184,7 +191,7 @@ final class MobilePairingService
             }
 
             $user = $pairing->user;
-            if ((string) ($pairing->review_mode ?? '') === self::STORE_REVIEW_MODE) {
+            if ($isStoreReviewPairing) {
                 return $this->consumeStoreReviewPairing($pairing, $user, $clientType, $deviceName, $request);
             }
 
