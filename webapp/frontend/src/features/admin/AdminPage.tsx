@@ -7,7 +7,7 @@ import { dateInputValueInAmsterdam, formatDateTime } from '../../lib/dateTime';
 import { fetchLocationSuggestions, geocodeAddressLabel, lookupLocationSuggestion, type LocationSearchResult, type LocationSuggestion } from '../../lib/locationSearch';
 import { createRealtime } from '../../lib/realtime';
 import { useApiResource } from '../../lib/useApiResource';
-import type { ConfigurableFormField, DeveloperAccessState, FcmToken, IncidentFormConfig, IncidentFormLayoutItem, MobilePairingCode, PilotReportFormConfig, PilotReportFormField, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
+import type { ConfigurableFormField, DeveloperAccessState, FcmToken, IncidentFormConfig, IncidentFormLayoutItem, MobilePairingCode, PilotReportFormConfig, PilotReportFormField, StoreReviewStatus, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiClientError } from '../../lib/apiClient';
@@ -139,6 +139,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const settings = useApiResource<SystemSetting[]>('/admin/settings', canManageSettings && mode === 'admin');
   const tokens = useApiResource<FcmToken[]>('/admin/push/tokens?per_page=100', canManagePushTokens && mode === 'admin');
   const developerAccess = useApiResource<DeveloperAccessState>('/admin/developer-access', canManageSettings && mode === 'admin');
+  const storeReviewStatus = useApiResource<StoreReviewStatus>('/admin/store-review/status', canManageSettings && mode === 'admin');
   const systemVersion = useApiResource<SystemVersionState>('/admin/system/version', canViewSystemHealth && mode === 'admin');
   const pilotReportFormConfig = useApiResource<PilotReportFormConfig>('/admin/pilot-report/form-config', canManageSettings && mode === 'forms');
   const incidentFormConfig = useApiResource<IncidentFormConfig>('/admin/incident-form/config', canManageSettings && mode === 'forms');
@@ -551,6 +552,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       const response = await api.post<MobilePairingCode>('/admin/store-review/android-pairing');
       setStorePairing(response.data);
       setStorePairingSecondsLeft(response.data.ttl_seconds);
+      await storeReviewStatus.reload();
     } catch (error) {
       setStorePairingError(error instanceof ApiClientError ? error.message : 'Store review-koppelcode maken mislukt.');
     } finally {
@@ -1363,6 +1365,49 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
             <strong>Beperkte Android-login voor appstore review.</strong>
             <p>Deze koppelcode werkt alleen in de Android operator-app. De app krijgt accountinformatie van een afgeschermde reviewgebruiker en verder lege operationele lijsten. Incidenten, statuswijzigingen, assets, certificaten en beheeracties blijven geblokkeerd. Na koppelen is de review-login maximaal 24 uur geldig.</p>
           </div>
+          <ResourceState loading={storeReviewStatus.loading} error={storeReviewStatus.error} empty={false}>
+            <div className="settings-group">
+              <div className="mobile-pairing__header">
+                <div>
+                  <h3>Reviewstatus</h3>
+                  <p className="muted-text">Geen tokenwaarde zichtbaar; alleen gebruiksstatus en technische metadata.</p>
+                </div>
+                <button className="secondary-button" type="button" onClick={() => void storeReviewStatus.reload()}>
+                  Status vernieuwen
+                </button>
+              </div>
+              <dl className="definition-grid">
+                <dt>Reviewaccount</dt>
+                <dd>{storeReviewStatus.data?.configured ? (storeReviewStatus.data.account_name ?? 'Aangemaakt') : 'Nog niet aangemaakt'}</dd>
+                <dt>Koppelcode gebruikt</dt>
+                <dd>{storeReviewStatus.data?.pairing_was_used ? 'Ja' : 'Nee'}</dd>
+                <dt>Laatste login</dt>
+                <dd>{formatDate(storeReviewStatus.data?.last_login_at)}</dd>
+                <dt>Laatste IP</dt>
+                <dd className="mono">{storeReviewStatus.data?.last_pairing_ip ?? '-'}</dd>
+                <dt>Tokenstatus</dt>
+                <dd>{storeReviewStatus.data?.token_is_active ? 'Actief' : storeReviewStatus.data?.token_exists ? 'Verlopen' : 'Geen token'}</dd>
+                <dt>Token aangemaakt</dt>
+                <dd>{formatDate(storeReviewStatus.data?.token_created_at)}</dd>
+                <dt>Token laatst gebruikt</dt>
+                <dd>{formatDate(storeReviewStatus.data?.token_last_used_at)}</dd>
+                <dt>Token verloopt</dt>
+                <dd>{formatDate(storeReviewStatus.data?.token_expires_at)}</dd>
+                <dt>Laatste code gemaakt</dt>
+                <dd>{formatDate(storeReviewStatus.data?.last_pairing_created_at)}</dd>
+                <dt>Laatste code gebruikt</dt>
+                <dd>{formatDate(storeReviewStatus.data?.last_pairing_consumed_at)}</dd>
+                <dt>Laatste code verliep</dt>
+                <dd>{formatDate(storeReviewStatus.data?.last_pairing_expires_at)}</dd>
+              </dl>
+              {storeReviewStatus.data?.last_pairing_user_agent ? (
+                <div className="metadata-example">
+                  <strong>Laatst gebruikte user-agent</strong>
+                  <pre>{storeReviewStatus.data.last_pairing_user_agent}</pre>
+                </div>
+              ) : null}
+            </div>
+          </ResourceState>
           <div className="mobile-pairing mobile-pairing--active">
             <div className="mobile-pairing__header">
               <div>

@@ -216,6 +216,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged', 'store.rev
     Route::get('/status/audit-users', [AdminController::class, 'auditUsers'])->middleware('permission:status.audit.view');
     Route::get('/admin/settings', [AdminController::class, 'settings'])->middleware('permission:settings.manage');
     Route::patch('/admin/settings', [AdminController::class, 'updateSettings'])->middleware('permission:settings.manage');
+    Route::get('/admin/store-review/status', [AdminStoreReviewController::class, 'status'])->middleware('permission:settings.manage');
     Route::post('/admin/store-review/android-pairing', [AdminStoreReviewController::class, 'createAndroidPairing'])->middleware(['permission:settings.manage', 'throttle:api']);
     Route::post('/admin/branding/logo', [BrandingController::class, 'uploadLogo'])->middleware('permission:settings.manage');
     Route::delete('/admin/branding/logo', [BrandingController::class, 'deleteLogo'])->middleware('permission:settings.manage');

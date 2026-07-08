@@ -11,6 +11,11 @@ final class AdminStoreReviewController extends Controller
 {
     public function __construct(private readonly MobilePairingService $pairingService) {}
 
+    public function status(): JsonResponse
+    {
+        return ApiResponse::success($this->pairingService->storeReviewStatus());
+    }
+
     public function createAndroidPairing(Request $request): JsonResponse
     {
         $user = $request->user();

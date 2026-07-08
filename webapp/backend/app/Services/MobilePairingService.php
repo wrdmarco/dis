@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\MobilePairingCode;
+use App\Models\PersonalAccessToken;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Support\ApiDateTime;
@@ -121,6 +122,41 @@ final class MobilePairingService
         ], null, $request);
 
         return $payload;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function storeReviewStatus(): array
+    {
+        $user = $this->findStoreReviewUser();
+        $lastPairing = MobilePairingCode::query()
+            ->where('review_mode', self::STORE_REVIEW_MODE)
+            ->latest('created_at')
+            ->first();
+        $lastConsumedPairing = MobilePairingCode::query()
+            ->where('review_mode', self::STORE_REVIEW_MODE)
+            ->whereNotNull('consumed_at')
+            ->latest('consumed_at')
+            ->first();
+        $latestToken = $user === null ? null : $this->latestStoreReviewToken($user);
+
+        return [
+            'configured' => $user !== null,
+            'account_name' => $user?->name,
+            'last_login_at' => ApiDateTime::dateTime($user?->last_login_at),
+            'last_pairing_created_at' => ApiDateTime::dateTime($lastPairing?->created_at),
+            'last_pairing_expires_at' => ApiDateTime::dateTime($lastPairing?->expires_at),
+            'last_pairing_consumed_at' => ApiDateTime::dateTime($lastConsumedPairing?->consumed_at),
+            'last_pairing_ip' => $lastConsumedPairing?->consumed_ip,
+            'last_pairing_user_agent' => $lastConsumedPairing?->consumed_user_agent,
+            'pairing_was_used' => $lastConsumedPairing !== null,
+            'token_exists' => $latestToken !== null,
+            'token_is_active' => $latestToken !== null && $latestToken->expires_at !== null && $latestToken->expires_at->isFuture(),
+            'token_last_used_at' => ApiDateTime::dateTime($latestToken?->last_used_at),
+            'token_expires_at' => ApiDateTime::dateTime($latestToken?->expires_at),
+            'token_created_at' => ApiDateTime::dateTime($latestToken?->created_at),
+        ];
     }
 
     /**
@@ -257,7 +293,7 @@ final class MobilePairingService
         ];
 
         /** @var User $user */
-        $user = User::withTrashed()->where('email', self::STORE_REVIEW_EMAIL)->first();
+        $user = $this->findStoreReviewUser();
         if ($user === null) {
             $user = User::query()->create($attributes + [
                 'email' => self::STORE_REVIEW_EMAIL,
@@ -274,6 +310,28 @@ final class MobilePairingService
         $user->teams()->sync([]);
 
         return $user;
+    }
+
+    private function findStoreReviewUser(): ?User
+    {
+        /** @var User|null $user */
+        $user = User::withTrashed()->where('email', self::STORE_REVIEW_EMAIL)->first();
+
+        return $user;
+    }
+
+    private function latestStoreReviewToken(User $user): ?PersonalAccessToken
+    {
+        return PersonalAccessToken::query()
+            ->where('tokenable_type', User::class)
+            ->where('tokenable_id', $user->id)
+            ->latest('created_at')
+            ->get()
+            ->first(function (PersonalAccessToken $token): bool {
+                $abilities = is_array($token->abilities ?? null) ? $token->abilities : [];
+
+                return in_array('client:store_review', $abilities, true);
+            });
     }
 
     private function generateManualCode(): string

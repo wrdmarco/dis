@@ -543,6 +543,23 @@ export interface MobilePairingCode {
   qr_payload: string;
 }
 
+export interface StoreReviewStatus {
+  configured: boolean;
+  account_name?: string | null;
+  last_login_at?: string | null;
+  last_pairing_created_at?: string | null;
+  last_pairing_expires_at?: string | null;
+  last_pairing_consumed_at?: string | null;
+  last_pairing_ip?: string | null;
+  last_pairing_user_agent?: string | null;
+  pairing_was_used: boolean;
+  token_exists: boolean;
+  token_is_active: boolean;
+  token_last_used_at?: string | null;
+  token_expires_at?: string | null;
+  token_created_at?: string | null;
+}
+
 export interface DeveloperAccessState {
   enabled: boolean;
   configured: boolean;
