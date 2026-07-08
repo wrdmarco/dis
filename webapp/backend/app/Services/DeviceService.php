@@ -119,6 +119,10 @@ final class DeviceService
         $token->update([
             'device_type' => $data['device_type'] ?? $token->device_type,
             'device_name' => $this->deviceName($data, $token->device_name),
+            'device_manufacturer' => $data['device_manufacturer'] ?? $token->device_manufacturer,
+            'device_model' => $data['device_model'] ?? $token->device_model,
+            'android_version' => $data['android_version'] ?? $token->android_version,
+            'sdk_version' => $data['sdk_version'] ?? $token->sdk_version,
             'app_version' => $data['app_version'] ?? $token->app_version,
             'personal_access_token_id' => $accessToken?->id ?? $token->personal_access_token_id,
             'last_seen_at' => now(),

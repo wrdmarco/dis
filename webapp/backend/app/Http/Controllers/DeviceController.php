@@ -44,6 +44,10 @@ final class DeviceController extends Controller
             'device_type' => ['nullable', 'in:phone,tablet'],
             'device_name' => ['nullable', 'string', 'max:120'],
             'app_version' => ['nullable', 'string', 'max:80'],
+            'device_manufacturer' => ['nullable', 'string', 'max:80'],
+            'device_model' => ['nullable', 'string', 'max:120'],
+            'android_version' => ['nullable', 'string', 'max:80'],
+            'sdk_version' => ['nullable', 'string', 'max:40'],
         ]);
 
         return ApiResponse::success(MobileApiPayload::fcmToken($this->service->heartbeat($request->user(), $data, $this->currentPersonalAccessToken($request))));

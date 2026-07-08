@@ -23,11 +23,9 @@ export function StatusPage() {
   const sortedItems = [...items].sort((left, right) => Number(left.is_available) - Number(right.is_available)
     || (left.next_available_at?.at ?? '').localeCompare(right.next_available_at?.at ?? '')
     || (left.user?.name ?? '').localeCompare(right.user?.name ?? ''));
-  const onlineItems = sortedItems.filter((item) => isUserOnline(item));
-  const offlineItems = sortedItems.filter((item) => !isUserOnline(item));
   const availableCount = items.filter((item) => item.is_available).length;
   const unavailableCount = items.filter((item) => !item.is_available).length;
-  const onlineCount = onlineItems.length;
+  const onlineCount = items.filter((item) => isUserOnline(item)).length;
   const onSceneCount = items.filter((item) => item.status === 'on_scene').length;
   const returningCount = items.filter((item) => !item.is_available && item.next_available_at !== null && item.next_available_at !== undefined).length;
   const canOverrideStatus = hasPermission('status.override');
@@ -82,8 +80,7 @@ export function StatusPage() {
               <SummaryItem icon={<UsersRound size={18} />} label="Wordt later beschikbaar" value={String(returningCount)} />
               <SummaryItem label="Op locatie" value={String(onSceneCount)} />
             </div>
-            <StatusTable title="Online operators" items={onlineItems} canOverrideStatus={canOverrideStatus} onEdit={openEditModal} />
-            <StatusTable title="Offline operators" items={offlineItems} canOverrideStatus={canOverrideStatus} onEdit={openEditModal} />
+            <StatusTable title="Operators" items={sortedItems} canOverrideStatus={canOverrideStatus} onEdit={openEditModal} />
           </div>
         </ResourceState>
       </Panel>
@@ -154,7 +151,7 @@ function StatusTable({
           <thead>
             <tr>
               <th>Gebruiker</th>
-              <th>Device</th>
+              <th>Online</th>
               <th>Status</th>
               <th>Weer beschikbaar</th>
               <th>Laatst gewijzigd</th>
@@ -171,9 +168,9 @@ function StatusTable({
                   </div>
                 </td>
                 <td>
-                  <div className="status-cell">
-                    <StatusPill value={isUserOnline(item) ? 'Online' : 'Offline'} tone={isUserOnline(item) ? 'good' : 'neutral'} />
-                    <small>{deviceSeenLabel(item)}</small>
+                  <div className="status-cell status-cell--presence">
+                    <StatusPill value={isUserOnline(item) ? 'Online' : 'Offline'} tone={isUserOnline(item) ? 'good' : 'bad'} />
+                    <small>({deviceLastSeenLabel(item)})</small>
                   </div>
                 </td>
                 <td>
@@ -206,17 +203,14 @@ function isUserOnline(item: AvailabilityStatus): boolean {
   return hasOnlineOperatorDevice(item.user?.fcm_tokens ?? []);
 }
 
-function deviceSeenLabel(item: AvailabilityStatus): string {
+function deviceLastSeenLabel(item: AvailabilityStatus): string {
   const token = latestOperatorDevice(item.user?.fcm_tokens ?? []);
 
   if (token === undefined) {
-    return 'Geen operator-device';
+    return 'geen laatste heartbeat';
   }
 
-  const hardwareName = [token.device_manufacturer, token.device_model].filter(Boolean).join(' ');
-  const name = token.device_name ?? (hardwareName || token.device_id);
-
-  return `${name} - ${formatDateTime(token.last_seen_at)}`;
+  return formatDateTime(token.last_seen_at);
 }
 
 function SummaryItem({ icon, label, value }: { icon?: ReactNode; label: string; value: string }) {

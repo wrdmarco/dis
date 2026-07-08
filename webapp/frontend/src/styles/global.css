@@ -1666,6 +1666,13 @@ a:hover {
   gap: 4px;
 }
 
+.status-cell--presence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
 .status-cell small {
   color: #8ea0b5;
   line-height: 1.35;
@@ -2239,6 +2246,25 @@ select[multiple] {
   margin-top: 6px;
   overflow-wrap: anywhere;
   color: var(--dis-muted);
+}
+
+.form-builder-properties .check-label {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-builder-properties .check-label input[type="checkbox"],
+.form-builder-properties .checkbox-card input[type="checkbox"] {
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  min-height: 18px;
+  flex: 0 0 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--dis-blue);
 }
 
 .form-builder-property-note {
