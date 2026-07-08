@@ -1368,7 +1368,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               <div>
                 <span>Android operator-app</span>
                 <strong>Google Play review</strong>
-                <p>De code is 15 minuten geldig. Na inloggen verloopt het app-token automatisch na 24 uur.</p>
+                <p>De code is 30 minuten geldig. Na inloggen verloopt het app-token automatisch na 24 uur.</p>
               </div>
               <button className="secondary-button" type="button" onClick={() => void createStoreReviewPairing()} disabled={storePairingLoading}>
                 {storePairingLoading ? 'Maken...' : 'Koppelcode maken'}
