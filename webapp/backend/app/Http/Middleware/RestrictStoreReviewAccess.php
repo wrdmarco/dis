@@ -29,7 +29,7 @@ final class RestrictStoreReviewAccess
         }
 
         if ($method === 'POST' && $path === 'api/auth/logout') {
-            return $next($request);
+            return response()->noContent();
         }
 
         if ($method === 'POST' && in_array($path, ['api/devices/fcm-token', 'api/devices/heartbeat'], true)) {
@@ -38,21 +38,26 @@ final class RestrictStoreReviewAccess
 
         if ($method === 'GET') {
             return match ($path) {
+                'api/auth/me' => ApiResponse::success($this->reviewUser($request)),
                 'api/status/me' => ApiResponse::success($this->unavailableStatus((string) $request->user()?->id)),
+                'api/teams',
                 'api/vacations/mine',
                 'api/calendar-events',
                 'api/incidents',
                 'api/assets/mine',
+                'api/assets',
                 'api/drone-types',
                 'api/certifications',
-                'api/certifications/me' => ApiResponse::success([]),
+                'api/certifications/me',
+                'api/devices' => ApiResponse::success([]),
+                'api/incident-form/config',
                 'api/pilot-report/form-config' => ApiResponse::success(['fields' => []]),
                 'api/availability-schedule/me' => ApiResponse::success($this->emptyAvailabilitySchedule((string) $request->user()?->id)),
-                default => ApiResponse::error('store_review_access_denied', 'Deze review-login geeft alleen toegang tot accountinformatie.', 403),
+                default => $this->storeReviewReadResponse($path),
             };
         }
 
-        return ApiResponse::error('store_review_access_denied', 'Deze review-login mag geen operationele gegevens wijzigen.', 403);
+        return $this->storeReviewWriteResponse($request, $path, $method);
     }
 
     private function isStoreReviewToken(Request $request): bool
@@ -92,6 +97,25 @@ final class RestrictStoreReviewAccess
     /**
      * @return array<string, mixed>
      */
+    private function reviewUser(Request $request): array
+    {
+        $user = $request->user();
+
+        return [
+            'id' => (string) $user?->id,
+            'name' => (string) ($user?->name ?? 'Google Play Review'),
+            'email' => (string) ($user?->email ?? 'google-play-review@system.dis.local'),
+            'account_status' => 'store_review',
+            'push_enabled' => true,
+            'two_factor_enabled' => false,
+            'roles' => [],
+            'teams' => [],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     private function emptyAvailabilitySchedule(string $userId): array
     {
         $weekPattern = collect(range(1, 7))
@@ -114,6 +138,303 @@ final class RestrictStoreReviewAccess
                 'is_available' => false,
                 'source' => 'store_review',
                 'note' => null,
+            ],
+        ];
+    }
+
+    private function storeReviewReadResponse(string $path): Response
+    {
+        if (preg_match('#^api/incidents/([^/]+)$#', $path, $matches) === 1) {
+            return ApiResponse::success($this->reviewIncident($matches[1]));
+        }
+
+        if (preg_match('#^api/incidents/([^/]+)/(timeline|dispatches|live-locations)$#', $path) === 1) {
+            return ApiResponse::success([]);
+        }
+
+        if (preg_match('#^api/incidents/([^/]+)/pilot-report$#', $path, $matches) === 1) {
+            return ApiResponse::success($this->reviewPilotReport($matches[1]));
+        }
+
+        if (preg_match('#^api/incidents/([^/]+)/dispatch-preview$#', $path) === 1) {
+            return ApiResponse::success([
+                'team' => null,
+                'recipients' => [],
+                'blocked_reason' => null,
+            ]);
+        }
+
+        if (preg_match('#^api/dispatches/([^/]+)(/recipients)?$#', $path, $matches) === 1) {
+            return ($matches[2] ?? '') === '/recipients'
+                ? ApiResponse::success([])
+                : ApiResponse::success($this->reviewDispatch($matches[1]));
+        }
+
+        return ApiResponse::success([]);
+    }
+
+    private function storeReviewWriteResponse(Request $request, string $path, string $method): Response
+    {
+        if ($method === 'POST' && $path === 'api/auth/logout') {
+            return response()->noContent();
+        }
+
+        if ($path === 'api/auth/2fa/setup' && $method === 'POST') {
+            return ApiResponse::success([
+                'enabled' => false,
+                'secret' => null,
+                'provisioning_uri' => null,
+            ]);
+        }
+
+        if ($path === 'api/auth/2fa/disable' && $method === 'POST') {
+            return ApiResponse::success($this->reviewUser($request));
+        }
+
+        if ($path === 'api/auth/me' && $method === 'PATCH') {
+            return ApiResponse::success($this->reviewUser($request));
+        }
+
+        if ($method === 'PATCH' && $path === 'api/status/me') {
+            return ApiResponse::success($this->unavailableStatus((string) $request->user()?->id));
+        }
+
+        if ($method === 'PATCH' && $path === 'api/availability-schedule/me/week-pattern') {
+            return ApiResponse::success($this->emptyAvailabilitySchedule((string) $request->user()?->id));
+        }
+
+        if ($method === 'POST' && $path === 'api/availability-schedule/me/overrides') {
+            return ApiResponse::success($this->emptyAvailabilitySchedule((string) $request->user()?->id));
+        }
+
+        if ($method === 'DELETE' && preg_match('#^api/availability-schedule/overrides/[^/]+$#', $path) === 1) {
+            return response()->noContent();
+        }
+
+        if ($method === 'POST' && $path === 'api/vacations/mine') {
+            return ApiResponse::success($this->reviewVacation($request));
+        }
+
+        if ($method === 'DELETE' && preg_match('#^api/vacations/[^/]+$#', $path) === 1) {
+            return response()->noContent();
+        }
+
+        if ($method === 'POST' && $path === 'api/incidents') {
+            return ApiResponse::success($this->reviewIncident('store-review-incident', $request), 201);
+        }
+
+        if (preg_match('#^api/incidents/([^/]+)$#', $path, $matches) === 1 && $method === 'PATCH') {
+            return ApiResponse::success($this->reviewIncident($matches[1], $request));
+        }
+
+        if (preg_match('#^api/incidents/([^/]+)/(close|cancel)$#', $path, $matches) === 1 && $method === 'POST') {
+            return ApiResponse::success($this->reviewIncident($matches[1], $request, $matches[2] === 'cancel' ? 'cancelled' : 'resolved'));
+        }
+
+        if (preg_match('#^api/incidents/([^/]+)/pilot-report$#', $path, $matches) === 1 && $method === 'PATCH') {
+            return ApiResponse::success($this->reviewPilotReport($matches[1], $request));
+        }
+
+        if (preg_match('#^api/incidents/([^/]+)/pilot-report/finalize$#', $path, $matches) === 1 && $method === 'POST') {
+            return ApiResponse::success($this->reviewPilotReport($matches[1], $request, true));
+        }
+
+        if (preg_match('#^api/incidents/([^/]+)/location/(consent|decline)$#', $path, $matches) === 1 && $method === 'POST') {
+            return ApiResponse::success($this->reviewLocationConsent($matches[1], $matches[2] === 'consent'));
+        }
+
+        if (preg_match('#^api/incidents/([^/]+)/location/consent$#', $path) === 1 && $method === 'DELETE') {
+            return response()->noContent();
+        }
+
+        if (preg_match('#^api/incidents/([^/]+)/location$#', $path) === 1 && $method === 'POST') {
+            return response()->noContent();
+        }
+
+        if (preg_match('#^api/dispatches/([^/]+)/(send|re-alert|escalate)$#', $path, $matches) === 1 && $method === 'POST') {
+            return ApiResponse::success($this->reviewDispatch($matches[1]));
+        }
+
+        if (preg_match('#^api/dispatches/([^/]+)/message$#', $path) === 1 && $method === 'POST') {
+            return ApiResponse::success([
+                'queued_tokens' => 0,
+                'recipient_users' => 0,
+            ]);
+        }
+
+        if (preg_match('#^api/dispatches/([^/]+)/respond$#', $path) === 1 && $method === 'POST') {
+            return response()->noContent();
+        }
+
+        if ($path === 'api/admin/push/manual' && $method === 'POST') {
+            return ApiResponse::success([
+                'queued_tokens' => 0,
+                'recipient_users' => 0,
+            ]);
+        }
+
+        if ($path === 'api/assets/mine' && $method === 'POST') {
+            return ApiResponse::success($this->reviewAsset($request), 201);
+        }
+
+        if (preg_match('#^api/assets/([^/]+)/mine$#', $path, $matches) === 1 && $method === 'PATCH') {
+            return ApiResponse::success($this->reviewAsset($request, $matches[1]));
+        }
+
+        if (preg_match('#^api/assets/([^/]+)/mine$#', $path) === 1 && $method === 'DELETE') {
+            return response()->noContent();
+        }
+
+        if ($path === 'api/certifications/me' && $method === 'POST') {
+            return ApiResponse::success($this->reviewUserCertification($request), 201);
+        }
+
+        if (preg_match('#^api/certifications/me/([^/]+)$#', $path, $matches) === 1 && $method === 'PATCH') {
+            return ApiResponse::success($this->reviewUserCertification($request, $matches[1]));
+        }
+
+        if (preg_match('#^api/certifications/me/[^/]+$#', $path) === 1 && $method === 'DELETE') {
+            return response()->noContent();
+        }
+
+        return ApiResponse::success([
+            'review_mode' => true,
+            'saved' => false,
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function reviewIncident(string $id, ?Request $request = null, string $status = 'draft'): array
+    {
+        $payload = $request?->all() ?? [];
+
+        return [
+            'id' => $id,
+            'reference' => 'REVIEW-0001',
+            'title' => (string) ($payload['title'] ?? 'Review incident'),
+            'description' => $payload['description'] ?? null,
+            'priority' => (string) ($payload['priority'] ?? 'normal'),
+            'status' => (string) ($payload['status'] ?? $status),
+            'is_test' => true,
+            'location_label' => $payload['location_label'] ?? 'Review locatie',
+            'latitude' => $payload['latitude'] ?? null,
+            'longitude' => $payload['longitude'] ?? null,
+            'opened_at' => now()->toIso8601String(),
+            'active_dispatch' => null,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function reviewDispatch(string $id): array
+    {
+        return [
+            'id' => $id,
+            'status' => 'sent',
+            'priority' => 'normal',
+            'message' => 'Review melding, niet verzonden.',
+            'sent_at' => now()->toIso8601String(),
+            'created_at' => now()->toIso8601String(),
+            'recipients' => [],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function reviewPilotReport(string $incidentId, ?Request $request = null, bool $finalized = false): array
+    {
+        $payload = $request?->all() ?? [];
+        $now = now()->toIso8601String();
+
+        return [
+            'id' => 'store-review-pilot-report',
+            'incident_id' => $incidentId,
+            'status' => $finalized ? 'final' : 'draft',
+            'summary' => $payload['summary'] ?? null,
+            'observations' => $payload['observations'] ?? null,
+            'actions_taken' => $payload['actions_taken'] ?? null,
+            'result' => $payload['result'] ?? null,
+            'issues' => $payload['issues'] ?? null,
+            'equipment_used' => $payload['equipment_used'] ?? null,
+            'flight_minutes' => $payload['flight_minutes'] ?? null,
+            'custom_fields' => $payload['custom_fields'] ?? [],
+            'submitted_at' => $finalized ? $now : null,
+            'finalized_at' => $finalized ? $now : null,
+            'can_edit' => ! $finalized,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function reviewLocationConsent(string $incidentId, bool $active): array
+    {
+        return [
+            'id' => 'store-review-location-consent',
+            'incident_id' => $incidentId,
+            'is_active' => $active,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function reviewVacation(Request $request): array
+    {
+        return [
+            'id' => 'store-review-vacation',
+            'starts_at' => (string) $request->input('starts_at', now()->toDateString()),
+            'ends_at' => (string) $request->input('ends_at', now()->toDateString()),
+            'status' => 'approved',
+            'note' => $request->input('note'),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function reviewAsset(Request $request, string $id = 'store-review-asset'): array
+    {
+        return [
+            'id' => $id,
+            'asset_tag' => 'REVIEW-DRONE',
+            'name' => (string) $request->input('name', 'Review drone'),
+            'type' => (string) $request->input('type', 'drone'),
+            'drone_type_id' => $request->input('drone_type_id'),
+            'drone_type' => null,
+            'has_spotlight' => (bool) $request->boolean('has_spotlight'),
+            'has_speaker' => (bool) $request->boolean('has_speaker'),
+            'status' => (string) $request->input('status', 'ready'),
+            'serial_number' => $request->input('serial_number'),
+            'maintenance_due_at' => $request->input('maintenance_due_at'),
+            'notes' => $request->input('notes'),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function reviewUserCertification(Request $request, string $id = 'store-review-certification'): array
+    {
+        $certificationId = (string) $request->input('certification_id', 'store-review-certification-type');
+
+        return [
+            'id' => $id,
+            'certification_id' => $certificationId,
+            'issued_at' => (string) $request->input('issued_at', now()->toDateString()),
+            'expires_at' => $request->input('expires_at'),
+            'certificate_number' => $request->input('certificate_number'),
+            'status' => 'active',
+            'certification' => [
+                'id' => $certificationId,
+                'code' => 'REVIEW',
+                'name' => 'Review certificaat',
+                'is_required_for_dispatch' => false,
+                'warning_days_before_expiry' => 30,
             ],
         ];
     }
