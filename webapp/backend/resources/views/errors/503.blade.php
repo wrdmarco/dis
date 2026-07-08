@@ -54,22 +54,33 @@
 
     .drone-lane {
       position: absolute;
-      left: -260px;
+      left: 0;
       top: 18%;
-      width: 240px;
-      height: 110px;
+      width: 300px;
+      height: 150px;
+      --drone-scale: 1;
+      --drone-bank: -2deg;
       animation: fly 13s linear infinite;
       opacity: .92;
       filter: drop-shadow(0 18px 28px rgba(0, 0, 0, .48));
+      transform-origin: center;
+      will-change: transform;
     }
 
-    .drone-lane:nth-child(2) { top: 42%; animation-duration: 17s; animation-delay: -7s; transform: scale(.78); opacity: .7; }
-    .drone-lane:nth-child(3) { top: 70%; animation-duration: 19s; animation-delay: -12s; transform: scale(.92); opacity: .74; }
+    .drone-lane:nth-child(2) { top: 42%; animation-duration: 17s; animation-delay: -7s; --drone-scale: .78; --drone-bank: 3deg; opacity: .7; }
+    .drone-lane:nth-child(3) { top: 70%; animation-duration: 19s; animation-delay: -12s; --drone-scale: .92; --drone-bank: -4deg; opacity: .74; }
 
-    .rotor-disc {
+    .rotor-blur {
       transform-origin: center;
-      animation: rotor .3s linear infinite;
+      transform-box: fill-box;
+      animation: rotor .22s linear infinite;
       opacity: .76;
+    }
+
+    .rotor-blade {
+      transform-origin: center;
+      transform-box: fill-box;
+      animation: rotor .16s linear infinite;
     }
 
     main {
@@ -132,8 +143,8 @@
     }
 
     @keyframes fly {
-      from { translate: -12vw 0; }
-      to { translate: calc(100vw + 300px) 0; }
+      from { transform: translate3d(-340px, 0, 0) scale(var(--drone-scale)) rotate(var(--drone-bank)); }
+      to { transform: translate3d(calc(100vw + 340px), 0, 0) scale(var(--drone-scale)) rotate(var(--drone-bank)); }
     }
 
     @keyframes rotor {
@@ -181,9 +192,8 @@
       }
 
       .drone-lane {
-        width: 176px;
-        height: 82px;
-        left: -190px;
+        width: 230px;
+        height: 115px;
         top: 12%;
         opacity: .46;
         filter: drop-shadow(0 12px 18px rgba(0, 0, 0, .42));
@@ -194,8 +204,8 @@
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .drone-lane, .rotor-disc, .status::before { animation: none; }
-      .drone-lane { translate: 18vw 0; }
+      .drone-lane, .rotor-blur, .rotor-blade, .status::before { animation: none; }
+      .drone-lane { transform: translate3d(18vw, 0, 0) scale(var(--drone-scale)) rotate(var(--drone-bank)); }
       .drone-lane:nth-child(2), .drone-lane:nth-child(3) { display: none; }
     }
   </style>
@@ -203,51 +213,60 @@
 <body>
   <div class="sky" aria-hidden="true">
     @for ($i = 0; $i < 3; $i++)
-      <svg class="drone-lane" viewBox="0 0 240 110" role="img" aria-label="">
+      <svg class="drone-lane" viewBox="0 0 300 150" role="img" aria-label="">
         <defs>
-          <linearGradient id="drone-body-{{ $i }}" x1="64" x2="174" y1="35" y2="76" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#e8f4ff"/>
-            <stop offset=".42" stop-color="#9bb3c9"/>
-            <stop offset="1" stop-color="#26384a"/>
+          <linearGradient id="drone-body-{{ $i }}" x1="95" x2="205" y1="44" y2="102" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#f4f7f9"/>
+            <stop offset=".46" stop-color="#9eaab4"/>
+            <stop offset="1" stop-color="#2b333b"/>
           </linearGradient>
           <radialGradient id="rotor-wash-{{ $i }}" cx="50%" cy="50%" r="50%">
-            <stop stop-color="#f4fbff" stop-opacity=".48"/>
-            <stop offset=".58" stop-color="#a9dfff" stop-opacity=".16"/>
+            <stop stop-color="#f4fbff" stop-opacity=".58"/>
+            <stop offset=".56" stop-color="#a9dfff" stop-opacity=".18"/>
             <stop offset="1" stop-color="#a9dfff" stop-opacity="0"/>
           </radialGradient>
         </defs>
-        <path d="M118 61 L64 108 H176 L124 61Z" fill="#80c7ff" opacity=".12"/>
-        <g class="rotor-disc">
-          <ellipse cx="43" cy="24" rx="37" ry="9" fill="url(#rotor-wash-{{ $i }})"/>
-          <ellipse cx="197" cy="24" rx="37" ry="9" fill="url(#rotor-wash-{{ $i }})"/>
-          <ellipse cx="43" cy="80" rx="37" ry="9" fill="url(#rotor-wash-{{ $i }})"/>
-          <ellipse cx="197" cy="80" rx="37" ry="9" fill="url(#rotor-wash-{{ $i }})"/>
+        <path d="M148 84 L82 144 H218 L153 84Z" fill="#80c7ff" opacity=".1"/>
+        <g fill="none" stroke="#5f7485" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M126 64 L69 31"/>
+          <path d="M174 64 L231 31"/>
+          <path d="M122 83 L62 113"/>
+          <path d="M178 83 L238 113"/>
+          <path d="M113 107 C132 119 168 119 187 107"/>
         </g>
-        <g fill="none" stroke="#8fb0c9" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M93 50 L52 27"/>
-          <path d="M147 50 L188 27"/>
-          <path d="M92 61 L52 78"/>
-          <path d="M148 61 L188 78"/>
-          <path d="M88 86 C103 96 137 96 152 86"/>
+        <g fill="none" stroke="#dfe8ee" stroke-width="2.5" stroke-linecap="round" opacity=".72">
+          <path d="M85 41 L116 58"/>
+          <path d="M215 41 L184 58"/>
+          <path d="M82 103 L116 86"/>
+          <path d="M218 103 L184 86"/>
         </g>
-        <g fill="#162131" stroke="#d6edf8" stroke-width="2.5">
-          <circle cx="43" cy="24" r="10"/>
-          <circle cx="197" cy="24" r="10"/>
-          <circle cx="43" cy="80" r="10"/>
-          <circle cx="197" cy="80" r="10"/>
+        <g>
+          <ellipse class="rotor-blur" cx="54" cy="28" rx="49" ry="11" fill="url(#rotor-wash-{{ $i }})"/>
+          <ellipse class="rotor-blur" cx="246" cy="28" rx="49" ry="11" fill="url(#rotor-wash-{{ $i }})"/>
+          <ellipse class="rotor-blur" cx="54" cy="118" rx="49" ry="11" fill="url(#rotor-wash-{{ $i }})"/>
+          <ellipse class="rotor-blur" cx="246" cy="118" rx="49" ry="11" fill="url(#rotor-wash-{{ $i }})"/>
+          <g class="rotor-blade" fill="#eef8ff" opacity=".8">
+            <rect x="14" y="25" width="80" height="6" rx="3"/>
+            <rect x="206" y="25" width="80" height="6" rx="3"/>
+            <rect x="14" y="115" width="80" height="6" rx="3"/>
+            <rect x="206" y="115" width="80" height="6" rx="3"/>
+          </g>
         </g>
-        <path d="M88 48 C92 33 106 26 120 26 C134 26 148 33 152 48 L158 65 C148 75 133 80 120 80 C107 80 92 75 82 65Z" fill="url(#drone-body-{{ $i }})" stroke="#e8f4ff" stroke-width="2.5"/>
-        <path d="M98 48 H142" stroke="#334a5f" stroke-width="3" stroke-linecap="round" opacity=".7"/>
-        <rect x="107" y="70" width="26" height="17" rx="7" fill="#111a26" stroke="#d6edf8" stroke-width="2"/>
-        <circle cx="120" cy="79" r="5" fill="#0c1119" stroke="#80c7ff" stroke-width="2"/>
-        <circle cx="89" cy="60" r="3" fill="#ef4444"/>
-        <circle cx="151" cy="60" r="3" fill="#7dd3a7"/>
-        <g fill="none" stroke="#eef8ff" stroke-width="2" stroke-linecap="round" opacity=".82">
-          <path d="M15 24 H71"/>
-          <path d="M169 24 H225"/>
-          <path d="M15 80 H71"/>
-          <path d="M169 80 H225"/>
+        <g fill="#18212b" stroke="#dce8ef" stroke-width="3">
+          <circle cx="54" cy="28" r="12"/>
+          <circle cx="246" cy="28" r="12"/>
+          <circle cx="54" cy="118" r="12"/>
+          <circle cx="246" cy="118" r="12"/>
         </g>
+        <path d="M116 58 C119 39 132 29 150 29 C168 29 181 39 184 58 L193 86 C182 101 166 109 150 109 C134 109 118 101 107 86Z" fill="url(#drone-body-{{ $i }})" stroke="#f5f8fa" stroke-width="3"/>
+        <path d="M129 57 C135 51 165 51 171 57" fill="none" stroke="#3e4b55" stroke-width="4" stroke-linecap="round" opacity=".75"/>
+        <path d="M121 76 H179" stroke="#202a34" stroke-width="3" stroke-linecap="round" opacity=".62"/>
+        <rect x="132" y="94" width="36" height="22" rx="8" fill="#101820" stroke="#e8f4ff" stroke-width="2.5"/>
+        <circle cx="150" cy="105" r="7" fill="#080d12" stroke="#80c7ff" stroke-width="2.5"/>
+        <text x="150" y="72" text-anchor="middle" font-size="12" font-weight="800" fill="#25313b" opacity=".82" font-family="Arial, sans-serif">DJI</text>
+        <circle cx="117" cy="82" r="3.5" fill="#ef4444"/>
+        <circle cx="183" cy="82" r="3.5" fill="#7dd3a7"/>
+        <path d="M137 120 H163" stroke="#cbd7df" stroke-width="3" stroke-linecap="round"/>
       </svg>
     @endfor
   </div>
