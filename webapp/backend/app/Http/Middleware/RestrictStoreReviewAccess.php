@@ -38,7 +38,7 @@ final class RestrictStoreReviewAccess
 
         if ($method === 'GET') {
             return match ($path) {
-                'api/status/me' => ApiResponse::success(null),
+                'api/status/me' => ApiResponse::success($this->unavailableStatus((string) $request->user()?->id)),
                 'api/vacations/mine',
                 'api/calendar-events',
                 'api/incidents',
@@ -68,6 +68,25 @@ final class RestrictStoreReviewAccess
         $expiresAt = $request->user()?->currentAccessToken()?->expires_at;
 
         return $expiresAt === null || $expiresAt->isPast();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function unavailableStatus(string $userId): array
+    {
+        return [
+            'id' => 'store-review-status',
+            'user_id' => $userId,
+            'status' => 'unavailable',
+            'is_available' => false,
+            'is_system_applied' => true,
+            'reason' => 'Google Play review-login heeft geen operationele toegang.',
+            'effective_at' => now()->toIso8601String(),
+            'next_availability_change' => null,
+            'next_available_at' => null,
+            'user' => null,
+        ];
     }
 
     /**
