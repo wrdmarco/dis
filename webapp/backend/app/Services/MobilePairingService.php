@@ -17,7 +17,7 @@ use Illuminate\Validation\ValidationException;
 final class MobilePairingService
 {
     private const TTL_SECONDS = 30;
-    private const STORE_REVIEW_PAIRING_TTL_SECONDS = 1800;
+    private const STORE_REVIEW_PAIRING_TTL_SECONDS = 21600;
     private const STORE_REVIEW_TOKEN_TTL_HOURS = 24;
     private const STORE_REVIEW_MODE = 'store_android';
     private const STORE_REVIEW_EMAIL = 'google-play-review@system.dis.local';

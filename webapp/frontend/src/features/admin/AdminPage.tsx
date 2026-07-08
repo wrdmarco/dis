@@ -1363,7 +1363,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
         <Panel title="Google Play review-login">
           <div className="setup-copy">
             <strong>Beperkte Android-login voor appstore review.</strong>
-            <p>Deze koppelcode werkt alleen in de Android operator-app. De app krijgt accountinformatie van een afgeschermde reviewgebruiker en verder lege operationele lijsten. Incidenten, statuswijzigingen, assets, certificaten en beheeracties blijven geblokkeerd. Na koppelen is de review-login maximaal 24 uur geldig.</p>
+            <p>Deze koppelcode werkt alleen in de Android operator-app. De app krijgt accountinformatie van een afgeschermde reviewgebruiker en verder lege operationele lijsten. Acties in de app krijgen een veilige review-response, maar worden niet opgeslagen of verzonden. De aanmeldcode is 6 uur geldig en na koppelen is de review-login maximaal 24 uur geldig.</p>
           </div>
           <ResourceState loading={storeReviewStatus.loading} error={storeReviewStatus.error} empty={false}>
             <div className="settings-group">
@@ -1413,7 +1413,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               <div>
                 <span>Android operator-app</span>
                 <strong>Google Play review</strong>
-                <p>De code is 30 minuten geldig. Na inloggen verloopt het app-token automatisch na 24 uur.</p>
+                <p>De code is 6 uur geldig. Na inloggen verloopt het app-token automatisch na 24 uur.</p>
               </div>
               <button className="secondary-button" type="button" onClick={() => void createStoreReviewPairing()} disabled={storePairingLoading}>
                 {storePairingLoading ? 'Maken...' : 'Koppelcode maken'}
