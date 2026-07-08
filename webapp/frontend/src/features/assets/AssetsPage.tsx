@@ -259,7 +259,7 @@ export function AssetsPage() {
       >
         <ResourceState loading={assets.loading} error={assets.error} empty={(assets.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Gebruiker</th><th>Asset</th><th>Type</th><th>Status</th><th>Serienummer</th><th>Onderhoud</th><th>Actie</th></tr></thead>
+            <thead><tr><th scope="col">Gebruiker</th><th scope="col">Asset</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col">Serienummer</th><th scope="col">Onderhoud</th><th scope="col">Actie</th></tr></thead>
             <tbody>
               {assets.data?.map((asset) => (
                 <tr key={asset.id}>
@@ -389,7 +389,7 @@ export function AssetsPage() {
         {error ? <p className="form-error">{error}</p> : null}
         <ResourceState loading={droneTypes.loading} error={droneTypes.error} empty={(droneTypes.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Merk</th><th>Model</th><th>Thermal</th><th>Externe lamp</th><th>Speaker</th><th>Status</th><th>Actie</th></tr></thead>
+            <thead><tr><th scope="col">Merk</th><th scope="col">Model</th><th scope="col">Thermal</th><th scope="col">Externe lamp</th><th scope="col">Speaker</th><th scope="col">Status</th><th scope="col">Actie</th></tr></thead>
             <tbody>
               {droneTypes.data?.map((type) => (
                 <tr key={type.id}>

@@ -452,14 +452,14 @@ export function BackupPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Backup</th>
-                  <th>Doel</th>
-                  <th>Database</th>
-                  <th>Host</th>
-                  <th>Versie</th>
-                  <th>Grootte</th>
-                  <th>Status</th>
-                  <th>Actie</th>
+                  <th scope="col">Backup</th>
+                  <th scope="col">Doel</th>
+                  <th scope="col">Database</th>
+                  <th scope="col">Host</th>
+                  <th scope="col">Versie</th>
+                  <th scope="col">Grootte</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Actie</th>
                 </tr>
               </thead>
               <tbody>
@@ -507,7 +507,7 @@ export function BackupPage() {
                 <span className="modal__eyebrow">Restore</span>
                 <h2 id="restore-title">Backup terugzetten</h2>
               </div>
-              <button className="icon-button" type="button" onClick={() => setRestoreBackup(null)}>x</button>
+              <button className="icon-button" type="button" onClick={() => setRestoreBackup(null)} aria-label="Sluiten">x</button>
             </header>
             <div className="form-grid">
               <p className="form-error form-grid__wide">

@@ -276,7 +276,7 @@ export function UpdatesPage() {
 function VersionsTable({ versions, artifactLabel }: { versions: AppVersion[]; artifactLabel: string }) {
   return (
     <table className="data-table">
-      <thead><tr><th>App</th><th>Versie</th><th>Code</th><th>Status</th><th>SHA-256</th><th>{artifactLabel}</th></tr></thead>
+      <thead><tr><th scope="col">App</th><th scope="col">Versie</th><th scope="col">Code</th><th scope="col">Status</th><th scope="col">SHA-256</th><th scope="col">{artifactLabel}</th></tr></thead>
       <tbody>
         {versions.map((version) => (
           <tr key={version.id}>

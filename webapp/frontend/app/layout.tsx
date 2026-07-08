@@ -3,8 +3,8 @@ import '../src/styles/global.css';
 import { Providers } from './providers';
 
 export const metadata: Metadata = {
-  title: 'D.I.S Operationeel Beeld',
-  description: 'D.I.S Command Center',
+  title: 'DIS',
+  description: 'Drone Inzet Systeem',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

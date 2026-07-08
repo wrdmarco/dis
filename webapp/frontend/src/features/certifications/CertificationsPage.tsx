@@ -92,7 +92,7 @@ export function CertificationsPage() {
       <Panel title="Gebruikerscertificaten">
         <ResourceState loading={certifications.loading} error={certifications.error} empty={userCertifications.length === 0}>
           <table className="data-table">
-            <thead><tr><th>Gebruiker</th><th>Certificaat</th><th>Status</th><th>Nummer</th><th>Verloopt</th></tr></thead>
+            <thead><tr><th scope="col">Gebruiker</th><th scope="col">Certificaat</th><th scope="col">Status</th><th scope="col">Nummer</th><th scope="col">Verloopt</th></tr></thead>
             <tbody>
               {userCertifications.map(({ certification, userCertification }) => (
                 <tr key={userCertification.id}>
@@ -118,7 +118,7 @@ export function CertificationsPage() {
       >
         <ResourceState loading={certifications.loading} error={certifications.error} empty={(certifications.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Code</th><th>Naam</th><th>Gekoppelde gebruikers</th><th>Dispatch</th><th>Actie</th></tr></thead>
+            <thead><tr><th scope="col">Code</th><th scope="col">Naam</th><th scope="col">Gekoppelde gebruikers</th><th scope="col">Dispatch</th><th scope="col">Actie</th></tr></thead>
             <tbody>
               {certifications.data?.map((certification) => (
                 <tr key={certification.id}>

@@ -175,7 +175,7 @@ export function PushPage() {
       <Panel title="Laatste afleverpogingen">
         <ResourceState loading={logs.loading} error={logs.error} empty={(logs.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Tijd</th><th>Type</th><th>Status</th><th>Fout</th></tr></thead>
+            <thead><tr><th scope="col">Tijd</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col">Fout</th></tr></thead>
             <tbody>
               {logs.data?.map((log) => (
                 <tr key={log.id}>

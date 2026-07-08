@@ -1298,7 +1298,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
           {tokenActionError ? <p className="form-error">{tokenActionError}</p> : null}
           <ResourceState loading={tokens.loading} error={tokens.error} empty={(tokens.data?.length ?? 0) === 0}>
             <table className="data-table">
-              <thead><tr><th>Gebruiker</th><th>Device</th><th>Platform</th><th>Token</th><th>Status</th><th>Laatst gezien</th><th>Actie</th></tr></thead>
+              <thead><tr><th scope="col">Gebruiker</th><th scope="col">Device</th><th scope="col">Platform</th><th scope="col">Token</th><th scope="col">Status</th><th scope="col">Laatst gezien</th><th scope="col">Actie</th></tr></thead>
               <tbody>
                 {tokens.data?.map((token) => (
                   <tr key={token.id}>
@@ -1409,7 +1409,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               onUpdate={updateCommandCenter}
             />
             <table className="data-table">
-              <thead><tr><th>Key</th><th>Waarde</th></tr></thead>
+              <thead><tr><th scope="col">Key</th><th scope="col">Waarde</th></tr></thead>
               <tbody>
                 {settings.data?.map((setting) => (
                   <tr key={setting.key}>

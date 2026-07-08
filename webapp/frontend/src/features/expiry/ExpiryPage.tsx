@@ -101,7 +101,7 @@ function ExpiryGroup({ title, count, children }: ExpiryGroupProps) {
 function AssetTable({ assets }: { assets: ExpiryOverview['assets'] }) {
   return (
     <table className="data-table">
-      <thead><tr><th>Asset</th><th>Tag</th><th>Type</th><th>Status</th><th>Onderhoud</th><th>Termijn</th></tr></thead>
+      <thead><tr><th scope="col">Asset</th><th scope="col">Tag</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col">Onderhoud</th><th scope="col">Termijn</th></tr></thead>
       <tbody>
         {assets.map((asset) => (
           <tr key={asset.id}>
@@ -121,7 +121,7 @@ function AssetTable({ assets }: { assets: ExpiryOverview['assets'] }) {
 function CertificationTable({ certifications }: { certifications: ExpiryOverview['certifications'] }) {
   return (
     <table className="data-table">
-      <thead><tr><th>Gebruiker</th><th>Certificaat</th><th>Status</th><th>Nummer</th><th>Verloopt</th><th>Termijn</th></tr></thead>
+      <thead><tr><th scope="col">Gebruiker</th><th scope="col">Certificaat</th><th scope="col">Status</th><th scope="col">Nummer</th><th scope="col">Verloopt</th><th scope="col">Termijn</th></tr></thead>
       <tbody>
         {certifications.map((certification) => (
           <tr key={certification.id}>

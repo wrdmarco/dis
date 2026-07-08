@@ -7,6 +7,8 @@ import type { TwoFactorSetup } from '../../types/api';
 import { useAuth } from './AuthContext';
 
 interface LoginBranding {
+  name: string;
+  short_name: string;
   tenant_name: string;
   login_title: string;
   login_subtitle: string;
@@ -17,8 +19,10 @@ export function LoginPage() {
   const { api, isAuthenticated, login, verifyTwoFactor, startTwoFactorSetup, enableTwoFactor } = useAuth();
   const router = useRouter();
   const [branding, setBranding] = useState<LoginBranding>({
+    name: 'DIS',
+    short_name: 'DIS',
     tenant_name: 'Nationaal Droneteam',
-    login_title: 'D.I.S Command Center',
+    login_title: '',
     login_subtitle: '',
     logo_data_url: '',
   });
@@ -37,6 +41,10 @@ export function LoginPage() {
       .then((response) => setBranding(response.data))
       .catch(() => undefined);
   }, [api]);
+
+  useEffect(() => {
+    document.title = loginDocumentTitle(branding);
+  }, [branding]);
 
   useEffect(() => {
     if (isAuthenticated && !requiresTwoFactor && !requiresTwoFactorSetup) {
@@ -100,7 +108,7 @@ export function LoginPage() {
           </div>
           <div>
             <span>{branding.tenant_name || 'Nationaal Droneteam'}</span>
-            <h1 id="login-title">{branding.login_title || 'D.I.S Command Center'}</h1>
+            <h1 id="login-title">{branding.login_title || branding.name || 'Command Center'}</h1>
           </div>
         </div>
         <p className="login-panel__subtitle">
@@ -180,4 +188,23 @@ export function LoginPage() {
       </section>
     </main>
   );
+}
+
+function loginDocumentTitle(branding: LoginBranding): string {
+  const title = firstNonEmpty(branding.login_title, branding.name, branding.short_name, branding.tenant_name) ?? 'DIS';
+  const tenantName = firstNonEmpty(branding.tenant_name);
+  return tenantName !== null && !title.toLocaleLowerCase('nl-NL').includes(tenantName.toLocaleLowerCase('nl-NL'))
+    ? `${title} | ${tenantName}`
+    : title;
+}
+
+function firstNonEmpty(...values: string[]): string | null {
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (trimmed !== '') {
+      return trimmed;
+    }
+  }
+
+  return null;
 }

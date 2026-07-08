@@ -109,12 +109,12 @@ export function AuditLogPage() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Tijd</th>
-                    <th>Gebruiker</th>
-                    <th>Actie</th>
-                    <th>Doel</th>
-                    <th>IP</th>
-                    <th>Reden</th>
+                    <th scope="col">Tijd</th>
+                    <th scope="col">Gebruiker</th>
+                    <th scope="col">Actie</th>
+                    <th scope="col">Doel</th>
+                    <th scope="col">IP</th>
+                    <th scope="col">Reden</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -194,11 +194,11 @@ export function AuditLogPage() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Tijd</th>
-                    <th>Gebruiker</th>
-                    <th>Wijziging</th>
-                    <th>Door</th>
-                    <th>Reden</th>
+                    <th scope="col">Tijd</th>
+                    <th scope="col">Gebruiker</th>
+                    <th scope="col">Wijziging</th>
+                    <th scope="col">Door</th>
+                    <th scope="col">Reden</th>
                   </tr>
                 </thead>
                 <tbody>

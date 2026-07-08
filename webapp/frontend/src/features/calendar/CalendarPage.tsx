@@ -141,7 +141,7 @@ export function CalendarPage() {
       <Panel title="Geplande items">
         <ResourceState loading={events.loading} error={events.error} empty={upcoming.length === 0}>
           <table className="data-table">
-            <thead><tr><th>Datum</th><th>Type</th><th>Titel</th><th>Locatie</th><th>Team</th><th>Aangemaakt door</th>{canManageAgenda ? <th>Actie</th> : null}</tr></thead>
+            <thead><tr><th scope="col">Datum</th><th scope="col">Type</th><th scope="col">Titel</th><th scope="col">Locatie</th><th scope="col">Team</th><th scope="col">Aangemaakt door</th>{canManageAgenda ? <th scope="col">Actie</th> : null}</tr></thead>
             <tbody>
               {upcoming.map((event) => (
                 <tr key={event.id}>

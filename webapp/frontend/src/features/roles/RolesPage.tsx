@@ -149,7 +149,7 @@ export function RolesPage() {
         </div>
         <ResourceState loading={roles.loading} error={roles.error} empty={(roles.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Naam</th><th>Apps</th><th>Permissies</th><th>Gebruikers</th><th>Actie</th></tr></thead>
+            <thead><tr><th scope="col">Naam</th><th scope="col">Apps</th><th scope="col">Permissies</th><th scope="col">Gebruikers</th><th scope="col">Actie</th></tr></thead>
             <tbody>
               {roles.data?.map((role) => {
                 const userCount = role.users_count ?? 0;

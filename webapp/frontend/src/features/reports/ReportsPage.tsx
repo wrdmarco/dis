@@ -134,15 +134,15 @@ export function ReportsPage() {
             <table className="data-table reports-table">
               <thead>
                 <tr>
-                  <th>Referentie</th>
-                  <th>Titel</th>
-                  <th>Incident</th>
-                  <th>Rapportstatus</th>
-                  <th>Team</th>
-                  <th>Gesloten</th>
-                  <th>Vluchtrapporten</th>
-                  <th>Status inzetrapporten</th>
-                  <th>PDF</th>
+                  <th scope="col">Referentie</th>
+                  <th scope="col">Titel</th>
+                  <th scope="col">Incident</th>
+                  <th scope="col">Rapportstatus</th>
+                  <th scope="col">Team</th>
+                  <th scope="col">Gesloten</th>
+                  <th scope="col">Vluchtrapporten</th>
+                  <th scope="col">Status inzetrapporten</th>
+                  <th scope="col">PDF</th>
                 </tr>
               </thead>
               <tbody>
@@ -244,13 +244,13 @@ export function ReportsPage() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Referentie</th>
-                <th>Titel</th>
-                <th>Verstuurd</th>
-                <th>Ontvangers</th>
-                <th>Komt</th>
-                <th>Komt niet</th>
-                <th>Geen reactie</th>
+                <th scope="col">Referentie</th>
+                <th scope="col">Titel</th>
+                <th scope="col">Verstuurd</th>
+                <th scope="col">Ontvangers</th>
+                <th scope="col">Komt</th>
+                <th scope="col">Komt niet</th>
+                <th scope="col">Geen reactie</th>
               </tr>
             </thead>
             <tbody>

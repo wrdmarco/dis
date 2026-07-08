@@ -136,7 +136,7 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [branding, setBranding] = useState<BrandingState>({
-    name: 'D.I.S Operationeel Beeld',
+    name: 'DIS',
     short_name: 'DIS',
     tenant_name: 'Nationaal Droneteam',
     logo_data_url: '',
@@ -194,6 +194,10 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
   [canUseWebConsole, hasPermission, user]);
   const currentNavItem = useMemo(() => currentNavForPath(visibleNavGroups, pathname), [pathname, visibleNavGroups]);
   const profileCompletionRequired = user?.profile_completion_required === true;
+
+  useEffect(() => {
+    document.title = documentTitleForBranding(branding, currentNavItem?.item.label);
+  }, [branding, currentNavItem?.item.label]);
 
   return (
     <div className="command-layout">
@@ -474,4 +478,23 @@ function canShowNavItem(item: NavItem, hasPermission: (permission: string) => bo
 
 function canUseAnyMobileApp(user: User | null): boolean {
   return user?.roles?.some((role) => role.can_use_operator_app || role.can_use_admin_app) ?? false;
+}
+
+function documentTitleForBranding(branding: BrandingState, pageTitle?: string): string {
+  const appName = nonEmpty(branding.name) ?? nonEmpty(branding.short_name) ?? 'DIS';
+  const tenantName = nonEmpty(branding.tenant_name);
+  const baseTitle = tenantName !== null && !includesNormalized(appName, tenantName)
+    ? `${tenantName} - ${appName}`
+    : appName;
+
+  return pageTitle === undefined ? baseTitle : `${pageTitle} | ${baseTitle}`;
+}
+
+function includesNormalized(value: string, search: string): boolean {
+  return value.trim().toLocaleLowerCase('nl-NL').includes(search.trim().toLocaleLowerCase('nl-NL'));
+}
+
+function nonEmpty(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
 }

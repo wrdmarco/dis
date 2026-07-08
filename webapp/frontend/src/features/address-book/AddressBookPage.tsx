@@ -43,9 +43,9 @@ export function AddressBookPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Naam</th>
-                  <th>Telefoonnummer</th>
-                  <th>Locatie</th>
+                  <th scope="col">Naam</th>
+                  <th scope="col">Telefoonnummer</th>
+                  <th scope="col">Locatie</th>
                 </tr>
               </thead>
               <tbody>

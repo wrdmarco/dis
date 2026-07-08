@@ -1254,12 +1254,12 @@ function AssetTable({
       <table className="data-table">
         <thead>
           <tr>
-            <th>Naam</th>
-            <th>Type</th>
-            <th>Status</th>
-            <th>Serienummer</th>
-            <th>Onderhoud</th>
-            <th>Actie</th>
+            <th scope="col">Naam</th>
+            <th scope="col">Type</th>
+            <th scope="col">Status</th>
+            <th scope="col">Serienummer</th>
+            <th scope="col">Onderhoud</th>
+            <th scope="col">Actie</th>
           </tr>
         </thead>
         <tbody>
@@ -1302,12 +1302,12 @@ function CertificationTable({
       <table className="data-table">
         <thead>
           <tr>
-            <th>Certificaat</th>
-            <th>Status</th>
-            <th>Nummer</th>
-            <th>Afgifte</th>
-            <th>Verloopt</th>
-            <th>Actie</th>
+            <th scope="col">Certificaat</th>
+            <th scope="col">Status</th>
+            <th scope="col">Nummer</th>
+            <th scope="col">Afgifte</th>
+            <th scope="col">Verloopt</th>
+            <th scope="col">Actie</th>
           </tr>
         </thead>
         <tbody>

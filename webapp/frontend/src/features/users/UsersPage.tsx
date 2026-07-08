@@ -312,7 +312,7 @@ export function UsersPage() {
       >
         <ResourceState loading={users.loading} error={users.error} empty={(users.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Naam</th><th>E-mail</th><th>Locatie</th><th>Account</th><th>Online</th><th>Push</th><th>Teams</th><th>Rollen</th><th>Actie</th></tr></thead>
+            <thead><tr><th scope="col">Naam</th><th scope="col">E-mail</th><th scope="col">Locatie</th><th scope="col">Account</th><th scope="col">Online</th><th scope="col">Push</th><th scope="col">Teams</th><th scope="col">Rollen</th><th scope="col">Actie</th></tr></thead>
             <tbody>
               {users.data?.map((user) => {
                 const onlineDevices = onlineOperatorDeviceCount(user.fcm_tokens ?? []);
@@ -817,7 +817,7 @@ function UserOperationalDetails({
           {!vacationsLoading && vacations.length === 0 ? <p className="muted-text">Geen open vakanties geregistreerd.</p> : null}
           {vacations.length > 0 ? (
             <table className="data-table compact-table">
-              <thead><tr><th>Begin</th><th>Eind</th><th>Status</th><th>Notitie</th><th>Actie</th></tr></thead>
+              <thead><tr><th scope="col">Begin</th><th scope="col">Eind</th><th scope="col">Status</th><th scope="col">Notitie</th><th scope="col">Actie</th></tr></thead>
               <tbody>
                 {vacations.map((vacation) => (
                   <tr key={vacation.id}>
@@ -871,7 +871,7 @@ function UserOperationalDetails({
         {!loading && userCertifications.length === 0 ? <p className="muted-text">Geen certificaten geregistreerd.</p> : null}
         {userCertifications.length > 0 ? (
           <table className="data-table compact-table">
-            <thead><tr><th>Certificaat</th><th>Status</th><th>Nummer</th><th>Verloopt</th></tr></thead>
+            <thead><tr><th scope="col">Certificaat</th><th scope="col">Status</th><th scope="col">Nummer</th><th scope="col">Verloopt</th></tr></thead>
             <tbody>
               {userCertifications.map((certification) => (
                 <tr key={certification.id}>
@@ -907,7 +907,7 @@ function UserOperationalDetails({
         {!loading && assetAssignments.length === 0 ? <p className="muted-text">Geen actieve assets toegewezen.</p> : null}
         {assetAssignments.length > 0 ? (
           <table className="data-table compact-table">
-            <thead><tr><th>Asset</th><th>Type</th><th>Status</th><th>Opties</th><th>Onderhoud</th><th>Toegewezen</th></tr></thead>
+            <thead><tr><th scope="col">Asset</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col">Opties</th><th scope="col">Onderhoud</th><th scope="col">Toegewezen</th></tr></thead>
             <tbody>
               {assetAssignments.map((assignment) => {
                 const asset = assignment.asset;
@@ -939,7 +939,7 @@ function UserOperationalDetails({
         {!loading && fcmTokens.length === 0 ? <p className="muted-text">Geen toestellen gekoppeld.</p> : null}
         {fcmTokens.length > 0 ? (
           <table className="data-table compact-table">
-            <thead><tr><th>Naam</th><th>Type</th><th>Toestel</th><th>App</th><th>Status</th><th>Laatst gezien</th></tr></thead>
+            <thead><tr><th scope="col">Naam</th><th scope="col">Type</th><th scope="col">Toestel</th><th scope="col">App</th><th scope="col">Status</th><th scope="col">Laatst gezien</th></tr></thead>
             <tbody>
               {fcmTokens.map((token) => (
                 <tr key={token.id}>

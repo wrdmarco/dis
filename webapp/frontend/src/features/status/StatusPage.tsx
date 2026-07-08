@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Clock3, Pencil, ShieldCheck, UsersRound, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -28,6 +28,7 @@ export function StatusPage() {
   const onlineCount = items.filter((item) => isUserOnline(item)).length;
   const onSceneCount = items.filter((item) => item.status === 'on_scene').length;
   const returningCount = items.filter((item) => !item.is_available && item.next_available_at !== null && item.next_available_at !== undefined).length;
+  const teamSummaries = useMemo(() => teamAvailabilitySummaries(items), [items]);
   const canOverrideStatus = hasPermission('status.override');
 
   useEffect(() => {
@@ -70,7 +71,7 @@ export function StatusPage() {
   return (
     <div className="page-stack">
       <RealtimeBridge onOperationalEvent={() => void statuses.silentReload()} />
-      <Panel title="Operational status">
+      <Panel title="Operationele status">
         <ResourceState loading={statuses.loading} error={statuses.error} empty={items.length === 0}>
           <div className="operational-status">
             <div className="operational-status__summary">
@@ -80,7 +81,8 @@ export function StatusPage() {
               <SummaryItem icon={<UsersRound size={18} />} label="Wordt later beschikbaar" value={String(returningCount)} />
               <SummaryItem label="Op locatie" value={String(onSceneCount)} />
             </div>
-            <StatusTable title="Operators" items={sortedItems} canOverrideStatus={canOverrideStatus} onEdit={openEditModal} />
+            <TeamAvailabilityOverview summaries={teamSummaries} />
+            <StatusTable title="Gebruikers" items={sortedItems} canOverrideStatus={canOverrideStatus} onEdit={openEditModal} />
           </div>
         </ResourceState>
       </Panel>
@@ -132,6 +134,41 @@ export function StatusPage() {
   );
 }
 
+interface TeamAvailabilitySummary {
+  id: string;
+  label: string;
+  name: string;
+  available: number;
+  unavailable: number;
+  online: number;
+  total: number;
+}
+
+function TeamAvailabilityOverview({ summaries }: { summaries: TeamAvailabilitySummary[] }) {
+  return (
+    <section className="stacked-section operational-status__teams" aria-labelledby="team-availability-title">
+      <div className="operational-status__section-heading">
+        <span className="field-label" id="team-availability-title">Beschikbaar per team</span>
+        <small>Leden kunnen in meerdere teams meetellen.</small>
+      </div>
+      {summaries.length === 0 ? <p className="muted-text">Geen teamindeling gevonden.</p> : (
+        <div className="team-availability-grid">
+          {summaries.map((team) => (
+            <article className="team-availability-card" key={team.id}>
+              <div>
+                <strong>{team.label}</strong>
+                <span>{team.name}</span>
+              </div>
+              <b>{team.available}/{team.total}</b>
+              <small>{team.online} online</small>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function StatusTable({
   title,
   items,
@@ -146,25 +183,24 @@ function StatusTable({
   return (
     <div className="stacked-section">
       <span className="field-label">{title}</span>
-      {items.length === 0 ? <p className="muted-text">Geen gebruikers in deze groep.</p> : (
-        <table className="data-table operational-status__table">
+      {items.length === 0 ? <p className="muted-text">Geen gebruikers gevonden.</p> : (
+        <table className="data-table operational-status__table operational-status__table--compact">
           <thead>
             <tr>
-              <th>Gebruiker</th>
-              <th>Online</th>
-              <th>Status</th>
-              <th>Weer beschikbaar</th>
-              <th>Laatst gewijzigd</th>
-              <th>Actie</th>
+              <th scope="col">Gebruiker</th>
+              <th scope="col">Online</th>
+              <th scope="col">Status</th>
+              <th scope="col">Weer beschikbaar</th>
+              <th scope="col">Laatst gewijzigd</th>
+              <th scope="col">Actie</th>
             </tr>
           </thead>
           <tbody>
             {items.map((item) => (
               <tr key={item.id}>
                 <td>
-                  <div className="operator-cell">
+                  <div className="operator-cell operator-cell--compact">
                     <strong>{item.user?.name ?? '-'}</strong>
-                    <span>{teamLabel(item)}</span>
                   </div>
                 </td>
                 <td>
@@ -211,6 +247,38 @@ function deviceLastSeenLabel(item: AvailabilityStatus): string {
   }
 
   return formatDateTime(token.last_seen_at);
+}
+
+function teamAvailabilitySummaries(items: AvailabilityStatus[]): TeamAvailabilitySummary[] {
+  const summaries = new Map<string, TeamAvailabilitySummary>();
+
+  for (const item of items) {
+    for (const team of item.user?.teams ?? []) {
+      const summary = summaries.get(team.id) ?? {
+        id: team.id,
+        label: team.code || team.name,
+        name: team.name,
+        available: 0,
+        unavailable: 0,
+        online: 0,
+        total: 0,
+      };
+
+      summary.total += 1;
+      if (item.is_available) {
+        summary.available += 1;
+      } else {
+        summary.unavailable += 1;
+      }
+      if (isUserOnline(item)) {
+        summary.online += 1;
+      }
+
+      summaries.set(team.id, summary);
+    }
+  }
+
+  return [...summaries.values()].sort((left, right) => left.label.localeCompare(right.label, 'nl-NL'));
 }
 
 function SummaryItem({ icon, label, value }: { icon?: ReactNode; label: string; value: string }) {
@@ -262,13 +330,4 @@ function nextAvailabilityLabel(item: AvailabilityStatus): string {
   }
 
   return formatDateTime(next.at);
-}
-
-function teamLabel(item: AvailabilityStatus): string {
-  const teams = item.user?.teams ?? [];
-  if (teams.length === 0) {
-    return item.user?.home_city ?? '';
-  }
-
-  return teams.map((team) => team.code || team.name).join(', ');
 }

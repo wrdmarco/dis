@@ -1204,12 +1204,12 @@ function LiveLocationMap({
       <table className="data-table live-map__table">
         <thead>
           <tr>
-            <th>Gebruiker</th>
-            <th>Locatie</th>
-            <th>ETA</th>
-            <th>Laatst gezien</th>
-            <th>Nauwkeurigheid</th>
-            {canRequestLocation ? <th>Actie</th> : null}
+            <th scope="col">Gebruiker</th>
+            <th scope="col">Locatie</th>
+            <th scope="col">ETA</th>
+            <th scope="col">Laatst gezien</th>
+            <th scope="col">Nauwkeurigheid</th>
+            {canRequestLocation ? <th scope="col">Actie</th> : null}
           </tr>
         </thead>
         <tbody>

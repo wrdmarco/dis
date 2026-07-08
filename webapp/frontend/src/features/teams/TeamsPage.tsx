@@ -136,7 +136,7 @@ export function TeamsPage() {
       >
         <ResourceState loading={teams.loading} error={teams.error} empty={(teams.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th>Code</th><th>Naam</th><th>Type</th><th>Ouderteam</th><th>Operationeel</th><th>Mee alarmeren</th><th>Certificaten vereist</th><th>Actie</th></tr></thead>
+            <thead><tr><th scope="col">Code</th><th scope="col">Naam</th><th scope="col">Type</th><th scope="col">Ouderteam</th><th scope="col">Operationeel</th><th scope="col">Mee alarmeren</th><th scope="col">Certificaten vereist</th><th scope="col">Actie</th></tr></thead>
             <tbody>
               {teams.data?.map((team) => (
                 <tr key={team.id}>

@@ -181,10 +181,10 @@ export function TestAlertPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Gebruiker</th>
-                  <th>Status</th>
-                  <th>Reactietijd</th>
-                  <th>Opmerking</th>
+                  <th scope="col">Gebruiker</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Reactietijd</th>
+                  <th scope="col">Opmerking</th>
                 </tr>
               </thead>
               <tbody>
