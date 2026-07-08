@@ -212,7 +212,6 @@ function StatusTable({
                 <td>
                   <div className="status-cell">
                     <StatusPill value={item.is_available ? 'available' : item.status} tone={statusTone(item)} />
-                    {item.reason ? <small>{item.reason}</small> : null}
                   </div>
                 </td>
                 <td>{nextAvailabilityLabel(item)}</td>
