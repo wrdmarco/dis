@@ -244,6 +244,9 @@ final class IncidentService
             ]);
 
             $this->locationService->stopForIncident($incident, $actor);
+            if (! in_array($incident->status, ['resolved', 'cancelled'], true)) {
+                $this->resetAcceptedRecipientsToAvailable($incident, $actor, 'deleted');
+            }
             $this->broadcastIncidentChange($incident, 'deleted');
             $incident->forceDelete();
 
@@ -454,9 +457,11 @@ final class IncidentService
             'dispatchRequests.recipients.user',
         ]);
 
-        $reason = $terminalStatus === 'resolved'
-            ? 'Incident afgerond; gebruiker automatisch weer beschikbaar gezet.'
-            : 'Incident geannuleerd; gebruiker automatisch weer beschikbaar gezet.';
+        $reason = match ($terminalStatus) {
+            'resolved' => 'Incident afgerond; gebruiker automatisch weer beschikbaar gezet.',
+            'deleted' => 'Incident verwijderd; gebruiker automatisch weer beschikbaar gezet.',
+            default => 'Incident geannuleerd; gebruiker automatisch weer beschikbaar gezet.',
+        };
 
         $incident->dispatchRequests
             ->whereIn('status', ['sent', 'escalated'])
