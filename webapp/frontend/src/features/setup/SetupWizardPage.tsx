@@ -276,7 +276,6 @@ export function SetupWizardPage() {
                   {saving ? 'Opslaan...' : 'Setup afronden'}
                 </button>
               )}
-              <Link className="secondary-button" href="/download">APK pagina</Link>
             </div>
           </form>
         ) : null}

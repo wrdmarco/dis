@@ -19,7 +19,7 @@ final class AssetExpiryNotificationService
     {
         $today = now()->toImmutable()->startOfDay();
         $warningDays = SystemSetting::integer('asset.warning_days_before_expiry', 30);
-        $downloadUrl = rtrim(SystemSetting::string('app.public_url', config('app.url', '')) ?? '', '/').'/download';
+        $downloadUrl = rtrim(SystemSetting::string('app.public_url', config('app.url', '')) ?? '', '/');
 
         $candidates = Asset::query()
             ->with(['activeAssignment.user'])

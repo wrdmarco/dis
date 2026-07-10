@@ -7433,7 +7433,7 @@ pre {
   color: #1c2938;
 }
 
-/* Targeted light-mode cleanup for profile and software/download pages. */
+/* Targeted light-mode cleanup for profile pages. */
 :root[data-theme="light"] .download-channel-list,
 :root[data-theme="light"] .download-card,
 :root[data-theme="light"] .download-card__qr,

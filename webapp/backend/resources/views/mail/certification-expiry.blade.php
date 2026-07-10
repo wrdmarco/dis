@@ -19,7 +19,7 @@
                         <td style="padding:24px 26px;">
                             <div style="margin:0 0 18px;line-height:1.5;">{!! nl2br(e($body)) !!}</div>
                             <p style="margin:24px 0 0;">
-                                <a href="{{ $downloadUrl }}" style="display:inline-block;background:#0ea5e9;color:#061018;text-decoration:none;font-weight:bold;border-radius:6px;padding:11px 16px;">Open app downloadpagina</a>
+                                <a href="{{ $downloadUrl }}" style="display:inline-block;background:#0ea5e9;color:#061018;text-decoration:none;font-weight:bold;border-radius:6px;padding:11px 16px;">Open D.I.S</a>
                             </p>
                         </td>
                     </tr>

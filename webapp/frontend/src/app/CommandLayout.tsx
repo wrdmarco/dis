@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, BarChart3, Bell, BellRing, BookUser, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, Download, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, Moon, Network, Palette, RadioTower, ScrollText, Send, Shield, Smartphone, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, BookUser, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, Moon, Network, Palette, RadioTower, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -17,7 +17,6 @@ interface NavItem {
   end?: boolean;
   permissions?: string[];
   anyPermission?: boolean;
-  requiresAppAccess?: boolean;
 }
 
 interface NavGroup {
@@ -32,7 +31,6 @@ const navGroups: NavGroup[] = [
     label: 'Account',
     items: [
       { to: PROFILE_PATH, label: 'Profiel', icon: UserRound },
-      { to: '/download', label: 'Software', icon: Download, requiresAppAccess: true },
     ],
   },
   {
@@ -74,7 +72,6 @@ const navGroups: NavGroup[] = [
   {
     label: 'Beheer',
     items: [
-      { to: '/updates', label: 'App updates', icon: Smartphone, permissions: ['updates.manage'] },
       { to: '/forms', label: 'Formulieren', icon: FileText, permissions: ['settings.manage'] },
       { to: '/admin', label: 'Admin', icon: Shield, permissions: ['settings.manage', 'settings.push.tokens.manage', 'system.health'], anyPermission: true },
       { to: '/branding', label: 'Branding', icon: Palette, permissions: ['settings.manage'] },
@@ -90,7 +87,6 @@ const profileOnlyNavGroups: NavGroup[] = [
     label: 'Account',
     items: [
       { to: PROFILE_PATH, label: 'Profiel', icon: UserRound },
-      { to: '/download', label: 'Software', icon: Download, requiresAppAccess: true },
     ],
   },
 ];
@@ -111,8 +107,6 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/assets': () => import('../features/assets/AssetsPage'),
   '/certifications': () => import('../features/certifications/CertificationsPage'),
   '/expiry': () => import('../features/expiry/ExpiryPage'),
-  '/updates': () => import('../features/updates/UpdatesPage'),
-  '/download': () => import('../features/public/AndroidDownloadPage'),
   '/forms': () => import('../features/admin/AdminPage'),
   '/calendar': () => import('../features/calendar/CalendarPage'),
   '/admin': () => import('../features/admin/AdminPage'),
@@ -182,16 +176,16 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
     ? navGroups
       .map((group) => ({
         ...group,
-        items: group.items.filter((item) => canShowNavItem(item, hasPermission, user)),
+        items: group.items.filter((item) => canShowNavItem(item, hasPermission)),
       }))
       .filter((group) => group.items.length > 0)
     : profileOnlyNavGroups
       .map((group) => ({
         ...group,
-        items: group.items.filter((item) => canShowNavItem(item, hasPermission, user)),
+        items: group.items.filter((item) => canShowNavItem(item, hasPermission)),
       }))
       .filter((group) => group.items.length > 0),
-  [canUseWebConsole, hasPermission, user]);
+  [canUseWebConsole, hasPermission]);
   const currentNavItem = useMemo(() => currentNavForPath(visibleNavGroups, pathname), [pathname, visibleNavGroups]);
   const profileCompletionRequired = user?.profile_completion_required === true;
 
@@ -460,11 +454,7 @@ function currentNavForPath(groups: NavGroup[], pathname: string): { groupLabel: 
   return match;
 }
 
-function canShowNavItem(item: NavItem, hasPermission: (permission: string) => boolean, user: User | null): boolean {
-  if (item.requiresAppAccess && !canUseAnyMobileApp(user)) {
-    return false;
-  }
-
+function canShowNavItem(item: NavItem, hasPermission: (permission: string) => boolean): boolean {
   if (!item.permissions || item.permissions.length === 0) {
     return true;
   }
@@ -474,10 +464,6 @@ function canShowNavItem(item: NavItem, hasPermission: (permission: string) => bo
   }
 
   return item.permissions.every(hasPermission);
-}
-
-function canUseAnyMobileApp(user: User | null): boolean {
-  return user?.roles?.some((role) => role.can_use_operator_app || role.can_use_admin_app) ?? false;
 }
 
 function documentTitleForBranding(branding: BrandingState, pageTitle?: string): string {

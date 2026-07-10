@@ -97,15 +97,9 @@ Database seeders are intentionally not run during updates, so admin-managed team
 sudo RUN_SEEDERS=1 bash /opt/dis/scripts/deploy.sh
 ```
 
-## Public APK Page
+## Mobile Apps
 
-The Android APK can be offered publicly at:
-
-```text
-http://dis.example.nl/download
-```
-
-Upload APK releases from the admin update portal. The public page will show the latest uploaded APK and its SHA-256 hash.
+Mobile app installation and updates are handled through the platform app stores. The deployment no longer exposes a public APK download page.
 
 ## Backup
 

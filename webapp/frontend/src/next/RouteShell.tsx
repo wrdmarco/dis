@@ -21,7 +21,6 @@ const homeRedirectCandidates = [
   { to: '/address-book', permissions: ['address-book.view'] },
   { to: '/assets', permissions: ['assets.view'] },
   { to: '/certifications', permissions: ['certifications.view'] },
-  { to: '/updates', permissions: ['updates.manage'] },
   { to: '/forms', permissions: ['settings.manage'] },
   { to: '/admin', permissions: ['settings.manage'] },
   { to: '/admin', permissions: ['settings.push.tokens.manage'] },

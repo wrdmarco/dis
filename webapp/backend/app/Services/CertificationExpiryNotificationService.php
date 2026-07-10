@@ -29,7 +29,7 @@ final class CertificationExpiryNotificationService
             ->get();
 
         $result = ['checked' => $candidates->count(), 'sent' => 0, 'skipped' => 0, 'failed' => 0];
-        $downloadUrl = rtrim(SystemSetting::string('app.public_url', config('app.url', '')) ?? '', '/').'/download';
+        $downloadUrl = rtrim(SystemSetting::string('app.public_url', config('app.url', '')) ?? '', '/');
 
         foreach ($candidates as $userCertification) {
             $expiresAt = $userCertification->expires_at;

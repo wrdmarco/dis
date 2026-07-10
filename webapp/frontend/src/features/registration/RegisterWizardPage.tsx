@@ -11,7 +11,6 @@ interface RegistrationInvite {
   user: User;
   requires_mfa: boolean;
   admin_app_allowed: boolean;
-  download_url: string;
 }
 
 interface RegistrationCompleteResult extends RegistrationInvite {
@@ -55,7 +54,6 @@ export function RegisterWizardPage() {
   }, [completed?.admin_app_allowed, completed?.requires_mfa, invite?.admin_app_allowed, invite?.requires_mfa]);
 
   const currentStep = steps[Math.min(stepIndex, steps.length - 1)];
-  const downloadUrl = completed?.download_url ?? invite?.download_url ?? '/download';
   const setupUrl = typeof window === 'undefined' ? '' : window.location.origin;
   const canSubmitAccount = password.length > 0 && password === passwordConfirmation;
   const canSubmitMfa = /^\d{6}$/.test(twoFactorCode);
@@ -323,15 +321,12 @@ export function RegisterWizardPage() {
       return (
         <>
           <div className="setup-copy">
-            <strong>Installeer de Android app via de downloadpagina.</strong>
+            <strong>Installeer de mobiele app via Google Play of de App Store.</strong>
             <p>Gebruik daarna de server-QR om de app aan deze D.I.S omgeving te koppelen.</p>
           </div>
           <div className="tenant-qr">
             <TotpQrCode value={setupUrl} alt="QR-code met DIS server URL" helpText="Scan deze QR-code in de Android app." />
             <code>{setupUrl}</code>
-          </div>
-          <div className="actions-row">
-            <a className="primary-button" href={downloadUrl}>Downloadpagina openen</a>
           </div>
         </>
       );
@@ -341,12 +336,11 @@ export function RegisterWizardPage() {
       <>
         <div className="setup-copy">
           <strong>Admin app beschikbaar.</strong>
-          <p>Je account heeft beheerrechten. Installeer naast de operator app ook de admin app vanaf dezelfde downloadpagina zodra deze daar beschikbaar is.</p>
+          <p>Je account heeft beheerrechten. Installeer naast de operator app ook de admin app via de appstore zodra deze daar beschikbaar is.</p>
         </div>
         <div className="setup-review">
           <div><span>Account</span><strong>{completed?.user.email ?? invite?.user.email}</strong></div>
           <div><span>Toegang</span><strong>Admin app toegestaan</strong></div>
-          <div><span>Download</span><strong>{downloadUrl}</strong></div>
         </div>
       </>
     );

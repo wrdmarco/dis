@@ -507,28 +507,6 @@ export interface UserCertification {
   user?: Pick<User, 'id' | 'name' | 'email'> | null;
 }
 
-export interface AppVersion {
-  id: string;
-  platform: string;
-  application_id: string;
-  version_name: string;
-  version_code: number;
-  status: 'supported' | 'deprecated' | 'not_supported' | 'blocked';
-  artifact_sha256?: string | null;
-  download_url?: string | null;
-}
-
-export type SoftwareDownloadSource = 'direct' | 'app_store';
-
-export interface SoftwareDownloadChannelOptions {
-  source: SoftwareDownloadSource;
-  app_store_url?: string | null;
-}
-
-export interface SoftwareDownloadOptions {
-  channels: Record<string, SoftwareDownloadChannelOptions>;
-}
-
 export type MobilePairingClientType = 'operator' | 'admin' | 'operator_android' | 'operator_ios' | 'admin_android' | 'admin_ios';
 
 export interface MobilePairingCode {

@@ -40,7 +40,6 @@ final class RegistrationController extends Controller
             'user' => MobileApiPayload::user($user),
             'requires_mfa' => $this->requiresMfa($user),
             'admin_app_allowed' => $this->adminAppAllowed($user),
-            'download_url' => '/download',
         ]);
     }
 
@@ -94,7 +93,6 @@ final class RegistrationController extends Controller
             'requires_mfa' => $requiresMfa,
             'two_factor_setup' => $twoFactorSetup,
             'admin_app_allowed' => $this->adminAppAllowed($user),
-            'download_url' => '/download',
         ]);
     }
 
