@@ -422,8 +422,9 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
     setDeletingIncident(true);
     setIncidentError(null);
     try {
+      const returnPath = incidentListReturnPath(incident.data.status);
       await api.delete(`/incidents/${incidentId}`);
-      router.replace('/incidents');
+      router.replace(returnPath);
     } catch (err) {
       setIncidentError(err instanceof ApiClientError ? err.message : 'Incident kon niet worden verwijderd.');
     } finally {
@@ -1013,6 +1014,10 @@ function formFromIncident(incident: Incident): IncidentFormState {
     teamIds: incident.teams?.length ? incident.teams.map((team) => team.id) : incident.team?.id ? [incident.team.id] : [],
     customFields,
   };
+}
+
+function incidentListReturnPath(status: Incident['status']): string {
+  return status === 'resolved' || status === 'cancelled' ? '/incidents/archive' : '/incidents';
 }
 
 function reporterLabel(incident: Incident): string {
