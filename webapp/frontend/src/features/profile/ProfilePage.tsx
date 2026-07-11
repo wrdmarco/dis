@@ -120,6 +120,12 @@ export function ProfilePage() {
   const pairingOptions = pairingClientOptions(user);
 
   const mfaRequired = user?.mfa_required === true;
+  const canDisableMfa = user?.two_factor_enabled === true && !mfaRequired;
+  const mfaDescription = mfaRequired
+    ? user?.two_factor_enabled
+      ? 'MFA is verplicht en kan niet door de gebruiker worden uitgeschakeld.'
+      : 'Stel je Authenticator app in om verder te gaan.'
+    : 'Gebruik een authenticator app met 6-cijferige TOTP-codes.';
 
   useEffect(() => {
     if (!user || user.two_factor_enabled || !mfaRequired || setup !== null || autoSetupStarted) {
@@ -1016,7 +1022,7 @@ export function ProfilePage() {
           <div className="mfa-card__icon"><ShieldCheck size={22} /></div>
           <div>
             <strong>{user?.two_factor_enabled ? 'MFA actief' : 'MFA niet actief'}</strong>
-            <p>{mfaRequired && !user?.two_factor_enabled ? 'Stel je Authenticator app in om verder te gaan.' : 'Gebruik een authenticator app met 6-cijferige TOTP-codes.'}</p>
+            <p>{mfaDescription}</p>
           </div>
           {!user?.two_factor_enabled ? (
             <button className="primary-button" type="button" onClick={startSetup} disabled={busy}>
@@ -1050,7 +1056,7 @@ export function ProfilePage() {
           </form>
         ) : null}
 
-        {user?.two_factor_enabled ? (
+        {canDisableMfa ? (
           <form className="form-grid" onSubmit={disable}>
             <label>
               Huidig wachtwoord
@@ -1061,15 +1067,11 @@ export function ProfilePage() {
               <input inputMode="numeric" pattern="[0-9]{6}" value={disableCode} onChange={(event) => setDisableCode(event.target.value)} required />
             </label>
             <div className="actions-row form-grid__wide">
-              <button className="secondary-button" type="submit" disabled={busy || mfaRequired}>
+              <button className="secondary-button" type="submit" disabled={busy}>
                 MFA uitzetten
               </button>
             </div>
           </form>
-        ) : null}
-
-        {mfaRequired && user?.two_factor_enabled ? (
-          <p className="error-text">MFA kan pas uit nadat de globale MFA-verplichting is uitgezet.</p>
         ) : null}
         {error ? <p className="error-text">{error}</p> : null}
         {message ? <p className="success-text">{message}</p> : null}

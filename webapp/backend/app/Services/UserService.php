@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\Mail\UserWelcomeMail;
+use App\Models\FcmToken;
 use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\Firebase\FcmClient;
 use App\Support\PhoneNumber;
 use App\Support\ProfileLocation;
 use Illuminate\Support\Facades\DB;
@@ -22,6 +24,8 @@ final class UserService
     public function __construct(
         private readonly AuditService $auditService,
         private readonly GeocodingService $geocodingService,
+        private readonly FcmClient $fcmClient,
+        private readonly StatusService $statusService,
     ) {}
 
     /**
@@ -311,6 +315,57 @@ final class UserService
         return $user->refresh()->load(['roles', 'teams']);
     }
 
+    /**
+     * @return array{access_tokens_revoked: int, web_sessions_revoked: int, mobile_tokens_revoked: int}
+     */
+    public function revokeSessions(User $user, User $actor): array
+    {
+        if ($user->is($actor)) {
+            throw ValidationException::withMessages(['user' => ['Je kunt je eigen sessies niet via gebruikersbeheer intrekken. Log zelf uit via je profiel.']]);
+        }
+
+        $activeMobileTokens = $user->fcmTokens()
+            ->where('is_active', true)
+            ->get();
+
+        $result = DB::transaction(function () use ($user, $actor): array {
+            $accessTokensRevoked = $user->tokens()->count();
+            $webSessionsRevoked = DB::table('sessions')->where('user_id', $user->id)->count();
+            $mobileTokensRevoked = $user->fcmTokens()->where('is_active', true)->count();
+
+            $user->tokens()->delete();
+            DB::table('sessions')->where('user_id', $user->id)->delete();
+            $user->fcmTokens()
+                ->where('is_active', true)
+                ->update([
+                    'is_active' => false,
+                    'revoked_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+            if (! $user->fcmTokens()->where('is_active', true)->exists()) {
+                $user->forceFill(['push_enabled' => false])->save();
+                $this->statusService->enforcePushUnavailable($user->refresh());
+            }
+
+            $result = [
+                'access_tokens_revoked' => $accessTokensRevoked,
+                'web_sessions_revoked' => $webSessionsRevoked,
+                'mobile_tokens_revoked' => $mobileTokensRevoked,
+            ];
+
+            $this->auditService->record('users.sessions_revoked', $user, $actor, $result);
+
+            return $result;
+        });
+
+        foreach ($activeMobileTokens as $token) {
+            $this->notifySessionRevoked($token);
+        }
+
+        return $result;
+    }
+
     public function resendWelcomeMail(User $user, User $actor): User
     {
         if ($user->last_login_at !== null) {
@@ -324,6 +379,26 @@ final class UserService
         $this->sendWelcomeMailOrFail($user->refresh()->load(['roles.permissions', 'teams']), $actor);
 
         return $user->refresh()->load(['roles', 'teams']);
+    }
+
+    private function notifySessionRevoked(FcmToken $token): bool
+    {
+        if (! $token->is_active) {
+            return false;
+        }
+
+        try {
+            $this->fcmClient->send(
+                $token,
+                'Sessie ingetrokken',
+                'Je bent uitgelogd door een beheerder.',
+                ['type' => 'session_revoked'],
+            );
+        } catch (Throwable $exception) {
+            report($exception);
+        }
+
+        return true;
     }
 
     /**

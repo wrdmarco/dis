@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Eye, KeyRound, Mail, Plus, Trash2, X } from 'lucide-react';
+import { Eye, KeyRound, LogOut, Mail, Plus, Trash2, X } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -27,6 +27,12 @@ interface UserFormState {
   maxOperatorDevices: string;
   roleIds: string[];
   teamIds: string[];
+}
+
+interface RevokeSessionsResult {
+  access_tokens_revoked: number;
+  web_sessions_revoked: number;
+  mobile_tokens_revoked: number;
 }
 
 const emptyForm: UserFormState = {
@@ -70,6 +76,8 @@ export function UsersPage() {
   const [deleting, setDeleting] = useState(false);
   const [resettingMfa, setResettingMfa] = useState(false);
   const [resettingLoginLock, setResettingLoginLock] = useState(false);
+  const [revokingSessions, setRevokingSessions] = useState(false);
+  const [sessionMessage, setSessionMessage] = useState<string | null>(null);
   const [resendingInvitation, setResendingInvitation] = useState(false);
   const [invitationMessage, setInvitationMessage] = useState<string | null>(null);
   const isSystemAdministrator = currentUser?.roles?.some((role) => role.name === 'system-administrator') ?? false;
@@ -94,6 +102,8 @@ export function UsersPage() {
       setInvitationMessage(null);
       setResendingInvitation(false);
       setResettingLoginLock(false);
+      setRevokingSessions(false);
+      setSessionMessage(null);
     }
   }, [modalMode]);
 
@@ -194,6 +204,37 @@ export function UsersPage() {
       setError(err instanceof ApiClientError ? err.message : 'Loginvergrendeling resetten mislukt.');
     } finally {
       setResettingLoginLock(false);
+    }
+  }
+
+  async function revokeUserSessions() {
+    if (editingUser === null) {
+      return;
+    }
+
+    const target = userDetail ?? editingUser;
+    const confirmed = window.confirm(`Alle sessies van ${target.name} intrekken? De gebruiker wordt uitgelogd op web en mobiele apps en moet opnieuw inloggen.`);
+    if (!confirmed) {
+      return;
+    }
+
+    setRevokingSessions(true);
+    setError(null);
+    setSessionMessage(null);
+    try {
+      const response = await api.post<RevokeSessionsResult>(`/users/${editingUser.id}/sessions/revoke`);
+      setSessionMessage([
+        'Sessies ingetrokken.',
+        `${response.data.access_tokens_revoked} toegangstoken(s)`,
+        `${response.data.web_sessions_revoked} websessie(s)`,
+        `${response.data.mobile_tokens_revoked} mobiele token(s)`,
+      ].join(' '));
+      await loadUserDetail(editingUser.id);
+      await users.reload();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Sessies intrekken mislukt.');
+    } finally {
+      setRevokingSessions(false);
     }
   }
 
@@ -505,7 +546,7 @@ export function UsersPage() {
                   onChanged={reloadUserDetail}
                 />
               ) : null}
-              {modalMode === 'edit' && editingUser !== null && canManageUsers ? (
+              {modalMode === 'edit' && editingUser !== null && canManageUsers && !(userDetail ?? editingUser).last_login_at ? (
                 <div className="form-grid__wide stacked-section">
                   <span className="field-label">Uitnodiging</span>
                   <dl className="definition-grid">
@@ -516,7 +557,7 @@ export function UsersPage() {
                     <button
                       className="secondary-button"
                       type="button"
-                      disabled={resendingInvitation || Boolean((userDetail ?? editingUser).last_login_at) || (userDetail ?? editingUser).account_status !== 'active'}
+                      disabled={resendingInvitation || (userDetail ?? editingUser).account_status !== 'active'}
                       onClick={() => void resendInvitation()}
                     >
                       <Mail size={16} /> {resendingInvitation ? 'Versturen...' : 'Uitnodiging opnieuw versturen'}
@@ -558,6 +599,26 @@ export function UsersPage() {
                       <KeyRound size={16} /> {resettingLoginLock ? 'Resetten...' : 'Loginlock resetten'}
                     </button>
                   </div>
+                </div>
+              ) : null}
+              {modalMode === 'edit' && editingUser !== null && canManageUsers ? (
+                <div className="form-grid__wide stacked-section">
+                  <span className="field-label">Sessies</span>
+                  <p className="muted-text">
+                    Trek alle web- en app-sessies van deze gebruiker in. Actieve mobiele tokens worden gedeactiveerd en de gebruiker moet opnieuw inloggen.
+                  </p>
+                  <div className="actions-row">
+                    <button
+                      className="danger-button"
+                      type="button"
+                      disabled={revokingSessions || currentUser?.id === editingUser.id}
+                      onClick={() => void revokeUserSessions()}
+                    >
+                      <LogOut size={16} /> {revokingSessions ? 'Intrekken...' : 'Sessies intrekken'}
+                    </button>
+                  </div>
+                  {currentUser?.id === editingUser.id ? <p className="form-note">Je eigen sessies intrekken kan niet via gebruikersbeheer.</p> : null}
+                  {sessionMessage ? <p className="form-note">{sessionMessage}</p> : null}
                 </div>
               ) : null}
               {error ? <p className="form-error form-grid__wide">{error}</p> : null}

@@ -85,6 +85,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged', 'store.rev
         Route::delete('/users/{user}/teams/{team}', [UserController::class, 'removeTeam'])->middleware('permission:teams.manage');
         Route::post('/users/{user}/2fa/reset', [UserController::class, 'resetTwoFactor'])->middleware('permission:users.manage');
         Route::post('/users/{user}/login-lock/reset', [UserController::class, 'resetLoginLock'])->middleware('permission:users.manage');
+        Route::post('/users/{user}/sessions/revoke', [UserController::class, 'revokeSessions'])->middleware('permission:users.manage');
         Route::post('/users/{user}/invitation/resend', [UserController::class, 'resendInvitation'])->middleware('permission:users.manage');
         Route::get('/users/{user}/audit', [UserController::class, 'audit'])->middleware('permission:audit.view');
 

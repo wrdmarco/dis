@@ -115,6 +115,13 @@ final class UserController extends Controller
         return ApiResponse::success($this->service->resetLoginLock($user, $request->user()));
     }
 
+    public function revokeSessions(Request $request, User $user): JsonResponse
+    {
+        $this->abortForStoreReviewUser($user);
+
+        return ApiResponse::success($this->service->revokeSessions($user, $request->user()));
+    }
+
     public function resendInvitation(Request $request, User $user): JsonResponse
     {
         $this->abortForStoreReviewUser($user);
