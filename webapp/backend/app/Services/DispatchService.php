@@ -1144,7 +1144,7 @@ final class DispatchService
         return implode(' - ', array_values(array_filter($parts, fn (?string $part): bool => filled($part))));
     }
 
-    private function placeNameFromLocation(?string $location): ?string
+    public function placeNameFromLocation(?string $location): ?string
     {
         $value = trim((string) $location);
         if ($value === '') {
