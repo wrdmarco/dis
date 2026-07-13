@@ -17,6 +17,10 @@
   --dis-blue: #80c7ff;
   --dis-blue-soft: #122235;
   --dis-blue-panel: #102033;
+  --dis-positive: #6ee7b7;
+  --dis-positive-soft: rgba(16, 185, 129, 0.09);
+  --dis-warning: #fbbf24;
+  --dis-warning-soft: rgba(245, 158, 11, 0.1);
   background: var(--dis-bg);
   color: var(--dis-text);
   font-synthesis: none;
@@ -41,6 +45,10 @@
   --dis-blue: #0b6fae;
   --dis-blue-soft: #e4f3ff;
   --dis-blue-panel: #d9efff;
+  --dis-positive: #087f5b;
+  --dis-positive-soft: #e5f7ef;
+  --dis-warning: #8a5a00;
+  --dis-warning-soft: #fff5d6;
   background: var(--dis-bg);
   color: var(--dis-text);
 }
@@ -8050,6 +8058,7 @@ pre {
 .account-menu__item:focus-visible,
 .help-index a:focus-visible,
 .help-topic__link:focus-visible,
+.help-guide > summary:focus-visible,
 .help-search input:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--dis-blue) 42%, transparent);
   outline-offset: 2px;
@@ -8192,6 +8201,25 @@ pre {
   text-decoration: none;
 }
 
+.help-index__label {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.help-index__label > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.help-chapter-number {
+  flex: 0 0 auto;
+  color: var(--dis-blue);
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+}
+
 .help-content,
 .help-group,
 .help-topic-list {
@@ -8209,6 +8237,9 @@ pre {
 }
 
 .help-group > h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   color: var(--dis-text-strong);
   font-size: 1.08rem;
 }
@@ -8240,6 +8271,9 @@ pre {
 }
 
 .help-topic h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
   color: var(--dis-text-strong);
   font-size: 1rem;
   line-height: 1.3;
@@ -8271,6 +8305,259 @@ pre {
   background: var(--dis-blue-soft);
   color: var(--dis-blue);
   text-decoration: none;
+}
+
+.help-manual {
+  border-top: 1px solid var(--dis-border);
+}
+
+.help-manual__header {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 15px 18px;
+  background: color-mix(in srgb, var(--dis-blue-soft) 52%, var(--dis-surface));
+}
+
+.help-manual__icon {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--dis-blue) 40%, var(--dis-border));
+  border-radius: 7px;
+  color: var(--dis-blue);
+}
+
+.help-manual__header > div {
+  min-width: 0;
+}
+
+.help-manual__header span:not(.help-manual__icon) {
+  display: block;
+  color: var(--dis-blue);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.help-manual__header h4,
+.help-quick-reference h4 {
+  margin: 0;
+  color: var(--dis-text-strong);
+  letter-spacing: 0;
+}
+
+.help-manual__header h4 {
+  margin-top: 1px;
+  font-size: 1rem;
+}
+
+.help-manual__guides {
+  border-top: 1px solid var(--dis-border);
+}
+
+.help-guide {
+  border-bottom: 1px solid var(--dis-border);
+}
+
+.help-guide:last-child {
+  border-bottom: 0;
+}
+
+.help-guide > summary {
+  min-height: 70px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 18px;
+  color: var(--dis-text-strong);
+  cursor: pointer;
+  list-style: none;
+  touch-action: manipulation;
+}
+
+.help-guide > summary::-webkit-details-marker {
+  display: none;
+}
+
+.help-guide > summary:hover {
+  background: var(--dis-surface-2);
+}
+
+.help-guide > summary > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.help-guide > summary strong {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  color: var(--dis-text-strong);
+  font-size: 0.94rem;
+  line-height: 1.35;
+}
+
+.help-guide > summary small {
+  color: var(--dis-muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.help-guide > summary svg {
+  justify-self: end;
+  color: var(--dis-blue);
+  transition: transform 180ms ease-out;
+}
+
+.help-guide[open] > summary {
+  background: color-mix(in srgb, var(--dis-blue-soft) 30%, var(--dis-surface));
+}
+
+.help-guide[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.help-guide__body {
+  display: grid;
+  gap: 16px;
+  border-top: 1px solid var(--dis-border);
+  background: color-mix(in srgb, var(--dis-surface-2) 46%, var(--dis-surface));
+  padding: 18px;
+}
+
+.help-guide__before {
+  border-left: 3px solid var(--dis-blue);
+  padding: 2px 0 2px 13px;
+}
+
+.help-guide__before > strong {
+  color: var(--dis-text-strong);
+  font-size: 0.86rem;
+}
+
+.help-guide__before ul {
+  display: grid;
+  gap: 4px;
+  margin: 7px 0 0;
+  padding-left: 20px;
+  color: var(--dis-muted-strong);
+  font-size: 0.85rem;
+}
+
+.help-guide__steps {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.help-guide__steps li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: start;
+  gap: 11px;
+  padding: 10px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--dis-border) 74%, transparent);
+}
+
+.help-guide__steps li:first-child {
+  padding-top: 0;
+}
+
+.help-guide__steps li:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.help-guide__step-number {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--dis-blue) 42%, var(--dis-border));
+  border-radius: 50%;
+  background: var(--dis-blue-soft);
+  color: var(--dis-blue);
+  font-size: 0.82rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.help-guide__steps li > div {
+  min-width: 0;
+}
+
+.help-guide__steps strong {
+  display: block;
+  color: var(--dis-text-strong);
+  font-size: 0.9rem;
+}
+
+.help-guide__steps p,
+.help-guide__result p,
+.help-guide__warning p {
+  margin: 3px 0 0;
+  color: var(--dis-muted-strong);
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.help-guide__result,
+.help-guide__warning {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  border-left: 3px solid;
+  padding: 11px 13px;
+}
+
+.help-guide__result {
+  border-color: var(--dis-positive);
+  background: var(--dis-positive-soft);
+}
+
+.help-guide__result > svg,
+.help-guide__result strong {
+  color: var(--dis-positive);
+}
+
+.help-guide__warning {
+  border-color: var(--dis-warning);
+  background: var(--dis-warning-soft);
+}
+
+.help-guide__warning > svg,
+.help-guide__warning strong {
+  color: var(--dis-warning);
+}
+
+.help-guide__result > svg,
+.help-guide__warning > svg {
+  margin-top: 1px;
+}
+
+.help-guide__result strong,
+.help-guide__warning strong {
+  font-size: 0.84rem;
+}
+
+.help-quick-reference {
+  border-top: 1px solid var(--dis-border);
+}
+
+.help-quick-reference h4 {
+  padding: 13px 18px;
+  background: var(--dis-surface-2);
+  font-size: 0.88rem;
 }
 
 .help-action-list {
@@ -8711,6 +8998,47 @@ pre {
     width: 100%;
   }
 
+  .help-manual__header {
+    padding: 14px;
+  }
+
+  .help-guide > summary {
+    min-height: 72px;
+    padding: 12px 14px;
+  }
+
+  .help-guide > summary strong,
+  .help-guide > summary small,
+  .help-guide__steps p,
+  .help-guide__result p,
+  .help-guide__warning p {
+    overflow-wrap: anywhere;
+  }
+
+  .help-guide__body {
+    gap: 14px;
+    padding: 14px;
+  }
+
+  .help-guide__steps li {
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .help-guide__step-number {
+    width: 30px;
+    height: 30px;
+  }
+
+  .help-guide__result,
+  .help-guide__warning {
+    padding: 10px 11px;
+  }
+
+  .help-quick-reference h4 {
+    padding: 12px 14px;
+  }
+
   .help-action-list,
   .pairing-steps,
   .pairing-pictures {
@@ -8754,7 +9082,8 @@ pre {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .account-menu__chevron {
+  .account-menu__chevron,
+  .help-guide > summary svg {
     transition: none;
   }
 }

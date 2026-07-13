@@ -6,8 +6,11 @@ import {
   BookUser,
   Boxes,
   CalendarDays,
+  ChevronDown,
   CheckCircle2,
+  CircleAlert,
   ClipboardCheck,
+  ClipboardList,
   DatabaseBackup,
   FileChartColumn,
   FileText,
@@ -31,6 +34,8 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
+import { manualGuides } from './manualContent';
+import type { ManualGuide } from './manualTypes';
 
 type HelpGroupId = 'account' | 'operation' | 'resources' | 'management';
 type MobileAppAccess = 'operator' | 'admin' | 'any';
@@ -55,6 +60,22 @@ interface HelpTopic extends AccessRule {
   href?: string;
   actions: readonly HelpAction[];
   pairingGuide?: boolean;
+}
+
+interface AccessibleHelpTopic extends HelpTopic {
+  actions: readonly HelpAction[];
+  guides: readonly ManualGuide[];
+}
+
+interface NumberedManualGuide extends ManualGuide {
+  chapterNumber: string;
+}
+
+interface VisibleHelpTopic extends HelpTopic {
+  actions: readonly HelpAction[];
+  guides: readonly NumberedManualGuide[];
+  chapterNumber: string;
+  groupNumber: number;
 }
 
 interface AccessContext {
@@ -509,9 +530,7 @@ export function HelpPage() {
     };
   }, [user]);
 
-  const visibleTopics = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase('nl-NL');
-
+  const accessibleTopics = useMemo(() => {
     return helpTopics.flatMap((topic) => {
       if (!hasAccess(topic, access)) {
         return [];
@@ -522,34 +541,87 @@ export function HelpPage() {
         return [];
       }
 
-      const searchableText = [topic.title, topic.summary, ...actions.flatMap((action) => [action.title, action.description])]
-        .join(' ')
-        .toLocaleLowerCase('nl-NL');
-      if (normalizedQuery !== '' && !searchableText.includes(normalizedQuery)) {
+      const guides = (manualGuides[topic.id] ?? []).filter((guide) => hasAccess(guide, access));
+      return [{ ...topic, actions, guides } satisfies AccessibleHelpTopic];
+    });
+  }, [access]);
+
+  const numberedTopics = useMemo(() => {
+    let groupNumber = 0;
+
+    return helpGroups.flatMap((group) => {
+      const groupTopics = accessibleTopics.filter((topic) => topic.group === group.id);
+      if (groupTopics.length === 0) {
         return [];
       }
 
-      return [{ ...topic, actions }];
-    });
-  }, [access, query]);
+      groupNumber += 1;
+      return groupTopics.map((topic, topicIndex) => {
+        const chapterNumber = `${groupNumber}.${topicIndex + 1}`;
 
-  const groupedTopics = helpGroups
-    .map((group) => ({ ...group, topics: visibleTopics.filter((topic) => topic.group === group.id) }))
-    .filter((group) => group.topics.length > 0);
+        return {
+          ...topic,
+          chapterNumber,
+          groupNumber,
+          guides: topic.guides.map((guide, guideIndex) => ({
+            ...guide,
+            chapterNumber: `${chapterNumber}.${guideIndex + 1}`,
+          })),
+        } satisfies VisibleHelpTopic;
+      });
+    });
+  }, [accessibleTopics]);
+
+  const visibleTopics = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase('nl-NL');
+
+    return numberedTopics.flatMap((topic) => {
+      const topicAndActionText = [
+        topic.title,
+        topic.summary,
+        ...topic.actions.flatMap((action) => [action.title, action.description]),
+      ]
+        .join(' ')
+        .toLocaleLowerCase('nl-NL');
+      const topicMatches = normalizedQuery === '' || topicAndActionText.includes(normalizedQuery);
+      const matchingGuides = normalizedQuery === ''
+        ? topic.guides
+        : topic.guides.filter((guide) => manualGuideSearchText(guide).includes(normalizedQuery));
+
+      if (!topicMatches && matchingGuides.length === 0) {
+        return [];
+      }
+
+      return [{
+        ...topic,
+        guides: normalizedQuery !== '' && !topicMatches ? matchingGuides : topic.guides,
+      } satisfies VisibleHelpTopic];
+    });
+  }, [numberedTopics, query]);
+
+  const groupedTopics = helpGroups.flatMap((group) => {
+    const topics = visibleTopics.filter((topic) => topic.group === group.id);
+    if (topics.length === 0) {
+      return [];
+    }
+
+    return [{ ...group, chapterNumber: topics[0].groupNumber, topics }];
+  });
+  const visibleGuideCount = visibleTopics.reduce((total, topic) => total + topic.guides.length, 0);
 
   return (
     <div className="page-stack help-page">
       <section className="help-intro" aria-labelledby="help-title">
         <div className="help-intro__icon" aria-hidden><BookOpen size={24} /></div>
         <div>
-          <span className="help-intro__eyebrow">Hulp bij DIS</span>
-          <h2 id="help-title">Zo werkt jouw webapp</h2>
-          <p>Hier staan alleen de onderdelen die jij mag gebruiken. Zoek op een taak of kies hieronder een onderwerp.</p>
+          <span className="help-intro__eyebrow">Handleiding voor jouw toegang</span>
+          <h2 id="help-title">Gebruikershandleiding</h2>
+          <p>Volg concrete stappen met de echte knopnamen. Je ziet {visibleGuideCount} werkwijzen voor de onderdelen die jij mag gebruiken.</p>
         </div>
         <label className="help-search">
           <span className="sr-only">Zoeken in help</span>
           <Search aria-hidden size={18} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Bijvoorbeeld: alarmeren, planning of toestel" type="search" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Zoek in de handleiding" type="search" />
         </label>
       </section>
 
@@ -563,7 +635,10 @@ export function HelpPage() {
                 return (
                   <a href={`#help-${topic.id}`} key={topic.id}>
                     <Icon aria-hidden size={16} />
-                    {topic.title}
+                    <span className="help-index__label">
+                      <span className="help-chapter-number">{topic.chapterNumber}</span>
+                      <span>{topic.title}</span>
+                    </span>
                   </a>
                 );
               })}
@@ -573,7 +648,10 @@ export function HelpPage() {
           <div className="help-content">
             {groupedTopics.map((group) => (
               <section className="help-group" aria-labelledby={`help-group-${group.id}`} key={group.id}>
-                <h2 id={`help-group-${group.id}`}>{group.label}</h2>
+                <h2 id={`help-group-${group.id}`}>
+                  <span className="help-chapter-number">{group.chapterNumber}</span>
+                  <span>{group.label}</span>
+                </h2>
                 <div className="help-topic-list">
                   {group.topics.map((topic) => <HelpTopicCard access={access} topic={topic} key={topic.id} />)}
                 </div>
@@ -593,7 +671,7 @@ export function HelpPage() {
   );
 }
 
-function HelpTopicCard({ access, topic }: { access: AccessContext; topic: HelpTopic }) {
+function HelpTopicCard({ access, topic }: { access: AccessContext; topic: VisibleHelpTopic }) {
   const Icon = topic.icon;
 
   return (
@@ -601,7 +679,10 @@ function HelpTopicCard({ access, topic }: { access: AccessContext; topic: HelpTo
       <header className="help-topic__header">
         <span className="help-topic__icon" aria-hidden><Icon size={20} /></span>
         <div>
-          <h3>{topic.title}</h3>
+          <h3>
+            <span className="help-chapter-number">{topic.chapterNumber}</span>
+            <span>{topic.title}</span>
+          </h3>
           <p>{topic.summary}</p>
         </div>
         {topic.href ? <Link className="help-topic__link" href={topic.href}>Open onderdeel</Link> : null}
@@ -609,19 +690,104 @@ function HelpTopicCard({ access, topic }: { access: AccessContext; topic: HelpTo
 
       {topic.pairingGuide ? <PairingGuide access={access} /> : null}
 
-      <ul className="help-action-list">
-        {topic.actions.map((action) => (
-          <li key={action.title}>
-            <CheckCircle2 aria-hidden size={17} />
-            <div>
-              <strong>{action.title}</strong>
-              <span>{action.description}</span>
-            </div>
-          </li>
-        ))}
-      </ul>
+      {topic.guides.length > 0 ? <ManualSection guides={topic.guides} topicId={topic.id} /> : null}
+
+      <section className="help-quick-reference" aria-labelledby={`help-quick-${topic.id}`}>
+        <h4 id={`help-quick-${topic.id}`}>Kort overzicht</h4>
+        <ul className="help-action-list">
+          {topic.actions.map((action) => (
+            <li key={action.title}>
+              <CheckCircle2 aria-hidden size={17} />
+              <div>
+                <strong>{action.title}</strong>
+                <span>{action.description}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
     </article>
   );
+}
+
+function ManualSection({ guides, topicId }: { guides: readonly NumberedManualGuide[]; topicId: string }) {
+  return (
+    <section className="help-manual" aria-labelledby={`help-manual-${topicId}`}>
+      <header className="help-manual__header">
+        <span className="help-manual__icon" aria-hidden><ClipboardList size={20} /></span>
+        <div>
+          <span>Volledige handleiding</span>
+          <h4 id={`help-manual-${topicId}`}>Stap voor stap</h4>
+        </div>
+      </header>
+      <div className="help-manual__guides">
+        {guides.map((guide, guideIndex) => (
+          <ManualGuideDisclosure guide={guide} initiallyOpen={guideIndex === 0} key={guide.id} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ManualGuideDisclosure({ guide, initiallyOpen }: { guide: NumberedManualGuide; initiallyOpen: boolean }) {
+  const [open, setOpen] = useState(initiallyOpen);
+
+  return (
+    <details className="help-guide" open={open} id={`guide-${guide.id}`} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>
+        <span>
+          <strong>
+            <span className="help-chapter-number">{guide.chapterNumber}</span>
+            <span>{guide.title}</span>
+          </strong>
+          <small>{guide.intro} · {guide.steps.length} stappen</small>
+        </span>
+        <ChevronDown aria-hidden size={19} />
+      </summary>
+      <div className="help-guide__body">
+        {guide.prerequisites && guide.prerequisites.length > 0 ? (
+          <div className="help-guide__before">
+            <strong>Voor je begint</strong>
+            <ul>{guide.prerequisites.map((item) => <li key={item}>{item}</li>)}</ul>
+          </div>
+        ) : null}
+        <ol className="help-guide__steps">
+          {guide.steps.map((step, stepIndex) => (
+            <li key={`${guide.id}-${stepIndex}-${step.label}`}>
+              <span className="help-guide__step-number" aria-hidden>{stepIndex + 1}</span>
+              <div>
+                <strong>{step.label}</strong>
+                <p>{step.description}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+        <div className="help-guide__result">
+          <CheckCircle2 aria-hidden size={18} />
+          <div><strong>Daarna</strong><p>{guide.result}</p></div>
+        </div>
+        {guide.warning ? (
+          <div className="help-guide__warning">
+            <CircleAlert aria-hidden size={18} />
+            <div><strong>Let op</strong><p>{guide.warning}</p></div>
+          </div>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function manualGuideSearchText(guide: ManualGuide): string {
+  return [
+    guide.title,
+    guide.intro,
+    ...(guide.prerequisites ?? []),
+    ...guide.steps.flatMap((step) => [step.label, step.description]),
+    guide.result,
+    guide.warning ?? '',
+  ]
+    .join(' ')
+    .toLocaleLowerCase('nl-NL');
 }
 
 function PairingGuide({ access }: { access: AccessContext }) {
