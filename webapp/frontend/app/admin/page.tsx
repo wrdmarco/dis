@@ -5,7 +5,7 @@ import { ProtectedShell } from '../../src/next/RouteShell';
 
 export default function Page() {
   return (
-    <ProtectedShell permissions={['settings.manage', 'settings.push.tokens.manage', 'system.health']} anyPermission>
+    <ProtectedShell permissions={['settings.manage', 'settings.push.tokens.manage', 'system.health.view', 'system.developer-access.manage']} anyPermission>
       <AdminPage />
     </ProtectedShell>
   );

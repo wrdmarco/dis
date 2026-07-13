@@ -15,6 +15,7 @@ interface BackupSummary {
   version?: string | null;
   git_commit?: string | null;
   includes: string[];
+  encrypted: boolean;
   size_bytes: number;
   has_manifest: boolean;
   has_checksums: boolean;
@@ -474,7 +475,7 @@ export function BackupPage() {
                     <td>{backup.host ?? '-'}</td>
                     <td>{backup.version ?? '-'}</td>
                     <td>{formatBytes(backup.size_bytes)}</td>
-                    <td>{backup.has_manifest && backup.has_checksums ? 'Compleet' : 'Onvolledig'}</td>
+                    <td>{backup.has_manifest && backup.has_checksums ? (backup.encrypted ? 'Compleet, versleuteld' : 'Compleet, oud formaat') : 'Onvolledig'}</td>
                     <td>
                       <div className="actions-row">
                         <button className="secondary-button" type="button" onClick={() => void runAction('verify', async () => (await api.post<BackupActionResult>(`/admin/backups/${backup.id}/verify`, { target: backup.target })).data)} disabled={busy !== null}>

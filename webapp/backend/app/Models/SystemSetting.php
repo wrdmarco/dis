@@ -2,10 +2,20 @@
 
 namespace App\Models;
 
+use App\Casts\SystemSettingValueCast;
 use Illuminate\Database\Eloquent\Model;
 
 final class SystemSetting extends Model
 {
+    private const SENSITIVE_KEYS = [
+        'backup.samba.password',
+        'developer.android_upload',
+        'drone.aeret_api_key',
+        'firebase.service_account',
+        'mail.microsoft365_client_secret',
+        'mail.password',
+    ];
+
     protected $primaryKey = 'key';
 
     public $incrementing = false;
@@ -16,7 +26,21 @@ final class SystemSetting extends Model
 
     protected function casts(): array
     {
-        return ['value' => 'array', 'is_sensitive' => 'boolean'];
+        return ['value' => SystemSettingValueCast::class, 'is_sensitive' => 'boolean'];
+    }
+
+    protected static function booted(): void
+    {
+        self::saving(function (SystemSetting $setting): void {
+            if (self::isSensitiveKey((string) $setting->getKey())) {
+                $setting->is_sensitive = true;
+            }
+        });
+    }
+
+    public static function isSensitiveKey(string $key): bool
+    {
+        return in_array($key, self::SENSITIVE_KEYS, true);
     }
 
     public static function value(string $key, mixed $default = null): mixed

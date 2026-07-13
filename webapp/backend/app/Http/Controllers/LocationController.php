@@ -8,6 +8,7 @@ use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
 use App\Models\User;
 use App\Services\LocationService;
+use App\Services\IncidentAccessService;
 use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,15 +16,21 @@ use Symfony\Component\HttpFoundation\Response;
 
 final class LocationController extends Controller
 {
-    public function __construct(private readonly LocationService $service) {}
+    public function __construct(
+        private readonly LocationService $service,
+        private readonly IncidentAccessService $access,
+    ) {}
 
     public function consent(Request $request, Incident $incident): JsonResponse
     {
+        $this->access->assertCanViewIncident($request->user(), $incident);
+
         return ApiResponse::success($this->service->consent($incident, $request->user()), 201);
     }
 
     public function revoke(Request $request, Incident $incident): Response
     {
+        $this->access->assertCanViewIncident($request->user(), $incident);
         $this->service->revoke($incident, $request->user());
 
         return response()->noContent();
@@ -31,6 +38,7 @@ final class LocationController extends Controller
 
     public function decline(Request $request, Incident $incident): JsonResponse
     {
+        $this->access->assertCanViewIncident($request->user(), $incident);
         $data = $request->validate([
             'reason' => ['nullable', 'string', 'max:120'],
         ]);
@@ -53,6 +61,7 @@ final class LocationController extends Controller
 
     public function update(Request $request, Incident $incident): Response
     {
+        $this->access->assertCanViewIncident($request->user(), $incident);
         $data = $request->validate([
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
@@ -65,8 +74,9 @@ final class LocationController extends Controller
         return response()->noContent();
     }
 
-    public function liveLocations(Incident $incident): JsonResponse
+    public function liveLocations(Request $request, Incident $incident): JsonResponse
     {
+        $this->access->assertCanViewIncident($request->user(), $incident);
         if ($this->service->isClosedForLocationSharing($incident)) {
             return ApiResponse::success([]);
         }
@@ -90,6 +100,9 @@ final class LocationController extends Controller
             ->merge($activeConsentUserIds)
             ->unique()
             ->values();
+        if ($request->user()->isOperatorClient()) {
+            $locationUserIds = $locationUserIds->filter(fn (string $userId): bool => $userId === (string) $request->user()->id)->values();
+        }
 
         $consents = LocationSharingConsent::query()
             ->with('user')
@@ -122,7 +135,6 @@ final class LocationController extends Controller
                     'user' => $user === null ? null : [
                         'id' => $user->id,
                         'name' => $user->name,
-                        'email' => $user->email,
                     ],
                     'sharing_status' => $sharingStatus,
                     'location_is_current' => $this->isCurrentLocation($location),

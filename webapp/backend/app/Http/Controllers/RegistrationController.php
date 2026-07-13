@@ -85,7 +85,7 @@ final class RegistrationController extends Controller
 
         $this->auditService->record('users.registration_completed', $user, $user, ['requires_mfa' => $requiresMfa]);
 
-        $expiresAt = $requiresMfa ? now()->addMinutes(30) : null;
+        $expiresAt = $requiresMfa ? now()->addMinutes(30) : now()->addHours(12);
 
         return ApiResponse::success([
             'token' => $user->createToken('DIS Registration Wizard', $abilities, $expiresAt)->plainTextToken,
@@ -109,7 +109,7 @@ final class RegistrationController extends Controller
 
     private function requiresMfa(User $user): bool
     {
-        return $this->twoFactorService->isRequired();
+        return $this->twoFactorService->isRequiredFor($user);
     }
 
     private function adminAppAllowed(User $user): bool

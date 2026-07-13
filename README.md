@@ -115,6 +115,11 @@ Backups are stored under:
 /opt/dis-data/backup
 ```
 
+New backups contain an encrypted `backup.payload.enc`. The encryption key is stored separately at
+`/opt/dis-data/secrets/backup-encryption.key` with restricted permissions. Keep an offline escrow copy
+of this key in the organisation's secret manager; a backup cannot be restored on a replacement server
+without the matching key. Never store the escrow copy beside the backup archive.
+
 Verify a backup:
 
 ```bash

@@ -14,6 +14,7 @@ use App\Repositories\IncidentRepository;
 use App\Services\DispatchService;
 use App\Services\DroneFlightContextService;
 use App\Services\IncidentService;
+use App\Services\IncidentAccessService;
 use App\Support\ApiDateTime;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
@@ -32,11 +33,12 @@ final class IncidentController extends Controller
         private readonly IncidentService $service,
         private readonly DispatchService $dispatchService,
         private readonly DroneFlightContextService $droneFlightContextService,
+        private readonly IncidentAccessService $access,
     ) {}
 
     public function index(Request $request): JsonResponse
     {
-        if ($request->boolean('active_alarms')) {
+        if ($request->user()->isOperatorClient() || $request->boolean('active_alarms')) {
             $userId = $request->user()->id;
             $attendanceDispatchStatuses = ['sent', 'escalated'];
             $incidents = Incident::query()
@@ -106,7 +108,7 @@ final class IncidentController extends Controller
                                 ->where('is_test', false)
                                 ->whereDoesntHave('pilotReports', fn ($reports) => $reports
                                     ->where('user_id', $userId)
-                                    ->where('status', 'submitted'))
+                                    ->whereNotNull('finalized_at'))
                                 ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
                                     ->whereIn('status', $attendanceDispatchStatuses)
                                     ->whereHas('recipients', fn ($recipients) => $recipients
@@ -117,28 +119,7 @@ final class IncidentController extends Controller
                 ->latest()
                 ->limit(100)
                 ->get()
-                ->map(function (Incident $incident): array {
-                    $payload = MobileApiPayload::incident($incident);
-                    $dispatch = $incident->dispatchRequests->first();
-                    $recipient = $dispatch?->recipients->first();
-                    if ($dispatch?->status === 'draft') {
-                        $place = $this->dispatchService->placeNameFromLocation($incident->location_label);
-                        $payload['reference'] = 'Vooraankondiging';
-                        $payload['title'] = $place === null
-                            ? 'Beschikbaar voor melding?'
-                            : "Beschikbaar voor melding in {$place}?";
-                        $payload['description'] = null;
-                        $payload['location_label'] = $place;
-                        $payload['priority'] = 'normal';
-                    }
-                    $payload['active_dispatch'] = $dispatch === null ? null : [
-                        'id' => $dispatch->id,
-                        'status' => $dispatch->status,
-                        'response_status' => $recipient?->response_status,
-                    ];
-
-                    return $payload;
-                })
+                ->map(fn (Incident $incident): array => $this->incidentPayloadForActor($incident, $request->user()))
                 ->values();
 
             return ApiResponse::success($incidents);
@@ -216,9 +197,14 @@ final class IncidentController extends Controller
         }
     }
 
-    public function show(Incident $incident): JsonResponse
+    public function show(Request $request, Incident $incident): JsonResponse
     {
-        return ApiResponse::success(MobileApiPayload::incident($incident->load(['coordinator', 'team', 'teams'])));
+        $this->access->assertCanViewIncident($request->user(), $incident);
+
+        return ApiResponse::success($this->incidentPayloadForActor(
+            $incident->load(['coordinator', 'team', 'teams']),
+            $request->user(),
+        ));
     }
 
     public function update(UpdateIncidentRequest $request, Incident $incident): JsonResponse
@@ -279,10 +265,22 @@ final class IncidentController extends Controller
 
     public function timeline(Request $request, Incident $incident): JsonResponse
     {
-        $dispatches = $incident->dispatchRequests()
-            ->with(['recipients.user', 'messages.sender'])
-            ->latest()
-            ->get();
+        $this->access->assertCanViewIncident($request->user(), $incident);
+        if ($request->user()->isOperatorClient() && $this->access->relevantDispatch($incident, $request->user())?->status === 'draft') {
+            return ApiResponse::success([]);
+        }
+
+        $dispatchQuery = $incident->dispatchRequests()
+            ->with([
+                'recipients' => fn ($recipients) => $request->user()->isOperatorClient()
+                    ? $recipients->where('user_id', $request->user()->id)
+                    : $recipients,
+                'recipients.user',
+                'messages.sender',
+            ])
+            ->latest();
+        $this->access->scopeDispatches($dispatchQuery, $request->user());
+        $dispatches = $dispatchQuery->get();
 
         $statusItems = $incident->statusHistory()
             ->with('incident')
@@ -501,6 +499,63 @@ final class IncidentController extends Controller
             'on_scene' => 'Op locatie',
             default => $status,
         };
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function incidentPayloadForActor(Incident $incident, \App\Models\User $actor): array
+    {
+        $payload = MobileApiPayload::incident($incident);
+        if (! $actor->isOperatorClient()) {
+            return $payload;
+        }
+
+        $dispatch = $incident->relationLoaded('dispatchRequests')
+            ? $incident->dispatchRequests->first()
+            : $this->access->relevantDispatch($incident, $actor);
+        $recipient = $dispatch?->relationLoaded('recipients') === true
+            ? $dispatch->recipients->firstWhere('user_id', $actor->id)
+            : $dispatch?->recipients()->where('user_id', $actor->id)->first();
+
+        if ($dispatch?->status === 'draft') {
+            $place = $this->dispatchService->placeNameFromLocation($incident->location_label);
+            $payload = [
+                'id' => $incident->id,
+                'reference' => 'Vooraankondiging',
+                'title' => $place === null ? 'Beschikbaar voor melding?' : "Beschikbaar voor melding in {$place}?",
+                'description' => null,
+                'reporter_name' => null,
+                'reporter_phone' => null,
+                'requesting_organization' => null,
+                'requesting_unit' => null,
+                'on_scene_contact_name' => null,
+                'on_scene_contact_phone' => null,
+                'on_scene_contact_role' => null,
+                'required_resources' => null,
+                'custom_fields' => [],
+                'priority' => 'normal',
+                'status' => $incident->status,
+                'is_test' => (bool) $incident->is_test,
+                'location_label' => $place,
+                'latitude' => null,
+                'longitude' => null,
+                'drone_flight_context' => null,
+                'coordinator' => null,
+                'team' => null,
+                'teams' => [],
+                'opened_at' => MobileApiPayload::dateTime($incident->opened_at),
+                'closed_at' => MobileApiPayload::dateTime($incident->closed_at),
+            ];
+        }
+
+        $payload['active_dispatch'] = $dispatch === null ? null : [
+            'id' => $dispatch->id,
+            'status' => $dispatch->status,
+            'response_status' => $recipient?->response_status,
+        ];
+
+        return $payload;
     }
 
 }

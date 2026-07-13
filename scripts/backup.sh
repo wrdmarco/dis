@@ -21,6 +21,21 @@ ensure_data_links "${APP_ROOT}"
 
 BACKUP_ROOT="$(resolve_backup_root "${APP_ROOT}")"
 TARGET="${BACKUP_ROOT}/${STAMP}"
+ensure_backup_encryption_key >/dev/null
+BACKUP_KEY_FILE="$(backup_encryption_key_file)"
+STAGING="$(mktemp -d "${TMPDIR:-/var/tmp}/dis-backup.XXXXXX")"
+BACKUP_COMPLETE=0
+
+cleanup_backup() {
+  rm -rf -- "${STAGING}"
+  if [ "${BACKUP_COMPLETE}" != "1" ] && [ -d "${TARGET}" ]; then
+    rm -rf -- "${TARGET}"
+  fi
+}
+
+trap cleanup_backup EXIT
+chmod 0700 "${STAGING}"
+
 if [ "${EUID}" -eq 0 ]; then
   run_cmd install -d -m 0750 -o root -g "${DIS_GROUP}" "${TARGET}"
 else
@@ -64,16 +79,16 @@ PGPASSWORD="${DB_PASSWORD}" run_cmd pg_dump \
   --port="${DB_PORT}" \
   --username="${DB_USERNAME}" \
   --format=custom \
-  --file="${TARGET}/database.dump" \
+  --file="${STAGING}/database.dump" \
   "${DB_DATABASE}"
 
 log "Archiving storage and configuration"
-run_cmd tar --warning=no-file-changed --ignore-failed-read -C "${DIS_DATA_PATH}" -czf "${TARGET}/storage.tar.gz" \
+run_cmd tar --warning=no-file-changed --ignore-failed-read -C "${DIS_DATA_PATH}" -czf "${STAGING}/storage.tar.gz" \
   storage \
   webapp/backend/storage \
   secrets
 log "Archiving software source and module manifests"
-run_cmd tar --warning=no-file-changed --ignore-failed-read -C "${APP_ROOT}" -czf "${TARGET}/source.tar.gz" \
+run_cmd tar --warning=no-file-changed --ignore-failed-read -C "${APP_ROOT}" -czf "${STAGING}/source.tar.gz" \
   --exclude='./.git' \
   --exclude='./backup' \
   --exclude='./storage' \
@@ -85,7 +100,7 @@ run_cmd tar --warning=no-file-changed --ignore-failed-read -C "${APP_ROOT}" -czf
   --exclude='./webapp/frontend/.vite' \
   --exclude='./webapp/frontend/.cache' \
   .
-run_cmd install -d -m 0750 "${TARGET}/modules"
+run_cmd install -d -m 0700 "${STAGING}/modules"
 for manifest in \
   "webapp/backend/composer.json" \
   "webapp/backend/composer.lock" \
@@ -93,13 +108,22 @@ for manifest in \
   "webapp/frontend/package-lock.json" \
   "webapp/frontend/pnpm-lock.yaml"; do
   if [ -f "${APP_ROOT}/${manifest}" ]; then
-    run_cmd install -D -m 0640 "${APP_ROOT}/${manifest}" "${TARGET}/modules/${manifest}"
+    run_cmd install -D -m 0600 "${APP_ROOT}/${manifest}" "${STAGING}/modules/${manifest}"
   fi
 done
-run_cmd cp "${ENV_FILE}" "${TARGET}/env.backup"
-run_cmd sha256sum "${TARGET}/database.dump" "${TARGET}/storage.tar.gz" "${TARGET}/source.tar.gz" "${TARGET}/env.backup" > "${TARGET}/SHA256SUMS"
+run_cmd install -m 0600 "${ENV_FILE}" "${STAGING}/env.backup"
+
+log "Encrypting backup payload"
+tar -C "${STAGING}" -cf - . \
+  | openssl enc -aes-256-cbc -salt -pbkdf2 -iter 250000 -md sha256 \
+      -pass "file:${BACKUP_KEY_FILE}" \
+      -out "${TARGET}/backup.payload.enc"
+
 cat > "${TARGET}/manifest.json" <<EOF
 {
+  "format": "dis-encrypted-backup-v1",
+  "encrypted": true,
+  "cipher": "aes-256-cbc-pbkdf2-sha256",
   "created_at": "${STAMP}",
   "app_root": "${APP_ROOT}",
   "data_root": "${DIS_DATA_PATH}",
@@ -111,7 +135,9 @@ cat > "${TARGET}/manifest.json" <<EOF
   "includes": ["database", "storage", "env", "source", "module_manifests"]
 }
 EOF
+(cd "${TARGET}" && sha256sum backup.payload.enc manifest.json > SHA256SUMS)
 allow_app_backup_read "${TARGET}"
 
 prune_old_backups "${BACKUP_ROOT}"
+BACKUP_COMPLETE=1
 log "Backup created at ${TARGET}"

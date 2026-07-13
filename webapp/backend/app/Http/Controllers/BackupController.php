@@ -520,6 +520,7 @@ final class BackupController extends Controller
             'BACKUP_TARGET='.$this->shellValue($target),
             'BACKUP_ROOT='.$this->shellValue(SystemSetting::string('backup.local_path', self::DEFAULT_LOCAL_PATH) ?? self::DEFAULT_LOCAL_PATH),
             'BACKUP_RETENTION_COUNT='.$this->shellValue((string) max(0, SystemSetting::integer('backup.retention_count', 7))),
+            'BACKUP_ENCRYPTION_KEY_FILE='.$this->shellValue(rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/').'/secrets/backup-encryption.key'),
             'BACKUP_SAMBA_SHARE='.$this->shellValue(SystemSetting::string('backup.samba.share', '') ?? ''),
             'BACKUP_SAMBA_MOUNT='.$this->shellValue(SystemSetting::string('backup.samba.mount', '/mnt/dis-backup') ?? '/mnt/dis-backup'),
             'BACKUP_SAMBA_USERNAME='.$this->shellValue(SystemSetting::string('backup.samba.username', '') ?? ''),
@@ -660,16 +661,20 @@ final class BackupController extends Controller
             $zip->close();
         }
 
-        foreach (['database.dump', 'storage.tar.gz', 'source.tar.gz', 'env.backup', 'SHA256SUMS', 'manifest.json'] as $required) {
-            if (! is_file($targetPath.'/'.$required)) {
-                throw ValidationException::withMessages(['backup' => ['ZIP-bestand bevat geen volledige DIS backup.']]);
-            }
+        $encryptedFiles = ['backup.payload.enc', 'SHA256SUMS', 'manifest.json'];
+        $legacyFiles = ['database.dump', 'storage.tar.gz', 'source.tar.gz', 'env.backup', 'SHA256SUMS', 'manifest.json'];
+        if (! $this->containsRequiredBackupFiles($targetPath, $encryptedFiles)
+            && ! $this->containsRequiredBackupFiles($targetPath, $legacyFiles)) {
+            throw ValidationException::withMessages(['backup' => ['ZIP-bestand bevat geen volledige DIS backup.']]);
         }
     }
 
     private function backupZipPrefix(ZipArchive $zip): string
     {
-        $required = ['database.dump', 'storage.tar.gz', 'source.tar.gz', 'env.backup', 'SHA256SUMS', 'manifest.json'];
+        $requiredSets = [
+            ['backup.payload.enc', 'SHA256SUMS', 'manifest.json'],
+            ['database.dump', 'storage.tar.gz', 'source.tar.gz', 'env.backup', 'SHA256SUMS', 'manifest.json'],
+        ];
         $names = [];
         for ($index = 0; $index < $zip->numFiles; $index++) {
             $name = $zip->getNameIndex($index);
@@ -686,19 +691,35 @@ final class BackupController extends Controller
 
         foreach ($prefixes as $prefix) {
             $base = $prefix === '' ? '' : $prefix.'/';
-            $hasAll = true;
-            foreach ($required as $requiredFile) {
-                if (! in_array($base.$requiredFile, $names, true)) {
-                    $hasAll = false;
-                    break;
+            foreach ($requiredSets as $required) {
+                $hasAll = true;
+                foreach ($required as $requiredFile) {
+                    if (! in_array($base.$requiredFile, $names, true)) {
+                        $hasAll = false;
+                        break;
+                    }
                 }
-            }
-            if ($hasAll) {
-                return $base;
+                if ($hasAll) {
+                    return $base;
+                }
             }
         }
 
         throw ValidationException::withMessages(['backup' => ['ZIP-bestand bevat geen volledige DIS backup.']]);
+    }
+
+    /**
+     * @param array<int, string> $required
+     */
+    private function containsRequiredBackupFiles(string $path, array $required): bool
+    {
+        foreach ($required as $filename) {
+            if (! is_file($path.'/'.$filename)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function safeZipRelativePath(string $entry, string $prefix): ?string
@@ -773,6 +794,7 @@ final class BackupController extends Controller
             'version' => $manifest['version'] ?? null,
             'git_commit' => $manifest['git_commit'] ?? null,
             'includes' => is_array($manifest['includes'] ?? null) ? $manifest['includes'] : [],
+            'encrypted' => ($manifest['encrypted'] ?? false) === true && is_file($path.'/backup.payload.enc'),
             'size_bytes' => $this->directorySize($path),
             'has_manifest' => is_file($manifestPath) && is_readable($manifestPath),
             'has_checksums' => is_file($path.'/SHA256SUMS') && is_readable($path.'/SHA256SUMS'),

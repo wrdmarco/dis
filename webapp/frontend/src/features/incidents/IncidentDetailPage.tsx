@@ -1,6 +1,7 @@
 'use client';
 
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { BellRing, Clock, CloudSun, Download, MapPin, MessageSquare, Pencil, Plane, RadioTower, RefreshCw, Send, Trash2, TrendingUp, Users, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Panel } from '../../components/Panel';
@@ -10,9 +11,8 @@ import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { DispatchPreview, DispatchRequest, DroneFlightContext, Incident, IncidentFormConfig, IncidentInternalNotes, IncidentLiveLocation, IncidentTimelineItem, ReportIncident, Team, User } from '../../types/api';
+import type { DispatchPreview, DispatchRequest, DroneFlightContext, Incident, IncidentInternalNotes, IncidentLiveLocation, IncidentTimelineItem, ReportIncident, Team } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
-import { IncidentForm, type IncidentFormState, incidentPayload } from './IncidentsPage';
 
 const LIVE_LOCATION_STALE_MS = 5 * 60 * 1000;
 
@@ -29,13 +29,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const timeline = useApiResource<IncidentTimelineItem[]>(`/incidents/${incidentId}/timeline`, Boolean(incidentId));
   const reportIncidents = useApiResource<ReportIncident[]>('/reports/incidents?limit=100', Boolean(incidentId));
   const internalNotes = useApiResource<IncidentInternalNotes>(`/incidents/${incidentId}/internal-notes`, Boolean(incidentId) && hasPermission('incidents.manage'));
-  const users = useApiResource<User[]>('/users?per_page=200');
   const teams = useApiResource<Team[]>('/teams');
-  const incidentFormConfig = useApiResource<IncidentFormConfig>('/incident-form/config?target=web');
-  const [editForm, setEditForm] = useState<IncidentFormState | null>(null);
-  const [statusReason, setStatusReason] = useState('');
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [savingIncident, setSavingIncident] = useState(false);
   const [incidentError, setIncidentError] = useState<string | null>(null);
   const [dispatching, setDispatching] = useState(false);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
@@ -86,16 +80,6 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   );
 
   useEffect(() => {
-    const currentIncident = incident.data;
-    if (currentIncident == null || editModalOpen) {
-      return;
-    }
-
-    setEditForm(formFromIncident(currentIncident));
-    setStatusReason('');
-  }, [editModalOpen, incident.data]);
-
-  useEffect(() => {
     if (!incidentId || incident.data?.status === 'resolved' || incident.data?.status === 'cancelled') {
       return;
     }
@@ -110,41 +94,6 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   useEffect(() => {
     setInternalNotesText(internalNotes.data?.internal_notes ?? '');
   }, [internalNotes.data?.internal_notes]);
-
-  function openEditModal() {
-    if (incident.data !== undefined && incident.data !== null) {
-      setEditForm(formFromIncident(incident.data));
-    }
-    setStatusReason('');
-    setIncidentError(null);
-    setEditModalOpen(true);
-  }
-
-  const saveIncident = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (editForm === null) {
-      return;
-    }
-
-    setSavingIncident(true);
-    setIncidentError(null);
-    try {
-      await api.patch(`/incidents/${incidentId}`, {
-        ...incidentPayload(editForm),
-        status_reason: statusReason.trim() === '' ? null : statusReason,
-      });
-      setEditModalOpen(false);
-      await incident.reload();
-      await preview.reload();
-      await dispatches.reload();
-      await liveLocations.reload();
-      await timeline.reload();
-    } catch (err) {
-      setIncidentError(err instanceof ApiClientError ? err.message : 'Incident kon niet worden opgeslagen.');
-    } finally {
-      setSavingIncident(false);
-    }
-  };
 
   const activateIncident = async () => {
     if (!incidentId) {
@@ -451,9 +400,9 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
               </button>
             ) : null}
             {canManageIncidents ? (
-              <button className="secondary-button" type="button" onClick={openEditModal}>
+              <Link className="secondary-button" href={`/incidents/${incidentId}/edit`}>
                 <Pencil size={16} /> Aanpassen
-              </button>
+              </Link>
             ) : null}
             {canDeleteIncidents ? (
               <button className="danger-button" type="button" onClick={() => void deleteIncident()} disabled={deletingIncident}>
@@ -495,7 +444,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                 <SummaryItem label="Onderweg" value={latestDispatch ? String(countOperatorStatuses(latestDispatch, 'en_route')) : '-'} />
                 <SummaryItem label="Live locaties" value={String(liveSharedCount)} />
               </div>
-              {incidentError && !editModalOpen ? <p className="form-error">{incidentError}</p> : null}
+              {incidentError ? <p className="form-error">{incidentError}</p> : null}
               {reportError ? <p className="form-error">{reportError}</p> : null}
               <div className="incident-overview incident-overview--text">
                 <SummaryItem label="Benodigde middelen" value={incident.data.required_resources ?? '-'} />
@@ -836,40 +785,6 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
         </div>
       ) : null}
 
-      {editModalOpen && editForm !== null && canManageIncidents ? (
-        <div className="modal-backdrop" role="presentation">
-          <section className="modal modal--incident-form" role="dialog" aria-modal="true" aria-labelledby="incident-edit-title">
-            <header className="modal__header">
-              <h2 id="incident-edit-title">Incident aanpassen</h2>
-              <button className="icon-button" type="button" onClick={() => setEditModalOpen(false)} aria-label="Sluiten">
-                <X size={18} />
-              </button>
-            </header>
-            <IncidentForm
-              form={editForm}
-              users={users.data ?? []}
-              teams={teams.data ?? []}
-              customFields={incidentFormConfig.data?.fields ?? []}
-              layout={incidentFormConfig.data?.layout ?? []}
-              enforceConfiguredRequiredFixedInputs={false}
-              usersError={users.error}
-              teamsError={teams.error}
-              saving={savingIncident}
-              error={incidentError}
-              extraFields={(
-                <label className="form-grid__wide">
-                  Reden statuswijziging
-                  <input value={statusReason} maxLength={1000} onChange={(event) => setStatusReason(event.target.value)} />
-                </label>
-              )}
-              submitLabel="Incident opslaan"
-              onCancel={() => setEditModalOpen(false)}
-              onSubmit={saveIncident}
-              onChange={(updater) => setEditForm((current) => current === null ? current : updater(current))}
-            />
-          </section>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -979,41 +894,6 @@ function MetaItem({ icon, label, value }: { icon: ReactNode; label: string; valu
       <dd>{value}</dd>
     </>
   );
-}
-
-function formFromIncident(incident: Incident): IncidentFormState {
-  const customFields = {
-    ...(incident.custom_fields ?? {}),
-    reporter_name: (incident.custom_fields ?? {}).reporter_name ?? incident.reporter_name ?? '',
-    reporter_phone: (incident.custom_fields ?? {}).reporter_phone ?? incident.reporter_phone ?? '',
-    requesting_organization: (incident.custom_fields ?? {}).requesting_organization ?? incident.requesting_organization ?? '',
-    requesting_unit: (incident.custom_fields ?? {}).requesting_unit ?? incident.requesting_unit ?? '',
-    on_scene_contact_name: (incident.custom_fields ?? {}).on_scene_contact_name ?? incident.on_scene_contact_name ?? '',
-    on_scene_contact_phone: (incident.custom_fields ?? {}).on_scene_contact_phone ?? incident.on_scene_contact_phone ?? '',
-    on_scene_contact_role: (incident.custom_fields ?? {}).on_scene_contact_role ?? incident.on_scene_contact_role ?? '',
-    required_resources: (incident.custom_fields ?? {}).required_resources ?? incident.required_resources ?? '',
-  };
-
-  return {
-    title: incident.title,
-    description: incident.description ?? '',
-    reporterName: String((incident.custom_fields ?? {}).reporter_name ?? incident.reporter_name ?? ''),
-    reporterPhone: String((incident.custom_fields ?? {}).reporter_phone ?? incident.reporter_phone ?? ''),
-    requestingOrganization: incident.requesting_organization ?? '',
-    requestingUnit: incident.requesting_unit ?? '',
-    onSceneContactName: incident.on_scene_contact_name ?? '',
-    onSceneContactPhone: incident.on_scene_contact_phone ?? '',
-    onSceneContactRole: incident.on_scene_contact_role ?? '',
-    requiredResources: incident.required_resources ?? '',
-    priority: incident.priority,
-    status: incident.status,
-    locationLabel: incident.location_label ?? '',
-    latitude: incident.latitude ?? '',
-    longitude: incident.longitude ?? '',
-    coordinatorId: incident.coordinator?.id ?? '',
-    teamIds: incident.teams?.length ? incident.teams.map((team) => team.id) : incident.team?.id ? [incident.team.id] : [],
-    customFields,
-  };
 }
 
 function incidentListReturnPath(status: Incident['status']): string {

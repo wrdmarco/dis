@@ -15,12 +15,12 @@ final class OperationalMapService
      *     pilot_homes: list<array{id: string, name: string, home_city: string|null, latitude: float, longitude: float, teams: list<string>}>
      * }
      */
-    public function layers(): array
+    public function layers(bool $includePilotHomes = false): array
     {
         return [
             'command_centers' => $this->commandCenters(),
             'historical_incidents' => $this->historicalIncidents(),
-            'pilot_homes' => $this->pilotHomes(),
+            'pilot_homes' => $includePilotHomes ? $this->pilotHomes() : [],
         ];
     }
 

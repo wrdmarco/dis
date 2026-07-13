@@ -168,10 +168,10 @@ export function LoginPage() {
               </>
             ) : (
               <label>
-                2FA-code
+                Authenticator- of herstelcode
                 <div className="input-with-icon">
                   <KeyRound size={17} />
-                  <input inputMode="numeric" pattern="[0-9]{6}" value={code} onChange={(event) => setCode(event.target.value)} required autoComplete="one-time-code" />
+                  <input value={code} maxLength={32} onChange={(event) => setCode(event.target.value)} required autoComplete="one-time-code" />
                 </div>
               </label>
             )}

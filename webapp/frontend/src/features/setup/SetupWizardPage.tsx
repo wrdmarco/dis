@@ -232,7 +232,7 @@ export function SetupWizardPage() {
               <strong>Setup is afgerond.</strong>
               <p>Verdere wijzigingen beheer je via het adminpaneel.</p>
             </div>
-            <Link className="primary-button" href={completed ? '/' : '/login'}>{completed ? 'Naar dashboard' : 'Naar login'}</Link>
+            <Link className="primary-button" href="/login">Naar login</Link>
           </div>
         ) : null}
 

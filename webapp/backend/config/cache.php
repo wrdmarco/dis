@@ -3,6 +3,10 @@
 return [
     'default' => env('CACHE_STORE', 'redis'),
     'stores' => [
+        'array' => [
+            'driver' => 'array',
+            'serialize' => false,
+        ],
         'database' => [
             'driver' => 'database',
             'connection' => env('DB_CACHE_CONNECTION'),
@@ -18,4 +22,3 @@ return [
     ],
     'prefix' => env('CACHE_PREFIX', 'dis_cache_'),
 ];
-

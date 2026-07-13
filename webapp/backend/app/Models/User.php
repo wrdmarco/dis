@@ -184,7 +184,7 @@ final class User extends Authenticatable
         return $this->teams()->where('teams.code', $code)->exists();
     }
 
-    private function currentClientType(): string
+    public function currentClientType(): string
     {
         $token = $this->currentAccessToken();
         $abilities = is_array($token?->abilities ?? null) ? $token->abilities : [];
@@ -198,6 +198,9 @@ final class User extends Authenticatable
         if (in_array('client:web', $abilities, true)) {
             return 'web';
         }
+        if (in_array('client:store_review', $abilities, true)) {
+            return 'store_review';
+        }
 
         $tokenName = is_string($token?->name ?? null) ? strtolower($token->name) : '';
         if (str_contains($tokenName, 'admin android')) {
@@ -208,5 +211,15 @@ final class User extends Authenticatable
         }
 
         return 'web';
+    }
+
+    public function isOperatorClient(): bool
+    {
+        return $this->currentClientType() === 'operator';
+    }
+
+    public function isAdminClient(): bool
+    {
+        return $this->currentClientType() === 'admin';
     }
 }

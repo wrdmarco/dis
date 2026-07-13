@@ -25,9 +25,32 @@ final class AuditService
             'target_id' => is_string($target) ? null : (string) $target->getKey(),
             'ip_address' => $request?->ip(),
             'user_agent' => $request?->userAgent(),
-            'metadata' => $metadata === [] ? null : $metadata,
+            'metadata' => $metadata === [] ? null : $this->sanitizeMetadata($metadata),
             'reason' => $reason,
             'created_at' => now(),
         ]);
+    }
+
+    /**
+     * @param array<string, mixed> $metadata
+     * @return array<string, mixed>
+     */
+    private function sanitizeMetadata(array $metadata): array
+    {
+        $sensitiveFragments = ['password', 'secret', 'token', 'api_key', 'private_key', 'recovery_code', 'authorization'];
+
+        foreach ($metadata as $key => $value) {
+            $normalizedKey = mb_strtolower((string) $key);
+            if (collect($sensitiveFragments)->contains(fn (string $fragment): bool => str_contains($normalizedKey, $fragment))) {
+                $metadata[$key] = '[REDACTED]';
+                continue;
+            }
+
+            if (is_array($value)) {
+                $metadata[$key] = $this->sanitizeMetadata($value);
+            }
+        }
+
+        return $metadata;
     }
 }

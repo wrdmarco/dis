@@ -19,6 +19,7 @@ final class MobilePairingService
     private const TTL_SECONDS = 30;
     private const STORE_REVIEW_PAIRING_TTL_SECONDS = 21600;
     private const STORE_REVIEW_TOKEN_TTL_HOURS = 24;
+    private const MOBILE_TOKEN_TTL_DAYS = 180;
     private const STORE_REVIEW_MODE = 'store_android';
     private const STORE_REVIEW_EMAIL = 'google-play-review@system.dis.local';
 
@@ -225,7 +226,7 @@ final class MobilePairingService
             ], null, $request);
 
             return [
-                'token' => $user->createToken($deviceName, ['*', $this->clientAbility($clientType)])->plainTextToken,
+                'token' => $user->createToken($deviceName, ['*', $this->clientAbility($clientType)], now()->addDays(self::MOBILE_TOKEN_TTL_DAYS))->plainTextToken,
                 'user' => MobileApiPayload::user($user->load(['roles', 'teams'])),
                 'client_type' => $clientType,
             ];

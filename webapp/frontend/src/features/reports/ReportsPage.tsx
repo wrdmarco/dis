@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Download, FileText, MessageCircleOff, Users } from 'lucide-react';
 import Link from 'next/link';
 import { Panel } from '../../components/Panel';
@@ -8,20 +8,14 @@ import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { ConfigurableFormField, DispatchStatistics, DispatchStatisticsIncidentSummary, PilotIncidentReport, PilotReportFormConfig, ReportIncident } from '../../types/api';
+import type { ConfigurableFormField, DispatchStatistics, DispatchStatisticsIncidentSummary, ReportIncident } from '../../types/api';
 
 export function ReportsPage() {
-  const { api } = useAuth();
+  const { api, hasPermission } = useAuth();
   const [incidentLimit, setIncidentLimit] = useState(5);
   const [reportDownloadingId, setReportDownloadingId] = useState<string | null>(null);
   const [reportError, setReportError] = useState<string | null>(null);
-  const [adminReportTarget, setAdminReportTarget] = useState<{ incident: ReportIncident; user: ReportIncident['missing_pilot_reports'][number] } | null>(null);
-  const [adminReport, setAdminReport] = useState<PilotIncidentReport | null>(null);
-  const [adminReportFields, setAdminReportFields] = useState<ConfigurableFormField[]>([]);
-  const [adminReportValues, setAdminReportValues] = useState<Record<string, unknown>>({});
-  const [adminReportLoading, setAdminReportLoading] = useState(false);
-  const [adminReportSaving, setAdminReportSaving] = useState(false);
-  const [adminReportError, setAdminReportError] = useState<string | null>(null);
+  const canManageIncidents = hasPermission('incidents.manage');
   const resourcePath = useMemo(() => `/reports/dispatch-statistics?incident_limit=${incidentLimit}`, [incidentLimit]);
   const statistics = useApiResource<DispatchStatistics>(resourcePath);
   const reportIncidents = useApiResource<ReportIncident[]>('/reports/incidents?limit=50');
@@ -53,68 +47,6 @@ export function ReportsPage() {
       setReportError(err instanceof ApiClientError ? err.message : 'Rapport kon niet worden gedownload.');
     } finally {
       setReportDownloadingId(null);
-    }
-  }
-
-  async function openAdminPilotReport(incident: ReportIncident, user: ReportIncident['missing_pilot_reports'][number]) {
-    setAdminReportTarget({ incident, user });
-    setAdminReport(null);
-    setAdminReportFields([]);
-    setAdminReportValues({});
-    setAdminReportError(null);
-    setAdminReportLoading(true);
-
-    try {
-      const [configResponse, reportResponse] = await Promise.all([
-        api.get<PilotReportFormConfig>(`/pilot-report/form-config?target=web&user_id=${encodeURIComponent(user.user_id)}`),
-        api.get<PilotIncidentReport>(`/incidents/${incident.id}/pilot-reports/${user.user_id}`),
-      ]);
-      setAdminReportFields(configResponse.data.fields);
-      setAdminReport(reportResponse.data);
-      setAdminReportValues(reportResponse.data.custom_fields ?? {});
-    } catch (err) {
-      setAdminReportError(err instanceof ApiClientError ? err.message : 'Inzetrapport kon niet worden geladen.');
-    } finally {
-      setAdminReportLoading(false);
-    }
-  }
-
-  async function saveAdminPilotReport(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (adminReportTarget === null) {
-      return;
-    }
-
-    setAdminReportSaving(true);
-    setAdminReportError(null);
-    try {
-      const response = await api.patch<PilotIncidentReport>(`/incidents/${adminReportTarget.incident.id}/pilot-reports/${adminReportTarget.user.user_id}`, {
-        custom_fields: adminReportValues,
-      });
-      setAdminReport(response.data);
-      await reportIncidents.reload();
-    } catch (err) {
-      setAdminReportError(err instanceof ApiClientError ? err.message : 'Inzetrapport kon niet worden opgeslagen.');
-    } finally {
-      setAdminReportSaving(false);
-    }
-  }
-
-  async function finalizeAdminPilotReport() {
-    if (adminReportTarget === null || adminReport?.status !== 'submitted' || adminReport.can_edit === false) {
-      return;
-    }
-
-    setAdminReportSaving(true);
-    setAdminReportError(null);
-    try {
-      const response = await api.post<PilotIncidentReport>(`/incidents/${adminReportTarget.incident.id}/pilot-reports/${adminReportTarget.user.user_id}/finalize`, {});
-      setAdminReport(response.data);
-      await reportIncidents.reload();
-    } catch (err) {
-      setAdminReportError(err instanceof ApiClientError ? err.message : 'Inzetrapport kon niet definitief worden gemaakt.');
-    } finally {
-      setAdminReportSaving(false);
     }
   }
 
@@ -158,7 +90,7 @@ export function ReportsPage() {
                       {incident.submitted_pilot_report_count}/{incident.expected_pilot_report_count}
                     </td>
                     <td data-label="Status inzetrapporten">
-                      <MissingPilotReports incident={incident} onFill={openAdminPilotReport} />
+                      <MissingPilotReports incident={incident} canManage={canManageIncidents} />
                     </td>
                     <td data-label="Rapport">
                       <button className="secondary-button" type="button" onClick={() => void downloadReport(incident)} disabled={reportDownloadingId === incident.id}>
@@ -270,55 +202,11 @@ export function ReportsPage() {
         </ResourceState>
       </Panel>
 
-      {adminReportTarget ? (
-        <div className="modal-backdrop" role="presentation">
-          <section className="modal modal--incident-form" role="dialog" aria-modal="true" aria-labelledby="admin-pilot-report-title">
-            <header className="modal__header">
-              <h2 id="admin-pilot-report-title">Inzetrapport invullen</h2>
-              <button className="icon-button" type="button" onClick={() => setAdminReportTarget(null)} aria-label="Sluiten">×</button>
-            </header>
-            <form className="form-grid" onSubmit={saveAdminPilotReport}>
-              <div className="form-grid__wide">
-                <span className="field-label">Namens</span>
-                <strong>{adminReportTarget.user.name}</strong>
-                <p className="muted-text">{adminReportTarget.incident.reference} - {adminReportTarget.incident.title}</p>
-              </div>
-              {adminReport?.can_edit === false ? (
-                <p className="form-note form-grid__wide">Dit inzetrapport is definitief en kan niet meer worden aangepast.</p>
-              ) : adminReport?.status === 'submitted' ? (
-                <p className="form-note form-grid__wide">Dit inzetrapport is ingediend en blijft wijzigbaar totdat het definitief wordt gemaakt.</p>
-              ) : null}
-              {adminReportLoading ? <p className="form-grid__wide muted-text">Inzetrapport laden...</p> : null}
-              {adminReportFields.filter((field) => field.visible).map((field) => (
-                <PilotReportField
-                  field={field}
-                  value={adminReportValues[field.key]}
-                  onChange={(value) => setAdminReportValues((current) => ({ ...current, [field.key]: value }))}
-                  disabled={adminReport?.can_edit === false}
-                  key={field.key}
-                />
-              ))}
-              {adminReportError ? <p className="form-error form-grid__wide">{adminReportError}</p> : null}
-              <div className="form-actions form-grid__wide">
-                <button className="secondary-button" type="button" onClick={() => setAdminReportTarget(null)}>Annuleren</button>
-                <button className="primary-button" type="submit" disabled={adminReportLoading || adminReportSaving || adminReport?.can_edit === false}>
-                  {adminReportSaving ? 'Opslaan...' : 'Rapport opslaan'}
-                </button>
-                {adminReport?.status === 'submitted' && adminReport.can_edit !== false ? (
-                  <button className="secondary-button" type="button" onClick={() => void finalizeAdminPilotReport()} disabled={adminReportSaving}>
-                    Definitief maken
-                  </button>
-                ) : null}
-              </div>
-            </form>
-          </section>
-        </div>
-      ) : null}
     </div>
   );
 }
 
-function MissingPilotReports({ incident, onFill }: { incident: ReportIncident; onFill: (incident: ReportIncident, user: ReportIncident['missing_pilot_reports'][number]) => void }) {
+function MissingPilotReports({ incident, canManage }: { incident: ReportIncident; canManage: boolean }) {
   const unfinalized = incident.unfinalized_pilot_reports ?? [];
   if (incident.missing_pilot_report_count === 0 && unfinalized.length === 0) {
     return <span className="muted-text">Compleet en definitief</span>;
@@ -326,21 +214,21 @@ function MissingPilotReports({ incident, onFill }: { incident: ReportIncident; o
 
   return (
     <div className="missing-report-list">
-      {unfinalized.map((report) => (
-        <button className="secondary-button" type="button" onClick={() => onFill(incident, report)} key={`unfinalized-${report.user_id}`} title={report.email ?? undefined}>
+      {unfinalized.map((report) => canManage ? (
+        <Link className="secondary-button" href={`/reports/incidents/${incident.id}/pilot-reports/${report.user_id}`} key={`unfinalized-${report.user_id}`} title={report.email ?? undefined}>
           {report.name} definitief maken
-        </button>
-      ))}
-      {incident.missing_pilot_reports.map((report) => (
-        <button className="secondary-button" type="button" onClick={() => onFill(incident, report)} key={`missing-${report.user_id}`} title={report.email ?? undefined}>
+        </Link>
+      ) : <span key={`unfinalized-${report.user_id}`}>{report.name}: ingediend</span>)}
+      {incident.missing_pilot_reports.map((report) => canManage ? (
+        <Link className="secondary-button" href={`/reports/incidents/${incident.id}/pilot-reports/${report.user_id}`} key={`missing-${report.user_id}`} title={report.email ?? undefined}>
           {report.name} invullen
-        </button>
-      ))}
+        </Link>
+      ) : <span key={`missing-${report.user_id}`}>{report.name}: ontbreekt</span>)}
     </div>
   );
 }
 
-function PilotReportField({ field, value, onChange, disabled = false }: { field: ConfigurableFormField; value: unknown; onChange: (value: unknown) => void; disabled?: boolean }) {
+export function PilotReportField({ field, value, onChange, disabled = false }: { field: ConfigurableFormField; value: unknown; onChange: (value: unknown) => void; disabled?: boolean }) {
   if (field.type === 'section') {
     return <div className="form-grid__wide section-heading"><h3>{field.label}</h3></div>;
   }

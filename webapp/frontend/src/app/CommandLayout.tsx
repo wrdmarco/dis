@@ -43,7 +43,7 @@ const navGroups: NavGroup[] = [
     label: 'Operatie',
     items: [
       { to: '/incidents', label: 'Actieve meldingen', icon: RadioTower, end: true, permissions: ['incidents.view'] },
-      { to: '/operational-map', label: 'Kaart', icon: MapIcon, permissions: ['incidents.view'] },
+      { to: '/operational-map', label: 'Kaart', icon: MapIcon, permissions: ['operational-map.view'] },
       { to: '/incidents/archive', label: 'Archief', icon: Archive, permissions: ['incidents.view'] },
       { to: '/operational-status', label: 'Status', icon: Workflow, permissions: ['status.view'] },
       { to: '/calendar', label: 'Agenda', icon: CalendarDays },
@@ -73,11 +73,11 @@ const navGroups: NavGroup[] = [
     label: 'Beheer',
     items: [
       { to: '/forms', label: 'Formulieren', icon: FileText, permissions: ['settings.manage'] },
-      { to: '/admin', label: 'Admin', icon: Shield, permissions: ['settings.manage', 'settings.push.tokens.manage', 'system.health'], anyPermission: true },
+      { to: '/admin', label: 'Admin', icon: Shield, permissions: ['settings.manage', 'settings.push.tokens.manage', 'system.health.view', 'system.developer-access.manage'], anyPermission: true },
       { to: '/branding', label: 'Branding', icon: Palette, permissions: ['settings.manage'] },
       { to: '/audit', label: 'Audit', icon: ScrollText, permissions: ['audit.view', 'status.audit.view'], anyPermission: true },
       { to: '/backups', label: 'Backups', icon: DatabaseBackup, permissions: ['backups.manage'] },
-      { to: '/system', label: 'Systeem', icon: Bell, permissions: ['system.health'] },
+      { to: '/system', label: 'Systeem', icon: Bell, permissions: ['system.health.view'] },
     ],
   },
 ];

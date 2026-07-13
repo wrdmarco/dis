@@ -25,7 +25,7 @@ final class EnsureTwoFactorComplete
             return ApiResponse::error('two_factor_required', 'Two-factor authentication must be completed first.', 403);
         }
 
-        if ($user !== null && ! $user->two_factor_enabled && $this->twoFactorService->isRequired()) {
+        if ($user !== null && ! $user->two_factor_enabled && $this->twoFactorService->isRequiredFor($user)) {
             return ApiResponse::error('two_factor_setup_required', 'Two-factor authentication setup is required for this account.', 403);
         }
 

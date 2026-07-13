@@ -19,6 +19,7 @@ final class LocationService
     public function consent(Incident $incident, User $user): LocationSharingConsent
     {
         $this->ensureIncidentAllowsLocationSharing($incident);
+        $this->ensureAcceptedRecipient($incident, $user);
 
         $consent = LocationSharingConsent::query()->updateOrCreate(
             ['incident_id' => $incident->id, 'user_id' => $user->id],

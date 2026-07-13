@@ -1,7 +1,6 @@
 import { FormEvent, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { Archive, Clock, CloudSun, FileText, MapPin, Plane, Plus, RadioTower, Search, Users, X } from 'lucide-react';
+import { Archive, Clock, CloudSun, FileText, MapPin, Plane, Plus, RadioTower, Search, Users } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -10,7 +9,7 @@ import { formatDateTime } from '../../lib/dateTime';
 import { fetchLocationSuggestions, geocodeAddressLabel, lookupLocationSuggestion, type LocationSuggestion } from '../../lib/locationSearch';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { ConfigurableFormField, DroneFlightContext, Incident, IncidentFormConfig, IncidentFormLayoutItem, Team, User } from '../../types/api';
+import type { ConfigurableFormField, DroneFlightContext, Incident, IncidentFormLayoutItem, Team, User } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 
 export interface IncidentFormState {
@@ -34,26 +33,28 @@ export interface IncidentFormState {
   customFields: Record<string, unknown>;
 }
 
-const emptyIncidentForm: IncidentFormState = {
-  title: '',
-  description: '',
-  reporterName: '',
-  reporterPhone: '',
-  requestingOrganization: '',
-  requestingUnit: '',
-  onSceneContactName: '',
-  onSceneContactPhone: '',
-  onSceneContactRole: '',
-  requiredResources: '',
-  priority: 'normal',
-  status: 'draft',
-  locationLabel: '',
-  latitude: '',
-  longitude: '',
-  coordinatorId: '',
-  teamIds: [],
-  customFields: {},
-};
+export function createEmptyIncidentForm(): IncidentFormState {
+  return {
+    title: '',
+    description: '',
+    reporterName: '',
+    reporterPhone: '',
+    requestingOrganization: '',
+    requestingUnit: '',
+    onSceneContactName: '',
+    onSceneContactPhone: '',
+    onSceneContactRole: '',
+    requiredResources: '',
+    priority: 'normal',
+    status: 'draft',
+    locationLabel: '',
+    latitude: '',
+    longitude: '',
+    coordinatorId: '',
+    teamIds: [],
+    customFields: {},
+  };
+}
 
 type IncidentPageMode = 'active' | 'archive';
 
@@ -61,16 +62,8 @@ const activeIncidentStatuses: Incident['status'][] = ['draft', 'active', 'dispat
 const archiveIncidentStatuses: Incident['status'][] = ['resolved', 'cancelled'];
 
 export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) {
-  const { api, hasPermission } = useAuth();
-  const router = useRouter();
+  const { hasPermission } = useAuth();
   const incidents = useApiResource<Incident[]>(incidentListPath(mode));
-  const users = useApiResource<User[]>('/users?per_page=200');
-  const teams = useApiResource<Team[]>('/teams');
-  const incidentFormConfig = useApiResource<IncidentFormConfig>('/incident-form/config?target=web');
-  const [form, setForm] = useState<IncidentFormState>(emptyIncidentForm);
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const incidentList = filterIncidentsForMode(incidents.data ?? [], mode);
   const activeCount = incidentList.filter((incident) => ['active', 'dispatching', 'in_progress'].includes(incident.status)).length;
   const draftCount = incidentList.filter((incident) => incident.status === 'draft').length;
@@ -81,38 +74,15 @@ export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) 
   const emptyText = mode === 'archive' ? 'Geen afgeronde of geannuleerde meldingen gevonden.' : 'Geen actieve meldingen of concepten gevonden.';
   const canManageIncidents = hasPermission('incidents.manage');
 
-  const createIncident = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setCreating(true);
-    setError(null);
-    try {
-      const response = await api.post<Incident>('/incidents', incidentPayload(form));
-      setForm(emptyIncidentForm);
-      setCreateModalOpen(false);
-      await incidents.reload();
-      router.push(`/incidents/${response.data.id}`);
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'Incident kon niet worden aangemaakt.');
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  function openCreateModal() {
-    setForm(emptyIncidentForm);
-    setError(null);
-    setCreateModalOpen(true);
-  }
-
   return (
     <div className="page-stack incident-page">
       <RealtimeBridge onOperationalEvent={() => void incidents.silentReload()} />
       <Panel
         title={pageTitle}
         action={mode === 'active' && canManageIncidents ? (
-          <button className="primary-button" type="button" onClick={openCreateModal}>
+          <Link className="primary-button" href="/incidents/new">
             <Plus size={16} /> Incident aanmaken
-          </button>
+          </Link>
         ) : null}
       >
         <ResourceState loading={incidents.loading} error={incidents.error} empty={false}>
@@ -150,33 +120,6 @@ export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) 
         </ResourceState>
       </Panel>
 
-      {createModalOpen && canManageIncidents ? (
-        <div className="modal-backdrop" role="presentation">
-          <section className="modal modal--incident-form" role="dialog" aria-modal="true" aria-labelledby="incident-create-title">
-            <header className="modal__header">
-              <h2 id="incident-create-title">Incident aanmaken</h2>
-              <button className="icon-button" type="button" onClick={() => setCreateModalOpen(false)} aria-label="Sluiten">
-                <X size={18} />
-              </button>
-            </header>
-            <IncidentForm
-              form={form}
-              users={users.data ?? []}
-              teams={teams.data ?? []}
-              customFields={incidentFormConfig.data?.fields ?? []}
-              layout={incidentFormConfig.data?.layout ?? []}
-              usersError={users.error}
-              teamsError={teams.error}
-              saving={creating}
-              error={error}
-              submitLabel="Incident aanmaken"
-              onCancel={() => setCreateModalOpen(false)}
-              onSubmit={createIncident}
-              onChange={setForm}
-            />
-          </section>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -1428,6 +1371,41 @@ export function incidentPayload(form: IncidentFormState): Record<string, unknown
     team_id: form.teamIds[0] ?? null,
     team_ids: form.teamIds,
     custom_fields: customFields,
+  };
+}
+
+export function formFromIncident(incident: Incident): IncidentFormState {
+  const customFields = {
+    ...(incident.custom_fields ?? {}),
+    reporter_name: (incident.custom_fields ?? {}).reporter_name ?? incident.reporter_name ?? '',
+    reporter_phone: (incident.custom_fields ?? {}).reporter_phone ?? incident.reporter_phone ?? '',
+    requesting_organization: (incident.custom_fields ?? {}).requesting_organization ?? incident.requesting_organization ?? '',
+    requesting_unit: (incident.custom_fields ?? {}).requesting_unit ?? incident.requesting_unit ?? '',
+    on_scene_contact_name: (incident.custom_fields ?? {}).on_scene_contact_name ?? incident.on_scene_contact_name ?? '',
+    on_scene_contact_phone: (incident.custom_fields ?? {}).on_scene_contact_phone ?? incident.on_scene_contact_phone ?? '',
+    on_scene_contact_role: (incident.custom_fields ?? {}).on_scene_contact_role ?? incident.on_scene_contact_role ?? '',
+    required_resources: (incident.custom_fields ?? {}).required_resources ?? incident.required_resources ?? '',
+  };
+
+  return {
+    title: incident.title,
+    description: incident.description ?? '',
+    reporterName: String((incident.custom_fields ?? {}).reporter_name ?? incident.reporter_name ?? ''),
+    reporterPhone: String((incident.custom_fields ?? {}).reporter_phone ?? incident.reporter_phone ?? ''),
+    requestingOrganization: incident.requesting_organization ?? '',
+    requestingUnit: incident.requesting_unit ?? '',
+    onSceneContactName: incident.on_scene_contact_name ?? '',
+    onSceneContactPhone: incident.on_scene_contact_phone ?? '',
+    onSceneContactRole: incident.on_scene_contact_role ?? '',
+    requiredResources: incident.required_resources ?? '',
+    priority: incident.priority,
+    status: incident.status,
+    locationLabel: incident.location_label ?? '',
+    latitude: incident.latitude ?? '',
+    longitude: incident.longitude ?? '',
+    coordinatorId: incident.coordinator?.id ?? '',
+    teamIds: incident.teams?.length ? incident.teams.map((team) => team.id) : incident.team?.id ? [incident.team.id] : [],
+    customFields,
   };
 }
 

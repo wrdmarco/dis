@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\SystemSetting;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 final class TwoFactorService
@@ -14,6 +15,11 @@ final class TwoFactorService
     public function isRequired(): bool
     {
         return SystemSetting::boolean(self::REQUIRED_KEY, self::DEFAULT_REQUIRED);
+    }
+
+    public function isRequiredFor(User $user): bool
+    {
+        return $this->isRequired() || $user->canUseAdminApp();
     }
 
     public function generateSecret(int $length = 32): string
@@ -88,6 +94,39 @@ final class TwoFactorService
         return false;
     }
 
+    public function verifyForLogin(User $user, string $code): bool
+    {
+        if ($this->verify($user, $code)) {
+            $replayKey = 'mfa:totp-used:'.$user->id.':'.hash('sha256', preg_replace('/\s+/', '', $code) ?? $code);
+
+            return Cache::add($replayKey, true, now()->addSeconds(90));
+        }
+
+        return $this->consumeRecoveryCode($user, $code);
+    }
+
+    public function consumeRecoveryCode(User $user, string $code): bool
+    {
+        $normalized = $this->normalizeRecoveryCode($code);
+        if ($normalized === '') {
+            return false;
+        }
+
+        $recoveryCodes = is_array($user->two_factor_recovery_codes) ? $user->two_factor_recovery_codes : [];
+        foreach ($recoveryCodes as $index => $candidate) {
+            if (! is_string($candidate) || ! hash_equals($this->normalizeRecoveryCode($candidate), $normalized)) {
+                continue;
+            }
+
+            unset($recoveryCodes[$index]);
+            $user->forceFill(['two_factor_recovery_codes' => array_values($recoveryCodes)])->save();
+
+            return true;
+        }
+
+        return false;
+    }
+
     private function totp(string $base32Secret, int $timestamp): string
     {
         $counter = intdiv($timestamp, 30);
@@ -121,5 +160,10 @@ final class TwoFactorService
         }
 
         return $binary;
+    }
+
+    private function normalizeRecoveryCode(string $code): string
+    {
+        return strtoupper(preg_replace('/[^A-Za-z0-9]/', '', trim($code)) ?? '');
     }
 }

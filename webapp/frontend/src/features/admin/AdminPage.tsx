@@ -116,7 +116,7 @@ interface DeveloperKeyForm {
 
 function adminTabAllowed(
   tab: AdminTab,
-  permissions: { canManageSettings: boolean; canManagePushTokens: boolean; canViewSystemHealth: boolean },
+  permissions: { canManageSettings: boolean; canManagePushTokens: boolean; canViewSystemHealth: boolean; canManageDeveloperAccess: boolean },
 ): boolean {
   if (tab === 'tokens') {
     return permissions.canManagePushTokens;
@@ -124,6 +124,10 @@ function adminTabAllowed(
 
   if (tab === 'version') {
     return permissions.canViewSystemHealth;
+  }
+
+  if (tab === 'developer') {
+    return permissions.canManageDeveloperAccess;
   }
 
   return permissions.canManageSettings;
@@ -134,11 +138,14 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const availableTabs = mode === 'forms' ? formTabs : adminTabs;
   const canManageSettings = hasPermission('settings.manage');
   const canManagePushTokens = hasPermission('settings.push.tokens.manage');
-  const canViewSystemHealth = hasPermission('system.health');
-  const visibleAdminTabs = availableTabs.filter((tab) => adminTabAllowed(tab.id, { canManageSettings, canManagePushTokens, canViewSystemHealth }));
+  const canViewSystemHealth = hasPermission('system.health.view');
+  const canManageDeveloperAccess = hasPermission('system.developer-access.manage');
+  const canExecuteSystemUpdate = hasPermission('system.update.execute');
+  const canExecuteSystemReboot = hasPermission('system.reboot.execute');
+  const visibleAdminTabs = availableTabs.filter((tab) => adminTabAllowed(tab.id, { canManageSettings, canManagePushTokens, canViewSystemHealth, canManageDeveloperAccess }));
   const settings = useApiResource<SystemSetting[]>('/admin/settings', canManageSettings && mode === 'admin');
   const tokens = useApiResource<FcmToken[]>('/admin/push/tokens?per_page=100', canManagePushTokens && mode === 'admin');
-  const developerAccess = useApiResource<DeveloperAccessState>('/admin/developer-access', canManageSettings && mode === 'admin');
+  const developerAccess = useApiResource<DeveloperAccessState>('/admin/developer-access', canManageDeveloperAccess && mode === 'admin');
   const storeReviewStatus = useApiResource<StoreReviewStatus>('/admin/store-review/status', canManageSettings && mode === 'admin');
   const systemVersion = useApiResource<SystemVersionState>('/admin/system/version', canViewSystemHealth && mode === 'admin');
   const pilotReportFormConfig = useApiResource<PilotReportFormConfig>('/admin/pilot-report/form-config', canManageSettings && mode === 'forms');
@@ -1089,6 +1096,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               />
               MFA verplichten voor alle gebruikers
             </label>
+            <p className="form-note form-grid__wide">Beheerders en coordinatoren met toegang tot de admin-app gebruiken altijd MFA, ook als deze algemene instelling uit staat.</p>
             <label>
               Authenticator naam
               <input
@@ -1278,30 +1286,36 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
                 <button className="secondary-button" type="button" onClick={() => void systemVersion.reload()}>
                   Controleer opnieuw
                 </button>
-                <button
-                  className="primary-button"
-                  type="button"
-                  disabled={updateStarting || updaterStatus?.state === 'running' || systemVersion.data === null}
-                  onClick={() => void startServerUpdate(false)}
-                >
-                  {updaterStatus?.state === 'running' ? 'Update draait...' : updateStarting ? 'Starten...' : 'App update'}
-                </button>
-                <button
-                  className="primary-button"
-                  type="button"
-                  disabled={updateStarting || updaterStatus?.state === 'running' || systemVersion.data === null}
-                  onClick={() => void startServerUpdate(true)}
-                >
-                  {updaterStatus?.state === 'running' ? 'Update draait...' : updateStarting ? 'Starten...' : 'Systeem update'}
-                </button>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  disabled={rebootStarting || updaterStatus?.state === 'running' || !(updaterStatus?.reboot_required ?? systemVersion.data?.system?.reboot_required)}
-                  onClick={() => void rebootServer()}
-                >
-                  {rebootStarting ? 'Herstarten...' : 'Server herstarten'}
-                </button>
+                {canExecuteSystemUpdate ? (
+                  <>
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={updateStarting || updaterStatus?.state === 'running' || systemVersion.data === null}
+                      onClick={() => void startServerUpdate(false)}
+                    >
+                      {updaterStatus?.state === 'running' ? 'Update draait...' : updateStarting ? 'Starten...' : 'App update'}
+                    </button>
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={updateStarting || updaterStatus?.state === 'running' || systemVersion.data === null}
+                      onClick={() => void startServerUpdate(true)}
+                    >
+                      {updaterStatus?.state === 'running' ? 'Update draait...' : updateStarting ? 'Starten...' : 'Systeem update'}
+                    </button>
+                  </>
+                ) : null}
+                {canExecuteSystemReboot ? (
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={rebootStarting || updaterStatus?.state === 'running' || !(updaterStatus?.reboot_required ?? systemVersion.data?.system?.reboot_required)}
+                    onClick={() => void rebootServer()}
+                  >
+                    {rebootStarting ? 'Herstarten...' : 'Server herstarten'}
+                  </button>
+                ) : null}
               </div>
             </ResourceState>
           </Panel>

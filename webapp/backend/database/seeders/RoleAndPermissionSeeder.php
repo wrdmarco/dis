@@ -15,10 +15,17 @@ final class RoleAndPermissionSeeder extends Seeder
     private array $permissions = [
         'users.view' => ['display_name' => 'Gebruikers bekijken', 'category' => 'user_management', 'description' => 'Bekijk gebruikers, teams, rollen, devices en operationele gebruikersstatus. Eigen profiel bekijken is standaard en heeft geen aparte permissie nodig.'],
         'users.manage' => ['display_name' => 'Gebruikers beheren', 'category' => 'user_management', 'description' => 'Maak gebruikers aan, wijzig accounts, koppel rollen/teams en beheer device-limieten.'],
+        'users.delete' => ['display_name' => 'Gebruikers verwijderen', 'category' => 'user_management', 'description' => 'Verwijder gebruikers en hun gekoppelde operationele gegevens permanent. Dit recht is standaard alleen voor systeembeheerders.'],
+        'users.credentials.manage' => ['display_name' => 'Inloggegevens beheren', 'category' => 'user_management', 'description' => 'Wijzig e-mailadres of wachtwoord van andere gebruikers. Dit recht is losgekoppeld van algemeen gebruikersbeheer.'],
+        'users.mfa.reset' => ['display_name' => 'MFA van gebruikers resetten', 'category' => 'user_management', 'description' => 'Verwijder de bestaande MFA-registratie zodat een gebruiker opnieuw moet koppelen.'],
+        'users.sessions.revoke' => ['display_name' => 'Gebruikerssessies intrekken', 'category' => 'user_management', 'description' => 'Trek web-, mobiele en device-sessies van een gebruiker direct in.'],
+        'users.login-lock.reset' => ['display_name' => 'Inlogblokkade opheffen', 'category' => 'user_management', 'description' => 'Hef een tijdelijke accountblokkade na mislukte inlogpogingen op.'],
         'address-book.view' => ['display_name' => 'Adresboek bekijken', 'category' => 'address_book', 'description' => 'Bekijk en doorzoek adresboekcontacten op naam, telefoonnummer en woonplaats.'],
         'roles.manage' => ['display_name' => 'Rollen en rechten beheren', 'category' => 'role_management', 'description' => 'Maak rollen aan, wijzig rolrechten en bepaal toegang tot operator- en admin-app.'],
+        'roles.delete' => ['display_name' => 'Rollen verwijderen', 'category' => 'role_management', 'description' => 'Verwijder ongebruikte rollen permanent. Dit recht is standaard alleen voor systeembeheerders.'],
         'teams.manage' => ['display_name' => 'Teams beheren', 'category' => 'team_management', 'description' => 'Beheer OCP, TUI, alarmeerteams en teamkoppelingen. TUI blijft een subset van OCP.'],
         'incidents.view' => ['display_name' => 'Incidenten bekijken', 'category' => 'incident_management', 'description' => 'Bekijk incidenten, details, tijdlijn en rapportstatus. Dit geeft geen recht om mensen te alarmeren of opkomst te bedienen.'],
+        'incidents.assigned.view' => ['display_name' => 'Eigen toegewezen incidenten bekijken', 'category' => 'incident_management', 'description' => 'Bekijk in de operator-app uitsluitend incidenten waarvoor de gebruiker zelf ontvanger of geaccepteerde opkomer is.'],
         'incidents.manage' => ['display_name' => 'Incidentregistratie beheren', 'category' => 'incident_management', 'description' => 'Maak en wijzig incidenten, beheer status, kladblokregels, afsluiten en annuleren. Alarmeren en opkomst vallen onder incidentalarmering.'],
         'incidents.delete' => ['display_name' => 'Incidenten verwijderen', 'category' => 'incident_management', 'description' => 'Verwijder incidenten en gekoppelde operationele gegevens permanent. Gebruik alleen voor beheer.'],
         'incidents.dispatch.view' => ['display_name' => 'Incidentalarmering bekijken', 'category' => 'incident_management', 'description' => 'Bekijk vooraankondigingen, alarmeringen, gealarmeerde teams/personen, reacties, opkomststatus en dispatch-statistieken bij incidenten.'],
@@ -35,7 +42,12 @@ final class RoleAndPermissionSeeder extends Seeder
         'settings.push.tokens.manage' => ['display_name' => 'Push tokens beheren', 'category' => 'system_configuration', 'description' => 'Bekijk, activeer en trek FCM tokens/devices in. Geeft geen recht om handmatige pushmeldingen te versturen.'],
         'settings.push.manual.send' => ['display_name' => 'Handmatige pushmeldingen versturen', 'category' => 'system_configuration', 'description' => 'Stuur handmatige pushmeldingen naar geselecteerde teams, rollen of gebruikers. Geeft geen recht om tokens in te trekken.'],
         'settings.manage' => ['display_name' => 'Systeeminstellingen beheren', 'category' => 'system_configuration', 'description' => 'Wijzig technische instellingen, formulieren, branding, mail en systeemconfiguratie.'],
-        'system.health' => ['display_name' => 'Systeemstatus bekijken', 'category' => 'system_configuration', 'description' => 'Bekijk queue, websocket, versie, updater en servicestatus.'],
+        'operational-map.view' => ['display_name' => 'Operationele kaart bekijken', 'category' => 'incident_management', 'description' => 'Bekijk de operationele kaart met meldkamers en incidentlocaties.'],
+        'operational-map.pilot-homes.view' => ['display_name' => 'Globale woonplaatsen op kaart bekijken', 'category' => 'incident_management', 'description' => 'Toon globale woonplaatscoordinaten van piloten op de operationele kaart.'],
+        'system.health.view' => ['display_name' => 'Systeemstatus bekijken', 'category' => 'system_configuration', 'description' => 'Bekijk queue, websocket, versie en servicestatus zonder beheersacties uit te voeren.'],
+        'system.update.execute' => ['display_name' => 'Systeemupdate uitvoeren', 'category' => 'system_configuration', 'description' => 'Start een serverupdate. Dit is een afzonderlijke bevoorrechte actie.'],
+        'system.reboot.execute' => ['display_name' => 'Server herstarten', 'category' => 'system_configuration', 'description' => 'Start een herstart van de DIS-server. Dit is een afzonderlijke bevoorrechte actie.'],
+        'system.developer-access.manage' => ['display_name' => 'Developer-toegang beheren', 'category' => 'system_configuration', 'description' => 'Maak of trek developer API-sleutels in en bekijk de developerconfiguratie.'],
         'backups.manage' => ['display_name' => 'Backups beheren', 'category' => 'system_configuration', 'description' => 'Maak, verifieer, herstel en configureer automatische backups.'],
     ];
 
@@ -59,7 +71,8 @@ final class RoleAndPermissionSeeder extends Seeder
                 'users.view', 'teams.manage', 'incidents.view', 'incidents.manage',
                 'incidents.dispatch.view', 'incidents.dispatch.manage', 'status.view', 'status.override',
                 'assets.view', 'assets.manage', 'certifications.view', 'audit.view',
-                'address-book.view', 'settings.push.tokens.manage', 'settings.push.manual.send', 'system.health',
+                'address-book.view', 'settings.push.tokens.manage', 'settings.push.manual.send', 'system.health.view',
+                'operational-map.view', 'operational-map.pilot-homes.view',
             ],
         ],
         'incident-coordinator' => [
@@ -71,6 +84,7 @@ final class RoleAndPermissionSeeder extends Seeder
                 'users.view', 'incidents.view', 'incidents.manage', 'incidents.dispatch.view',
                 'incidents.dispatch.manage', 'status.view', 'assets.view', 'certifications.view',
                 'address-book.view', 'settings.push.tokens.manage', 'settings.push.manual.send',
+                'operational-map.view', 'operational-map.pilot-homes.view',
             ],
         ],
         'operator-pilot' => [
@@ -79,8 +93,7 @@ final class RoleAndPermissionSeeder extends Seeder
             'can_use_operator_app' => true,
             'can_use_admin_app' => false,
             'permissions' => [
-                'incidents.view', 'incidents.dispatch.view', 'status.view', 'assets.view',
-                'certifications.view',
+                'incidents.assigned.view',
             ],
         ],
         'support-staff' => [
@@ -145,6 +158,8 @@ final class RoleAndPermissionSeeder extends Seeder
             $assignedPermissions = $role['permissions'] === ['*']
                 ? array_keys($permissionIds)
                 : $role['permissions'];
+
+            DB::table('permission_role')->where('role_id', $roleIds[$roleName])->delete();
 
             foreach ($assignedPermissions as $permissionName) {
                 DB::table('permission_role')->updateOrInsert(

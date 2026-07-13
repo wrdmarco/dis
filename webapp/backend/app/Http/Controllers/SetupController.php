@@ -134,7 +134,6 @@ final class SetupController extends Controller
         return ApiResponse::success([
             'setup_completed' => true,
             'login_url' => '/login',
-            'token' => $user->createToken('DIS Command Center')->plainTextToken,
             'user' => $user->load(['roles.permissions', 'teams']),
         ], 201);
     }

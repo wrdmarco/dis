@@ -122,6 +122,7 @@ set_env APP_URL "https://${DOMAIN}"
 set_env DIS_INSTALL_PATH "${DIS_INSTALL_PATH}"
 set_env DIS_DATA_PATH "${DIS_DATA_PATH}"
 set_env BACKUP_DISK_PATH "${DIS_DATA_PATH}/backup"
+set_env BACKUP_ENCRYPTION_KEY_FILE "${DIS_DATA_PATH}/secrets/backup-encryption.key"
 set_env DB_HOST 127.0.0.1
 set_env REDIS_HOST 127.0.0.1
 set_env SESSION_SECURE_COOKIE false
@@ -129,6 +130,8 @@ set_env REVERB_SCHEME http
 
 run_cmd chown root:"${DIS_GROUP}" "${ENV_FILE}"
 run_cmd chmod 0640 "${ENV_FILE}"
+
+ensure_backup_encryption_key >/dev/null
 
 log "Creating backend .env symlink"
 run_cmd ln -sfn "${ENV_FILE}" "${APP_ROOT}/webapp/backend/.env"

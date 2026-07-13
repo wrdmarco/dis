@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\Firebase\FcmClient;
 use App\Support\PhoneNumber;
 use App\Support\ProfileLocation;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -29,7 +30,7 @@ final class UserService
     ) {}
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function create(array $data, User $actor): User
     {
@@ -69,14 +70,23 @@ final class UserService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function update(User $user, array $data, User $actor): User
     {
+        $this->assertActorCanManageTarget($actor, $user);
+        $credentialsChanged = $this->credentialsWillChange($user, $data);
+        if ($credentialsChanged && ! $actor->hasPermission('users.credentials.manage')) {
+            throw new AuthorizationException('Managing user credentials requires an explicit permission.');
+        }
+
         $data = $this->prepareUserData($data, $user);
         $data = $this->resolveHomeCityData($data, $user);
+        $activeMobileTokens = $credentialsChanged
+            ? $user->fcmTokens()->where('is_active', true)->get()
+            : collect();
 
-        return DB::transaction(function () use ($user, $data, $actor): User {
+        $updatedUser = DB::transaction(function () use ($user, $data, $actor, $credentialsChanged): User {
             $roleIds = $data['role_ids'] ?? null;
             $teamIds = $data['team_ids'] ?? null;
             if (array_key_exists('role_ids', $data)) {
@@ -90,7 +100,8 @@ final class UserService
             unset($data['role_ids']);
             unset($data['team_ids']);
 
-            $before = $user->only(array_keys($data));
+            $auditableFields = array_values(array_diff(array_keys($data), ['password']));
+            $before = $user->only($auditableFields);
             if ($data !== []) {
                 $user->update($data);
             }
@@ -105,17 +116,28 @@ final class UserService
 
             $this->auditService->record('users.updated', $user, $actor, [
                 'before' => $before,
-                'after' => $user->only(array_keys($data)),
+                'after' => $user->only($auditableFields),
+                'credentials_changed' => $credentialsChanged,
                 'roles_synced' => is_array($roleIds),
                 'teams_synced' => is_array($teamIds),
             ]);
 
+            if ($credentialsChanged) {
+                $this->revokeAuthenticationState($user, $actor, 'users.credentials_changed_sessions_revoked');
+            }
+
             return $user->refresh()->load(['roles', 'teams']);
         });
+
+        foreach ($activeMobileTokens as $token) {
+            $this->notifySessionRevoked($token);
+        }
+
+        return $updatedUser;
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function updateOwnProfile(User $user, array $data): User
     {
@@ -154,6 +176,11 @@ final class UserService
 
     public function delete(User $user, User $actor): void
     {
+        if (! $actor->hasPermission('users.delete')) {
+            throw new AuthorizationException('Deleting users requires an explicit permission.');
+        }
+        $this->assertActorCanManageTarget($actor, $user);
+
         if ($user->is($actor)) {
             throw ValidationException::withMessages(['user' => ['Je kunt je eigen gebruiker niet verwijderen.']]);
         }
@@ -233,9 +260,8 @@ final class UserService
     public function assignRole(User $user, Role $role, User $actor): void
     {
         $this->assertActorCanManageRoles($actor);
-        if ($role->isSystemAdministrator() && ! $user->hasRole(Role::SYSTEM_ADMINISTRATOR)) {
-            $this->assertActorIsSystemAdministrator($actor);
-        }
+        $this->assertActorCanManageTarget($actor, $user);
+        $this->assertActorCanAssignRole($actor, $role);
 
         DB::transaction(function () use ($user, $role, $actor): void {
             $user->roles()->syncWithoutDetaching([$role->id => ['assigned_by' => $actor->id]]);
@@ -246,6 +272,7 @@ final class UserService
     public function removeRole(User $user, Role $role, User $actor): void
     {
         $this->assertActorCanManageRoles($actor);
+        $this->assertActorCanManageTarget($actor, $user);
 
         DB::transaction(function () use ($user, $role, $actor): void {
             if ($role->isSystemAdministrator()) {
@@ -259,6 +286,8 @@ final class UserService
 
     public function assignTeam(User $user, Team $team, User $actor): void
     {
+        $this->assertActorCanManageTarget($actor, $user);
+
         DB::transaction(function () use ($user, $team, $actor): void {
             if ($team->code === 'TUI' && ! $user->belongsToTeamCode('OCP')) {
                 throw ValidationException::withMessages(['team_id' => ['TUI members must belong to OCP first.']]);
@@ -271,6 +300,8 @@ final class UserService
 
     public function removeTeam(User $user, Team $team, User $actor): void
     {
+        $this->assertActorCanManageTarget($actor, $user);
+
         DB::transaction(function () use ($user, $team, $actor): void {
             if ($team->code === 'OCP' && $user->belongsToTeamCode('TUI')) {
                 $tui = Team::query()->where('code', 'TUI')->first();
@@ -286,25 +317,34 @@ final class UserService
 
     public function resetTwoFactor(User $user, User $actor): User
     {
+        $this->assertActorCanManageTarget($actor, $user);
         if ($user->is($actor)) {
             throw ValidationException::withMessages(['user' => ['Je kunt je eigen MFA hier niet resetten. Gebruik je profielpagina.']]);
         }
 
-        $user->forceFill([
-            'two_factor_enabled' => false,
-            'two_factor_secret' => null,
-            'two_factor_recovery_codes' => null,
-            'two_factor_confirmed_at' => null,
-        ])->save();
+        $activeMobileTokens = $user->fcmTokens()->where('is_active', true)->get();
+        DB::transaction(function () use ($user, $actor): void {
+            $user->forceFill([
+                'two_factor_enabled' => false,
+                'two_factor_secret' => null,
+                'two_factor_recovery_codes' => null,
+                'two_factor_confirmed_at' => null,
+            ])->save();
 
-        $user->tokens()->delete();
-        $this->auditService->record('users.two_factor_reset', $user, $actor);
+            $this->revokeAuthenticationState($user, $actor, 'users.two_factor_reset_sessions_revoked');
+            $this->auditService->record('users.two_factor_reset', $user, $actor);
+        });
+
+        foreach ($activeMobileTokens as $token) {
+            $this->notifySessionRevoked($token);
+        }
 
         return $user->refresh()->load(['roles', 'teams']);
     }
 
     public function resetLoginLock(User $user, User $actor): User
     {
+        $this->assertActorCanManageTarget($actor, $user);
         $user->forceFill([
             'failed_login_attempts' => 0,
             'login_locked_until' => null,
@@ -320,6 +360,7 @@ final class UserService
      */
     public function revokeSessions(User $user, User $actor): array
     {
+        $this->assertActorCanManageTarget($actor, $user);
         if ($user->is($actor)) {
             throw ValidationException::withMessages(['user' => ['Je kunt je eigen sessies niet via gebruikersbeheer intrekken. Log zelf uit via je profiel.']]);
         }
@@ -328,36 +369,7 @@ final class UserService
             ->where('is_active', true)
             ->get();
 
-        $result = DB::transaction(function () use ($user, $actor): array {
-            $accessTokensRevoked = $user->tokens()->count();
-            $webSessionsRevoked = DB::table('sessions')->where('user_id', $user->id)->count();
-            $mobileTokensRevoked = $user->fcmTokens()->where('is_active', true)->count();
-
-            $user->tokens()->delete();
-            DB::table('sessions')->where('user_id', $user->id)->delete();
-            $user->fcmTokens()
-                ->where('is_active', true)
-                ->update([
-                    'is_active' => false,
-                    'revoked_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-            if (! $user->fcmTokens()->where('is_active', true)->exists()) {
-                $user->forceFill(['push_enabled' => false])->save();
-                $this->statusService->enforcePushUnavailable($user->refresh());
-            }
-
-            $result = [
-                'access_tokens_revoked' => $accessTokensRevoked,
-                'web_sessions_revoked' => $webSessionsRevoked,
-                'mobile_tokens_revoked' => $mobileTokensRevoked,
-            ];
-
-            $this->auditService->record('users.sessions_revoked', $user, $actor, $result);
-
-            return $result;
-        });
+        $result = DB::transaction(fn (): array => $this->revokeAuthenticationState($user, $actor, 'users.sessions_revoked'));
 
         foreach ($activeMobileTokens as $token) {
             $this->notifySessionRevoked($token);
@@ -368,6 +380,7 @@ final class UserService
 
     public function resendWelcomeMail(User $user, User $actor): User
     {
+        $this->assertActorCanManageTarget($actor, $user);
         if ($user->last_login_at !== null) {
             throw ValidationException::withMessages(['user' => ['Deze gebruiker is al geactiveerd.']]);
         }
@@ -402,11 +415,16 @@ final class UserService
     }
 
     /**
-     * @param array<int, string> $roleIds
+     * @param  array<int, string>  $roleIds
      */
     private function syncRoles(User $user, array $roleIds, User $actor): void
     {
         $this->assertSystemAdministratorRemainsActive($user, [], $roleIds);
+        Role::query()
+            ->whereIn('id', array_values(array_unique($roleIds)))
+            ->with('permissions')
+            ->get()
+            ->each(fn (Role $role) => $this->assertActorCanAssignRole($actor, $role));
 
         $syncPayload = [];
         foreach (array_values(array_unique($roleIds)) as $roleId) {
@@ -417,7 +435,7 @@ final class UserService
     }
 
     /**
-     * @param array<int, string> $teamIds
+     * @param  array<int, string>  $teamIds
      */
     private function syncTeams(User $user, array $teamIds, User $actor): void
     {
@@ -449,12 +467,81 @@ final class UserService
     private function assertActorCanManageRoles(User $actor): void
     {
         if (! $actor->hasPermission('roles.manage')) {
-            throw ValidationException::withMessages(['roles' => ['Je hebt geen rechten om rollen aan te passen.']]);
+            throw new AuthorizationException('Managing roles requires an explicit permission.');
+        }
+    }
+
+    private function assertActorCanManageTarget(User $actor, User $target): void
+    {
+        if ($target->hasRole(Role::SYSTEM_ADMINISTRATOR) && ! $actor->hasRole(Role::SYSTEM_ADMINISTRATOR)) {
+            throw new AuthorizationException('Only a system administrator can modify another system administrator.');
+        }
+    }
+
+    private function assertActorCanAssignRole(User $actor, Role $role): void
+    {
+        if ($actor->hasRole(Role::SYSTEM_ADMINISTRATOR)) {
+            return;
+        }
+
+        if ($role->isSystemAdministrator()) {
+            throw new AuthorizationException('Only a system administrator can assign the system administrator role.');
+        }
+
+        $role->loadMissing('permissions');
+        $missingPermission = $role->permissions->first(fn ($permission): bool => ! $actor->hasPermission($permission->name));
+        if ($missingPermission !== null) {
+            throw new AuthorizationException('A role cannot grant permissions the actor does not hold.');
         }
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
+     */
+    private function credentialsWillChange(User $user, array $data): bool
+    {
+        $emailChanged = array_key_exists('email', $data)
+            && mb_strtolower(trim((string) $data['email'])) !== mb_strtolower((string) $user->email);
+        $passwordChanged = array_key_exists('password', $data)
+            && is_string($data['password'])
+            && $data['password'] !== '';
+
+        return $emailChanged || $passwordChanged;
+    }
+
+    /**
+     * @return array{access_tokens_revoked: int, web_sessions_revoked: int, mobile_tokens_revoked: int}
+     */
+    private function revokeAuthenticationState(User $user, User $actor, string $auditAction): array
+    {
+        $result = [
+            'access_tokens_revoked' => $user->tokens()->count(),
+            'web_sessions_revoked' => DB::table('sessions')->where('user_id', $user->id)->count(),
+            'mobile_tokens_revoked' => $user->fcmTokens()->where('is_active', true)->count(),
+        ];
+
+        $user->tokens()->delete();
+        DB::table('sessions')->where('user_id', $user->id)->delete();
+        $user->fcmTokens()
+            ->where('is_active', true)
+            ->update([
+                'is_active' => false,
+                'revoked_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+        if (! $user->fcmTokens()->where('is_active', true)->exists()) {
+            $user->forceFill(['push_enabled' => false])->save();
+            $this->statusService->enforcePushUnavailable($user->refresh());
+        }
+
+        $this->auditService->record($auditAction, $user, $actor, $result);
+
+        return $result;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     private function prepareUserData(array $data, ?User $user = null): array
@@ -534,7 +621,7 @@ final class UserService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     private function resolveHomeCityData(array $data, ?User $user = null): array
@@ -587,7 +674,7 @@ final class UserService
     }
 
     /**
-     * @param array<int, string> $roleIds
+     * @param  array<int, string>  $roleIds
      */
     private function assertActorCanAddSystemAdministrator(User $actor, ?User $user, array $roleIds): void
     {
@@ -610,8 +697,8 @@ final class UserService
     }
 
     /**
-     * @param array<string, mixed> $data
-     * @param array<int, string>|null $roleIds
+     * @param  array<string, mixed>  $data
+     * @param  array<int, string>|null  $roleIds
      */
     private function assertSystemAdministratorRemainsActive(User $user, array $data, ?array $roleIds): void
     {
@@ -642,7 +729,7 @@ final class UserService
     }
 
     /**
-     * @param array<int, string> $roleIds
+     * @param  array<int, string>  $roleIds
      */
     private function roleIdsContainSystemAdministrator(array $roleIds): bool
     {
@@ -666,7 +753,7 @@ final class UserService
     }
 
     /**
-     * @param callable(): mixed $callback
+     * @param  callable(): mixed  $callback
      */
     private function runIgnoringTempnamFallbackWarning(callable $callback): mixed
     {

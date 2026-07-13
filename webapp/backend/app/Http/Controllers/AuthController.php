@@ -14,6 +14,7 @@ use App\Support\ProfileLocation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
@@ -65,7 +66,7 @@ final class AuthController extends Controller
             return ApiResponse::error('app_access_denied', 'Deze rol geeft geen toegang tot deze app.', 403);
         }
         $this->resetLoginFailures($user);
-        $requiresTwoFactor = $this->twoFactorService->isRequired();
+        $requiresTwoFactor = $this->twoFactorService->isRequiredFor($user);
         if ($requiresTwoFactor && ! $user->two_factor_enabled) {
             $secret = $this->twoFactorService->generateSecret();
             $user->forceFill([
@@ -104,7 +105,7 @@ final class AuthController extends Controller
 
         return ApiResponse::success([
             'requires_2fa' => false,
-            'token' => $user->createToken($tokenName, ['*', $this->clientAbility($clientType)])->plainTextToken,
+            'token' => $user->createToken($tokenName, ['*', $this->clientAbility($clientType)], $this->fullTokenExpiresAt($clientType))->plainTextToken,
             'user' => MobileApiPayload::user($user),
         ]);
     }
@@ -112,7 +113,7 @@ final class AuthController extends Controller
     public function verifyTwoFactor(Request $request): JsonResponse
     {
         $request->validate([
-            'code' => ['required', 'digits:6'],
+            'code' => ['required', 'string', 'max:32'],
             'device_name' => ['nullable', 'string', 'max:120'],
             'client_type' => ['nullable', 'string', 'in:web,operator_android,operator_ios,admin_android,admin_ios'],
         ]);
@@ -122,12 +123,26 @@ final class AuthController extends Controller
             return ApiResponse::error('forbidden', 'A pending two-factor token is required.', 403);
         }
 
-        if (! $this->twoFactorService->verify($user, (string) $request->input('code'))) {
+        $challengeKey = $this->twoFactorChallengeKey($request);
+        if (RateLimiter::tooManyAttempts($challengeKey, 5)) {
+            $request->user()?->currentAccessToken()?->delete();
+            $this->auditService->record('auth.2fa_challenge_locked', $user, $user, [], null, $request);
+
+            return ApiResponse::error('two_factor_challenge_locked', 'Te veel mislukte pogingen. Log opnieuw in.', 429);
+        }
+
+        if (! $this->twoFactorService->verifyForLogin($user, (string) $request->input('code'))) {
+            RateLimiter::hit($challengeKey, 600);
             $this->auditService->record('auth.2fa_failed', $user, $user, [], null, $request);
+            if (RateLimiter::attempts($challengeKey) >= 5) {
+                $request->user()?->currentAccessToken()?->delete();
+            }
             return ApiResponse::error('invalid_two_factor_code', 'The two-factor code is invalid.', 422, [
                 'code' => ['The two-factor code is invalid.'],
             ]);
         }
+
+        RateLimiter::clear($challengeKey);
 
         $request->user()?->currentAccessToken()?->delete();
         $user->forceFill([
@@ -141,7 +156,8 @@ final class AuthController extends Controller
         return ApiResponse::success([
             'token' => $user->createToken(
                 (string) ($request->input('device_name') ?? 'DIS API'),
-                ['*', $this->clientAbility($this->clientTypeForTokenExchange($request))]
+                ['*', $this->clientAbility($this->clientTypeForTokenExchange($request))],
+                $this->fullTokenExpiresAt($this->clientTypeForTokenExchange($request)),
             )->plainTextToken,
             'user' => MobileApiPayload::user($user->load(['roles', 'teams'])),
         ]);
@@ -211,7 +227,8 @@ final class AuthController extends Controller
         return ApiResponse::success([
             'token' => $user->createToken(
                 (string) ($request->input('device_name') ?? 'DIS Command Center'),
-                ['*', $this->clientAbility($this->clientTypeForTokenExchange($request))]
+                ['*', $this->clientAbility($this->clientTypeForTokenExchange($request))],
+                $this->fullTokenExpiresAt($this->clientTypeForTokenExchange($request)),
             )->plainTextToken,
             'user' => MobileApiPayload::user($user->load(['roles', 'teams'])),
             'recovery_codes' => $user->two_factor_recovery_codes,
@@ -230,7 +247,7 @@ final class AuthController extends Controller
             return ApiResponse::error('unauthenticated', 'Authentication is required.', 401);
         }
 
-        if ($this->twoFactorService->isRequired()) {
+        if ($this->twoFactorService->isRequiredFor($user)) {
             return ApiResponse::error('two_factor_required_globally', 'Multi-factor authentication is globaal verplicht.', 422);
         }
 
@@ -353,6 +370,18 @@ final class AuthController extends Controller
             'admin_android', 'admin_ios' => $user->canUseAdminApp(),
             default => true,
         };
+    }
+
+    private function fullTokenExpiresAt(string $clientType): \DateTimeInterface
+    {
+        return $clientType === 'web'
+            ? now()->addHours(12)
+            : now()->addDays(180);
+    }
+
+    private function twoFactorChallengeKey(Request $request): string
+    {
+        return 'two-factor-challenge:'.($request->user()?->currentAccessToken()?->getKey() ?? $request->ip());
     }
 
     private function isLoginLocked(User $user): bool

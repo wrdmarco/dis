@@ -14,7 +14,6 @@ use App\Models\DroneType;
 use App\Models\FcmToken;
 use App\Models\Incident;
 use App\Models\PilotIncidentReport;
-use App\Models\SystemSetting;
 use App\Models\User;
 use App\Models\UserCertification;
 use App\Services\TwoFactorService;
@@ -23,6 +22,48 @@ use DateTimeInterface;
 
 final class MobileApiPayload
 {
+    /**
+     * Identity data safe for operational lists and nested resources.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function userIdentity(?User $user, bool $includeEmail = false): ?array
+    {
+        if ($user === null) {
+            return null;
+        }
+
+        $payload = [
+            'id' => $user->id,
+            'name' => $user->name,
+        ];
+
+        if ($includeEmail) {
+            $payload['email'] = $user->email;
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function statusUser(User $user): array
+    {
+        $user->loadMissing([
+            'fcmTokens' => fn ($tokens) => $tokens
+                ->where('client_type', 'operator')
+                ->where('is_active', true)
+                ->latest('last_seen_at'),
+        ]);
+
+        return [
+            ...self::userIdentity($user, true),
+            'push_enabled' => (bool) $user->push_enabled,
+            'fcm_tokens' => $user->fcmTokens->map(fn (FcmToken $token): array => self::deviceStatus($token))->values(),
+        ];
+    }
+
     /**
      * @return array<string, mixed>|null
      */
@@ -62,7 +103,7 @@ final class MobileApiPayload
             'home_geocoded_at' => self::dateTime($user->home_geocoded_at),
             'home_geocode_source' => $user->home_geocode_source,
             'two_factor_enabled' => (bool) $user->two_factor_enabled,
-            'mfa_required' => SystemSetting::boolean(TwoFactorService::REQUIRED_KEY, TwoFactorService::DEFAULT_REQUIRED),
+            'mfa_required' => app(TwoFactorService::class)->isRequiredFor($user),
             'profile_completion_required' => self::profileCompletionMissingFields($user) !== [],
             'missing_profile_fields' => self::profileCompletionMissingFields($user),
             'mail_preferences' => is_array($user->mail_preferences) ? $user->mail_preferences : null,
@@ -193,7 +234,7 @@ final class MobileApiPayload
             'effective_at' => self::dateTime($status->effective_at),
             'next_availability_change' => $nextAvailabilityChange,
             'next_available_at' => $nextAvailableAt,
-            'user' => $status->relationLoaded('user') ? self::user($status->user) : null,
+            'user' => $status->relationLoaded('user') && $status->user !== null ? self::statusUser($status->user) : null,
         ];
     }
 
@@ -269,7 +310,7 @@ final class MobileApiPayload
             'latitude' => $incident->latitude,
             'longitude' => $incident->longitude,
             'drone_flight_context' => $incident->drone_flight_context,
-            'coordinator' => self::user($incident->coordinator),
+            'coordinator' => self::userIdentity($incident->coordinator),
             'team' => $incident->team === null ? null : [
                 'id' => $incident->team->id,
                 'code' => $incident->team->code,
@@ -354,7 +395,7 @@ final class MobileApiPayload
             'response_note' => $recipient->response_note,
             'notified_at' => self::dateTime($recipient->notified_at),
             'responded_at' => self::dateTime($recipient->responded_at),
-            'user' => $recipient->relationLoaded('user') ? self::user($recipient->user) : null,
+            'user' => $recipient->relationLoaded('user') ? self::userIdentity($recipient->user, true) : null,
         ];
     }
 
@@ -399,7 +440,7 @@ final class MobileApiPayload
             'assigned_at' => self::dateTime($assignment->assigned_at),
             'released_at' => self::dateTime($assignment->released_at),
             'asset' => $assignment->relationLoaded('asset') && $assignment->asset !== null ? self::asset($assignment->asset) : null,
-            'user' => $assignment->relationLoaded('user') && $assignment->user !== null ? self::user($assignment->user) : null,
+            'user' => $assignment->relationLoaded('user') && $assignment->user !== null ? self::userIdentity($assignment->user, true) : null,
         ];
     }
 
@@ -442,7 +483,7 @@ final class MobileApiPayload
                 'expires_at' => $userCertification->expires_at?->toDateString(),
                 'certificate_number' => $userCertification->certificate_number,
                 'status' => $userCertification->status,
-                'user' => self::user($userCertification->user),
+                'user' => self::userIdentity($userCertification->user, true),
             ])->values(),
         ];
     }
@@ -465,7 +506,7 @@ final class MobileApiPayload
             'certification' => $certification->relationLoaded('certification') && $certification->certification !== null
                 ? self::certificationSummary($certification->certification)
                 : null,
-            'user' => $certification->relationLoaded('user') && $certification->user !== null ? self::user($certification->user) : null,
+            'user' => $certification->relationLoaded('user') && $certification->user !== null ? self::userIdentity($certification->user, true) : null,
         ];
     }
 
@@ -513,5 +554,27 @@ final class MobileApiPayload
     private static function tokenPreview(string $token): string
     {
         return strlen($token) <= 18 ? str_repeat('*', strlen($token)) : substr($token, 0, 6).'...'.substr($token, -8);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function deviceStatus(FcmToken $token): array
+    {
+        return [
+            'id' => $token->id,
+            'device_id' => $token->device_id,
+            'device_type' => $token->device_type,
+            'device_name' => $token->device_name,
+            'device_manufacturer' => $token->device_manufacturer,
+            'device_model' => $token->device_model,
+            'android_version' => $token->android_version,
+            'platform' => $token->platform,
+            'client_type' => $token->client_type,
+            'app_version' => $token->app_version,
+            'is_active' => (bool) $token->is_active,
+            'is_online' => (bool) $token->is_online,
+            'last_seen_at' => self::dateTime($token->last_seen_at),
+        ];
     }
 }

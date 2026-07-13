@@ -44,10 +44,13 @@ secrets/*
 !/webapp/backend/storage/framework/sessions/.gitkeep
 /webapp/backend/storage/framework/views/*
 !/webapp/backend/storage/framework/views/.gitkeep
+/webapp/backend/storage/tmp/*
+!/webapp/backend/storage/tmp/.gitkeep
 /webapp/backend/bootstrap/cache/*.php
 
 # Tooling
 /app/android/local.properties
+/webapp/backend/.phpunit.cache/
 .idea/
 .vscode/
 *.swp

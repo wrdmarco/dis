@@ -1,5 +1,3 @@
-'use client';
-
 import { UsersPage } from '../../src/features/users/UsersPage';
 import { ProtectedShell } from '../../src/next/RouteShell';
 

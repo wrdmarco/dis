@@ -454,6 +454,66 @@ ensure_data_links() {
   fi
 }
 
+backup_encryption_key_file() {
+  printf '%s\n' "${BACKUP_ENCRYPTION_KEY_FILE:-${DIS_DATA_PATH}/secrets/backup-encryption.key}"
+}
+
+ensure_backup_encryption_key() {
+  local key_file key_directory temporary_key
+
+  key_file="$(backup_encryption_key_file)"
+  key_directory="$(dirname "${key_file}")"
+  ensure_directory "${key_directory}" root "${DIS_GROUP}" 0750
+
+  if [ ! -f "${key_file}" ]; then
+    log "Creating backup encryption key at ${key_file}"
+    temporary_key="$(mktemp "${key_directory}/.backup-encryption-key.XXXXXX")"
+    run_cmd chmod 0600 "${temporary_key}"
+    openssl rand -base64 48 > "${temporary_key}"
+    run_cmd chown root:"${DIS_GROUP}" "${temporary_key}"
+    run_cmd chmod 0640 "${temporary_key}"
+    run_cmd mv "${temporary_key}" "${key_file}"
+  fi
+
+  require_file "${key_file}"
+  run_cmd chown root:"${DIS_GROUP}" "${key_file}" 2>/dev/null || true
+  run_cmd chmod 0640 "${key_file}"
+  printf '%s\n' "${key_file}"
+}
+
+require_backup_encryption_key() {
+  local key_file
+
+  key_file="$(backup_encryption_key_file)"
+  require_file "${key_file}"
+  printf '%s\n' "${key_file}"
+}
+
+extract_encrypted_backup_payload() {
+  local encrypted_file="$1" destination="$2" key_file archive entry
+
+  require_file "${encrypted_file}"
+  require_directory "${destination}"
+  key_file="$(require_backup_encryption_key)"
+  archive="${destination}/.dis-backup-payload.tar"
+
+  openssl enc -d -aes-256-cbc -pbkdf2 -iter 250000 -md sha256 \
+    -pass "file:${key_file}" \
+    -in "${encrypted_file}" \
+    -out "${archive}"
+
+  while IFS= read -r entry; do
+    case "${entry}" in
+      /*|../*|*/../*|*/..|..)
+        fail "Encrypted backup payload contains an unsafe path."
+        ;;
+    esac
+  done < <(tar -tf "${archive}")
+
+  run_cmd tar --no-same-owner --no-same-permissions -C "${destination}" -xf "${archive}"
+  run_cmd rm -f -- "${archive}"
+}
+
 resolve_backup_root() {
   local app_root="$1"
   local target="${BACKUP_TARGET:-local}"

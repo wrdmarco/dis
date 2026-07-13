@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Http\Responses\ApiResponse;
 use App\Models\AuditLog;
 use App\Models\Certification;
-use App\Models\Permission;
 use App\Models\PushDeliveryLog;
 use App\Models\Role;
 use App\Models\SystemSetting;
@@ -13,6 +12,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Services\AuditService;
 use App\Services\PasswordPolicy;
+use App\Services\RoleService;
 use App\Services\TwoFactorService;
 use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
@@ -31,7 +31,10 @@ final class AdminController extends Controller
         'firebase.service_account',
     ];
 
-    public function __construct(private readonly AuditService $auditService) {}
+    public function __construct(
+        private readonly AuditService $auditService,
+        private readonly RoleService $roleService,
+    ) {}
 
     public function roles(): JsonResponse
     {
@@ -49,22 +52,11 @@ final class AdminController extends Controller
             'permission_ids' => ['nullable', 'array'],
             'permission_ids.*' => ['ulid', 'exists:permissions,id'],
         ]);
-        $permissionIds = $data['permission_ids'] ?? [];
-        unset($data['permission_ids']);
-
-        $role = Role::query()->create($data);
-        $role->permissions()->sync(array_values(array_unique(is_array($permissionIds) ? $permissionIds : [])));
-        $this->auditService->record('admin.role_created', $role, $request->user(), ['permission_ids' => $permissionIds]);
-
-        return ApiResponse::success($role->load('permissions'), 201);
+        return ApiResponse::success($this->roleService->create($data, $request->user()), 201);
     }
 
     public function updateRole(Request $request, Role $role): JsonResponse
     {
-        if ($role->isSystemAdministrator()) {
-            return ApiResponse::error('role_protected', 'De system administrator rol mag niet worden aangepast.', 409);
-        }
-
         $data = $request->validate([
             'name' => ['sometimes', 'string', 'max:120', Rule::unique('roles', 'name')->ignore($role->id)],
             'display_name' => ['sometimes', 'string', 'max:160'],
@@ -74,47 +66,19 @@ final class AdminController extends Controller
             'permission_ids' => ['nullable', 'array'],
             'permission_ids.*' => ['ulid', 'exists:permissions,id'],
         ]);
-        $permissionIds = $data['permission_ids'] ?? null;
-        unset($data['permission_ids']);
-
-        $before = $role->only(array_keys($data));
-        $role->update($data);
-        if (is_array($permissionIds)) {
-            $role->permissions()->sync(array_values(array_unique($permissionIds)));
-        }
-        $this->auditService->record('admin.role_updated', $role, $request->user(), [
-            'before' => $before,
-            'after' => $role->only(array_keys($data)),
-            'permission_ids' => $permissionIds,
-        ]);
-
-        return ApiResponse::success($role->refresh()->load('permissions'));
+        return ApiResponse::success($this->roleService->update($role, $data, $request->user()));
     }
 
     public function destroyRole(Request $request, Role $role): JsonResponse
     {
-        if ($role->isSystemAdministrator()) {
-            return ApiResponse::error('role_protected', 'De system administrator rol mag niet worden verwijderd.', 409);
-        }
-
-        $userCount = $role->users()->count();
-        if ($userCount > 0) {
-            return ApiResponse::error('role_in_use', 'Deze rol is nog gekoppeld aan gebruikers.', 409, ['users_count' => $userCount]);
-        }
-
-        $this->auditService->record('admin.role_deleted', $role, $request->user(), [
-            'name' => $role->name,
-            'display_name' => $role->display_name,
-        ]);
-        $role->permissions()->detach();
-        $role->delete();
+        $this->roleService->delete($role, $request->user());
 
         return ApiResponse::success(null);
     }
 
-    public function permissions(): JsonResponse
+    public function permissions(Request $request): JsonResponse
     {
-        return ApiResponse::success(Permission::query()->orderBy('category')->orderBy('name')->get());
+        return ApiResponse::success($this->roleService->assignablePermissions($request->user()));
     }
 
     public function teams(): JsonResponse

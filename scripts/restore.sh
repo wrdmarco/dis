@@ -15,7 +15,6 @@ require_directory "${BACKUP_PATH}"
 load_data_path_from_env "${APP_ROOT}/.env"
 ensure_data_links "${APP_ROOT}"
 require_file "${APP_ROOT}/.env"
-require_file "${BACKUP_PATH}/database.dump"
 require_file "${BACKUP_PATH}/SHA256SUMS"
 
 set -a
@@ -28,6 +27,20 @@ resolve_backup_root "${APP_ROOT}" >/dev/null
 
 run_cmd bash "${SCRIPT_DIR}/verify-backup.sh" "${BACKUP_PATH}"
 
+PAYLOAD_ROOT="${BACKUP_PATH}"
+TEMPORARY_PAYLOAD=""
+if [ -f "${BACKUP_PATH}/backup.payload.enc" ]; then
+  TEMPORARY_PAYLOAD="$(mktemp -d "${TMPDIR:-/var/tmp}/dis-backup-restore.XXXXXX")"
+  chmod 0700 "${TEMPORARY_PAYLOAD}"
+  trap 'rm -rf -- "${TEMPORARY_PAYLOAD}"' EXIT
+
+  log "Decrypting backup payload for restore"
+  extract_encrypted_backup_payload "${BACKUP_PATH}/backup.payload.enc" "${TEMPORARY_PAYLOAD}"
+  PAYLOAD_ROOT="${TEMPORARY_PAYLOAD}"
+fi
+
+require_file "${PAYLOAD_ROOT}/database.dump"
+
 log "Restoring database from ${BACKUP_PATH}"
 PGPASSWORD="${DB_PASSWORD}" run_cmd pg_restore \
   --host="${DB_HOST}" \
@@ -36,14 +49,14 @@ PGPASSWORD="${DB_PASSWORD}" run_cmd pg_restore \
   --dbname="${DB_DATABASE}" \
   --clean \
   --if-exists \
-  "${BACKUP_PATH}/database.dump"
+  "${PAYLOAD_ROOT}/database.dump"
 
-if [ -f "${BACKUP_PATH}/storage.tar.gz" ]; then
+if [ -f "${PAYLOAD_ROOT}/storage.tar.gz" ]; then
   log "Restoring storage archive"
-  if tar -tzf "${BACKUP_PATH}/storage.tar.gz" | grep -q '^webapp/backend/storage/'; then
-    run_cmd tar -C "${DIS_DATA_PATH}" -xzf "${BACKUP_PATH}/storage.tar.gz"
+  if tar -tzf "${PAYLOAD_ROOT}/storage.tar.gz" | grep -q '^webapp/backend/storage/'; then
+    run_cmd tar -C "${DIS_DATA_PATH}" -xzf "${PAYLOAD_ROOT}/storage.tar.gz"
   else
-    run_cmd tar -C "${APP_ROOT}" -xzf "${BACKUP_PATH}/storage.tar.gz"
+    run_cmd tar -C "${APP_ROOT}" -xzf "${PAYLOAD_ROOT}/storage.tar.gz"
     ensure_data_links "${APP_ROOT}"
   fi
 fi
