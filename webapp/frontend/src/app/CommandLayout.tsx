@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, BarChart3, Bell, BellRing, BookUser, Boxes, CalendarClock, CalendarDays, ClipboardCheck, DatabaseBackup, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, Moon, Network, Palette, RadioTower, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, DatabaseBackup, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, Moon, Network, Palette, RadioTower, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { ApiClientError } from '../lib/apiClient';
 import type { ApiClient } from '../lib/apiClient';
@@ -25,6 +25,8 @@ interface NavGroup {
 }
 
 const PROFILE_PATH = '/profile';
+const HELP_PATH = '/help';
+const helpNavItem: NavItem = { to: HELP_PATH, label: 'Help', icon: BookOpen, end: true };
 
 const navGroups: NavGroup[] = [
   {
@@ -114,6 +116,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/audit': () => import('../features/audit/AuditLogPage'),
   '/backups': () => import('../features/backups/BackupPage'),
   '/system': () => import('../features/system/SystemPage'),
+  [HELP_PATH]: () => import('../features/help/HelpPage'),
   [PROFILE_PATH]: () => import('../features/profile/ProfilePage'),
 };
 
@@ -129,6 +132,9 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
+  const accountMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [branding, setBranding] = useState<BrandingState>({
     name: 'DIS',
     short_name: 'DIS',
@@ -149,6 +155,7 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setMobileNavOpen(false);
+    setAccountMenuOpen(false);
   }, [pathname]);
 
   useEffect(() => {
@@ -167,7 +174,34 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [mobileNavOpen]);
 
+  useEffect(() => {
+    if (!accountMenuOpen) {
+      return undefined;
+    }
+
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (accountMenuRef.current !== null && !accountMenuRef.current.contains(event.target as Node)) {
+        setAccountMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setAccountMenuOpen(false);
+        accountMenuTriggerRef.current?.focus();
+      }
+    };
+
+    window.addEventListener('pointerdown', closeOnOutsideClick);
+    window.addEventListener('keydown', closeOnEscape);
+
+    return () => {
+      window.removeEventListener('pointerdown', closeOnOutsideClick);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [accountMenuOpen]);
+
   const logout = async () => {
+    setAccountMenuOpen(false);
     await api.post('/auth/logout').catch(() => undefined);
     clearSession();
     router.replace('/login');
@@ -186,7 +220,10 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
       }))
       .filter((group) => group.items.length > 0),
   [canUseWebConsole, hasPermission]);
-  const currentNavItem = useMemo(() => currentNavForPath(visibleNavGroups, pathname), [pathname, visibleNavGroups]);
+  const currentNavItem = useMemo(
+    () => pathname === HELP_PATH ? { groupLabel: 'Account', item: helpNavItem } : currentNavForPath(visibleNavGroups, pathname),
+    [pathname, visibleNavGroups],
+  );
   const profileCompletionRequired = user?.profile_completion_required === true;
 
   useEffect(() => {
@@ -251,26 +288,61 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
             <h1>{currentNavItem?.item.label ?? branding.name}</h1>
             <span className="topbar__app">{branding.tenant_name} - {branding.name}</span>
           </div>
-          <div className="operator">
-            <div>
-              <strong>{user?.name ?? 'Operator'}</strong>
-              <span>{user?.email}</span>
-            </div>
-            <Link href={PROFILE_PATH} className={`icon-button ${pathname === PROFILE_PATH ? 'icon-button--active' : ''}`} aria-label="Profiel">
-              <UserRound size={18} />
-            </Link>
+          <div className="operator account-menu" ref={accountMenuRef}>
             <button
-              className="icon-button"
+              ref={accountMenuTriggerRef}
+              className={`account-menu__trigger ${accountMenuOpen ? 'account-menu__trigger--open' : ''}`}
               type="button"
-              onClick={() => void setThemePreference(theme === 'dark' ? 'light' : 'dark').catch(() => undefined)}
-              aria-label={theme === 'dark' ? 'Lichte modus aanzetten' : 'Donkere modus aanzetten'}
-              title={theme === 'dark' ? 'Lichte modus' : 'Donkere modus'}
+              onClick={() => setAccountMenuOpen((open) => !open)}
+              aria-expanded={accountMenuOpen}
+              aria-controls="account-menu-popover"
+              aria-label={accountMenuOpen ? 'Accountmenu sluiten' : 'Accountmenu openen'}
             >
-              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+              <span className="account-menu__avatar" aria-hidden><UserRound size={18} /></span>
+              <span className="account-menu__identity">
+                <strong>{user?.name ?? 'Gebruiker'}</strong>
+                <span>{user?.email}</span>
+              </span>
+              <ChevronDown className="account-menu__chevron" aria-hidden size={17} />
             </button>
-            <button className="icon-button" type="button" onClick={logout} aria-label="Uitloggen">
-              <LogOut size={18} />
-            </button>
+            {accountMenuOpen ? (
+              <div className="account-menu__popover" id="account-menu-popover" aria-label="Accountmenu">
+                <div className="account-menu__summary">
+                  <strong>{user?.name ?? 'Gebruiker'}</strong>
+                  <span>{user?.email}</span>
+                </div>
+                <Link className={pathname === PROFILE_PATH ? 'account-menu__item account-menu__item--active' : 'account-menu__item'} href={PROFILE_PATH} aria-current={pathname === PROFILE_PATH ? 'page' : undefined}>
+                  <UserRound aria-hidden size={18} />
+                  <span>Profiel</span>
+                </Link>
+                <Link
+                  className={pathname === HELP_PATH ? 'account-menu__item account-menu__item--active' : 'account-menu__item'}
+                  href={HELP_PATH}
+                  aria-current={pathname === HELP_PATH ? 'page' : undefined}
+                  onFocus={() => void preloadRoute(HELP_PATH)}
+                  onMouseEnter={() => void preloadRoute(HELP_PATH)}
+                >
+                  <BookOpen aria-hidden size={18} />
+                  <span>Help</span>
+                </Link>
+                <button
+                  className="account-menu__item"
+                  type="button"
+                  onClick={() => {
+                    setAccountMenuOpen(false);
+                    void setThemePreference(theme === 'dark' ? 'light' : 'dark').catch(() => undefined);
+                  }}
+                >
+                  {theme === 'dark' ? <Sun aria-hidden size={18} /> : <Moon aria-hidden size={18} />}
+                  <span>{theme === 'dark' ? 'Lichte modus' : 'Donkere modus'}</span>
+                </button>
+                <div className="account-menu__separator" role="separator" />
+                <button className="account-menu__item account-menu__item--danger" type="button" onClick={() => void logout()}>
+                  <LogOut aria-hidden size={18} />
+                  <span>Uitloggen</span>
+                </button>
+              </div>
+            ) : null}
           </div>
         </header>
         <main className="content" id="main-content" tabIndex={-1}>
