@@ -409,7 +409,7 @@ enable_deployment_maintenance() {
   enable_frontend_maintenance
   if [ -f "${backend_dir}/artisan" ] && [ -f "${backend_dir}/vendor/autoload.php" ]; then
     log "Putting the backend in maintenance mode"
-    run_cmd runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" down --render="errors::503"
+    run_cmd php "${backend_dir}/artisan" down --render="errors::503"
   fi
 }
 
@@ -418,7 +418,7 @@ prepare_backend_for_deployment_verification() {
 
   if [ -f "${backend_dir}/artisan" ] && [ -f "${backend_dir}/vendor/autoload.php" ]; then
     log "Bringing the backend up behind the deployment maintenance lock"
-    run_cmd runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" up
+    run_cmd php "${backend_dir}/artisan" up
   fi
 }
 
@@ -642,7 +642,7 @@ ensure_data_layout() {
   ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend" root root 0755
   ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage" root "${DIS_GROUP}" 0750
   ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage/app" "${DIS_USER}" "${DIS_GROUP}" 0770
-  ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework" "${DIS_USER}" "${DIS_GROUP}" 0770
+  ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework" root "${DIS_GROUP}" 0750
   ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework/cache" "${DIS_USER}" "${DIS_GROUP}" 0770
   ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework/sessions" "${DIS_USER}" "${DIS_GROUP}" 0770
   ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework/views" "${DIS_USER}" "${DIS_GROUP}" 0770
