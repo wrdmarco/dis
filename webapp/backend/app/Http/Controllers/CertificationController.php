@@ -20,6 +20,10 @@ final class CertificationController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        if ($request->user()?->hasPermission('certifications.view') !== true) {
+            return $this->options();
+        }
+
         if (! $request->has('per_page')) {
             return ApiResponse::success(
                 Certification::query()
@@ -47,7 +51,7 @@ final class CertificationController extends Controller
             Certification::query()
                 ->orderBy('name')
                 ->get()
-                ->map(fn (Certification $certification): array => MobileApiPayload::certification($certification))
+                ->map(fn (Certification $certification): array => MobileApiPayload::certificationSummary($certification))
                 ->values(),
         );
     }

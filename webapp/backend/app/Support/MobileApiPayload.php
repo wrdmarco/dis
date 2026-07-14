@@ -513,7 +513,7 @@ final class MobileApiPayload
     /**
      * @return array<string, mixed>
      */
-    private static function certificationSummary(Certification $certification): array
+    public static function certificationSummary(Certification $certification): array
     {
         return [
             'id' => $certification->id,
