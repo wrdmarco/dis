@@ -145,9 +145,44 @@ A missing key or generation marker is never treated as proof of a fresh installa
 always enter the same fail-closed cutover state, quarantine any existing backup state and keep maintenance
 enabled until the first replacement backup has been verified and durably synchronised to its target filesystem.
 
-## Mobile Apps
+## Operational Alerting
 
-Mobile app installation and updates are handled through the platform app stores. The deployment no longer exposes a public APK download page.
+DIS keeps operational dispatch selection and reachability testing deliberately separate:
+
+- A preannouncement asks operators whether they are available for a possible incident. It creates a
+  draft dispatch and does not count as an attendance response. The operator payload contains only the
+  derived place name; reporter details, the full street address and coordinates remain hidden until the
+  real dispatch is sent.
+- A real dispatch is selected and authorised server-side. Operational team membership, active account
+  status, push reachability, availability and required certification validity remain part of normal
+  eligibility.
+- A manual test alert defaults to `self` and sends only to the signed-in user's active paired apps.
+- The optional `all_online` reachability test targets active users who may use the operator app and have
+  push enabled with at least one active, currently online operator-app token. It intentionally does not
+  filter on availability, certifications or assigned drones, and the web interface requires explicit
+  confirmation before sending.
+- Test-alert acknowledgements confirm technical receipt only. They do not start an incident, change
+  attendance state or trigger operational dispatch transitions.
+
+The test-alert result reports targeted users, queued devices, users skipped before queueing and users for
+whom no notification could be queued. The action requires the `incidents.dispatch.manage` permission and
+is recorded in the audit log.
+
+## Mobile Apps And Push Behaviour
+
+Mobile app installation and updates are handled through the platform app stores. The deployment no longer
+exposes a public APK download page.
+
+Android treats a preannouncement as a normal, one-shot notification rather than the persistent operational
+alarm used for a real dispatch. When alarm sound is enabled it uses the versioned
+`preannouncements_v1` channel with the system notification sound; when disabled it uses
+`preannouncements_muted_v1`. Existing Android channel settings, global notification permission and Do Not
+Disturb policy remain authoritative.
+
+iOS receives the same server-derived place and preannouncement text through APNs. The APNs alert contains
+the default notification sound, and the foreground notification delegate presents standard dispatch
+updates with banner, badge and sound. The iPhone silent switch, Focus modes and per-app notification
+settings remain authoritative.
 
 ## Backup
 
