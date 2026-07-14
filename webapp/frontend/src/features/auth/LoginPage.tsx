@@ -48,7 +48,7 @@ export function LoginPage() {
 
   useEffect(() => {
     if (isAuthenticated && !requiresTwoFactor && !requiresTwoFactorSetup) {
-      router.replace('/');
+      router.replace('/profile');
     }
   }, [isAuthenticated, requiresTwoFactor, requiresTwoFactorSetup, router]);
 
@@ -59,7 +59,7 @@ export function LoginPage() {
     try {
       if (requiresTwoFactor) {
         await verifyTwoFactor(code);
-        router.replace('/');
+        router.replace('/profile');
         return;
       }
 
@@ -74,7 +74,7 @@ export function LoginPage() {
       if (result.requires_2fa) {
         setRequiresTwoFactor(true);
       } else {
-        router.replace('/');
+        router.replace('/profile');
       }
     } catch (err) {
       if (err instanceof ApiClientError && err.code === 'invalid_two_factor_code') {
@@ -102,7 +102,7 @@ export function LoginPage() {
       const result = await enableTwoFactor(code);
       setRecoveryCodes(result.recovery_codes);
       setRequiresTwoFactorSetup(false);
-      router.replace('/');
+      router.replace('/profile');
     } catch (err) {
       if (err instanceof ApiClientError && err.code === 'invalid_two_factor_code') {
         setCode('');
