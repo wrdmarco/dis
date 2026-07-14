@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Http\Responses\ApiResponse;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\MobilePairingService;
 use App\Services\PasswordPolicy;
+use App\Services\SoftwareDownloadService;
 use App\Services\TwoFactorService;
 use App\Services\UserService;
 use App\Services\WebSessionService;
@@ -20,10 +22,12 @@ final class RegistrationController extends Controller
 {
     public function __construct(
         private readonly AuditService $auditService,
+        private readonly MobilePairingService $mobilePairingService,
         private readonly PasswordPolicy $passwordPolicy,
         private readonly TwoFactorService $twoFactorService,
         private readonly UserService $userService,
         private readonly WebSessionService $webSessionService,
+        private readonly SoftwareDownloadService $softwareDownloads,
     ) {}
 
     public function show(Request $request): JsonResponse
@@ -58,6 +62,7 @@ final class RegistrationController extends Controller
             'user' => MobileApiPayload::user($user),
             'requires_mfa' => $this->requiresMfa($user),
             'admin_app_allowed' => $this->adminAppAllowed($user),
+            'download_options' => ['channels' => $this->softwareDownloads->channels()],
         ]);
     }
 
@@ -115,7 +120,7 @@ final class RegistrationController extends Controller
             $this->webSessionService->beginPreAuthentication(
                 $request,
                 $user,
-                WebSessionService::PURPOSE_LOGIN_CHALLENGE,
+                WebSessionService::PURPOSE_REGISTRATION_CHALLENGE,
                 10,
             );
         } else {
@@ -124,7 +129,12 @@ final class RegistrationController extends Controller
             if ($authenticated) {
                 $this->webSessionService->authenticate($request, $user);
             } else {
-                $this->webSessionService->invalidate($request);
+                $this->webSessionService->beginPreAuthentication(
+                    $request,
+                    $user,
+                    WebSessionService::PURPOSE_REGISTRATION_PAIRING,
+                    30,
+                );
             }
         }
 
@@ -139,7 +149,31 @@ final class RegistrationController extends Controller
             'requires_2fa' => $requiresChallenge,
             'two_factor_setup' => $twoFactorSetup,
             'admin_app_allowed' => $this->adminAppAllowed($user),
+            'download_options' => ['channels' => $this->softwareDownloads->channels()],
         ]);
+    }
+
+    public function mobilePairing(Request $request): JsonResponse
+    {
+        $this->webSessionService->assertStatefulWebRequest($request);
+
+        $data = $request->validate([
+            'client_type' => ['required', 'string', 'in:operator_android,operator_ios'],
+        ]);
+        $user = $this->webSessionService->pendingUser($request, [
+            WebSessionService::PURPOSE_REGISTRATION_PAIRING,
+        ]) ?? $request->user();
+
+        if ($user === null) {
+            return ApiResponse::error('registration_session_expired', 'De registratiesessie is verlopen.', 401);
+        }
+
+        $clientType = (string) $data['client_type'];
+        if (! $this->mobilePairingService->canUseClient($user, $clientType)) {
+            return ApiResponse::error('mobile_app_forbidden', 'Dit account heeft geen toegang tot de operator-app.', 403);
+        }
+
+        return ApiResponse::success($this->mobilePairingService->create($user, $clientType, $request), 201);
     }
 
     private function userForToken(string $email, string $token): ?User

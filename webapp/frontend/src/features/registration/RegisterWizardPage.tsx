@@ -4,13 +4,26 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { ApiClientError } from '../../lib/apiClient';
-import type { TwoFactorEnableResult, TwoFactorSetup, User } from '../../types/api';
+import type { MobilePairingCode, TwoFactorEnableResult, TwoFactorSetup, User } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 
 interface RegistrationInvite {
   user: User;
   requires_mfa: boolean;
   admin_app_allowed: boolean;
+  download_options: SoftwareDownloadOptions;
+}
+
+interface SoftwareDownloadChannel {
+  source: 'direct' | 'app_store';
+  app_store_url: string;
+}
+
+interface SoftwareDownloadOptions {
+  channels: {
+    operator_android?: SoftwareDownloadChannel;
+    operator_ios?: SoftwareDownloadChannel;
+  };
 }
 
 interface RegistrationCompleteResult extends RegistrationInvite {
@@ -39,6 +52,9 @@ export function RegisterWizardPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recoveryMode, setRecoveryMode] = useState(false);
+  const [mobilePlatform, setMobilePlatform] = useState<'android' | 'ios'>('android');
+  const [pairingCode, setPairingCode] = useState<MobilePairingCode | null>(null);
+  const [pairingLoading, setPairingLoading] = useState(false);
 
   const steps = useMemo<Step[]>(() => {
     const adminAllowed = completed?.admin_app_allowed ?? invite?.admin_app_allowed ?? false;
@@ -61,7 +77,6 @@ export function RegisterWizardPage() {
   ]);
 
   const currentStep = steps[Math.min(stepIndex, steps.length - 1)];
-  const setupUrl = typeof window === 'undefined' ? '' : window.location.origin;
   const canSubmitAccount = password.length > 0 && password === passwordConfirmation;
   const canSubmitMfa = /^\d{6}$/.test(twoFactorCode);
   const installStepIndex = Math.max(steps.findIndex((step) => step.key === 'install'), 0);
@@ -184,6 +199,22 @@ export function RegisterWizardPage() {
     }
 
     router.push('/login');
+  }
+
+  async function createPairingCode() {
+    setPairingLoading(true);
+    setError(null);
+    try {
+      const response = await api.post<MobilePairingCode>('/registration/mobile-pairing', {
+        client_type: mobilePlatform === 'android' ? 'operator_android' : 'operator_ios',
+      });
+      setPairingCode(response.data);
+    } catch (err) {
+      setPairingCode(null);
+      setError(err instanceof Error ? err.message : 'Koppel-QR kon niet worden gemaakt.');
+    } finally {
+      setPairingLoading(false);
+    }
   }
 
   function canOpenStep(step: Step): boolean {
@@ -324,16 +355,50 @@ export function RegisterWizardPage() {
     }
 
     if (currentStep.key === 'install') {
+      const downloadOptions = completed?.download_options ?? invite?.download_options;
+      const selectedChannel = mobilePlatform === 'android'
+        ? downloadOptions?.channels.operator_android
+        : downloadOptions?.channels.operator_ios;
+      const storeUrl = selectedChannel?.app_store_url?.trim() ?? '';
+
       return (
         <>
           <div className="setup-copy">
-            <strong>Installeer de mobiele app via Google Play of de App Store.</strong>
-            <p>Gebruik daarna de server-QR om de app aan deze D.I.S omgeving te koppelen.</p>
+            <strong>Kies op welk toestel je de operator-app wilt gebruiken.</strong>
+            <p>Installeer de app, open daar de QR-scanner en scan vervolgens de persoonlijke koppel-QR hieronder.</p>
           </div>
-          <div className="tenant-qr">
-            <TotpQrCode value={setupUrl} alt="QR-code met DIS server URL" helpText="Scan deze QR-code in de Android app." />
-            <code>{setupUrl}</code>
+          <div className="checkbox-grid" role="radiogroup" aria-label="Kies mobiele app">
+            <label className="checkbox-card">
+              <input type="radio" name="mobile-platform" checked={mobilePlatform === 'android'} onChange={() => { setMobilePlatform('android'); setPairingCode(null); }} />
+              <span><strong>Android</strong><small>Operator-app via Google Play</small></span>
+            </label>
+            <label className="checkbox-card">
+              <input type="radio" name="mobile-platform" checked={mobilePlatform === 'ios'} onChange={() => { setMobilePlatform('ios'); setPairingCode(null); }} />
+              <span><strong>iPhone / iOS</strong><small>Operator-app via de Apple App Store</small></span>
+            </label>
           </div>
+          <div className="setup-review">
+            <div><span>Gekozen app</span><strong>{mobilePlatform === 'android' ? 'Android Operator' : 'iOS Operator'}</strong></div>
+            <div><span>Koppelen</span><strong>Persoonlijke eenmalige QR-code</strong></div>
+          </div>
+          <div className="setup-actions">
+            {storeUrl !== '' ? (
+              <a className="secondary-button" href={storeUrl} target="_blank" rel="noreferrer">
+                {mobilePlatform === 'android' ? 'Open Android-app' : 'Open iOS-app'}
+              </a>
+            ) : null}
+            <button className="primary-button" type="button" onClick={() => void createPairingCode()} disabled={pairingLoading}>
+              {pairingLoading ? 'QR maken...' : pairingCode ? 'Nieuwe koppel-QR maken' : 'Koppel-QR maken'}
+            </button>
+          </div>
+          {pairingCode ? (
+            <div className="tenant-qr">
+              <TotpQrCode value={pairingCode.qr_payload} alt={`Koppel-QR voor ${mobilePlatform === 'android' ? 'Android' : 'iOS'}`} helpText="Scan deze QR-code direct met de operator-app." />
+              <code>{pairingCode.code}</code>
+              <p className="form-hint">Deze code is eenmalig en {pairingCode.ttl_seconds} seconden geldig.</p>
+            </div>
+          ) : null}
+          {storeUrl === '' ? <p className="form-note">De link naar de {mobilePlatform === 'android' ? 'Android' : 'iOS'}-app is nog niet gepubliceerd.</p> : null}
         </>
       );
     }

@@ -232,7 +232,12 @@ final class AuthController extends Controller
             'client_type' => ['nullable', 'string', 'in:web,operator_android,operator_ios,admin_android,admin_ios'],
         ]);
 
-        $pendingUser = $this->webSessionService->pendingUser($request, [WebSessionService::PURPOSE_LOGIN_CHALLENGE]);
+        $pendingUser = $this->webSessionService->pendingUser($request, [
+            WebSessionService::PURPOSE_LOGIN_CHALLENGE,
+            WebSessionService::PURPOSE_REGISTRATION_CHALLENGE,
+        ]);
+        $registrationUser = $request->session()->get(WebSessionService::KEY_PENDING_PURPOSE)
+            === WebSessionService::PURPOSE_REGISTRATION_CHALLENGE ? $pendingUser : null;
         $isWebChallenge = $pendingUser !== null;
         $user = $pendingUser ?? $request->user();
 
@@ -272,6 +277,13 @@ final class AuthController extends Controller
             $authenticated = $user->canUseAdminApp();
             if ($authenticated) {
                 $this->webSessionService->authenticate($request, $user);
+            } elseif ($registrationUser !== null) {
+                $this->webSessionService->beginPreAuthentication(
+                    $request,
+                    $user,
+                    WebSessionService::PURPOSE_REGISTRATION_PAIRING,
+                    30,
+                );
             } else {
                 $this->webSessionService->invalidate($request);
             }
@@ -343,6 +355,8 @@ final class AuthController extends Controller
             WebSessionService::PURPOSE_LOGIN_SETUP,
             WebSessionService::PURPOSE_REGISTRATION_SETUP,
         ]);
+        $registrationUser = $request->session()->get(WebSessionService::KEY_PENDING_PURPOSE)
+            === WebSessionService::PURPOSE_REGISTRATION_SETUP ? $pendingUser : null;
         $isWebSetup = $this->webSessionService->isStatefulWebRequest($request);
         $user = $pendingUser ?? $request->user();
 
@@ -380,6 +394,13 @@ final class AuthController extends Controller
             $authenticated = $user->canUseAdminApp();
             if ($authenticated) {
                 $this->webSessionService->authenticate($request, $user);
+            } elseif ($registrationUser !== null) {
+                $this->webSessionService->beginPreAuthentication(
+                    $request,
+                    $user,
+                    WebSessionService::PURPOSE_REGISTRATION_PAIRING,
+                    30,
+                );
             } else {
                 $this->webSessionService->invalidate($request);
             }

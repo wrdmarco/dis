@@ -7,6 +7,7 @@ use App\Models\AppVersion;
 use App\Models\SystemSetting;
 use App\Services\AuditService;
 use App\Services\DeveloperAccessService;
+use App\Services\SoftwareDownloadService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,15 +20,10 @@ use ZipArchive;
 
 final class UpdateController extends Controller
 {
-    private const SOFTWARE_DOWNLOAD_CHANNELS = [
-        'operator_android' => ['store_key' => 'software.download.operator_android.app_store_url', 'source_key' => 'software.download.operator_android.source'],
-        'admin_android' => ['store_key' => 'software.download.admin_android.app_store_url', 'source_key' => 'software.download.admin_android.source'],
-        'operator_ios' => ['store_key' => 'software.download.operator_ios.app_store_url', 'source_key' => 'software.download.operator_ios.source'],
-    ];
-
     public function __construct(
         private readonly AuditService $auditService,
         private readonly DeveloperAccessService $developerAccess,
+        private readonly SoftwareDownloadService $softwareDownloads,
     ) {}
 
     public function androidCurrent(Request $request): JsonResponse
@@ -42,17 +38,7 @@ final class UpdateController extends Controller
 
     public function downloadOptions(): JsonResponse
     {
-        $channels = [];
-
-        foreach (self::SOFTWARE_DOWNLOAD_CHANNELS as $key => $settings) {
-            $source = SystemSetting::string($settings['source_key'], 'direct') ?? 'direct';
-            $channels[$key] = [
-                'source' => in_array($source, ['direct', 'app_store'], true) ? $source : 'direct',
-                'app_store_url' => SystemSetting::string($settings['store_key'], '') ?? '',
-            ];
-        }
-
-        return ApiResponse::success(['channels' => $channels]);
+        return ApiResponse::success(['channels' => $this->softwareDownloads->channels()]);
     }
 
     private function current(Request $request, string $platform, string $applicationId): JsonResponse

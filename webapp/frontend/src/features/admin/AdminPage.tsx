@@ -68,6 +68,11 @@ interface PasswordPolicySettingsForm {
   uncompromised: boolean;
 }
 
+interface AppLinksForm {
+  androidOperatorUrl: string;
+  iosOperatorUrl: string;
+}
+
 interface OperationalMapCommandCenterForm {
   address: string;
   name: string;
@@ -84,7 +89,7 @@ const incidentTimelineVisibilityOptions = [
   { value: 'audit', label: 'Auditacties' },
 ] as const;
 
-type AdminTab = 'firebase' | 'mail' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'store' | 'pilotReport' | 'incidentForm' | 'settings';
+type AdminTab = 'firebase' | 'mail' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'apps' | 'store' | 'pilotReport' | 'incidentForm' | 'settings';
 type AdminPageMode = 'admin' | 'forms';
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
@@ -95,6 +100,7 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'developer', label: 'Ontwikkel' },
   { id: 'version', label: 'Versie' },
   { id: 'tokens', label: 'Tokens' },
+  { id: 'apps', label: 'Apps' },
   { id: 'store', label: 'Store' },
   { id: 'settings', label: 'Instellingen' },
 ];
@@ -158,10 +164,12 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const mobileSettings = useMemo(() => toMobileSettingsForm(settings.data ?? []), [settings.data]);
   const managedSettings = useMemo(() => toManagedSettingsForm(settings.data ?? []), [settings.data]);
   const passwordPolicySettings = useMemo(() => toPasswordPolicySettingsForm(settings.data ?? []), [settings.data]);
+  const appLinks = useMemo(() => toAppLinksForm(settings.data ?? []), [settings.data]);
   const operationalMapCommandCenters = useMemo(() => toOperationalMapCommandCenters(settings.data ?? []), [settings.data]);
   const [form, setForm] = useState<MobileSettingsForm>(mobileSettings);
   const [managedForm, setManagedForm] = useState<ManagedSettingsForm>(managedSettings);
   const [passwordPolicyForm, setPasswordPolicyForm] = useState<PasswordPolicySettingsForm>(passwordPolicySettings);
+  const [appLinksForm, setAppLinksForm] = useState<AppLinksForm>(appLinks);
   const [commandCenters, setCommandCenters] = useState<OperationalMapCommandCenterForm[]>(operationalMapCommandCenters);
   const [pilotReportFields, setPilotReportFields] = useState<PilotReportFormField[]>([]);
   const [incidentFormFields, setIncidentFormFields] = useState<ConfigurableFormField[]>([]);
@@ -217,6 +225,10 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   useEffect(() => {
     setPasswordPolicyForm(passwordPolicySettings);
   }, [passwordPolicySettings]);
+
+  useEffect(() => {
+    setAppLinksForm(appLinks);
+  }, [appLinks]);
 
   useEffect(() => {
     setCommandCenters(operationalMapCommandCenters);
@@ -309,6 +321,26 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       await settings.reload();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Opslaan mislukt.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveAppLinks() {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await api.patch('/admin/settings', {
+        settings: {
+          'software.download.operator_android.app_store_url': appLinksForm.androidOperatorUrl.trim(),
+          'software.download.operator_ios.app_store_url': appLinksForm.iosOperatorUrl.trim(),
+          'software.download.operator_android.source': 'app_store',
+          'software.download.operator_ios.source': 'app_store',
+        },
+      });
+      await settings.reload();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'App-links opslaan mislukt.');
     } finally {
       setSaving(false);
     }
@@ -1435,6 +1467,43 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               </tbody>
             </table>
           </ResourceState>
+        </Panel>
+      ) : null}
+
+      {activeTab === 'apps' ? (
+        <Panel title="Mobiele apps">
+          <div className="setup-copy">
+            <strong>Installatielinks voor nieuwe gebruikers</strong>
+            <p>Deze links worden getoond nadat een gebruiker het account heeft geactiveerd. Het koppelen zelf gebeurt met een persoonlijke, eenmalige QR-code.</p>
+          </div>
+          <div className="form-grid">
+            <label className="form-grid__wide">
+              Android operator-app
+              <input
+                type="url"
+                inputMode="url"
+                placeholder="https://play.google.com/store/apps/details?id=nl.wrdmarco.dis"
+                value={appLinksForm.androidOperatorUrl}
+                onChange={(event) => setAppLinksForm((current) => ({ ...current, androidOperatorUrl: event.target.value }))}
+              />
+            </label>
+            <label className="form-grid__wide">
+              iOS operator-app
+              <input
+                type="url"
+                inputMode="url"
+                placeholder="https://apps.apple.com/..."
+                value={appLinksForm.iosOperatorUrl}
+                onChange={(event) => setAppLinksForm((current) => ({ ...current, iosOperatorUrl: event.target.value }))}
+              />
+            </label>
+          </div>
+          {saveError ? <p className="error-text">{saveError}</p> : null}
+          <div className="actions-row">
+            <button className="primary-button" type="button" onClick={() => void saveAppLinks()} disabled={saving}>
+              {saving ? 'Opslaan...' : 'App-links opslaan'}
+            </button>
+          </div>
         </Panel>
       ) : null}
 
@@ -3045,6 +3114,15 @@ function isMicrosoft365ClientSecretConfigured(settings: SystemSetting[]): boolea
   const secret = asRecord(byKey.get('mail.microsoft365_client_secret'));
 
   return asBoolean(secret.configured, false);
+}
+
+function toAppLinksForm(settings: SystemSetting[]): AppLinksForm {
+  const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
+
+  return {
+    androidOperatorUrl: asString(byKey.get('software.download.operator_android.app_store_url')),
+    iosOperatorUrl: asString(byKey.get('software.download.operator_ios.app_store_url')),
+  };
 }
 
 function toPasswordPolicySettingsForm(settings: SystemSetting[]): PasswordPolicySettingsForm {

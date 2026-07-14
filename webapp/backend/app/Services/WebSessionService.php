@@ -19,6 +19,10 @@ final class WebSessionService
 
     public const PURPOSE_REGISTRATION_ACCOUNT = 'registration_account';
 
+    public const PURPOSE_REGISTRATION_CHALLENGE = 'registration_challenge';
+
+    public const PURPOSE_REGISTRATION_PAIRING = 'registration_pairing';
+
     public const KEY_PENDING_USER_ID = 'dis.auth.pending_user_id';
 
     public const KEY_PENDING_PURPOSE = 'dis.auth.pending_purpose';

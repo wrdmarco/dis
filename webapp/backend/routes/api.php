@@ -47,6 +47,7 @@ Route::post('/auth/password/forgot', [PasswordController::class, 'forgot'])->mid
 Route::post('/auth/password/reset', [PasswordController::class, 'reset'])->middleware('throttle:password-reset');
 Route::post('/registration/invite', [RegistrationController::class, 'show'])->middleware('throttle:password-reset');
 Route::post('/registration/complete', [RegistrationController::class, 'complete'])->middleware('throttle:password-reset');
+Route::post('/registration/mobile-pairing', [RegistrationController::class, 'mobilePairing'])->middleware('throttle:mobile-pairing');
 Route::get('/setup/status', [SetupController::class, 'status'])->middleware('throttle:api');
 Route::post('/setup/complete', [SetupController::class, 'complete'])->middleware('throttle:setup');
 Route::get('/mobile/config', [MobileConfigController::class, 'show'])->middleware('throttle:mobile-public');
