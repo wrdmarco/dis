@@ -52,6 +52,7 @@ The setup wizard configures:
 - first system administrator
 - SMTP mail settings
 - Firebase app configuration
+- Separate Android FCM and iOS APNs push configuration
 
 The setup wizard is only available before the first user exists. After completion, further configuration is done in the admin panel.
 

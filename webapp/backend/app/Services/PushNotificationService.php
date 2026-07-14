@@ -4,14 +4,11 @@ namespace App\Services;
 
 use App\Jobs\SendFcmNotification;
 use App\Models\FcmToken;
-use App\Models\SystemSetting;
 use App\Models\Team;
 use App\Models\User;
-use App\Services\Firebase\FcmClient;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 use Throwable;
 
 final class PushNotificationService
@@ -19,7 +16,7 @@ final class PushNotificationService
     public function __construct(
         private readonly AuditService $auditService,
         private readonly StatusService $statusService,
-        private readonly FcmClient $fcmClient,
+        private readonly PushProviderClient $pushClient,
         private readonly MobileDeviceSessionService $mobileSessions,
     ) {}
 
@@ -29,8 +26,6 @@ final class PushNotificationService
      */
     public function sendManual(User $actor, array $data): array
     {
-        $this->ensureFirebaseConfigured();
-
         /** @var Collection<int, User> $users */
         $users = User::query()
             ->with(['fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens)])
@@ -150,20 +145,6 @@ final class PushNotificationService
         return array_values(array_unique([...$teamIds, ...$alertTeamIds]));
     }
 
-    private function ensureFirebaseConfigured(): void
-    {
-        $projectId = SystemSetting::string('firebase.project_id', config('dis.push.fcm_project_id'));
-        $credentials = SystemSetting::value('firebase.service_account', []);
-
-        if (! filled($projectId)) {
-            throw ValidationException::withMessages(['firebase' => ['Firebase project id is not configured.']]);
-        }
-
-        if (! is_array($credentials) || ! filled($credentials['client_email'] ?? null) || ! filled($credentials['private_key'] ?? null)) {
-            throw ValidationException::withMessages(['firebase' => ['Firebase service account is not configured.']]);
-        }
-    }
-
     private function onlineOperatorTokenQuery($tokens)
     {
         return $tokens
@@ -179,7 +160,7 @@ final class PushNotificationService
         }
 
         try {
-            $this->fcmClient->send(
+            $this->pushClient->send(
                 $token,
                 'Toestel verwijderd',
                 'Dit toestel is losgekoppeld van D.I.S.',

@@ -42,6 +42,7 @@ final class HealthController extends Controller
                 'project_configured' => filled(SystemSetting::string('firebase.project_id', config('dis.push.fcm_project_id'))),
                 'service_account_configured' => $this->firebaseServiceAccountConfigured(),
             ],
+            'apns' => ['credentials_configured' => $this->apnsConfigured()],
             'timestamp' => ApiDateTime::now(),
         ];
 
@@ -107,6 +108,15 @@ final class HealthController extends Controller
 
         return is_array($credentials)
             && filled($credentials['client_email'] ?? null)
+            && filled($credentials['private_key'] ?? null);
+    }
+
+    private function apnsConfigured(): bool
+    {
+        $credentials = SystemSetting::value('push.apns.credentials', []);
+
+        return is_array($credentials) && filled($credentials['team_id'] ?? null)
+            && filled($credentials['key_id'] ?? null) && filled($credentials['bundle_id'] ?? null)
             && filled($credentials['private_key'] ?? null);
     }
 

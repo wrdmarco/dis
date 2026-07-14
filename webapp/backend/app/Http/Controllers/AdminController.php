@@ -29,6 +29,7 @@ final class AdminController extends Controller
         'mail.password',
         'mail.microsoft365_client_secret',
         'firebase.service_account',
+        'push.apns.credentials',
     ];
 
     public function __construct(
@@ -259,6 +260,13 @@ final class AdminController extends Controller
             $settingKey = (string) $key;
             $value = $this->validateSettingValue($settingKey, $value);
 
+            if ($settingKey === 'push.apns.credentials' && is_array($value) && ! filled($value['private_key'] ?? null)) {
+                $existing = SystemSetting::value($settingKey, []);
+                if (is_array($existing) && filled($existing['private_key'] ?? null)) {
+                    $value['private_key'] = $existing['private_key'];
+                }
+            }
+
             if (in_array($settingKey, self::SENSITIVE_SETTING_KEYS, true) && ($value === null || $value === '')) {
                 continue;
             }
@@ -337,6 +345,7 @@ final class AdminController extends Controller
             'mail.microsoft365_client_secret' => $this->validateStringSetting($key, $value, 2000),
             'firebase.project_id' => $this->validateStringSetting($key, $value, 160),
             'firebase.service_account' => $this->validateFirebaseServiceAccount($key, $value),
+            'push.apns.credentials' => $this->validateApnsCredentials($key, $value),
             'mobile.firebase_config' => $this->validateMobileFirebaseConfig($key, $value),
             'drone.aeret_map_url',
             'drone.aeret_api_url' => $this->validateNullableUrlSetting($key, $value, 2048),
@@ -386,6 +395,19 @@ final class AdminController extends Controller
                 'private_key_id' => $credentials['private_key_id'] ?? '',
                 'client_id' => $credentials['client_id'] ?? '',
                 'client_x509_cert_url' => $credentials['client_x509_cert_url'] ?? '',
+            ];
+        }
+
+        if ($setting->key === 'push.apns.credentials') {
+            $credentials = is_array($setting->value) ? $setting->value : [];
+
+            return [
+                'configured' => filled($credentials['team_id'] ?? null) && filled($credentials['key_id'] ?? null)
+                    && filled($credentials['bundle_id'] ?? null) && filled($credentials['private_key'] ?? null),
+                'team_id' => $credentials['team_id'] ?? '',
+                'key_id' => $credentials['key_id'] ?? '',
+                'bundle_id' => $credentials['bundle_id'] ?? '',
+                'environment' => $credentials['environment'] ?? 'production',
             ];
         }
 
@@ -445,6 +467,27 @@ final class AdminController extends Controller
             'private_key_id' => $privateKeyId,
             'client_id' => $clientId,
             'client_x509_cert_url' => $clientCertUrl,
+        ];
+    }
+
+    /** @return array<string, string> */
+    private function validateApnsCredentials(string $key, mixed $value): array
+    {
+        if (! is_array($value)) {
+            throw ValidationException::withMessages(["settings.$key" => ['The setting value must be an object.']]);
+        }
+
+        $privateKey = $this->validateStringSetting($key.'.private_key', $value['private_key'] ?? '', 8000);
+        if ($privateKey !== '' && (! str_contains($privateKey, 'BEGIN PRIVATE KEY') || ! str_contains($privateKey, 'END PRIVATE KEY'))) {
+            throw ValidationException::withMessages(["settings.$key.private_key" => ['Upload een geldige Apple .p8 private key.']]);
+        }
+
+        return [
+            'team_id' => $this->validateStringSetting($key.'.team_id', $value['team_id'] ?? '', 32),
+            'key_id' => $this->validateStringSetting($key.'.key_id', $value['key_id'] ?? '', 32),
+            'bundle_id' => $this->validateStringSetting($key.'.bundle_id', $value['bundle_id'] ?? '', 255),
+            'private_key' => $privateKey,
+            'environment' => $this->validateStringIn($key.'.environment', $value['environment'] ?? 'production', ['production', 'sandbox']),
         ];
     }
 

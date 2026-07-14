@@ -12,6 +12,7 @@ final class SystemSetting extends Model
         'developer.android_upload',
         'drone.aeret_api_key',
         'firebase.service_account',
+        'push.apns.credentials',
         'mail.microsoft365_client_secret',
         'mail.password',
     ];

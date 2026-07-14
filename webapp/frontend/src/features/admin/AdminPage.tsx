@@ -43,6 +43,11 @@ interface ManagedSettingsForm {
   firebaseServicePrivateKeyId: string;
   firebaseServiceClientId: string;
   firebaseServiceClientX509CertUrl: string;
+  apnsTeamId: string;
+  apnsKeyId: string;
+  apnsBundleId: string;
+  apnsPrivateKey: string;
+  apnsEnvironment: 'production' | 'sandbox';
   pushLogRetentionDays: string;
   auditLogRetentionDays: string;
   locationRetentionDays: string;
@@ -83,7 +88,7 @@ type AdminTab = 'firebase' | 'mail' | 'system' | 'passwords' | 'developer' | 've
 type AdminPageMode = 'admin' | 'forms';
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
-  { id: 'firebase', label: 'Firebase' },
+  { id: 'firebase', label: 'Push' },
   { id: 'mail', label: 'Mail' },
   { id: 'system', label: 'Systeem' },
   { id: 'passwords', label: 'Wachtwoorden' },
@@ -204,6 +209,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       mailPassword: current.mailPassword,
       mailMicrosoft365ClientSecret: current.mailMicrosoft365ClientSecret,
       firebaseServicePrivateKey: current.firebaseServicePrivateKey,
+      apnsPrivateKey: current.apnsPrivateKey,
       aeretApiKey: current.aeretApiKey,
     }));
   }, [managedSettings, settings.data]);
@@ -343,6 +349,30 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       setManagedError(error instanceof Error ? error.message : 'Firebase configuratie opslaan mislukt.');
     } finally {
       setSaving(false);
+      setManagedSaving(false);
+    }
+  }
+
+  async function saveApnsSettings() {
+    setManagedSaving(true);
+    setManagedError(null);
+    setManagedMessage(null);
+    try {
+      await api.patch('/admin/settings', { settings: {
+        'push.apns.credentials': {
+          team_id: managedForm.apnsTeamId,
+          key_id: managedForm.apnsKeyId,
+          bundle_id: managedForm.apnsBundleId,
+          private_key: managedForm.apnsPrivateKey,
+          environment: managedForm.apnsEnvironment,
+        },
+      } });
+      setManagedForm((current) => ({ ...current, apnsPrivateKey: '' }));
+      setManagedMessage('Apple iOS pushconfiguratie opgeslagen.');
+      await settings.reload();
+    } catch (error) {
+      setManagedError(error instanceof Error ? error.message : 'Apple pushconfiguratie opslaan mislukt.');
+    } finally {
       setManagedSaving(false);
     }
   }
@@ -871,6 +901,49 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
             <div className="actions-row">
               <button className="primary-button" type="button" onClick={saveFirebaseSettings} disabled={saving || managedSaving}>
                 {saving || managedSaving ? 'Opslaan...' : 'Firebase configuratie opslaan'}
+              </button>
+            </div>
+          </Panel>
+          <Panel title="Apple iOS push (APNs)">
+            <div className="setup-copy">
+              <strong>Rechtstreekse push naar de iOS Operator-app.</strong>
+              <p>Maak in Apple Developer een APNs-sleutel aan. De private .p8-sleutel wordt versleuteld opgeslagen en nooit opnieuw getoond.</p>
+              <p>Status: {isApnsConfigured(settings.data ?? [], managedForm) ? 'ingesteld' : 'niet ingesteld'}</p>
+            </div>
+            <div className="form-grid">
+              <label>
+                Apple Team ID
+                <input value={managedForm.apnsTeamId} onChange={(event) => setManagedForm((current) => ({ ...current, apnsTeamId: event.target.value.trim() }))} />
+              </label>
+              <label>
+                Apple Key ID
+                <input value={managedForm.apnsKeyId} onChange={(event) => setManagedForm((current) => ({ ...current, apnsKeyId: event.target.value.trim() }))} />
+              </label>
+              <label>
+                iOS bundle-ID
+                <input value={managedForm.apnsBundleId} onChange={(event) => setManagedForm((current) => ({ ...current, apnsBundleId: event.target.value.trim() }))} />
+              </label>
+              <label>
+                APNs-omgeving
+                <select value={managedForm.apnsEnvironment} onChange={(event) => setManagedForm((current) => ({ ...current, apnsEnvironment: event.target.value as 'production' | 'sandbox' }))}>
+                  <option value="production">Productie / TestFlight</option>
+                  <option value="sandbox">Sandbox / development</option>
+                </select>
+              </label>
+              <label className="form-grid__wide">
+                Apple APNs .p8-sleutel
+                <input accept=".p8,text/plain" type="file" onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  if (file) void file.text().then((privateKey) => setManagedForm((current) => ({ ...current, apnsPrivateKey: privateKey })));
+                  event.currentTarget.value = '';
+                }} />
+              </label>
+            </div>
+            {managedMessage ? <p className="success-text">{managedMessage}</p> : null}
+            {managedError ? <p className="error-text">{managedError}</p> : null}
+            <div className="actions-row">
+              <button className="primary-button" type="button" onClick={saveApnsSettings} disabled={managedSaving}>
+                {managedSaving ? 'Opslaan...' : 'Apple pushconfiguratie opslaan'}
               </button>
             </div>
           </Panel>
@@ -2906,6 +2979,7 @@ function toMobileSettingsForm(settings: SystemSetting[]): MobileSettingsForm {
 function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
   const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
   const serviceAccount = asRecord(byKey.get('firebase.service_account'));
+  const apns = asRecord(byKey.get('push.apns.credentials'));
 
   return {
     mailMailer: asString(byKey.get('mail.mailer')) || 'smtp',
@@ -2926,6 +3000,11 @@ function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
     firebaseServicePrivateKeyId: asString(serviceAccount.private_key_id),
     firebaseServiceClientId: asString(serviceAccount.client_id),
     firebaseServiceClientX509CertUrl: asString(serviceAccount.client_x509_cert_url),
+    apnsTeamId: asString(apns.team_id),
+    apnsKeyId: asString(apns.key_id),
+    apnsBundleId: asString(apns.bundle_id) || 'nl.wrdmarco.dis.ios',
+    apnsPrivateKey: '',
+    apnsEnvironment: asString(apns.environment) === 'sandbox' ? 'sandbox' : 'production',
     pushLogRetentionDays: asStringOrNumber(byKey.get('retention.push_logs_days'), '90'),
     auditLogRetentionDays: asStringOrNumber(byKey.get('retention.audit_logs_days'), '3650'),
     locationRetentionDays: asStringOrNumber(byKey.get('retention.location_days'), '30'),
@@ -2935,6 +3014,12 @@ function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
     aeretApiUrl: asString(byKey.get('drone.aeret_api_url')),
     aeretApiKey: '',
   };
+}
+
+function isApnsConfigured(settings: SystemSetting[], form: ManagedSettingsForm): boolean {
+  if (form.apnsPrivateKey.trim() !== '') return form.apnsTeamId.trim() !== '' && form.apnsKeyId.trim() !== '' && form.apnsBundleId.trim() !== '';
+  const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
+  return asBoolean(asRecord(byKey.get('push.apns.credentials')).configured, false);
 }
 
 function isFirebaseServiceAccountConfigured(settings: SystemSetting[], form: ManagedSettingsForm): boolean {

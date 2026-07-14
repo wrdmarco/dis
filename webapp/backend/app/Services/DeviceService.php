@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\FcmToken;
 use App\Models\PersonalAccessToken;
 use App\Models\User;
-use App\Services\Firebase\FcmClient;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -15,7 +14,7 @@ final class DeviceService
     public function __construct(
         private readonly AuditService $auditService,
         private readonly StatusService $statusService,
-        private readonly FcmClient $fcmClient,
+        private readonly PushProviderClient $pushClient,
         private readonly MobileDeviceSessionService $mobileSessions,
     ) {}
 
@@ -188,7 +187,7 @@ final class DeviceService
         }
 
         try {
-            $this->fcmClient->send(
+            $this->pushClient->send(
                 $token,
                 'Toestel verwijderd',
                 'Dit toestel is losgekoppeld van D.I.S.',

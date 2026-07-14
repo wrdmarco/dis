@@ -6,7 +6,7 @@ use App\Jobs\SendFcmNotification;
 use App\Models\FcmToken;
 use App\Models\SystemSetting;
 use App\Models\User;
-use App\Services\Firebase\FcmClient;
+use App\Services\PushProviderClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -138,7 +138,7 @@ final class AuthenticationStateCutoverMigrationTest extends TestCase
             'pre_hardening_queued_message',
             'Queued before cutover',
             'Must not be delivered after cutover',
-        ))->handle(app(FcmClient::class));
+        ))->handle(app(PushProviderClient::class));
         Http::assertNothingSent();
         $this->assertDatabaseMissing('push_delivery_logs', ['fcm_token_id' => $fcmToken->id]);
     }

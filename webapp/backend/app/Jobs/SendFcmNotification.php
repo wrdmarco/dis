@@ -4,7 +4,7 @@ namespace App\Jobs;
 
 use App\Models\FcmToken;
 use App\Models\PushDeliveryLog;
-use App\Services\Firebase\FcmClient;
+use App\Services\PushProviderClient;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Throwable;
@@ -27,7 +27,7 @@ final class SendFcmNotification implements ShouldQueue
         public readonly ?string $dispatchRequestId = null,
     ) {}
 
-    public function handle(FcmClient $client): void
+    public function handle(PushProviderClient $client): void
     {
         $token = FcmToken::query()->find($this->fcmTokenId);
         if ($token === null || ! $token->is_active) {
@@ -38,13 +38,15 @@ final class SendFcmNotification implements ShouldQueue
             $response = $client->send($token, $this->title, $this->body, $this->data);
             $payload = $response->json();
             $status = $response->successful() ? 'sent' : 'failed';
-            $errorCode = $response->successful() ? null : $this->providerErrorCode($payload, $response->status());
+            $errorCode = $response->successful() ? null : $this->providerErrorCode($token, $payload, $response->status());
 
-            $providerMessageId = $response->successful() && isset($payload['name']) ? (string) $payload['name'] : null;
+            $providerMessageId = $response->successful()
+                ? ((string) ($payload['name'] ?? $response->header('apns-id') ?: '')) ?: null
+                : null;
 
             $this->recordDelivery($token, $status, $providerMessageId, $errorCode);
 
-            if (in_array($errorCode, ['NOT_FOUND', 'INVALID_ARGUMENT', 'UNREGISTERED'], true)) {
+            if (in_array($errorCode, ['NOT_FOUND', 'INVALID_ARGUMENT', 'UNREGISTERED', 'BadDeviceToken', 'Unregistered', 'DeviceTokenNotForTopic'], true)) {
                 $token->update(['is_active' => false, 'revoked_at' => now()]);
                 if (! $token->user?->fcmTokens()->where('is_active', true)->exists()) {
                     $token->user?->update(['push_enabled' => false]);
@@ -72,8 +74,14 @@ final class SendFcmNotification implements ShouldQueue
         ]);
     }
 
-    private function providerErrorCode(mixed $payload, int $httpStatus): string
+    private function providerErrorCode(FcmToken $token, mixed $payload, int $httpStatus): string
     {
+        if (strtolower((string) $token->platform) === 'ios') {
+            return is_array($payload) && is_string($payload['reason'] ?? null)
+                ? $payload['reason']
+                : 'apns_http_'.max(100, min(599, $httpStatus));
+        }
+
         $candidates = [];
         if (is_array($payload) && is_array($payload['error'] ?? null)) {
             $details = $payload['error']['details'] ?? [];

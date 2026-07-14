@@ -10,7 +10,7 @@ use App\Models\PushDeliveryLog;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\DroneFlightContextService;
-use App\Services\Firebase\FcmClient;
+use App\Services\PushProviderClient;
 use App\Services\SystemUpdateStatusService;
 use App\Support\SensitiveDataRedactor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -87,7 +87,7 @@ final class OperationalErrorSanitizationTest extends TestCase
         });
 
         try {
-            (new SendFcmNotification($token->id, 'security_test', 'Test', 'Test'))->handle(app(FcmClient::class));
+            (new SendFcmNotification($token->id, 'security_test', 'Test', 'Test'))->handle(app(PushProviderClient::class));
             $this->fail('The simulated FCM transport exception was not thrown.');
         } catch (RuntimeException) {
             // The queue must still retry, while the persisted diagnostic remains non-sensitive.
@@ -104,7 +104,7 @@ final class OperationalErrorSanitizationTest extends TestCase
                 'error' => ['message' => 'SQLSTATE[08006] provider-password=provider-body-secret'],
             ], 500),
         ]);
-        (new SendFcmNotification($token->id, 'security_test', 'Test', 'Test'))->handle(app(FcmClient::class));
+        (new SendFcmNotification($token->id, 'security_test', 'Test', 'Test'))->handle(app(PushProviderClient::class));
         $this->assertDatabaseHas('push_delivery_logs', [
             'fcm_token_id' => $token->id,
             'error_code' => 'fcm_http_500',

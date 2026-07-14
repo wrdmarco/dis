@@ -84,6 +84,13 @@ final class SystemSettingSeeder extends Seeder
             'client_id' => '',
             'client_x509_cert_url' => '',
         ], 'is_sensitive' => true],
+        'push.apns.credentials' => ['value' => [
+            'team_id' => '',
+            'key_id' => '',
+            'bundle_id' => 'nl.wrdmarco.dis.ios',
+            'private_key' => '',
+            'environment' => 'production',
+        ], 'is_sensitive' => true],
         'retention.push_logs_days' => ['value' => 90, 'is_sensitive' => false],
         'retention.audit_logs_days' => ['value' => 3650, 'is_sensitive' => false],
         'retention.location_days' => ['value' => 30, 'is_sensitive' => false],
