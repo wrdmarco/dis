@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\TestAlerts\SendTestAlertRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\DispatchRequest;
 use App\Services\TestAlertService;
@@ -18,9 +19,15 @@ final class TestAlertController extends Controller
         return ApiResponse::success($this->dispatchPayload($this->service->latestFor($request->user())));
     }
 
-    public function send(Request $request): JsonResponse
+    public function send(SendTestAlertRequest $request): JsonResponse
     {
-        return ApiResponse::success($this->dispatchPayload($this->service->send($request->user())), 201);
+        $result = $this->service->send($request->user(), $request->scope());
+
+        return ApiResponse::success(
+            $this->dispatchPayload($result['dispatch']),
+            201,
+            $result['summary'],
+        );
     }
 
     public function schedule(): JsonResponse

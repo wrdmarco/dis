@@ -451,7 +451,9 @@ final class DispatchService
 
     public function respond(DispatchRequest $dispatch, User $actor, string $response, ?string $note): DispatchRecipient
     {
+        $dispatch->loadMissing('incident');
         $isPreannouncement = $dispatch->status === 'draft';
+        $isTestAlert = (bool) $dispatch->incident?->is_test;
         $recipient = $dispatch->recipients()->where('user_id', $actor->id)->firstOrFail();
         $recipient->update([
             'response_status' => $response,
@@ -460,11 +462,11 @@ final class DispatchService
         ]);
         $this->auditService->record('dispatch.responded', $dispatch, $actor, [
             'response' => $response,
-            'action_mode' => $isPreannouncement ? 'availability' : 'attendance',
+            'action_mode' => $isTestAlert ? 'test_ack' : ($isPreannouncement ? 'availability' : 'attendance'),
         ]);
         $this->syncResponseToUserDevices($dispatch, $actor, $response);
         $this->broadcastDispatchChange($dispatch->refresh(), 'responded');
-        if (! $isPreannouncement && $response === 'accepted') {
+        if (! $isTestAlert && ! $isPreannouncement && $response === 'accepted') {
             $this->transitionIncidentToInProgressWhenEveryoneOnScene($dispatch->refresh(), $actor);
         }
 
@@ -486,9 +488,18 @@ final class DispatchService
 
     private function syncResponseToUserDevices(DispatchRequest $dispatch, User $actor, string $response): void
     {
-        $actionMode = $dispatch->status === 'draft' ? 'availability' : 'attendance';
-        $title = $actionMode === 'availability' ? 'D.I.S beschikbaarheid bijgewerkt' : 'D.I.S alarmering bijgewerkt';
-        $body = $actionMode === 'availability' ? 'Je beschikbaarheid is verwerkt.' : 'Je reactie is verwerkt.';
+        $isTestAlert = (bool) $dispatch->incident?->is_test;
+        $actionMode = $isTestAlert ? 'test_ack' : ($dispatch->status === 'draft' ? 'availability' : 'attendance');
+        $title = match ($actionMode) {
+            'availability' => 'D.I.S beschikbaarheid bijgewerkt',
+            'test_ack' => 'D.I.S proefalarmering bijgewerkt',
+            default => 'D.I.S alarmering bijgewerkt',
+        };
+        $body = match ($actionMode) {
+            'availability' => 'Je beschikbaarheid is verwerkt.',
+            'test_ack' => 'Je ontvangstbevestiging is verwerkt.',
+            default => 'Je reactie is verwerkt.',
+        };
 
         foreach ($actor->fcmTokens()->where('is_active', true)->get() as $token) {
             SendFcmNotification::dispatch(
@@ -502,6 +513,7 @@ final class DispatchService
                     'dispatch_id' => (string) $dispatch->id,
                     'incident_id' => (string) $dispatch->incident_id,
                     'response' => $response,
+                    'is_test' => $isTestAlert ? 'true' : 'false',
                 ],
                 (string) $dispatch->id,
             )->onQueue('push');
@@ -1090,7 +1102,7 @@ final class DispatchService
     {
         $dispatch->loadMissing(['incident.dispatchRequests.recipients']);
         $incident = $dispatch->incident;
-        if ($incident === null || ! in_array($incident->status, ['active', 'dispatching'], true)) {
+        if ($incident === null || $incident->is_test || ! in_array($incident->status, ['active', 'dispatching'], true)) {
             return;
         }
 
@@ -1157,13 +1169,64 @@ final class DispatchService
         )));
 
         foreach (array_reverse($segments) as $segment) {
-            $place = $this->placeFromPostalCodeSegment($segment);
+            if (preg_match('/\b(?:B|BE)-?[1-9][0-9]{3}\s+/i', $segment) === 1) {
+                $place = $this->placeFromBelgianPostalCodeSegment($segment);
+                if ($place !== null) {
+                    return $place;
+                }
+            }
+        }
+
+        $hasBelgianCountry = $this->hasBelgianCountrySegment($segments);
+        if ($hasBelgianCountry) {
+            foreach (array_reverse($segments) as $segment) {
+                $place = $this->placeFromBelgianPostalCodeSegment($segment);
+                if ($place !== null) {
+                    return $place;
+                }
+            }
+
+            foreach ($segments as $index => $segment) {
+                if (preg_match('/^(?:B|BE)?-?[1-9][0-9]{3}$/i', trim($segment)) === 1) {
+                    $place = $this->placeAfterDutchPostalCode($segments, $index + 1);
+                    if ($place !== null) {
+                        return $place;
+                    }
+                }
+            }
+        }
+
+        if (! $hasBelgianCountry) {
+            foreach ($segments as $index => $segment) {
+                $dutchPostalCode = $this->placeFromDutchPostalCodeSegment($segment);
+                if ($dutchPostalCode['matched']) {
+                    if ($dutchPostalCode['place'] !== null) {
+                        return $dutchPostalCode['place'];
+                    }
+
+                    return $this->placeAroundDutchPostalCode(
+                        $segments,
+                        $index,
+                        $index + 1,
+                        $this->isDutchPostalCodeOnlySegment($segment),
+                    );
+                }
+
+                $splitPostalCodeEnd = $this->splitDutchPostalCodeEndIndex($segments, $index);
+                if ($splitPostalCodeEnd !== null) {
+                    return $this->placeAroundDutchPostalCode($segments, $index, $splitPostalCodeEnd + 1, true);
+                }
+            }
+        }
+
+        foreach (array_reverse($segments) as $segment) {
+            $place = $this->placeFromBelgianPostalCodeSegment($segment);
             if ($place !== null) {
                 return $place;
             }
         }
 
-        $wholePlace = $this->placeFromPostalCodeSegment($value);
+        $wholePlace = $this->placeFromBelgianPostalCodeSegment($value);
         if ($wholePlace !== null) {
             return $wholePlace;
         }
@@ -1178,30 +1241,144 @@ final class DispatchService
         return null;
     }
 
-    private function placeFromPostalCodeSegment(string $segment): ?string
+    /**
+     * @param list<string> $segments
+     */
+    private function hasBelgianCountrySegment(array $segments): bool
+    {
+        foreach ($segments as $segment) {
+            if (preg_match('/^(?:belgium|belgie|belgië|be)$/iu', trim($segment)) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array{matched: bool, place: string|null}
+     */
+    private function placeFromDutchPostalCodeSegment(string $segment): array
     {
         $segment = $this->cleanCountryNames($segment);
 
-        if (preg_match('/\b[1-9][0-9]{3}\s?[A-Z]{2}\s+(.+)$/i', $segment, $matches) === 1) {
-            return $this->cleanPlaceCandidate((string) $matches[1]);
+        if (preg_match('/\b[1-9][0-9]{3}\s*[A-Z]\s*[A-Z]\b(.*)$/i', $segment, $matches) !== 1) {
+            return ['matched' => false, 'place' => null];
         }
 
-        if (preg_match('/\b(?:B|BE)?-?[1-9][0-9]{3}\s+(.+)$/i', $segment, $matches) === 1) {
-            return $this->cleanPlaceCandidate((string) $matches[1]);
+        return [
+            'matched' => true,
+            'place' => $this->cleanPlaceCandidate((string) $matches[1], allowProvinceOnly: true),
+        ];
+    }
+
+    /**
+     * @param list<string> $segments
+     */
+    private function splitDutchPostalCodeEndIndex(array $segments, int $index): ?int
+    {
+        $current = trim($segments[$index] ?? '');
+        $next = trim($segments[$index + 1] ?? '');
+        $afterNext = trim($segments[$index + 2] ?? '');
+
+        if (preg_match('/^[1-9][0-9]{3}$/', $current) === 1) {
+            if (preg_match('/^[A-Z]\s*[A-Z]$/i', $next) === 1) {
+                return $index + 1;
+            }
+
+            if (preg_match('/^[A-Z]$/i', $next) === 1 && preg_match('/^[A-Z]$/i', $afterNext) === 1) {
+                return $index + 2;
+            }
+        }
+
+        if (
+            preg_match('/^[1-9][0-9]{3}\s*[A-Z]$/i', $current) === 1
+            && preg_match('/^[A-Z]$/i', $next) === 1
+        ) {
+            return $index + 1;
         }
 
         return null;
     }
 
-    private function cleanPlaceCandidate(string $candidate): ?string
+    /**
+     * @param list<string> $segments
+     */
+    private function placeAfterDutchPostalCode(array $segments, int $startIndex): ?string
+    {
+        for ($index = $startIndex, $count = count($segments); $index < $count; $index++) {
+            $place = $this->cleanPlaceCandidate($segments[$index], allowProvinceOnly: true);
+            if ($place !== null) {
+                return $place;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param list<string> $segments
+     */
+    private function placeAroundDutchPostalCode(
+        array $segments,
+        int $postalCodeStartIndex,
+        int $placeAfterStartIndex,
+        bool $allowPlaceBefore,
+    ): ?string {
+        $placeAfter = $this->placeAfterDutchPostalCode($segments, $placeAfterStartIndex);
+        $placeBefore = $allowPlaceBefore
+            ? $this->placeBeforeDutchPostalCode($segments, $postalCodeStartIndex)
+            : null;
+
+        if ($placeBefore !== null && ($placeAfter === null || $this->isProvinceOnlyPlace($placeAfter))) {
+            return $placeBefore;
+        }
+
+        return $placeAfter;
+    }
+
+    /**
+     * @param list<string> $segments
+     */
+    private function placeBeforeDutchPostalCode(array $segments, int $postalCodeStartIndex): ?string
+    {
+        $candidate = trim($segments[$postalCodeStartIndex - 1] ?? '');
+        if ($candidate === '' || preg_match('/\d/u', $candidate) === 1) {
+            return null;
+        }
+
+        return $this->cleanPlaceCandidate($candidate, allowProvinceOnly: true);
+    }
+
+    private function isDutchPostalCodeOnlySegment(string $segment): bool
+    {
+        return preg_match('/^[1-9][0-9]{3}\s*[A-Z]\s*[A-Z]$/i', trim($segment)) === 1;
+    }
+
+    private function placeFromBelgianPostalCodeSegment(string $segment): ?string
+    {
+        $segment = $this->cleanCountryNames($segment);
+
+        if (preg_match('/\b(?:B|BE)?-?[1-9][0-9]{3}\s+(.+)$/i', $segment, $matches) === 1) {
+            return $this->cleanPlaceCandidate((string) $matches[1], allowProvinceOnly: true);
+        }
+
+        return null;
+    }
+
+    private function cleanPlaceCandidate(string $candidate, bool $allowProvinceOnly = false): ?string
     {
         $place = $this->cleanCountryNames($candidate);
-        $place = trim((string) preg_replace('/\b[1-9][0-9]{3}\s?[A-Z]{2}\b/i', '', $place));
+        $place = trim((string) preg_replace('/\b[1-9][0-9]{3}\s*[A-Z]\s*[A-Z]\b/i', '', $place));
         $place = trim((string) preg_replace('/\b(?:B|BE)?-?[1-9][0-9]{3}\b/i', '', $place));
         $place = trim((string) preg_replace('/\s+/', ' ', $place));
         $place = trim($place, " \t\n\r\0\x0B,-");
 
-        if ($place === '' || $this->isCountryOnlyPlace($place) || $this->isProvinceOnlyPlace($place)) {
+        if (
+            $place === ''
+            || $this->isCountryOnlyPlace($place)
+            || (! $allowProvinceOnly && $this->isProvinceOnlyPlace($place))
+        ) {
             return null;
         }
 
@@ -1211,7 +1388,7 @@ final class DispatchService
     private function cleanCountryNames(string $value): string
     {
         return trim((string) preg_replace(
-            '/\b(?:netherlands|nederland|the netherlands|belgium|belgie|belgië|germany|duitsland|deutschland|nl|be|de)\b/i',
+            '/(?:^|[\s,;-]+)(?:the netherlands|netherlands|nederland|belgium|belgie|belgië|germany|duitsland|deutschland|nl|be|de)\s*$/iu',
             '',
             $value,
         ));
@@ -1220,7 +1397,7 @@ final class DispatchService
     private function isCountryOnlyPlace(string $value): bool
     {
         return preg_match(
-            '/^(?:netherlands|nederland|the netherlands|belgium|belgie|belgië|germany|duitsland|deutschland|nl|be|de)$/i',
+            '/^(?:netherlands|nederland|the netherlands|belgium|belgie|belgië|germany|duitsland|deutschland|nl|be|de)$/iu',
             trim($value),
         ) === 1;
     }

@@ -1,5 +1,5 @@
-import { type FormEvent, useEffect, useState } from 'react';
-import { BellRing, Send } from 'lucide-react';
+import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
+import { AlertTriangle, BellRing, Send, UsersRound, UserRound } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -9,6 +9,13 @@ import { useApiResource } from '../../lib/useApiResource';
 import type { DispatchRecipient, DispatchRequest } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
+import {
+  defaultTestAlertScope,
+  readTestAlertSummary,
+  testAlertSuccessMessage,
+  type TestAlertScope,
+  type TestAlertSummary,
+} from './testAlertContract';
 
 interface TestAlertSchedule {
   enabled: boolean;
@@ -34,7 +41,13 @@ export function TestAlertPage() {
   const { api } = useAuth();
   const testAlert = useApiResource<DispatchRequest>('/test-alert');
   const schedule = useApiResource<TestAlertSchedule>('/test-alert/schedule');
+  const allOnlineDescriptionId = useId();
+  const allOnlineConfirmationDescriptionId = useId();
+  const sendingRef = useRef(false);
+  const [scope, setScope] = useState<TestAlertScope>(defaultTestAlertScope);
   const [sending, setSending] = useState(false);
+  const [confirmAllOnline, setConfirmAllOnline] = useState(false);
+  const [lastSendSummary, setLastSendSummary] = useState<TestAlertSummary | null>(null);
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,18 +68,61 @@ export function TestAlertPage() {
     });
   }, [schedule.data]);
 
-  async function sendTestAlert() {
+  useEffect(() => {
+    if (!confirmAllOnline) {
+      return undefined;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !sendingRef.current) {
+        setConfirmAllOnline(false);
+      }
+    }
+
+    window.addEventListener('keydown', closeOnEscape);
+
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [confirmAllOnline]);
+
+  function requestTestAlert() {
+    setError(null);
+    if (scope === 'all_online') {
+      setConfirmAllOnline(true);
+      return;
+    }
+
+    void sendTestAlert('self');
+  }
+
+  async function sendTestAlert(requestedScope: TestAlertScope) {
+    if (sendingRef.current) {
+      return;
+    }
+
+    sendingRef.current = true;
     setSending(true);
     setMessage(null);
     setError(null);
+    setLastSendSummary(null);
 
     try {
-      await api.post<DispatchRequest>('/test-alert');
-      setMessage('Proefalarmering verzonden. Wacht op ontvangstbevestiging via de Android melding.');
-      await testAlert.reload();
+      const response = await api.post<DispatchRequest>('/test-alert', { scope: requestedScope });
+      testAlert.mutate(response.data);
+      const summary = readTestAlertSummary(response.meta);
+      if (summary === null) {
+        setLastSendSummary(null);
+        setError('De proefalarmering is gestart, maar het verzendresultaat kon niet worden gelezen. Controleer Live status.');
+        setConfirmAllOnline(false);
+        return;
+      }
+
+      setLastSendSummary(summary);
+      setMessage(testAlertSuccessMessage(summary));
+      setConfirmAllOnline(false);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Proefalarmering kon niet worden verzonden.');
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }
@@ -97,25 +153,60 @@ export function TestAlertPage() {
 
   return (
     <div className="page-stack">
-      <RealtimeBridge onOperationalEvent={() => void testAlert.reload()} />
+      <RealtimeBridge onOperationalEvent={() => void testAlert.silentReload()} />
 
       <Panel
         title="Proefalarmering"
-        action={(
-          <button className="primary-button" type="button" onClick={sendTestAlert} disabled={sending}>
-            <Send size={16} /> {sending ? 'Versturen...' : 'Proefalarmering doen'}
-          </button>
-        )}
       >
         <div className="test-alert-hero">
           <div className="test-alert-hero__icon"><BellRing size={28} /></div>
           <div>
-            <h3>Controleer pushmelding en ontvangstknop</h3>
-            <p>De proefalarmering wordt naar de ingelogde gebruiker gestuurd en toont alleen de knop Ontvangen.</p>
+            <h3>Controleer pushmeldingen en bereikbaarheid</h3>
+            <p>Kies een persoonlijke controle of een brede bereikbaarheidstest. Een proefmelding toont alleen de knop Ontvangen.</p>
           </div>
         </div>
-        {error ? <p className="form-error">{error}</p> : null}
-        {message ? <p className="success-text">{message}</p> : null}
+        <div className="test-alert-controls">
+          <fieldset className="test-alert-scope" disabled={sending}>
+            <legend>Wie wil je alarmeren?</legend>
+            <div className="checkbox-grid">
+              <label className={`checkbox-card test-alert-scope__option ${scope === 'self' ? 'test-alert-scope__option--selected' : ''}`}>
+                <input
+                  type="radio"
+                  name="test-alert-scope"
+                  value="self"
+                  checked={scope === 'self'}
+                  onChange={() => setScope('self')}
+                />
+                <span>
+                  <strong><UserRound aria-hidden size={17} /> Alleen mijzelf</strong>
+                  <small>Stuur de proefmelding alleen naar je eigen actieve gekoppelde apps.</small>
+                </span>
+              </label>
+              <label className={`checkbox-card test-alert-scope__option ${scope === 'all_online' ? 'test-alert-scope__option--selected' : ''}`}>
+                <input
+                  type="radio"
+                  name="test-alert-scope"
+                  value="all_online"
+                  checked={scope === 'all_online'}
+                  aria-describedby={allOnlineDescriptionId}
+                  onChange={() => setScope('all_online')}
+                />
+                <span>
+                  <strong><UsersRound aria-hidden size={17} /> Alle online operator-apps</strong>
+                  <small id={allOnlineDescriptionId}>Voor een extra bereikbaarheidstest. Beschikbaarheid, certificaten en drones tellen hierbij niet mee.</small>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+          <div className="actions-row test-alert-controls__actions">
+            <button className="primary-button" type="button" onClick={requestTestAlert} disabled={sending}>
+              <Send aria-hidden size={16} /> {sending ? 'Versturen...' : scope === 'self' ? 'Persoonlijke proefmelding versturen' : 'Bereikbaarheidstest starten'}
+            </button>
+          </div>
+        </div>
+        {error && !confirmAllOnline ? <p className="form-error" role="alert">{error}</p> : null}
+        {message ? <p className="success-text" role="status" aria-live="polite">{message}</p> : null}
+        {lastSendSummary ? <TestAlertSendSummary summary={lastSendSummary} /> : null}
       </Panel>
 
       <Panel title="Automatisch proefalarm">
@@ -172,9 +263,10 @@ export function TestAlertPage() {
             <div className="summary-grid">
               <SummaryItem label="Referentie" value={testAlert.data?.incident?.reference ?? '-'} />
               <SummaryItem label="Dispatch" value={testAlert.data?.status ?? '-'} />
-              <SummaryItem label="Verstuurd" value={formatDate(testAlert.data?.sent_at)} />
+              <SummaryItem label="Gestart" value={formatDate(testAlert.data?.sent_at)} />
               <SummaryItem label="Ontvangen" value={String(countResponses(recipients, 'accepted'))} />
-              <SummaryItem label="Niet ontvangen" value={String(countResponses(recipients, 'declined'))} />
+              <SummaryItem label="Afgewezen" value={String(countResponses(recipients, 'declined'))} />
+              <SummaryItem label="Geen reactie / verlopen" value={String(countResponses(recipients, 'no_response'))} />
               <SummaryItem label="Wacht op reactie" value={String(countResponses(recipients, 'pending'))} />
             </div>
 
@@ -206,6 +298,52 @@ export function TestAlertPage() {
           </div>
         </ResourceState>
       </Panel>
+
+      {confirmAllOnline ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="modal modal--narrow"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="test-alert-confirmation-title"
+            aria-describedby={allOnlineConfirmationDescriptionId}
+          >
+            <header className="modal__header">
+              <div>
+                <span className="modal__eyebrow">Bereikbaarheidstest</span>
+                <h2 id="test-alert-confirmation-title">Alle online operator-apps alarmeren?</h2>
+              </div>
+            </header>
+            <div className="confirm-dialog">
+              <p id={allOnlineConfirmationDescriptionId}>DIS probeert een zichtbare proefmelding klaar te zetten voor alle gebruikers met een online operator-app.</p>
+              <div className="test-alert-warning">
+                <AlertTriangle aria-hidden size={20} />
+                <p><strong>Dit is een brede test.</strong> Er wordt niet gefilterd op beschikbaarheid, certificeringen of toegewezen drones.</p>
+              </div>
+              {error ? <p className="form-error" role="alert">{error}</p> : null}
+              <div className="actions-row">
+                <button className="secondary-button" type="button" autoFocus onClick={() => setConfirmAllOnline(false)} disabled={sending}>Annuleren</button>
+                <button className="danger-button" type="button" onClick={() => void sendTestAlert('all_online')} disabled={sending}>
+                  <UsersRound aria-hidden size={16} /> {sending ? 'Klaarzetten...' : 'Ja, bereikbaarheidstest starten'}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TestAlertSendSummary({ summary }: { summary: TestAlertSummary }) {
+  return (
+    <div className="test-alert-send-summary" aria-label="Resultaat van de laatste proefalarmering">
+      <div className="summary-grid">
+        <SummaryItem label="Klaargezet voor gebruikers" value={String(summary.recipient_count)} />
+        <SummaryItem label="Pushmeldingen in wachtrij" value={String(summary.queued_token_count)} />
+        <SummaryItem label="Vooraf overgeslagen" value={String(summary.skipped_user_count)} />
+        {summary.failed_user_count > 0 ? <SummaryItem label="Niet klaargezet door fout" value={String(summary.failed_user_count)} /> : null}
+      </div>
     </div>
   );
 }
@@ -228,9 +366,9 @@ function responseLabel(value: string): string {
     case 'accepted':
       return 'ontvangen';
     case 'declined':
-      return 'niet ontvangen';
+      return 'afgewezen';
     case 'no_response':
-      return 'geen reactie';
+      return 'geen reactie / verlopen';
     default:
       return 'wacht op reactie';
   }

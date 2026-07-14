@@ -99,7 +99,7 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
 
         Route::get('/teams', [AdminController::class, 'teams'])->middleware('permission:incidents.view');
 
-        Route::get('/test-alert', [TestAlertController::class, 'show'])->middleware('permission:incidents.dispatch.view');
+        Route::get('/test-alert', [TestAlertController::class, 'show'])->middleware('permission:incidents.dispatch.view,incidents.dispatch.manage');
         Route::post('/test-alert', [TestAlertController::class, 'send'])->middleware(['permission:incidents.dispatch.manage', 'throttle:dispatch-response']);
         Route::get('/test-alert/schedule', [TestAlertController::class, 'schedule'])->middleware('permission:incidents.dispatch.manage');
         Route::patch('/test-alert/schedule', [TestAlertController::class, 'updateSchedule'])->middleware('permission:incidents.dispatch.manage');

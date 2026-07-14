@@ -118,12 +118,12 @@ final class IamAuthorizationTest extends TestCase
         $incident = $this->incident($creator, 'PRE-001', [
             'reporter_name' => 'Geheime melder',
             'reporter_phone' => '+31612345678',
-            'location_label' => 'Dam 1, 1012 JS Amsterdam, Noord-Holland, Netherlands',
+            'location_label' => "McDonald's, Botnische golf 1, 3446 CN, Woerden, Utrecht, Nederland",
             'latitude' => 52.3731,
             'longitude' => 4.8922,
             'custom_fields' => ['secret' => 'niet tonen'],
         ]);
-        $this->dispatch($incident, $creator, $operator, 'draft');
+        $dispatch = $this->dispatch($incident, $creator, $operator, 'draft');
 
         $response = $this->asClient($operator, 'client:operator')->getJson('/api/incidents/'.$incident->id);
 
@@ -133,9 +133,17 @@ final class IamAuthorizationTest extends TestCase
             ->assertJsonPath('data.reporter_phone', null)
             ->assertJsonPath('data.latitude', null)
             ->assertJsonPath('data.longitude', null)
+            ->assertJsonPath('data.title', 'Beschikbaar voor melding in Woerden?')
+            ->assertJsonPath('data.location_label', 'Woerden')
             ->assertJsonPath('data.custom_fields', []);
         $this->assertStringContainsString('"custom_fields":{}', $response->getContent());
-        $this->assertStringNotContainsString('Dam 1', (string) $response->json('data.location_label'));
+        $this->assertStringNotContainsString('Botnische golf 1', (string) $response->json('data.location_label'));
+
+        $this->asClient($operator, 'client:operator')
+            ->getJson('/api/dispatches/'.$dispatch->id)
+            ->assertOk()
+            ->assertJsonPath('data.incident.title', 'Beschikbaar voor melding in Woerden?')
+            ->assertJsonPath('data.incident.location_label', 'Woerden');
     }
 
     public function test_operator_timeline_does_not_expose_other_recipients(): void

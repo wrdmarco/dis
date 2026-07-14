@@ -213,11 +213,13 @@ export const operationManualGuides = {
       permissions: ['incidents.dispatch.view', 'incidents.dispatch.manage'],
       steps: [
         { label: 'Open Proefalarmering', description: 'Kies Proefalarmering in het menu.' },
-        { label: 'Kies Proefalarmering doen', description: 'DIS stuurt de proefmelding naar je eigen actieve gekoppelde toestellen.' },
+        { label: 'Kies de ontvangers', description: 'Kies Alleen mijzelf voor je eigen actieve gekoppelde apps, of Alle online operator-apps voor een extra bereikbaarheidstest.' },
+        { label: 'Bevestig een brede test', description: 'Bij Alle online operator-apps vraagt DIS om een extra bevestiging. Deze test filtert niet op beschikbaarheid, certificeringen of toegewezen drones.' },
+        { label: 'Start de proefalarmering', description: 'Kies Persoonlijke proefmelding versturen of bevestig de brede bereikbaarheidstest.' },
         { label: 'Open de melding op het toestel', description: 'De proefmelding toont alleen de knop Ontvangen en geen opkomstknoppen.' },
         { label: 'Kies Ontvangen', description: 'Ga terug naar de webapp en controleer Live status.' },
       ],
-      result: 'Je ziet voor jouw gebruiker of en wanneer de laatste proefmelding is bevestigd. De webapp toont geen aparte ontvangstregel per toestel.',
+      result: 'Na het starten toont DIS voor hoeveel gebruikers de melding is klaargezet, hoeveel pushmeldingen in de wachtrij staan en hoeveel gebruikers vooraf zijn overgeslagen. Wanneer een geselecteerde gebruiker door een fout op geen enkel toestel kon worden klaargezet, wordt dit apart gemeld. Alleen Live status laat zien of en wanneer een gebruiker de melding daadwerkelijk heeft bevestigd; er is geen aparte ontvangstregel per toestel.',
     },
     {
       id: 'test-alert-schedule',
