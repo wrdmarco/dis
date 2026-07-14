@@ -1018,7 +1018,8 @@ snapshot_backup_file() {
     bs=4194304 \
     count="${copy_limit}" \
     iflag=nofollow,nonblock,fullblock,count_bytes \
-    oflag=excl,nofollow \
+    oflag=nofollow \
+    conv=excl \
     status=none; then
     fail "Backup input could not be snapshotted safely."
   fi

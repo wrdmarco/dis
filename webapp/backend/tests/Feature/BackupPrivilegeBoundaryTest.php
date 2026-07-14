@@ -11,6 +11,8 @@ final class BackupPrivilegeBoundaryTest extends TestCase
     public function backup_runtime_configuration_is_parsed_as_untrusted_data(): void
     {
         $common = $this->repositoryFile('scripts/lib/common.sh');
+        $this->assertStringContainsString('conv=excl', $common);
+        $this->assertStringNotContainsString('oflag=excl', $common);
         $backup = $this->repositoryFile('scripts/backup.sh');
         $verify = $this->repositoryFile('scripts/verify-backup.sh');
         $restore = $this->repositoryFile('scripts/restore.sh');
