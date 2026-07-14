@@ -67,6 +67,10 @@ body {
   text-size-adjust: 100%;
 }
 
+body.operational-map-scroll-lock {
+  overflow: hidden;
+}
+
 button,
 input,
 select,
@@ -2877,55 +2881,43 @@ select[multiple] {
   background: var(--dis-field);
 }
 
+.live-map__viewport {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .live-map__tile {
-  position: absolute;
-  width: 256px;
-  height: 256px;
+  pointer-events: none;
   user-select: none;
 }
 
 .live-map__user-marker,
 .live-map__incident-marker {
-  position: absolute;
-  z-index: 2;
-  transform: translate(-50%, -50%);
-  border-radius: 999px;
-  box-shadow: 0 0 0 3px rgba(9, 13, 18, 0.82);
   pointer-events: none;
 }
 
-.live-map__user-marker {
-  width: 16px;
-  height: 16px;
-  border: 2px solid #ecfeff;
-  background: #22c55e;
+.live-map__user-marker circle {
+  fill: #22c55e;
+  stroke: #ecfeff;
+  stroke-width: 2px;
+  filter: drop-shadow(0 0 3px rgba(9, 13, 18, 0.9));
 }
 
 .live-map__user-label {
-  position: absolute;
-  left: 50%;
-  bottom: 20px;
-  transform: translateX(-50%);
-  max-width: 180px;
-  padding: 4px 8px;
-  border: 1px solid rgba(15, 23, 42, 0.18);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.94);
-  color: #0f172a;
-  font-size: 12px;
+  fill: #ffffff;
+  stroke: rgba(9, 13, 18, 0.92);
+  stroke-width: 4px;
+  paint-order: stroke fill;
+  font-size: 13px;
   font-weight: 700;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.2);
 }
 
-.live-map__incident-marker {
-  width: 22px;
-  height: 22px;
-  border: 3px solid #fef3c7;
-  background: #ef4444;
+.live-map__incident-marker circle {
+  fill: #ef4444;
+  stroke: #fef3c7;
+  stroke-width: 3px;
+  filter: drop-shadow(0 0 3px rgba(9, 13, 18, 0.9));
 }
 
 .live-map__table {
@@ -3394,17 +3386,27 @@ select[multiple] {
 }
 
 .operational-map-card {
+  --operational-map-card-color: var(--dis-border);
   min-width: 0;
   display: grid;
   gap: 12px;
   padding: 12px;
-  border: 1px solid var(--dis-border);
+  border: 1px solid var(--operational-map-card-color);
   border-left-width: 4px;
   border-radius: 8px;
   background:
     linear-gradient(180deg, rgba(17, 29, 43, 0.62), rgba(9, 13, 18, 0.8)),
     var(--dis-field);
 }
+
+.operational-map-card--color-0 { --operational-map-card-color: #7dd3fc; }
+.operational-map-card--color-1 { --operational-map-card-color: #fbbf24; }
+.operational-map-card--color-2 { --operational-map-card-color: #a7f3d0; }
+.operational-map-card--color-3 { --operational-map-card-color: #fca5a5; }
+.operational-map-card--color-4 { --operational-map-card-color: #c4b5fd; }
+.operational-map-card--color-5 { --operational-map-card-color: #fdba74; }
+.operational-map-card--color-6 { --operational-map-card-color: #93c5fd; }
+.operational-map-card--color-7 { --operational-map-card-color: #f0abfc; }
 
 .operational-map-card header {
   display: grid;
@@ -3418,6 +3420,7 @@ select[multiple] {
   height: 12px;
   margin-top: 5px;
   border-radius: 999px;
+  background: var(--operational-map-card-color);
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
 }
 
@@ -4365,17 +4368,37 @@ select[multiple] {
 }
 
 .dashboard-gauge {
-  --dashboard-gauge: 0%;
+  position: relative;
   width: 168px;
   aspect-ratio: 1;
   display: grid;
   place-items: center;
   justify-self: center;
   border-radius: 999px;
-  background:
-    radial-gradient(circle at center, #0f1722 0 58%, transparent 59%),
-    conic-gradient(var(--dashboard-good) var(--dashboard-gauge), rgba(31, 43, 58, 0.9) 0);
+  background: radial-gradient(circle at center, #0f1722 0 58%, transparent 59%);
   box-shadow: inset 0 0 0 1px rgba(128, 199, 255, 0.16);
+}
+
+.dashboard-gauge__ring {
+  width: 100%;
+  height: 100%;
+  grid-area: 1 / 1;
+  transform: rotate(-90deg);
+}
+
+.dashboard-gauge__track,
+.dashboard-gauge__value {
+  fill: none;
+  stroke-width: 4;
+}
+
+.dashboard-gauge__track {
+  stroke: rgba(31, 43, 58, 0.9);
+}
+
+.dashboard-gauge__value {
+  stroke: var(--dashboard-good);
+  stroke-linecap: round;
 }
 
 .dashboard-gauge span,
@@ -7336,10 +7359,12 @@ pre {
 }
 
 :root[data-theme="light"] .dashboard-gauge {
-  background:
-    radial-gradient(circle at center, #ffffff 0 58%, transparent 59%),
-    conic-gradient(var(--dashboard-good) var(--dashboard-gauge), #d9e4f0 0);
+  background: radial-gradient(circle at center, #ffffff 0 58%, transparent 59%);
   box-shadow: inset 0 0 0 1px var(--dis-border);
+}
+
+:root[data-theme="light"] .dashboard-gauge__track {
+  stroke: #d9e4f0;
 }
 
 :root[data-theme="light"] .dashboard-asset__icon,
@@ -7911,6 +7936,49 @@ pre {
   border-color: #bbf7d0 !important;
   background: #f0fdf4 !important;
   color: #166534 !important;
+}
+
+.store-review-audit {
+  display: grid;
+  gap: 0.65rem;
+  padding-top: 0.25rem;
+}
+
+.store-review-audit h4,
+.store-review-audit p {
+  margin: 0;
+}
+
+.store-review-audit ul {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.store-review-audit li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+}
+
+.store-review-audit li div {
+  display: grid;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.store-review-audit li small {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Account menu and contextual help */

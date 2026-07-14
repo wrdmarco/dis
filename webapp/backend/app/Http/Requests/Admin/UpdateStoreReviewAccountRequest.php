@@ -1,0 +1,23 @@
+<?php
+
+namespace App\Http\Requests\Admin;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+final class UpdateStoreReviewAccountRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'enabled' => ['required', 'boolean'],
+            'password' => ['nullable', 'string', 'min:12', 'max:255'],
+            'platform' => ['sometimes', Rule::in(['apple', 'google'])],
+        ];
+    }
+}

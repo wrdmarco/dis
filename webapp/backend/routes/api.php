@@ -38,16 +38,17 @@ use App\Http\Responses\ApiResponse;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
 
-Broadcast::routes(['middleware' => ['auth:sanctum', 'operational']]);
+Broadcast::routes(['middleware' => ['auth:sanctum', 'web.session', 'operational', 'two_factor.complete', 'throttle:authenticated']]);
 
+Route::get('/auth/csrf-cookie', [AuthController::class, 'csrfCookie'])->middleware('throttle:api');
 Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
-Route::post('/auth/mobile-pairing/consume', [MobilePairingController::class, 'consume'])->middleware('throttle:login');
+Route::post('/auth/mobile-pairing/consume', [MobilePairingController::class, 'consume'])->middleware('throttle:mobile-pairing');
 Route::post('/auth/password/forgot', [PasswordController::class, 'forgot'])->middleware('throttle:password-reset');
 Route::post('/auth/password/reset', [PasswordController::class, 'reset'])->middleware('throttle:password-reset');
-Route::get('/registration/invite', [RegistrationController::class, 'show'])->middleware('throttle:api');
+Route::post('/registration/invite', [RegistrationController::class, 'show'])->middleware('throttle:password-reset');
 Route::post('/registration/complete', [RegistrationController::class, 'complete'])->middleware('throttle:password-reset');
 Route::get('/setup/status', [SetupController::class, 'status'])->middleware('throttle:api');
-Route::post('/setup/complete', [SetupController::class, 'complete'])->middleware('throttle:login');
+Route::post('/setup/complete', [SetupController::class, 'complete'])->middleware('throttle:setup');
 Route::get('/mobile/config', [MobileConfigController::class, 'show'])->middleware('throttle:mobile-public');
 Route::get('/updates/android/current', [UpdateController::class, 'androidCurrent'])->middleware('throttle:mobile-public');
 Route::get('/updates/android/{version}/download', [UpdateController::class, 'downloadAndroid'])->middleware('throttle:mobile-public');
@@ -61,10 +62,13 @@ Route::get('/developer/logs', [AdminDeveloperController::class, 'developerLogs']
 Route::get('/developer/logs/{filename}', [AdminDeveloperController::class, 'developerLog'])->where('filename', '[A-Za-z0-9._-]+\.log')->middleware('throttle:developer-logs');
 Route::get('/health', [HealthController::class, 'public'])->middleware('throttle:api');
 
-Route::middleware(['auth:sanctum', 'operational', 'audit.privileged', 'store.review'])->group(function (): void {
+Route::middleware(['two_factor.challenge', 'operational', 'audit.privileged', 'store.review'])->group(function (): void {
     Route::post('/auth/2fa/verify', [AuthController::class, 'verifyTwoFactor'])->middleware('throttle:two-factor');
     Route::post('/auth/2fa/setup', [AuthController::class, 'setupTwoFactor'])->middleware('throttle:two-factor');
     Route::post('/auth/2fa/enable', [AuthController::class, 'enableTwoFactor'])->middleware('throttle:two-factor');
+});
+
+Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileged', 'store.review', 'throttle:authenticated'])->group(function (): void {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me'])->middleware('two_factor.complete');
     Route::patch('/auth/me', [AuthController::class, 'updateMe'])->middleware('two_factor.complete');
@@ -221,7 +225,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged', 'store.rev
         Route::get('/admin/settings', [AdminController::class, 'settings'])->middleware('permission:settings.manage');
         Route::patch('/admin/settings', [AdminController::class, 'updateSettings'])->middleware('permission:settings.manage');
         Route::get('/admin/store-review/status', [AdminStoreReviewController::class, 'status'])->middleware('permission:settings.manage');
-        Route::post('/admin/store-review/android-pairing', [AdminStoreReviewController::class, 'createAndroidPairing'])->middleware(['permission:settings.manage', 'throttle:api']);
+        Route::patch('/admin/store-review/accounts/{platform}', [AdminStoreReviewController::class, 'updateAccount'])->middleware(['permission:settings.manage', 'throttle:api']);
         Route::post('/admin/branding/logo', [BrandingController::class, 'uploadLogo'])->middleware('permission:settings.manage');
         Route::delete('/admin/branding/logo', [BrandingController::class, 'deleteLogo'])->middleware('permission:settings.manage');
         Route::post('/admin/settings/mail/test', [AdminController::class, 'testMail'])->middleware('permission:settings.manage');
@@ -236,6 +240,7 @@ Route::middleware(['auth:sanctum', 'operational', 'audit.privileged', 'store.rev
         Route::post('/admin/backups/samba-shares', [BackupController::class, 'sambaShares'])->middleware('permission:backups.manage');
         Route::post('/admin/backups', [BackupController::class, 'create'])->middleware('permission:backups.manage');
         Route::post('/admin/backups/upload-restore', [BackupController::class, 'uploadRestore'])->middleware('permission:backups.manage');
+        Route::get('/admin/backups/operations/{requestId}', [BackupController::class, 'operationStatus'])->middleware('permission:backups.manage');
         Route::post('/admin/backups/{backup}/verify', [BackupController::class, 'verify'])->middleware('permission:backups.manage');
         Route::post('/admin/backups/{backup}/restore', [BackupController::class, 'restore'])->middleware('permission:backups.manage');
         Route::get('/admin/push/logs', [AdminController::class, 'pushLogs'])->middleware('permission:settings.push.manual.send');

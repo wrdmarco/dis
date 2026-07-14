@@ -179,6 +179,11 @@ final class MobilePairingService
             }
 
             $isStoreReviewPairing = (string) ($pairing->review_mode ?? '') === self::STORE_REVIEW_MODE;
+            if ($isStoreReviewPairing) {
+                throw ValidationException::withMessages([
+                    'code' => ['Tijdelijke review-koppelcodes zijn vervallen. Log in met het revieweraccount uit Beheer > Store.'],
+                ]);
+            }
             if (! $isStoreReviewPairing && $pairing->consumed_at !== null) {
                 throw ValidationException::withMessages([
                     'code' => ['Koppelcode is verlopen of al gebruikt. Maak een nieuwe code op de softwarepagina.'],
@@ -192,10 +197,6 @@ final class MobilePairingService
             }
 
             $user = $pairing->user;
-            if ($isStoreReviewPairing) {
-                return $this->consumeStoreReviewPairing($pairing, $user, $clientType, $deviceName, $request);
-            }
-
             if ($user === null || $user->account_status !== 'active') {
                 throw ValidationException::withMessages([
                     'code' => ['Deze koppelcode kan niet meer worden gebruikt.'],

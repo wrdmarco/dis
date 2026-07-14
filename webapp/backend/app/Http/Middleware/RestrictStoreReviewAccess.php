@@ -29,7 +29,7 @@ final class RestrictStoreReviewAccess
         }
 
         if ($method === 'POST' && $path === 'api/auth/logout') {
-            return response()->noContent();
+            return $next($request);
         }
 
         if ($method === 'POST' && in_array($path, ['api/devices/fcm-token', 'api/devices/heartbeat'], true)) {
@@ -40,15 +40,15 @@ final class RestrictStoreReviewAccess
             return match ($path) {
                 'api/auth/me' => ApiResponse::success($this->reviewUser($request)),
                 'api/status/me' => ApiResponse::success($this->unavailableStatus((string) $request->user()?->id)),
-                'api/teams',
-                'api/vacations/mine',
-                'api/calendar-events',
-                'api/incidents',
+                'api/teams' => ApiResponse::success([$this->reviewTeam()]),
+                'api/incidents' => ApiResponse::success([$this->reviewIncident('store-review-incident', null, 'active')]),
+                'api/calendar-events' => ApiResponse::success([$this->reviewCalendarEvent()]),
                 'api/assets/mine',
-                'api/assets',
-                'api/drone-types',
-                'api/certifications',
-                'api/certifications/me',
+                'api/assets' => ApiResponse::success([$this->reviewAsset($request)]),
+                'api/drone-types' => ApiResponse::success([$this->reviewDroneType()]),
+                'api/certifications' => ApiResponse::success([$this->reviewCertification()]),
+                'api/certifications/me' => ApiResponse::success([$this->reviewUserCertification($request)]),
+                'api/vacations/mine',
                 'api/devices' => ApiResponse::success([]),
                 'api/incident-form/config',
                 'api/pilot-report/form-config' => ApiResponse::success(['fields' => []]),
@@ -175,10 +175,6 @@ final class RestrictStoreReviewAccess
 
     private function storeReviewWriteResponse(Request $request, string $path, string $method): Response
     {
-        if ($method === 'POST' && $path === 'api/auth/logout') {
-            return response()->noContent();
-        }
-
         if ($path === 'api/auth/2fa/setup' && $method === 'POST') {
             return ApiResponse::success([
                 'enabled' => false,
@@ -315,6 +311,10 @@ final class RestrictStoreReviewAccess
             'reference' => 'REVIEW-0001',
             'title' => (string) ($payload['title'] ?? 'Review incident'),
             'description' => $payload['description'] ?? null,
+            'reporter_name' => 'App Store Reviewer',
+            'requesting_organization' => 'Nationaal Drone Team',
+            'required_resources' => '1 operator en 1 drone',
+            'custom_fields' => [],
             'priority' => (string) ($payload['priority'] ?? 'normal'),
             'status' => (string) ($payload['status'] ?? $status),
             'is_test' => true,
@@ -322,7 +322,13 @@ final class RestrictStoreReviewAccess
             'latitude' => $payload['latitude'] ?? null,
             'longitude' => $payload['longitude'] ?? null,
             'opened_at' => now()->toIso8601String(),
-            'active_dispatch' => null,
+            'team' => $this->reviewTeam(),
+            'teams' => [$this->reviewTeam()],
+            'active_dispatch' => [
+                'id' => 'store-review-dispatch',
+                'status' => 'sent',
+                'response_status' => 'accepted',
+            ],
         ];
     }
 
@@ -436,6 +442,59 @@ final class RestrictStoreReviewAccess
                 'is_required_for_dispatch' => false,
                 'warning_days_before_expiry' => 30,
             ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function reviewTeam(): array
+    {
+        return [
+            'id' => 'store-review-team',
+            'code' => 'OCP-REVIEW',
+            'name' => 'OCP Reviewteam',
+            'type' => 'ocp',
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function reviewDroneType(): array
+    {
+        return [
+            'id' => 'store-review-drone-type',
+            'manufacturer' => 'DJI',
+            'model' => 'Matrice Review',
+            'has_thermal' => true,
+            'has_spotlight' => true,
+            'has_speaker' => true,
+            'is_active' => true,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function reviewCertification(): array
+    {
+        return [
+            'id' => 'store-review-certification-type',
+            'code' => 'REVIEW-A1A3',
+            'name' => 'Review vliegbewijs A1/A3',
+            'is_required_for_dispatch' => false,
+            'warning_days_before_expiry' => 30,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function reviewCalendarEvent(): array
+    {
+        return [
+            'id' => 'store-review-calendar-event',
+            'title' => 'Review oefeninzet',
+            'type' => 'training',
+            'starts_at' => now()->addDay()->startOfHour()->toIso8601String(),
+            'ends_at' => now()->addDay()->startOfHour()->addHours(2)->toIso8601String(),
+            'location_label' => 'Utrecht',
+            'description' => 'Afgeschermde demonstratiedata voor app-review.',
+            'team' => $this->reviewTeam(),
+            'created_by_name' => 'D.I.S Reviewomgeving',
         ];
     }
 }

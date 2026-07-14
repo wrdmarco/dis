@@ -7,7 +7,7 @@ import { dateInputValueInAmsterdam, formatDateTime } from '../../lib/dateTime';
 import { fetchLocationSuggestions, geocodeAddressLabel, lookupLocationSuggestion, type LocationSearchResult, type LocationSuggestion } from '../../lib/locationSearch';
 import { createRealtime } from '../../lib/realtime';
 import { useApiResource } from '../../lib/useApiResource';
-import type { ConfigurableFormField, DeveloperAccessState, FcmToken, IncidentFormConfig, IncidentFormLayoutItem, MobilePairingCode, PilotReportFormConfig, PilotReportFormField, StoreReviewStatus, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
+import type { ConfigurableFormField, DeveloperAccessState, FcmToken, IncidentFormConfig, IncidentFormLayoutItem, PilotReportFormConfig, PilotReportFormField, StoreReviewStatus, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiClientError } from '../../lib/apiClient';
@@ -134,7 +134,7 @@ function adminTabAllowed(
 }
 
 export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
-  const { api, token, hasPermission } = useAuth();
+  const { api, isAuthenticated, hasPermission } = useAuth();
   const availableTabs = mode === 'forms' ? formTabs : adminTabs;
   const canManageSettings = hasPermission('settings.manage');
   const canManagePushTokens = hasPermission('settings.push.tokens.manage');
@@ -189,10 +189,10 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const [commandCentersSaving, setCommandCentersSaving] = useState(false);
   const [commandCentersMessage, setCommandCentersMessage] = useState<string | null>(null);
   const [commandCentersError, setCommandCentersError] = useState<string | null>(null);
-  const [storePairing, setStorePairing] = useState<MobilePairingCode | null>(null);
-  const [storePairingSecondsLeft, setStorePairingSecondsLeft] = useState(0);
-  const [storePairingLoading, setStorePairingLoading] = useState(false);
-  const [storePairingError, setStorePairingError] = useState<string | null>(null);
+  const [storeReviewPasswords, setStoreReviewPasswords] = useState<Record<'apple' | 'google', string>>({ apple: '', google: '' });
+  const [storeReviewSaving, setStoreReviewSaving] = useState<'apple' | 'google' | null>(null);
+  const [storeReviewError, setStoreReviewError] = useState<string | null>(null);
+  const [storeReviewMessage, setStoreReviewMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(mobileSettings);
@@ -235,27 +235,14 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     }
   }, [activeTab, visibleAdminTabs]);
 
-  useEffect(() => {
-    if (storePairing === null) {
-      return undefined;
-    }
-
-    const timer = window.setInterval(() => {
-      setStorePairingSecondsLeft(Math.max(0, Math.ceil((new Date(storePairing.expires_at).getTime() - Date.now()) / 1000)));
-    }, 500);
-
-    return () => window.clearInterval(timer);
-  }, [storePairing]);
-
   const reloadSystemVersionSilently = systemVersion.silentReload;
 
   useEffect(() => {
-    if (token === null || !canViewSystemHealth) {
+    if (!isAuthenticated || !canViewSystemHealth) {
       return;
     }
 
     const echo = createRealtime({
-      token,
       onSystemUpdateStatus: (payload) => {
         const status = payload as SystemUpdateStatus;
         setUpdaterStatus(status);
@@ -272,7 +259,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
 
       echo.leave('private-admin.system');
     };
-  }, [canViewSystemHealth, reloadSystemVersionSilently, token]);
+  }, [canViewSystemHealth, isAuthenticated, reloadSystemVersionSilently]);
 
   useEffect(() => {
     if (updaterStatus?.state !== 'running') {
@@ -552,18 +539,23 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     }
   }
 
-  async function createStoreReviewPairing() {
-    setStorePairingLoading(true);
-    setStorePairingError(null);
+  async function updateStoreReviewAccount(platform: 'apple' | 'google', enabled: boolean) {
+    const password = storeReviewPasswords[platform];
+    setStoreReviewSaving(platform);
+    setStoreReviewError(null);
+    setStoreReviewMessage(null);
     try {
-      const response = await api.post<MobilePairingCode>('/admin/store-review/android-pairing');
-      setStorePairing(response.data);
-      setStorePairingSecondsLeft(response.data.ttl_seconds);
+      await api.patch(`/admin/store-review/accounts/${platform}`, {
+        enabled,
+        password: password.trim() === '' ? null : password,
+      });
+      setStoreReviewPasswords((current) => ({ ...current, [platform]: '' }));
       await storeReviewStatus.reload();
+      setStoreReviewMessage(`${platform === 'apple' ? 'Apple' : 'Google'} revieweraccount is ${enabled ? 'opgeslagen en actief' : 'uitgeschakeld'}.`);
     } catch (error) {
-      setStorePairingError(error instanceof ApiClientError ? error.message : 'Store review-koppelcode maken mislukt.');
+      setStoreReviewError(error instanceof ApiClientError ? error.message : 'Revieweraccount opslaan mislukt.');
     } finally {
-      setStorePairingLoading(false);
+      setStoreReviewSaving(null);
     }
   }
 
@@ -1374,91 +1366,97 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       ) : null}
 
       {activeTab === 'store' ? (
-        <Panel title="Google Play review-login">
+        <Panel title="App Store revieweraccounts">
           <div className="setup-copy">
-            <strong>Beperkte Android-login voor appstore review.</strong>
-            <p>Deze koppelcode werkt alleen in de Android operator-app. De app krijgt accountinformatie van een afgeschermde reviewgebruiker en verder lege operationele lijsten. Acties in de app krijgen een veilige review-response, maar worden niet opgeslagen of verzonden. De aanmeldcode is 6 uur geldig en na koppelen is de review-login maximaal 24 uur geldig.</p>
+            <strong>Afgeschermde native login voor Apple en Google.</strong>
+            <p>Elk account werkt uitsluitend in de bijbehorende Operator-app en kan nooit inloggen op het webportaal. MFA is voor deze revieweraccounts uitgeschakeld. De app toont uitsluitend geïsoleerde reviewdata; acties worden niet operationeel opgeslagen of verzonden. Een sessie verloopt na 24 uur.</p>
           </div>
           <ResourceState loading={storeReviewStatus.loading} error={storeReviewStatus.error} empty={false}>
-            <div className="settings-group">
-              <div className="mobile-pairing__header">
-                <div>
-                  <h3>Reviewstatus</h3>
-                  <p className="muted-text">Geen tokenwaarde zichtbaar; alleen gebruiksstatus en technische metadata.</p>
-                </div>
-                <button className="secondary-button" type="button" onClick={() => void storeReviewStatus.reload()}>
-                  Status vernieuwen
-                </button>
-              </div>
-              <dl className="definition-grid">
-                <dt>Reviewaccount</dt>
-                <dd>{storeReviewStatus.data?.configured ? (storeReviewStatus.data.account_name ?? 'Aangemaakt') : 'Nog niet aangemaakt'}</dd>
-                <dt>Koppelcode gebruikt</dt>
-                <dd>{storeReviewStatus.data?.pairing_was_used ? 'Ja' : 'Nee'}</dd>
-                <dt>Laatste login</dt>
-                <dd>{formatDate(storeReviewStatus.data?.last_login_at)}</dd>
-                <dt>Laatste IP</dt>
-                <dd className="mono">{storeReviewStatus.data?.last_pairing_ip ?? '-'}</dd>
-                <dt>Tokenstatus</dt>
-                <dd>{storeReviewStatus.data?.token_is_active ? 'Actief' : storeReviewStatus.data?.token_exists ? 'Verlopen' : 'Geen token'}</dd>
-                <dt>Token aangemaakt</dt>
-                <dd>{formatDate(storeReviewStatus.data?.token_created_at)}</dd>
-                <dt>Token laatst gebruikt</dt>
-                <dd>{formatDate(storeReviewStatus.data?.token_last_used_at)}</dd>
-                <dt>Token verloopt</dt>
-                <dd>{formatDate(storeReviewStatus.data?.token_expires_at)}</dd>
-                <dt>Laatste code gemaakt</dt>
-                <dd>{formatDate(storeReviewStatus.data?.last_pairing_created_at)}</dd>
-                <dt>Laatste code gebruikt</dt>
-                <dd>{formatDate(storeReviewStatus.data?.last_pairing_consumed_at)}</dd>
-                <dt>Laatste code verliep</dt>
-                <dd>{formatDate(storeReviewStatus.data?.last_pairing_expires_at)}</dd>
-              </dl>
-              {storeReviewStatus.data?.last_pairing_user_agent ? (
-                <div className="metadata-example">
-                  <strong>Laatst gebruikte user-agent</strong>
-                  <pre>{storeReviewStatus.data.last_pairing_user_agent}</pre>
-                </div>
-              ) : null}
+            <div className="settings-list">
+              {(storeReviewStatus.data?.accounts ?? []).map((account) => (
+                <section className="settings-group" key={account.platform}>
+                  <div className="mobile-pairing__header">
+                    <div>
+                      <h3>{account.name}</h3>
+                      <p className="muted-text">{account.platform === 'apple' ? 'Alleen iOS Operator' : 'Alleen Android Operator'} · webtoegang geblokkeerd</p>
+                    </div>
+                    <span className={`status-pill ${account.enabled ? 'status-pill--good' : 'status-pill--neutral'}`}>
+                      {account.enabled ? 'Actief' : 'Uitgeschakeld'}
+                    </span>
+                  </div>
+                  <label>
+                    Gebruikersnaam
+                    <input className="mono" value={account.username} readOnly onFocus={(event) => event.currentTarget.select()} />
+                  </label>
+                  <label>
+                    {account.configured ? 'Nieuw wachtwoord instellen' : 'Wachtwoord instellen'}
+                    <input
+                      type="password"
+                      value={storeReviewPasswords[account.platform]}
+                      onChange={(event) => setStoreReviewPasswords((current) => ({ ...current, [account.platform]: event.target.value }))}
+                      autoComplete="new-password"
+                      minLength={12}
+                      placeholder="Minimaal 12 tekens"
+                    />
+                  </label>
+                  <div className="button-row">
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={storeReviewSaving !== null || storeReviewPasswords[account.platform].length < 12}
+                      onClick={() => void updateStoreReviewAccount(account.platform, true)}
+                    >
+                      {storeReviewSaving === account.platform ? 'Opslaan...' : account.enabled ? 'Wachtwoord vernieuwen' : 'Account activeren'}
+                    </button>
+                    {account.enabled ? (
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={storeReviewSaving !== null}
+                        onClick={() => void updateStoreReviewAccount(account.platform, false)}
+                      >
+                        Uitschakelen
+                      </button>
+                    ) : null}
+                  </div>
+                  <dl className="definition-grid">
+                    <dt>Laatste login</dt>
+                    <dd>{formatDate(account.last_login_at)}</dd>
+                    <dt>Reviewsessie</dt>
+                    <dd>{account.token_is_active ? 'Actief' : 'Niet actief'}</dd>
+                    <dt>Laatst gebruikt</dt>
+                    <dd>{formatDate(account.token_last_used_at)}</dd>
+                    <dt>Sessie verloopt</dt>
+                    <dd>{formatDate(account.token_expires_at)}</dd>
+                  </dl>
+                  <div className="store-review-audit">
+                    <h4>Recente inlogactiviteit</h4>
+                    {account.recent_login_events.length === 0 ? (
+                      <p className="muted-text">Nog geen inlogpogingen geregistreerd.</p>
+                    ) : (
+                      <ul>
+                        {account.recent_login_events.map((event) => (
+                          <li key={event.id}>
+                            <span className={`status-pill ${event.result === 'success' ? 'status-pill--good' : 'status-pill--bad'}`}>
+                              {event.result === 'success' ? 'Ingelogd' : 'Geblokkeerd'}
+                            </span>
+                            <div>
+                              <strong>{formatDate(event.created_at)}</strong>
+                              <small>
+                                {[event.device_name, event.client_type, event.ip_address].filter(Boolean).join(' · ') || 'Geen apparaatgegevens'}
+                              </small>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </section>
+              ))}
             </div>
           </ResourceState>
-          <div className="mobile-pairing mobile-pairing--active">
-            <div className="mobile-pairing__header">
-              <div>
-                <span>Android operator-app</span>
-                <strong>Google Play review</strong>
-                <p>De code is 6 uur geldig. Na inloggen verloopt het app-token automatisch na 24 uur.</p>
-              </div>
-              <button className="secondary-button" type="button" onClick={() => void createStoreReviewPairing()} disabled={storePairingLoading}>
-                {storePairingLoading ? 'Maken...' : 'Koppelcode maken'}
-              </button>
-            </div>
-            {storePairingError ? <p className="form-error">{storePairingError}</p> : null}
-            {storePairing ? (
-              <div className="mobile-pairing__grid">
-                <div className="mobile-pairing__manual">
-                  <span>Handmatig koppelen</span>
-                  <label>
-                    Server
-                    <input value={storePairing.server_url} readOnly onFocus={(event) => event.currentTarget.select()} />
-                  </label>
-                  <label>
-                    Koppelcode
-                    <input className="mono" value={storePairing.code} readOnly onFocus={(event) => event.currentTarget.select()} />
-                  </label>
-                  <small>Nog {storePairingSecondsLeft} seconden geldig.</small>
-                  <a className="primary-button" href={storePairing.deeplink_url}>
-                    Open Android app
-                  </a>
-                </div>
-                <div className="mobile-pairing__qr">
-                  <TotpQrCode value={storePairing.qr_payload} alt="QR-code Google Play review-login" helpText="Scan deze QR-code in de Android operator-app." />
-                </div>
-              </div>
-            ) : (
-              <p className="resource-state resource-state--loading">{storePairingLoading ? 'Koppelcode maken...' : 'Nog geen store review-koppelcode gemaakt.'}</p>
-            )}
-          </div>
+          {storeReviewError ? <p className="form-error">{storeReviewError}</p> : null}
+          {storeReviewMessage ? <p className="form-success">{storeReviewMessage}</p> : null}
         </Panel>
       ) : null}
 

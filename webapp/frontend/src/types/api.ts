@@ -521,21 +521,31 @@ export interface MobilePairingCode {
   qr_payload: string;
 }
 
-export interface StoreReviewStatus {
+export interface StoreReviewAccountStatus {
+  platform: 'apple' | 'google';
+  client_type: 'operator_ios' | 'operator_android';
+  name: string;
+  username: string;
   configured: boolean;
-  account_name?: string | null;
+  enabled: boolean;
   last_login_at?: string | null;
-  last_pairing_created_at?: string | null;
-  last_pairing_expires_at?: string | null;
-  last_pairing_consumed_at?: string | null;
-  last_pairing_ip?: string | null;
-  last_pairing_user_agent?: string | null;
-  pairing_was_used: boolean;
-  token_exists: boolean;
   token_is_active: boolean;
   token_last_used_at?: string | null;
   token_expires_at?: string | null;
-  token_created_at?: string | null;
+  recent_login_events: StoreReviewLoginEvent[];
+}
+
+export interface StoreReviewLoginEvent {
+  id: string;
+  result: 'success' | 'blocked';
+  client_type?: string | null;
+  device_name?: string | null;
+  ip_address?: string | null;
+  created_at: string;
+}
+
+export interface StoreReviewStatus {
+  accounts: StoreReviewAccountStatus[];
 }
 
 export interface DeveloperAccessState {
@@ -782,7 +792,7 @@ export interface TwoFactorSetup {
 }
 
 export interface TwoFactorEnableResult {
-  token: string;
+  authenticated: boolean;
   user: User;
   recovery_codes: string[];
 }
