@@ -91,6 +91,7 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::post('/users/{user}/login-lock/reset', [UserController::class, 'resetLoginLock'])->middleware('permission:users.login-lock.reset');
         Route::post('/users/{user}/sessions/revoke', [UserController::class, 'revokeSessions'])->middleware('permission:users.sessions.revoke');
         Route::post('/users/{user}/invitation/resend', [UserController::class, 'resendInvitation'])->middleware('permission:users.manage');
+        Route::post('/users/{user}/password-recovery/send', [UserController::class, 'sendPasswordRecovery'])->middleware(['permission:users.credentials.manage', 'throttle:password-reset']);
         Route::get('/users/{user}/audit', [UserController::class, 'audit'])->middleware('permission:audit.view');
 
         Route::get('/address-book', [AddressBookController::class, 'index'])->middleware('permission:address-book.view');

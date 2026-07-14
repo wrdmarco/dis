@@ -129,6 +129,13 @@ final class UserController extends Controller
         return ApiResponse::success($this->service->resendWelcomeMail($user, $request->user()));
     }
 
+    public function sendPasswordRecovery(Request $request, User $user): JsonResponse
+    {
+        $this->abortForStoreReviewUser($user);
+
+        return ApiResponse::success($this->service->sendPasswordRecovery($user, $request->user()));
+    }
+
     public function audit(User $user): JsonResponse
     {
         $this->abortForStoreReviewUser($user);

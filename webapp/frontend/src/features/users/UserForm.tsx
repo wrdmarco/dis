@@ -15,8 +15,6 @@ export interface UserFormState {
   homeCity: string;
   homeRegion: string;
   homeCountry: string;
-  password: string;
-  sendWelcomeMail: boolean;
   accountStatus: User['account_status'];
   maxOperatorDevices: string;
   roleIds: string[];
@@ -53,8 +51,6 @@ export function createEmptyUserForm(): UserFormState {
     homeCity: '',
     homeRegion: '',
     homeCountry: 'NL',
-    password: '',
-    sendWelcomeMail: true,
     accountStatus: 'active',
     maxOperatorDevices: '1',
     roleIds: [],
@@ -71,8 +67,6 @@ export function userFormFromUser(user: User): UserFormState {
     homeCity: user.home_city ?? '',
     homeRegion: user.home_region ?? '',
     homeCountry: user.home_country ?? 'NL',
-    password: '',
-    sendWelcomeMail: false,
     accountStatus: user.account_status,
     maxOperatorDevices: String(user.max_operator_devices ?? 1),
     roleIds: user.roles?.map((role) => role.id) ?? [],
@@ -96,14 +90,6 @@ export function userFormPayload(form: UserFormState, mode: UserFormMode, canMana
 
   if (mode === 'create' || canManageCredentials) {
     payload.email = form.email;
-  }
-
-  if ((mode === 'create' || canManageCredentials) && form.password !== '') {
-    payload.password = form.password;
-  }
-
-  if (mode === 'create') {
-    payload.send_welcome_mail = form.sendWelcomeMail;
   }
 
   return payload;
@@ -234,29 +220,8 @@ export function UserForm({
         />
         <small>Standaard 1. Admin-apps tellen niet mee.</small>
       </label>
-      {mode === 'create' || canManageCredentials ? (
-        <label className="form-grid__wide">
-          Wachtwoord
-          <input
-            type="password"
-            value={form.password}
-            placeholder={mode === 'edit' ? 'Leeg laten om niet te wijzigen' : form.sendWelcomeMail ? 'Gebruiker stelt wachtwoord zelf in' : 'Volgens wachtwoordbeleid'}
-            required={mode === 'create' && !form.sendWelcomeMail}
-            autoComplete="new-password"
-            onChange={(event) => updateField('password', event.target.value)}
-          />
-          <small>Moet voldoen aan de ingestelde wachtwoordeisen.</small>
-        </label>
-      ) : null}
       {mode === 'create' ? (
-        <label className="check-label form-grid__wide">
-          <input
-            type="checkbox"
-            checked={form.sendWelcomeMail}
-            onChange={(event) => updateField('sendWelcomeMail', event.target.checked)}
-          />
-          Welkomstmail sturen en registratie laten afronden
-        </label>
+        <p className="form-note form-grid__wide">De gebruiker ontvangt automatisch een eenmalige activatielink en stelt het wachtwoord zelf in.</p>
       ) : null}
       {canManageRoles ? (
         <div className="form-grid__wide">

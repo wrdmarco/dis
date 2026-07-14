@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Mail\UserWelcomeMail;
+use App\Mail\UserPasswordRecoveryMail;
 use App\Models\FcmToken;
 use App\Models\Role;
 use App\Models\SystemSetting;
@@ -36,7 +37,6 @@ final class UserService
     {
         $roleIds = $data['role_ids'] ?? [];
         $teamIds = $data['team_ids'] ?? [];
-        $sendWelcomeMail = (bool) ($data['send_welcome_mail'] ?? false);
         if (array_key_exists('role_ids', $data) && is_array($roleIds) && $roleIds !== []) {
             $this->assertActorCanManageRoles($actor);
             $this->assertActorCanAddSystemAdministrator($actor, null, $roleIds);
@@ -45,10 +45,7 @@ final class UserService
         unset($data['role_ids']);
         unset($data['team_ids']);
         unset($data['send_welcome_mail']);
-
-        if ($sendWelcomeMail && empty($data['password'])) {
-            $data['password'] = Str::random(32).'Aa1!';
-        }
+        $data['password'] = Str::random(48).'Aa1!';
 
         $data = $this->prepareUserData($data);
         $data = $this->resolveHomeCityData($data);
@@ -62,9 +59,7 @@ final class UserService
             return $user->load(['roles', 'teams']);
         });
 
-        if ($sendWelcomeMail) {
-            $this->sendWelcomeMailSafely($user->refresh()->load(['roles.permissions', 'teams']), $actor);
-        }
+        $this->sendWelcomeMailSafely($user->refresh()->load(['roles.permissions', 'teams']), $actor);
 
         return $user->refresh()->load(['roles', 'teams']);
     }
@@ -427,6 +422,33 @@ final class UserService
         }
 
         $this->sendWelcomeMailOrFail($user->refresh()->load(['roles.permissions', 'teams']), $actor);
+
+        return $user->refresh()->load(['roles', 'teams']);
+    }
+
+    public function sendPasswordRecovery(User $user, User $actor): User
+    {
+        $this->assertActorCanManageTarget($actor, $user);
+        if ($user->account_status !== 'active') {
+            throw ValidationException::withMessages(['user' => ['Alleen actieve gebruikers kunnen een herstelmail ontvangen.']]);
+        }
+
+        DB::table('password_reset_tokens')->where('email', $user->email)->delete();
+        $token = Password::broker()->createToken($user);
+        $publicUrl = rtrim(SystemSetting::string('app.public_url', config('app.url', '')) ?? '', '/');
+        $recoveryUrl = $publicUrl.'/register#mode=recovery&email='.rawurlencode($user->email).'&token='.rawurlencode($token);
+
+        try {
+            $this->runIgnoringTempnamFallbackWarning(
+                fn (): mixed => Mail::to($user->email)->send(new UserPasswordRecoveryMail($user, $recoveryUrl)),
+            );
+        } catch (Throwable $exception) {
+            DB::table('password_reset_tokens')->where('email', $user->email)->delete();
+            report($exception);
+            throw ValidationException::withMessages(['mail' => ['Wachtwoordherstelmail kon niet worden verstuurd.']]);
+        }
+
+        $this->auditService->record('users.password_recovery_sent', $user, $actor);
 
         return $user->refresh()->load(['roles', 'teams']);
     }

@@ -38,6 +38,7 @@ export function RegisterWizardPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recoveryMode, setRecoveryMode] = useState(false);
 
   const steps = useMemo<Step[]>(() => {
     const adminAllowed = completed?.admin_app_allowed ?? invite?.admin_app_allowed ?? false;
@@ -77,6 +78,8 @@ export function RegisterWizardPage() {
     const query = new URLSearchParams(window.location.search);
     const email = fragment.get('email') ?? '';
     const token = fragment.get('token') ?? '';
+    const isRecovery = fragment.get('mode') === 'recovery';
+    setRecoveryMode(isRecovery);
 
     if (window.location.hash !== '' || query.has('email') || query.has('token')) {
       window.history.replaceState(window.history.state, '', window.location.pathname);
@@ -92,7 +95,7 @@ export function RegisterWizardPage() {
         );
         setInvite(response.data);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Registratielink kon niet worden geladen.');
+        setError(err instanceof Error ? err.message : isRecovery ? 'Herstellink kon niet worden geladen.' : 'Registratielink kon niet worden geladen.');
       } finally {
         setLoading(false);
       }
@@ -122,7 +125,7 @@ export function RegisterWizardPage() {
       }
       setStepIndex(1);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registratie afronden mislukt.');
+        setError(err instanceof Error ? err.message : recoveryMode ? 'Wachtwoord herstellen mislukt.' : 'Registratie afronden mislukt.');
     } finally {
       setSaving(false);
     }
@@ -203,8 +206,8 @@ export function RegisterWizardPage() {
             {completed ? <CheckCircle2 aria-hidden size={30} /> : <UserRound aria-hidden size={30} />}
           </div>
           <div>
-            <span className="topbar__eyebrow">D.I.S registratie</span>
-            <h1 id="registration-title">Welkom bij Nationaal Droneteam</h1>
+            <span className="topbar__eyebrow">{recoveryMode ? 'D.I.S accountbeveiliging' : 'D.I.S registratie'}</span>
+            <h1 id="registration-title">{recoveryMode ? 'Wachtwoord herstellen' : 'Welkom bij Nationaal Droneteam'}</h1>
           </div>
         </div>
 
@@ -293,7 +296,7 @@ export function RegisterWizardPage() {
           <p className="form-hint form-grid__wide">Het wachtwoord moet voldoen aan het ingestelde wachtwoordbeleid.</p>
           <div className="setup-actions form-grid__wide">
             <button className="primary-button" type="submit" disabled={saving || !canSubmitAccount}>
-              {saving ? 'Opslaan...' : 'Account activeren'} <ChevronRight size={16} />
+              {saving ? 'Opslaan...' : recoveryMode ? 'Nieuw wachtwoord opslaan' : 'Account activeren'} <ChevronRight size={16} />
             </button>
           </div>
         </form>

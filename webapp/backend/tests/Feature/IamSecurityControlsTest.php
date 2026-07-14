@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Casts\SystemSettingValueCast;
 use App\Models\Permission;
+use App\Mail\UserPasswordRecoveryMail;
+use App\Mail\UserWelcomeMail;
 use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\User;
@@ -15,6 +17,7 @@ use Database\Seeders\RoleAndPermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 final class IamSecurityControlsTest extends TestCase
@@ -172,6 +175,41 @@ final class IamSecurityControlsTest extends TestCase
         $this->assertTrue(app(TwoFactorService::class)->consumeRecoveryCode($firstReader, 'ATOMIC-12345'));
         $this->assertFalse(app(TwoFactorService::class)->consumeRecoveryCode($staleReader, 'ATOMIC-12345'));
         $this->assertSame([], $user->refresh()->two_factor_recovery_codes);
+    }
+
+    public function test_new_user_receives_activation_link_without_admin_supplied_password(): void
+    {
+        Mail::fake();
+        $actor = $this->user();
+
+        $created = app(UserService::class)->create([
+            'first_name' => 'Nieuwe',
+            'last_name' => 'Gebruiker',
+            'email' => 'nieuw@example.test',
+            'account_status' => 'active',
+        ], $actor);
+
+        Mail::assertSent(UserWelcomeMail::class, fn (UserWelcomeMail $mail): bool => $mail->hasTo('nieuw@example.test'));
+        $this->assertDatabaseHas('password_reset_tokens', ['email' => 'nieuw@example.test']);
+        $this->assertFalse(Hash::check('Test-password-123!', (string) $created->password));
+    }
+
+    public function test_admin_password_recovery_sends_link_without_changing_password(): void
+    {
+        Mail::fake();
+        $target = $this->user();
+        $actor = User::query()->create([
+            'name' => 'Beheerder', 'first_name' => 'Beheer', 'last_name' => 'Der',
+            'email' => 'beheerder@example.test', 'password' => 'Actor-password-123!', 'account_status' => 'active',
+        ]);
+        $passwordHash = $target->password;
+
+        app(UserService::class)->sendPasswordRecovery($target, $actor);
+
+        Mail::assertSent(UserPasswordRecoveryMail::class, fn (UserPasswordRecoveryMail $mail): bool => $mail->hasTo($target->email));
+        $this->assertDatabaseHas('password_reset_tokens', ['email' => $target->email]);
+        $this->assertSame($passwordHash, $target->refresh()->password);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'users.password_recovery_sent', 'target_id' => $target->id]);
     }
 
     private function user(): User

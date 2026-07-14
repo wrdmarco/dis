@@ -29,6 +29,7 @@ export function UserDetailPage({ userId }: { userId: string }) {
   const canDeleteUsers = hasPermission('users.delete');
   const canResetMfa = hasPermission('users.mfa.reset');
   const canResetLoginLock = hasPermission('users.login-lock.reset');
+  const canSendPasswordRecovery = hasPermission('users.credentials.manage');
   const canRevokeSessions = hasPermission('users.sessions.revoke');
   const canManageAssets = hasPermission('assets.manage');
   const canManageCertifications = hasPermission('certifications.manage');
@@ -41,7 +42,9 @@ export function UserDetailPage({ userId }: { userId: string }) {
   const [revokingSessions, setRevokingSessions] = useState(false);
   const [sessionMessage, setSessionMessage] = useState<string | null>(null);
   const [resendingInvitation, setResendingInvitation] = useState(false);
+  const [sendingPasswordRecovery, setSendingPasswordRecovery] = useState(false);
   const [invitationMessage, setInvitationMessage] = useState<string | null>(null);
+  const [passwordRecoveryMessage, setPasswordRecoveryMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -145,6 +148,21 @@ export function UserDetailPage({ userId }: { userId: string }) {
       setInvitationMessage(err instanceof ApiClientError ? err.message : 'Uitnodiging opnieuw versturen mislukt.');
     } finally {
       setResendingInvitation(false);
+    }
+  }
+
+  async function sendPasswordRecovery() {
+    if (targetUser.data === null) return;
+    setSendingPasswordRecovery(true);
+    setActionError(null);
+    setPasswordRecoveryMessage(null);
+    try {
+      await api.post<User>(`/users/${targetUser.data.id}/password-recovery/send`);
+      setPasswordRecoveryMessage('Wachtwoordherstelmail is verstuurd.');
+    } catch (err) {
+      setActionError(err instanceof ApiClientError ? err.message : 'Wachtwoordherstelmail versturen mislukt.');
+    } finally {
+      setSendingPasswordRecovery(false);
     }
   }
 
@@ -268,6 +286,17 @@ export function UserDetailPage({ userId }: { userId: string }) {
                   <KeyRound size={16} /> {resettingMfa ? 'Resetten...' : 'MFA resetten'}
                 </button>
               </div>
+            </section> : null}
+
+            {canSendPasswordRecovery ? <section className="form-grid__wide stacked-section">
+              <span className="field-label">Wachtwoordherstel</span>
+              <p className="muted-text">Stuur een eenmalige link waarmee de gebruiker zelf een nieuw wachtwoord instelt. Beheerders kunnen het wachtwoord niet bekijken of wijzigen.</p>
+              <div className="actions-row">
+                <button className="secondary-button" type="button" disabled={sendingPasswordRecovery || user.account_status !== 'active'} onClick={() => void sendPasswordRecovery()}>
+                  <Mail size={16} /> {sendingPasswordRecovery ? 'Versturen...' : 'Herstelmail versturen'}
+                </button>
+              </div>
+              {passwordRecoveryMessage ? <p className="form-note">{passwordRecoveryMessage}</p> : null}
             </section> : null}
 
             {canResetLoginLock ? <section className="form-grid__wide stacked-section">
