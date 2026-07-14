@@ -84,4 +84,107 @@ final class RegistrationPasswordLoginTest extends TestCase
             ->assertJsonPath('data.authenticated', true)
             ->assertJsonPath('data.user.id', $user->id);
     }
+
+    public function test_operator_can_complete_required_mfa_during_registration(): void
+    {
+        $this->withoutMiddleware(VerifyWebCsrfToken::class);
+        config([
+            'app.url' => 'https://dis.example.test',
+            'session.trusted_origins' => ['https://dis.example.test'],
+            'sanctum.stateful' => ['dis.example.test'],
+        ]);
+        SystemSetting::query()->updateOrCreate(
+            ['key' => TwoFactorService::REQUIRED_KEY],
+            ['value' => true, 'is_sensitive' => false],
+        );
+        $user = User::query()->create([
+            'name' => 'Registration MFA Test',
+            'first_name' => 'Registration',
+            'last_name' => 'MFA Test',
+            'email' => 'registration-mfa@example.test',
+            'password' => Hash::make('Temporary-password-123!'),
+            'account_status' => 'active',
+        ]);
+        $role = Role::query()->create([
+            'name' => 'registration-mfa-operator',
+            'display_name' => 'Registration MFA operator',
+            'can_use_operator_app' => true,
+            'can_use_admin_app' => false,
+        ]);
+        $user->roles()->attach($role->id, ['created_at' => now()]);
+        $headers = [
+            'Origin' => 'https://dis.example.test',
+            'Referer' => 'https://dis.example.test/register',
+            'X-Requested-With' => 'XMLHttpRequest',
+        ];
+        $server = ['HTTP_HOST' => 'dis.example.test', 'HTTPS' => 'on'];
+
+        $complete = $this->withSession([
+            WebSessionService::KEY_PENDING_USER_ID => $user->id,
+            WebSessionService::KEY_PENDING_PURPOSE => WebSessionService::PURPOSE_REGISTRATION_ACCOUNT,
+            WebSessionService::KEY_PENDING_EXPIRES_AT => now()->addMinutes(30)->getTimestamp(),
+            WebSessionService::KEY_PENDING_VERSION => (int) $user->auth_session_version,
+        ])->withServerVariables($server)->withHeaders($headers)->postJson('/api/registration/complete', [
+            'password' => 'New-secure-password-123!',
+            'password_confirmation' => 'New-secure-password-123!',
+        ]);
+
+        $complete->assertOk()
+            ->assertJsonPath('data.authenticated', false)
+            ->assertJsonPath('data.two_factor_setup.enabled', false);
+        $secret = $complete->json('data.two_factor_setup.secret');
+        $this->assertIsString($secret);
+
+        $this->withServerVariables($server)->withHeaders($headers)->postJson('/api/auth/2fa/enable', [
+            'code' => $this->totp($secret),
+            'device_name' => 'DIS Command Center',
+            'client_type' => 'web',
+        ])->assertOk()
+            ->assertJsonPath('data.authenticated', true)
+            ->assertJsonPath('data.user.id', $user->id);
+
+        $this->assertTrue($user->refresh()->two_factor_enabled);
+
+        $this->withServerVariables($server)->withHeaders($headers)->postJson('/api/auth/login', [
+            'email' => $user->email,
+            'password' => 'New-secure-password-123!',
+            'device_name' => 'DIS Command Center',
+            'client_type' => 'web',
+        ])->assertStatus(202)->assertJsonPath('data.requires_2fa', true);
+
+        $this->withServerVariables($server)->withHeaders($headers)->postJson('/api/auth/2fa/verify', [
+            'code' => '000000',
+            'device_name' => 'DIS Command Center',
+            'client_type' => 'web',
+        ])->assertUnprocessable()->assertJsonPath('error.code', 'invalid_two_factor_code');
+
+        $this->withServerVariables($server)->withHeaders($headers)->postJson('/api/auth/2fa/verify', [
+            'code' => $this->totp($secret),
+            'device_name' => 'DIS Command Center',
+            'client_type' => 'web',
+        ])->assertOk()
+            ->assertJsonPath('data.authenticated', true)
+            ->assertJsonPath('data.user.id', $user->id);
+    }
+
+    private function totp(string $secret): string
+    {
+        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        $bits = '';
+        foreach (str_split($secret) as $character) {
+            $bits .= str_pad(decbin((int) strpos($alphabet, $character)), 5, '0', STR_PAD_LEFT);
+        }
+        $key = '';
+        foreach (str_split($bits, 8) as $byte) {
+            if (strlen($byte) === 8) {
+                $key .= chr(bindec($byte));
+            }
+        }
+        $counter = intdiv(time(), 30);
+        $hash = hash_hmac('sha1', pack('N*', 0).pack('N*', $counter), $key, true);
+        $offset = ord(substr($hash, -1)) & 0x0F;
+        $value = unpack('N', substr($hash, $offset, 4))[1] & 0x7FFFFFFF;
+
+        return str_pad((string) ($value % 1000000), 6, '0', STR_PAD_LEFT);
+    }
 }

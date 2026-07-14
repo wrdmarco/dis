@@ -77,7 +77,18 @@ export function LoginPage() {
         router.replace('/');
       }
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'Inloggen mislukt.');
+      if (err instanceof ApiClientError && err.code === 'invalid_two_factor_code') {
+        setCode('');
+        setError('De MFA-code is niet juist. Controleer de actuele code en probeer het opnieuw.');
+      } else if (err instanceof ApiClientError && (err.code === 'two_factor_challenge_locked' || err.status === 401)) {
+        setCode('');
+        setRequiresTwoFactor(false);
+        setRequiresTwoFactorSetup(false);
+        setTwoFactorSetup(null);
+        setError('De MFA-sessie is verlopen. Log opnieuw in met je e-mailadres en wachtwoord.');
+      } else {
+        setError(err instanceof ApiClientError ? err.message : 'Inloggen mislukt.');
+      }
     } finally {
       setBusy(false);
     }
@@ -93,7 +104,17 @@ export function LoginPage() {
       setRequiresTwoFactorSetup(false);
       router.replace('/');
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'MFA inschakelen mislukt.');
+      if (err instanceof ApiClientError && err.code === 'invalid_two_factor_code') {
+        setCode('');
+        setError('De MFA-code is niet juist. Wacht op een actuele code en probeer het opnieuw.');
+      } else if (err instanceof ApiClientError && err.status === 401) {
+        setCode('');
+        setRequiresTwoFactorSetup(false);
+        setTwoFactorSetup(null);
+        setError('De MFA-sessie is verlopen. Log opnieuw in om MFA in te stellen.');
+      } else {
+        setError(err instanceof ApiClientError ? err.message : 'MFA inschakelen mislukt.');
+      }
     } finally {
       setBusy(false);
     }

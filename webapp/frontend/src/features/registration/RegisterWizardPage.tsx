@@ -172,7 +172,15 @@ export function RegisterWizardPage() {
       });
       setStepIndex(1);
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'MFA activeren mislukt.');
+      if (err instanceof ApiClientError && err.code === 'invalid_two_factor_code') {
+        setTwoFactorCode('');
+        setError('De MFA-code is niet juist. Wacht op een actuele code en probeer het opnieuw.');
+      } else if (err instanceof ApiClientError && err.status === 401) {
+        setTwoFactorCode('');
+        setError('De beveiligde registratiesessie is verlopen. Open de registratielink opnieuw.');
+      } else {
+        setError(err instanceof ApiClientError ? err.message : 'MFA activeren mislukt.');
+      }
     } finally {
       setSaving(false);
     }
