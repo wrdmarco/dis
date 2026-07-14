@@ -537,7 +537,7 @@ final class IncidentController extends Controller
                 'on_scene_contact_phone' => null,
                 'on_scene_contact_role' => null,
                 'required_resources' => null,
-                'custom_fields' => [],
+                'custom_fields' => (object) [],
                 'priority' => 'normal',
                 'status' => $incident->status,
                 'is_test' => (bool) $incident->is_test,

@@ -65,6 +65,7 @@ final class IamAuthorizationTest extends TestCase
             ->assertJsonPath('data.latitude', null)
             ->assertJsonPath('data.longitude', null)
             ->assertJsonPath('data.custom_fields', []);
+        $this->assertStringContainsString('"custom_fields":{}', $response->getContent());
         $this->assertStringNotContainsString('Dam 1', (string) $response->json('data.location_label'));
     }
 

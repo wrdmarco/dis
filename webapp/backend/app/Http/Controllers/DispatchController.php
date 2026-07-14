@@ -177,7 +177,7 @@ final class DispatchController extends Controller
             'location_label' => $place,
             'latitude' => null,
             'longitude' => null,
-            'custom_fields' => [],
+            'custom_fields' => (object) [],
         ];
 
         return $payload;
