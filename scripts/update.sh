@@ -574,6 +574,7 @@ drop_dis_update_stashes
 run_cmd rm -f -- "${DIS_INSTALL_PATH}/webapp/backend/storage/app/backup-config.env"
 
 trap 'update_exit_handler "$?"' EXIT
+self_heal_permissions
 enable_deployment_maintenance "${DIS_INSTALL_PATH}/webapp/backend"
 
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
