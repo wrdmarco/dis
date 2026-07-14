@@ -3,7 +3,7 @@ import { useRouter } from 'next/navigation';
 import { KeyRound, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { ApiClientError } from '../../lib/apiClient';
-import type { TwoFactorSetup } from '../../types/api';
+import type { TwoFactorSetup, User } from '../../types/api';
 import { useAuth } from './AuthContext';
 
 interface LoginBranding {
@@ -16,7 +16,7 @@ interface LoginBranding {
 }
 
 export function LoginPage() {
-  const { api, isAuthenticated, login, verifyTwoFactor, startTwoFactorSetup, enableTwoFactor } = useAuth();
+  const { api, isAuthenticated, user, login, verifyTwoFactor, startTwoFactorSetup, enableTwoFactor } = useAuth();
   const router = useRouter();
   const [branding, setBranding] = useState<LoginBranding>({
     name: 'DIS',
@@ -48,9 +48,9 @@ export function LoginPage() {
 
   useEffect(() => {
     if (isAuthenticated && !requiresTwoFactor && !requiresTwoFactorSetup) {
-      router.replace('/profile');
+      router.replace(loginLandingPath(user));
     }
-  }, [isAuthenticated, requiresTwoFactor, requiresTwoFactorSetup, router]);
+  }, [isAuthenticated, requiresTwoFactor, requiresTwoFactorSetup, router, user]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -58,8 +58,8 @@ export function LoginPage() {
     setError(null);
     try {
       if (requiresTwoFactor) {
-        await verifyTwoFactor(code);
-        router.replace('/profile');
+        const verifiedUser = await verifyTwoFactor(code);
+        router.replace(loginLandingPath(verifiedUser));
         return;
       }
 
@@ -74,7 +74,7 @@ export function LoginPage() {
       if (result.requires_2fa) {
         setRequiresTwoFactor(true);
       } else {
-        router.replace('/profile');
+        router.replace(loginLandingPath(result.user));
       }
     } catch (err) {
       if (err instanceof ApiClientError && err.code === 'invalid_two_factor_code') {
@@ -102,7 +102,7 @@ export function LoginPage() {
       const result = await enableTwoFactor(code);
       setRecoveryCodes(result.recovery_codes);
       setRequiresTwoFactorSetup(false);
-      router.replace('/profile');
+      router.replace(loginLandingPath(result.user));
     } catch (err) {
       if (err instanceof ApiClientError && err.code === 'invalid_two_factor_code') {
         setCode('');
@@ -228,4 +228,8 @@ function firstNonEmpty(...values: string[]): string | null {
   }
 
   return null;
+}
+
+function loginLandingPath(user?: User | null): '/' | '/profile' {
+  return user?.roles?.some((role) => role.can_use_admin_app) === true ? '/' : '/profile';
 }
