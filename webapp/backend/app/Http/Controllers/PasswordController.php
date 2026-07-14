@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Responses\ApiResponse;
 use App\Services\AuditService;
 use App\Services\PasswordPolicy;
+use App\Services\PasswordRecoveryService;
 use App\Services\UserService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +15,7 @@ final class PasswordController extends Controller
 {
     public function __construct(
         private readonly PasswordPolicy $passwordPolicy,
+        private readonly PasswordRecoveryService $passwordRecoveryService,
         private readonly AuditService $auditService,
         private readonly UserService $userService,
     ) {}
@@ -21,9 +23,9 @@ final class PasswordController extends Controller
     public function forgot(Request $request): JsonResponse
     {
         $data = $request->validate(['email' => ['required', 'email:rfc']]);
-        Password::sendResetLink($data);
+        $this->passwordRecoveryService->queue((string) $data['email']);
         $this->auditService->record('auth.password_reset_requested', 'password_reset', null, [
-            'email_hash' => hash('sha256', mb_strtolower((string) $data['email'])),
+            'email_hash' => hash('sha256', mb_strtolower(trim((string) $data['email']))),
         ], null, $request);
 
         return ApiResponse::success(['status' => 'password_reset_link_sent']);

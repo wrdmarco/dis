@@ -15,6 +15,32 @@ final class IncidentAccessService
 
     private const TERMINAL_INCIDENT_STATUSES = ['resolved', 'cancelled'];
 
+    public function assertCanListIncidents(User $actor): void
+    {
+        if ($actor->isOperatorClient()) {
+            if ($this->hasOperatorIncidentPermission($actor)) {
+                return;
+            }
+        } elseif ($actor->hasPermission('incidents.view')) {
+            return;
+        }
+
+        throw new AuthorizationException('This action is unauthorized.');
+    }
+
+    public function assertCanListDispatches(User $actor): void
+    {
+        if ($actor->isOperatorClient()) {
+            if ($this->hasOperatorDispatchPermission($actor)) {
+                return;
+            }
+        } elseif ($actor->hasPermission('incidents.dispatch.view')) {
+            return;
+        }
+
+        throw new AuthorizationException('This action is unauthorized.');
+    }
+
     public function assertCanViewIncident(User $actor, Incident $incident): void
     {
         if (! $this->canViewIncident($actor, $incident)) {
@@ -42,7 +68,9 @@ final class IncidentAccessService
     public function scopeIncidents(Builder $query, User $actor): Builder
     {
         if (! $actor->isOperatorClient()) {
-            return $query;
+            return $actor->hasPermission('incidents.view')
+                ? $query
+                : $query->whereRaw('1 = 0');
         }
 
         if (! $this->hasOperatorIncidentPermission($actor)) {
@@ -119,7 +147,9 @@ final class IncidentAccessService
     public function scopeDispatches(Builder|Relation $query, User $actor): Builder|Relation
     {
         if (! $actor->isOperatorClient()) {
-            return $query;
+            return $actor->hasPermission('incidents.dispatch.view')
+                ? $query
+                : $query->whereRaw('1 = 0');
         }
 
         if (! $this->hasOperatorDispatchPermission($actor)) {

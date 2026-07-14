@@ -24,6 +24,8 @@ final class DispatchController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $this->access->assertCanListDispatches($request->user());
+
         $query = DispatchRequest::query()
             ->with(['incident', 'recipients'])
             ->when(! $request->boolean('include_tests'), fn ($query) => $query->whereHas('incident', fn ($incident) => $incident->where('is_test', false)))

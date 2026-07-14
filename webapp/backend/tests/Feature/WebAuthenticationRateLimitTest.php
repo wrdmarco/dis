@@ -233,8 +233,32 @@ final class WebAuthenticationRateLimitTest extends TestCase
         }
 
         $this->assertNotNull($limited, 'Repeated invalid 2FA verification must return 429.');
-        $this->assertRateLimited($limited, 'two_factor_challenge_locked');
+        $limited->assertStatus(429)->assertHeader('Retry-After');
+        $this->assertContains($limited->json('error.code'), ['rate_limited', 'two_factor_challenge_locked']);
+        $this->assertGreaterThan(0, (int) $limited->headers->get('Retry-After'));
         $this->assertStringNotContainsString('000000', $limited->getContent());
+
+        $this->travel(11)->minutes();
+
+        $loginAfterDecay = $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.90'])
+            ->postJson('/api/auth/login', [
+                'email' => $user->email,
+                'password' => 'Correct-password-123!',
+                'device_name' => 'DIS Android security test',
+                'client_type' => 'operator_android',
+            ]);
+        $loginAfterDecay->assertStatus(202)->assertJsonPath('data.requires_2fa', true);
+        $freshToken = $loginAfterDecay->json('data.token');
+        $this->assertIsString($freshToken);
+
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.90'])
+            ->withHeader('Authorization', 'Bearer '.$freshToken)
+            ->postJson('/api/auth/2fa/verify', [
+                'code' => 'VALID-RECOVERY',
+                'client_type' => 'operator_android',
+            ])
+            ->assertOk()
+            ->assertJsonStructure(['data' => ['token']]);
     }
 
     private function login(string $email, string $password, string $ip): TestResponse

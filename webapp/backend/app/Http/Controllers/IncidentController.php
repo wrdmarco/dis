@@ -42,6 +42,8 @@ final class IncidentController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $this->access->assertCanListIncidents($request->user());
+
         if ($request->user()->isOperatorClient() || $request->boolean('active_alarms')) {
             $userId = $request->user()->id;
             $attendanceDispatchStatuses = ['sent', 'escalated'];

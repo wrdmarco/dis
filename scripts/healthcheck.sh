@@ -6,7 +6,12 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1/health}"
 ADMIN_HEALTH_URL="${ADMIN_HEALTH_URL:-}"
-CURL_ARGS=(--silent --show-error)
+CURL_ARGS=(
+  --silent
+  --show-error
+  --connect-timeout "${HEALTH_CONNECT_TIMEOUT_SECONDS:-5}"
+  --max-time "${HEALTH_MAX_TIME_SECONDS:-15}"
+)
 
 check_url() {
   local label="$1"
@@ -18,8 +23,15 @@ check_url() {
   if ! status="$(curl "${CURL_ARGS[@]}" -o "${output}" -w '%{http_code}' "$@" "${url}")"; then
     status="000"
   fi
-  if [ "${status}" -lt 200 ] || [ "${status}" -ge 400 ]; then
+  if [ "${status}" != "200" ]; then
     printf '[dis:error] %s failed with HTTP %s: ' "${label}" "${status}" >&2
+    head -c 500 "${output}" >&2 || true
+    printf '\n' >&2
+    rm -f "${output}"
+    return 1
+  fi
+  if ! jq -e '.data.status == "ok"' "${output}" >/dev/null 2>&1; then
+    printf '[dis:error] %s returned an invalid or unhealthy response: ' "${label}" >&2
     head -c 500 "${output}" >&2 || true
     printf '\n' >&2
     rm -f "${output}"

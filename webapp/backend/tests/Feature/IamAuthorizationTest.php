@@ -40,6 +40,75 @@ final class IamAuthorizationTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_assigned_only_permission_cannot_list_incidents_or_dispatches_from_web_clients(): void
+    {
+        $actor = $this->user('dual-client-assigned@example.test');
+        $creator = $this->user('dual-client-creator@example.test');
+        $this->grant($actor, ['incidents.assigned.view'], operator: true, admin: true);
+
+        $incident = $this->incident($creator, 'WEB-ASSIGNED-001');
+        $this->dispatch($incident, $creator, $actor, 'sent');
+
+        foreach (['client:web', 'client:admin'] as $clientAbility) {
+            $this->asClient($actor, $clientAbility)
+                ->getJson('/api/incidents')
+                ->assertForbidden();
+
+            $this->asClient($actor, $clientAbility)
+                ->getJson('/api/dispatches')
+                ->assertForbidden();
+        }
+    }
+
+    public function test_dual_client_assigned_only_permission_remains_scoped_for_operator_client(): void
+    {
+        $operator = $this->user('dual-client-operator@example.test');
+        $otherOperator = $this->user('dual-client-other@example.test');
+        $creator = $this->user('dual-client-scope-creator@example.test');
+        $this->grant($operator, ['incidents.assigned.view'], operator: true, admin: true);
+
+        $assignedIncident = $this->incident($creator, 'DUAL-ASSIGNED-001');
+        $unassignedIncident = $this->incident($creator, 'DUAL-UNASSIGNED-001');
+        $assignedDispatch = $this->dispatch($assignedIncident, $creator, $operator, 'sent');
+        $unassignedDispatch = $this->dispatch($unassignedIncident, $creator, $otherOperator, 'sent');
+
+        $incidentResponse = $this->asClient($operator, 'client:operator')->getJson('/api/incidents');
+        $incidentResponse->assertOk();
+        $incidentIds = collect($incidentResponse->json('data'))->pluck('id');
+        $this->assertTrue($incidentIds->contains($assignedIncident->id));
+        $this->assertFalse($incidentIds->contains($unassignedIncident->id));
+
+        $dispatchResponse = $this->asClient($operator, 'client:operator')->getJson('/api/dispatches');
+        $dispatchResponse->assertOk();
+        $dispatchIds = collect($dispatchResponse->json('data'))->pluck('id');
+        $this->assertTrue($dispatchIds->contains($assignedDispatch->id));
+        $this->assertFalse($dispatchIds->contains($unassignedDispatch->id));
+    }
+
+    public function test_broad_incident_permissions_keep_full_web_collection_access(): void
+    {
+        $viewer = $this->user('broad-web-viewer@example.test');
+        $creator = $this->user('broad-web-creator@example.test');
+        $this->grant($viewer, ['incidents.view', 'incidents.dispatch.view'], operator: false, admin: true);
+
+        $firstIncident = $this->incident($creator, 'BROAD-001');
+        $secondIncident = $this->incident($creator, 'BROAD-002');
+        $firstDispatch = $this->dispatch($firstIncident, $creator, $creator, 'sent');
+        $secondDispatch = $this->dispatch($secondIncident, $creator, $creator, 'sent');
+
+        $incidentResponse = $this->asClient($viewer, 'client:web')->getJson('/api/incidents');
+        $incidentResponse->assertOk();
+        $incidentIds = collect($incidentResponse->json('data'))->pluck('id');
+        $this->assertTrue($incidentIds->contains($firstIncident->id));
+        $this->assertTrue($incidentIds->contains($secondIncident->id));
+
+        $dispatchResponse = $this->asClient($viewer, 'client:web')->getJson('/api/dispatches');
+        $dispatchResponse->assertOk();
+        $dispatchIds = collect($dispatchResponse->json('data'))->pluck('id');
+        $this->assertTrue($dispatchIds->contains($firstDispatch->id));
+        $this->assertTrue($dispatchIds->contains($secondDispatch->id));
+    }
+
     public function test_preannouncement_hides_operational_details(): void
     {
         $operator = $this->user('operator@example.test');

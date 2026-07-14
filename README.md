@@ -79,7 +79,11 @@ built-in Aeret map origins, and the configured same-service websocket host. Addi
 frontend dependency requires updating and testing `webapp/frontend/src/lib/securityPolicy.ts`.
 
 HSTS is owned by the public TLS edge. The inner Nginx configuration removes duplicate upstream
-security headers and supplies the remaining common headers exactly once.
+security headers and supplies the remaining common headers exactly once. Every setup, update and
+direct deployment regenerates and validates the first Nginx `server_name` from the HTTPS `APP_URL`;
+the raw `_` template is never installed as the production virtual host. The outer OpenResty/TLS
+edge is not part of this repository and must suppress its own `Server` and `X-Served-By` headers;
+the inner proxy cannot remove headers that the edge adds after receiving the upstream response.
 
 ## Updates
 
