@@ -61,6 +61,7 @@ final class DeploymentMaintenanceContractTest extends TestCase
 
         self::assertStringContainsString('trap \'update_exit_handler "$?"\' EXIT', $script);
         self::assertStringContainsString('Update failed; maintenance remains enabled', $script);
+        self::assertStringContainsString("bash \"\${SCRIPT_DIR}/deploy.sh\"\n    stop_dis_deployment_services", $script);
         self::assertStringContainsString('DIS_DEPLOYMENT_OWNER=update', $script);
         self::assertStringContainsString('DIS_DEFER_OPERATIONAL_SERVICES=1', $script);
 
@@ -72,9 +73,10 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertStringNotContainsString('put_webapp_in_production', $failureHandler);
         self::assertStringNotContainsString('complete_deployment_maintenance', $failureHandler);
 
-        $stop = strrpos($script, 'stop_dis_deployment_services');
+        $stop = strpos($script, 'stop_dis_deployment_services', (int) strpos($script, "trap 'update_exit_handler"));
         $dependencies = strrpos($script, 'apt-get install -y cifs-utils');
         $deploy = strrpos($script, 'bash "${SCRIPT_DIR}/deploy.sh"');
+        $postDeployStop = strpos($script, 'stop_dis_deployment_services', (int) $deploy);
         $health = strrpos($script, 'healthcheck.sh');
         $services = strrpos($script, 'require_dis_runtime_services');
         $open = strrpos($script, 'put_webapp_in_production');
@@ -82,11 +84,12 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertIsInt($stop);
         self::assertIsInt($dependencies);
         self::assertIsInt($deploy);
+        self::assertIsInt($postDeployStop);
         self::assertIsInt($health);
         self::assertIsInt($services);
         self::assertIsInt($open);
-        self::assertLessThan($deploy, $stop);
-        self::assertLessThan($dependencies, $stop);
+        self::assertTrue($stop < $dependencies);
+        self::assertTrue($deploy < $postDeployStop);
         self::assertGreaterThan($health, $open);
         self::assertGreaterThan($services, $open);
     }

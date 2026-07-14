@@ -643,6 +643,7 @@ if [ "${UPDATE_APP}" = "1" ]; then
       DIS_DEPLOYMENT_OWNER=update \
       DIS_DEFER_OPERATIONAL_SERVICES=1 \
       bash "${SCRIPT_DIR}/deploy.sh"
+    stop_dis_deployment_services
     install_update_command
     install_update_privileges
     self_heal_permissions
