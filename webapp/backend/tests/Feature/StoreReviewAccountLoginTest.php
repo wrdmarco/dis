@@ -2,11 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Http\Requests\Admin\UpdateStoreReviewAccountRequest;
 use App\Models\User;
 use App\Services\StoreReviewAccountService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
 use Tests\TestCase;
 
 final class StoreReviewAccountLoginTest extends TestCase
@@ -82,6 +84,21 @@ final class StoreReviewAccountLoginTest extends TestCase
             'device_name' => 'Google Play Review',
             'client_type' => 'operator_android',
         ])->assertStatus(422)->assertJsonPath('error.code', 'invalid_credentials');
+    }
+
+    public function test_reviewer_password_requires_all_character_groups_and_24_characters(): void
+    {
+        $rules = (new UpdateStoreReviewAccountRequest)->rules();
+
+        $this->assertTrue(Validator::make([
+            'enabled' => true,
+            'password' => 'only-lowercase-and-long-enough',
+        ], $rules)->fails());
+
+        $this->assertFalse(Validator::make([
+            'enabled' => true,
+            'password' => 'Store-Review-Password-2468!',
+        ], $rules)->fails());
     }
 
     private function configureAccount(string $platform, string $password): void

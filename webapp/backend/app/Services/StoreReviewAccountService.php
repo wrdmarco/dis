@@ -49,7 +49,7 @@ final class StoreReviewAccountService
 
         if ($enabled && ($password === null || $password === '')) {
             throw ValidationException::withMessages([
-                'password' => ['Stel bij het activeren eerst een wachtwoord van minimaal 12 tekens in.'],
+                'password' => ['Stel bij het activeren eerst een sterk wachtwoord van minimaal 24 tekens in.'],
             ]);
         }
 

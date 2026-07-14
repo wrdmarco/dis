@@ -4,6 +4,7 @@ namespace App\Http\Requests\Admin;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 
 final class UpdateStoreReviewAccountRequest extends FormRequest
 {
@@ -16,7 +17,7 @@ final class UpdateStoreReviewAccountRequest extends FormRequest
     {
         return [
             'enabled' => ['required', 'boolean'],
-            'password' => ['nullable', 'string', 'min:12', 'max:255'],
+            'password' => ['nullable', 'string', Password::min(24)->letters()->mixedCase()->numbers()->symbols(), 'max:255'],
             'platform' => ['sometimes', Rule::in(['apple', 'google'])],
         ];
     }

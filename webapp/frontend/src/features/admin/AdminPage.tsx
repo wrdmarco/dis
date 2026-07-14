@@ -1391,19 +1391,30 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
                   <label>
                     {account.configured ? 'Nieuw wachtwoord instellen' : 'Wachtwoord instellen'}
                     <input
-                      type="password"
+                      className="mono"
+                      type="text"
                       value={storeReviewPasswords[account.platform]}
                       onChange={(event) => setStoreReviewPasswords((current) => ({ ...current, [account.platform]: event.target.value }))}
                       autoComplete="new-password"
-                      minLength={12}
-                      placeholder="Minimaal 12 tekens"
+                      minLength={24}
+                      placeholder="Minimaal 24 tekens"
+                      spellCheck={false}
                     />
                   </label>
+                  <p className="muted-text">Minimaal 24 tekens met hoofdletters, kleine letters, cijfers en speciale tekens.</p>
                   <div className="button-row">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={storeReviewSaving !== null}
+                      onClick={() => setStoreReviewPasswords((current) => ({ ...current, [account.platform]: generateStrongPassword(24) }))}
+                    >
+                      Sterk wachtwoord genereren
+                    </button>
                     <button
                       className="primary-button"
                       type="button"
-                      disabled={storeReviewSaving !== null || storeReviewPasswords[account.platform].length < 12}
+                      disabled={storeReviewSaving !== null || !isStrongStoreReviewPassword(storeReviewPasswords[account.platform])}
                       onClick={() => void updateStoreReviewAccount(account.platform, true)}
                     >
                       {storeReviewSaving === account.platform ? 'Opslaan...' : account.enabled ? 'Wachtwoord vernieuwen' : 'Account activeren'}
@@ -2648,6 +2659,49 @@ const phoneCountryOptions = [
 function defaultPhoneCountries(countries?: string[]): string[] {
   const values = (countries ?? []).filter((country) => phoneCountryOptions.some((option) => option.code === country));
   return values.length > 0 ? values : ['31', '32'];
+}
+
+const passwordCharacterGroups = [
+  'ABCDEFGHJKLMNPQRSTUVWXYZ',
+  'abcdefghijkmnopqrstuvwxyz',
+  '23456789',
+  '!@#$%^&*()-_=+[]{}:,.?',
+] as const;
+
+function generateStrongPassword(length: number): string {
+  const targetLength = Math.max(24, length);
+  const allCharacters = passwordCharacterGroups.join('');
+  const characters = passwordCharacterGroups.map((group) => group[secureRandomIndex(group.length)]);
+
+  while (characters.length < targetLength) {
+    characters.push(allCharacters[secureRandomIndex(allCharacters.length)]);
+  }
+
+  for (let index = characters.length - 1; index > 0; index -= 1) {
+    const swapIndex = secureRandomIndex(index + 1);
+    [characters[index], characters[swapIndex]] = [characters[swapIndex], characters[index]];
+  }
+
+  return characters.join('');
+}
+
+function secureRandomIndex(maximum: number): number {
+  const limit = 256 - (256 % maximum);
+  const randomByte = new Uint8Array(1);
+
+  do {
+    crypto.getRandomValues(randomByte);
+  } while (randomByte[0] >= limit);
+
+  return randomByte[0] % maximum;
+}
+
+function isStrongStoreReviewPassword(password: string): boolean {
+  return password.length >= 24
+    && /[A-Z]/.test(password)
+    && /[a-z]/.test(password)
+    && /[0-9]/.test(password)
+    && /[^A-Za-z0-9]/.test(password);
 }
 
 function updatePhoneCountries(countries: string[], country: string, checked: boolean): string[] {
