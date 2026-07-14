@@ -723,8 +723,14 @@ link_data_path() {
 
 ensure_data_links() {
   local app_root="${1:-${DIS_INSTALL_PATH}}"
+  local legacy_storage_self_link="${DIS_DATA_PATH}/storage/storage"
 
   ensure_data_layout
+  if [ -L "${legacy_storage_self_link}" ] \
+    && [ "$(readlink -- "${legacy_storage_self_link}")" = "${DIS_DATA_PATH}/storage" ]; then
+    log "Removing legacy recursive storage self-link"
+    run_cmd rm -f -- "${legacy_storage_self_link}"
+  fi
   link_data_path "${app_root}/backup" "${DIS_DATA_PATH}/backup"
   link_data_path "${app_root}/secrets" "${DIS_DATA_PATH}/secrets"
   link_data_path "${app_root}/storage" "${DIS_DATA_PATH}/storage"
