@@ -56,7 +56,7 @@ async function fetchPdokLocationSuggestions(query: string, signal: AbortSignal):
 
   return payload.response?.docs
     ?.filter((item): item is { id: string; weergavenaam: string } => typeof item.id === 'string' && typeof item.weergavenaam === 'string')
-    .map((item) => ({ id: `pdok:${item.id}`, label: item.weergavenaam }))
+    .map((item) => ({ id: `pdok:${item.id}`, label: normalizeDutchLocationLabel(item.weergavenaam) }))
     ?? [];
 }
 
@@ -97,7 +97,7 @@ async function fetchPhotonLocationSuggestions(query: string, signal: AbortSignal
       const longitude = coordinates?.[0];
       const latitude = coordinates?.[1];
       const label = photonLabel(feature.properties);
-      const displayLabel = photonDisplayLabel(query, label);
+      const displayLabel = normalizeDutchLocationLabel(label);
       if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || label === '') {
         return null;
       }
@@ -216,18 +216,6 @@ function photonLabel(properties?: {
   ].filter((part): part is string => typeof part === 'string' && part.trim() !== '').join(', ');
 }
 
-function photonDisplayLabel(query: string, label: string): string {
-  const normalizedQuery = query.trim();
-  if (normalizedQuery === '') {
-    return label;
-  }
-
-  const queryWords = normalizedQuery.toLocaleLowerCase('nl-NL').split(/\s+/).filter((word) => word.length > 2);
-  const normalizedLabel = label.toLocaleLowerCase('nl-NL');
-  const missingImportantWord = queryWords.some((word) => !normalizedLabel.includes(word));
-  return missingImportantWord ? `${normalizedQuery} - ${label}` : label;
-}
-
 function coordinatesFromPdokMatch(match?: { centroide_ll?: string; weergavenaam?: string }): LocationSearchResult | null {
   const point = match?.centroide_ll?.match(/^POINT\(([-0-9.]+) ([-0-9.]+)\)$/);
   if (!point) {
@@ -239,7 +227,7 @@ function coordinatesFromPdokMatch(match?: { centroide_ll?: string; weergavenaam?
   return {
     latitude: formatCoordinate(latitude),
     longitude: formatCoordinate(longitude),
-    locationLabel: match?.weergavenaam ?? '',
+    locationLabel: normalizeDutchLocationLabel(match?.weergavenaam ?? ''),
   };
 }
 
@@ -253,8 +241,25 @@ function coordinatesFromLatLon(label: string, latitude: string, longitude: strin
   return {
     latitude: formattedLatitude,
     longitude: formattedLongitude,
-    locationLabel: label,
+    locationLabel: normalizeDutchLocationLabel(label),
   };
+}
+
+export function normalizeDutchLocationLabel(value: string): string {
+  const seen = new Set<string>();
+  return value
+    .split(',')
+    .map((part) => part.trim()
+      .replace(/\b(\d{4})\s*([a-z]{2})\b/gi, (_, digits: string, letters: string) => `${digits} ${letters.toUpperCase()}`)
+      .replace(/^Netherlands$/i, 'Nederland'))
+    .filter((part) => {
+      if (part === '') return false;
+      const key = part.toLocaleLowerCase('nl-NL');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join(', ');
 }
 
 function formatCoordinate(value: string): string {
