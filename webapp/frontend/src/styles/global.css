@@ -1389,6 +1389,69 @@ a:hover {
   color: #8ea0b5;
 }
 
+.test-alert-controls {
+  display: grid;
+  gap: 14px;
+  padding: 0 16px 16px;
+}
+
+.test-alert-scope {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.test-alert-scope legend {
+  margin-bottom: 10px;
+  color: var(--dis-text-strong);
+  font-weight: 750;
+}
+
+.test-alert-scope__option {
+  cursor: pointer;
+}
+
+.test-alert-scope__option--selected {
+  border-color: var(--dis-blue);
+  background: rgba(128, 199, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(128, 199, 255, 0.2);
+}
+
+.test-alert-scope__option strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.test-alert-controls__actions {
+  padding: 0;
+}
+
+.test-alert-send-summary {
+  padding: 0 16px 16px;
+}
+
+.test-alert-warning {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--dis-warning);
+  border-radius: 8px;
+  background: var(--dis-warning-soft);
+  padding: 12px;
+}
+
+.test-alert-warning svg,
+.test-alert-warning strong {
+  color: var(--dis-warning);
+}
+
+.test-alert-warning p {
+  margin: 0;
+}
+
 .operational-status {
   display: grid;
   gap: 14px;

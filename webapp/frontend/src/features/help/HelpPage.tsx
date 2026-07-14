@@ -232,7 +232,7 @@ const helpTopics: readonly HelpTopic[] = [
     href: '/test-alert',
     permissions: ['incidents.dispatch.view', 'incidents.dispatch.manage'],
     actions: [
-      { title: 'Handmatig proefalarm sturen', description: 'Stuur een proefmelding naar je eigen actieve gekoppelde toestellen en volg direct of deze is ontvangen.' },
+      { title: 'Handmatig proefalarm sturen', description: 'Kies tussen je eigen gekoppelde toestellen en een bevestigde bereikbaarheidstest voor alle online operator-apps.' },
       { title: 'Automatisch proefalarm plannen', description: 'Kies dag, tijd en tekst voor een terugkerende controle bij actieve gebruikers met operator-app en push.' },
       { title: 'Ontvangst volgen', description: 'Bekijk live welke proefmelding is aangekomen. Een nieuw proefalarm vervangt een ouder, nog onbeantwoord proefalarm.' },
     ],

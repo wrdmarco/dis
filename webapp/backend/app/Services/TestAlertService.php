@@ -5,16 +5,23 @@ namespace App\Services;
 use App\Jobs\SendFcmNotification;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
+use App\Models\FcmToken;
 use App\Models\Incident;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Support\ApiDateTime;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 final class TestAlertService
 {
+    public const SCOPE_ALL_ONLINE = 'all_online';
+
+    public const SCOPE_SELF = 'self';
+
     private const DEFAULT_MESSAGE = 'Dit is het wekelijkse proefalarm.';
 
     public function __construct(
@@ -22,16 +29,87 @@ final class TestAlertService
         private readonly DispatchService $dispatchService,
     ) {}
 
-    public function send(User $actor): DispatchRequest
+    /**
+     * @return array{
+     *     dispatch: DispatchRequest,
+     *     summary: array{
+     *         scope: string,
+     *         recipient_count: int,
+     *         queued_token_count: int,
+     *         skipped_user_count: int,
+     *         failed_user_count: int
+     *     }
+     * }
+     */
+    public function send(User $actor, string $scope = self::SCOPE_SELF): array
     {
-        $actor->load(['fcmTokens' => fn ($tokens) => $tokens->where('is_active', true)]);
-
-        if (! $actor->push_enabled || $actor->fcmTokens->isEmpty()) {
+        if (! in_array($scope, [self::SCOPE_SELF, self::SCOPE_ALL_ONLINE], true)) {
             throw ValidationException::withMessages([
-                'push' => ['De ingelogde gebruiker heeft geen actieve push-token. Open de Android app en registreer pushmeldingen eerst.'],
+                'scope' => ['De gekozen proefalarmeringsscope is ongeldig.'],
             ]);
         }
 
+        [$targets, $skippedUsers] = $scope === self::SCOPE_ALL_ONLINE
+            ? $this->allOnlineTargets()
+            : $this->selfTargets($actor);
+
+        if ($targets->isEmpty()) {
+            $summary = $this->summary($scope, 0, 0, $skippedUsers, 0);
+            $this->auditService->record('test_alert.not_sent', DispatchRequest::class, $actor, $this->auditSummary($summary) + [
+                'selected_user_count' => 0,
+            ]);
+
+            throw ValidationException::withMessages([
+                'recipients' => ['Geen online operator-apps gevonden.'],
+            ]);
+        }
+
+        $dispatch = $this->createDispatch($actor);
+        $fanOut = $this->fanOut($dispatch, $targets);
+        $summary = $this->summary(
+            $scope,
+            $fanOut['recipient_count'],
+            $fanOut['queued_token_count'],
+            $skippedUsers,
+            $fanOut['failed_user_count'],
+        );
+
+        if ($fanOut['recipient_count'] === 0) {
+            DB::transaction(function () use ($dispatch): void {
+                $dispatch->update([
+                    'status' => 'cancelled',
+                    'cancelled_at' => now(),
+                ]);
+                $dispatch->incident?->update([
+                    'status' => 'cancelled',
+                    'closed_at' => now(),
+                ]);
+            });
+            $this->auditService->record('test_alert.not_sent', $dispatch, $actor, $this->auditSummary($summary) + [
+                'selected_user_count' => $targets->count(),
+                'incident_id' => $dispatch->incident_id,
+            ]);
+            $this->dispatchService->broadcastDispatchChange($dispatch->refresh(), 'test_not_sent');
+
+            throw ValidationException::withMessages([
+                'recipients' => ['De proefalarmering kon voor geen enkele operator-app worden klaargezet.'],
+            ]);
+        }
+
+        $this->auditService->record('test_alert.sent', $dispatch, $actor, $this->auditSummary($summary) + [
+            'selected_user_count' => $targets->count(),
+            'incident_id' => $dispatch->incident_id,
+        ]);
+        $this->dispatchService->broadcastDispatchChange($dispatch->refresh(), 'test_sent');
+
+        return [
+            'dispatch' => $dispatch->load(['incident', 'recipients.user']),
+            'summary' => $summary,
+        ];
+    }
+
+    private function createDispatch(User $actor): DispatchRequest
+    {
         return DB::transaction(function () use ($actor): DispatchRequest {
             $message = $this->message();
             $notificationMessage = $this->notificationMessage($message);
@@ -65,44 +143,171 @@ final class TestAlertService
                 'sent_at' => now(),
             ]);
 
-            DispatchRecipient::query()->create([
-                'dispatch_request_id' => $dispatch->id,
-                'user_id' => $actor->id,
-                'user_name' => $actor->name,
-                'user_email' => $actor->email,
-                'response_status' => 'pending',
-                'notified_at' => now(),
-            ]);
+            return $dispatch->load('incident');
+        });
+    }
 
-            foreach ($actor->fcmTokens as $token) {
-                SendFcmNotification::dispatch(
-                    (string) $token->id,
-                    'dispatch_request',
-                    'D.I.S proefalarmering',
-                    $notificationMessage,
-                    [
-                        'type' => 'dispatch_request',
-                        'action_mode' => 'test_ack',
-                        'is_test' => 'true',
-                        'dispatch_id' => (string) $dispatch->id,
-                        'incident_id' => (string) $incident->id,
-                        'incident_reference' => (string) $incident->reference,
-                        'incident_title' => (string) $incident->title,
-                        'dispatch_message' => $notificationMessage,
-                        'priority' => 'normal',
-                    ],
-                    (string) $dispatch->id,
-                )->onQueue('push');
+    /**
+     * @param  Collection<int, array{user: User, tokens: Collection<int, FcmToken>}>  $targets
+     * @return array{recipient_count: int, queued_token_count: int, failed_user_count: int}
+     */
+    private function fanOut(DispatchRequest $dispatch, Collection $targets): array
+    {
+        $recipientCount = 0;
+        $queuedTokenCount = 0;
+        $failedUserCount = 0;
+        $incident = $dispatch->incident;
+
+        foreach ($targets as $target) {
+            $user = $target['user'];
+
+            try {
+                $recipient = DispatchRecipient::query()->create([
+                    'dispatch_request_id' => $dispatch->id,
+                    'user_id' => $user->id,
+                    'user_name' => $user->name,
+                    'user_email' => $user->email,
+                    'response_status' => 'pending',
+                    'notified_at' => now(),
+                ]);
+            } catch (Throwable $exception) {
+                report($exception);
+                $failedUserCount++;
+
+                continue;
             }
 
-            $this->auditService->record('test_alert.sent', $dispatch, $actor, [
-                'queued_tokens' => $actor->fcmTokens->count(),
-                'incident_id' => $incident->id,
-            ]);
-            $this->dispatchService->broadcastDispatchChange($dispatch->refresh(), 'test_sent');
+            $queuedForUser = 0;
+            foreach ($target['tokens'] as $token) {
+                try {
+                    SendFcmNotification::dispatch(
+                        (string) $token->id,
+                        'dispatch_request',
+                        'D.I.S proefalarmering',
+                        (string) $dispatch->message,
+                        [
+                            'type' => 'dispatch_request',
+                            'action_mode' => 'test_ack',
+                            'is_test' => 'true',
+                            'dispatch_id' => (string) $dispatch->id,
+                            'incident_id' => (string) $incident?->id,
+                            'incident_reference' => (string) $incident?->reference,
+                            'incident_title' => (string) $incident?->title,
+                            'dispatch_message' => (string) $dispatch->message,
+                            'priority' => 'normal',
+                        ],
+                        (string) $dispatch->id,
+                    )->onQueue('push');
+                    $queuedForUser++;
+                    $queuedTokenCount++;
+                } catch (Throwable $exception) {
+                    report($exception);
+                }
+            }
 
-            return $dispatch->load(['incident', 'recipients.user']);
-        });
+            if ($queuedForUser === 0) {
+                $failedUserCount++;
+                $recipient->update([
+                    'response_status' => 'no_response',
+                    'response_note' => 'Proefalarmering kon niet worden klaargezet.',
+                    'responded_at' => now(),
+                ]);
+
+                continue;
+            }
+
+            $recipientCount++;
+        }
+
+        return [
+            'recipient_count' => $recipientCount,
+            'queued_token_count' => $queuedTokenCount,
+            'failed_user_count' => $failedUserCount,
+        ];
+    }
+
+    /**
+     * @return array{Collection<int, array{user: User, tokens: Collection<int, FcmToken>}>, int}
+     */
+    private function selfTargets(User $actor): array
+    {
+        $actor->load(['fcmTokens' => fn ($tokens) => $tokens->where('is_active', true)]);
+
+        if (! $actor->push_enabled || $actor->fcmTokens->isEmpty()) {
+            throw ValidationException::withMessages([
+                'push' => ['De ingelogde gebruiker heeft geen actieve push-token. Open de operator-app en registreer pushmeldingen eerst.'],
+            ]);
+        }
+
+        return [collect([['user' => $actor, 'tokens' => $actor->fcmTokens->values()]]), 0];
+    }
+
+    /**
+     * @return array{Collection<int, array{user: User, tokens: Collection<int, FcmToken>}>, int}
+     */
+    private function allOnlineTargets(): array
+    {
+        $candidates = User::query()
+            ->with(['fcmTokens' => fn ($tokens) => $tokens
+                ->where('is_active', true)
+                ->where('client_type', 'operator')])
+            ->where('account_status', 'active')
+            ->whereHas('roles', fn ($roles) => $roles->where('roles.can_use_operator_app', true))
+            ->get();
+
+        $skippedUsers = 0;
+        $targets = $candidates->map(function (User $user) use (&$skippedUsers): array|null {
+            $onlineTokens = $user->fcmTokens
+                ->filter(fn (FcmToken $token): bool => $token->is_online)
+                ->values();
+
+            if (! $user->push_enabled || $onlineTokens->isEmpty()) {
+                $skippedUsers++;
+
+                return null;
+            }
+
+            return ['user' => $user, 'tokens' => $onlineTokens];
+        })->filter()->values();
+
+        return [$targets, $skippedUsers];
+    }
+
+    /**
+     * @return array{scope: string, recipient_count: int, queued_token_count: int, skipped_user_count: int, failed_user_count: int}
+     */
+    private function summary(
+        string $scope,
+        int $recipientCount,
+        int $queuedTokenCount,
+        int $skippedUserCount,
+        int $failedUserCount,
+    ): array {
+        return [
+            'scope' => $scope,
+            'recipient_count' => $recipientCount,
+            'queued_token_count' => $queuedTokenCount,
+            'skipped_user_count' => $skippedUserCount,
+            'failed_user_count' => $failedUserCount,
+        ];
+    }
+
+    /**
+     * Token values are sensitive, but this count is not. The audit key deliberately
+     * describes devices so the central secret redactor does not hide the number.
+     *
+     * @param  array{scope: string, recipient_count: int, queued_token_count: int, skipped_user_count: int, failed_user_count: int}  $summary
+     * @return array{scope: string, recipient_count: int, queued_device_count: int, skipped_user_count: int, failed_user_count: int}
+     */
+    private function auditSummary(array $summary): array
+    {
+        return [
+            'scope' => $summary['scope'],
+            'recipient_count' => $summary['recipient_count'],
+            'queued_device_count' => $summary['queued_token_count'],
+            'skipped_user_count' => $summary['skipped_user_count'],
+            'failed_user_count' => $summary['failed_user_count'],
+        ];
     }
 
     /**
@@ -152,10 +357,10 @@ final class TestAlertService
     }
 
     /**
-     * @param array{enabled: bool, day_of_week: int, time: string, message: string} $data
+     * @param  array{enabled: bool, day_of_week: int, time: string, message: string}  $data
      * @return array{enabled: bool, day_of_week: int, time: string, message: string, last_run_at: string|null}
      */
-    public function updateSchedule(array $data, string|null $updatedBy): array
+    public function updateSchedule(array $data, ?string $updatedBy): array
     {
         $message = trim($data['message']);
         $settings = [
@@ -225,7 +430,7 @@ final class TestAlertService
         return true;
     }
 
-    public function latestFor(User $actor): DispatchRequest|null
+    public function latestFor(User $actor): ?DispatchRequest
     {
         return DispatchRequest::query()
             ->with(['incident', 'recipients.user'])
