@@ -75,18 +75,20 @@ final class UserService
     public function update(User $user, array $data, User $actor): User
     {
         $this->assertActorCanManageTarget($actor, $user);
+        $originalEmail = (string) $user->email;
         $credentialsChanged = $this->credentialsWillChange($user, $data);
+        $authenticationStateChanged = $credentialsChanged || $this->accessWillChange($user, $data);
         if ($credentialsChanged && ! $actor->hasPermission('users.credentials.manage')) {
             throw new AuthorizationException('Managing user credentials requires an explicit permission.');
         }
 
         $data = $this->prepareUserData($data, $user);
         $data = $this->resolveHomeCityData($data, $user);
-        $activeMobileTokens = $credentialsChanged
+        $activeMobileTokens = $authenticationStateChanged
             ? $user->fcmTokens()->where('is_active', true)->get()
             : collect();
 
-        $updatedUser = DB::transaction(function () use ($user, $data, $actor, $credentialsChanged): User {
+        $updatedUser = DB::transaction(function () use ($user, $data, $actor, $credentialsChanged, $authenticationStateChanged, $originalEmail): User {
             $roleIds = $data['role_ids'] ?? null;
             $teamIds = $data['team_ids'] ?? null;
             if (array_key_exists('role_ids', $data)) {
@@ -118,12 +120,16 @@ final class UserService
                 'before' => $before,
                 'after' => $user->only($auditableFields),
                 'credentials_changed' => $credentialsChanged,
+                'authentication_state_changed' => $authenticationStateChanged,
                 'roles_synced' => is_array($roleIds),
                 'teams_synced' => is_array($teamIds),
             ]);
 
-            if ($credentialsChanged) {
-                $this->revokeAuthenticationState($user, $actor, 'users.credentials_changed_sessions_revoked');
+            if ($authenticationStateChanged) {
+                $auditAction = $credentialsChanged
+                    ? 'users.credentials_changed_sessions_revoked'
+                    : 'users.access_changed_sessions_revoked';
+                $this->revokeAuthenticationState($user, $actor, $auditAction, [$originalEmail]);
             }
 
             return $user->refresh()->load(['roles', 'teams']);
@@ -263,25 +269,56 @@ final class UserService
         $this->assertActorCanManageTarget($actor, $user);
         $this->assertActorCanAssignRole($actor, $role);
 
-        DB::transaction(function () use ($user, $role, $actor): void {
-            $user->roles()->syncWithoutDetaching([$role->id => ['assigned_by' => $actor->id]]);
+        $activeMobileTokens = $user->fcmTokens()->where('is_active', true)->get();
+        $changed = DB::transaction(function () use ($user, $role, $actor): bool {
+            $changes = $user->roles()->syncWithoutDetaching([$role->id => ['assigned_by' => $actor->id]]);
             $this->auditService->record('users.role_assigned', $user, $actor, ['role' => $role->name]);
+
+            if (($changes['attached'] ?? []) === []) {
+                return false;
+            }
+
+            $this->revokeAuthenticationState($user, $actor, 'users.role_assigned_sessions_revoked');
+
+            return true;
         });
+
+        if ($changed) {
+            foreach ($activeMobileTokens as $token) {
+                $this->notifySessionRevoked($token);
+            }
+        }
     }
 
     public function removeRole(User $user, Role $role, User $actor): void
     {
         $this->assertActorCanManageRoles($actor);
         $this->assertActorCanManageTarget($actor, $user);
+        $this->assertActorCanAssignRole($actor, $role);
 
-        DB::transaction(function () use ($user, $role, $actor): void {
+        $activeMobileTokens = $user->fcmTokens()->where('is_active', true)->get();
+        $changed = DB::transaction(function () use ($user, $role, $actor): bool {
             if ($role->isSystemAdministrator()) {
                 $this->assertCanRemoveSystemAdministratorRole($user);
             }
 
-            $user->roles()->detach($role->id);
+            $detached = $user->roles()->detach($role->id);
             $this->auditService->record('users.role_removed', $user, $actor, ['role' => $role->name]);
+
+            if ($detached === 0) {
+                return false;
+            }
+
+            $this->revokeAuthenticationState($user, $actor, 'users.role_removed_sessions_revoked');
+
+            return true;
         });
+
+        if ($changed) {
+            foreach ($activeMobileTokens as $token) {
+                $this->notifySessionRevoked($token);
+            }
+        }
     }
 
     public function assignTeam(User $user, Team $team, User $actor): void
@@ -356,7 +393,7 @@ final class UserService
     }
 
     /**
-     * @return array{access_tokens_revoked: int, web_sessions_revoked: int, mobile_tokens_revoked: int}
+     * @return array{access_tokens_revoked: int, web_sessions_revoked: int, mobile_tokens_revoked: int, pairing_codes_revoked: int}
      */
     public function revokeSessions(User $user, User $actor): array
     {
@@ -420,6 +457,10 @@ final class UserService
     private function syncRoles(User $user, array $roleIds, User $actor): void
     {
         $this->assertSystemAdministratorRemainsActive($user, [], $roleIds);
+        $user->roles()
+            ->with('permissions')
+            ->get()
+            ->each(fn (Role $role) => $this->assertActorCanAssignRole($actor, $role));
         Role::query()
             ->whereIn('id', array_values(array_unique($roleIds)))
             ->with('permissions')
@@ -510,18 +551,63 @@ final class UserService
     }
 
     /**
-     * @return array{access_tokens_revoked: int, web_sessions_revoked: int, mobile_tokens_revoked: int}
+     * @param  array<string, mixed>  $data
      */
-    private function revokeAuthenticationState(User $user, User $actor, string $auditAction): array
+    private function accessWillChange(User $user, array $data): bool
     {
+        if (array_key_exists('account_status', $data)
+            && (string) $data['account_status'] !== (string) $user->account_status) {
+            return true;
+        }
+
+        if (! array_key_exists('role_ids', $data) || ! is_array($data['role_ids'])) {
+            return false;
+        }
+
+        $currentRoleIds = $user->roles()->pluck('roles.id')->map(static fn ($id): string => (string) $id)->sort()->values()->all();
+        $requestedRoleIds = collect($data['role_ids'])
+            ->filter(static fn (mixed $id): bool => is_string($id))
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+
+        return $currentRoleIds !== $requestedRoleIds;
+    }
+
+    /**
+     * @param  list<string>  $additionalPasswordResetEmails
+     * @return array{access_tokens_revoked: int, web_sessions_revoked: int, mobile_tokens_revoked: int, pairing_codes_revoked: int}
+     */
+    public function revokeAuthenticationState(
+        User $user,
+        User $actor,
+        string $auditAction,
+        array $additionalPasswordResetEmails = [],
+    ): array {
         $result = [
             'access_tokens_revoked' => $user->tokens()->count(),
             'web_sessions_revoked' => DB::table('sessions')->where('user_id', $user->id)->count(),
             'mobile_tokens_revoked' => $user->fcmTokens()->where('is_active', true)->count(),
+            'pairing_codes_revoked' => DB::table('mobile_pairing_codes')
+                ->where('user_id', $user->id)
+                ->whereNull('consumed_at')
+                ->count(),
         ];
 
         $user->tokens()->delete();
+        $user->increment('auth_session_version');
         DB::table('sessions')->where('user_id', $user->id)->delete();
+        DB::table('mobile_pairing_codes')
+            ->where('user_id', $user->id)
+            ->whereNull('consumed_at')
+            ->delete();
+        $passwordResetEmails = collect([$user->email, ...$additionalPasswordResetEmails])
+            ->filter(static fn (mixed $email): bool => is_string($email) && trim($email) !== '')
+            ->unique()
+            ->values()
+            ->all();
+        DB::table('password_reset_tokens')->whereIn('email', $passwordResetEmails)->delete();
         $user->fcmTokens()
             ->where('is_active', true)
             ->update([
@@ -743,7 +829,7 @@ final class UserService
     {
         $token = Password::broker()->createToken($user);
         $publicUrl = rtrim(SystemSetting::string('app.public_url', config('app.url', '')) ?? '', '/');
-        $registrationUrl = $publicUrl.'/register?email='.rawurlencode($user->email).'&token='.rawurlencode($token);
+        $registrationUrl = $publicUrl.'/register#email='.rawurlencode($user->email).'&token='.rawurlencode($token);
         $adminAppAllowed = $user->canUseAdminApp();
 
         $this->runIgnoringTempnamFallbackWarning(
@@ -789,7 +875,7 @@ final class UserService
             $this->recordWelcomeMailFailure($user, $actor, $exception);
 
             throw ValidationException::withMessages([
-                'mail' => ['Uitnodiging kon niet worden verstuurd: '.mb_substr($exception->getMessage(), 0, 500)],
+                'mail' => ['Uitnodiging kon niet worden verstuurd.'],
             ]);
         }
     }
@@ -809,7 +895,7 @@ final class UserService
 
         try {
             $this->auditService->record('users.welcome_mail_failed', $user, $actor, [
-                'error' => mb_substr($exception->getMessage(), 0, 1000),
+                'exception_type' => $exception::class,
             ]);
         } catch (Throwable) {
             // Audit is best-effort here because the account already exists.

@@ -2,7 +2,7 @@
 Description=Watch DIS backup requests
 
 [Path]
-PathExistsGlob=/opt/dis-data/backup-requests/*.pending
+PathExistsGlob=@DIS_DATA_PATH@/backup-requests/*.pending
 Unit=dis-backup-request.service
 
 [Install]

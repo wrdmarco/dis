@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Responses\ApiResponse;
 use App\Models\Incident;
 use App\Services\DispatchStatisticsService;
+use App\Services\IncidentAccessService;
 use App\Services\IncidentReportService;
 use App\Support\MobileApiPayload;
 use DateTimeInterface;
@@ -15,28 +16,26 @@ use Throwable;
 
 final class ReportingController extends Controller
 {
-    public function incidentPdf(string $incidentId): Response
+    public function incidentPdf(Request $request, string $incidentId, IncidentAccessService $access): Response
     {
+        $incident = Incident::query()->find($incidentId);
+        if ($incident === null) {
+            return ApiResponse::error('incident_not_found', 'Incident niet gevonden.', 404);
+        }
+
+        $access->assertCanViewIncident($request->user(), $incident);
+
+        if (! in_array($incident->status, ['resolved', 'cancelled'], true)) {
+            return ApiResponse::error('incident_not_closed', 'Een rapport kan pas worden gemaakt als het incident is afgerond of geannuleerd.', 422);
+        }
+
         try {
             $reports = app(IncidentReportService::class);
-            $incident = Incident::query()->find($incidentId);
-            if ($incident === null) {
-                return ApiResponse::error('incident_not_found', 'Incident niet gevonden.', 404);
-            }
-
-            if (! in_array($incident->status, ['resolved', 'cancelled'], true)) {
-                return ApiResponse::error('incident_not_closed', 'Een rapport kan pas worden gemaakt als het incident is afgerond of geannuleerd.', 422);
-            }
-
             $reports->ensureStored($incident);
             $pdfPath = $reports->storedPdfPath($incident->refresh());
 
             if ($pdfPath === null) {
-                $message = $incident->report_generation_error !== null && $incident->report_generation_error !== ''
-                    ? 'Incidentrapport kon niet worden gemaakt: '.$incident->report_generation_error
-                    : 'Het opgeslagen incidentrapport is nog niet beschikbaar.';
-
-                return ApiResponse::error('incident_report_unavailable', $message, 503);
+                return ApiResponse::error('incident_report_unavailable', 'Het opgeslagen incidentrapport is nog niet beschikbaar.', 503);
             }
 
             return response()->download($pdfPath, $reports->filename($incident), [
@@ -49,9 +48,7 @@ final class ReportingController extends Controller
                 // Logging must not hide the actual report download failure.
             }
 
-            return ApiResponse::error('incident_report_failed', 'Incidentrapport kon niet worden opgehaald: '.mb_substr($exception->getMessage(), 0, 500), 500, [
-                'exception' => class_basename($exception),
-            ]);
+            return ApiResponse::error('incident_report_failed', 'Incidentrapport kon niet worden opgehaald.', 500);
         }
     }
 
@@ -64,19 +61,25 @@ final class ReportingController extends Controller
         return ApiResponse::success($statistics->overview((int) ($data['incident_limit'] ?? 5)));
     }
 
-    public function incidents(Request $request, IncidentReportService $reports): JsonResponse
-    {
+    public function incidents(
+        Request $request,
+        IncidentReportService $reports,
+        IncidentAccessService $access,
+    ): JsonResponse {
         $data = $request->validate([
             'limit' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $incidents = Incident::query()
+        $query = Incident::query()
             ->with([
                 'team',
                 'coordinator',
                 'pilotReports.user' => fn ($query) => $query->withTrashed(),
                 'dispatchRequests.recipients.user' => fn ($query) => $query->withTrashed(),
-            ])
+            ]);
+        $access->scopeIncidents($query, $request->user());
+
+        $incidents = $query
             ->where('is_test', false)
             ->whereIn('status', ['resolved', 'cancelled'])
             ->orderByDesc('closed_at')

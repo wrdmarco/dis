@@ -83,6 +83,7 @@ interface BackupReportRecipient {
 interface BackupActionResult {
   state: string;
   output?: string;
+  request_id?: string;
 }
 
 interface SambaShareOption {
@@ -95,7 +96,7 @@ interface SambaSharesResponse {
   shares: SambaShareOption[];
 }
 
-const SMB_VERSION_OPTIONS = ['3.1.1', '3.0', '2.1', '2.0', '1.0'] as const;
+const SMB_VERSION_OPTIONS = ['3.1.1'] as const;
 type BackupFrequency = 'daily' | 'weekly';
 
 const WEEK_DAYS = [
@@ -209,6 +210,15 @@ export function BackupPage() {
 
     try {
       const result = await action();
+      if ((label === 'restore' || label === 'uploadRestore') && result.state === 'queued') {
+        const reference = result.request_id ? ` Referentie: ${result.request_id}.` : '';
+        setMessage(`Restore is veilig ingepland. DIS gaat nu in onderhoud en trekt alle sessies in; meld na voltooiing opnieuw aan.${reference}`);
+        setRestoreBackup(null);
+        setConfirmation('');
+        setUploadConfirmation('');
+        setUploadFile(null);
+        return;
+      }
       setMessage(label === 'create' ? 'Backup is gemaakt.' : label === 'verify' ? 'Backup is geverifieerd.' : label === 'settings' ? 'Backupinstellingen zijn opgeslagen.' : label === 'uploadRestore' ? 'Upload backup is teruggezet.' : 'Backup is teruggezet.');
       setOutput(result.output ?? null);
       await backups.reload();

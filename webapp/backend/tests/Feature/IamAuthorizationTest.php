@@ -112,6 +112,52 @@ final class IamAuthorizationTest extends TestCase
         $this->assertDatabaseMissing('roles', ['name' => 'escalated-role']);
     }
 
+    public function test_role_manager_cannot_strip_a_permission_they_do_not_hold(): void
+    {
+        $actor = $this->user('limited-role-manager@example.test');
+        $this->grant($actor, ['roles.manage'], operator: false, admin: true);
+        $forbiddenPermission = $this->permission('users.manage');
+        $protectedRole = Role::query()->create([
+            'name' => 'protected-higher-role',
+            'display_name' => 'Protected higher role',
+            'can_use_operator_app' => false,
+            'can_use_admin_app' => true,
+        ]);
+        $protectedRole->permissions()->attach($forbiddenPermission->id);
+
+        $this->asClient($actor, 'client:web')
+            ->patchJson('/api/admin/roles/'.$protectedRole->id, [
+                'display_name' => 'Stripped role',
+                'permission_ids' => [],
+            ])
+            ->assertForbidden();
+
+        $this->assertTrue($protectedRole->permissions()->whereKey($forbiddenPermission->id)->exists());
+        $this->assertSame('Protected higher role', $protectedRole->refresh()->display_name);
+    }
+
+    public function test_user_manager_cannot_remove_a_role_with_permissions_they_do_not_hold(): void
+    {
+        $actor = $this->user('limited-user-role-manager@example.test');
+        $target = $this->user('higher-role-target@example.test');
+        $this->grant($actor, ['users.manage', 'roles.manage'], operator: false, admin: true);
+        $higherPermission = $this->permission('settings.manage');
+        $higherRole = Role::query()->create([
+            'name' => 'higher-target-role',
+            'display_name' => 'Higher target role',
+            'can_use_operator_app' => false,
+            'can_use_admin_app' => true,
+        ]);
+        $higherRole->permissions()->attach($higherPermission->id);
+        $target->roles()->attach($higherRole->id, ['created_at' => now()]);
+
+        $this->asClient($actor, 'client:web')
+            ->deleteJson('/api/users/'.$target->id.'/roles/'.$higherRole->id)
+            ->assertForbidden();
+
+        $this->assertTrue($target->roles()->whereKey($higherRole->id)->exists());
+    }
+
     public function test_non_system_administrator_cannot_modify_system_administrator(): void
     {
         $actor = $this->user('manager@example.test');

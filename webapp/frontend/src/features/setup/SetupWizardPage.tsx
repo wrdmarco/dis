@@ -3,9 +3,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { FirebaseSetupWizard } from '../../components/FirebaseSetupWizard';
 import { TotpQrCode } from '../../components/TotpQrCode';
-import { apiBaseUrl } from '../../lib/apiClient';
 import { parseFirebaseJson } from '../../lib/firebaseConfigImport';
-import type { ApiResponse, User } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 
 interface SetupStatus {
@@ -77,7 +75,7 @@ const steps = [
 ] as const;
 
 export function SetupWizardPage() {
-  const { setSession } = useAuth();
+  const { api } = useAuth();
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [form, setForm] = useState<SetupForm>(initialForm);
   const [stepIndex, setStepIndex] = useState(0);
@@ -96,18 +94,13 @@ export function SetupWizardPage() {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`${apiBaseUrl}/setup/status`, { headers: { Accept: 'application/json' } });
-        const payload = (await response.json()) as ApiResponse<SetupStatus>;
-
-        if (!response.ok) {
-          throw new Error('Setup status kon niet worden geladen.');
-        }
+        const response = await api.get<SetupStatus>('/setup/status');
 
         if (!cancelled) {
-          setStatus(payload.data);
+          setStatus(response.data);
           setForm((current) => ({
             ...current,
-            publicUrl: payload.data.public_url || window.location.origin,
+            publicUrl: response.data.public_url || window.location.origin,
           }));
         }
       } catch (err) {
@@ -126,7 +119,7 @@ export function SetupWizardPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     setForm((current) => current.publicUrl ? current : { ...current, publicUrl: window.location.origin });
@@ -145,13 +138,7 @@ export function SetupWizardPage() {
     setError(null);
 
     try {
-      const response = await fetch(`${apiBaseUrl}/setup/complete`, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      await api.post<{ setup_completed: boolean }>('/setup/complete', {
           tenant_name: form.tenantName,
           public_url: normalizePublicUrl(form.publicUrl),
           admin_name: form.adminName,
@@ -187,19 +174,10 @@ export function SetupWizardPage() {
               storage_bucket: form.firebaseStorageBucket,
             },
           },
-        }),
       });
-      const payload = (await response.json().catch(() => null)) as ApiResponse<{ setup_completed: boolean; token?: string; user?: User }> | null;
-
-      if (!response.ok) {
-        throw new Error(readError(payload) ?? 'Setup opslaan mislukt.');
-      }
 
       setCompleted(true);
       setStatus({ setup_completed: true, has_users: true, requires_first_admin: false, public_url: normalizePublicUrl(form.publicUrl) });
-      if (payload?.data.token) {
-        setSession(payload.data.token, payload.data.user ?? null);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Setup opslaan mislukt.');
     } finally {
@@ -572,13 +550,4 @@ function normalizePublicUrl(value: string): string {
   }
 
   return `https://${trimmed}`;
-}
-
-function readError(payload: ApiResponse<unknown> | null): string | null {
-  if (payload !== null && typeof payload === 'object' && 'error' in payload) {
-    const error = payload.error as { message?: string };
-    return error.message ?? null;
-  }
-
-  return null;
 }

@@ -1,13 +1,20 @@
 [Unit]
 Description=DIS Backup Request Worker
-After=network.target postgresql.service
+Requires=dis-backup-mount.service
+After=network.target postgresql.service dis-backup-mount.service
 
 [Service]
 Type=oneshot
 User=root
 Group=root
 ExecStart=/usr/local/bin/dis-backup-request-worker
+UMask=0077
+RuntimeDirectory=dis-backup-request
+RuntimeDirectoryMode=0700
+TimeoutStartSec=infinity
 NoNewPrivileges=false
 PrivateTmp=true
 ProtectHome=true
-ReadWritePaths=/opt/dis-data /opt/dis /mnt/dis-backup
+ProtectSystem=strict
+ReadOnlyPaths=/opt/dis
+ReadWritePaths=@DIS_DATA_PATH@ /run/dis-backup-request /run/lock /opt/dis/maintenance /opt/dis/webapp/backend/bootstrap/cache -/mnt/dis-backup

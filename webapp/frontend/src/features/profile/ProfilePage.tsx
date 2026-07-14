@@ -175,7 +175,6 @@ export function ProfilePage() {
     }
 
     let cancelled = false;
-    let refreshTimer: number | undefined;
 
     async function refreshPairingCode() {
       if (cancelled) {
@@ -185,13 +184,11 @@ export function ProfilePage() {
     }
 
     void refreshPairingCode();
-    refreshTimer = window.setInterval(() => void refreshPairingCode(), 15_000);
+    const refreshTimer = window.setInterval(() => void refreshPairingCode(), 15_000);
 
     return () => {
       cancelled = true;
-      if (refreshTimer !== undefined) {
-        window.clearInterval(refreshTimer);
-      }
+      window.clearInterval(refreshTimer);
     };
   }, [addDeviceOpen, loadPairingCode, pairingClientType]);
 

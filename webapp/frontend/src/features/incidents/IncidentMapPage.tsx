@@ -82,8 +82,7 @@ export function IncidentMapPage() {
       return undefined;
     }
 
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    document.body.classList.add('operational-map-scroll-lock');
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         void exitFullscreen();
@@ -93,7 +92,7 @@ export function IncidentMapPage() {
     window.addEventListener('keydown', closeOnEscape);
 
     return () => {
-      document.body.style.overflow = originalOverflow;
+      document.body.classList.remove('operational-map-scroll-lock');
       window.removeEventListener('keydown', closeOnEscape);
     };
   }, [isFullscreen]);
@@ -490,9 +489,9 @@ function IncidentMapList({ models }: { models: IncidentMapModel[] }) {
   return (
     <div className="operational-map__list">
       {models.map((model) => (
-        <article className="operational-map-card" key={model.incident.id} style={{ borderColor: model.color }}>
+        <article className={`operational-map-card operational-map-card--color-${model.colorIndex}`} key={model.incident.id}>
           <header>
-            <span className="operational-map-card__color" style={{ background: model.color }} aria-hidden />
+            <span className="operational-map-card__color" aria-hidden />
             <div>
               <Link href={`/incidents/${model.incident.id}`}>{model.incident.title}</Link>
               <small>{model.incident.location_label ?? 'Geen locatie bekend'}</small>
@@ -518,6 +517,7 @@ function SummaryItem({ icon, label, value }: { icon: ReactNode; label: string; v
 interface IncidentMapModel {
   incident: Incident;
   color: string;
+  colorIndex: number;
   incidentPoint: MapPoint | null;
   locations: IncidentLiveLocation[];
   liveLocations: UserMapPoint[];
@@ -600,12 +600,14 @@ function buildIncidentMapModels(incidents: Incident[], locationsByIncident: Reco
   return incidents
     .filter((incident) => !['resolved', 'cancelled'].includes(incident.status))
     .map((incident, index) => {
-      const color = INCIDENT_COLORS[index % INCIDENT_COLORS.length];
+      const colorIndex = index % INCIDENT_COLORS.length;
+      const color = INCIDENT_COLORS[colorIndex];
       const locations = locationsByIncident[incident.id] ?? [];
 
       return {
         incident,
         color,
+        colorIndex,
         incidentPoint: coordinatePoint(incident.latitude, incident.longitude),
         locations,
         liveLocations: locations

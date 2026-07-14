@@ -9,10 +9,12 @@ use App\Services\AuditService;
 use App\Services\DeveloperAccessService;
 use App\Services\SystemUpdateStatusService;
 use App\Support\ApiDateTime;
+use App\Support\SensitiveDataRedactor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Validation\Rule;
 use Symfony\Component\Process\PhpExecutableFinder;
@@ -20,13 +22,14 @@ use Symfony\Component\Process\PhpExecutableFinder;
 final class AdminDeveloperController extends Controller
 {
     private const ACCESS_KEY = 'developer.android_upload';
+
     private const GIT_BRANCH = 'main';
-    private const UPDATE_TIMEOUT_SECONDS = 3300;
 
     public function __construct(
         private readonly AuditService $auditService,
         private readonly DeveloperAccessService $developerAccess,
         private readonly SystemUpdateStatusService $updateStatus,
+        private readonly SensitiveDataRedactor $redactor,
     ) {}
 
     public function developerAccess(): JsonResponse
@@ -112,7 +115,7 @@ final class AdminDeveloperController extends Controller
             'system' => [
                 'reboot_required' => $this->rebootRequired(),
             ],
-            'updater' => $this->updateStatus->current(),
+            'updater' => $this->updateStatus->publicStatus(),
         ]);
     }
 
@@ -133,7 +136,7 @@ final class AdminDeveloperController extends Controller
         }
         $this->auditService->record('system.update_started', SystemSetting::class, $request->user(), ['update_system' => $updateSystem], null, $request);
 
-        return ApiResponse::success($this->updateStatus->current(), 202);
+        return ApiResponse::success($this->updateStatus->publicStatus(), 202);
     }
 
     public function reboot(Request $request): JsonResponse
@@ -143,7 +146,12 @@ final class AdminDeveloperController extends Controller
         $command = is_file('/usr/bin/systemctl') ? '/usr/bin/systemctl' : '/bin/systemctl';
         $result = Process::run(['sudo', '-n', $command, 'reboot']);
         if (! $result->successful()) {
-            return ApiResponse::error('server_reboot_failed', trim($result->errorOutput()) ?: 'Serverherstart kon niet worden gestart.', 500);
+            Log::error('Server reboot command failed.', [
+                'exit_code' => $result->exitCode(),
+                'stderr' => $result->errorOutput(),
+            ]);
+
+            return ApiResponse::error('server_reboot_failed', 'Serverherstart kon niet worden gestart.', 500);
         }
 
         return ApiResponse::success(['reboot_started' => true], 202);
@@ -168,7 +176,7 @@ final class AdminDeveloperController extends Controller
         }
         $this->auditService->record('system.update_started_developer_api', SystemSetting::class, null, ['update_system' => $updateSystem], null, $request);
 
-        return ApiResponse::success($this->updateStatus->current(), 202);
+        return ApiResponse::success($this->updateStatus->publicStatus(), 202);
     }
 
     public function developerMaintenance(Request $request): JsonResponse
@@ -223,7 +231,7 @@ final class AdminDeveloperController extends Controller
 
         return ApiResponse::success([
             'logs' => $logs,
-            'updater' => $this->updateStatus->current(),
+            'updater' => $this->updateStatus->publicStatus(),
         ]);
     }
 
@@ -364,7 +372,6 @@ final class AdminDeveloperController extends Controller
     }
 
     /**
-     * @param mixed $allowedIps
      * @return list<string>
      */
     private function normalizedDeveloperAllowedIps(mixed $allowedIps): array
@@ -445,7 +452,7 @@ final class AdminDeveloperController extends Controller
     }
 
     /**
-     * @param list<string> $arguments
+     * @param  list<string>  $arguments
      */
     private function runGit(string $root, array $arguments): ?string
     {
@@ -479,53 +486,7 @@ final class AdminDeveloperController extends Controller
 
     private function startUpdateProcess(bool $updateSystem): bool
     {
-        $root = realpath(base_path('../..')) ?: base_path('../..');
-        $php = (new PhpExecutableFinder())->find() ?: PHP_BINARY;
-        if (! is_string($php) || $php === '') {
-            $php = '/usr/bin/php';
-        }
-
-        $updateCommand = is_file('/usr/local/bin/update') ? '/usr/local/bin/update' : (realpath($root.'/update.sh') ?: $root.'/update.sh');
-        $updateArguments = [
-            'sudo',
-            '-n',
-            $updateCommand,
-        ];
-        if (! $updateSystem) {
-            $updateArguments[] = '--skip-system';
-        }
-
-        $logPath = storage_path('logs/system-update-runner.log');
-        $script = $this->updateRunnerScript($root, $php, $updateArguments, $logPath, $updateSystem);
-
-        if ($this->startUpdateProcessWithSystemd($updateSystem)) {
-            return true;
-        }
-
-        return $this->startUpdateProcessWithNohup($script);
-    }
-
-    /**
-     * @param list<string> $updateArguments
-     */
-    private function updateRunnerScript(string $root, string $php, array $updateArguments, string $logPath, bool $updateSystem): string
-    {
-        $timeout = is_file('/usr/bin/timeout') ? '/usr/bin/timeout' : 'timeout';
-        $updateLine = implode(' ', array_map('escapeshellarg', [$timeout, self::UPDATE_TIMEOUT_SECONDS.'s', ...$updateArguments]));
-        $finishLine = escapeshellarg($php).' '.escapeshellarg(base_path('artisan')).' dis:finish-update "${exit_code}"';
-
-        return implode("\n", [
-            'exec >> '.escapeshellarg($logPath).' 2>&1',
-            'cd '.escapeshellarg($root).' || exit 1',
-            'echo '.escapeshellarg($updateSystem ? '[dis] Updatecommando gestart met systeemupdates.' : '[dis] Updatecommando gestart zonder systeemupdates.'),
-            $updateLine,
-            'exit_code=$?',
-            'if [ "${exit_code}" -eq 124 ]; then echo '.escapeshellarg('[dis] Updateproces duurde te lang en is afgebroken.').'; fi',
-            'echo "[dis] Updatecommando afgerond met exit code ${exit_code}."',
-            'cd '.escapeshellarg(base_path()).' || true',
-            $finishLine.' || true',
-            'exit "${exit_code}"',
-        ]);
+        return $this->startUpdateProcessWithSystemd($updateSystem);
     }
 
     private function startUpdateProcessWithSystemd(bool $updateSystem): bool
@@ -554,8 +515,13 @@ final class AdminDeveloperController extends Controller
         if (! $result->successful()) {
             $message = trim($result->errorOutput()) ?: trim($result->output());
             if ($message !== '') {
-                $this->updateStatus->append('systemd-run kon update niet starten; fallback wordt geprobeerd: '.$message);
+                Log::warning('systemd-run could not start the DIS updater.', [
+                    'exit_code' => $result->exitCode(),
+                    'diagnostic' => $message,
+                ]);
             }
+
+            $this->updateStatus->append('Update kon niet via de beveiligde systemd-runner worden gestart.');
 
             return false;
         }
@@ -566,45 +532,8 @@ final class AdminDeveloperController extends Controller
         return true;
     }
 
-    private function startUpdateProcessWithNohup(string $script): bool
-    {
-        $command = 'nohup /bin/bash -lc '.escapeshellarg($script).' < /dev/null & echo $!';
-        $descriptorSpec = [
-            0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ];
-
-        $process = proc_open(['/bin/bash', '-lc', $command], $descriptorSpec, $pipes, base_path());
-        if (! is_resource($process)) {
-            return false;
-        }
-
-        fclose($pipes[0]);
-        $pid = trim(stream_get_contents($pipes[1]) ?: '');
-        $error = trim(stream_get_contents($pipes[2]) ?: '');
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $exitCode = proc_close($process);
-
-        if ($exitCode !== 0 || $pid === '') {
-            if ($error !== '') {
-                $this->updateStatus->append($error);
-            }
-
-            return false;
-        }
-
-        $this->updateStatus->append('Update achtergrondproces gestart met PID '.$pid.'.');
-        if (ctype_digit($pid)) {
-            $this->updateStatus->markProcessStarted((int) $pid);
-        }
-
-        return true;
-    }
-
     /**
-     * @param array<string, string> $options
+     * @param  array<string, string>  $options
      */
     private function runArtisanMaintenanceCommand(string $command, array $options = []): void
     {
@@ -613,7 +542,7 @@ final class AdminDeveloperController extends Controller
             $arguments[] = $key.'='.$value;
         }
 
-        Process::run([(new PhpExecutableFinder())->find() ?: PHP_BINARY, ...$arguments]);
+        Process::run([(new PhpExecutableFinder)->find() ?: PHP_BINARY, ...$arguments]);
     }
 
     private function runMaintenanceScript(bool $enabled): bool
@@ -758,6 +687,7 @@ HTML;
 
     private function redactLogLine(string $line): string
     {
+        $line = $this->redactor->redactString($line);
         $patterns = [
             '/(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+\/=-]+/i',
             '/(X-DIS-Developer-Key:\s*)\S+/i',
@@ -766,5 +696,4 @@ HTML;
 
         return preg_replace($patterns, '$1[redacted]', $line) ?? $line;
     }
-
 }

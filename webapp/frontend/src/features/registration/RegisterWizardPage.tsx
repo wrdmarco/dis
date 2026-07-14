@@ -1,10 +1,10 @@
 import { CheckCircle2, ChevronLeft, ChevronRight, KeyRound, ShieldCheck, Smartphone, UserRound } from 'lucide-react';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { TotpQrCode } from '../../components/TotpQrCode';
-import { ApiClientError, apiBaseUrl } from '../../lib/apiClient';
-import type { ApiResponse, TwoFactorEnableResult, TwoFactorSetup, User } from '../../types/api';
+import { ApiClientError } from '../../lib/apiClient';
+import type { TwoFactorEnableResult, TwoFactorSetup, User } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 
 interface RegistrationInvite {
@@ -14,7 +14,8 @@ interface RegistrationInvite {
 }
 
 interface RegistrationCompleteResult extends RegistrationInvite {
-  token: string;
+  authenticated: boolean;
+  requires_2fa?: boolean;
   two_factor_setup: TwoFactorSetup | null;
 }
 
@@ -25,11 +26,9 @@ interface Step {
 }
 
 export function RegisterWizardPage() {
-  const searchParams = useSearchParams();
   const router = useRouter();
-  const { setSession, enableTwoFactor, refreshMe } = useAuth();
-  const email = searchParams.get('email') ?? '';
-  const token = searchParams.get('token') ?? '';
+  const { api, enableTwoFactor, verifyTwoFactor, refreshMe } = useAuth();
+  const invitationRequestStarted = useRef(false);
   const [invite, setInvite] = useState<RegistrationInvite | null>(null);
   const [completed, setCompleted] = useState<RegistrationCompleteResult | null>(null);
   const [password, setPassword] = useState('');
@@ -44,64 +43,63 @@ export function RegisterWizardPage() {
     const adminAllowed = completed?.admin_app_allowed ?? invite?.admin_app_allowed ?? false;
     const requiresMfa = completed === null
       ? invite?.requires_mfa ?? false
-      : completed.requires_mfa && completed.two_factor_setup !== null;
+      : completed.requires_mfa && (completed.two_factor_setup !== null || completed.requires_2fa === true);
     return [
       { key: 'account', title: 'Account', icon: UserRound },
       ...(requiresMfa ? [{ key: 'mfa' as const, title: 'MFA', icon: ShieldCheck }] : []),
       { key: 'install', title: 'App installeren', icon: Smartphone },
       ...(adminAllowed ? [{ key: 'admin' as const, title: 'Admin app', icon: KeyRound }] : []),
     ];
-  }, [completed?.admin_app_allowed, completed?.requires_mfa, invite?.admin_app_allowed, invite?.requires_mfa]);
+  }, [
+    completed?.admin_app_allowed,
+    completed?.requires_2fa,
+    completed?.requires_mfa,
+    completed?.two_factor_setup,
+    invite?.admin_app_allowed,
+    invite?.requires_mfa,
+  ]);
 
   const currentStep = steps[Math.min(stepIndex, steps.length - 1)];
   const setupUrl = typeof window === 'undefined' ? '' : window.location.origin;
   const canSubmitAccount = password.length > 0 && password === passwordConfirmation;
   const canSubmitMfa = /^\d{6}$/.test(twoFactorCode);
   const installStepIndex = Math.max(steps.findIndex((step) => step.key === 'install'), 0);
-  const mfaPending = completed?.requires_mfa === true && completed.two_factor_setup !== null;
+  const mfaPending = completed?.requires_mfa === true
+    && (completed.two_factor_setup !== null || completed.requires_2fa === true);
 
   useEffect(() => {
-    let cancelled = false;
+    if (invitationRequestStarted.current) {
+      return;
+    }
+    invitationRequestStarted.current = true;
+
+    const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const query = new URLSearchParams(window.location.search);
+    const email = fragment.get('email') ?? '';
+    const token = fragment.get('token') ?? '';
+
+    if (window.location.hash !== '' || query.has('email') || query.has('token')) {
+      window.history.replaceState(window.history.state, '', window.location.pathname);
+    }
 
     async function loadInvite() {
-      if (!email || !token) {
-        setError('Registratielink mist e-mailadres of token.');
-        setLoading(false);
-        return;
-      }
-
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`${apiBaseUrl}/registration/invite?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`, {
-          headers: { Accept: 'application/json' },
-        });
-        const payload = (await response.json().catch(() => null)) as ApiResponse<RegistrationInvite> | null;
-
-        if (!response.ok || payload === null) {
-          throw new Error(readError(payload) ?? 'Registratielink kon niet worden geladen.');
-        }
-
-        if (!cancelled) {
-          setInvite(payload.data);
-        }
+        const response = await api.post<RegistrationInvite>(
+          '/registration/invite',
+          email && token ? { email, token } : {},
+        );
+        setInvite(response.data);
       } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Registratielink kon niet worden geladen.');
-        }
+        setError(err instanceof Error ? err.message : 'Registratielink kon niet worden geladen.');
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        setLoading(false);
       }
     }
 
     void loadInvite();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [email, token]);
+  }, [api]);
 
   async function completeAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -113,28 +111,16 @@ export function RegisterWizardPage() {
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(`${apiBaseUrl}/registration/complete`, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email,
-          token,
-          password,
-          password_confirmation: passwordConfirmation,
-        }),
+      const response = await api.post<RegistrationCompleteResult>('/registration/complete', {
+        password,
+        password_confirmation: passwordConfirmation,
       });
-      const payload = (await response.json().catch(() => null)) as ApiResponse<RegistrationCompleteResult> | null;
 
-      if (!response.ok || payload === null) {
-        throw new Error(readError(payload) ?? 'Registratie afronden mislukt.');
+      setCompleted(response.data);
+      if (response.data.authenticated) {
+        await refreshMe();
       }
-
-      setCompleted(payload.data);
-      setSession(payload.data.token, payload.data.user, payload.data.requires_mfa && payload.data.two_factor_setup !== null ? 'mfa' : 'full');
-      setStepIndex(payload.data.requires_mfa ? 1 : 1);
+      setStepIndex(1);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registratie afronden mislukt.');
     } finally {
@@ -152,8 +138,20 @@ export function RegisterWizardPage() {
     setSaving(true);
     setError(null);
     try {
-      const result: TwoFactorEnableResult = await enableTwoFactor(twoFactorCode);
-      setCompleted((current) => current === null ? current : { ...current, user: result.user, two_factor_setup: null });
+      const result: TwoFactorEnableResult | User = completed?.two_factor_setup === null
+        ? await verifyTwoFactor(twoFactorCode)
+        : await enableTwoFactor(twoFactorCode);
+      const nextUser = 'user' in result ? result.user : result;
+      const authenticated = 'authenticated' in result
+        ? result.authenticated
+        : completed?.admin_app_allowed === true;
+      setCompleted((current) => current === null ? current : {
+        ...current,
+        authenticated,
+        requires_2fa: false,
+        user: nextUser,
+        two_factor_setup: null,
+      });
       setStepIndex(1);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'MFA activeren mislukt.');
@@ -176,8 +174,13 @@ export function RegisterWizardPage() {
   }
 
   function finish() {
-    void refreshMe().catch(() => null);
-    router.push('/');
+    if (completed?.authenticated) {
+      void refreshMe().catch(() => null);
+      router.push('/');
+      return;
+    }
+
+    router.push('/login');
   }
 
   function canOpenStep(step: Step): boolean {
@@ -345,12 +348,4 @@ export function RegisterWizardPage() {
       </>
     );
   }
-}
-
-function readError(payload: ApiResponse<unknown> | null): string | null {
-  if (payload !== null && typeof payload === 'object' && 'error' in payload) {
-    return payload.error?.message ?? null;
-  }
-
-  return null;
 }

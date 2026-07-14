@@ -1060,31 +1060,42 @@ function LiveLocationMap({
 
   return (
     <div className="live-map">
-      <div className="live-map__canvas" role="img" aria-label="Live locaties kaart">
-        {tiles.map((tile) => (
-          <img
-            key={`${tile.x}-${tile.y}-${tile.z}`}
-            alt=""
-            className="live-map__tile"
-            src={`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${tile.z}/${tile.y}/${tile.x}`}
-            style={{ left: tile.left, top: tile.top }}
-            loading="lazy"
-            referrerPolicy="no-referrer"
-          />
-        ))}
-        {hasIncidentLocation ? (
-          <span className="live-map__incident-marker" style={worldMarkerStyle({ latitude: incidentLatitude, longitude: incidentLongitude }, centerWorld, viewport)} />
-        ) : null}
-        {points.map((point) => (
-          <span
-            key={point.user_id}
-            className="live-map__user-marker"
-            style={worldMarkerStyle(point, centerWorld, viewport)}
-            title={point.user?.name ?? point.user_id}
-          >
-            <span className="live-map__user-label">{point.user?.name ?? point.user_id}</span>
-          </span>
-        ))}
+      <div className="live-map__canvas">
+        <svg
+          className="live-map__viewport"
+          viewBox={`0 0 ${viewport.width} ${viewport.height}`}
+          role="img"
+          aria-label="Live locaties kaart"
+        >
+          {tiles.map((tile) => (
+            <image
+              key={`${tile.x}-${tile.y}-${tile.z}`}
+              className="live-map__tile"
+              href={`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${tile.z}/${tile.y}/${tile.x}`}
+              x={tile.left}
+              y={tile.top}
+              width="256"
+              height="256"
+              preserveAspectRatio="none"
+            />
+          ))}
+          {hasIncidentLocation ? (
+            <LiveMapMarker
+              className="live-map__incident-marker"
+              position={worldMarkerPosition({ latitude: incidentLatitude, longitude: incidentLongitude }, centerWorld, viewport)}
+              label="Incidentlocatie"
+            />
+          ) : null}
+          {points.map((point) => (
+            <LiveMapMarker
+              key={point.user_id}
+              className="live-map__user-marker"
+              position={worldMarkerPosition(point, centerWorld, viewport)}
+              label={point.user?.name ?? point.user_id}
+              showLabel
+            />
+          ))}
+        </svg>
       </div>
       <table className="data-table live-map__table">
         <thead>
@@ -1415,8 +1426,8 @@ interface TilePosition {
   x: number;
   y: number;
   z: number;
-  left: string;
-  top: string;
+  left: number;
+  top: number;
 }
 
 function mapViewport(points: Array<{ latitude: number; longitude: number }>): MapViewport {
@@ -1465,8 +1476,8 @@ function visibleTiles(center: WorldPoint, zoom: number, width: number, height: n
         x: wrappedX,
         y,
         z: zoom,
-        left: `${Math.round(x * tileSize - (center.x - width / 2))}px`,
-        top: `${Math.round(y * tileSize - (center.y - height / 2))}px`,
+        left: Math.round(x * tileSize - (center.x - width / 2)),
+        top: Math.round(y * tileSize - (center.y - height / 2)),
       });
     }
   }
@@ -1474,12 +1485,32 @@ function visibleTiles(center: WorldPoint, zoom: number, width: number, height: n
   return tiles;
 }
 
-function worldMarkerStyle(point: { latitude: number; longitude: number }, center: WorldPoint, viewport: MapViewport): { left: string; top: string } {
+function worldMarkerPosition(point: { latitude: number; longitude: number }, center: WorldPoint, viewport: MapViewport): WorldPoint {
   const world = latLonToWorld(point.latitude, point.longitude, viewport.zoom);
   return {
-    left: `${Math.round(world.x - center.x + viewport.width / 2)}px`,
-    top: `${Math.round(world.y - center.y + viewport.height / 2)}px`,
+    x: Math.round(world.x - center.x + viewport.width / 2),
+    y: Math.round(world.y - center.y + viewport.height / 2),
   };
+}
+
+function LiveMapMarker({
+  className,
+  position,
+  label,
+  showLabel = false,
+}: {
+  className: string;
+  position: WorldPoint;
+  label: string;
+  showLabel?: boolean;
+}) {
+  return (
+    <g className={className} transform={`translate(${position.x} ${position.y})`}>
+      <title>{label}</title>
+      <circle cx="0" cy="0" r={showLabel ? 8 : 11} />
+      {showLabel ? <text className="live-map__user-label" x="0" y="-16" textAnchor="middle">{label}</text> : null}
+    </g>
+  );
 }
 
 function clamp(value: number, min: number, max: number): number {

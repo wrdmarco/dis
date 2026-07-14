@@ -3,11 +3,14 @@
 namespace Tests\Feature;
 
 use App\Casts\SystemSettingValueCast;
+use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\DeveloperAccessService;
 use App\Services\TwoFactorService;
+use App\Services\UserService;
 use Database\Seeders\RoleAndPermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -78,6 +81,97 @@ final class IamSecurityControlsTest extends TestCase
 
         $this->assertTrue($permissionNames->contains('users.delete'));
         $this->assertTrue($permissionNames->contains('roles.delete'));
+    }
+
+    public function test_email_change_revokes_reset_tokens_for_old_and_new_addresses(): void
+    {
+        $target = $this->user();
+        $actor = User::query()->create([
+            'name' => 'Credential Manager',
+            'first_name' => 'Credential',
+            'last_name' => 'Manager',
+            'email' => 'credential-manager@example.test',
+            'password' => Hash::make('Test-password-123!'),
+            'account_status' => 'active',
+        ]);
+        $permission = Permission::query()->firstOrCreate(
+            ['name' => 'users.credentials.manage'],
+            [
+                'category' => 'security-test',
+                'display_name' => 'Manage user credentials',
+                'description' => 'Security contract test permission',
+            ],
+        );
+        $role = Role::query()->create([
+            'name' => 'credential-manager',
+            'display_name' => 'Credential manager',
+            'can_use_operator_app' => false,
+            'can_use_admin_app' => true,
+        ]);
+        $role->permissions()->attach($permission->id, ['created_at' => now()]);
+        $actor->roles()->attach($role->id, ['created_at' => now()]);
+
+        $newEmail = 'security-renamed@example.test';
+        DB::table('password_reset_tokens')->insert([
+            ['email' => $target->email, 'token' => Hash::make('old-token'), 'created_at' => now()],
+            ['email' => $newEmail, 'token' => Hash::make('new-token'), 'created_at' => now()],
+        ]);
+        $pairingId = (string) str()->ulid();
+        DB::table('mobile_pairing_codes')->insert([
+            'id' => $pairingId,
+            'user_id' => $target->id,
+            'code_hash' => hash('sha256', 'pending-pairing-code'),
+            'client_type' => 'operator',
+            'expires_at' => now()->addSeconds(30),
+            'consumed_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        app(UserService::class)->update($target, ['email' => $newEmail], $actor);
+
+        $this->assertDatabaseMissing('password_reset_tokens', ['email' => 'security@example.test']);
+        $this->assertDatabaseMissing('password_reset_tokens', ['email' => $newEmail]);
+        $this->assertDatabaseMissing('mobile_pairing_codes', ['id' => $pairingId]);
+    }
+
+    public function test_invalid_developer_key_returns_the_intended_unauthorized_response(): void
+    {
+        SystemSetting::query()->updateOrCreate(
+            ['key' => 'developer.android_upload'],
+            [
+                'value' => [
+                    'enabled' => true,
+                    'key_hash' => hash('sha256', 'correct-developer-key'),
+                    'allowed_ips' => [],
+                    'scopes' => [DeveloperAccessService::SCOPE_LOGS_READ],
+                ],
+                'is_sensitive' => true,
+            ],
+        );
+
+        $this->withHeader('X-DIS-Developer-Key', 'incorrect-developer-key')
+            ->getJson('/api/developer/logs')
+            ->assertUnauthorized()
+            ->assertJsonPath('error.code', 'developer_api_invalid_key')
+            ->assertJsonPath('error.message', 'Invalid developer API key.');
+    }
+
+    public function test_recovery_code_cannot_be_consumed_twice_from_stale_user_instances(): void
+    {
+        $user = $this->user();
+        $user->forceFill([
+            'two_factor_enabled' => true,
+            'two_factor_secret' => 'JBSWY3DPEHPK3PXP',
+            'two_factor_recovery_codes' => ['ATOMIC-12345'],
+            'two_factor_confirmed_at' => now(),
+        ])->save();
+        $firstReader = User::query()->findOrFail($user->id);
+        $staleReader = User::query()->findOrFail($user->id);
+
+        $this->assertTrue(app(TwoFactorService::class)->consumeRecoveryCode($firstReader, 'ATOMIC-12345'));
+        $this->assertFalse(app(TwoFactorService::class)->consumeRecoveryCode($staleReader, 'ATOMIC-12345'));
+        $this->assertSame([], $user->refresh()->two_factor_recovery_codes);
     }
 
     private function user(): User

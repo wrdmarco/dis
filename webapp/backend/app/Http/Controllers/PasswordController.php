@@ -3,18 +3,19 @@
 namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiResponse;
-use App\Services\PasswordPolicy;
 use App\Services\AuditService;
+use App\Services\PasswordPolicy;
+use App\Services\UserService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password;
-use Illuminate\Support\Facades\DB;
 
 final class PasswordController extends Controller
 {
     public function __construct(
         private readonly PasswordPolicy $passwordPolicy,
         private readonly AuditService $auditService,
+        private readonly UserService $userService,
     ) {}
 
     public function forgot(Request $request): JsonResponse
@@ -41,15 +42,12 @@ final class PasswordController extends Controller
                 'password' => $password,
                 'failed_login_attempts' => 0,
                 'login_locked_until' => null,
-                'push_enabled' => false,
             ])->save();
-            $user->tokens()->delete();
-            DB::table('sessions')->where('user_id', $user->id)->delete();
-            $user->fcmTokens()->where('is_active', true)->update([
-                'is_active' => false,
-                'revoked_at' => now(),
-                'updated_at' => now(),
-            ]);
+            $this->userService->revokeAuthenticationState(
+                $user,
+                $user,
+                'auth.password_reset_sessions_revoked',
+            );
             $this->auditService->record('auth.password_reset_completed', $user, $user, [
                 'sessions_revoked' => true,
             ], null, $request);

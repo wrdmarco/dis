@@ -5,11 +5,13 @@ namespace App\Services;
 use App\Models\SystemSetting;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 final class TwoFactorService
 {
     public const REQUIRED_KEY = 'security.mfa_required';
+
     public const DEFAULT_REQUIRED = true;
 
     public function isRequired(): bool
@@ -112,19 +114,30 @@ final class TwoFactorService
             return false;
         }
 
-        $recoveryCodes = is_array($user->two_factor_recovery_codes) ? $user->two_factor_recovery_codes : [];
-        foreach ($recoveryCodes as $index => $candidate) {
-            if (! is_string($candidate) || ! hash_equals($this->normalizeRecoveryCode($candidate), $normalized)) {
-                continue;
+        return DB::transaction(function () use ($user, $normalized): bool {
+            $lockedUser = User::query()->whereKey($user->getKey())->lockForUpdate()->first();
+            if ($lockedUser === null) {
+                return false;
             }
 
-            unset($recoveryCodes[$index]);
-            $user->forceFill(['two_factor_recovery_codes' => array_values($recoveryCodes)])->save();
+            $recoveryCodes = is_array($lockedUser->two_factor_recovery_codes)
+                ? $lockedUser->two_factor_recovery_codes
+                : [];
+            foreach ($recoveryCodes as $index => $candidate) {
+                if (! is_string($candidate) || ! hash_equals($this->normalizeRecoveryCode($candidate), $normalized)) {
+                    continue;
+                }
 
-            return true;
-        }
+                unset($recoveryCodes[$index]);
+                $remainingCodes = array_values($recoveryCodes);
+                $lockedUser->forceFill(['two_factor_recovery_codes' => $remainingCodes])->save();
+                $user->forceFill(['two_factor_recovery_codes' => $remainingCodes])->syncOriginalAttribute('two_factor_recovery_codes');
 
-        return false;
+                return true;
+            }
+
+            return false;
+        });
     }
 
     private function totp(string $base32Secret, int $timestamp): string

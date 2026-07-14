@@ -3,7 +3,7 @@ import { createRealtime } from '../../lib/realtime';
 import { useAuth } from '../auth/AuthContext';
 
 export function RealtimeBridge({ onOperationalEvent }: { onOperationalEvent: () => void }) {
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const callbackRef = useRef(onOperationalEvent);
 
   useEffect(() => {
@@ -11,11 +11,11 @@ export function RealtimeBridge({ onOperationalEvent }: { onOperationalEvent: () 
   }, [onOperationalEvent]);
 
   useEffect(() => {
-    if (!token) {
+    if (!isAuthenticated) {
       return;
     }
 
-    const echo = createRealtime({ token, onOperationalEvent: () => callbackRef.current() });
+    const echo = createRealtime({ onOperationalEvent: () => callbackRef.current() });
 
     return () => {
       if (echo === null) {
@@ -25,7 +25,7 @@ export function RealtimeBridge({ onOperationalEvent }: { onOperationalEvent: () 
       echo.leave('private-operations');
       echo.disconnect();
     };
-  }, [token]);
+  }, [isAuthenticated]);
 
   return null;
 }

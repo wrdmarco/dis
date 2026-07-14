@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Events\SystemUpdateStatusChanged;
 use App\Support\ApiDateTime;
+use App\Support\SensitiveDataRedactor;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Process;
@@ -11,10 +12,19 @@ use Throwable;
 
 final class SystemUpdateStatusService
 {
+    private const RUNNER_LOG_PATH = '/var/log/dis/system-update-runner.log';
+
     private const CACHE_KEY = 'system.update.status';
+
     private const LOG_LIMIT = 120;
+
     private const STALE_AFTER_MINUTES = 60;
+
     private const NO_OUTPUT_STALE_MINUTES = 5;
+
+    private const PUBLIC_LOG_LINE_LIMIT = 1000;
+
+    public function __construct(private readonly SensitiveDataRedactor $redactor) {}
 
     /**
      * @return array<string, mixed>
@@ -34,6 +44,10 @@ final class SystemUpdateStatusService
             'last_log_at' => null,
             'reboot_required' => $this->rebootRequired(),
         ]);
+
+        if (is_array($status)) {
+            $status = $this->sanitizeStatus($status);
+        }
 
         if (is_array($status) && ($status['state'] ?? null) === 'running') {
             $status = $this->syncRunnerLog($status);
@@ -74,6 +88,16 @@ final class SystemUpdateStatusService
         ];
     }
 
+    /**
+     * Return only the updater state that is safe and required by browser clients.
+     *
+     * @return array<string, mixed>
+     */
+    public function publicStatus(): array
+    {
+        return $this->publicPayload($this->current());
+    }
+
     public function start(string $message): void
     {
         $this->store([
@@ -109,6 +133,7 @@ final class SystemUpdateStatusService
 
     public function append(string $line): void
     {
+        $line = $this->sanitizeLine($line);
         $status = $this->current();
         $log = is_array($status['log'] ?? null) ? $status['log'] : [];
         $log[] = $line;
@@ -142,14 +167,15 @@ final class SystemUpdateStatusService
     }
 
     /**
-     * @param array<string, mixed> $status
+     * @param  array<string, mixed>  $status
      */
     private function store(array $status): void
     {
+        $status = $this->sanitizeStatus($status);
         Cache::put(self::CACHE_KEY, $status, now()->addDay());
 
         try {
-            SystemUpdateStatusChanged::dispatch($status);
+            SystemUpdateStatusChanged::dispatch($this->publicPayload($status));
         } catch (Throwable $exception) {
             report($exception);
         }
@@ -161,12 +187,12 @@ final class SystemUpdateStatusService
     }
 
     /**
-     * @param array<string, mixed> $status
+     * @param  array<string, mixed>  $status
      * @return array<string, mixed>
      */
     private function syncRunnerLog(array $status): array
     {
-        $path = storage_path('logs/system-update-runner.log');
+        $path = self::RUNNER_LOG_PATH;
         if (! is_file($path) || ! is_readable($path)) {
             return $status;
         }
@@ -206,10 +232,10 @@ final class SystemUpdateStatusService
 
         $log = is_array($status['log'] ?? null) ? $status['log'] : [];
         foreach ($lines as $line) {
-            $log[] = $line;
+            $log[] = $this->sanitizeLine($line);
         }
         $status['log'] = array_slice($log, -self::LOG_LIMIT);
-        $status['message'] = end($lines) ?: ($status['message'] ?? 'Update draait.');
+        $status['message'] = $lines === [] ? ($status['message'] ?? 'Update draait.') : $this->sanitizeLine((string) end($lines));
         $status['last_log_at'] = ApiDateTime::now();
         $this->store($status);
 
@@ -218,13 +244,13 @@ final class SystemUpdateStatusService
 
     private function runnerLogSize(): int
     {
-        $path = storage_path('logs/system-update-runner.log');
+        $path = self::RUNNER_LOG_PATH;
 
         return is_file($path) ? (filesize($path) ?: 0) : 0;
     }
 
     /**
-     * @param array<string, mixed> $status
+     * @param  array<string, mixed>  $status
      */
     private function isStaleRunningStatus(array $status): bool
     {
@@ -240,7 +266,7 @@ final class SystemUpdateStatusService
     }
 
     /**
-     * @param array<string, mixed> $status
+     * @param  array<string, mixed>  $status
      */
     private function isSilentRunningStatus(array $status): bool
     {
@@ -265,7 +291,7 @@ final class SystemUpdateStatusService
     }
 
     /**
-     * @param array<string, mixed> $status
+     * @param  array<string, mixed>  $status
      */
     private function isDeadRunningProcess(array $status): bool
     {
@@ -287,7 +313,7 @@ final class SystemUpdateStatusService
     }
 
     /**
-     * @param array<string, mixed> $status
+     * @param  array<string, mixed>  $status
      */
     private function hasSuccessfulCompletionLine(array $status): bool
     {
@@ -323,7 +349,7 @@ final class SystemUpdateStatusService
     }
 
     /**
-     * @param array<string, mixed> $status
+     * @param  array<string, mixed>  $status
      */
     private function hasAliveRunner(array $status): bool
     {
@@ -348,7 +374,7 @@ final class SystemUpdateStatusService
     }
 
     /**
-     * @param array<string, mixed> $status
+     * @param  array<string, mixed>  $status
      * @return array<string, mixed>
      */
     private function successfulStatus(array $status): array
@@ -366,7 +392,7 @@ final class SystemUpdateStatusService
     }
 
     /**
-     * @param array<string, mixed> $status
+     * @param  array<string, mixed>  $status
      * @return array<string, mixed>
      */
     private function releaseDeadProcess(array $status): array
@@ -375,7 +401,7 @@ final class SystemUpdateStatusService
     }
 
     /**
-     * @param array<string, mixed> $status
+     * @param  array<string, mixed>  $status
      * @return array<string, mixed>
      */
     private function releaseSilentProcess(array $status): array
@@ -384,7 +410,7 @@ final class SystemUpdateStatusService
     }
 
     /**
-     * @param array<string, mixed> $status
+     * @param  array<string, mixed>  $status
      * @return array<string, mixed>
      */
     private function releaseStaleProcess(array $status): array
@@ -393,7 +419,7 @@ final class SystemUpdateStatusService
     }
 
     /**
-     * @param array<string, mixed> $status
+     * @param  array<string, mixed>  $status
      * @return array<string, mixed>
      */
     private function failedStatus(array $status, string $message, int $exitCode): array
@@ -411,5 +437,64 @@ final class SystemUpdateStatusService
         $status['reboot_required'] = $this->rebootRequired();
 
         return $status;
+    }
+
+    /**
+     * @param  array<string, mixed>  $status
+     * @return array<string, mixed>
+     */
+    private function sanitizeStatus(array $status): array
+    {
+        if (is_string($status['message'] ?? null)) {
+            $status['message'] = $this->sanitizeLine($status['message']);
+        }
+
+        $log = is_array($status['log'] ?? null) ? $status['log'] : [];
+        $status['log'] = array_values(array_map(
+            fn (string $line): string => $this->sanitizeLine($line),
+            array_filter($log, 'is_string'),
+        ));
+
+        return $status;
+    }
+
+    private function sanitizeLine(string $line): string
+    {
+        $line = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', ' ', $line) ?? '';
+        $line = trim($this->redactor->redactString($line));
+
+        if (preg_match('/(?:SQLSTATE\[|stack trace:|^\s*#\d+\s|\.(?:php|m?js):\d+)/i', $line) === 1) {
+            return 'Interne updatefout. Raadpleeg de beveiligde serverlogs.';
+        }
+
+        $line = preg_replace('/(?<![A-Za-z0-9])(?:[A-Za-z]:\\\\|\\\\\\\\)[^\s\'\"]+/', '[PATH]', $line) ?? '';
+        $line = preg_replace('~(?<![:A-Za-z0-9])/(?:opt|home|var|etc|usr|srv|tmp|run|root)(?:/[^\s\'\"]*)?~i', '[PATH]', $line) ?? '';
+        $line = preg_replace('~(?<![A-Za-z0-9])(?:storage|vendor)/(?:[^\s\'\"]+)~i', '[PATH]', $line) ?? '';
+        $line = trim($line);
+
+        return $line === ''
+            ? 'Update-uitvoer afgeschermd.'
+            : mb_substr($line, 0, self::PUBLIC_LOG_LINE_LIMIT);
+    }
+
+    /**
+     * @param  array<string, mixed>  $status
+     * @return array<string, mixed>
+     */
+    private function publicPayload(array $status): array
+    {
+        $state = is_string($status['state'] ?? null) && in_array($status['state'], ['idle', 'running', 'succeeded', 'failed'], true)
+            ? $status['state']
+            : 'idle';
+
+        return [
+            'state' => $state,
+            'started_at' => is_string($status['started_at'] ?? null) ? $status['started_at'] : null,
+            'finished_at' => is_string($status['finished_at'] ?? null) ? $status['finished_at'] : null,
+            'exit_code' => is_int($status['exit_code'] ?? null) ? $status['exit_code'] : null,
+            'message' => is_string($status['message'] ?? null) ? $this->sanitizeLine($status['message']) : null,
+            'log' => is_array($status['log'] ?? null) ? array_values(array_filter($status['log'], 'is_string')) : [],
+            'reboot_required' => (bool) ($status['reboot_required'] ?? false),
+        ];
     }
 }

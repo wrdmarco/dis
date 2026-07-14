@@ -39,7 +39,7 @@ final class GenerateIncidentReport implements ShouldQueue
         } catch (Throwable $exception) {
             report($exception);
             $incident->forceFill([
-                'report_generation_error' => mb_substr($exception->getMessage(), 0, 2000),
+                'report_generation_error' => 'Report generation failed. See secured server logs.',
             ])->save();
 
             throw $exception;

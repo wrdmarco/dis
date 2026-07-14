@@ -16,7 +16,7 @@ final class SendFcmNotification implements ShouldQueue
     public int $tries = 3;
 
     /**
-     * @param array<string, string> $data
+     * @param  array<string, string>  $data
      */
     public function __construct(
         public readonly string $fcmTokenId,
@@ -38,7 +38,7 @@ final class SendFcmNotification implements ShouldQueue
             $response = $client->send($token, $this->title, $this->body, $this->data);
             $payload = $response->json();
             $status = $response->successful() ? 'sent' : 'failed';
-            $errorCode = $response->successful() ? null : (string) ($payload['error']['status'] ?? $payload['error']['message'] ?? 'fcm_error');
+            $errorCode = $response->successful() ? null : $this->providerErrorCode($payload, $response->status());
 
             $providerMessageId = $response->successful() && isset($payload['name']) ? (string) $payload['name'] : null;
 
@@ -51,7 +51,7 @@ final class SendFcmNotification implements ShouldQueue
                 }
             }
         } catch (Throwable $exception) {
-            $this->recordDelivery($token, 'failed', null, substr($exception->getMessage(), 0, 1000));
+            $this->recordDelivery($token, 'failed', null, 'delivery_exception');
             report($exception);
 
             throw $exception;
@@ -70,5 +70,30 @@ final class SendFcmNotification implements ShouldQueue
             'error_code' => $errorCode,
             'sent_at' => now(),
         ]);
+    }
+
+    private function providerErrorCode(mixed $payload, int $httpStatus): string
+    {
+        $candidates = [];
+        if (is_array($payload) && is_array($payload['error'] ?? null)) {
+            $details = $payload['error']['details'] ?? [];
+            if (is_array($details)) {
+                foreach ($details as $detail) {
+                    if (is_array($detail)) {
+                        $candidates[] = $detail['errorCode'] ?? null;
+                    }
+                }
+            }
+
+            $candidates[] = $payload['error']['status'] ?? null;
+        }
+
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && preg_match('/^[A-Z][A-Z0-9_]{1,63}$/', $candidate) === 1) {
+                return $candidate;
+            }
+        }
+
+        return 'fcm_http_'.max(100, min(599, $httpStatus));
     }
 }

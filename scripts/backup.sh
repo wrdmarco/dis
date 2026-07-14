@@ -7,51 +7,87 @@ source "${SCRIPT_DIR}/lib/common.sh"
 APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
 ENV_FILE="${APP_ROOT}/.env"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+REQUESTED_BACKUP_TARGET="${BACKUP_TARGET:-}"
+
+require_root
+acquire_dis_operation_lock backup
 
 load_data_path_from_env "${ENV_FILE}"
 ensure_data_links "${APP_ROOT}"
 require_file "${ENV_FILE}"
 set -a
 source "${ENV_FILE}"
-if [ -f "${APP_ROOT}/webapp/backend/storage/app/backup-config.env" ]; then
-  source "${APP_ROOT}/webapp/backend/storage/app/backup-config.env"
-fi
 set +a
+load_backup_runtime_config "${APP_ROOT}/webapp/backend/storage/app/backup-config.json"
+if [ -n "${REQUESTED_BACKUP_TARGET}" ]; then
+  [[ "${REQUESTED_BACKUP_TARGET}" =~ ^(local|samba)$ ]] || fail "Invalid requested backup target."
+  BACKUP_TARGET="${REQUESTED_BACKUP_TARGET}"
+  export BACKUP_TARGET
+fi
 ensure_data_links "${APP_ROOT}"
 
 BACKUP_ROOT="$(resolve_backup_root "${APP_ROOT}")"
 TARGET="${BACKUP_ROOT}/${STAMP}"
+EFFECTIVE_BACKUP_TARGET="${BACKUP_TARGET:-local}"
+if [ "${BACKUP_SAMBA_ENABLED:-0}" = "1" ]; then
+  EFFECTIVE_BACKUP_TARGET=samba
+fi
 ensure_backup_encryption_key >/dev/null
 BACKUP_KEY_FILE="$(backup_encryption_key_file)"
-STAGING="$(mktemp -d "${TMPDIR:-/var/tmp}/dis-backup.XXXXXX")"
-BACKUP_COMPLETE=0
+BACKUP_WORK="$(mktemp -d "${DIS_DATA_PATH}/backup-request-work/backup.XXXXXX")"
+STAGING="${BACKUP_WORK}/payload"
+PUBLISH_STAGING="${BACKUP_WORK}/published"
+PENDING_TARGET=""
 
 cleanup_backup() {
-  rm -rf -- "${STAGING}"
-  if [ "${BACKUP_COMPLETE}" != "1" ] && [ -d "${TARGET}" ]; then
-    rm -rf -- "${TARGET}"
+  if [ -n "${PENDING_TARGET}" ] && [ -d "${PENDING_TARGET}" ]; then
+    secure_path_operation remove-tree "${PENDING_TARGET}" >/dev/null 2>&1 || true
+  fi
+  if [ -d "${BACKUP_WORK}" ]; then
+    secure_path_operation remove-tree "${BACKUP_WORK}" >/dev/null 2>&1 || true
   fi
 }
 
 trap cleanup_backup EXIT
-chmod 0700 "${STAGING}"
+chmod 0700 "${BACKUP_WORK}"
+run_cmd install -d -m 0700 -o root -g root "${STAGING}"
+run_cmd install -d -m 0700 -o root -g root "${PUBLISH_STAGING}"
 
-if [ "${EUID}" -eq 0 ]; then
-  run_cmd install -d -m 0750 -o root -g "${DIS_GROUP}" "${TARGET}"
-else
-  run_cmd install -d -m 0750 "${TARGET}"
-  run_cmd chgrp "${DIS_GROUP}" "${TARGET}" 2>/dev/null || true
-fi
+publish_backup() {
+  local reader_group random_suffix
 
-allow_app_backup_read() {
-  local path="$1"
+  [ ! -e "${TARGET}" ] && [ ! -L "${TARGET}" ] \
+    || fail "Backup destination already exists: ${TARGET}"
+  repair_managed_tree "${PUBLISH_STAGING}" root "${DIS_GROUP}" 0750 0640
 
-  if getent group "${DIS_GROUP}" >/dev/null 2>&1; then
-    chgrp -R "${DIS_GROUP}" "${path}" 2>/dev/null || true
+  if [ "${EFFECTIVE_BACKUP_TARGET}" != "samba" ]; then
+    require_root_controlled_parent "${TARGET}"
+    run_cmd mv -T -- "${PUBLISH_STAGING}" "${TARGET}"
+    if id www-data >/dev/null 2>&1; then
+      secure_path_operation acl-tree "${TARGET}" www-data r-x r--
+    fi
+    return
   fi
-  chmod 0750 "${path}" 2>/dev/null || true
-  find "${path}" -type d -exec chmod 0750 {} + 2>/dev/null || true
-  find "${path}" -type f -exec chmod 0640 {} + 2>/dev/null || true
+
+  if id www-data >/dev/null 2>&1; then
+    reader_group=www-data
+  else
+    reader_group="${DIS_GROUP}"
+  fi
+  random_suffix="$(openssl rand -hex 16)"
+  PENDING_TARGET="${BACKUP_ROOT}/.${STAMP}.${random_suffix}.pending"
+  [ ! -e "${PENDING_TARGET}" ] && [ ! -L "${PENDING_TARGET}" ] \
+    || fail "Temporary Samba publication path already exists."
+  secure_path_operation ensure-dir "${PENDING_TARGET}" root "${reader_group}" 0750
+  secure_path_operation copy-tree "${PUBLISH_STAGING}" "${PENDING_TARGET}"
+  repair_managed_tree "${PENDING_TARGET}" root "${reader_group}" 0750 0640
+  verify_backup_snapshot_identity "${PENDING_TARGET}"
+  durably_sync_backup_tree "${PENDING_TARGET}"
+  run_cmd mv -nT -- "${PENDING_TARGET}" "${TARGET}"
+  [ ! -e "${PENDING_TARGET}" ] && [ -d "${TARGET}" ] \
+    || fail "Samba backup publication lost an atomic no-clobber race."
+  durably_sync_backup_tree "${TARGET}"
+  PENDING_TARGET=""
 }
 
 prune_old_backups() {
@@ -68,7 +104,7 @@ prune_old_backups() {
     | awk -v keep="${keep}" 'NR > keep { print }' \
     | while IFS= read -r backup_id; do
         if [[ "${backup_id}" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]; then
-          run_cmd rm -rf -- "${root}/${backup_id}"
+          secure_path_operation remove-tree "${root}/${backup_id}"
         fi
       done
 }
@@ -83,12 +119,25 @@ PGPASSWORD="${DB_PASSWORD}" run_cmd pg_dump \
   "${DB_DATABASE}"
 
 log "Archiving storage and configuration"
-run_cmd tar --warning=no-file-changed --ignore-failed-read -C "${DIS_DATA_PATH}" -czf "${STAGING}/storage.tar.gz" \
+run_cmd tar -C "${DIS_DATA_PATH}" -czf "${STAGING}/storage.tar.gz" \
+  --exclude='storage/logs' \
+  --exclude='storage/releases' \
+  --exclude='storage/tmp' \
+  --exclude='webapp/backend/storage/logs' \
+  --exclude='webapp/backend/storage/composer' \
+  --exclude='webapp/backend/storage/framework/cache' \
+  --exclude='webapp/backend/storage/framework/sessions' \
+  --exclude='webapp/backend/storage/framework/views' \
   storage \
   webapp/backend/storage \
   secrets
+log "Validating storage archive safety policy"
+STORAGE_VALIDATION_ROOT="${BACKUP_WORK}/storage-validation"
+run_cmd install -d -m 0700 -o root -g root "${STORAGE_VALIDATION_ROOT}"
+validate_storage_backup_archive "${STAGING}/storage.tar.gz" "${STORAGE_VALIDATION_ROOT}"
+secure_path_operation remove-tree "${STORAGE_VALIDATION_ROOT}"
 log "Archiving software source and module manifests"
-run_cmd tar --warning=no-file-changed --ignore-failed-read -C "${APP_ROOT}" -czf "${STAGING}/source.tar.gz" \
+run_cmd tar -C "${APP_ROOT}" -czf "${STAGING}/source.tar.gz" \
   --exclude='./.git' \
   --exclude='./backup' \
   --exclude='./storage' \
@@ -117,9 +166,9 @@ log "Encrypting backup payload"
 tar -C "${STAGING}" -cf - . \
   | openssl enc -aes-256-cbc -salt -pbkdf2 -iter 250000 -md sha256 \
       -pass "file:${BACKUP_KEY_FILE}" \
-      -out "${TARGET}/backup.payload.enc"
+      -out "${PUBLISH_STAGING}/backup.payload.enc"
 
-cat > "${TARGET}/manifest.json" <<EOF
+cat > "${PUBLISH_STAGING}/manifest.json" <<EOF
 {
   "format": "dis-encrypted-backup-v1",
   "encrypted": true,
@@ -135,9 +184,15 @@ cat > "${TARGET}/manifest.json" <<EOF
   "includes": ["database", "storage", "env", "source", "module_manifests"]
 }
 EOF
-(cd "${TARGET}" && sha256sum backup.payload.enc manifest.json > SHA256SUMS)
-allow_app_backup_read "${TARGET}"
+(cd "${PUBLISH_STAGING}" && sha256sum backup.payload.enc manifest.json > SHA256SUMS)
+backup_authentication_tag "${PUBLISH_STAGING}/SHA256SUMS" > "${PUBLISH_STAGING}/BACKUP.HMAC"
+run_cmd chmod 0600 "${PUBLISH_STAGING}/BACKUP.HMAC"
+
+publish_backup
+
+if [ "${EFFECTIVE_BACKUP_TARGET}" != "samba" ]; then
+  durably_sync_backup_tree "${TARGET}"
+fi
 
 prune_old_backups "${BACKUP_ROOT}"
-BACKUP_COMPLETE=1
 log "Backup created at ${TARGET}"

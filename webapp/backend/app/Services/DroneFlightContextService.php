@@ -10,6 +10,12 @@ use Throwable;
 
 final class DroneFlightContextService
 {
+    private const MAP_UNAVAILABLE_ERROR = 'Dronekaart kon niet worden opgebouwd.';
+
+    private const AIRSPACE_UNAVAILABLE_ERROR = 'Aeret/NOTAM gegevens konden niet worden opgehaald.';
+
+    private const WEATHER_UNAVAILABLE_ERROR = 'Weerdata kon niet worden opgehaald.';
+
     /**
      * @return array<string, mixed>
      */
@@ -35,9 +41,9 @@ final class DroneFlightContextService
             $this->safeReport($exception);
 
             return $base + [
-                'map' => $this->fallbackMapData($latitude, $longitude, $exception->getMessage()),
-                'airspace' => $this->airspaceUnavailable($exception->getMessage()),
-                'weather' => $this->weatherUnavailable($exception->getMessage()),
+                'map' => $this->fallbackMapData($latitude, $longitude),
+                'airspace' => $this->airspaceUnavailable(self::AIRSPACE_UNAVAILABLE_ERROR),
+                'weather' => $this->weatherUnavailable(self::WEATHER_UNAVAILABLE_ERROR),
             ];
         }
     }
@@ -88,7 +94,7 @@ final class DroneFlightContextService
     /**
      * @return array<string, mixed>
      */
-    private function fallbackMapData(float $latitude, float $longitude, string $error): array
+    private function fallbackMapData(float $latitude, float $longitude): array
     {
         return [
             'provider' => 'Aeret Drone PreFlight',
@@ -99,7 +105,7 @@ final class DroneFlightContextService
                 $latitude,
                 $longitude,
             ),
-            'errors' => [$error],
+            'errors' => [self::MAP_UNAVAILABLE_ERROR],
         ];
     }
 
@@ -149,7 +155,7 @@ final class DroneFlightContextService
         } catch (Throwable $exception) {
             $this->safeReport($exception);
 
-            return $this->airspaceUnavailable($exception->getMessage());
+            return $this->airspaceUnavailable(self::AIRSPACE_UNAVAILABLE_ERROR);
         }
     }
 
@@ -227,7 +233,7 @@ final class DroneFlightContextService
         } catch (Throwable $exception) {
             $this->safeReport($exception);
 
-            return $this->weatherUnavailable($exception->getMessage());
+            return $this->weatherUnavailable(self::WEATHER_UNAVAILABLE_ERROR);
         }
     }
 
@@ -264,7 +270,7 @@ final class DroneFlightContextService
     }
 
     /**
-     * @param array<string, mixed> $current
+     * @param  array<string, mixed>  $current
      */
     private function weatherSummary(array $current): string
     {
@@ -321,6 +327,7 @@ final class DroneFlightContextService
     private function aeretMapUrl(): string
     {
         $configured = SystemSetting::string('drone.aeret_map_url', (string) config('dis.drone_flight.aeret_map_url')) ?? '';
+
         return trim($configured);
     }
 
@@ -397,8 +404,8 @@ final class DroneFlightContextService
     }
 
     /**
-     * @param array<string, mixed>|mixed $payload
-     * @param array<int, string> $keys
+     * @param  array<string, mixed>|mixed  $payload
+     * @param  array<int, string>  $keys
      * @return array<int, mixed>
      */
     private function listValue(mixed $payload, array $keys): array
@@ -428,8 +435,8 @@ final class DroneFlightContextService
     }
 
     /**
-     * @param array<string, mixed>|mixed $payload
-     * @param array<int, string> $keys
+     * @param  array<string, mixed>|mixed  $payload
+     * @param  array<int, string>  $keys
      */
     private function stringValue(mixed $payload, array $keys): ?string
     {

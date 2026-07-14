@@ -31,7 +31,7 @@ final class IncidentService
     ) {}
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function create(array $data, User $actor): Incident
     {
@@ -75,7 +75,7 @@ final class IncidentService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function update(Incident $incident, array $data, User $actor): Incident
     {
@@ -168,7 +168,7 @@ final class IncidentService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     private function dispatchOptionsFromPayload(array $data): array
@@ -274,7 +274,7 @@ final class IncidentService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      * @return list<string>
      */
     private function teamIdsFromPayload(array $data): array
@@ -292,7 +292,7 @@ final class IncidentService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     private function applyStatusTimestamps(Incident $incident, array $data): array
@@ -311,7 +311,7 @@ final class IncidentService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     private function refreshDroneFlightContextWhenLocationChanged(Incident $incident, array $data): void
     {
@@ -327,7 +327,7 @@ final class IncidentService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     private function resolveLocationCoordinates(array $data, ?Incident $incident = null): array
@@ -370,7 +370,7 @@ final class IncidentService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     private function phoneCountryFromIncidentData(array $data, ?Incident $incident = null): ?string
     {
@@ -389,7 +389,7 @@ final class IncidentService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     private function normalizeIncidentPhoneFields(array $data, ?string $phoneCountry): array
@@ -436,13 +436,13 @@ final class IncidentService
                     'no_fly_zones' => [],
                     'notams' => [],
                     'restrictions' => [],
-                    'errors' => [$exception->getMessage()],
+                    'errors' => ['Aeret/NOTAM gegevens konden niet worden opgehaald.'],
                 ],
                 'weather' => [
                     'provider' => 'Open-Meteo',
                     'status' => 'unavailable',
                     'summary' => 'Weerdata kon niet worden opgehaald.',
-                    'errors' => [$exception->getMessage()],
+                    'errors' => ['Weerdata kon niet worden opgehaald.'],
                 ],
                 'checklist' => [],
             ];

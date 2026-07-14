@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Http\Responses\ApiResponse;
 use App\Models\SystemSetting;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
@@ -10,8 +11,11 @@ use Illuminate\Support\Carbon;
 final class DeveloperAccessService
 {
     public const SCOPE_ANDROID_UPLOAD = 'android_upload';
+
     public const SCOPE_SYSTEM_UPDATE = 'system_update';
+
     public const SCOPE_LOGS_READ = 'logs_read';
+
     public const SCOPE_USER_UNLOCK = 'user_unlock';
 
     public const SCOPES = [
@@ -54,7 +58,7 @@ final class DeveloperAccessService
     }
 
     /**
-     * @param array<string, mixed> $value
+     * @param  array<string, mixed>  $value
      * @return list<string>
      */
     public function configuredScopes(array $value): array
@@ -107,9 +111,6 @@ final class DeveloperAccessService
         return $prefixLength >= 0 && $prefixLength <= $maxPrefix;
     }
 
-    /**
-     * @param mixed $patterns
-     */
     private function ipAllowed(Request $request, mixed $patterns): bool
     {
         if (! is_array($patterns) || $patterns === []) {
@@ -172,7 +173,7 @@ final class DeveloperAccessService
             return true;
         }
 
-        $mask = (0xff << (8 - $remainingBits)) & 0xff;
+        $mask = (0xFF << (8 - $remainingBits)) & 0xFF;
 
         return (ord($rangePacked[$fullBytes]) & $mask) === (ord($ipPacked[$fullBytes]) & $mask);
     }
@@ -184,8 +185,10 @@ final class DeveloperAccessService
             'reason' => $reason,
         ], null, $request);
 
-        throw new HttpResponseException(response()->json([
-            'message' => $message,
-        ], $status));
+        throw new HttpResponseException(ApiResponse::error(
+            'developer_api_'.$reason,
+            $message,
+            $status,
+        ));
     }
 }

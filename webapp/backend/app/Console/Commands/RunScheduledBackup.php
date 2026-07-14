@@ -8,7 +8,6 @@ use App\Services\BackupReportService;
 use App\Support\ApiDateTime;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Process;
 
 final class RunScheduledBackup extends Command
 {
@@ -39,10 +38,6 @@ final class RunScheduledBackup extends Command
 
         $this->writeRuntimeConfig($target);
         $result = $this->runBackupRequest('create', $target, null, 900);
-        if ($result['exit_code'] === 124 || str_contains($result['output'], 'Backup request map kon niet worden aangemaakt')) {
-            $this->warn('Backup request worker reageerde niet. Directe fallback wordt geprobeerd.');
-            $result = $this->runDirectBackup($target, 900);
-        }
         $output = trim($result['output']);
 
         if ($result['exit_code'] !== 0) {
@@ -105,26 +100,40 @@ final class RunScheduledBackup extends Command
 
     private function writeRuntimeConfig(string $target): void
     {
-        $lines = [
-            'BACKUP_TARGET='.$this->shellValue($target),
-            'BACKUP_ROOT='.$this->shellValue(SystemSetting::string('backup.local_path', '/opt/dis-data/backup') ?? '/opt/dis-data/backup'),
-            'BACKUP_RETENTION_COUNT='.$this->shellValue((string) max(0, SystemSetting::integer('backup.retention_count', 7))),
-            'BACKUP_SAMBA_SHARE='.$this->shellValue(SystemSetting::string('backup.samba.share', '') ?? ''),
-            'BACKUP_SAMBA_MOUNT='.$this->shellValue(SystemSetting::string('backup.samba.mount', '/mnt/dis-backup') ?? '/mnt/dis-backup'),
-            'BACKUP_SAMBA_USERNAME='.$this->shellValue(SystemSetting::string('backup.samba.username', '') ?? ''),
-            'BACKUP_SAMBA_PASSWORD='.$this->shellValue(SystemSetting::string('backup.samba.password', '') ?? ''),
-            'BACKUP_SAMBA_DOMAIN='.$this->shellValue(SystemSetting::string('backup.samba.domain', '') ?? ''),
-            'BACKUP_SAMBA_VERSION='.$this->shellValue(SystemSetting::string('backup.samba.version', '3.1.1') ?? '3.1.1'),
+        $config = [
+            'BACKUP_TARGET' => $target,
+            'BACKUP_ROOT' => SystemSetting::string('backup.local_path', '/opt/dis-data/backup') ?? '/opt/dis-data/backup',
+            'BACKUP_RETENTION_COUNT' => (string) max(0, SystemSetting::integer('backup.retention_count', 7)),
+            'BACKUP_ENCRYPTION_KEY_FILE' => rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/').'/secrets/backup-encryption.key',
+            'BACKUP_SAMBA_SHARE' => SystemSetting::string('backup.samba.share', '') ?? '',
+            'BACKUP_SAMBA_MOUNT' => SystemSetting::string('backup.samba.mount', '/mnt/dis-backup') ?? '/mnt/dis-backup',
+            'BACKUP_SAMBA_USERNAME' => SystemSetting::string('backup.samba.username', '') ?? '',
+            'BACKUP_SAMBA_PASSWORD' => SystemSetting::string('backup.samba.password', '') ?? '',
+            'BACKUP_SAMBA_DOMAIN' => SystemSetting::string('backup.samba.domain', '') ?? '',
+            'BACKUP_SAMBA_VERSION' => SystemSetting::string('backup.samba.version', '3.1.1') ?? '3.1.1',
         ];
 
-        $path = storage_path('app/backup-config.env');
+        $path = storage_path('app/backup-config.json');
         $directory = dirname($path);
         if (! is_dir($directory)) {
             mkdir($directory, 0750, true);
         }
 
-        file_put_contents($path, implode("\n", $lines)."\n", LOCK_EX);
-        chmod($path, 0640);
+        $temporary = tempnam($directory, '.backup-config-');
+        if ($temporary === false) {
+            throw new \RuntimeException('Backup runtime configuration could not be created.');
+        }
+        try {
+            file_put_contents($temporary, json_encode($config, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT)."\n", LOCK_EX);
+            chmod($temporary, 0640);
+            if (! rename($temporary, $path)) {
+                throw new \RuntimeException('Backup runtime configuration could not be published.');
+            }
+        } finally {
+            if (is_file($temporary)) {
+                @unlink($temporary);
+            }
+        }
     }
 
     /**
@@ -133,10 +142,9 @@ final class RunScheduledBackup extends Command
     private function runBackupRequest(string $operation, string $target, ?string $backupPath, int $timeoutSeconds): array
     {
         $root = $this->backupRequestRoot();
-        if (! is_dir($root) && ! mkdir($root, 0770, true) && ! is_dir($root)) {
-            return ['exit_code' => 1, 'output' => 'Backup request map kon niet worden aangemaakt.'];
+        if (! is_dir($root) || ! is_writable($root)) {
+            return ['exit_code' => 1, 'output' => 'Beveiligde backup request map is niet beschikbaar.'];
         }
-        @chmod($root, 0770);
 
         $id = bin2hex(random_bytes(16));
         $temporary = $root.'/'.$id.'.tmp';
@@ -146,7 +154,8 @@ final class RunScheduledBackup extends Command
             'operation' => $operation,
             'target' => $target,
             'backup_path' => $backupPath,
-            'created_at' => ApiDateTime::now(),
+            'actor_id' => null,
+            'created_at' => gmdate('Y-m-d\\TH:i:s\\Z'),
         ], JSON_THROW_ON_ERROR)."\n", LOCK_EX);
         @chmod($temporary, 0660);
         rename($temporary, $pending);
@@ -171,47 +180,11 @@ final class RunScheduledBackup extends Command
         return ['exit_code' => 124, 'output' => 'Backup runner reageerde niet binnen de verwachte tijd. Controleer de DIS backup request service.'];
     }
 
-    /**
-     * @return array{exit_code: int, output: string}
-     */
-    private function runDirectBackup(string $target, int $timeoutSeconds): array
-    {
-        $script = base_path('../../scripts/backup.sh');
-        if (! is_file($script)) {
-            return ['exit_code' => 127, 'output' => 'Backup script niet gevonden.'];
-        }
-
-        $result = Process::timeout($timeoutSeconds)
-            ->env([
-                'APP_ROOT' => base_path('../..'),
-                'BACKUP_TARGET' => $target,
-                'BACKUP_ROOT' => SystemSetting::string('backup.local_path', '/opt/dis-data/backup') ?? '/opt/dis-data/backup',
-                'BACKUP_RETENTION_COUNT' => (string) max(0, SystemSetting::integer('backup.retention_count', 7)),
-                'BACKUP_SAMBA_SHARE' => SystemSetting::string('backup.samba.share', '') ?? '',
-                'BACKUP_SAMBA_MOUNT' => SystemSetting::string('backup.samba.mount', '/mnt/dis-backup') ?? '/mnt/dis-backup',
-                'BACKUP_SAMBA_USERNAME' => SystemSetting::string('backup.samba.username', '') ?? '',
-                'BACKUP_SAMBA_PASSWORD' => SystemSetting::string('backup.samba.password', '') ?? '',
-                'BACKUP_SAMBA_DOMAIN' => SystemSetting::string('backup.samba.domain', '') ?? '',
-                'BACKUP_SAMBA_VERSION' => SystemSetting::string('backup.samba.version', '3.1.1') ?? '3.1.1',
-            ])
-            ->run(['sudo', 'bash', $script]);
-
-        return [
-            'exit_code' => $result->exitCode() ?? 1,
-            'output' => $result->output().$result->errorOutput(),
-        ];
-    }
-
     private function backupRequestRoot(): string
     {
         $dataPath = rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/');
 
         return $dataPath.'/backup-requests';
-    }
-
-    private function shellValue(string $value): string
-    {
-        return "'".str_replace("'", "'\"'\"'", $value)."'";
     }
 
     private function cleanOutput(string $output): string

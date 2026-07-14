@@ -7,6 +7,8 @@ use App\Models\User;
 use App\Services\AuditService;
 use App\Services\PasswordPolicy;
 use App\Services\TwoFactorService;
+use App\Services\UserService;
+use App\Services\WebSessionService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,21 +22,37 @@ final class RegistrationController extends Controller
         private readonly AuditService $auditService,
         private readonly PasswordPolicy $passwordPolicy,
         private readonly TwoFactorService $twoFactorService,
+        private readonly UserService $userService,
+        private readonly WebSessionService $webSessionService,
     ) {}
 
     public function show(Request $request): JsonResponse
     {
+        $this->webSessionService->assertStatefulWebRequest($request);
+
         $data = $request->validate([
-            'email' => ['required', 'email:rfc'],
-            'token' => ['required', 'string'],
+            'email' => ['nullable', 'required_with:token', 'email:rfc'],
+            'token' => ['nullable', 'required_with:email', 'string'],
         ]);
 
-        $user = $this->userForToken((string) $data['email'], (string) $data['token']);
+        $hasInvitation = isset($data['email'], $data['token']);
+        $user = $hasInvitation
+            ? $this->userForToken((string) $data['email'], (string) $data['token'])
+            : $this->webSessionService->pendingUser($request, [WebSessionService::PURPOSE_REGISTRATION_ACCOUNT]);
         if ($user === null) {
             return ApiResponse::error('invalid_invitation', 'Registratielink is ongeldig of verlopen.', 422);
         }
 
         $user->load(['roles.permissions', 'teams']);
+        if ($hasInvitation) {
+            $this->webSessionService->beginPreAuthentication(
+                $request,
+                $user,
+                WebSessionService::PURPOSE_REGISTRATION_ACCOUNT,
+                30,
+            );
+            DB::table('password_reset_tokens')->where('email', $user->email)->delete();
+        }
 
         return ApiResponse::success([
             'user' => MobileApiPayload::user($user),
@@ -45,30 +63,39 @@ final class RegistrationController extends Controller
 
     public function complete(Request $request): JsonResponse
     {
+        $this->webSessionService->assertStatefulWebRequest($request);
+
         $data = $request->validate([
-            'email' => ['required', 'email:rfc'],
-            'token' => ['required', 'string'],
             'password' => ['required', 'confirmed', $this->passwordPolicy->rule()],
         ]);
 
-        $user = $this->userForToken((string) $data['email'], (string) $data['token']);
+        $user = $this->webSessionService->pendingUser($request, [
+            WebSessionService::PURPOSE_REGISTRATION_ACCOUNT,
+        ]);
         if ($user === null) {
             return ApiResponse::error('invalid_invitation', 'Registratielink is ongeldig of verlopen.', 422);
         }
 
-        DB::table('password_reset_tokens')->where('email', $user->email)->delete();
         $user->forceFill([
             'password' => Hash::make((string) $data['password']),
-            'account_status' => 'active',
         ])->save();
+        $this->userService->revokeAuthenticationState(
+            $user,
+            $user,
+            'users.registration_credentials_changed_sessions_revoked',
+        );
 
         $user->load(['roles.permissions', 'teams']);
         $requiresMfa = $this->requiresMfa($user);
         $twoFactorSetup = null;
-        $abilities = ['*'];
+        $authenticated = false;
+
+        $requiresChallenge = $requiresMfa && $user->two_factor_enabled;
 
         if ($requiresMfa && ! $user->two_factor_enabled) {
-            $secret = $this->twoFactorService->generateSecret();
+            $secret = is_string($user->two_factor_secret) && $user->two_factor_secret !== ''
+                ? $user->two_factor_secret
+                : $this->twoFactorService->generateSecret();
             $user->forceFill([
                 'two_factor_secret' => $secret,
                 'two_factor_confirmed_at' => null,
@@ -78,19 +105,38 @@ final class RegistrationController extends Controller
                 'secret' => $secret,
                 'provisioning_uri' => $this->twoFactorService->provisioningUri($user, $secret),
             ];
-            $abilities = ['registration:2fa'];
+            $this->webSessionService->beginPreAuthentication(
+                $request,
+                $user,
+                WebSessionService::PURPOSE_REGISTRATION_SETUP,
+                30,
+            );
+        } elseif ($requiresChallenge) {
+            $this->webSessionService->beginPreAuthentication(
+                $request,
+                $user,
+                WebSessionService::PURPOSE_LOGIN_CHALLENGE,
+                10,
+            );
         } else {
             $user->forceFill(['last_login_at' => now()])->save();
+            $authenticated = $this->adminAppAllowed($user);
+            if ($authenticated) {
+                $this->webSessionService->authenticate($request, $user);
+            } else {
+                $this->webSessionService->invalidate($request);
+            }
         }
 
-        $this->auditService->record('users.registration_completed', $user, $user, ['requires_mfa' => $requiresMfa]);
-
-        $expiresAt = $requiresMfa ? now()->addMinutes(30) : now()->addHours(12);
+        $this->auditService->record('users.registration_completed', $user, $user, [
+            'requires_mfa' => $requiresMfa,
+        ], null, $request);
 
         return ApiResponse::success([
-            'token' => $user->createToken('DIS Registration Wizard', $abilities, $expiresAt)->plainTextToken,
+            'authenticated' => $authenticated,
             'user' => MobileApiPayload::user($user->refresh()->load(['roles.permissions', 'teams'])),
             'requires_mfa' => $requiresMfa,
+            'requires_2fa' => $requiresChallenge,
             'two_factor_setup' => $twoFactorSetup,
             'admin_app_allowed' => $this->adminAppAllowed($user),
         ]);
@@ -100,7 +146,9 @@ final class RegistrationController extends Controller
     {
         $user = User::query()->with(['roles.permissions', 'teams'])->where('email', $email)->first();
 
-        if ($user === null || ! Password::broker()->tokenExists($user, $token)) {
+        if ($user === null
+            || $user->account_status !== 'active'
+            || ! Password::broker()->tokenExists($user, $token)) {
             return null;
         }
 

@@ -150,7 +150,6 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    document.documentElement.style.colorScheme = theme;
   }, [theme]);
 
   useEffect(() => {
@@ -202,9 +201,13 @@ export function CommandLayout({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     setAccountMenuOpen(false);
-    await api.post('/auth/logout').catch(() => undefined);
-    clearSession();
-    router.replace('/login');
+    try {
+      await api.post('/auth/logout');
+      clearSession();
+      router.replace('/login');
+    } catch {
+      // Keep the local authenticated state when the server could not revoke it.
+    }
   };
   const visibleNavGroups = useMemo(() => canUseWebConsole()
     ? navGroups

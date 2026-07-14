@@ -21,7 +21,7 @@ final class RunSystemUpdateCommand extends Command
             return self::SUCCESS;
         } catch (Throwable $exception) {
             report($exception);
-            $status->append('Updateproces afgebroken: '.$exception->getMessage());
+            $status->append('Updateproces onverwacht afgebroken. Raadpleeg de beveiligde serverlogs.');
             $status->finish(1);
 
             return self::FAILURE;

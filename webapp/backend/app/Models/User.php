@@ -3,8 +3,8 @@
 namespace App\Models;
 
 use App\Models\Concerns\UsesUlids;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -71,6 +71,7 @@ final class User extends Authenticatable
             'last_login_at' => 'immutable_datetime',
             'failed_login_attempts' => 'integer',
             'login_locked_until' => 'immutable_datetime',
+            'auth_session_version' => 'integer',
             'password' => 'hashed',
         ];
     }
@@ -163,7 +164,7 @@ final class User extends Authenticatable
     }
 
     /**
-     * @param Builder<User> $query
+     * @param  Builder<User>  $query
      * @return Builder<User>
      */
     public function scopeWithoutStoreReview(Builder $query): Builder

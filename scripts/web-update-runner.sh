@@ -3,7 +3,8 @@ set -euo pipefail
 
 DIS_INSTALL_PATH="${DIS_INSTALL_PATH:-/opt/dis}"
 UPDATE_TIMEOUT_SECONDS="${UPDATE_TIMEOUT_SECONDS:-3300}"
-LOG_PATH="${DIS_INSTALL_PATH}/webapp/backend/storage/logs/system-update-runner.log"
+LOG_DIRECTORY="/var/log/dis"
+LOG_PATH="${LOG_DIRECTORY}/system-update-runner.log"
 BACKEND_DIR="${DIS_INSTALL_PATH}/webapp/backend"
 
 if [ ! -d "${DIS_INSTALL_PATH}" ]; then
@@ -11,6 +12,15 @@ if [ ! -d "${DIS_INSTALL_PATH}" ]; then
   exit 1
 fi
 
+install -d -m 0750 -o root -g dis "${LOG_DIRECTORY}"
+if [ -L "${LOG_PATH}" ]; then
+  printf '[dis:error] Refusing symlink update log: %s\n' "${LOG_PATH}" >&2
+  exit 1
+fi
+touch "${LOG_PATH}"
+chown root:dis "${LOG_PATH}"
+chmod 0640 "${LOG_PATH}"
+: > "${LOG_PATH}"
 exec >> "${LOG_PATH}" 2>&1
 
 cd "${DIS_INSTALL_PATH}" || exit 1
@@ -28,7 +38,7 @@ echo "[dis] Updatecommando afgerond met exit code ${exit_code}."
 
 if [ -f "${BACKEND_DIR}/artisan" ]; then
   cd "${BACKEND_DIR}" || true
-  php artisan dis:finish-update "${exit_code}" || true
+  runuser -u dis -- php artisan dis:finish-update "${exit_code}" || true
 fi
 
 exit "${exit_code}"

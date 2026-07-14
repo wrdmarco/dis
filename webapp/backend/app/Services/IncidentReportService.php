@@ -2,8 +2,8 @@
 
 namespace App\Services;
 
-use App\Models\AvailabilityStatus;
 use App\Models\Asset;
+use App\Models\AvailabilityStatus;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
 use App\Models\PilotIncidentReport;
@@ -83,7 +83,7 @@ final class IncidentReportService
     }
 
     /**
-     * @param Collection<int, PilotIncidentReport> $pilotReports
+     * @param  Collection<int, PilotIncidentReport>  $pilotReports
      * @return Collection<int, array<string, mixed>>
      */
     private function pilotReportRows(Collection $pilotReports): Collection
@@ -110,8 +110,8 @@ final class IncidentReportService
     }
 
     /**
-     * @param array<string, mixed> $customFields
-     * @param Collection<string, array<string, mixed>> $fields
+     * @param  array<string, mixed>  $customFields
+     * @param  Collection<string, array<string, mixed>>  $fields
      * @return array<int, array{label: string, value: string}>
      */
     private function pilotExtraFields(array $customFields, Collection $fields): array
@@ -142,7 +142,7 @@ final class IncidentReportService
     }
 
     /**
-     * @param array<string, mixed>|null $field
+     * @param  array<string, mixed>|null  $field
      */
     private function pilotCustomDisplayValue(?array $field, mixed $value): string
     {
@@ -236,7 +236,7 @@ final class IncidentReportService
         $tempDir = $this->writableReportDirectory();
         $fontDir = $tempDir;
 
-        $options = new Options();
+        $options = new Options;
         $options->set('isRemoteEnabled', false);
         $options->set('defaultFont', 'DejaVu Sans');
         $options->set('tempDir', $tempDir);
@@ -258,7 +258,7 @@ final class IncidentReportService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     private function renderPdf(Options $options, array $data): string
     {
@@ -285,7 +285,7 @@ final class IncidentReportService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     private function renderReportHtml(array $data): string
     {
@@ -486,7 +486,7 @@ final class IncidentReportService
         } catch (Throwable $exception) {
             $this->safeReport($exception);
             $incident->forceFill([
-                'report_generation_error' => mb_substr($exception->getMessage(), 0, 2000),
+                'report_generation_error' => 'Report generation failed. See secured server logs.',
             ])->save();
 
             return null;
@@ -554,7 +554,7 @@ final class IncidentReportService
     }
 
     /**
-     * @param Collection<int, DispatchRequest> $dispatches
+     * @param  Collection<int, DispatchRequest>  $dispatches
      * @return Collection<int, array<string, mixed>>
      */
     private function travelRows(Collection $dispatches): Collection
@@ -612,7 +612,7 @@ final class IncidentReportService
     }
 
     /**
-     * @param Collection<int, DispatchRequest> $dispatches
+     * @param  Collection<int, DispatchRequest>  $dispatches
      * @return Collection<int, array{id: string, type: string, label: string, message: string|null, created_at: mixed}>
      */
     private function timeline(Incident $incident, Collection $dispatches): Collection
@@ -943,7 +943,7 @@ final class IncidentReportService
     }
 
     /**
-     * @param array<int, array{body: string, left: float, top: float}> $tiles
+     * @param  array<int, array{body: string, left: float, top: float}>  $tiles
      */
     private function mapSnapshotPng(int $width, int $height, array $tiles): ?string
     {

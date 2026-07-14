@@ -12,7 +12,10 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 final class RoleService
 {
-    public function __construct(private readonly AuditService $auditService) {}
+    public function __construct(
+        private readonly AuditService $auditService,
+        private readonly UserService $userService,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $data
@@ -41,15 +44,18 @@ final class RoleService
             throw new ConflictHttpException('De system administrator rol mag niet worden aangepast.');
         }
 
+        $this->assertPermissionCeiling($actor, $role->permissions()->pluck('permissions.id')->all());
         $permissionIds = array_key_exists('permission_ids', $data)
             ? $this->normalizedPermissionIds($data['permission_ids'])
             : null;
         if (is_array($permissionIds)) {
             $this->assertPermissionCeiling($actor, $permissionIds);
         }
+        $authenticationStateChanged = $this->authenticationStateWillChange($role, $data, $permissionIds);
+        $affectedUsers = $authenticationStateChanged ? $role->users()->get() : collect();
         unset($data['permission_ids']);
 
-        return DB::transaction(function () use ($role, $data, $permissionIds, $actor): Role {
+        return DB::transaction(function () use ($role, $data, $permissionIds, $actor, $affectedUsers, $authenticationStateChanged): Role {
             $before = $role->only(array_keys($data));
             $role->update($data);
             if (is_array($permissionIds)) {
@@ -59,7 +65,18 @@ final class RoleService
                 'before' => $before,
                 'after' => $role->only(array_keys($data)),
                 'permission_ids' => $permissionIds,
+                'authentication_state_changed' => $authenticationStateChanged,
             ]);
+
+            if ($authenticationStateChanged) {
+                foreach ($affectedUsers as $user) {
+                    $this->userService->revokeAuthenticationState(
+                        $user,
+                        $actor,
+                        'users.role_definition_changed_sessions_revoked',
+                    );
+                }
+            }
 
             return $role->refresh()->load('permissions');
         });
@@ -140,5 +157,31 @@ final class RoleService
             ->unique()
             ->values()
             ->all();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  list<string>|null  $permissionIds
+     */
+    private function authenticationStateWillChange(Role $role, array $data, ?array $permissionIds): bool
+    {
+        if (array_key_exists('can_use_operator_app', $data)
+            && (bool) $data['can_use_operator_app'] !== (bool) $role->can_use_operator_app) {
+            return true;
+        }
+
+        if (array_key_exists('can_use_admin_app', $data)
+            && (bool) $data['can_use_admin_app'] !== (bool) $role->can_use_admin_app) {
+            return true;
+        }
+
+        if ($permissionIds === null) {
+            return false;
+        }
+
+        $currentIds = $role->permissions()->pluck('permissions.id')->map(static fn ($id): string => (string) $id)->sort()->values()->all();
+        $requestedIds = collect($permissionIds)->sort()->values()->all();
+
+        return $currentIds !== $requestedIds;
     }
 }

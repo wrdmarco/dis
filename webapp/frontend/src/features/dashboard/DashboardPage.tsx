@@ -118,7 +118,18 @@ export function DashboardPage() {
         <Panel title="Beschikbaarheid">
           <ResourceState loading={statuses.loading} error={statuses.error} empty={(statuses.data?.length ?? 0) === 0}>
             <div className="dashboard-availability">
-              <div className="dashboard-gauge" style={{ '--dashboard-gauge': `${availabilityRatio}%` } as React.CSSProperties}>
+              <div className="dashboard-gauge">
+                <svg className="dashboard-gauge__ring" viewBox="0 0 42 42" aria-hidden="true">
+                  <circle className="dashboard-gauge__track" cx="21" cy="21" r="16" pathLength="100" />
+                  <circle
+                    className="dashboard-gauge__value"
+                    cx="21"
+                    cy="21"
+                    r="16"
+                    pathLength="100"
+                    strokeDasharray={`${availabilityRatio} ${100 - availabilityRatio}`}
+                  />
+                </svg>
                 <span>{availabilityRatio}%</span>
                 <small>beschikbaar</small>
               </div>

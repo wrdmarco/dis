@@ -52,6 +52,7 @@ final class AdminController extends Controller
             'permission_ids' => ['nullable', 'array'],
             'permission_ids.*' => ['ulid', 'exists:permissions,id'],
         ]);
+
         return ApiResponse::success($this->roleService->create($data, $request->user()), 201);
     }
 
@@ -66,6 +67,7 @@ final class AdminController extends Controller
             'permission_ids' => ['nullable', 'array'],
             'permission_ids.*' => ['ulid', 'exists:permissions,id'],
         ]);
+
         return ApiResponse::success($this->roleService->update($role, $data, $request->user()));
     }
 
@@ -290,8 +292,10 @@ final class AdminController extends Controller
                     ->subject('D.I.S testmail'),
             );
         } catch (Throwable $exception) {
+            report($exception);
+
             throw ValidationException::withMessages([
-                'mail' => [$this->mailFailureMessage($exception)],
+                'mail' => ['Testmail verzenden mislukt. Controleer de mailinstellingen en probeer opnieuw.'],
             ]);
         }
 
@@ -371,20 +375,6 @@ final class AdminController extends Controller
         };
     }
 
-    private function mailFailureMessage(Throwable $exception): string
-    {
-        $message = trim($exception->getMessage());
-
-        if ($message === '') {
-            return 'Testmail verzenden mislukt. Controleer de mailinstellingen en probeer opnieuw.';
-        }
-
-        return 'Testmail verzenden mislukt: '.$message;
-    }
-
-    /**
-     * @return mixed
-     */
     private function publicSettingValue(SystemSetting $setting): mixed
     {
         if ($setting->key === 'firebase.service_account') {
@@ -499,7 +489,7 @@ final class AdminController extends Controller
     }
 
     /**
-     * @param array<int, string> $allowed
+     * @param  array<int, string>  $allowed
      */
     private function validateStringIn(string $key, mixed $value, array $allowed): string
     {
@@ -513,7 +503,7 @@ final class AdminController extends Controller
     }
 
     /**
-     * @param list<string> $allowed
+     * @param  list<string>  $allowed
      * @return list<string>
      */
     private function validateStringArraySetting(string $key, mixed $value, array $allowed): array
@@ -599,7 +589,37 @@ final class AdminController extends Controller
 
     public function pushLogs(Request $request): JsonResponse
     {
-        return ApiResponse::paginated(PushDeliveryLog::query()->latest()->paginate((int) $request->integer('per_page', 50)));
+        return ApiResponse::paginated(
+            PushDeliveryLog::query()->latest()->paginate((int) $request->integer('per_page', 50)),
+            fn (PushDeliveryLog $log): array => [
+                'id' => $log->id,
+                'user_id' => $log->user_id,
+                'fcm_token_id' => $log->fcm_token_id,
+                'dispatch_request_id' => $log->dispatch_request_id,
+                'message_type' => $log->message_type,
+                'status' => $log->status,
+                'provider_message_id' => $log->provider_message_id,
+                'error_code' => $this->publicPushErrorCode($log->error_code),
+                'sent_at' => $log->sent_at,
+                'created_at' => $log->created_at,
+            ],
+        );
+    }
+
+    private function publicPushErrorCode(mixed $errorCode): ?string
+    {
+        if (! is_string($errorCode) || trim($errorCode) === '') {
+            return null;
+        }
+
+        $errorCode = trim($errorCode);
+        if (preg_match('/^[A-Z][A-Z0-9_]{1,63}$/', $errorCode) === 1
+            || preg_match('/^fcm_http_[1-5][0-9]{2}$/', $errorCode) === 1
+            || in_array($errorCode, ['delivery_exception', 'fcm_error'], true)) {
+            return $errorCode;
+        }
+
+        return 'delivery_error';
     }
 
     private function shortTargetType(string $targetType): string

@@ -13,6 +13,7 @@ RUN_HEALTHCHECK="${RUN_HEALTHCHECK:-1}"
 SYSTEM_UPDATES_AVAILABLE=0
 APP_UPDATES_AVAILABLE=0
 APP_UPSTREAM=""
+DEPLOYMENT_SERVICES_STOPPED=0
 DIS_GIT_REMOTE_URL="${DIS_GIT_REMOTE_URL:-https://github.com/wrdmarco/dis.git}"
 DIS_GIT_BRANCH="${DIS_GIT_BRANCH:-main}"
 
@@ -27,7 +28,7 @@ Options:
   --skip-app             Do not deploy the DIS application.
   --skip-source          Do not run git pull before deploying.
   --skip-backup          Do not create a pre-update backup.
-  --skip-healthcheck     Skip final local health check.
+  --skip-healthcheck     Skip the additional final health check; mandatory readiness checks remain.
   -h, --help             Show this help.
 USAGE
 }
@@ -65,10 +66,12 @@ while [ "$#" -gt 0 ]; do
 done
 
 require_root
+acquire_dis_operation_lock update
 require_ubuntu_2604
 require_directory "${DIS_INSTALL_PATH}"
 load_data_path_from_env "${DIS_INSTALL_PATH}/.env"
 ensure_data_links "${DIS_INSTALL_PATH}"
+detach_unsafe_cifs_backup_mount /mnt/dis-backup
 require_file "${DIS_INSTALL_PATH}/.env"
 
 if [ "${APP_ROOT}" != "${DIS_INSTALL_PATH}" ]; then
@@ -92,7 +95,7 @@ ensure_runtime_git_excludes() {
     "/storage/generated/" \
     "/webapp/backend/bootstrap/cache/" \
     "/webapp/backend/storage/logs/" \
-    "/webapp/backend/storage/app/backup-config.env" \
+    "/webapp/backend/storage/app/backup-config.json" \
     "/webapp/frontend/dist/" \
     "/webapp/frontend/.next/" \
     "/webapp/frontend/.vite/" \
@@ -193,17 +196,20 @@ write_frontend_env() {
   log "Refreshing frontend production environment"
   cat > "${DIS_INSTALL_PATH}/webapp/frontend/.env.production" <<EOF
 NEXT_PUBLIC_API_BASE_URL=/api
+NEXT_PUBLIC_APP_URL=${app_url}
 NEXT_PUBLIC_REVERB_APP_KEY=$(env_value REVERB_APP_KEY)
 NEXT_PUBLIC_WEBSOCKET_HOST=${host}
-NEXT_PUBLIC_WEBSOCKET_PORT=80
-NEXT_PUBLIC_WEBSOCKET_SCHEME=ws
+NEXT_PUBLIC_WEBSOCKET_PORT=443
+NEXT_PUBLIC_WEBSOCKET_SCHEME=wss
+SECURITY_CONTACT=$(env_value SECURITY_CONTACT)
+CSP_AERET_FRAME_ORIGINS=$(env_value CSP_AERET_FRAME_ORIGINS)
 EOF
-  run_cmd chown "${DIS_USER}:${DIS_GROUP}" "${DIS_INSTALL_PATH}/webapp/frontend/.env.production"
+  run_cmd chown root:"${DIS_GROUP}" "${DIS_INSTALL_PATH}/webapp/frontend/.env.production"
   run_cmd chmod 0640 "${DIS_INSTALL_PATH}/webapp/frontend/.env.production"
 }
 
 refresh_generated_nginx() {
-  local app_url host generated_dir generated_conf
+  local app_url host generated_dir generated_conf temporary_conf
   app_url="$(env_value APP_URL)"
   host="${app_url#http://}"
   host="${host#https://}"
@@ -215,10 +221,14 @@ refresh_generated_nginx() {
 
   generated_dir="${DIS_DATA_PATH}/storage/generated/nginx"
   generated_conf="${generated_dir}/dis.conf"
-  ensure_directory "${generated_dir}" root root 0755
-  run_cmd cp "${DIS_INSTALL_PATH}/infrastructure/nginx/dis.conf" "${generated_conf}"
-  run_cmd sed -i "s/server_name _;/server_name ${host} _;/" "${generated_conf}"
-  run_cmd sed -i "s#unix:/run/php/php[0-9.]*-fpm.sock#unix:/run/php/php${PHP_VERSION}-fpm.sock#" "${generated_conf}"
+  ensure_managed_directory "${generated_dir}" root root 0755
+  temporary_conf="$(mktemp "${generated_dir}/.dis.conf.XXXXXX")"
+  run_cmd cp "${DIS_INSTALL_PATH}/infrastructure/nginx/dis.conf" "${temporary_conf}"
+  run_cmd sed -i "s/server_name _;/server_name ${host} _;/" "${temporary_conf}"
+  run_cmd sed -i "s#unix:/run/php/php[0-9.]*-fpm.sock#unix:/run/php/php${PHP_VERSION}-fpm.sock#" "${temporary_conf}"
+  run_cmd chown root:root "${temporary_conf}"
+  run_cmd chmod 0644 "${temporary_conf}"
+  run_cmd mv -fT -- "${temporary_conf}" "${generated_conf}"
   printf '%s' "${generated_conf}"
 }
 
@@ -233,15 +243,26 @@ exec bash "${DIS_INSTALL_PATH}/update.sh" "\$@"
 EOF
   run_cmd chmod 0755 /usr/local/bin/update
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/web-update-runner.sh" /usr/local/bin/dis-update-runner
+  ensure_directory /var/log/dis root "${DIS_GROUP}" 0750
+  if [ ! -e /var/log/dis/system-update-runner.log ]; then
+    run_cmd install -m 0640 -o root -g "${DIS_GROUP}" /dev/null /var/log/dis/system-update-runner.log
+  fi
+  run_cmd chown root:"${DIS_GROUP}" /var/log/dis/system-update-runner.log
+  run_cmd chmod 0640 /var/log/dis/system-update-runner.log
+  if id www-data >/dev/null 2>&1; then
+    run_cmd setfacl -m "u:www-data:rx" /var/log/dis
+    run_cmd setfacl -m "u:www-data:r--" /var/log/dis/system-update-runner.log
+  fi
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-request-worker.sh" /usr/local/bin/dis-backup-request-worker
+  run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/snapshot-backup-input.sh" /usr/local/bin/dis-snapshot-backup-input
+  run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-mount.sh" /usr/local/bin/dis-backup-mount
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-verify-runner.sh" /usr/local/bin/dis-backup-verify
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-restore-runner.sh" /usr/local/bin/dis-backup-restore
   install_php_fpm_privileged_helpers_override
-  run_cmd install -m 0644 "${DIS_INSTALL_PATH}/infrastructure/systemd/dis-backup-request.service" /etc/systemd/system/dis-backup-request.service
-  run_cmd install -m 0644 "${DIS_INSTALL_PATH}/infrastructure/systemd/dis-backup-request.path" /etc/systemd/system/dis-backup-request.path
+  install_backup_request_systemd_units "${DIS_INSTALL_PATH}"
+  run_cmd install -m 0644 "${DIS_INSTALL_PATH}/infrastructure/systemd/dis-backup-mount.service" /etc/systemd/system/dis-backup-mount.service
   run_cmd systemctl daemon-reload
   run_cmd systemctl enable dis-backup-request.path >/dev/null 2>&1 || true
-  run_cmd systemctl start dis-backup-request.path
 }
 
 install_update_privileges() {
@@ -298,46 +319,61 @@ put_webapp_in_production() {
   local backend_dir
   backend_dir="${DIS_INSTALL_PATH}/webapp/backend"
 
-  disable_frontend_maintenance
-  if [ -f "${backend_dir}/artisan" ]; then
-    run_cmd php "${backend_dir}/artisan" up >/dev/null 2>&1 || true
-  fi
+  complete_deployment_maintenance "${backend_dir}"
 }
 
 assert_backend_routes() {
-  local backend_dir status
+  local backend_dir routes
   backend_dir="${DIS_INSTALL_PATH}/webapp/backend"
 
   if [ ! -f "${backend_dir}/artisan" ]; then
     return
   fi
 
-  log "Checking backup API route"
-  status="$(backup_route_http_status)"
-  if ! backup_route_status_is_valid "${status}"; then
-    log "Backup API route check returned HTTP ${status}; clearing caches once more."
-    clear_application_caches
-    status="$(backup_route_http_status)"
-  fi
-
-  if ! backup_route_status_is_valid "${status}"; then
-    fail "Backup API route check failed with HTTP ${status}."
+  log "Checking required backend routes behind maintenance"
+  routes="$(runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" route:list --path=api/admin/backups --except-vendor)"
+  if ! grep -Fq 'api/admin/backups' <<< "${routes}"; then
+    fail "Required backup API route is not registered."
   fi
 }
 
-backup_route_http_status() {
-  curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://127.0.0.1/api/admin/backups" 2>/dev/null || printf '000'
+update_exit_handler() {
+  local status="$1"
+
+  trap - EXIT
+  if [ "${status}" -ne 0 ]; then
+    log "Update failed; maintenance remains enabled and stopped DIS services remain stopped. Correct the failure and rerun update."
+  fi
+  exit "${status}"
 }
 
-backup_route_status_is_valid() {
-  case "$1" in
-    200|401|403)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+verify_update_and_open_production() {
+  local backend_dir
+  backend_dir="${DIS_INSTALL_PATH}/webapp/backend"
+
+  if [ "${DEPLOYMENT_SERVICES_STOPPED}" = "1" ]; then
+    run_cmd nginx -t
+    restart_dis_web_services_for_verification
+  fi
+
+  prepare_backend_for_deployment_verification "${backend_dir}"
+  require_dis_web_services
+  assert_backend_routes
+
+  log "Running mandatory local readiness check"
+  HEALTH_URL="http://127.0.0.1/health" bash "${SCRIPT_DIR}/healthcheck.sh"
+
+  if [ "${DEPLOYMENT_SERVICES_STOPPED}" = "1" ]; then
+    start_dis_operational_services
+  fi
+  require_dis_runtime_services
+
+  if [ "${RUN_HEALTHCHECK}" = "1" ]; then
+    log "Running final local health check"
+    HEALTH_URL="http://127.0.0.1/health" bash "${SCRIPT_DIR}/healthcheck.sh"
+  fi
+
+  put_webapp_in_production
 }
 
 create_pre_update_backup() {
@@ -403,7 +439,7 @@ reset_git_worktree_for_update() {
     ':(exclude)app/android/app/build/**' \
     ':(exclude)app/android/build' \
     ':(exclude)app/android/build/**' \
-    ':(exclude)webapp/backend/storage/app/backup-config.env' \
+    ':(exclude)webapp/backend/storage/app/backup-config.json' \
     >/dev/null 2>&1 || true
 
   run_cmd git -C "${DIS_INSTALL_PATH}" clean -ffdx -- \
@@ -535,9 +571,10 @@ check_app_updates() {
 ensure_runtime_git_excludes
 recover_stashed_backups
 drop_dis_update_stashes
+run_cmd rm -f -- "${DIS_INSTALL_PATH}/webapp/backend/storage/app/backup-config.env"
 
-enable_frontend_maintenance
-trap put_webapp_in_production EXIT
+trap 'update_exit_handler "$?"' EXIT
+enable_deployment_maintenance "${DIS_INSTALL_PATH}/webapp/backend"
 
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
   check_system_updates
@@ -546,6 +583,10 @@ fi
 if [ "${UPDATE_APP}" = "1" ]; then
   check_app_updates
 fi
+
+stop_dis_deployment_services
+DEPLOYMENT_SERVICES_STOPPED=1
+DIS_BACKUP_KEY_CUTOVER_ALLOWED=1 ensure_backup_encryption_key >/dev/null
 
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
   log "Ensuring DIS system dependencies"
@@ -559,6 +600,10 @@ if [ "${SYSTEM_UPDATES_AVAILABLE}" = "0" ] && [ "${APP_UPDATES_AVAILABLE}" = "0"
   self_heal_permissions
   clear_application_caches
   self_heal_permissions
+  finalize_backup_key_cutover "${DIS_INSTALL_PATH}"
+  verify_update_and_open_production
+  trap - EXIT
+  log "DIS system and application update completed."
   exit 0
 fi
 
@@ -590,7 +635,12 @@ if [ "${UPDATE_APP}" = "1" ]; then
     nginx_source="$(refresh_generated_nginx)"
 
     log "Deploying updated DIS application"
-    APP_ROOT="${DIS_INSTALL_PATH}" NGINX_SOURCE="${nginx_source}" SKIP_DEPLOY_CACHE_CLEAR=1 bash "${SCRIPT_DIR}/deploy.sh"
+    APP_ROOT="${DIS_INSTALL_PATH}" \
+      NGINX_SOURCE="${nginx_source}" \
+      SKIP_DEPLOY_CACHE_CLEAR=1 \
+      DIS_DEPLOYMENT_OWNER=update \
+      DIS_DEFER_OPERATIONAL_SERVICES=1 \
+      bash "${SCRIPT_DIR}/deploy.sh"
     install_update_command
     install_update_privileges
     self_heal_permissions
@@ -608,12 +658,8 @@ if [ "${UPDATE_APP}" = "1" ]; then
   fi
 fi
 
-put_webapp_in_production
+finalize_backup_key_cutover "${DIS_INSTALL_PATH}"
+verify_update_and_open_production
 trap - EXIT
-
-if [ "${RUN_HEALTHCHECK}" = "1" ]; then
-  log "Running final local health check"
-  HEALTH_URL="http://127.0.0.1/api/health" bash "${SCRIPT_DIR}/healthcheck.sh"
-fi
 
 log "DIS system and application update completed."

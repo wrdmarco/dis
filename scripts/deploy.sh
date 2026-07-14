@@ -10,19 +10,127 @@ FRONTEND_DIR="${APP_ROOT}/webapp/frontend"
 NGINX_SOURCE="${NGINX_SOURCE:-${APP_ROOT}/infrastructure/nginx/dis.conf}"
 SKIP_DEPLOY_CACHE_CLEAR="${SKIP_DEPLOY_CACHE_CLEAR:-0}"
 RUN_SEEDERS="${RUN_SEEDERS:-0}"
+DIS_DEPLOYMENT_OWNER="${DIS_DEPLOYMENT_OWNER:-deploy}"
+DIS_DEFER_OPERATIONAL_SERVICES="${DIS_DEFER_OPERATIONAL_SERVICES:-0}"
+RELEASE_MARKER_TEMP=""
 
 require_directory "${APP_ROOT}"
 require_file "${NGINX_SOURCE}"
 require_root
+acquire_dis_operation_lock deployment
 load_data_path_from_env "${APP_ROOT}/.env"
 ensure_data_links "${APP_ROOT}"
 require_file "${APP_ROOT}/.env"
 
+ENV_FILE="${APP_ROOT}/.env"
+
+deployment_exit_handler() {
+  local status="$1"
+
+  trap - EXIT
+  if [ -n "${RELEASE_MARKER_TEMP}" ]; then
+    rm -f -- "${RELEASE_MARKER_TEMP}" 2>/dev/null || true
+  fi
+  if [ "${status}" -ne 0 ]; then
+    log "Deployment failed; maintenance remains enabled and stopped DIS services remain stopped. Correct the failure and rerun the deployment."
+  fi
+  exit "${status}"
+}
+
+trap 'deployment_exit_handler "$?"' EXIT
+enable_deployment_maintenance "${BACKEND_DIR}"
+stop_dis_deployment_services
+DIS_BACKUP_KEY_CUTOVER_ALLOWED=1 ensure_backup_encryption_key >/dev/null
+
+env_value() {
+  local key="$1"
+  local value
+  value="$(grep -E "^${key}=" "${ENV_FILE}" | tail -n 1 | cut -d '=' -f 2- || true)"
+  value="${value%\"}"
+  value="${value#\"}"
+  value="${value%\'}"
+  value="${value#\'}"
+  printf '%s' "${value}"
+}
+
+set_env_value() {
+  local key="$1"
+  local value="$2"
+  local escaped
+  escaped="$(printf '%s' "${value}" | sed 's/[&/\\]/\\&/g')"
+
+  if grep -qE "^${key}=" "${ENV_FILE}"; then
+    run_cmd sed -i "s/^${key}=.*/${key}=${escaped}/" "${ENV_FILE}"
+  else
+    printf '%s=%s\n' "${key}" "${value}" >> "${ENV_FILE}"
+  fi
+}
+
+harden_web_session_environment() {
+  local app_url authority trusted_proxies
+  app_url="$(env_value APP_URL)"
+  case "${app_url}" in
+    https://*) ;;
+    *) fail "APP_URL must use https for a production DIS deployment." ;;
+  esac
+
+  authority="${app_url#https://}"
+  authority="${authority%%/*}"
+  if [ -z "${authority}" ]; then
+    fail "APP_URL must contain a public host."
+  fi
+
+  trusted_proxies="$(env_value TRUSTED_PROXIES)"
+  case "${trusted_proxies}" in
+    ""|"*"|"**") trusted_proxies="127.0.0.1,::1" ;;
+  esac
+
+  set_env_value TRUSTED_PROXIES "${trusted_proxies}"
+  set_env_value CORS_ALLOWED_ORIGINS "https://${authority}"
+  set_env_value SESSION_DRIVER database
+  set_env_value SESSION_LIFETIME 120
+  set_env_value SESSION_ABSOLUTE_LIFETIME 720
+  set_env_value SESSION_COOKIE __Host-dis_session
+  set_env_value SESSION_DOMAIN ""
+  set_env_value SESSION_SECURE_COOKIE true
+  set_env_value SESSION_SAME_SITE lax
+  set_env_value SESSION_TRUSTED_ORIGINS "https://${authority}"
+  set_env_value SANCTUM_STATEFUL_DOMAINS "${authority}"
+}
+
+write_frontend_security_environment() {
+  local app_url authority websocket_host
+  app_url="$(env_value APP_URL)"
+  authority="${app_url#https://}"
+  authority="${authority%%/*}"
+  websocket_host="${authority%%:*}"
+
+  cat > "${FRONTEND_DIR}/.env.production" <<EOF
+NEXT_PUBLIC_API_BASE_URL=/api
+NEXT_PUBLIC_APP_URL=https://${authority}
+NEXT_PUBLIC_REVERB_APP_KEY=$(env_value REVERB_APP_KEY)
+NEXT_PUBLIC_WEBSOCKET_HOST=${websocket_host}
+NEXT_PUBLIC_WEBSOCKET_PORT=443
+NEXT_PUBLIC_WEBSOCKET_SCHEME=wss
+SECURITY_CONTACT=$(env_value SECURITY_CONTACT)
+CSP_AERET_FRAME_ORIGINS=$(env_value CSP_AERET_FRAME_ORIGINS)
+EOF
+  run_cmd chown root:"${DIS_GROUP}" "${FRONTEND_DIR}/.env.production"
+  run_cmd chmod 0640 "${FRONTEND_DIR}/.env.production"
+}
+
+harden_web_session_environment
+write_frontend_security_environment
+run_cmd rm -f -- "${BACKEND_DIR}/storage/app/backup-config.env"
+
 log "Deploying DIS from ${APP_ROOT}"
 RELEASE_ID="$(date -u +%Y%m%dT%H%M%SZ)"
-ensure_directory "${APP_ROOT}/storage/releases" "${DIS_USER}" "${DIS_GROUP}" 0750
-printf '%s\n' "${RELEASE_ID}" > "${APP_ROOT}/storage/releases/current"
-run_cmd chown "${DIS_USER}:${DIS_GROUP}" "${APP_ROOT}/storage/releases/current"
+ensure_managed_directory "${DIS_DATA_PATH}/storage/releases" root root 0750
+RELEASE_MARKER_TEMP="$(mktemp "${DIS_DATA_PATH}/storage/releases/.current.XXXXXX")"
+run_cmd chmod 0640 "${RELEASE_MARKER_TEMP}"
+printf '%s\n' "${RELEASE_ID}" > "${RELEASE_MARKER_TEMP}"
+run_cmd mv -fT -- "${RELEASE_MARKER_TEMP}" "${DIS_DATA_PATH}/storage/releases/current"
+RELEASE_MARKER_TEMP=""
 
 ensure_directory "${BACKEND_DIR}/storage/app" "${DIS_USER}" "${DIS_GROUP}" 0750
 ensure_directory "${BACKEND_DIR}/storage/framework/cache" "${DIS_USER}" "${DIS_GROUP}" 0750
@@ -33,29 +141,38 @@ ensure_directory "${BACKEND_DIR}/bootstrap/cache" "${DIS_USER}" "${DIS_GROUP}" 0
 ensure_directory "${BACKEND_DIR}/storage/composer" "${DIS_USER}" "${DIS_GROUP}" 0750
 APP_ROOT="${APP_ROOT}" bash "${SCRIPT_DIR}/self-heal-permissions.sh"
 run_cmd ln -sfn "${APP_ROOT}/.env" "${BACKEND_DIR}/.env"
-run_cmd chown -h "${DIS_USER}:${DIS_GROUP}" "${BACKEND_DIR}/.env"
+run_cmd chown -h root:root "${BACKEND_DIR}/.env"
 if id www-data >/dev/null 2>&1; then
-  run_cmd usermod -aG "${DIS_GROUP}" www-data
+  run_cmd gpasswd -d www-data "${DIS_GROUP}" >/dev/null 2>&1 || true
   run_cmd setfacl -m "u:www-data:r--" "${APP_ROOT}/.env"
-  run_cmd setfacl -R -m "u:www-data:rwx" "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache"
-  run_cmd setfacl -R -d -m "u:www-data:rwx" "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache"
 fi
 
 if [ -f "${BACKEND_DIR}/composer.json" ]; then
   log "Installing backend dependencies"
-  COMPOSER_ENV=(env HOME="${BACKEND_DIR}/storage/composer" COMPOSER_HOME="${BACKEND_DIR}/storage/composer" COMPOSER_ALLOW_SUPERUSER=1)
-  if [ -f "${BACKEND_DIR}/composer.lock" ]; then
-    run_cmd "${COMPOSER_ENV[@]}" composer install --working-dir="${BACKEND_DIR}" --no-dev --prefer-dist --no-interaction --optimize-autoloader
-  else
-    run_cmd "${COMPOSER_ENV[@]}" composer update --working-dir="${BACKEND_DIR}" --no-dev --prefer-dist --no-interaction --optimize-autoloader
+  [ -f "${BACKEND_DIR}/composer.lock" ] || fail "composer.lock is required for a reproducible deployment."
+  COMPOSER_DEPLOY_HOME="$(mktemp -d "${TMPDIR:-/var/tmp}/dis-composer-deploy.XXXXXX")"
+  run_cmd chmod 0700 "${COMPOSER_DEPLOY_HOME}"
+  run_cmd rm -rf -- "${BACKEND_DIR}/vendor"
+  if ! run_cmd env \
+    HOME="${COMPOSER_DEPLOY_HOME}" \
+    COMPOSER_HOME="${COMPOSER_DEPLOY_HOME}" \
+    COMPOSER_ALLOW_SUPERUSER=1 \
+    composer install \
+      --working-dir="${BACKEND_DIR}" \
+      --no-dev \
+      --prefer-dist \
+      --no-interaction \
+      --optimize-autoloader \
+      --no-plugins \
+      --no-scripts; then
+    run_cmd rm -rf -- "${COMPOSER_DEPLOY_HOME}"
+    fail "Backend dependency installation failed."
   fi
-  run_cmd chown -R "${DIS_USER}:${DIS_GROUP}" "${BACKEND_DIR}/vendor" "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache"
-  if id www-data >/dev/null 2>&1; then
-    run_cmd setfacl -R -m "u:www-data:rx" "${BACKEND_DIR}/vendor"
-    run_cmd setfacl -R -m "u:www-data:rwx" "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache"
-    run_cmd setfacl -R -d -m "u:www-data:rwx" "${BACKEND_DIR}/storage" "${BACKEND_DIR}/bootstrap/cache"
-  fi
+  run_cmd rm -rf -- "${COMPOSER_DEPLOY_HOME}"
+  run_cmd chown -R root:root "${BACKEND_DIR}/vendor"
+  run_cmd chmod -R u=rwX,go=rX "${BACKEND_DIR}/vendor"
   APP_ROOT="${APP_ROOT}" bash "${SCRIPT_DIR}/self-heal-permissions.sh"
+  run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" package:discover --ansi
   run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" migrate --force
   if [ "${RUN_SEEDERS}" = "1" ]; then
     run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" db:seed --force
@@ -71,22 +188,16 @@ fi
 
 if [ -f "${FRONTEND_DIR}/package.json" ]; then
   log "Building frontend"
-  if [ -f "${FRONTEND_DIR}/package-lock.json" ]; then
-    log "Installing frontend dependencies from package-lock.json"
-    if ! run_cmd npm --prefix "${FRONTEND_DIR}" ci; then
-      log "npm ci failed. Falling back to npm install to refresh stale frontend lock state."
-      run_cmd npm --prefix "${FRONTEND_DIR}" install
-    fi
-  else
-    run_cmd npm --prefix "${FRONTEND_DIR}" install
-  fi
-  if [ -f "${FRONTEND_DIR}/node_modules/.bin/playwright" ]; then
-    ensure_directory "${DIS_DATA_PATH}/playwright-browsers" "${DIS_USER}" "${DIS_GROUP}" 0770
-    run_cmd env PLAYWRIGHT_BROWSERS_PATH="${DIS_DATA_PATH}/playwright-browsers" npm --prefix "${FRONTEND_DIR}" exec -- playwright install --with-deps chromium
-  fi
+  [ -f "${FRONTEND_DIR}/package-lock.json" ] || fail "package-lock.json is required for a reproducible deployment."
+  log "Installing frontend dependencies from package-lock.json"
+  run_cmd npm --prefix "${FRONTEND_DIR}" ci --ignore-scripts
   run_cmd rm -rf "${FRONTEND_DIR}/.next"
   run_cmd npm --prefix "${FRONTEND_DIR}" run build
-  run_cmd chown -R "${DIS_USER}:${DIS_GROUP}" "${FRONTEND_DIR}/.next" "${FRONTEND_DIR}/node_modules"
+  run_cmd npm --prefix "${FRONTEND_DIR}" prune --omit=dev --ignore-scripts
+  run_cmd chown -R root:root "${FRONTEND_DIR}/.next" "${FRONTEND_DIR}/node_modules"
+  run_cmd chmod -R u=rwX,go=rX "${FRONTEND_DIR}/.next" "${FRONTEND_DIR}/node_modules"
+  ensure_directory "${FRONTEND_DIR}/.next/cache" "${DIS_USER}" "${DIS_GROUP}" 0750
+  run_cmd chown -R "${DIS_USER}:${DIS_GROUP}" "${FRONTEND_DIR}/.next/cache"
 fi
 
 log "Installing Nginx and systemd configuration"
@@ -101,7 +212,19 @@ exec bash "${APP_ROOT}/update.sh" "\$@"
 EOF
 run_cmd chmod 0755 /usr/local/bin/update
 run_cmd install -m 0755 "${APP_ROOT}/scripts/web-update-runner.sh" /usr/local/bin/dis-update-runner
+ensure_directory /var/log/dis root "${DIS_GROUP}" 0750
+if [ ! -e /var/log/dis/system-update-runner.log ]; then
+  run_cmd install -m 0640 -o root -g "${DIS_GROUP}" /dev/null /var/log/dis/system-update-runner.log
+fi
+run_cmd chown root:"${DIS_GROUP}" /var/log/dis/system-update-runner.log
+run_cmd chmod 0640 /var/log/dis/system-update-runner.log
+if id www-data >/dev/null 2>&1; then
+  run_cmd setfacl -m "u:www-data:rx" /var/log/dis
+  run_cmd setfacl -m "u:www-data:r--" /var/log/dis/system-update-runner.log
+fi
 run_cmd install -m 0755 "${APP_ROOT}/scripts/backup-request-worker.sh" /usr/local/bin/dis-backup-request-worker
+run_cmd install -m 0755 "${APP_ROOT}/scripts/snapshot-backup-input.sh" /usr/local/bin/dis-snapshot-backup-input
+run_cmd install -m 0755 "${APP_ROOT}/scripts/backup-mount.sh" /usr/local/bin/dis-backup-mount
 run_cmd install -m 0755 "${APP_ROOT}/scripts/backup-verify-runner.sh" /usr/local/bin/dis-backup-verify
 run_cmd install -m 0755 "${APP_ROOT}/scripts/backup-restore-runner.sh" /usr/local/bin/dis-backup-restore
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/php/security.ini" "/etc/php/${PHP_VERSION}/fpm/conf.d/99-dis-security.ini"
@@ -116,23 +239,35 @@ run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-queue.service" /
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-scheduler.service" /etc/systemd/system/dis-scheduler.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-websocket.service" /etc/systemd/system/dis-websocket.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-frontend.service" /etc/systemd/system/dis-frontend.service
-run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-backup-request.service" /etc/systemd/system/dis-backup-request.service
-run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-backup-request.path" /etc/systemd/system/dis-backup-request.path
+install_backup_request_systemd_units "${APP_ROOT}"
+run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-backup-mount.service" /etc/systemd/system/dis-backup-mount.service
 run_cmd systemctl daemon-reload
 run_cmd systemctl enable dis-queue dis-scheduler dis-websocket dis-frontend dis-backup-request.path
-run_cmd systemctl start dis-backup-request.path
 run_cmd nginx -t
 
-log "Restarting services"
-for service in dis-queue dis-scheduler dis-websocket dis-frontend "${PHP_FPM_SERVICE}" nginx; do
-  if systemctl list-unit-files "${service}.service" >/dev/null 2>&1; then
-    run_cmd systemctl restart "${service}"
-  fi
-done
+finalize_backup_key_cutover "${APP_ROOT}"
 
 if [ "${SKIP_DEPLOY_CACHE_CLEAR}" != "1" ] && [ -f "${BACKEND_DIR}/artisan" ]; then
   log "Clearing application caches"
   run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" optimize:clear
 fi
 
+log "Starting the web tier behind maintenance for verification"
+restart_dis_web_services_for_verification
+prepare_backend_for_deployment_verification "${BACKEND_DIR}"
+require_dis_web_services
+HEALTH_URL="http://127.0.0.1/health" bash "${SCRIPT_DIR}/healthcheck.sh"
+
+if [ "${DIS_DEFER_OPERATIONAL_SERVICES}" != "1" ]; then
+  start_dis_operational_services
+  require_dis_runtime_services
+fi
+
+if [ "${DIS_DEPLOYMENT_OWNER}" = "deploy" ]; then
+  complete_deployment_maintenance "${BACKEND_DIR}"
+else
+  log "Deployment verified; maintenance remains owned by ${DIS_DEPLOYMENT_OWNER}."
+fi
+
+trap - EXIT
 log "Deployment finished"

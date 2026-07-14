@@ -5,13 +5,16 @@ namespace App\Jobs;
 use App\Services\SystemUpdateStatusService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Log;
 
 final class RunSystemUpdate implements ShouldQueue
 {
     use Queueable;
 
     public int $timeout = 3600;
+
     private const PROCESS_TIMEOUT_SECONDS = 2700;
+
     private const HEARTBEAT_SECONDS = 15;
 
     public function __construct(public readonly bool $updateSystem = false) {}
@@ -21,7 +24,8 @@ final class RunSystemUpdate implements ShouldQueue
         $root = realpath(base_path('../..')) ?: base_path('../..');
         $script = $root.'/update.sh';
         if (! is_file($script)) {
-            $status->append('Update script niet gevonden: '.$script);
+            Log::error('DIS update script is missing.', ['path' => $script]);
+            $status->append('Update script kon niet worden gevonden. Raadpleeg de beveiligde serverlogs.');
             $status->finish(1);
 
             return;

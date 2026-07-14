@@ -174,7 +174,7 @@ SQL
 confirm "This will uninstall DIS service configuration from this server."
 
 log "Stopping and disabling DIS services"
-for service in dis-queue dis-scheduler dis-websocket dis-backup-request.path dis-backup-request dis-backup.timer dis-backup; do
+for service in dis-queue dis-scheduler dis-websocket dis-backup-request.path dis-backup-request dis-backup-mount dis-backup.timer dis-backup; do
   if systemctl list-unit-files "${service}.service" >/dev/null 2>&1 || systemctl list-unit-files "${service}" >/dev/null 2>&1; then
     run_cmd systemctl disable --now "${service}" >/dev/null 2>&1 || true
   fi
@@ -188,6 +188,7 @@ for unit in \
   /etc/systemd/system/dis-frontend.service \
   /etc/systemd/system/dis-backup-request.service \
   /etc/systemd/system/dis-backup-request.path \
+  /etc/systemd/system/dis-backup-mount.service \
   /etc/systemd/system/dis-backup.service \
   /etc/systemd/system/dis-backup.timer; do
   if [ -e "${unit}" ]; then
@@ -199,6 +200,13 @@ if [ -f /etc/sudoers.d/dis-update ]; then
   run_cmd rm -f /etc/sudoers.d/dis-update
 fi
 run_cmd systemctl daemon-reload
+run_cmd rm -f -- \
+  /usr/local/bin/dis-backup-request-worker \
+  /usr/local/bin/dis-backup-mount \
+  /usr/local/bin/dis-backup-verify \
+  /usr/local/bin/dis-backup-restore \
+  /usr/local/bin/dis-snapshot-backup-input \
+  /usr/local/bin/dis-update-runner
 
 log "Removing DIS Nginx configuration"
 run_cmd rm -f -- "/etc/nginx/sites-enabled/${NGINX_SITE_NAME}" "/etc/nginx/sites-available/${NGINX_SITE_NAME}"

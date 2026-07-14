@@ -7,7 +7,6 @@ use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\AuditService;
 use App\Services\BackupReportService;
-use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Process;
@@ -17,8 +16,12 @@ use ZipArchive;
 final class BackupController extends Controller
 {
     private const RESTORE_CONFIRMATION = 'HERSTEL BACKUP';
+
     private const DEFAULT_LOCAL_PATH = '/opt/dis-data/backup';
+
     private const PASSWORD_KEY = 'backup.samba.password';
+
+    private const MAX_EXTRACTED_UPLOAD_BYTES = 2_147_483_648;
 
     public function __construct(private readonly AuditService $auditService) {}
 
@@ -68,7 +71,7 @@ final class BackupController extends Controller
             'samba_username' => ['nullable', 'string', 'max:255'],
             'samba_password' => ['nullable', 'string', 'max:2000'],
             'samba_domain' => ['nullable', 'string', 'max:255'],
-            'samba_version' => ['nullable', 'string', 'in:3.1.1,3.0,2.1,2.0,1.0'],
+            'samba_version' => ['nullable', 'string', 'in:3.1.1'],
             'auto_enabled' => ['required', 'boolean'],
             'auto_frequency' => ['required', 'string', 'in:daily,weekly'],
             'auto_day_of_week' => ['required', 'integer', 'between:1,7'],
@@ -138,7 +141,7 @@ final class BackupController extends Controller
             'samba_username' => ['required', 'string', 'max:255'],
             'samba_password' => ['nullable', 'string', 'max:2000'],
             'samba_domain' => ['nullable', 'string', 'max:255'],
-            'samba_version' => ['nullable', 'string', 'in:3.1.1,3.0,2.1,2.0,1.0'],
+            'samba_version' => ['nullable', 'string', 'in:3.1.1'],
         ]);
 
         if (! is_executable('/usr/bin/smbclient') && ! is_executable('/bin/smbclient')) {
@@ -192,7 +195,7 @@ final class BackupController extends Controller
         $target = $this->requestTarget($request);
         $this->ensureTargetReady($target);
         $this->writeRuntimeConfig($target);
-        $result = $this->runBackupRequest('create', $target, null, 900);
+        $result = $this->runBackupRequest('create', $target, null, 900, $request->user()?->id);
         $output = $this->cleanOutput($result['output']);
         $successful = $result['exit_code'] === 0;
         $reportRecipients = $successful
@@ -223,7 +226,7 @@ final class BackupController extends Controller
         $this->ensureTargetReady($target);
         $this->writeRuntimeConfig($target);
         $path = $this->backupPath($backup, $target);
-        $result = $this->runBackupRequest('verify', $target, $path, 600);
+        $result = $this->runBackupRequest('verify', $target, $path, 600, $request->user()?->id);
         $output = $this->cleanOutput($result['output']);
         $successful = $result['exit_code'] === 0;
 
@@ -258,25 +261,20 @@ final class BackupController extends Controller
         $this->ensureTargetReady($target);
         $this->writeRuntimeConfig($target);
         $path = $this->backupPath($backup, $target);
-        $result = $this->runBackupRequest('restore', $target, $path, 1200);
-        $output = $this->cleanOutput($result['output']);
-        $successful = $result['exit_code'] === 0;
+        $requestId = bin2hex(random_bytes(16));
 
-        $this->auditService->record('backups.restored', SystemSetting::class, $request->user(), [
+        $this->auditService->record('backups.restore_queued', SystemSetting::class, $request->user(), [
             'backup' => $backup,
             'target' => $target,
-            'successful' => $successful,
+            'request_id' => $requestId,
         ], null, $request);
-
-        if (! $successful) {
-            return ApiResponse::error('backup_restore_failed', $output ?: 'Backup restore mislukt.', 500);
-        }
+        $this->queueRestoreRequest($requestId, $target, $path, $request->user()?->id);
 
         return ApiResponse::success([
             'backup' => $backup,
-            'state' => 'restored',
-            'output' => $output,
-        ]);
+            'state' => 'queued',
+            'request_id' => $requestId,
+        ], 202);
     }
 
     public function uploadRestore(Request $request): JsonResponse
@@ -298,9 +296,9 @@ final class BackupController extends Controller
             throw ValidationException::withMessages(['backup' => ['Uploadbestand kon niet worden gelezen.']]);
         }
 
-        $root = $this->backupRoot('local');
-        if (! is_dir($root) && ! mkdir($root, 0750, true) && ! is_dir($root)) {
-            return ApiResponse::error('backup_upload_failed', 'Lokale backupmap kon niet worden gemaakt.', 500);
+        $root = $this->backupImportRoot();
+        if (! is_dir($root) || ! is_writable($root)) {
+            return ApiResponse::error('backup_upload_failed', 'Beveiligde backup-importmap is niet beschikbaar.', 500);
         }
 
         $backupId = $this->nextImportBackupId($root);
@@ -309,47 +307,34 @@ final class BackupController extends Controller
             return ApiResponse::error('backup_upload_failed', 'Upload backupmap kon niet worden gemaakt.', 500);
         }
 
+        $queued = false;
         try {
             $this->extractBackupZip($uploadedPath, $path);
-            $verify = $this->runBackupRequest('verify', 'local', $path, 600);
-            $verifyOutput = $this->cleanOutput($verify['output']);
-            if ($verify['exit_code'] !== 0) {
-                $this->deleteDirectory($path, $root);
-                $this->auditService->record('backups.upload_restore_failed', SystemSetting::class, $request->user(), [
-                    'backup' => $backupId,
-                    'successful' => false,
-                    'stage' => 'verify',
-                ], null, $request);
-
-                return ApiResponse::error('backup_upload_verify_failed', $verifyOutput ?: 'Geuploade backup is niet geldig.', 422);
-            }
-
             $this->writeRuntimeConfig('local');
-            $restore = $this->runBackupRequest('restore', 'local', $path, 1200);
-            $restoreOutput = $this->cleanOutput($restore['output']);
-            $output = trim($verifyOutput."\n".$restoreOutput);
+            $requestId = bin2hex(random_bytes(16));
 
-            $this->auditService->record('backups.upload_restored', SystemSetting::class, $request->user(), [
+            $this->auditService->record('backups.upload_restore_queued', SystemSetting::class, $request->user(), [
                 'backup' => $backupId,
                 'filename' => $file->getClientOriginalName(),
-                'successful' => $restore['exit_code'] === 0,
+                'request_id' => $requestId,
             ], null, $request);
-
-            if ($restore['exit_code'] !== 0) {
-                return ApiResponse::error('backup_upload_restore_failed', $restoreOutput ?: 'Backup restore mislukt.', 500);
-            }
+            $this->queueRestoreRequest($requestId, 'local', $path, $request->user()?->id);
+            $queued = true;
 
             return ApiResponse::success([
                 'backup' => $backupId,
-                'state' => 'restored',
-                'output' => $output,
-                'backups' => $this->index()->getData(true)['data']['backups'] ?? [],
-            ]);
+                'state' => 'queued',
+                'request_id' => $requestId,
+            ], 202);
         } catch (ValidationException $exception) {
-            $this->deleteDirectory($path, $root);
+            if (! $queued) {
+                $this->deleteDirectory($path, $root);
+            }
             throw $exception;
         } catch (\Throwable $exception) {
-            $this->deleteDirectory($path, $root);
+            if (! $queued) {
+                $this->deleteDirectory($path, $root);
+            }
             report($exception);
 
             return ApiResponse::error('backup_upload_failed', 'Geuploade backup kon niet worden verwerkt.', 500);
@@ -373,28 +358,41 @@ final class BackupController extends Controller
     /**
      * @return array{exit_code: int, output: string}
      */
-    private function runBackupRequest(string $operation, string $target, ?string $backupPath, int $timeoutSeconds): array
-    {
+    private function runBackupRequest(
+        string $operation,
+        string $target,
+        ?string $backupPath,
+        int $timeoutSeconds,
+        ?string $actorId,
+    ): array {
         $root = $this->backupRequestRoot();
-        if (! is_dir($root) && ! mkdir($root, 0770, true) && ! is_dir($root)) {
-            return ['exit_code' => 1, 'output' => 'Backup request map kon niet worden aangemaakt.'];
+        if (! is_dir($root) || ! is_writable($root)) {
+            return ['exit_code' => 1, 'output' => 'Beveiligde backup request map is niet beschikbaar.'];
         }
-        @chmod($root, 0770);
 
         $id = bin2hex(random_bytes(16));
         $payload = [
             'operation' => $operation,
             'target' => $target,
             'backup_path' => $backupPath,
-            'created_at' => ApiDateTime::now(),
+            'actor_id' => $actorId,
+            'created_at' => gmdate('Y-m-d\\TH:i:s\\Z'),
         ];
         $temporary = $root.'/'.$id.'.tmp';
         $pending = $root.'/'.$id.'.pending';
         $result = $root.'/'.$id.'.result';
 
-        file_put_contents($temporary, json_encode($payload, JSON_THROW_ON_ERROR)."\n", LOCK_EX);
-        @chmod($temporary, 0660);
-        rename($temporary, $pending);
+        try {
+            self::writeRequestFile($temporary, json_encode($payload, JSON_THROW_ON_ERROR)."\n", 0660);
+            if (! @rename($temporary, $pending)) {
+                throw new \RuntimeException('Backup request kon niet atomair worden gepubliceerd.');
+            }
+        } catch (\Throwable $exception) {
+            @unlink($temporary);
+            report($exception);
+
+            return ['exit_code' => 1, 'output' => 'Beveiligde backup request kon niet worden geregistreerd.'];
+        }
 
         $deadline = microtime(true) + $timeoutSeconds;
         while (microtime(true) < $deadline) {
@@ -416,11 +414,134 @@ final class BackupController extends Controller
         return ['exit_code' => 124, 'output' => 'Backup runner reageerde niet binnen de verwachte tijd. Controleer de DIS backup request service.'];
     }
 
+    private function queueRestoreRequest(string $id, string $target, string $backupPath, ?string $actorId): void
+    {
+        $root = $this->backupRequestRoot();
+        if (! is_dir($root) || ! is_writable($root)) {
+            throw new \RuntimeException('Beveiligde backup request map is niet beschikbaar.');
+        }
+
+        $temporary = $root.'/'.$id.'.tmp';
+        $pending = $root.'/'.$id.'.pending';
+        $accepted = $root.'/'.$id.'.accepted';
+        $result = $root.'/'.$id.'.result';
+        $payload = [
+            'operation' => 'restore',
+            'target' => $target,
+            'backup_path' => $backupPath,
+            'actor_id' => $actorId,
+            'created_at' => gmdate('Y-m-d\\TH:i:s\\Z'),
+        ];
+
+        try {
+            self::writeRequestFile($temporary, json_encode($payload, JSON_THROW_ON_ERROR)."\n", 0660);
+            self::writeRequestFile($accepted, json_encode([
+                'state' => 'queued',
+                'created_at' => $payload['created_at'],
+            ], JSON_THROW_ON_ERROR)."\n", 0640);
+        } catch (\Throwable $exception) {
+            @unlink($temporary);
+            throw $exception;
+        }
+
+        app()->terminating(static function () use ($temporary, $pending, $result): void {
+            if (! is_file($temporary)) {
+                return;
+            }
+            if (! file_exists($pending) && @rename($temporary, $pending)) {
+                return;
+            }
+
+            $failure = json_encode([
+                'state' => 'failed',
+                'exit_code' => 1,
+                'output' => 'Restore request kon na de HTTP-response niet worden gepubliceerd.',
+                'finished_at' => gmdate('Y-m-d\\TH:i:s\\Z'),
+            ])."\n";
+            if (is_string($failure)) {
+                try {
+                    self::writeRequestFile($result, $failure, 0640);
+                } catch (\Throwable) {
+                    // The HTTP response is already complete; the root worker never received this request.
+                }
+            }
+            @unlink($temporary);
+        });
+    }
+
+    private static function writeRequestFile(string $path, string $contents, int $mode): void
+    {
+        $handle = @fopen($path, 'xb');
+        if ($handle === false) {
+            throw new \RuntimeException('Beveiligd backup requestbestand kon niet exclusief worden aangemaakt.');
+        }
+
+        $successful = false;
+        try {
+            $offset = 0;
+            $length = strlen($contents);
+            while ($offset < $length) {
+                $written = fwrite($handle, substr($contents, $offset));
+                if ($written === false || $written === 0) {
+                    throw new \RuntimeException('Beveiligd backup requestbestand kon niet volledig worden geschreven.');
+                }
+                $offset += $written;
+            }
+            if (! fflush($handle) || ! fsync($handle) || ! fchmod($handle, $mode)) {
+                throw new \RuntimeException('Beveiligd backup requestbestand kon niet duurzaam worden opgeslagen.');
+            }
+            $successful = true;
+        } finally {
+            fclose($handle);
+            if (! $successful) {
+                @unlink($path);
+            }
+        }
+    }
+
+    public function operationStatus(string $requestId): JsonResponse
+    {
+        if (preg_match('/^[a-f0-9]{32}$/', $requestId) !== 1) {
+            abort(404);
+        }
+
+        $root = $this->backupRequestRoot();
+        $accepted = $root.'/'.$requestId.'.accepted';
+        $result = $root.'/'.$requestId.'.result';
+        if (! is_file($accepted)) {
+            abort(404);
+        }
+        if (is_file($result)) {
+            $decoded = json_decode((string) file_get_contents($result), true);
+            $state = is_string($decoded['state'] ?? null) ? $decoded['state'] : 'failed';
+
+            return ApiResponse::success([
+                'request_id' => $requestId,
+                'state' => $state,
+                'exit_code' => (int) ($decoded['exit_code'] ?? 1),
+                'output' => $this->cleanOutput(is_string($decoded['output'] ?? null) ? $decoded['output'] : ''),
+                'finished_at' => is_string($decoded['finished_at'] ?? null) ? $decoded['finished_at'] : null,
+            ]);
+        }
+
+        return ApiResponse::success([
+            'request_id' => $requestId,
+            'state' => is_file($root.'/'.$requestId.'.pending') ? 'queued' : 'running',
+        ]);
+    }
+
     private function backupRequestRoot(): string
     {
         $dataPath = rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/');
 
         return $dataPath.'/backup-requests';
+    }
+
+    private function backupImportRoot(): string
+    {
+        $dataPath = rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/');
+
+        return $dataPath.'/backup-imports';
     }
 
     /**
@@ -475,8 +596,8 @@ final class BackupController extends Controller
     }
 
     /**
-     * @param array<int, string>|null $successUserIds
-     * @param array<int, string>|null $failedUserIds
+     * @param  array<int, string>|null  $successUserIds
+     * @param  array<int, string>|null  $failedUserIds
      */
     private function updateReportRecipients(?array $successUserIds, ?array $failedUserIds): void
     {
@@ -516,31 +637,39 @@ final class BackupController extends Controller
     private function writeRuntimeConfig(?string $targetOverride = null): void
     {
         $target = $targetOverride ?? SystemSetting::string('backup.target', 'local') ?? 'local';
-        $lines = [
-            'BACKUP_TARGET='.$this->shellValue($target),
-            'BACKUP_ROOT='.$this->shellValue(SystemSetting::string('backup.local_path', self::DEFAULT_LOCAL_PATH) ?? self::DEFAULT_LOCAL_PATH),
-            'BACKUP_RETENTION_COUNT='.$this->shellValue((string) max(0, SystemSetting::integer('backup.retention_count', 7))),
-            'BACKUP_ENCRYPTION_KEY_FILE='.$this->shellValue(rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/').'/secrets/backup-encryption.key'),
-            'BACKUP_SAMBA_SHARE='.$this->shellValue(SystemSetting::string('backup.samba.share', '') ?? ''),
-            'BACKUP_SAMBA_MOUNT='.$this->shellValue(SystemSetting::string('backup.samba.mount', '/mnt/dis-backup') ?? '/mnt/dis-backup'),
-            'BACKUP_SAMBA_USERNAME='.$this->shellValue(SystemSetting::string('backup.samba.username', '') ?? ''),
-            'BACKUP_SAMBA_PASSWORD='.$this->shellValue(SystemSetting::string(self::PASSWORD_KEY, '') ?? ''),
-            'BACKUP_SAMBA_DOMAIN='.$this->shellValue(SystemSetting::string('backup.samba.domain', '') ?? ''),
-            'BACKUP_SAMBA_VERSION='.$this->shellValue(SystemSetting::string('backup.samba.version', '3.1.1') ?? '3.1.1'),
+        $config = [
+            'BACKUP_TARGET' => $target,
+            'BACKUP_ROOT' => SystemSetting::string('backup.local_path', self::DEFAULT_LOCAL_PATH) ?? self::DEFAULT_LOCAL_PATH,
+            'BACKUP_RETENTION_COUNT' => (string) max(0, SystemSetting::integer('backup.retention_count', 7)),
+            'BACKUP_ENCRYPTION_KEY_FILE' => rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/').'/secrets/backup-encryption.key',
+            'BACKUP_SAMBA_SHARE' => SystemSetting::string('backup.samba.share', '') ?? '',
+            'BACKUP_SAMBA_MOUNT' => SystemSetting::string('backup.samba.mount', '/mnt/dis-backup') ?? '/mnt/dis-backup',
+            'BACKUP_SAMBA_USERNAME' => SystemSetting::string('backup.samba.username', '') ?? '',
+            'BACKUP_SAMBA_PASSWORD' => SystemSetting::string(self::PASSWORD_KEY, '') ?? '',
+            'BACKUP_SAMBA_DOMAIN' => SystemSetting::string('backup.samba.domain', '') ?? '',
+            'BACKUP_SAMBA_VERSION' => SystemSetting::string('backup.samba.version', '3.1.1') ?? '3.1.1',
         ];
-        $path = storage_path('app/backup-config.env');
+        $path = storage_path('app/backup-config.json');
         $directory = dirname($path);
         if (! is_dir($directory)) {
             mkdir($directory, 0750, true);
         }
 
-        file_put_contents($path, implode("\n", $lines)."\n", LOCK_EX);
-        chmod($path, 0640);
-    }
-
-    private function shellValue(string $value): string
-    {
-        return "'".str_replace("'", "'\"'\"'", $value)."'";
+        $temporary = tempnam($directory, '.backup-config-');
+        if ($temporary === false) {
+            throw new \RuntimeException('Backup runtime configuration could not be created.');
+        }
+        try {
+            file_put_contents($temporary, json_encode($config, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT)."\n", LOCK_EX);
+            chmod($temporary, 0640);
+            if (! rename($temporary, $path)) {
+                throw new \RuntimeException('Backup runtime configuration could not be published.');
+            }
+        } finally {
+            if (is_file($temporary)) {
+                @unlink($temporary);
+            }
+        }
     }
 
     private function isMounted(string $path): bool
@@ -599,10 +728,9 @@ final class BackupController extends Controller
 
     private function nextImportBackupId(string $root): string
     {
-        $now = now('UTC');
-        for ($offset = 0; $offset < 120; $offset++) {
-            $id = $now->copy()->addSeconds($offset)->format('Ymd\THis\Z');
-            if (! is_dir($root.'/'.$id)) {
+        for ($attempt = 0; $attempt < 10; $attempt++) {
+            $id = bin2hex(random_bytes(16));
+            if (! file_exists($root.'/'.$id) && ! is_link($root.'/'.$id)) {
                 return $id;
             }
         }
@@ -616,13 +744,16 @@ final class BackupController extends Controller
             throw ValidationException::withMessages(['backup' => ['ZIP ondersteuning ontbreekt op de server.']]);
         }
 
-        $zip = new ZipArchive();
+        $zip = new ZipArchive;
         if ($zip->open($zipPath) !== true) {
             throw ValidationException::withMessages(['backup' => ['ZIP-bestand kon niet worden geopend.']]);
         }
 
         try {
             $prefix = $this->backupZipPrefix($zip);
+            $allowedFiles = ['backup.payload.enc', 'BACKUP.HMAC', 'SHA256SUMS', 'manifest.json'];
+            $seenFiles = [];
+            $extractedBytes = 0;
             for ($index = 0; $index < $zip->numFiles; $index++) {
                 $entry = $zip->getNameIndex($index);
                 if (! is_string($entry)) {
@@ -636,35 +767,47 @@ final class BackupController extends Controller
 
                 $destination = $targetPath.'/'.$relative;
                 if (str_ends_with($entry, '/')) {
-                    $this->ensureDirectory($destination);
                     continue;
                 }
+
+                if (! in_array($relative, $allowedFiles, true) || isset($seenFiles[$relative])) {
+                    throw ValidationException::withMessages(['backup' => ['ZIP-bestand bevat onverwachte of dubbele bestanden.']]);
+                }
+                $entryStat = $zip->statIndex($index);
+                $entrySize = is_array($entryStat) && is_int($entryStat['size'] ?? null) ? $entryStat['size'] : -1;
+                if ($entrySize < 0 || $entrySize > self::MAX_EXTRACTED_UPLOAD_BYTES - $extractedBytes) {
+                    throw ValidationException::withMessages(['backup' => ['Uitgepakte backup is groter dan toegestaan.']]);
+                }
+                $extractedBytes += $entrySize;
+                $seenFiles[$relative] = true;
 
                 $stream = $zip->getStream($entry);
                 if ($stream === false) {
                     throw ValidationException::withMessages(['backup' => ['ZIP-bestand bevat een onleesbaar bestand.']]);
                 }
 
-                $this->ensureDirectory(dirname($destination));
-                $output = fopen($destination, 'wb');
+                $output = fopen($destination, 'xb');
                 if ($output === false) {
                     fclose($stream);
                     throw ValidationException::withMessages(['backup' => ['Backupbestand kon niet worden weggeschreven.']]);
                 }
 
-                stream_copy_to_stream($stream, $output);
-                fclose($stream);
-                fclose($output);
-                chmod($destination, 0640);
+                try {
+                    $copied = stream_copy_to_stream($stream, $output, $entrySize + 1);
+                    if ($copied !== $entrySize || ! fflush($output) || ! fchmod($output, 0640)) {
+                        throw ValidationException::withMessages(['backup' => ['ZIP-bestand bevat een onvolledig of ongeldig backupbestand.']]);
+                    }
+                } finally {
+                    fclose($stream);
+                    fclose($output);
+                }
             }
         } finally {
             $zip->close();
         }
 
-        $encryptedFiles = ['backup.payload.enc', 'SHA256SUMS', 'manifest.json'];
-        $legacyFiles = ['database.dump', 'storage.tar.gz', 'source.tar.gz', 'env.backup', 'SHA256SUMS', 'manifest.json'];
-        if (! $this->containsRequiredBackupFiles($targetPath, $encryptedFiles)
-            && ! $this->containsRequiredBackupFiles($targetPath, $legacyFiles)) {
+        $encryptedFiles = ['backup.payload.enc', 'BACKUP.HMAC', 'SHA256SUMS', 'manifest.json'];
+        if (! $this->containsRequiredBackupFiles($targetPath, $encryptedFiles)) {
             throw ValidationException::withMessages(['backup' => ['ZIP-bestand bevat geen volledige DIS backup.']]);
         }
     }
@@ -672,8 +815,7 @@ final class BackupController extends Controller
     private function backupZipPrefix(ZipArchive $zip): string
     {
         $requiredSets = [
-            ['backup.payload.enc', 'SHA256SUMS', 'manifest.json'],
-            ['database.dump', 'storage.tar.gz', 'source.tar.gz', 'env.backup', 'SHA256SUMS', 'manifest.json'],
+            ['backup.payload.enc', 'BACKUP.HMAC', 'SHA256SUMS', 'manifest.json'],
         ];
         $names = [];
         for ($index = 0; $index < $zip->numFiles; $index++) {
@@ -709,12 +851,12 @@ final class BackupController extends Controller
     }
 
     /**
-     * @param array<int, string> $required
+     * @param  array<int, string>  $required
      */
     private function containsRequiredBackupFiles(string $path, array $required): bool
     {
         foreach ($required as $filename) {
-            if (! is_file($path.'/'.$filename)) {
+            if (is_link($path.'/'.$filename) || ! is_file($path.'/'.$filename)) {
                 return false;
             }
         }
@@ -753,6 +895,12 @@ final class BackupController extends Controller
 
     private function deleteDirectory(string $path, string $root): void
     {
+        if (is_link($path)) {
+            @unlink($path);
+
+            return;
+        }
+
         $root = rtrim(realpath($root) ?: $root, '/');
         $path = rtrim(realpath($path) ?: $path, '/');
         if ($path === $root || ! str_starts_with($path, $root.'/') || ! is_dir($path)) {

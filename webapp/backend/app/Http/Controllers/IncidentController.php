@@ -10,22 +10,26 @@ use App\Models\AvailabilityStatus;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
 use App\Models\SystemSetting;
+use App\Models\User;
 use App\Repositories\IncidentRepository;
 use App\Services\DispatchService;
 use App\Services\DroneFlightContextService;
-use App\Services\IncidentService;
 use App\Services\IncidentAccessService;
+use App\Services\IncidentService;
 use App\Support\ApiDateTime;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
 final class IncidentController extends Controller
 {
     private const DEFAULT_APP_VISIBLE_TIMELINE_TYPES = ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status'];
+
     private const ALL_TIMELINE_TYPES = ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status', 'internal_notes', 'audit'];
+
     private const APP_VISIBLE_TIMELINE_TYPES = ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status', 'audit'];
 
     public function __construct(
@@ -175,7 +179,7 @@ final class IncidentController extends Controller
                     'status' => 'unavailable',
                     'aeret_url' => null,
                     'openstreetmap_url' => null,
-                    'errors' => [$exception->getMessage()],
+                    'errors' => ['Dronekaart kon niet worden opgebouwd.'],
                 ],
                 'airspace' => [
                     'provider' => 'Aeret Drone PreFlight',
@@ -184,13 +188,13 @@ final class IncidentController extends Controller
                     'no_fly_zones' => [],
                     'notams' => [],
                     'restrictions' => [],
-                    'errors' => [$exception->getMessage()],
+                    'errors' => ['Aeret/NOTAM gegevens konden niet worden opgehaald.'],
                 ],
                 'weather' => [
                     'provider' => 'Open-Meteo',
                     'status' => 'unavailable',
                     'summary' => 'Weerdata kon niet worden opgehaald.',
-                    'errors' => [$exception->getMessage()],
+                    'errors' => ['Weerdata kon niet worden opgehaald.'],
                 ],
                 'checklist' => [],
             ]);
@@ -340,7 +344,7 @@ final class IncidentController extends Controller
         $operatorStatusItems = collect();
         if ($recipientStartsByUser->isNotEmpty()) {
             $firstRelevantStatusAt = $recipientStartsByUser->min();
-        $operatorStatusItems = AvailabilityStatus::query()
+            $operatorStatusItems = AvailabilityStatus::query()
                 ->with('user')
                 ->whereIn('user_id', $recipientStartsByUser->keys())
                 ->whereIn('status', ['en_route', 'on_scene'])
@@ -415,9 +419,9 @@ final class IncidentController extends Controller
     }
 
     /**
-     * @param list<string> $dispatchIds
+     * @param  list<string>  $dispatchIds
      */
-    private function incidentAuditTimelineItems(Incident $incident, array $dispatchIds): \Illuminate\Support\Collection
+    private function incidentAuditTimelineItems(Incident $incident, array $dispatchIds): Collection
     {
         $incidentId = (string) $incident->id;
 
@@ -504,7 +508,7 @@ final class IncidentController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function incidentPayloadForActor(Incident $incident, \App\Models\User $actor): array
+    private function incidentPayloadForActor(Incident $incident, User $actor): array
     {
         $payload = MobileApiPayload::incident($incident);
         if (! $actor->isOperatorClient()) {
@@ -557,5 +561,4 @@ final class IncidentController extends Controller
 
         return $payload;
     }
-
 }

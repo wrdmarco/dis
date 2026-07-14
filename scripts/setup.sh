@@ -125,13 +125,23 @@ set_env BACKUP_DISK_PATH "${DIS_DATA_PATH}/backup"
 set_env BACKUP_ENCRYPTION_KEY_FILE "${DIS_DATA_PATH}/secrets/backup-encryption.key"
 set_env DB_HOST 127.0.0.1
 set_env REDIS_HOST 127.0.0.1
-set_env SESSION_SECURE_COOKIE false
+set_env TRUSTED_PROXIES "127.0.0.1,::1"
+set_env CORS_ALLOWED_ORIGINS "https://${DOMAIN}"
+set_env SESSION_DRIVER database
+set_env SESSION_LIFETIME 120
+set_env SESSION_ABSOLUTE_LIFETIME 720
+set_env SESSION_COOKIE __Host-dis_session
+set_env SESSION_DOMAIN ""
+set_env SESSION_SECURE_COOKIE true
+set_env SESSION_SAME_SITE lax
+set_env SESSION_TRUSTED_ORIGINS "https://${DOMAIN}"
+set_env SANCTUM_STATEFUL_DOMAINS "${DOMAIN}"
 set_env REVERB_SCHEME http
 
 run_cmd chown root:"${DIS_GROUP}" "${ENV_FILE}"
 run_cmd chmod 0640 "${ENV_FILE}"
 
-ensure_backup_encryption_key >/dev/null
+DIS_BACKUP_KEY_CUTOVER_ALLOWED=1 ensure_backup_encryption_key >/dev/null
 
 log "Creating backend .env symlink"
 run_cmd ln -sfn "${ENV_FILE}" "${APP_ROOT}/webapp/backend/.env"
@@ -140,21 +150,28 @@ run_cmd chown -h "${DIS_USER}:${DIS_GROUP}" "${APP_ROOT}/webapp/backend/.env"
 log "Creating frontend production environment"
 cat > "${APP_ROOT}/webapp/frontend/.env.production" <<EOF
 NEXT_PUBLIC_API_BASE_URL=/api
+NEXT_PUBLIC_APP_URL=https://${DOMAIN}
 NEXT_PUBLIC_REVERB_APP_KEY=$(env_value REVERB_APP_KEY)
 NEXT_PUBLIC_WEBSOCKET_HOST=${DOMAIN}
-NEXT_PUBLIC_WEBSOCKET_PORT=80
-NEXT_PUBLIC_WEBSOCKET_SCHEME=ws
+NEXT_PUBLIC_WEBSOCKET_PORT=443
+NEXT_PUBLIC_WEBSOCKET_SCHEME=wss
+SECURITY_CONTACT=$(env_value SECURITY_CONTACT)
+CSP_AERET_FRAME_ORIGINS=$(env_value CSP_AERET_FRAME_ORIGINS)
 EOF
 run_cmd chown "${DIS_USER}:${DIS_GROUP}" "${APP_ROOT}/webapp/frontend/.env.production"
 run_cmd chmod 0640 "${APP_ROOT}/webapp/frontend/.env.production"
 
 log "Generating Nginx site configuration"
-GENERATED_NGINX_DIR="${APP_ROOT}/storage/generated/nginx"
-ensure_directory "${GENERATED_NGINX_DIR}" root root 0755
+GENERATED_NGINX_DIR="${DIS_DATA_PATH}/storage/generated/nginx"
+ensure_managed_directory "${GENERATED_NGINX_DIR}" root root 0755
 GENERATED_NGINX_CONF="${GENERATED_NGINX_DIR}/dis.conf"
-run_cmd cp "${APP_ROOT}/infrastructure/nginx/dis.conf" "${GENERATED_NGINX_CONF}"
-run_cmd sed -i "s/server_name _;/server_name ${DOMAIN} _;/" "${GENERATED_NGINX_CONF}"
-run_cmd sed -i "s#unix:/run/php/php[0-9.]*-fpm.sock#unix:/run/php/php${PHP_VERSION}-fpm.sock#" "${GENERATED_NGINX_CONF}"
+GENERATED_NGINX_TEMP="$(mktemp "${GENERATED_NGINX_DIR}/.dis.conf.XXXXXX")"
+run_cmd cp "${APP_ROOT}/infrastructure/nginx/dis.conf" "${GENERATED_NGINX_TEMP}"
+run_cmd sed -i "s/server_name _;/server_name ${DOMAIN} _;/" "${GENERATED_NGINX_TEMP}"
+run_cmd sed -i "s#unix:/run/php/php[0-9.]*-fpm.sock#unix:/run/php/php${PHP_VERSION}-fpm.sock#" "${GENERATED_NGINX_TEMP}"
+run_cmd chown root:root "${GENERATED_NGINX_TEMP}"
+run_cmd chmod 0644 "${GENERATED_NGINX_TEMP}"
+run_cmd mv -fT -- "${GENERATED_NGINX_TEMP}" "${GENERATED_NGINX_CONF}"
 
 log "Provisioning database"
 APP_ROOT="${APP_ROOT}" ENV_FILE="${ENV_FILE}" bash "${SCRIPT_DIR}/provision-database.sh"

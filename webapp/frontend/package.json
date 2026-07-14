@@ -8,13 +8,15 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 3000",
     "preview": "next start --hostname 127.0.0.1 --port 3000",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test:security": "node scripts/security-source-check.mjs",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "laravel-echo": "^2.2.0",
     "lucide-react": "^0.468.0",
     "next": "^15.5.8",
-    "playwright": "^1.61.1",
     "pusher-js": "^8.4.0",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
@@ -25,7 +27,13 @@
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^15.5.20",
+    "playwright": "^1.61.1",
     "typescript": "^5.7.0"
+  },
+  "overrides": {
+    "postcss": "8.5.10"
   },
   "engines": {
     "node": ">=22.0.0"

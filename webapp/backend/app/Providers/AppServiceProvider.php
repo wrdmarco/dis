@@ -5,21 +5,19 @@ namespace App\Providers;
 use App\Mail\MicrosoftGraphTransport;
 use App\Models\PersonalAccessToken;
 use App\Models\SystemSetting;
-use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\Sanctum;
 use Throwable;
 
 final class AppServiceProvider extends ServiceProvider
 {
-    public function register(): void
-    {
-    }
+    public function register(): void {}
 
     public function boot(): void
     {
@@ -29,10 +27,33 @@ final class AppServiceProvider extends ServiceProvider
         $this->registerMailTransports();
 
         RateLimiter::for('api', fn (Request $request) => Limit::perMinute(1200)->by($request->user()?->id ?: $request->ip()));
+        RateLimiter::for('authenticated', function (Request $request): array {
+            $isWriteRequest = ! $request->isMethodSafe();
+            $subject = (string) ($request->user()?->getAuthIdentifier() ?: $request->ip());
+
+            return [
+                Limit::perMinute($isWriteRequest ? 120 : 600)->by('authenticated:subject:'.$subject),
+                Limit::perMinute($isWriteRequest ? 240 : 1200)->by('authenticated:ip:'.$request->ip()),
+            ];
+        });
         RateLimiter::for('mobile-public', fn (Request $request) => Limit::perMinute(6000)->by($request->ip()));
-        RateLimiter::for('login', fn (Request $request) => Limit::perMinute(60)->by($request->ip().'|'.$request->input('email')));
-        RateLimiter::for('two-factor', fn (Request $request) => Limit::perMinute(10)->by($request->user()?->id ?: $request->ip()));
-        RateLimiter::for('password-reset', fn (Request $request) => Limit::perMinute(3)->by($request->ip().'|'.$request->input('email')));
+        RateLimiter::for('login', fn (Request $request): array => [
+            Limit::perMinute(20)->by('login:ip:'.$request->ip()),
+            Limit::perMinute(10)->by('login:account:'.$this->accountRateLimitKey($request)),
+        ]);
+        RateLimiter::for('setup', fn (Request $request) => Limit::perMinute(5)->by('setup:ip:'.$request->ip()));
+        RateLimiter::for('mobile-pairing', fn (Request $request): array => [
+            Limit::perMinute(20)->by('mobile-pairing:ip:'.$request->ip()),
+            Limit::perMinute(10)->by('mobile-pairing:code:'.hash('sha256', (string) $request->input('code', 'missing'))),
+        ]);
+        RateLimiter::for('two-factor', fn (Request $request): array => [
+            Limit::perMinute(20)->by('two-factor:ip:'.$request->ip()),
+            Limit::perMinute(6)->by('two-factor:subject:'.$this->authenticationSubjectKey($request)),
+        ]);
+        RateLimiter::for('password-reset', fn (Request $request): array => [
+            Limit::perMinute(10)->by('password-reset:ip:'.$request->ip()),
+            Limit::perMinute(5)->by('password-reset:account:'.$this->accountRateLimitKey($request)),
+        ]);
         RateLimiter::for('push-token', fn (Request $request) => Limit::perMinute(300)->by($request->user()?->id ?: $request->ip()));
         RateLimiter::for('dispatch-response', fn (Request $request) => Limit::perMinute(30)->by($request->user()?->id ?: $request->ip()));
         RateLimiter::for('developer-upload', fn (Request $request) => Limit::perMinute(6)->by($request->ip()));
@@ -64,6 +85,28 @@ final class AppServiceProvider extends ServiceProvider
             putenv('TEMP='.storage_path('tmp'));
             putenv('TMP='.storage_path('tmp'));
         }
+    }
+
+    private function accountRateLimitKey(Request $request): string
+    {
+        $email = mb_strtolower(trim((string) $request->input('email', '')));
+        $identifier = $email === '' ? 'missing|'.$request->ip() : $email;
+
+        return hash('sha256', $identifier);
+    }
+
+    private function authenticationSubjectKey(Request $request): string
+    {
+        $userId = $request->user()?->getAuthIdentifier();
+        if (is_string($userId) && $userId !== '') {
+            return hash('sha256', 'user|'.$userId);
+        }
+
+        if ($request->hasSession()) {
+            return hash('sha256', 'session|'.$request->session()->getId());
+        }
+
+        return hash('sha256', 'ip|'.$request->ip());
     }
 
     private function applyManagedSettings(): void

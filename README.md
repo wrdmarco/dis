@@ -7,7 +7,8 @@ This repository contains only the files required to install, run, update and uni
 
 - Ubuntu 26.04 LTS
 - Root or sudo access
-- HTTP deployment, no SSL certificate required
+- Public HTTPS termination in front of DIS; the inner Nginx listener may use HTTP only when it is
+  shielded from direct access and the trusted edge overwrites forwarding headers
 - DNS record pointing to the server
 - Fresh clone path: `/opt/dis`
 
@@ -41,7 +42,7 @@ The installer will:
 After the CLI install finishes, open:
 
 ```text
-http://dis.example.nl/setup
+https://dis.example.nl/setup
 ```
 
 The setup wizard configures:
@@ -53,6 +54,31 @@ The setup wizard configures:
 - Firebase app configuration
 
 The setup wizard is only available before the first user exists. After completion, further configuration is done in the admin panel.
+
+## Web Security Configuration
+
+Browser authentication uses encrypted, database-backed server sessions. The only browser session
+credential is the `Secure`, `HttpOnly`, host-only `__Host-dis_session` cookie. Keep Redis available for
+shared rate-limit and replay-protection state, and keep PostgreSQL available for shared web sessions.
+
+Set these production values in `/opt/dis-data/.env` before deployment:
+
+- `APP_URL` and `CORS_ALLOWED_ORIGINS` must use the exact public HTTPS origin.
+- `TRUSTED_PROXIES` must contain only the actual TLS/reverse-proxy addresses or CIDR ranges. Wildcards
+  are rejected by the deployment hardening step. The edge must overwrite, rather than append to,
+  untrusted forwarding headers before traffic reaches the inner Nginx service.
+- `SECURITY_CONTACT` must be a monitored `mailto:` or HTTPS URI. The RFC 9116 endpoint deliberately
+  returns `503` until this value is valid; no placeholder contact is published.
+- `CSP_AERET_FRAME_ORIGINS` may contain comma-separated, exact HTTPS origins only when an additional
+  Aeret deployment is genuinely required.
+
+The enforced CSP permits only DIS itself plus the sources used by the current code: PDOK and Photon
+for address lookup, ArcGIS for map imagery, OpenStreetMap for the embedded location picker, the two
+built-in Aeret map origins, and the configured same-service websocket host. Adding a new external
+frontend dependency requires updating and testing `webapp/frontend/src/lib/securityPolicy.ts`.
+
+HSTS is owned by the public TLS edge. The inner Nginx configuration removes duplicate upstream
+security headers and supplies the remaining common headers exactly once.
 
 ## Updates
 
@@ -97,6 +123,23 @@ Database seeders are intentionally not run during updates, so admin-managed team
 sudo RUN_SEEDERS=1 bash /opt/dis/scripts/deploy.sh
 ```
 
+The authentication-hardening upgrade deliberately revokes all existing browser sessions, mobile/API
+access tokens, mobile pairing codes and active push-device registrations. After this migration is installed,
+every user and paired device must sign in or pair again and register for push notifications again; revoked
+credentials cannot be recovered by rolling the migration back.
+
+The same upgrade rotates the historical backup encryption/HMAC key because older releases made that key
+readable to the shared runtime group. Existing local backups, pending imports and request state are moved to
+the root-only `/opt/dis-data/legacy-backup-state` quarantine and are no longer trusted by the web restore
+workflow. The deployment creates and verifies a fresh backup with the new generation before reopening
+production. An offline copy of an old key can still decrypt historical material, so previously exposed backup
+confidentiality cannot be recovered by permission changes; any exceptional legacy recovery must therefore be
+performed manually by an authorised root operator in an isolated environment.
+
+A missing key or generation marker is never treated as proof of a fresh installation. Setup and deployment
+always enter the same fail-closed cutover state, quarantine any existing backup state and keep maintenance
+enabled until the first replacement backup has been verified and durably synchronised to its target filesystem.
+
 ## Mobile Apps
 
 Mobile app installation and updates are handled through the platform app stores. The deployment no longer exposes a public APK download page.
@@ -115,10 +158,15 @@ Backups are stored under:
 /opt/dis-data/backup
 ```
 
-New backups contain an encrypted `backup.payload.enc`. The encryption key is stored separately at
+New backups contain an encrypted `backup.payload.enc`, a checksum manifest and a keyed `BACKUP.HMAC`.
+Verification and restore reject legacy plaintext or unauthenticated archives. Runtime backup settings are
+written as validated JSON and are never evaluated as shell code. The encryption key is stored separately at
 `/opt/dis-data/secrets/backup-encryption.key` with restricted permissions. Keep an offline escrow copy
 of this key in the organisation's secret manager; a backup cannot be restored on a replacement server
-without the matching key. Never store the escrow copy beside the backup archive.
+without the matching key and its `.generation-v2` marker. Never store the escrow copy beside the backup
+archive. Backup creation validates the storage archive against the same no-links/no-special-files policy used
+by restore. Verification fully extracts storage into protected scratch space, while restore completes that
+preflight before maintenance, its mutation marker or `pg_restore` can change live state.
 
 Verify a backup:
 
@@ -145,6 +193,14 @@ Disable maintenance mode:
 ```bash
 sudo bash /opt/dis/scripts/maintenance.sh disable
 ```
+
+Deployments and updates use this maintenance boundary automatically. The operational API, APK delivery
+and websocket endpoints return `503`, while only `/health` and the authenticated, rate-limited
+`POST /api/developer/system/maintenance` recovery endpoint remain reachable. Queue workers, the scheduler,
+the privileged backup-request worker, websocket server and frontend are stopped before migrations or package changes. A failed deploy/update
+intentionally keeps maintenance enabled and leaves stopped services stopped; correct the error and rerun
+the command. Production is reopened only after Laravel, Nginx, the frontend, health endpoint and all DIS
+runtime services have passed verification.
 
 ## Uninstall
 

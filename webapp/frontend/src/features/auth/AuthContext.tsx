@@ -1,22 +1,20 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { ApiClient, apiBaseUrl } from '../../lib/apiClient';
 import type { TwoFactorEnableResult, TwoFactorSetup, User } from '../../types/api';
 
 interface LoginResult {
   requires_2fa: boolean;
   requires_2fa_setup?: boolean;
+  authenticated: boolean;
   two_factor_setup?: TwoFactorSetup;
-  token: string;
   user?: User;
 }
 
 interface AuthContextValue {
   api: ApiClient;
-  token: string | null;
   user: User | null;
   theme: ThemePreference;
   isAuthenticated: boolean;
-  setSession: (token: string, user?: User | null, purpose?: SessionPurpose) => void;
   clearSession: () => void;
   setThemePreference: (theme: ThemePreference) => Promise<void>;
   login: (email: string, password: string) => Promise<LoginResult>;
@@ -30,63 +28,87 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-const tokenKey = 'dis.session.token';
-const tokenPurposeKey = 'dis.session.purpose';
+const legacyTokenKey = 'dis.session.token';
+const legacyTokenPurposeKey = 'dis.session.purpose';
 const themeKey = 'dis.theme';
-type SessionPurpose = 'full' | 'mfa';
 type ThemePreference = 'dark' | 'light';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(() => storedToken());
-  const [sessionPurpose, setSessionPurpose] = useState<SessionPurpose>(() => storedTokenPurpose());
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    removeLegacyBearerState();
+    return null;
+  });
   const [theme, setTheme] = useState<ThemePreference>(() => storedTheme());
+  const [initializing, setInitializing] = useState(true);
 
   const clearSession = useCallback(() => {
-    sessionStorage.removeItem(tokenKey);
-    sessionStorage.removeItem(tokenPurposeKey);
-    localStorage.removeItem(tokenKey);
-    localStorage.removeItem(tokenPurposeKey);
-    setToken(null);
-    setSessionPurpose('full');
+    removeLegacyBearerState();
     setUser(null);
   }, []);
 
   const api = useMemo(
-    () =>
-      new ApiClient({
-        baseUrl: apiBaseUrl,
-        getToken: storedToken,
-        onUnauthenticated: clearSession,
-      }),
+    () => new ApiClient({ baseUrl: apiBaseUrl, onUnauthenticated: clearSession }),
     [clearSession],
   );
 
-  const setSession = useCallback((nextToken: string, nextUser?: User | null, purpose: SessionPurpose = 'full') => {
-    localStorage.setItem(tokenKey, nextToken);
-    localStorage.setItem(tokenPurposeKey, purpose);
-    sessionStorage.removeItem(tokenKey);
-    sessionStorage.removeItem(tokenPurposeKey);
-    setToken(nextToken);
-    setSessionPurpose(purpose);
-    if (nextUser !== undefined) {
-      setUser(purpose === 'full' ? nextUser : null);
+  const applyAuthenticatedUser = useCallback((nextUser: User | null) => {
+    setUser(nextUser);
+    if (nextUser !== null) {
       setTheme(themeFromUser(nextUser));
     }
   }, []);
 
-  const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
-    const response = await api.post<LoginResult>('/auth/login', { email, password, device_name: 'DIS Command Center', client_type: 'web' });
-    const isMfaChallenge = response.data.requires_2fa === true || response.data.requires_2fa_setup === true;
-    setSession(response.data.token, response.data.user ?? null, isMfaChallenge ? 'mfa' : 'full');
+  const refreshMe = useCallback(async (): Promise<User | null> => {
+    const response = await api.get<User>('/auth/me');
+    applyAuthenticatedUser(response.data);
     return response.data;
-  }, [api, setSession]);
+  }, [api, applyAuthenticatedUser]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void api.get<User>('/auth/me')
+      .then((response) => {
+        if (!cancelled) {
+          applyAuthenticatedUser(response.data);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUser(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setInitializing(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api, applyAuthenticatedUser]);
+
+  const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
+    const response = await api.post<LoginResult>('/auth/login', {
+      email,
+      password,
+      device_name: 'DIS Command Center',
+      client_type: 'web',
+    });
+    applyAuthenticatedUser(response.data.authenticated ? response.data.user ?? null : null);
+    return response.data;
+  }, [api, applyAuthenticatedUser]);
 
   const verifyTwoFactor = useCallback(async (code: string): Promise<User> => {
-    const response = await api.post<{ token: string; user: User }>('/auth/2fa/verify', { code, device_name: 'DIS Command Center', client_type: 'web' });
-    setSession(response.data.token, response.data.user, 'full');
+    const response = await api.post<{ authenticated: boolean; user: User }>('/auth/2fa/verify', {
+      code,
+      device_name: 'DIS Command Center',
+      client_type: 'web',
+    });
+    applyAuthenticatedUser(response.data.authenticated ? response.data.user : null);
     return response.data.user;
-  }, [api, setSession]);
+  }, [api, applyAuthenticatedUser]);
 
   const startTwoFactorSetup = useCallback(async (): Promise<TwoFactorSetup> => {
     const response = await api.post<TwoFactorSetup>('/auth/2fa/setup');
@@ -94,31 +116,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [api]);
 
   const enableTwoFactor = useCallback(async (code: string): Promise<TwoFactorEnableResult> => {
-    const response = await api.post<TwoFactorEnableResult>('/auth/2fa/enable', { code, device_name: 'DIS Command Center', client_type: 'web' });
-    setSession(response.data.token, response.data.user, 'full');
+    const response = await api.post<TwoFactorEnableResult>('/auth/2fa/enable', {
+      code,
+      device_name: 'DIS Command Center',
+      client_type: 'web',
+    });
+    applyAuthenticatedUser(response.data.authenticated ? response.data.user : null);
     return response.data;
-  }, [api, setSession]);
+  }, [api, applyAuthenticatedUser]);
 
   const disableTwoFactor = useCallback(async (password: string, code: string): Promise<User> => {
     const response = await api.post<User>('/auth/2fa/disable', { password, code });
-    setUser(response.data);
-    setTheme(themeFromUser(response.data));
+    applyAuthenticatedUser(response.data);
     return response.data;
-  }, [api]);
-
-  const refreshMe = useCallback(async (): Promise<User | null> => {
-    if (storedToken() === null) {
-      return null;
-    }
-    if (storedTokenPurpose() !== 'full') {
-      setUser(null);
-      return null;
-    }
-    const response = await api.get<User>('/auth/me');
-    setUser(response.data);
-    setTheme(themeFromUser(response.data));
-    return response.data;
-  }, [api]);
+  }, [api, applyAuthenticatedUser]);
 
   const setThemePreference = useCallback(async (nextTheme: ThemePreference): Promise<void> => {
     const currentUser = user;
@@ -128,30 +139,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const response = await api.patch<User>('/auth/me', {
-      name: currentUser.name,
-      home_city: currentUser.home_city ?? null,
-      theme: nextTheme,
-    });
-    setUser(response.data);
-    setTheme(themeFromUser(response.data));
-  }, [api, user]);
+    const response = await api.patch<User>('/auth/me', { theme: nextTheme });
+    applyAuthenticatedUser(response.data);
+  }, [api, applyAuthenticatedUser, user]);
 
   const hasPermission = useCallback((permission: string): boolean =>
     user?.roles?.some((role) => role.permissions?.some((candidate) => candidate.name === permission)) ?? false,
   [user]);
 
   const canUseWebConsole = useCallback((): boolean =>
-    user !== null,
+    user?.roles?.some((role) => role.can_use_admin_app) ?? false,
   [user]);
 
   const contextValue = useMemo<AuthContextValue>(() => ({
     api,
-    token,
     user,
     theme,
-    isAuthenticated: token !== null && sessionPurpose === 'full',
-    setSession,
+    isAuthenticated: user !== null,
     clearSession,
     setThemePreference,
     login,
@@ -164,11 +168,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     canUseWebConsole,
   }), [
     api,
-    token,
     user,
     theme,
-    sessionPurpose,
-    setSession,
     clearSession,
     setThemePreference,
     login,
@@ -180,6 +181,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     hasPermission,
     canUseWebConsole,
   ]);
+
+  if (initializing) {
+    return <div role="status" aria-live="polite">D.I.S laden…</div>;
+  }
 
   return (
     <AuthContext.Provider value={contextValue}>
@@ -196,35 +201,15 @@ export function useAuth(): AuthContextValue {
   return context;
 }
 
-function storedToken(): string | null {
+function removeLegacyBearerState(): void {
   if (!isBrowser()) {
-    return null;
+    return;
   }
 
-  const persistentToken = localStorage.getItem(tokenKey);
-  if (persistentToken !== null) {
-    return persistentToken;
-  }
-
-  const legacySessionToken = sessionStorage.getItem(tokenKey);
-  if (legacySessionToken !== null) {
-    localStorage.setItem(tokenKey, legacySessionToken);
-    localStorage.setItem(tokenPurposeKey, sessionStorage.getItem(tokenPurposeKey) ?? 'full');
-    sessionStorage.removeItem(tokenKey);
-    sessionStorage.removeItem(tokenPurposeKey);
-  }
-
-  return legacySessionToken;
-}
-
-function storedTokenPurpose(): SessionPurpose {
-  if (!isBrowser()) {
-    return 'full';
-  }
-
-  const purpose = localStorage.getItem(tokenPurposeKey) ?? sessionStorage.getItem(tokenPurposeKey);
-
-  return purpose === 'mfa' ? 'mfa' : 'full';
+  localStorage.removeItem(legacyTokenKey);
+  localStorage.removeItem(legacyTokenPurposeKey);
+  sessionStorage.removeItem(legacyTokenKey);
+  sessionStorage.removeItem(legacyTokenPurposeKey);
 }
 
 function storedTheme(): ThemePreference {
