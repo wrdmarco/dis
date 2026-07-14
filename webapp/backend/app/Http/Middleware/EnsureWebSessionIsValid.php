@@ -48,12 +48,6 @@ final class EnsureWebSessionIsValid
             return ApiResponse::error('session_expired', 'The web session has expired.', 401);
         }
 
-        if (! $user->canUseAdminApp()) {
-            $this->webSessionService->invalidate($request);
-
-            return ApiResponse::error('app_access_denied', 'This account cannot use the web console.', 403);
-        }
-
         $session->put(WebSessionService::KEY_LAST_ACTIVITY_AT, $now);
 
         return $next($request);

@@ -165,6 +165,10 @@ final class RegistrationPasswordLoginTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('data.authenticated', true)
             ->assertJsonPath('data.user.id', $user->id);
+
+        $this->withServerVariables($server)->withHeaders($headers)->getJson('/api/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.id', $user->id);
     }
 
     private function totp(string $secret): string
