@@ -83,6 +83,8 @@ final class RegistrationController extends Controller
 
         $user->forceFill([
             'password' => Hash::make((string) $data['password']),
+            'failed_login_attempts' => 0,
+            'login_locked_until' => null,
         ])->save();
         $this->userService->revokeAuthenticationState(
             $user,
@@ -125,7 +127,7 @@ final class RegistrationController extends Controller
             );
         } else {
             $user->forceFill(['last_login_at' => now()])->save();
-            $authenticated = $this->adminAppAllowed($user);
+            $authenticated = ! $user->isStoreReviewAccount();
             if ($authenticated) {
                 $this->webSessionService->authenticate($request, $user);
             } else {

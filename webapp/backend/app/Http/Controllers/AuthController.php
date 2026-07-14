@@ -236,8 +236,10 @@ final class AuthController extends Controller
             WebSessionService::PURPOSE_LOGIN_CHALLENGE,
             WebSessionService::PURPOSE_REGISTRATION_CHALLENGE,
         ]);
-        $registrationUser = $request->session()->get(WebSessionService::KEY_PENDING_PURPOSE)
-            === WebSessionService::PURPOSE_REGISTRATION_CHALLENGE ? $pendingUser : null;
+        $registrationUser = $request->hasSession()
+            && $request->session()->get(WebSessionService::KEY_PENDING_PURPOSE) === WebSessionService::PURPOSE_REGISTRATION_CHALLENGE
+                ? $pendingUser
+                : null;
         $isWebChallenge = $pendingUser !== null;
         $user = $pendingUser ?? $request->user();
 
@@ -274,7 +276,7 @@ final class AuthController extends Controller
         $this->auditService->record('auth.2fa_verified', $user, $user, [], null, $request);
 
         if ($isWebChallenge) {
-            $authenticated = $user->canUseAdminApp();
+            $authenticated = ! $user->isStoreReviewAccount();
             if ($authenticated) {
                 $this->webSessionService->authenticate($request, $user);
             } elseif ($registrationUser !== null) {
@@ -355,8 +357,10 @@ final class AuthController extends Controller
             WebSessionService::PURPOSE_LOGIN_SETUP,
             WebSessionService::PURPOSE_REGISTRATION_SETUP,
         ]);
-        $registrationUser = $request->session()->get(WebSessionService::KEY_PENDING_PURPOSE)
-            === WebSessionService::PURPOSE_REGISTRATION_SETUP ? $pendingUser : null;
+        $registrationUser = $request->hasSession()
+            && $request->session()->get(WebSessionService::KEY_PENDING_PURPOSE) === WebSessionService::PURPOSE_REGISTRATION_SETUP
+                ? $pendingUser
+                : null;
         $isWebSetup = $this->webSessionService->isStatefulWebRequest($request);
         $user = $pendingUser ?? $request->user();
 
@@ -391,7 +395,7 @@ final class AuthController extends Controller
         $this->auditService->record('auth.2fa_enabled', $user, $user, [], null, $request);
 
         if ($isWebSetup) {
-            $authenticated = $user->canUseAdminApp();
+            $authenticated = ! $user->isStoreReviewAccount();
             if ($authenticated) {
                 $this->webSessionService->authenticate($request, $user);
             } elseif ($registrationUser !== null) {
@@ -600,7 +604,8 @@ final class AuthController extends Controller
     {
         return match ($clientType) {
             'operator_android', 'operator_ios' => $user->canUseOperatorApp(),
-            'admin_android', 'admin_ios', 'web' => $user->canUseAdminApp(),
+            'admin_android', 'admin_ios' => $user->canUseAdminApp(),
+            'web' => ! $user->isStoreReviewAccount(),
             default => false,
         };
     }
