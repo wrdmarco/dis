@@ -642,7 +642,7 @@ ensure_data_layout() {
   ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend" root root 0755
   ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage" root "${DIS_GROUP}" 0750
   ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage/app" "${DIS_USER}" "${DIS_GROUP}" 0770
-  ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework" root "${DIS_GROUP}" 0750
+  ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework" "${DIS_USER}" "${DIS_GROUP}" 0770
   ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework/cache" "${DIS_USER}" "${DIS_GROUP}" 0770
   ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework/sessions" "${DIS_USER}" "${DIS_GROUP}" 0770
   ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage/framework/views" "${DIS_USER}" "${DIS_GROUP}" 0770

@@ -55,6 +55,7 @@ done
 
 backend_runtime_leaves=(
   "${DIS_DATA_PATH}/webapp/backend/storage/app"
+  "${DIS_DATA_PATH}/webapp/backend/storage/framework"
   "${DIS_DATA_PATH}/webapp/backend/storage/framework/cache"
   "${DIS_DATA_PATH}/webapp/backend/storage/framework/sessions"
   "${DIS_DATA_PATH}/webapp/backend/storage/framework/views"
