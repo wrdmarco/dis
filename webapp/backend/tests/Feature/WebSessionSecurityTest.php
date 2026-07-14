@@ -162,6 +162,33 @@ final class WebSessionSecurityTest extends TestCase
         ]);
     }
 
+    public function test_authenticator_totp_completes_the_web_login_challenge(): void
+    {
+        $this->setMfaRequired(true);
+        $secret = 'JBSWY3DPEHPK3PXP';
+        $user = $this->user('totp-login@example.test', mfaEnabled: true);
+
+        $this->initializeCsrf();
+        $this->browserJson('POST', '/api/auth/login', [
+            'email' => $user->email,
+            'password' => 'Test-password-123!',
+            'device_name' => 'DIS Command Center',
+            'client_type' => 'web',
+        ])->assertStatus(202)->assertJsonPath('data.requires_2fa', true);
+
+        $verification = $this->browserJson('POST', '/api/auth/2fa/verify', [
+            'code' => $this->currentTotpCode($secret),
+            'device_name' => 'DIS Command Center',
+            'client_type' => 'web',
+        ]);
+
+        $verification->assertOk()->assertJsonPath('data.authenticated', true);
+        $this->assertSame([], $user->refresh()->two_factor_recovery_codes);
+        $this->browserJson('GET', '/api/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.id', $user->id);
+    }
+
     public function test_store_review_logout_revokes_the_current_access_token(): void
     {
         $user = User::query()->create([
@@ -203,6 +230,26 @@ final class WebSessionSecurityTest extends TestCase
 
         $this->browserCookies = $authenticatedCookies;
         $this->browserJson('GET', '/api/auth/me')->assertUnauthorized();
+    }
+
+    public function test_tampered_session_cookie_is_rejected_without_exposing_internal_errors(): void
+    {
+        $user = $this->authenticateBrowserUser('tampered-cookie@example.test', 'TAMPER-12345');
+        $cookieName = $this->sessionCookieName();
+        $originalCookie = $this->browserCookies[$cookieName] ?? null;
+        $this->assertIsString($originalCookie);
+        $this->assertNotSame('', $originalCookie);
+
+        $middle = intdiv(strlen($originalCookie), 2);
+        $replacement = $originalCookie[$middle] === 'A' ? 'B' : 'A';
+        $this->browserCookies[$cookieName] = substr($originalCookie, 0, $middle)
+            .$replacement
+            .substr($originalCookie, $middle + 1);
+
+        $tamperedResponse = $this->browserJson('GET', '/api/auth/me');
+        $tamperedResponse->assertUnauthorized()->assertJsonPath('error.code', 'session_expired');
+        $this->assertStringNotContainsString('DecryptException', $tamperedResponse->getContent());
+        $this->assertStringNotContainsString($user->email, $tamperedResponse->getContent());
     }
 
     public function test_privilege_changes_invalidate_an_existing_web_session(): void
@@ -289,7 +336,7 @@ final class WebSessionSecurityTest extends TestCase
             'password_confirmation' => 'New-Test-password-123!',
         ]);
 
-        $complete->assertOk()->assertJsonPath('data.authenticated', false);
+        $complete->assertOk()->assertJsonPath('data.authenticated', true);
         $this->assertPayloadHasNoKey($complete->json(), 'token');
         $this->assertTrue(Hash::check('New-Test-password-123!', (string) $user->refresh()->password));
         $this->assertDatabaseMissing('sessions', ['id' => $preRegistrationSessionId]);
@@ -529,5 +576,37 @@ final class WebSessionSecurityTest extends TestCase
             $this->assertNotSame($forbiddenKey, (string) $key, "Response JSON must not contain a {$forbiddenKey} field.");
             $this->assertPayloadHasNoKey($value, $forbiddenKey);
         }
+    }
+
+    private function currentTotpCode(string $secret): string
+    {
+        $counter = intdiv(time(), 30);
+        $binaryCounter = pack('N*', 0).pack('N*', $counter);
+        $hash = hash_hmac('sha1', $binaryCounter, $this->decodeBase32($secret), true);
+        $offset = ord(substr($hash, -1)) & 0x0F;
+        $value = unpack('N', substr($hash, $offset, 4))[1] & 0x7FFFFFFF;
+
+        return str_pad((string) ($value % 1000000), 6, '0', STR_PAD_LEFT);
+    }
+
+    private function decodeBase32(string $secret): string
+    {
+        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        $bits = '';
+
+        foreach (str_split(strtoupper($secret)) as $character) {
+            $position = strpos($alphabet, $character);
+            $this->assertNotFalse($position);
+            $bits .= str_pad(decbin($position), 5, '0', STR_PAD_LEFT);
+        }
+
+        $decoded = '';
+        foreach (str_split($bits, 8) as $byte) {
+            if (strlen($byte) === 8) {
+                $decoded .= chr(bindec($byte));
+            }
+        }
+
+        return $decoded;
     }
 }

@@ -119,8 +119,77 @@ EOF
   run_cmd chmod 0640 "${FRONTEND_DIR}/.env.production"
 }
 
+canonical_public_host() {
+  local app_url authority host port label
+  local -a labels
+
+  app_url="$(env_value APP_URL)"
+  case "${app_url}" in
+    https://*) ;;
+    *) fail "APP_URL must use https before generating Nginx configuration." ;;
+  esac
+
+  authority="${app_url#https://}"
+  if [[ "${authority}" == */ ]]; then
+    authority="${authority%/}"
+  fi
+  if [ -z "${authority}" ] \
+    || [[ "${authority}" == *"/"* || "${authority}" == *"@"* || "${authority}" == *"?"* || "${authority}" == *"#"* ]]; then
+    fail "APP_URL must contain only a public hostname and optional port."
+  fi
+
+  host="${authority}"
+  if [[ "${authority}" == *:* ]]; then
+    host="${authority%%:*}"
+    port="${authority#*:}"
+    if ! [[ "${port}" =~ ^[0-9]+$ ]] || [ "${port}" -lt 1 ] || [ "${port}" -gt 65535 ]; then
+      fail "APP_URL contains an invalid port."
+    fi
+  fi
+
+  if [ -z "${host}" ] || [ "${#host}" -gt 253 ] || [[ "${host}" == .* || "${host}" == *. || "${host}" == *..* ]]; then
+    fail "APP_URL contains an invalid public hostname."
+  fi
+  IFS='.' read -r -a labels <<< "${host}"
+  for label in "${labels[@]}"; do
+    if ! [[ "${label}" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]]; then
+      fail "APP_URL contains an invalid public hostname."
+    fi
+  done
+
+  printf '%s' "${host}"
+}
+
+prepare_canonical_nginx_source() {
+  local source public_host generated_dir generated_conf temporary_conf
+
+  source="${NGINX_SOURCE}"
+  require_file "${source}"
+  public_host="$(canonical_public_host)"
+  generated_dir="${DIS_DATA_PATH}/storage/generated/nginx"
+  generated_conf="${generated_dir}/dis.conf"
+  ensure_managed_directory "${generated_dir}" root root 0755
+  temporary_conf="$(mktemp "${generated_dir}/.dis.conf.XXXXXX")"
+
+  run_cmd cp "${source}" "${temporary_conf}"
+  run_cmd sed -i "s/server_name _;/server_name ${public_host} _;/" "${temporary_conf}"
+  run_cmd sed -E -i "s/^([[:space:]]*)server_name[[:space:]]+[^;[:space:]]+[[:space:]]+_;$/\\1server_name ${public_host} _;/" "${temporary_conf}"
+  run_cmd sed -i "s#unix:/run/php/php[0-9.]*-fpm.sock#unix:/run/php/php${PHP_VERSION}-fpm.sock#" "${temporary_conf}"
+  if [ "$(grep -Fxc "    server_name ${public_host} _;" "${temporary_conf}" || true)" -ne 1 ] \
+    || grep -Eq '^[[:space:]]*server_name[[:space:]]+_;' "${temporary_conf}"; then
+    rm -f -- "${temporary_conf}"
+    fail "Nginx source does not contain exactly one canonical APP_URL server_name."
+  fi
+
+  run_cmd chown root:root "${temporary_conf}"
+  run_cmd chmod 0644 "${temporary_conf}"
+  run_cmd mv -fT -- "${temporary_conf}" "${generated_conf}"
+  NGINX_SOURCE="${generated_conf}"
+}
+
 harden_web_session_environment
 write_frontend_security_environment
+prepare_canonical_nginx_source
 run_cmd rm -f -- "${BACKEND_DIR}/storage/app/backup-config.env"
 
 log "Deploying DIS from ${APP_ROOT}"

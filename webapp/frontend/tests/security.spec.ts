@@ -1,4 +1,6 @@
 import { expect, test, type APIResponse, type Page } from 'playwright/test';
+import { GET as getSecurityText } from '../app/.well-known/security.txt/route';
+import { canonicalRedirectPath, validatedCanonicalRedirectOrigin } from '../src/lib/redirectPolicy';
 
 const requiredCspDirectives = [
   "default-src 'self'",
@@ -25,6 +27,30 @@ test.describe('public security contract', () => {
     });
   }
 
+  test('trailing-slash redirects use the configured canonical origin and preserve the query string', async ({ request }) => {
+    const response = await request.get('/login/?next=%2Fprofile', { maxRedirects: 0 });
+    const expectedLocation = 'https://dis.wrdmarco.nl/login?next=%2Fprofile';
+
+    expect(response.status()).toBe(308);
+    expect(response.headers().location).toBe(expectedLocation);
+    expect(response.headers().location).not.toContain('localhost');
+    if (response.headers().refresh !== undefined) {
+      // Next adds this compatibility header to direct 308 responses. Nginx
+      // removes it before the response reaches a public client.
+      expect(response.headers().refresh).toBe(`0;url=${expectedLocation}`);
+    }
+    assertSecurityHeaders(response);
+  });
+
+  test('redirect canonicalization rejects unsafe origins and normalizes repeated slashes', () => {
+    expect(canonicalRedirectPath('//login///')).toBe('/login');
+    expect(canonicalRedirectPath('////')).toBe('/');
+    expect(validatedCanonicalRedirectOrigin('https://dis.wrdmarco.nl')).toBe('https://dis.wrdmarco.nl');
+    expect(validatedCanonicalRedirectOrigin('http://dis.wrdmarco.nl')).toBeNull();
+    expect(validatedCanonicalRedirectOrigin('https://dis.wrdmarco.nl/path')).toBeNull();
+    expect(validatedCanonicalRedirectOrigin('https://user@dis.wrdmarco.nl')).toBeNull();
+  });
+
   test('security.txt is valid when configured and fails closed otherwise', async ({ request }) => {
     const response = await request.get('/.well-known/security.txt', { maxRedirects: 0 });
 
@@ -46,6 +72,66 @@ test.describe('public security contract', () => {
     expect(expires, 'security.txt must contain Expires').toBeTruthy();
     expect(Number.isNaN(Date.parse(expires ?? ''))).toBe(false);
     expect(Date.parse(expires ?? '')).toBeGreaterThan(Date.now());
+  });
+
+  test('security.txt returns a complete RFC 9116 document for valid test-only configuration', async () => {
+    const environment = saveEnvironment([
+      'SECURITY_CONTACT',
+      'NEXT_PUBLIC_APP_URL',
+      'APP_URL',
+      'NEXT_PUBLIC_WEBSOCKET_HOST',
+    ]);
+
+    try {
+      // example.test is reserved for tests and is never written to production configuration.
+      process.env.SECURITY_CONTACT = 'mailto:security@example.test';
+      process.env.NEXT_PUBLIC_APP_URL = 'https://dis.wrdmarco.nl';
+      delete process.env.APP_URL;
+      delete process.env.NEXT_PUBLIC_WEBSOCKET_HOST;
+
+      const earliestExpiry = Date.now();
+      const response = getSecurityText();
+      const body = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toMatch(/^text\/plain;\s*charset=utf-8$/i);
+      expect(body).toContain('Contact: mailto:security@example.test');
+      expect(body).toContain('Canonical: https://dis.wrdmarco.nl/.well-known/security.txt');
+      expect(body).toMatch(/^Preferred-Languages:\s*nl,\s*en$/im);
+
+      const expires = body.match(/^Expires:\s*(.+)$/im)?.[1]?.trim();
+      expect(expires).toBeTruthy();
+      expect(Number.isNaN(Date.parse(expires ?? ''))).toBe(false);
+      expect(Date.parse(expires ?? '')).toBeGreaterThan(earliestExpiry);
+      expect(Date.parse(expires ?? '')).toBeLessThanOrEqual(Date.now() + 181 * 24 * 60 * 60 * 1_000);
+    } finally {
+      restoreEnvironment(environment);
+    }
+  });
+
+  test('security.txt fails closed for missing test configuration', async () => {
+    const environment = saveEnvironment([
+      'SECURITY_CONTACT',
+      'NEXT_PUBLIC_APP_URL',
+      'APP_URL',
+      'NEXT_PUBLIC_WEBSOCKET_HOST',
+    ]);
+
+    try {
+      delete process.env.SECURITY_CONTACT;
+      delete process.env.NEXT_PUBLIC_APP_URL;
+      delete process.env.APP_URL;
+      delete process.env.NEXT_PUBLIC_WEBSOCKET_HOST;
+
+      const response = getSecurityText();
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get('content-type')).toMatch(/^text\/plain;\s*charset=utf-8$/i);
+      expect(response.headers.get('cache-control')).toContain('no-store');
+      expect(await response.text()).not.toMatch(/^(?:Contact|Expires|Canonical):/im);
+    } finally {
+      restoreEnvironment(environment);
+    }
   });
 
   test('production CSP uses a fresh nonce that is applied to rendered markup', async ({ request }) => {
@@ -236,4 +322,18 @@ function collectCspViolations(page: Page): string[] {
   });
 
   return violations;
+}
+
+function saveEnvironment(names: string[]): Map<string, string | undefined> {
+  return new Map(names.map((name) => [name, process.env[name]]));
+}
+
+function restoreEnvironment(environment: Map<string, string | undefined>): void {
+  for (const [name, value] of environment) {
+    if (value === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = value;
+    }
+  }
 }

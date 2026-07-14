@@ -111,6 +111,47 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertStringContainsString("'api/developer/system/maintenance'", $bootstrap);
     }
 
+    public function test_nginx_forwards_the_generated_canonical_host_to_every_application_upstream(): void
+    {
+        $config = $this->read('infrastructure/nginx/dis.conf');
+        $deploy = $this->read('scripts/deploy.sh');
+        $setup = $this->read('scripts/setup.sh');
+        $update = $this->read('scripts/update.sh');
+
+        self::assertSame(3, substr_count($config, 'proxy_set_header Host $server_name;'));
+        self::assertSame(3, substr_count($config, 'proxy_set_header X-Forwarded-Host $server_name;'));
+        self::assertSame(5, substr_count($config, 'fastcgi_param HTTP_HOST $server_name;'));
+        self::assertSame(5, substr_count($config, 'fastcgi_param HTTP_X_FORWARDED_HOST $server_name;'));
+        self::assertStringNotContainsString('proxy_set_header Host $host;', $config);
+        self::assertStringNotContainsString('proxy_set_header X-Forwarded-Host $host;', $config);
+        self::assertStringNotContainsString('fastcgi_param HTTP_X_FORWARDED_HOST $host;', $config);
+        self::assertStringContainsString('proxy_hide_header Refresh;', $config);
+        self::assertStringContainsString('canonical_public_host()', $deploy);
+        self::assertStringContainsString('prepare_canonical_nginx_source()', $deploy);
+        self::assertStringContainsString('s/server_name _;/server_name ${public_host} _;/', $deploy);
+        self::assertStringContainsString('"${authority}" == *"/"*', $deploy);
+        self::assertStringContainsString('server_name ${public_host} _;', $deploy);
+        self::assertStringContainsString('s/server_name _;/server_name ${DOMAIN} _;/', $setup);
+        self::assertStringContainsString('s/server_name _;/server_name ${host} _;/', $update);
+
+        $prepare = strrpos($deploy, "\nprepare_canonical_nginx_source\n");
+        $install = strpos($deploy, 'install -m 0644 "${NGINX_SOURCE}"');
+        self::assertIsInt($prepare);
+        self::assertIsInt($install);
+        self::assertTrue($prepare < $install);
+    }
+
+    public function test_healthcheck_requires_an_exact_healthy_json_response_with_bounded_timeouts(): void
+    {
+        $script = $this->read('scripts/healthcheck.sh');
+
+        self::assertStringContainsString('--connect-timeout "${HEALTH_CONNECT_TIMEOUT_SECONDS:-5}"', $script);
+        self::assertStringContainsString('--max-time "${HEALTH_MAX_TIME_SECONDS:-15}"', $script);
+        self::assertStringContainsString('[ "${status}" != "200" ]', $script);
+        self::assertStringContainsString("jq -e '.data.status == \"ok\"'", $script);
+        self::assertStringNotContainsString('[ "${status}" -lt 200 ]', $script);
+    }
+
     private function read(string $path): string
     {
         $contents = file_get_contents($this->repositoryRoot.'/'.$path);

@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { canonicalRedirectPath, validatedCanonicalRedirectOrigin } from './src/lib/redirectPolicy';
 import { buildContentSecurityPolicy } from './src/lib/securityPolicy';
 
 const PRIVATE_HTML_CACHE_CONTROL = 'private, no-store, max-age=0, must-revalidate';
@@ -25,9 +26,19 @@ export function middleware(request: NextRequest) {
 
   let response: NextResponse;
   if (request.nextUrl.pathname.length > 1 && request.nextUrl.pathname.endsWith('/')) {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = redirectUrl.pathname.replace(/\/+$/, '');
-    response = NextResponse.redirect(redirectUrl, 308);
+    const redirectOrigin = validatedCanonicalRedirectOrigin(process.env.NEXT_PUBLIC_APP_URL);
+    if (redirectOrigin === null) {
+      response = new NextResponse('Service unavailable.\n', {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
+    } else {
+      const redirectPath = canonicalRedirectPath(request.nextUrl.pathname);
+      response = NextResponse.redirect(
+        new URL(`${redirectPath}${request.nextUrl.search}`, redirectOrigin),
+        308,
+      );
+    }
   } else {
     response = NextResponse.next({
       request: {

@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Mail\UserWelcomeMail;
-use App\Mail\UserPasswordRecoveryMail;
 use App\Models\FcmToken;
 use App\Models\Role;
 use App\Models\SystemSetting;
@@ -27,6 +26,7 @@ final class UserService
         private readonly AuditService $auditService,
         private readonly GeocodingService $geocodingService,
         private readonly FcmClient $fcmClient,
+        private readonly PasswordRecoveryService $passwordRecoveryService,
         private readonly StatusService $statusService,
     ) {}
 
@@ -433,14 +433,9 @@ final class UserService
             throw ValidationException::withMessages(['user' => ['Alleen actieve gebruikers kunnen een herstelmail ontvangen.']]);
         }
 
-        DB::table('password_reset_tokens')->where('email', $user->email)->delete();
-        $token = Password::broker()->createToken($user);
-        $publicUrl = rtrim(SystemSetting::string('app.public_url', config('app.url', '')) ?? '', '/');
-        $recoveryUrl = $publicUrl.'/register#mode=recovery&email='.rawurlencode($user->email).'&token='.rawurlencode($token);
-
         try {
             $this->runIgnoringTempnamFallbackWarning(
-                fn (): mixed => Mail::to($user->email)->send(new UserPasswordRecoveryMail($user, $recoveryUrl)),
+                fn (): mixed => $this->passwordRecoveryService->deliver($user),
             );
         } catch (Throwable $exception) {
             DB::table('password_reset_tokens')->where('email', $user->email)->delete();
