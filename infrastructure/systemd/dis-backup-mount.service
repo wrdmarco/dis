@@ -1,0 +1,15 @@
+# Retained as an upgrade-compatibility source for update processes started by
+# releases through d5ec230. Current installers remove the installed unit.
+[Unit]
+Description=DIS Host-Visible Samba Backup Mount
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/local/bin/dis-backup-mount
+TimeoutStartSec=90
+NoNewPrivileges=false

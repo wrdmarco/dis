@@ -121,6 +121,34 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertStringContainsString('systemctl stop dis-backup-request.timer', $restore);
     }
 
+    public function test_previous_updater_compatibility_sources_survive_the_checkout_boundary(): void
+    {
+        foreach ([
+            'scripts/backup-mount.sh',
+            'scripts/backup-verify-runner.sh',
+            'scripts/backup-restore-runner.sh',
+            'infrastructure/systemd/dis-backup-mount.service',
+        ] as $path) {
+            self::assertFileExists($this->repositoryRoot.'/'.$path);
+            self::assertStringContainsString('upgrade-compatibility source', $this->read($path));
+        }
+
+        $deploy = $this->read('scripts/deploy.sh');
+        $update = $this->read('scripts/update.sh');
+        foreach (['backup-mount.sh', 'backup-verify-runner.sh', 'backup-restore-runner.sh'] as $legacyScript) {
+            self::assertStringNotContainsString('/scripts/'.$legacyScript.'" /usr/local/bin/', $deploy);
+            self::assertStringNotContainsString('/scripts/'.$legacyScript.'" /usr/local/bin/', $update);
+        }
+        self::assertStringNotContainsString(
+            'infrastructure/systemd/dis-backup-mount.service" /etc/systemd/system/',
+            $deploy,
+        );
+        self::assertStringNotContainsString(
+            'infrastructure/systemd/dis-backup-mount.service" /etc/systemd/system/',
+            $update,
+        );
+    }
+
     public function test_update_exit_is_fail_closed_and_parent_owns_the_final_unlock(): void
     {
         $script = $this->read('scripts/update.sh');
