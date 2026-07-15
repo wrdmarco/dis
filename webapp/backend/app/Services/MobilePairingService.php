@@ -3,25 +3,19 @@
 namespace App\Services;
 
 use App\Models\MobilePairingCode;
-use App\Models\PersonalAccessToken;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Support\ApiDateTime;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 final class MobilePairingService
 {
     private const TTL_SECONDS = 30;
-    private const STORE_REVIEW_PAIRING_TTL_SECONDS = 21600;
-    private const STORE_REVIEW_TOKEN_TTL_HOURS = 24;
     private const MOBILE_TOKEN_TTL_DAYS = 180;
     private const STORE_REVIEW_MODE = 'store_android';
-    private const STORE_REVIEW_EMAIL = 'google-play-review@system.dis.local';
 
     public function __construct(private readonly AuditService $auditService) {}
 
@@ -80,84 +74,6 @@ final class MobilePairingService
         ], null, $request);
 
         return $payload;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function createStoreReviewAndroid(User $actor, Request $request): array
-    {
-        $user = $this->storeReviewUser();
-        $code = $this->generateManualCode();
-        $normalizedCode = $this->normalizeCode($code);
-        $serverUrl = $this->serverRootUrl();
-        $expiresAt = now()->addSeconds(self::STORE_REVIEW_PAIRING_TTL_SECONDS);
-
-        MobilePairingCode::query()
-            ->where('expires_at', '<', now()->subMinute())
-            ->delete();
-
-        $pairing = MobilePairingCode::query()->create([
-            'user_id' => $user->id,
-            'code_hash' => $this->codeHash($normalizedCode),
-            'client_type' => 'operator_android',
-            'review_mode' => self::STORE_REVIEW_MODE,
-            'expires_at' => $expiresAt,
-        ]);
-
-        $payload = [
-            'id' => $pairing->id,
-            'server_url' => $serverUrl,
-            'api_base_url' => $this->apiBaseUrl($serverUrl),
-            'client_type' => 'operator_android',
-            'code' => $code,
-            'expires_at' => ApiDateTime::dateTime($expiresAt),
-            'ttl_seconds' => self::STORE_REVIEW_PAIRING_TTL_SECONDS,
-        ];
-        $payload['deeplink_url'] = $this->deeplinkUrl($payload);
-        $payload['qr_payload'] = $payload['deeplink_url'];
-
-        $this->auditService->record('auth.store_review_pairing_created', $pairing, $actor, [
-            'client_type' => 'operator_android',
-            'expires_at' => $payload['expires_at'],
-        ], null, $request);
-
-        return $payload;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function storeReviewStatus(): array
-    {
-        $user = $this->findStoreReviewUser();
-        $lastPairing = MobilePairingCode::query()
-            ->where('review_mode', self::STORE_REVIEW_MODE)
-            ->latest('created_at')
-            ->first();
-        $lastConsumedPairing = MobilePairingCode::query()
-            ->where('review_mode', self::STORE_REVIEW_MODE)
-            ->whereNotNull('consumed_at')
-            ->latest('consumed_at')
-            ->first();
-        $latestToken = $user === null ? null : $this->latestStoreReviewToken($user);
-
-        return [
-            'configured' => $user !== null,
-            'account_name' => $user?->name,
-            'last_login_at' => ApiDateTime::dateTime($user?->last_login_at),
-            'last_pairing_created_at' => ApiDateTime::dateTime($lastPairing?->created_at),
-            'last_pairing_expires_at' => ApiDateTime::dateTime($lastPairing?->expires_at),
-            'last_pairing_consumed_at' => ApiDateTime::dateTime($lastConsumedPairing?->consumed_at),
-            'last_pairing_ip' => $lastConsumedPairing?->consumed_ip,
-            'last_pairing_user_agent' => $lastConsumedPairing?->consumed_user_agent,
-            'pairing_was_used' => $lastConsumedPairing !== null,
-            'token_exists' => $latestToken !== null,
-            'token_is_active' => $latestToken !== null && $latestToken->expires_at !== null && $latestToken->expires_at->isFuture(),
-            'token_last_used_at' => ApiDateTime::dateTime($latestToken?->last_used_at),
-            'token_expires_at' => ApiDateTime::dateTime($latestToken?->expires_at),
-            'token_created_at' => ApiDateTime::dateTime($latestToken?->created_at),
-        ];
     }
 
     /**
@@ -232,115 +148,6 @@ final class MobilePairingService
                 'client_type' => $clientType,
             ];
         });
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function consumeStoreReviewPairing(MobilePairingCode $pairing, ?User $user, string $clientType, string $deviceName, Request $request): array
-    {
-        if ($clientType !== 'operator_android') {
-            throw ValidationException::withMessages([
-                'client_type' => ['Deze koppelcode hoort bij de Android operator-app.'],
-            ]);
-        }
-
-        if ($user === null || ! $user->isStoreReviewAccount()) {
-            throw ValidationException::withMessages([
-                'code' => ['Deze koppelcode kan niet meer worden gebruikt.'],
-            ]);
-        }
-
-        $pairing->update([
-            'consumed_at' => now(),
-            'consumed_ip' => $request->ip(),
-            'consumed_user_agent' => mb_substr((string) $request->userAgent(), 0, 512),
-        ]);
-
-        $user->forceFill([
-            'last_login_at' => now(),
-            'failed_login_attempts' => 0,
-            'login_locked_until' => null,
-            'push_enabled' => true,
-        ])->save();
-
-        $tokenExpiresAt = now()->addHours(self::STORE_REVIEW_TOKEN_TTL_HOURS);
-
-        $this->auditService->record('auth.store_review_pairing_consumed', $pairing, $user, [
-            'client_type' => $clientType,
-            'device_name' => $deviceName,
-            'token_expires_at' => ApiDateTime::dateTime($tokenExpiresAt),
-        ], null, $request);
-
-        return [
-            'token' => $user->createToken(
-                $deviceName,
-                ['client:store_review'],
-                $tokenExpiresAt,
-            )->plainTextToken,
-            'user' => MobileApiPayload::user($user->load(['roles', 'teams'])),
-            'client_type' => $clientType,
-        ];
-    }
-
-    private function storeReviewUser(): User
-    {
-        $attributes = [
-            'name' => 'Google Play Review',
-            'first_name' => 'Google Play',
-            'last_name' => 'Review',
-            'phone_number' => '+31000000000',
-            'home_city' => 'Utrecht',
-            'home_region' => 'Utrecht',
-            'home_country' => 'NL',
-            'account_status' => 'store_review',
-            'push_enabled' => true,
-            'max_operator_devices' => 0,
-            'two_factor_enabled' => false,
-            'two_factor_confirmed_at' => null,
-            'mail_preferences' => [],
-        ];
-
-        /** @var User $user */
-        $user = $this->findStoreReviewUser();
-        if ($user === null) {
-            $user = User::query()->create($attributes + [
-                'email' => self::STORE_REVIEW_EMAIL,
-                'password' => Hash::make(Str::uuid()->toString()),
-            ]);
-        } else {
-            if (method_exists($user, 'restore') && $user->trashed()) {
-                $user->restore();
-            }
-            $user->forceFill($attributes)->save();
-        }
-
-        $user->roles()->sync([]);
-        $user->teams()->sync([]);
-
-        return $user;
-    }
-
-    private function findStoreReviewUser(): ?User
-    {
-        /** @var User|null $user */
-        $user = User::withTrashed()->where('email', self::STORE_REVIEW_EMAIL)->first();
-
-        return $user;
-    }
-
-    private function latestStoreReviewToken(User $user): ?PersonalAccessToken
-    {
-        return PersonalAccessToken::query()
-            ->where('tokenable_type', User::class)
-            ->where('tokenable_id', $user->id)
-            ->latest('created_at')
-            ->get()
-            ->first(function (PersonalAccessToken $token): bool {
-                $abilities = is_array($token->abilities ?? null) ? $token->abilities : [];
-
-                return in_array('client:store_review', $abilities, true);
-            });
     }
 
     private function generateManualCode(): string

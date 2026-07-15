@@ -28,8 +28,6 @@ final class IncidentController extends Controller
 {
     private const DEFAULT_APP_VISIBLE_TIMELINE_TYPES = ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status'];
 
-    private const ALL_TIMELINE_TYPES = ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status', 'internal_notes', 'audit'];
-
     private const APP_VISIBLE_TIMELINE_TYPES = ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status', 'audit'];
 
     public function __construct(

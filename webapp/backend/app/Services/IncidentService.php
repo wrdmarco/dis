@@ -25,7 +25,6 @@ final class IncidentService
         private readonly DispatchService $dispatchService,
         private readonly GeocodingService $geocodingService,
         private readonly IncidentFormService $incidentFormService,
-        private readonly IncidentReportService $incidentReportService,
         private readonly LocationService $locationService,
         private readonly StatusService $statusService,
     ) {}

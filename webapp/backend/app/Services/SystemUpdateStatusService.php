@@ -115,14 +115,6 @@ final class SystemUpdateStatusService
         ]);
     }
 
-    public function markProcessStarted(int $pid): void
-    {
-        $status = $this->current();
-        $status['runner_pid'] = $pid;
-        $status['last_log_at'] = ApiDateTime::now();
-        $this->store($status);
-    }
-
     public function markSystemdUnitStarted(string $unit): void
     {
         $status = $this->current();

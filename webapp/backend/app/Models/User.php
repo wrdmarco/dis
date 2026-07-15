@@ -218,9 +218,4 @@ final class User extends Authenticatable
     {
         return $this->currentClientType() === 'operator';
     }
-
-    public function isAdminClient(): bool
-    {
-        return $this->currentClientType() === 'admin';
-    }
 }

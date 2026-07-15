@@ -397,25 +397,6 @@ final class IncidentReportService
         return $this->storePdf($incident, $preserveExistingMaps);
     }
 
-    public function storedPdf(Incident $incident): ?string
-    {
-        if (! is_string($incident->report_pdf_path) || $incident->report_pdf_path === '') {
-            return null;
-        }
-
-        try {
-            $path = $this->absoluteReportPath($incident->report_pdf_path);
-
-            return is_file($path) && is_readable($path)
-                ? (string) file_get_contents($path)
-                : null;
-        } catch (Throwable $exception) {
-            $this->safeReport($exception);
-
-            return null;
-        }
-    }
-
     public function storedPdfPath(Incident $incident): ?string
     {
         if (! is_string($incident->report_pdf_path) || $incident->report_pdf_path === '') {

@@ -2933,24 +2933,6 @@ function reorderLayoutItem(items: IncidentFormLayoutItem[], sourceKey: string, t
   return next;
 }
 
-function generateFieldKey(label: string, fields: ConfigurableFormField[], currentKey?: string): string {
-  const normalized = label
-    .toLowerCase()
-    .replace(/[^a-z0-9_]/g, '_')
-    .replace(/^_+/, '')
-    .replace(/_+/g, '_')
-    .replace(/_+$/, '');
-  const base = /^[a-z]/.test(normalized) && normalized.length >= 2 ? normalized : 'veld';
-  let key = base.slice(0, 60);
-  let index = 2;
-  while (fields.some((field) => field.key !== currentKey && field.key === key)) {
-    const suffix = `_${index}`;
-    key = `${base.slice(0, 60 - suffix.length)}${suffix}`;
-    index += 1;
-  }
-  return key;
-}
-
 function defaultFieldOptions(options?: Array<{ label: string; value: string }>): Array<{ label: string; value: string }> {
   return options !== undefined && options.length >= 2 ? options : [
     { label: 'Optie 1', value: 'Optie 1' },

@@ -109,16 +109,6 @@ final class VacationService
         return ['activated' => $activated, 'completed' => $completed];
     }
 
-    public function activeVacationFor(User $user): ?UserVacation
-    {
-        return UserVacation::query()
-            ->where('user_id', $user->id)
-            ->open()
-            ->whereDate('starts_at', '<=', today())
-            ->whereDate('ends_at', '>=', today())
-            ->first();
-    }
-
     private function applyForUser(User $user): void
     {
         UserVacation::query()
