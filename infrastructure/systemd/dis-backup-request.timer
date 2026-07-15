@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically sweep DIS backup requests
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=1min
+AccuracySec=1s
+Unit=dis-backup-request.service
+
+[Install]
+WantedBy=timers.target

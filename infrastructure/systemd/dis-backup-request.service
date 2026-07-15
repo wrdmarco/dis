@@ -1,7 +1,6 @@
 [Unit]
 Description=DIS Backup Request Worker
-Requires=dis-backup-mount.service
-After=network.target postgresql.service dis-backup-mount.service
+After=network.target postgresql.service
 
 [Service]
 Type=oneshot
@@ -11,7 +10,7 @@ ExecStart=/usr/local/bin/dis-backup-request-worker
 UMask=0077
 RuntimeDirectory=dis-backup-request
 RuntimeDirectoryMode=0700
-TimeoutStartSec=infinity
+TimeoutStartSec=30min
 NoNewPrivileges=false
 PrivateTmp=true
 ProtectHome=true

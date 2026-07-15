@@ -262,7 +262,7 @@ EOF
   install_backup_request_systemd_units "${DIS_INSTALL_PATH}"
   run_cmd install -m 0644 "${DIS_INSTALL_PATH}/infrastructure/systemd/dis-backup-mount.service" /etc/systemd/system/dis-backup-mount.service
   run_cmd systemctl daemon-reload
-  run_cmd systemctl enable dis-backup-request.path >/dev/null 2>&1 || true
+  run_cmd systemctl enable dis-backup-request.path dis-backup-request.timer >/dev/null 2>&1 || true
 }
 
 install_update_privileges() {

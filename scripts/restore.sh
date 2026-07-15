@@ -90,6 +90,9 @@ repair_restored_data_permissions() {
 stop_restore_runtime_services() {
   local service
 
+  if systemd_unit_exists dis-backup-request.timer; then
+    run_cmd systemctl stop dis-backup-request.timer
+  fi
   if systemd_unit_exists dis-backup-request.path; then
     run_cmd systemctl stop dis-backup-request.path
   fi
@@ -182,7 +185,7 @@ else
 fi
 
 restart_dis_web_services_for_verification
-start_dis_operational_services
+DIS_SKIP_BACKUP_REQUEST_PROBE=1 start_dis_operational_services
 prepare_backend_for_deployment_verification "${APP_ROOT}/webapp/backend"
 require_dis_runtime_services
 run_cmd env HEALTH_URL="http://127.0.0.1/health" bash "${SCRIPT_DIR}/healthcheck.sh"

@@ -8,14 +8,14 @@ use Throwable;
 
 final class BackupReportService
 {
-    public function sendSuccess(string $target, string $output): int
+    public function sendSuccess(string $target, string $output, BackupReportOrigin $origin): int
     {
-        return $this->send('success', $target, 'Automatische backup geslaagd', $output);
+        return $this->send('success', $target, $origin->subject(true), $output);
     }
 
-    public function sendFailed(string $target, int $exitCode, string $output): int
+    public function sendFailed(string $target, int $exitCode, string $output, BackupReportOrigin $origin): int
     {
-        return $this->send('failed', $target, 'Automatische backup mislukt', "Exit code: {$exitCode}\n\n".$output);
+        return $this->send('failed', $target, $origin->subject(false), "Exit code: {$exitCode}\n\n".$output);
     }
 
     private function send(string $result, string $target, string $subject, string $output): int

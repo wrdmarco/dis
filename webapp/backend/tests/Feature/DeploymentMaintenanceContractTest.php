@@ -39,10 +39,16 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertGreaterThan($services, $open);
         self::assertStringContainsString('DIS_DEFER_OPERATIONAL_SERVICES', $script);
         self::assertStringContainsString('Deployment failed; maintenance remains enabled', $script);
+        self::assertStringContainsString('systemctl stop dis-backup-request.timer', $common);
         self::assertStringContainsString('systemctl stop dis-backup-request.path', $common);
-        self::assertStringContainsString('systemctl stop dis-backup-request', $common);
+        self::assertStringNotContainsString("run_cmd systemctl stop dis-backup-request\n", $common);
+        self::assertStringContainsString('systemctl show dis-backup-request --property=ActiveState --value', $common);
+        self::assertStringContainsString('deployment was not allowed to interrupt it', $common);
         self::assertStringContainsString('systemctl start dis-backup-request.path', $common);
+        self::assertStringContainsString('systemctl start dis-backup-request.timer', $common);
         self::assertStringContainsString('systemctl is-active --quiet dis-backup-request.path', $common);
+        self::assertStringContainsString('systemctl is-active --quiet dis-backup-request.timer', $common);
+        self::assertStringContainsString('dis:check-backup-request-worker --timeout=30', $common);
 
         $completeBody = substr(
             $common,
@@ -53,6 +59,61 @@ final class DeploymentMaintenanceContractTest extends TestCase
             strpos($completeBody, 'disable_frontend_maintenance'),
             strpos($completeBody, 'prepare_backend_for_deployment_verification'),
         );
+    }
+
+    public function test_backup_request_timer_sweeps_the_worker_and_is_managed_with_the_path_unit(): void
+    {
+        $timer = $this->read('infrastructure/systemd/dis-backup-request.timer');
+        $service = $this->read('infrastructure/systemd/dis-backup-request.service');
+        $common = $this->read('scripts/lib/common.sh');
+        $deploy = $this->read('scripts/deploy.sh');
+        $update = $this->read('scripts/update.sh');
+        $uninstall = $this->read('scripts/uninstall.sh');
+
+        self::assertStringContainsString('OnBootSec=1min', $timer);
+        self::assertStringContainsString('OnUnitInactiveSec=1min', $timer);
+        self::assertStringContainsString('Unit=dis-backup-request.service', $timer);
+        self::assertStringContainsString('WantedBy=timers.target', $timer);
+        self::assertStringContainsString('TimeoutStartSec=30min', $service);
+        self::assertStringNotContainsString('Requires=dis-backup-mount.service', $service);
+        self::assertStringNotContainsString('dis-backup-mount.service', $service);
+        self::assertStringContainsString('infrastructure/systemd/dis-backup-request.timer', $common);
+        self::assertStringContainsString('/etc/systemd/system/dis-backup-request.timer', $common);
+        self::assertStringContainsString('dis-backup-request.path dis-backup-request.timer', $deploy);
+        self::assertStringContainsString('dis-backup-request.path dis-backup-request.timer', $update);
+        self::assertStringContainsString('dis-backup-request.timer dis-backup-request.path', $uninstall);
+        self::assertStringContainsString('/etc/systemd/system/dis-backup-request.timer', $uninstall);
+
+        $runtimeCheck = substr(
+            $common,
+            (int) strpos($common, 'require_dis_runtime_services()'),
+            (int) strpos($common, 'load_data_path_from_env()') - (int) strpos($common, 'require_dis_runtime_services()'),
+        );
+        $pathActive = strpos($runtimeCheck, 'systemctl is-active --quiet dis-backup-request.path');
+        $timerActive = strpos($runtimeCheck, 'systemctl is-active --quiet dis-backup-request.timer');
+        self::assertIsInt($pathActive);
+        self::assertIsInt($timerActive);
+
+        $startServices = substr(
+            $common,
+            (int) strpos($common, 'start_dis_operational_services()'),
+            (int) strpos($common, 'require_dis_web_services()') - (int) strpos($common, 'start_dis_operational_services()'),
+        );
+        $pathStart = strpos($startServices, 'systemctl start dis-backup-request.path');
+        $timerStart = strpos($startServices, 'systemctl start dis-backup-request.timer');
+        $brokerCheck = strpos($startServices, 'dis:check-backup-request-worker --timeout=30');
+        $schedulerStart = strpos($startServices, 'for service in dis-queue dis-scheduler dis-websocket');
+        self::assertIsInt($pathStart);
+        self::assertIsInt($timerStart);
+        self::assertIsInt($brokerCheck);
+        self::assertIsInt($schedulerStart);
+        self::assertTrue($pathStart < $brokerCheck);
+        self::assertTrue($timerStart < $brokerCheck);
+        self::assertTrue($brokerCheck < $schedulerStart);
+
+        $restore = $this->read('scripts/restore.sh');
+        self::assertStringContainsString('DIS_SKIP_BACKUP_REQUEST_PROBE=1 start_dis_operational_services', $restore);
+        self::assertStringContainsString('systemctl stop dis-backup-request.timer', $restore);
     }
 
     public function test_update_exit_is_fail_closed_and_parent_owns_the_final_unlock(): void

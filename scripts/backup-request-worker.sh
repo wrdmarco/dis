@@ -81,6 +81,82 @@ write_result() {
   run_cmd mv -fT -- "${temporary_result}" "${result_file}"
 }
 
+remove_work_entry() {
+  local entry="$1"
+
+  if [ -d "${entry}" ] && [ ! -L "${entry}" ]; then
+    secure_path_operation remove-tree "${entry}"
+  else
+    rm -f -- "${entry}"
+  fi
+}
+
+discard_invalid_pending_request() {
+  local request_file="$1" quarantine
+
+  quarantine="${WORK_DIR}/rejected-request.$$.$(date +%s%N).${RANDOM}"
+  if ! mv -T -- "${request_file}" "${quarantine}" 2>/dev/null; then
+    logger -p authpriv.warning -t dis-security \
+      "backup_request_rejected reason=invalid_request_id quarantine=failed" 2>/dev/null || true
+    return
+  fi
+
+  if remove_work_entry "${quarantine}"; then
+    logger -p authpriv.warning -t dis-security \
+      "backup_request_rejected reason=invalid_request_id quarantine=removed" 2>/dev/null || true
+  else
+    logger -p authpriv.err -t dis-security \
+      "backup_request_rejected reason=invalid_request_id quarantine=cleanup_failed" 2>/dev/null || true
+  fi
+}
+
+recover_abandoned_request() {
+  local running_file="$1" request_id request_owner actor_id result_file orphan_path
+
+  request_id="$(basename "${running_file}" .json)"
+  if [[ ! "${request_id}" =~ ^[a-f0-9]{32}$ ]] \
+    || [ -L "${running_file}" ] || [ ! -f "${running_file}" ] \
+    || [ "$(stat -c '%s' "${running_file}" 2>/dev/null || printf 16385)" -gt 16384 ]; then
+    remove_work_entry "${running_file}" 2>/dev/null || true
+    return
+  fi
+
+  result_file="${REQUEST_DIR}/${request_id}.result"
+  if [ -f "${result_file}" ]; then
+    rm -f -- "${running_file}"
+    return
+  fi
+
+  request_owner="$(stat -c '%U' "${running_file}")"
+  if [ "${request_owner}" = "root" ]; then
+    actor_id="$(jq -r '.actor_id // ""' "${running_file}" 2>/dev/null || true)"
+    if [ -z "${actor_id}" ]; then
+      request_owner="${DIS_USER}"
+    elif [[ "${actor_id^^}" =~ ^[0-9A-HJKMNP-TV-Z]{26}$ ]]; then
+      request_owner="www-data"
+    else
+      remove_work_entry "${running_file}" 2>/dev/null || true
+      return
+    fi
+  fi
+  if [ "${request_owner}" != "www-data" ] && [ "${request_owner}" != "${DIS_USER}" ]; then
+    remove_work_entry "${running_file}" 2>/dev/null || true
+    return
+  fi
+
+  write_result "${result_file}" "failed" 124 \
+    "Een eerder geclaimde backup request is afgebroken voordat een resultaat werd gepubliceerd. Controleer de DIS backup request service en worker-logs." \
+    "${request_owner}"
+  rm -f -- "${running_file}"
+  for orphan_path in "${WORK_DIR}/${request_id}.backup" "${WORK_DIR}/${request_id}.restore-input"; do
+    if [ -e "${orphan_path}" ] || [ -L "${orphan_path}" ]; then
+      remove_work_entry "${orphan_path}" || true
+    fi
+  done
+  logger -p authpriv.err -t dis-security \
+    "backup_request_recovered request_id=${request_id} state=failed exit_code=124" 2>/dev/null || true
+}
+
 process_request() {
   local request_file="$1" request_id request_owner running_file result_file operation target backup_path actor_id created_at created_epoch request_age output exit_code state
   local import_root original_backup_path original_backup_id claimed_backup_path snapshot_payload_limit
@@ -88,6 +164,7 @@ process_request() {
 
   request_id="$(basename "${request_file}" .pending)"
   if [[ ! "${request_id}" =~ ^[a-f0-9]{32}$ ]]; then
+    discard_invalid_pending_request "${request_file}"
     return
   fi
 
@@ -98,7 +175,7 @@ process_request() {
   fi
 
   if [ -L "${running_file}" ] || [ ! -f "${running_file}" ]; then
-    rm -f -- "${running_file}" 2>/dev/null || true
+    remove_work_entry "${running_file}" 2>/dev/null || true
     return
   fi
   if [ "$(stat -c '%s' "${running_file}")" -gt 16384 ]; then
@@ -115,11 +192,20 @@ process_request() {
 
   if ! jq -e '
     type == "object"
-    and (.operation | type == "string" and test("^(create|verify|restore)$"))
+    and (.operation | type == "string" and test("^(create|verify|restore|probe)$"))
     and (.target | type == "string" and test("^(local|samba)$"))
     and (
       (.operation == "create" and .backup_path == null)
-      or (.operation != "create" and (.backup_path | type == "string" and length >= 1 and length <= 4096))
+      or (
+        .operation == "probe"
+        and .target == "local"
+        and .backup_path == null
+        and .actor_id == null
+      )
+      or (
+        (.operation == "verify" or .operation == "restore")
+        and (.backup_path | type == "string" and length >= 1 and length <= 4096)
+      )
     )
     and (.created_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
     and (
@@ -150,13 +236,25 @@ process_request() {
     return
   fi
 
-  if [ "${request_owner}" = "${DIS_USER}" ] && { [ "${operation}" != "create" ] || [ -n "${actor_id}" ]; }; then
-    write_result "${result_file}" "failed" 2 "The scheduler may only create unclaimed backups." "${request_owner}"
+  if [ "${operation}" = "probe" ] && [ "${request_owner}" != "${DIS_USER}" ]; then
+    write_result "${result_file}" "failed" 2 "Backup worker probes may only be submitted by the scheduler." "${request_owner}"
+    rm -f -- "${running_file}"
+    return
+  fi
+  if [ "${request_owner}" = "${DIS_USER}" ] \
+    && { { [ "${operation}" != "create" ] && [ "${operation}" != "probe" ]; } || [ -n "${actor_id}" ]; }; then
+    write_result "${result_file}" "failed" 2 "The scheduler may only create unclaimed backups or probe the worker." "${request_owner}"
     rm -f -- "${running_file}"
     return
   fi
   if [ "${request_owner}" = "www-data" ] && [ -z "${actor_id}" ]; then
     write_result "${result_file}" "failed" 2 "Authenticated backup requests require an actor id." "${request_owner}"
+    rm -f -- "${running_file}"
+    return
+  fi
+
+  if [ "${operation}" = "probe" ]; then
+    write_result "${result_file}" "succeeded" 0 "Backup request worker is healthy." "${request_owner}"
     rm -f -- "${running_file}"
     return
   fi
@@ -336,7 +434,13 @@ process_request() {
 (
   flock -n 9 || exit 0
   shopt -s nullglob
+  for running_file in "${WORK_DIR}"/*.json; do
+    recover_abandoned_request "${running_file}"
+  done
   for request_file in "${REQUEST_DIR}"/*.pending; do
     process_request "${request_file}"
+    # Bound one systemd invocation to one request. PathExistsGlob (with the
+    # timer as fallback) immediately schedules the next pending request.
+    break
   done
 ) 9>"${LOCK_FILE}"

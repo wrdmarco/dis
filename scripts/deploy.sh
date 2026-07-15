@@ -311,7 +311,7 @@ run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-frontend.service
 install_backup_request_systemd_units "${APP_ROOT}"
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-backup-mount.service" /etc/systemd/system/dis-backup-mount.service
 run_cmd systemctl daemon-reload
-run_cmd systemctl enable dis-queue dis-scheduler dis-websocket dis-frontend dis-backup-request.path
+run_cmd systemctl enable dis-queue dis-scheduler dis-websocket dis-frontend dis-backup-request.path dis-backup-request.timer
 run_cmd nginx -t
 
 finalize_backup_key_cutover "${APP_ROOT}"

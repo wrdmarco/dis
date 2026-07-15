@@ -208,6 +208,14 @@ archive. Backup creation validates the storage archive against the same no-links
 by restore. Verification fully extracts storage into protected scratch space, while restore completes that
 preflight before maintenance, its mutation marker or `pg_restore` can change live state.
 
+Privileged backup requests normally start immediately through `dis-backup-request.path`. The
+`dis-backup-request.timer` unit also sweeps the same root worker every minute, so an existing request is
+still picked up if a filesystem notification is missed. Deployments verify this broker end to end before
+reopening production. Each worker invocation handles one request and is bounded to 30 minutes; deployments
+stop accepting new requests and let an already claimed request finish instead of terminating it mid-backup
+or during restore preflight. If the worker is nevertheless terminated, its next invocation converts the
+abandoned claim into an explicit failed result instead of leaving the request permanently stuck.
+
 Verify a backup:
 
 ```bash

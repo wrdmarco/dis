@@ -1,12 +1,5 @@
 <?php
 
-use App\Console\Commands\ApplyVacationStatuses;
-use App\Console\Commands\FinishSystemUpdateCommand;
-use App\Console\Commands\PruneOperationalData;
-use App\Console\Commands\RunSystemUpdateCommand;
-use App\Console\Commands\SendDevicePresencePing;
-use App\Console\Commands\SendScheduledTestAlert;
-use App\Console\Commands\SystemSelfCheck;
 use App\Http\Middleware\AuditPrivilegedRequest;
 use App\Http\Middleware\AuditRateLimitedRequest;
 use App\Http\Middleware\AuthenticateTwoFactorChallenge;
@@ -38,15 +31,7 @@ return Application::configure(basePath: dirname(__DIR__))
         channels: __DIR__.'/../routes/channels.php',
         commands: __DIR__.'/../routes/console.php',
     )
-    ->withCommands([
-        FinishSystemUpdateCommand::class,
-        ApplyVacationStatuses::class,
-        PruneOperationalData::class,
-        RunSystemUpdateCommand::class,
-        SendDevicePresencePing::class,
-        SendScheduledTestAlert::class,
-        SystemSelfCheck::class,
-    ])
+    ->withCommands()
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->trustProxies(
             headers: SymfonyRequest::HEADER_X_FORWARDED_FOR

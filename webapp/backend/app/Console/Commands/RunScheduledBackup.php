@@ -4,7 +4,9 @@ namespace App\Console\Commands;
 
 use App\Models\SystemSetting;
 use App\Services\AuditService;
+use App\Services\BackupReportOrigin;
 use App\Services\BackupReportService;
+use App\Services\BackupRequestService;
 use App\Support\ApiDateTime;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
@@ -15,8 +17,11 @@ final class RunScheduledBackup extends Command
 
     protected $description = 'Run the configured automatic DIS backup.';
 
-    public function handle(AuditService $auditService, BackupReportService $backupReports): int
-    {
+    public function handle(
+        AuditService $auditService,
+        BackupReportService $backupReports,
+        BackupRequestService $backupRequests,
+    ): int {
         if (! $this->backupDue()) {
             $this->info('Automatic backup checked. Not due.');
 
@@ -29,7 +34,7 @@ final class RunScheduledBackup extends Command
             $auditService->record('backups.automatic_skipped', SystemSetting::class, null, [
                 'target' => $target,
                 'reason' => 'samba_not_configured',
-                'report_recipients' => $backupReports->sendFailed($target, 1, $message),
+                'report_recipients' => $backupReports->sendFailed($target, 1, $message, BackupReportOrigin::Automatic),
             ]);
             $this->error($message);
 
@@ -37,7 +42,7 @@ final class RunScheduledBackup extends Command
         }
 
         $this->writeRuntimeConfig($target);
-        $result = $this->runBackupRequest('create', $target, null, 900);
+        $result = $backupRequests->create($target, null);
         $output = trim($result['output']);
 
         if ($result['exit_code'] !== 0) {
@@ -45,8 +50,14 @@ final class RunScheduledBackup extends Command
             $auditService->record('backups.automatic_failed', SystemSetting::class, null, [
                 'target' => $target,
                 'exit_code' => $result['exit_code'],
+                'request_id' => $result['request_id'],
                 'output' => mb_substr($cleanOutput, 0, 1000),
-                'report_recipients' => $backupReports->sendFailed($target, $result['exit_code'], $cleanOutput),
+                'report_recipients' => $backupReports->sendFailed(
+                    $target,
+                    $result['exit_code'],
+                    $cleanOutput,
+                    BackupReportOrigin::Automatic,
+                ),
             ]);
             $this->error($cleanOutput);
 
@@ -60,8 +71,13 @@ final class RunScheduledBackup extends Command
 
         $auditService->record('backups.automatic_created', SystemSetting::class, null, [
             'target' => $target,
+            'request_id' => $result['request_id'],
             'retention_count' => max(0, SystemSetting::integer('backup.retention_count', 7)),
-            'report_recipients' => $backupReports->sendSuccess($target, $this->cleanOutput($output !== '' ? $output : 'Automatic backup completed.')),
+            'report_recipients' => $backupReports->sendSuccess(
+                $target,
+                $this->cleanOutput($output !== '' ? $output : 'Automatic backup completed.'),
+                BackupReportOrigin::Automatic,
+            ),
         ]);
 
         $this->info($this->cleanOutput($output !== '' ? $output : 'Automatic backup completed.'));
@@ -134,57 +150,6 @@ final class RunScheduledBackup extends Command
                 @unlink($temporary);
             }
         }
-    }
-
-    /**
-     * @return array{exit_code: int, output: string}
-     */
-    private function runBackupRequest(string $operation, string $target, ?string $backupPath, int $timeoutSeconds): array
-    {
-        $root = $this->backupRequestRoot();
-        if (! is_dir($root) || ! is_writable($root)) {
-            return ['exit_code' => 1, 'output' => 'Beveiligde backup request map is niet beschikbaar.'];
-        }
-
-        $id = bin2hex(random_bytes(16));
-        $temporary = $root.'/'.$id.'.tmp';
-        $pending = $root.'/'.$id.'.pending';
-        $result = $root.'/'.$id.'.result';
-        file_put_contents($temporary, json_encode([
-            'operation' => $operation,
-            'target' => $target,
-            'backup_path' => $backupPath,
-            'actor_id' => null,
-            'created_at' => gmdate('Y-m-d\\TH:i:s\\Z'),
-        ], JSON_THROW_ON_ERROR)."\n", LOCK_EX);
-        @chmod($temporary, 0660);
-        rename($temporary, $pending);
-
-        $deadline = microtime(true) + $timeoutSeconds;
-        while (microtime(true) < $deadline) {
-            if (is_file($result)) {
-                $decoded = json_decode((string) file_get_contents($result), true);
-                @unlink($result);
-
-                return [
-                    'exit_code' => (int) ($decoded['exit_code'] ?? 1),
-                    'output' => is_string($decoded['output'] ?? null) ? $decoded['output'] : 'Backup runner gaf geen geldige uitvoer terug.',
-                ];
-            }
-
-            usleep(500000);
-        }
-
-        @unlink($pending);
-
-        return ['exit_code' => 124, 'output' => 'Backup runner reageerde niet binnen de verwachte tijd. Controleer de DIS backup request service.'];
-    }
-
-    private function backupRequestRoot(): string
-    {
-        $dataPath = rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/');
-
-        return $dataPath.'/backup-requests';
     }
 
     private function cleanOutput(string $output): string

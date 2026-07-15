@@ -6,7 +6,9 @@ use App\Http\Responses\ApiResponse;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\BackupReportOrigin;
 use App\Services\BackupReportService;
+use App\Services\BackupRequestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Process;
@@ -190,21 +192,35 @@ final class BackupController extends Controller
         ]);
     }
 
-    public function create(Request $request, BackupReportService $backupReports): JsonResponse
-    {
+    public function create(
+        Request $request,
+        BackupReportService $backupReports,
+        BackupRequestService $backupRequests,
+    ): JsonResponse {
         $target = $this->requestTarget($request);
         $this->ensureTargetReady($target);
         $this->writeRuntimeConfig($target);
-        $result = $this->runBackupRequest('create', $target, null, 900, $request->user()?->id);
+        $actorId = $request->user()?->id;
+        $result = $backupRequests->create($target, is_string($actorId) ? $actorId : null);
         $output = $this->cleanOutput($result['output']);
         $successful = $result['exit_code'] === 0;
         $reportRecipients = $successful
-            ? $backupReports->sendSuccess($target, $output !== '' ? $output : 'Manual backup completed.')
-            : $backupReports->sendFailed($target, $result['exit_code'], $output !== '' ? $output : 'Manual backup failed.');
+            ? $backupReports->sendSuccess(
+                $target,
+                $output !== '' ? $output : 'Manual backup completed.',
+                BackupReportOrigin::Manual,
+            )
+            : $backupReports->sendFailed(
+                $target,
+                $result['exit_code'],
+                $output !== '' ? $output : 'Manual backup failed.',
+                BackupReportOrigin::Manual,
+            );
 
         $this->auditService->record('backups.created', SystemSetting::class, $request->user(), [
             'target' => $target,
             'successful' => $successful,
+            'request_id' => $result['request_id'],
             'report_recipients' => $reportRecipients,
         ], null, $request);
 
@@ -215,18 +231,23 @@ final class BackupController extends Controller
         return ApiResponse::success([
             'output' => $output,
             'state' => 'succeeded',
+            'request_id' => $result['request_id'],
             'report_recipients' => $reportRecipients,
             'backups' => $this->index()->getData(true)['data']['backups'] ?? [],
         ], 201);
     }
 
-    public function verify(Request $request, string $backup): JsonResponse
-    {
+    public function verify(
+        Request $request,
+        string $backup,
+        BackupRequestService $backupRequests,
+    ): JsonResponse {
         $target = $this->requestTarget($request);
         $this->ensureTargetReady($target);
         $this->writeRuntimeConfig($target);
         $path = $this->backupPath($backup, $target);
-        $result = $this->runBackupRequest('verify', $target, $path, 600, $request->user()?->id);
+        $actorId = $request->user()?->id;
+        $result = $backupRequests->verify($target, $path, is_string($actorId) ? $actorId : null);
         $output = $this->cleanOutput($result['output']);
         $successful = $result['exit_code'] === 0;
 
@@ -234,6 +255,7 @@ final class BackupController extends Controller
             'backup' => $backup,
             'target' => $target,
             'successful' => $successful,
+            'request_id' => $result['request_id'],
         ], null, $request);
 
         if (! $successful) {
@@ -244,6 +266,7 @@ final class BackupController extends Controller
             'backup' => $backup,
             'state' => 'verified',
             'output' => $output,
+            'request_id' => $result['request_id'],
         ]);
     }
 
@@ -353,65 +376,6 @@ final class BackupController extends Controller
         return is_string($configured) && $configured !== ''
             ? rtrim($configured, '/')
             : rtrim(base_path('../..'), '/').'/backup';
-    }
-
-    /**
-     * @return array{exit_code: int, output: string}
-     */
-    private function runBackupRequest(
-        string $operation,
-        string $target,
-        ?string $backupPath,
-        int $timeoutSeconds,
-        ?string $actorId,
-    ): array {
-        $root = $this->backupRequestRoot();
-        if (! is_dir($root) || ! is_writable($root)) {
-            return ['exit_code' => 1, 'output' => 'Beveiligde backup request map is niet beschikbaar.'];
-        }
-
-        $id = bin2hex(random_bytes(16));
-        $payload = [
-            'operation' => $operation,
-            'target' => $target,
-            'backup_path' => $backupPath,
-            'actor_id' => $actorId,
-            'created_at' => gmdate('Y-m-d\\TH:i:s\\Z'),
-        ];
-        $temporary = $root.'/'.$id.'.tmp';
-        $pending = $root.'/'.$id.'.pending';
-        $result = $root.'/'.$id.'.result';
-
-        try {
-            self::writeRequestFile($temporary, json_encode($payload, JSON_THROW_ON_ERROR)."\n", 0660);
-            if (! @rename($temporary, $pending)) {
-                throw new \RuntimeException('Backup request kon niet atomair worden gepubliceerd.');
-            }
-        } catch (\Throwable $exception) {
-            @unlink($temporary);
-            report($exception);
-
-            return ['exit_code' => 1, 'output' => 'Beveiligde backup request kon niet worden geregistreerd.'];
-        }
-
-        $deadline = microtime(true) + $timeoutSeconds;
-        while (microtime(true) < $deadline) {
-            if (is_file($result)) {
-                $decoded = json_decode((string) file_get_contents($result), true);
-                @unlink($result);
-
-                return [
-                    'exit_code' => (int) ($decoded['exit_code'] ?? 1),
-                    'output' => is_string($decoded['output'] ?? null) ? $decoded['output'] : 'Backup runner gaf geen geldige uitvoer terug.',
-                ];
-            }
-
-            usleep(500000);
-        }
-
-        @unlink($pending);
-
-        return ['exit_code' => 124, 'output' => 'Backup runner reageerde niet binnen de verwachte tijd. Controleer de DIS backup request service.'];
     }
 
     private function queueRestoreRequest(string $id, string $target, string $backupPath, ?string $actorId): void

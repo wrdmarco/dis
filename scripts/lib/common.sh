@@ -431,14 +431,42 @@ complete_deployment_maintenance() {
 }
 
 stop_dis_deployment_services() {
-  local service
+  local service worker_state worker_wait_deadline
 
   log "Stopping DIS workers, realtime and frontend services for deployment"
+  if systemd_unit_exists dis-backup-request.timer; then
+    run_cmd systemctl stop dis-backup-request.timer
+  fi
   if systemd_unit_exists dis-backup-request.path; then
     run_cmd systemctl stop dis-backup-request.path
   fi
   if systemd_service_exists dis-backup-request; then
-    run_cmd systemctl stop dis-backup-request
+    # The root worker may already have atomically claimed a request. Killing it
+    # would strand that request in backup-request-work, and can interrupt restore
+    # preflight. New requests are blocked above; let the current request finish.
+    worker_wait_deadline=$((SECONDS + 360))
+    while true; do
+      worker_state="$(systemctl show dis-backup-request --property=ActiveState --value 2>/dev/null || true)"
+      case "${worker_state}" in
+        active|activating|deactivating|reloading)
+          if [ "${SECONDS}" -ge "${worker_wait_deadline}" ]; then
+            fail "DIS backup request worker did not become idle within 360 seconds; deployment was not allowed to interrupt it."
+          fi
+          sleep 1
+          ;;
+        failed)
+          log "Resetting an inactive failed DIS backup request worker before deployment"
+          run_cmd systemctl reset-failed dis-backup-request
+          break
+          ;;
+        inactive)
+          break
+          ;;
+        *)
+          fail "Could not determine a safe idle state for dis-backup-request.service (state: ${worker_state:-unknown})."
+          ;;
+      esac
+    done
   fi
   for service in dis-queue dis-scheduler dis-websocket dis-frontend "${PHP_FPM_SERVICE}"; do
     if systemd_service_exists "${service}"; then
@@ -463,14 +491,24 @@ start_dis_operational_services() {
   local service
 
   log "Starting DIS workers and realtime services"
+  if systemd_unit_exists dis-backup-request.path; then
+    run_cmd systemctl start dis-backup-request.path
+  fi
+  if systemd_unit_exists dis-backup-request.timer; then
+    run_cmd systemctl start dis-backup-request.timer
+  fi
+  # Verify the privileged broker before the scheduler can enqueue a long-running
+  # automatic backup ahead of this readiness probe. Restore already runs inside
+  # the same single worker and therefore explicitly skips this recursive probe.
+  if [ "${DIS_SKIP_BACKUP_REQUEST_PROBE:-0}" != "1" ]; then
+    run_cmd runuser -u "${DIS_USER}" -- php "${DIS_INSTALL_PATH}/webapp/backend/artisan" \
+      dis:check-backup-request-worker --timeout=30
+  fi
   for service in dis-queue dis-scheduler dis-websocket; do
     if systemd_service_exists "${service}"; then
       run_cmd systemctl start "${service}"
     fi
   done
-  if systemd_unit_exists dis-backup-request.path; then
-    run_cmd systemctl start dis-backup-request.path
-  fi
 }
 
 require_dis_web_services() {
@@ -502,6 +540,12 @@ require_dis_runtime_services() {
   fi
   if ! systemctl is-active --quiet dis-backup-request.path; then
     fail "Required systemd unit is not active: dis-backup-request.path"
+  fi
+  if ! systemd_unit_exists dis-backup-request.timer; then
+    fail "Required systemd unit is not installed: dis-backup-request.timer"
+  fi
+  if ! systemctl is-active --quiet dis-backup-request.timer; then
+    fail "Required systemd unit is not active: dis-backup-request.timer"
   fi
 }
 
@@ -543,6 +587,7 @@ install_backup_request_systemd_units() {
     "${app_root}/infrastructure/systemd/dis-backup-request.path" > "${temporary_path}"
   run_cmd install -m 0644 "${temporary_service}" /etc/systemd/system/dis-backup-request.service
   run_cmd install -m 0644 "${temporary_path}" /etc/systemd/system/dis-backup-request.path
+  run_cmd install -m 0644 "${app_root}/infrastructure/systemd/dis-backup-request.timer" /etc/systemd/system/dis-backup-request.timer
   run_cmd rm -f -- "${temporary_service}" "${temporary_path}"
 }
 
