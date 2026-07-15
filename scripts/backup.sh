@@ -8,6 +8,8 @@ APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
 ENV_FILE="${APP_ROOT}/.env"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 REQUESTED_BACKUP_TARGET="${BACKUP_TARGET:-}"
+REQUESTED_SAFE_LOCAL_BACKUP="${DIS_SAFE_LOCAL_BACKUP:-0}"
+REQUESTED_SAFE_LOCAL_PREUPDATE_BACKUP="${DIS_SAFE_LOCAL_PREUPDATE_BACKUP:-0}"
 
 require_root
 acquire_dis_operation_lock backup
@@ -18,8 +20,11 @@ require_file "${ENV_FILE}"
 set -a
 source "${ENV_FILE}"
 set +a
+DIS_SAFE_LOCAL_BACKUP="${REQUESTED_SAFE_LOCAL_BACKUP}"
+DIS_SAFE_LOCAL_PREUPDATE_BACKUP="${REQUESTED_SAFE_LOCAL_PREUPDATE_BACKUP}"
+export DIS_SAFE_LOCAL_BACKUP DIS_SAFE_LOCAL_PREUPDATE_BACKUP
 load_backup_runtime_config_for_operation "${APP_ROOT}/webapp/backend/storage/app/backup-config.json"
-if [ "${DIS_SAFE_LOCAL_PREUPDATE_BACKUP:-0}" != "1" ] && [ -n "${REQUESTED_BACKUP_TARGET}" ]; then
+if [ "${DIS_EFFECTIVE_SAFE_LOCAL_BACKUP}" != "1" ] && [ -n "${REQUESTED_BACKUP_TARGET}" ]; then
   [[ "${REQUESTED_BACKUP_TARGET}" =~ ^(local|samba)$ ]] || fail "Invalid requested backup target."
   BACKUP_TARGET="${REQUESTED_BACKUP_TARGET}"
   export BACKUP_TARGET

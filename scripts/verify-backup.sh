@@ -11,6 +11,8 @@ if [ -z "${BACKUP_PATH}" ]; then
 fi
 
 APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
+REQUESTED_SAFE_LOCAL_BACKUP="${DIS_SAFE_LOCAL_BACKUP:-0}"
+REQUESTED_SAFE_LOCAL_PREUPDATE_BACKUP="${DIS_SAFE_LOCAL_PREUPDATE_BACKUP:-0}"
 require_root
 acquire_dis_operation_lock backup-verification
 load_data_path_from_env "${APP_ROOT}/.env"
@@ -19,6 +21,9 @@ if [ -f "${APP_ROOT}/.env" ]; then
   set -a
   source "${APP_ROOT}/.env"
   set +a
+  DIS_SAFE_LOCAL_BACKUP="${REQUESTED_SAFE_LOCAL_BACKUP}"
+  DIS_SAFE_LOCAL_PREUPDATE_BACKUP="${REQUESTED_SAFE_LOCAL_PREUPDATE_BACKUP}"
+  export DIS_SAFE_LOCAL_BACKUP DIS_SAFE_LOCAL_PREUPDATE_BACKUP
   load_backup_runtime_config_for_operation "${APP_ROOT}/webapp/backend/storage/app/backup-config.json"
   resolve_backup_root "${APP_ROOT}" >/dev/null
 fi

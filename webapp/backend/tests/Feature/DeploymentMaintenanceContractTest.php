@@ -212,6 +212,61 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertStringContainsString('.value == (.value | floor)', $common);
     }
 
+    public function test_trusted_local_backup_operations_ignore_invalid_global_runtime_configuration(): void
+    {
+        $worker = $this->read('scripts/backup-request-worker.sh');
+        $common = $this->read('scripts/lib/common.sh');
+        $backup = $this->read('scripts/backup.sh');
+        $verify = $this->read('scripts/verify-backup.sh');
+        $restore = $this->read('scripts/restore.sh');
+
+        self::assertStringContainsString('if [ "${target}" = "local" ]', $worker);
+        self::assertStringContainsString('safe_local_backup=1', $worker);
+        self::assertSame(4, substr_count($worker, 'DIS_SAFE_LOCAL_BACKUP="${safe_local_backup}"'));
+        self::assertSame(4, substr_count($worker, 'DIS_SAFE_LOCAL_PREUPDATE_BACKUP=0'));
+        $requestValidation = strpos($worker, "if ! jq -e '");
+        $targetExtraction = strpos($worker, 'target="$(jq -r');
+        $safeMode = strpos($worker, 'safe_local_backup=0');
+        self::assertIsInt($requestValidation);
+        self::assertIsInt($targetExtraction);
+        self::assertIsInt($safeMode);
+        self::assertTrue($requestValidation < $targetExtraction);
+        self::assertTrue($targetExtraction < $safeMode);
+        self::assertStringContainsString(
+            'if [ "${target}" = "samba" ] && ! ensure_samba_backup_mount',
+            $worker,
+        );
+        self::assertStringContainsString('DIS_SAFE_LOCAL_BACKUP must be 0 or 1', $common);
+        self::assertStringContainsString('DIS_EFFECTIVE_SAFE_LOCAL_BACKUP=1', $common);
+        self::assertStringContainsString('Using isolated local backup configuration.', $common);
+        self::assertStringContainsString('safe_local_backup_retention_count', $common);
+        self::assertStringContainsString('unset BACKUP_RETENTION_COUNT', $common);
+        self::assertStringContainsString('load_backup_runtime_config "${config_file}"', $common);
+        self::assertStringContainsString('DIS_EFFECTIVE_SAFE_LOCAL_BACKUP', $backup);
+        self::assertStringContainsString('load_backup_runtime_config_for_operation', $verify);
+        self::assertStringContainsString('load_backup_runtime_config_for_operation', $restore);
+
+        foreach ([$backup, $verify, $restore] as $script) {
+            $capture = strpos($script, 'REQUESTED_SAFE_LOCAL_BACKUP="${DIS_SAFE_LOCAL_BACKUP:-0}"');
+            $environment = strpos($script, 'source "${APP_ROOT}/.env"');
+            if ($environment === false) {
+                $environment = strpos($script, 'source "${ENV_FILE}"');
+            }
+            $restoreTrustedValue = strpos(
+                $script,
+                'DIS_SAFE_LOCAL_BACKUP="${REQUESTED_SAFE_LOCAL_BACKUP}"',
+            );
+            $load = strpos($script, 'load_backup_runtime_config_for_operation');
+            self::assertIsInt($capture);
+            self::assertIsInt($environment);
+            self::assertIsInt($restoreTrustedValue);
+            self::assertIsInt($load);
+            self::assertTrue($capture < $environment);
+            self::assertTrue($environment < $restoreTrustedValue);
+            self::assertTrue($restoreTrustedValue < $load);
+        }
+    }
+
     public function test_nginx_blocks_operational_surfaces_but_keeps_narrow_recovery_routes(): void
     {
         $config = $this->read('infrastructure/nginx/dis.conf');

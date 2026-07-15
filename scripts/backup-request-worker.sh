@@ -158,7 +158,7 @@ recover_abandoned_request() {
 }
 
 process_request() {
-  local request_file="$1" request_id request_owner running_file result_file operation target backup_path actor_id created_at created_epoch request_age output exit_code state
+  local request_file="$1" request_id request_owner running_file result_file operation target backup_path actor_id created_at created_epoch request_age output exit_code state safe_local_backup
   local import_root original_backup_path original_backup_id claimed_backup_path snapshot_payload_limit
   local restore_block_file restore_receipt restore_receipt_time restore_key restore_snapshot_path restore_mutation_marker restore_attempt_started
 
@@ -329,17 +329,25 @@ process_request() {
     fi
   fi
 
+  safe_local_backup=0
+  if [ "${target}" = "local" ]; then
+    safe_local_backup=1
+  fi
+
   set +e
   case "${operation}" in
     create)
       output="$(timeout --signal=TERM --kill-after=30s 840s \
-        env BACKUP_TARGET="${target}" APP_ROOT="${APP_ROOT}" \
+        env DIS_SAFE_LOCAL_BACKUP="${safe_local_backup}" \
+        DIS_SAFE_LOCAL_PREUPDATE_BACKUP=0 \
+        BACKUP_TARGET="${target}" APP_ROOT="${APP_ROOT}" \
         bash "${SCRIPT_DIR}/backup.sh" 2>&1)"
       exit_code=$?
       ;;
     verify)
       output="$(timeout --signal=TERM --kill-after=30s 540s \
-        env APP_ROOT="${APP_ROOT}" \
+        env DIS_SAFE_LOCAL_BACKUP="${safe_local_backup}" \
+        DIS_SAFE_LOCAL_PREUPDATE_BACKUP=0 APP_ROOT="${APP_ROOT}" \
         EXPECTED_BACKUP_ID="${original_backup_id}" \
         BACKUP_SNAPSHOT_MAX_PAYLOAD_BYTES="${snapshot_payload_limit}" \
         bash "${SCRIPT_DIR}/verify-backup.sh" "${backup_path}" 2>&1)"
@@ -362,7 +370,8 @@ process_request() {
           sync -f "${restore_block_file}"
           restore_attempt_started=1
           output="$(timeout --signal=TERM --kill-after=30s 1140s \
-            env APP_ROOT="${APP_ROOT}" \
+            env DIS_SAFE_LOCAL_BACKUP="${safe_local_backup}" \
+            DIS_SAFE_LOCAL_PREUPDATE_BACKUP=0 APP_ROOT="${APP_ROOT}" \
             BACKUP_INPUT_ALREADY_SNAPSHOTTED=1 \
             BACKUP_IDENTITY_VERIFIED=1 \
             RESTORE_MUTATION_MARKER="${restore_mutation_marker}" \
@@ -378,7 +387,8 @@ process_request() {
         sync -f "${restore_block_file}"
         restore_attempt_started=1
         output="$(timeout --signal=TERM --kill-after=30s 1140s \
-          env APP_ROOT="${APP_ROOT}" \
+          env DIS_SAFE_LOCAL_BACKUP="${safe_local_backup}" \
+          DIS_SAFE_LOCAL_PREUPDATE_BACKUP=0 APP_ROOT="${APP_ROOT}" \
           BACKUP_INPUT_ALREADY_SNAPSHOTTED=1 \
           BACKUP_IDENTITY_VERIFIED=1 \
           RESTORE_MUTATION_MARKER="${restore_mutation_marker}" \

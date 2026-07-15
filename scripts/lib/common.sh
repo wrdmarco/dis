@@ -686,29 +686,63 @@ load_backup_runtime_config() {
   done < <(jq -j 'to_entries[] | .key, "\u0000", .value, "\u0000"' "${config_file}")
 }
 
+safe_local_backup_retention_count() {
+  local config_file="$1"
+  local retention="0"
+
+  if ! retention="$(
+    {
+      unset BACKUP_RETENTION_COUNT
+      load_backup_runtime_config "${config_file}"
+      printf '%s\n' "${BACKUP_RETENTION_COUNT:-0}"
+    } 2>/dev/null
+  )"; then
+    retention=0
+  fi
+
+  if [[ "${retention}" =~ ^[0-9]{1,3}$ ]] && [ "$((10#${retention}))" -le 365 ]; then
+    printf '%s\n' "$((10#${retention}))"
+  else
+    printf '0\n'
+  fi
+}
+
 load_backup_runtime_config_for_operation() {
   local config_file="$1"
+  local safe_local="${DIS_SAFE_LOCAL_BACKUP:-0}"
+  local pre_update_safe_local="${DIS_SAFE_LOCAL_PREUPDATE_BACKUP:-0}"
 
-  case "${DIS_SAFE_LOCAL_PREUPDATE_BACKUP:-0}" in
-    0)
-      load_backup_runtime_config "${config_file}"
-      ;;
-    1)
-      log "Using isolated local pre-update backup configuration."
-      BACKUP_TARGET=local
-      BACKUP_ROOT="${DIS_DATA_PATH}/backup"
-      BACKUP_RETENTION_COUNT=0
-      BACKUP_ENCRYPTION_KEY_FILE="${DIS_DATA_PATH}/secrets/backup-encryption.key"
-      BACKUP_SAMBA_ENABLED=0
-      unset BACKUP_SAMBA_SHARE BACKUP_SAMBA_MOUNT BACKUP_SAMBA_USERNAME \
-        BACKUP_SAMBA_PASSWORD BACKUP_SAMBA_DOMAIN BACKUP_SAMBA_VERSION
-      export BACKUP_TARGET BACKUP_ROOT BACKUP_RETENTION_COUNT \
-        BACKUP_ENCRYPTION_KEY_FILE BACKUP_SAMBA_ENABLED
-      ;;
-    *)
-      fail "DIS_SAFE_LOCAL_PREUPDATE_BACKUP must be 0 or 1."
-      ;;
+  case "${safe_local}" in
+    0|1) ;;
+    *) fail "DIS_SAFE_LOCAL_BACKUP must be 0 or 1." ;;
   esac
+  case "${pre_update_safe_local}" in
+    0|1) ;;
+    *) fail "DIS_SAFE_LOCAL_PREUPDATE_BACKUP must be 0 or 1." ;;
+  esac
+
+  if [ "${safe_local}" = "1" ] || [ "${pre_update_safe_local}" = "1" ]; then
+    log "Using isolated local backup configuration."
+    DIS_EFFECTIVE_SAFE_LOCAL_BACKUP=1
+    BACKUP_TARGET=local
+    BACKUP_ROOT="${DIS_DATA_PATH}/backup"
+    if [ "${pre_update_safe_local}" = "1" ]; then
+      BACKUP_RETENTION_COUNT=0
+    else
+      BACKUP_RETENTION_COUNT="$(safe_local_backup_retention_count "${config_file}")"
+    fi
+    BACKUP_ENCRYPTION_KEY_FILE="${DIS_DATA_PATH}/secrets/backup-encryption.key"
+    BACKUP_SAMBA_ENABLED=0
+    unset BACKUP_SAMBA_SHARE BACKUP_SAMBA_MOUNT BACKUP_SAMBA_USERNAME \
+      BACKUP_SAMBA_PASSWORD BACKUP_SAMBA_DOMAIN BACKUP_SAMBA_VERSION
+    export DIS_EFFECTIVE_SAFE_LOCAL_BACKUP BACKUP_TARGET BACKUP_ROOT \
+      BACKUP_RETENTION_COUNT BACKUP_ENCRYPTION_KEY_FILE BACKUP_SAMBA_ENABLED
+    return 0
+  fi
+
+  DIS_EFFECTIVE_SAFE_LOCAL_BACKUP=0
+  export DIS_EFFECTIVE_SAFE_LOCAL_BACKUP
+  load_backup_runtime_config "${config_file}"
 }
 
 ensure_data_layout() {

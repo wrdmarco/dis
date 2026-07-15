@@ -6,6 +6,8 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
 BACKUP_PATH="${1:-}"
+REQUESTED_SAFE_LOCAL_BACKUP="${DIS_SAFE_LOCAL_BACKUP:-0}"
+REQUESTED_SAFE_LOCAL_PREUPDATE_BACKUP="${DIS_SAFE_LOCAL_PREUPDATE_BACKUP:-0}"
 
 if [ -z "${BACKUP_PATH}" ]; then
   fail "Usage: restore.sh /opt/dis-data/backup/<timestamp>"
@@ -22,7 +24,10 @@ require_file "${APP_ROOT}/.env"
 set -a
 source "${APP_ROOT}/.env"
 set +a
-load_backup_runtime_config "${APP_ROOT}/webapp/backend/storage/app/backup-config.json"
+DIS_SAFE_LOCAL_BACKUP="${REQUESTED_SAFE_LOCAL_BACKUP}"
+DIS_SAFE_LOCAL_PREUPDATE_BACKUP="${REQUESTED_SAFE_LOCAL_PREUPDATE_BACKUP}"
+export DIS_SAFE_LOCAL_BACKUP DIS_SAFE_LOCAL_PREUPDATE_BACKUP
+load_backup_runtime_config_for_operation "${APP_ROOT}/webapp/backend/storage/app/backup-config.json"
 resolve_backup_root "${APP_ROOT}" >/dev/null
 
 ensure_directory "${DIS_DATA_PATH}/backup-request-work" root root 0700
