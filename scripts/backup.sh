@@ -18,8 +18,8 @@ require_file "${ENV_FILE}"
 set -a
 source "${ENV_FILE}"
 set +a
-load_backup_runtime_config "${APP_ROOT}/webapp/backend/storage/app/backup-config.json"
-if [ -n "${REQUESTED_BACKUP_TARGET}" ]; then
+load_backup_runtime_config_for_operation "${APP_ROOT}/webapp/backend/storage/app/backup-config.json"
+if [ "${DIS_SAFE_LOCAL_PREUPDATE_BACKUP:-0}" != "1" ] && [ -n "${REQUESTED_BACKUP_TARGET}" ]; then
   [[ "${REQUESTED_BACKUP_TARGET}" =~ ^(local|samba)$ ]] || fail "Invalid requested backup target."
   BACKUP_TARGET="${REQUESTED_BACKUP_TARGET}"
   export BACKUP_TARGET

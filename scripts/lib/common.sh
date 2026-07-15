@@ -591,6 +591,18 @@ install_backup_request_systemd_units() {
   run_cmd rm -f -- "${temporary_service}" "${temporary_path}"
 }
 
+remove_legacy_backup_entrypoints() {
+  if systemd_unit_exists dis-backup-mount.service; then
+    run_cmd systemctl disable --now dis-backup-mount.service >/dev/null 2>&1 || true
+  fi
+
+  run_cmd rm -f -- \
+    /etc/systemd/system/dis-backup-mount.service \
+    /usr/local/bin/dis-backup-mount \
+    /usr/local/bin/dis-backup-verify \
+    /usr/local/bin/dis-backup-restore
+}
+
 load_backup_runtime_config() {
   local config_file="$1" key value
   local -a allowed_keys=(
@@ -606,10 +618,13 @@ load_backup_runtime_config() {
     BACKUP_SAMBA_VERSION
   )
 
+  if [ -L "${config_file}" ]; then
+    fail "Backup runtime configuration must be a regular file."
+  fi
   if [ ! -e "${config_file}" ]; then
     return 0
   fi
-  if [ -L "${config_file}" ] || [ ! -f "${config_file}" ]; then
+  if [ ! -f "${config_file}" ]; then
     fail "Backup runtime configuration must be a regular file."
   fi
   if [ "$(stat -c '%s' "${config_file}")" -gt 32768 ]; then
@@ -624,7 +639,14 @@ load_backup_runtime_config() {
   jq -e --argjson allowed "${allowed_json}" '
     type == "object"
     and ((keys_unsorted - $allowed) | length == 0)
-    and all(.[]; type == "string" and length <= 4096 and test("^[^\\u0000-\\u001F\\u007F]*$"))
+    and all(to_entries[];
+      if .key == "BACKUP_RETENTION_COUNT" and (.value | type) == "number"
+      then .value >= 0 and .value <= 365 and .value == (.value | floor)
+      else (.value | type) == "string"
+        and (.value | length) <= 4096
+        and (.value | test("^[^\\u0000-\\u001F\\u007F]*$"))
+      end
+    )
   ' "${config_file}" >/dev/null || fail "Backup runtime configuration is invalid."
 
   while IFS= read -r -d '' key && IFS= read -r -d '' value; do
@@ -662,6 +684,31 @@ load_backup_runtime_config() {
     printf -v "${key}" '%s' "${value}"
     export "${key}"
   done < <(jq -j 'to_entries[] | .key, "\u0000", .value, "\u0000"' "${config_file}")
+}
+
+load_backup_runtime_config_for_operation() {
+  local config_file="$1"
+
+  case "${DIS_SAFE_LOCAL_PREUPDATE_BACKUP:-0}" in
+    0)
+      load_backup_runtime_config "${config_file}"
+      ;;
+    1)
+      log "Using isolated local pre-update backup configuration."
+      BACKUP_TARGET=local
+      BACKUP_ROOT="${DIS_DATA_PATH}/backup"
+      BACKUP_RETENTION_COUNT=0
+      BACKUP_ENCRYPTION_KEY_FILE="${DIS_DATA_PATH}/secrets/backup-encryption.key"
+      BACKUP_SAMBA_ENABLED=0
+      unset BACKUP_SAMBA_SHARE BACKUP_SAMBA_MOUNT BACKUP_SAMBA_USERNAME \
+        BACKUP_SAMBA_PASSWORD BACKUP_SAMBA_DOMAIN BACKUP_SAMBA_VERSION
+      export BACKUP_TARGET BACKUP_ROOT BACKUP_RETENTION_COUNT \
+        BACKUP_ENCRYPTION_KEY_FILE BACKUP_SAMBA_ENABLED
+      ;;
+    *)
+      fail "DIS_SAFE_LOCAL_PREUPDATE_BACKUP must be 0 or 1."
+      ;;
+  esac
 }
 
 ensure_data_layout() {

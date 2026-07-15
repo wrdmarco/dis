@@ -14,6 +14,7 @@ SYSTEM_UPDATES_AVAILABLE=0
 APP_UPDATES_AVAILABLE=0
 APP_UPSTREAM=""
 DEPLOYMENT_SERVICES_STOPPED=0
+UPDATE_MUTATION_STARTED=0
 DIS_GIT_REMOTE_URL="${DIS_GIT_REMOTE_URL:-https://github.com/wrdmarco/dis.git}"
 DIS_GIT_BRANCH="${DIS_GIT_BRANCH:-main}"
 
@@ -255,12 +256,9 @@ EOF
   fi
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-request-worker.sh" /usr/local/bin/dis-backup-request-worker
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/snapshot-backup-input.sh" /usr/local/bin/dis-snapshot-backup-input
-  run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-mount.sh" /usr/local/bin/dis-backup-mount
-  run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-verify-runner.sh" /usr/local/bin/dis-backup-verify
-  run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-restore-runner.sh" /usr/local/bin/dis-backup-restore
+  remove_legacy_backup_entrypoints
   install_php_fpm_privileged_helpers_override
   install_backup_request_systemd_units "${DIS_INSTALL_PATH}"
-  run_cmd install -m 0644 "${DIS_INSTALL_PATH}/infrastructure/systemd/dis-backup-mount.service" /etc/systemd/system/dis-backup-mount.service
   run_cmd systemctl daemon-reload
   run_cmd systemctl enable dis-backup-request.path dis-backup-request.timer >/dev/null 2>&1 || true
 }
@@ -338,14 +336,37 @@ assert_backend_routes() {
 }
 
 update_exit_handler() {
-  local status="$1"
+  local status="$1" recovery_status
 
   trap - EXIT
   if [ "${status}" -ne 0 ]; then
-    log "Update failed; maintenance remains enabled and stopped DIS services remain stopped. Correct the failure and rerun update."
+    if [ "${UPDATE_MUTATION_STARTED}" = "0" ]; then
+      set +e
+      recover_current_release_after_pre_mutation_failure
+      recovery_status="$?"
+      set -e
+      if [ "${recovery_status}" -eq 0 ]; then
+        log "Update failed before system or application mutation; the current release is healthy and back in production. Correct the failure and rerun update."
+      else
+        log "Update failed and current-release recovery did not complete; maintenance remains enabled and stopped DIS services remain stopped. Correct the failure and rerun update."
+      fi
+    else
+      log "Update failed after system or application mutation started; maintenance remains enabled and stopped DIS services remain stopped. Correct the failure and rerun update."
+    fi
   fi
   exit "${status}"
 }
+
+recover_current_release_after_pre_mutation_failure() (
+  set -euo pipefail
+
+  if [ -e "${DIS_DATA_PATH}/backup-key-cutover-v2.pending" ]; then
+    fail "Backup-key cutover is pending; the current release cannot be reopened before a trusted backup completes."
+  fi
+
+  log "Update stopped before mutation; verifying and reopening the current release"
+  verify_update_and_open_production
+)
 
 verify_update_and_open_production() {
   local backend_dir
@@ -377,7 +398,7 @@ verify_update_and_open_production() {
 }
 
 create_pre_update_backup() {
-  local backup_output backup_path
+  local backup_output backup_path config_file safe_local_fallback
 
   if [ "${CREATE_BACKUP}" != "1" ]; then
     log "Skipping pre-update backup."
@@ -385,13 +406,31 @@ create_pre_update_backup() {
   fi
 
   log "Creating and verifying pre-update backup"
-  backup_output="$(APP_ROOT="${DIS_INSTALL_PATH}" bash "${SCRIPT_DIR}/backup.sh")"
+  config_file="${DIS_INSTALL_PATH}/webapp/backend/storage/app/backup-config.json"
+  safe_local_fallback=0
+  if [ -e "${config_file}" ] || [ -L "${config_file}" ]; then
+    if ! (load_backup_runtime_config "${config_file}") >/dev/null 2>&1; then
+      safe_local_fallback=1
+      log "Configured backup runtime data is invalid; using a protected local backup for this update."
+    fi
+  fi
+
+  if [ "${safe_local_fallback}" = "1" ]; then
+    backup_output="$(DIS_SAFE_LOCAL_PREUPDATE_BACKUP=1 APP_ROOT="${DIS_INSTALL_PATH}" bash "${SCRIPT_DIR}/backup.sh")"
+  else
+    backup_output="$(APP_ROOT="${DIS_INSTALL_PATH}" bash "${SCRIPT_DIR}/backup.sh")"
+  fi
   printf '%s\n' "${backup_output}"
   backup_path="$(printf '%s\n' "${backup_output}" | awk '/Backup created at / {print $NF}' | tail -n 1)"
   if [ -z "${backup_path}" ]; then
     fail "Backup path could not be determined."
   fi
-  run_cmd bash "${SCRIPT_DIR}/verify-backup.sh" "${backup_path}"
+  if [ "${safe_local_fallback}" = "1" ]; then
+    run_cmd env DIS_SAFE_LOCAL_PREUPDATE_BACKUP=1 APP_ROOT="${DIS_INSTALL_PATH}" \
+      bash "${SCRIPT_DIR}/verify-backup.sh" "${backup_path}"
+  else
+    run_cmd bash "${SCRIPT_DIR}/verify-backup.sh" "${backup_path}"
+  fi
 }
 
 reset_git_worktree_for_update() {
@@ -613,6 +652,7 @@ create_pre_update_backup
 
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
   if [ "${SYSTEM_UPDATES_AVAILABLE}" = "1" ]; then
+    UPDATE_MUTATION_STARTED=1
     log "Updating Ubuntu packages"
     run_cmd apt-get upgrade -y
     run_cmd apt-get autoremove -y
@@ -623,6 +663,7 @@ fi
 
 if [ "${UPDATE_APP}" = "1" ]; then
   if [ "${APP_UPDATES_AVAILABLE}" = "1" ]; then
+    UPDATE_MUTATION_STARTED=1
     if [ "${UPDATE_SOURCE}" = "1" ]; then
       if [ -d "${DIS_INSTALL_PATH}/.git" ]; then
         log "Pulling latest DIS source"

@@ -7,6 +7,7 @@ use App\Services\AuditService;
 use App\Services\BackupReportOrigin;
 use App\Services\BackupReportService;
 use App\Services\BackupRequestService;
+use App\Services\BackupRuntimeConfigService;
 use App\Support\ApiDateTime;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
@@ -21,6 +22,7 @@ final class RunScheduledBackup extends Command
         AuditService $auditService,
         BackupReportService $backupReports,
         BackupRequestService $backupRequests,
+        BackupRuntimeConfigService $runtimeConfig,
     ): int {
         if (! $this->backupDue()) {
             $this->info('Automatic backup checked. Not due.');
@@ -41,7 +43,7 @@ final class RunScheduledBackup extends Command
             return self::FAILURE;
         }
 
-        $this->writeRuntimeConfig($target);
+        $runtimeConfig->write($target);
         $result = $backupRequests->create($target, null);
         $output = trim($result['output']);
 
@@ -112,44 +114,6 @@ final class RunScheduledBackup extends Command
         return trim(SystemSetting::string('backup.samba.share', '') ?? '') !== ''
             && trim(SystemSetting::string('backup.samba.username', '') ?? '') !== ''
             && (SystemSetting::string('backup.samba.password', '') ?? '') !== '';
-    }
-
-    private function writeRuntimeConfig(string $target): void
-    {
-        $config = [
-            'BACKUP_TARGET' => $target,
-            'BACKUP_ROOT' => SystemSetting::string('backup.local_path', '/opt/dis-data/backup') ?? '/opt/dis-data/backup',
-            'BACKUP_RETENTION_COUNT' => (string) max(0, SystemSetting::integer('backup.retention_count', 7)),
-            'BACKUP_ENCRYPTION_KEY_FILE' => rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/').'/secrets/backup-encryption.key',
-            'BACKUP_SAMBA_SHARE' => SystemSetting::string('backup.samba.share', '') ?? '',
-            'BACKUP_SAMBA_MOUNT' => SystemSetting::string('backup.samba.mount', '/mnt/dis-backup') ?? '/mnt/dis-backup',
-            'BACKUP_SAMBA_USERNAME' => SystemSetting::string('backup.samba.username', '') ?? '',
-            'BACKUP_SAMBA_PASSWORD' => SystemSetting::string('backup.samba.password', '') ?? '',
-            'BACKUP_SAMBA_DOMAIN' => SystemSetting::string('backup.samba.domain', '') ?? '',
-            'BACKUP_SAMBA_VERSION' => SystemSetting::string('backup.samba.version', '3.1.1') ?? '3.1.1',
-        ];
-
-        $path = storage_path('app/backup-config.json');
-        $directory = dirname($path);
-        if (! is_dir($directory)) {
-            mkdir($directory, 0750, true);
-        }
-
-        $temporary = tempnam($directory, '.backup-config-');
-        if ($temporary === false) {
-            throw new \RuntimeException('Backup runtime configuration could not be created.');
-        }
-        try {
-            file_put_contents($temporary, json_encode($config, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT)."\n", LOCK_EX);
-            chmod($temporary, 0640);
-            if (! rename($temporary, $path)) {
-                throw new \RuntimeException('Backup runtime configuration could not be published.');
-            }
-        } finally {
-            if (is_file($temporary)) {
-                @unlink($temporary);
-            }
-        }
     }
 
     private function cleanOutput(string $output): string

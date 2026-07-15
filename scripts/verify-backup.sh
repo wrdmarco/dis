@@ -19,7 +19,7 @@ if [ -f "${APP_ROOT}/.env" ]; then
   set -a
   source "${APP_ROOT}/.env"
   set +a
-  load_backup_runtime_config "${APP_ROOT}/webapp/backend/storage/app/backup-config.json"
+  load_backup_runtime_config_for_operation "${APP_ROOT}/webapp/backend/storage/app/backup-config.json"
   resolve_backup_root "${APP_ROOT}" >/dev/null
 fi
 

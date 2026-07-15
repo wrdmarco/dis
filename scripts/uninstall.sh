@@ -174,6 +174,8 @@ SQL
 confirm "This will uninstall DIS service configuration from this server."
 
 log "Stopping and disabling DIS services"
+# Legacy backup entries remain here so uninstall also cleans hosts upgraded from
+# releases that installed the retired standalone backup helpers.
 for service in dis-queue dis-scheduler dis-websocket dis-backup-request.timer dis-backup-request.path dis-backup-request dis-backup-mount dis-backup.timer dis-backup; do
   if systemctl list-unit-files "${service}.service" >/dev/null 2>&1 || systemctl list-unit-files "${service}" >/dev/null 2>&1; then
     run_cmd systemctl disable --now "${service}" >/dev/null 2>&1 || true

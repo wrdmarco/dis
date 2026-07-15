@@ -293,9 +293,7 @@ if id www-data >/dev/null 2>&1; then
 fi
 run_cmd install -m 0755 "${APP_ROOT}/scripts/backup-request-worker.sh" /usr/local/bin/dis-backup-request-worker
 run_cmd install -m 0755 "${APP_ROOT}/scripts/snapshot-backup-input.sh" /usr/local/bin/dis-snapshot-backup-input
-run_cmd install -m 0755 "${APP_ROOT}/scripts/backup-mount.sh" /usr/local/bin/dis-backup-mount
-run_cmd install -m 0755 "${APP_ROOT}/scripts/backup-verify-runner.sh" /usr/local/bin/dis-backup-verify
-run_cmd install -m 0755 "${APP_ROOT}/scripts/backup-restore-runner.sh" /usr/local/bin/dis-backup-restore
+remove_legacy_backup_entrypoints
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/php/security.ini" "/etc/php/${PHP_VERSION}/fpm/conf.d/99-dis-security.ini"
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/php/opcache.ini" "/etc/php/${PHP_VERSION}/fpm/conf.d/99-dis-opcache.ini"
 install_php_fpm_privileged_helpers_override
@@ -309,7 +307,6 @@ run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-scheduler.servic
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-websocket.service" /etc/systemd/system/dis-websocket.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-frontend.service" /etc/systemd/system/dis-frontend.service
 install_backup_request_systemd_units "${APP_ROOT}"
-run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-backup-mount.service" /etc/systemd/system/dis-backup-mount.service
 run_cmd systemctl daemon-reload
 run_cmd systemctl enable dis-queue dis-scheduler dis-websocket dis-frontend dis-backup-request.path dis-backup-request.timer
 run_cmd nginx -t

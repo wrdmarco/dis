@@ -62,6 +62,7 @@ final class BackupPrivilegeBoundaryTest extends TestCase
         $this->assertSame(1, preg_match_all('/^dis\s+.*NOPASSWD:\s+DIS_UPDATE$/m', $sudoers));
         $this->assertDoesNotMatchRegularExpression('/^dis\s+.*DIS_(?:BACKUP|REBOOT|MAINTENANCE)/m', $sudoers);
         $this->assertDoesNotMatchRegularExpression('/^www-data .*DIS_BACKUP/m', $sudoers);
+        $this->assertStringNotContainsString('Cmnd_Alias DIS_BACKUP', $sudoers);
         $this->assertStringNotContainsString('usermod -aG "${DIS_GROUP}" www-data', $permissionScripts);
         $this->assertStringContainsString('gpasswd -d www-data "${DIS_GROUP}"', $permissionScripts);
     }

@@ -9,6 +9,7 @@ use App\Services\AuditService;
 use App\Services\BackupReportOrigin;
 use App\Services\BackupReportService;
 use App\Services\BackupRequestService;
+use App\Services\BackupRuntimeConfigService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Process;
@@ -19,13 +20,16 @@ final class BackupController extends Controller
 {
     private const RESTORE_CONFIRMATION = 'HERSTEL BACKUP';
 
-    private const DEFAULT_LOCAL_PATH = '/opt/dis-data/backup';
-
     private const PASSWORD_KEY = 'backup.samba.password';
+
+    private const NO_CONTROL_CHARACTERS_RULE = 'not_regex:/[\x00-\x1F\x7F]/u';
 
     private const MAX_EXTRACTED_UPLOAD_BYTES = 2_147_483_648;
 
-    public function __construct(private readonly AuditService $auditService) {}
+    public function __construct(
+        private readonly AuditService $auditService,
+        private readonly BackupRuntimeConfigService $runtimeConfig,
+    ) {}
 
     public function index(): JsonResponse
     {
@@ -67,12 +71,12 @@ final class BackupController extends Controller
         $data = $request->validate([
             'target' => ['required', 'string', 'in:local,samba'],
             'samba_server' => ['nullable', 'string', 'max:255', 'regex:/^[A-Za-z0-9._:-]+$/'],
-            'samba_share_name' => ['nullable', 'string', 'max:255', 'regex:/^[^\/\\\\]+$/'],
-            'samba_share' => ['nullable', 'string', 'max:255'],
+            'samba_share_name' => ['nullable', 'string', 'max:255', 'regex:/^[^\/\\\\]+$/', self::NO_CONTROL_CHARACTERS_RULE],
+            'samba_share' => ['nullable', 'string', 'max:255', self::NO_CONTROL_CHARACTERS_RULE],
             'samba_mount' => ['nullable', 'string', 'in:/mnt/dis-backup'],
-            'samba_username' => ['nullable', 'string', 'max:255'],
-            'samba_password' => ['nullable', 'string', 'max:2000'],
-            'samba_domain' => ['nullable', 'string', 'max:255'],
+            'samba_username' => ['nullable', 'string', 'max:255', self::NO_CONTROL_CHARACTERS_RULE],
+            'samba_password' => ['nullable', 'string', 'max:2000', self::NO_CONTROL_CHARACTERS_RULE],
+            'samba_domain' => ['nullable', 'string', 'max:255', self::NO_CONTROL_CHARACTERS_RULE],
             'samba_version' => ['nullable', 'string', 'in:3.1.1'],
             'auto_enabled' => ['required', 'boolean'],
             'auto_frequency' => ['required', 'string', 'in:daily,weekly'],
@@ -83,6 +87,12 @@ final class BackupController extends Controller
             'backup_report_success_user_ids.*' => ['ulid', 'exists:users,id'],
             'backup_report_failed_user_ids' => ['nullable', 'array'],
             'backup_report_failed_user_ids.*' => ['ulid', 'exists:users,id'],
+        ], [
+            'samba_share_name.not_regex' => 'De Samba sharenaam bevat ongeldige besturingstekens.',
+            'samba_share.not_regex' => 'Het Samba sharepad bevat ongeldige besturingstekens.',
+            'samba_username.not_regex' => 'De Samba gebruikersnaam bevat ongeldige besturingstekens.',
+            'samba_password.not_regex' => 'Het Samba wachtwoord bevat ongeldige besturingstekens.',
+            'samba_domain.not_regex' => 'Het Samba domein bevat ongeldige besturingstekens.',
         ]);
 
         if ($data['target'] === 'samba') {
@@ -102,7 +112,7 @@ final class BackupController extends Controller
         $sharePath = $server !== '' && $shareName !== '' ? '//'.$server.'/'.$shareName : '';
 
         $this->putSetting('backup.target', $data['target'], $request);
-        $this->putSetting('backup.local_path', self::DEFAULT_LOCAL_PATH, $request);
+        $this->putSetting('backup.local_path', $this->localBackupPath(), $request);
         $this->putSetting('backup.samba.server', $server, $request);
         $this->putSetting('backup.samba.share_name', $shareName, $request);
         $this->putSetting('backup.samba.share', $sharePath, $request);
@@ -123,7 +133,7 @@ final class BackupController extends Controller
             $data['backup_report_failed_user_ids'] ?? null,
         );
 
-        $this->writeRuntimeConfig();
+        $this->runtimeConfig->write((string) $data['target']);
         $this->auditService->record('backups.settings_updated', SystemSetting::class, $request->user(), [
             'target' => $data['target'],
             'auto_enabled' => (bool) $data['auto_enabled'],
@@ -140,10 +150,14 @@ final class BackupController extends Controller
     {
         $data = $request->validate([
             'samba_server' => ['required', 'string', 'max:255', 'regex:/^[A-Za-z0-9._:-]+$/'],
-            'samba_username' => ['required', 'string', 'max:255'],
-            'samba_password' => ['nullable', 'string', 'max:2000'],
-            'samba_domain' => ['nullable', 'string', 'max:255'],
+            'samba_username' => ['required', 'string', 'max:255', self::NO_CONTROL_CHARACTERS_RULE],
+            'samba_password' => ['nullable', 'string', 'max:2000', self::NO_CONTROL_CHARACTERS_RULE],
+            'samba_domain' => ['nullable', 'string', 'max:255', self::NO_CONTROL_CHARACTERS_RULE],
             'samba_version' => ['nullable', 'string', 'in:3.1.1'],
+        ], [
+            'samba_username.not_regex' => 'De Samba gebruikersnaam bevat ongeldige besturingstekens.',
+            'samba_password.not_regex' => 'Het Samba wachtwoord bevat ongeldige besturingstekens.',
+            'samba_domain.not_regex' => 'Het Samba domein bevat ongeldige besturingstekens.',
         ]);
 
         if (! is_executable('/usr/bin/smbclient') && ! is_executable('/bin/smbclient')) {
@@ -199,7 +213,7 @@ final class BackupController extends Controller
     ): JsonResponse {
         $target = $this->requestTarget($request);
         $this->ensureTargetReady($target);
-        $this->writeRuntimeConfig($target);
+        $this->runtimeConfig->write($target);
         $actorId = $request->user()?->id;
         $result = $backupRequests->create($target, is_string($actorId) ? $actorId : null);
         $output = $this->cleanOutput($result['output']);
@@ -244,7 +258,7 @@ final class BackupController extends Controller
     ): JsonResponse {
         $target = $this->requestTarget($request);
         $this->ensureTargetReady($target);
-        $this->writeRuntimeConfig($target);
+        $this->runtimeConfig->write($target);
         $path = $this->backupPath($backup, $target);
         $actorId = $request->user()?->id;
         $result = $backupRequests->verify($target, $path, is_string($actorId) ? $actorId : null);
@@ -282,7 +296,7 @@ final class BackupController extends Controller
 
         $target = $this->requestTarget($request);
         $this->ensureTargetReady($target);
-        $this->writeRuntimeConfig($target);
+        $this->runtimeConfig->write($target);
         $path = $this->backupPath($backup, $target);
         $requestId = bin2hex(random_bytes(16));
 
@@ -333,7 +347,7 @@ final class BackupController extends Controller
         $queued = false;
         try {
             $this->extractBackupZip($uploadedPath, $path);
-            $this->writeRuntimeConfig('local');
+            $this->runtimeConfig->write('local');
             $requestId = bin2hex(random_bytes(16));
 
             $this->auditService->record('backups.upload_restore_queued', SystemSetting::class, $request->user(), [
@@ -371,11 +385,7 @@ final class BackupController extends Controller
             return rtrim(SystemSetting::string('backup.samba.mount', '/mnt/dis-backup') ?? '/mnt/dis-backup', '/');
         }
 
-        $configured = SystemSetting::string('backup.local_path', null) ?? config('filesystems.disks.backups.root');
-
-        return is_string($configured) && $configured !== ''
-            ? rtrim($configured, '/')
-            : rtrim(base_path('../..'), '/').'/backup';
+        return $this->localBackupPath();
     }
 
     private function queueRestoreRequest(string $id, string $target, string $backupPath, ?string $actorId): void
@@ -508,6 +518,11 @@ final class BackupController extends Controller
         return $dataPath.'/backup-imports';
     }
 
+    private function localBackupPath(): string
+    {
+        return rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/').'/backup';
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -518,7 +533,7 @@ final class BackupController extends Controller
 
         return [
             'target' => SystemSetting::string('backup.target', 'local') ?? 'local',
-            'local_path' => SystemSetting::string('backup.local_path', self::DEFAULT_LOCAL_PATH) ?? self::DEFAULT_LOCAL_PATH,
+            'local_path' => $this->localBackupPath(),
             'samba_server' => $server,
             'samba_share_name' => $shareName,
             'samba_share' => $server !== '' && $shareName !== '' ? '//'.$server.'/'.$shareName : $legacyShare,
@@ -596,44 +611,6 @@ final class BackupController extends Controller
                 'updated_by' => $request->user()?->id,
             ],
         );
-    }
-
-    private function writeRuntimeConfig(?string $targetOverride = null): void
-    {
-        $target = $targetOverride ?? SystemSetting::string('backup.target', 'local') ?? 'local';
-        $config = [
-            'BACKUP_TARGET' => $target,
-            'BACKUP_ROOT' => SystemSetting::string('backup.local_path', self::DEFAULT_LOCAL_PATH) ?? self::DEFAULT_LOCAL_PATH,
-            'BACKUP_RETENTION_COUNT' => (string) max(0, SystemSetting::integer('backup.retention_count', 7)),
-            'BACKUP_ENCRYPTION_KEY_FILE' => rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/').'/secrets/backup-encryption.key',
-            'BACKUP_SAMBA_SHARE' => SystemSetting::string('backup.samba.share', '') ?? '',
-            'BACKUP_SAMBA_MOUNT' => SystemSetting::string('backup.samba.mount', '/mnt/dis-backup') ?? '/mnt/dis-backup',
-            'BACKUP_SAMBA_USERNAME' => SystemSetting::string('backup.samba.username', '') ?? '',
-            'BACKUP_SAMBA_PASSWORD' => SystemSetting::string(self::PASSWORD_KEY, '') ?? '',
-            'BACKUP_SAMBA_DOMAIN' => SystemSetting::string('backup.samba.domain', '') ?? '',
-            'BACKUP_SAMBA_VERSION' => SystemSetting::string('backup.samba.version', '3.1.1') ?? '3.1.1',
-        ];
-        $path = storage_path('app/backup-config.json');
-        $directory = dirname($path);
-        if (! is_dir($directory)) {
-            mkdir($directory, 0750, true);
-        }
-
-        $temporary = tempnam($directory, '.backup-config-');
-        if ($temporary === false) {
-            throw new \RuntimeException('Backup runtime configuration could not be created.');
-        }
-        try {
-            file_put_contents($temporary, json_encode($config, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT)."\n", LOCK_EX);
-            chmod($temporary, 0640);
-            if (! rename($temporary, $path)) {
-                throw new \RuntimeException('Backup runtime configuration could not be published.');
-            }
-        } finally {
-            if (is_file($temporary)) {
-                @unlink($temporary);
-            }
-        }
     }
 
     private function isMounted(string $path): bool
@@ -846,15 +823,6 @@ final class BackupController extends Controller
         }
 
         return $relative;
-    }
-
-    private function ensureDirectory(string $path): void
-    {
-        if (! is_dir($path) && ! mkdir($path, 0750, true) && ! is_dir($path)) {
-            throw ValidationException::withMessages(['backup' => ['Backupmap kon niet worden aangemaakt.']]);
-        }
-
-        chmod($path, 0750);
     }
 
     private function deleteDirectory(string $path, string $root): void

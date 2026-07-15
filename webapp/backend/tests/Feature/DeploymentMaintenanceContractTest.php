@@ -83,6 +83,11 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertStringContainsString('dis-backup-request.path dis-backup-request.timer', $update);
         self::assertStringContainsString('dis-backup-request.timer dis-backup-request.path', $uninstall);
         self::assertStringContainsString('/etc/systemd/system/dis-backup-request.timer', $uninstall);
+        self::assertStringContainsString('remove_legacy_backup_entrypoints', $deploy);
+        self::assertStringContainsString('remove_legacy_backup_entrypoints', $update);
+        self::assertStringContainsString('systemctl disable --now dis-backup-mount.service', $common);
+        self::assertStringContainsString('/usr/local/bin/dis-backup-verify', $common);
+        self::assertStringContainsString('/usr/local/bin/dis-backup-restore', $common);
 
         $runtimeCheck = substr(
             $common,
@@ -121,7 +126,10 @@ final class DeploymentMaintenanceContractTest extends TestCase
         $script = $this->read('scripts/update.sh');
 
         self::assertStringContainsString('trap \'update_exit_handler "$?"\' EXIT', $script);
-        self::assertStringContainsString('Update failed; maintenance remains enabled', $script);
+        self::assertStringContainsString('Update failed after system or application mutation started', $script);
+        self::assertStringContainsString('recover_current_release_after_pre_mutation_failure', $script);
+        self::assertStringContainsString('backup-key-cutover-v2.pending', $script);
+        self::assertStringContainsString('UPDATE_MUTATION_STARTED=1', $script);
         self::assertStringContainsString("bash \"\${SCRIPT_DIR}/deploy.sh\"\n    stop_dis_deployment_services", $script);
         self::assertStringContainsString('DIS_DEPLOYMENT_OWNER=update', $script);
         self::assertStringContainsString('DIS_DEFER_OPERATIONAL_SERVICES=1', $script);
@@ -153,6 +161,27 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertTrue($deploy < $postDeployStop);
         self::assertGreaterThan($health, $open);
         self::assertGreaterThan($services, $open);
+    }
+
+    public function test_invalid_runtime_config_uses_an_isolated_local_pre_update_backup(): void
+    {
+        $update = $this->read('scripts/update.sh');
+        $backup = $this->read('scripts/backup.sh');
+        $verify = $this->read('scripts/verify-backup.sh');
+        $common = $this->read('scripts/lib/common.sh');
+
+        self::assertStringContainsString('if ! (load_backup_runtime_config "${config_file}")', $update);
+        self::assertStringContainsString('DIS_SAFE_LOCAL_PREUPDATE_BACKUP=1 APP_ROOT=', $update);
+        self::assertStringContainsString('env DIS_SAFE_LOCAL_PREUPDATE_BACKUP=1 APP_ROOT=', $update);
+        self::assertStringContainsString('load_backup_runtime_config_for_operation', $backup);
+        self::assertStringContainsString('load_backup_runtime_config_for_operation', $verify);
+        self::assertStringContainsString('BACKUP_TARGET=local', $common);
+        self::assertStringContainsString('BACKUP_ROOT="${DIS_DATA_PATH}/backup"', $common);
+        self::assertStringContainsString('BACKUP_RETENTION_COUNT=0', $common);
+        self::assertStringContainsString('unset BACKUP_SAMBA_SHARE', $common);
+        self::assertStringContainsString('.key == "BACKUP_RETENTION_COUNT"', $common);
+        self::assertStringContainsString('(.value | type) == "number"', $common);
+        self::assertStringContainsString('.value == (.value | floor)', $common);
     }
 
     public function test_nginx_blocks_operational_surfaces_but_keeps_narrow_recovery_routes(): void

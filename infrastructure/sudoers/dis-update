@@ -2,10 +2,6 @@ Cmnd_Alias DIS_UPDATE = /usr/bin/bash /opt/dis/update.sh --skip-system, /bin/bas
 Cmnd_Alias DIS_UPDATE_RUNNER = /usr/bin/systemd-run --unit=dis-update-app --collect --property=Type=simple --property=KillMode=process /usr/local/bin/dis-update-runner --skip-system, /bin/systemd-run --unit=dis-update-app --collect --property=Type=simple --property=KillMode=process /usr/local/bin/dis-update-runner --skip-system, /usr/bin/systemd-run --unit=dis-update-system --collect --property=Type=simple --property=KillMode=process /usr/local/bin/dis-update-runner, /bin/systemd-run --unit=dis-update-system --collect --property=Type=simple --property=KillMode=process /usr/local/bin/dis-update-runner
 Cmnd_Alias DIS_REBOOT = /usr/bin/systemctl reboot, /bin/systemctl reboot
 Cmnd_Alias DIS_MAINTENANCE = /usr/bin/bash /opt/dis/scripts/maintenance.sh enable, /bin/bash /opt/dis/scripts/maintenance.sh enable, /usr/bin/bash /opt/dis/scripts/maintenance.sh disable, /bin/bash /opt/dis/scripts/maintenance.sh disable
-Cmnd_Alias DIS_BACKUP = /usr/bin/bash /opt/dis/scripts/backup.sh, /bin/bash /opt/dis/scripts/backup.sh
-Cmnd_Alias DIS_BACKUP_VERIFY = /usr/local/bin/dis-backup-verify
-Cmnd_Alias DIS_BACKUP_RESTORE = /usr/local/bin/dis-backup-restore
-
 dis ALL=(root) NOPASSWD: DIS_UPDATE
 www-data ALL=(root) NOPASSWD: DIS_UPDATE_RUNNER
 www-data ALL=(root) NOPASSWD: DIS_REBOOT
