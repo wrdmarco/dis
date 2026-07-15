@@ -29,12 +29,14 @@ final class AppServiceProvider extends ServiceProvider
         RateLimiter::for('api', fn (Request $request) => Limit::perMinute(1200)->by($request->user()?->id ?: $request->ip()));
         RateLimiter::for('authenticated', function (Request $request): array {
             $isWriteRequest = ! $request->isMethodSafe();
-            $subject = (string) ($request->user()?->getAuthIdentifier() ?: $request->ip());
+            $requestClass = $isWriteRequest ? 'write' : 'read';
 
-            return [
-                Limit::perMinute($isWriteRequest ? 120 : 600)->by('authenticated:subject:'.$subject),
-                Limit::perMinute($isWriteRequest ? 240 : 1200)->by('authenticated:ip:'.$request->ip()),
-            ];
+            return $this->authenticatedClientLimits(
+                request: $request,
+                scope: 'authenticated:'.$requestClass,
+                perClient: $isWriteRequest ? 120 : 600,
+                perUser: $isWriteRequest ? 240 : 1200,
+            );
         });
         RateLimiter::for('mobile-public', fn (Request $request) => Limit::perMinute(6000)->by($request->ip()));
         RateLimiter::for('login', fn (Request $request): array => [
@@ -54,8 +56,42 @@ final class AppServiceProvider extends ServiceProvider
             Limit::perMinute(10)->by('password-reset:ip:'.$request->ip()),
             Limit::perMinute(5)->by('password-reset:account:'.$this->accountRateLimitKey($request)),
         ]);
-        RateLimiter::for('push-token', fn (Request $request) => Limit::perMinute(300)->by($request->user()?->id ?: $request->ip()));
-        RateLimiter::for('dispatch-response', fn (Request $request) => Limit::perMinute(30)->by($request->user()?->id ?: $request->ip()));
+        RateLimiter::for('alarm-read', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'alarm-read',
+            perClient: 1200,
+            perUser: 3600,
+        ));
+        RateLimiter::for('alarm-response', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'alarm-response',
+            perClient: 120,
+            perUser: 360,
+        ));
+        RateLimiter::for('alarm-dispatch', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'alarm-dispatch',
+            perClient: 60,
+            perUser: 120,
+        ));
+        RateLimiter::for('reachability-test', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'reachability-test',
+            perClient: 10,
+            perUser: 20,
+        ));
+        RateLimiter::for('operational-action', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'operational-action',
+            perClient: 180,
+            perUser: 540,
+        ));
+        RateLimiter::for('operational-telemetry', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'operational-telemetry',
+            perClient: 600,
+            perUser: 1800,
+        ));
         RateLimiter::for('developer-upload', fn (Request $request) => Limit::perMinute(6)->by($request->ip()));
         RateLimiter::for('developer-update', fn (Request $request) => Limit::perMinute(2)->by($request->ip()));
         RateLimiter::for('developer-logs', fn (Request $request) => Limit::perMinute(30)->by($request->ip()));
@@ -107,6 +143,41 @@ final class AppServiceProvider extends ServiceProvider
         }
 
         return hash('sha256', 'ip|'.$request->ip());
+    }
+
+    /**
+     * Protect authenticated traffic per client and account. A shared IP limit
+     * is deliberately omitted because operators may all use the same mobile
+     * carrier NAT during one broad alarm. Public auth routes retain their
+     * stricter account-and-IP limiters above.
+     *
+     * @return array<int, Limit>
+     */
+    private function authenticatedClientLimits(
+        Request $request,
+        string $scope,
+        int $perClient,
+        int $perUser,
+    ): array {
+        $userId = (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous');
+        $userKey = hash('sha256', 'user|'.$userId);
+        $accessToken = $request->user()?->currentAccessToken();
+        $tokenId = $accessToken instanceof PersonalAccessToken ? (string) $accessToken->getKey() : null;
+
+        if (is_string($tokenId) && $tokenId !== '') {
+            $clientIdentity = 'token|'.$tokenId;
+        } elseif ($request->hasSession()) {
+            $clientIdentity = 'session|'.$request->session()->getId();
+        } else {
+            $clientIdentity = 'ip|'.$request->ip();
+        }
+
+        $clientKey = hash('sha256', 'user|'.$userId.'|'.$clientIdentity);
+
+        return [
+            Limit::perMinute($perClient)->by($scope.':client:'.$clientKey),
+            Limit::perMinute($perUser)->by($scope.':user:'.$userKey),
+        ];
     }
 
     private function applyManagedSettings(): void

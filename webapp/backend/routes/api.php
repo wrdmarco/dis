@@ -38,7 +38,7 @@ use App\Http\Responses\ApiResponse;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
 
-Broadcast::routes(['middleware' => ['auth:sanctum', 'web.session', 'operational', 'two_factor.complete', 'throttle:authenticated']]);
+Broadcast::routes(['middleware' => ['auth:sanctum', 'web.session', 'operational', 'two_factor.complete', 'throttle:alarm-read']]);
 
 Route::get('/auth/csrf-cookie', [AuthController::class, 'csrfCookie'])->middleware('throttle:api');
 Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
@@ -99,17 +99,25 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
 
         Route::get('/teams', [AdminController::class, 'teams'])->middleware('permission:incidents.view');
 
-        Route::get('/test-alert', [TestAlertController::class, 'show'])->middleware('permission:incidents.dispatch.view,incidents.dispatch.manage');
-        Route::post('/test-alert', [TestAlertController::class, 'send'])->middleware(['permission:incidents.dispatch.manage', 'throttle:dispatch-response']);
+        Route::get('/test-alert', [TestAlertController::class, 'show'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.dispatch.view,incidents.dispatch.manage', 'throttle:alarm-read']);
+        Route::post('/test-alert', [TestAlertController::class, 'send'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.dispatch.manage', 'throttle:reachability-test']);
         Route::get('/test-alert/schedule', [TestAlertController::class, 'schedule'])->middleware('permission:incidents.dispatch.manage');
         Route::patch('/test-alert/schedule', [TestAlertController::class, 'updateSchedule'])->middleware('permission:incidents.dispatch.manage');
 
-        Route::get('/incidents', [IncidentController::class, 'index'])->middleware('permission:incidents.view,incidents.assigned.view');
+        Route::get('/incidents', [IncidentController::class, 'index'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:alarm-read']);
         Route::get('/operational-map/layers', [OperationalMapController::class, 'layers'])->middleware('permission:operational-map.view');
         Route::post('/incidents', [IncidentController::class, 'store'])->middleware('permission:incidents.manage');
         Route::get('/incident-form/config', [IncidentFormController::class, 'show'])->middleware('permission:incidents.view');
         Route::post('/incidents/flight-context-preview', [IncidentController::class, 'flightContextPreview'])->middleware('permission:incidents.manage');
-        Route::get('/incidents/{incident}', [IncidentController::class, 'show'])->middleware('permission:incidents.view,incidents.assigned.view');
+        Route::get('/incidents/{incident}', [IncidentController::class, 'show'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:alarm-read']);
         Route::patch('/incidents/{incident}', [IncidentController::class, 'update'])->middleware('permission:incidents.manage');
         Route::get('/incidents/{incident}/internal-notes', [IncidentController::class, 'internalNotes'])->middleware('permission:incidents.manage');
         Route::patch('/incidents/{incident}/internal-notes', [IncidentController::class, 'updateInternalNotes'])->middleware('permission:incidents.manage');
@@ -117,7 +125,9 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::post('/incidents/{incident}/flight-context/refresh', [IncidentController::class, 'refreshFlightContext'])->middleware('permission:incidents.manage');
         Route::post('/incidents/{incident}/close', [IncidentController::class, 'close'])->middleware('permission:incidents.manage');
         Route::post('/incidents/{incident}/cancel', [IncidentController::class, 'cancel'])->middleware('permission:incidents.manage');
-        Route::get('/incidents/{incident}/timeline', [IncidentController::class, 'timeline'])->middleware('permission:incidents.view,incidents.assigned.view');
+        Route::get('/incidents/{incident}/timeline', [IncidentController::class, 'timeline'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:alarm-read']);
         Route::get('/pilot-report/form-config', [PilotIncidentReportController::class, 'formConfig'])->middleware('permission:incidents.view,incidents.assigned.view');
         Route::get('/incidents/{incident}/pilot-report', [PilotIncidentReportController::class, 'show'])->middleware('permission:incidents.view,incidents.assigned.view');
         Route::patch('/incidents/{incident}/pilot-report', [PilotIncidentReportController::class, 'update'])->middleware('permission:incidents.view,incidents.assigned.view');
@@ -127,29 +137,63 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::post('/incidents/{incident}/pilot-reports/{user}/finalize', [PilotIncidentReportController::class, 'finalizeForUser'])->middleware('permission:incidents.manage');
         Route::get('/incidents/{incidentId}/report', [ReportingController::class, 'incidentPdf'])->middleware('permission:incidents.view');
         Route::get('/incidents/{incidentId}/report.pdf', [ReportingController::class, 'incidentPdf'])->middleware('permission:incidents.view');
-        Route::get('/incidents/{incident}/dispatch-preview', [IncidentController::class, 'dispatchPreview'])->middleware('permission:incidents.dispatch.view');
-        Route::get('/incidents/{incident}/dispatches', [DispatchController::class, 'incidentDispatches'])->middleware('permission:incidents.dispatch.view,incidents.assigned.view');
-        Route::get('/incidents/{incident}/live-locations', [LocationController::class, 'liveLocations'])->middleware('permission:incidents.view,incidents.assigned.view');
-        Route::post('/incidents/{incident}/location/request', [LocationController::class, 'requestSharing'])->middleware('permission:incidents.dispatch.manage');
-        Route::post('/incidents/{incident}/location/consent', [LocationController::class, 'consent'])->middleware('permission:incidents.view,incidents.assigned.view');
-        Route::post('/incidents/{incident}/location/decline', [LocationController::class, 'decline'])->middleware('permission:incidents.view,incidents.assigned.view');
-        Route::delete('/incidents/{incident}/location/consent', [LocationController::class, 'revoke'])->middleware('permission:incidents.view,incidents.assigned.view');
-        Route::post('/incidents/{incident}/location', [LocationController::class, 'update'])->middleware('permission:incidents.view,incidents.assigned.view');
-        Route::post('/incidents/{incident}/dispatches', [DispatchController::class, 'store'])->middleware('permission:incidents.dispatch.manage');
+        Route::get('/incidents/{incident}/dispatch-preview', [IncidentController::class, 'dispatchPreview'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.dispatch.view', 'throttle:alarm-read']);
+        Route::get('/incidents/{incident}/dispatches', [DispatchController::class, 'incidentDispatches'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.dispatch.view,incidents.assigned.view', 'throttle:alarm-read']);
+        Route::get('/incidents/{incident}/live-locations', [LocationController::class, 'liveLocations'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:alarm-read']);
+        Route::post('/incidents/{incident}/location/request', [LocationController::class, 'requestSharing'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.dispatch.manage', 'throttle:alarm-dispatch']);
+        Route::post('/incidents/{incident}/location/consent', [LocationController::class, 'consent'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:alarm-response']);
+        Route::post('/incidents/{incident}/location/decline', [LocationController::class, 'decline'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:alarm-response']);
+        Route::delete('/incidents/{incident}/location/consent', [LocationController::class, 'revoke'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:alarm-response']);
+        Route::post('/incidents/{incident}/location', [LocationController::class, 'update'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:operational-telemetry']);
+        Route::post('/incidents/{incident}/dispatches', [DispatchController::class, 'store'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.dispatch.manage', 'throttle:alarm-dispatch']);
 
-        Route::get('/dispatches', [DispatchController::class, 'index'])->middleware('permission:incidents.dispatch.view,incidents.assigned.view');
-        Route::get('/dispatches/{dispatch}', [DispatchController::class, 'show'])->middleware('permission:incidents.dispatch.view,incidents.assigned.view');
-        Route::post('/dispatches/{dispatch}/send', [DispatchController::class, 'send'])->middleware('permission:incidents.dispatch.manage');
-        Route::post('/dispatches/{dispatch}/message', [DispatchController::class, 'message'])->middleware('permission:incidents.dispatch.manage');
+        Route::get('/dispatches', [DispatchController::class, 'index'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.dispatch.view,incidents.assigned.view', 'throttle:alarm-read']);
+        Route::get('/dispatches/{dispatch}', [DispatchController::class, 'show'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.dispatch.view,incidents.assigned.view', 'throttle:alarm-read']);
+        Route::post('/dispatches/{dispatch}/send', [DispatchController::class, 'send'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.dispatch.manage', 'throttle:alarm-dispatch']);
+        Route::post('/dispatches/{dispatch}/message', [DispatchController::class, 'message'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.dispatch.manage', 'throttle:alarm-dispatch']);
         Route::post('/dispatches/{dispatch}/respond', [DispatchController::class, 'respond'])->middleware([
             'permission:incidents.assigned.view,incidents.dispatch.view,incidents.dispatch.manage',
-            'throttle:dispatch-response',
-        ]);
+            'throttle:alarm-response',
+        ])->withoutMiddleware('throttle:authenticated');
         Route::patch('/dispatches/{dispatch}/recipients/{recipient}/response', [DispatchController::class, 'overrideRecipientResponse'])->middleware('permission:incidents.dispatch.manage');
-        Route::post('/dispatches/{dispatch}/cancel', [DispatchController::class, 'cancel'])->middleware('permission:incidents.dispatch.manage');
-        Route::post('/dispatches/{dispatch}/escalate', [DispatchController::class, 'escalate'])->middleware('permission:incidents.dispatch.manage');
-        Route::post('/dispatches/{dispatch}/re-alert', [DispatchController::class, 'reAlert'])->middleware('permission:incidents.dispatch.manage');
-        Route::get('/dispatches/{dispatch}/recipients', [DispatchController::class, 'recipients'])->middleware('permission:incidents.dispatch.view,incidents.assigned.view');
+        Route::post('/dispatches/{dispatch}/cancel', [DispatchController::class, 'cancel'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.dispatch.manage', 'throttle:alarm-dispatch']);
+        Route::post('/dispatches/{dispatch}/escalate', [DispatchController::class, 'escalate'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.dispatch.manage', 'throttle:alarm-dispatch']);
+        Route::post('/dispatches/{dispatch}/re-alert', [DispatchController::class, 'reAlert'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.dispatch.manage', 'throttle:alarm-dispatch']);
+        Route::get('/dispatches/{dispatch}/recipients', [DispatchController::class, 'recipients'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:incidents.dispatch.view,incidents.assigned.view', 'throttle:alarm-read']);
         Route::get('/reports/incidents', [ReportingController::class, 'incidents'])->middleware('permission:incidents.view');
         Route::get('/reports/dispatch-statistics', [ReportingController::class, 'dispatchStatistics'])->middleware('permission:incidents.dispatch.view');
         Route::get('/expiry-overview', [ExpiryOverviewController::class, 'index']);
@@ -157,8 +201,12 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::post('/calendar-events', [CalendarEventController::class, 'store'])->middleware('permission:settings.manage');
         Route::delete('/calendar-events/{calendarEvent}', [CalendarEventController::class, 'destroy'])->middleware('permission:settings.manage');
 
-        Route::get('/status/me', [StatusController::class, 'me']);
-        Route::patch('/status/me', [StatusController::class, 'updateMe']);
+        Route::get('/status/me', [StatusController::class, 'me'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware('throttle:alarm-read');
+        Route::patch('/status/me', [StatusController::class, 'updateMe'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware('throttle:operational-action');
         Route::get('/availability-schedule/me', [AvailabilityScheduleController::class, 'mine']);
         Route::patch('/availability-schedule/me/week-pattern', [AvailabilityScheduleController::class, 'updateMine']);
         Route::post('/availability-schedule/me/overrides', [AvailabilityScheduleController::class, 'storeMineOverride']);
@@ -207,8 +255,12 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::patch('/users/{user}/certifications/{userCertification}', [CertificationController::class, 'updateUserCertification'])->middleware('permission:certifications.manage');
         Route::delete('/users/{user}/certifications/{userCertification}', [CertificationController::class, 'deleteUserCertification'])->middleware('permission:certifications.manage');
 
-        Route::post('/devices/fcm-token', [DeviceController::class, 'register'])->middleware('throttle:push-token');
-        Route::post('/devices/heartbeat', [DeviceController::class, 'heartbeat'])->middleware('throttle:push-token');
+        Route::post('/devices/fcm-token', [DeviceController::class, 'register'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware('throttle:operational-telemetry');
+        Route::post('/devices/heartbeat', [DeviceController::class, 'heartbeat'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware('throttle:operational-telemetry');
         Route::delete('/devices/fcm-token/{token}', [DeviceController::class, 'revoke']);
         Route::get('/devices', [DeviceController::class, 'index']);
 
