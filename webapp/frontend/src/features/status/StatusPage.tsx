@@ -11,15 +11,23 @@ import { useAuth } from '../auth/AuthContext';
 import type { AvailabilityStatus } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 
+const emptyStatuses: AvailabilityStatus[] = [];
+
 export function StatusPage() {
   const { api, hasPermission } = useAuth();
-  const statuses = useApiResource<AvailabilityStatus[]>('/availability-statuses/users?per_page=200');
+  const {
+    data: statusData,
+    loading: statusesLoading,
+    error: statusesError,
+    reload: reloadStatuses,
+    silentReload: silentlyReloadStatuses,
+  } = useApiResource<AvailabilityStatus[]>('/availability-statuses/users?per_page=200');
   const [editingStatus, setEditingStatus] = useState<AvailabilityStatus | null>(null);
   const [status, setStatus] = useState('available');
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const items = statuses.data ?? [];
+  const items = statusData ?? emptyStatuses;
   const sortedItems = [...items].sort((left, right) => Number(left.is_available) - Number(right.is_available)
     || (left.next_available_at?.at ?? '').localeCompare(right.next_available_at?.at ?? '')
     || (left.user?.name ?? '').localeCompare(right.user?.name ?? ''));
@@ -33,11 +41,11 @@ export function StatusPage() {
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      void statuses.silentReload();
+      void silentlyReloadStatuses();
     }, 60_000);
 
     return () => window.clearInterval(interval);
-  }, [statuses.silentReload]);
+  }, [silentlyReloadStatuses]);
 
   function openEditModal(item: AvailabilityStatus) {
     setEditingStatus(item);
@@ -60,7 +68,7 @@ export function StatusPage() {
         reason: reason.trim() === '' ? null : reason,
       });
       setEditingStatus(null);
-      await statuses.reload();
+      await reloadStatuses();
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Status kon niet worden aangepast.');
     } finally {
@@ -70,9 +78,9 @@ export function StatusPage() {
 
   return (
     <div className="page-stack">
-      <RealtimeBridge onOperationalEvent={() => void statuses.silentReload()} />
+      <RealtimeBridge onOperationalEvent={() => void silentlyReloadStatuses()} />
       <Panel title="Operationele status">
-        <ResourceState loading={statuses.loading} error={statuses.error} empty={items.length === 0}>
+        <ResourceState loading={statusesLoading} error={statusesError} empty={items.length === 0}>
           <div className="operational-status">
             <div className="operational-status__summary">
               <SummaryItem icon={<ShieldCheck size={18} />} label="Nu beschikbaar" value={String(availableCount)} />

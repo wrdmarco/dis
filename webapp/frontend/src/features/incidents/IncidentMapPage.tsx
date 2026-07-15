@@ -26,6 +26,7 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
 export function IncidentMapPage() {
   const { api } = useAuth();
   const incidents = useApiResource<Incident[]>(OPEN_INCIDENTS_PATH);
+  const reloadIncidentsSilently = incidents.silentReload;
   const mapLayers = useApiResource<OperationalMapLayers>(MAP_LAYERS_PATH);
   const fullscreenRootRef = useRef<HTMLDivElement | null>(null);
   const [locationsByIncident, setLocationsByIncident] = useState<Record<string, IncidentLiveLocation[]>>({});
@@ -70,12 +71,12 @@ export function IncidentMapPage() {
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      void incidents.silentReload();
+      void reloadIncidentsSilently();
       void loadLiveLocations(incidentItems, { silent: true });
     }, 10_000);
 
     return () => window.clearInterval(interval);
-  }, [incidentItems, incidents.silentReload, loadLiveLocations]);
+  }, [incidentItems, loadLiveLocations, reloadIncidentsSilently]);
 
   useEffect(() => {
     if (!isFullscreen) {
@@ -163,7 +164,7 @@ export function IncidentMapPage() {
   }
 
   function handleRealtimeEvent() {
-    void incidents.silentReload();
+    void reloadIncidentsSilently();
     void mapLayers.silentReload();
     void loadLiveLocations(incidentItems, { silent: true });
   }

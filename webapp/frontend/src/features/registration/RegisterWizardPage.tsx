@@ -56,25 +56,16 @@ export function RegisterWizardPage() {
   const [pairingCode, setPairingCode] = useState<MobilePairingCode | null>(null);
   const [pairingLoading, setPairingLoading] = useState(false);
 
-  const steps = useMemo<Step[]>(() => {
-    const adminAllowed = completed?.admin_app_allowed ?? invite?.admin_app_allowed ?? false;
-    const requiresMfa = completed === null
-      ? invite?.requires_mfa ?? false
-      : completed.requires_mfa && (completed.two_factor_setup !== null || completed.requires_2fa === true);
-    return [
-      { key: 'account', title: 'Account', icon: UserRound },
-      ...(requiresMfa ? [{ key: 'mfa' as const, title: 'MFA', icon: ShieldCheck }] : []),
-      { key: 'install', title: 'App installeren', icon: Smartphone },
-      ...(adminAllowed ? [{ key: 'admin' as const, title: 'Admin app', icon: KeyRound }] : []),
-    ];
-  }, [
-    completed?.admin_app_allowed,
-    completed?.requires_2fa,
-    completed?.requires_mfa,
-    completed?.two_factor_setup,
-    invite?.admin_app_allowed,
-    invite?.requires_mfa,
-  ]);
+  const adminAllowed = completed?.admin_app_allowed ?? invite?.admin_app_allowed ?? false;
+  const requiresMfa = completed === null
+    ? invite?.requires_mfa ?? false
+    : completed.requires_mfa && (completed.two_factor_setup !== null || completed.requires_2fa === true);
+  const steps = useMemo<Step[]>(() => [
+    { key: 'account', title: 'Account', icon: UserRound },
+    ...(requiresMfa ? [{ key: 'mfa' as const, title: 'MFA', icon: ShieldCheck }] : []),
+    { key: 'install', title: 'App installeren', icon: Smartphone },
+    ...(adminAllowed ? [{ key: 'admin' as const, title: 'Admin app', icon: KeyRound }] : []),
+  ], [adminAllowed, requiresMfa]);
 
   const currentStep = steps[Math.min(stepIndex, steps.length - 1)];
   const canSubmitAccount = password.length > 0 && password === passwordConfirmation;

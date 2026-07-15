@@ -26,6 +26,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const preview = useApiResource<DispatchPreview>(dispatchPreviewUrl, Boolean(incidentId));
   const dispatches = useApiResource<DispatchRequest[]>(`/incidents/${incidentId}/dispatches`, Boolean(incidentId));
   const liveLocations = useApiResource<IncidentLiveLocation[]>(`/incidents/${incidentId}/live-locations`, Boolean(incidentId));
+  const reloadLiveLocationsSilently = liveLocations.silentReload;
   const timeline = useApiResource<IncidentTimelineItem[]>(`/incidents/${incidentId}/timeline`, Boolean(incidentId));
   const reportIncidents = useApiResource<ReportIncident[]>('/reports/incidents?limit=100', Boolean(incidentId));
   const internalNotes = useApiResource<IncidentInternalNotes>(`/incidents/${incidentId}/internal-notes`, Boolean(incidentId) && hasPermission('incidents.manage'));
@@ -85,11 +86,11 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
     }
 
     const timer = window.setInterval(() => {
-      void liveLocations.silentReload();
+      void reloadLiveLocationsSilently();
     }, 10_000);
 
     return () => window.clearInterval(timer);
-  }, [incident.data?.status, incidentId, liveLocations.silentReload]);
+  }, [incident.data?.status, incidentId, reloadLiveLocationsSilently]);
 
   useEffect(() => {
     setInternalNotesText(internalNotes.data?.internal_notes ?? '');
@@ -387,7 +388,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
         void incident.silentReload();
         void preview.silentReload();
         void dispatches.silentReload();
-        void liveLocations.silentReload();
+        void reloadLiveLocationsSilently();
         void timeline.silentReload();
       }} />
       <Panel

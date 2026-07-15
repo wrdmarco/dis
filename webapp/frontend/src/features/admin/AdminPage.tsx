@@ -2170,15 +2170,6 @@ function FormFieldPropertiesPanel(props: {
   const { field, showPushExposure, showOperatorAvailability, availabilityHint, onUpdate } = props;
   const [optionDraft, setOptionDraft] = useState<{ fieldKey: string; value: string } | null>(null);
 
-  useEffect(() => {
-    if (field === null || !['select', 'radio'].includes(field.type) || (field.option_source ?? 'manual') !== 'manual') {
-      setOptionDraft(null);
-      return;
-    }
-
-    setOptionDraft({ fieldKey: field.key, value: optionsToTextarea(field.options) });
-  }, [field?.key, field?.type, field?.option_source]);
-
   if (field === null) {
     return (
       <aside className="form-builder-properties">
@@ -2205,6 +2196,7 @@ function FormFieldPropertiesPanel(props: {
           value={field.type}
           onChange={(event) => {
             const type = event.target.value as ConfigurableFormField['type'];
+            setOptionDraft(null);
             onUpdate(field.key, {
               type,
               width: type === 'section' || type === 'textarea' || type === 'radio' || type === 'checkbox' || type === 'flight_time' ? 'full' : field.width ?? 'half',
@@ -2258,10 +2250,13 @@ function FormFieldPropertiesPanel(props: {
             Optiebron
             <select
               value={field.option_source ?? 'manual'}
-              onChange={(event) => onUpdate(field.key, {
-                option_source: event.target.value as ConfigurableFormField['option_source'],
-                options: event.target.value === 'manual' ? defaultFieldOptions(field.options) : [],
-              })}
+              onChange={(event) => {
+                setOptionDraft(null);
+                onUpdate(field.key, {
+                  option_source: event.target.value as ConfigurableFormField['option_source'],
+                  options: event.target.value === 'manual' ? defaultFieldOptions(field.options) : [],
+                });
+              }}
             >
               <option value="manual">Handmatige opties</option>
               <option value="user_drones">Drones van gebruiker</option>

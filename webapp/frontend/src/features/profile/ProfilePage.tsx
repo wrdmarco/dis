@@ -127,6 +127,20 @@ export function ProfilePage() {
       : 'Stel je Authenticator app in om verder te gaan.'
     : 'Gebruik een authenticator app met 6-cijferige TOTP-codes.';
 
+  const startSetup = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    setRecoveryCodes([]);
+    try {
+      setSetup(await startTwoFactorSetup());
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'MFA setup starten mislukt.');
+    } finally {
+      setBusy(false);
+    }
+  }, [startTwoFactorSetup]);
+
   useEffect(() => {
     if (!user || user.two_factor_enabled || !mfaRequired || setup !== null || autoSetupStarted) {
       return;
@@ -134,7 +148,7 @@ export function ProfilePage() {
 
     setAutoSetupStarted(true);
     void startSetup();
-  }, [autoSetupStarted, mfaRequired, setup, user]);
+  }, [autoSetupStarted, mfaRequired, setup, startSetup, user]);
 
   useEffect(() => {
     if (user === null) {
@@ -204,20 +218,6 @@ export function ProfilePage() {
 
     return () => window.clearInterval(timer);
   }, [addDeviceOpen, pairing]);
-
-  async function startSetup() {
-    setBusy(true);
-    setError(null);
-    setMessage(null);
-    setRecoveryCodes([]);
-    try {
-      setSetup(await startTwoFactorSetup());
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'MFA setup starten mislukt.');
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function confirmSetup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
