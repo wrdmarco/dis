@@ -698,6 +698,8 @@ stop_dis_deployment_services() {
 restart_dis_web_services_for_verification() {
   local service
 
+  require_dis_frontend_release_artifacts
+
   # Nginx must load the maintenance-aware configuration before Laravel is
   # brought back up for readiness checks.
   for service in nginx "${PHP_FPM_SERVICE}" dis-frontend; do
@@ -705,6 +707,101 @@ restart_dis_web_services_for_verification() {
       run_cmd systemctl restart "${service}"
     fi
   done
+}
+
+require_dis_frontend_release_artifacts() {
+  local frontend_dir="${1:-${DIS_INSTALL_PATH}/webapp/frontend}"
+  local path
+
+  [ -x /usr/bin/node ] || fail "The frontend runtime is missing: /usr/bin/node is not executable."
+  for path in \
+    "${frontend_dir}/package.json" \
+    "${frontend_dir}/.next/BUILD_ID" \
+    "${frontend_dir}/node_modules/next/dist/bin/next"; do
+    if [ ! -f "${path}" ] || [ -L "${path}" ]; then
+      fail "The current frontend release is not restartable; required artifact is missing or unsafe: ${path}"
+    fi
+    if ! runuser -u "${DIS_USER}" -- test -r "${path}"; then
+      fail "The current frontend release is not restartable; ${DIS_USER} cannot read: ${path}"
+    fi
+  done
+  for path in "${frontend_dir}/.next/server" "${frontend_dir}/.next/static"; do
+    if [ ! -d "${path}" ] || [ -L "${path}" ]; then
+      fail "The current frontend release is not restartable; required directory is missing or unsafe: ${path}"
+    fi
+    if ! runuser -u "${DIS_USER}" -- test -r "${path}" \
+      || ! runuser -u "${DIS_USER}" -- test -x "${path}"; then
+      fail "The current frontend release is not restartable; ${DIS_USER} cannot access: ${path}"
+    fi
+  done
+}
+
+report_systemd_service_failure() {
+  local service="$1"
+
+  printf '[dis:error] systemd diagnostics for %s.service:\n' "${service}" >&2
+  systemctl show "${service}.service" --no-pager \
+    --property=ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,NRestarts >&2 2>/dev/null || true
+  systemctl status "${service}.service" --no-pager --full --lines=20 >&2 2>/dev/null || true
+}
+
+wait_for_systemd_service_stable() {
+  local service="$1" timeout_seconds="${2:-30}" required_samples="${3:-2}"
+  local deadline stable_samples=0
+
+  [[ "${timeout_seconds}" =~ ^[1-9][0-9]*$ ]] \
+    || fail "Invalid systemd readiness timeout: ${timeout_seconds}"
+  [[ "${required_samples}" =~ ^[1-9][0-9]*$ ]] \
+    || fail "Invalid systemd stability sample count: ${required_samples}"
+  deadline=$((SECONDS + timeout_seconds))
+
+  while [ "${SECONDS}" -lt "${deadline}" ]; do
+    if systemctl is-active --quiet "${service}.service"; then
+      stable_samples=$((stable_samples + 1))
+      if [ "${stable_samples}" -ge "${required_samples}" ]; then
+        return 0
+      fi
+    else
+      stable_samples=0
+    fi
+    sleep 1
+  done
+
+  report_systemd_service_failure "${service}"
+  return 1
+}
+
+wait_for_dis_frontend_http_readiness() {
+  local timeout_seconds="${1:-30}" required_samples="${2:-2}"
+  local deadline stable_samples=0 status_code
+
+  command -v curl >/dev/null 2>&1 || fail "curl is required for frontend readiness checks."
+  [[ "${timeout_seconds}" =~ ^[1-9][0-9]*$ ]] \
+    || fail "Invalid frontend readiness timeout: ${timeout_seconds}"
+  [[ "${required_samples}" =~ ^[1-9][0-9]*$ ]] \
+    || fail "Invalid frontend stability sample count: ${required_samples}"
+  deadline=$((SECONDS + timeout_seconds))
+
+  while [ "${SECONDS}" -lt "${deadline}" ]; do
+    status_code=""
+    if systemctl is-active --quiet dis-frontend.service; then
+      status_code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+        --noproxy '*' --connect-timeout 2 --max-time 5 \
+        http://127.0.0.1:3000/login 2>/dev/null || true)"
+    fi
+    if [[ "${status_code}" =~ ^[23][0-9][0-9]$ ]]; then
+      stable_samples=$((stable_samples + 1))
+      if [ "${stable_samples}" -ge "${required_samples}" ]; then
+        return 0
+      fi
+    else
+      stable_samples=0
+    fi
+    sleep 1
+  done
+
+  report_systemd_service_failure dis-frontend
+  return 1
 }
 
 start_dis_operational_services() {
@@ -744,10 +841,13 @@ require_dis_web_services() {
     if ! systemd_service_exists "${service}"; then
       fail "Required systemd service is not installed: ${service}.service"
     fi
-    if ! systemctl is-active --quiet "${service}"; then
-      fail "Required systemd service is not active: ${service}.service"
+    if ! wait_for_systemd_service_stable "${service}"; then
+      fail "Required systemd service did not become stably active: ${service}.service"
     fi
   done
+  if ! wait_for_dis_frontend_http_readiness; then
+    fail "DIS frontend did not become HTTP-ready on 127.0.0.1:3000."
+  fi
 }
 
 require_dis_runtime_services() {
@@ -757,10 +857,13 @@ require_dis_runtime_services() {
     if ! systemd_service_exists "${service}"; then
       fail "Required systemd service is not installed: ${service}.service"
     fi
-    if ! systemctl is-active --quiet "${service}"; then
-      fail "Required systemd service is not active: ${service}.service"
+    if ! wait_for_systemd_service_stable "${service}"; then
+      fail "Required systemd service did not become stably active: ${service}.service"
     fi
   done
+  if ! wait_for_dis_frontend_http_readiness; then
+    fail "DIS frontend did not remain HTTP-ready on 127.0.0.1:3000."
+  fi
   if ! systemd_unit_exists dis-backup-request.path; then
     fail "Required systemd unit is not installed: dis-backup-request.path"
   fi

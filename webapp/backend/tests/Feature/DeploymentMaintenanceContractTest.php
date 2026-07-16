@@ -61,6 +61,72 @@ final class DeploymentMaintenanceContractTest extends TestCase
         );
     }
 
+    public function test_update_preflights_and_waits_for_a_stable_frontend_before_reopening(): void
+    {
+        $update = $this->read('scripts/update.sh');
+        $common = $this->read('scripts/lib/common.sh');
+        $frontendUnit = $this->read('infrastructure/systemd/dis-frontend.service');
+
+        $preflight = strpos($update, 'require_dis_frontend_release_artifacts');
+        $exitTrap = strpos($update, 'trap \'update_exit_handler "$?"\' EXIT');
+        $maintenance = strpos($update, 'enable_frontend_maintenance', (int) $exitTrap);
+        self::assertIsInt($preflight);
+        self::assertIsInt($exitTrap);
+        self::assertIsInt($maintenance);
+        self::assertTrue($preflight < $exitTrap);
+        self::assertTrue($preflight < $maintenance);
+        self::assertStringContainsString('Update failed during phase', $update);
+        self::assertStringContainsString('Permission self-heal failed during update phase', $update);
+
+        $artifactCheck = substr(
+            $common,
+            (int) strpos($common, 'require_dis_frontend_release_artifacts()'),
+            (int) strpos($common, 'report_systemd_service_failure()')
+                - (int) strpos($common, 'require_dis_frontend_release_artifacts()'),
+        );
+        self::assertStringContainsString('.next/BUILD_ID', $artifactCheck);
+        self::assertStringContainsString('node_modules/next/dist/bin/next', $artifactCheck);
+        self::assertStringContainsString('.next/server', $artifactCheck);
+        self::assertStringContainsString('.next/static', $artifactCheck);
+        self::assertStringContainsString('runuser -u "${DIS_USER}" -- test -r', $artifactCheck);
+
+        $stableWait = substr(
+            $common,
+            (int) strpos($common, 'wait_for_systemd_service_stable()'),
+            (int) strpos($common, 'wait_for_dis_frontend_http_readiness()')
+                - (int) strpos($common, 'wait_for_systemd_service_stable()'),
+        );
+        self::assertStringContainsString('required_samples="${3:-2}"', $stableWait);
+        self::assertStringContainsString('stable_samples=$((stable_samples + 1))', $stableWait);
+        self::assertStringContainsString('report_systemd_service_failure', $stableWait);
+
+        $frontendReadiness = substr(
+            $common,
+            (int) strpos($common, 'wait_for_dis_frontend_http_readiness()'),
+            (int) strpos($common, 'start_dis_operational_services()')
+                - (int) strpos($common, 'wait_for_dis_frontend_http_readiness()'),
+        );
+        self::assertStringContainsString('http://127.0.0.1:3000/login', $frontendReadiness);
+        self::assertStringContainsString('required_samples="${2:-2}"', $frontendReadiness);
+        self::assertStringContainsString('systemctl is-active --quiet dis-frontend.service', $frontendReadiness);
+
+        $webRequirement = substr(
+            $common,
+            (int) strpos($common, 'require_dis_web_services()'),
+            (int) strpos($common, 'require_dis_runtime_services()')
+                - (int) strpos($common, 'require_dis_web_services()'),
+        );
+        self::assertStringContainsString('wait_for_systemd_service_stable', $webRequirement);
+        self::assertStringContainsString('wait_for_dis_frontend_http_readiness', $webRequirement);
+
+        self::assertStringContainsString('ExecStartPre=/usr/bin/test -r /opt/dis/webapp/frontend/.next/BUILD_ID', $frontendUnit);
+        self::assertStringContainsString(
+            'ExecStart=/usr/bin/node /opt/dis/webapp/frontend/node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3000',
+            $frontendUnit,
+        );
+        self::assertStringNotContainsString('ExecStart=/usr/bin/npm run start', $frontendUnit);
+    }
+
     public function test_backup_request_timer_sweeps_the_worker_and_is_managed_with_the_path_unit(): void
     {
         $timer = $this->read('infrastructure/systemd/dis-backup-request.timer');
@@ -158,7 +224,10 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertStringContainsString('recover_current_release_after_pre_mutation_failure', $script);
         self::assertStringContainsString('backup-key-cutover-v2.pending', $script);
         self::assertStringContainsString('UPDATE_MUTATION_STARTED=1', $script);
-        self::assertStringContainsString("bash \"\${SCRIPT_DIR}/deploy.sh\"\n    stop_dis_deployment_services", $script);
+        self::assertStringContainsString(
+            "bash \"\${SCRIPT_DIR}/deploy.sh\"\n    UPDATE_PHASE=\"stopping services after nested deployment\"\n    stop_dis_deployment_services",
+            $script,
+        );
         self::assertStringContainsString('DIS_DEPLOYMENT_OWNER=update', $script);
         self::assertStringContainsString('DIS_DEFER_OPERATIONAL_SERVICES=1', $script);
 

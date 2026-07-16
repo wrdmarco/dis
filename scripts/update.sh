@@ -29,6 +29,7 @@ APP_UPDATES_AVAILABLE=0
 APP_UPSTREAM=""
 DEPLOYMENT_SERVICES_STOPPED=0
 UPDATE_MUTATION_STARTED=0
+UPDATE_PHASE="initialization"
 DIS_GIT_REMOTE_URL="${DIS_GIT_REMOTE_URL:-https://github.com/wrdmarco/dis.git}"
 DIS_GIT_BRANCH="${DIS_GIT_BRANCH:-main}"
 
@@ -342,6 +343,15 @@ self_heal_permissions() {
   fi
 }
 
+run_update_permission_self_heal() {
+  local phase="$1"
+
+  UPDATE_PHASE="${phase}"
+  if ! self_heal_permissions; then
+    fail "Permission self-heal failed during update phase: ${phase}. Review the preceding secure-path or filesystem error."
+  fi
+}
+
 put_webapp_in_production() {
   local backend_dir
   backend_dir="${DIS_INSTALL_PATH}/webapp/backend"
@@ -369,13 +379,14 @@ update_exit_handler() {
 
   trap - EXIT
   if [ "${status}" -ne 0 ]; then
+    printf '[dis:error] Update failed during phase "%s" with exit status %s.\n' "${UPDATE_PHASE}" "${status}" >&2
     if [ "${UPDATE_MUTATION_STARTED}" = "0" ]; then
       set +e
       recover_current_release_after_pre_mutation_failure
       recovery_status="$?"
       set -e
       if [ "${recovery_status}" -eq 0 ]; then
-        log "Update failed before system or application mutation; the current release is healthy and back in production. Correct the failure and rerun update."
+        log "Update failed before package or source mutation; the verified current release is back in production. Correct the failure and rerun update."
       else
         log "Update failed and current-release recovery did not complete; maintenance remains enabled and stopped DIS services remain stopped. Correct the failure and rerun update."
       fi
@@ -641,51 +652,66 @@ recover_stashed_backups
 drop_dis_update_stashes
 run_cmd rm -f -- "${DIS_INSTALL_PATH}/webapp/backend/storage/app/backup-config.env"
 
+log "Preflighting the current frontend release before deployment maintenance"
+require_dis_frontend_release_artifacts
+
 trap 'update_exit_handler "$?"' EXIT
+UPDATE_PHASE="enabling frontend maintenance"
 enable_frontend_maintenance
 # Mark the partial stop before the first systemd mutation. If a broker fails to
 # become idle, the pre-mutation recovery path must restart Path/Timer units that
 # were already stopped by stop_dis_deployment_services.
 DEPLOYMENT_SERVICES_STOPPED=1
+UPDATE_PHASE="stopping deployment services"
 stop_dis_deployment_services
-self_heal_permissions
+run_update_permission_self_heal "initial permission self-heal"
+UPDATE_PHASE="enabling backend maintenance"
 enable_deployment_maintenance "${DIS_INSTALL_PATH}/webapp/backend"
 
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
+  UPDATE_PHASE="checking Ubuntu package updates"
   check_system_updates
 fi
 
 if [ "${UPDATE_APP}" = "1" ]; then
+  UPDATE_PHASE="checking DIS application updates"
   check_app_updates
 fi
 
+UPDATE_PHASE="verifying backup trust key"
 DIS_BACKUP_KEY_CUTOVER_ALLOWED=1 ensure_backup_encryption_key >/dev/null
 
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
+  UPDATE_PHASE="ensuring DIS system dependencies"
   log "Ensuring DIS system dependencies"
   run_cmd apt-get install -y cifs-utils smbclient "php${PHP_VERSION}-gd"
 fi
 
 if [ "${SYSTEM_UPDATES_AVAILABLE}" = "0" ] && [ "${APP_UPDATES_AVAILABLE}" = "0" ]; then
+  UPDATE_PHASE="refreshing no-update runtime configuration"
   log "No updates available. Nothing to do."
   install_update_command
   install_update_privileges
-  self_heal_permissions
+  run_update_permission_self_heal "no-update permission self-heal before cache cleanup"
   clear_application_caches
-  self_heal_permissions
+  run_update_permission_self_heal "no-update permission self-heal after cache cleanup"
+  UPDATE_PHASE="reconciling routing after no-update verification"
   reconcile_osrm
   finalize_backup_key_cutover "${DIS_INSTALL_PATH}"
+  UPDATE_PHASE="reopening verified current release"
   verify_update_and_open_production
   trap - EXIT
   log "DIS system and application update completed."
   exit 0
 fi
 
+UPDATE_PHASE="creating and verifying pre-update backup"
 create_pre_update_backup
 
 if [ "${UPDATE_SYSTEM}" = "1" ]; then
   if [ "${SYSTEM_UPDATES_AVAILABLE}" = "1" ]; then
     UPDATE_MUTATION_STARTED=1
+    UPDATE_PHASE="updating Ubuntu packages"
     log "Updating Ubuntu packages"
     run_cmd apt-get upgrade -y
     run_cmd apt-get autoremove -y
@@ -697,6 +723,7 @@ fi
 if [ "${UPDATE_APP}" = "1" ]; then
   if [ "${APP_UPDATES_AVAILABLE}" = "1" ]; then
     UPDATE_MUTATION_STARTED=1
+    UPDATE_PHASE="updating DIS application source"
     if [ "${UPDATE_SOURCE}" = "1" ]; then
       if [ -d "${DIS_INSTALL_PATH}/.git" ]; then
         log "Pulling latest DIS source"
@@ -710,6 +737,7 @@ if [ "${UPDATE_APP}" = "1" ]; then
     write_frontend_env
     nginx_source="$(refresh_generated_nginx)"
 
+    UPDATE_PHASE="deploying updated DIS application"
     log "Deploying updated DIS application"
     APP_ROOT="${DIS_INSTALL_PATH}" \
       NGINX_SOURCE="${nginx_source}" \
@@ -717,29 +745,33 @@ if [ "${UPDATE_APP}" = "1" ]; then
       DIS_DEPLOYMENT_OWNER=update \
       DIS_DEFER_OPERATIONAL_SERVICES=1 \
       bash "${SCRIPT_DIR}/deploy.sh"
+    UPDATE_PHASE="stopping services after nested deployment"
     stop_dis_deployment_services
     install_update_command
     install_update_privileges
-    self_heal_permissions
+    run_update_permission_self_heal "post-deploy permission self-heal before cache cleanup"
     clear_application_caches
-    self_heal_permissions
+    run_update_permission_self_heal "post-deploy permission self-heal after cache cleanup"
     assert_backend_routes
   else
     log "Skipping DIS application deploy."
     install_update_command
     install_update_privileges
-    self_heal_permissions
+    run_update_permission_self_heal "existing-release permission self-heal before cache cleanup"
     clear_application_caches
-    self_heal_permissions
+    run_update_permission_self_heal "existing-release permission self-heal after cache cleanup"
     assert_backend_routes
   fi
 fi
 
 if [ "${UPDATE_APP}" != "1" ] || [ "${APP_UPDATES_AVAILABLE}" = "0" ]; then
+  UPDATE_PHASE="reconciling routing"
   reconcile_osrm
 fi
 
+UPDATE_PHASE="finalizing backup-key cutover"
 finalize_backup_key_cutover "${DIS_INSTALL_PATH}"
+UPDATE_PHASE="verifying and reopening production"
 verify_update_and_open_production
 trap - EXIT
 

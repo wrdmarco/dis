@@ -8,7 +8,10 @@ User=dis
 Group=dis
 WorkingDirectory=/opt/dis/webapp/frontend
 Environment=NODE_ENV=production
-ExecStart=/usr/bin/npm run start
+Environment=NEXT_TELEMETRY_DISABLED=1
+ExecStartPre=/usr/bin/test -r /opt/dis/webapp/frontend/.next/BUILD_ID
+ExecStartPre=/usr/bin/test -r /opt/dis/webapp/frontend/node_modules/next/dist/bin/next
+ExecStart=/usr/bin/node /opt/dis/webapp/frontend/node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3000
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
