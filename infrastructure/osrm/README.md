@@ -5,26 +5,29 @@ listens only on `127.0.0.1:5000`; it is never proxied by Nginx and the deploymen
 demo server. Runtime logging is limited to warnings and errors so normal routing requests containing location
 coordinates are not intentionally written to the service journal.
 
-## Package availability
+## Container runtime availability
 
-The deployment uses the `osrm-backend` package only when the configured APT metadata exposes it through an
-Ubuntu 26.04 `resolute`, `resolute-updates` or `resolute-security` main/universe pocket on an official Ubuntu
-archive host. Initial installation or repair of an unattested package runs with a temporary source list derived
-from those configured entries only and the root-controlled `ubuntu-keyring` archive key; a version pin is not
-origin proof because another repository can publish an identical version. An already installed package without
-a matching durable file fingerprint is reinstalled through that restricted source list.
+Ubuntu 26.04 does not currently expose an installable `osrm-backend` candidate in its configured official archive.
+DIS therefore runs the official Project OSRM container with rootful Podman. Podman itself is accepted only from an
+already configured Ubuntu 26.04 `resolute`, `resolute-updates` or `resolute-security` main/universe pocket on an
+official Ubuntu archive host. Installation uses a temporary source list derived from those entries and the
+root-controlled `ubuntu-keyring`; an existing unattested Podman package is reinstalled through that restricted
+source list.
 
-The resulting `osrm-backend` version and installed-file fingerprint are recorded under
-`/opt/dis-data/osrm/package-provenance.json`. At service start, DIS compares the currently installed package and
-package-owned OSRM executables with that protected receipt. A later APT metadata refresh or newly published
-candidate does not change a previously attested runtime: the package remains held and both normal DIS updates and
-the Admin **Kaartdata bijwerken** action leave the binary untouched. This workflow does not claim to perform a
-transactional OSRM binary upgrade; such a migration must be handled as a separate planned platform change.
+The OSRM runtime is fixed in source to `v26.5.0-amd64-debian` and pulled by the immutable amd64 manifest digest
+`sha256:51299b2a506807dc0ed7d3afcd5f04d9754ece85e9dd39a35669c2b4904304f2`. Mutable tags, foreign APT
+repositories, locally supplied executables and public routing services are not accepted. DIS verifies the digest,
+architecture, operating system and upstream OCI source, version, revision and license labels before use.
 
-This receipt attests the `osrm-backend` package files themselves, not the complete operating-system dependency
-closure. The normal host package-management and repository policy remains responsible for ensuring that shared
-libraries and other dependencies come from organisation-approved Ubuntu sources. Do not enable unapproved PPAs,
-foreign suites, mirrors, Debian repositories or binary downloads on a DIS host.
+The Podman version and package-file fingerprint, container digest and image ID, and the bundled `/opt/car.lua`
+profile fingerprint are recorded in `/opt/dis-data/osrm/package-provenance.json`. At service start DIS checks the
+current runtime against that protected receipt. Podman is APT-held and every container invocation uses
+`--pull=never`, so normal DIS updates and **Kaartdata bijwerken** cannot silently change the runtime. A future OSRM
+image upgrade is a separate reviewed code change that must update the digest and tests.
+
+The receipt covers the Podman package and selected container content, not the complete host operating-system
+dependency closure. Normal host repository policy remains responsible for shared dependencies. Do not enable
+unapproved PPAs, foreign suites, mirrors or Debian repositories on a DIS host.
 
 The composite NL+BE build additionally uses Ubuntu's `osmium-tool`. It has its own official-archive selection,
 installed-file fingerprint, protected receipt (`build-tool-provenance.json`) and APT hold. It is deliberately not
@@ -32,20 +35,18 @@ part of `osrm_tools_available`: a missing or damaged build tool blocks a new map
 cannot make an already attested and active OSRM runtime appear unhealthy. The root worker installs and verifies
 this dependency before any map download starts.
 
-Run this after enabling an appropriate, organisation-approved Ubuntu archive component if the package is
-not yet installed:
+Run this after enabling an appropriate, organisation-approved Ubuntu archive component and outbound HTTPS access
+to `ghcr.io` if the runtime is not yet installed:
 
 ```bash
 sudo apt-get update
 sudo /usr/local/lib/dis/osrm-admin/osrm.sh install-package
 ```
 
-On a fresh host with no Ubuntu 26.04 candidate, OSRM stays explicitly degraded and DIS continues to use its
-bounded fallback ETA. A previously attested installation remains usable when repository metadata temporarily
-has no candidate, but an unattested installation cannot be installed or repaired until an approved candidate is available. Once
-an archive does advertise a candidate, installation or missing-tool errors are fatal so a partially installed
-route engine cannot be mistaken for a supported degraded state. Do not install a package built for a different
-Ubuntu or Debian release.
+On a fresh host without an official Podman candidate, or when the pinned image cannot be retrieved and verified,
+OSRM remains explicitly degraded and DIS continues to use its bounded fallback ETA. A previously attested runtime
+remains usable when repository or registry access is temporarily unavailable because normal operation never pulls.
+Do not substitute another image, mutable tag, public endpoint or package from a different distribution release.
 
 ## Admin installation and map updates
 
@@ -86,7 +87,7 @@ two billion input bytes require 20,147,483,648 bytes. The merged PBF is separate
 `OSRM_ADMIN_MAX_COMBINED_PBF_BYTES` (hard maximum 20 GiB) and by a source-relative bound. The import repeats its
 check against the actual merged size.
 
-Installation and activation are one operation: DIS verifies or installs the restricted runtime and build packages,
+Installation and activation are one operation: DIS verifies or installs restricted Podman, the pinned OSRM image and the build package,
 provisions the service, verifies both suppliers, merges and preprocesses the common snapshot, atomically activates
 it, and runs artifact and route-readiness checks. A composite release stores the server-controlled Dutch probe and
 a second root-controlled Belgian probe. The Belgian probe defaults to central Brussels (`4.3517,50.8503`) and
@@ -102,15 +103,16 @@ immutable database payload, stored probe, active status, artifact verification a
 Legacy SHA-256-only releases remain readable, healthy and updateable; their next deliberate update migrates them to
 the composite source manifest and dual-probe contract.
 
-A map-data update never upgrades the `osrm-backend` package. It keeps the exact already verified and healthy
-binary so a failed import can safely retain or restore the previous dataset. Package installation is restricted to
-the initial **Installeren en activeren** operation; normal DIS deploys and system updates do not install or upgrade
-OSRM behind the administrator's back.
+A map-data update never pulls or upgrades the OSRM image. It keeps the exact already verified and healthy container
+so a failed import can safely retain or restore the previous dataset. Runtime installation is restricted to the
+initial **Installeren en activeren** operation; normal DIS deploys and system updates do not install or upgrade OSRM
+behind the administrator's back.
 
-After provenance verification, DIS places `osrm-backend` and `osmium-tool` on separate APT holds. This prevents a general host upgrade from
-silently changing the routing binary and invalidating dataset rollback. The worker verifies that hold together with
-the relevant package receipt before use. Every normal DIS uninstall removes both DIS-managed holds, even
-when Ubuntu packages and generated route data are deliberately retained; package purge remains a separate option.
+After provenance verification, DIS places `podman` and `osmium-tool` on separate APT holds. This prevents a general
+host upgrade from silently changing the runtime or merge tool and invalidating the protected receipts. The worker
+verifies both holds before use. A normal DIS uninstall removes DIS-managed holds while retaining packages and route
+data. Even `--purge-packages` leaves the host-wide Podman runtime installed so DIS cannot break unrelated containers;
+removing Podman is a separate infrastructure decision.
 
 Release retention defaults to three complete releases (`OSRM_RELEASE_RETENTION=3`, valid range 3–20). Pruning runs
 before the download disk preflight and after successful activation. The root workflow always protects the exact
@@ -149,7 +151,7 @@ Control files are returned to root and made read-only immediately after curl exi
 prevents a compromised or racing build process from substituting a symlink for a root redirection target.
 
 Live admin logging reports these bounded stages without exposing raw commands or paths: validation, download,
-package installation, provisioning, merge, extract, partition, customize, activation, verification and configuration.
+container-runtime installation, provisioning, merge, extract, partition, customize, activation, verification and configuration.
 An interrupted import is coupled to the broker systemd unit; subsequent recovery reconciles the durable activation
 marker and releases the backend operation lock. A transient parser has `PartOf` and `BindsTo` coupling to that
 broker but deliberately no `After` ordering on the waiting oneshot parent. If interruption occurs after a new
@@ -157,7 +159,7 @@ release was committed but before the success snapshot was written, recovery relo
 and requires the root-recorded composite source manifest and exact probe to match the active status, plus artifact
 verification and both live health probes, before recording success. A temporary PHP/database outage preserves the work marker and
 status unchanged for the next timer retry;
-only a loaded contract with a definitive runtime mismatch is failed closed. The normal DIS application update only refreshes code, package
+only a loaded contract with a definitive runtime mismatch is failed closed. The normal DIS application update only refreshes code, runtime
 integration and current-service state. It never silently downloads or imports new map data.
 
 ## Manual dataset import
@@ -185,8 +187,8 @@ sudo /usr/local/lib/dis/osrm-admin/osrm.sh import \
 The import procedure:
 
 1. rejects links, oversized or changing input and verifies the supplied SHA-256 after a no-follow snapshot;
-2. runs `osrm-extract`, `osrm-partition` and `osrm-customize` as the isolated `dis-osrm-build` account in
-   hardened, resource-limited transient systemd units;
+2. runs the pinned container's `osrm-extract`, `osrm-partition` and `osrm-customize` as the numeric isolated
+   `dis-osrm-build` identity in networkless, capability-free, read-only, resource-limited transient systemd units;
 3. rejects links, hard links and special parser output, descriptor-freezes the complete staging tree as
    root-owned/read-only, then writes hashes, probe and manifest through exclusive no-follow temporary files,
    fsync and atomic rename before revalidating the tree;
@@ -243,9 +245,9 @@ sudo journalctl -u dis-osrm.service
 sudo journalctl -u dis-osrm-admin-request.service
 ```
 
-`status` derives package provenance, provisioning, active dataset metadata, service state and current health.
+`status` derives container-runtime provenance, provisioning, active dataset metadata, service state and current health.
 `publish-status` atomically refreshes the bounded browser-readable snapshot at `/var/log/dis/osrm-status.json`.
-The state is `ready` only after a successful local probe; missing binaries, a missing dataset or readiness failure
+The state is `ready` only after a successful local probe; a missing verified runtime, missing dataset or readiness failure
 is reported as `not_installed`, `installed_inactive` or `degraded`. An OSRM failure
 does not stop an alarm or the DIS web tier: the backend uses its explicit fallback estimate.
 

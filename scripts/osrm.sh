@@ -32,6 +32,13 @@ OSRM_SERVICE_TEMPLATE="${OSRM_ADMIN_RUNTIME_DIR}/dis-osrm.service"
 OSRM_RUNTIME_SCRIPT="${OSRM_ADMIN_RUNTIME_DIR}/osrm.sh"
 OSRM_ENDPOINT="http://127.0.0.1:5000"
 OSRM_UBUNTU_ARCHIVE_KEYRING="/usr/share/keyrings/ubuntu-archive-keyring.gpg"
+OSRM_CONTAINER_IMAGE_VERSION="v26.5.0-amd64-debian"
+OSRM_CONTAINER_IMAGE_DIGEST="sha256:51299b2a506807dc0ed7d3afcd5f04d9754ece85e9dd39a35669c2b4904304f2"
+OSRM_CONTAINER_IMAGE="ghcr.io/project-osrm/osrm-backend@${OSRM_CONTAINER_IMAGE_DIGEST}"
+OSRM_CONTAINER_SOURCE="https://github.com/Project-OSRM/osrm-backend"
+OSRM_CONTAINER_REVISION="3c32a51bf58d12bf30efd0808d0b6ad51d334122"
+OSRM_CONTAINER_PROFILE="/opt/car.lua"
+OSRM_PODMAN_PATH="/usr/bin/podman"
 OSRM_MAX_PBF_BYTES="${OSRM_MAX_PBF_BYTES:-53687091200}"
 OSRM_IMPORT_DISK_FACTOR="${OSRM_IMPORT_DISK_FACTOR:-8}"
 OSRM_IMPORT_DISK_RESERVE_BYTES="${OSRM_IMPORT_DISK_RESERVE_BYTES:-2147483648}"
@@ -67,8 +74,7 @@ Usage:
     --pbf /root/region.osm.pbf \
     --sha256 <64-character-sha256> \
     [--source-manifest <root-owned-source-manifest.json>] \
-    --health-coordinate <longitude,latitude> \
-    [--profile /usr/local/share/dis-osrm/car.lua]
+    --health-coordinate <longitude,latitude>
   sudo /usr/local/lib/dis/osrm-admin/osrm.sh health
   sudo /usr/local/lib/dis/osrm-admin/osrm.sh verify
   sudo /usr/local/lib/dis/osrm-admin/osrm.sh status
@@ -77,9 +83,9 @@ Usage:
   sudo /usr/local/lib/dis/osrm-admin/osrm.sh prune
 
 Commands:
-  install-package  Install osrm-backend only when the configured Ubuntu archive
-                   actually has an installable candidate. Missing availability is
-                   reported as degraded and never adds a foreign package source.
+  install-package  Install and attest Ubuntu Podman, then pull the official OSRM
+                   image by its immutable amd64 manifest digest. No mutable tag,
+                   foreign package suite or public routing service is used.
   install-build-tool
                    Independently install and attest the Ubuntu osmium-tool package
                    used only to inspect and merge verified source extracts.
@@ -88,7 +94,7 @@ Commands:
                    Ubuntu package receipt and APT hold.
   provision        Create the isolated service account and protected data layout,
                    then install and enable the local-only systemd unit.
-  reconcile        Start and health-check OSRM when binaries and a prepared dataset
+  reconcile        Start and health-check OSRM when the pinned container and a prepared dataset
                    exist; otherwise stop it and record an explicit degraded state.
   import           Safely preprocess and atomically activate an operator-supplied
                    .osm.pbf. An expected SHA-256 and a known in-region probe
@@ -346,22 +352,21 @@ official_package_candidate() {
   awk '$1 == "Candidate:" { print $2; exit }' <<< "${policy}"
 }
 
-official_osrm_candidate() {
-  official_package_candidate "$1" osrm-backend
+official_podman_candidate() {
+  official_package_candidate "$1" podman
 }
 
 official_osmium_candidate() {
   official_package_candidate "$1" osmium-tool
 }
 
-required_osrm_tools_owned_by_package() {
-  local owner path tool
+required_podman_tool_owned_by_package() {
+  local owner path
 
-  for tool in osrm-extract osrm-partition osrm-customize osrm-routed; do
-    path="$(trusted_tool_path "${tool}")" || return 1
-    owner="$(dpkg-query -S "${path}" 2>/dev/null | head -n 1)"
-    [[ "${owner}" == osrm-backend:* ]] || return 1
-  done
+  path="$(trusted_tool_path podman)" || return 1
+  [ "${path}" = "${OSRM_PODMAN_PATH}" ] || return 1
+  owner="$(dpkg-query -S "${path}" 2>/dev/null | head -n 1)"
+  [[ "${owner}" == podman:* ]]
 }
 
 package_fingerprint() {
@@ -398,18 +403,18 @@ package_fingerprint() {
   printf '%s\n' "${entry_hash}"
 }
 
-osrm_package_fingerprint() {
-  package_fingerprint osrm-backend
+podman_package_fingerprint() {
+  package_fingerprint podman
 }
 
 osmium_package_fingerprint() {
   package_fingerprint osmium-tool
 }
 
-package_provenance_matches() {
-  local expected_fingerprint="$1"
-  local expected_version="$2"
-  local actual_fingerprint actual_version mode uid
+container_provenance_matches() {
+  local expected_fingerprint="$1" expected_podman_version="$2"
+  local expected_image_id="$3" expected_profile_sha="$4"
+  local mode uid
 
   [ -f "${OSRM_PACKAGE_PROVENANCE_FILE}" ] \
     && [ ! -L "${OSRM_PACKAGE_PROVENANCE_FILE}" ] \
@@ -418,32 +423,62 @@ package_provenance_matches() {
   mode="$(stat -c '%a' -- "${OSRM_PACKAGE_PROVENANCE_FILE}")"
   [ "${uid}" = "0" ] || return 1
   (( (8#${mode} & 8#022) == 0 )) || return 1
-  actual_version="$(jq -er '.version | select(type == "string")' "${OSRM_PACKAGE_PROVENANCE_FILE}" 2>/dev/null)" \
-    || return 1
-  actual_fingerprint="$(jq -er '.installed_files_sha256 | select(type == "string" and test("^[a-f0-9]{64}$"))' "${OSRM_PACKAGE_PROVENANCE_FILE}" 2>/dev/null)" \
-    || return 1
-  [ "${actual_version}" = "${expected_version}" ] \
-    && [ "${actual_fingerprint}" = "${expected_fingerprint}" ]
+  jq -e \
+    --arg podman_version "${expected_podman_version}" \
+    --arg podman_fingerprint "${expected_fingerprint}" \
+    --arg image "${OSRM_CONTAINER_IMAGE}" \
+    --arg image_version "${OSRM_CONTAINER_IMAGE_VERSION}" \
+    --arg image_digest "${OSRM_CONTAINER_IMAGE_DIGEST}" \
+    --arg image_id "${expected_image_id}" \
+    --arg profile_path "${OSRM_CONTAINER_PROFILE}" \
+    --arg profile_sha256 "${expected_profile_sha}" '
+      type == "object"
+      and keys == ["image","image_digest","image_id","image_version","podman_files_sha256","podman_version","profile_path","profile_sha256","runtime","source","verified_at"]
+      and .runtime == "podman"
+      and .source == "ghcr.io/project-osrm/osrm-backend"
+      and .podman_version == $podman_version
+      and .podman_files_sha256 == $podman_fingerprint
+      and .image == $image
+      and .image_version == $image_version
+      and .image_digest == $image_digest
+      and .image_id == $image_id
+      and .profile_path == $profile_path
+      and .profile_sha256 == $profile_sha256
+      and (.verified_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
+    ' "${OSRM_PACKAGE_PROVENANCE_FILE}" >/dev/null 2>&1
 }
 
-write_package_provenance() {
-  local fingerprint="$1"
-  local version="$2"
+write_container_provenance() {
+  local fingerprint="$1" podman_version="$2" image_id="$3" profile_sha="$4"
   local temporary
 
-  [[ "${fingerprint}" =~ ^[a-f0-9]{64}$ ]] || fail "The OSRM package fingerprint is invalid."
-  [ -n "${version}" ] || fail "The OSRM package version is invalid."
+  [[ "${fingerprint}" =~ ^[a-f0-9]{64}$ ]] || fail "The Podman package fingerprint is invalid."
+  [ -n "${podman_version}" ] || fail "The Podman package version is invalid."
+  [[ "${image_id}" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "The OSRM container image id is invalid."
+  [[ "${profile_sha}" =~ ^[a-f0-9]{64}$ ]] || fail "The OSRM container profile fingerprint is invalid."
   ensure_osrm_layout
   temporary="$(mktemp "${OSRM_DATA_ROOT}/.package-provenance.XXXXXX")"
   jq -n \
-    --arg version "${version}" \
-    --arg installed_files_sha256 "${fingerprint}" \
+    --arg podman_version "${podman_version}" \
+    --arg podman_files_sha256 "${fingerprint}" \
+    --arg image "${OSRM_CONTAINER_IMAGE}" \
+    --arg image_version "${OSRM_CONTAINER_IMAGE_VERSION}" \
+    --arg image_digest "${OSRM_CONTAINER_IMAGE_DIGEST}" \
+    --arg image_id "${image_id}" \
+    --arg profile_path "${OSRM_CONTAINER_PROFILE}" \
+    --arg profile_sha256 "${profile_sha}" \
     --arg verified_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '{
-      package: "osrm-backend",
-      source: "configured-official-ubuntu-archive",
-      version: $version,
-      installed_files_sha256: $installed_files_sha256,
+      runtime: "podman",
+      source: "ghcr.io/project-osrm/osrm-backend",
+      podman_version: $podman_version,
+      podman_files_sha256: $podman_files_sha256,
+      image: $image,
+      image_version: $image_version,
+      image_digest: $image_digest,
+      image_id: $image_id,
+      profile_path: $profile_path,
+      profile_sha256: $profile_sha256,
       verified_at: $verified_at
     }' > "${temporary}"
   run_cmd chown root:"${OSRM_GROUP}" "${temporary}"
@@ -453,29 +488,63 @@ write_package_provenance() {
   run_cmd sync -f "${OSRM_DATA_ROOT}"
 }
 
-installed_osrm_package_matches_receipt() {
-  local fingerprint installed_version
-
-  installed_version="$(dpkg-query -W -f='${Version}' osrm-backend 2>/dev/null || true)"
-  [ -n "${installed_version}" ] || return 1
-  fingerprint="$(osrm_package_fingerprint)" || return 1
-  package_provenance_matches "${fingerprint}" "${installed_version}" \
-    && osrm_package_is_held
+podman_image_metadata_is_valid() {
+  "${OSRM_PODMAN_PATH}" image inspect "${OSRM_CONTAINER_IMAGE}" 2>/dev/null \
+    | jq -e \
+      --arg digest "${OSRM_CONTAINER_IMAGE_DIGEST}" \
+      --arg version "${OSRM_CONTAINER_IMAGE_VERSION}" \
+      --arg source "${OSRM_CONTAINER_SOURCE}" \
+      --arg revision "${OSRM_CONTAINER_REVISION}" '
+        type == "array" and length == 1
+        and .[0].Digest == $digest
+        and .[0].Architecture == "amd64"
+        and .[0].Os == "linux"
+        and .[0].Labels["org.opencontainers.image.version"] == $version
+        and .[0].Labels["org.opencontainers.image.source"] == $source
+        and .[0].Labels["org.opencontainers.image.revision"] == $revision
+        and .[0].Labels["org.opencontainers.image.licenses"] == "BSD-2-Clause"
+        and (.[0].Id | type == "string" and test("^sha256:[a-f0-9]{64}$"))
+      ' >/dev/null
 }
 
-osrm_package_is_held() {
-  apt-mark showhold 2>/dev/null | grep -Fxq osrm-backend
+podman_image_id() {
+  "${OSRM_PODMAN_PATH}" image inspect --format '{{.Id}}' "${OSRM_CONTAINER_IMAGE}" 2>/dev/null \
+    | tr -d '\r\n'
 }
 
-hold_osrm_package() {
-  run_cmd apt-mark hold osrm-backend >/dev/null
-  osrm_package_is_held \
-    || fail "The verified osrm-backend package could not be protected from unattended upgrades."
+podman_profile_sha() {
+  "${OSRM_PODMAN_PATH}" run --rm --pull=never --network=none --read-only \
+    --cap-drop=all --security-opt=no-new-privileges --pids-limit=32 \
+    "${OSRM_CONTAINER_IMAGE}" sha256sum "${OSRM_CONTAINER_PROFILE}" 2>/dev/null \
+    | awk '{ print $1 }'
+}
+
+podman_package_is_held() {
+  apt-mark showhold 2>/dev/null | grep -Fxq podman
+}
+
+hold_podman_package() {
+  run_cmd apt-mark hold podman >/dev/null
+  podman_package_is_held \
+    || fail "The verified Podman package could not be protected from unattended upgrades."
+}
+
+installed_container_runtime_matches_receipt() {
+  local fingerprint image_id podman_version profile_sha
+
+  podman_version="$(dpkg-query -W -f='${Version}' podman 2>/dev/null || true)"
+  [ -n "${podman_version}" ] || return 1
+  required_podman_tool_owned_by_package || return 1
+  podman_package_is_held || return 1
+  fingerprint="$(podman_package_fingerprint)" || return 1
+  podman_image_metadata_is_valid || return 1
+  image_id="$(podman_image_id)"
+  profile_sha="$(podman_profile_sha)"
+  container_provenance_matches "${fingerprint}" "${podman_version}" "${image_id}" "${profile_sha}"
 }
 
 osrm_tools_available() {
-  installed_osrm_package_matches_receipt || return 1
-  required_osrm_tools_owned_by_package
+  installed_container_runtime_matches_receipt
 }
 
 required_osmium_tool_owned_by_package() {
@@ -618,82 +687,67 @@ verify_build_tool() {
 }
 
 install_package() {
-  local candidate fingerprint installed_version source_list
+  local candidate fingerprint image_id installed_version profile_sha source_list
   local -a reinstall_argument=()
 
   require_root
   require_ubuntu_2604
   acquire_dis_operation_lock osrm-package
 
-  installed_version="$(dpkg-query -W -f='${Version}' osrm-backend 2>/dev/null || true)"
-  if [ -n "${installed_version}" ]; then
-    fingerprint="$(osrm_package_fingerprint 2>/dev/null || true)"
-    if [ -n "${fingerprint}" ] \
-      && package_provenance_matches "${fingerprint}" "${installed_version}" \
-      && required_osrm_tools_owned_by_package; then
-      hold_osrm_package
-      log "Verified Ubuntu osrm-backend ${installed_version} tools are already installed and held."
-      return 0
-    fi
+  if installed_container_runtime_matches_receipt; then
+    log "Verified OSRM ${OSRM_CONTAINER_IMAGE_VERSION} container runtime is already installed and pinned."
+    return 0
   fi
 
-  source_list="$(mktemp "${TMPDIR:-/tmp}/dis-osrm-sources.XXXXXX")"
+  source_list="$(mktemp "${TMPDIR:-/tmp}/dis-podman-sources.XXXXXX")"
   if ! prepare_approved_apt_sources "${source_list}"; then
     rm -f -- "${source_list}"
-    log "OSRM degraded: no approved Ubuntu 26.04 archive source is configured."
-    log "No foreign repository, unverified binary or public routing service was configured."
-    return 0
+    fail "No approved Ubuntu 26.04 archive source is configured for Podman."
   fi
-  candidate="$(official_osrm_candidate "${source_list}")"
+  candidate="$(official_podman_candidate "${source_list}")"
   if [ -z "${candidate}" ] || [ "${candidate}" = "(none)" ]; then
     rm -f -- "${source_list}"
-    log "OSRM degraded: Ubuntu 26.04 has no installable osrm-backend candidate in the configured official archives."
-    log "No foreign repository, unverified binary or public routing service was configured."
-    return 0
+    fail "Ubuntu 26.04 has no installable Podman candidate in the configured official archives."
   fi
 
-  installed_version="$(dpkg-query -W -f='${Version}' osrm-backend 2>/dev/null || true)"
-  if [ "${installed_version}" = "${candidate}" ]; then
-    fingerprint="$(osrm_package_fingerprint 2>/dev/null || true)"
-    if [ -n "${fingerprint}" ] \
-      && package_provenance_matches "${fingerprint}" "${candidate}" \
-      && required_osrm_tools_owned_by_package; then
-      hold_osrm_package
-      rm -f -- "${source_list}"
-      log "Verified Ubuntu osrm-backend ${candidate} tools are already installed."
-      return 0
-    fi
-  fi
-
-  # A version alone is not an origin guarantee: a PPA can publish the same
-  # version. Restrict this APT transaction to the already configured and
-  # approved Ubuntu archive entries. Reinstall any existing unproven package,
-  # including an exact-version collision, before writing the durable receipt.
+  installed_version="$(dpkg-query -W -f='${Version}' podman 2>/dev/null || true)"
   [ -z "${installed_version}" ] || reinstall_argument=(--reinstall)
-  log "Installing osrm-backend ${candidate} from the configured official Ubuntu archive"
+  log "Installing Podman ${candidate} from the configured official Ubuntu archive"
   if ! run_cmd apt-get \
     -o "Dir::Etc::sourcelist=${source_list}" \
     -o "Dir::Etc::sourceparts=-" \
     -o "Acquire::AllowInsecureRepositories=false" \
     -o "APT::Get::AllowUnauthenticated=false" \
     install -y --no-install-recommends --allow-change-held-packages \
-      "${reinstall_argument[@]}" "osrm-backend=${candidate}"; then
+      "${reinstall_argument[@]}" "podman=${candidate}"; then
     rm -f -- "${source_list}"
-    fail "Ubuntu offers osrm-backend ${candidate}, but its approved-source installation failed."
+    fail "Ubuntu offers Podman ${candidate}, but its approved-source installation failed."
   fi
   rm -f -- "${source_list}"
-  hold_osrm_package
+  hold_podman_package
 
-  installed_version="$(dpkg-query -W -f='${Version}' osrm-backend 2>/dev/null || true)"
+  installed_version="$(dpkg-query -W -f='${Version}' podman 2>/dev/null || true)"
   [ "${installed_version}" = "${candidate}" ] \
-    || fail "The installed osrm-backend version does not match the verified Ubuntu candidate."
-  required_osrm_tools_owned_by_package \
-    || fail "osrm-backend installed, but its required trusted MLD tools are incomplete."
-  fingerprint="$(osrm_package_fingerprint)" \
-    || fail "The installed osrm-backend files could not be fingerprinted."
-  write_package_provenance "${fingerprint}" "${candidate}"
-  package_provenance_matches "${fingerprint}" "${candidate}" \
-    || fail "The durable OSRM package provenance receipt could not be verified."
+    || fail "The installed Podman version does not match the verified Ubuntu candidate."
+  required_podman_tool_owned_by_package \
+    || fail "Podman installed, but /usr/bin/podman is not a trusted package-owned tool."
+  fingerprint="$(podman_package_fingerprint)" \
+    || fail "The installed Podman files could not be fingerprinted."
+
+  log "Pulling official OSRM ${OSRM_CONTAINER_IMAGE_VERSION} by immutable amd64 digest"
+  run_cmd "${OSRM_PODMAN_PATH}" pull --arch amd64 --os linux "${OSRM_CONTAINER_IMAGE}" \
+    || fail "The pinned official OSRM container image could not be pulled."
+  podman_image_metadata_is_valid \
+    || fail "The pulled OSRM container does not match its pinned digest and OCI metadata."
+  image_id="$(podman_image_id)"
+  profile_sha="$(podman_profile_sha)"
+  [[ "${image_id}" =~ ^sha256:[a-f0-9]{64}$ ]] \
+    || fail "The pulled OSRM container image id is invalid."
+  [[ "${profile_sha}" =~ ^[a-f0-9]{64}$ ]] \
+    || fail "The pinned OSRM container car profile is unavailable or invalid."
+  write_container_provenance "${fingerprint}" "${candidate}" "${image_id}" "${profile_sha}"
+  installed_container_runtime_matches_receipt \
+    || fail "The durable Podman and OSRM container provenance receipt could not be verified."
 }
 
 provision() {
@@ -919,8 +973,8 @@ reconcile() {
 
   if ! osrm_tools_available; then
     run_cmd systemctl stop "${OSRM_SERVICE}" >/dev/null 2>&1 || true
-    write_status degraded "OSRM binaries are unavailable or do not match the protected installation receipt."
-    log "OSRM degraded: binaries are unavailable or do not match the protected installation receipt."
+    write_status degraded "The pinned OSRM container runtime is unavailable or does not match the protected receipt."
+    log "OSRM degraded: the pinned container runtime is unavailable or does not match the protected receipt."
     return 0
   fi
 
@@ -946,41 +1000,12 @@ reconcile() {
 
 resolve_profile() {
   local requested="$1"
-  local candidate resolved uid mode
-  local -a candidates
 
-  if [ -n "${requested}" ]; then
-    candidates=("${requested}")
-  else
-    candidates=(
-      /usr/share/osrm/profiles/car.lua
-      /usr/share/osrm-backend/profiles/car.lua
-      /usr/lib/osrm/profiles/car.lua
-    )
-    if command -v dpkg-query >/dev/null 2>&1 && dpkg-query -W osrm-backend >/dev/null 2>&1; then
-      while IFS= read -r candidate; do
-        [ -n "${candidate}" ] && candidates+=("${candidate}")
-      done < <(dpkg-query -L osrm-backend | grep -E '/car[.]lua$' || true)
-    fi
-  fi
-
-  for candidate in "${candidates[@]}"; do
-    [ -f "${candidate}" ] || continue
-    resolved="$(readlink -f -- "${candidate}")"
-    [ -f "${resolved}" ] || continue
-    uid="$(stat -c '%u' -- "${resolved}")"
-    mode="$(stat -c '%a' -- "${resolved}")"
-    [ "${uid}" = "0" ] || fail "OSRM profile must be owned by root: ${resolved}"
-    if (( (8#${mode} & 8#022) != 0 )); then
-      fail "OSRM profile must not be group- or world-writable: ${resolved}"
-    fi
-    python3 -I -S "${COMMON_LIB_DIR}/secure-path.py" verify-parent "${resolved}" >/dev/null 2>&1 \
-      || fail "OSRM profile must have a root-controlled parent path: ${resolved}"
-    printf '%s\n' "${resolved}"
-    return 0
-  done
-
-  fail "A root-owned car.lua profile was not found. Supply its verified path with --profile."
+  [ -z "${requested}" ] \
+    || fail "Custom host OSRM profiles are not accepted by the pinned container runtime."
+  podman_profile_sha >/dev/null \
+    || fail "The pinned OSRM container car profile is unavailable."
+  printf '%s\n' "${OSRM_CONTAINER_PROFILE}"
 }
 
 validate_import_limits() {
@@ -1004,6 +1029,7 @@ run_import_stage() {
   local token="$3"
   shift 3
 
+  local import_gid import_uid
   local -a parent_properties=()
 
   if [ -n "${OSRM_IMPORT_PARENT_UNIT:-}" ]; then
@@ -1015,6 +1041,11 @@ run_import_stage() {
     )
   fi
 
+  import_uid="$(id -u "${OSRM_IMPORT_USER}")"
+  import_gid="$(id -g "${OSRM_IMPORT_USER}")"
+  [[ "${import_uid}" =~ ^[1-9][0-9]*$ ]] && [[ "${import_gid}" =~ ^[1-9][0-9]*$ ]] \
+    || fail "The isolated OSRM import identity is invalid."
+
   log "Running OSRM ${stage} stage with systemd resource limits"
   run_cmd systemd-run \
     --quiet \
@@ -1022,15 +1053,12 @@ run_import_stage() {
     --wait \
     --pipe \
     --unit="dis-osrm-import-${stage}-${token}" \
-    --property="User=${OSRM_IMPORT_USER}" \
-    --property="Group=${OSRM_GROUP}" \
     --property="WorkingDirectory=${staging}" \
     --property="MemoryMax=${OSRM_IMPORT_MEMORY_MAX}" \
     --property="CPUQuota=${OSRM_IMPORT_CPU_QUOTA}" \
     --property="RuntimeMaxSec=${OSRM_IMPORT_TIMEOUT_SECONDS}" \
     --property="TasksMax=512" \
     --property="NoNewPrivileges=yes" \
-    --property="PrivateDevices=yes" \
     --property="PrivateTmp=yes" \
     --property="ProtectHome=yes" \
     --property="ProtectSystem=strict" \
@@ -1040,11 +1068,24 @@ run_import_stage() {
     --property="RestrictSUIDSGID=yes" \
     --property="RestrictRealtime=yes" \
     --property="LockPersonality=yes" \
-    --property="RestrictAddressFamilies=AF_UNIX" \
+    --property="RestrictAddressFamilies=AF_UNIX AF_NETLINK" \
     --property="IPAddressDeny=any" \
-    --property="ReadWritePaths=${staging}" \
+    --property="ReadWritePaths=${staging} /var/lib/containers -/run/containers" \
     "${parent_properties[@]}" \
-    -- "$@"
+    -- "${OSRM_PODMAN_PATH}" run \
+      --rm \
+      --pull=never \
+      --network=none \
+      --cgroups=disabled \
+      --read-only \
+      --cap-drop=all \
+      --security-opt=no-new-privileges \
+      --pids-limit=512 \
+      --user "${import_uid}:${import_gid}" \
+      --volume "${staging}:/data:rw,rprivate" \
+      --workdir /data \
+      --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
+      "${OSRM_CONTAINER_IMAGE}" "$@"
 }
 
 safe_cleanup_staging() {
@@ -1721,7 +1762,7 @@ import_dataset() {
   local requested_profile=""
   local profile profile_sha source_before source_after source_size copy_limit actual_sha
   local available_bytes required_bytes filesystem_bytes release_id release_path
-  local staging="" token extract_bin partition_bin customize_bin routed_bin tool_version
+  local staging="" token tool_version
   local active_scratch="" old_target previous_target manifest_temp source_manifest_json=null source_parent source_real
   local -a artifacts
 
@@ -1808,13 +1849,9 @@ import_dataset() {
   command -v systemd-run >/dev/null 2>&1 || fail "systemd-run is required for resource-limited OSRM preprocessing."
 
   profile="$(resolve_profile "${requested_profile}")"
-  require_user_can_open_file_for_reading \
-    "${OSRM_IMPORT_USER}" "${profile}" "the selected OSRM profile"
-  profile_sha="$(sha256sum -- "${profile}" | awk '{ print $1 }')"
-  extract_bin="$(trusted_tool_path osrm-extract)"
-  partition_bin="$(trusted_tool_path osrm-partition)"
-  customize_bin="$(trusted_tool_path osrm-customize)"
-  routed_bin="$(trusted_tool_path osrm-routed)"
+  profile_sha="$(podman_profile_sha)"
+  [[ "${profile_sha}" =~ ^[a-f0-9]{64}$ ]] \
+    || fail "The pinned OSRM container profile fingerprint is invalid."
 
   source_before="$(stat -c '%d:%i:%s:%Y:%Z' -- "${pbf}")"
   source_size="$(stat -c '%s' -- "${pbf}")"
@@ -1856,9 +1893,9 @@ import_dataset() {
   run_cmd chmod 0440 "${staging}/routing.osm.pbf"
 
   token="$(openssl rand -hex 6)"
-  run_import_stage extract "${staging}" "${token}" "${extract_bin}" -p "${profile}" "${staging}/routing.osm.pbf"
-  run_import_stage partition "${staging}" "${token}" "${partition_bin}" "${staging}/routing.osrm"
-  run_import_stage customize "${staging}" "${token}" "${customize_bin}" "${staging}/routing.osrm"
+  run_import_stage extract "${staging}" "${token}" osrm-extract -p "${profile}" /data/routing.osm.pbf
+  run_import_stage partition "${staging}" "${token}" osrm-partition /data/routing.osrm
+  run_import_stage customize "${staging}" "${token}" osrm-customize /data/routing.osrm
   run_cmd rm -f -- "${staging}/routing.osm.pbf"
 
   # Every parser stage has exited at this point. Reject links, hard links,
@@ -1888,7 +1925,9 @@ import_dataset() {
     sha256sum --check --strict ARTIFACTS.SHA256
   ) >/dev/null
 
-  tool_version="$("${routed_bin}" --version 2>&1 | head -n 1 || true)"
+  tool_version="$("${OSRM_PODMAN_PATH}" run --rm --pull=never --network=none --read-only \
+    --cap-drop=all --security-opt=no-new-privileges --pids-limit=32 \
+    "${OSRM_CONTAINER_IMAGE}" osrm-routed --version 2>&1 | head -n 1 || true)"
   tool_version="${tool_version:0:200}"
   printf '%s\n' "${coordinate}" \
     | secure_path_operation write-file \
@@ -2000,14 +2039,13 @@ health() {
 }
 
 serve() {
-  local routed_bin release
+  local osrm_gid osrm_uid release
 
+  require_root
   recover_pending_activation serve \
     || fail "An interrupted OSRM activation has no safe committed release to serve."
   osrm_tools_available \
-    || fail "osrm-backend does not match its protected installation receipt or trusted package-owned tools."
-  routed_bin="$(trusted_tool_path osrm-routed)" \
-    || fail "osrm-routed is missing or not installed beneath a root-controlled path."
+    || fail "The pinned OSRM Podman runtime does not match its protected provenance receipt."
   if [ -n "${OSRM_SERVE_RELEASE_OVERRIDE}" ]; then
     release="${OSRM_SERVE_RELEASE_OVERRIDE}"
   else
@@ -2017,13 +2055,33 @@ serve() {
   [ -s "${release}/routing.osrm.partition" ] \
     || fail "No prepared MLD dataset is active."
 
-  exec "${routed_bin}" \
+  osrm_uid="$(id -u "${OSRM_USER}")"
+  osrm_gid="$(id -g "${OSRM_USER}")"
+  [[ "${osrm_uid}" =~ ^[1-9][0-9]*$ ]] && [[ "${osrm_gid}" =~ ^[1-9][0-9]*$ ]] \
+    || fail "The isolated OSRM runtime identity is invalid."
+
+  exec "${OSRM_PODMAN_PATH}" run \
+    --rm \
+    --replace \
+    --name dis-osrm \
+    --pull=never \
+    --network=host \
+    --cgroups=disabled \
+    --read-only \
+    --cap-drop=all \
+    --security-opt=no-new-privileges \
+    --pids-limit=128 \
+    --user "${osrm_uid}:${osrm_gid}" \
+    --volume "${release}:/data:ro,rprivate" \
+    --workdir /data \
+    --tmpfs /tmp:rw,noexec,nosuid,nodev,size=32m \
+    "${OSRM_CONTAINER_IMAGE}" osrm-routed \
     --algorithm mld \
     --ip 127.0.0.1 \
     --port 5000 \
     --threads 2 \
     --verbosity WARNING \
-    "${release}/routing.osrm"
+    /data/routing.osrm
 }
 
 status() {
@@ -2038,7 +2096,8 @@ status() {
   fi
   if osrm_tools_available; then
     installed=true
-    package_version="$(dpkg-query -W -f='${Version}' osrm-backend 2>/dev/null || true)"
+    package_version="$(jq -er '.image_version | select(type == "string")' \
+      "${OSRM_PACKAGE_PROVENANCE_FILE}" 2>/dev/null || true)"
     package_verified_at="$(jq -er '.verified_at | select(type == "string")' \
       "${OSRM_PACKAGE_PROVENANCE_FILE}" 2>/dev/null || true)"
   fi
@@ -2076,7 +2135,7 @@ status() {
     detail="Local road-network routing is available."
   elif [ "${installed}" = false ]; then
     state="not_installed"
-    detail="Verified Ubuntu OSRM binaries are not installed."
+    detail="The verified Podman runtime and pinned OSRM container are not installed."
   elif [ -z "${dataset_sha}" ]; then
     state="installed_inactive"
     detail="OSRM is installed, but no prepared dataset is active."

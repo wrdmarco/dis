@@ -199,7 +199,8 @@ both Dutch and Belgian readiness probes, atomically activates the dataset, and r
 release on failure. Once ready, the same panel offers only a deliberate map-data update; normal DIS deployments
 never download map data implicitly. See
 `infrastructure/osrm/README.md` for the privilege boundary, storage requirements and recovery behavior.
-The attested OSRM package is APT-held: neither the map-data action nor a normal system update changes its binary.
+The runtime uses Ubuntu's APT-held Podman package and an official OSRM image pinned to an immutable amd64 manifest
+digest. Neither a map-data action nor a normal DIS update changes that container image.
 Each revoke/re-consent transition advances a server-side consent generation. Location updates are stored
 against that generation, so an update started under an older grant cannot reappear after re-consent. Declining
 attendance, a `no_response` override, arriving on scene, or closing the incident stops live sharing server-side.

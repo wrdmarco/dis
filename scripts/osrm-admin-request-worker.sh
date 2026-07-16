@@ -1262,18 +1262,18 @@ process_operation() {
 
   if [ "${ACTION}" = "install_activate" ] \
     && ! jq -e '.installed == true' <<< "${initial_status}" >/dev/null; then
-    update_stage installing_package "Geverifieerd Ubuntu OSRM-pakket installeren en controleren." null
+    update_stage installing_package "Podman en de vastgepinde officiële OSRM-container installeren en controleren." null
     run_logged_command installing_package \
       env DIS_DATA_PATH="${DIS_DATA_PATH}" bash "${OSRM_SCRIPT}" install-package \
-      || fail "Het geverifieerde Ubuntu OSRM-pakket kon niet worden geïnstalleerd."
+      || fail "De geverifieerde Podman- en OSRM-container-runtime kon niet worden geïnstalleerd."
     DIS_DATA_PATH="${DIS_DATA_PATH}" bash "${OSRM_SCRIPT}" status \
       | jq -e '.installed == true and .package.version != null' >/dev/null \
-      || fail "Het OSRM-pakket heeft geen geldige provenance-receipt."
+      || fail "De OSRM-container-runtime heeft geen geldige provenance-receipt."
   else
-    # A map update deliberately retains the exact healthy binary verified in
+    # A map update deliberately retains the exact healthy container verified in
     # initial_status. Upgrading it here would make dataset-only rollback unsafe
     # if a later download or import fails.
-    append_log validating info "Bestaand geverifieerd OSRM-pakket blijft ongewijzigd tijdens de kaartupdate." null
+    append_log validating info "Bestaande geverifieerde OSRM-container blijft ongewijzigd tijdens de kaartupdate." null
   fi
 
   update_stage provisioning "Geïsoleerde OSRM-service en datamappen controleren." null

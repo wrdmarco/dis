@@ -6,11 +6,10 @@ ConditionPathExists=@DIS_DATA_PATH@/osrm/current/routing.osrm.partition
 
 [Service]
 Type=simple
-User=dis-osrm
-Group=dis-osrm
 Environment=DIS_DATA_PATH=@DIS_DATA_PATH@
 Environment=APP_ROOT=@APP_ROOT@
 ExecStart=/usr/bin/bash @OSRM_RUNTIME_SCRIPT@ serve
+ExecStop=-/usr/bin/podman stop --ignore --time 20 dis-osrm
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=120
@@ -24,7 +23,6 @@ OOMPolicy=stop
 UMask=0027
 
 NoNewPrivileges=true
-PrivateDevices=true
 PrivateTmp=true
 ProtectClock=true
 ProtectControlGroups=true
@@ -34,12 +32,11 @@ ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectSystem=strict
-RestrictAddressFamilies=AF_INET AF_UNIX
-RestrictNamespaces=true
+ReadWritePaths=/var/lib/containers -/run/containers
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 RestrictRealtime=true
 RestrictSUIDSGID=true
 LockPersonality=true
-MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
 IPAddressDeny=any
 IPAddressAllow=localhost

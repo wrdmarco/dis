@@ -99,10 +99,18 @@ artisan_callback() {
   fi
 }
 stat() {
+  local target="${!#}"
+
   if [ "${1:-}" = '-c' ]; then
     case "${2:-}" in
       '%U') printf '%s\n' "${MOCK_OWNER}"; return 0 ;;
-      '%u') printf '%s\n' "${MOCK_UID}"; return 0 ;;
+      '%u')
+        case "${target}" in
+          "${RESULT_DIR}"/*) printf '0\n' ;;
+          *) printf '%s\n' "${MOCK_UID}" ;;
+        esac
+        return 0
+        ;;
       '%a') printf '%s\n' "${MOCK_MODE}"; return 0 ;;
       '%u:%a:%h') printf '0:%s:1\n' "${MOCK_MODE}"; return 0 ;;
       '%u:%g:%a:%h') printf '0:0:%s:1\n' "${MOCK_MODE}"; return 0 ;;

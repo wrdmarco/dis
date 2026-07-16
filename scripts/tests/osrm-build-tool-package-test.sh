@@ -20,6 +20,7 @@ tool_owned=1
 package_held=0
 apt_install_count=0
 install_arguments=''
+container_runtime_valid=1
 
 require_root() { :; }
 require_ubuntu_2604() { :; }
@@ -29,6 +30,7 @@ prepare_approved_apt_sources() {
 }
 official_osmium_candidate() { printf '%s\n' "${candidate_version}"; }
 required_osmium_tool_owned_by_package() { [ "${tool_owned}" = '1' ]; }
+installed_container_runtime_matches_receipt() { [ "${container_runtime_valid}" = '1' ]; }
 osmium_package_fingerprint() { printf '%s\n' "${installed_fingerprint}"; }
 build_tool_provenance_matches() {
   [ "${receipt_valid}" = '1' ] \
@@ -40,9 +42,6 @@ write_build_tool_provenance() {
   [ "$2" = "${mock_installed_version}" ]
   receipt_valid=1
 }
-installed_osrm_package_matches_receipt() { return 0; }
-required_osrm_tools_owned_by_package() { return 0; }
-
 dpkg-query() {
   if [ "${1:-}" = '-W' ]; then
     [ -z "${mock_installed_version}" ] || printf '%s' "${mock_installed_version}"
