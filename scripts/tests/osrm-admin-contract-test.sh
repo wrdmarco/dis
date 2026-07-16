@@ -41,6 +41,8 @@ assert_contains "${worker}" 'latest_target="$(resolve_versioned_source_url "${so
 assert_contains "${worker}" 'checksum_url="${source_url}.md5"'
 assert_contains "${worker}" 'dis:osrm-operation:payload "${OPERATION_ID}"'
 assert_contains "${worker}" 'and .version == 2'
+assert_contains "${worker}" 'test("^[0-9A-HJKMNP-TV-Z]{26}$"; "i")'
+assert_contains "${worker}" '[[ "$1" =~ ^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$ ]]'
 assert_contains "${worker}" 'and ((keys_unsorted - ["version","operation_id","action","actor_id","created_at"]) | length == 0)'
 assert_contains "${worker}" 'and ((keys_unsorted - ["version","operation_id","action","actor_id","sources","health_coordinate"]) | length == 0)'
 assert_contains "${worker}" 'and .sources == ['

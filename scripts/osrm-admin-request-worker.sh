@@ -401,7 +401,7 @@ safe_cleanup_admin_download() {
 }
 
 validate_ulid() {
-  [[ "$1" =~ ^[0-9A-HJKMNP-TV-Z]{26}$ ]]
+  [[ "$1" =~ ^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$ ]]
 }
 
 validate_coordinate_pair() {
@@ -1478,9 +1478,9 @@ claim_request() {
   jq -e '
     type == "object"
     and .version == 2
-    and (.operation_id | type == "string" and test("^[0-9A-HJKMNP-TV-Z]{26}$"))
+    and (.operation_id | type == "string" and test("^[0-9A-HJKMNP-TV-Z]{26}$"; "i"))
     and (.action | type == "string" and test("^(install_activate|update)$"))
-    and (.actor_id | type == "string" and test("^[0-9A-HJKMNP-TV-Z]{26}$"))
+    and (.actor_id | type == "string" and test("^[0-9A-HJKMNP-TV-Z]{26}$"; "i"))
     and (.created_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
     and ((keys_unsorted - ["version","operation_id","action","actor_id","created_at"]) | length == 0)
   ' "${RUNNING_FILE}" >/dev/null \

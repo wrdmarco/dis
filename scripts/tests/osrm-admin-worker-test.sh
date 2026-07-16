@@ -179,6 +179,23 @@ fi
 [[ "${CALLBACK_LOG}" == *"dis:osrm-operation:fail-request ${request_id} rejected"* ]]
 MOCK_UID='33'
 
+# Production PostgreSQL identifiers are stored as lowercase ULIDs. They are
+# case-insensitive by specification and must remain bound to their exact value.
+request_id='ffffffffffffffffffffffffffffffff'
+make_valid_request "${REQUEST_DIR}/${request_id}.pending"
+lowercase_request="${TEST_ROOT}/lowercase-request.json"
+jq '.operation_id |= ascii_downcase | .actor_id |= ascii_downcase' \
+  "${REQUEST_DIR}/${request_id}.pending" > "${lowercase_request}"
+mv -f -- "${lowercase_request}" "${REQUEST_DIR}/${request_id}.pending"
+chmod 0600 "${REQUEST_DIR}/${request_id}.pending"
+CALLBACK_LOG=''
+reset_operation_context
+claim_request "${REQUEST_DIR}/${request_id}.pending"
+[ "${OPERATION_ID}" = '01arz3ndektsv4rrffq69g5fav' ]
+[ "${ACTOR_ID}" = '01arz3ndektsv4rrffq69g5faw' ]
+rm -f -- "${RUNNING_FILE}"
+reset_operation_context
+
 # A valid-shaped legacy v1 request is rejected rather than entering the v2
 # supplier-MD5 workflow with a mismatched backend contract.
 request_id='22222222222222222222222222222222'
