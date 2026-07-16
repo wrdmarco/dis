@@ -26,6 +26,7 @@ const homeRedirectCandidates = [
   { to: '/admin', permissions: ['settings.manage'] },
   { to: '/admin', permissions: ['settings.push.tokens.manage'] },
   { to: '/admin', permissions: ['system.developer-access.manage'] },
+  { to: '/routing', permissions: ['system.routing.manage'] },
   { to: '/system', permissions: ['system.health.view'] },
 ] as const;
 

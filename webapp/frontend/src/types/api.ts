@@ -738,10 +738,6 @@ export interface OsrmOperationStarted {
 
 export interface OsrmOperationRequest {
   action: OsrmManagementAction;
-  health_coordinate?: {
-    longitude: number;
-    latitude: number;
-  };
 }
 
 export interface FormFieldOption {

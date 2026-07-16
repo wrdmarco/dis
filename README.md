@@ -188,9 +188,11 @@ navigation ETA from that location. A location older than five minutes is stale: 
 its former ETA is not shown. The API's optional `eta_source` value is `navigation`, `fallback`, or `unknown`;
 clients must continue to handle older responses where this field is absent.
 
-Administrators can install and activate the self-hosted Netherlands-and-Belgium OSRM service from the admin system
-page after entering a routable Dutch probe coordinate. The browser cannot choose download URLs, checksums or pass
-shell input. A dedicated root-only systemd request broker validates the immutable database operation snapshot,
+Administrators can install and activate the self-hosted Netherlands-and-Belgium OSRM service from the dedicated
+**Routering** admin page. The browser cannot choose download URLs, checksums, readiness coordinates or pass shell
+input. DIS uses an application-fixed Dutch readiness coordinate and a root-controlled Belgian readiness coordinate solely to
+prove that the generated road graph can answer local nearest-road requests before activation. A dedicated root-only
+systemd request broker validates the immutable database operation snapshot,
 resolves both fixed HTTPS sources to a common dated Geofabrik snapshot, verifies each supplier MD5 and matching
 source timestamp, and merges both extracts without network access. It shows bounded live stage logging, verifies
 both Dutch and Belgian readiness probes, atomically activates the dataset, and rolls back to the prior healthy

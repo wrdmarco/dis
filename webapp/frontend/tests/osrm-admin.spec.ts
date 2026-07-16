@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from 'playwright/test';
 import {
   isOsrmOperationSummary,
@@ -7,44 +8,24 @@ import {
   osrmOperationIsActive,
   osrmOperationStageLabel,
   osrmOperationTone,
+  osrmOperationRequest,
   osrmStateLabel,
   osrmUpdateGuidance,
-  validateOsrmOperationForm,
 } from '../src/features/admin/osrmAdminPresentation';
 
-test('builds the exact initial server payload without accepting a client checksum', () => {
-  const result = validateOsrmOperationForm('install_activate', {
-    longitude: '4.895168',
-    latitude: '52.370216',
-  });
-
-  expect(result).toEqual({
-    valid: true,
-    request: {
-      action: 'install_activate',
-      health_coordinate: {
-        longitude: 4.895168,
-        latitude: 52.370216,
-      },
-    },
-  });
+test('builds server-owned OSRM requests without client coordinates or checksums', () => {
+  expect(osrmOperationRequest('install_activate')).toEqual({ action: 'install_activate' });
+  expect(osrmOperationRequest('update')).toEqual({ action: 'update' });
 });
 
-test('requires only a bounded initial probe coordinate', () => {
-  expect(validateOsrmOperationForm('update', {
-    longitude: '',
-    latitude: '',
-  })).toEqual({
-    valid: true,
-    request: {
-      action: 'update',
-    },
-  });
+test('exposes OSRM on a dedicated permission-guarded admin route', () => {
+  const route = readFileSync(new URL('../app/routing/page.tsx', import.meta.url), 'utf8');
+  const navigation = readFileSync(new URL('../src/app/CommandLayout.tsx', import.meta.url), 'utf8');
+  const generalAdmin = readFileSync(new URL('../src/features/admin/AdminPage.tsx', import.meta.url), 'utf8');
 
-  expect(validateOsrmOperationForm('install_activate', {
-    longitude: '181',
-    latitude: '52.3',
-  })).toMatchObject({ valid: false, message: /-180 en 180/ });
+  expect(route).toContain("permissions={['system.health.view', 'system.routing.manage']} anyPermission");
+  expect(navigation).toContain("to: '/routing', label: 'Routering'");
+  expect(generalAdmin).not.toContain('<OsrmAdminPanel');
 });
 
 test('presents lifecycle and reliable stages without inventing progress percentages', () => {

@@ -341,6 +341,24 @@ export const managementManualGuides = {
       warning: 'Deze actie heeft geen tussenstap na de verificatie. Zodra de uploadcontrole slaagt, begint het herstel.',
     },
   ],
+  routing: [
+    {
+      id: 'routing-manage-map-data',
+      title: 'OSRM installeren of kaartdata bijwerken',
+      intro: 'Beheer de lokale routeberekening los van normale DIS- en systeemupdates.',
+      permissions: ['system.routing.manage'],
+      prerequisites: ['Plan de bewerking buiten een actief alarmmoment.', 'Controleer of minimaal circa 20 GB vrije opslag beschikbaar is.'],
+      steps: [
+        { label: 'Open Routering', description: 'Controleer status, kaartdekking, bronmoment en eventuele blokkade.' },
+        { label: 'Start de voorgestelde actie', description: 'Bij een eerste installatie wordt OSRM geïnstalleerd en geactiveerd; daarna is alleen Kaartgegevens bijwerken beschikbaar.' },
+        { label: 'Bevestig de bewerking', description: 'DIS gebruikt vaste, server-side routecontrolepunten. Je hoeft geen GPS-coördinaat te kiezen.' },
+        { label: 'Volg het live log', description: 'Laat de bewerking lopen en controleer downloaden, samenvoegen, bouwen, activeren en verifiëren.' },
+        { label: 'Controleer de eindstatus', description: 'Hervat normaal beheer pas wanneer Actief en gezond wordt getoond.' },
+      ],
+      result: 'De geverifieerde kaartdekking voor Nederland en België is actief voor navigatie-ETA.',
+      warning: 'Een kaartupdate kan lang duren en staat bewust los van de normale applicatie- of systeemupdate. Herstart de server niet tijdens activering.',
+    },
+  ],
   system: [
     {
       id: 'system-read-health',

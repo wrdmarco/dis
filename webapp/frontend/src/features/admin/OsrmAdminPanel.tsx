@@ -28,14 +28,8 @@ import {
   osrmStateLabel,
   osrmStateTone,
   osrmUpdateGuidance,
-  validateOsrmOperationForm,
-  type OsrmOperationFormValues,
+  osrmOperationRequest,
 } from './osrmAdminPresentation';
-
-const initialForm: OsrmOperationFormValues = {
-  longitude: '',
-  latitude: '',
-};
 
 export function OsrmAdminPanel({
   enabled,
@@ -48,7 +42,6 @@ export function OsrmAdminPanel({
 }) {
   const { api } = useAuth();
   const status = useApiResource<OsrmManagementStatus>('/admin/routing/osrm', enabled);
-  const [form, setForm] = useState<OsrmOperationFormValues>(initialForm);
   const [operation, setOperation] = useState<OsrmOperationSummary | null>(null);
   const [logLines, setLogLines] = useState<OsrmOperationLogLine[]>([]);
   const [logHydrated, setLogHydrated] = useState(false);
@@ -58,7 +51,6 @@ export function OsrmAdminPanel({
   const [pollError, setPollError] = useState<string | null>(null);
   const operationIdRef = useRef<string | null>(null);
   const nextCursorRef = useRef(0);
-  const configurationKeyRef = useRef<string | null>(null);
   const logRef = useRef<HTMLPreElement | null>(null);
   const followLogRef = useRef(true);
 
@@ -73,22 +65,6 @@ export function OsrmAdminPanel({
     }
     setOperation(nextOperation);
   }, []);
-
-  const configuration = status.data?.configuration;
-  const configurationKey = configuration === undefined
-    ? 'empty'
-    : `${configuration.source_set_sha256 ?? ''}|${configuration.health_coordinate?.longitude ?? ''}|${configuration.health_coordinate?.latitude ?? ''}`;
-
-  useEffect(() => {
-    if (configurationKeyRef.current === configurationKey) {
-      return;
-    }
-    configurationKeyRef.current = configurationKey;
-    setForm({
-      longitude: configuration?.health_coordinate === null || configuration?.health_coordinate === undefined ? '' : String(configuration.health_coordinate.longitude),
-      latitude: configuration?.health_coordinate === null || configuration?.health_coordinate === undefined ? '' : String(configuration.health_coordinate.latitude),
-    });
-  }, [configuration, configurationKey]);
 
   useEffect(() => {
     const latestOperation = status.data?.active_operation ?? status.data?.latest_operation;
@@ -184,13 +160,7 @@ export function OsrmAdminPanel({
 
   function prepareOperation(action: OsrmManagementAction) {
     setActionError(null);
-    const validation = validateOsrmOperationForm(action, form);
-    if (!validation.valid) {
-      setActionError(validation.message);
-      return;
-    }
-
-    setPendingRequest(validation.request);
+    setPendingRequest(osrmOperationRequest(action));
   }
 
   async function startOperation() {
@@ -253,10 +223,8 @@ export function OsrmAdminPanel({
                 <dd>{status.data.dataset?.snapshot_date ?? (status.data.dataset?.legacy ? 'Bestaande Nederlandse kaart' : '-')}</dd>
                 <dt>Brontijdstip</dt>
                 <dd>{formatDateTime(status.data.dataset?.source_timestamp)}</dd>
-                <dt>Controlepunt</dt>
-                <dd>{status.data.configuration.health_coordinate
-                  ? `${status.data.configuration.health_coordinate.longitude}, ${status.data.configuration.health_coordinate.latitude}`
-                  : '-'}</dd>
+                <dt>Routecontrole</dt>
+                <dd>Automatische vaste controlepunten in Nederland en België</dd>
               </dl>
 
               <div className="metadata-example osrm-management-note">
@@ -314,40 +282,14 @@ export function OsrmAdminPanel({
                   <p className="muted-text form-grid__wide">
                     DIS haalt voor beide bronnen het officiële Geofabrik-MD5-controlebestand op, verifieert iedere download en voegt alleen een volledige, gelijkgedateerde bronset samen.
                   </p>
+                  <div className="metadata-example osrm-management-note form-grid__wide" role="note">
+                    <strong>Automatische routecontrole</strong>
+                    <p>Na het bouwen test DIS zelf vaste, server-side controlepunten in Nederland en België. Zo wordt alleen kaartdata geactiveerd waarop daadwerkelijk routes kunnen worden berekend; je hoeft geen GPS-coördinaten in te voeren.</p>
+                  </div>
                   <div className="metadata-example osrm-management-warning form-grid__wide" role="note">
                     <strong><AlertTriangle aria-hidden size={18} /> Capaciteit en duur</strong>
                     <p>Nederland + België downloaden, samenvoegen en voor OSRM bouwen vraagt grofweg minimaal 20 GB vrije schijfruimte en kan lang duren. De serverpreflight bepaalt uiteindelijk of de bewerking veilig kan starten.</p>
                   </div>
-                  {nextAction === 'install_activate' ? (
-                    <>
-                      <label>
-                        Controle-lengtegraad
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          min={-180}
-                          max={180}
-                          step="any"
-                          required
-                          value={form.longitude}
-                          onChange={(event) => setForm((current) => ({ ...current, longitude: event.target.value }))}
-                        />
-                      </label>
-                      <label>
-                        Controle-breedtegraad
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          min={-90}
-                          max={90}
-                          step="any"
-                          required
-                          value={form.latitude}
-                          onChange={(event) => setForm((current) => ({ ...current, latitude: event.target.value }))}
-                        />
-                      </label>
-                    </>
-                  ) : null}
                   {actionError ? <p className="form-error form-grid__wide" role="alert">{actionError}</p> : null}
                   <div className="actions-row form-grid__wide">
                     <button
@@ -441,10 +383,8 @@ export function OsrmAdminPanel({
                 <dd>{formatCoverage(status.data?.configuration.sources ?? [])}</dd>
                 <dt>Integriteitscontrole</dt>
                 <dd>Per bron automatisch via het officiële Geofabrik-MD5-controlebestand</dd>
-                <dt>Controlepunt</dt>
-                <dd>{pendingRequest.health_coordinate
-                  ? `${pendingRequest.health_coordinate.longitude}, ${pendingRequest.health_coordinate.latitude}`
-                  : 'Bestaand gecontroleerd punt'}</dd>
+                <dt>Routecontrole</dt>
+                <dd>Automatisch via vaste Nederlandse en Belgische controlepunten</dd>
               </dl>
               {status.data?.configuration.sources.map((source) => (
                 <div className="field-display" key={source.id}>

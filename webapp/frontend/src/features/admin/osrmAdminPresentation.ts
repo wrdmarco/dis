@@ -25,44 +25,8 @@ const operationStages = new Set<OsrmOperationStage>([
   'completed',
 ]);
 
-export interface OsrmOperationFormValues {
-  longitude: string;
-  latitude: string;
-}
-
-export type OsrmFormValidation =
-  | { valid: true; request: OsrmOperationRequest }
-  | { valid: false; message: string };
-
-export function validateOsrmOperationForm(
-  action: OsrmManagementAction,
-  form: OsrmOperationFormValues,
-): OsrmFormValidation {
-  if (action === 'update') {
-    return {
-      valid: true,
-      request: {
-        action,
-      },
-    };
-  }
-
-  const longitude = Number(form.longitude);
-  const latitude = Number(form.latitude);
-  if (form.longitude.trim() === '' || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
-    return { valid: false, message: 'Lengtegraad moet een getal tussen -180 en 180 zijn.' };
-  }
-  if (form.latitude.trim() === '' || !Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
-    return { valid: false, message: 'Breedtegraad moet een getal tussen -90 en 90 zijn.' };
-  }
-
-  return {
-    valid: true,
-    request: {
-      action,
-      health_coordinate: { longitude, latitude },
-    },
-  };
+export function osrmOperationRequest(action: OsrmManagementAction): OsrmOperationRequest {
+  return { action };
 }
 
 export function osrmStateLabel(state: OsrmManagementState): string {

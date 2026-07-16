@@ -28,15 +28,14 @@ final class AdminOsrmController extends Controller
 
     public function store(StartOsrmOperationRequest $request): JsonResponse
     {
-        /** @var array{action: string, health_coordinate?: array{longitude: float|int|string, latitude: float|int|string}} $data */
-        $data = $request->validated();
+        /** @var string $action */
+        $action = $request->validated('action');
         $actor = $request->user();
         abort_if($actor === null, 401);
 
         try {
             $operation = $this->operations->start(
-                action: $data['action'],
-                healthCoordinate: $data['health_coordinate'] ?? null,
+                action: $action,
                 actor: $actor,
                 request: $request,
             );

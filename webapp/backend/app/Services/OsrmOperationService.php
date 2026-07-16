@@ -83,6 +83,7 @@ final class OsrmOperationService
             (bool) config('dis.routing.enabled', false),
         );
         $configuredSources = $this->configuredSources();
+        $configuredHealthCoordinate = $this->configuredHealthCoordinate();
         $sourceSet = $configuredSources === null ? null : $this->sourceSet($configuredSources);
         $sourceSetSha256 = $sourceSet === null ? null : $this->sourceSetSha256($sourceSet);
         $storedSourceManifest = $this->storedSourceManifest();
@@ -131,6 +132,11 @@ final class OsrmOperationService
                 'code' => 'invalid_source_configuration',
                 'message' => 'De vaste OSRM kaartbron is niet veilig geconfigureerd op de server.',
             ];
+        } elseif ($configuredHealthCoordinate === null) {
+            $blocker = [
+                'code' => 'invalid_health_coordinate_configuration',
+                'message' => 'Het vaste Nederlandse OSRM-controlepunt is niet veilig geconfigureerd op de server.',
+            ];
         } elseif ($active?->isActive() === true) {
             $blocker = [
                 'code' => 'operation_active',
@@ -154,7 +160,7 @@ final class OsrmOperationService
             'configuration' => [
                 'sources' => $configuredSources ?? [],
                 'source_set_sha256' => $sourceSetSha256,
-                'health_coordinate' => $storedCoordinate,
+                'health_coordinate' => $storedCoordinate ?? $configuredHealthCoordinate,
             ],
             'next_action' => $nextAction,
             'blocker' => $blocker,
@@ -163,12 +169,8 @@ final class OsrmOperationService
         ];
     }
 
-    /**
-     * @param  array{longitude: float|int|string, latitude: float|int|string}|null  $healthCoordinate
-     */
     public function start(
         string $action,
-        ?array $healthCoordinate,
         User $actor,
         ?Request $request = null,
     ): OsrmOperation {
@@ -189,18 +191,16 @@ final class OsrmOperationService
         $sourceSetSha256 = $this->sourceSetSha256($sourceSet);
 
         if ($action === OsrmOperation::ACTION_UPDATE) {
-            $coordinate = $this->storedHealthCoordinate();
-            if ($coordinate === null || ! SystemSetting::boolean(self::SETTING_ENABLED, false)) {
+            if ($this->storedHealthCoordinate() === null || ! SystemSetting::boolean(self::SETTING_ENABLED, false)) {
                 throw new OsrmOperationConflictException('OSRM is niet volledig geactiveerd; een update kan niet worden gestart.');
             }
-        } else {
-            if ($healthCoordinate === null) {
-                throw new \InvalidArgumentException('The initial OSRM health coordinate is required.');
-            }
-            $coordinate = [
-                'longitude' => (float) $healthCoordinate['longitude'],
-                'latitude' => (float) $healthCoordinate['latitude'],
-            ];
+        }
+
+        // Every operation uses the current server-owned Dutch probe. This also
+        // migrates installations that predate server-side probe ownership.
+        $coordinate = $this->configuredHealthCoordinate();
+        if ($coordinate === null) {
+            throw new OsrmOperationConflictException('Het vaste Nederlandse OSRM-controlepunt is niet veilig geconfigureerd.');
         }
 
         $requestId = bin2hex(random_bytes(16));
@@ -787,6 +787,31 @@ final class OsrmOperationService
         return is_array($sources) && $sources === self::APPROVED_SOURCES
             ? $sources
             : null;
+    }
+
+    /**
+     * @return array{longitude: float, latitude: float}|null
+     */
+    private function configuredHealthCoordinate(): ?array
+    {
+        $configured = config('dis.routing.admin_health_coordinate');
+        if (! is_array($configured)
+            || ! array_key_exists('longitude', $configured)
+            || ! array_key_exists('latitude', $configured)
+            || ! is_numeric($configured['longitude'])
+            || ! is_numeric($configured['latitude'])) {
+            return null;
+        }
+
+        $longitude = (float) $configured['longitude'];
+        $latitude = (float) $configured['latitude'];
+        if (! is_finite($longitude) || ! is_finite($latitude)
+            || $longitude < 5.0 || $longitude > 5.25
+            || $latitude < 52.0 || $latitude > 52.2) {
+            return null;
+        }
+
+        return ['longitude' => $longitude, 'latitude' => $latitude];
     }
 
     /**

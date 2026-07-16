@@ -32,21 +32,11 @@ final class StartOsrmOperationRequest extends FormRequest
             'source_set_sha256' => ['prohibited'],
             'snapshot_date' => ['prohibited'],
             'source_timestamp' => ['prohibited'],
-            'health_coordinate' => [
-                'required_if:action,'.OsrmOperation::ACTION_INSTALL_ACTIVATE,
-                'prohibited_if:action,'.OsrmOperation::ACTION_UPDATE,
-                'array:longitude,latitude',
-            ],
-            'health_coordinate.longitude' => [
-                'required_if:action,'.OsrmOperation::ACTION_INSTALL_ACTIVATE,
-                'numeric',
-                'between:-180,180',
-            ],
-            'health_coordinate.latitude' => [
-                'required_if:action,'.OsrmOperation::ACTION_INSTALL_ACTIVATE,
-                'numeric',
-                'between:-90,90',
-            ],
+            // Older admin clients still submit this field. Validate its legacy
+            // shape for compatibility, but never use it as operational input.
+            'health_coordinate' => ['sometimes', 'array:longitude,latitude'],
+            'health_coordinate.longitude' => ['required_with:health_coordinate', 'numeric', 'between:-180,180'],
+            'health_coordinate.latitude' => ['required_with:health_coordinate', 'numeric', 'between:-90,90'],
         ];
     }
 }

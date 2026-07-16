@@ -45,6 +45,10 @@ return [
         ],
         'admin_status_path' => env('OSRM_ADMIN_STATUS_PATH', '/var/log/dis/osrm-status.json'),
         'admin_state_root' => env('OSRM_ADMIN_STATE_ROOT', rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/').'/osrm-admin'),
+        'admin_health_coordinate' => [
+            'longitude' => 5.1214,
+            'latitude' => 52.0907,
+        ],
         'cache_ttl_seconds' => (int) env('ROUTING_CACHE_TTL_SECONDS', 900),
         'failure_cache_ttl_seconds' => (int) env('ROUTING_FAILURE_CACHE_TTL_SECONDS', 15),
         'fallback_speed_kmh' => (float) env('ROUTING_FALLBACK_SPEED_KMH', env('DISPATCH_ESTIMATED_ETA_SPEED_KMH', 60)),

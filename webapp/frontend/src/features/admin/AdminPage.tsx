@@ -1,6 +1,5 @@
 import { Panel } from '../../components/Panel';
 import { FirebaseSetupWizard } from '../../components/FirebaseSetupWizard';
-import { OsrmAdminPanel } from './OsrmAdminPanel';
 import { ResourceState } from '../../components/ResourceState';
 import { TotpQrCode } from '../../components/TotpQrCode';
 import { parseFirebaseJson } from '../../lib/firebaseConfigImport';
@@ -8,8 +7,7 @@ import { dateInputValueInAmsterdam, formatDateTime } from '../../lib/dateTime';
 import { fetchLocationSuggestions, geocodeAddressLabel, lookupLocationSuggestion, type LocationSearchResult, type LocationSuggestion } from '../../lib/locationSearch';
 import { createRealtime } from '../../lib/realtime';
 import { useApiResource } from '../../lib/useApiResource';
-import type { ConfigurableFormField, DeveloperAccessState, FcmToken, IncidentFormConfig, IncidentFormLayoutItem, OsrmOperationSummary, PilotReportFormConfig, PilotReportFormField, StoreReviewStatus, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
-import { isOsrmOperationSummary } from './osrmAdminPresentation';
+import type { ConfigurableFormField, DeveloperAccessState, FcmToken, IncidentFormConfig, IncidentFormLayoutItem, PilotReportFormConfig, PilotReportFormField, StoreReviewStatus, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiClientError } from '../../lib/apiClient';
@@ -129,14 +127,14 @@ interface DeveloperKeyForm {
 
 function adminTabAllowed(
   tab: AdminTab,
-  permissions: { canManageSettings: boolean; canManagePushTokens: boolean; canViewSystemHealth: boolean; canManageDeveloperAccess: boolean; canManageRouting: boolean },
+  permissions: { canManageSettings: boolean; canManagePushTokens: boolean; canViewSystemHealth: boolean; canManageDeveloperAccess: boolean },
 ): boolean {
   if (tab === 'tokens') {
     return permissions.canManagePushTokens;
   }
 
   if (tab === 'version') {
-    return permissions.canViewSystemHealth || permissions.canManageRouting;
+    return permissions.canViewSystemHealth;
   }
 
   if (tab === 'developer') {
@@ -153,11 +151,9 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const canManagePushTokens = hasPermission('settings.push.tokens.manage');
   const canViewSystemHealth = hasPermission('system.health.view');
   const canManageDeveloperAccess = hasPermission('system.developer-access.manage');
-  const canManageRouting = hasPermission('system.routing.manage');
   const canExecuteSystemUpdate = hasPermission('system.update.execute');
   const canExecuteSystemReboot = hasPermission('system.reboot.execute');
-  const canViewRoutingStatus = canViewSystemHealth || canManageRouting;
-  const visibleAdminTabs = availableTabs.filter((tab) => adminTabAllowed(tab.id, { canManageSettings, canManagePushTokens, canViewSystemHealth, canManageDeveloperAccess, canManageRouting }));
+  const visibleAdminTabs = availableTabs.filter((tab) => adminTabAllowed(tab.id, { canManageSettings, canManagePushTokens, canViewSystemHealth, canManageDeveloperAccess }));
   const settings = useApiResource<SystemSetting[]>('/admin/settings', canManageSettings && mode === 'admin');
   const tokens = useApiResource<FcmToken[]>('/admin/push/tokens?per_page=100', canManagePushTokens && mode === 'admin');
   const developerAccess = useApiResource<DeveloperAccessState>('/admin/developer-access', canManageDeveloperAccess && mode === 'admin');
@@ -191,7 +187,6 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const [developerKeyForm, setDeveloperKeyForm] = useState<DeveloperKeyForm>(() => defaultDeveloperKeyForm());
   const [developerSaving, setDeveloperSaving] = useState(false);
   const [updaterStatus, setUpdaterStatus] = useState<SystemUpdateStatus | null>(null);
-  const [osrmRealtimeOperation, setOsrmRealtimeOperation] = useState<OsrmOperationSummary | null>(null);
   const [updateActionError, setUpdateActionError] = useState<string | null>(null);
   const [updateStarting, setUpdateStarting] = useState(false);
   const [rebootStarting, setRebootStarting] = useState(false);
@@ -261,21 +256,16 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const reloadSystemVersionSilently = systemVersion.silentReload;
 
   useEffect(() => {
-    if (!isAuthenticated || !canViewRoutingStatus) {
+    if (!isAuthenticated || !canViewSystemHealth) {
       return;
     }
 
     const echo = createRealtime({
-      onSystemUpdateStatus: canViewSystemHealth ? (payload) => {
+      onSystemUpdateStatus: (payload) => {
         const status = payload as SystemUpdateStatus;
         setUpdaterStatus(status);
         if (status.state === 'succeeded' || status.state === 'failed') {
           void reloadSystemVersionSilently();
-        }
-      } : undefined,
-      onOsrmOperationStatus: (payload) => {
-        if (isOsrmOperationSummary(payload)) {
-          setOsrmRealtimeOperation(payload);
         }
       },
     });
@@ -287,7 +277,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
 
       echo.leave('private-admin.system');
     };
-  }, [canViewRoutingStatus, canViewSystemHealth, isAuthenticated, reloadSystemVersionSilently]);
+  }, [canViewSystemHealth, isAuthenticated, reloadSystemVersionSilently]);
 
   useEffect(() => {
     if (updaterStatus?.state !== 'running') {
@@ -1448,11 +1438,6 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               </Panel>
             </>
           ) : null}
-          <OsrmAdminPanel
-            enabled={canViewRoutingStatus && mode === 'admin'}
-            canManage={canManageRouting}
-            realtimeOperation={osrmRealtimeOperation}
-          />
         </>
       ) : null}
 

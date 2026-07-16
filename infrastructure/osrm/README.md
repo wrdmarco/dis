@@ -49,10 +49,11 @@ Ubuntu or Debian release.
 
 ## Admin installation and map updates
 
-An authorised administrator can install and activate OSRM from the DIS admin page. Before activation the form
-requires only a known routable probe coordinate. The privileged worker obtains the fixed source URL and coordinate
-again from the immutable database operation record; the browser request cannot supply a URL, checksum, file path,
-shell option or OSRM profile to root.
+An authorised administrator can install and activate OSRM from the dedicated **Routering** admin page. The browser
+request normally supplies only the operation action; it cannot choose a URL, checksum, readiness coordinate, file
+path, shell option or OSRM profile for root. A legacy coordinate field from an older admin client is accepted only
+for upgrade compatibility and ignored. DIS stores its fixed Dutch readiness coordinate (`5.1214,52.0907`) in the
+immutable database operation record consumed by the privileged worker.
 
 The accepted source set is fixed in code, ordered and cannot be overridden from `.env` or the browser:
 
@@ -87,8 +88,8 @@ check against the actual merged size.
 
 Installation and activation are one operation: DIS verifies or installs the restricted runtime and build packages,
 provisions the service, verifies both suppliers, merges and preprocesses the common snapshot, atomically activates
-it, and runs artifact and route-readiness checks. A composite release stores the administrator-selected Dutch probe
-and a second root-controlled Belgian probe. The Belgian probe defaults to central Brussels (`4.3517,50.8503`) and
+it, and runs artifact and route-readiness checks. A composite release stores the server-controlled Dutch probe and
+a second root-controlled Belgian probe. The Belgian probe defaults to central Brussels (`4.3517,50.8503`) and
 may only be changed through the root service environment variable `OSRM_BELGIUM_HEALTH_COORDINATE`; both probes use
 the bounded `OSRM_HEALTH_MAX_SNAP_METERS`. Browser input never controls the Belgian probe. Only after both probes
 pass does the backend mark routing enabled.

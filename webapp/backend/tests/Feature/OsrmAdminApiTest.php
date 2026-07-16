@@ -43,6 +43,10 @@ final class OsrmAdminApiTest extends TestCase
             'dis.routing.admin_state_root' => $this->stateRoot,
             'dis.routing.admin_status_path' => $this->globalStatusPath,
             'dis.routing.admin_sources' => $this->configuredSources(),
+            'dis.routing.admin_health_coordinate' => [
+                'longitude' => 5.1214,
+                'latitude' => 52.0907,
+            ],
             'dis.routing.enabled' => false,
         ]);
         Event::fake([OsrmOperationStatusChanged::class]);
@@ -69,6 +73,8 @@ final class OsrmAdminApiTest extends TestCase
             ->assertJsonPath('data.configuration.sources.1.id', 'belgium')
             ->assertJsonPath('data.configuration.sources.1.label', 'België')
             ->assertJsonPath('data.configuration.source_set_sha256', $this->sourceSetSha256())
+            ->assertJsonPath('data.configuration.health_coordinate.longitude', 5.1214)
+            ->assertJsonPath('data.configuration.health_coordinate.latitude', 52.0907)
             ->assertJsonPath('data.next_action', 'install_activate')
             ->assertJsonPath('data.active_operation', null)
             ->assertJsonPath('data.latest_operation', null);
@@ -107,17 +113,50 @@ final class OsrmAdminApiTest extends TestCase
         $this->assertSame([], glob($this->stateRoot.'/requests/*.pending') ?: []);
     }
 
+    public function test_invalid_server_probe_is_blocked_before_request_publication(): void
+    {
+        config()->set('dis.routing.admin_health_coordinate', [
+            'longitude' => 13.4050,
+            'latitude' => 52.5200,
+        ]);
+        $actor = $this->user('osrm-probe-policy@example.test', ['system.routing.manage']);
+
+        $this->asAdminClient($actor)
+            ->getJson('/api/admin/routing/osrm')
+            ->assertOk()
+            ->assertJsonPath('data.configuration.health_coordinate', null)
+            ->assertJsonPath('data.next_action', null)
+            ->assertJsonPath('data.blocker.code', 'invalid_health_coordinate_configuration');
+
+        $this->asAdminClient($actor)
+            ->postJson('/api/admin/routing/osrm/operations', $this->installPayload())
+            ->assertStatus(409)
+            ->assertJsonPath('error.code', 'osrm_operation_conflict');
+
+        $this->assertDatabaseCount('osrm_operations', 0);
+        $this->assertSame([], glob($this->stateRoot.'/requests/*.pending') ?: []);
+    }
+
     public function test_initial_operation_publishes_only_the_minimal_root_broker_contract_with_mode_0600(): void
     {
         $actor = $this->user('osrm-publisher@example.test', ['system.routing.manage']);
+
         $response = $this->asAdminClient($actor)
-            ->postJson('/api/admin/routing/osrm/operations', $this->installPayload())
+            ->postJson('/api/admin/routing/osrm/operations', [
+                'action' => 'install_activate',
+                'health_coordinate' => [
+                    'longitude' => 4.895168,
+                    'latitude' => 52.370216,
+                ],
+            ])
             ->assertStatus(202)
             ->assertJsonPath('data.operation.action', 'install_activate')
             ->assertJsonPath('data.operation.state', 'queued')
             ->assertJsonPath('data.operation.stage', 'validating');
 
         $operation = OsrmOperation::query()->findOrFail($response->json('data.operation.id'));
+        $this->assertSame(5.1214, (float) $operation->health_longitude);
+        $this->assertSame(52.0907, (float) $operation->health_latitude);
         $pendingFiles = glob($this->stateRoot.'/requests/*.pending') ?: [];
         $this->assertCount(1, $pendingFiles);
         $payload = json_decode((string) file_get_contents($pendingFiles[0]), true, flags: JSON_THROW_ON_ERROR);
@@ -165,10 +204,6 @@ final class OsrmAdminApiTest extends TestCase
         try {
             app(OsrmOperationService::class)->start(
                 action: 'install_activate',
-                healthCoordinate: [
-                    'longitude' => 5.1214,
-                    'latitude' => 52.0907,
-                ],
                 actor: $actor,
             );
             $this->fail('The required audit failure must abort the OSRM operation.');
@@ -185,12 +220,12 @@ final class OsrmAdminApiTest extends TestCase
     public function test_client_cannot_choose_sources_checksums_or_probe_and_update_uses_server_source_set(): void
     {
         $manifest = $this->sourceManifest();
-        $this->writeReadyRuntimeStatus($manifest);
+        $this->writeReadyRuntimeStatus($manifest, healthCoordinate: '4.895168,52.370216');
         $this->putSetting('routing.enabled', true);
         $this->putSetting('routing.osrm.source_manifest', $manifest);
         $this->putSetting('routing.osrm.health_coordinate', [
-            'longitude' => 5.1214,
-            'latitude' => 52.0907,
+            'longitude' => 4.895168,
+            'latitude' => 52.370216,
         ]);
         $actor = $this->user('osrm-updater@example.test', ['system.routing.manage']);
 
@@ -215,13 +250,6 @@ final class OsrmAdminApiTest extends TestCase
         $this->asAdminClient($actor)
             ->postJson('/api/admin/routing/osrm/operations', [
                 'action' => 'update',
-                'health_coordinate' => ['longitude' => 4.9, 'latitude' => 52.3],
-            ])
-            ->assertStatus(422);
-
-        $this->asAdminClient($actor)
-            ->postJson('/api/admin/routing/osrm/operations', [
-                'action' => 'update',
                 'source_sha256' => str_repeat('b', 64),
             ])
             ->assertStatus(422)
@@ -230,6 +258,7 @@ final class OsrmAdminApiTest extends TestCase
         $response = $this->asAdminClient($actor)
             ->postJson('/api/admin/routing/osrm/operations', [
                 'action' => 'update',
+                'health_coordinate' => ['longitude' => 4.9, 'latitude' => 52.3],
             ])
             ->assertStatus(202);
         $operation = OsrmOperation::query()->findOrFail($response->json('data.operation.id'));
@@ -592,10 +621,6 @@ final class OsrmAdminApiTest extends TestCase
     {
         return [
             'action' => 'install_activate',
-            'health_coordinate' => [
-                'longitude' => 5.1214,
-                'latitude' => 52.0907,
-            ],
         ];
     }
 
