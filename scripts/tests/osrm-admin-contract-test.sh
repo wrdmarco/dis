@@ -217,4 +217,22 @@ redacted_line="$(safe_line $'download https://example.test/o\047brien and /opt/d
 [ "${redacted_line}" = 'download [url] and [path] now' ] \
   || { printf 'OSRM log redaction runtime contract failed: %s\n' "${redacted_line}" >&2; exit 1; }
 
+# A first installation legitimately has no active source manifest. jq -e
+# returns status 1 for null after printing it, which used to trigger the
+# fallback as well and feed two JSON values to the next --argjson invocation.
+bash() {
+  if [ "${2:-}" = 'status' ]; then
+    printf '%s\n' '{"dataset":null}'
+    return 0
+  fi
+  command bash "$@"
+}
+empty_active_manifest="$(active_source_manifest)"
+unset -f bash
+[ "${empty_active_manifest}" = 'null' ] \
+  || { printf 'Empty OSRM source manifest must be one JSON null: %s\n' "${empty_active_manifest}" >&2; exit 1; }
+jq -n --argjson active_source_manifest "${empty_active_manifest}" \
+  '$active_source_manifest == null' >/dev/null \
+  || { printf 'Empty OSRM source manifest is not valid --argjson input.\n' >&2; exit 1; }
+
 printf 'OSRM admin static contract and security test passed.\n'

@@ -261,7 +261,7 @@ append_log() {
 
 active_source_manifest() {
   DIS_DATA_PATH="${DIS_DATA_PATH}" bash "${OSRM_SCRIPT}" status 2>/dev/null \
-    | jq -ec '.dataset.source_manifest // null' 2>/dev/null \
+    | jq -c '.dataset.source_manifest // null' 2>/dev/null \
     || printf 'null\n'
 }
 
