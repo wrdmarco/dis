@@ -173,8 +173,8 @@ run_cmd() {
     provenance_valid=0
     return 0
   fi
-  if [ "${1:-}" = "${OSRM_PODMAN_PATH}" ] && [[ " $* " == *' pull '* ]]; then
-    pull_arguments="$*"
+  if [ "${1:-}" = 'run_podman' ] && [[ " $* " == *' pull '* ]]; then
+    pull_arguments="${OSRM_PODMAN_GLOBAL_ARGS[*]} ${*:2}"
     pull_count=$((pull_count + 1))
     image_valid=1
     return 0

@@ -1192,25 +1192,31 @@ stage_from_output() {
 run_logged_command() {
   local initial_stage="$1"
   shift
-  local command_pid exit_code fifo line stage
+  local exit_code had_errexit=0 lastpipe_was_enabled=0 line log_error=0 stage
+  local -a pipeline_status
 
-  fifo="$(mktemp "${WORK_DIR}/.output.XXXXXX")"
-  rm -f -- "${fifo}"
-  mkfifo -m 0600 "${fifo}"
-  "$@" >"${fifo}" 2>&1 &
-  command_pid=$!
-  while IFS= read -r line; do
+  # An anonymous pipe avoids passing a path-backed FIFO into Podman and its
+  # nested fuse-overlayfs helper. Proxmox LXC AppArmor denies inheritance of
+  # such descriptors even though the worker itself may write the live log.
+  # lastpipe keeps stage/log state in this shell rather than a pipeline child.
+  shopt -q lastpipe && lastpipe_was_enabled=1
+  [[ $- == *e* ]] && had_errexit=1
+  shopt -s lastpipe
+  set +e
+  "$@" 2>&1 | while IFS= read -r line; do
     stage="$(stage_from_output "${line}")"
     if [ "${stage}" != "${LAST_STAGE}" ]; then
-      write_operation_status running "${stage}" "OSRM-verwerking: ${stage}." null null
+      write_operation_status running "${stage}" "OSRM-verwerking: ${stage}." null null \
+        || { log_error=1; break; }
     fi
-    append_log "${stage:-${initial_stage}}" info "${line}" null
-  done < "${fifo}"
-  set +e
-  wait "${command_pid}"
-  exit_code=$?
-  set -e
-  rm -f -- "${fifo}"
+    append_log "${stage:-${initial_stage}}" info "${line}" null \
+      || { log_error=1; break; }
+  done
+  pipeline_status=("${PIPESTATUS[@]}")
+  exit_code="${pipeline_status[0]}"
+  [ "${lastpipe_was_enabled}" = '1' ] || shopt -u lastpipe
+  [ "${had_errexit}" = '0' ] || set -e
+  [ "${log_error}" = '0' ] || return 1
   return "${exit_code}"
 }
 

@@ -382,4 +382,20 @@ if operation_payload_contract_is_valid "$(jq -c '.sources[1].latest_url = "https
   exit 1
 fi
 
+# Live output uses an anonymous pipe, preserves every line and returns the
+# actual child status without creating a path-backed FIFO for nested Podman.
+captured_live_log=''
+LAST_STAGE='validating'
+append_log() {
+  captured_live_log="${captured_live_log}${captured_live_log:+|}$3"
+}
+if run_logged_command validating bash -c 'printf "alpha\nbeta\n"; exit 23'; then
+  printf 'Failing live-log command unexpectedly returned success.\n' >&2
+  exit 1
+else
+  live_exit=$?
+fi
+[ "${live_exit}" = '23' ]
+[ "${captured_live_log}" = 'alpha|beta' ]
+
 printf 'OSRM admin worker request, security and recovery test passed.\n'

@@ -65,6 +65,24 @@ OSRM_HEALTH_MAX_SNAP_METERS="${OSRM_HEALTH_MAX_SNAP_METERS:-250}"
 OSRM_BELGIUM_HEALTH_COORDINATE="${OSRM_BELGIUM_HEALTH_COORDINATE:-4.3517,50.8503}"
 OSRM_RELEASE_RETENTION="${OSRM_RELEASE_RETENTION:-3}"
 
+run_podman() (
+  local inherited_lock_fd="${DIS_OPERATION_LOCK_FD:-}"
+
+  # The worker shell retains both locks for the complete operation. Podman and
+  # its fuse-overlayfs helper must not inherit the corresponding regular-file
+  # descriptors: the Proxmox LXC AppArmor profile deliberately rejects that
+  # inheritance. stdout/stderr remain available for the anonymous live-log pipe.
+  if [[ "${inherited_lock_fd}" =~ ^[0-9]+$ ]]; then
+    exec {inherited_lock_fd}>&-
+  fi
+  exec 9>&-
+  if declare -F "${OSRM_PODMAN_PATH}" >/dev/null; then
+    "${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" "$@"
+    exit $?
+  fi
+  exec "${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" "$@"
+)
+
 validate_managed_path() {
   local label="$1"
   local path="$2"
@@ -538,8 +556,7 @@ write_container_provenance() {
 }
 
 podman_image_metadata_is_valid() {
-  "${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" \
-    image inspect "${OSRM_CONTAINER_IMAGE}" 2>/dev/null \
+  run_podman image inspect "${OSRM_CONTAINER_IMAGE}" 2>/dev/null \
     | jq -e \
       --arg digest "${OSRM_CONTAINER_IMAGE_DIGEST}" \
       --arg version "${OSRM_CONTAINER_IMAGE_VERSION}" \
@@ -560,8 +577,8 @@ podman_image_metadata_is_valid() {
 podman_image_id() {
   local image_id
 
-  image_id="$("${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" \
-    image inspect --format '{{.Id}}' "${OSRM_CONTAINER_IMAGE}" 2>/dev/null \
+  image_id="$(run_podman image inspect --format '{{.Id}}' \
+    "${OSRM_CONTAINER_IMAGE}" 2>/dev/null \
     | tr -d '\r\n')"
   image_id="${image_id#sha256:}"
   [[ "${image_id}" =~ ^[a-f0-9]{64}$ ]] || return 1
@@ -569,8 +586,7 @@ podman_image_id() {
 }
 
 podman_profile_sha() {
-  "${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" \
-    run --rm --pull=never --network=none --read-only \
+  run_podman run --rm --pull=never --network=none --read-only \
     --cgroups=disabled \
     --cap-drop=all --security-opt=no-new-privileges --pids-limit=32 \
     "${OSRM_CONTAINER_IMAGE}" sha256sum "${OSRM_CONTAINER_PROFILE}" \
@@ -828,8 +844,7 @@ install_package() {
     || fail "The installed fuse-overlayfs files could not be fingerprinted."
 
   log "Pulling official OSRM ${OSRM_CONTAINER_IMAGE_VERSION} by immutable amd64 digest"
-  run_cmd "${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" \
-    pull --arch amd64 --os linux "${OSRM_CONTAINER_IMAGE}" \
+  run_cmd run_podman pull --arch amd64 --os linux "${OSRM_CONTAINER_IMAGE}" \
     || {
       if [ "$(systemd-detect-virt --container 2>/dev/null || true)" = "lxc" ]; then
         fail "The pinned official OSRM container image could not be pulled through the dedicated fuse-overlayfs store. Verify the Proxmox CT features nesting, keyctl and FUSE, fully restart the container, and retry."
@@ -2029,8 +2044,7 @@ import_dataset() {
     sha256sum --check --strict ARTIFACTS.SHA256
   ) >/dev/null
 
-  tool_version="$("${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" \
-    run --rm --pull=never --network=none --read-only \
+  tool_version="$(run_podman run --rm --pull=never --network=none --read-only \
     --cgroups=disabled \
     --cap-drop=all --security-opt=no-new-privileges --pids-limit=32 \
     "${OSRM_CONTAINER_IMAGE}" osrm-routed --version 2>&1 | head -n 1 || true)"
@@ -2192,8 +2206,7 @@ serve() {
 
 stop() {
   require_root
-  "${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" \
-    stop --ignore --time 20 dis-osrm
+  run_podman stop --ignore --time 20 dis-osrm
 }
 
 status() {

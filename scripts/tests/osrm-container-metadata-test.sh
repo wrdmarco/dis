@@ -18,10 +18,16 @@ mock_revision="${OSRM_CONTAINER_REVISION}"
 mock_license='BSD-2-Clause'
 mock_id='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 mock_run_log="$(mktemp "${TMPDIR:-/tmp}/dis-osrm-podman-run.XXXXXX")"
+mock_worker_lock="$(mktemp "${TMPDIR:-/tmp}/dis-osrm-worker-lock.XXXXXX")"
+mock_operation_lock="$(mktemp "${TMPDIR:-/tmp}/dis-osrm-operation-lock.XXXXXX")"
 mock_profile_sha='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
-trap 'rm -f -- "${mock_run_log}"' EXIT
+trap 'rm -f -- "${mock_run_log}" "${mock_worker_lock}" "${mock_operation_lock}"' EXIT
 
 podman_mock() {
+  if [ "${assert_no_inherited_lock_fds:-0}" = '1' ]; then
+    [ ! -e "/proc/${BASHPID}/fd/9" ] || return 90
+    [ ! -e "/proc/${BASHPID}/fd/${DIS_OPERATION_LOCK_FD}" ] || return 91
+  fi
   if [[ " $* " == *' run '* ]]; then
     printf '%s\n' "$*" > "${mock_run_log}"
     printf '%s  %s\n' "${mock_profile_sha}" "${OSRM_CONTAINER_PROFILE}"
@@ -56,6 +62,10 @@ podman_mock() {
 }
 
 OSRM_PODMAN_PATH=podman_mock
+exec 9>"${mock_worker_lock}"
+exec {DIS_OPERATION_LOCK_FD}>"${mock_operation_lock}"
+export DIS_OPERATION_LOCK_FD
+assert_no_inherited_lock_fds=1
 podman_image_metadata_is_valid
 [ "$(podman_image_id)" = 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' ]
 [ "$(podman_profile_sha)" = "${mock_profile_sha}" ]
@@ -67,6 +77,9 @@ mock_run_arguments=" ${mock_run_arguments} "
 [[ "${mock_run_arguments}" == *' --storage-opt=overlay.mountopt=nodev '* ]]
 [[ "${mock_run_arguments}" == *' --cgroups=disabled '* ]]
 [[ "${mock_run_arguments}" == *' --network=none '* ]]
+assert_no_inherited_lock_fds=0
+exec {DIS_OPERATION_LOCK_FD}>&-
+exec 9>&-
 
 for mutation in digest architecture version source revision license id; do
   case "${mutation}" in
