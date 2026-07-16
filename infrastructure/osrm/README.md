@@ -43,6 +43,16 @@ sudo apt-get update
 sudo /usr/local/lib/dis/osrm-admin/osrm.sh install-package
 ```
 
+DIS uses a dedicated Podman `vfs` store at `/var/lib/containers/dis-osrm-vfs` with runtime state under
+`/run/containers/dis-osrm-vfs`. This intentionally avoids OverlayFS-inside-LXC extraction failures while keeping
+the pinned OSRM image isolated from any general-purpose Podman storage on the host. The storage driver and paths
+are supplied to every pull, inspect, import, serve and stop command; changing the machine-wide Podman storage
+configuration is neither required nor supported by DIS.
+
+The Proxmox container must still permit nested containers. On the Proxmox host, enable the documented `nesting`
+feature for the DIS CT before starting OSRM. DIS keeps networking on the CT namespace (`--network=host`), disables
+container cgroups and drops all container capabilities; it does not require a privileged LXC container.
+
 On a fresh host without an official Podman candidate, or when the pinned image cannot be retrieved and verified,
 OSRM remains explicitly degraded and DIS continues to use its bounded fallback ETA. A previously attested runtime
 remains usable when repository or registry access is temporarily unavailable because normal operation never pulls.

@@ -136,7 +136,7 @@ run_cmd() {
     provenance_valid=0
     return 0
   fi
-  if [ "${1:-}" = "${OSRM_PODMAN_PATH}" ] && [ "${2:-}" = 'pull' ]; then
+  if [ "${1:-}" = "${OSRM_PODMAN_PATH}" ] && [[ " $* " == *' pull '* ]]; then
     pull_arguments="$*"
     pull_count=$((pull_count + 1))
     image_valid=1
@@ -154,6 +154,9 @@ install_package
 [[ "${used_source_contents}" == *'signed-by=/test/ubuntu-archive-keyring.gpg'* ]]
 [[ "${used_source_contents}" != *'ppa.launchpadcontent.net'* ]]
 [[ "${pull_arguments}" == *'--arch amd64 --os linux'* ]]
+[[ "${pull_arguments}" == *'--storage-driver=vfs'* ]]
+[[ "${pull_arguments}" == *'--root=/var/lib/containers/dis-osrm-vfs'* ]]
+[[ "${pull_arguments}" == *'--runroot=/run/containers/dis-osrm-vfs'* ]]
 [[ "${pull_arguments}" == *"${OSRM_CONTAINER_IMAGE}"* ]]
 [[ "${OSRM_CONTAINER_IMAGE}" == *@sha256:* ]]
 [[ "${OSRM_CONTAINER_IMAGE}" != *':latest'* ]]

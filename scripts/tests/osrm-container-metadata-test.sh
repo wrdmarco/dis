@@ -19,7 +19,7 @@ mock_license='BSD-2-Clause'
 mock_id='sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 
 podman_mock() {
-  [ "${1:-}" = 'image' ] && [ "${2:-}" = 'inspect' ] || return 1
+  [[ " $* " == *' image inspect '* ]] || return 1
   jq -cn \
     --arg digest "${mock_digest}" \
     --arg architecture "${mock_architecture}" \
