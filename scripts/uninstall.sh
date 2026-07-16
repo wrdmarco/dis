@@ -1,8 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+LIFECYCLE_SOURCE_PATH="${BASH_SOURCE[0]}"
+case "${LIFECYCLE_SOURCE_PATH}" in */*) SCRIPT_DIR="${LIFECYCLE_SOURCE_PATH%/*}" ;; *) SCRIPT_DIR=. ;; esac
+LIFECYCLE_SOURCE_NAME="${LIFECYCLE_SOURCE_PATH##*/}"
+SCRIPT_DIR="$(cd -- "${SCRIPT_DIR}" && pwd -P)"
+bootstrap_root_lifecycle_source() {
+  local path="$1" parent current="" component metadata mode
+  [ -f "${path}" ] && [ ! -L "${path}" ] || return 1
+  metadata="$(/usr/bin/stat -c '%u:%a:%h' -- "${path}" 2>/dev/null || true)"; [[ "${metadata}" =~ ^0:([0-7]+):1$ ]] || return 1
+  mode="${BASH_REMATCH[1]}"; (( (8#${mode} & 8#022) == 0 )) || return 1
+  metadata="$(/usr/bin/stat -c '%u:%a' -- / 2>/dev/null || true)"; [[ "${metadata}" =~ ^0:([0-7]+)$ ]] || return 1; mode="${BASH_REMATCH[1]}"; (( (8#${mode} & 8#022) == 0 )) || return 1
+  parent="${path%/*}"; IFS='/' read -r -a bootstrap_components <<< "${parent#/}"
+  for component in "${bootstrap_components[@]}"; do [ -n "${component}" ] || continue; current="${current}/${component}"; [ -d "${current}" ] && [ ! -L "${current}" ] || return 1; metadata="$(/usr/bin/stat -c '%u:%a' -- "${current}" 2>/dev/null || true)"; [[ "${metadata}" =~ ^0:([0-7]+)$ ]] || return 1; mode="${BASH_REMATCH[1]}"; (( (8#${mode} & 8#022) == 0 )) || return 1; done
+}
+if [ "${EUID}" -eq 0 ]; then [ ! -L "${BASH_SOURCE[0]}" ] && bootstrap_root_lifecycle_source "${SCRIPT_DIR}/${LIFECYCLE_SOURCE_NAME}" && bootstrap_root_lifecycle_source "${SCRIPT_DIR}/lib/common.sh" || { printf '[dis:error] Lifecycle sources must be root-owned, single-link and non-writable by group/world.\n' >&2; exit 1; }; fi
+unset -f bootstrap_root_lifecycle_source
+APP_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 ASSUME_YES=0
@@ -74,6 +88,9 @@ while [ "$#" -gt 0 ]; do
 done
 
 require_root
+if [ -f "${DIS_INSTALL_PATH}/.env" ]; then
+  load_data_path_from_env "${DIS_INSTALL_PATH}/.env"
+fi
 
 if [ "${REMOVE_DB_USER}" = "1" ] && [ "${REMOVE_DATABASE}" != "1" ]; then
   fail "--remove-db-user requires --remove-database."
@@ -172,11 +189,15 @@ SQL
 }
 
 confirm "This will uninstall DIS service configuration from this server."
+acquire_dis_operation_lock uninstall
 
 log "Stopping and disabling DIS services"
 # Legacy backup entries remain here so uninstall also cleans hosts upgraded from
 # releases that installed the retired standalone backup helpers.
-for service in dis-queue dis-scheduler dis-websocket dis-backup-request.timer dis-backup-request.path dis-backup-request dis-backup-mount dis-backup.timer dis-backup; do
+for service in dis-queue dis-scheduler dis-websocket dis-osrm \
+  dis-osrm-admin-request.timer dis-osrm-admin-request.path dis-osrm-admin-request \
+  dis-backup-request.timer dis-backup-request.path dis-backup-request \
+  dis-backup-mount dis-backup.timer dis-backup; do
   if systemctl list-unit-files "${service}.service" >/dev/null 2>&1 || systemctl list-unit-files "${service}" >/dev/null 2>&1; then
     run_cmd systemctl disable --now "${service}" >/dev/null 2>&1 || true
   fi
@@ -188,6 +209,10 @@ for unit in \
   /etc/systemd/system/dis-scheduler.service \
   /etc/systemd/system/dis-websocket.service \
   /etc/systemd/system/dis-frontend.service \
+  /etc/systemd/system/dis-osrm.service \
+  /etc/systemd/system/dis-osrm-admin-request.service \
+  /etc/systemd/system/dis-osrm-admin-request.path \
+  /etc/systemd/system/dis-osrm-admin-request.timer \
   /etc/systemd/system/dis-backup-request.service \
   /etc/systemd/system/dis-backup-request.path \
   /etc/systemd/system/dis-backup-request.timer \
@@ -198,6 +223,11 @@ for unit in \
     run_cmd rm -f -- "${unit}"
   fi
 done
+if [ -d /etc/systemd/system/dis-osrm.service.d ] && [ ! -L /etc/systemd/system/dis-osrm.service.d ]; then
+  secure_path_operation remove-tree /etc/systemd/system/dis-osrm.service.d
+elif [ -L /etc/systemd/system/dis-osrm.service.d ]; then
+  run_cmd rm -f -- /etc/systemd/system/dis-osrm.service.d
+fi
 
 if [ -f /etc/sudoers.d/dis-update ]; then
   run_cmd rm -f /etc/sudoers.d/dis-update
@@ -209,7 +239,21 @@ run_cmd rm -f -- \
   /usr/local/bin/dis-backup-verify \
   /usr/local/bin/dis-backup-restore \
   /usr/local/bin/dis-snapshot-backup-input \
+  /usr/local/bin/dis-osrm-admin-request-worker \
   /usr/local/bin/dis-update-runner
+if [ -d "${OSRM_ADMIN_RUNTIME_DIR}" ] && [ ! -L "${OSRM_ADMIN_RUNTIME_DIR}" ]; then
+  secure_path_operation remove-tree "${OSRM_ADMIN_RUNTIME_DIR}"
+elif [ -e "${OSRM_ADMIN_RUNTIME_DIR}" ] || [ -L "${OSRM_ADMIN_RUNTIME_DIR}" ]; then
+  run_cmd rm -f -- "${OSRM_ADMIN_RUNTIME_DIR}"
+fi
+run_cmd rmdir "${OSRM_ADMIN_RUNTIME_PARENT}" >/dev/null 2>&1 || true
+run_cmd rm -f -- /var/log/dis/osrm-status.json
+
+if command -v apt-mark >/dev/null 2>&1 \
+  && apt-mark showhold 2>/dev/null | grep -Fxq osrm-backend; then
+  log "Removing the DIS-managed APT hold from osrm-backend"
+  run_cmd apt-mark unhold osrm-backend >/dev/null
+fi
 
 log "Removing DIS Nginx configuration"
 run_cmd rm -f -- "/etc/nginx/sites-enabled/${NGINX_SITE_NAME}" "/etc/nginx/sites-available/${NGINX_SITE_NAME}"
@@ -254,7 +298,24 @@ else
 fi
 
 if [ "${REMOVE_SYSTEM_USER}" = "1" ]; then
-  log "Removing DIS system user and group when present"
+  log "Removing DIS system users and groups when present"
+  if [ -e "${DIS_DATA_PATH}/osrm" ] || [ -L "${DIS_DATA_PATH}/osrm" ]; then
+    log "Keeping OSRM service identities because generated data is retained at ${DIS_DATA_PATH}/osrm."
+  else
+    if [ -d "${DIS_DATA_PATH}" ] && command -v setfacl >/dev/null 2>&1; then
+      run_cmd setfacl -x u:dis-osrm "${DIS_DATA_PATH}" >/dev/null 2>&1 || true
+      run_cmd setfacl -x u:dis-osrm-build "${DIS_DATA_PATH}" >/dev/null 2>&1 || true
+    fi
+    if id dis-osrm-build >/dev/null 2>&1; then
+      run_cmd userdel dis-osrm-build >/dev/null 2>&1 || true
+    fi
+    if id dis-osrm >/dev/null 2>&1; then
+      run_cmd userdel dis-osrm >/dev/null 2>&1 || true
+    fi
+    if getent group dis-osrm >/dev/null 2>&1; then
+      run_cmd groupdel dis-osrm >/dev/null 2>&1 || true
+    fi
+  fi
   if id "${DIS_USER}" >/dev/null 2>&1; then
     run_cmd userdel "${DIS_USER}" >/dev/null 2>&1 || true
   fi
@@ -262,7 +323,7 @@ if [ "${REMOVE_SYSTEM_USER}" = "1" ]; then
     run_cmd groupdel "${DIS_GROUP}" >/dev/null 2>&1 || true
   fi
 else
-  log "System user '${DIS_USER}' kept. Re-run with --remove-system-user to remove it."
+  log "System users '${DIS_USER}', 'dis-osrm' and 'dis-osrm-build' kept. Re-run with --remove-system-user to remove them."
 fi
 
 if [ "${PURGE_PACKAGES}" = "1" ]; then
@@ -274,6 +335,9 @@ if [ "${PURGE_PACKAGES}" = "1" ]; then
     "php${PHP_VERSION}-mbstring" "php${PHP_VERSION}-xml" "php${PHP_VERSION}-curl" "php${PHP_VERSION}-zip" \
     "php${PHP_VERSION}-bcmath" "php${PHP_VERSION}-intl" \
     nodejs npm
+  if dpkg-query -W -f='${db:Status-Status}' osrm-backend 2>/dev/null | grep -qx installed; then
+    run_cmd apt-get purge -y osrm-backend
+  fi
   run_cmd apt-get autoremove -y
 else
   log "Ubuntu packages kept. Re-run with --purge-packages only on a dedicated server."

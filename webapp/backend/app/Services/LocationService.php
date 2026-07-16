@@ -2,13 +2,14 @@
 
 namespace App\Services;
 
-use App\Events\LocationUpdated;
 use App\Events\IncidentChanged;
+use App\Events\LocationUpdated;
 use App\Jobs\SendFcmNotification;
 use App\Models\Incident;
 use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -21,10 +22,31 @@ final class LocationService
         $this->ensureIncidentAllowsLocationSharing($incident);
         $this->ensureAcceptedRecipient($incident, $user);
 
-        $consent = LocationSharingConsent::query()->updateOrCreate(
-            ['incident_id' => $incident->id, 'user_id' => $user->id],
-            ['is_active' => true, 'consented_at' => now(), 'revoked_at' => null, 'declined_at' => null, 'refusal_reason' => null],
-        );
+        $consent = DB::transaction(function () use ($incident, $user): LocationSharingConsent {
+            // Serialise the first consent-row creation for this incident. Once
+            // present, the consent row itself is the lock shared with location
+            // updates, revoke and re-consent operations.
+            $lockedIncident = Incident::query()->whereKey($incident->id)->lockForUpdate()->firstOrFail();
+            $this->ensureIncidentAllowsLocationSharing($lockedIncident);
+            $this->ensureAcceptedRecipient($lockedIncident, $user);
+            $consent = $this->lockedConsent($incident, $user) ?? new LocationSharingConsent([
+                'incident_id' => $incident->id,
+                'user_id' => $user->id,
+            ]);
+            if ($consent->exists && $consent->is_active) {
+                return $consent;
+            }
+            $consent->fill([
+                'is_active' => true,
+                'state_version' => $this->nextConsentStateVersion($consent),
+                'consented_at' => now(),
+                'revoked_at' => null,
+                'declined_at' => null,
+                'refusal_reason' => null,
+            ])->save();
+
+            return $consent;
+        });
 
         $this->auditService->record('location.consent_enabled', $incident, $user);
         $this->broadcastLocationSharingChange($incident);
@@ -34,15 +56,22 @@ final class LocationService
 
     public function decline(Incident $incident, User $user, ?string $reason): LocationSharingConsent
     {
-        $consent = LocationSharingConsent::query()->updateOrCreate(
-            ['incident_id' => $incident->id, 'user_id' => $user->id],
-            [
+        $consent = DB::transaction(function () use ($incident, $user, $reason): LocationSharingConsent {
+            Incident::query()->whereKey($incident->id)->lockForUpdate()->firstOrFail();
+            $consent = $this->lockedConsent($incident, $user) ?? new LocationSharingConsent([
+                'incident_id' => $incident->id,
+                'user_id' => $user->id,
+            ]);
+            $consent->fill([
                 'is_active' => false,
+                'state_version' => $this->nextConsentStateVersion($consent),
                 'revoked_at' => null,
                 'declined_at' => now(),
                 'refusal_reason' => $reason,
-            ],
-        );
+            ])->save();
+
+            return $consent;
+        });
 
         $this->auditService->record('location.consent_declined', $incident, $user, ['reason' => $reason]);
         $this->broadcastLocationSharingChange($incident);
@@ -58,21 +87,33 @@ final class LocationService
         $this->ensureIncidentAllowsLocationSharing($incident);
         $this->ensureAcceptedRecipient($incident, $target);
 
-        $consent = LocationSharingConsent::query()->updateOrCreate(
-            ['incident_id' => $incident->id, 'user_id' => $target->id],
-            [
+        [$consent, $tokens] = DB::transaction(function () use ($incident, $target): array {
+            $lockedIncident = Incident::query()->whereKey($incident->id)->lockForUpdate()->firstOrFail();
+            $this->ensureIncidentAllowsLocationSharing($lockedIncident);
+            $this->ensureAcceptedRecipient($lockedIncident, $target);
+            $consent = $this->lockedConsent($incident, $target) ?? new LocationSharingConsent([
+                'incident_id' => $incident->id,
+                'user_id' => $target->id,
+            ]);
+            if ($consent->exists && $consent->is_active) {
+                return [$consent, collect()];
+            }
+
+            $tokens = $target->fcmTokens()->where('is_active', true)->get();
+            if ($tokens->isEmpty()) {
+                throw ValidationException::withMessages(['user_id' => ['Deze gebruiker heeft geen actief app-device voor pushmeldingen.']]);
+            }
+            $consent->fill([
                 'is_active' => false,
+                'state_version' => $this->nextConsentStateVersion($consent),
                 'consented_at' => now(),
                 'revoked_at' => null,
                 'declined_at' => null,
                 'refusal_reason' => null,
-            ],
-        );
+            ])->save();
 
-        $tokens = $target->fcmTokens()->where('is_active', true)->get();
-        if ($tokens->isEmpty()) {
-            throw ValidationException::withMessages(['user_id' => ['Deze gebruiker heeft geen actief app-device voor pushmeldingen.']]);
-        }
+            return [$consent, $tokens];
+        });
 
         foreach ($tokens as $token) {
             SendFcmNotification::dispatch(
@@ -103,38 +144,72 @@ final class LocationService
 
     public function revoke(Incident $incident, User $user): void
     {
-        LocationSharingConsent::query()
-            ->where('incident_id', $incident->id)
-            ->where('user_id', $user->id)
-            ->update(['is_active' => false, 'revoked_at' => now()]);
+        $this->revokeForIncident($incident, $user, $user);
+    }
 
-        $this->auditService->record('location.consent_revoked', $incident, $user);
+    public function revokeForIncident(Incident $incident, User $target, User $actor): void
+    {
+        $revoked = DB::transaction(function () use ($incident, $target): bool {
+            Incident::query()->whereKey($incident->id)->lockForUpdate()->firstOrFail();
+            $consent = $this->lockedConsent($incident, $target);
+            if ($consent === null || ! $consent->is_active) {
+                return false;
+            }
+
+            $consent->forceFill([
+                'is_active' => false,
+                'state_version' => $this->nextConsentStateVersion($consent),
+                'revoked_at' => now(),
+            ])->save();
+
+            return true;
+        });
+
+        if (! $revoked) {
+            return;
+        }
+
+        $this->auditService->record('location.consent_revoked', $incident, $actor, ['user_id' => $target->id]);
         $this->broadcastLocationSharingChange($incident);
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function updateLocation(Incident $incident, User $user, array $data): LocationUpdate
     {
         $this->ensureIncidentAllowsLocationSharing($incident);
+        $this->ensureAcceptedRecipient($incident, $user);
 
-        $hasConsent = LocationSharingConsent::query()
+        $consentSnapshot = LocationSharingConsent::query()
             ->where('incident_id', $incident->id)
             ->where('user_id', $user->id)
-            ->where('is_active', true)
-            ->exists();
-
-        if (! $hasConsent) {
+            ->first();
+        if ($consentSnapshot?->is_active !== true) {
             throw ValidationException::withMessages(['location' => ['Live location sharing requires per-incident consent.']]);
         }
+        $consentStateVersion = (int) $consentSnapshot->state_version;
 
-        $location = LocationUpdate::query()->create($data + [
-            'incident_id' => $incident->id,
-            'user_id' => $user->id,
-            'recorded_at' => $data['recorded_at'] ?? now(),
-            'created_at' => now(),
-        ]);
+        $location = DB::transaction(function () use ($incident, $user, $data, $consentStateVersion): LocationUpdate {
+            $consent = $this->lockedConsent($incident, $user);
+            if ($consent?->is_active !== true || (int) $consent->state_version !== $consentStateVersion) {
+                throw ValidationException::withMessages(['location' => ['Live location sharing requires per-incident consent.']]);
+            }
+            $this->ensureIncidentAllowsLocationSharing(Incident::query()->findOrFail($incident->id));
+            $this->ensureAcceptedRecipient($incident, $user);
+
+            // The location insert and consent validation share one row lock.
+            // Revoke therefore either happens strictly before this check (and
+            // rejects it) or strictly after the insert (and immediately hides
+            // it), also across multiple application instances.
+            return LocationUpdate::query()->create(array_merge($data, [
+                'incident_id' => $incident->id,
+                'user_id' => $user->id,
+                'consent_state_version' => $consentStateVersion,
+                'recorded_at' => $data['recorded_at'] ?? now(),
+                'created_at' => now(),
+            ]));
+        });
 
         try {
             LocationUpdated::dispatch($location);
@@ -148,16 +223,26 @@ final class LocationService
 
     public function stopForIncident(Incident $incident, User $actor): void
     {
-        $activeConsents = LocationSharingConsent::query()
-            ->with(['user.fcmTokens' => fn ($tokens) => $tokens->where('is_active', true)])
-            ->where('incident_id', $incident->id)
-            ->where('is_active', true)
-            ->get();
+        [$activeConsents, $updated] = DB::transaction(function () use ($incident): array {
+            Incident::query()->whereKey($incident->id)->lockForUpdate()->firstOrFail();
+            $activeConsents = LocationSharingConsent::query()
+                ->with(['user.fcmTokens' => fn ($tokens) => $tokens->where('is_active', true)])
+                ->where('incident_id', $incident->id)
+                ->where('is_active', true)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+            $updated = LocationSharingConsent::query()
+                ->whereIn('id', $activeConsents->pluck('id'))
+                ->update([
+                    'is_active' => false,
+                    'state_version' => DB::raw('state_version + 1'),
+                    'revoked_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
-        $updated = LocationSharingConsent::query()
-            ->where('incident_id', $incident->id)
-            ->where('is_active', true)
-            ->update(['is_active' => false, 'revoked_at' => now()]);
+            return [$activeConsents, $updated];
+        });
 
         if ($updated === 0) {
             return;
@@ -170,19 +255,30 @@ final class LocationService
 
     public function stopForUser(User $user, User $actor): void
     {
-        $activeConsents = LocationSharingConsent::query()
-            ->with(['incident', 'user.fcmTokens' => fn ($tokens) => $tokens->where('is_active', true)])
-            ->where('user_id', $user->id)
-            ->where('is_active', true)
-            ->get();
+        $activeConsents = DB::transaction(function () use ($user) {
+            $activeConsents = LocationSharingConsent::query()
+                ->with(['incident', 'user.fcmTokens' => fn ($tokens) => $tokens->where('is_active', true)])
+                ->where('user_id', $user->id)
+                ->where('is_active', true)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            LocationSharingConsent::query()
+                ->whereIn('id', $activeConsents->pluck('id'))
+                ->update([
+                    'is_active' => false,
+                    'state_version' => DB::raw('state_version + 1'),
+                    'revoked_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+            return $activeConsents;
+        });
 
         if ($activeConsents->isEmpty()) {
             return;
         }
-
-        LocationSharingConsent::query()
-            ->whereIn('id', $activeConsents->pluck('id'))
-            ->update(['is_active' => false, 'revoked_at' => now()]);
 
         foreach ($activeConsents->groupBy('incident_id') as $incidentConsents) {
             $incident = $incidentConsents->first()?->incident;
@@ -213,16 +309,6 @@ final class LocationService
 
     private function ensureAcceptedRecipient(Incident $incident, User $target): void
     {
-        $hasActiveConsent = LocationSharingConsent::query()
-            ->where('incident_id', $incident->id)
-            ->where('user_id', $target->id)
-            ->where('is_active', true)
-            ->exists();
-
-        if ($hasActiveConsent) {
-            return;
-        }
-
         $isAcceptedRecipient = $incident->dispatchRequests()
             ->whereIn('status', ['sent', 'escalated'])
             ->whereHas('recipients', fn ($recipients) => $recipients
@@ -233,6 +319,24 @@ final class LocationService
         if (! $isAcceptedRecipient) {
             throw ValidationException::withMessages(['user_id' => ['Locatie delen kan alleen worden gevraagd aan gebruikers die opkomen voor dit incident.']]);
         }
+
+        if ($target->statuses()->latestPerUser()->value('status') === 'on_scene') {
+            throw ValidationException::withMessages(['user_id' => ['Live locatie delen stopt zodra de gebruiker op locatie is.']]);
+        }
+    }
+
+    private function lockedConsent(Incident $incident, User $user): ?LocationSharingConsent
+    {
+        return LocationSharingConsent::query()
+            ->where('incident_id', $incident->id)
+            ->where('user_id', $user->id)
+            ->lockForUpdate()
+            ->first();
+    }
+
+    private function nextConsentStateVersion(LocationSharingConsent $consent): int
+    {
+        return $consent->exists ? max(1, (int) $consent->state_version + 1) : 1;
     }
 
     private function broadcastLocationSharingChange(Incident $incident): void

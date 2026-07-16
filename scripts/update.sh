@@ -1,8 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+LIFECYCLE_SOURCE_PATH="${BASH_SOURCE[0]}"
+case "${LIFECYCLE_SOURCE_PATH}" in */*) SCRIPT_DIR="${LIFECYCLE_SOURCE_PATH%/*}" ;; *) SCRIPT_DIR=. ;; esac
+LIFECYCLE_SOURCE_NAME="${LIFECYCLE_SOURCE_PATH##*/}"
+SCRIPT_DIR="$(cd -- "${SCRIPT_DIR}" && pwd -P)"
+bootstrap_root_lifecycle_source() {
+  local path="$1" parent current="" component metadata mode
+  [ -f "${path}" ] && [ ! -L "${path}" ] || return 1
+  metadata="$(/usr/bin/stat -c '%u:%a:%h' -- "${path}" 2>/dev/null || true)"; [[ "${metadata}" =~ ^0:([0-7]+):1$ ]] || return 1
+  mode="${BASH_REMATCH[1]}"; (( (8#${mode} & 8#022) == 0 )) || return 1
+  metadata="$(/usr/bin/stat -c '%u:%a' -- / 2>/dev/null || true)"; [[ "${metadata}" =~ ^0:([0-7]+)$ ]] || return 1; mode="${BASH_REMATCH[1]}"; (( (8#${mode} & 8#022) == 0 )) || return 1
+  parent="${path%/*}"; IFS='/' read -r -a bootstrap_components <<< "${parent#/}"
+  for component in "${bootstrap_components[@]}"; do [ -n "${component}" ] || continue; current="${current}/${component}"; [ -d "${current}" ] && [ ! -L "${current}" ] || return 1; metadata="$(/usr/bin/stat -c '%u:%a' -- "${current}" 2>/dev/null || true)"; [[ "${metadata}" =~ ^0:([0-7]+)$ ]] || return 1; mode="${BASH_REMATCH[1]}"; (( (8#${mode} & 8#022) == 0 )) || return 1; done
+}
+if [ "${EUID}" -eq 0 ]; then [ ! -L "${BASH_SOURCE[0]}" ] && bootstrap_root_lifecycle_source "${SCRIPT_DIR}/${LIFECYCLE_SOURCE_NAME}" && bootstrap_root_lifecycle_source "${SCRIPT_DIR}/lib/common.sh" || { printf '[dis:error] Lifecycle sources must be root-owned, single-link and non-writable by group/world.\n' >&2; exit 1; }; fi
+unset -f bootstrap_root_lifecycle_source
+APP_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 UPDATE_SYSTEM=1
@@ -256,11 +270,16 @@ EOF
   fi
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-request-worker.sh" /usr/local/bin/dis-backup-request-worker
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/snapshot-backup-input.sh" /usr/local/bin/dis-snapshot-backup-input
+  install_osrm_admin_runtime_bundle "${DIS_INSTALL_PATH}"
   remove_legacy_backup_entrypoints
   install_php_fpm_privileged_helpers_override
   install_backup_request_systemd_units "${DIS_INSTALL_PATH}"
+  install_osrm_admin_layout
+  install_osrm_admin_request_systemd_units "${DIS_INSTALL_PATH}"
   run_cmd systemctl daemon-reload
-  run_cmd systemctl enable dis-backup-request.path dis-backup-request.timer >/dev/null 2>&1 || true
+  run_cmd systemctl enable \
+    dis-backup-request.path dis-backup-request.timer \
+    dis-osrm-admin-request.path dis-osrm-admin-request.timer >/dev/null
 }
 
 install_update_privileges() {
@@ -274,6 +293,16 @@ install_update_privileges() {
   log "Installing update sudo privileges"
   run_cmd install -m 0440 "${sudoers_source}" /etc/sudoers.d/dis-update
   run_cmd visudo -cf /etc/sudoers.d/dis-update
+}
+
+reconcile_osrm() {
+  if [ ! -f "${DIS_INSTALL_PATH}/scripts/osrm.sh" ]; then
+    return
+  fi
+
+  log "Reconciling optional local OSRM routing"
+  APP_ROOT="${DIS_INSTALL_PATH}" bash "${DIS_INSTALL_PATH}/scripts/osrm.sh" reconcile
+  APP_ROOT="${DIS_INSTALL_PATH}" bash "${DIS_INSTALL_PATH}/scripts/osrm.sh" publish-status
 }
 
 clear_application_caches() {
@@ -614,8 +643,11 @@ run_cmd rm -f -- "${DIS_INSTALL_PATH}/webapp/backend/storage/app/backup-config.e
 
 trap 'update_exit_handler "$?"' EXIT
 enable_frontend_maintenance
-stop_dis_deployment_services
+# Mark the partial stop before the first systemd mutation. If a broker fails to
+# become idle, the pre-mutation recovery path must restart Path/Timer units that
+# were already stopped by stop_dis_deployment_services.
 DEPLOYMENT_SERVICES_STOPPED=1
+stop_dis_deployment_services
 self_heal_permissions
 enable_deployment_maintenance "${DIS_INSTALL_PATH}/webapp/backend"
 
@@ -641,6 +673,7 @@ if [ "${SYSTEM_UPDATES_AVAILABLE}" = "0" ] && [ "${APP_UPDATES_AVAILABLE}" = "0"
   self_heal_permissions
   clear_application_caches
   self_heal_permissions
+  reconcile_osrm
   finalize_backup_key_cutover "${DIS_INSTALL_PATH}"
   verify_update_and_open_production
   trap - EXIT
@@ -700,6 +733,10 @@ if [ "${UPDATE_APP}" = "1" ]; then
     self_heal_permissions
     assert_backend_routes
   fi
+fi
+
+if [ "${UPDATE_APP}" != "1" ] || [ "${APP_UPDATES_AVAILABLE}" = "0" ]; then
+  reconcile_osrm
 fi
 
 finalize_backup_key_cutover "${DIS_INSTALL_PATH}"

@@ -2,12 +2,13 @@
 
 namespace App\Services;
 
+use App\Contracts\PushProvider;
 use App\Models\FcmToken;
 use App\Services\Apple\ApnsClient;
 use App\Services\Firebase\FcmClient;
 use Illuminate\Http\Client\Response;
 
-final class PushProviderClient
+final class PushProviderClient implements PushProvider
 {
     public function __construct(private readonly FcmClient $fcm, private readonly ApnsClient $apns) {}
 

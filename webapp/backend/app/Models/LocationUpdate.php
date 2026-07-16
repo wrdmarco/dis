@@ -12,11 +12,12 @@ final class LocationUpdate extends Model
 
     public $timestamps = false;
 
-    protected $fillable = ['incident_id', 'user_id', 'latitude', 'longitude', 'accuracy_meters', 'recorded_at', 'created_at'];
+    protected $fillable = ['incident_id', 'user_id', 'consent_state_version', 'latitude', 'longitude', 'accuracy_meters', 'recorded_at', 'created_at'];
 
     protected function casts(): array
     {
         return [
+            'consent_state_version' => 'integer',
             'latitude' => 'decimal:7',
             'longitude' => 'decimal:7',
             'accuracy_meters' => 'decimal:2',

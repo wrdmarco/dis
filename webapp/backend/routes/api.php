@@ -3,6 +3,7 @@
 use App\Http\Controllers\AddressBookController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AdminDeveloperController;
+use App\Http\Controllers\AdminOsrmController;
 use App\Http\Controllers\AdminPushController;
 use App\Http\Controllers\AdminStoreReviewController;
 use App\Http\Controllers\AssetController;
@@ -287,8 +288,16 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::post('/admin/developer-access/key', [AdminDeveloperController::class, 'generateDeveloperKey'])->middleware('permission:system.developer-access.manage');
         Route::delete('/admin/developer-access/key', [AdminDeveloperController::class, 'disableDeveloperKey'])->middleware('permission:system.developer-access.manage');
         Route::get('/admin/system/version', [AdminDeveloperController::class, 'version'])->middleware('permission:system.health.view');
+        Route::get('/admin/system/metrics', [HealthController::class, 'metrics'])
+            ->middleware(['permission:system.health.view', 'throttle:system-metrics']);
         Route::post('/admin/system/update', [AdminDeveloperController::class, 'runUpdate'])->middleware('permission:system.update.execute');
         Route::post('/admin/system/reboot', [AdminDeveloperController::class, 'reboot'])->middleware('permission:system.reboot.execute');
+        Route::get('/admin/routing/osrm', [AdminOsrmController::class, 'show'])
+            ->middleware(['permission:system.health.view,system.routing.manage', 'throttle:osrm-admin-read']);
+        Route::post('/admin/routing/osrm/operations', [AdminOsrmController::class, 'store'])
+            ->middleware(['permission:system.routing.manage', 'throttle:osrm-admin-write']);
+        Route::get('/admin/routing/osrm/operations/{operation}', [AdminOsrmController::class, 'operation'])
+            ->middleware(['permission:system.health.view,system.routing.manage', 'throttle:osrm-admin-read']);
         Route::get('/admin/backups', [BackupController::class, 'index'])->middleware('permission:backups.manage');
         Route::patch('/admin/backups/settings', [BackupController::class, 'updateSettings'])->middleware('permission:backups.manage');
         Route::post('/admin/backups/samba-shares', [BackupController::class, 'sambaShares'])->middleware('permission:backups.manage');

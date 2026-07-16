@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch DIS OSRM admin requests
+
+[Path]
+PathExistsGlob=@DIS_DATA_PATH@/osrm-admin/requests/*.pending
+Unit=dis-osrm-admin-request.service
+
+[Install]
+WantedBy=multi-user.target

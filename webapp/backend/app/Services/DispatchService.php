@@ -2,20 +2,25 @@
 
 namespace App\Services;
 
+use App\DTO\Routing\RouteEstimate;
+use App\DTO\Routing\RoutePoint;
+use App\DTO\Routing\RouteSource;
 use App\Events\DispatchChanged;
 use App\Events\IncidentChanged;
 use App\Jobs\SendFcmNotification;
 use App\Models\AvailabilityStatus;
+use App\Models\Certification;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
 use App\Models\Incident;
 use App\Models\SystemSetting;
 use App\Models\Team;
-use App\Models\Certification;
 use App\Models\User;
+use App\Services\Routing\RoutingService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -24,57 +29,113 @@ final class DispatchService
     public function __construct(
         private readonly AuditService $auditService,
         private readonly AvailabilityScheduleService $availabilityScheduleService,
+        private readonly DispatchPushOutboxService $dispatchPushOutboxService,
         private readonly IncidentFormService $incidentFormService,
+        private readonly LocationService $locationService,
+        private readonly RoutingService $routingService,
     ) {}
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function create(Incident $incident, array $data, User $actor): DispatchRequest
     {
-        if (in_array($incident->status, ['resolved', 'cancelled'], true)) {
-            throw ValidationException::withMessages(['incident_id' => ['Cannot dispatch for a closed incident.']]);
-        }
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $incident->refresh();
+            if (in_array($incident->status, ['resolved', 'cancelled'], true)) {
+                throw ValidationException::withMessages(['incident_id' => ['Cannot dispatch for a closed incident.']]);
+            }
 
-        return DB::transaction(function () use ($incident, $data, $actor): DispatchRequest {
             $targetTeam = $this->targetTeam($incident, $data);
             if ($targetTeam === null) {
                 throw ValidationException::withMessages(['team_code' => ['Het gekozen team bestaat niet.']]);
             }
 
+            // Route-provider I/O is intentionally completed before opening
+            // this transaction. The target is fingerprinted so a concurrent
+            // coordinate change cannot commit a stale ETA ranking.
+            $routeTarget = $this->incidentRouteFingerprint($incident);
             $eligibility = $this->selectDispatchUsers($incident, $targetTeam, $data, (bool) ($data['include_unavailable'] ?? false));
-            $eligible = $eligibility['users'];
-            if ($eligible->isEmpty()) {
+            if ($eligibility['users']->isEmpty()) {
                 throw ValidationException::withMessages(['team_code' => [$eligibility['message']]]);
             }
 
-            $dispatch = DispatchRequest::query()->create([
-                'incident_id' => $incident->id,
-                'requested_by' => $actor->id,
-                'requested_by_name' => $actor->name,
-                'requested_by_email' => $actor->email,
-                'target_team_id' => $targetTeam->id,
-                'status' => 'draft',
-                'priority' => $data['priority'],
-                'message' => $data['message'],
-                'includes_unavailable_recipients' => (bool) ($data['include_unavailable'] ?? false),
-            ]);
+            $created = DB::transaction(function () use ($incident, $data, $actor, $targetTeam, $eligibility, $routeTarget): ?DispatchRequest {
+                $currentIncident = Incident::query()->lockForUpdate()->findOrFail($incident->id);
+                if (in_array($currentIncident->status, ['resolved', 'cancelled'], true)) {
+                    throw ValidationException::withMessages(['incident_id' => ['Cannot dispatch for a closed incident.']]);
+                }
+                if ($this->incidentRouteFingerprint($currentIncident) !== $routeTarget) {
+                    return null;
+                }
 
-            foreach ($eligible as $user) {
-                DispatchRecipient::query()->create([
-                    'dispatch_request_id' => $dispatch->id,
-                    'user_id' => $user->id,
-                    'user_name' => $user->name,
-                    'user_email' => $user->email,
-                    'response_status' => 'pending',
+                $currentTargetTeam = Team::query()->find($targetTeam->id);
+                if ($currentTargetTeam === null) {
+                    throw ValidationException::withMessages(['team_code' => ['Het gekozen team bestaat niet.']]);
+                }
+
+                // The incident row is already locked. This serializes creators
+                // even when no matching dispatch row exists yet, so two
+                // concurrent activation requests cannot both pass this check.
+                if (DispatchRequest::query()
+                    ->where('incident_id', $currentIncident->id)
+                    ->where('target_team_id', $currentTargetTeam->id)
+                    ->where('status', '!=', 'cancelled')
+                    ->lockForUpdate()
+                    ->exists()) {
+                    throw ValidationException::withMessages([
+                        'target_team_id' => ['Voor dit incident bestaat al een actieve alarmering voor het gekozen team.'],
+                    ]);
+                }
+
+                $revalidated = $this->revalidateDispatchUsers(
+                    $currentIncident,
+                    $currentTargetTeam,
+                    $eligibility['ranked_users'],
+                    $data,
+                    (bool) ($data['include_unavailable'] ?? false),
+                );
+                $eligible = $revalidated['users'];
+                if ($eligible->isEmpty()) {
+                    throw ValidationException::withMessages(['team_code' => [$revalidated['message']]]);
+                }
+
+                $dispatch = DispatchRequest::query()->create([
+                    'incident_id' => $currentIncident->id,
+                    'requested_by' => $actor->id,
+                    'requested_by_name' => $actor->name,
+                    'requested_by_email' => $actor->email,
+                    'target_team_id' => $currentTargetTeam->id,
+                    'status' => 'draft',
+                    'priority' => $data['priority'],
+                    'message' => $data['message'],
+                    'includes_unavailable_recipients' => (bool) ($data['include_unavailable'] ?? false),
                 ]);
+
+                foreach ($eligible as $user) {
+                    DispatchRecipient::query()->create([
+                        'dispatch_request_id' => $dispatch->id,
+                        'user_id' => $user->id,
+                        'user_name' => $user->name,
+                        'user_email' => $user->email,
+                        'response_status' => 'pending',
+                    ]);
+                }
+
+                $this->auditService->record('dispatch.created', $dispatch, $actor, ['recipient_count' => $eligible->count()]);
+                $this->broadcastDispatchChange($dispatch, 'created');
+
+                return $dispatch->load(['incident', 'recipients']);
+            });
+
+            if ($created !== null) {
+                return $created;
             }
+        }
 
-            $this->auditService->record('dispatch.created', $dispatch, $actor, ['recipient_count' => $eligible->count()]);
-            $this->broadcastDispatchChange($dispatch, 'created');
-
-            return $dispatch->load(['incident', 'recipients']);
-        });
+        throw ValidationException::withMessages([
+            'incident_id' => ['De incidentlocatie wijzigde tijdens de selectie. Probeer de alarmering opnieuw.'],
+        ]);
     }
 
     /**
@@ -186,6 +247,7 @@ final class DispatchService
                     ] + $options, $actor);
                 } catch (ValidationException $exception) {
                     $warnings = array_merge($warnings, $this->validationMessages($exception));
+
                     continue;
                 }
             }
@@ -326,7 +388,9 @@ final class DispatchService
                 $blockedReasons[] = $eligibility['message'];
             }
         }
-        $eligibleUsers = $this->rankUsersByIncidentEta($incident, $eligibleUsers->unique('id')->values());
+        $eligibleUsers = $eligibleUsers->unique('id')->values();
+        $routeEstimates = $this->routeEstimatesForUsers($incident, $eligibleUsers);
+        $eligibleUsers = $this->rankUsersByIncidentEta($eligibleUsers, $routeEstimates);
         $requestedCount = $this->requestedRecipientCount($options);
         if ($requestedCount !== null) {
             $eligibleUsers = $eligibleUsers->take($requestedCount)->values();
@@ -345,18 +409,23 @@ final class DispatchService
                 'name' => $team->name,
             ])->values()->all(),
             'recipients' => $eligibleUsers
-                ->map(fn (User $user): array => [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'home_city' => $user->home_city,
-                    'eta_minutes' => $this->estimatedEtaMinutesForUser($incident, $user),
-                    'teams' => $user->teams->map(fn (Team $team): array => [
-                        'id' => $team->id,
-                        'code' => $team->code,
-                        'name' => $team->name,
-                    ])->values(),
-                ])
+                ->map(function (User $user) use ($routeEstimates): array {
+                    $estimate = $routeEstimates[(string) $user->id] ?? RouteEstimate::unknown();
+
+                    return [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'home_city' => $user->home_city,
+                        'eta_minutes' => $this->etaRingMinutes($estimate),
+                        'eta_source' => $estimate->source->value,
+                        'teams' => $user->teams->map(fn (Team $team): array => [
+                            'id' => $team->id,
+                            'code' => $team->code,
+                            'name' => $team->name,
+                        ])->values(),
+                    ];
+                })
                 ->values()
                 ->all(),
             'blocked_reason' => $eligibleUsers->isEmpty() ? implode(' ', array_unique($blockedReasons)) : null,
@@ -366,87 +435,253 @@ final class DispatchService
 
     public function markSent(DispatchRequest $dispatch, User $actor): DispatchRequest
     {
-        return DB::transaction(function () use ($dispatch, $actor): DispatchRequest {
-        $wasPreannouncement = $dispatch->status === 'draft'
-            && $dispatch->recipients()->whereNotNull('notified_at')->exists();
-        $updates = ['status' => 'sent', 'sent_at' => now()];
-        if ($wasPreannouncement && $dispatch->incident !== null) {
-            $updates['message'] = $this->defaultDispatchMessage($dispatch->incident);
+        $dispatch->refresh();
+        if ($dispatch->status === 'sent') {
+            $this->flushDispatchPushOutboxAfterCommit((string) $dispatch->id);
+
+            return $dispatch->load(['incident', 'targetTeam', 'recipients']);
+        }
+        if ($dispatch->status !== 'draft') {
+            throw ValidationException::withMessages([
+                'dispatch' => ['Alleen een conceptalarmering kan worden verstuurd.'],
+            ]);
         }
 
-        $dispatch->update($updates);
-        $dispatch->recipients()
-            ->whereDoesntHave('user.fcmTokens', fn ($tokens) => $this->onlineOperatorTokenQuery($tokens))
-            ->delete();
-        if (! $dispatch->recipients()->exists()) {
-            throw ValidationException::withMessages(['dispatch' => ['Er zijn geen online operator-devices meer beschikbaar voor deze alarmering.']]);
-        }
-        if ($wasPreannouncement) {
-            $dispatch->recipients()
-                ->where('response_status', 'accepted')
-                ->update([
-                    'response_status' => 'pending',
-                    'response_note' => 'Was beschikbaar bij de vooraankondiging; wacht op reactie op de alarmering.',
-                    'responded_at' => null,
+        // Routing stays outside this transaction. The destination fingerprint
+        // is checked again under the incident lock; one concurrent location
+        // change causes a fresh selection instead of using a stale ranking.
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $plan = $this->prepareSendCandidatePlan($dispatch);
+            $dispatchMetadata = DispatchRequest::query()
+                ->select(['id', 'incident_id'])
+                ->find($dispatch->id);
+            if ($dispatchMetadata === null) {
+                throw ValidationException::withMessages([
+                    'dispatch' => ['Deze alarmering bestaat niet meer.'],
                 ]);
-        }
-        $dispatch->recipients()->whereNull('notified_at')->update(['notified_at' => now()]);
-        $dispatch->load([
-            'incident',
-            'recipients.user.fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens),
-            'recipients.user.statuses' => fn ($statuses) => $statuses->latestPerUser(),
-        ]);
-        $dispatchTitle = $this->pushTemplate('dispatch_title', 'NDT Alarmering', $this->pushTemplateTokens($dispatch->incident));
-
-        foreach ($dispatch->recipients as $recipient) {
-                if (! in_array($recipient->response_status, ['pending', 'accepted'], true)) {
-                    continue;
-                }
-
-                $user = $recipient->user;
-                $unavailableEscalation = $dispatch->includes_unavailable_recipients
-                    && $user !== null
-                    && ! $this->isOperationallyAvailable($user);
-                $notificationTitle = $unavailableEscalation
-                    ? $this->pushTemplate(
-                        'dispatch_unavailable_escalation_title',
-                        'NDT urgente opschaling',
-                        $this->pushTemplateTokens($dispatch->incident),
-                    )
-                    : $dispatchTitle;
-                $notificationBody = $unavailableEscalation && $user !== null
-                    ? $this->unavailableEscalationNotificationBody($dispatch, $user)
-                    : $this->notificationBody($dispatch);
-                $notificationData = $this->notificationData($dispatch) + [
-                    'unavailable_escalation' => $unavailableEscalation ? 'true' : 'false',
-                ];
-
-                foreach ($recipient->user?->fcmTokens ?? [] as $token) {
-                    SendFcmNotification::dispatch(
-                        (string) $token->id,
-                        'dispatch_request',
-                        $notificationTitle,
-                        $notificationBody,
-                        $notificationData,
-                        (string) $dispatch->id,
-                    )->onQueue('push');
-                }
             }
+            $dispatchIncidentId = (string) $dispatchMetadata->incident_id;
 
-            if ($dispatch->incident !== null) {
+            $result = DB::transaction(function () use ($dispatch, $actor, $plan, $dispatchIncidentId): ?array {
+                // Every operational write uses the same parent-to-child lock
+                // order: incident, dispatch, recipient/outbox. This avoids the
+                // former deadlock with incident activation holding the incident
+                // row while a direct send held the dispatch row.
+                $incident = Incident::query()->lockForUpdate()->find($dispatchIncidentId);
+                if ($incident === null) {
+                    throw ValidationException::withMessages([
+                        'dispatch' => ['Het incident van deze alarmering bestaat niet meer.'],
+                    ]);
+                }
+                $currentDispatch = DispatchRequest::query()->lockForUpdate()->find($dispatch->id);
+                if ($currentDispatch === null) {
+                    throw ValidationException::withMessages([
+                        'dispatch' => ['Deze alarmering bestaat niet meer.'],
+                    ]);
+                }
+                if ((string) $currentDispatch->incident_id !== $dispatchIncidentId) {
+                    return null;
+                }
+                if ($currentDispatch->status === 'sent') {
+                    return [
+                        'dispatch' => $currentDispatch->load(['incident', 'targetTeam', 'recipients']),
+                    ];
+                }
+                if ($currentDispatch->status !== 'draft') {
+                    throw ValidationException::withMessages([
+                        'dispatch' => ['Alleen een conceptalarmering kan worden verstuurd.'],
+                    ]);
+                }
+
+                if (in_array($incident->status, ['resolved', 'cancelled'], true)) {
+                    throw ValidationException::withMessages([
+                        'dispatch' => ['Voor een gesloten incident kan geen alarmering worden verstuurd.'],
+                    ]);
+                }
+                if ($this->incidentRouteFingerprint($incident) !== $plan['route_target']) {
+                    return null;
+                }
+
+                $targetTeam = Team::query()->find($currentDispatch->target_team_id);
+                if ($targetTeam === null) {
+                    throw ValidationException::withMessages([
+                        'dispatch' => ['Het team van deze alarmering bestaat niet meer.'],
+                    ]);
+                }
+
+                $lockedRecipients = $currentDispatch->recipients()->lockForUpdate()->get();
+                $requestedCount = $lockedRecipients->count();
+                if ($requestedCount === 0) {
+                    throw ValidationException::withMessages([
+                        'dispatch' => ['Deze alarmering heeft geen ontvangers.'],
+                    ]);
+                }
+                $wasPreannouncement = $lockedRecipients->contains(
+                    fn (DispatchRecipient $recipient): bool => $recipient->notified_at !== null,
+                );
+                $rankedCandidates = $this->prioritizeSendCandidates(
+                    $plan['ranked_users'],
+                    $lockedRecipients,
+                );
+                $revalidated = $this->revalidateDispatchUsers(
+                    $incident,
+                    $targetTeam,
+                    $rankedCandidates,
+                    ['dispatch_recipient_count' => $requestedCount],
+                    (bool) $currentDispatch->includes_unavailable_recipients,
+                );
+                if ($revalidated['users']->isEmpty()) {
+                    throw ValidationException::withMessages([
+                        'dispatch' => [$revalidated['message']],
+                    ]);
+                }
+
+                $selectedUsers = $revalidated['users'];
+                $selectedUserIds = $selectedUsers
+                    ->pluck('id')
+                    ->map(fn (mixed $id): string => (string) $id)
+                    ->all();
+                $currentDispatch->recipients()->whereNotIn('user_id', $selectedUserIds)->delete();
+                $existingRecipients = $lockedRecipients->keyBy(fn (DispatchRecipient $recipient): string => (string) $recipient->user_id);
+                $alarmNotifiedAt = now();
+
+                foreach ($selectedUsers as $user) {
+                    $recipient = $existingRecipients->get((string) $user->id)
+                        ?? new DispatchRecipient([
+                            'dispatch_request_id' => $currentDispatch->id,
+                            'user_id' => $user->id,
+                        ]);
+                    $wasAvailable = $wasPreannouncement && $recipient->response_status === 'accepted';
+                    $recipient->fill([
+                        'user_name' => $user->name,
+                        'user_email' => $user->email,
+                        'response_status' => 'pending',
+                        'response_note' => $wasAvailable
+                            ? 'Was beschikbaar bij de vooraankondiging; wacht op reactie op de alarmering.'
+                            : null,
+                        'responded_at' => null,
+                        // This field represents the current alarm notification;
+                        // replace the earlier preannouncement timestamp.
+                        'notified_at' => $alarmNotifiedAt,
+                    ]);
+                    $recipient->save();
+                }
+
+                $currentDispatch->recipients()
+                    ->whereDoesntHave('user.fcmTokens', fn ($tokens) => $this->onlineOperatorTokenQuery($tokens))
+                    ->delete();
+                $currentDispatch->setRelation('incident', $incident);
+                $currentDispatch->load([
+                    'recipients.user.fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens),
+                    'recipients.user.statuses' => fn ($statuses) => $statuses->latestPerUser(),
+                ]);
+                if ($currentDispatch->recipients->isEmpty()) {
+                    throw ValidationException::withMessages([
+                        'dispatch' => ['Er zijn geen online operator-devices meer beschikbaar voor deze alarmering.'],
+                    ]);
+                }
+
+                $updates = ['status' => 'sent', 'sent_at' => $alarmNotifiedAt];
+                if ($wasPreannouncement) {
+                    $updates['message'] = $this->defaultDispatchMessage($incident);
+                }
+                $currentDispatch->update($updates);
+                $dispatchTitle = $this->pushTemplate(
+                    'dispatch_title',
+                    'NDT Alarmering',
+                    $this->pushTemplateTokens($incident),
+                );
+                $notificationCount = 0;
+
+                foreach ($currentDispatch->recipients as $recipient) {
+                    $user = $recipient->user;
+                    $unavailableEscalation = $currentDispatch->includes_unavailable_recipients
+                        && $user !== null
+                        && ! $this->isOperationallyAvailable($user);
+                    $notificationTitle = $unavailableEscalation
+                        ? $this->pushTemplate(
+                            'dispatch_unavailable_escalation_title',
+                            'NDT urgente opschaling',
+                            $this->pushTemplateTokens($incident),
+                        )
+                        : $dispatchTitle;
+                    $notificationBody = $unavailableEscalation && $user !== null
+                        ? $this->unavailableEscalationNotificationBody($currentDispatch, $user)
+                        : $this->notificationBody($currentDispatch);
+                    $notificationData = $this->notificationData($currentDispatch) + [
+                        'unavailable_escalation' => $unavailableEscalation ? 'true' : 'false',
+                    ];
+
+                    foreach ($user?->fcmTokens ?? [] as $token) {
+                        $this->dispatchPushOutboxService->store(
+                            dispatchRequestId: (string) $currentDispatch->id,
+                            fcmTokenId: (string) $token->id,
+                            messageType: 'dispatch_request',
+                            title: $notificationTitle,
+                            body: $notificationBody,
+                            data: $notificationData,
+                        );
+                        $notificationCount++;
+                    }
+                }
+                if ($notificationCount === 0) {
+                    throw ValidationException::withMessages([
+                        'dispatch' => ['Er zijn geen online operator-devices meer beschikbaar voor deze alarmering.'],
+                    ]);
+                }
+
                 $this->transitionIncidentStatus(
-                    $dispatch->incident,
+                    $incident,
                     $actor,
                     'dispatching',
                     'Automatisch naar alarmeren gezet nadat de alarmering is verstuurd.',
                 );
+                $this->auditService->record('dispatch.sent', $currentDispatch, $actor);
+                $this->broadcastDispatchChange($currentDispatch, 'sent');
+
+                return [
+                    'dispatch' => $currentDispatch->refresh()->load(['incident', 'targetTeam', 'recipients']),
+                ];
+            });
+
+            if ($result === null) {
+                $dispatch->refresh();
+
+                continue;
             }
 
-            $this->auditService->record('dispatch.sent', $dispatch, $actor);
-            $this->broadcastDispatchChange($dispatch, 'sent');
+            $this->flushDispatchPushOutboxAfterCommit((string) $result['dispatch']->id);
 
-            return $dispatch->refresh()->load(['recipients']);
-        });
+            return $result['dispatch'];
+        }
+
+        throw ValidationException::withMessages([
+            'dispatch' => ['De incidentlocatie wijzigde tijdens de selectie. Probeer de alarmering opnieuw.'],
+        ]);
+    }
+
+    private function flushDispatchPushOutboxAfterCommit(string $dispatchRequestId): void
+    {
+        $flush = function () use ($dispatchRequestId): void {
+            try {
+                $this->dispatchPushOutboxService->flushPending(100, $dispatchRequestId);
+            } catch (Throwable $exception) {
+                // The alarm and outbox rows are already durable. A later
+                // scheduler run will retry; never turn that committed alarm
+                // into a misleading HTTP failure or log queue credentials.
+                Log::warning('Dispatch push outbox flush failed after commit.', [
+                    'dispatch_request_id' => $dispatchRequestId,
+                    'exception_class' => $exception::class,
+                ]);
+            }
+        };
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit($flush);
+
+            return;
+        }
+
+        $flush();
     }
 
     public function respond(DispatchRequest $dispatch, User $actor, string $response, ?string $note): DispatchRecipient
@@ -460,6 +695,7 @@ final class DispatchService
             'response_note' => $note ?? $this->defaultResponseNote($response, $isPreannouncement),
             'responded_at' => now(),
         ]);
+        $this->revokeLocationConsentAfterNonAttendance($dispatch, $actor, $actor, $response);
         $this->auditService->record('dispatch.responded', $dispatch, $actor, [
             'response' => $response,
             'action_mode' => $isTestAlert ? 'test_ack' : ($isPreannouncement ? 'availability' : 'attendance'),
@@ -531,6 +767,10 @@ final class DispatchService
             'response_note' => $note,
             'responded_at' => $response === 'pending' ? null : now(),
         ]);
+        $recipient->loadMissing('user');
+        if ($recipient->user !== null) {
+            $this->revokeLocationConsentAfterNonAttendance($dispatch, $recipient->user, $actor, $response);
+        }
 
         $this->auditService->record('dispatch.recipient_response_overridden', $dispatch, $actor, [
             'recipient_id' => $recipient->id,
@@ -543,6 +783,32 @@ final class DispatchService
         }
 
         return $recipient->refresh()->load('user');
+    }
+
+    private function revokeLocationConsentAfterNonAttendance(
+        DispatchRequest $dispatch,
+        User $target,
+        User $actor,
+        string $response,
+    ): void {
+        if (! in_array($response, ['declined', 'no_response'], true)) {
+            return;
+        }
+
+        $dispatch->loadMissing('incident');
+        if ($dispatch->incident === null) {
+            return;
+        }
+
+        $stillAttending = $dispatch->incident->dispatchRequests()
+            ->whereIn('status', ['sent', 'escalated'])
+            ->whereHas('recipients', fn ($recipients) => $recipients
+                ->where('user_id', $target->id)
+                ->where('response_status', 'accepted'))
+            ->exists();
+        if (! $stillAttending) {
+            $this->locationService->revokeForIncident($dispatch->incident, $target, $actor);
+        }
     }
 
     /**
@@ -573,11 +839,11 @@ final class DispatchService
         $body = $this->pushTemplate('additional_info_body', '{{message}}', $tokens);
         foreach ($recipients as $recipient) {
             foreach ($recipient->user?->fcmTokens->where('is_active', true) ?? [] as $token) {
-                    SendFcmNotification::dispatch(
-                        (string) $token->id,
-                        'dispatch_update',
-                        $title,
-                        $body,
+                SendFcmNotification::dispatch(
+                    (string) $token->id,
+                    'dispatch_update',
+                    $title,
+                    $body,
                     [
                         'type' => 'dispatch_update',
                         'action_mode' => 'additional_info',
@@ -604,7 +870,7 @@ final class DispatchService
     }
 
     /**
-     * @param array<int, string> $teamIds
+     * @param  array<int, string>  $teamIds
      */
     public function escalate(DispatchRequest $dispatch, User $actor, array $teamIds = [], bool $includeUnavailable = false): DispatchRequest
     {
@@ -694,7 +960,7 @@ final class DispatchService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     private function targetTeam(Incident $incident, array $data): ?Team
     {
@@ -714,7 +980,7 @@ final class DispatchService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      * @return Collection<int, Team>
      */
     private function targetTeams(Incident $incident, array $data): Collection
@@ -736,7 +1002,7 @@ final class DispatchService
     }
 
     /**
-     * @param array<int, string> $teamIds
+     * @param  array<int, string>  $teamIds
      * @return Collection<int, Team>
      */
     private function teamsForEscalation(DispatchRequest $dispatch, array $teamIds): Collection
@@ -772,18 +1038,87 @@ final class DispatchService
     }
 
     /**
-     * @return array{users: Collection<int, User>, message: string}
+     * @return array{ranked_users: Collection<int, User>, route_target: string, message: string}
+     */
+    private function prepareSendCandidatePlan(DispatchRequest $dispatch): array
+    {
+        $dispatch->load(['incident', 'targetTeam']);
+        if ($dispatch->incident === null || $dispatch->targetTeam === null) {
+            throw ValidationException::withMessages([
+                'dispatch' => ['Deze alarmering mist een geldig incident of team.'],
+            ]);
+        }
+
+        $selection = $this->selectDispatchUsers(
+            $dispatch->incident,
+            $dispatch->targetTeam,
+            [],
+            (bool) $dispatch->includes_unavailable_recipients,
+        );
+
+        return [
+            'ranked_users' => $selection['ranked_users'],
+            'route_target' => $this->incidentRouteFingerprint($dispatch->incident),
+            'message' => $selection['message'],
+        ];
+    }
+
+    /**
+     * Keep pilots who accepted the preannouncement first, then unanswered
+     * selected pilots, and finally ETA-ranked backfill candidates. Explicitly
+     * declined/no-response recipients never receive the actual alarm.
+     *
+     * @param  Collection<int, User>  $rankedUsers
+     * @param  Collection<int, DispatchRecipient>  $recipients
+     * @return Collection<int, User>
+     */
+    private function prioritizeSendCandidates(Collection $rankedUsers, Collection $recipients): Collection
+    {
+        $statuses = $recipients->mapWithKeys(
+            fn (DispatchRecipient $recipient): array => [(string) $recipient->user_id => $recipient->response_status],
+        );
+
+        return $rankedUsers
+            ->values()
+            ->map(function (User $user, int $index) use ($statuses): array {
+                $status = $statuses->get((string) $user->id);
+
+                return [
+                    'user' => $user,
+                    'index' => $index,
+                    'priority' => match ($status) {
+                        'accepted' => 0,
+                        'pending' => 1,
+                        null => 2,
+                        default => 3,
+                    },
+                ];
+            })
+            ->filter(fn (array $candidate): bool => $candidate['priority'] < 3)
+            ->sort(fn (array $left, array $right): int => ($left['priority'] <=> $right['priority'])
+                ?: ($left['index'] <=> $right['index']))
+            ->pluck('user')
+            ->values();
+    }
+
+    private function incidentRouteFingerprint(Incident $incident): string
+    {
+        return $this->routePoint($incident->latitude, $incident->longitude)?->fingerprint() ?? 'no-route-target';
+    }
+
+    /**
+     * @return array{users: Collection<int, User>, ranked_users: Collection<int, User>, message: string}
      */
     private function selectDispatchUsers(Incident $incident, Team $targetTeam, array $data, bool $includeUnavailable = false): array
     {
         $eligibility = $this->eligibleUsers($targetTeam, $includeUnavailable);
         $alreadyAcceptedUserIds = $this->acceptedAttendanceUserIds($incident);
-        $users = $this->rankUsersByIncidentEta(
-            $incident,
-            $eligibility['users']
-                ->reject(fn (User $user): bool => $alreadyAcceptedUserIds->contains($user->id))
-                ->values(),
-        );
+        $candidates = $eligibility['users']
+            ->reject(fn (User $user): bool => $alreadyAcceptedUserIds->contains($user->id))
+            ->values();
+        $routeEstimates = $this->routeEstimatesForUsers($incident, $candidates);
+        $rankedUsers = $this->rankUsersByIncidentEta($candidates, $routeEstimates);
+        $users = $rankedUsers;
         $requestedCount = $this->requestedRecipientCount($data);
         if ($requestedCount !== null) {
             $users = $users->take($requestedCount)->values();
@@ -791,6 +1126,51 @@ final class DispatchService
         $message = $eligibility['message'];
         if ($users->isEmpty() && $eligibility['users']->isNotEmpty()) {
             $message = "Alle alarmeerbare gebruikers voor team {$targetTeam->code} hebben voor dit incident al aangegeven dat ze komen.";
+        }
+
+        return [
+            'users' => $users,
+            'ranked_users' => $rankedUsers,
+            'message' => $message,
+        ];
+    }
+
+    /**
+     * Recheck all volatile dispatch rules after routing I/O while preserving
+     * the route order and keeping enough candidates to backfill a changed user.
+     *
+     * @param  Collection<int, User>  $rankedUsers
+     * @return array{users: Collection<int, User>, message: string}
+     */
+    private function revalidateDispatchUsers(
+        Incident $incident,
+        Team $targetTeam,
+        Collection $rankedUsers,
+        array $data,
+        bool $includeUnavailable,
+    ): array {
+        $eligibility = $this->eligibleUsers($targetTeam, $includeUnavailable);
+        $eligibleUserIds = array_fill_keys(
+            $eligibility['users']->pluck('id')->map(fn (mixed $id): string => (string) $id)->all(),
+            true,
+        );
+        $alreadyAcceptedUserIds = array_fill_keys(
+            $this->acceptedAttendanceUserIds($incident)->map(fn (mixed $id): string => (string) $id)->all(),
+            true,
+        );
+        $users = $rankedUsers
+            ->filter(fn (User $user): bool => isset($eligibleUserIds[(string) $user->id])
+                && ! isset($alreadyAcceptedUserIds[(string) $user->id]))
+            ->values();
+
+        $requestedCount = $this->requestedRecipientCount($data);
+        if ($requestedCount !== null) {
+            $users = $users->take($requestedCount)->values();
+        }
+
+        $message = $eligibility['message'];
+        if ($users->isEmpty() && $eligibility['users']->isNotEmpty()) {
+            $message = "Alle alarmeerbare gebruikers voor team {$targetTeam->code} hebben voor dit incident al aangegeven dat ze komen of hun geschiktheid is tijdens de selectie gewijzigd.";
         }
 
         return [
@@ -895,51 +1275,79 @@ final class DispatchService
     }
 
     /**
-     * @param Collection<int, User> $users
+     * @param  Collection<int, User>  $users
+     * @param  array<string, RouteEstimate>  $routeEstimates
      * @return Collection<int, User>
      */
-    private function rankUsersByIncidentEta(Incident $incident, Collection $users): Collection
+    private function rankUsersByIncidentEta(Collection $users, array $routeEstimates): Collection
     {
         return $users
-            ->map(fn (User $user): array => [
-                'user' => $user,
-                'eta_minutes' => $this->estimatedEtaMinutesForUser($incident, $user),
-                'distance_km' => $this->distanceKmForUser($incident, $user),
-            ])
+            ->map(function (User $user) use ($routeEstimates): array {
+                $estimate = $routeEstimates[(string) $user->id] ?? RouteEstimate::unknown();
+
+                return [
+                    'user' => $user,
+                    'source_priority' => match ($estimate->source) {
+                        RouteSource::Navigation => 0,
+                        RouteSource::Fallback => 1,
+                        RouteSource::Unknown => 2,
+                    },
+                    'duration_seconds' => $estimate->duration,
+                    'distance_meters' => $estimate->distance,
+                ];
+            })
             ->sort(function (array $left, array $right): int {
-                return (($left['eta_minutes'] ?? PHP_INT_MAX) <=> ($right['eta_minutes'] ?? PHP_INT_MAX))
-                    ?: (($left['distance_km'] ?? PHP_INT_MAX) <=> ($right['distance_km'] ?? PHP_INT_MAX))
+                return ($left['source_priority'] <=> $right['source_priority'])
+                    ?: (($left['duration_seconds'] ?? PHP_INT_MAX) <=> ($right['duration_seconds'] ?? PHP_INT_MAX))
+                    ?: (($left['distance_meters'] ?? PHP_INT_MAX) <=> ($right['distance_meters'] ?? PHP_INT_MAX))
                     ?: strcmp($left['user']->name, $right['user']->name);
             })
             ->pluck('user')
             ->values();
     }
 
-    private function estimatedEtaMinutesForUser(Incident $incident, User $user): ?int
+    private function etaRingMinutes(RouteEstimate $estimate): ?int
     {
-        $distanceKm = $this->distanceKmForUser($incident, $user);
-        if ($distanceKm === null) {
+        if ($estimate->duration === null) {
             return null;
         }
 
-        $speedKmh = max(1.0, (float) config('dis.dispatch.estimated_eta_speed_kmh', 60));
         $ringMinutes = max(1, (int) config('dis.dispatch.eta_ring_minutes', 15));
-        $minutes = ($distanceKm / $speedKmh) * 60;
+        $minutes = $estimate->duration / 60;
 
         return max($ringMinutes, (int) ceil($minutes / $ringMinutes) * $ringMinutes);
     }
 
-    private function distanceKmForUser(Incident $incident, User $user): ?float
+    /**
+     * @param  Collection<int, User>  $users
+     * @return array<string, RouteEstimate>
+     */
+    private function routeEstimatesForUsers(Incident $incident, Collection $users): array
     {
-        $incidentLatitude = $this->coordinate($incident->latitude, -90, 90);
-        $incidentLongitude = $this->coordinate($incident->longitude, -180, 180);
-        $homeLatitude = $this->coordinate($user->home_latitude, -90, 90);
-        $homeLongitude = $this->coordinate($user->home_longitude, -180, 180);
-        if ($incidentLatitude === null || $incidentLongitude === null || $homeLatitude === null || $homeLongitude === null) {
-            return null;
+        $destination = $this->routePoint($incident->latitude, $incident->longitude);
+        if ($destination === null) {
+            return [];
         }
 
-        return $this->distanceKm($homeLatitude, $homeLongitude, $incidentLatitude, $incidentLongitude);
+        $origins = [];
+        foreach ($users as $user) {
+            $origin = $this->routePoint($user->home_latitude, $user->home_longitude);
+            if ($origin !== null) {
+                $origins[(string) $user->id] = $origin;
+            }
+        }
+
+        return $this->routingService->routesTo($origins, $destination);
+    }
+
+    private function routePoint(mixed $latitudeValue, mixed $longitudeValue): ?RoutePoint
+    {
+        $latitude = $this->coordinate($latitudeValue, -90, 90);
+        $longitude = $this->coordinate($longitudeValue, -180, 180);
+
+        return $latitude === null || $longitude === null
+            ? null
+            : new RoutePoint($latitude, $longitude);
     }
 
     private function coordinate(mixed $value, float $minimum, float $maximum): ?float
@@ -956,19 +1364,8 @@ final class DispatchService
         return $coordinate;
     }
 
-    private function distanceKm(float $fromLatitude, float $fromLongitude, float $toLatitude, float $toLongitude): float
-    {
-        $earthRadiusKm = 6371.0;
-        $latitudeDelta = deg2rad($toLatitude - $fromLatitude);
-        $longitudeDelta = deg2rad($toLongitude - $fromLongitude);
-        $a = sin($latitudeDelta / 2) ** 2
-            + cos(deg2rad($fromLatitude)) * cos(deg2rad($toLatitude)) * sin($longitudeDelta / 2) ** 2;
-
-        return $earthRadiusKm * 2 * atan2(sqrt($a), sqrt(1 - $a));
-    }
-
     /**
-     * @param Collection<int, string> $requiredCertificationIds
+     * @param  Collection<int, string>  $requiredCertificationIds
      */
     private function hasRequiredCertifications(User $user, Collection $requiredCertificationIds): bool
     {
@@ -988,7 +1385,7 @@ final class DispatchService
     }
 
     /**
-     * @param array{team_users: int, active_users: int, push_enabled_users: int, active_token_users: int, available_users: int, certified_users: int, required_certifications: int} $counts
+     * @param  array{team_users: int, active_users: int, push_enabled_users: int, active_token_users: int, available_users: int, certified_users: int, required_certifications: int}  $counts
      */
     private function eligibilityFailureMessage(Team $team, array $counts): string
     {
@@ -1242,7 +1639,7 @@ final class DispatchService
     }
 
     /**
-     * @param list<string> $segments
+     * @param  list<string>  $segments
      */
     private function hasBelgianCountrySegment(array $segments): bool
     {
@@ -1273,7 +1670,7 @@ final class DispatchService
     }
 
     /**
-     * @param list<string> $segments
+     * @param  list<string>  $segments
      */
     private function splitDutchPostalCodeEndIndex(array $segments, int $index): ?int
     {
@@ -1302,7 +1699,7 @@ final class DispatchService
     }
 
     /**
-     * @param list<string> $segments
+     * @param  list<string>  $segments
      */
     private function placeAfterDutchPostalCode(array $segments, int $startIndex): ?string
     {
@@ -1317,7 +1714,7 @@ final class DispatchService
     }
 
     /**
-     * @param list<string> $segments
+     * @param  list<string>  $segments
      */
     private function placeAroundDutchPostalCode(
         array $segments,
@@ -1338,7 +1735,7 @@ final class DispatchService
     }
 
     /**
-     * @param list<string> $segments
+     * @param  list<string>  $segments
      */
     private function placeBeforeDutchPostalCode(array $segments, int $postalCodeStartIndex): ?string
     {
@@ -1504,7 +1901,7 @@ final class DispatchService
     }
 
     /**
-     * @param array<string, string> $extra
+     * @param  array<string, string>  $extra
      * @return array<string, string>
      */
     private function pushTemplateTokens(?Incident $incident, array $extra = []): array
@@ -1621,7 +2018,7 @@ final class DispatchService
     }
 
     /**
-     * @param array<string, string> $tokens
+     * @param  array<string, string>  $tokens
      */
     private function pushTemplate(string $name, string $default, array $tokens): string
     {

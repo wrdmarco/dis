@@ -9,6 +9,9 @@ PHP_VERSION="${PHP_VERSION:-8.5}"
 PHP_FPM_SERVICE="${PHP_FPM_SERVICE:-php${PHP_VERSION}-fpm}"
 NGINX_SITE_NAME="${NGINX_SITE_NAME:-dis}"
 COMMON_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OSRM_ADMIN_RUNTIME_PARENT="/usr/local/lib/dis"
+OSRM_ADMIN_RUNTIME_DIR="${OSRM_ADMIN_RUNTIME_PARENT}/osrm-admin"
+OSRM_ADMIN_WORKER_PATH="/usr/local/bin/dis-osrm-admin-request-worker"
 
 log() {
   printf '[dis] %s\n' "$*"
@@ -77,9 +80,193 @@ ensure_managed_directory() {
 }
 
 secure_path_operation() {
-  command -v python3 >/dev/null 2>&1 || fail "python3 is required for secure descriptor-based path operations."
-  run_cmd python3 -I -S "${COMMON_LIB_DIR}/secure-path.py" "$@"
+  [ -x /usr/bin/python3 ] || fail "python3 is required for secure descriptor-based path operations."
+  root_controlled_bundle_source_is_safe "${COMMON_LIB_DIR}/secure-path.py" \
+    || fail "The secure path helper is not root-controlled."
+  run_cmd /usr/bin/python3 -I -S "${COMMON_LIB_DIR}/secure-path.py" "$@"
 }
+
+root_owned_runtime_directory_is_safe() {
+  local path="$1" expected_mode="$2"
+
+  [ -d "${path}" ] && [ ! -L "${path}" ] \
+    && [ "$(stat -c '%u:%g:%a' -- "${path}" 2>/dev/null || true)" = "0:0:${expected_mode}" ]
+}
+
+root_owned_runtime_file_is_safe() {
+  local path="$1" expected_mode="$2"
+
+  [ -f "${path}" ] && [ ! -L "${path}" ] \
+    && [ "$(stat -c '%u:%g:%a:%h' -- "${path}" 2>/dev/null || true)" = "0:0:${expected_mode}:1" ]
+}
+
+root_controlled_bundle_source_is_safe() {
+  local path="$1" parent current="" component metadata mode
+
+  [ -f "${path}" ] && [ ! -L "${path}" ] || return 1
+  metadata="$(/usr/bin/stat -c '%u:%a:%h' -- "${path}" 2>/dev/null || true)"
+  [[ "${metadata}" =~ ^0:([0-7]+):1$ ]] || return 1
+  mode="${BASH_REMATCH[1]}"
+  (( (8#${mode} & 8#022) == 0 )) || return 1
+  metadata="$(/usr/bin/stat -c '%u:%a' -- / 2>/dev/null || true)"
+  [[ "${metadata}" =~ ^0:([0-7]+)$ ]] || return 1
+  mode="${BASH_REMATCH[1]}"
+  (( (8#${mode} & 8#022) == 0 )) || return 1
+  parent="${path%/*}"
+  IFS='/' read -r -a bundle_source_components <<< "${parent#/}"
+  for component in "${bundle_source_components[@]}"; do
+    [ -n "${component}" ] || continue
+    current="${current}/${component}"
+    [ -d "${current}" ] && [ ! -L "${current}" ] || return 1
+    metadata="$(/usr/bin/stat -c '%u:%a' -- "${current}" 2>/dev/null || true)"
+    [[ "${metadata}" =~ ^0:([0-7]+)$ ]] || return 1
+    mode="${BASH_REMATCH[1]}"
+    (( (8#${mode} & 8#022) == 0 )) || return 1
+  done
+}
+
+verify_osrm_admin_runtime_library() {
+  local path
+
+  root_owned_runtime_directory_is_safe "${OSRM_ADMIN_RUNTIME_PARENT}" 755 \
+    || fail "The OSRM admin runtime parent is not an immutable root-owned directory."
+  root_owned_runtime_directory_is_safe "${OSRM_ADMIN_RUNTIME_DIR}" 755 \
+    || fail "The OSRM admin runtime bundle is not an immutable root-owned directory."
+  for path in common.sh osrm.sh secure-path.py dis-osrm.service; do
+    root_owned_runtime_file_is_safe "${OSRM_ADMIN_RUNTIME_DIR}/${path}" 644 \
+      || fail "Unsafe OSRM admin runtime bundle file: ${path}"
+  done
+  [ "$(find -P "${OSRM_ADMIN_RUNTIME_DIR}" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort)" = \
+    $'common.sh\ndis-osrm.service\nosrm.sh\nsecure-path.py' ] \
+    || fail "The OSRM admin runtime bundle contains unexpected entries."
+}
+
+verify_osrm_admin_runtime_bundle() {
+  verify_osrm_admin_runtime_library
+  root_owned_runtime_file_is_safe "${OSRM_ADMIN_WORKER_PATH}" 755 \
+    || fail "The OSRM admin request worker is not an immutable root-owned executable."
+}
+
+install_osrm_admin_runtime_bundle() (
+  set -euo pipefail
+
+  local app_root="$1" source_path staging worker_staging previous="" worker_previous=""
+  local installed_library=0 installed_worker=0
+
+  require_root
+  acquire_dis_operation_lock osrm-admin-runtime-install
+  if systemd_service_exists dis-osrm-admin-request \
+    && systemctl is-active --quiet dis-osrm-admin-request; then
+    fail "The OSRM admin worker must be inactive before its runtime bundle is replaced."
+  fi
+  if systemd_unit_exists dis-osrm-admin-request.path \
+    && systemctl is-active --quiet dis-osrm-admin-request.path; then
+    fail "The OSRM admin Path unit must be inactive before its runtime bundle is replaced."
+  fi
+  if systemd_unit_exists dis-osrm-admin-request.timer \
+    && systemctl is-active --quiet dis-osrm-admin-request.timer; then
+    fail "The OSRM admin Timer unit must be inactive before its runtime bundle is replaced."
+  fi
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "Would atomically install and verify the root-owned OSRM admin runtime bundle."
+    return 0
+  fi
+
+  for source_path in \
+    "${app_root}/scripts/lib/common.sh" \
+    "${app_root}/scripts/lib/secure-path.py" \
+    "${app_root}/scripts/osrm.sh" \
+    "${app_root}/scripts/osrm-admin-request-worker.sh" \
+    "${app_root}/infrastructure/systemd/dis-osrm.service"; do
+    root_controlled_bundle_source_is_safe "${source_path}" \
+      || fail "Unsafe OSRM admin runtime source: ${source_path}"
+  done
+
+  ensure_managed_directory "${OSRM_ADMIN_RUNTIME_PARENT}" root root 0755
+  require_root_controlled_parent "${OSRM_ADMIN_WORKER_PATH}"
+  staging="$(mktemp -d "${OSRM_ADMIN_RUNTIME_PARENT}/.osrm-admin.XXXXXX")"
+  worker_staging="$(mktemp /usr/local/bin/.dis-osrm-admin-request-worker.XXXXXX)"
+
+  cleanup_osrm_admin_bundle_install() {
+    local exit_code="$?"
+    trap - EXIT INT TERM
+
+    if [ "${exit_code}" -ne 0 ]; then
+      if [ "${installed_worker}" = "1" ]; then
+        rm -f -- "${OSRM_ADMIN_WORKER_PATH}" 2>/dev/null || true
+      fi
+      if [ -n "${worker_previous}" ] && { [ -e "${worker_previous}" ] || [ -L "${worker_previous}" ]; }; then
+        mv -T -- "${worker_previous}" "${OSRM_ADMIN_WORKER_PATH}" 2>/dev/null || true
+      fi
+      if [ "${installed_library}" = "1" ] && [ -d "${OSRM_ADMIN_RUNTIME_DIR}" ] && [ ! -L "${OSRM_ADMIN_RUNTIME_DIR}" ]; then
+        secure_path_operation remove-tree "${OSRM_ADMIN_RUNTIME_DIR}" >/dev/null 2>&1 || true
+      fi
+      if [ -n "${previous}" ] && [ -d "${previous}" ] && [ ! -L "${previous}" ]; then
+        mv -T -- "${previous}" "${OSRM_ADMIN_RUNTIME_DIR}" 2>/dev/null || true
+      fi
+    fi
+
+    if [ -n "${staging:-}" ] && [ -d "${staging}" ] && [ ! -L "${staging}" ]; then
+      secure_path_operation remove-tree "${staging}" >/dev/null 2>&1 || true
+    fi
+    rm -f -- "${worker_staging:-}" 2>/dev/null || true
+    exit "${exit_code}"
+  }
+  trap cleanup_osrm_admin_bundle_install EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  chown root:root "${staging}"
+  chmod 0755 "${staging}"
+  install -m 0644 -o root -g root "${app_root}/scripts/lib/common.sh" "${staging}/common.sh"
+  install -m 0644 -o root -g root "${app_root}/scripts/lib/secure-path.py" "${staging}/secure-path.py"
+  install -m 0644 -o root -g root "${app_root}/scripts/osrm.sh" "${staging}/osrm.sh"
+  install -m 0644 -o root -g root "${app_root}/infrastructure/systemd/dis-osrm.service" "${staging}/dis-osrm.service"
+  install -m 0755 -o root -g root "${app_root}/scripts/osrm-admin-request-worker.sh" "${worker_staging}"
+
+  for source_path in common.sh osrm.sh secure-path.py dis-osrm.service; do
+    root_owned_runtime_file_is_safe "${staging}/${source_path}" 644 \
+      || fail "Could not stage a safe OSRM admin runtime file: ${source_path}"
+  done
+  root_owned_runtime_file_is_safe "${worker_staging}" 755 \
+    || fail "Could not stage a safe OSRM admin request worker."
+  sync -f "${staging}/common.sh" "${staging}/secure-path.py" "${staging}/osrm.sh" \
+    "${staging}/dis-osrm.service" "${worker_staging}"
+  sync -f "${staging}"
+
+  if [ -e "${OSRM_ADMIN_RUNTIME_DIR}" ] || [ -L "${OSRM_ADMIN_RUNTIME_DIR}" ]; then
+    verify_osrm_admin_runtime_library
+    previous="${OSRM_ADMIN_RUNTIME_PARENT}/.osrm-admin.previous.$$.$RANDOM"
+    mv -T -- "${OSRM_ADMIN_RUNTIME_DIR}" "${previous}"
+  fi
+  if [ -e "${OSRM_ADMIN_WORKER_PATH}" ] || [ -L "${OSRM_ADMIN_WORKER_PATH}" ]; then
+    root_owned_runtime_file_is_safe "${OSRM_ADMIN_WORKER_PATH}" 755 \
+      || fail "Refusing to replace an unsafe OSRM admin worker path."
+    worker_previous="/usr/local/bin/.dis-osrm-admin-request-worker.previous.$$.$RANDOM"
+    mv -T -- "${OSRM_ADMIN_WORKER_PATH}" "${worker_previous}"
+  fi
+
+  mv -T -- "${staging}" "${OSRM_ADMIN_RUNTIME_DIR}"
+  staging=""
+  installed_library=1
+  mv -T -- "${worker_staging}" "${OSRM_ADMIN_WORKER_PATH}"
+  worker_staging=""
+  installed_worker=1
+  verify_osrm_admin_runtime_bundle
+  sync -f "${OSRM_ADMIN_RUNTIME_PARENT}" /usr/local/bin
+
+  if [ -n "${previous}" ]; then
+    secure_path_operation remove-tree "${previous}"
+    previous=""
+  fi
+  if [ -n "${worker_previous}" ]; then
+    rm -f -- "${worker_previous}"
+    worker_previous=""
+  fi
+  installed_library=0
+  installed_worker=0
+  trap - EXIT INT TERM
+)
 
 validate_plain_tree() {
   secure_path_operation validate-tree "$1"
@@ -434,6 +621,39 @@ stop_dis_deployment_services() {
   local service worker_state worker_wait_deadline
 
   log "Stopping DIS workers, realtime and frontend services for deployment"
+  if systemd_unit_exists dis-osrm-admin-request.timer; then
+    run_cmd systemctl stop dis-osrm-admin-request.timer
+  fi
+  if systemd_unit_exists dis-osrm-admin-request.path; then
+    run_cmd systemctl stop dis-osrm-admin-request.path
+  fi
+  if systemd_service_exists dis-osrm-admin-request; then
+    # A Path unit can start the oneshot just before deployment acquires the
+    # global operation lock. It then exits without claiming a request. Stop new
+    # starts above and wait briefly instead of killing or misclassifying it.
+    worker_wait_deadline=$((SECONDS + 60))
+    while true; do
+      worker_state="$(systemctl show dis-osrm-admin-request --property=ActiveState --value 2>/dev/null || true)"
+      case "${worker_state}" in
+        active|activating|deactivating|reloading)
+          if [ "${SECONDS}" -ge "${worker_wait_deadline}" ]; then
+            fail "DIS OSRM admin request worker did not become idle within 60 seconds; deployment was not allowed to interrupt it."
+          fi
+          sleep 1
+          ;;
+        failed)
+          run_cmd systemctl reset-failed dis-osrm-admin-request
+          break
+          ;;
+        inactive)
+          break
+          ;;
+        *)
+          fail "Could not determine a safe idle state for dis-osrm-admin-request.service (state: ${worker_state:-unknown})."
+          ;;
+      esac
+    done
+  fi
   if systemd_unit_exists dis-backup-request.timer; then
     run_cmd systemctl stop dis-backup-request.timer
   fi
@@ -491,6 +711,12 @@ start_dis_operational_services() {
   local service
 
   log "Starting DIS workers and realtime services"
+  if systemd_unit_exists dis-osrm-admin-request.path; then
+    run_cmd systemctl start dis-osrm-admin-request.path
+  fi
+  if systemd_unit_exists dis-osrm-admin-request.timer; then
+    run_cmd systemctl start dis-osrm-admin-request.timer
+  fi
   if systemd_unit_exists dis-backup-request.path; then
     run_cmd systemctl start dis-backup-request.path
   fi
@@ -547,6 +773,25 @@ require_dis_runtime_services() {
   if ! systemctl is-active --quiet dis-backup-request.timer; then
     fail "Required systemd unit is not active: dis-backup-request.timer"
   fi
+  if ! systemd_unit_exists dis-osrm-admin-request.path; then
+    fail "Required systemd unit is not installed: dis-osrm-admin-request.path"
+  fi
+  if ! systemctl is-enabled --quiet dis-osrm-admin-request.path; then
+    fail "Required systemd unit is not enabled: dis-osrm-admin-request.path"
+  fi
+  if ! systemctl is-active --quiet dis-osrm-admin-request.path; then
+    fail "Required systemd unit is not active: dis-osrm-admin-request.path"
+  fi
+  if ! systemd_unit_exists dis-osrm-admin-request.timer; then
+    fail "Required systemd unit is not installed: dis-osrm-admin-request.timer"
+  fi
+  if ! systemctl is-enabled --quiet dis-osrm-admin-request.timer; then
+    fail "Required systemd unit is not enabled: dis-osrm-admin-request.timer"
+  fi
+  if ! systemctl is-active --quiet dis-osrm-admin-request.timer; then
+    fail "Required systemd unit is not active: dis-osrm-admin-request.timer"
+  fi
+  verify_osrm_admin_runtime_bundle
 }
 
 load_data_path_from_env() {
@@ -588,6 +833,66 @@ install_backup_request_systemd_units() {
   run_cmd install -m 0644 "${temporary_service}" /etc/systemd/system/dis-backup-request.service
   run_cmd install -m 0644 "${temporary_path}" /etc/systemd/system/dis-backup-request.path
   run_cmd install -m 0644 "${app_root}/infrastructure/systemd/dis-backup-request.timer" /etc/systemd/system/dis-backup-request.timer
+  run_cmd rm -f -- "${temporary_service}" "${temporary_path}"
+}
+
+install_osrm_admin_layout() {
+  local status_path="/var/log/dis/osrm-status.json"
+
+  ensure_managed_directory "${DIS_DATA_PATH}/osrm-admin" root root 0750
+  ensure_managed_directory "${DIS_DATA_PATH}/osrm-admin/requests" root root 1730
+  ensure_managed_directory "${DIS_DATA_PATH}/osrm-admin/work" root root 0700
+  ensure_managed_directory "${DIS_DATA_PATH}/osrm-admin/results" root "${DIS_GROUP}" 0750
+  ensure_directory /var/log/dis root "${DIS_GROUP}" 0750
+  if [ ! -e "${status_path}" ] && [ ! -L "${status_path}" ]; then
+    run_cmd install -m 0640 -o root -g "${DIS_GROUP}" /dev/null "${status_path}"
+  fi
+  if [ -e "${status_path}" ] || [ -L "${status_path}" ]; then
+    [ -f "${status_path}" ] && [ ! -L "${status_path}" ] \
+      && [ "$(stat -c '%h' -- "${status_path}")" = "1" ] \
+      || fail "The OSRM status snapshot path is unsafe."
+    run_cmd chown root:"${DIS_GROUP}" "${status_path}"
+    run_cmd chmod 0640 "${status_path}"
+  fi
+  if id www-data >/dev/null 2>&1; then
+    run_cmd setfacl -m "u:www-data:r-x" /var/log/dis
+    run_cmd setfacl -m "u:www-data:r--" "${status_path}"
+    run_cmd setfacl -m "u:www-data:--x" "${DIS_DATA_PATH}" "${DIS_DATA_PATH}/osrm-admin"
+    run_cmd setfacl -m "u:www-data:-wx" "${DIS_DATA_PATH}/osrm-admin/requests"
+    run_cmd setfacl -m "u:www-data:r-x" "${DIS_DATA_PATH}/osrm-admin/results"
+    run_cmd setfacl -x "d:u:www-data" "${DIS_DATA_PATH}/osrm-admin/requests" 2>/dev/null || true
+    run_cmd runuser -u www-data -- test -r "${status_path}"
+    run_cmd runuser -u www-data -- test -r "${DIS_DATA_PATH}/osrm-admin/results"
+    run_cmd runuser -u www-data -- test ! -w "${status_path}"
+    run_cmd runuser -u www-data -- test ! -w "${DIS_DATA_PATH}/osrm-admin/results"
+  fi
+  if id "${DIS_USER}" >/dev/null 2>&1; then
+    run_cmd setfacl -m "u:${DIS_USER}:--x" "${DIS_DATA_PATH}/osrm-admin"
+    run_cmd setfacl -m "u:${DIS_USER}:r-x" "${DIS_DATA_PATH}/osrm-admin/results"
+    run_cmd runuser -u "${DIS_USER}" -- test -r "${status_path}"
+    run_cmd runuser -u "${DIS_USER}" -- test -r "${DIS_DATA_PATH}/osrm-admin/results"
+    run_cmd runuser -u "${DIS_USER}" -- test ! -w "${status_path}"
+    run_cmd runuser -u "${DIS_USER}" -- test ! -w "${DIS_DATA_PATH}/osrm-admin/results"
+  fi
+}
+
+install_osrm_admin_request_systemd_units() {
+  local app_root="$1" escaped_app_root escaped_data_path temporary_path temporary_service
+
+  escaped_app_root="$(printf '%s' "${app_root}" | sed 's/[&|\\]/\\&/g')"
+  escaped_data_path="$(printf '%s' "${DIS_DATA_PATH}" | sed 's/[&|\\]/\\&/g')"
+  temporary_service="$(mktemp /run/dis-osrm-admin-request.service.XXXXXX)"
+  temporary_path="$(mktemp /run/dis-osrm-admin-request.path.XXXXXX)"
+  sed -e "s|@APP_ROOT@|${escaped_app_root}|g" \
+    -e "s|@DIS_DATA_PATH@|${escaped_data_path}|g" \
+    "${app_root}/infrastructure/systemd/dis-osrm-admin-request.service" > "${temporary_service}"
+  sed "s|@DIS_DATA_PATH@|${escaped_data_path}|g" \
+    "${app_root}/infrastructure/systemd/dis-osrm-admin-request.path" > "${temporary_path}"
+  run_cmd install -m 0644 "${temporary_service}" /etc/systemd/system/dis-osrm-admin-request.service
+  run_cmd install -m 0644 "${temporary_path}" /etc/systemd/system/dis-osrm-admin-request.path
+  run_cmd install -m 0644 \
+    "${app_root}/infrastructure/systemd/dis-osrm-admin-request.timer" \
+    /etc/systemd/system/dis-osrm-admin-request.timer
   run_cmd rm -f -- "${temporary_service}" "${temporary_path}"
 }
 
@@ -751,6 +1056,10 @@ ensure_data_layout() {
   ensure_managed_directory "${DIS_DATA_PATH}/backup-imports" root root 1730
   ensure_managed_directory "${DIS_DATA_PATH}/backup-requests" root root 1730
   ensure_managed_directory "${DIS_DATA_PATH}/backup-request-work" root root 0700
+  ensure_managed_directory "${DIS_DATA_PATH}/osrm-admin" root root 0750
+  ensure_managed_directory "${DIS_DATA_PATH}/osrm-admin/requests" root root 1730
+  ensure_managed_directory "${DIS_DATA_PATH}/osrm-admin/work" root root 0700
+  ensure_managed_directory "${DIS_DATA_PATH}/osrm-admin/results" root "${DIS_GROUP}" 0750
   ensure_managed_directory "${DIS_DATA_PATH}/playwright-browsers" "${DIS_USER}" "${DIS_GROUP}" 0770
   ensure_managed_directory "${DIS_DATA_PATH}/secrets" root "${DIS_GROUP}" 0750
 

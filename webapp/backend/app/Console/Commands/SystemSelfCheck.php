@@ -37,6 +37,7 @@ final class SystemSelfCheck extends Command
         'certification_mail_logs',
         'fcm_tokens',
         'push_delivery_logs',
+        'dispatch_push_outbox',
         'location_sharing_consents',
         'location_updates',
         'app_versions',
@@ -60,6 +61,7 @@ final class SystemSelfCheck extends Command
 
         if ($missingTables !== []) {
             $this->error('DIS database schema is incomplete. Missing tables: '.implode(', ', $missingTables));
+
             return self::FAILURE;
         }
 
@@ -71,6 +73,7 @@ final class SystemSelfCheck extends Command
 
         if (Cache::get('self-check') !== 'ok' || ! $storageOk) {
             $this->error('DIS self-check failed.');
+
             return self::FAILURE;
         }
 

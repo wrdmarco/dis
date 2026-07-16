@@ -9,6 +9,9 @@ Schedule::command('dis:apply-vacation-statuses')->everyFiveMinutes();
 Schedule::command('dis:apply-availability-schedule-statuses')->everyMinute();
 Schedule::command('dis:send-device-presence-ping')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('dis:send-scheduled-test-alert')->everyMinute();
+Schedule::command('dis:flush-dispatch-push-outbox')
+    ->everyTenSeconds()
+    ->withoutOverlapping(1);
 Schedule::command('dis:run-scheduled-backup')
     ->everyMinute()
     ->withoutOverlapping(30)

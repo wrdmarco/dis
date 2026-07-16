@@ -114,13 +114,13 @@ export const operationManualGuides = {
       permissions: ['incidents.view', 'incidents.manage', 'incidents.dispatch.view'],
       steps: [
         { label: 'Open een incident met status Concept', description: 'Ga naar het blok Concept op de incidentdetailpagina.' },
-        { label: 'Kies het gewenste aantal', description: 'Vul bij de ETA-ringen in hoeveel mensen nodig zijn. DIS gebruikt de globale woonplaats, rekent met ongeveer 60 km/u en vergroot de geschatte ring per 15 minuten.' },
+        { label: 'Kies het gewenste aantal', description: 'Vul bij de ETA-ringen in hoeveel mensen nodig zijn. DIS berekent de autoroute vanaf de globale woonplaats en rondt de navigatie-ETA naar boven af in ringen van 15 minuten.' },
         { label: 'Lees de ontvangerscontrole', description: 'Controleer welke teams leeg zijn, hoeveel mensen geschikt zijn en welke waarschuwingen worden getoond.' },
         { label: 'Kies Vooraankondiging', description: 'De knop is uitgeschakeld wanneer geen ontvangers kunnen worden bereikt.' },
         { label: 'Volg de reacties', description: 'In Opkomst en alarmering zie je Beschikbaar, Niet beschikbaar en Nog geen reactie.' },
       ],
       result: 'De geselecteerde gebruikers beantwoorden alleen of zij beschikbaar zijn. Dit telt nog niet als opkomst en vraagt geen live locatie.',
-      warning: 'ETA is een globale schatting zonder wegennet, verkeer of live route. Een lege of volledig onbereikbare selectie mag niet worden verzonden. Bij meerdere teams kan de uiteindelijke selectie afwijken van de voorvertoning; controleer de ontvangers na verzending.',
+      warning: 'De navigatie-ETA gebruikt het beschikbare wegennet, maar geen actuele verkeersinformatie. Als routering tijdelijk niet lukt, toont DIS herkenbaar een terugvalschatting. Vóór alarmering is de globale woonplaats het vertrekpunt, niet een live locatie. Een lege of volledig onbereikbare selectie mag niet worden verzonden. Bij meerdere teams kan de uiteindelijke selectie afwijken van de voorvertoning; controleer de ontvangers na verzending.',
     },
     {
       id: 'dispatch-send-alarm',
@@ -198,7 +198,7 @@ export const operationManualGuides = {
       permissions: ['incidents.dispatch.manage'],
       steps: [
         { label: 'Stuur nadere informatie', description: 'Vul Nadere info voor opkomende gebruikers in en kies Info versturen. Alleen betrokken opkomende gebruikers ontvangen dit.' },
-        { label: 'Ga naar Live locaties', description: 'Controleer per gebruiker Locatie, ETA en Laatst gezien.' },
+        { label: 'Ga naar Live locaties', description: 'Controleer per gebruiker Locatie, navigatie-ETA en Laatst gezien. Bij een verlopen locatie wordt geen reistijd getoond; een terugvalschatting staat als Schatting gemarkeerd.' },
         { label: 'Kies Vraag locatie', description: 'Gebruik de knop alleen wanneer nog geen actuele live locatie wordt gedeeld.' },
         { label: 'Wacht op toestemming', description: 'De gebruiker kiest zelf of live locatie wordt gedeeld. De status verandert pas na die reactie.' },
       ],

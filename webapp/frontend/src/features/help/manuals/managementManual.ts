@@ -347,11 +347,11 @@ export const managementManualGuides = {
       title: 'De systeemstatus beoordelen',
       intro: 'Gebruik de zelfcontrole als eerste aanwijzing bij een technisch probleem.',
       steps: [
-        { label: 'Open Systeemstatus', description: 'Bekijk algemene status, uptime en het controletijdstip.' },
+        { label: 'Open Systeemstatus', description: 'Bekijk algemene status, live uptime, CPU-, geheugen- en opslaggebruik en het controletijdstip.' },
         { label: 'Controleer de diensten', description: 'Lees Backend, Database, Cache, Opslag, Queue en WebSocket.' },
         { label: 'Controleer Firebase en drivers', description: 'Bekijk of Firebase-project, serviceaccount, queuedriver en broadcastdriver zijn ingesteld.' },
         { label: 'Bekijk Queues en WebSocket', description: 'Lees de technische blokken onderaan wanneer een specialist daarom vraagt.' },
-        { label: 'Herlaad voor een nieuwe controle', description: 'De pagina heeft geen aparte verversknop; herlaad de browserpagina.' },
+        { label: 'Volg de live metingen', description: 'CPU en geheugen worden iedere drie seconden bijgewerkt. Bij een tijdelijke verbindingsfout blijft de laatste geldige meting zichtbaar.' },
       ],
       result: 'Je hebt vastgesteld welke basisdienst of instelling aandacht nodig lijkt te hebben.',
       warning: 'Ingesteld betekent niet automatisch dat achtergrondtaken of live updates echt worden verwerkt. Combineer dit scherm met een functionele test en logging.',

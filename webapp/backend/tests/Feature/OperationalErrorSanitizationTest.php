@@ -2,20 +2,25 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\PushProvider;
 use App\Events\SystemUpdateStatusChanged;
+use App\Exceptions\TransientPushDeliveryException;
 use App\Http\Controllers\AdminController;
 use App\Jobs\SendFcmNotification;
 use App\Models\FcmToken;
 use App\Models\PushDeliveryLog;
 use App\Models\SystemSetting;
 use App\Models\User;
+use App\Services\DispatchPushOutboxService;
 use App\Services\DroneFlightContextService;
 use App\Services\PushProviderClient;
 use App\Services\SystemUpdateStatusService;
 use App\Support\SensitiveDataRedactor;
+use GuzzleHttp\Psr7\Response as PsrResponse;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\Request as ClientRequest;
+use Illuminate\Http\Client\Response as ClientResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
@@ -24,6 +29,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -87,7 +93,10 @@ final class OperationalErrorSanitizationTest extends TestCase
         });
 
         try {
-            (new SendFcmNotification($token->id, 'security_test', 'Test', 'Test'))->handle(app(PushProviderClient::class));
+            (new SendFcmNotification($token->id, 'security_test', 'Test', 'Test'))->handle(
+                app(PushProviderClient::class),
+                app(DispatchPushOutboxService::class),
+            );
             $this->fail('The simulated FCM transport exception was not thrown.');
         } catch (RuntimeException) {
             // The queue must still retry, while the persisted diagnostic remains non-sensitive.
@@ -104,11 +113,24 @@ final class OperationalErrorSanitizationTest extends TestCase
                 'error' => ['message' => 'SQLSTATE[08006] provider-password=provider-body-secret'],
             ], 500),
         ]);
-        (new SendFcmNotification($token->id, 'security_test', 'Test', 'Test'))->handle(app(PushProviderClient::class));
+        try {
+            (new SendFcmNotification($token->id, 'security_test', 'Test', 'Test'))->handle(
+                app(PushProviderClient::class),
+                app(DispatchPushOutboxService::class),
+            );
+            $this->fail('A transient provider response must fail the job so the queue retries it.');
+        } catch (TransientPushDeliveryException) {
+            // Expected: the provider body stays out of the exception and logs.
+        }
         $this->assertDatabaseHas('push_delivery_logs', [
             'fcm_token_id' => $token->id,
             'error_code' => 'fcm_http_500',
         ]);
+        $this->assertSame(1, PushDeliveryLog::query()
+            ->where('fcm_token_id', $token->id)
+            ->where('error_code', 'fcm_http_500')
+            ->count());
+        $this->assertTrue($token->refresh()->is_active);
 
         PushDeliveryLog::query()->create([
             'user_id' => $user->id,
@@ -128,6 +150,99 @@ final class OperationalErrorSanitizationTest extends TestCase
         foreach (['provider-secret', 'provider-body-secret', 'historical-secret', 'SQLSTATE', 'private.php'] as $sensitiveValue) {
             $this->assertStringNotContainsString($sensitiveValue, $serialized);
         }
+    }
+
+    #[DataProvider('transientPushResponses')]
+    public function test_transient_push_responses_retry_once_per_attempt_without_revoking_tokens(
+        string $platform,
+        int $httpStatus,
+        array $payload,
+        string $expectedErrorCode,
+    ): void {
+        $user = $this->user("transient-{$platform}-{$httpStatus}@example.test");
+        $user->update(['push_enabled' => true]);
+        $token = FcmToken::query()->create([
+            'user_id' => $user->id,
+            'device_id' => "transient-{$platform}-{$httpStatus}",
+            'token' => "transient-token-{$platform}-{$httpStatus}",
+            'token_hash' => hash('sha256', "transient-token-{$platform}-{$httpStatus}"),
+            'platform' => $platform,
+            'client_type' => 'operator',
+            'is_active' => true,
+            'last_seen_at' => now(),
+        ]);
+        $job = new SendFcmNotification($token->id, 'transient_test', 'Test', 'Test');
+
+        $this->assertSame(4, $job->tries);
+        $this->assertSame([5, 15, 30], $job->backoff());
+        try {
+            $job->handle($this->pushProviderResponse($httpStatus, $payload), app(DispatchPushOutboxService::class));
+            $this->fail('A transient provider response must fail the queue attempt.');
+        } catch (TransientPushDeliveryException $exception) {
+            $this->assertStringContainsString((string) $httpStatus, $exception->getMessage());
+        }
+
+        $this->assertSame(1, PushDeliveryLog::query()
+            ->where('fcm_token_id', $token->id)
+            ->where('message_type', 'transient_test')
+            ->where('error_code', $expectedErrorCode)
+            ->count());
+        $this->assertTrue($token->refresh()->is_active);
+        $this->assertTrue($user->refresh()->push_enabled);
+    }
+
+    /** @return array<string, array{string, int, array<string, mixed>, string}> */
+    public static function transientPushResponses(): array
+    {
+        return [
+            'FCM request timeout' => ['android', 408, [], 'fcm_http_408'],
+            'FCM rate limited' => ['android', 429, [], 'fcm_http_429'],
+            'FCM unavailable' => ['android', 503, ['error' => ['status' => 'UNAVAILABLE']], 'UNAVAILABLE'],
+            'APNs request timeout' => ['ios', 408, [], 'apns_http_408'],
+            'APNs rate limited' => ['ios', 429, [], 'apns_http_429'],
+            'APNs unavailable' => ['ios', 503, [], 'apns_http_503'],
+        ];
+    }
+
+    #[DataProvider('permanentPushResponses')]
+    public function test_permanent_push_responses_complete_without_retry(
+        string $platform,
+        int $httpStatus,
+        array $payload,
+        string $expectedErrorCode,
+        bool $tokenRemainsActive,
+    ): void {
+        $user = $this->user("permanent-{$platform}-{$httpStatus}@example.test");
+        $user->update(['push_enabled' => true]);
+        $token = FcmToken::query()->create([
+            'user_id' => $user->id,
+            'device_id' => "permanent-{$platform}-{$httpStatus}",
+            'token' => "permanent-token-{$platform}-{$httpStatus}",
+            'token_hash' => hash('sha256', "permanent-token-{$platform}-{$httpStatus}"),
+            'platform' => $platform,
+            'client_type' => 'operator',
+            'is_active' => true,
+            'last_seen_at' => now(),
+        ]);
+
+        (new SendFcmNotification($token->id, 'permanent_test', 'Test', 'Test'))
+            ->handle($this->pushProviderResponse($httpStatus, $payload), app(DispatchPushOutboxService::class));
+
+        $this->assertSame(1, PushDeliveryLog::query()
+            ->where('fcm_token_id', $token->id)
+            ->where('message_type', 'permanent_test')
+            ->where('error_code', $expectedErrorCode)
+            ->count());
+        $this->assertSame($tokenRemainsActive, $token->refresh()->is_active);
+    }
+
+    /** @return array<string, array{string, int, array<string, mixed>, string, bool}> */
+    public static function permanentPushResponses(): array
+    {
+        return [
+            'FCM forbidden' => ['android', 403, ['error' => ['status' => 'PERMISSION_DENIED']], 'PERMISSION_DENIED', true],
+            'APNs unregistered' => ['ios', 410, ['reason' => 'Unregistered'], 'Unregistered', false],
+        ];
     }
 
     public function test_mail_test_returns_a_generic_validation_error(): void
@@ -193,5 +308,24 @@ final class OperationalErrorSanitizationTest extends TestCase
             'password' => Hash::make('Test-password-123!'),
             'account_status' => 'active',
         ]);
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function pushProviderResponse(int $status, array $payload): PushProvider
+    {
+        return new class($status, $payload) implements PushProvider
+        {
+            /** @param array<string, mixed> $payload */
+            public function __construct(private readonly int $status, private readonly array $payload) {}
+
+            public function send(FcmToken $token, string $title, string $body, array $data = []): ClientResponse
+            {
+                return new ClientResponse(new PsrResponse(
+                    $this->status,
+                    ['Content-Type' => 'application/json'],
+                    json_encode($this->payload, JSON_THROW_ON_ERROR),
+                ));
+            }
+        };
     }
 }

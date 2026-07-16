@@ -4,6 +4,7 @@ namespace App\Services\Apple;
 
 use App\Models\FcmToken;
 use App\Models\SystemSetting;
+use App\Support\PushNotificationIdentity;
 use Firebase\JWT\JWT;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
@@ -20,9 +21,15 @@ final class ApnsClient
             ? 'https://api.sandbox.push.apple.com'
             : 'https://api.push.apple.com';
 
+        $headers = ['apns-topic' => $credentials['bundle_id'], 'apns-push-type' => 'alert', 'apns-priority' => '10'];
+        $collapseId = PushNotificationIdentity::dispatchCollapseId($data);
+        if ($collapseId !== null) {
+            $headers['apns-collapse-id'] = $collapseId;
+        }
+
         return Http::withToken($this->providerToken($credentials))
             ->acceptJson()
-            ->withHeaders(['apns-topic' => $credentials['bundle_id'], 'apns-push-type' => 'alert', 'apns-priority' => '10'])
+            ->withHeaders($headers)
             ->post($host.'/3/device/'.$token->token, [
                 'aps' => ['alert' => ['title' => $title, 'body' => $body], 'sound' => 'default', 'content-available' => 1],
                 ...$data,

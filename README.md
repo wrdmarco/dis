@@ -168,6 +168,38 @@ The test-alert result reports targeted users, queued devices, users skipped befo
 whom no notification could be queued. The action requires the `incidents.dispatch.manage` permission and
 is recorded in the audit log.
 
+Dispatch ETA selection uses server-side road routing. Before dispatch, the operator's globally geocoded
+home city is the route origin; it remains an approximate origin and never exposes a home address. Navigation
+durations are rounded up into 15-minute rings for recipient selection. The configured OSRM service uses its
+available road-network data and does not include live traffic. If routing is temporarily unavailable, the API
+may return an explicitly identified fallback estimate instead of blocking an alarm. The web interface labels
+that value as an estimate and never presents a missing or unknown source as a navigation ETA.
+
+Sending an actual alarm commits the dispatch and one deduplicated push-outbox row per target device in
+the same database transaction. DIS tries to queue those rows immediately and the scheduler retries pending
+rows every ten seconds with bounded backoff when Redis is unavailable. Exhausted provider retries return the
+row to pending, and a stale 15-minute queue lease is reclaimed after an ambiguous worker or Redis failure.
+Repeating the send action does not create duplicate outbox rows, but delivery is explicitly at-least-once: a
+crash after queue acceptance can still send a duplicate. Stable FCM/APNs collapse identifiers reduce visible
+duplicates while they are pending at the provider; preventing loss takes precedence over exactly-once delivery.
+
+After an operator has accepted and explicitly shares a current incident location, DIS can calculate a
+navigation ETA from that location. A location older than five minutes is stale: it is not plotted as live and
+its former ETA is not shown. The API's optional `eta_source` value is `navigation`, `fallback`, or `unknown`;
+clients must continue to handle older responses where this field is absent.
+
+Administrators can install and activate the self-hosted Netherlands OSRM service from the admin system page after
+entering an independently verified source SHA-256 and a routable Dutch probe coordinate. The browser cannot choose
+the download URL or pass shell input. A dedicated root-only systemd request broker validates the immutable database
+operation snapshot, downloads only the fixed HTTPS Netherlands source, shows bounded live stage logging, verifies
+and atomically activates the dataset, and rolls back to the prior healthy release on failure. Once ready, the same
+panel offers only a deliberate map-data update; normal DIS deployments never download map data implicitly. See
+`infrastructure/osrm/README.md` for the privilege boundary, storage requirements and recovery behavior.
+The attested OSRM package is APT-held: neither the map-data action nor a normal system update changes its binary.
+Each revoke/re-consent transition advances a server-side consent generation. Location updates are stored
+against that generation, so an update started under an older grant cannot reappear after re-consent. Declining
+attendance, a `no_response` override, arriving on scene, or closing the incident stops live sharing server-side.
+
 ## Mobile Apps And Push Behaviour
 
 Mobile app installation and updates are handled through the platform app stores. The deployment no longer

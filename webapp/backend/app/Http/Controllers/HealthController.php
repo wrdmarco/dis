@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiResponse;
 use App\Models\SystemSetting;
+use App\Services\SystemMetricsService;
 use App\Support\ApiDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
@@ -13,6 +14,8 @@ use Illuminate\Support\Facades\Storage;
 
 final class HealthController extends Controller
 {
+    public function __construct(private readonly SystemMetricsService $systemMetrics) {}
+
     public function public(): JsonResponse
     {
         return ApiResponse::success([
@@ -52,6 +55,14 @@ final class HealthController extends Controller
     public function queues(): JsonResponse
     {
         return ApiResponse::success(['driver' => Queue::getDefaultDriver()]);
+    }
+
+    public function metrics(): JsonResponse
+    {
+        return ApiResponse::success([
+            'generated_at' => ApiDateTime::now(),
+            ...$this->systemMetrics->snapshot(),
+        ])->header('Cache-Control', 'no-store, private');
     }
 
     public function websocket(): JsonResponse
@@ -128,7 +139,7 @@ final class HealthController extends Controller
         return [
             'backend' => [
                 'status' => 'ok',
-                'uptime_seconds' => $this->serverUptimeSeconds(),
+                'uptime_seconds' => $this->systemMetrics->uptimeSeconds(),
             ],
             'database' => $this->safeCheck(fn (): array => $this->checkDatabase()),
             'cache' => $this->safeCheck(fn (): array => $this->checkCache()),
@@ -145,7 +156,7 @@ final class HealthController extends Controller
     }
 
     /**
-     * @param array<string, array<string, mixed>> $services
+     * @param  array<string, array<string, mixed>>  $services
      */
     private function overallStatus(array $services): string
     {
@@ -155,7 +166,7 @@ final class HealthController extends Controller
     }
 
     /**
-     * @param callable(): array<string, mixed> $callback
+     * @param  callable(): array<string, mixed>  $callback
      * @return array<string, mixed>
      */
     private function safeCheck(callable $callback): array
@@ -167,17 +178,5 @@ final class HealthController extends Controller
 
             return ['status' => 'failed'];
         }
-    }
-
-    private function serverUptimeSeconds(): ?int
-    {
-        $uptime = @file_get_contents('/proc/uptime');
-        if (! is_string($uptime)) {
-            return null;
-        }
-
-        $seconds = (float) (explode(' ', trim($uptime))[0] ?? 0);
-
-        return $seconds > 0 ? (int) floor($seconds) : null;
     }
 }

@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically sweep DIS OSRM admin requests
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=1min
+AccuracySec=1s
+Unit=dis-osrm-admin-request.service
+
+[Install]
+WantedBy=timers.target

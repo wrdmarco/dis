@@ -1,13 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIFECYCLE_SOURCE_PATH="${BASH_SOURCE[0]}"
+case "${LIFECYCLE_SOURCE_PATH}" in */*) SCRIPT_DIR="${LIFECYCLE_SOURCE_PATH%/*}" ;; *) SCRIPT_DIR=. ;; esac
+LIFECYCLE_SOURCE_NAME="${LIFECYCLE_SOURCE_PATH##*/}"
+SCRIPT_DIR="$(cd -- "${SCRIPT_DIR}" && pwd -P)"
+bootstrap_root_lifecycle_source() {
+  local path="$1" parent current="" component metadata mode
+  [ -f "${path}" ] && [ ! -L "${path}" ] || return 1
+  metadata="$(/usr/bin/stat -c '%u:%a:%h' -- "${path}" 2>/dev/null || true)"
+  [[ "${metadata}" =~ ^0:([0-7]+):1$ ]] || return 1
+  mode="${BASH_REMATCH[1]}"; (( (8#${mode} & 8#022) == 0 )) || return 1
+  metadata="$(/usr/bin/stat -c '%u:%a' -- / 2>/dev/null || true)"
+  [[ "${metadata}" =~ ^0:([0-7]+)$ ]] || return 1
+  mode="${BASH_REMATCH[1]}"; (( (8#${mode} & 8#022) == 0 )) || return 1
+  parent="${path%/*}"; IFS='/' read -r -a bootstrap_components <<< "${parent#/}"
+  for component in "${bootstrap_components[@]}"; do
+    [ -n "${component}" ] || continue; current="${current}/${component}"
+    [ -d "${current}" ] && [ ! -L "${current}" ] || return 1
+    metadata="$(/usr/bin/stat -c '%u:%a' -- "${current}" 2>/dev/null || true)"
+    [[ "${metadata}" =~ ^0:([0-7]+)$ ]] || return 1
+    mode="${BASH_REMATCH[1]}"; (( (8#${mode} & 8#022) == 0 )) || return 1
+  done
+}
+if [ "${EUID}" -eq 0 ]; then
+  [ ! -L "${BASH_SOURCE[0]}" ] \
+    && bootstrap_root_lifecycle_source "${SCRIPT_DIR}/${LIFECYCLE_SOURCE_NAME}" \
+    && bootstrap_root_lifecycle_source "${SCRIPT_DIR}/lib/common.sh" \
+    || { printf '[dis:error] Lifecycle sources must be root-owned, single-link and non-writable by group/world.\n' >&2; exit 1; }
+fi
+unset -f bootstrap_root_lifecycle_source
 source "${SCRIPT_DIR}/lib/common.sh"
 
 APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
 BACKEND_DIR="${APP_ROOT}/webapp/backend"
 
 require_root
+acquire_dis_operation_lock permission-self-heal
 require_directory "${APP_ROOT}"
 
 log "Self-healing DIS file permissions"
@@ -28,7 +57,7 @@ fi
 # of being followed by install/chown/chmod.
 ensure_data_links "${APP_ROOT}"
 
-for runtime_service in "${PHP_FPM_SERVICE}" dis-queue dis-scheduler dis-websocket dis-frontend dis-backup-request; do
+for runtime_service in "${PHP_FPM_SERVICE}" dis-queue dis-scheduler dis-websocket dis-frontend dis-backup-request dis-osrm-admin-request; do
   if systemd_service_exists "${runtime_service}" && systemctl is-active --quiet "${runtime_service}"; then
     fail "Permission repair requires ${runtime_service} to be stopped under deployment maintenance."
   fi
@@ -36,6 +65,14 @@ done
 if systemd_unit_exists dis-backup-request.path && systemctl is-active --quiet dis-backup-request.path; then
   fail "Permission repair requires dis-backup-request.path to be stopped under deployment maintenance."
 fi
+if systemd_unit_exists dis-osrm-admin-request.path && systemctl is-active --quiet dis-osrm-admin-request.path; then
+  fail "Permission repair requires dis-osrm-admin-request.path to be stopped under deployment maintenance."
+fi
+if systemd_unit_exists dis-osrm-admin-request.timer && systemctl is-active --quiet dis-osrm-admin-request.timer; then
+  fail "Permission repair requires dis-osrm-admin-request.timer to be stopped under deployment maintenance."
+fi
+
+install_osrm_admin_runtime_bundle "${APP_ROOT}"
 
 ensure_managed_directory /mnt/dis-backup root root 0750
 
@@ -99,6 +136,16 @@ run_cmd chown -h root:root "${DIS_DATA_PATH}/backup-imports" "${DIS_DATA_PATH}/b
 run_cmd chmod 1730 "${DIS_DATA_PATH}/backup-imports" "${DIS_DATA_PATH}/backup-requests"
 run_cmd chmod 0700 "${DIS_DATA_PATH}/backup-request-work"
 
+install_osrm_admin_layout
+run_cmd chown -h root:root \
+  "${DIS_DATA_PATH}/osrm-admin" \
+  "${DIS_DATA_PATH}/osrm-admin/requests" \
+  "${DIS_DATA_PATH}/osrm-admin/work"
+run_cmd chmod 0750 "${DIS_DATA_PATH}/osrm-admin"
+run_cmd chmod 1730 "${DIS_DATA_PATH}/osrm-admin/requests"
+run_cmd chmod 0700 "${DIS_DATA_PATH}/osrm-admin/work"
+repair_managed_tree "${DIS_DATA_PATH}/osrm-admin/results" root "${DIS_GROUP}" 0750 0640
+
 if [ -f "${DIS_DATA_PATH}/secrets/backup-encryption.key" ] && [ ! -L "${DIS_DATA_PATH}/secrets/backup-encryption.key" ]; then
   run_cmd chown -h root:root "${DIS_DATA_PATH}/secrets/backup-encryption.key"
   run_cmd chmod 0600 "${DIS_DATA_PATH}/secrets/backup-encryption.key"
@@ -123,8 +170,13 @@ if id www-data >/dev/null 2>&1; then
   secure_path_operation acl-tree "${DIS_DATA_PATH}/storage/logs" www-data r-x r--
 
   secure_path_operation acl-tree "${DIS_DATA_PATH}/backup" www-data r-x r--
+  run_cmd setfacl -m "u:www-data:r-x" /var/log/dis
   run_cmd setfacl -m "u:www-data:-wx" "${DIS_DATA_PATH}/backup-imports" "${DIS_DATA_PATH}/backup-requests"
   run_cmd setfacl -x "d:u:www-data" "${DIS_DATA_PATH}/backup-imports" "${DIS_DATA_PATH}/backup-requests" 2>/dev/null || true
+  run_cmd setfacl -m "u:www-data:--x" "${DIS_DATA_PATH}/osrm-admin"
+  run_cmd setfacl -m "u:www-data:-wx" "${DIS_DATA_PATH}/osrm-admin/requests"
+  secure_path_operation acl-tree "${DIS_DATA_PATH}/osrm-admin/results" www-data r-x r--
+  run_cmd setfacl -x "d:u:www-data" "${DIS_DATA_PATH}/osrm-admin/requests" 2>/dev/null || true
 fi
 
 run_cmd setfacl -m "u:${DIS_USER}:-wx" "${DIS_DATA_PATH}/backup-requests"

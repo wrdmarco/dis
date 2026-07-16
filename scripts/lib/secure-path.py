@@ -122,11 +122,11 @@ def inspect_tree(
             if metadata.st_dev != expected_device:
                 raise SecurePathError(f"mounted runtime subtree is not allowed: {child_path}")
             if stat.S_ISDIR(metadata.st_mode):
-                inspect_tree(entry_fd, child_path, repair=repair, expected_device=expected_device)
                 if repair is not None:
                     uid, gid, directory_mode, _ = repair
                     os.fchown(entry_fd, uid, gid)
                     os.fchmod(entry_fd, directory_mode)
+                inspect_tree(entry_fd, child_path, repair=repair, expected_device=expected_device)
             elif stat.S_ISREG(metadata.st_mode):
                 if metadata.st_nlink != 1:
                     raise SecurePathError(f"hard-linked runtime file is not allowed: {child_path}")
@@ -153,16 +153,67 @@ def repair_tree(path: str, owner: str, group: str, directory_mode: int, file_mod
     uid = resolve_uid(owner)
     gid = resolve_gid(group)
     try:
+        # Freeze the top-level directory before walking descendants so the
+        # former unprivileged owner cannot create new names during repair.
+        os.fchown(directory_fd, uid, gid)
+        os.fchmod(directory_fd, directory_mode)
         inspect_tree(
             directory_fd,
             path,
             repair=(uid, gid, directory_mode, file_mode),
             expected_device=os.fstat(directory_fd).st_dev,
         )
-        os.fchown(directory_fd, uid, gid)
-        os.fchmod(directory_fd, directory_mode)
     finally:
         os.close(directory_fd)
+
+
+def write_file(path: str, owner: str, group: str, mode: int) -> None:
+    parent, leaf = split_parent(path)
+    parent_fd = open_directory_chain(parent, final_may_be_writable=False)
+    temporary_name = f".{leaf}.tmp.{os.urandom(16).hex()}"
+    temporary_fd: int | None = None
+    installed = False
+    try:
+        temporary_fd = os.open(
+            temporary_name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+            0o600,
+            dir_fd=parent_fd,
+        )
+        total = 0
+        while True:
+            block = sys.stdin.buffer.read(1024 * 1024)
+            if not block:
+                break
+            total += len(block)
+            if total > 16 * 1024 * 1024:
+                raise SecurePathError("managed file input exceeds 16 MiB")
+            view = memoryview(block)
+            while view:
+                written = os.write(temporary_fd, view)
+                view = view[written:]
+        os.fchown(temporary_fd, resolve_uid(owner), resolve_gid(group))
+        os.fchmod(temporary_fd, mode)
+        os.fsync(temporary_fd)
+        os.close(temporary_fd)
+        temporary_fd = None
+        os.replace(
+            temporary_name,
+            leaf,
+            src_dir_fd=parent_fd,
+            dst_dir_fd=parent_fd,
+        )
+        installed = True
+        os.fsync(parent_fd)
+    finally:
+        if temporary_fd is not None:
+            os.close(temporary_fd)
+        if not installed:
+            try:
+                os.unlink(temporary_name, dir_fd=parent_fd)
+            except FileNotFoundError:
+                pass
+        os.close(parent_fd)
 
 
 def set_acl(fd: int, user: str, permissions: str, *, default: bool = False) -> None:
@@ -451,6 +502,12 @@ def parser() -> argparse.ArgumentParser:
     repair.add_argument("directory_mode", type=parse_mode)
     repair.add_argument("file_mode", type=parse_mode)
 
+    write = subcommands.add_parser("write-file")
+    write.add_argument("path")
+    write.add_argument("owner")
+    write.add_argument("group")
+    write.add_argument("mode", type=parse_mode)
+
     acl = subcommands.add_parser("acl-tree")
     acl.add_argument("path")
     acl.add_argument("user")
@@ -488,6 +545,8 @@ def main() -> int:
                 arguments.directory_mode,
                 arguments.file_mode,
             )
+        elif arguments.command == "write-file":
+            write_file(arguments.path, arguments.owner, arguments.group, arguments.mode)
         elif arguments.command == "acl-tree":
             apply_acl_tree(
                 arguments.path,

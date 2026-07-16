@@ -45,6 +45,7 @@ final class RoleAndPermissionSeeder extends Seeder
         'operational-map.view' => ['display_name' => 'Operationele kaart bekijken', 'category' => 'incident_management', 'description' => 'Bekijk de operationele kaart met meldkamers en incidentlocaties.'],
         'operational-map.pilot-homes.view' => ['display_name' => 'Globale woonplaatsen op kaart bekijken', 'category' => 'incident_management', 'description' => 'Toon globale woonplaatscoordinaten van piloten op de operationele kaart.'],
         'system.health.view' => ['display_name' => 'Systeemstatus bekijken', 'category' => 'system_configuration', 'description' => 'Bekijk queue, websocket, versie en servicestatus zonder beheersacties uit te voeren.'],
+        'system.routing.manage' => ['display_name' => 'OSRM-routering beheren', 'category' => 'system_configuration', 'description' => 'Installeer, activeer en werk de lokale OSRM-routeringsdata bij.'],
         'system.update.execute' => ['display_name' => 'Systeemupdate uitvoeren', 'category' => 'system_configuration', 'description' => 'Start een serverupdate. Dit is een afzonderlijke bevoorrechte actie.'],
         'system.reboot.execute' => ['display_name' => 'Server herstarten', 'category' => 'system_configuration', 'description' => 'Start een herstart van de DIS-server. Dit is een afzonderlijke bevoorrechte actie.'],
         'system.developer-access.manage' => ['display_name' => 'Developer-toegang beheren', 'category' => 'system_configuration', 'description' => 'Maak of trek developer API-sleutels in en bekijk de developerconfiguratie.'],

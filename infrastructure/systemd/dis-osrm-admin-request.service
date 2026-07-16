@@ -1,0 +1,31 @@
+[Unit]
+Description=DIS OSRM Admin Request Worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=APP_ROOT=@APP_ROOT@
+Environment=DIS_DATA_PATH=@DIS_DATA_PATH@
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/local/bin/dis-osrm-admin-request-worker
+UMask=0077
+RuntimeDirectory=dis-osrm-admin-request
+RuntimeDirectoryMode=0700
+TimeoutStartSec=24h
+TimeoutStopSec=90s
+KillMode=control-group
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native

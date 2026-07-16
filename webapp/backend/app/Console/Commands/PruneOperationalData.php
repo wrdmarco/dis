@@ -3,10 +3,13 @@
 namespace App\Console\Commands;
 
 use App\Models\AuditLog;
+use App\Models\DispatchPushOutbox;
 use App\Models\LocationUpdate;
 use App\Models\PushDeliveryLog;
 use App\Models\SystemSetting;
+use DateTimeInterface;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Builder;
 
 final class PruneOperationalData extends Command
 {
@@ -24,17 +27,28 @@ final class PruneOperationalData extends Command
         $counts = [
             'location_updates' => LocationUpdate::query()->where('created_at', '<', $locationCutoff)->count(),
             'push_delivery_logs' => PushDeliveryLog::query()->where('created_at', '<', $pushCutoff)->count(),
+            'completed_dispatch_push_outbox' => $this->completedOutboxBefore($pushCutoff)->count(),
             'audit_logs' => AuditLog::query()->where('created_at', '<', $auditCutoff)->count(),
         ];
 
         if (! $dryRun) {
             LocationUpdate::query()->where('created_at', '<', $locationCutoff)->delete();
             PushDeliveryLog::query()->where('created_at', '<', $pushCutoff)->delete();
+            $this->completedOutboxBefore($pushCutoff)->delete();
             AuditLog::query()->where('created_at', '<', $auditCutoff)->delete();
         }
 
         $this->info(json_encode(['dry_run' => $dryRun, 'counts' => $counts], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
 
         return self::SUCCESS;
+    }
+
+    private function completedOutboxBefore(DateTimeInterface $cutoff): Builder
+    {
+        return DispatchPushOutbox::query()
+            ->where('created_at', '<', $cutoff)
+            ->where(fn ($query) => $query
+                ->whereNotNull('delivered_at')
+                ->orWhereNotNull('cancelled_at'));
     }
 }

@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Broadcast;
 
 Broadcast::channel('operations', fn ($user) => $user->hasPermission('incidents.view') || $user->hasPermission('incidents.dispatch.view') || $user->hasPermission('incidents.dispatch.manage') || $user->hasPermission('status.view'));
 
-Broadcast::channel('admin.system', fn ($user) => $user->hasPermission('system.health.view'));
+Broadcast::channel('admin.system', fn ($user) => $user->hasPermission('system.health.view') || $user->hasPermission('system.routing.manage'));
 
 Broadcast::channel('incidents.{incidentId}', function ($user, string $incidentId): bool {
     $incident = Incident::query()->find($incidentId);

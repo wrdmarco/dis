@@ -299,6 +299,7 @@ export interface DispatchPreview {
   teams?: Array<Pick<Team, 'id' | 'code' | 'name'>>;
   recipients: Array<Pick<User, 'id' | 'name' | 'email' | 'home_city'> & {
     eta_minutes?: number | null;
+    eta_source?: 'navigation' | 'fallback' | 'unknown' | null;
     teams?: Array<Pick<Team, 'id' | 'code' | 'name'>>;
   }>;
   blocked_reason?: string | null;
@@ -315,7 +316,7 @@ export interface IncidentTimelineItem {
 
 export interface IncidentLiveLocation {
   user_id: string;
-  user?: Pick<User, 'id' | 'name' | 'email'> | null;
+  user?: { id: string; name: string; email?: string | null } | null;
   sharing_status?: 'shared' | 'stale' | 'consented' | 'requested' | 'pending' | 'declined' | 'not_requested';
   location_is_current?: boolean;
   consent_active?: boolean;
@@ -329,6 +330,7 @@ export interface IncidentLiveLocation {
   accuracy_meters?: string | number | null;
   recorded_at?: string | null;
   eta_minutes?: number | null;
+  eta_source?: 'navigation' | 'fallback' | 'unknown' | null;
 }
 
 export interface AvailabilityStatus {
@@ -595,6 +597,29 @@ export interface SystemUpdateStatus {
   reboot_required?: boolean;
 }
 
+export interface SystemMetrics {
+  generated_at: string;
+  uptime_seconds: number | null;
+  cpu: {
+    usage_percent: number | null;
+    logical_processors: number | null;
+    load_average_1m: number | null;
+  };
+  memory: {
+    total_bytes: number | null;
+    used_bytes: number | null;
+    available_bytes: number | null;
+    usage_percent: number | null;
+  };
+  disk: {
+    label: string;
+    total_bytes: number | null;
+    used_bytes: number | null;
+    available_bytes: number | null;
+    usage_percent: number | null;
+  };
+}
+
 export interface SystemVersionState {
   app_version: string;
   git: {
@@ -612,6 +637,92 @@ export interface SystemVersionState {
     reboot_required?: boolean;
   };
   updater: SystemUpdateStatus;
+}
+
+export type OsrmManagementState = 'not_installed' | 'installed_inactive' | 'ready' | 'degraded';
+
+export type OsrmManagementAction = 'install_activate' | 'update';
+
+export type OsrmOperationState = 'queued' | 'running' | 'succeeded' | 'failed';
+
+export type OsrmOperationStage =
+  | 'validating'
+  | 'downloading'
+  | 'installing_package'
+  | 'provisioning'
+  | 'extracting'
+  | 'partitioning'
+  | 'customizing'
+  | 'activating'
+  | 'verifying'
+  | 'configuring'
+  | 'completed';
+
+export interface OsrmOperationSummary {
+  id: string;
+  action: OsrmManagementAction;
+  state: OsrmOperationState;
+  stage: OsrmOperationStage;
+  message: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  exit_code?: number | null;
+}
+
+export interface OsrmManagementStatus {
+  state: OsrmManagementState;
+  installed: boolean;
+  enabled: boolean;
+  healthy: boolean;
+  package: {
+    version: string;
+    verified_at?: string | null;
+  } | null;
+  dataset: {
+    sha256: string;
+    imported_at?: string | null;
+  } | null;
+  configuration: {
+    source_url: string;
+    source_sha256: string | null;
+    health_coordinate: {
+      longitude: number;
+      latitude: number;
+    } | null;
+  };
+  next_action: OsrmManagementAction | null;
+  blocker: {
+    code: string;
+    message: string;
+  } | null;
+  active_operation: OsrmOperationSummary | null;
+  latest_operation: OsrmOperationSummary | null;
+}
+
+export interface OsrmOperationLogLine {
+  seq: number;
+  at: string;
+  level: 'debug' | 'info' | 'warning' | 'error' | string;
+  message: string;
+}
+
+export interface OsrmOperationFeed {
+  operation: OsrmOperationSummary;
+  lines: OsrmOperationLogLine[];
+  next_cursor: number;
+}
+
+export interface OsrmOperationStarted {
+  operation: OsrmOperationSummary;
+}
+
+export interface OsrmOperationRequest {
+  action: OsrmManagementAction;
+  source_sha256: string;
+  health_coordinate?: {
+    longitude: number;
+    latitude: number;
+  };
 }
 
 export interface FormFieldOption {

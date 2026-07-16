@@ -2,10 +2,19 @@
 
 namespace App\Providers;
 
+use App\Contracts\DispatchNotificationQueue;
+use App\Contracts\PushProvider;
+use App\Contracts\RoutingProvider;
 use App\Mail\MicrosoftGraphTransport;
 use App\Models\PersonalAccessToken;
 use App\Models\SystemSetting;
+use App\Services\PushProviderClient;
+use App\Services\QueuedDispatchNotificationQueue;
+use App\Services\Routing\OsrmRoutingProvider;
+use App\Services\Routing\RoutingService;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Contracts\Cache\Factory as CacheFactory;
+use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Mail;
@@ -17,7 +26,34 @@ use Throwable;
 
 final class AppServiceProvider extends ServiceProvider
 {
-    public function register(): void {}
+    public function register(): void
+    {
+        $this->app->bind(DispatchNotificationQueue::class, QueuedDispatchNotificationQueue::class);
+        $this->app->bind(PushProvider::class, PushProviderClient::class);
+
+        $this->app->singleton(RoutingProvider::class, fn ($app): RoutingProvider => new OsrmRoutingProvider(
+            http: $app->make(HttpFactory::class),
+            baseUrl: (string) config('dis.routing.osrm.base_url', ''),
+            profile: (string) config('dis.routing.osrm.profile', 'driving'),
+            connectTimeoutSeconds: (int) config('dis.routing.osrm.connect_timeout_seconds', 1),
+            timeoutSeconds: (int) config('dis.routing.osrm.timeout_seconds', 3),
+            batchSize: (int) config('dis.routing.osrm.batch_size', 50),
+            allowedHosts: array_values(array_filter(array_map(
+                static fn (string $host): string => trim($host),
+                explode(',', (string) config('dis.routing.osrm.allowed_hosts', '127.0.0.1,localhost,::1')),
+            ))),
+        ));
+
+        $this->app->singleton(RoutingService::class, fn ($app): RoutingService => new RoutingService(
+            provider: $app->make(RoutingProvider::class),
+            cache: $app->make(CacheFactory::class)->store(),
+            enabled: $this->managedRoutingEnabled()
+                && (string) config('dis.routing.provider', 'osrm') === 'osrm',
+            cacheTtlSeconds: (int) config('dis.routing.cache_ttl_seconds', 900),
+            failureCacheTtlSeconds: (int) config('dis.routing.failure_cache_ttl_seconds', 15),
+            fallbackSpeedKmh: (float) config('dis.routing.fallback_speed_kmh', 60),
+        ));
+    }
 
     public function boot(): void
     {
@@ -95,6 +131,22 @@ final class AppServiceProvider extends ServiceProvider
         RateLimiter::for('developer-upload', fn (Request $request) => Limit::perMinute(6)->by($request->ip()));
         RateLimiter::for('developer-update', fn (Request $request) => Limit::perMinute(2)->by($request->ip()));
         RateLimiter::for('developer-logs', fn (Request $request) => Limit::perMinute(30)->by($request->ip()));
+        RateLimiter::for('osrm-admin-read', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'osrm-admin-read',
+            perClient: 120,
+            perUser: 240,
+        ));
+        RateLimiter::for('system-metrics', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'system-metrics',
+            perClient: 60,
+            perUser: 120,
+        ));
+        RateLimiter::for('osrm-admin-write', fn (Request $request): array => [
+            Limit::perMinute(2)->by('osrm-admin-write:client:'.$this->rateLimitClientKey($request)),
+            Limit::perHour(4)->by('osrm-admin-write:user:'.hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'))),
+        ]);
     }
 
     private function ensureRuntimeStorage(): void
@@ -199,9 +251,42 @@ final class AppServiceProvider extends ServiceProvider
             Config::set('mail.mailers.microsoft365.sender', SystemSetting::string('mail.microsoft365_sender', config('mail.mailers.microsoft365.sender')));
             Config::set('mail.from.address', SystemSetting::string('mail.from_address', config('mail.from.address')));
             Config::set('mail.from.name', SystemSetting::string('mail.from_name', config('mail.from.name')));
+            $routingEnabled = SystemSetting::boolean('routing.enabled', (bool) config('dis.routing.enabled', false));
+            Config::set('dis.routing.enabled', $routingEnabled);
+            if ($routingEnabled) {
+                Config::set('dis.routing.provider', 'osrm');
+                Config::set('dis.routing.osrm.base_url', 'http://127.0.0.1:5000');
+                Config::set('dis.routing.osrm.allowed_hosts', '127.0.0.1,localhost,::1');
+            }
         } catch (Throwable) {
             return;
         }
+    }
+
+    private function managedRoutingEnabled(): bool
+    {
+        $fallback = (bool) config('dis.routing.enabled', false);
+        try {
+            if (! Schema::hasTable('system_settings')) {
+                return $fallback;
+            }
+
+            return SystemSetting::boolean('routing.enabled', $fallback);
+        } catch (Throwable) {
+            return $fallback;
+        }
+    }
+
+    private function rateLimitClientKey(Request $request): string
+    {
+        $userId = (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous');
+        $accessToken = $request->user()?->currentAccessToken();
+        $tokenId = $accessToken instanceof PersonalAccessToken ? (string) $accessToken->getKey() : null;
+        $identity = is_string($tokenId) && $tokenId !== ''
+            ? 'token|'.$tokenId
+            : ($request->hasSession() ? 'session|'.$request->session()->getId() : 'ip|'.$request->ip());
+
+        return hash('sha256', 'user|'.$userId.'|'.$identity);
     }
 
     private function registerMailTransports(): void

@@ -1,7 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIFECYCLE_SOURCE_PATH="${BASH_SOURCE[0]}"
+case "${LIFECYCLE_SOURCE_PATH}" in */*) SCRIPT_DIR="${LIFECYCLE_SOURCE_PATH%/*}" ;; *) SCRIPT_DIR=. ;; esac
+LIFECYCLE_SOURCE_NAME="${LIFECYCLE_SOURCE_PATH##*/}"
+SCRIPT_DIR="$(cd -- "${SCRIPT_DIR}" && pwd -P)"
+bootstrap_root_lifecycle_source() {
+  local path="$1" parent current="" component metadata mode
+  [ -f "${path}" ] && [ ! -L "${path}" ] || return 1
+  metadata="$(/usr/bin/stat -c '%u:%a:%h' -- "${path}" 2>/dev/null || true)"; [[ "${metadata}" =~ ^0:([0-7]+):1$ ]] || return 1
+  mode="${BASH_REMATCH[1]}"; (( (8#${mode} & 8#022) == 0 )) || return 1
+  metadata="$(/usr/bin/stat -c '%u:%a' -- / 2>/dev/null || true)"; [[ "${metadata}" =~ ^0:([0-7]+)$ ]] || return 1; mode="${BASH_REMATCH[1]}"; (( (8#${mode} & 8#022) == 0 )) || return 1
+  parent="${path%/*}"; IFS='/' read -r -a bootstrap_components <<< "${parent#/}"
+  for component in "${bootstrap_components[@]}"; do [ -n "${component}" ] || continue; current="${current}/${component}"; [ -d "${current}" ] && [ ! -L "${current}" ] || return 1; metadata="$(/usr/bin/stat -c '%u:%a' -- "${current}" 2>/dev/null || true)"; [[ "${metadata}" =~ ^0:([0-7]+)$ ]] || return 1; mode="${BASH_REMATCH[1]}"; (( (8#${mode} & 8#022) == 0 )) || return 1; done
+}
+if [ "${EUID}" -eq 0 ]; then [ ! -L "${BASH_SOURCE[0]}" ] && bootstrap_root_lifecycle_source "${SCRIPT_DIR}/${LIFECYCLE_SOURCE_NAME}" && bootstrap_root_lifecycle_source "${SCRIPT_DIR}/lib/common.sh" || { printf '[dis:error] Lifecycle sources must be root-owned, single-link and non-writable by group/world.\n' >&2; exit 1; }; fi
+unset -f bootstrap_root_lifecycle_source
 source "${SCRIPT_DIR}/lib/common.sh"
 
 APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
@@ -293,6 +307,7 @@ if id www-data >/dev/null 2>&1; then
 fi
 run_cmd install -m 0755 "${APP_ROOT}/scripts/backup-request-worker.sh" /usr/local/bin/dis-backup-request-worker
 run_cmd install -m 0755 "${APP_ROOT}/scripts/snapshot-backup-input.sh" /usr/local/bin/dis-snapshot-backup-input
+install_osrm_admin_runtime_bundle "${APP_ROOT}"
 remove_legacy_backup_entrypoints
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/php/security.ini" "/etc/php/${PHP_VERSION}/fpm/conf.d/99-dis-security.ini"
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/php/opcache.ini" "/etc/php/${PHP_VERSION}/fpm/conf.d/99-dis-opcache.ini"
@@ -307,9 +322,16 @@ run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-scheduler.servic
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-websocket.service" /etc/systemd/system/dis-websocket.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-frontend.service" /etc/systemd/system/dis-frontend.service
 install_backup_request_systemd_units "${APP_ROOT}"
+install_osrm_admin_layout
+install_osrm_admin_request_systemd_units "${APP_ROOT}"
 run_cmd systemctl daemon-reload
-run_cmd systemctl enable dis-queue dis-scheduler dis-websocket dis-frontend dis-backup-request.path dis-backup-request.timer
+run_cmd systemctl enable \
+  dis-queue dis-scheduler dis-websocket dis-frontend \
+  dis-backup-request.path dis-backup-request.timer \
+  dis-osrm-admin-request.path dis-osrm-admin-request.timer
 run_cmd nginx -t
+APP_ROOT="${APP_ROOT}" bash "${APP_ROOT}/scripts/osrm.sh" reconcile
+APP_ROOT="${APP_ROOT}" bash "${APP_ROOT}/scripts/osrm.sh" publish-status
 
 finalize_backup_key_cutover "${APP_ROOT}"
 

@@ -13,8 +13,7 @@ import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
 import type { DispatchPreview, DispatchRequest, DroneFlightContext, Incident, IncidentInternalNotes, IncidentLiveLocation, IncidentTimelineItem, ReportIncident, Team } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
-
-const LIVE_LOCATION_STALE_MS = 5 * 60 * 1000;
+import { currentLiveLocations, dispatchEtaLabel, isCurrentLiveLocation, liveLocationEtaLabel } from './etaPresentation';
 
 export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const router = useRouter();
@@ -63,7 +62,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const showDispatchPanel = incident.data?.status === 'active';
   const reportAvailable = incident.data?.status === 'resolved' || incident.data?.status === 'cancelled';
   const recipientCount = latestDispatch?.recipients?.length ?? preview.data?.recipients.length ?? 0;
-  const liveSharedCount = liveLocations.data?.filter((location) => location.location_is_current === true || location.sharing_status === 'shared').length ?? 0;
+  const liveSharedCount = liveLocations.data?.filter((location) => isCurrentLiveLocation(location)).length ?? 0;
   const canManageIncidents = hasPermission('incidents.manage');
   const canDeleteIncidents = hasPermission('incidents.delete');
   const canManageDispatches = hasPermission('incidents.dispatch.manage');
@@ -496,7 +495,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
         >
           <ResourceState loading={preview.loading} error={preview.error} empty={false}>
           <div className="panel-body">
-            <p className="form-note">Kies voor een vooraankondiging of alarmeer direct. Beide acties gebruiken de ETA-ringen op basis van globale woonplaats.</p>
+            <p className="form-note">Kies voor een vooraankondiging of alarmeer direct. Beide acties gebruiken routegebaseerde ETA-ringen vanaf de globale woonplaats; een terugvalschatting wordt apart gemarkeerd.</p>
             <DispatchRingControls value={dispatchRecipientCount} onChange={setDispatchRecipientCount} />
             <DispatchPreviewSummary preview={preview.data} />
             {preview.data?.blocked_reason ? <p className="form-error">{preview.data.blocked_reason}</p> : null}
@@ -961,7 +960,7 @@ function dispatchRecipientCountPayload(value: string): Record<string, number> {
 function recipientPreviewMeta(recipient: DispatchPreview['recipients'][number]): string {
   const parts = [
     recipient.home_city || null,
-    recipient.eta_minutes ? `ETA-ring ${recipient.eta_minutes} min` : 'ETA onbekend',
+    dispatchEtaLabel(recipient.eta_minutes, recipient.eta_source),
     recipient.teams?.map((team) => team.code).join(', ') || null,
   ].filter((value): value is string => Boolean(value));
 
@@ -981,7 +980,7 @@ function DispatchRingControls({ value, onChange }: { value: string; onChange: (v
           placeholder="Alle geschikte mensen"
           onChange={(event) => onChange(event.target.value)}
         />
-        <small>Leeg betekent: iedereen die voldoet. Ingevuld betekent: eerst 15 min ETA, daarna 30, 45, enzovoort.</small>
+        <small>Leeg betekent: iedereen die voldoet. Ingevuld betekent: eerst de route-ETA-ring van 15 min, daarna 30, 45, enzovoort.</small>
       </label>
     </div>
   );
@@ -1037,7 +1036,7 @@ function LiveLocationMap({
   requestingUserId: string | null;
   onRequestLocation: (userId: string) => Promise<void>;
 }) {
-  const points = locations
+  const points = currentLiveLocations(locations)
     .filter((location) => location.latitude !== null && location.latitude !== undefined && location.longitude !== null && location.longitude !== undefined)
     .map((location) => ({
       ...location,
@@ -1118,7 +1117,7 @@ function LiveLocationMap({
               <tr key={location.user_id}>
                 <td>{location.user?.name ?? location.user_id}</td>
                 <td>{locationStatusLabel(location)}</td>
-                <td>{location.eta_minutes ? `${location.eta_minutes} min` : '-'}</td>
+                <td>{liveLocationEtaLabel(location)}</td>
                 <td>{formatDate(location.recorded_at)}</td>
                 <td>{location.accuracy_meters ? `${Number(location.accuracy_meters).toFixed(0)} m` : '-'}</td>
                 {canRequestLocation && !hasCurrentLiveLocation ? (
@@ -1141,23 +1140,6 @@ function LiveLocationMap({
 
 function formatDate(value?: string | null): string {
   return formatDateTime(value);
-}
-
-function isCurrentLiveLocation(location: IncidentLiveLocation): boolean {
-  if (location.location_is_current === true) {
-    return true;
-  }
-
-  if (location.latitude === null || location.latitude === undefined || location.longitude === null || location.longitude === undefined || !location.recorded_at) {
-    return false;
-  }
-
-  const recordedAt = new Date(location.recorded_at).getTime();
-  if (!Number.isFinite(recordedAt)) {
-    return false;
-  }
-
-  return Date.now() - recordedAt <= LIVE_LOCATION_STALE_MS;
 }
 
 function formatFlightMetric(value: unknown, suffix: string): string {

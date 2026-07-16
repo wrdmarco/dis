@@ -28,8 +28,29 @@ return [
         'eta_ring_minutes' => (int) env('DISPATCH_ETA_RING_MINUTES', 15),
         'estimated_eta_speed_kmh' => (float) env('DISPATCH_ESTIMATED_ETA_SPEED_KMH', 60),
     ],
+    'routing' => [
+        'enabled' => filter_var(env('ROUTING_ENABLED', false), FILTER_VALIDATE_BOOL),
+        'provider' => env('ROUTING_PROVIDER', 'osrm'),
+        'admin_pbf_url' => env('OSRM_ADMIN_PBF_URL', 'https://download.geofabrik.de/europe/netherlands-latest.osm.pbf'),
+        'admin_status_path' => env('OSRM_ADMIN_STATUS_PATH', '/var/log/dis/osrm-status.json'),
+        'admin_state_root' => env('OSRM_ADMIN_STATE_ROOT', rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/').'/osrm-admin'),
+        'cache_ttl_seconds' => (int) env('ROUTING_CACHE_TTL_SECONDS', 900),
+        'failure_cache_ttl_seconds' => (int) env('ROUTING_FAILURE_CACHE_TTL_SECONDS', 15),
+        'fallback_speed_kmh' => (float) env('ROUTING_FALLBACK_SPEED_KMH', env('DISPATCH_ESTIMATED_ETA_SPEED_KMH', 60)),
+        'osrm' => [
+            'base_url' => env('OSRM_BASE_URL'),
+            'allowed_hosts' => env('OSRM_ALLOWED_HOSTS', '127.0.0.1,localhost,::1'),
+            'profile' => env('OSRM_PROFILE', 'driving'),
+            'connect_timeout_seconds' => (int) env('OSRM_CONNECT_TIMEOUT_SECONDS', 1),
+            'timeout_seconds' => (int) env('OSRM_TIMEOUT_SECONDS', 3),
+            'batch_size' => (int) env('OSRM_BATCH_SIZE', 50),
+        ],
+    ],
     'updates' => [
         'android_application_id' => env('ANDROID_APPLICATION_ID', 'nl.wrdmarco.dis'),
+    ],
+    'system_metrics' => [
+        'disk_path' => env('DIS_DATA_PATH', '/opt/dis-data'),
     ],
     'retention' => [
         'push_logs_days' => (int) env('PUSH_LOG_RETENTION_DAYS', 90),

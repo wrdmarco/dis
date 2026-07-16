@@ -167,7 +167,7 @@ export function UserForm({
       <label>
         Woonplaats
         <input value={form.homeCity} maxLength={120} onChange={(event) => updateField('homeCity', event.target.value)} />
-        <small>Globale plaats voor geschatte ETA-ringen, geen exact adres.</small>
+        <small>Globale vertrekplaats voor routegebaseerde ETA-ringen, geen exact adres.</small>
       </label>
       <label>
         Land

@@ -9,6 +9,7 @@ import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 import type { Incident, IncidentLiveLocation, OperationalMapLayers } from '../../types/api';
+import { isCurrentLiveLocation } from './etaPresentation';
 
 const OPEN_INCIDENTS_PATH = '/incidents?status=draft,active,dispatching,in_progress';
 const MAP_LAYERS_PATH = '/operational-map/layers';
@@ -636,7 +637,7 @@ function coordinatePoint(latitude: string | number | null | undefined, longitude
 
 function isLiveLocation(location: IncidentLiveLocation): boolean {
   const point = coordinatePoint(location.latitude, location.longitude);
-  return point !== null && (location.location_is_current === true || location.sharing_status === 'shared' || location.sharing_status === 'stale');
+  return point !== null && isCurrentLiveLocation(location);
 }
 
 function shortMapLabel(value: string, maxLength: number): string {

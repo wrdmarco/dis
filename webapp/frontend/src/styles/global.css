@@ -1207,6 +1207,39 @@ a:hover {
   color: #f8fafc;
 }
 
+.osrm-management-form {
+  border-top: 1px solid var(--dis-border);
+  margin-top: 16px;
+}
+
+.osrm-management-warning,
+.osrm-live-log-wrap {
+  margin: 0 16px 16px;
+}
+
+.osrm-management-warning strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.osrm-management-form .field-display strong {
+  overflow-wrap: anywhere;
+}
+
+.osrm-management-note {
+  margin: 0;
+  padding: 0 16px 16px;
+}
+
+.osrm-live-log {
+  max-height: 26rem;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .push-template-card {
   display: grid;
   gap: 14px;
@@ -7406,6 +7439,351 @@ pre {
   color: #9f1239;
 }
 
+/* Live host telemetry on /system: compact command traces without a chart runtime. */
+.system-live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  border: 1px solid rgba(110, 231, 183, 0.28);
+  border-radius: 999px;
+  background: var(--dis-positive-soft);
+  color: var(--dis-positive);
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.system-live-status svg {
+  animation: system-live-pulse 2.4s ease-in-out infinite;
+}
+
+.system-live-status--connecting {
+  border-color: var(--dis-border-strong);
+  background: var(--dis-surface-3);
+  color: var(--dis-muted-strong);
+}
+
+.system-live-status--stale {
+  border-color: rgba(251, 191, 36, 0.34);
+  background: var(--dis-warning-soft);
+  color: var(--dis-warning);
+}
+
+.system-live-status--stale svg {
+  animation: none;
+}
+
+.system-metrics {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.system-metrics__warning {
+  margin: 0;
+  border: 1px solid rgba(251, 191, 36, 0.32);
+  border-radius: 8px;
+  background: var(--dis-warning-soft);
+  color: var(--dis-warning);
+  padding: 10px 12px;
+}
+
+.system-metrics__charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.system-metric-card,
+.system-storage-card {
+  min-width: 0;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(17, 29, 43, 0.82), rgba(9, 13, 18, 0.94)),
+    var(--dis-field);
+  overflow: hidden;
+}
+
+.system-metric-card__header,
+.system-storage-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 14px 8px;
+}
+
+.system-metric-card__label,
+.system-storage-card__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--dis-muted-strong);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.system-metric-card__label svg,
+.system-storage-card__label svg {
+  color: var(--dis-blue);
+}
+
+.system-metric-card__header strong,
+.system-storage-card > header strong {
+  color: var(--dis-text-strong);
+  font-size: clamp(1.45rem, 3vw, 2rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.system-metric-chart {
+  position: relative;
+  min-height: 156px;
+  margin: 0 14px;
+  border-top: 1px solid var(--dis-border);
+  border-bottom: 1px solid var(--dis-border);
+  background:
+    linear-gradient(90deg, transparent 49.8%, rgba(128, 199, 255, 0.04) 50%, transparent 50.2%),
+    rgba(9, 13, 18, 0.42);
+}
+
+.system-metric-chart svg {
+  display: block;
+  width: 100%;
+  height: 156px;
+  overflow: visible;
+}
+
+.system-metric-chart__grid {
+  fill: none;
+  stroke: rgba(142, 160, 181, 0.16);
+  stroke-width: 0.7;
+  vector-effect: non-scaling-stroke;
+}
+
+.system-metric-chart__line {
+  fill: none;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.system-metric-card--cpu .system-metric-chart__line {
+  stroke: var(--dis-blue);
+}
+
+.system-metric-card--memory .system-metric-chart__line {
+  stroke: var(--dis-positive);
+}
+
+.system-metric-chart__point {
+  fill: var(--dis-field);
+  stroke-width: 2;
+}
+
+.system-metric-card--cpu .system-metric-chart__point {
+  stroke: var(--dis-blue);
+}
+
+.system-metric-card--memory .system-metric-chart__point {
+  stroke: var(--dis-positive);
+}
+
+.system-metric-chart__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--dis-muted);
+  font-size: 0.82rem;
+  text-align: center;
+  padding: 12px;
+}
+
+.system-metric-card footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 58px;
+  padding: 10px 14px 13px;
+  color: var(--dis-muted-strong);
+  font-size: 0.78rem;
+}
+
+.system-metric-card footer span {
+  min-width: 0;
+}
+
+.system-metric-card footer small {
+  flex: 0 0 auto;
+  color: var(--dis-muted);
+  white-space: nowrap;
+}
+
+.system-storage-card {
+  padding-bottom: 14px;
+}
+
+.system-storage-card > header > div {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.system-storage-card > header small,
+.system-storage-card > p {
+  color: var(--dis-muted);
+}
+
+.system-storage-card > p {
+  margin: 0;
+  padding: 0 14px 10px;
+  font-size: 0.82rem;
+}
+
+.system-storage-card progress {
+  display: block;
+  width: calc(100% - 28px);
+  height: 12px;
+  appearance: none;
+  margin: 0 14px 14px;
+  border: 1px solid var(--dis-border);
+  border-radius: 999px;
+  background: var(--dis-surface-3);
+  overflow: hidden;
+}
+
+.system-storage-card progress::-webkit-progress-bar {
+  background: var(--dis-surface-3);
+}
+
+.system-storage-card progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--dis-blue), var(--dis-positive));
+}
+
+.system-storage-card progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--dis-blue), var(--dis-positive));
+}
+
+.system-storage-card__unknown {
+  margin: 0 14px 14px;
+  border: 1px dashed var(--dis-border-strong);
+  border-radius: 8px;
+  color: var(--dis-muted);
+  padding: 9px 11px;
+  font-size: 0.8rem;
+}
+
+.system-storage-card dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 14px;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background: var(--dis-border);
+  overflow: hidden;
+}
+
+.system-storage-card dl > div {
+  display: grid;
+  gap: 3px;
+  background: var(--dis-field);
+  padding: 10px 12px;
+}
+
+.system-storage-card dt {
+  color: var(--dis-muted);
+  font-size: 0.76rem;
+}
+
+.system-storage-card dd {
+  margin: 0;
+  color: var(--dis-text-strong);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.system-metrics__updated {
+  margin: 0;
+  color: var(--dis-muted);
+  font-size: 0.78rem;
+  text-align: right;
+}
+
+@keyframes system-live-pulse {
+  0%,
+  100% {
+    opacity: 0.56;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 820px) {
+  .system-metrics__charts {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .system-page .panel__header {
+    align-items: flex-start;
+    flex-direction: column;
+    padding-block: 9px;
+  }
+
+  .system-storage-card dl {
+    grid-template-columns: 1fr;
+  }
+
+  .system-metric-card footer {
+    display: grid;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .system-live-status svg {
+    animation: none;
+  }
+}
+
+:root[data-theme="light"] .system-metric-card,
+:root[data-theme="light"] .system-storage-card,
+:root[data-theme="light"] .system-storage-card dl > div {
+  border-color: var(--dis-border) !important;
+  background: var(--dis-surface) !important;
+  background-image: none !important;
+  color: var(--dis-text) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="light"] .system-metric-chart {
+  border-color: var(--dis-border);
+  background: var(--dis-surface-2);
+}
+
+:root[data-theme="light"] .system-metric-chart__grid {
+  stroke: rgba(93, 112, 135, 0.24);
+}
+
+:root[data-theme="light"] .system-metric-chart__point {
+  fill: var(--dis-surface);
+}
+
+:root[data-theme="light"] .system-storage-card dl {
+  border-color: var(--dis-border);
+  background: var(--dis-border);
+}
+
 :root[data-theme="light"] .dashboard-hero {
   border-color: var(--dis-border);
   background:
@@ -7999,6 +8377,39 @@ pre {
   border-color: #bbf7d0 !important;
   background: #f0fdf4 !important;
   color: #166534 !important;
+}
+
+/* Preserve telemetry semantics after the global light-mode text enforcement above. */
+:root[data-theme="light"] .system-page .system-live-status--live {
+  border-color: rgba(8, 127, 91, 0.3) !important;
+  background: var(--dis-positive-soft) !important;
+  color: var(--dis-positive) !important;
+}
+
+:root[data-theme="light"] .system-page .system-live-status--connecting {
+  border-color: var(--dis-border) !important;
+  background: var(--dis-surface-3) !important;
+  color: var(--dis-muted-strong) !important;
+}
+
+:root[data-theme="light"] .system-page .system-live-status--stale,
+:root[data-theme="light"] .system-page .system-metrics__warning {
+  border-color: #f8d179 !important;
+  background: var(--dis-warning-soft) !important;
+  color: var(--dis-warning) !important;
+}
+
+:root[data-theme="light"] .system-page :where(
+  .system-metric-card__label,
+  .system-storage-card__label,
+  .system-storage-card > p,
+  .system-metric-card footer,
+  .system-metric-card footer span,
+  .system-metric-card footer small,
+  .system-storage-card dt,
+  .system-metrics__updated
+) {
+  color: var(--dis-muted) !important;
 }
 
 .store-review-audit {
