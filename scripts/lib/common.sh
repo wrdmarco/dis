@@ -1084,6 +1084,46 @@ require_user_cannot_create_file_in_directory() {
   fi
 }
 
+reconcile_backend_source_permissions() {
+  local backend_dir="$1"
+  local source_file source_root
+
+  # A root Git checkout inherits the caller's umask. Under 0027/0077, files
+  # replaced by an update can therefore become unreadable to the managed PHP
+  # identity even though their Git mode is 100644. Repair only immutable
+  # Laravel source roots; runtime storage, vendor and bootstrap/cache retain
+  # their dedicated ownership and ACL contracts below.
+  ensure_managed_directory "${backend_dir%/*}" root root 0755
+  ensure_managed_directory "${backend_dir}" root root 0755
+  ensure_managed_directory "${backend_dir}/bootstrap" root root 0755
+  for source_root in app config database public resources routes; do
+    [ -d "${backend_dir}/${source_root}" ] && [ ! -L "${backend_dir}/${source_root}" ] \
+      || fail "Backend source root is missing or unsafe: ${source_root}"
+    repair_managed_tree "${backend_dir}/${source_root}" root root 0755 0644
+  done
+
+  for source_file in \
+    artisan \
+    composer.json \
+    composer.lock \
+    bootstrap/app.php \
+    bootstrap/providers.php; do
+    root_controlled_bundle_source_is_safe "${backend_dir}/${source_file}" \
+      || fail "Backend source file is not safely root-controlled: ${source_file}"
+    run_cmd chown root:root "${backend_dir}/${source_file}"
+    run_cmd chmod 0644 "${backend_dir}/${source_file}"
+    root_owned_runtime_file_is_safe "${backend_dir}/${source_file}" 644 \
+      || fail "Backend source file permissions could not be reconciled: ${source_file}"
+  done
+
+  require_user_can_open_file_for_reading \
+    "${DIS_USER}" "${backend_dir}/config/dis.php" "the Laravel DIS configuration source"
+  if id www-data >/dev/null 2>&1; then
+    require_user_can_open_file_for_reading \
+      www-data "${backend_dir}/config/dis.php" "the Laravel DIS configuration source"
+  fi
+}
+
 reconcile_backend_generated_cache_permissions() {
   local backend_dir="$1"
   local cache_dir="${backend_dir}/bootstrap/cache"

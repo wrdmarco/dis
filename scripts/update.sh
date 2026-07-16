@@ -478,6 +478,18 @@ create_pre_update_backup() {
   fi
 }
 
+reset_git_checkout_for_update() {
+  local target="$1"
+
+  # Git applies the caller's umask when it materializes changed files. Keep
+  # tracked 100644 sources readable by the managed application identities,
+  # without changing the restrictive umask used for secrets/runtime data.
+  (
+    umask 0022
+    run_cmd git -C "${DIS_INSTALL_PATH}" reset --hard "${target}"
+  )
+}
+
 reset_git_worktree_for_update() {
   local status_before untracked_before
 
@@ -490,7 +502,7 @@ reset_git_worktree_for_update() {
   status_before="$(git -C "${DIS_INSTALL_PATH}" status --porcelain --untracked-files=no -- . ':(exclude)backup' || true)"
   if [ -n "${status_before}" ]; then
     log "Local tracked Git changes detected; resetting production checkout without stash."
-    run_cmd git -C "${DIS_INSTALL_PATH}" reset --hard HEAD
+    reset_git_checkout_for_update HEAD
   fi
 
   untracked_before="$(git -C "${DIS_INSTALL_PATH}" status --porcelain --untracked-files=all -- . ':(exclude)backup' | awk '/^\?\?/ {print}' || true)"
@@ -733,7 +745,7 @@ if [ "${UPDATE_APP}" = "1" ]; then
       if [ -d "${DIS_INSTALL_PATH}/.git" ]; then
         log "Pulling latest DIS source"
         reset_git_worktree_for_update
-        run_cmd git -C "${DIS_INSTALL_PATH}" reset --hard "${APP_UPSTREAM}"
+        reset_git_checkout_for_update "${APP_UPSTREAM}"
       else
         log "No Git checkout found at ${DIS_INSTALL_PATH}; skipping source update."
       fi

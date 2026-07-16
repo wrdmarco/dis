@@ -188,6 +188,63 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertTrue($remove < $regenerate);
     }
 
+    public function test_permission_self_heal_repairs_root_checked_out_backend_sources_before_manifest_regeneration(): void
+    {
+        $common = $this->read('scripts/lib/common.sh');
+        $helperStart = strpos($common, 'reconcile_backend_source_permissions()');
+        self::assertIsInt($helperStart);
+
+        $helperEnd = strpos($common, "\n}\n", $helperStart);
+        self::assertIsInt($helperEnd);
+        $helper = substr($common, $helperStart, $helperEnd - $helperStart);
+
+        self::assertStringContainsString(
+            'for source_root in app config database public resources routes; do',
+            $helper,
+        );
+        foreach (['artisan', 'composer.json', 'composer.lock', 'bootstrap/app.php', 'bootstrap/providers.php'] as $sourceFile) {
+            self::assertStringContainsString($sourceFile, $helper);
+        }
+
+        // A root update under umask 0077 may leave newly checked-out sources
+        // as root:root 0600. Descriptor-safe repair rejects links, hard links
+        // and special files while restoring the immutable source modes.
+        self::assertStringContainsString(
+            'repair_managed_tree "${backend_dir}/${source_root}" root root 0755 0644',
+            $helper,
+        );
+        self::assertStringContainsString('root_controlled_bundle_source_is_safe', $helper);
+        self::assertStringContainsString('root_owned_runtime_file_is_safe', $helper);
+        self::assertStringContainsString('require_user_can_open_file_for_reading', $helper);
+        self::assertStringContainsString(
+            '"${DIS_USER}" "${backend_dir}/config/dis.php" "the Laravel DIS configuration source"',
+            $helper,
+        );
+
+        $selfHeal = $this->read('scripts/self-heal-permissions.sh');
+        $repair = strpos($selfHeal, 'reconcile_backend_source_permissions "${BACKEND_DIR}"');
+        $dependencyGuard = strpos($selfHeal, 'backend_dependency_state_is_current "${BACKEND_DIR}"');
+        $regenerate = strpos($selfHeal, 'regenerate_backend_package_manifest "${BACKEND_DIR}"');
+        self::assertIsInt($repair);
+        self::assertIsInt($dependencyGuard);
+        self::assertIsInt($regenerate);
+        self::assertTrue($repair < $dependencyGuard);
+        self::assertTrue($dependencyGuard < $regenerate);
+
+        $update = $this->read('scripts/update.sh');
+        $checkoutStart = strpos($update, 'reset_git_checkout_for_update()');
+        self::assertIsInt($checkoutStart);
+        $checkoutEnd = strpos($update, "\n}\n", $checkoutStart);
+        self::assertIsInt($checkoutEnd);
+        $checkoutHelper = substr($update, $checkoutStart, $checkoutEnd - $checkoutStart);
+        self::assertStringContainsString('umask 0022', $checkoutHelper);
+        self::assertStringContainsString(
+            'run_cmd git -C "${DIS_INSTALL_PATH}" reset --hard "${target}"',
+            $checkoutHelper,
+        );
+        self::assertSame(3, substr_count($update, 'reset_git_checkout_for_update'));
+    }
+
     public function test_restore_regenerates_and_reconciles_manifests_before_web_identity_self_check(): void
     {
         $script = $this->read('scripts/restore.sh');

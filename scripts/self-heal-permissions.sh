@@ -105,6 +105,7 @@ for runtime_leaf in "${backend_runtime_leaves[@]}"; do
 done
 
 if [ -d "${BACKEND_DIR}" ]; then
+  reconcile_backend_source_permissions "${BACKEND_DIR}"
   ensure_managed_directory "${BACKEND_DIR}/bootstrap/cache" "${DIS_USER}" "${DIS_GROUP}" 0770
   repair_managed_tree "${BACKEND_DIR}/bootstrap/cache" "${DIS_USER}" "${DIS_GROUP}" 0770 0660
 
