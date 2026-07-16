@@ -648,6 +648,7 @@ export type OsrmOperationState = 'queued' | 'running' | 'succeeded' | 'failed';
 export type OsrmOperationStage =
   | 'validating'
   | 'downloading'
+  | 'merging'
   | 'installing_package'
   | 'provisioning'
   | 'extracting'
@@ -669,6 +670,21 @@ export interface OsrmOperationSummary {
   exit_code?: number | null;
 }
 
+export interface OsrmConfiguredSource {
+  id: 'netherlands' | 'belgium';
+  label: string;
+  latest_url: string;
+}
+
+export interface OsrmDatasetSource {
+  id: 'netherlands' | 'belgium';
+  label: string;
+  filename: string;
+  version_url: string;
+  md5: string;
+  size_bytes: number;
+}
+
 export interface OsrmManagementStatus {
   state: OsrmManagementState;
   installed: boolean;
@@ -679,12 +695,16 @@ export interface OsrmManagementStatus {
     verified_at?: string | null;
   } | null;
   dataset: {
-    sha256: string;
+    legacy: boolean;
+    source_set_sha256: string | null;
+    snapshot_date: string | null;
+    source_timestamp: string | null;
+    sources: OsrmDatasetSource[];
     imported_at?: string | null;
   } | null;
   configuration: {
-    source_url: string;
-    source_sha256: string | null;
+    sources: OsrmConfiguredSource[];
+    source_set_sha256: string | null;
     health_coordinate: {
       longitude: number;
       latitude: number;
@@ -718,7 +738,6 @@ export interface OsrmOperationStarted {
 
 export interface OsrmOperationRequest {
   action: OsrmManagementAction;
-  source_sha256: string;
   health_coordinate?: {
     longitude: number;
     latitude: number;

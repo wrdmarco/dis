@@ -42,7 +42,7 @@ final class OsrmAdminApiTest extends TestCase
         config()->set([
             'dis.routing.admin_state_root' => $this->stateRoot,
             'dis.routing.admin_status_path' => $this->globalStatusPath,
-            'dis.routing.admin_pbf_url' => 'https://download.geofabrik.de/europe/netherlands-latest.osm.pbf',
+            'dis.routing.admin_sources' => $this->configuredSources(),
             'dis.routing.enabled' => false,
         ]);
         Event::fake([OsrmOperationStatusChanged::class]);
@@ -64,7 +64,11 @@ final class OsrmAdminApiTest extends TestCase
             ->getJson('/api/admin/routing/osrm')
             ->assertOk()
             ->assertJsonPath('data.state', 'not_installed')
-            ->assertJsonPath('data.configuration.source_url', 'https://download.geofabrik.de/europe/netherlands-latest.osm.pbf')
+            ->assertJsonPath('data.configuration.sources.0.id', 'netherlands')
+            ->assertJsonPath('data.configuration.sources.0.label', 'Nederland')
+            ->assertJsonPath('data.configuration.sources.1.id', 'belgium')
+            ->assertJsonPath('data.configuration.sources.1.label', 'België')
+            ->assertJsonPath('data.configuration.source_set_sha256', $this->sourceSetSha256())
             ->assertJsonPath('data.next_action', 'install_activate')
             ->assertJsonPath('data.active_operation', null)
             ->assertJsonPath('data.latest_operation', null);
@@ -81,16 +85,16 @@ final class OsrmAdminApiTest extends TestCase
 
     public function test_non_approved_server_source_is_blocked_before_request_publication(): void
     {
-        config()->set(
-            'dis.routing.admin_pbf_url',
-            'https://download.geofabrik.de/europe/germany-latest.osm.pbf',
-        );
+        $sources = $this->configuredSources();
+        $sources[1]['latest_url'] = 'https://download.geofabrik.de/europe/germany-latest.osm.pbf';
+        config()->set('dis.routing.admin_sources', $sources);
         $actor = $this->user('osrm-source-policy@example.test', ['system.routing.manage']);
 
         $this->asAdminClient($actor)
             ->getJson('/api/admin/routing/osrm')
             ->assertOk()
-            ->assertJsonPath('data.configuration.source_url', '')
+            ->assertJsonPath('data.configuration.sources', [])
+            ->assertJsonPath('data.configuration.source_set_sha256', null)
             ->assertJsonPath('data.next_action', null)
             ->assertJsonPath('data.blocker.code', 'invalid_source_configuration');
 
@@ -121,10 +125,11 @@ final class OsrmAdminApiTest extends TestCase
             ['version', 'operation_id', 'action', 'actor_id', 'created_at'],
             array_keys($payload),
         );
-        $this->assertSame(1, $payload['version']);
+        $this->assertSame(2, $payload['version']);
         $this->assertSame($operation->id, $payload['operation_id']);
         $this->assertSame($actor->id, $payload['actor_id']);
         $this->assertArrayNotHasKey('source_url', $payload);
+        $this->assertArrayNotHasKey('source_md5', $payload);
         $this->assertArrayNotHasKey('source_sha256', $payload);
         $this->assertArrayNotHasKey('health_coordinate', $payload);
         if (PHP_OS_FAMILY !== 'Windows') {
@@ -160,7 +165,6 @@ final class OsrmAdminApiTest extends TestCase
         try {
             app(OsrmOperationService::class)->start(
                 action: 'install_activate',
-                sourceSha256: str_repeat('a', 64),
                 healthCoordinate: [
                     'longitude' => 5.1214,
                     'latitude' => 52.0907,
@@ -178,13 +182,12 @@ final class OsrmAdminApiTest extends TestCase
         $this->assertSame([], glob($this->stateRoot.'/requests/*.pending') ?: []);
     }
 
-    public function test_client_cannot_choose_source_or_probe_and_a_healthy_update_requires_a_new_checksum(): void
+    public function test_client_cannot_choose_sources_checksums_or_probe_and_update_uses_server_source_set(): void
     {
-        $currentSha = str_repeat('a', 64);
-        $this->writeReadyRuntimeStatus($currentSha);
+        $manifest = $this->sourceManifest();
+        $this->writeReadyRuntimeStatus($manifest);
         $this->putSetting('routing.enabled', true);
-        $this->putSetting('routing.osrm.source_url', 'https://download.geofabrik.de/europe/netherlands-latest.osm.pbf');
-        $this->putSetting('routing.osrm.source_sha256', $currentSha);
+        $this->putSetting('routing.osrm.source_manifest', $manifest);
         $this->putSetting('routing.osrm.health_coordinate', [
             'longitude' => 5.1214,
             'latitude' => 52.0907,
@@ -194,8 +197,17 @@ final class OsrmAdminApiTest extends TestCase
         $this->asAdminClient($actor)
             ->postJson('/api/admin/routing/osrm/operations', [
                 'action' => 'update',
-                'source_sha256' => str_repeat('b', 64),
+                'source_md5' => str_repeat('b', 32),
                 'source_url' => 'https://attacker.example.test/private.osm.pbf',
+                'sources' => [[
+                    'id' => 'attacker',
+                    'latest_url' => 'https://attacker.example.test/private.osm.pbf',
+                ]],
+                'source_set' => [],
+                'source_manifest' => [],
+                'source_set_sha256' => str_repeat('b', 64),
+                'snapshot_date' => '2026-07-15',
+                'source_timestamp' => '2026-07-15T20:21:10Z',
             ])
             ->assertStatus(422)
             ->assertJsonPath('error.code', 'validation_failed');
@@ -203,7 +215,6 @@ final class OsrmAdminApiTest extends TestCase
         $this->asAdminClient($actor)
             ->postJson('/api/admin/routing/osrm/operations', [
                 'action' => 'update',
-                'source_sha256' => str_repeat('b', 64),
                 'health_coordinate' => ['longitude' => 4.9, 'latitude' => 52.3],
             ])
             ->assertStatus(422);
@@ -211,30 +222,32 @@ final class OsrmAdminApiTest extends TestCase
         $this->asAdminClient($actor)
             ->postJson('/api/admin/routing/osrm/operations', [
                 'action' => 'update',
-                'source_sha256' => $currentSha,
+                'source_sha256' => str_repeat('b', 64),
             ])
-            ->assertStatus(409)
-            ->assertJsonPath('error.code', 'osrm_operation_conflict');
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'validation_failed');
 
         $response = $this->asAdminClient($actor)
             ->postJson('/api/admin/routing/osrm/operations', [
                 'action' => 'update',
-                'source_sha256' => str_repeat('B', 64),
             ])
             ->assertStatus(202);
         $operation = OsrmOperation::query()->findOrFail($response->json('data.operation.id'));
-        $this->assertSame(str_repeat('b', 64), $operation->source_sha256);
+        $this->assertNull($operation->source_url);
+        $this->assertNull($operation->source_sha256);
+        $this->assertSame($this->sourceSet(), $operation->source_set);
+        $this->assertSame($this->sourceSetSha256(), $operation->source_set_sha256);
+        $this->assertNull($operation->source_manifest);
         $this->assertSame(5.1214, (float) $operation->health_longitude);
         $this->assertSame(52.0907, (float) $operation->health_latitude);
     }
 
     public function test_next_action_requires_matching_managed_metadata_but_allows_a_degraded_managed_rebuild(): void
     {
-        $sha256 = str_repeat('e', 64);
-        $this->writeReadyRuntimeStatus($sha256);
+        $manifest = $this->sourceManifest();
+        $this->writeReadyRuntimeStatus($manifest);
         $this->putSetting('routing.enabled', true);
-        $this->putSetting('routing.osrm.source_url', 'https://download.geofabrik.de/europe/netherlands-latest.osm.pbf');
-        $this->putSetting('routing.osrm.source_sha256', $sha256);
+        $this->putSetting('routing.osrm.source_manifest', $manifest);
         $actor = $this->user('osrm-managed-state@example.test', ['system.routing.manage']);
 
         $this->asAdminClient($actor)
@@ -251,13 +264,13 @@ final class OsrmAdminApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.next_action', 'update');
 
-        $this->writeReadyRuntimeStatus($sha256, healthCoordinate: '4.895168,52.370216');
+        $this->writeReadyRuntimeStatus($manifest, healthCoordinate: '4.895168,52.370216');
         $this->asAdminClient($actor)
             ->getJson('/api/admin/routing/osrm')
             ->assertOk()
             ->assertJsonPath('data.next_action', 'install_activate');
 
-        $this->writeReadyRuntimeStatus($sha256, healthy: false);
+        $this->writeReadyRuntimeStatus($manifest, healthy: false);
         $this->asAdminClient($actor)
             ->getJson('/api/admin/routing/osrm')
             ->assertOk()
@@ -267,13 +280,44 @@ final class OsrmAdminApiTest extends TestCase
         $response = $this->asAdminClient($actor)
             ->postJson('/api/admin/routing/osrm/operations', [
                 'action' => 'update',
-                'source_sha256' => $sha256,
             ])
             ->assertStatus(202)
             ->assertJsonPath('data.operation.action', 'update')
             ->assertJsonPath('data.operation.state', 'queued');
         $operation = OsrmOperation::query()->findOrFail($response->json('data.operation.id'));
-        $this->assertSame($sha256, $operation->source_sha256);
+        $this->assertSame($this->sourceSet(), $operation->source_set);
+        $this->assertSame($this->sourceSetSha256(), $operation->source_set_sha256);
+    }
+
+    public function test_legacy_sha256_dataset_remains_available_until_a_composite_update_migrates_it(): void
+    {
+        $legacySha256 = str_repeat('9', 64);
+        $this->writeReadyLegacyRuntimeStatus($legacySha256);
+        $this->putSetting('routing.enabled', true);
+        $this->putSetting('routing.osrm.source_url', 'https://download.geofabrik.de/europe/netherlands-latest.osm.pbf');
+        $this->putSetting('routing.osrm.source_sha256', $legacySha256);
+        $this->putSetting('routing.osrm.health_coordinate', [
+            'longitude' => 5.1214,
+            'latitude' => 52.0907,
+        ]);
+        $actor = $this->user('osrm-legacy-upgrade@example.test', ['system.routing.manage']);
+
+        $this->asAdminClient($actor)
+            ->getJson('/api/admin/routing/osrm')
+            ->assertOk()
+            ->assertJsonPath('data.state', 'ready')
+            ->assertJsonPath('data.dataset.legacy', true)
+            ->assertJsonPath('data.dataset.source_set_sha256', null)
+            ->assertJsonPath('data.dataset.sources', [])
+            ->assertJsonMissingPath('data.dataset.legacy_sha256')
+            ->assertJsonPath('data.next_action', 'update');
+
+        $response = $this->asAdminClient($actor)
+            ->postJson('/api/admin/routing/osrm/operations', ['action' => 'update'])
+            ->assertStatus(202);
+        $operation = OsrmOperation::query()->findOrFail($response->json('data.operation.id'));
+        $this->assertNull($operation->source_sha256);
+        $this->assertSame($this->sourceSet(), $operation->source_set);
     }
 
     public function test_live_feed_is_cursor_based_bounded_and_redacts_sensitive_output(): void
@@ -285,18 +329,18 @@ final class OsrmAdminApiTest extends TestCase
         $operation = OsrmOperation::query()->findOrFail($response->json('data.operation.id'));
         $this->writeOperationStatus($operation, [
             'state' => 'running',
-            'stage' => 'downloading',
-            'message' => 'Kaart downloaden.',
+            'stage' => 'merging',
+            'message' => 'Kaartdekking samenvoegen.',
             'progress_percent' => 10,
             'exit_code' => null,
-            'active_source_sha256' => null,
+            'active_source_manifest' => null,
         ]);
         $now = now()->utc()->format('Y-m-d\TH:i:s\Z');
         $this->writeProtectedFile($this->stateRoot.'/results/'.$operation->id.'.log.jsonl', implode("\n", [
-            json_encode(['version' => 1, 'seq' => 1, 'timestamp' => $now, 'stage' => 'validating', 'level' => 'info', 'message' => 'Validatie geslaagd.'], JSON_THROW_ON_ERROR),
-            json_encode(['version' => 1, 'seq' => 2, 'timestamp' => $now, 'stage' => 'downloading', 'level' => 'warning', 'message' => 'DB_PASSWORD=log-secret pad /opt/dis/private'], JSON_THROW_ON_ERROR),
+            json_encode(['version' => 2, 'seq' => 1, 'timestamp' => $now, 'stage' => 'validating', 'level' => 'info', 'message' => 'Validatie geslaagd.'], JSON_THROW_ON_ERROR),
+            json_encode(['version' => 2, 'seq' => 2, 'timestamp' => $now, 'stage' => 'merging', 'level' => 'warning', 'message' => 'DB_PASSWORD=log-secret pad /opt/dis/private'], JSON_THROW_ON_ERROR),
             '{malformed',
-            json_encode(['version' => 1, 'seq' => 3, 'timestamp' => $now, 'stage' => 'invalid-stage', 'level' => 'info', 'message' => 'hidden'], JSON_THROW_ON_ERROR),
+            json_encode(['version' => 2, 'seq' => 3, 'timestamp' => $now, 'stage' => 'invalid-stage', 'level' => 'info', 'message' => 'hidden'], JSON_THROW_ON_ERROR),
         ])."\n");
 
         $healthViewer = $this->user('osrm-log-viewer@example.test', ['system.health.view']);
@@ -304,7 +348,7 @@ final class OsrmAdminApiTest extends TestCase
             ->getJson('/api/admin/routing/osrm/operations/'.$operation->id.'?after=1&limit=1')
             ->assertOk()
             ->assertJsonPath('data.operation.state', 'running')
-            ->assertJsonPath('data.operation.stage', 'downloading')
+            ->assertJsonPath('data.operation.stage', 'merging')
             ->assertJsonCount(1, 'data.lines')
             ->assertJsonPath('data.lines.0.seq', 2)
             ->assertJsonPath('data.next_cursor', 2);
@@ -317,25 +361,26 @@ final class OsrmAdminApiTest extends TestCase
 
     public function test_root_callbacks_finish_only_after_matching_health_snapshot_and_enable_routing_from_database(): void
     {
-        $sha256 = str_repeat('c', 64);
+        $manifest = $this->sourceManifest(str_repeat('c', 32), str_repeat('d', 32));
         $actor = $this->user('osrm-finisher@example.test', ['system.routing.manage']);
         $response = $this->asAdminClient($actor)
             ->postJson('/api/admin/routing/osrm/operations', [
                 ...$this->installPayload(),
-                'source_sha256' => $sha256,
             ])
             ->assertStatus(202);
         $operation = OsrmOperation::query()->findOrFail($response->json('data.operation.id'));
 
         $this->assertSame(0, Artisan::call('dis:osrm-operation:mark-running', ['operationId' => $operation->id]));
-        $this->writeReadyRuntimeStatus($sha256);
+        $this->putSetting('routing.osrm.source_url', 'https://download.geofabrik.de/europe/netherlands-latest.osm.pbf');
+        $this->putSetting('routing.osrm.source_sha256', str_repeat('9', 64));
+        $this->writeReadyRuntimeStatus($manifest);
         $this->writeOperationStatus($operation, [
             'state' => 'succeeded',
             'stage' => 'completed',
             'message' => 'OSRM gereed.',
             'progress_percent' => 100,
             'exit_code' => 0,
-            'active_source_sha256' => $sha256,
+            'active_source_manifest' => $manifest,
         ]);
         $this->assertSame(0, Artisan::call('dis:osrm-operation:finish', [
             'operationId' => $operation->id,
@@ -346,7 +391,10 @@ final class OsrmAdminApiTest extends TestCase
         $this->assertSame('succeeded', $operation->state);
         $this->assertNull($operation->active_key);
         $this->assertTrue(SystemSetting::boolean('routing.enabled', false));
-        $this->assertSame($sha256, SystemSetting::string('routing.osrm.source_sha256'));
+        $this->assertSame($manifest, $operation->source_manifest);
+        $this->assertEquals($manifest, SystemSetting::value('routing.osrm.source_manifest'));
+        $this->assertNull(SystemSetting::value('routing.osrm.source_url'));
+        $this->assertNull(SystemSetting::value('routing.osrm.source_sha256'));
         $this->assertEquals([
             'longitude' => 5.1214,
             'latitude' => 52.0907,
@@ -356,6 +404,12 @@ final class OsrmAdminApiTest extends TestCase
 
         $status = $this->asAdminClient($actor)->getJson('/api/admin/routing/osrm')->assertOk();
         $status->assertJsonPath('data.state', 'ready');
+        $status->assertJsonPath('data.dataset.legacy', false);
+        $status->assertJsonPath('data.dataset.snapshot_date', '2026-07-15');
+        $status->assertJsonPath('data.dataset.sources.0.id', 'netherlands');
+        $status->assertJsonPath('data.dataset.sources.0.md5', str_repeat('c', 32));
+        $status->assertJsonPath('data.dataset.sources.1.id', 'belgium');
+        $status->assertJsonPath('data.dataset.sources.1.md5', str_repeat('d', 32));
         $status->assertJsonPath('data.next_action', 'update');
         $status->assertJsonPath('data.active_operation', null);
         $status->assertJsonPath('data.latest_operation.id', $operation->id);
@@ -410,14 +464,31 @@ final class OsrmAdminApiTest extends TestCase
         ]);
     }
 
-    public function test_delayed_zero_exit_with_a_success_snapshot_uses_a_failure_message_when_runtime_verification_fails(): void
+    public function test_partial_composite_runtime_manifest_is_rejected_without_exposing_a_partial_md5(): void
     {
-        $sha256 = str_repeat('f', 64);
+        $manifest = $this->sourceManifest();
+        array_pop($manifest['sources']);
+        $this->writeReadyRuntimeStatus($manifest);
+        $actor = $this->user('osrm-partial-manifest@example.test', ['system.health.view']);
+
+        $response = $this->asAdminClient($actor)
+            ->getJson('/api/admin/routing/osrm')
+            ->assertOk()
+            ->assertJsonPath('data.state', 'installed_inactive')
+            ->assertJsonPath('data.dataset', null)
+            ->assertJsonPath('data.next_action', 'install_activate');
+
+        $this->assertStringNotContainsString(str_repeat('a', 32), $response->getContent());
+    }
+
+    public function test_delayed_zero_exit_with_one_mismatched_supplier_md5_fails_closed(): void
+    {
+        $operationManifest = $this->sourceManifest(str_repeat('f', 32), str_repeat('d', 32));
+        $runtimeManifest = $this->sourceManifest(str_repeat('f', 32), str_repeat('e', 32));
         $actor = $this->user('osrm-delayed-finish@example.test', ['system.routing.manage']);
         $response = $this->asAdminClient($actor)
             ->postJson('/api/admin/routing/osrm/operations', [
                 ...$this->installPayload(),
-                'source_sha256' => $sha256,
             ])
             ->assertStatus(202);
         $operation = OsrmOperation::query()->findOrFail($response->json('data.operation.id'));
@@ -429,9 +500,9 @@ final class OsrmAdminApiTest extends TestCase
             'message' => 'OSRM is volgens de rootbewerking gereed.',
             'progress_percent' => 100,
             'exit_code' => 0,
-            'active_source_sha256' => $sha256,
+            'active_source_manifest' => $operationManifest,
         ]);
-        $this->writeReadyRuntimeStatus($sha256, healthy: false);
+        $this->writeReadyRuntimeStatus($runtimeManifest);
 
         $this->assertSame(0, Artisan::call('dis:osrm-operation:finish', [
             'operationId' => $operation->id,
@@ -464,13 +535,16 @@ final class OsrmAdminApiTest extends TestCase
             'operation_id',
             'action',
             'actor_id',
-            'source_url',
-            'source_sha256',
+            'sources',
             'health_coordinate',
         ], array_keys($payload));
         $this->assertSame($operation->id, $payload['operation_id']);
-        $this->assertSame($operation->source_url, $payload['source_url']);
-        $this->assertSame($operation->source_sha256, $payload['source_sha256']);
+        $this->assertSame($this->sourceSet(), $payload['sources']);
+        $this->assertArrayNotHasKey('source_url', $payload);
+        $this->assertArrayNotHasKey('source_md5', $payload);
+        $this->assertArrayNotHasKey('source_sha256', $payload);
+        $this->assertArrayNotHasKey('source_manifest', $payload);
+        $this->assertArrayNotHasKey('source_set_sha256', $payload);
     }
 
     public function test_root_worker_can_release_a_malformed_request_by_filename_and_stale_queued_requests_recover(): void
@@ -491,7 +565,6 @@ final class OsrmAdminApiTest extends TestCase
         $second = $this->asAdminClient($actor)
             ->postJson('/api/admin/routing/osrm/operations', [
                 ...$this->installPayload(),
-                'source_sha256' => str_repeat('d', 64),
             ])
             ->assertStatus(202);
         $stale = OsrmOperation::query()->findOrFail($second->json('data.operation.id'));
@@ -519,7 +592,6 @@ final class OsrmAdminApiTest extends TestCase
     {
         return [
             'action' => 'install_activate',
-            'source_sha256' => str_repeat('a', 64),
             'health_coordinate' => [
                 'longitude' => 5.1214,
                 'latitude' => 52.0907,
@@ -577,13 +649,80 @@ final class OsrmAdminApiTest extends TestCase
         );
     }
 
+    /** @return list<array{id: string, label: string, latest_url: string}> */
+    private function configuredSources(): array
+    {
+        return [
+            [
+                'id' => 'netherlands',
+                'label' => 'Nederland',
+                'latest_url' => 'https://download.geofabrik.de/europe/netherlands-latest.osm.pbf',
+            ],
+            [
+                'id' => 'belgium',
+                'label' => 'België',
+                'latest_url' => 'https://download.geofabrik.de/europe/belgium-latest.osm.pbf',
+            ],
+        ];
+    }
+
+    /** @return list<array{id: string, latest_url: string}> */
+    private function sourceSet(): array
+    {
+        return array_map(
+            static fn (array $source): array => [
+                'id' => $source['id'],
+                'latest_url' => $source['latest_url'],
+            ],
+            $this->configuredSources(),
+        );
+    }
+
+    private function sourceSetSha256(): string
+    {
+        return hash('sha256', json_encode(
+            $this->sourceSet(),
+            JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES,
+        ));
+    }
+
+    /**
+     * @return array{source_set_sha256: string, snapshot_date: string, source_timestamp: string, sources: list<array{id: string, filename: string, version_url: string, md5: string, size_bytes: int}>}
+     */
+    private function sourceManifest(
+        string $netherlandsMd5 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        string $belgiumMd5 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    ): array {
+        return [
+            'source_set_sha256' => $this->sourceSetSha256(),
+            'snapshot_date' => '2026-07-15',
+            'source_timestamp' => '2026-07-15T20:21:10Z',
+            'sources' => [
+                [
+                    'id' => 'netherlands',
+                    'filename' => 'netherlands-260715.osm.pbf',
+                    'version_url' => 'https://download.geofabrik.de/europe/netherlands-260715.osm.pbf',
+                    'md5' => $netherlandsMd5,
+                    'size_bytes' => 4_500_000_000,
+                ],
+                [
+                    'id' => 'belgium',
+                    'filename' => 'belgium-260715.osm.pbf',
+                    'version_url' => 'https://download.geofabrik.de/europe/belgium-260715.osm.pbf',
+                    'md5' => $belgiumMd5,
+                    'size_bytes' => 700_000_000,
+                ],
+            ],
+        ];
+    }
+
     private function writeReadyRuntimeStatus(
-        string $sha256,
+        array $manifest,
         bool $healthy = true,
         string $healthCoordinate = '5.1214,52.0907',
     ): void {
         $this->writeProtectedFile($this->globalStatusPath, (string) json_encode([
-            'version' => 1,
+            'version' => 2,
             'state' => $healthy ? 'ready' : 'degraded',
             'installed' => true,
             'healthy' => $healthy,
@@ -592,7 +731,8 @@ final class OsrmAdminApiTest extends TestCase
                 'verified_at' => now()->utc()->format('Y-m-d\TH:i:s\Z'),
             ],
             'dataset' => [
-                'sha256' => $sha256,
+                'source_manifest' => $manifest,
+                'legacy_sha256' => null,
                 'imported_at' => now()->utc()->format('Y-m-d\TH:i:s\Z'),
                 'health_coordinate' => $healthCoordinate,
             ],
@@ -604,6 +744,29 @@ final class OsrmAdminApiTest extends TestCase
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)."\n");
     }
 
+    private function writeReadyLegacyRuntimeStatus(string $sha256): void
+    {
+        $this->writeProtectedFile($this->globalStatusPath, (string) json_encode([
+            'version' => 2,
+            'state' => 'ready',
+            'installed' => true,
+            'healthy' => true,
+            'package' => [
+                'version' => '5.27.1-1',
+                'verified_at' => now()->utc()->format('Y-m-d\TH:i:s\Z'),
+            ],
+            'dataset' => [
+                'source_manifest' => null,
+                'legacy_sha256' => $sha256,
+                'imported_at' => now()->utc()->format('Y-m-d\TH:i:s\Z'),
+                'health_coordinate' => '5.1214,52.0907',
+            ],
+            'service_state' => 'active',
+            'detail' => 'Local road-network routing is available.',
+            'updated_at' => now()->utc()->format('Y-m-d\TH:i:s\Z'),
+        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)."\n");
+    }
+
     /** @param array<string, mixed> $overrides */
     private function writeOperationStatus(OsrmOperation $operation, array $overrides): void
     {
@@ -611,7 +774,7 @@ final class OsrmAdminApiTest extends TestCase
         $this->writeProtectedFile(
             $this->stateRoot.'/results/'.$operation->id.'.status.json',
             (string) json_encode([
-                'version' => 1,
+                'version' => 2,
                 'operation_id' => $operation->id,
                 'action' => $operation->action,
                 'state' => 'running',
@@ -622,7 +785,7 @@ final class OsrmAdminApiTest extends TestCase
                 'updated_at' => $now,
                 'finished_at' => null,
                 'exit_code' => null,
-                'active_source_sha256' => null,
+                'active_source_manifest' => null,
                 ...$overrides,
             ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)."\n",
         );

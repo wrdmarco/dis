@@ -13,6 +13,7 @@ const operationStates = new Set<OsrmOperationState>(['queued', 'running', 'succe
 const operationStages = new Set<OsrmOperationStage>([
   'validating',
   'downloading',
+  'merging',
   'installing_package',
   'provisioning',
   'extracting',
@@ -25,7 +26,6 @@ const operationStages = new Set<OsrmOperationStage>([
 ]);
 
 export interface OsrmOperationFormValues {
-  sourceSha256: string;
   longitude: string;
   latitude: string;
 }
@@ -38,17 +38,11 @@ export function validateOsrmOperationForm(
   action: OsrmManagementAction,
   form: OsrmOperationFormValues,
 ): OsrmFormValidation {
-  const sourceSha256 = form.sourceSha256.trim().toLowerCase();
-  if (!/^[a-f0-9]{64}$/.test(sourceSha256)) {
-    return { valid: false, message: 'De onafhankelijke SHA-256 moet exact 64 hexadecimale tekens bevatten.' };
-  }
-
   if (action === 'update') {
     return {
       valid: true,
       request: {
         action,
-        source_sha256: sourceSha256,
       },
     };
   }
@@ -66,7 +60,6 @@ export function validateOsrmOperationForm(
     valid: true,
     request: {
       action,
-      source_sha256: sourceSha256,
       health_coordinate: { longitude, latitude },
     },
   };
@@ -104,10 +97,10 @@ export function osrmActionLabel(action: OsrmManagementAction): string {
 
 export function osrmUpdateGuidance(state: OsrmManagementState, healthy: boolean): string {
   if (state === 'ready' && healthy) {
-    return 'De huidige kaart blijft beschikbaar tijdens de verwerking. Geef voor deze update een nieuwe, onafhankelijk gecontroleerde SHA-256 op.';
+    return 'De huidige kaart blijft beschikbaar tijdens de verwerking. DIS verifieert de downloads voor Nederland en België afzonderlijk met de officiële Geofabrik-MD5-bestanden.';
   }
 
-  return 'OSRM is niet gezond. Voor herstel mag je dezelfde onafhankelijk gecontroleerde SHA-256 van de actieve kaart opnieuw gebruiken; een nieuwere gecontroleerde SHA-256 mag ook.';
+  return 'OSRM is niet gezond. DIS bouwt de dekking voor Nederland en België opnieuw op en verifieert beide downloads afzonderlijk met de officiële Geofabrik-MD5-bestanden.';
 }
 
 export function osrmConfirmationTitle(action: OsrmManagementAction): string {
@@ -144,6 +137,7 @@ export function osrmOperationStageLabel(stage: OsrmOperationStage): string {
   const labels: Record<OsrmOperationStage, string> = {
     validating: 'Invoer controleren',
     downloading: 'Kaartgegevens downloaden',
+    merging: 'Kaartdekking samenvoegen',
     installing_package: 'OSRM installeren',
     provisioning: 'Service voorbereiden',
     extracting: 'Wegennet inlezen',

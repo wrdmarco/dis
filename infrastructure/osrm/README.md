@@ -26,6 +26,12 @@ closure. The normal host package-management and repository policy remains respon
 libraries and other dependencies come from organisation-approved Ubuntu sources. Do not enable unapproved PPAs,
 foreign suites, mirrors, Debian repositories or binary downloads on a DIS host.
 
+The composite NL+BE build additionally uses Ubuntu's `osmium-tool`. It has its own official-archive selection,
+installed-file fingerprint, protected receipt (`build-tool-provenance.json`) and APT hold. It is deliberately not
+part of `osrm_tools_available`: a missing or damaged build tool blocks a new map operation, but deploying DIS code
+cannot make an already attested and active OSRM runtime appear unhealthy. The root worker installs and verifies
+this dependency before any map download starts.
+
 Run this after enabling an appropriate, organisation-approved Ubuntu archive component if the package is
 not yet installed:
 
@@ -44,41 +50,65 @@ Ubuntu or Debian release.
 ## Admin installation and map updates
 
 An authorised administrator can install and activate OSRM from the DIS admin page. Before activation the form
-requires an independently verified SHA-256 and a known routable probe coordinate. The privileged worker obtains
-those values again from the immutable database operation record; the browser request cannot supply a URL, file
-path, shell option or OSRM profile to root.
+requires only a known routable probe coordinate. The privileged worker obtains the fixed source URL and coordinate
+again from the immutable database operation record; the browser request cannot supply a URL, checksum, file path,
+shell option or OSRM profile to root.
 
-The only accepted download is the Netherlands extract configured by the root-owned
-`OSRM_ADMIN_PBF_URL`. Its production value is fixed to:
+The accepted source set is fixed in code, ordered and cannot be overridden from `.env` or the browser:
 
-```dotenv
-OSRM_ADMIN_PBF_URL=https://download.geofabrik.de/europe/netherlands-latest.osm.pbf
+```text
+https://download.geofabrik.de/europe/netherlands-latest.osm.pbf
+https://download.geofabrik.de/europe/belgium-latest.osm.pbf
 ```
 
-The worker rejects HTTP, redirects, other hosts and paths, non-public DNS results, DNS rebinding, oversized or
-partial responses, insufficient disk space and a SHA-256 mismatch. DNS is resolved and checked before the public
-address is pinned into curl while normal TLS certificate verification remains mandatory. The completed download
-must be a regular, non-symlink, single-link file owned by the isolated build account before root hashes it.
+For every operation the worker performs a non-following `HEAD` request to both `latest` URLs. Each must return one
+exact HTTPS `302` on `download.geofabrik.de` to its country-specific `country-YYMMDD.osm.pbf` filename, without user
+information, a port, query, fragment or another path. DIS selects the oldest date advertised by both rolling URLs,
+constructs both dated URLs for that common snapshot and requires `HEAD 200` plus a bounded size from each. It then
+downloads each version-specific `.md5` sidecar and exact PBF with redirects disabled. Every sidecar must contain one
+bounded `md5sum` line for its own dated filename, and each PBF must match its supplier MD5.
 
-Installation and activation are one operation: DIS verifies or installs the restricted Ubuntu package, provisions
-the isolated service, downloads and hashes the extract, preprocesses it, atomically activates it, and runs artifact
-and route-readiness checks. Only after all checks pass does the backend mark routing enabled. Once the service is
-installed, enabled and healthy, the admin page offers only **Kaartdata bijwerken**. A matching active source SHA
-is rejected because there is no update to apply; a different SHA prepares a new release and retains the old one
-for automatic rollback.
+The separately attested `/usr/bin/osmium` reads each verified PBF's `osmosis_replication_timestamp`. Both timestamps
+must be valid whole-second UTC timestamps, equal each other and have the same calendar date as the common snapshot.
+Only then does a network-isolated, resource-limited transient unit merge the two files as `dis-osrm-build`. Root
+computes an internal SHA-256 over the merged PBF, removes the two component downloads and passes the merged file plus
+a strict root-owned source manifest to the normal OSRM import. The manifest records the fixed source-set identity,
+snapshot date, common source timestamp and, for both countries, the exact filename, dated URL, supplier MD5 and byte
+size. This supplier provenance is separate from the internal merged-file SHA-256.
 
-For recovery of an installed but degraded or not-yet-managed activation, the root worker may accept the currently
-active SHA and rebuild the dataset from the verified source. Reuse without preprocessing is allowed only when the
-existing package receipt, active SHA, probe coordinate and local health check all already match.
+The worker rejects HTTP, any unexpected redirect, non-public DNS results, DNS rebinding, oversized or partial
+responses, insufficient disk space, a supplier MD5 mismatch, timestamp mismatch or malformed composite manifest.
+DNS is checked before its public address is pinned into curl while normal TLS verification remains mandatory. All
+downloads must be regular, non-symlink, single-link files owned by the isolated build account before root consumes
+them. Disk preflight requires `combined-source-bytes * (OSRM_IMPORT_DISK_FACTOR + 1) + reserve`; with the defaults,
+two billion input bytes require 20,147,483,648 bytes. The merged PBF is separately capped at 5 GiB by
+`OSRM_ADMIN_MAX_COMBINED_PBF_BYTES` (hard maximum 20 GiB) and by a source-relative bound. The import repeats its
+check against the actual merged size.
+
+Installation and activation are one operation: DIS verifies or installs the restricted runtime and build packages,
+provisions the service, verifies both suppliers, merges and preprocesses the common snapshot, atomically activates
+it, and runs artifact and route-readiness checks. A composite release stores the administrator-selected Dutch probe
+and a second root-controlled Belgian probe. The Belgian probe defaults to central Brussels (`4.3517,50.8503`) and
+may only be changed through the root service environment variable `OSRM_BELGIUM_HEALTH_COORDINATE`; both probes use
+the bounded `OSRM_HEALTH_MAX_SNAP_METERS`. Browser input never controls the Belgian probe. Only after both probes
+pass does the backend mark routing enabled.
+
+Once healthy, the admin page offers only **Kaartdata bijwerken**. A source manifest that exactly matches the active
+NL+BE manifest, together with the same Dutch probe and two successful live checks, completes as a no-op health
+recheck. Any supplier MD5, size, snapshot, timestamp or provenance difference prepares a new release and retains the
+old one for automatic rollback. Crash recovery likewise requires the root marker's complete source manifest,
+immutable database payload, stored probe, active status, artifact verification and both live probes to match.
+Legacy SHA-256-only releases remain readable, healthy and updateable; their next deliberate update migrates them to
+the composite source manifest and dual-probe contract.
 
 A map-data update never upgrades the `osrm-backend` package. It keeps the exact already verified and healthy
 binary so a failed import can safely retain or restore the previous dataset. Package installation is restricted to
 the initial **Installeren en activeren** operation; normal DIS deploys and system updates do not install or upgrade
 OSRM behind the administrator's back.
 
-After provenance verification, DIS places `osrm-backend` on an APT hold. This prevents a general host upgrade from
+After provenance verification, DIS places `osrm-backend` and `osmium-tool` on separate APT holds. This prevents a general host upgrade from
 silently changing the routing binary and invalidating dataset rollback. The worker verifies that hold together with
-the package receipt before treating OSRM as managed. Every normal DIS uninstall removes this DIS-managed hold, even
+the relevant package receipt before use. Every normal DIS uninstall removes both DIS-managed holds, even
 when Ubuntu packages and generated route data are deliberately retained; package purge remains a separate option.
 
 Release retention defaults to three complete releases (`OSRM_RELEASE_RETENTION=3`, valid range 3–20). Pruning runs
@@ -118,20 +148,23 @@ Control files are returned to root and made read-only immediately after curl exi
 prevents a compromised or racing build process from substituting a symlink for a root redirection target.
 
 Live admin logging reports these bounded stages without exposing raw commands or paths: validation, download,
-package installation, provisioning, extract, partition, customize, activation, verification and configuration.
+package installation, provisioning, merge, extract, partition, customize, activation, verification and configuration.
 An interrupted import is coupled to the broker systemd unit; subsequent recovery reconciles the durable activation
 marker and releases the backend operation lock. A transient parser has `PartOf` and `BindsTo` coupling to that
 broker but deliberately no `After` ordering on the waiting oneshot parent. If interruption occurs after a new
 release was committed but before the success snapshot was written, recovery reloads the immutable database payload
-and requires an exact SHA/probe match plus status, artifact verification and live health success before recording
-success. A temporary PHP/database outage preserves the work marker and status unchanged for the next timer retry;
+and requires the root-recorded composite source manifest and exact probe to match the active status, plus artifact
+verification and both live health probes, before recording success. A temporary PHP/database outage preserves the work marker and
+status unchanged for the next timer retry;
 only a loaded contract with a definitive runtime mismatch is failed closed. The normal DIS application update only refreshes code, package
 integration and current-service state. It never silently downloads or imports new map data.
 
 ## Manual dataset import
 
-A root operator can still obtain a suitable `.osm.pbf` from a controlled source, validate its licensing and update
-policy, and supply its independently obtained SHA-256. Keep the original source outside `/opt/dis-data/osrm`;
+A root operator can still import one already prepared `.osm.pbf` from a controlled source, validate its licensing
+and update policy, and supply its independently obtained SHA-256. This emergency/manual path intentionally creates
+a legacy SHA-256 release with one operator-selected readiness probe; only the privileged admin broker can create the
+strict NL+BE supplier manifest and dual-probe release. Keep the original source outside `/opt/dis-data/osrm`;
 preprocessing retains only protected OSRM artifacts.
 
 Choose a longitude/latitude that is known to lie on a routable road inside the supplied extract. It is used

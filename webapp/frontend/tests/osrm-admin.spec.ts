@@ -12,11 +12,8 @@ import {
   validateOsrmOperationForm,
 } from '../src/features/admin/osrmAdminPresentation';
 
-const checksum = 'a'.repeat(64);
-
-test('builds the exact initial server payload and normalizes the independent checksum', () => {
+test('builds the exact initial server payload without accepting a client checksum', () => {
   const result = validateOsrmOperationForm('install_activate', {
-    sourceSha256: checksum.toUpperCase(),
     longitude: '4.895168',
     latitude: '52.370216',
   });
@@ -25,7 +22,6 @@ test('builds the exact initial server payload and normalizes the independent che
     valid: true,
     request: {
       action: 'install_activate',
-      source_sha256: checksum,
       health_coordinate: {
         longitude: 4.895168,
         latitude: 52.370216,
@@ -34,27 +30,18 @@ test('builds the exact initial server payload and normalizes the independent che
   });
 });
 
-test('requires an exact SHA-256 and bounded initial probe coordinate', () => {
+test('requires only a bounded initial probe coordinate', () => {
   expect(validateOsrmOperationForm('update', {
-    sourceSha256: 'niet-gecontroleerd',
-    longitude: '4.8',
-    latitude: '52.3',
-  })).toMatchObject({ valid: false, message: /64 hexadecimale/ });
-
-  expect(validateOsrmOperationForm('update', {
-    sourceSha256: checksum,
     longitude: '',
     latitude: '',
   })).toEqual({
     valid: true,
     request: {
       action: 'update',
-      source_sha256: checksum,
     },
   });
 
   expect(validateOsrmOperationForm('install_activate', {
-    sourceSha256: checksum,
     longitude: '181',
     latitude: '52.3',
   })).toMatchObject({ valid: false, message: /-180 en 180/ });
@@ -66,6 +53,7 @@ test('presents lifecycle and reliable stages without inventing progress percenta
   expect(osrmStateLabel('ready')).toBe('Actief en gezond');
   expect(osrmActionLabel('install_activate')).toBe('OSRM installeren en activeren');
   expect(osrmActionLabel('update')).toBe('Kaartgegevens bijwerken');
+  expect(osrmOperationStageLabel('merging')).toBe('Kaartdekking samenvoegen');
   expect(osrmOperationStageLabel('partitioning')).toBe('Routeringsnetwerk partitioneren');
   expect(osrmOperationIsActive('queued')).toBe(true);
   expect(osrmOperationIsActive('running')).toBe(true);
@@ -73,9 +61,9 @@ test('presents lifecycle and reliable stages without inventing progress percenta
   expect(osrmOperationTone('failed')).toBe('bad');
 });
 
-test('explains healthy updates and degraded same-checksum repair accurately', () => {
-  expect(osrmUpdateGuidance('ready', true)).toContain('een nieuwe, onafhankelijk gecontroleerde SHA-256');
-  expect(osrmUpdateGuidance('degraded', false)).toContain('dezelfde onafhankelijk gecontroleerde SHA-256');
+test('explains automatic supplier verification for updates and repairs accurately', () => {
+  expect(osrmUpdateGuidance('ready', true)).toContain('Nederland en België afzonderlijk');
+  expect(osrmUpdateGuidance('degraded', false)).toContain('beide downloads afzonderlijk');
 });
 
 test('accepts only complete typed realtime operation summaries', () => {
@@ -83,8 +71,8 @@ test('accepts only complete typed realtime operation summaries', () => {
     id: '01J00000000000000000000000',
     action: 'update',
     state: 'running',
-    stage: 'downloading',
-    message: 'Kaartgegevens downloaden.',
+    stage: 'merging',
+    message: 'Kaartdekking samenvoegen.',
   })).toBe(true);
   expect(isOsrmOperationSummary({
     id: '01J00000000000000000000000',

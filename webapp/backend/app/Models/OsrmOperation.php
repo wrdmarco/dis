@@ -28,6 +28,7 @@ final class OsrmOperation extends Model
     public const STAGES = [
         'validating',
         'downloading',
+        'merging',
         'installing_package',
         'provisioning',
         'extracting',
@@ -49,6 +50,9 @@ final class OsrmOperation extends Model
         'progress_percent',
         'source_url',
         'source_sha256',
+        'source_set',
+        'source_manifest',
+        'source_set_sha256',
         'health_longitude',
         'health_latitude',
         'actor_id',
@@ -62,6 +66,8 @@ final class OsrmOperation extends Model
     {
         return [
             'progress_percent' => 'integer',
+            'source_set' => 'array',
+            'source_manifest' => 'array',
             'health_longitude' => 'decimal:7',
             'health_latitude' => 'decimal:7',
             'exit_code' => 'integer',

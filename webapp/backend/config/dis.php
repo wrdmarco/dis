@@ -31,7 +31,18 @@ return [
     'routing' => [
         'enabled' => filter_var(env('ROUTING_ENABLED', false), FILTER_VALIDATE_BOOL),
         'provider' => env('ROUTING_PROVIDER', 'osrm'),
-        'admin_pbf_url' => env('OSRM_ADMIN_PBF_URL', 'https://download.geofabrik.de/europe/netherlands-latest.osm.pbf'),
+        'admin_sources' => [
+            [
+                'id' => 'netherlands',
+                'label' => 'Nederland',
+                'latest_url' => 'https://download.geofabrik.de/europe/netherlands-latest.osm.pbf',
+            ],
+            [
+                'id' => 'belgium',
+                'label' => 'België',
+                'latest_url' => 'https://download.geofabrik.de/europe/belgium-latest.osm.pbf',
+            ],
+        ],
         'admin_status_path' => env('OSRM_ADMIN_STATUS_PATH', '/var/log/dis/osrm-status.json'),
         'admin_state_root' => env('OSRM_ADMIN_STATE_ROOT', rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/').'/osrm-admin'),
         'cache_ttl_seconds' => (int) env('ROUTING_CACHE_TTL_SECONDS', 900),

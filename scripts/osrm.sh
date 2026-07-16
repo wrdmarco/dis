@@ -25,6 +25,7 @@ OSRM_CURRENT_LINK="${OSRM_DATA_ROOT}/current"
 OSRM_PREVIOUS_LINK="${OSRM_DATA_ROOT}/previous"
 OSRM_STATUS_FILE="${OSRM_DATA_ROOT}/status.json"
 OSRM_PACKAGE_PROVENANCE_FILE="${OSRM_DATA_ROOT}/package-provenance.json"
+OSRM_BUILD_TOOL_PROVENANCE_FILE="${OSRM_DATA_ROOT}/build-tool-provenance.json"
 OSRM_ACTIVATION_PENDING_FILE="${OSRM_DATA_ROOT}/activation.pending"
 OSRM_SERVICE="dis-osrm.service"
 OSRM_SERVICE_TEMPLATE="${OSRM_ADMIN_RUNTIME_DIR}/dis-osrm.service"
@@ -39,6 +40,7 @@ OSRM_IMPORT_CPU_QUOTA="${OSRM_IMPORT_CPU_QUOTA:-400%}"
 OSRM_IMPORT_TIMEOUT_SECONDS="${OSRM_IMPORT_TIMEOUT_SECONDS:-21600}"
 OSRM_HEALTH_TIMEOUT_SECONDS="${OSRM_HEALTH_TIMEOUT_SECONDS:-120}"
 OSRM_HEALTH_MAX_SNAP_METERS="${OSRM_HEALTH_MAX_SNAP_METERS:-250}"
+OSRM_BELGIUM_HEALTH_COORDINATE="${OSRM_BELGIUM_HEALTH_COORDINATE:-4.3517,50.8503}"
 OSRM_RELEASE_RETENTION="${OSRM_RELEASE_RETENTION:-3}"
 
 validate_managed_path() {
@@ -57,11 +59,14 @@ usage() {
   cat <<'USAGE'
 Usage:
   sudo /usr/local/lib/dis/osrm-admin/osrm.sh install-package
+  sudo /usr/local/lib/dis/osrm-admin/osrm.sh install-build-tool
+  sudo /usr/local/lib/dis/osrm-admin/osrm.sh verify-build-tool
   sudo /usr/local/lib/dis/osrm-admin/osrm.sh provision
   sudo /usr/local/lib/dis/osrm-admin/osrm.sh reconcile
   sudo /usr/local/lib/dis/osrm-admin/osrm.sh import \
     --pbf /root/region.osm.pbf \
     --sha256 <64-character-sha256> \
+    [--source-manifest <root-owned-source-manifest.json>] \
     --health-coordinate <longitude,latitude> \
     [--profile /usr/local/share/dis-osrm/car.lua]
   sudo /usr/local/lib/dis/osrm-admin/osrm.sh health
@@ -75,12 +80,20 @@ Commands:
   install-package  Install osrm-backend only when the configured Ubuntu archive
                    actually has an installable candidate. Missing availability is
                    reported as degraded and never adds a foreign package source.
+  install-build-tool
+                   Independently install and attest the Ubuntu osmium-tool package
+                   used only to inspect and merge verified source extracts.
+  verify-build-tool
+                   Fail unless /usr/bin/osmium matches its separate protected
+                   Ubuntu package receipt and APT hold.
   provision        Create the isolated service account and protected data layout,
                    then install and enable the local-only systemd unit.
   reconcile        Start and health-check OSRM when binaries and a prepared dataset
                    exist; otherwise stop it and record an explicit degraded state.
   import           Safely preprocess and atomically activate an operator-supplied
-                   .osm.pbf. SHA-256 and a known in-region probe coordinate are required.
+                   .osm.pbf. An expected SHA-256 and a known in-region probe
+                   coordinate are required. Managed NL+BE imports additionally
+                   require a strict root-owned source manifest.
   health           Check the active service using the stored probe coordinate.
   verify           Verify the checksums and permissions of the active dataset.
   status           Print the durable routing state and systemd service state.
@@ -192,6 +205,7 @@ ensure_osrm_layout() {
   for managed_file in \
     "${OSRM_STATUS_FILE}" \
     "${OSRM_PACKAGE_PROVENANCE_FILE}" \
+    "${OSRM_BUILD_TOOL_PROVENANCE_FILE}" \
     "${OSRM_ACTIVATION_PENDING_FILE}"; do
     if [ -e "${managed_file}" ] || [ -L "${managed_file}" ]; then
       [ -f "${managed_file}" ] && [ ! -L "${managed_file}" ] \
@@ -231,6 +245,7 @@ write_status() {
     --arg dataset_sha256 "${dataset_sha}" \
     --arg updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '{
+      version: 2,
       state: $state,
       detail: $detail,
       dataset_sha256: (if $dataset_sha256 == "" then null else $dataset_sha256 end),
@@ -318,15 +333,25 @@ prepare_approved_apt_sources() {
   [ -s "${destination}" ]
 }
 
-official_osrm_candidate() {
+official_package_candidate() {
   local source_list="$1"
+  local package_name="$2"
   local policy
 
+  [[ "${package_name}" =~ ^[a-z0-9][a-z0-9+.-]*$ ]] || return 1
   policy="$(LC_ALL=C apt-cache \
     -o "Dir::Etc::sourcelist=${source_list}" \
     -o "Dir::Etc::sourceparts=-" \
-    policy osrm-backend 2>/dev/null || true)"
+    policy "${package_name}" 2>/dev/null || true)"
   awk '$1 == "Candidate:" { print $2; exit }' <<< "${policy}"
+}
+
+official_osrm_candidate() {
+  official_package_candidate "$1" osrm-backend
+}
+
+official_osmium_candidate() {
+  official_package_candidate "$1" osmium-tool
 }
 
 required_osrm_tools_owned_by_package() {
@@ -339,9 +364,10 @@ required_osrm_tools_owned_by_package() {
   done
 }
 
-osrm_package_fingerprint() {
-  local entry entry_hash manifest target
+package_fingerprint() {
+  local package_name="$1" entry entry_hash manifest target
 
+  [[ "${package_name}" =~ ^[a-z0-9][a-z0-9+.-]*$ ]] || return 1
   manifest="$(mktemp "${TMPDIR:-/tmp}/dis-osrm-package.XXXXXX")" || return 1
   while IFS= read -r entry; do
     [[ "${entry}" == /* ]] || {
@@ -361,7 +387,7 @@ osrm_package_fingerprint() {
       }
       printf 'F|%s|%s\n' "${entry}" "${entry_hash}" >> "${manifest}"
     fi
-  done < <(LC_ALL=C dpkg-query -L osrm-backend 2>/dev/null | LC_ALL=C sort -u)
+  done < <(LC_ALL=C dpkg-query -L "${package_name}" 2>/dev/null | LC_ALL=C sort -u)
 
   [ -s "${manifest}" ] || {
     rm -f -- "${manifest}"
@@ -370,6 +396,14 @@ osrm_package_fingerprint() {
   entry_hash="$(sha256sum -- "${manifest}" | awk '{ print $1 }')"
   rm -f -- "${manifest}"
   printf '%s\n' "${entry_hash}"
+}
+
+osrm_package_fingerprint() {
+  package_fingerprint osrm-backend
+}
+
+osmium_package_fingerprint() {
+  package_fingerprint osmium-tool
 }
 
 package_provenance_matches() {
@@ -442,6 +476,145 @@ hold_osrm_package() {
 osrm_tools_available() {
   installed_osrm_package_matches_receipt || return 1
   required_osrm_tools_owned_by_package
+}
+
+required_osmium_tool_owned_by_package() {
+  local owner path
+
+  path="$(trusted_tool_path osmium)" || return 1
+  [ "${path}" = "/usr/bin/osmium" ] || return 1
+  owner="$(dpkg-query -S "${path}" 2>/dev/null | head -n 1)"
+  [[ "${owner}" == osmium-tool:* ]]
+}
+
+build_tool_provenance_matches() {
+  local expected_fingerprint="$1" expected_version="$2"
+  local actual_fingerprint actual_version mode uid
+
+  [ -f "${OSRM_BUILD_TOOL_PROVENANCE_FILE}" ] \
+    && [ ! -L "${OSRM_BUILD_TOOL_PROVENANCE_FILE}" ] \
+    && [ "$(stat -c '%h' -- "${OSRM_BUILD_TOOL_PROVENANCE_FILE}")" = "1" ] || return 1
+  uid="$(stat -c '%u' -- "${OSRM_BUILD_TOOL_PROVENANCE_FILE}")"
+  mode="$(stat -c '%a' -- "${OSRM_BUILD_TOOL_PROVENANCE_FILE}")"
+  [ "${uid}" = "0" ] || return 1
+  (( (8#${mode} & 8#022) == 0 )) || return 1
+  actual_version="$(jq -er '
+    select(type == "object" and keys == ["installed_files_sha256","package","source","verified_at","version"])
+    | select(.package == "osmium-tool" and .source == "configured-official-ubuntu-archive")
+    | .version | select(type == "string" and length > 0)
+  ' "${OSRM_BUILD_TOOL_PROVENANCE_FILE}" 2>/dev/null)" || return 1
+  actual_fingerprint="$(jq -er '.installed_files_sha256 | select(type == "string" and test("^[a-f0-9]{64}$"))' \
+    "${OSRM_BUILD_TOOL_PROVENANCE_FILE}" 2>/dev/null)" || return 1
+  [ "${actual_version}" = "${expected_version}" ] \
+    && [ "${actual_fingerprint}" = "${expected_fingerprint}" ]
+}
+
+write_build_tool_provenance() {
+  local fingerprint="$1" version="$2" temporary
+
+  [[ "${fingerprint}" =~ ^[a-f0-9]{64}$ ]] || fail "The osmium-tool package fingerprint is invalid."
+  [ -n "${version}" ] || fail "The osmium-tool package version is invalid."
+  ensure_osrm_layout
+  temporary="$(mktemp "${OSRM_DATA_ROOT}/.build-tool-provenance.XXXXXX")"
+  jq -n \
+    --arg version "${version}" \
+    --arg installed_files_sha256 "${fingerprint}" \
+    --arg verified_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{
+      package: "osmium-tool",
+      source: "configured-official-ubuntu-archive",
+      version: $version,
+      installed_files_sha256: $installed_files_sha256,
+      verified_at: $verified_at
+    }' > "${temporary}"
+  run_cmd chown root:"${OSRM_GROUP}" "${temporary}"
+  run_cmd chmod 0640 "${temporary}"
+  run_cmd sync -f "${temporary}"
+  run_cmd mv -fT -- "${temporary}" "${OSRM_BUILD_TOOL_PROVENANCE_FILE}"
+  run_cmd sync -f "${OSRM_DATA_ROOT}"
+}
+
+osmium_package_is_held() {
+  apt-mark showhold 2>/dev/null | grep -Fxq osmium-tool
+}
+
+hold_osmium_package() {
+  run_cmd apt-mark hold osmium-tool >/dev/null
+  osmium_package_is_held \
+    || fail "The verified osmium-tool package could not be protected from unattended upgrades."
+}
+
+osmium_tool_available() {
+  local fingerprint installed_version
+
+  installed_version="$(dpkg-query -W -f='${Version}' osmium-tool 2>/dev/null || true)"
+  [ -n "${installed_version}" ] || return 1
+  fingerprint="$(osmium_package_fingerprint)" || return 1
+  build_tool_provenance_matches "${fingerprint}" "${installed_version}" \
+    && osmium_package_is_held \
+    && required_osmium_tool_owned_by_package
+}
+
+install_build_tool() {
+  local candidate fingerprint installed_version source_list
+  local -a reinstall_argument=()
+
+  require_root
+  require_ubuntu_2604
+  acquire_dis_operation_lock osrm-build-tool
+
+  if osmium_tool_available; then
+    installed_version="$(dpkg-query -W -f='${Version}' osmium-tool)"
+    log "Verified Ubuntu osmium-tool ${installed_version} is already installed and held."
+    return 0
+  fi
+
+  source_list="$(mktemp "${TMPDIR:-/tmp}/dis-osmium-sources.XXXXXX")"
+  if ! prepare_approved_apt_sources "${source_list}"; then
+    rm -f -- "${source_list}"
+    log "OSRM map build tool unavailable: no approved Ubuntu 26.04 archive source is configured."
+    return 0
+  fi
+  candidate="$(official_osmium_candidate "${source_list}")"
+  if [ -z "${candidate}" ] || [ "${candidate}" = "(none)" ]; then
+    rm -f -- "${source_list}"
+    log "OSRM map build tool unavailable: Ubuntu has no installable osmium-tool candidate."
+    return 0
+  fi
+
+  installed_version="$(dpkg-query -W -f='${Version}' osmium-tool 2>/dev/null || true)"
+  [ -z "${installed_version}" ] || reinstall_argument=(--reinstall)
+  log "Installing osmium-tool ${candidate} from the configured official Ubuntu archive"
+  if ! run_cmd apt-get \
+    -o "Dir::Etc::sourcelist=${source_list}" \
+    -o "Dir::Etc::sourceparts=-" \
+    -o "Acquire::AllowInsecureRepositories=false" \
+    -o "APT::Get::AllowUnauthenticated=false" \
+    install -y --no-install-recommends --allow-change-held-packages \
+      "${reinstall_argument[@]}" "osmium-tool=${candidate}"; then
+    rm -f -- "${source_list}"
+    fail "Ubuntu offers osmium-tool ${candidate}, but its approved-source installation failed."
+  fi
+  rm -f -- "${source_list}"
+  hold_osmium_package
+
+  installed_version="$(dpkg-query -W -f='${Version}' osmium-tool 2>/dev/null || true)"
+  [ "${installed_version}" = "${candidate}" ] \
+    || fail "The installed osmium-tool version does not match the verified Ubuntu candidate."
+  required_osmium_tool_owned_by_package \
+    || fail "osmium-tool installed, but /usr/bin/osmium is not a trusted package-owned tool."
+  fingerprint="$(osmium_package_fingerprint)" \
+    || fail "The installed osmium-tool files could not be fingerprinted."
+  write_build_tool_provenance "${fingerprint}" "${candidate}"
+  build_tool_provenance_matches "${fingerprint}" "${candidate}" \
+    || fail "The durable osmium-tool package provenance receipt could not be verified."
+}
+
+verify_build_tool() {
+  require_root
+  osmium_tool_available \
+    || fail "osmium-tool does not match its separate protected Ubuntu package receipt and APT hold."
+  log "Verified osmium-tool build dependency is available."
 }
 
 install_package() {
@@ -576,6 +749,16 @@ read_probe_coordinate() {
   printf '%s\n' "${coordinate}"
 }
 
+read_belgium_probe_coordinate() {
+  local release="$1" coordinate
+
+  [ -f "${release}/health-coordinate-belgium" ] \
+    && [ ! -L "${release}/health-coordinate-belgium" ] || return 1
+  coordinate="$(tr -d '\r\n' < "${release}/health-coordinate-belgium")"
+  validate_belgium_coordinate "${coordinate}" || return 1
+  printf '%s\n' "${coordinate}"
+}
+
 validate_coordinate() {
   local coordinate="$1"
   local longitude latitude remainder
@@ -591,13 +774,19 @@ validate_coordinate() {
     'BEGIN { exit !(lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90) }'
 }
 
-health_once() {
-  local release coordinate response
+validate_belgium_coordinate() {
+  local coordinate="$1" longitude latitude
 
-  [[ "${OSRM_HEALTH_MAX_SNAP_METERS}" =~ ^[1-9][0-9]*$ ]] \
-    && [ "${OSRM_HEALTH_MAX_SNAP_METERS}" -le 5000 ] || return 1
-  release="$(read_active_release)" || return 1
-  coordinate="$(read_probe_coordinate "${release}")" || return 1
+  validate_coordinate "${coordinate}" || return 1
+  longitude="${coordinate%%,*}"
+  latitude="${coordinate#*,}"
+  awk -v lon="${longitude}" -v lat="${latitude}" \
+    'BEGIN { exit !(lon >= 2.4 && lon <= 6.5 && lat >= 49.4 && lat <= 51.6) }'
+}
+
+health_coordinate_once() {
+  local coordinate="$1" response
+
   response="$(curl \
     --silent \
     --show-error \
@@ -613,6 +802,38 @@ health_once() {
       and (.waypoints[0].distance >= 0)
       and (.waypoints[0].distance <= $max_snap)' \
     >/dev/null 2>&1 <<< "${response}"
+}
+
+release_manifest_is_json_object() {
+  local release="$1" manifest
+
+  manifest="${release}/manifest.json"
+  [ -f "${manifest}" ] && [ ! -L "${manifest}" ] \
+    && [ "$(stat -c '%h' -- "${manifest}" 2>/dev/null || true)" = '1' ] \
+    && jq -e 'type == "object"' "${manifest}" >/dev/null 2>&1
+}
+
+release_has_composite_source_manifest() {
+  local release="$1"
+
+  jq -e '.source_manifest != null' "${release}/manifest.json" >/dev/null 2>&1
+}
+
+health_once() {
+  local release coordinate belgium_coordinate source_manifest
+
+  [[ "${OSRM_HEALTH_MAX_SNAP_METERS}" =~ ^[1-9][0-9]*$ ]] \
+    && [ "${OSRM_HEALTH_MAX_SNAP_METERS}" -le 5000 ] || return 1
+  release="$(read_active_release)" || return 1
+  release_manifest_is_json_object "${release}" || return 1
+  coordinate="$(read_probe_coordinate "${release}")" || return 1
+  health_coordinate_once "${coordinate}" || return 1
+  if release_has_composite_source_manifest "${release}"; then
+    source_manifest="$(dataset_source_manifest_for_release "${release}")" || return 1
+    validate_source_manifest_json "${source_manifest}" || return 1
+    belgium_coordinate="$(read_belgium_probe_coordinate "${release}")" || return 1
+    health_coordinate_once "${belgium_coordinate}" || return 1
+  fi
 }
 
 wait_for_health() {
@@ -634,6 +855,16 @@ dataset_sha_for_release() {
   [ -d "${release}" ] && [ ! -L "${release}" ] || return 1
   jq -er '.source_sha256 | select(type == "string" and test("^[a-f0-9]{64}$"))' \
     "${release}/manifest.json" 2>/dev/null
+}
+
+dataset_source_manifest_for_release() {
+  local release="$1" source_manifest
+
+  [ -d "${release}" ] && [ ! -L "${release}" ] || return 1
+  source_manifest="$(jq -ec '.source_manifest | select(type == "object")' \
+    "${release}/manifest.json" 2>/dev/null)" || return 1
+  validate_source_manifest_json "${source_manifest}" || return 1
+  printf '%s\n' "${source_manifest}"
 }
 
 active_dataset_sha() {
@@ -1373,15 +1604,125 @@ rollback_pending_activation_on_exit() {
   exit "${status}"
 }
 
+canonical_source_set_json() {
+  # This exact compact JSON byte sequence is the source-set identity shared
+  # with the backend and privileged request worker. Do not append a newline.
+  printf '%s' '[{"id":"netherlands","latest_url":"https://download.geofabrik.de/europe/netherlands-latest.osm.pbf"},{"id":"belgium","latest_url":"https://download.geofabrik.de/europe/belgium-latest.osm.pbf"}]'
+}
+
+validate_source_manifest_json() {
+  local manifest="$1" actual_sha expected_sha snapshot_date snapshot_stamp source_timestamp
+
+  jq -e --argjson max_size "${OSRM_MAX_PBF_BYTES}" '
+    type == "object"
+    and keys == ["snapshot_date","source_set_sha256","source_timestamp","sources"]
+    and (.source_set_sha256 | type == "string" and test("^[a-f0-9]{64}$"))
+    and (.snapshot_date | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"))
+    and (.source_timestamp | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
+    and (.sources | type == "array" and length == 2)
+    and (.sources[0] | type == "object" and keys == ["filename","id","md5","size_bytes","version_url"])
+    and (.sources[0].id == "netherlands")
+    and (.sources[0].filename | test("^netherlands-[0-9]{6}[.]osm[.]pbf$"))
+    and (.sources[0].version_url == "https://download.geofabrik.de/europe/\(.sources[0].filename)")
+    and (.sources[1] | type == "object" and keys == ["filename","id","md5","size_bytes","version_url"])
+    and (.sources[1].id == "belgium")
+    and (.sources[1].filename | test("^belgium-[0-9]{6}[.]osm[.]pbf$"))
+    and (.sources[1].version_url == "https://download.geofabrik.de/europe/\(.sources[1].filename)")
+    and (all(.sources[];
+      (.md5 | type == "string" and test("^[a-f0-9]{32}$"))
+      and (.size_bytes | type == "number" and floor == . and . > 0 and . <= $max_size)
+    ))
+  ' <<< "${manifest}" >/dev/null || return 1
+  snapshot_date="$(jq -er '.snapshot_date' <<< "${manifest}")" || return 1
+  source_timestamp="$(jq -er '.source_timestamp' <<< "${manifest}")" || return 1
+  python3 -I -S -c '
+from datetime import datetime
+import sys
+try:
+    snapshot = datetime.strptime(sys.argv[1], "%Y-%m-%d")
+    source_timestamp = datetime.fromisoformat(sys.argv[2].replace("Z", "+00:00"))
+except (ValueError, IndexError):
+    raise SystemExit(1)
+if source_timestamp.date() != snapshot.date():
+    raise SystemExit(1)
+' "${snapshot_date}" "${source_timestamp}" >/dev/null 2>&1 || return 1
+  snapshot_stamp="$(date -u -d "${snapshot_date}" +%y%m%d 2>/dev/null)" || return 1
+  jq -e --arg stamp "${snapshot_stamp}" '
+    .sources[0].filename == "netherlands-\($stamp).osm.pbf"
+    and .sources[1].filename == "belgium-\($stamp).osm.pbf"
+  ' <<< "${manifest}" >/dev/null || return 1
+  expected_sha="$(jq -er '.source_set_sha256' <<< "${manifest}")" || return 1
+  actual_sha="$(canonical_source_set_json | sha256sum | awk '{ print $1 }')" || return 1
+  [ "${actual_sha}" = "${expected_sha}" ]
+}
+
+validate_source_manifest_file() {
+  local manifest_path="$1" actual_sha expected_sha manifest_size snapshot_date snapshot_stamp source_timestamp
+
+  [ -f "${manifest_path}" ] && [ ! -L "${manifest_path}" ] \
+    && [ "$(stat -c '%u:%g:%a:%h' -- "${manifest_path}" 2>/dev/null || true)" = '0:0:400:1' ] \
+    || return 1
+  manifest_size="$(stat -c '%s' -- "${manifest_path}" 2>/dev/null || true)"
+  [[ "${manifest_size}" =~ ^[1-9][0-9]*$ ]] && [ "${manifest_size}" -le 16384 ] \
+    || return 1
+  python3 -I -S "${COMMON_LIB_DIR}/secure-path.py" verify-parent "${manifest_path}" >/dev/null 2>&1 \
+    || return 1
+  validate_source_manifest_json "$(jq -c '.' "${manifest_path}" 2>/dev/null)" || return 1
+  jq -e '
+    type == "object"
+    and keys == ["snapshot_date","source_set_sha256","source_timestamp","sources"]
+    and (.source_set_sha256 | type == "string" and test("^[a-f0-9]{64}$"))
+    and (.snapshot_date | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"))
+    and (.source_timestamp | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
+    and (.sources | type == "array" and length == 2)
+    and (.sources[0] | type == "object" and keys == ["filename","id","md5","size_bytes","version_url"])
+    and (.sources[0].id == "netherlands")
+    and (.sources[0].filename | test("^netherlands-[0-9]{6}[.]osm[.]pbf$"))
+    and (.sources[0].version_url == "https://download.geofabrik.de/europe/\(.sources[0].filename)")
+    and (.sources[1] | type == "object" and keys == ["filename","id","md5","size_bytes","version_url"])
+    and (.sources[1].id == "belgium")
+    and (.sources[1].filename | test("^belgium-[0-9]{6}[.]osm[.]pbf$"))
+    and (.sources[1].version_url == "https://download.geofabrik.de/europe/\(.sources[1].filename)")
+    and (all(.sources[];
+      (.md5 | type == "string" and test("^[a-f0-9]{32}$"))
+      and (.size_bytes | type == "number" and floor == . and . > 0)
+    ))
+  ' "${manifest_path}" >/dev/null || return 1
+  snapshot_date="$(jq -er '.snapshot_date' "${manifest_path}")" || return 1
+  source_timestamp="$(jq -er '.source_timestamp' "${manifest_path}")" || return 1
+  python3 -I -S -c '
+from datetime import datetime
+import sys
+try:
+    snapshot = datetime.strptime(sys.argv[1], "%Y-%m-%d")
+    source_timestamp = datetime.fromisoformat(sys.argv[2].replace("Z", "+00:00"))
+except (ValueError, IndexError):
+    raise SystemExit(1)
+if source_timestamp.date() != snapshot.date():
+    raise SystemExit(1)
+' "${snapshot_date}" "${source_timestamp}" >/dev/null 2>&1 || return 1
+  snapshot_stamp="$(date -u -d "${snapshot_date}" +%y%m%d 2>/dev/null)" || return 1
+  jq -e --arg stamp "${snapshot_stamp}" '
+    .sources[0].filename == "netherlands-\($stamp).osm.pbf"
+    and .sources[1].filename == "belgium-\($stamp).osm.pbf"
+  ' "${manifest_path}" >/dev/null || return 1
+  expected_sha="$(jq -er '.source_set_sha256' "${manifest_path}")" || return 1
+  actual_sha="$(canonical_source_set_json | sha256sum | awk '{ print $1 }')" \
+    || return 1
+  [ "${actual_sha}" = "${expected_sha}" ]
+}
+
 import_dataset() {
   local pbf=""
   local expected_sha=""
+  local source_manifest_path=""
   local coordinate=""
+  local belgium_coordinate=""
   local requested_profile=""
   local profile profile_sha source_before source_after source_size copy_limit actual_sha
   local available_bytes required_bytes filesystem_bytes release_id release_path
   local staging="" token extract_bin partition_bin customize_bin routed_bin tool_version
-  local active_scratch="" old_target previous_target manifest_temp source_parent source_real
+  local active_scratch="" old_target previous_target manifest_temp source_manifest_json=null source_parent source_real
   local -a artifacts
 
   while [ "$#" -gt 0 ]; do
@@ -1392,6 +1733,10 @@ import_dataset() {
         ;;
       --sha256)
         expected_sha="${2:-}"
+        shift 2
+        ;;
+      --source-manifest)
+        source_manifest_path="${2:-}"
         shift 2
         ;;
       --health-coordinate)
@@ -1423,8 +1768,21 @@ import_dataset() {
   [ -n "${pbf}" ] || fail "--pbf is required."
   [ -n "${expected_sha}" ] || fail "--sha256 is required."
   [ -n "${coordinate}" ] || fail "--health-coordinate is required."
-  expected_sha="${expected_sha,,}"
-  [[ "${expected_sha}" =~ ^[a-f0-9]{64}$ ]] || fail "--sha256 must contain exactly 64 hexadecimal characters."
+  if [ -n "${expected_sha}" ]; then
+    expected_sha="${expected_sha,,}"
+    [[ "${expected_sha}" =~ ^[a-f0-9]{64}$ ]] \
+      || fail "--sha256 must contain exactly 64 hexadecimal characters."
+  fi
+  if [ -n "${source_manifest_path}" ]; then
+    [ -n "${expected_sha}" ] \
+      || fail "--source-manifest requires the merged --sha256 value."
+    validate_source_manifest_file "${source_manifest_path}" \
+      || fail "--source-manifest must be a strict root-owned NL+BE source manifest."
+    source_manifest_json="$(jq -c '.' "${source_manifest_path}")"
+    belgium_coordinate="${OSRM_BELGIUM_HEALTH_COORDINATE}"
+    validate_belgium_coordinate "${belgium_coordinate}" \
+      || fail "OSRM_BELGIUM_HEALTH_COORDINATE must be a coordinate inside Belgium."
+  fi
   validate_coordinate "${coordinate}" || fail "--health-coordinate must be longitude,latitude within valid ranges."
   [[ "${pbf}" == *.osm.pbf ]] || fail "The import source must have the .osm.pbf suffix."
   [ -f "${pbf}" ] && [ ! -L "${pbf}" ] || fail "The import source must be a regular, non-symlink file."
@@ -1491,7 +1849,9 @@ import_dataset() {
   [ "$(stat -c '%s' -- "${staging}/routing.osm.pbf")" = "${source_size}" ] \
     || fail "The OSM PBF snapshot size does not match the source."
   actual_sha="$(sha256sum -- "${staging}/routing.osm.pbf" | awk '{ print $1 }')"
-  [ "${actual_sha}" = "${expected_sha}" ] || fail "The OSM PBF SHA-256 does not match the operator-supplied value."
+  if [ -n "${expected_sha}" ] && [ "${actual_sha}" != "${expected_sha}" ]; then
+    fail "The OSM PBF SHA-256 does not match the operator-supplied value."
+  fi
   run_cmd chown "${OSRM_IMPORT_USER}:${OSRM_GROUP}" "${staging}/routing.osm.pbf"
   run_cmd chmod 0440 "${staging}/routing.osm.pbf"
 
@@ -1533,6 +1893,11 @@ import_dataset() {
   printf '%s\n' "${coordinate}" \
     | secure_path_operation write-file \
       "${staging}/health-coordinate" root "${OSRM_GROUP}" 0440
+  if [ "${source_manifest_json}" != "null" ]; then
+    printf '%s\n' "${belgium_coordinate}" \
+      | secure_path_operation write-file \
+        "${staging}/health-coordinate-belgium" root "${OSRM_GROUP}" 0440
+  fi
   manifest_temp="${staging}/manifest.json"
   jq -n \
     --arg source_sha256 "${actual_sha}" \
@@ -1541,8 +1906,10 @@ import_dataset() {
     --arg profile_path "${profile}" \
     --arg osrm_version "${tool_version}" \
     --arg imported_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --argjson source_manifest "${source_manifest_json}" \
     '{
       source_sha256: $source_sha256,
+      source_manifest: $source_manifest,
       source_size_bytes: ($source_size_bytes | tonumber),
       profile_sha256: $profile_sha256,
       profile_path: $profile_path,
@@ -1595,8 +1962,17 @@ verify_active() {
   require_root
   release="$(read_active_release)" || fail "No managed OSRM release is active."
   require_file "${release}/manifest.json"
+  release_manifest_is_json_object "${release}" \
+    || fail "The active OSRM release manifest is not a valid JSON object."
   require_file "${release}/ARTIFACTS.SHA256"
   require_file "${release}/health-coordinate"
+  if jq -e '.source_manifest != null' "${release}/manifest.json" >/dev/null 2>&1; then
+    dataset_source_manifest_for_release "${release}" >/dev/null \
+      || fail "The active composite OSRM source manifest is invalid."
+    require_file "${release}/health-coordinate-belgium"
+    read_belgium_probe_coordinate "${release}" >/dev/null \
+      || fail "The active composite OSRM Belgian readiness probe is invalid."
+  fi
   validate_plain_tree "${release}"
 
   while IFS= read -r -d '' entry; do
@@ -1652,6 +2028,7 @@ serve() {
 
 status() {
   local dataset_imported_at="" dataset_sha="" detail health_coordinate="" healthy=false installed=false
+  local dataset_identity_valid=true source_manifest=null
   local package_verified_at="" package_version="" provisioned=false release=""
   local release_sha="" service_state="not-installed" state="not_installed"
 
@@ -1680,11 +2057,19 @@ status() {
     [ "${release_sha}" = "${dataset_sha}" ] || release=""
   fi
   if [ -n "${release}" ]; then
+    if jq -e '.source_manifest == null' "${release}/manifest.json" >/dev/null 2>&1; then
+      source_manifest=null
+    elif ! source_manifest="$(dataset_source_manifest_for_release "${release}" 2>/dev/null)"; then
+      # A release that declares composite provenance may never silently fall
+      # back to the legacy SHA-only identity when that provenance is corrupt.
+      source_manifest=null
+      dataset_identity_valid=false
+    fi
     dataset_imported_at="$(jq -er '.imported_at | select(type == "string")' \
       "${release}/manifest.json" 2>/dev/null || true)"
     health_coordinate="$(read_probe_coordinate "${release}" 2>/dev/null || true)"
   fi
-  if [ "${installed}" = true ] && [ -n "${dataset_sha}" ] \
+  if [ "${installed}" = true ] && [ "${dataset_identity_valid}" = true ] && [ -n "${dataset_sha}" ] \
     && [ "${service_state}" = "active" ] && health_once; then
     healthy=true
     state="ready"
@@ -1713,8 +2098,10 @@ status() {
     --argjson installed "${installed}" \
     --argjson provisioned "${provisioned}" \
     --argjson healthy "${healthy}" \
+    --argjson dataset_identity_valid "${dataset_identity_valid}" \
+    --argjson source_manifest "${source_manifest}" \
     '{
-      version: 1,
+      version: 2,
       state: $state,
       installed: $installed,
       provisioned: $provisioned,
@@ -1723,8 +2110,9 @@ status() {
         version: $package_version,
         verified_at: (if $package_verified_at == "" then null else $package_verified_at end)
       } else null end),
-      dataset: (if $dataset_sha256 == "" then null else {
-        sha256: $dataset_sha256,
+      dataset: (if $dataset_sha256 == "" or ($dataset_identity_valid | not) then null else {
+        source_manifest: $source_manifest,
+        legacy_sha256: (if $source_manifest == null then $dataset_sha256 else null end),
         imported_at: (if $dataset_imported_at == "" then null else $dataset_imported_at end),
         health_coordinate: (if $health_coordinate == "" then null else $health_coordinate end)
       } end),
@@ -1756,7 +2144,8 @@ publish_status() {
     healthy,
     package,
     dataset: (if .dataset == null then null else {
-      sha256: .dataset.sha256,
+      source_manifest: .dataset.source_manifest,
+      legacy_sha256: .dataset.legacy_sha256,
       imported_at: .dataset.imported_at,
       health_coordinate: .dataset.health_coordinate
     } end),
@@ -1786,6 +2175,14 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   install-package)
     [ "$#" -eq 0 ] || fail "install-package does not accept arguments."
     install_package
+    ;;
+  install-build-tool)
+    [ "$#" -eq 0 ] || fail "install-build-tool does not accept arguments."
+    install_build_tool
+    ;;
+  verify-build-tool)
+    [ "$#" -eq 0 ] || fail "verify-build-tool does not accept arguments."
+    verify_build_tool
     ;;
   provision)
     [ "$#" -eq 0 ] || fail "provision does not accept arguments."

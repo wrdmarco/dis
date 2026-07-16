@@ -56,6 +56,9 @@ assert_contains "${osrm}" 'secure_path_operation remove-tree "${candidate}"'
 assert_contains "${osrm}" 'pending_activation_owner_is_alive'
 assert_contains "${worker}" 'bash "${OSRM_SCRIPT}" sweep-scratch'
 assert_contains "${worker}" 'OSRM_ACTIVE_SCRATCH_PATH="${DOWNLOAD_DIRECTORY}"'
+assert_contains "${worker}" '--property="PartOf=dis-osrm-admin-request.service"'
+assert_contains "${worker}" '--property="BindsTo=dis-osrm-admin-request.service"'
+assert_absent "${worker}" '--property="After=dis-osrm-admin-request.service"'
 assert_count_at_least "${worker}" 'bash "${OSRM_SCRIPT}" sweep-scratch' 2
 assert_before "${worker}" 'bash "${OSRM_SCRIPT}" sweep-scratch' 'DOWNLOAD_DIRECTORY="$(mktemp -d'
 assert_before "${worker}" 'bash "${OSRM_SCRIPT}" prune' 'DOWNLOAD_DIRECTORY="$(mktemp -d'
@@ -64,7 +67,8 @@ assert_before "${worker}" 'bash "${OSRM_SCRIPT}" prune' 'DOWNLOAD_DIRECTORY="$(m
 # payload and matching plus actively verifying the committed runtime.
 assert_contains "${worker}" 'payload="$(artisan_callback dis:osrm-operation:payload "${OPERATION_ID}")" \'
 assert_contains "${worker}" 'operation_payload_contract_is_valid "${payload}" || return 2'
-assert_contains "${worker}" '.dataset.sha256 == $expected_sha'
+assert_contains "${worker}" 'expected_manifest="$(resolved_source_manifest_from_marker)" || return 1'
+assert_contains "${worker}" '.dataset.source_manifest == $expected_manifest'
 assert_contains "${worker}" '.dataset.health_coordinate == $coordinate'
 assert_contains "${worker}" 'bash "${OSRM_SCRIPT}" verify >/dev/null 2>&1'
 assert_contains "${worker}" 'bash "${OSRM_SCRIPT}" health >/dev/null 2>&1'
@@ -73,6 +77,12 @@ assert_contains "${worker}" '[ "${recovery_result}" = "2" ]'
 assert_contains "${worker}" 'RECOVERY_RETRY_PENDING=1'
 assert_contains "${worker}" '[ "${RECOVERY_RETRY_PENDING}" = "0" ] || break'
 assert_before "${worker}" 'if [ -e "${DIS_DATA_PATH}/osrm" ] || [ -L "${DIS_DATA_PATH}/osrm" ]; then' 'for running_file in "${WORK_DIR}"/*.json'
+
+# A corrupt declared composite manifest is never relabelled as a genuine
+# legacy SHA-only release in the public status contract.
+assert_contains "${osrm}" 'local dataset_identity_valid=true source_manifest=null'
+assert_contains "${osrm}" 'dataset_identity_valid=false'
+assert_contains "${osrm}" '($dataset_identity_valid | not)'
 
 # Root metadata is written only after descriptor validation/freeze, through an
 # exclusive no-follow temporary file, fsync and atomic descriptor-relative move.

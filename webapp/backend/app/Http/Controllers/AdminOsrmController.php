@@ -28,7 +28,7 @@ final class AdminOsrmController extends Controller
 
     public function store(StartOsrmOperationRequest $request): JsonResponse
     {
-        /** @var array{action: string, source_sha256: string, health_coordinate?: array{longitude: float|int|string, latitude: float|int|string}} $data */
+        /** @var array{action: string, health_coordinate?: array{longitude: float|int|string, latitude: float|int|string}} $data */
         $data = $request->validated();
         $actor = $request->user();
         abort_if($actor === null, 401);
@@ -36,7 +36,6 @@ final class AdminOsrmController extends Controller
         try {
             $operation = $this->operations->start(
                 action: $data['action'],
-                sourceSha256: $data['source_sha256'],
                 healthCoordinate: $data['health_coordinate'] ?? null,
                 actor: $actor,
                 request: $request,

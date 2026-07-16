@@ -188,12 +188,14 @@ navigation ETA from that location. A location older than five minutes is stale: 
 its former ETA is not shown. The API's optional `eta_source` value is `navigation`, `fallback`, or `unknown`;
 clients must continue to handle older responses where this field is absent.
 
-Administrators can install and activate the self-hosted Netherlands OSRM service from the admin system page after
-entering an independently verified source SHA-256 and a routable Dutch probe coordinate. The browser cannot choose
-the download URL or pass shell input. A dedicated root-only systemd request broker validates the immutable database
-operation snapshot, downloads only the fixed HTTPS Netherlands source, shows bounded live stage logging, verifies
-and atomically activates the dataset, and rolls back to the prior healthy release on failure. Once ready, the same
-panel offers only a deliberate map-data update; normal DIS deployments never download map data implicitly. See
+Administrators can install and activate the self-hosted Netherlands-and-Belgium OSRM service from the admin system
+page after entering a routable Dutch probe coordinate. The browser cannot choose download URLs, checksums or pass
+shell input. A dedicated root-only systemd request broker validates the immutable database operation snapshot,
+resolves both fixed HTTPS sources to a common dated Geofabrik snapshot, verifies each supplier MD5 and matching
+source timestamp, and merges both extracts without network access. It shows bounded live stage logging, verifies
+both Dutch and Belgian readiness probes, atomically activates the dataset, and rolls back to the prior healthy
+release on failure. Once ready, the same panel offers only a deliberate map-data update; normal DIS deployments
+never download map data implicitly. See
 `infrastructure/osrm/README.md` for the privilege boundary, storage requirements and recovery behavior.
 The attested OSRM package is APT-held: neither the map-data action nor a normal system update changes its binary.
 Each revoke/re-consent transition advances a server-side consent generation. Location updates are stored

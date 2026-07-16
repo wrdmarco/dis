@@ -30,28 +30,63 @@ worker='scripts/osrm-admin-request-worker.sh'
 osrm='scripts/osrm.sh'
 common='scripts/lib/common.sh'
 
-# The browser can enqueue only a tiny immutable command. Root obtains the
-# source and checksum again from the database and accepts one fixed HTTPS URL.
-assert_contains "${worker}" 'SOURCE_URL_DEFAULT="https://download.geofabrik.de/europe/netherlands-latest.osm.pbf"'
+# The browser can enqueue only a tiny v2 command without URLs or checksums.
+# Root accepts the fixed ordered NL+BE set and obtains both supplier checksums.
+assert_contains "${worker}" 'NETHERLANDS_LATEST_URL="https://${SOURCE_HOST}/europe/netherlands-latest.osm.pbf"'
+assert_contains "${worker}" 'BELGIUM_LATEST_URL="https://${SOURCE_HOST}/europe/belgium-latest.osm.pbf"'
+assert_contains "${worker}" 'SOURCE_IDS=(netherlands belgium)'
+assert_contains "${worker}" 'MAX_COMBINED_PBF_BYTES="${OSRM_ADMIN_MAX_COMBINED_PBF_BYTES:-5368709120}"'
+assert_contains "${worker}" 'latest_target="$(resolve_versioned_source_url "${source_id}" "${latest_url}")"'
+assert_contains "${worker}" 'checksum_url="${source_url}.md5"'
 assert_contains "${worker}" 'dis:osrm-operation:payload "${OPERATION_ID}"'
+assert_contains "${worker}" 'and .version == 2'
 assert_contains "${worker}" 'and ((keys_unsorted - ["version","operation_id","action","actor_id","created_at"]) | length == 0)'
+assert_contains "${worker}" 'and ((keys_unsorted - ["version","operation_id","action","actor_id","sources","health_coordinate"]) | length == 0)'
+assert_contains "${worker}" 'and .sources == ['
+assert_contains "${worker}" '{id:"netherlands",latest_url:$netherlands_url},'
+assert_contains "${worker}" '{id:"belgium",latest_url:$belgium_url}'
+assert_absent "${worker}" '.source_sha256 | type == "string"'
 assert_contains "${worker}" 'request_mode="$(stat -c '\''%a'\'' -- "${RUNNING_FILE}")"'
 assert_contains "${worker}" '[ "${request_mode}" != "600" ]'
 assert_contains "${worker}" 'dis:osrm-operation:fail-request "${request_id}" "${reason}"'
 assert_contains "${worker}" 'if [ "${ACTION}" = "install_activate" ] \'
 assert_contains "${worker}" 'Bestaand geverifieerd OSRM-pakket blijft ongewijzigd tijdens de kaartupdate.'
 assert_contains "${worker}" '[ "${age}" -gt 86400 ]'
-assert_contains "${worker}" '.installed == true and (.dataset.sha256 | type == "string"'
+assert_contains "${worker}" '(.dataset.source_manifest | type == "object")'
+assert_contains "${worker}" 'or (.dataset.legacy_sha256 | type == "string" and test("^[a-f0-9]{64}$"))'
 
 # Downloads fail closed on redirects, private/rebound DNS, size, ownership and
-# post-download hash validation. No client-controlled URL reaches curl.
+# the strictly parsed official Geofabrik sidecar. No client checksum or URL
+# reaches curl, while internal prepared artifacts retain SHA-256 manifests.
 assert_contains "${worker}" "address.is_global"
 assert_contains "${worker}" "--max-redirs 0"
 assert_contains "${worker}" "--proto '=https'"
+assert_absent "${worker}" '--location'
 assert_contains "${worker}" '--resolve "${pin}"'
+assert_contains "${worker}" '--resolve "${DOWNLOAD_PIN}"'
+assert_contains "${worker}" '[ "${exit_code}" -eq 0 ] && [ "${http_code}" = "302" ]'
+assert_contains "${worker}" 'rf"https://download[.]geofabrik[.]de/europe/{source_id}-([0-9]{{6}})[.]osm[.]pbf"'
+assert_contains "${worker}" 'versioned_source_url_is_valid "${source_id}" "${target_url}"'
 assert_contains "${worker}" '[ "$(stat -c '\''%h'\'' -- "${pbf_file}")" = "1" ]'
 assert_contains "${worker}" '[ "$(stat -c '\''%U'\'' -- "${pbf_file}")" = "dis-osrm-build" ]'
-assert_contains "${worker}" 'actual_sha="$(sha256sum -- "${pbf_file}"'
+assert_contains "${worker}" '--max-filesize 1024'
+assert_contains "${worker}" 'source_md5="$(parse_supplier_md5_file "${md5_file}" "${source_filename}")"'
+assert_contains "${worker}" 'actual_md5="$(md5sum -- "${pbf_file}"'
+assert_contains "${worker}" 'record_resolved_source_manifest "${source_manifest}"'
+assert_contains "${worker}" '.dataset.source_manifest == $expected_manifest'
+assert_contains "${worker}" 'source_timestamp_for_file "${SOURCE_PBF_FILE[netherlands]}"'
+assert_contains "${worker}" 'source_timestamp_for_file "${SOURCE_PBF_FILE[belgium]}"'
+assert_contains "${worker}" '[ "${nl_timestamp}" = "${be_timestamp}" ]'
+assert_contains "${worker}" 'update_stage merging "Nederlandse en Belgische kaartdata veilig samenvoegen."'
+assert_contains "${worker}" '-- /usr/bin/osmium merge --overwrite --output-format=pbf'
+assert_contains "${worker}" '--property="PrivateNetwork=yes"'
+assert_contains "${worker}" '--property="MemoryMax=${MERGE_MEMORY_MAX}"'
+assert_contains "${worker}" 'run_cmd rm -f -- "${SOURCE_PBF_FILE[netherlands]}" "${SOURCE_PBF_FILE[belgium]}"'
+assert_contains "${worker}" 'merged_size_is_safe "${merged_size}" "${source_total}"'
+assert_contains "${worker}" 'OSRM_IMPORT_PARENT_UNIT=dis-osrm-admin-request.service'
+assert_contains "${osrm}" 'sha256sum --check --strict ARTIFACTS.SHA256'
+assert_contains "${osrm}" 'release_manifest_is_json_object "${release}" || return 1'
+assert_contains "${osrm}" '|| fail "The active OSRM release manifest is not a valid JSON object."'
 assert_absent "${worker}" 'curl ${source_url}'
 
 # The privileged broker bootstraps only from the immutable root runtime bundle.
@@ -101,29 +136,37 @@ assert_contains "${worker}" 'chown root:dis-osrm "${DOWNLOAD_DIRECTORY}"'
 assert_absent "${worker}" 'chown dis-osrm-build:dis-osrm "${DOWNLOAD_DIRECTORY}"'
 assert_contains "${worker}" 'install -d -m 0750 -o root -g dis-osrm "${control_directory}"'
 assert_contains "${worker}" 'prepare_download_control_file "${pbf_file}" "${DOWNLOAD_DIRECTORY}"'
+assert_contains "${worker}" 'prepare_download_control_file "${md5_file}" "${control_directory}"'
+assert_contains "${worker}" 'seal_download_control_file "${md5_file}" "${control_directory}"'
 assert_contains "${worker}" 'seal_download_control_file "${header_file}" "${control_directory}"'
 assert_contains "${worker}" 'seal_download_control_file "${code_file}" "${control_directory}"'
 assert_before "${worker}" 'prepare_download_control_file "${header_file}"' '--dump-header "${header_file}"'
-assert_before "${worker}" 'seal_download_control_file "${header_file}"' 'content_length="$(read_content_length "${header_file}")"'
+assert_before "${worker}" 'seal_download_control_file "${header_file}"' 'SOURCE_SIZE[${source_id}]="$(read_content_length "${header_file}")"'
 assert_before "${worker}" 'seal_download_control_file "${code_file}"' 'http_code="$(tr -d '\''\r\n'\'' < "${code_file}"'
 
 # Live log/status schemas are bounded and machine-readable.
 assert_contains "${worker}" 'progress_percent:$progress_percent'
 assert_contains "${worker}" 'LOG_MAX_BYTES='
-for stage in validating downloading installing_package provisioning extracting partitioning customizing activating verifying configuring completed; do
+for stage in validating downloading installing_package provisioning merging extracting partitioning customizing activating verifying configuring completed; do
   assert_contains "${worker}" "${stage}"
 done
 assert_contains "${osrm}" 'publish-status'
 assert_contains "${osrm}" 'apt-mark showhold'
 assert_contains "${osrm}" 'apt-mark hold osrm-backend'
+assert_contains "${osrm}" 'apt-mark hold osmium-tool'
 assert_contains "${osrm}" 'OSRM_RELEASE_RETENTION="${OSRM_RELEASE_RETENTION:-3}"'
 assert_contains "${osrm}" 'protected["${target#releases/}"]=1'
 assert_contains "${osrm}" 'secure_path_operation remove-tree "${release_path}"'
 assert_contains "${osrm}" 'prune_releases_best_effort'
 assert_contains "${worker}" 'bash "${OSRM_SCRIPT}" prune'
 assert_contains "${worker}" 'safe_cleanup_admin_download "${DOWNLOAD_DIRECTORY}"'
-assert_contains 'scripts/uninstall.sh' 'apt-mark unhold osrm-backend'
+assert_contains 'scripts/uninstall.sh' 'for held_package in osrm-backend osmium-tool; do'
+assert_contains 'scripts/uninstall.sh' 'run_cmd apt-mark unhold "${held_package}"'
+assert_contains 'scripts/uninstall.sh' 'for osrm_package in osrm-backend osmium-tool; do'
 assert_contains "${osrm}" 'dataset: (if .dataset == null then null else {'
+assert_contains "${osrm}" '[ "${dataset_identity_valid}" = true ]'
+assert_contains "${osrm}" 'source_manifest: .dataset.source_manifest'
+assert_contains "${osrm}" 'legacy_sha256: .dataset.legacy_sha256'
 assert_contains "${osrm}" 'health_coordinate: .dataset.health_coordinate'
 assert_absent "${osrm}" 'dataset: .dataset,'
 
@@ -157,6 +200,4 @@ assert_contains "${common}" 'if=/dev/null "of=${path}" bs=1 count=0 conv=notrunc
 assert_contains "${common}" '.dis-permission-probe.XXXXXXXX'
 assert_absent "${common}" 'runuser -u www-data -- test -r "${status_path}"'
 assert_absent "${common}" 'runuser -u www-data -- test ! -w "${status_path}"'
-assert_contains 'infrastructure/osrm/README.md' 'is rejected because there is no update to apply'
-
 printf 'OSRM admin static contract and security test passed.\n'

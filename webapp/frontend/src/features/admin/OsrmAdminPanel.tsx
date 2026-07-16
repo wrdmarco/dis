@@ -33,7 +33,6 @@ import {
 } from './osrmAdminPresentation';
 
 const initialForm: OsrmOperationFormValues = {
-  sourceSha256: '',
   longitude: '',
   latitude: '',
 };
@@ -78,7 +77,7 @@ export function OsrmAdminPanel({
   const configuration = status.data?.configuration;
   const configurationKey = configuration === undefined
     ? 'empty'
-    : `${configuration.source_url}|${configuration.source_sha256 ?? ''}|${configuration.health_coordinate?.longitude ?? ''}|${configuration.health_coordinate?.latitude ?? ''}`;
+    : `${configuration.source_set_sha256 ?? ''}|${configuration.health_coordinate?.longitude ?? ''}|${configuration.health_coordinate?.latitude ?? ''}`;
 
   useEffect(() => {
     if (configurationKeyRef.current === configurationKey) {
@@ -86,7 +85,6 @@ export function OsrmAdminPanel({
     }
     configurationKeyRef.current = configurationKey;
     setForm({
-      sourceSha256: '',
       longitude: configuration?.health_coordinate === null || configuration?.health_coordinate === undefined ? '' : String(configuration.health_coordinate.longitude),
       latitude: configuration?.health_coordinate === null || configuration?.health_coordinate === undefined ? '' : String(configuration.health_coordinate.latitude),
     });
@@ -206,7 +204,6 @@ export function OsrmAdminPanel({
       const response = await api.post<OsrmOperationStarted>('/admin/routing/osrm/operations', pendingRequest);
       adoptOperation(response.data.operation);
       setPendingRequest(null);
-      setForm((current) => ({ ...current, sourceSha256: '' }));
       await reloadStatusSilently();
     } catch (error) {
       setActionError(error instanceof ApiClientError ? error.message : 'OSRM-bewerking starten mislukt.');
@@ -250,17 +247,38 @@ export function OsrmAdminPanel({
                 <dd>{formatDateTime(status.data.package?.verified_at)}</dd>
                 <dt>Kaart geïmporteerd</dt>
                 <dd>{formatDateTime(status.data.dataset?.imported_at)}</dd>
-                <dt>Kaart SHA-256</dt>
-                <dd className="mono">{status.data.dataset?.sha256 ?? '-'}</dd>
-                <dt>Laatst geverifieerde bron SHA-256</dt>
-                <dd className="mono">{status.data.configuration.source_sha256 ?? '-'}</dd>
-                <dt>Vaste kaartbron</dt>
-                <dd className="mono">{status.data.configuration.source_url || '-'}</dd>
+                <dt>Kaartdekking</dt>
+                <dd>{formatCoverage(status.data.configuration.sources)}</dd>
+                <dt>Geofabrik-snapshot</dt>
+                <dd>{status.data.dataset?.snapshot_date ?? (status.data.dataset?.legacy ? 'Bestaande Nederlandse kaart' : '-')}</dd>
+                <dt>Brontijdstip</dt>
+                <dd>{formatDateTime(status.data.dataset?.source_timestamp)}</dd>
                 <dt>Controlepunt</dt>
                 <dd>{status.data.configuration.health_coordinate
                   ? `${status.data.configuration.health_coordinate.longitude}, ${status.data.configuration.health_coordinate.latitude}`
                   : '-'}</dd>
               </dl>
+
+              <div className="metadata-example osrm-management-note">
+                <strong>Geverifieerde kaartbronnen</strong>
+                {status.data.dataset?.legacy ? (
+                  <p className="muted-text">De actieve Nederlandse kaart gebruikt nog het bestaande SHA-256-contract. De eerstvolgende kaartupdate migreert naar Nederland + België met een leveranciers-MD5 per bron.</p>
+                ) : status.data.dataset?.sources.length ? (
+                  <dl className="definition-grid">
+                    {status.data.dataset.sources.map((source) => (
+                      <div key={source.id} className="field-display">
+                        <dt>{source.label}</dt>
+                        <dd>
+                          <span className="mono">{source.md5}</span>
+                          <small>{source.filename} · {formatBytes(source.size_bytes)}</small>
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : (
+                  <p className="muted-text">Nog geen samengestelde kaart geïmporteerd.</p>
+                )}
+              </div>
 
               {status.data.blocker ? (
                 <div className="metadata-example osrm-management-warning" role="alert">
@@ -284,28 +302,22 @@ export function OsrmAdminPanel({
                       : osrmUpdateGuidance(status.data.state, status.data.healthy)}
                   </p>
                   <div className="field-display form-grid__wide">
-                    <span>Vaste Nederlandse kaartbron</span>
-                    <strong className="mono">{status.data.configuration.source_url || '-'}</strong>
+                    <span>Vaste kaartdekking</span>
+                    <strong>{formatCoverage(status.data.configuration.sources)}</strong>
                   </div>
-                  <label className="form-grid__wide">
-                    Onafhankelijk gecontroleerde SHA-256
-                    <input
-                      className="mono"
-                      inputMode="text"
-                      autoComplete="off"
-                      spellCheck={false}
-                      minLength={64}
-                      maxLength={64}
-                      pattern="[A-Fa-f0-9]{64}"
-                      required
-                      aria-describedby="osrm-sha256-guidance"
-                      value={form.sourceSha256}
-                      onChange={(event) => setForm((current) => ({ ...current, sourceSha256: event.target.value }))}
-                    />
-                  </label>
-                  <p id="osrm-sha256-guidance" className="muted-text form-grid__wide">
-                    Controleer deze hash via een onafhankelijk beheerkanaal; gebruik niet alleen informatie uit dezelfde download.
+                  {status.data.configuration.sources.map((source) => (
+                    <div className="field-display form-grid__wide" key={source.id}>
+                      <span>{source.label}</span>
+                      <strong className="mono">{source.latest_url}</strong>
+                    </div>
+                  ))}
+                  <p className="muted-text form-grid__wide">
+                    DIS haalt voor beide bronnen het officiële Geofabrik-MD5-controlebestand op, verifieert iedere download en voegt alleen een volledige, gelijkgedateerde bronset samen.
                   </p>
+                  <div className="metadata-example osrm-management-warning form-grid__wide" role="note">
+                    <strong><AlertTriangle aria-hidden size={18} /> Capaciteit en duur</strong>
+                    <p>Nederland + België downloaden, samenvoegen en voor OSRM bouwen vraagt grofweg minimaal 20 GB vrije schijfruimte en kan lang duren. De serverpreflight bepaalt uiteindelijk of de bewerking veilig kan starten.</p>
+                  </div>
                   {nextAction === 'install_activate' ? (
                     <>
                       <label>
@@ -420,16 +432,26 @@ export function OsrmAdminPanel({
               <p id="osrm-confirmation-description">
                 Deze bewerking downloadt en verwerkt een groot kaartbestand en kan lang duren. Sluit of herstart de server niet tijdens activering.
               </p>
+              <div className="metadata-example osrm-management-warning" role="note">
+                <strong><AlertTriangle aria-hidden size={18} /> Capaciteit en duur</strong>
+                <p>Reken voor Nederland + België grofweg op minimaal 20 GB vrije schijfruimte. De serverpreflight blijft beslissend en weigert de bewerking als de actuele capaciteit onvoldoende is.</p>
+              </div>
               <dl className="definition-grid">
-                <dt>Bron</dt>
-                <dd>{status.data?.configuration.source_url ?? '-'}</dd>
-                <dt>SHA-256</dt>
-                <dd className="mono">{pendingRequest.source_sha256}</dd>
+                <dt>Kaartdekking</dt>
+                <dd>{formatCoverage(status.data?.configuration.sources ?? [])}</dd>
+                <dt>Integriteitscontrole</dt>
+                <dd>Per bron automatisch via het officiële Geofabrik-MD5-controlebestand</dd>
                 <dt>Controlepunt</dt>
                 <dd>{pendingRequest.health_coordinate
                   ? `${pendingRequest.health_coordinate.longitude}, ${pendingRequest.health_coordinate.latitude}`
                   : 'Bestaand gecontroleerd punt'}</dd>
               </dl>
+              {status.data?.configuration.sources.map((source) => (
+                <div className="field-display" key={source.id}>
+                  <span>{source.label}</span>
+                  <strong className="mono">{source.latest_url}</strong>
+                </div>
+              ))}
               {actionError ? <p className="form-error" role="alert">{actionError}</p> : null}
               <div className="actions-row">
                 <button className="secondary-button" type="button" autoFocus disabled={starting} onClick={() => setPendingRequest(null)}>
@@ -451,4 +473,24 @@ function formatLogLines(lines: OsrmOperationLogLine[]): string {
   return lines
     .map((line) => `[${formatDateTime(line.at)}] ${line.level.toUpperCase()} ${line.message}`)
     .join('\n');
+}
+
+function formatCoverage(sources: OsrmManagementStatus['configuration']['sources']): string {
+  return sources.length > 0 ? sources.map((source) => source.label).join(' + ') : '-';
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return '-';
+  }
+
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1000 && unitIndex < units.length - 1) {
+    value /= 1000;
+    unitIndex += 1;
+  }
+
+  return `${new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 1 }).format(value)} ${units[unitIndex]}`;
 }

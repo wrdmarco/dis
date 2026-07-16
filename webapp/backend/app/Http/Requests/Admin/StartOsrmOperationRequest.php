@@ -13,14 +13,6 @@ final class StartOsrmOperationRequest extends FormRequest
         return true;
     }
 
-    protected function prepareForValidation(): void
-    {
-        $sha256 = $this->input('source_sha256');
-        if (is_string($sha256)) {
-            $this->merge(['source_sha256' => strtolower(trim($sha256))]);
-        }
-    }
-
     /**
      * @return array<string, mixed>
      */
@@ -31,8 +23,15 @@ final class StartOsrmOperationRequest extends FormRequest
                 OsrmOperation::ACTION_INSTALL_ACTIVATE,
                 OsrmOperation::ACTION_UPDATE,
             ])],
-            'source_sha256' => ['required', 'string', 'regex:/\A[a-f0-9]{64}\z/'],
             'source_url' => ['prohibited'],
+            'source_md5' => ['prohibited'],
+            'source_sha256' => ['prohibited'],
+            'sources' => ['prohibited'],
+            'source_set' => ['prohibited'],
+            'source_manifest' => ['prohibited'],
+            'source_set_sha256' => ['prohibited'],
+            'snapshot_date' => ['prohibited'],
+            'source_timestamp' => ['prohibited'],
             'health_coordinate' => [
                 'required_if:action,'.OsrmOperation::ACTION_INSTALL_ACTIVATE,
                 'prohibited_if:action,'.OsrmOperation::ACTION_UPDATE,

@@ -19,9 +19,21 @@ use Throwable;
 
 final class OsrmOperationService
 {
-    private const REQUEST_VERSION = 1;
+    private const REQUEST_VERSION = 2;
 
-    private const APPROVED_SOURCE_URL = 'https://download.geofabrik.de/europe/netherlands-latest.osm.pbf';
+    /** @var list<array{id: string, label: string, latest_url: string}> */
+    private const APPROVED_SOURCES = [
+        [
+            'id' => 'netherlands',
+            'label' => 'Nederland',
+            'latest_url' => 'https://download.geofabrik.de/europe/netherlands-latest.osm.pbf',
+        ],
+        [
+            'id' => 'belgium',
+            'label' => 'België',
+            'latest_url' => 'https://download.geofabrik.de/europe/belgium-latest.osm.pbf',
+        ],
+    ];
 
     private const MAX_STATUS_BYTES = 65_536;
 
@@ -31,13 +43,17 @@ final class OsrmOperationService
 
     private const MAX_PUBLIC_MESSAGE_BYTES = 1_000;
 
+    private const MAX_SOURCE_BYTES = 10_737_418_240;
+
     private const QUEUED_STALE_MINUTES = 24 * 60;
 
     private const SETTING_ENABLED = 'routing.enabled';
 
     private const SETTING_SOURCE_URL = 'routing.osrm.source_url';
 
-    private const SETTING_SOURCE_SHA256 = 'routing.osrm.source_sha256';
+    private const SETTING_SOURCE_MANIFEST = 'routing.osrm.source_manifest';
+
+    private const SETTING_SOURCE_SHA256_LEGACY = 'routing.osrm.source_sha256';
 
     private const SETTING_HEALTH_COORDINATE = 'routing.osrm.health_coordinate';
 
@@ -66,26 +82,41 @@ final class OsrmOperationService
             self::SETTING_ENABLED,
             (bool) config('dis.routing.enabled', false),
         );
-        $sourceUrl = $this->configuredSourceUrl();
+        $configuredSources = $this->configuredSources();
+        $sourceSet = $configuredSources === null ? null : $this->sourceSet($configuredSources);
+        $sourceSetSha256 = $sourceSet === null ? null : $this->sourceSetSha256($sourceSet);
+        $storedSourceManifest = $this->storedSourceManifest();
         $storedSourceUrl = SystemSetting::string(self::SETTING_SOURCE_URL);
         $storedCoordinate = $this->storedHealthCoordinate();
-        $storedSha256 = $this->storedSha256();
+        $storedLegacySha256 = $this->storedLegacySha256();
 
         $installed = $runtime['installed'];
         $healthy = $runtime['healthy'];
         $dataset = $runtime['dataset'];
         $hasActiveDataset = is_array($dataset);
-        $managedActiveDataset = $installed
+        $managedCompositeDataset = $installed
             && $hasActiveDataset
             && $enabled
-            && is_string($storedSourceUrl)
-            && $sourceUrl !== null
-            && hash_equals($sourceUrl, $storedSourceUrl)
-            && $storedSha256 !== null
-            && hash_equals($storedSha256, (string) $dataset['sha256'])
+            && $sourceSetSha256 !== null
+            && $storedSourceManifest !== null
+            && $dataset['source_manifest'] !== null
+            && hash_equals($sourceSetSha256, $storedSourceManifest['source_set_sha256'])
+            && $this->sourceManifestsMatch($storedSourceManifest, $dataset['source_manifest'])
             && $storedCoordinate !== null
             && $runtime['health_coordinate'] !== null
             && $this->coordinatesMatch($storedCoordinate, $runtime['health_coordinate']);
+        $managedLegacyDataset = $installed
+            && $hasActiveDataset
+            && $enabled
+            && is_string($storedSourceUrl)
+            && hash_equals(self::APPROVED_SOURCES[0]['latest_url'], $storedSourceUrl)
+            && $storedLegacySha256 !== null
+            && is_string($dataset['legacy_sha256'])
+            && hash_equals($storedLegacySha256, $dataset['legacy_sha256'])
+            && $storedCoordinate !== null
+            && $runtime['health_coordinate'] !== null
+            && $this->coordinatesMatch($storedCoordinate, $runtime['health_coordinate']);
+        $managedActiveDataset = $managedCompositeDataset || $managedLegacyDataset;
         $state = match (true) {
             ! $installed => 'not_installed',
             ! $hasActiveDataset || ! $enabled => 'installed_inactive',
@@ -95,7 +126,7 @@ final class OsrmOperationService
 
         $blocker = null;
         $nextAction = null;
-        if ($sourceUrl === null) {
+        if ($configuredSources === null || $sourceSetSha256 === null) {
             $blocker = [
                 'code' => 'invalid_source_configuration',
                 'message' => 'De vaste OSRM kaartbron is niet veilig geconfigureerd op de server.',
@@ -117,10 +148,12 @@ final class OsrmOperationService
             'enabled' => $enabled,
             'healthy' => $healthy,
             'package' => $runtime['package'],
-            'dataset' => $dataset,
+            'dataset' => $dataset === null
+                ? null
+                : $this->publicDataset($dataset, $configuredSources ?? self::APPROVED_SOURCES),
             'configuration' => [
-                'source_url' => $sourceUrl ?? '',
-                'source_sha256' => $storedSha256,
+                'sources' => $configuredSources ?? [],
+                'source_set_sha256' => $sourceSetSha256,
                 'health_coordinate' => $storedCoordinate,
             ],
             'next_action' => $nextAction,
@@ -135,7 +168,6 @@ final class OsrmOperationService
      */
     public function start(
         string $action,
-        string $sourceSha256,
         ?array $healthCoordinate,
         User $actor,
         ?Request $request = null,
@@ -143,30 +175,23 @@ final class OsrmOperationService
         if (! in_array($action, [OsrmOperation::ACTION_INSTALL_ACTIVATE, OsrmOperation::ACTION_UPDATE], true)) {
             throw new \InvalidArgumentException('Unsupported OSRM operation action.');
         }
-        if (preg_match('/\A[a-f0-9]{64}\z/', $sourceSha256) !== 1) {
-            throw new \InvalidArgumentException('Invalid OSRM source checksum.');
-        }
-
         $status = $this->managementStatus();
         $nextAction = $status['next_action'] ?? null;
         if ($nextAction !== $action) {
             throw new OsrmOperationConflictException('De OSRM-status is gewijzigd. Laad de status opnieuw.');
         }
 
-        $sourceUrl = $this->configuredSourceUrl();
-        if ($sourceUrl === null) {
-            throw new OsrmOperationConflictException('De vaste OSRM kaartbron is niet veilig geconfigureerd.');
+        $configuredSources = $this->configuredSources();
+        if ($configuredSources === null) {
+            throw new OsrmOperationConflictException('De vaste OSRM kaartbronnen zijn niet veilig geconfigureerd.');
         }
+        $sourceSet = $this->sourceSet($configuredSources);
+        $sourceSetSha256 = $this->sourceSetSha256($sourceSet);
 
         if ($action === OsrmOperation::ACTION_UPDATE) {
             $coordinate = $this->storedHealthCoordinate();
             if ($coordinate === null || ! SystemSetting::boolean(self::SETTING_ENABLED, false)) {
                 throw new OsrmOperationConflictException('OSRM is niet volledig geactiveerd; een update kan niet worden gestart.');
-            }
-            if (($status['state'] ?? null) === 'ready'
-                && ($status['healthy'] ?? false) === true
-                && hash_equals($this->storedSha256() ?? '', $sourceSha256)) {
-                throw new OsrmOperationConflictException('Geef voor een kaartupdate de nieuwe SHA-256 van de bron op.');
             }
         } else {
             if ($healthCoordinate === null) {
@@ -183,8 +208,8 @@ final class OsrmOperationService
             $operation = DB::transaction(function () use (
                 $requestId,
                 $action,
-                $sourceUrl,
-                $sourceSha256,
+                $sourceSet,
+                $sourceSetSha256,
                 $coordinate,
                 $actor,
                 $request,
@@ -197,8 +222,11 @@ final class OsrmOperationService
                     'active_key' => OsrmOperation::ACTIVE_KEY,
                     'message' => 'OSRM-bewerking staat klaar voor verwerking.',
                     'progress_percent' => null,
-                    'source_url' => $sourceUrl,
-                    'source_sha256' => $sourceSha256,
+                    'source_url' => null,
+                    'source_sha256' => null,
+                    'source_set' => $sourceSet,
+                    'source_manifest' => null,
+                    'source_set_sha256' => $sourceSetSha256,
                     'health_longitude' => $coordinate['longitude'],
                     'health_latitude' => $coordinate['latitude'],
                     'actor_id' => $actor->id,
@@ -210,7 +238,6 @@ final class OsrmOperationService
                     actor: $actor,
                     metadata: [
                         'operation_action' => $operation->action,
-                        'source_sha256' => $operation->source_sha256,
                     ],
                     request: $request,
                 );
@@ -255,9 +282,14 @@ final class OsrmOperationService
         if (! $operation->isActive()) {
             throw new RuntimeException('The OSRM operation is no longer active.');
         }
-        $configuredSourceUrl = $this->configuredSourceUrl();
-        if ($configuredSourceUrl === null || ! hash_equals($configuredSourceUrl, (string) $operation->source_url)) {
-            throw new RuntimeException('The configured OSRM source no longer matches the immutable operation.');
+        $configuredSources = $this->configuredSources();
+        $sourceSet = $configuredSources === null ? null : $this->sourceSet($configuredSources);
+        if ($sourceSet === null
+            || ! is_array($operation->source_set)
+            || $operation->source_set !== $sourceSet
+            || ! is_string($operation->source_set_sha256)
+            || ! hash_equals($this->sourceSetSha256($sourceSet), $operation->source_set_sha256)) {
+            throw new RuntimeException('The configured OSRM source set no longer matches the immutable operation.');
         }
         if ($operation->action === OsrmOperation::ACTION_UPDATE
             && ! SystemSetting::boolean(self::SETTING_ENABLED, false)) {
@@ -269,8 +301,7 @@ final class OsrmOperationService
             'operation_id' => (string) $operation->id,
             'action' => (string) $operation->action,
             'actor_id' => (string) $operation->actor_id_snapshot,
-            'source_url' => (string) $operation->source_url,
-            'source_sha256' => (string) $operation->source_sha256,
+            'sources' => $sourceSet,
             'health_coordinate' => [
                 'longitude' => (float) $operation->health_longitude,
                 'latitude' => (float) $operation->health_latitude,
@@ -372,19 +403,31 @@ final class OsrmOperationService
     {
         $snapshot ??= $this->operationSnapshot($operation);
         $runtime = $this->runtimeStatus();
+        $resolvedManifest = is_array($snapshot['active_source_manifest'] ?? null)
+            ? $this->parseSourceManifest($snapshot['active_source_manifest'])
+            : null;
         $succeeded = $exitCode === 0
             && $snapshot !== null
             && $snapshot['state'] === OsrmOperation::STATE_SUCCEEDED
             && $snapshot['stage'] === 'completed'
             && ($snapshot['exit_code'] ?? null) === 0
-            && is_string($snapshot['active_source_sha256'])
-            && hash_equals((string) $operation->source_sha256, $snapshot['active_source_sha256'])
+            && $resolvedManifest !== null
+            && is_array($operation->source_set)
+            && $operation->source_set === $this->sourceSet(self::APPROVED_SOURCES)
+            && is_string($operation->source_set_sha256)
+            && hash_equals($operation->source_set_sha256, $resolvedManifest['source_set_sha256'])
             && $runtime['healthy'] === true
             && is_array($runtime['dataset'])
-            && hash_equals((string) $operation->source_sha256, (string) $runtime['dataset']['sha256']);
+            && $runtime['dataset']['source_manifest'] !== null
+            && $runtime['health_coordinate'] !== null
+            && $this->coordinatesMatch([
+                'longitude' => (float) $operation->health_longitude,
+                'latitude' => (float) $operation->health_latitude,
+            ], $runtime['health_coordinate'])
+            && $this->sourceManifestsMatch($resolvedManifest, $runtime['dataset']['source_manifest']);
 
         $transitioned = false;
-        $operation = DB::transaction(function () use ($operation, $snapshot, $exitCode, $succeeded, &$transitioned): OsrmOperation {
+        $operation = DB::transaction(function () use ($operation, $snapshot, $resolvedManifest, $exitCode, $succeeded, &$transitioned): OsrmOperation {
             $locked = OsrmOperation::query()->lockForUpdate()->findOrFail($operation->id);
             if (! $locked->isActive()) {
                 return $locked;
@@ -405,16 +448,21 @@ final class OsrmOperationService
                 'exit_code' => $succeeded ? 0 : ($exitCode === 0 ? 1 : $exitCode),
                 'started_at' => $locked->started_at ?? now(),
                 'finished_at' => now(),
+                'source_manifest' => $succeeded ? $resolvedManifest : $locked->source_manifest,
             ])->save();
 
             if ($succeeded) {
-                $this->putSetting(self::SETTING_SOURCE_URL, (string) $locked->source_url, $locked);
-                $this->putSetting(self::SETTING_SOURCE_SHA256, (string) $locked->source_sha256, $locked);
+                $this->putSetting(self::SETTING_SOURCE_MANIFEST, $resolvedManifest, $locked);
                 $this->putSetting(self::SETTING_HEALTH_COORDINATE, [
                     'longitude' => (float) $locked->health_longitude,
                     'latitude' => (float) $locked->health_latitude,
                 ], $locked);
                 $this->putSetting(self::SETTING_ENABLED, true, $locked);
+                SystemSetting::query()->whereIn('key', [
+                    self::SETTING_SOURCE_URL,
+                    self::SETTING_SOURCE_SHA256_LEGACY,
+                    'routing.osrm.source_md5',
+                ])->delete();
             }
             $transitioned = true;
 
@@ -567,7 +615,7 @@ final class OsrmOperationService
     }
 
     /**
-     * @return array{installed: bool, healthy: bool, package: array{version: string, verified_at: string|null}|null, dataset: array{sha256: string, imported_at: string|null}|null, health_coordinate: array{longitude: float, latitude: float}|null}
+     * @return array{installed: bool, healthy: bool, package: array{version: string, verified_at: string|null}|null, dataset: array{source_manifest: array<string, mixed>|null, legacy_sha256: string|null, imported_at: string|null}|null, health_coordinate: array{longitude: float, latitude: float}|null}
      */
     private function runtimeStatus(): array
     {
@@ -604,15 +652,7 @@ final class OsrmOperationService
                 'verified_at' => $this->validTimestamp($package['verified_at'] ?? null),
             ]
             : null;
-        $dataset = $decoded['dataset'] ?? null;
-        $dataset = is_array($dataset)
-            && is_string($dataset['sha256'] ?? null)
-            && preg_match('/\A[a-f0-9]{64}\z/', $dataset['sha256']) === 1
-            ? [
-                'sha256' => $dataset['sha256'],
-                'imported_at' => $this->validTimestamp($dataset['imported_at'] ?? null),
-            ]
-            : null;
+        $dataset = $this->parseRuntimeDataset($decoded['dataset'] ?? null);
         $healthCoordinate = $dataset === null
             ? null
             : $this->parseRuntimeHealthCoordinate($decoded['dataset']['health_coordinate'] ?? null);
@@ -666,8 +706,11 @@ final class OsrmOperationService
         if ($exitCode !== null && (! is_int($exitCode) || $exitCode < 0 || $exitCode > 255)) {
             return null;
         }
-        $activeSha = $decoded['active_source_sha256'] ?? null;
-        if ($activeSha !== null && (! is_string($activeSha) || preg_match('/\A[a-f0-9]{64}\z/', $activeSha) !== 1)) {
+        $activeSourceManifest = $decoded['active_source_manifest'] ?? null;
+        if ($activeSourceManifest !== null) {
+            $activeSourceManifest = $this->parseSourceManifest($activeSourceManifest);
+        }
+        if (($decoded['active_source_manifest'] ?? null) !== null && $activeSourceManifest === null) {
             return null;
         }
 
@@ -679,7 +722,7 @@ final class OsrmOperationService
             'started_at' => $this->validTimestamp($decoded['started_at'] ?? null),
             'finished_at' => $this->validTimestamp($decoded['finished_at'] ?? null),
             'exit_code' => $exitCode,
-            'active_source_sha256' => $activeSha,
+            'active_source_manifest' => $activeSourceManifest,
         ];
     }
 
@@ -734,30 +777,177 @@ final class OsrmOperationService
         return array_slice($lines, 0, $limit);
     }
 
-    private function configuredSourceUrl(): ?string
+    /**
+     * @return list<array{id: string, label: string, latest_url: string}>|null
+     */
+    private function configuredSources(): ?array
     {
-        $url = trim((string) config('dis.routing.admin_pbf_url', ''));
-        if ($url === ''
-            || strlen($url) > 2_048
-            || preg_match('/[\x00-\x20\x7f]/', $url) === 1
-            || ! hash_equals(self::APPROVED_SOURCE_URL, $url)) {
-            return null;
-        }
-        $parts = parse_url($url);
-        if (! is_array($parts)
-            || strtolower((string) ($parts['scheme'] ?? '')) !== 'https'
-            || ! is_string($parts['host'] ?? null)
-            || $parts['host'] === ''
-            || isset($parts['user'])
-            || isset($parts['pass'])
-            || isset($parts['query'])
-            || isset($parts['fragment'])
-            || (isset($parts['port']) && $parts['port'] !== 443)
-            || ! str_ends_with(strtolower((string) ($parts['path'] ?? '')), '.osm.pbf')) {
+        $sources = config('dis.routing.admin_sources');
+
+        return is_array($sources) && $sources === self::APPROVED_SOURCES
+            ? $sources
+            : null;
+    }
+
+    /**
+     * @param  list<array{id: string, label: string, latest_url: string}>  $sources
+     * @return list<array{id: string, latest_url: string}>
+     */
+    private function sourceSet(array $sources): array
+    {
+        return array_map(
+            static fn (array $source): array => [
+                'id' => $source['id'],
+                'latest_url' => $source['latest_url'],
+            ],
+            $sources,
+        );
+    }
+
+    /** @param list<array{id: string, latest_url: string}> $sourceSet */
+    private function sourceSetSha256(array $sourceSet): string
+    {
+        return hash('sha256', json_encode(
+            $sourceSet,
+            JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES,
+        ));
+    }
+
+    /**
+     * @return array{source_set_sha256: string, snapshot_date: string, source_timestamp: string, sources: list<array{id: string, filename: string, version_url: string, md5: string, size_bytes: int}>}|null
+     */
+    private function storedSourceManifest(): ?array
+    {
+        return $this->parseSourceManifest(SystemSetting::value(self::SETTING_SOURCE_MANIFEST));
+    }
+
+    /**
+     * @return array{source_set_sha256: string, snapshot_date: string, source_timestamp: string, sources: list<array{id: string, filename: string, version_url: string, md5: string, size_bytes: int}>}|null
+     */
+    private function parseSourceManifest(mixed $value): ?array
+    {
+        if (! is_array($value)
+            || ! $this->hasExactKeys($value, ['source_set_sha256', 'snapshot_date', 'source_timestamp', 'sources'])
+            || ! is_string($value['source_set_sha256'] ?? null)
+            || preg_match('/\A[a-f0-9]{64}\z/', $value['source_set_sha256']) !== 1
+            || ! is_string($value['snapshot_date'] ?? null)
+            || preg_match('/\A\d{4}-\d{2}-\d{2}\z/', $value['snapshot_date']) !== 1
+            || ! is_string($value['source_timestamp'] ?? null)
+            || preg_match('/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/', $value['source_timestamp']) !== 1
+            || ! is_array($value['sources'] ?? null)
+            || ! array_is_list($value['sources'])
+            || count($value['sources']) !== count(self::APPROVED_SOURCES)) {
             return null;
         }
 
-        return $url;
+        try {
+            $snapshotDate = Carbon::parse($value['snapshot_date'].'T00:00:00Z');
+            $sourceTimestamp = Carbon::parse($value['source_timestamp']);
+        } catch (Throwable) {
+            return null;
+        }
+        if ($snapshotDate->format('Y-m-d') !== $value['snapshot_date']
+            || $sourceTimestamp->utc()->format('Y-m-d\TH:i:s\Z') !== $value['source_timestamp']
+            || $sourceTimestamp->utc()->format('Y-m-d') !== $value['snapshot_date']) {
+            return null;
+        }
+
+        $approvedSourceSet = $this->sourceSet(self::APPROVED_SOURCES);
+        if (! hash_equals($this->sourceSetSha256($approvedSourceSet), $value['source_set_sha256'])) {
+            return null;
+        }
+
+        $dateStamp = $snapshotDate->format('ymd');
+        $sources = [];
+        foreach (self::APPROVED_SOURCES as $index => $approved) {
+            $source = $value['sources'][$index] ?? null;
+            $expectedFilename = $approved['id'].'-'.$dateStamp.'.osm.pbf';
+            $expectedVersionUrl = 'https://download.geofabrik.de/europe/'.$expectedFilename;
+            if (! is_array($source)
+                || ! $this->hasExactKeys($source, ['id', 'filename', 'version_url', 'md5', 'size_bytes'])
+                || ($source['id'] ?? null) !== $approved['id']
+                || ($source['filename'] ?? null) !== $expectedFilename
+                || ($source['version_url'] ?? null) !== $expectedVersionUrl
+                || ! is_string($source['md5'] ?? null)
+                || preg_match('/\A[a-f0-9]{32}\z/', $source['md5']) !== 1
+                || ! is_int($source['size_bytes'] ?? null)
+                || $source['size_bytes'] < 1
+                || $source['size_bytes'] > self::MAX_SOURCE_BYTES) {
+                return null;
+            }
+            $sources[] = [
+                'id' => $source['id'],
+                'filename' => $source['filename'],
+                'version_url' => $source['version_url'],
+                'md5' => $source['md5'],
+                'size_bytes' => $source['size_bytes'],
+            ];
+        }
+
+        return [
+            'source_set_sha256' => $value['source_set_sha256'],
+            'snapshot_date' => $value['snapshot_date'],
+            'source_timestamp' => $value['source_timestamp'],
+            'sources' => $sources,
+        ];
+    }
+
+    /** @param array<string, mixed> $value */
+    private function hasExactKeys(array $value, array $expectedKeys): bool
+    {
+        $keys = array_keys($value);
+        sort($keys);
+        sort($expectedKeys);
+
+        return $keys === $expectedKeys;
+    }
+
+    /**
+     * @param  array<string, mixed>  $left
+     * @param  array<string, mixed>  $right
+     */
+    private function sourceManifestsMatch(array $left, array $right): bool
+    {
+        return hash_equals(
+            json_encode($left, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            json_encode($right, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+        );
+    }
+
+    /**
+     * @param  array{source_manifest: array<string, mixed>|null, legacy_sha256: string|null, imported_at: string|null}  $dataset
+     * @param  list<array{id: string, label: string, latest_url: string}>  $configuredSources
+     * @return array<string, mixed>
+     */
+    private function publicDataset(array $dataset, array $configuredSources): array
+    {
+        $manifest = $dataset['source_manifest'];
+        if ($manifest === null) {
+            return [
+                'legacy' => true,
+                'source_set_sha256' => null,
+                'snapshot_date' => null,
+                'source_timestamp' => null,
+                'sources' => [],
+                'imported_at' => $dataset['imported_at'],
+            ];
+        }
+
+        return [
+            'legacy' => false,
+            'source_set_sha256' => $manifest['source_set_sha256'],
+            'snapshot_date' => $manifest['snapshot_date'],
+            'source_timestamp' => $manifest['source_timestamp'],
+            'sources' => array_map(
+                static fn (array $source, array $configured): array => [
+                    ...$source,
+                    'label' => $configured['label'],
+                ],
+                $manifest['sources'],
+                $configuredSources,
+            ),
+            'imported_at' => $dataset['imported_at'],
+        ];
     }
 
     /**
@@ -782,13 +972,40 @@ final class OsrmOperationService
         return ['longitude' => $longitude, 'latitude' => $latitude];
     }
 
-    private function storedSha256(): ?string
+    private function storedLegacySha256(): ?string
     {
-        $sha256 = SystemSetting::string(self::SETTING_SOURCE_SHA256);
+        $sha256 = SystemSetting::string(self::SETTING_SOURCE_SHA256_LEGACY);
 
         return is_string($sha256) && preg_match('/\A[a-f0-9]{64}\z/', $sha256) === 1
             ? $sha256
             : null;
+    }
+
+    /**
+     * @return array{source_manifest: array<string, mixed>|null, legacy_sha256: string|null, imported_at: string|null}|null
+     */
+    private function parseRuntimeDataset(mixed $value): ?array
+    {
+        if (! is_array($value)
+            || ! $this->hasExactKeys($value, ['source_manifest', 'legacy_sha256', 'imported_at', 'health_coordinate'])) {
+            return null;
+        }
+
+        $manifest = $this->parseSourceManifest($value['source_manifest'] ?? null);
+        $legacySha256 = $value['legacy_sha256'] ?? null;
+        $validLegacySha256 = is_string($legacySha256)
+            && preg_match('/\A[a-f0-9]{64}\z/', $legacySha256) === 1;
+        if (($value['source_manifest'] !== null && $manifest === null)
+            || ($legacySha256 !== null && ! $validLegacySha256)
+            || ($manifest !== null) === $validLegacySha256) {
+            return null;
+        }
+
+        return [
+            'source_manifest' => $manifest,
+            'legacy_sha256' => $validLegacySha256 ? $legacySha256 : null,
+            'imported_at' => $this->validTimestamp($value['imported_at'] ?? null),
+        ];
     }
 
     /**
@@ -944,7 +1161,10 @@ final class OsrmOperationService
                     'state' => $operation->state,
                     'stage' => $operation->stage,
                     'exit_code' => $operation->exit_code,
-                    'source_sha256' => $operation->source_sha256,
+                    'source_set_sha256' => $operation->source_set_sha256,
+                    'snapshot_date' => is_array($operation->source_manifest)
+                        ? ($operation->source_manifest['snapshot_date'] ?? null)
+                        : null,
                 ],
             );
         } catch (Throwable $exception) {

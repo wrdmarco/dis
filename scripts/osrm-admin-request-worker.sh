@@ -74,15 +74,20 @@ WORK_DIR=""
 RESULT_DIR=""
 LOCK_DIR="/run/dis-osrm-admin-request"
 WORKER_LOCK="${LOCK_DIR}/worker.lock"
-SOURCE_URL_DEFAULT="https://download.geofabrik.de/europe/netherlands-latest.osm.pbf"
 SOURCE_HOST="download.geofabrik.de"
-SOURCE_PATH="/europe/netherlands-latest.osm.pbf"
+NETHERLANDS_LATEST_URL="https://${SOURCE_HOST}/europe/netherlands-latest.osm.pbf"
+BELGIUM_LATEST_URL="https://${SOURCE_HOST}/europe/belgium-latest.osm.pbf"
+SOURCE_IDS=(netherlands belgium)
 MAX_PBF_BYTES="${OSRM_ADMIN_MAX_PBF_BYTES:-3221225472}"
+MAX_COMBINED_PBF_BYTES="${OSRM_ADMIN_MAX_COMBINED_PBF_BYTES:-5368709120}"
 MIN_PBF_BYTES="${OSRM_ADMIN_MIN_PBF_BYTES:-104857600}"
 DOWNLOAD_TIMEOUT_SECONDS="${OSRM_ADMIN_DOWNLOAD_TIMEOUT_SECONDS:-14400}"
 DOWNLOAD_CONNECT_TIMEOUT_SECONDS="${OSRM_ADMIN_CONNECT_TIMEOUT_SECONDS:-15}"
 LOG_MAX_BYTES="${OSRM_ADMIN_LOG_MAX_BYTES:-8388608}"
 LOG_RETAIN_LINES="${OSRM_ADMIN_LOG_RETAIN_LINES:-2000}"
+MERGE_MEMORY_MAX="${OSRM_ADMIN_MERGE_MEMORY_MAX:-4G}"
+MERGE_CPU_QUOTA="${OSRM_ADMIN_MERGE_CPU_QUOTA:-200%}"
+MERGE_TIMEOUT_SECONDS="${OSRM_ADMIN_MERGE_TIMEOUT_SECONDS:-7200}"
 OPERATION_ID=""
 ACTION=""
 ACTOR_ID=""
@@ -94,7 +99,17 @@ LOG_SEQUENCE=0
 LAST_STAGE="validating"
 OPERATION_FINISHED=0
 DOWNLOAD_DIRECTORY=""
+DOWNLOAD_PIN=""
 DOWNLOADED_PBF_FILE=""
+MERGED_SHA256=""
+SOURCE_MANIFEST_FILE=""
+RESOLVED_SNAPSHOT_DATE=""
+RESOLVED_SNAPSHOT_STAMP=""
+declare -A SOURCE_VERSION_URL=()
+declare -A SOURCE_FILENAME=()
+declare -A SOURCE_MD5=()
+declare -A SOURCE_SIZE=()
+declare -A SOURCE_PBF_FILE=()
 PREVIOUS_ROUTING_HEALTHY=0
 RECOVERY_RETRY_PENDING=0
 
@@ -110,7 +125,17 @@ reset_operation_context() {
   LAST_STAGE="validating"
   OPERATION_FINISHED=0
   DOWNLOAD_DIRECTORY=""
+  DOWNLOAD_PIN=""
   DOWNLOADED_PBF_FILE=""
+  MERGED_SHA256=""
+  SOURCE_MANIFEST_FILE=""
+  RESOLVED_SNAPSHOT_DATE=""
+  RESOLVED_SNAPSHOT_STAMP=""
+  SOURCE_VERSION_URL=()
+  SOURCE_FILENAME=()
+  SOURCE_MD5=()
+  SOURCE_SIZE=()
+  SOURCE_PBF_FILE=()
   PREVIOUS_ROUTING_HEALTHY=0
 }
 
@@ -218,7 +243,7 @@ append_log() {
   LOG_SEQUENCE=$((LOG_SEQUENCE + 1))
   message="$(safe_line "${message}")"
   line="$(jq -cn \
-    --argjson version 1 \
+    --argjson version 2 \
     --argjson seq "${LOG_SEQUENCE}" \
     --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg stage "${stage}" \
@@ -230,15 +255,15 @@ append_log() {
   trim_log_if_needed
 }
 
-active_source_sha() {
+active_source_manifest() {
   DIS_DATA_PATH="${DIS_DATA_PATH}" bash "${OSRM_SCRIPT}" status 2>/dev/null \
-    | jq -er '.dataset.sha256 | select(type == "string" and test("^[a-f0-9]{64}$"))' 2>/dev/null \
-    || true
+    | jq -ec '.dataset.source_manifest // null' 2>/dev/null \
+    || printf 'null\n'
 }
 
 write_operation_status() {
   local state="$1" stage="$2" message="$3" progress="${4:-null}" exit_code="${5:-null}"
-  local active_sha finished_at=null temporary updated_at
+  local active_manifest finished_at=null temporary updated_at
 
   [[ "${progress}" = "null" || "${progress}" =~ ^([0-9]|[1-9][0-9]|100)$ ]] \
     || progress=null
@@ -247,10 +272,12 @@ write_operation_status() {
   if [ "${state}" = "succeeded" ] || [ "${state}" = "failed" ]; then
     finished_at="\"${updated_at}\""
   fi
-  active_sha="$(active_source_sha)"
+  active_manifest="$(active_source_manifest)"
+  jq -e 'type == "object" or . == null' <<< "${active_manifest}" >/dev/null 2>&1 \
+    || active_manifest=null
   temporary="$(mktemp "${WORK_DIR}/.status.XXXXXX")"
   jq -n \
-    --argjson version 1 \
+    --argjson version 2 \
     --arg operation_id "${OPERATION_ID}" \
     --arg action "${ACTION}" \
     --arg state "${state}" \
@@ -258,7 +285,7 @@ write_operation_status() {
     --arg message "$(safe_line "${message}")" \
     --arg started_at "${STARTED_AT}" \
     --arg updated_at "${updated_at}" \
-    --arg active_source_sha256 "${active_sha}" \
+    --argjson active_source_manifest "${active_manifest}" \
     --argjson progress_percent "${progress}" \
     --argjson finished_at "${finished_at}" \
     --argjson exit_code "${exit_code}" \
@@ -274,7 +301,7 @@ write_operation_status() {
       updated_at:$updated_at,
       finished_at:$finished_at,
       exit_code:$exit_code,
-      active_source_sha256:(if $active_source_sha256 == "" then null else $active_source_sha256 end)
+      active_source_manifest:$active_source_manifest
     }' > "${temporary}"
   run_cmd chown root:"${DIS_GROUP}" "${temporary}"
   run_cmd chmod 0640 "${temporary}"
@@ -388,18 +415,22 @@ operation_payload_contract_is_valid() {
   jq -e \
     --arg operation_id "${OPERATION_ID}" \
     --arg action "${ACTION}" \
-    --arg actor_id "${ACTOR_ID}" '
+    --arg actor_id "${ACTOR_ID}" \
+    --arg netherlands_url "${NETHERLANDS_LATEST_URL}" \
+    --arg belgium_url "${BELGIUM_LATEST_URL}" '
       type == "object"
-      and .version == 1
+      and .version == 2
       and .operation_id == $operation_id
       and .action == $action
       and .actor_id == $actor_id
-      and (.source_url | type == "string" and length <= 512)
-      and (.source_sha256 | type == "string" and test("^[A-Fa-f0-9]{64}$"))
+      and .sources == [
+        {id:"netherlands",latest_url:$netherlands_url},
+        {id:"belgium",latest_url:$belgium_url}
+      ]
       and (.health_coordinate | type == "object")
       and (.health_coordinate.longitude | type == "number")
       and (.health_coordinate.latitude | type == "number")
-      and ((keys_unsorted - ["version","operation_id","action","actor_id","source_url","source_sha256","health_coordinate"]) | length == 0)
+      and ((keys_unsorted - ["version","operation_id","action","actor_id","sources","health_coordinate"]) | length == 0)
       and ((.health_coordinate | keys_unsorted) - ["longitude","latitude"] | length == 0)
     ' <<< "${payload}" >/dev/null
 }
@@ -413,18 +444,102 @@ load_validated_operation_payload() {
   printf '%s\n' "${payload}"
 }
 
-configured_source_url() {
-  local value
+canonical_source_set_json() {
+  # This byte sequence is also hashed by the backend. Keep the country order,
+  # object key order and absence of a trailing newline deliberately fixed.
+  printf '%s' '[{"id":"netherlands","latest_url":"https://download.geofabrik.de/europe/netherlands-latest.osm.pbf"},{"id":"belgium","latest_url":"https://download.geofabrik.de/europe/belgium-latest.osm.pbf"}]'
+}
 
-  value="$(grep -E '^OSRM_ADMIN_PBF_URL=' "${DIS_DATA_PATH}/.env" | tail -n 1 | cut -d '=' -f 2- || true)"
-  value="${value%\"}"
-  value="${value#\"}"
-  value="${value%\'}"
-  value="${value#\'}"
-  [ -n "${value}" ] || value="${SOURCE_URL_DEFAULT}"
-  [ "${value}" = "https://${SOURCE_HOST}${SOURCE_PATH}" ] \
-    || fail "OSRM_ADMIN_PBF_URL must be the approved Netherlands HTTPS source."
-  printf '%s' "${value}"
+source_manifest_json_is_valid() {
+  local manifest="$1" actual_sha expected_sha snapshot_date snapshot_stamp source_timestamp
+
+  jq -e --argjson max_size "${MAX_PBF_BYTES}" '
+    type == "object"
+    and keys == ["snapshot_date","source_set_sha256","source_timestamp","sources"]
+    and (.source_set_sha256 | type == "string" and test("^[a-f0-9]{64}$"))
+    and (.snapshot_date | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"))
+    and (.source_timestamp | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
+    and (.sources | type == "array" and length == 2)
+    and (.sources[0] | type == "object" and keys == ["filename","id","md5","size_bytes","version_url"])
+    and (.sources[0].id == "netherlands")
+    and (.sources[0].filename | test("^netherlands-[0-9]{6}[.]osm[.]pbf$"))
+    and (.sources[0].version_url == "https://download.geofabrik.de/europe/\(.sources[0].filename)")
+    and (.sources[1] | type == "object" and keys == ["filename","id","md5","size_bytes","version_url"])
+    and (.sources[1].id == "belgium")
+    and (.sources[1].filename | test("^belgium-[0-9]{6}[.]osm[.]pbf$"))
+    and (.sources[1].version_url == "https://download.geofabrik.de/europe/\(.sources[1].filename)")
+    and (all(.sources[];
+      (.md5 | type == "string" and test("^[a-f0-9]{32}$"))
+      and (.size_bytes | type == "number" and floor == . and . > 0 and . <= $max_size)
+    ))
+  ' <<< "${manifest}" >/dev/null || return 1
+  snapshot_date="$(jq -er '.snapshot_date' <<< "${manifest}")" || return 1
+  source_timestamp="$(jq -er '.source_timestamp' <<< "${manifest}")" || return 1
+  python3 -I -S -c '
+from datetime import datetime
+import sys
+
+try:
+    snapshot = datetime.strptime(sys.argv[1], "%Y-%m-%d")
+    source_timestamp = datetime.fromisoformat(sys.argv[2].replace("Z", "+00:00"))
+except (ValueError, IndexError):
+    raise SystemExit(1)
+if source_timestamp.date() != snapshot.date():
+    raise SystemExit(1)
+' "${snapshot_date}" "${source_timestamp}" >/dev/null 2>&1 || return 1
+  snapshot_stamp="$(date -u -d "${snapshot_date}" +%y%m%d 2>/dev/null)" || return 1
+  jq -e --arg stamp "${snapshot_stamp}" '
+    .sources[0].filename == "netherlands-\($stamp).osm.pbf"
+    and .sources[1].filename == "belgium-\($stamp).osm.pbf"
+  ' <<< "${manifest}" >/dev/null || return 1
+  expected_sha="$(jq -er '.source_set_sha256' <<< "${manifest}")" || return 1
+  actual_sha="$(canonical_source_set_json | sha256sum | awk '{ print $1 }')" \
+    || return 1
+  [ "${actual_sha}" = "${expected_sha}" ]
+}
+
+record_resolved_source_manifest() {
+  local source_manifest="$1" temporary
+
+  source_manifest_json_is_valid "${source_manifest}" \
+    || fail "Het gecontroleerde OSRM-bronnenmanifest is ongeldig."
+  [ -n "${RUNNING_FILE}" ] \
+    && [ -f "${RUNNING_FILE}" ] \
+    && [ ! -L "${RUNNING_FILE}" ] \
+    && [ "$(stat -c '%u:%g:%a:%h' -- "${RUNNING_FILE}" 2>/dev/null || true)" = '0:0:600:1' ] \
+    || fail "De OSRM-werkmarkering is niet veilig."
+  jq -e --argjson source_manifest "${source_manifest}" '
+    type == "object"
+    and .version == 2
+    and (.resolved_source_manifest == null or .resolved_source_manifest == $source_manifest)
+    and ((keys_unsorted - ["version","operation_id","action","actor_id","created_at","resolved_source_manifest"]) | length == 0)
+  ' "${RUNNING_FILE}" >/dev/null \
+    || fail "De OSRM-werkmarkering heeft een onverwacht contract."
+
+  temporary="$(mktemp "${WORK_DIR}/.resolved-source.XXXXXX")"
+  if ! jq --argjson source_manifest "${source_manifest}" \
+    '. + {resolved_source_manifest:$source_manifest}' "${RUNNING_FILE}" > "${temporary}"; then
+    rm -f -- "${temporary}"
+    fail "Het gecontroleerde OSRM-bronnenmanifest kon niet duurzaam worden vastgelegd."
+  fi
+  run_cmd chown root:root "${temporary}"
+  run_cmd chmod 0600 "${temporary}"
+  run_cmd sync -f "${temporary}"
+  run_cmd mv -fT -- "${temporary}" "${RUNNING_FILE}"
+  run_cmd sync -f "${WORK_DIR}"
+}
+
+resolved_source_manifest_from_marker() {
+  local manifest
+
+  [ -f "${RUNNING_FILE}" ] \
+    && [ ! -L "${RUNNING_FILE}" ] \
+    && [ "$(stat -c '%u:%g:%a:%h' -- "${RUNNING_FILE}" 2>/dev/null || true)" = '0:0:600:1' ] \
+    || return 1
+  manifest="$(jq -ec '.resolved_source_manifest | select(type == "object")' \
+    "${RUNNING_FILE}" 2>/dev/null)" || return 1
+  source_manifest_json_is_valid "${manifest}" || return 1
+  printf '%s\n' "${manifest}"
 }
 
 is_public_ip() {
@@ -468,6 +583,10 @@ validate_download_limits() {
   [[ "${MIN_PBF_BYTES}" =~ ^[1-9][0-9]*$ ]] \
     && [ "${MIN_PBF_BYTES}" -lt "${MAX_PBF_BYTES}" ] \
     || fail "OSRM_ADMIN_MIN_PBF_BYTES is invalid."
+  [[ "${MAX_COMBINED_PBF_BYTES}" =~ ^[1-9][0-9]*$ ]] \
+    && [ "${MAX_COMBINED_PBF_BYTES}" -ge "${MIN_PBF_BYTES}" ] \
+    && [ "${MAX_COMBINED_PBF_BYTES}" -le 21474836480 ] \
+    || fail "OSRM_ADMIN_MAX_COMBINED_PBF_BYTES is invalid."
   [[ "${DOWNLOAD_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] \
     && [ "${DOWNLOAD_TIMEOUT_SECONDS}" -le 21600 ] \
     || fail "OSRM_ADMIN_DOWNLOAD_TIMEOUT_SECONDS is invalid."
@@ -480,6 +599,13 @@ validate_download_limits() {
   [[ "${LOG_RETAIN_LINES}" =~ ^[1-9][0-9]*$ ]] \
     && [ "${LOG_RETAIN_LINES}" -le 10000 ] \
     || fail "OSRM_ADMIN_LOG_RETAIN_LINES is invalid."
+  [[ "${MERGE_MEMORY_MAX}" =~ ^[1-9][0-9]*([KMGT])?$ ]] \
+    || fail "OSRM_ADMIN_MERGE_MEMORY_MAX is invalid."
+  [[ "${MERGE_CPU_QUOTA}" =~ ^[1-9][0-9]{1,3}%$ ]] \
+    || fail "OSRM_ADMIN_MERGE_CPU_QUOTA is invalid."
+  [[ "${MERGE_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] \
+    && [ "${MERGE_TIMEOUT_SECONDS}" -le 21600 ] \
+    || fail "OSRM_ADMIN_MERGE_TIMEOUT_SECONDS is invalid."
 }
 
 read_content_length() {
@@ -498,7 +624,16 @@ read_content_length() {
   printf '%s' "${value}"
 }
 
-check_import_disk_space() {
+composite_disk_required_bytes() {
+  local source_size="$1" factor="$2" reserve="$3"
+
+  [[ "${source_size}" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "${factor}" =~ ^[2-9]$|^1[0-6]$ ]] || return 1
+  [[ "${reserve}" =~ ^[1-9][0-9]*$ ]] || return 1
+  printf '%s\n' "$((source_size * (factor + 1) + reserve))"
+}
+
+check_composite_disk_space() {
   local source_size="$1" available_bytes filesystem_bytes factor reserve required
 
   factor="${OSRM_IMPORT_DISK_FACTOR:-8}"
@@ -508,9 +643,10 @@ check_import_disk_space() {
   read -r filesystem_bytes available_bytes < <(df -PB1 "${DIS_DATA_PATH}/osrm" | awk 'NR == 2 { print $2, $4 }')
   [[ "${filesystem_bytes}" =~ ^[0-9]+$ ]] && [[ "${available_bytes}" =~ ^[0-9]+$ ]] \
     || fail "Vrije ruimte voor OSRM kon niet worden bepaald."
-  required=$((source_size * (factor + 1) + reserve))
+  required="$(composite_disk_required_bytes "${source_size}" "${factor}" "${reserve}")" \
+    || fail "De OSRM-schijfruimteberekening is ongeldig."
   [ "${available_bytes}" -ge "${required}" ] \
-    || fail "Onvoldoende vrije ruimte voor download en begrensde OSRM-verwerking."
+    || fail "Onvoldoende vrije ruimte voor twee downloads, samenvoeging en begrensde OSRM-verwerking."
 }
 
 prepare_download_control_file() {
@@ -545,10 +681,8 @@ seal_download_control_file() {
     || fail "Een OSRM-downloadcontrolebestand kon niet worden verzegeld."
 }
 
-download_source() {
-  local source_url="$1" expected_sha="$2" pin http_code content_length
-  local control_directory header_file head_error_file code_file error_file pbf_file
-  local curl_pid size percent actual_sha exit_code
+prepare_download_workspace() {
+  local control_directory
 
   validate_download_limits
   update_stage downloading "Oude tijdelijke verwerking en kaartreleases veilig opruimen." 0
@@ -556,42 +690,311 @@ download_source() {
     || fail "Oude OSRM-werkmappen konden niet veilig worden opgeschoond."
   run_logged_command downloading env DIS_DATA_PATH="${DIS_DATA_PATH}" bash "${OSRM_SCRIPT}" prune \
     || fail "Oude OSRM-releases konden niet veilig worden opgeschoond."
-  pin="$(resolve_and_pin_source)"
+  DOWNLOAD_PIN="$(resolve_and_pin_source)"
   DOWNLOAD_DIRECTORY="$(mktemp -d "${DIS_DATA_PATH}/osrm/.admin-download.XXXXXX")"
   run_cmd chown root:dis-osrm "${DOWNLOAD_DIRECTORY}"
   run_cmd chmod 0750 "${DOWNLOAD_DIRECTORY}"
   control_directory="${DOWNLOAD_DIRECTORY}/control"
   run_cmd install -d -m 0750 -o root -g dis-osrm "${control_directory}"
-  header_file="${control_directory}/head-headers"
-  head_error_file="${control_directory}/head-error"
-  code_file="${control_directory}/download-http-code"
-  error_file="${control_directory}/download-error"
-  pbf_file="${DOWNLOAD_DIRECTORY}/netherlands.osm.pbf"
-  prepare_download_control_file "${header_file}" "${control_directory}"
-  prepare_download_control_file "${head_error_file}" "${control_directory}"
-  prepare_download_control_file "${code_file}" "${control_directory}"
-  prepare_download_control_file "${error_file}" "${control_directory}"
-  prepare_download_control_file "${pbf_file}" "${DOWNLOAD_DIRECTORY}"
+}
 
-  update_stage downloading "Downloadbron en beschikbare ruimte controleren." 0
+parse_supplier_md5_file() {
+  local md5_file="$1" expected_filename="$2" source_size
+
+  [ -f "${md5_file}" ] && [ ! -L "${md5_file}" ] \
+    && [ "$(stat -c '%u:%g:%a:%h' -- "${md5_file}" 2>/dev/null || true)" = '0:0:400:1' ] \
+    || return 1
+  [[ "${expected_filename}" =~ ^(netherlands|belgium)-[0-9]{6}[.]osm[.]pbf$ ]] \
+    || return 1
+  source_size="$(stat -c '%s' -- "${md5_file}" 2>/dev/null || true)"
+  [[ "${source_size}" =~ ^[1-9][0-9]*$ ]] && [ "${source_size}" -le 1024 ] \
+    || return 1
+  LC_ALL=C awk -v expected_filename="${expected_filename}" '
+    NR == 1 {
+      checksum = substr($0, 1, 32);
+      separator = substr($0, 33, 2);
+      filename = substr($0, 35);
+      if (length(checksum) != 32 || checksum ~ /[^A-Fa-f0-9]/ || separator != "  " || filename != expected_filename) {
+        invalid = 1;
+      }
+      checksum = tolower(checksum);
+      next;
+    }
+    { invalid = 1; }
+    END {
+      if (NR != 1 || invalid || checksum == "") exit 1;
+      print checksum;
+    }
+  ' "${md5_file}"
+}
+
+source_latest_url() {
+  case "$1" in
+    netherlands) printf '%s\n' "${NETHERLANDS_LATEST_URL}" ;;
+    belgium) printf '%s\n' "${BELGIUM_LATEST_URL}" ;;
+    *) return 1 ;;
+  esac
+}
+
+versioned_source_url_is_valid() {
+  local source_id="$1" source_url="$2" date_stamp
+
+  [[ "${source_id}" =~ ^(netherlands|belgium)$ ]] || return 1
+  [[ "${source_url}" =~ ^https://download[.]geofabrik[.]de/europe/(netherlands|belgium)-([0-9]{6})[.]osm[.]pbf$ ]] \
+    || return 1
+  [ "${BASH_REMATCH[1]}" = "${source_id}" ] || return 1
+  date_stamp="${BASH_REMATCH[2]}"
+  python3 -I -S -c '
+from datetime import datetime
+import sys
+
+try:
+    datetime.strptime(sys.argv[1], "%y%m%d")
+except (ValueError, IndexError):
+    raise SystemExit(1)
+' "${date_stamp}" >/dev/null 2>&1
+}
+
+parse_versioned_source_location() {
+  local header_file="$1" source_id="$2" source_size
+
+  [[ "${source_id}" =~ ^(netherlands|belgium)$ ]] || return 1
+  [ -f "${header_file}" ] && [ ! -L "${header_file}" ] \
+    && [ "$(stat -c '%u:%g:%a:%h' -- "${header_file}" 2>/dev/null || true)" = '0:0:400:1' ] \
+    || return 1
+  source_size="$(stat -c '%s' -- "${header_file}" 2>/dev/null || true)"
+  [[ "${source_size}" =~ ^[1-9][0-9]*$ ]] && [ "${source_size}" -le 65536 ] \
+    || return 1
+  python3 -I -S -c '
+from pathlib import Path
+import re
+import sys
+
+try:
+    text = Path(sys.argv[1]).read_bytes().decode("ascii")
+except (OSError, UnicodeDecodeError):
+    raise SystemExit(1)
+if "\x00" in text:
+    raise SystemExit(1)
+locations = []
+for line in text.splitlines():
+    if line[:9].lower() == "location:":
+        locations.append(line[9:].strip(" \t"))
+if len(locations) != 1:
+    raise SystemExit(1)
+location = locations[0]
+source_id = sys.argv[2]
+if source_id not in {"netherlands", "belgium"}:
+    raise SystemExit(1)
+match = re.fullmatch(
+    rf"https://download[.]geofabrik[.]de/europe/{source_id}-([0-9]{{6}})[.]osm[.]pbf",
+    location,
+)
+if match is None:
+    raise SystemExit(1)
+print(location)
+' "${header_file}" "${source_id}" \
+    | while IFS= read -r source_url; do
+        source_url="${source_url%$'\r'}"
+        versioned_source_url_is_valid "${source_id}" "${source_url}" || exit 1
+        printf '%s\n' "${source_url}"
+      done
+}
+
+resolve_versioned_source_url() {
+  local source_id="$1" source_url="$2" control_directory header_file error_file http_code exit_code target_url
+
+  [ "${source_url}" = "$(source_latest_url "${source_id}")" ] \
+    || fail "Alleen een vaste NL/BE OSRM-bron kan worden omgezet."
+  [ -n "${DOWNLOAD_DIRECTORY}" ] && [ -n "${DOWNLOAD_PIN}" ] \
+    || fail "De OSRM-downloadomgeving is niet voorbereid."
+  control_directory="${DOWNLOAD_DIRECTORY}/control"
+  header_file="${control_directory}/${source_id}-latest-head-headers"
+  error_file="${control_directory}/${source_id}-latest-head-error"
+  prepare_download_control_file "${header_file}" "${control_directory}"
+  prepare_download_control_file "${error_file}" "${control_directory}"
+
+  update_stage downloading "Vaste Geofabrik-kaartversie veilig bepalen." 0
   set +e
   http_code="$(runuser -u dis-osrm-build -- /usr/bin/curl \
     --silent --show-error --head \
     --proto '=https' --proto-redir '=https' --max-redirs 0 \
     --connect-timeout "${DOWNLOAD_CONNECT_TIMEOUT_SECONDS}" --max-time 60 \
-    --resolve "${pin}" \
+    --resolve "${DOWNLOAD_PIN}" \
     --dump-header "${header_file}" --output /dev/null \
-    --write-out '%{http_code}' "${source_url}" 2>"${head_error_file}")"
+    --write-out '%{http_code}' "${source_url}" 2>"${error_file}")"
   exit_code=$?
   set -e
   seal_download_control_file "${header_file}" "${control_directory}"
-  seal_download_control_file "${head_error_file}" "${control_directory}"
-  [ "${exit_code}" -eq 0 ] && [ "${http_code}" = "200" ] \
-    || fail "De vaste OSRM-downloadbron is niet veilig bereikbaar."
-  content_length="$(read_content_length "${header_file}")"
-  check_import_disk_space "${content_length}"
+  seal_download_control_file "${error_file}" "${control_directory}"
+  [ "${exit_code}" -eq 0 ] && [ "${http_code}" = "302" ] \
+    || fail "De vaste Geofabrik-bron gaf geen veilige versieomleiding."
+  target_url="$(parse_versioned_source_location "${header_file}" "${source_id}")" \
+    || fail "De Geofabrik-versieomleiding is niet toegestaan."
+  versioned_source_url_is_valid "${source_id}" "${target_url}" \
+    || fail "De Geofabrik-versie-URL is ongeldig."
+  printf '%s' "${target_url}"
+}
 
-  update_stage downloading "Nederlandse kaartdata downloaden." 0
+source_date_from_url() {
+  local source_id="$1" source_url="$2"
+
+  versioned_source_url_is_valid "${source_id}" "${source_url}" || return 1
+  [[ "${source_url}" =~ -([0-9]{6})[.]osm[.]pbf$ ]] || return 1
+  printf '%s\n' "${BASH_REMATCH[1]}"
+}
+
+resolve_common_snapshot() {
+  local source_id latest_url latest_target source_date oldest_date=""
+
+  for source_id in "${SOURCE_IDS[@]}"; do
+    latest_url="$(source_latest_url "${source_id}")"
+    latest_target="$(resolve_versioned_source_url "${source_id}" "${latest_url}")"
+    source_date="$(source_date_from_url "${source_id}" "${latest_target}")" \
+      || fail "De Geofabrik-snapshotdatum is ongeldig."
+    if [ -z "${oldest_date}" ] || [[ "${source_date}" < "${oldest_date}" ]]; then
+      oldest_date="${source_date}"
+    fi
+  done
+  [ -n "${oldest_date}" ] || fail "Geen gemeenschappelijke NL/BE snapshotdatum beschikbaar."
+  RESOLVED_SNAPSHOT_STAMP="${oldest_date}"
+  RESOLVED_SNAPSHOT_DATE="$(date -u -d "20${oldest_date:0:2}-${oldest_date:2:2}-${oldest_date:4:2}" +%Y-%m-%d 2>/dev/null)" \
+    || fail "De gemeenschappelijke snapshotdatum kon niet worden genormaliseerd."
+  for source_id in "${SOURCE_IDS[@]}"; do
+    SOURCE_FILENAME[${source_id}]="${source_id}-${RESOLVED_SNAPSHOT_STAMP}.osm.pbf"
+    SOURCE_VERSION_URL[${source_id}]="https://${SOURCE_HOST}/europe/${SOURCE_FILENAME[${source_id}]}"
+    versioned_source_url_is_valid "${source_id}" "${SOURCE_VERSION_URL[${source_id}]}" \
+      || fail "De gemeenschappelijke ${source_id}-versie-URL is ongeldig."
+  done
+}
+
+attest_versioned_source_head() {
+  local source_id="$1" source_url="$2" control_directory header_file error_file http_code exit_code
+
+  versioned_source_url_is_valid "${source_id}" "${source_url}" \
+    || fail "De gedateerde NL/BE bron is ongeldig."
+  control_directory="${DOWNLOAD_DIRECTORY}/control"
+  header_file="${control_directory}/${source_id}-version-head-headers"
+  error_file="${control_directory}/${source_id}-version-head-error"
+  prepare_download_control_file "${header_file}" "${control_directory}"
+  prepare_download_control_file "${error_file}" "${control_directory}"
+  set +e
+  http_code="$(runuser -u dis-osrm-build -- /usr/bin/curl \
+    --silent --show-error --head \
+    --proto '=https' --proto-redir '=https' --max-redirs 0 \
+    --connect-timeout "${DOWNLOAD_CONNECT_TIMEOUT_SECONDS}" --max-time 60 \
+    --resolve "${DOWNLOAD_PIN}" \
+    --dump-header "${header_file}" --output /dev/null \
+    --write-out '%{http_code}' "${source_url}" 2>"${error_file}")"
+  exit_code=$?
+  set -e
+  seal_download_control_file "${header_file}" "${control_directory}"
+  seal_download_control_file "${error_file}" "${control_directory}"
+  [ "${exit_code}" -eq 0 ] && [ "${http_code}" = "200" ] \
+    || fail "De gedateerde ${source_id}-bron is niet onveranderlijk bereikbaar."
+  SOURCE_SIZE[${source_id}]="$(read_content_length "${header_file}")"
+}
+
+fetch_supplier_md5() {
+  local source_id="$1" source_url="$2" checksum_url control_directory code_file error_file md5_file source_filename
+  local exit_code http_code source_md5
+
+  versioned_source_url_is_valid "${source_id}" "${source_url}" \
+    || fail "De MD5 kan alleen voor een gecontroleerde NL/BE kaartversie worden opgehaald."
+  [ -n "${DOWNLOAD_DIRECTORY}" ] && [ -n "${DOWNLOAD_PIN}" ] \
+    || fail "De OSRM-downloadomgeving is niet voorbereid."
+  source_filename="${source_url##*/}"
+  checksum_url="${source_url}.md5"
+  control_directory="${DOWNLOAD_DIRECTORY}/control"
+  code_file="${control_directory}/${source_id}-md5-http-code"
+  error_file="${control_directory}/${source_id}-md5-error"
+  md5_file="${control_directory}/${source_id}-source.md5"
+  prepare_download_control_file "${code_file}" "${control_directory}"
+  prepare_download_control_file "${error_file}" "${control_directory}"
+  prepare_download_control_file "${md5_file}" "${control_directory}"
+
+  update_stage verifying "Officiele Geofabrik-MD5 ophalen." 0
+  set +e
+  runuser -u dis-osrm-build -- /usr/bin/curl \
+    --silent --show-error \
+    --proto '=https' --proto-redir '=https' --max-redirs 0 \
+    --connect-timeout "${DOWNLOAD_CONNECT_TIMEOUT_SECONDS}" --max-time 60 \
+    --max-filesize 1024 \
+    --resolve "${DOWNLOAD_PIN}" \
+    --output "${md5_file}" \
+    --write-out '%{http_code}' "${checksum_url}" >"${code_file}" 2>"${error_file}"
+  exit_code=$?
+  set -e
+  seal_download_control_file "${code_file}" "${control_directory}"
+  seal_download_control_file "${error_file}" "${control_directory}"
+  seal_download_control_file "${md5_file}" "${control_directory}"
+  http_code="$(tr -d '\r\n' < "${code_file}" 2>/dev/null || true)"
+  [ "${exit_code}" -eq 0 ] && [ "${http_code}" = "200" ] \
+    || fail "De officiele Geofabrik-MD5 kon niet veilig worden opgehaald."
+  source_md5="$(parse_supplier_md5_file "${md5_file}" "${source_filename}")" \
+    || fail "De officiele Geofabrik-MD5 heeft een onverwacht formaat."
+  [[ "${source_md5}" =~ ^[a-f0-9]{32}$ ]] \
+    || fail "De officiele Geofabrik-MD5 is ongeldig."
+  SOURCE_MD5[${source_id}]="${source_md5}"
+}
+
+composite_download_percent() {
+  local completed_bytes="$1" current_bytes="$2" total_bytes="$3" ceiling="${4:-99}" percent
+
+  [[ "${completed_bytes}" =~ ^[0-9]+$ ]] || return 1
+  [[ "${current_bytes}" =~ ^[0-9]+$ ]] || return 1
+  [[ "${total_bytes}" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "${ceiling}" =~ ^([0-9]|[1-9][0-9]|100)$ ]] || return 1
+  percent=$(((completed_bytes + current_bytes) * 100 / total_bytes))
+  [ "${percent}" -le "${ceiling}" ] || percent="${ceiling}"
+  printf '%s\n' "${percent}"
+}
+
+merged_size_is_safe() {
+  local merged_size="$1" source_total="$2"
+
+  [[ "${merged_size}" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "${source_total}" =~ ^[1-9][0-9]*$ ]] || return 1
+  [ "${merged_size}" -le "${MAX_COMBINED_PBF_BYTES}" ] \
+    && [ "${merged_size}" -le $((source_total * 2)) ]
+}
+
+download_source() {
+  local source_id="$1" source_url="$2" expected_md5="$3" content_length="$4"
+  local completed_bytes="$5" total_bytes="$6" pin http_code
+  local control_directory code_file error_file pbf_file label
+  local curl_pid size percent actual_md5 exit_code
+
+  versioned_source_url_is_valid "${source_id}" "${source_url}" \
+    || fail "Alleen een gecontroleerde NL/BE kaartversie kan worden gedownload."
+  [[ "${expected_md5}" =~ ^[a-f0-9]{32}$ ]] \
+    || fail "De verwachte Geofabrik-MD5 is ongeldig."
+  [ "${expected_md5}" = "${SOURCE_MD5[${source_id}]:-}" ] \
+    || fail "De vastgelegde Geofabrik-MD5 is tijdens de bewerking gewijzigd."
+  [ "${content_length}" = "${SOURCE_SIZE[${source_id}]:-}" ] \
+    || fail "De vastgelegde bestandsgrootte is tijdens de bewerking gewijzigd."
+  [[ "${completed_bytes}" =~ ^[0-9]+$ ]] \
+    && [[ "${total_bytes}" =~ ^[1-9][0-9]*$ ]] \
+    && [ $((completed_bytes + content_length)) -le "${total_bytes}" ] \
+    || fail "De totale OSRM-downloadvoortgang is ongeldig."
+  [ -n "${DOWNLOAD_DIRECTORY}" ] && [ -n "${DOWNLOAD_PIN}" ] \
+    || fail "De OSRM-downloadomgeving is niet voorbereid."
+  pin="${DOWNLOAD_PIN}"
+  control_directory="${DOWNLOAD_DIRECTORY}/control"
+  code_file="${control_directory}/${source_id}-download-http-code"
+  error_file="${control_directory}/${source_id}-download-error"
+  pbf_file="${DOWNLOAD_DIRECTORY}/${source_id}.osm.pbf"
+  prepare_download_control_file "${code_file}" "${control_directory}"
+  prepare_download_control_file "${error_file}" "${control_directory}"
+  prepare_download_control_file "${pbf_file}" "${DOWNLOAD_DIRECTORY}"
+  case "${source_id}" in
+    netherlands) label="Nederlandse" ;;
+    belgium) label="Belgische" ;;
+    *) fail "Onbekende OSRM-bron." ;;
+  esac
+  percent="$(composite_download_percent "${completed_bytes}" 0 "${total_bytes}")" \
+    || fail "De OSRM-downloadvoortgang kon niet worden berekend."
+  update_stage downloading "${label} kaartdata downloaden." "${percent}"
   set +e
   runuser -u dis-osrm-build -- /usr/bin/curl \
     --silent --show-error \
@@ -608,9 +1011,9 @@ download_source() {
   while kill -0 "${curl_pid}" 2>/dev/null; do
     size="$(stat -c '%s' -- "${pbf_file}" 2>/dev/null || printf 0)"
     if [[ "${size}" =~ ^[0-9]+$ ]]; then
-      percent=$((size * 100 / content_length))
-      [ "${percent}" -le 99 ] || percent=99
-      write_operation_status running downloading "Nederlandse kaartdata downloaden." "${percent}" null
+      percent="$(composite_download_percent "${completed_bytes}" "${size}" "${total_bytes}")" \
+        || percent=99
+      write_operation_status running downloading "${label} kaartdata downloaden." "${percent}" null
     fi
     sleep 5
   done
@@ -622,8 +1025,8 @@ download_source() {
   seal_download_control_file "${error_file}" "${control_directory}"
   http_code="$(tr -d '\r\n' < "${code_file}" 2>/dev/null || true)"
   if [ "${exit_code}" -ne 0 ] || [ "${http_code}" != "200" ]; then
-    append_log downloading error "Download van Nederlandse kaartdata is mislukt." null
-    fail "Download van Nederlandse kaartdata is mislukt."
+    append_log downloading error "Download van ${label} kaartdata is mislukt." null
+    fail "Download van ${label} kaartdata is mislukt."
   fi
   size="$(stat -c '%s' -- "${pbf_file}")"
   [ -f "${pbf_file}" ] && [ ! -L "${pbf_file}" ] \
@@ -634,13 +1037,139 @@ download_source() {
   [ "${size}" = "${content_length}" ] \
     || fail "De gedownloade kaartdata heeft niet de aangekondigde grootte."
 
-  update_stage verifying "SHA-256 van de Nederlandse kaartdata controleren." 100
-  actual_sha="$(sha256sum -- "${pbf_file}" | awk '{ print $1 }')"
-  [ "${actual_sha}" = "${expected_sha}" ] \
-    || fail "De gedownloade kaartdata voldoet niet aan de vastgelegde SHA-256."
+  percent="$(composite_download_percent "${completed_bytes}" "${content_length}" "${total_bytes}" 100)" \
+    || fail "De geverifieerde OSRM-downloadvoortgang kon niet worden berekend."
+  update_stage verifying "${label} kaartdata met de officiele Geofabrik-MD5 controleren." "${percent}"
+  actual_md5="$(md5sum -- "${pbf_file}" | awk '{ print $1 }')"
+  [ "${actual_md5}" = "${expected_md5}" ] \
+    || fail "De gedownloade kaartdata voldoet niet aan de officiele Geofabrik-MD5."
   run_cmd chown root:dis-osrm "${pbf_file}"
   run_cmd chmod 0440 "${pbf_file}"
-  DOWNLOADED_PBF_FILE="${pbf_file}"
+  SOURCE_PBF_FILE[${source_id}]="${pbf_file}"
+}
+
+source_timestamp_for_file() {
+  local source_file="$1" timestamp
+
+  timestamp="$(runuser -u dis-osrm-build -- /usr/bin/osmium fileinfo \
+    -g header.option.osmosis_replication_timestamp "${source_file}" 2>/dev/null)" || return 1
+  timestamp="$(printf '%s' "${timestamp}" | tr -d '\r\n')"
+  [[ "${timestamp}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] \
+    || return 1
+  python3 -I -S -c '
+from datetime import datetime
+import sys
+try:
+    datetime.fromisoformat(sys.argv[1].replace("Z", "+00:00"))
+except (ValueError, IndexError):
+    raise SystemExit(1)
+' "${timestamp}" >/dev/null 2>&1 || return 1
+  printf '%s\n' "${timestamp}"
+}
+
+build_source_manifest() {
+  local source_timestamp="$1" draft manifest source_set_sha
+
+  [[ "${RESOLVED_SNAPSHOT_DATE}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] \
+    || fail "De gemeenschappelijke snapshotdatum ontbreekt."
+  draft="$(mktemp "${DOWNLOAD_DIRECTORY}/.source-manifest-draft.XXXXXX")"
+  manifest="${DOWNLOAD_DIRECTORY}/source-manifest.json"
+  [ ! -e "${manifest}" ] && [ ! -L "${manifest}" ] \
+    || fail "Het OSRM-bronnenmanifest bestaat al."
+  jq -n \
+    --arg snapshot_date "${RESOLVED_SNAPSHOT_DATE}" \
+    --arg source_timestamp "${source_timestamp}" \
+    --arg nl_filename "${SOURCE_FILENAME[netherlands]}" \
+    --arg nl_url "${SOURCE_VERSION_URL[netherlands]}" \
+    --arg nl_md5 "${SOURCE_MD5[netherlands]}" \
+    --argjson nl_size "${SOURCE_SIZE[netherlands]}" \
+    --arg be_filename "${SOURCE_FILENAME[belgium]}" \
+    --arg be_url "${SOURCE_VERSION_URL[belgium]}" \
+    --arg be_md5 "${SOURCE_MD5[belgium]}" \
+    --argjson be_size "${SOURCE_SIZE[belgium]}" '
+      {
+        source_set_sha256: "",
+        snapshot_date: $snapshot_date,
+        source_timestamp: $source_timestamp,
+        sources: [
+          {id:"netherlands",filename:$nl_filename,version_url:$nl_url,md5:$nl_md5,size_bytes:$nl_size},
+          {id:"belgium",filename:$be_filename,version_url:$be_url,md5:$be_md5,size_bytes:$be_size}
+        ]
+      }
+    ' > "${draft}"
+  source_set_sha="$(canonical_source_set_json | sha256sum | awk '{ print $1 }')"
+  jq --arg source_set_sha256 "${source_set_sha}" \
+    '.source_set_sha256 = $source_set_sha256' "${draft}" > "${manifest}"
+  run_cmd rm -f -- "${draft}"
+  run_cmd chown root:root "${manifest}"
+  run_cmd chmod 0400 "${manifest}"
+  source_manifest_json_is_valid "$(jq -c '.' "${manifest}")" \
+    || fail "Het opgebouwde OSRM-bronnenmanifest kon niet worden geverifieerd."
+  run_cmd sync -f "${manifest}"
+  run_cmd sync -f "${DOWNLOAD_DIRECTORY}"
+  SOURCE_MANIFEST_FILE="${manifest}"
+}
+
+merge_verified_sources() {
+  local merged_file merged_sha merged_size source_total token
+
+  [ -n "${SOURCE_MANIFEST_FILE}" ] \
+    || fail "Het geverifieerde OSRM-bronnenmanifest ontbreekt."
+  merged_file="${DOWNLOAD_DIRECTORY}/netherlands-belgium.osm.pbf"
+  prepare_download_control_file "${merged_file}" "${DOWNLOAD_DIRECTORY}"
+  token="$(openssl rand -hex 6)"
+  update_stage merging "Nederlandse en Belgische kaartdata veilig samenvoegen." null
+  run_logged_command merging run_cmd systemd-run \
+    --quiet --collect --wait --pipe \
+    --unit="dis-osrm-merge-${token}" \
+    --property="User=dis-osrm-build" \
+    --property="Group=dis-osrm" \
+    --property="PartOf=dis-osrm-admin-request.service" \
+    --property="BindsTo=dis-osrm-admin-request.service" \
+    --property="WorkingDirectory=${DOWNLOAD_DIRECTORY}" \
+    --property="MemoryMax=${MERGE_MEMORY_MAX}" \
+    --property="CPUQuota=${MERGE_CPU_QUOTA}" \
+    --property="RuntimeMaxSec=${MERGE_TIMEOUT_SECONDS}" \
+    --property="TasksMax=256" \
+    --property="UMask=0077" \
+    --property="NoNewPrivileges=yes" \
+    --property="PrivateDevices=yes" \
+    --property="PrivateTmp=yes" \
+    --property="PrivateNetwork=yes" \
+    --property="ProtectHome=yes" \
+    --property="ProtectSystem=strict" \
+    --property="ProtectKernelTunables=yes" \
+    --property="ProtectKernelModules=yes" \
+    --property="ProtectControlGroups=yes" \
+    --property="RestrictSUIDSGID=yes" \
+    --property="RestrictRealtime=yes" \
+    --property="LockPersonality=yes" \
+    --property="RestrictAddressFamilies=AF_UNIX" \
+    --property="IPAddressDeny=any" \
+    --property="ReadWritePaths=${DOWNLOAD_DIRECTORY}" \
+    -- /usr/bin/osmium merge --overwrite --output-format=pbf \
+      --output "${merged_file}" \
+      "${SOURCE_PBF_FILE[netherlands]}" "${SOURCE_PBF_FILE[belgium]}" \
+    || fail "De geverifieerde NL/BE kaartdata kon niet begrensd worden samengevoegd."
+  [ -f "${merged_file}" ] && [ ! -L "${merged_file}" ] \
+    && [ "$(stat -c '%U:%G:%a:%h' -- "${merged_file}" 2>/dev/null || true)" = 'dis-osrm-build:dis-osrm:600:1' ] \
+    || fail "Het samengestelde OSRM-bestand is niet veilig."
+  merged_size="$(stat -c '%s' -- "${merged_file}")"
+  source_total=$((SOURCE_SIZE[netherlands] + SOURCE_SIZE[belgium]))
+  merged_size_is_safe "${merged_size}" "${source_total}" \
+    || fail "Het samengestelde OSRM-bestand overschrijdt de veilige groottebegrenzing."
+  runuser -u dis-osrm-build -- /usr/bin/osmium fileinfo -e "${merged_file}" >/dev/null \
+    || fail "Het samengestelde OSRM-bestand is structureel ongeldig."
+  merged_sha="$(sha256sum -- "${merged_file}" | awk '{ print $1 }')"
+  [[ "${merged_sha}" =~ ^[a-f0-9]{64}$ ]] \
+    || fail "De interne SHA-256 van de samengestelde kaartdata is ongeldig."
+  run_cmd chown root:dis-osrm "${merged_file}"
+  run_cmd chmod 0440 "${merged_file}"
+  run_cmd rm -f -- "${SOURCE_PBF_FILE[netherlands]}" "${SOURCE_PBF_FILE[belgium]}"
+  SOURCE_PBF_FILE=()
+  run_cmd sync -f "${DOWNLOAD_DIRECTORY}"
+  DOWNLOADED_PBF_FILE="${merged_file}"
+  MERGED_SHA256="${merged_sha}"
 }
 
 stage_from_output() {
@@ -687,7 +1216,8 @@ read_active_probe() {
 }
 
 process_operation() {
-  local payload source_url expected_sha longitude latitude coordinate initial_status active_sha pbf_file
+  local payload longitude latitude coordinate initial_status active_manifest candidate_sources source_manifest
+  local source_id source_timestamp nl_timestamp be_timestamp total_source_size downloaded_source_size merged_sha pbf_file no_op=0
 
   trap operation_exit_handler EXIT INT TERM
   ensure_result_file "${LOG_FILE}"
@@ -698,10 +1228,6 @@ process_operation() {
 
   payload="$(load_validated_operation_payload)" \
     || fail "De OSRM-operatieconfiguratie kon niet veilig worden geladen."
-  source_url="$(jq -r '.source_url' <<< "${payload}")"
-  [ "${source_url}" = "$(configured_source_url)" ] \
-    || fail "De OSRM-bron wijkt af van de root-geconfigureerde Nederlandse bron."
-  expected_sha="$(jq -r '.source_sha256 | ascii_downcase' <<< "${payload}")"
   longitude="$(jq -r '.health_coordinate.longitude | tostring' <<< "${payload}")"
   latitude="$(jq -r '.health_coordinate.latitude | tostring' <<< "${payload}")"
   validate_coordinate_pair "${longitude}" "${latitude}" \
@@ -716,7 +1242,14 @@ process_operation() {
     PREVIOUS_ROUTING_HEALTHY=1
   fi
   if [ "${ACTION}" = "update" ]; then
-    jq -e '.installed == true and (.dataset.sha256 | type == "string" and test("^[a-f0-9]{64}$"))' \
+    jq -e '
+      .installed == true
+      and (.dataset | type == "object")
+      and (
+        (.dataset.source_manifest | type == "object")
+        or (.dataset.legacy_sha256 | type == "string" and test("^[a-f0-9]{64}$"))
+      )
+    ' \
       <<< "${initial_status}" >/dev/null \
       || fail "OSRM moet beheerd geïnstalleerd zijn en actieve kaartdata hebben voordat deze kan worden bijgewerkt."
     [ "${coordinate}" = "$(jq -r '.dataset.health_coordinate // ""' <<< "${initial_status}")" ] \
@@ -743,25 +1276,98 @@ process_operation() {
   run_logged_command provisioning env DIS_DATA_PATH="${DIS_DATA_PATH}" bash "${OSRM_SCRIPT}" provision \
     || fail "De geïsoleerde OSRM-service kon niet worden ingericht."
 
-  active_sha="$(active_source_sha)"
-  if [ -n "${active_sha}" ] && [ "${active_sha}" = "${expected_sha}" ] \
-    && [ "${coordinate}" = "$(jq -r '.dataset.health_coordinate // ""' <<< "${initial_status}")" ] \
-    && jq -e '.state == "ready" and .healthy == true' <<< "${initial_status}" >/dev/null; then
-    update_stage verifying "De vastgelegde kaartdata is al actief; gezondheid opnieuw controleren." 100
+  update_stage installing_package "Geverifieerde Ubuntu samenvoegtool installeren en controleren." null
+  run_logged_command installing_package \
+    env DIS_DATA_PATH="${DIS_DATA_PATH}" bash "${OSRM_SCRIPT}" install-build-tool \
+    || fail "De geverifieerde OSRM-samenvoegtool kon niet worden geïnstalleerd."
+  run_logged_command installing_package \
+    env DIS_DATA_PATH="${DIS_DATA_PATH}" bash "${OSRM_SCRIPT}" verify-build-tool \
+    || fail "De OSRM-samenvoegtool heeft geen geldige provenance-receipt."
+
+  prepare_download_workspace
+  resolve_common_snapshot
+  total_source_size=0
+  for source_id in "${SOURCE_IDS[@]}"; do
+    attest_versioned_source_head "${source_id}" "${SOURCE_VERSION_URL[${source_id}]}"
+    total_source_size=$((total_source_size + SOURCE_SIZE[${source_id}]))
+  done
+  for source_id in "${SOURCE_IDS[@]}"; do
+    fetch_supplier_md5 "${source_id}" "${SOURCE_VERSION_URL[${source_id}]}"
+  done
+  candidate_sources="$(jq -cn \
+    --arg nl_filename "${SOURCE_FILENAME[netherlands]}" \
+    --arg nl_url "${SOURCE_VERSION_URL[netherlands]}" \
+    --arg nl_md5 "${SOURCE_MD5[netherlands]}" \
+    --argjson nl_size "${SOURCE_SIZE[netherlands]}" \
+    --arg be_filename "${SOURCE_FILENAME[belgium]}" \
+    --arg be_url "${SOURCE_VERSION_URL[belgium]}" \
+    --arg be_md5 "${SOURCE_MD5[belgium]}" \
+    --argjson be_size "${SOURCE_SIZE[belgium]}" '
+      [
+        {id:"netherlands",filename:$nl_filename,version_url:$nl_url,md5:$nl_md5,size_bytes:$nl_size},
+        {id:"belgium",filename:$be_filename,version_url:$be_url,md5:$be_md5,size_bytes:$be_size}
+      ]
+    ')"
+  active_manifest="$(jq -c '.dataset.source_manifest // null' <<< "${initial_status}")"
+  if source_manifest_json_is_valid "${active_manifest}" \
+    && jq -e \
+      --arg snapshot_date "${RESOLVED_SNAPSHOT_DATE}" \
+      --argjson sources "${candidate_sources}" '
+        .snapshot_date == $snapshot_date and .sources == $sources
+      ' <<< "${active_manifest}" >/dev/null; then
+    source_timestamp="$(jq -er '.source_timestamp' <<< "${active_manifest}")"
+    if [ "${coordinate}" = "$(jq -r '.dataset.health_coordinate // ""' <<< "${initial_status}")" ] \
+      && jq -e '.state == "ready" and .healthy == true' <<< "${initial_status}" >/dev/null; then
+      build_source_manifest "${source_timestamp}"
+      source_manifest="$(jq -c '.' "${SOURCE_MANIFEST_FILE}")"
+      jq -e --argjson active_manifest "${active_manifest}" \
+        '. == $active_manifest' <<< "${source_manifest}" >/dev/null \
+        || fail "De actieve bronnenidentiteit kon niet exact worden gereconstrueerd."
+      record_resolved_source_manifest "${source_manifest}"
+      no_op=1
+    fi
+  fi
+  if [ "${no_op}" = "1" ]; then
+    update_stage verifying "De Nederlandse en Belgische kaartdata zijn al actueel; gezondheid opnieuw controleren." 100
     run_logged_command verifying env DIS_DATA_PATH="${DIS_DATA_PATH}" bash "${OSRM_SCRIPT}" reconcile \
       || fail "De bestaande OSRM-dataset kon niet gezond worden geactiveerd."
   else
-    download_source "${source_url}" "${expected_sha}"
+    check_composite_disk_space "${total_source_size}"
+    downloaded_source_size=0
+    for source_id in "${SOURCE_IDS[@]}"; do
+      download_source \
+        "${source_id}" \
+        "${SOURCE_VERSION_URL[${source_id}]}" \
+        "${SOURCE_MD5[${source_id}]}" \
+        "${SOURCE_SIZE[${source_id}]}" \
+        "${downloaded_source_size}" \
+        "${total_source_size}"
+      downloaded_source_size=$((downloaded_source_size + SOURCE_SIZE[${source_id}]))
+    done
+    nl_timestamp="$(source_timestamp_for_file "${SOURCE_PBF_FILE[netherlands]}")" \
+      || fail "De Nederlandse Geofabrik-replicatietijd ontbreekt of is ongeldig."
+    be_timestamp="$(source_timestamp_for_file "${SOURCE_PBF_FILE[belgium]}")" \
+      || fail "De Belgische Geofabrik-replicatietijd ontbreekt of is ongeldig."
+    [ "${nl_timestamp}" = "${be_timestamp}" ] \
+      || fail "De Nederlandse en Belgische bronbestanden hebben niet dezelfde replicatietijd."
+    build_source_manifest "${nl_timestamp}"
+    source_manifest="$(jq -c '.' "${SOURCE_MANIFEST_FILE}")"
+    record_resolved_source_manifest "${source_manifest}"
+    merge_verified_sources
+    merged_sha="${MERGED_SHA256}"
     pbf_file="${DOWNLOADED_PBF_FILE}"
-    [ -n "${pbf_file}" ] || fail "De geverifieerde OSRM-download ontbreekt."
-    update_stage extracting "Nederlandse kaartdata voorbereiden voor navigatieroutes." null
+    [ -n "${pbf_file}" ] || pbf_file="${DOWNLOAD_DIRECTORY}/netherlands-belgium.osm.pbf"
+    [ -f "${pbf_file}" ] && [[ "${merged_sha}" =~ ^[a-f0-9]{64}$ ]] \
+      || fail "De geverifieerde samengestelde OSRM-download ontbreekt."
+    update_stage extracting "Nederlandse en Belgische kaartdata voorbereiden voor navigatieroutes." null
     run_logged_command extracting \
       env DIS_DATA_PATH="${DIS_DATA_PATH}" \
         OSRM_ACTIVE_SCRATCH_PATH="${DOWNLOAD_DIRECTORY}" \
         OSRM_IMPORT_PARENT_UNIT=dis-osrm-admin-request.service \
       bash "${OSRM_SCRIPT}" import \
         --pbf "${pbf_file}" \
-        --sha256 "${expected_sha}" \
+        --sha256 "${merged_sha}" \
+        --source-manifest "${SOURCE_MANIFEST_FILE}" \
         --health-coordinate "${coordinate}" \
       || fail "De nieuwe OSRM-dataset kon niet veilig worden voorbereid of geactiveerd."
   fi
@@ -853,7 +1459,7 @@ claim_request() {
   run_cmd chmod 0600 "${RUNNING_FILE}"
   jq -e '
     type == "object"
-    and .version == 1
+    and .version == 2
     and (.operation_id | type == "string" and test("^[0-9A-HJKMNP-TV-Z]{26}$"))
     and (.action | type == "string" and test("^(install_activate|update)$"))
     and (.actor_id | type == "string" and test("^[0-9A-HJKMNP-TV-Z]{26}$"))
@@ -887,16 +1493,14 @@ claim_request() {
 }
 
 recover_committed_operation() {
-  local payload runtime_status expected_sha longitude latitude coordinate source_url
+  local payload runtime_status expected_manifest longitude latitude coordinate
 
   # Payload/database unavailability is retryable: without the immutable
   # database contract we cannot truthfully classify the interrupted work.
   payload="$(artisan_callback dis:osrm-operation:payload "${OPERATION_ID}")" \
     || return 2
   operation_payload_contract_is_valid "${payload}" || return 2
-  source_url="$(jq -r '.source_url' <<< "${payload}")"
-  [ "${source_url}" = "${SOURCE_URL_DEFAULT}" ] || return 1
-  expected_sha="$(jq -r '.source_sha256 | ascii_downcase' <<< "${payload}")"
+  expected_manifest="$(resolved_source_manifest_from_marker)" || return 1
   longitude="$(jq -r '.health_coordinate.longitude | tostring' <<< "${payload}")"
   latitude="$(jq -r '.health_coordinate.latitude | tostring' <<< "${payload}")"
   validate_coordinate_pair "${longitude}" "${latitude}" || return 1
@@ -905,13 +1509,13 @@ recover_committed_operation() {
   runtime_status="$(DIS_DATA_PATH="${DIS_DATA_PATH}" bash "${OSRM_SCRIPT}" status 2>/dev/null)" \
     || return 1
   jq -e \
-    --arg expected_sha "${expected_sha}" \
+    --argjson expected_manifest "${expected_manifest}" \
     --arg coordinate "${coordinate}" '
       .installed == true
       and .state == "ready"
       and .healthy == true
       and (.dataset | type == "object")
-      and .dataset.sha256 == $expected_sha
+      and .dataset.source_manifest == $expected_manifest
       and .dataset.health_coordinate == $coordinate
     ' <<< "${runtime_status}" >/dev/null \
     || return 1

@@ -249,10 +249,13 @@ fi
 run_cmd rmdir "${OSRM_ADMIN_RUNTIME_PARENT}" >/dev/null 2>&1 || true
 run_cmd rm -f -- /var/log/dis/osrm-status.json
 
-if command -v apt-mark >/dev/null 2>&1 \
-  && apt-mark showhold 2>/dev/null | grep -Fxq osrm-backend; then
-  log "Removing the DIS-managed APT hold from osrm-backend"
-  run_cmd apt-mark unhold osrm-backend >/dev/null
+if command -v apt-mark >/dev/null 2>&1; then
+  for held_package in osrm-backend osmium-tool; do
+    if apt-mark showhold 2>/dev/null | grep -Fxq "${held_package}"; then
+      log "Removing the DIS-managed APT hold from ${held_package}"
+      run_cmd apt-mark unhold "${held_package}" >/dev/null
+    fi
+  done
 fi
 
 log "Removing DIS Nginx configuration"
@@ -335,9 +338,11 @@ if [ "${PURGE_PACKAGES}" = "1" ]; then
     "php${PHP_VERSION}-mbstring" "php${PHP_VERSION}-xml" "php${PHP_VERSION}-curl" "php${PHP_VERSION}-zip" \
     "php${PHP_VERSION}-bcmath" "php${PHP_VERSION}-intl" \
     nodejs npm
-  if dpkg-query -W -f='${db:Status-Status}' osrm-backend 2>/dev/null | grep -qx installed; then
-    run_cmd apt-get purge -y osrm-backend
-  fi
+  for osrm_package in osrm-backend osmium-tool; do
+    if dpkg-query -W -f='${db:Status-Status}' "${osrm_package}" 2>/dev/null | grep -qx installed; then
+      run_cmd apt-get purge -y "${osrm_package}"
+    fi
+  done
   run_cmd apt-get autoremove -y
 else
   log "Ubuntu packages kept. Re-run with --purge-packages only on a dedicated server."
