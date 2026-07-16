@@ -29,6 +29,7 @@ assert_before() {
 worker='scripts/osrm-admin-request-worker.sh'
 osrm='scripts/osrm.sh'
 common='scripts/lib/common.sh'
+backend_service='webapp/backend/app/Services/OsrmOperationService.php'
 
 # The browser can enqueue only a tiny v2 command without URLs or checksums.
 # Root accepts the fixed ordered NL+BE set and obtains both supplier checksums.
@@ -47,8 +48,14 @@ assert_contains "${worker}" '{id:"netherlands",latest_url:$netherlands_url},'
 assert_contains "${worker}" '{id:"belgium",latest_url:$belgium_url}'
 assert_absent "${worker}" '.source_sha256 | type == "string"'
 assert_contains "${worker}" 'request_mode="$(stat -c '\''%a'\'' -- "${RUNNING_FILE}")"'
+assert_contains "${worker}" 'request_owner="$(stat -c '\''%u'\'' -- "${RUNNING_FILE}")"'
+assert_contains "${worker}" 'REQUEST_PUBLISHER_UID="$(id -u www-data 2>/dev/null || true)"'
 assert_contains "${worker}" '[ "${request_mode}" != "600" ]'
+assert_contains "${worker}" 'validation=${validation_reason}'
 assert_contains "${worker}" 'dis:osrm-operation:fail-request "${request_id}" "${reason}"'
+assert_contains "${backend_service}" '$previousUmask = umask(0077);'
+assert_contains "${backend_service}" '($metadata['\''mode'\''] & 0777) !== 0600'
+assert_contains "${backend_service}" '$metadata['\''nlink'\''] !== 1'
 assert_contains "${worker}" 'if [ "${ACTION}" = "install_activate" ] \'
 assert_contains "${worker}" 'Bestaand geverifieerd OSRM-pakket blijft ongewijzigd tijdens de kaartupdate.'
 assert_contains "${worker}" '[ "${age}" -gt 86400 ]'

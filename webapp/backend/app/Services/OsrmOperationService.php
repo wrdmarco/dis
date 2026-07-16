@@ -535,7 +535,15 @@ final class OsrmOperationService
             'created_at' => gmdate('Y-m-d\TH:i:s\Z'),
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)."\n";
 
-        $handle = @fopen($temporary, 'xb');
+        // The request broker accepts only an exclusive mode-0600 file owned by
+        // the PHP-FPM publisher. Set the creation mask before fopen so this is
+        // true even when fchmod is unavailable in a hardened PHP runtime.
+        $previousUmask = umask(0077);
+        try {
+            $handle = @fopen($temporary, 'xb');
+        } finally {
+            umask($previousUmask);
+        }
         if ($handle === false) {
             throw new RuntimeException('Exclusive OSRM request staging creation failed.');
         }
@@ -554,6 +562,17 @@ final class OsrmOperationService
             }
             if (! fflush($handle) || (function_exists('fsync') && ! fsync($handle))) {
                 throw new RuntimeException('OSRM request staging could not be durably stored.');
+            }
+            if (PHP_OS_FAMILY !== 'Windows') {
+                $metadata = fstat($handle);
+                $effectiveUid = function_exists('posix_geteuid') ? posix_geteuid() : null;
+                if ($metadata === false
+                    || ($metadata['mode'] & 0170000) !== 0100000
+                    || ($metadata['mode'] & 0777) !== 0600
+                    || $metadata['nlink'] !== 1
+                    || ($effectiveUid !== null && $metadata['uid'] !== $effectiveUid)) {
+                    throw new RuntimeException('OSRM request staging metadata is unsafe.');
+                }
             }
             $completed = true;
         } finally {

@@ -112,6 +112,7 @@ declare -A SOURCE_SIZE=()
 declare -A SOURCE_PBF_FILE=()
 PREVIOUS_ROUTING_HEALTHY=0
 RECOVERY_RETRY_PENDING=0
+REQUEST_PUBLISHER_UID=""
 
 reset_operation_context() {
   OPERATION_ID=""
@@ -151,6 +152,9 @@ initialize_worker() {
     || fail "APP_ROOT is not a safe absolute application path."
   require_file "${config_file}"
   require_file "${BACKEND_DIR}/artisan"
+  REQUEST_PUBLISHER_UID="$(id -u www-data 2>/dev/null || true)"
+  [[ "${REQUEST_PUBLISHER_UID}" =~ ^[0-9]+$ ]] \
+    || fail "The trusted PHP-FPM request publisher account is unavailable."
   require_root_controlled_parent "${config_file}"
   config_gid="$(getent group "${DIS_GROUP}" | cut -d: -f3)"
   [[ "${config_gid}" =~ ^[0-9]+$ ]] || fail "The DIS configuration group is unavailable."
@@ -1431,6 +1435,15 @@ fail_request_by_id() {
   return 0
 }
 
+reject_claimed_request() {
+  local request_id="$1" request_file="$2" validation_reason="$3"
+
+  [[ "${validation_reason}" =~ ^[a-z_]+$ ]] || validation_reason="unknown"
+  logger -p authpriv.warning -t dis-security \
+    "osrm_admin_request_rejected reason=rejected validation=${validation_reason}" 2>/dev/null || true
+  fail_request_by_id "${request_id}" rejected "${request_file}" || true
+}
+
 claim_request() {
   local request_file="$1" request_id request_owner request_mode created_at created_epoch age
 
@@ -1446,13 +1459,18 @@ claim_request() {
   if [ -L "${RUNNING_FILE}" ] || [ ! -f "${RUNNING_FILE}" ] \
     || [ "$(stat -c '%h' -- "${RUNNING_FILE}" 2>/dev/null || printf 0)" != "1" ] \
     || [ "$(stat -c '%s' -- "${RUNNING_FILE}" 2>/dev/null || printf 4097)" -gt 4096 ]; then
-    fail_request_by_id "${request_id}" rejected "${RUNNING_FILE}" || true
+    reject_claimed_request "${request_id}" "${RUNNING_FILE}" unsafe_file
     return 1
   fi
-  request_owner="$(stat -c '%U' -- "${RUNNING_FILE}")"
+  request_owner="$(stat -c '%u' -- "${RUNNING_FILE}")"
   request_mode="$(stat -c '%a' -- "${RUNNING_FILE}")"
-  if [ "${request_owner}" != "www-data" ] || [ "${request_mode}" != "600" ]; then
-    fail_request_by_id "${request_id}" rejected "${RUNNING_FILE}" || true
+  if [ -z "${REQUEST_PUBLISHER_UID}" ]; then
+    REQUEST_PUBLISHER_UID="$(id -u www-data 2>/dev/null || true)"
+  fi
+  if ! [[ "${REQUEST_PUBLISHER_UID}" =~ ^[0-9]+$ ]] \
+    || [ "${request_owner}" != "${REQUEST_PUBLISHER_UID}" ] \
+    || [ "${request_mode}" != "600" ]; then
+    reject_claimed_request "${request_id}" "${RUNNING_FILE}" publisher_metadata
     return 1
   fi
   run_cmd chown root:root "${RUNNING_FILE}"
@@ -1466,17 +1484,17 @@ claim_request() {
     and (.created_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
     and ((keys_unsorted - ["version","operation_id","action","actor_id","created_at"]) | length == 0)
   ' "${RUNNING_FILE}" >/dev/null \
-    || { fail_request_by_id "${request_id}" rejected "${RUNNING_FILE}" || true; return 1; }
+    || { reject_claimed_request "${request_id}" "${RUNNING_FILE}" envelope_contract; return 1; }
 
   OPERATION_ID="$(jq -r '.operation_id' "${RUNNING_FILE}")"
   ACTION="$(jq -r '.action' "${RUNNING_FILE}")"
   ACTOR_ID="$(jq -r '.actor_id' "${RUNNING_FILE}")"
   validate_ulid "${OPERATION_ID}" && validate_ulid "${ACTOR_ID}" \
-    || { fail_request_by_id "${request_id}" rejected "${RUNNING_FILE}" || true; return 1; }
+    || { reject_claimed_request "${request_id}" "${RUNNING_FILE}" identifier_contract; return 1; }
   created_at="$(jq -r '.created_at' "${RUNNING_FILE}")"
   created_epoch="$(date -u -d "${created_at}" +%s 2>/dev/null || true)"
   [[ "${created_epoch}" =~ ^[0-9]+$ ]] \
-    || { OPERATION_ID=""; ACTION=""; ACTOR_ID=""; fail_request_by_id "${request_id}" rejected "${RUNNING_FILE}" || true; return 1; }
+    || { OPERATION_ID=""; ACTION=""; ACTOR_ID=""; reject_claimed_request "${request_id}" "${RUNNING_FILE}" timestamp_contract; return 1; }
   age=$(( $(date +%s) - created_epoch ))
   if [ "${age}" -lt -60 ] || [ "${age}" -gt 86400 ]; then
     STATUS_FILE="$(operation_status_path "${OPERATION_ID}")"

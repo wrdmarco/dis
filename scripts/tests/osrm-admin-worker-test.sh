@@ -28,7 +28,9 @@ RESULT_DIR="${ADMIN_ROOT}/results"
 mkdir -p "${REQUEST_DIR}" "${WORK_DIR}" "${RESULT_DIR}"
 
 MOCK_OWNER='www-data'
+MOCK_UID='33'
 MOCK_MODE='600'
+REQUEST_PUBLISHER_UID='33'
 CALLBACK_FAIL=0
 CALLBACK_LOG=''
 CALLBACK_LOG_FILE="${TEST_ROOT}/callbacks.log"
@@ -105,7 +107,7 @@ stat() {
   if [ "${1:-}" = '-c' ]; then
     case "${2:-}" in
       '%U') printf '%s\n' "${MOCK_OWNER}"; return 0 ;;
-      '%u') printf '0\n'; return 0 ;;
+      '%u') printf '%s\n' "${MOCK_UID}"; return 0 ;;
       '%a') printf '%s\n' "${MOCK_MODE}"; return 0 ;;
       '%u:%a:%h') printf '0:%s:1\n' "${MOCK_MODE}"; return 0 ;;
       '%u:%g:%a:%h') printf '0:0:%s:1\n' "${MOCK_MODE}"; return 0 ;;
@@ -163,6 +165,19 @@ if claim_request "${REQUEST_DIR}/${request_id}.pending"; then
   exit 1
 fi
 [[ "${CALLBACK_LOG}" == *"dis:osrm-operation:fail-request ${request_id} rejected"* ]]
+
+request_id='eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+make_valid_request "${REQUEST_DIR}/${request_id}.pending"
+MOCK_MODE='600'
+MOCK_UID='34'
+CALLBACK_LOG=''
+reset_operation_context
+if claim_request "${REQUEST_DIR}/${request_id}.pending"; then
+  printf 'Request from the wrong publisher uid was unexpectedly accepted.\n' >&2
+  exit 1
+fi
+[[ "${CALLBACK_LOG}" == *"dis:osrm-operation:fail-request ${request_id} rejected"* ]]
+MOCK_UID='33'
 
 # A valid-shaped legacy v1 request is rejected rather than entering the v2
 # supplier-MD5 workflow with a mismatched backend contract.
