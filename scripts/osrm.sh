@@ -39,11 +39,14 @@ OSRM_CONTAINER_SOURCE="https://github.com/Project-OSRM/osrm-backend"
 OSRM_CONTAINER_REVISION="3c32a51bf58d12bf30efd0808d0b6ad51d334122"
 OSRM_CONTAINER_PROFILE="/opt/car.lua"
 OSRM_PODMAN_PATH="/usr/bin/podman"
-OSRM_PODMAN_STORAGE_DRIVER="vfs"
-OSRM_PODMAN_GRAPH_ROOT="/var/lib/containers/dis-osrm-vfs"
-OSRM_PODMAN_RUN_ROOT="/run/containers/dis-osrm-vfs"
+OSRM_FUSE_OVERLAYFS_PATH="/usr/bin/fuse-overlayfs"
+OSRM_PODMAN_STORAGE_DRIVER="overlay"
+OSRM_PODMAN_GRAPH_ROOT="/var/lib/containers/dis-osrm-overlay"
+OSRM_PODMAN_RUN_ROOT="/run/containers/dis-osrm-overlay"
 OSRM_PODMAN_GLOBAL_ARGS=(
   "--storage-driver=${OSRM_PODMAN_STORAGE_DRIVER}"
+  "--storage-opt=${OSRM_PODMAN_STORAGE_DRIVER}.mount_program=${OSRM_FUSE_OVERLAYFS_PATH}"
+  "--storage-opt=${OSRM_PODMAN_STORAGE_DRIVER}.mountopt=nodev"
   "--root=${OSRM_PODMAN_GRAPH_ROOT}"
   "--runroot=${OSRM_PODMAN_RUN_ROOT}"
 )
@@ -91,9 +94,10 @@ Usage:
   sudo /usr/local/lib/dis/osrm-admin/osrm.sh prune
 
 Commands:
-  install-package  Install and attest Ubuntu Podman, then pull the official OSRM
-                   image by its immutable amd64 manifest digest. No mutable tag,
-                   foreign package suite or public routing service is used.
+  install-package  Install and attest Ubuntu Podman plus fuse-overlayfs, then pull
+                   the official OSRM image by its immutable amd64 manifest digest.
+                   No mutable tag, foreign package suite or public routing service
+                   is used.
   install-build-tool
                    Independently install and attest the Ubuntu osmium-tool package
                    used only to inspect and merge verified source extracts.
@@ -364,6 +368,10 @@ official_podman_candidate() {
   official_package_candidate "$1" podman
 }
 
+official_fuse_overlayfs_candidate() {
+  official_package_candidate "$1" fuse-overlayfs
+}
+
 official_osmium_candidate() {
   official_package_candidate "$1" osmium-tool
 }
@@ -375,6 +383,19 @@ required_podman_tool_owned_by_package() {
   [ "${path}" = "${OSRM_PODMAN_PATH}" ] || return 1
   owner="$(dpkg-query -S "${path}" 2>/dev/null | head -n 1)"
   [[ "${owner}" == podman:* ]]
+}
+
+required_fuse_overlayfs_tool_owned_by_package() {
+  local owner path
+
+  path="$(trusted_tool_path fuse-overlayfs)" || return 1
+  [ "${path}" = "${OSRM_FUSE_OVERLAYFS_PATH}" ] || return 1
+  owner="$(dpkg-query -S "${path}" 2>/dev/null | head -n 1)"
+  [[ "${owner}" == fuse-overlayfs:* ]]
+}
+
+fuse_device_available() {
+  [ -c /dev/fuse ] && [ -r /dev/fuse ] && [ -w /dev/fuse ]
 }
 
 package_fingerprint() {
@@ -415,13 +436,18 @@ podman_package_fingerprint() {
   package_fingerprint podman
 }
 
+fuse_overlayfs_package_fingerprint() {
+  package_fingerprint fuse-overlayfs
+}
+
 osmium_package_fingerprint() {
   package_fingerprint osmium-tool
 }
 
 container_provenance_matches() {
   local expected_fingerprint="$1" expected_podman_version="$2"
-  local expected_image_id="$3" expected_profile_sha="$4"
+  local expected_fuse_fingerprint="$3" expected_fuse_version="$4"
+  local expected_image_id="$5" expected_profile_sha="$6"
   local mode uid
 
   [ -f "${OSRM_PACKAGE_PROVENANCE_FILE}" ] \
@@ -434,6 +460,8 @@ container_provenance_matches() {
   jq -e \
     --arg podman_version "${expected_podman_version}" \
     --arg podman_fingerprint "${expected_fingerprint}" \
+    --arg fuse_overlayfs_version "${expected_fuse_version}" \
+    --arg fuse_overlayfs_fingerprint "${expected_fuse_fingerprint}" \
     --arg image "${OSRM_CONTAINER_IMAGE}" \
     --arg image_version "${OSRM_CONTAINER_IMAGE_VERSION}" \
     --arg image_digest "${OSRM_CONTAINER_IMAGE_DIGEST}" \
@@ -441,11 +469,13 @@ container_provenance_matches() {
     --arg profile_path "${OSRM_CONTAINER_PROFILE}" \
     --arg profile_sha256 "${expected_profile_sha}" '
       type == "object"
-      and keys == ["image","image_digest","image_id","image_version","podman_files_sha256","podman_version","profile_path","profile_sha256","runtime","source","verified_at"]
+      and keys == ["fuse_overlayfs_files_sha256","fuse_overlayfs_version","image","image_digest","image_id","image_version","podman_files_sha256","podman_version","profile_path","profile_sha256","runtime","source","verified_at"]
       and .runtime == "podman"
       and .source == "ghcr.io/project-osrm/osrm-backend"
       and .podman_version == $podman_version
       and .podman_files_sha256 == $podman_fingerprint
+      and .fuse_overlayfs_version == $fuse_overlayfs_version
+      and .fuse_overlayfs_files_sha256 == $fuse_overlayfs_fingerprint
       and .image == $image
       and .image_version == $image_version
       and .image_digest == $image_digest
@@ -457,11 +487,14 @@ container_provenance_matches() {
 }
 
 write_container_provenance() {
-  local fingerprint="$1" podman_version="$2" image_id="$3" profile_sha="$4"
+  local fingerprint="$1" podman_version="$2" fuse_fingerprint="$3" fuse_version="$4"
+  local image_id="$5" profile_sha="$6"
   local temporary
 
   [[ "${fingerprint}" =~ ^[a-f0-9]{64}$ ]] || fail "The Podman package fingerprint is invalid."
   [ -n "${podman_version}" ] || fail "The Podman package version is invalid."
+  [[ "${fuse_fingerprint}" =~ ^[a-f0-9]{64}$ ]] || fail "The fuse-overlayfs package fingerprint is invalid."
+  [ -n "${fuse_version}" ] || fail "The fuse-overlayfs package version is invalid."
   [[ "${image_id}" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "The OSRM container image id is invalid."
   [[ "${profile_sha}" =~ ^[a-f0-9]{64}$ ]] || fail "The OSRM container profile fingerprint is invalid."
   ensure_osrm_layout
@@ -469,6 +502,8 @@ write_container_provenance() {
   jq -n \
     --arg podman_version "${podman_version}" \
     --arg podman_files_sha256 "${fingerprint}" \
+    --arg fuse_overlayfs_version "${fuse_version}" \
+    --arg fuse_overlayfs_files_sha256 "${fuse_fingerprint}" \
     --arg image "${OSRM_CONTAINER_IMAGE}" \
     --arg image_version "${OSRM_CONTAINER_IMAGE_VERSION}" \
     --arg image_digest "${OSRM_CONTAINER_IMAGE_DIGEST}" \
@@ -481,6 +516,8 @@ write_container_provenance() {
       source: "ghcr.io/project-osrm/osrm-backend",
       podman_version: $podman_version,
       podman_files_sha256: $podman_files_sha256,
+      fuse_overlayfs_version: $fuse_overlayfs_version,
+      fuse_overlayfs_files_sha256: $fuse_overlayfs_files_sha256,
       image: $image,
       image_version: $image_version,
       image_digest: $image_digest,
@@ -540,24 +577,39 @@ podman_package_is_held() {
   apt-mark showhold 2>/dev/null | grep -Fxq podman
 }
 
-hold_podman_package() {
-  run_cmd apt-mark hold podman >/dev/null
+fuse_overlayfs_package_is_held() {
+  apt-mark showhold 2>/dev/null | grep -Fxq fuse-overlayfs
+}
+
+hold_container_runtime_packages() {
+  run_cmd apt-mark hold podman fuse-overlayfs >/dev/null
   podman_package_is_held \
     || fail "The verified Podman package could not be protected from unattended upgrades."
+  fuse_overlayfs_package_is_held \
+    || fail "The verified fuse-overlayfs package could not be protected from unattended upgrades."
 }
 
 installed_container_runtime_matches_receipt() {
-  local fingerprint image_id podman_version profile_sha
+  local fingerprint fuse_fingerprint fuse_version image_id podman_version profile_sha
 
   podman_version="$(dpkg-query -W -f='${Version}' podman 2>/dev/null || true)"
   [ -n "${podman_version}" ] || return 1
+  fuse_version="$(dpkg-query -W -f='${Version}' fuse-overlayfs 2>/dev/null || true)"
+  [ -n "${fuse_version}" ] || return 1
   required_podman_tool_owned_by_package || return 1
+  required_fuse_overlayfs_tool_owned_by_package || return 1
+  fuse_device_available || return 1
   podman_package_is_held || return 1
+  fuse_overlayfs_package_is_held || return 1
   fingerprint="$(podman_package_fingerprint)" || return 1
+  fuse_fingerprint="$(fuse_overlayfs_package_fingerprint)" || return 1
   podman_image_metadata_is_valid || return 1
   image_id="$(podman_image_id)" || return 1
   profile_sha="$(podman_profile_sha)" || return 1
-  container_provenance_matches "${fingerprint}" "${podman_version}" "${image_id}" "${profile_sha}"
+  container_provenance_matches \
+    "${fingerprint}" "${podman_version}" \
+    "${fuse_fingerprint}" "${fuse_version}" \
+    "${image_id}" "${profile_sha}"
 }
 
 osrm_tools_available() {
@@ -704,7 +756,8 @@ verify_build_tool() {
 }
 
 install_package() {
-  local candidate fingerprint image_id installed_version profile_sha source_list
+  local candidate fingerprint fuse_candidate fuse_fingerprint fuse_installed_version
+  local image_id installed_version profile_sha source_list
   local -a reinstall_argument=()
 
   require_root
@@ -716,6 +769,9 @@ install_package() {
     return 0
   fi
 
+  fuse_device_available \
+    || fail "Podman requires /dev/fuse for its LXC-safe overlay store. On the Proxmox host enable CT feature 'FUSE' for this container, fully restart the container, and retry."
+
   source_list="$(mktemp "${TMPDIR:-/tmp}/dis-podman-sources.XXXXXX")"
   if ! prepare_approved_apt_sources "${source_list}"; then
     rm -f -- "${source_list}"
@@ -726,37 +782,53 @@ install_package() {
     rm -f -- "${source_list}"
     fail "Ubuntu 26.04 has no installable Podman candidate in the configured official archives."
   fi
+  fuse_candidate="$(official_fuse_overlayfs_candidate "${source_list}")"
+  if [ -z "${fuse_candidate}" ] || [ "${fuse_candidate}" = "(none)" ]; then
+    rm -f -- "${source_list}"
+    fail "Ubuntu 26.04 has no installable fuse-overlayfs candidate in the configured official archives."
+  fi
 
   installed_version="$(dpkg-query -W -f='${Version}' podman 2>/dev/null || true)"
-  [ -z "${installed_version}" ] || reinstall_argument=(--reinstall)
-  log "Installing Podman ${candidate} from the configured official Ubuntu archive"
+  fuse_installed_version="$(dpkg-query -W -f='${Version}' fuse-overlayfs 2>/dev/null || true)"
+  if [ -n "${installed_version}" ] || [ -n "${fuse_installed_version}" ]; then
+    reinstall_argument=(--reinstall)
+  fi
+  log "Installing Podman ${candidate} and fuse-overlayfs ${fuse_candidate} from the configured official Ubuntu archive"
   if ! run_cmd apt-get \
     -o "Dir::Etc::sourcelist=${source_list}" \
     -o "Dir::Etc::sourceparts=-" \
     -o "Acquire::AllowInsecureRepositories=false" \
     -o "APT::Get::AllowUnauthenticated=false" \
     install -y --no-install-recommends --allow-change-held-packages \
-      "${reinstall_argument[@]}" "podman=${candidate}"; then
+      "${reinstall_argument[@]}" \
+      "podman=${candidate}" "fuse-overlayfs=${fuse_candidate}"; then
     rm -f -- "${source_list}"
-    fail "Ubuntu offers Podman ${candidate}, but its approved-source installation failed."
+    fail "Ubuntu offers the pinned Podman storage runtime, but its approved-source installation failed."
   fi
   rm -f -- "${source_list}"
-  hold_podman_package
+  hold_container_runtime_packages
 
   installed_version="$(dpkg-query -W -f='${Version}' podman 2>/dev/null || true)"
   [ "${installed_version}" = "${candidate}" ] \
     || fail "The installed Podman version does not match the verified Ubuntu candidate."
   required_podman_tool_owned_by_package \
     || fail "Podman installed, but /usr/bin/podman is not a trusted package-owned tool."
+  fuse_installed_version="$(dpkg-query -W -f='${Version}' fuse-overlayfs 2>/dev/null || true)"
+  [ "${fuse_installed_version}" = "${fuse_candidate}" ] \
+    || fail "The installed fuse-overlayfs version does not match the verified Ubuntu candidate."
+  required_fuse_overlayfs_tool_owned_by_package \
+    || fail "fuse-overlayfs installed, but /usr/bin/fuse-overlayfs is not a trusted package-owned tool."
   fingerprint="$(podman_package_fingerprint)" \
     || fail "The installed Podman files could not be fingerprinted."
+  fuse_fingerprint="$(fuse_overlayfs_package_fingerprint)" \
+    || fail "The installed fuse-overlayfs files could not be fingerprinted."
 
   log "Pulling official OSRM ${OSRM_CONTAINER_IMAGE_VERSION} by immutable amd64 digest"
   run_cmd "${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" \
     pull --arch amd64 --os linux "${OSRM_CONTAINER_IMAGE}" \
     || {
       if [ "$(systemd-detect-virt --container 2>/dev/null || true)" = "lxc" ]; then
-        fail "The pinned official OSRM container image could not be pulled. The dedicated VFS store is active; enable the Proxmox LXC nesting feature on the DIS container host and retry."
+        fail "The pinned official OSRM container image could not be pulled through the dedicated fuse-overlayfs store. Verify the Proxmox CT features nesting, keyctl and FUSE, fully restart the container, and retry."
       fi
       fail "The pinned official OSRM container image could not be pulled."
     }
@@ -770,7 +842,10 @@ install_package() {
     || fail "The pulled OSRM container image id is invalid."
   [[ "${profile_sha}" =~ ^[a-f0-9]{64}$ ]] \
     || fail "The pinned OSRM container car profile is unavailable or invalid."
-  write_container_provenance "${fingerprint}" "${candidate}" "${image_id}" "${profile_sha}"
+  write_container_provenance \
+    "${fingerprint}" "${candidate}" \
+    "${fuse_fingerprint}" "${fuse_candidate}" \
+    "${image_id}" "${profile_sha}"
   installed_container_runtime_matches_receipt \
     || fail "The durable Podman and OSRM container provenance receipt could not be verified."
 }

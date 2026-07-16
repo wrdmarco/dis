@@ -19,14 +19,15 @@ The OSRM runtime is fixed in source to `v26.5.0-amd64-debian` and pulled by the 
 repositories, locally supplied executables and public routing services are not accepted. DIS verifies the digest,
 architecture, operating system and upstream OCI source, version, revision and license labels before use.
 
-The Podman version and package-file fingerprint, container digest and image ID, and the bundled `/opt/car.lua`
-profile fingerprint are recorded in `/opt/dis-data/osrm/package-provenance.json`. At service start DIS checks the
-current runtime against that protected receipt. Podman is APT-held and every container invocation uses
-`--pull=never`, so normal DIS updates and **Kaartdata bijwerken** cannot silently change the runtime. A future OSRM
+The Podman and `fuse-overlayfs` versions and package-file fingerprints, container digest and image ID, and the
+bundled `/opt/car.lua` profile fingerprint are recorded in `/opt/dis-data/osrm/package-provenance.json`. At service
+start DIS checks the current runtime against that protected receipt. Both runtime packages are APT-held and every
+container invocation uses `--pull=never`, so normal DIS updates and **Kaartdata bijwerken** cannot silently change
+the runtime. A future OSRM
 image upgrade is a separate reviewed code change that must update the digest and tests.
 
-The receipt covers the Podman package and selected container content, not the complete host operating-system
-dependency closure. Normal host repository policy remains responsible for shared dependencies. Do not enable
+The receipt covers the Podman and `fuse-overlayfs` packages and selected container content, not the complete host
+operating-system dependency closure. Normal host repository policy remains responsible for shared dependencies. Do not enable
 unapproved PPAs, foreign suites, mirrors or Debian repositories on a DIS host.
 
 The composite NL+BE build additionally uses Ubuntu's `osmium-tool`. It has its own official-archive selection,
@@ -43,15 +44,27 @@ sudo apt-get update
 sudo /usr/local/lib/dis/osrm-admin/osrm.sh install-package
 ```
 
-DIS uses a dedicated Podman `vfs` store at `/var/lib/containers/dis-osrm-vfs` with runtime state under
-`/run/containers/dis-osrm-vfs`. This intentionally avoids OverlayFS-inside-LXC extraction failures while keeping
-the pinned OSRM image isolated from any general-purpose Podman storage on the host. The storage driver and paths
-are supplied to every pull, inspect, import, serve and stop command; changing the machine-wide Podman storage
-configuration is neither required nor supported by DIS.
+DIS uses a dedicated Podman overlay store at `/var/lib/containers/dis-osrm-overlay` with runtime state under
+`/run/containers/dis-osrm-overlay`. Its mount helper is the separately verified Ubuntu `fuse-overlayfs` package.
+This avoids the full parent-layer copy made by the VFS driver, which an unprivileged LXC may reject when a container
+is created, while keeping the pinned OSRM image isolated from any general-purpose Podman storage on the host. The
+storage driver, helper and paths are supplied to every pull, inspect, import, serve and stop command; changing the
+machine-wide Podman storage configuration is neither required nor supported by DIS.
 
-The Proxmox container must still permit nested containers. On the Proxmox host, enable the documented `nesting`
-feature for the DIS CT before starting OSRM. DIS keeps networking on the CT namespace (`--network=host`), disables
-container cgroups and drops all container capabilities; it does not require a privileged LXC container.
+The Proxmox container must permit nested containers and expose `/dev/fuse`. On the Proxmox host, enable the
+documented `nesting`, `keyctl` and `FUSE` features for the DIS CT and fully restart that CT before starting OSRM.
+DIS checks `/dev/fuse` before changing packages and returns a specific error when the feature is unavailable. DIS
+keeps networking on the CT namespace (`--network=host`), disables container cgroups and drops all container
+capabilities; it does not require a privileged LXC container or an unconfined AppArmor profile.
+
+For a stopped CT, the equivalent Proxmox host command is:
+
+```bash
+pct set <CTID> -features nesting=1,keyctl=1,fuse=1
+```
+
+Start the CT again after changing its features. Inside the CT, `test -c /dev/fuse` must succeed before the admin
+installation is started.
 
 On a fresh host without an official Podman candidate, or when the pinned image cannot be retrieved and verified,
 OSRM remains explicitly degraded and DIS continues to use its bounded fallback ETA. A previously attested runtime
