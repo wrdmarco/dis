@@ -149,8 +149,14 @@ if grep -R -E 'www-data.*osrm|osrm.*www-data' "${APP_ROOT}/infrastructure/sudoer
 fi
 
 assert_contains "${common}" 'ensure_managed_directory "${DIS_DATA_PATH}/osrm-admin/results" root "${DIS_GROUP}" 0750'
-assert_contains "${common}" 'runuser -u "${DIS_USER}" -- test -r "${status_path}"'
-assert_contains "${common}" 'runuser -u www-data -- test ! -w "${status_path}"'
+assert_contains "${common}" 'require_user_can_open_file_for_reading "${DIS_USER}" "${status_path}"'
+assert_contains "${common}" 'require_user_can_open_file_for_reading www-data "${status_path}"'
+assert_contains "${common}" '"if=${path}" of=/dev/null bs=1 count=1 status=none'
+assert_contains "${common}" '/usr/bin/find "${path}" \'
+assert_contains "${common}" 'if=/dev/null "of=${path}" bs=1 count=0 conv=notrunc oflag=nofollow status=none'
+assert_contains "${common}" '.dis-permission-probe.XXXXXXXX'
+assert_absent "${common}" 'runuser -u www-data -- test -r "${status_path}"'
+assert_absent "${common}" 'runuser -u www-data -- test ! -w "${status_path}"'
 assert_contains 'infrastructure/osrm/README.md' 'is rejected because there is no update to apply'
 
 printf 'OSRM admin static contract and security test passed.\n'

@@ -939,6 +939,63 @@ install_backup_request_systemd_units() {
   run_cmd rm -f -- "${temporary_service}" "${temporary_path}"
 }
 
+require_user_can_open_file_for_reading() {
+  local user="$1" path="$2" description="$3"
+
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "Would verify that ${user} can open ${description} for reading."
+    return 0
+  fi
+  if ! runuser -u "${user}" -- /usr/bin/dd \
+    "if=${path}" of=/dev/null bs=1 count=1 status=none; then
+    fail "${user} cannot open ${description} for reading: ${path}"
+  fi
+}
+
+require_user_can_open_directory_for_reading() {
+  local user="$1" path="$2" description="$3"
+
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "Would verify that ${user} can open ${description} for reading."
+    return 0
+  fi
+  if ! runuser -u "${user}" -- /usr/bin/find "${path}" \
+    -mindepth 1 -maxdepth 1 -print -quit >/dev/null; then
+    fail "${user} cannot open ${description} for reading: ${path}"
+  fi
+}
+
+require_user_cannot_open_file_for_writing() {
+  local user="$1" path="$2" description="$3"
+
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "Would verify that ${user} cannot open ${description} for writing."
+    return 0
+  fi
+  if runuser -u "${user}" -- /usr/bin/dd \
+    if=/dev/null "of=${path}" bs=1 count=0 conv=notrunc oflag=nofollow status=none \
+    2>/dev/null; then
+    fail "${user} unexpectedly can open ${description} for writing: ${path}"
+  fi
+}
+
+require_user_cannot_create_file_in_directory() {
+  local user="$1" path="$2" description="$3" probe=""
+
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "Would verify that ${user} cannot create a file in ${description}."
+    return 0
+  fi
+  if probe="$(runuser -u "${user}" -- /usr/bin/mktemp \
+    -p "${path}" .dis-permission-probe.XXXXXXXX 2>/dev/null)"; then
+    case "${probe}" in
+      "${path}"/.dis-permission-probe.*) rm -f -- "${probe}" ;;
+      *) fail "The ${description} write probe returned an unsafe path." ;;
+    esac
+    fail "${user} unexpectedly can create files in ${description}: ${path}"
+  fi
+}
+
 install_osrm_admin_layout() {
   local status_path="/var/log/dis/osrm-status.json"
 
@@ -964,18 +1021,24 @@ install_osrm_admin_layout() {
     run_cmd setfacl -m "u:www-data:-wx" "${DIS_DATA_PATH}/osrm-admin/requests"
     run_cmd setfacl -m "u:www-data:r-x" "${DIS_DATA_PATH}/osrm-admin/results"
     run_cmd setfacl -x "d:u:www-data" "${DIS_DATA_PATH}/osrm-admin/requests" 2>/dev/null || true
-    run_cmd runuser -u www-data -- test -r "${status_path}"
-    run_cmd runuser -u www-data -- test -r "${DIS_DATA_PATH}/osrm-admin/results"
-    run_cmd runuser -u www-data -- test ! -w "${status_path}"
-    run_cmd runuser -u www-data -- test ! -w "${DIS_DATA_PATH}/osrm-admin/results"
+    require_user_can_open_file_for_reading www-data "${status_path}" "the OSRM status snapshot"
+    require_user_can_open_directory_for_reading www-data \
+      "${DIS_DATA_PATH}/osrm-admin/results" "the OSRM result directory"
+    require_user_cannot_open_file_for_writing www-data \
+      "${status_path}" "the OSRM status snapshot"
+    require_user_cannot_create_file_in_directory www-data \
+      "${DIS_DATA_PATH}/osrm-admin/results" "the OSRM result directory"
   fi
   if id "${DIS_USER}" >/dev/null 2>&1; then
     run_cmd setfacl -m "u:${DIS_USER}:--x" "${DIS_DATA_PATH}/osrm-admin"
     run_cmd setfacl -m "u:${DIS_USER}:r-x" "${DIS_DATA_PATH}/osrm-admin/results"
-    run_cmd runuser -u "${DIS_USER}" -- test -r "${status_path}"
-    run_cmd runuser -u "${DIS_USER}" -- test -r "${DIS_DATA_PATH}/osrm-admin/results"
-    run_cmd runuser -u "${DIS_USER}" -- test ! -w "${status_path}"
-    run_cmd runuser -u "${DIS_USER}" -- test ! -w "${DIS_DATA_PATH}/osrm-admin/results"
+    require_user_can_open_file_for_reading "${DIS_USER}" "${status_path}" "the OSRM status snapshot"
+    require_user_can_open_directory_for_reading "${DIS_USER}" \
+      "${DIS_DATA_PATH}/osrm-admin/results" "the OSRM result directory"
+    require_user_cannot_open_file_for_writing "${DIS_USER}" \
+      "${status_path}" "the OSRM status snapshot"
+    require_user_cannot_create_file_in_directory "${DIS_USER}" \
+      "${DIS_DATA_PATH}/osrm-admin/results" "the OSRM result directory"
   fi
 }
 
