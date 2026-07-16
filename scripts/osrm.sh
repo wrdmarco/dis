@@ -46,6 +46,10 @@ OSRM_PODMAN_RUN_ROOT="/run/containers/dis-osrm-overlay"
 OSRM_PODMAN_GLOBAL_ARGS=(
   "--storage-driver=${OSRM_PODMAN_STORAGE_DRIVER}"
   "--storage-opt=${OSRM_PODMAN_STORAGE_DRIVER}.mount_program=${OSRM_FUSE_OVERLAYFS_PATH}"
+  # An unprivileged LXC cannot reproduce every image-layer owner in the host
+  # namespace. Squash those owners while applying the immutable image layers;
+  # OSRM itself still runs as the explicit isolated service uid/gid below.
+  "--storage-opt=${OSRM_PODMAN_STORAGE_DRIVER}.ignore_chown_errors=true"
   "--storage-opt=${OSRM_PODMAN_STORAGE_DRIVER}.mountopt=nodev"
   "--root=${OSRM_PODMAN_GRAPH_ROOT}"
   "--runroot=${OSRM_PODMAN_RUN_ROOT}"

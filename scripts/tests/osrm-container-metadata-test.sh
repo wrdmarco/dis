@@ -63,6 +63,7 @@ mock_run_arguments="$(< "${mock_run_log}")"
 mock_run_arguments=" ${mock_run_arguments} "
 [[ "${mock_run_arguments}" == *' --storage-driver=overlay '* ]]
 [[ "${mock_run_arguments}" == *' --storage-opt=overlay.mount_program=/usr/bin/fuse-overlayfs '* ]]
+[[ "${mock_run_arguments}" == *' --storage-opt=overlay.ignore_chown_errors=true '* ]]
 [[ "${mock_run_arguments}" == *' --storage-opt=overlay.mountopt=nodev '* ]]
 [[ "${mock_run_arguments}" == *' --cgroups=disabled '* ]]
 [[ "${mock_run_arguments}" == *' --network=none '* ]]

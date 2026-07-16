@@ -51,6 +51,11 @@ is created, while keeping the pinned OSRM image isolated from any general-purpos
 storage driver, helper and paths are supplied to every pull, inspect, import, serve and stop command; changing the
 machine-wide Podman storage configuration is neither required nor supported by DIS.
 
+Because an unprivileged LXC cannot reproduce every UID/GID stored in an OCI layer, the dedicated overlay driver
+uses `ignore_chown_errors=true` while applying the already digest-pinned image. This squashes image-layer ownership
+inside this isolated store. OSRM still runs with the explicit `dis-osrm` or `dis-osrm-build` uid/gid, with all
+capabilities dropped and `no-new-privileges` enforced.
+
 The Proxmox container must permit nested containers and expose `/dev/fuse`. On the Proxmox host, enable the
 documented `nesting`, `keyctl` and `FUSE` features for the DIS CT and fully restart that CT before starting OSRM.
 DIS checks `/dev/fuse` before changing packages and returns a specific error when the feature is unavailable. DIS

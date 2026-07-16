@@ -173,6 +173,7 @@ assert_contains "${osrm}" 'The pinned OSRM container could not start for its off
 assert_contains "${osrm}" 'OSRM_PODMAN_STORAGE_DRIVER="overlay"'
 assert_contains "${osrm}" 'OSRM_FUSE_OVERLAYFS_PATH="/usr/bin/fuse-overlayfs"'
 assert_contains "${osrm}" '"--storage-opt=${OSRM_PODMAN_STORAGE_DRIVER}.mount_program=${OSRM_FUSE_OVERLAYFS_PATH}"'
+assert_contains "${osrm}" '"--storage-opt=${OSRM_PODMAN_STORAGE_DRIVER}.ignore_chown_errors=true"'
 assert_contains "${osrm}" '"--storage-opt=${OSRM_PODMAN_STORAGE_DRIVER}.mountopt=nodev"'
 assert_contains "${osrm}" 'OSRM_PODMAN_GRAPH_ROOT="/var/lib/containers/dis-osrm-overlay"'
 assert_contains "${osrm}" 'OSRM_PODMAN_RUN_ROOT="/run/containers/dis-osrm-overlay"'

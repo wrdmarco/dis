@@ -194,6 +194,7 @@ install_package
 [[ "${pull_arguments}" == *'--arch amd64 --os linux'* ]]
 [[ "${pull_arguments}" == *'--storage-driver=overlay'* ]]
 [[ "${pull_arguments}" == *'--storage-opt=overlay.mount_program=/usr/bin/fuse-overlayfs'* ]]
+[[ "${pull_arguments}" == *'--storage-opt=overlay.ignore_chown_errors=true'* ]]
 [[ "${pull_arguments}" == *'--storage-opt=overlay.mountopt=nodev'* ]]
 [[ "${pull_arguments}" == *'--root=/var/lib/containers/dis-osrm-overlay'* ]]
 [[ "${pull_arguments}" == *'--runroot=/run/containers/dis-osrm-overlay'* ]]
