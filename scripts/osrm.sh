@@ -530,8 +530,9 @@ podman_image_id() {
 podman_profile_sha() {
   "${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" \
     run --rm --pull=never --network=none --read-only \
+    --cgroups=disabled \
     --cap-drop=all --security-opt=no-new-privileges --pids-limit=32 \
-    "${OSRM_CONTAINER_IMAGE}" sha256sum "${OSRM_CONTAINER_PROFILE}" 2>/dev/null \
+    "${OSRM_CONTAINER_IMAGE}" sha256sum "${OSRM_CONTAINER_PROFILE}" \
     | awk '{ print $1 }'
 }
 
@@ -554,8 +555,8 @@ installed_container_runtime_matches_receipt() {
   podman_package_is_held || return 1
   fingerprint="$(podman_package_fingerprint)" || return 1
   podman_image_metadata_is_valid || return 1
-  image_id="$(podman_image_id)"
-  profile_sha="$(podman_profile_sha)"
+  image_id="$(podman_image_id)" || return 1
+  profile_sha="$(podman_profile_sha)" || return 1
   container_provenance_matches "${fingerprint}" "${podman_version}" "${image_id}" "${profile_sha}"
 }
 
@@ -761,8 +762,10 @@ install_package() {
     }
   podman_image_metadata_is_valid \
     || fail "The pulled OSRM container does not match its pinned digest and OCI metadata."
-  image_id="$(podman_image_id)"
-  profile_sha="$(podman_profile_sha)"
+  image_id="$(podman_image_id)" \
+    || fail "The pinned OSRM container image ID could not be read from Podman."
+  profile_sha="$(podman_profile_sha)" \
+    || fail "The pinned OSRM container could not start for its offline profile integrity check."
   [[ "${image_id}" =~ ^sha256:[a-f0-9]{64}$ ]] \
     || fail "The pulled OSRM container image id is invalid."
   [[ "${profile_sha}" =~ ^[a-f0-9]{64}$ ]] \
@@ -1949,6 +1952,7 @@ import_dataset() {
 
   tool_version="$("${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" \
     run --rm --pull=never --network=none --read-only \
+    --cgroups=disabled \
     --cap-drop=all --security-opt=no-new-privileges --pids-limit=32 \
     "${OSRM_CONTAINER_IMAGE}" osrm-routed --version 2>&1 | head -n 1 || true)"
   tool_version="${tool_version:0:200}"

@@ -17,8 +17,16 @@ mock_source="${OSRM_CONTAINER_SOURCE}"
 mock_revision="${OSRM_CONTAINER_REVISION}"
 mock_license='BSD-2-Clause'
 mock_id='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+mock_run_log="$(mktemp "${TMPDIR:-/tmp}/dis-osrm-podman-run.XXXXXX")"
+mock_profile_sha='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+trap 'rm -f -- "${mock_run_log}"' EXIT
 
 podman_mock() {
+  if [[ " $* " == *' run '* ]]; then
+    printf '%s\n' "$*" > "${mock_run_log}"
+    printf '%s  %s\n' "${mock_profile_sha}" "${OSRM_CONTAINER_PROFILE}"
+    return 0
+  fi
   [[ " $* " == *' image inspect '* ]] || return 1
   if [[ " $* " == *' --format {{.Id}} '* ]]; then
     printf '%s\n' "${mock_id}"
@@ -50,6 +58,10 @@ podman_mock() {
 OSRM_PODMAN_PATH=podman_mock
 podman_image_metadata_is_valid
 [ "$(podman_image_id)" = 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' ]
+[ "$(podman_profile_sha)" = "${mock_profile_sha}" ]
+mock_run_arguments="$(< "${mock_run_log}")"
+[[ "${mock_run_arguments}" == *' --cgroups=disabled '* ]]
+[[ "${mock_run_arguments}" == *' --network=none '* ]]
 
 for mutation in digest architecture version source revision license id; do
   case "${mutation}" in
