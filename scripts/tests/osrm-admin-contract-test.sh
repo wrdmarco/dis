@@ -209,4 +209,12 @@ assert_contains "${common}" 'if=/dev/null "of=${path}" bs=1 count=0 conv=notrunc
 assert_contains "${common}" '.dis-permission-probe.XXXXXXXX'
 assert_absent "${common}" 'runuser -u www-data -- test -r "${status_path}"'
 assert_absent "${common}" 'runuser -u www-data -- test ! -w "${status_path}"'
+
+# Execute the real production redactor. This guards against shell-quoting
+# failures before an OSRM operation can transition to the running state.
+source "${APP_ROOT}/${worker}"
+redacted_line="$(safe_line $'download https://example.test/o\047brien and /opt/dis/o\047brien\nnow')"
+[ "${redacted_line}" = 'download [url] and [path] now' ] \
+  || { printf 'OSRM log redaction runtime contract failed: %s\n' "${redacted_line}" >&2; exit 1; }
+
 printf 'OSRM admin static contract and security test passed.\n'

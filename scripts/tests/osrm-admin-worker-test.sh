@@ -68,11 +68,6 @@ run_cmd() {
   esac
 }
 logger() { return 0; }
-# Git for Windows sed parses the production apostrophe-containing redaction
-# expression differently from GNU sed on the Ubuntu target. Keep this behavior
-# test focused on request/recovery contracts; static tests still pin the real
-# production redaction function.
-safe_line() { printf '[redacted]'; }
 artisan_callback() {
   local command="${1:-}" longitude latitude
 

@@ -178,10 +178,10 @@ safe_line() {
   local line="$1"
 
   line="$(printf '%s' "${line}" \
-    | tr '\000-\010\013\014\016-\037\177' ' ' \
+    | tr '\000-\037\177' ' ' \
     | sed -E \
-      -e 's#https?://[^[:space:]"'"']+#[url]#g' \
-      -e 's#(^|[[:space:]])/(opt|var|etc|usr|root|home|tmp|run)(/[^[:space:]"'"']*)?#\1[path]#g' \
+      -e 's#https?://[^[:space:]"]+#[url]#g' \
+      -e 's#(^|[[:space:]])/(opt|var|etc|usr|root|home|tmp|run)(/[^[:space:]"]*)?#\1[path]#g' \
       -e 's/[[:space:]]+/ /g')"
   line="${line:0:800}"
   [ -n "${line}" ] || line="OSRM-uitvoer afgeschermd."
