@@ -590,14 +590,96 @@ systemd_service_exists() {
   systemd_unit_exists "${service}.service"
 }
 
+backend_maintenance_framework_directory() {
+  local backend_dir="$1"
+  local expected="${DIS_DATA_PATH}/webapp/backend/storage/framework"
+  local linked resolved_expected
+
+  ensure_managed_directory "${expected}" root "${DIS_GROUP}" 0750
+  linked="$(readlink -f -- "${backend_dir}/storage/framework" 2>/dev/null || true)"
+  resolved_expected="$(readlink -f -- "${expected}" 2>/dev/null || true)"
+  [ -n "${linked}" ] && [ "${linked}" = "${resolved_expected}" ] \
+    || fail "Backend maintenance storage does not resolve to the managed runtime path."
+  printf '%s\n' "${resolved_expected}"
+}
+
+remove_backend_maintenance_file() {
+  local path="$1"
+
+  if [ -e "${path}" ] || [ -L "${path}" ]; then
+    [ -f "${path}" ] && [ ! -L "${path}" ] \
+      && [ "$(stat -c '%h' -- "${path}" 2>/dev/null || true)" = "1" ] \
+      || fail "Unsafe Laravel maintenance file: ${path}"
+    run_cmd rm -f -- "${path}"
+  fi
+}
+
+stage_backend_maintenance_files() {
+  local backend_dir="$1"
+  local framework_dir name path
+
+  framework_dir="$(backend_maintenance_framework_directory "${backend_dir}")"
+  for name in down maintenance.php; do
+    path="${framework_dir}/${name}"
+    remove_backend_maintenance_file "${path}"
+    run_cmd install -m 0600 -o "${DIS_USER}" -g "${DIS_GROUP}" /dev/null "${path}"
+  done
+}
+
+finalize_backend_maintenance_files() {
+  local backend_dir="$1"
+  local framework_dir name path metadata
+
+  framework_dir="$(backend_maintenance_framework_directory "${backend_dir}")"
+  for name in down maintenance.php; do
+    path="${framework_dir}/${name}"
+    metadata="$(stat -c '%U:%G:%a:%h' -- "${path}" 2>/dev/null || true)"
+    [ "${metadata}" = "${DIS_USER}:${DIS_GROUP}:600:1" ] \
+      || fail "Laravel did not create a safe managed maintenance file: ${path}"
+    run_cmd chown root:root "${path}"
+    run_cmd chmod 0600 "${path}"
+    if id www-data >/dev/null 2>&1; then
+      run_cmd setfacl -m "u:www-data:r--" "${path}"
+      require_user_can_open_file_for_reading \
+        www-data "${path}" "the Laravel ${name} maintenance file"
+    fi
+  done
+}
+
+clear_backend_maintenance_files() {
+  local backend_dir="$1"
+  local framework_dir name
+
+  framework_dir="$(backend_maintenance_framework_directory "${backend_dir}")"
+  for name in down maintenance.php; do
+    remove_backend_maintenance_file "${framework_dir}/${name}"
+  done
+}
+
+enable_backend_deployment_maintenance() {
+  local backend_dir="${1:-${DIS_INSTALL_PATH}/webapp/backend}"
+
+  if [ -f "${backend_dir}/artisan" ] && [ -f "${backend_dir}/vendor/autoload.php" ]; then
+    log "Putting the backend in maintenance mode"
+    if [ "${DRY_RUN:-0}" = "1" ]; then
+      log "Would stage managed Laravel maintenance files."
+      run_cmd runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" down --render="errors::503"
+      return 0
+    fi
+    stage_backend_maintenance_files "${backend_dir}"
+    (
+      umask 0077
+      run_cmd runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" down --render="errors::503"
+    )
+    finalize_backend_maintenance_files "${backend_dir}"
+  fi
+}
+
 enable_deployment_maintenance() {
   local backend_dir="${1:-${DIS_INSTALL_PATH}/webapp/backend}"
 
   enable_frontend_maintenance
-  if [ -f "${backend_dir}/artisan" ] && [ -f "${backend_dir}/vendor/autoload.php" ]; then
-    log "Putting the backend in maintenance mode"
-    run_cmd php "${backend_dir}/artisan" down --render="errors::503"
-  fi
+  enable_backend_deployment_maintenance "${backend_dir}"
 }
 
 prepare_backend_for_deployment_verification() {
@@ -605,7 +687,13 @@ prepare_backend_for_deployment_verification() {
 
   if [ -f "${backend_dir}/artisan" ] && [ -f "${backend_dir}/vendor/autoload.php" ]; then
     log "Bringing the backend up behind the deployment maintenance lock"
-    run_cmd php "${backend_dir}/artisan" up
+    if [ "${DRY_RUN:-0}" = "1" ]; then
+      log "Would clear managed Laravel maintenance files."
+      run_cmd runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" up
+      return 0
+    fi
+    clear_backend_maintenance_files "${backend_dir}"
+    run_cmd runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" up
   fi
 }
 
@@ -995,6 +1083,111 @@ require_user_cannot_create_file_in_directory() {
     fail "${user} unexpectedly can create files in ${description}: ${path}"
   fi
 }
+
+reconcile_backend_generated_cache_permissions() {
+  local backend_dir="$1"
+  local cache_dir="${backend_dir}/bootstrap/cache"
+
+  ensure_managed_directory "${cache_dir}" "${DIS_USER}" "${DIS_GROUP}" 0770
+  repair_managed_tree "${cache_dir}" "${DIS_USER}" "${DIS_GROUP}" 0770 0660
+  if id www-data >/dev/null 2>&1; then
+    secure_path_operation acl-tree "${cache_dir}" www-data r-x r--
+  fi
+}
+
+invalidate_backend_generated_cache() {
+  local backend_dir="$1"
+  local cache_dir="${backend_dir}/bootstrap/cache"
+
+  reconcile_backend_generated_cache_permissions "${backend_dir}"
+  # Never boot a new source/vendor combination through executable config,
+  # route, event or provider caches left by the previous release.
+  run_cmd rm -f -- "${cache_dir}/"*.php
+}
+
+regenerate_backend_package_manifest() {
+  local backend_dir="$1"
+  local cache_dir="${backend_dir}/bootstrap/cache"
+  local manifest manifest_name
+
+  require_file "${backend_dir}/artisan"
+  require_file "${backend_dir}/vendor/autoload.php"
+
+  # An earlier root invocation may have generated a manifest using a caller
+  # umask that prevents the managed application identity from bootstrapping.
+  invalidate_backend_generated_cache "${backend_dir}"
+  run_cmd runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" package:discover --ansi
+
+  # Laravel atomically replaces this file and derives its mode from umask().
+  # Reconcile both the mode and ACL after the replacement, independent of the
+  # interactive shell or service environment that launched the lifecycle.
+  reconcile_backend_generated_cache_permissions "${backend_dir}"
+  for manifest_name in packages.php services.php; do
+    manifest="${cache_dir}/${manifest_name}"
+    require_file "${manifest}"
+    if id www-data >/dev/null 2>&1; then
+      require_user_can_open_file_for_reading \
+        www-data "${manifest}" "the generated Laravel ${manifest_name} manifest"
+      require_user_cannot_open_file_for_writing \
+        www-data "${manifest}" "the generated Laravel ${manifest_name} manifest"
+    fi
+  done
+  if id www-data >/dev/null 2>&1; then
+    require_user_cannot_create_file_in_directory \
+      www-data "${cache_dir}" "the generated Laravel cache directory"
+  fi
+}
+
+backend_dependency_state_is_current() {
+  local backend_dir="$1"
+  local lock_file="${backend_dir}/composer.lock"
+  local marker="${backend_dir}/vendor/.dis-composer-lock.sha256"
+  local actual_digest recorded_digest
+
+  root_controlled_bundle_source_is_safe "${lock_file}" || return 1
+  root_owned_runtime_file_is_safe "${backend_dir}/vendor/autoload.php" 644 || return 1
+  root_owned_runtime_file_is_safe "${marker}" 644 || return 1
+
+  actual_digest="$(/usr/bin/sha256sum -- "${lock_file}")"
+  actual_digest="${actual_digest%% *}"
+  recorded_digest="$(tr -d '\r\n' < "${marker}")"
+  [[ "${actual_digest}" =~ ^[a-f0-9]{64}$ ]] \
+    && [ "${recorded_digest}" = "${actual_digest}" ]
+}
+
+record_backend_dependency_state() (
+  set -euo pipefail
+
+  local backend_dir="$1"
+  local lock_file="${backend_dir}/composer.lock"
+  local marker="${backend_dir}/vendor/.dis-composer-lock.sha256"
+  local actual_digest temporary=""
+
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "Would record the verified Composer dependency state."
+    return 0
+  fi
+
+  require_file "${backend_dir}/vendor/autoload.php"
+  root_controlled_bundle_source_is_safe "${lock_file}" \
+    || fail "composer.lock must remain root-controlled before recording dependency state."
+
+  actual_digest="$(/usr/bin/sha256sum -- "${lock_file}")"
+  actual_digest="${actual_digest%% *}"
+  [[ "${actual_digest}" =~ ^[a-f0-9]{64}$ ]] \
+    || fail "Could not calculate the Composer lock digest."
+
+  temporary="$(mktemp "${backend_dir}/vendor/.dis-composer-lock.sha256.XXXXXX")"
+  trap 'rm -f -- "${temporary}" 2>/dev/null || true' EXIT
+  printf '%s\n' "${actual_digest}" > "${temporary}"
+  run_cmd chown root:root "${temporary}"
+  run_cmd chmod 0644 "${temporary}"
+  run_cmd mv -fT -- "${temporary}" "${marker}"
+  temporary=""
+  root_owned_runtime_file_is_safe "${marker}" 644 \
+    || fail "The Composer dependency state marker is unsafe."
+  trap - EXIT
+)
 
 install_osrm_admin_layout() {
   local status_path="/var/log/dis/osrm-status.json"

@@ -313,6 +313,7 @@ clear_application_caches() {
 
   log "Clearing backend and frontend caches"
   if [ -f "${backend_dir}/artisan" ]; then
+    invalidate_backend_generated_cache "${backend_dir}"
     run_cmd runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" optimize:clear
   fi
 
@@ -330,6 +331,10 @@ clear_application_caches() {
     "${frontend_dir}/vite.config.js" \
     "${frontend_dir}/vite.config.d.ts" \
     2>/dev/null || true
+
+  if [ -f "${backend_dir}/artisan" ] && [ -f "${backend_dir}/vendor/autoload.php" ]; then
+    regenerate_backend_package_manifest "${backend_dir}"
+  fi
 
   if command -v npm >/dev/null 2>&1; then
     run_cmd npm cache clean --force >/dev/null 2>&1 || true

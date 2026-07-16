@@ -146,8 +146,9 @@ require_directory "${RESTORED_DATA}/storage"
 require_directory "${RESTORED_DATA}/webapp/backend/storage"
 require_directory "${RESTORED_DATA}/secrets"
 
-enable_deployment_maintenance "${APP_ROOT}/webapp/backend"
+enable_frontend_maintenance
 stop_restore_runtime_services
+enable_backend_deployment_maintenance "${APP_ROOT}/webapp/backend"
 if [ -n "${RESTORE_MUTATION_MARKER:-}" ]; then
   require_root_controlled_parent "${RESTORE_MUTATION_MARKER}"
   [ ! -e "${RESTORE_MUTATION_MARKER}" ] && [ ! -L "${RESTORE_MUTATION_MARKER}" ] \
@@ -180,9 +181,11 @@ ensure_data_links "${APP_ROOT}"
 require_backup_encryption_key >/dev/null
 
 log "Applying current database migrations and revoking restored authentication state"
+regenerate_backend_package_manifest "${APP_ROOT}/webapp/backend"
 run_cmd runuser -u "${DIS_USER}" -- php "${APP_ROOT}/webapp/backend/artisan" migrate --force
 run_cmd runuser -u "${DIS_USER}" -- php "${APP_ROOT}/webapp/backend/artisan" \
   dis:revoke-all-authentication-state --reason=backup-restore
+reconcile_backend_generated_cache_permissions "${APP_ROOT}/webapp/backend"
 if id www-data >/dev/null 2>&1; then
   run_cmd runuser -u www-data -- php "${APP_ROOT}/webapp/backend/artisan" dis:self-check
 else

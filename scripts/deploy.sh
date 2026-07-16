@@ -52,7 +52,10 @@ deployment_exit_handler() {
 }
 
 trap 'deployment_exit_handler "$?"' EXIT
-enable_deployment_maintenance "${BACKEND_DIR}"
+# Do not bootstrap a just-updated source tree through the previous release's
+# dependencies or executable caches. Nginx closes the public surface first;
+# Laravel maintenance is enabled after dependencies and manifests are ready.
+enable_frontend_maintenance
 stop_dis_deployment_services
 DIS_BACKUP_KEY_CUTOVER_ALLOWED=1 ensure_backup_encryption_key >/dev/null
 
@@ -254,14 +257,28 @@ if [ -f "${BACKEND_DIR}/composer.json" ]; then
   run_cmd rm -rf -- "${COMPOSER_DEPLOY_HOME}"
   run_cmd chown -R root:root "${BACKEND_DIR}/vendor"
   run_cmd chmod -R u=rwX,go=rX "${BACKEND_DIR}/vendor"
+  record_backend_dependency_state "${BACKEND_DIR}"
   APP_ROOT="${APP_ROOT}" bash "${SCRIPT_DIR}/self-heal-permissions.sh"
-  run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" package:discover --ansi
+  if [ "${SKIP_DEPLOY_CACHE_CLEAR}" != "1" ]; then
+    invalidate_backend_generated_cache "${BACKEND_DIR}"
+    log "Clearing application caches"
+    run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" optimize:clear
+  fi
+  regenerate_backend_package_manifest "${BACKEND_DIR}"
+  enable_backend_deployment_maintenance "${BACKEND_DIR}"
   run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" migrate --force
   if [ "${RUN_SEEDERS}" = "1" ]; then
     run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" db:seed --force
   else
     log "Skipping database seeders. Set RUN_SEEDERS=1 only for first install or intentional reseeding."
   fi
+
+  # Laravel replaces generated cache files using the caller's umask. Reconcile
+  # the completed cache tree after all Artisan writes so a restrictive root
+  # shell umask cannot remove the PHP-FPM identity's explicit read access.
+  log "Reconciling generated backend cache permissions"
+  reconcile_backend_generated_cache_permissions "${BACKEND_DIR}"
+
   if id www-data >/dev/null 2>&1; then
     run_cmd runuser -u www-data -- php "${BACKEND_DIR}/artisan" dis:self-check
   else
@@ -334,11 +351,6 @@ APP_ROOT="${APP_ROOT}" bash "${APP_ROOT}/scripts/osrm.sh" reconcile
 APP_ROOT="${APP_ROOT}" bash "${APP_ROOT}/scripts/osrm.sh" publish-status
 
 finalize_backup_key_cutover "${APP_ROOT}"
-
-if [ "${SKIP_DEPLOY_CACHE_CLEAR}" != "1" ] && [ -f "${BACKEND_DIR}/artisan" ]; then
-  log "Clearing application caches"
-  run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" optimize:clear
-fi
 
 log "Starting the web tier behind maintenance for verification"
 restart_dis_web_services_for_verification

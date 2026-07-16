@@ -121,12 +121,21 @@ final class BackupPrivilegeBoundaryTest extends TestCase
         $this->assertStringContainsString('open(target, "xb", buffering=0)', $extractor);
 
         $preflight = strpos($restore, 'extract_storage_backup_archive "${PAYLOAD_ROOT}/storage.tar.gz"');
-        $maintenance = strpos($restore, 'enable_deployment_maintenance "${APP_ROOT}/webapp/backend"');
+        $frontendMaintenance = strpos($restore, 'enable_frontend_maintenance');
+        $stopServices = strpos($restore, 'stop_restore_runtime_services', $frontendMaintenance);
+        $backendMaintenance = strpos(
+            $restore,
+            'enable_backend_deployment_maintenance "${APP_ROOT}/webapp/backend"',
+        );
         $databaseRestore = strpos($restore, 'PGPASSWORD="${DB_PASSWORD}" run_cmd pg_restore');
         $this->assertIsInt($preflight);
-        $this->assertIsInt($maintenance);
+        $this->assertIsInt($frontendMaintenance);
+        $this->assertIsInt($stopServices);
+        $this->assertIsInt($backendMaintenance);
         $this->assertIsInt($databaseRestore);
-        $this->assertLessThan($maintenance, $preflight);
+        $this->assertLessThan($frontendMaintenance, $preflight);
+        $this->assertLessThan($stopServices, $frontendMaintenance);
+        $this->assertLessThan($backendMaintenance, $stopServices);
         $this->assertLessThan($databaseRestore, $preflight);
     }
 

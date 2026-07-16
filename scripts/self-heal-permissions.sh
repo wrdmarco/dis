@@ -158,9 +158,10 @@ if id www-data >/dev/null 2>&1; then
     "${DIS_DATA_PATH}/webapp/backend/storage" \
     "${DIS_DATA_PATH}/webapp/backend/storage/framework"
 
-  for runtime_leaf in "${backend_runtime_leaves[@]}" "${BACKEND_DIR}/bootstrap/cache"; do
+  for runtime_leaf in "${backend_runtime_leaves[@]}"; do
     secure_path_operation acl-tree "${runtime_leaf}" www-data rwx rw-
   done
+  secure_path_operation acl-tree "${BACKEND_DIR}/bootstrap/cache" www-data r-x r--
 
   if [ -f "${DIS_DATA_PATH}/.env" ]; then
     run_cmd setfacl -m "u:www-data:r--" "${DIS_DATA_PATH}/.env"
@@ -181,5 +182,17 @@ fi
 
 run_cmd setfacl -m "u:${DIS_USER}:-wx" "${DIS_DATA_PATH}/backup-requests"
 run_cmd setfacl -x "d:u:${DIS_USER}" "${DIS_DATA_PATH}/backup-requests" 2>/dev/null || true
+
+# A previous updater process keeps its old shell functions after checking out
+# a new release, but it executes this script from the new checkout after its
+# legacy cache cleanup. Rebuild only when Composer has recorded that vendor
+# exactly matches the current lock file, so the checkout boundary remains safe.
+if [ -d "${BACKEND_DIR}" ] \
+  && { [ ! -f "${BACKEND_DIR}/bootstrap/cache/packages.php" ] \
+    || [ ! -f "${BACKEND_DIR}/bootstrap/cache/services.php" ]; } \
+  && backend_dependency_state_is_current "${BACKEND_DIR}"; then
+  log "Regenerating missing backend manifests from verified dependencies"
+  regenerate_backend_package_manifest "${BACKEND_DIR}"
+fi
 
 log "Permission self-heal completed"
