@@ -16,10 +16,14 @@ mock_version="${OSRM_CONTAINER_IMAGE_VERSION}"
 mock_source="${OSRM_CONTAINER_SOURCE}"
 mock_revision="${OSRM_CONTAINER_REVISION}"
 mock_license='BSD-2-Clause'
-mock_id='sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+mock_id='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 
 podman_mock() {
   [[ " $* " == *' image inspect '* ]] || return 1
+  if [[ " $* " == *' --format {{.Id}} '* ]]; then
+    printf '%s\n' "${mock_id}"
+    return 0
+  fi
   jq -cn \
     --arg digest "${mock_digest}" \
     --arg architecture "${mock_architecture}" \
@@ -45,6 +49,7 @@ podman_mock() {
 
 OSRM_PODMAN_PATH=podman_mock
 podman_image_metadata_is_valid
+[ "$(podman_image_id)" = 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' ]
 
 for mutation in digest architecture version source revision license id; do
   case "${mutation}" in
@@ -66,7 +71,11 @@ for mutation in digest architecture version source revision license id; do
   mock_source="${OSRM_CONTAINER_SOURCE}"
   mock_revision="${OSRM_CONTAINER_REVISION}"
   mock_license='BSD-2-Clause'
-  mock_id='sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  mock_id='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 done
+
+mock_id='sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+podman_image_metadata_is_valid
+[ "$(podman_image_id)" = 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' ]
 
 printf 'OSRM immutable OCI metadata validation test passed.\n'

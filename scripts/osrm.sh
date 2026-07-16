@@ -512,14 +512,19 @@ podman_image_metadata_is_valid() {
         and .[0].Labels["org.opencontainers.image.source"] == $source
         and .[0].Labels["org.opencontainers.image.revision"] == $revision
         and .[0].Labels["org.opencontainers.image.licenses"] == "BSD-2-Clause"
-        and (.[0].Id | type == "string" and test("^sha256:[a-f0-9]{64}$"))
+        and (.[0].Id | type == "string" and test("^(sha256:)?[a-f0-9]{64}$"))
       ' >/dev/null
 }
 
 podman_image_id() {
-  "${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" \
+  local image_id
+
+  image_id="$("${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" \
     image inspect --format '{{.Id}}' "${OSRM_CONTAINER_IMAGE}" 2>/dev/null \
-    | tr -d '\r\n'
+    | tr -d '\r\n')"
+  image_id="${image_id#sha256:}"
+  [[ "${image_id}" =~ ^[a-f0-9]{64}$ ]] || return 1
+  printf 'sha256:%s\n' "${image_id}"
 }
 
 podman_profile_sha() {
