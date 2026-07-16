@@ -809,18 +809,15 @@ require_dis_frontend_release_artifacts() {
     if [ ! -f "${path}" ] || [ -L "${path}" ]; then
       fail "The current frontend release is not restartable; required artifact is missing or unsafe: ${path}"
     fi
-    if ! runuser -u "${DIS_USER}" -- test -r "${path}"; then
-      fail "The current frontend release is not restartable; ${DIS_USER} cannot read: ${path}"
-    fi
+    require_user_can_open_file_for_reading \
+      "${DIS_USER}" "${path}" "a required frontend release artifact"
   done
   for path in "${frontend_dir}/.next/server" "${frontend_dir}/.next/static"; do
     if [ ! -d "${path}" ] || [ -L "${path}" ]; then
       fail "The current frontend release is not restartable; required directory is missing or unsafe: ${path}"
     fi
-    if ! runuser -u "${DIS_USER}" -- test -r "${path}" \
-      || ! runuser -u "${DIS_USER}" -- test -x "${path}"; then
-      fail "The current frontend release is not restartable; ${DIS_USER} cannot access: ${path}"
-    fi
+    require_user_can_open_directory_for_reading \
+      "${DIS_USER}" "${path}" "a required frontend release directory"
   done
 }
 
@@ -1050,6 +1047,9 @@ require_user_can_open_directory_for_reading() {
   if ! runuser -u "${user}" -- /usr/bin/find "${path}" \
     -mindepth 1 -maxdepth 1 -print -quit >/dev/null; then
     fail "${user} cannot open ${description} for reading: ${path}"
+  fi
+  if ! runuser -u "${user}" -- /bin/sh -c 'cd -- "$1"' sh "${path}"; then
+    fail "${user} cannot enter ${description}: ${path}"
   fi
 }
 

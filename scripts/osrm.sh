@@ -203,12 +203,14 @@ ensure_osrm_layout() {
   done
   run_cmd setfacl -m "u:${OSRM_USER}:--x" "${DIS_DATA_PATH}"
   run_cmd setfacl -m "u:${OSRM_IMPORT_USER}:--x" "${DIS_DATA_PATH}"
-  run_cmd runuser -u "${OSRM_USER}" -- test -x "${DIS_DATA_PATH}"
-  run_cmd runuser -u "${OSRM_USER}" -- test -x "${OSRM_DATA_ROOT}"
-  run_cmd runuser -u "${OSRM_USER}" -- test -r "${OSRM_RELEASES_ROOT}"
-  run_cmd runuser -u "${OSRM_IMPORT_USER}" -- test -x "${DIS_DATA_PATH}"
-  run_cmd runuser -u "${OSRM_IMPORT_USER}" -- test -x "${OSRM_DATA_ROOT}"
-  run_cmd runuser -u "${OSRM_IMPORT_USER}" -- test -r "${OSRM_RELEASES_ROOT}"
+  require_user_can_open_directory_for_reading \
+    "${OSRM_USER}" "${OSRM_DATA_ROOT}" "the OSRM data directory"
+  require_user_can_open_directory_for_reading \
+    "${OSRM_USER}" "${OSRM_RELEASES_ROOT}" "the OSRM releases directory"
+  require_user_can_open_directory_for_reading \
+    "${OSRM_IMPORT_USER}" "${OSRM_DATA_ROOT}" "the OSRM data directory"
+  require_user_can_open_directory_for_reading \
+    "${OSRM_IMPORT_USER}" "${OSRM_RELEASES_ROOT}" "the OSRM releases directory"
 }
 
 write_status() {
@@ -1448,8 +1450,8 @@ import_dataset() {
   command -v systemd-run >/dev/null 2>&1 || fail "systemd-run is required for resource-limited OSRM preprocessing."
 
   profile="$(resolve_profile "${requested_profile}")"
-  run_cmd runuser -u "${OSRM_IMPORT_USER}" -- test -r "${profile}" \
-    || fail "The isolated OSRM import account cannot read the selected profile."
+  require_user_can_open_file_for_reading \
+    "${OSRM_IMPORT_USER}" "${profile}" "the selected OSRM profile"
   profile_sha="$(sha256sum -- "${profile}" | awk '{ print $1 }')"
   extract_bin="$(trusted_tool_path osrm-extract)"
   partition_bin="$(trusted_tool_path osrm-partition)"

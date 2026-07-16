@@ -239,7 +239,24 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertStringContainsString('node_modules/next/dist/bin/next', $artifactCheck);
         self::assertStringContainsString('.next/server', $artifactCheck);
         self::assertStringContainsString('.next/static', $artifactCheck);
-        self::assertStringContainsString('runuser -u "${DIS_USER}" -- test -r', $artifactCheck);
+        self::assertStringContainsString('require_user_can_open_file_for_reading', $artifactCheck);
+        self::assertStringContainsString('require_user_can_open_directory_for_reading', $artifactCheck);
+        self::assertStringNotContainsString('runuser -u "${DIS_USER}" -- test -', $artifactCheck);
+
+        self::assertStringContainsString('/usr/bin/find "${path}"', $common);
+        self::assertStringContainsString('/bin/sh -c \'cd -- "$1"\' sh "${path}"', $common);
+
+        $osrm = $this->read('scripts/osrm.sh');
+        self::assertStringContainsString(
+            '"${OSRM_USER}" "${OSRM_RELEASES_ROOT}" "the OSRM releases directory"',
+            $osrm,
+        );
+        self::assertStringContainsString(
+            '"${OSRM_IMPORT_USER}" "${profile}" "the selected OSRM profile"',
+            $osrm,
+        );
+        self::assertStringNotContainsString('runuser -u "${OSRM_USER}" -- test -', $osrm);
+        self::assertStringNotContainsString('runuser -u "${OSRM_IMPORT_USER}" -- test -', $osrm);
 
         $stableWait = substr(
             $common,
