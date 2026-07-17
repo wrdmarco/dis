@@ -9,6 +9,7 @@ use App\Models\Incident;
 use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
 use App\Models\User;
+use App\Support\ApiDateTime;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -95,13 +96,16 @@ final class LocationService
                 'incident_id' => $incident->id,
                 'user_id' => $target->id,
             ]);
-            if ($consent->exists && $consent->is_active) {
+            if ($consent->exists && $consent->is_active && $this->hasCurrentLocation($consent)) {
                 return [$consent, collect()];
             }
 
             $tokens = $target->fcmTokens()->where('is_active', true)->get();
             if ($tokens->isEmpty()) {
                 throw ValidationException::withMessages(['user_id' => ['Deze gebruiker heeft geen actief app-device voor pushmeldingen.']]);
+            }
+            if ($consent->exists && $consent->is_active) {
+                return [$consent, $tokens];
             }
             $consent->fill([
                 'is_active' => false,
@@ -337,6 +341,30 @@ final class LocationService
     private function nextConsentStateVersion(LocationSharingConsent $consent): int
     {
         return $consent->exists ? max(1, (int) $consent->state_version + 1) : 1;
+    }
+
+    private function hasCurrentLocation(LocationSharingConsent $consent): bool
+    {
+        $location = LocationUpdate::query()
+            ->where('incident_id', $consent->incident_id)
+            ->where('user_id', $consent->user_id)
+            ->where('consent_state_version', $consent->state_version)
+            ->latest('created_at')
+            ->latest('id')
+            ->first();
+        if ($location?->recorded_at === null || $location->created_at === null || $consent->consented_at === null) {
+            return false;
+        }
+
+        $recordedAt = ApiDateTime::localWallClock($location->recorded_at);
+        $createdAt = ApiDateTime::localWallClock($location->created_at);
+        $consentedAt = ApiDateTime::localWallClock($consent->consented_at);
+        $now = now();
+
+        return $createdAt?->greaterThanOrEqualTo($consentedAt) === true
+            && $recordedAt?->lessThanOrEqualTo($createdAt->addMinutes(2)) === true
+            && $recordedAt->betweenIncluded($now->copy()->subMinutes(5), $now->copy()->addMinutes(2))
+            && $createdAt->betweenIncluded($now->copy()->subMinutes(5), $now->copy()->addMinutes(2));
     }
 
     private function broadcastLocationSharingChange(Incident $incident): void

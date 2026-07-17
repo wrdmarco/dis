@@ -118,20 +118,24 @@ final class LocationController extends Controller
             ->get();
         $consentsByUser = $consents->keyBy('user_id');
 
+        $latestLocationUpperBound = now()->addMinutes(2);
         $latestLocations = LocationUpdate::query()
             ->with('user')
             ->where('incident_id', $incident->id)
             ->whereIn('user_id', $activeLocationUserIds)
-            ->where('recorded_at', '<=', now()->addMinutes(2))
+            ->where('recorded_at', '<=', $latestLocationUpperBound)
+            ->where('created_at', '<=', $latestLocationUpperBound)
             // Select at most one row per user in SQL. Server receipt order is
             // authoritative; loading the complete 30-day location history on
             // every poll would make incident ETA degrade as history grows.
-            ->whereNotExists(function ($newerLocation): void {
+            ->whereNotExists(function ($newerLocation) use ($latestLocationUpperBound): void {
                 $newerLocation
                     ->selectRaw('1')
                     ->from('location_updates as newer_location')
                     ->whereColumn('newer_location.incident_id', 'location_updates.incident_id')
                     ->whereColumn('newer_location.user_id', 'location_updates.user_id')
+                    ->where('newer_location.recorded_at', '<=', $latestLocationUpperBound)
+                    ->where('newer_location.created_at', '<=', $latestLocationUpperBound)
                     ->where(function ($newerReceipt): void {
                         $newerReceipt
                             ->whereColumn('newer_location.created_at', '>', 'location_updates.created_at')
@@ -145,15 +149,17 @@ final class LocationController extends Controller
             ->get()
             ->filter(function (LocationUpdate $location) use ($consentsByUser): bool {
                 $consent = $consentsByUser->get($location->user_id);
+                $createdAt = ApiDateTime::localWallClock($location->created_at);
+                $consentedAt = ApiDateTime::localWallClock($consent?->consented_at);
 
                 return $this->isPlausiblyRecordedLocation($location)
                     && $consent?->is_active === true
                     && (int) $location->consent_state_version === (int) $consent->state_version
-                    && $consent->consented_at !== null
+                    && $consentedAt !== null
                     // Server receipt time is authoritative across revoke and
                     // re-consent; an old client timestamp may never revive a
                     // coordinate received under the previous consent.
-                    && $location->created_at?->greaterThanOrEqualTo($consent->consented_at) === true;
+                    && $createdAt?->greaterThanOrEqualTo($consentedAt) === true;
             })
             ->keyBy('user_id');
 
@@ -246,11 +252,13 @@ final class LocationController extends Controller
             return false;
         }
 
+        $recordedAt = ApiDateTime::localWallClock($location->recorded_at);
+        $createdAt = ApiDateTime::localWallClock($location->created_at);
         $now = now();
 
         return $this->isPlausiblyRecordedLocation($location)
-            && $location->recorded_at->betweenIncluded($now->copy()->subMinutes(5), $now->copy()->addMinutes(2))
-            && $location->created_at?->betweenIncluded($now->copy()->subMinutes(5), $now->copy()->addMinutes(2)) === true;
+            && $recordedAt?->betweenIncluded($now->copy()->subMinutes(5), $now->copy()->addMinutes(2)) === true
+            && $createdAt?->betweenIncluded($now->copy()->subMinutes(5), $now->copy()->addMinutes(2)) === true;
     }
 
     private function isPlausiblyRecordedLocation(LocationUpdate $location): bool
@@ -259,7 +267,10 @@ final class LocationController extends Controller
             return false;
         }
 
-        return $location->recorded_at->lessThanOrEqualTo($location->created_at->addMinutes(2));
+        $recordedAt = ApiDateTime::localWallClock($location->recorded_at);
+        $createdAt = ApiDateTime::localWallClock($location->created_at);
+
+        return $recordedAt?->lessThanOrEqualTo($createdAt?->addMinutes(2)) === true;
     }
 
     /**

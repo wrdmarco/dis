@@ -970,12 +970,12 @@ final class RoutingEndpointIntegrationTest extends TestCase
             ->assertJsonMissingPath('data.0.user.teams');
     }
 
-    public function test_repeated_location_share_request_keeps_active_consent_active_without_duplicate_push(): void
+    public function test_repeated_location_share_request_keeps_current_active_consent_without_duplicate_push(): void
     {
         Queue::fake();
         $coordinator = $this->user('location-idempotency-coordinator@example.test', 'Location Idempotency Coordinator');
-        $pilot = $this->user('location-idempotency-pilot@example.test', 'Location Idempotency Pilot');
         $team = $this->team('LOCATION-IDEMPOTENCY');
+        $pilot = $this->eligiblePilot($team, 'location-idempotency-pilot@example.test', 'Location Idempotency Pilot', 52.100000, 5.100000);
         $incident = $this->incident($coordinator, $team, 52.300000, 5.300000, 'LOCATION-IDEMPOTENCY-001');
         $dispatch = $this->sentDispatch($incident, $coordinator);
         $this->acceptedRecipient($dispatch, $pilot);
@@ -986,6 +986,15 @@ final class RoutingEndpointIntegrationTest extends TestCase
             'consented_at' => now()->subMinute(),
         ])->refresh();
         $stateVersion = (int) $consent->state_version;
+        LocationUpdate::query()->create([
+            'incident_id' => $incident->id,
+            'user_id' => $pilot->id,
+            'consent_state_version' => $stateVersion,
+            'latitude' => 52.100000,
+            'longitude' => 5.100000,
+            'recorded_at' => now(),
+            'created_at' => now(),
+        ]);
 
         $result = app(LocationService::class)->requestSharing($incident, $pilot, $coordinator);
 
@@ -993,6 +1002,44 @@ final class RoutingEndpointIntegrationTest extends TestCase
         $this->assertTrue($consent->refresh()->is_active);
         $this->assertSame($stateVersion, (int) $consent->state_version);
         Queue::assertNothingPushed();
+    }
+
+    public function test_repeated_location_share_request_wakes_device_when_active_location_is_stale(): void
+    {
+        Queue::fake();
+        $coordinator = $this->user('location-refresh-coordinator@example.test', 'Location Refresh Coordinator');
+        $team = $this->team('LOCATION-REFRESH');
+        $pilot = $this->eligiblePilot($team, 'location-refresh-pilot@example.test', 'Location Refresh Pilot', 52.100000, 5.100000);
+        $incident = $this->incident($coordinator, $team, 52.300000, 5.300000, 'LOCATION-REFRESH-001');
+        $dispatch = $this->sentDispatch($incident, $coordinator);
+        $this->acceptedRecipient($dispatch, $pilot);
+        $consent = LocationSharingConsent::query()->create([
+            'incident_id' => $incident->id,
+            'user_id' => $pilot->id,
+            'is_active' => true,
+            'consented_at' => now()->subMinutes(10),
+        ])->refresh();
+        $stateVersion = (int) $consent->state_version;
+        LocationUpdate::query()->create([
+            'incident_id' => $incident->id,
+            'user_id' => $pilot->id,
+            'consent_state_version' => $stateVersion,
+            'latitude' => 52.100000,
+            'longitude' => 5.100000,
+            'recorded_at' => now()->subMinutes(6),
+            'created_at' => now()->subMinutes(6),
+        ]);
+
+        $result = app(LocationService::class)->requestSharing($incident, $pilot, $coordinator);
+
+        $this->assertSame(['queued_tokens' => 1, 'user_id' => (string) $pilot->id], $result);
+        $this->assertTrue($consent->refresh()->is_active);
+        $this->assertSame($stateVersion, (int) $consent->state_version);
+        Queue::assertPushed(SendFcmNotification::class, function (SendFcmNotification $job) use ($incident, $pilot): bool {
+            return $job->messageType === 'location_share_request'
+                && ($job->data['incident_id'] ?? null) === $incident->id
+                && $job->fcmTokenId === $pilot->fcmTokens()->sole()->id;
+        });
     }
 
     public function test_live_location_access_enforces_operator_self_scope_assignment_and_permission(): void
