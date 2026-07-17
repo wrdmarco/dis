@@ -15,6 +15,14 @@ final class DeploymentMaintenanceContractTest extends TestCase
         $this->repositoryRoot = dirname(__DIR__, 4);
     }
 
+    public function test_queue_worker_prioritizes_push_before_background_work(): void
+    {
+        $service = $this->read('infrastructure/systemd/dis-queue.service');
+
+        self::assertStringContainsString('--queue=push,default,broadcasts', $service);
+        self::assertStringNotContainsString('--queue=default,push,broadcasts', $service);
+    }
+
     public function test_deploy_stops_runtime_before_migrations_and_only_opens_after_verification(): void
     {
         $script = $this->read('scripts/deploy.sh');

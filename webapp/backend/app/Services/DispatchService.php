@@ -1453,7 +1453,7 @@ final class DispatchService
         return $tokens
             ->where('is_active', true)
             ->where('client_type', 'operator')
-            ->where('last_seen_at', '>', now()->subMinutes(FcmToken::onlineThresholdMinutes()));
+            ->where('last_seen_at', '>', now()->subMinutes(FcmToken::pushReachabilityThresholdMinutes()));
     }
 
     public function broadcastDispatchChange(DispatchRequest $dispatch, string $action): void

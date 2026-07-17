@@ -77,6 +77,87 @@ final class PushProviderCoalescingTest extends TestCase
         ]));
     }
 
+    public function test_visible_operational_messages_use_high_android_priority_and_remain_data_only(): void
+    {
+        $token = $this->androidToken('visible-priority');
+        $this->configureFcm();
+
+        $this->sendAndAssertAndroidPriorities($token, [
+            'dispatch_request' => 'HIGH',
+            'dispatch_update' => 'HIGH',
+            'incident_preannouncement' => 'HIGH',
+            'manual_admin' => 'HIGH',
+            'location_share_request' => 'HIGH',
+            'incident_cancelled' => 'HIGH',
+        ]);
+    }
+
+    public function test_silent_control_and_unknown_messages_use_normal_android_priority(): void
+    {
+        $token = $this->androidToken('silent-priority');
+        $this->configureFcm();
+
+        $this->sendAndAssertAndroidPriorities($token, [
+            'device_presence_ping' => 'NORMAL',
+            'dispatch_response_sync' => 'NORMAL',
+            'location_sharing_stopped' => 'NORMAL',
+            'session_revoked' => 'NORMAL',
+            'unknown_control_message' => 'NORMAL',
+        ]);
+    }
+
+    private function androidToken(string $suffix): FcmToken
+    {
+        $user = User::query()->create([
+            'name' => 'Priority Pilot '.$suffix,
+            'first_name' => 'Priority',
+            'last_name' => 'Pilot',
+            'email' => 'priority-'.$suffix.'@example.test',
+            'password' => Hash::make('Test-password-123!'),
+            'account_status' => 'active',
+        ]);
+
+        return $this->token($user, 'android', 'android-'.$suffix.'-device');
+    }
+
+    private function configureFcm(): void
+    {
+        SystemSetting::query()->updateOrCreate(
+            ['key' => 'firebase.project_id'],
+            ['value' => 'test-project', 'is_sensitive' => false],
+        );
+        Cache::put('firebase.messaging.access_token', 'test-fcm-access-token', now()->addHour());
+        Http::fake([
+            'https://fcm.googleapis.com/*' => Http::response(['name' => 'messages/test'], 200),
+        ]);
+    }
+
+    /**
+     * @param  array<string, string>  $expectedPriorities
+     */
+    private function sendAndAssertAndroidPriorities(FcmToken $token, array $expectedPriorities): void
+    {
+        foreach ($expectedPriorities as $type => $priority) {
+            app(FcmClient::class)->send($token, 'Titel', 'Bericht', ['type' => $type]);
+        }
+
+        $requests = Http::recorded(
+            static fn (ClientRequest $request): bool => str_contains($request->url(), 'fcm.googleapis.com'),
+        );
+        $this->assertCount(count($expectedPriorities), $requests);
+
+        foreach ($requests as [$request]) {
+            $message = $request->data()['message'];
+            $type = $message['data']['type'];
+
+            $this->assertArrayHasKey($type, $expectedPriorities);
+            $this->assertSame($expectedPriorities[$type], $message['android']['priority'] ?? null);
+            $this->assertArrayNotHasKey('notification', $message);
+            $this->assertArrayNotHasKey('notification', $message['android']);
+            $this->assertArrayNotHasKey('ttl', $message['android']);
+        }
+    }
+
     private function token(User $user, string $platform, string $deviceId): FcmToken
     {
         return FcmToken::query()->create([

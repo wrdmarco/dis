@@ -210,11 +210,17 @@ attendance, a `no_response` override, arriving on scene, or closing the incident
 Mobile app installation and updates are handled through the platform app stores. The deployment no longer
 exposes a public APK download page.
 
-Android treats a preannouncement as a normal, one-shot notification rather than the persistent operational
-alarm used for a real dispatch. When alarm sound is enabled it uses the versioned
-`preannouncements_v1` channel with the system notification sound; when disabled it uses
-`preannouncements_muted_v1`. Existing Android channel settings, global notification permission and Do Not
-Disturb policy remain authoritative.
+Android treats a preannouncement as a one-shot DIS alarm rather than the persistent looping alarm used for
+a real dispatch. When alarm sound is enabled, Android plays the configured DIS tone through a fresh,
+sound-specific `preannouncements_v4_*` notification channel; this remains reliable when the app is cold or in
+Doze. When alarm sound is disabled, it uses `preannouncements_muted_v4` and stays silent. A separate channel is
+used for authorised Do Not Disturb bypass. Global notification permission and Android's Do Not Disturb access
+remain authoritative.
+
+Silent device-presence pings use normal FCM priority so Android cannot downgrade later visible alarms for
+abusive background wakeups. The strict online indicator remains short-lived, while operational push
+selection accepts an active operator token seen within a separate 24-hour reachability window. A phone in
+Doze therefore remains eligible for the subsequent HIGH-priority preannouncement or dispatch alarm.
 
 iOS receives the same server-derived place and preannouncement text through APNs. The APNs alert contains
 the default notification sound, and the foreground notification delegate presents standard dispatch

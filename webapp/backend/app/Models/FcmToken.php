@@ -5,7 +5,6 @@ namespace App\Models;
 use App\Models\Concerns\UsesUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use App\Models\SystemSetting;
 
 final class FcmToken extends Model
 {
@@ -49,6 +48,18 @@ final class FcmToken extends Model
     public static function onlineThresholdMinutes(): int
     {
         return max(15, SystemSetting::integer('devices.heartbeat_interval_minutes', 15)) * 2;
+    }
+
+    /**
+     * Android may defer normal-priority heartbeat traffic while a device is in
+     * Doze. Operational push selection therefore needs a wider grace period
+     * than the strict online indicator; the actual alarm remains HIGH priority.
+     */
+    public static function pushReachabilityThresholdMinutes(): int
+    {
+        $heartbeatInterval = max(15, SystemSetting::integer('devices.heartbeat_interval_minutes', 15));
+
+        return max(24 * 60, $heartbeatInterval * 8);
     }
 
     public function user(): BelongsTo

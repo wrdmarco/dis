@@ -127,6 +127,34 @@ final class RoutingEndpointIntegrationTest extends TestCase
         $this->assertSame(0, $response->json('data.recipients.0.eta_minutes') % 15);
     }
 
+    public function test_dispatch_keeps_a_doze_sleeping_operator_reachable_without_treating_stale_devices_as_online(): void
+    {
+        $viewer = $this->user('doze-viewer@example.test', 'Doze Viewer');
+        $this->grant($viewer, ['incidents.dispatch.view']);
+        $team = $this->team('DOZE-REACHABILITY');
+        $sleepingPilot = $this->eligiblePilot($team, 'doze-sleeping@example.test', 'Doze Sleeping', 52.100000, 5.100000);
+        $stalePilot = $this->eligiblePilot($team, 'doze-stale@example.test', 'Doze Stale', 52.200000, 5.200000);
+        $incident = $this->incident($viewer, $team, 52.300000, 5.300000, 'DOZE-REACHABILITY-001');
+
+        $sleepingPilot->fcmTokens()->update([
+            'last_seen_at' => now()->subMinutes(FcmToken::onlineThresholdMinutes() + 1),
+        ]);
+        $stalePilot->fcmTokens()->update([
+            'last_seen_at' => now()->subMinutes(FcmToken::pushReachabilityThresholdMinutes() + 1),
+        ]);
+        Http::fake(['*' => Http::response([], 503)]);
+
+        $response = $this->asWebClient($viewer)
+            ->getJson('/api/incidents/'.$incident->id.'/dispatch-preview')
+            ->assertOk();
+
+        $this->assertSame(
+            [$sleepingPilot->id],
+            collect($response->json('data.recipients'))->pluck('id')->all(),
+        );
+        $this->assertFalse($sleepingPilot->fcmTokens()->firstOrFail()->is_online);
+    }
+
     public function test_dispatch_preview_never_ranks_an_optimistic_fallback_before_a_navigation_route(): void
     {
         $viewer = $this->user('routing-source-viewer@example.test', 'Routing Source Viewer');

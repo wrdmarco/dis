@@ -150,7 +150,7 @@ final class PushNotificationService
         return $tokens
             ->where('is_active', true)
             ->where('client_type', 'operator')
-            ->where('last_seen_at', '>', now()->subMinutes(FcmToken::onlineThresholdMinutes()));
+            ->where('last_seen_at', '>', now()->subMinutes(FcmToken::pushReachabilityThresholdMinutes()));
     }
 
     private function notifyDeviceSessionRevoked(FcmToken $token): void
