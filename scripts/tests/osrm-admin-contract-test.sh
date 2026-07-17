@@ -214,6 +214,10 @@ assert_contains "${osrm}" '--cap-drop=all'
 assert_contains "${osrm}" '--security-opt=no-new-privileges'
 assert_contains "${osrm}" '--network=none'
 assert_contains "${osrm}" '--network=host'
+assert_contains "${osrm}" '--property="SystemCallArchitectures=native"'
+assert_contains "${osrm}" '--property="RestrictAddressFamilies=AF_UNIX AF_INET"'
+assert_absent "${osrm}" '--property="RestrictAddressFamilies=AF_UNIX AF_NETLINK"'
+assert_contains "${osrm}" '--property="IPAddressDeny=any"'
 assert_count "${osrm}" '--uts=host' 4
 assert_count "${osrm}" '--cap-drop=all' 4
 assert_count "${osrm}" '--security-opt=no-new-privileges' 4

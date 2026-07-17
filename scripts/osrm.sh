@@ -29,6 +29,7 @@ OSRM_STATUS_FILE="${OSRM_DATA_ROOT}/status.json"
 OSRM_PACKAGE_PROVENANCE_FILE="${OSRM_DATA_ROOT}/package-provenance.json"
 OSRM_BUILD_TOOL_PROVENANCE_FILE="${OSRM_DATA_ROOT}/build-tool-provenance.json"
 OSRM_ACTIVATION_PENDING_FILE="${OSRM_DATA_ROOT}/activation.pending"
+OSRM_IMPORT_STAGING_ON_EXIT=""
 OSRM_SERVICE="dis-osrm.service"
 OSRM_SERVICE_TEMPLATE="${OSRM_ADMIN_RUNTIME_DIR}/dis-osrm.service"
 OSRM_RUNTIME_SCRIPT="${OSRM_ADMIN_RUNTIME_DIR}/osrm.sh"
@@ -1178,6 +1179,11 @@ run_import_stage() {
     || fail "The isolated OSRM import identity is invalid."
 
   log "Running OSRM ${stage} stage with systemd resource limits"
+  # crun opens an AF_INET datagram socket to raise loopback in Podman's
+  # private network namespace. Without AF_INET it falls back to a netlink
+  # operation rejected by the outer unprivileged LXC. Netlink is not needed
+  # once this socket succeeds. The namespace has no external interface;
+  # IPAddressDeny adds a second deny layer on hosts with cgroup-BPF support.
   run_cmd systemd-run \
     --quiet \
     --collect \
@@ -1199,7 +1205,8 @@ run_import_stage() {
     --property="RestrictSUIDSGID=yes" \
     --property="RestrictRealtime=yes" \
     --property="LockPersonality=yes" \
-    --property="RestrictAddressFamilies=AF_UNIX AF_NETLINK" \
+    --property="SystemCallArchitectures=native" \
+    --property="RestrictAddressFamilies=AF_UNIX AF_INET" \
     --property="IPAddressDeny=any" \
     --property="ReadWritePaths=${staging} /var/lib/containers -/run/containers" \
     "${parent_properties[@]}" \
@@ -2000,7 +2007,8 @@ import_dataset() {
     || fail "Insufficient free space for bounded OSRM preprocessing."
 
   staging="$(mktemp -d "${OSRM_DATA_ROOT}/.import.XXXXXX")"
-  trap 'safe_cleanup_staging "${staging}"' EXIT
+  OSRM_IMPORT_STAGING_ON_EXIT="${staging}"
+  trap 'safe_cleanup_staging "${OSRM_IMPORT_STAGING_ON_EXIT:-}"' EXIT
   run_cmd chown "${OSRM_IMPORT_USER}:${OSRM_GROUP}" "${staging}"
   run_cmd chmod 0750 "${staging}"
 
@@ -2101,6 +2109,7 @@ import_dataset() {
   [ ! -e "${release_path}" ] && [ ! -L "${release_path}" ] || fail "An OSRM release with this identifier already exists."
   run_cmd mv -T -- "${staging}" "${release_path}"
   staging=""
+  OSRM_IMPORT_STAGING_ON_EXIT=""
   trap - EXIT
   run_cmd sync -f "${OSRM_RELEASES_ROOT}"
 

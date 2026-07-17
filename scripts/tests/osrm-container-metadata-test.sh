@@ -18,10 +18,11 @@ mock_revision="${OSRM_CONTAINER_REVISION}"
 mock_license='BSD-2-Clause'
 mock_id='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 mock_run_log="$(mktemp "${TMPDIR:-/tmp}/dis-osrm-podman-run.XXXXXX")"
+mock_systemd_run_log="$(mktemp "${TMPDIR:-/tmp}/dis-osrm-systemd-run.XXXXXX")"
 mock_worker_lock="$(mktemp "${TMPDIR:-/tmp}/dis-osrm-worker-lock.XXXXXX")"
 mock_operation_lock="$(mktemp "${TMPDIR:-/tmp}/dis-osrm-operation-lock.XXXXXX")"
 mock_profile_sha='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
-trap 'rm -f -- "${mock_run_log}" "${mock_worker_lock}" "${mock_operation_lock}"' EXIT
+trap 'rm -f -- "${mock_run_log}" "${mock_systemd_run_log}" "${mock_worker_lock}" "${mock_operation_lock}"' EXIT
 
 podman_mock() {
   [ "${CONTAINERS_CONF:-}" = "${OSRM_PODMAN_CONTAINERS_CONF}" ] || return 92
@@ -110,5 +111,35 @@ done
 mock_id='sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 podman_image_metadata_is_valid
 [ "$(podman_image_id)" = 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' ]
+
+# The transient import sandbox must give crun only the AF_INET socket needed
+# to raise loopback in Podman's isolated network namespace. It may not expose
+# the host network or retain the failing netlink fallback.
+id() {
+  if [ "${1:-}" = '-u' ] && [ "${2:-}" = "${OSRM_IMPORT_USER}" ]; then
+    printf '123\n'
+    return 0
+  fi
+  if [ "${1:-}" = '-g' ] && [ "${2:-}" = "${OSRM_IMPORT_USER}" ]; then
+    printf '456\n'
+    return 0
+  fi
+  command id "$@"
+}
+run_cmd() {
+  printf '%s\n' "$@" > "${mock_systemd_run_log}"
+}
+run_import_stage \
+  extract \
+  /tmp/dis-osrm-stage \
+  abcdef123456 \
+  osrm-extract -p /opt/car.lua /data/routing.osm.pbf
+grep -Fxq -- '--property=SystemCallArchitectures=native' "${mock_systemd_run_log}"
+grep -Fxq -- '--property=RestrictAddressFamilies=AF_UNIX AF_INET' "${mock_systemd_run_log}"
+grep -Fxq -- '--property=IPAddressDeny=any' "${mock_systemd_run_log}"
+grep -Fxq -- '--network=none' "${mock_systemd_run_log}"
+grep -Fxq -- '--uts=host' "${mock_systemd_run_log}"
+! grep -Fxq -- '--network=host' "${mock_systemd_run_log}"
+! grep -Fq -- 'AF_NETLINK' "${mock_systemd_run_log}"
 
 printf 'OSRM immutable OCI metadata validation test passed.\n'

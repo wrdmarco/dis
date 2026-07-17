@@ -107,6 +107,34 @@ if [ "${CREATED_SYMLINK}" = '1' ]; then
   [ -L "${OSRM_DATA_ROOT}/.import.Link01" ]
 fi
 
+# The EXIT trap outlives import_dataset's local scope. Its global, guarded
+# cleanup target must preserve the original failure status, remove only an
+# exact managed scratch child and never trip nounset while the shell exits.
+mkdir -p "${OSRM_DATA_ROOT}/.import.Exit01" "${TEST_ROOT}/outside"
+exit_stderr="${TEST_ROOT}/exit-stderr.log"
+set +e
+(
+  OSRM_IMPORT_STAGING_ON_EXIT="${OSRM_DATA_ROOT}/.import.Exit01"
+  trap 'safe_cleanup_staging "${OSRM_IMPORT_STAGING_ON_EXIT:-}"' EXIT
+  exit 73
+) 2>"${exit_stderr}"
+exit_status=$?
+set -e
+[ "${exit_status}" -eq 73 ]
+[ ! -e "${OSRM_DATA_ROOT}/.import.Exit01" ]
+! grep -F 'unbound variable' "${exit_stderr}" >/dev/null
+
+set +e
+(
+  OSRM_IMPORT_STAGING_ON_EXIT="${TEST_ROOT}/outside"
+  trap 'safe_cleanup_staging "${OSRM_IMPORT_STAGING_ON_EXIT:-}"' EXIT
+  exit 74
+) 2>>"${exit_stderr}"
+outside_status=$?
+set -e
+[ "${outside_status}" -eq 74 ]
+[ -d "${TEST_ROOT}/outside" ]
+
 # A live activation marker belongs to the active manual import. Even unrelated
 # exact-name scratch directories are retained until that owner exits.
 : > "${OSRM_ACTIVATION_PENDING_FILE}"
