@@ -64,6 +64,7 @@ Route::post('/developer/users/login-lock/reset', [AdminDeveloperController::clas
 Route::get('/developer/logs', [AdminDeveloperController::class, 'developerLogs'])->middleware('throttle:developer-logs');
 Route::get('/developer/logs/{filename}', [AdminDeveloperController::class, 'developerLog'])->where('filename', '[A-Za-z0-9._-]+\.log')->middleware('throttle:developer-logs');
 Route::get('/developer/dispatches/{dispatchId}/diagnostics', [DeveloperDispatchDiagnosticsController::class, 'show'])->middleware('throttle:developer-logs');
+Route::get('/developer/incidents/{incidentId}/dispatches', [DeveloperDispatchDiagnosticsController::class, 'indexForIncident'])->middleware('throttle:developer-logs');
 Route::get('/health', [HealthController::class, 'public'])->middleware('throttle:api');
 
 Route::middleware(['two_factor.challenge', 'operational', 'audit.privileged', 'store.review'])->group(function (): void {

@@ -3,12 +3,14 @@
 namespace Tests\Feature;
 
 use App\Jobs\SendFcmNotification;
+use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
 use App\Models\Incident;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\DispatchPushOutboxService;
 use App\Services\DispatchService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -76,9 +78,15 @@ final class PreannouncementLocationPushTest extends TestCase
             ->sendPreannouncementForIncidentActivation($incident, $actor);
 
         $this->assertSame(1, $result['queued_tokens']);
+        $outbox = DispatchPushOutbox::query()->sole();
+        $this->assertSame('incident_preannouncement', $outbox->message_type);
+        $this->assertSame('dispatch_update', $outbox->data['type'] ?? null);
+        $this->assertSame('availability', $outbox->data['action_mode'] ?? null);
+        $this->app->make(DispatchPushOutboxService::class)->flushPending(100, (string) $dispatch->id);
         Queue::assertPushed(SendFcmNotification::class, function (SendFcmNotification $job) use ($dispatch, $token): bool {
             return $job->fcmTokenId === $token->id
                 && $job->dispatchRequestId === $dispatch->id
+                && $job->messageType === 'incident_preannouncement'
                 && ($job->data['type'] ?? null) === 'dispatch_update'
                 && ($job->data['action_mode'] ?? null) === 'availability'
                 && $job->body === 'Ben je beschikbaar voor een melding in Woerden?'

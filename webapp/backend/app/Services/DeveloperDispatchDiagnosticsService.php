@@ -15,6 +15,8 @@ final class DeveloperDispatchDiagnosticsService
 {
     private const ROW_LIMIT = 250;
 
+    private const INCIDENT_DISPATCH_LIMIT = 100;
+
     private const TIMELINE_LIMIT = 100;
 
     private const SAFE_PROVIDER_ERROR_CODES = [
@@ -52,6 +54,33 @@ final class DeveloperDispatchDiagnosticsService
         'UNREGISTERED',
         'Unregistered',
     ];
+
+    /** @return array<string, mixed> */
+    public function listForIncident(Incident $incident): array
+    {
+        $query = DispatchRequest::query()->where('incident_id', $incident->id);
+        $total = (clone $query)->count();
+        $rows = (clone $query)
+            ->latest('created_at')
+            ->orderByDesc('id')
+            ->limit(self::INCIDENT_DISPATCH_LIMIT)
+            ->get(['id', 'status', 'sent_at', 'cancelled_at', 'created_at', 'updated_at']);
+
+        return [
+            'generated_at' => ApiDateTime::now(),
+            'incident_id' => (string) $incident->id,
+            'total' => $total,
+            'rows_truncated' => $total > $rows->count(),
+            'dispatches' => $rows->map(fn (DispatchRequest $dispatch): array => [
+                'id' => (string) $dispatch->id,
+                'status' => (string) $dispatch->status,
+                'created_at' => ApiDateTime::dateTime($dispatch->created_at),
+                'updated_at' => ApiDateTime::dateTime($dispatch->updated_at),
+                'sent_at' => ApiDateTime::dateTime($dispatch->sent_at),
+                'cancelled_at' => ApiDateTime::dateTime($dispatch->cancelled_at),
+            ])->all(),
+        ];
+    }
 
     /**
      * Build a deliberately narrow operational diagnostic. This response must

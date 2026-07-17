@@ -54,6 +54,46 @@ final class DeveloperDispatchDiagnosticsTest extends TestCase
             ->assertJsonPath('error.code', 'dispatch_not_found');
     }
 
+    public function test_incident_lookup_is_authenticated_before_validation(): void
+    {
+        $this->enableDeveloperAccess([DeveloperAccessService::SCOPE_LOGS_READ]);
+
+        $this->withHeader('X-DIS-Developer-Key', 'incorrect-key')
+            ->getJson('/api/developer/incidents/not-an-ulid/dispatches')
+            ->assertUnauthorized()
+            ->assertJsonPath('error.code', 'developer_api_invalid_key');
+    }
+
+    public function test_incident_lookup_exposes_only_safe_dispatch_identifiers_and_state(): void
+    {
+        $this->enableDeveloperAccess([DeveloperAccessService::SCOPE_LOGS_READ]);
+        [$dispatch] = $this->dispatchFixture();
+
+        $response = $this->developerIncidentRequest((string) $dispatch->incident_id)
+            ->assertOk()
+            ->assertJsonPath('data.incident_id', (string) $dispatch->incident_id)
+            ->assertJsonPath('data.total', 1)
+            ->assertJsonPath('data.rows_truncated', false)
+            ->assertJsonPath('data.dispatches.0.id', (string) $dispatch->id)
+            ->assertJsonPath('data.dispatches.0.status', 'sent');
+
+        $serialized = $response->getContent();
+        foreach ([
+            'Sensitive Requester Name',
+            'sensitive-requester@example.test',
+            'Sensitive incident title',
+            'Sensitive dispatch message',
+        ] as $sensitiveValue) {
+            $this->assertStringNotContainsString($sensitiveValue, $serialized);
+        }
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'developer.incident_dispatch_index_read',
+            'target_type' => Incident::class,
+            'target_id' => $dispatch->incident_id,
+        ]);
+    }
+
     public function test_diagnostics_expose_only_safe_aggregates_and_delivery_state(): void
     {
         $this->enableDeveloperAccess([DeveloperAccessService::SCOPE_LOGS_READ]);
@@ -237,6 +277,12 @@ final class DeveloperDispatchDiagnosticsTest extends TestCase
     {
         return $this->withHeader('X-DIS-Developer-Key', self::DEVELOPER_KEY)
             ->getJson("/api/developer/dispatches/{$dispatchId}/diagnostics");
+    }
+
+    private function developerIncidentRequest(string $incidentId): TestResponse
+    {
+        return $this->withHeader('X-DIS-Developer-Key', self::DEVELOPER_KEY)
+            ->getJson("/api/developer/incidents/{$incidentId}/dispatches");
     }
 
     /** @return array{DispatchRequest, FcmToken, User} */

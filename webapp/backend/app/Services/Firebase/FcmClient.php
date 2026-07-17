@@ -4,12 +4,13 @@ namespace App\Services\Firebase;
 
 use App\Models\FcmToken;
 use App\Models\SystemSetting;
-use App\Support\PushNotificationIdentity;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
 final class FcmClient
 {
+    private const PREANNOUNCEMENT_TTL_SECONDS = 120;
+
     /**
      * Data-only messages that result in an immediate, visible operator notification.
      * Unknown and control-only message types deliberately remain normal priority so
@@ -41,9 +42,8 @@ final class FcmClient
             'display_body' => $body,
         ]);
         $android = ['priority' => $this->androidPriority($data)];
-        $collapseId = PushNotificationIdentity::dispatchCollapseId($data);
-        if ($collapseId !== null) {
-            $android['collapse_key'] = $collapseId;
+        if ($this->isPreannouncement($data)) {
+            $android['ttl'] = self::PREANNOUNCEMENT_TTL_SECONDS.'s';
         }
         $message = [
             'token' => $token->token,
@@ -52,6 +52,8 @@ final class FcmClient
         ];
 
         return Http::withToken($this->tokens->token())
+            ->connectTimeout(3)
+            ->timeout(10)
             ->acceptJson()
             ->post("https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send", [
                 'message' => $message,
@@ -68,5 +70,16 @@ final class FcmClient
         return is_string($type) && in_array($type, self::VISIBLE_HIGH_PRIORITY_TYPES, true)
             ? 'HIGH'
             : 'NORMAL';
+    }
+
+    /**
+     * @param  array<string, string>  $data
+     */
+    private function isPreannouncement(array $data): bool
+    {
+        $type = $data['type'] ?? null;
+
+        return $type === 'incident_preannouncement'
+            || ($type === 'dispatch_update' && ($data['action_mode'] ?? null) === 'availability');
     }
 }

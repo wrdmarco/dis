@@ -10,6 +10,7 @@ use App\Events\IncidentChanged;
 use App\Jobs\SendFcmNotification;
 use App\Models\AvailabilityStatus;
 use App\Models\Certification;
+use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
@@ -261,25 +262,30 @@ final class DispatchService
 
             foreach ($dispatch->recipients as $recipient) {
                 foreach ($recipient->user?->fcmTokens ?? [] as $token) {
-                    SendFcmNotification::dispatch(
-                        (string) $token->id,
-                        'dispatch_update',
-                        $notificationTitle,
-                        $notificationBody,
-                        [
+                    $this->dispatchPushOutboxService->store(
+                        dispatchRequestId: (string) $dispatch->id,
+                        fcmTokenId: (string) $token->id,
+                        messageType: 'incident_preannouncement',
+                        title: $notificationTitle,
+                        body: $notificationBody,
+                        data: [
+                            // Keep the established mobile wire contract for
+                            // every still-supported Android and iOS build. The
+                            // internal message type above identifies the phase
+                            // for queue policy and diagnostics.
                             'type' => 'dispatch_update',
                             'action_mode' => 'availability',
                             'incident_id' => (string) $incident->id,
                             'dispatch_id' => (string) $dispatch->id,
                         ],
-                        (string) $dispatch->id,
-                    )->onQueue('push');
+                    );
                     $queuedTokens++;
                 }
             }
 
             $dispatch->recipients()->whereNull('notified_at')->update(['notified_at' => now()]);
             $this->broadcastDispatchChange($dispatch->refresh(), 'preannouncement_sent');
+            $this->flushDispatchPushOutboxAfterCommit((string) $dispatch->id);
         }
 
         if ($recipientCount === 0) {
@@ -346,6 +352,7 @@ final class DispatchService
                     $body,
                     [
                         'type' => 'incident_cancelled',
+                        'incident_id' => (string) $incident->id,
                     ],
                 )->onQueue('push');
                 $queuedTokens++;
@@ -586,6 +593,16 @@ final class DispatchService
                     $updates['message'] = $this->defaultDispatchMessage($incident);
                 }
                 $currentDispatch->update($updates);
+                DispatchPushOutbox::query()
+                    ->where('dispatch_request_id', $currentDispatch->id)
+                    ->where('message_type', 'incident_preannouncement')
+                    ->whereNull('delivered_at')
+                    ->whereNull('cancelled_at')
+                    ->update([
+                        'cancelled_at' => now(),
+                        'last_error_code' => 'superseded_by_alarm',
+                        'updated_at' => now(),
+                    ]);
                 $dispatchTitle = $this->pushTemplate(
                     'dispatch_title',
                     'NDT Alarmering',

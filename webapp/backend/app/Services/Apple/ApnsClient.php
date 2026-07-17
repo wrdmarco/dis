@@ -13,6 +13,8 @@ use RuntimeException;
 
 final class ApnsClient
 {
+    private const PREANNOUNCEMENT_TTL_SECONDS = 120;
+
     /** @param array<string, string> $data */
     public function send(FcmToken $token, string $title, string $body, array $data = []): Response
     {
@@ -26,8 +28,13 @@ final class ApnsClient
         if ($collapseId !== null) {
             $headers['apns-collapse-id'] = $collapseId;
         }
+        if ($this->isPreannouncement($data)) {
+            $headers['apns-expiration'] = (string) now()->addSeconds(self::PREANNOUNCEMENT_TTL_SECONDS)->timestamp;
+        }
 
         return Http::withToken($this->providerToken($credentials))
+            ->connectTimeout(3)
+            ->timeout(10)
             ->acceptJson()
             ->withHeaders($headers)
             ->post($host.'/3/device/'.$token->token, [
@@ -38,6 +45,15 @@ final class ApnsClient
                 'display_title' => $title,
                 'display_body' => $body,
             ]);
+    }
+
+    /** @param array<string, string> $data */
+    private function isPreannouncement(array $data): bool
+    {
+        $type = $data['type'] ?? null;
+
+        return $type === 'incident_preannouncement'
+            || ($type === 'dispatch_update' && ($data['action_mode'] ?? null) === 'availability');
     }
 
     /** @return array{team_id:string,key_id:string,bundle_id:string,private_key:string,environment:string} */

@@ -2,38 +2,59 @@
 
 namespace App\Support;
 
+use Illuminate\Support\Str;
+
 final class PushNotificationIdentity
 {
     /**
-     * Keep every phase of one dispatch on the same provider ordering key.
+     * All operational phases for one incident and device share one distributed
+     * provider-submission lock. Identifiers are hashed so cache keys do not
+     * expose operational IDs.
      *
-     * FCM may defer a normal-priority message while allowing a later
-     * high-priority alarm to overtake it. Availability response syncs are no
-     * longer emitted because older clients could then silence the real alarm.
-     * This shared collapse identifier remains defence in depth for all other
-     * lifecycle messages and messages queued during a rolling deployment.
+     * @param  array<string, string>  $data
+     */
+    public static function deliveryOrderLockKey(
+        array $data,
+        string $fcmTokenId,
+        ?string $dispatchRequestId = null,
+    ): ?string {
+        $incidentId = $data['incident_id'] ?? null;
+        $scopeId = is_string($incidentId) && Str::isUlid($incidentId)
+            ? $incidentId
+            : $dispatchRequestId;
+        if (! is_string($scopeId) || ! Str::isUlid($scopeId) || ! Str::isUlid($fcmTokenId)) {
+            return null;
+        }
+
+        return 'push-delivery-order:'.hash('sha256', $scopeId.'|'.$fcmTokenId);
+    }
+
+    /**
+     * Keep APNs phases for one dispatch on one provider ordering key.
      *
-     * This only coalesces provider-pending messages. It is not an exactly-once
-     * guarantee: durable alarm delivery remains intentionally at-least-once.
+     * The queue job serializes provider submission per incident and device, so
+     * a later definitive alarm is always submitted after an in-flight
+     * preannouncement. APNs can then replace its pending older phase. Android
+     * intentionally does not use collapse keys: FCM only retains four distinct
+     * keys per device, which is unsafe for simultaneous critical dispatches.
      *
      * @param  array<string, string>  $data
      */
     public static function dispatchCollapseId(array $data): ?string
     {
         $dispatchId = $data['dispatch_id'] ?? null;
-        if (! is_string($dispatchId)
-            || preg_match('/^[0-9A-HJKMNP-TV-Z]{26}$/i', $dispatchId) !== 1) {
+        if (! is_string($dispatchId) || ! Str::isUlid($dispatchId)) {
             return null;
         }
 
         $type = $data['type'] ?? null;
         $actionMode = $data['action_mode'] ?? null;
-        $isOrderedDispatchPhase = $type === 'dispatch_request'
+        $isDispatchPhase = $type === 'dispatch_request'
             || $type === 'incident_preannouncement'
-            || ($type === 'dispatch_update' && $actionMode === 'availability')
+            || ($type === 'dispatch_update' && in_array($actionMode, ['availability', 'attendance'], true))
             || ($type === 'dispatch_response_sync'
                 && in_array($actionMode, ['availability', 'attendance', 'test_ack'], true));
-        if (! $isOrderedDispatchPhase) {
+        if (! $isDispatchPhase) {
             return null;
         }
 

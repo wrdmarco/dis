@@ -104,8 +104,7 @@ final class DispatchPushOutboxService
                 || ($notification->queued_at !== null && $notification->queued_at->greaterThan($staleQueuedAt))) {
                 return null;
             }
-            if ($dispatch->status === 'cancelled'
-                || in_array($incident->status, ['resolved', 'cancelled'], true)) {
+            if (! $this->isDeliverablePhase($notification, $dispatch, $incident)) {
                 $notification->forceFill([
                     'cancelled_at' => now(),
                     'last_error_code' => 'dispatch_not_deliverable',
@@ -141,6 +140,24 @@ final class DispatchPushOutboxService
                 return 'failed';
             }
         });
+    }
+
+    private function isDeliverablePhase(
+        DispatchPushOutbox $notification,
+        DispatchRequest $dispatch,
+        Incident $incident,
+    ): bool {
+        if ((string) $notification->message_type === 'incident_preannouncement') {
+            return $dispatch->status === 'draft' && $incident->status === 'active';
+        }
+
+        if ((string) $notification->message_type === 'dispatch_request') {
+            return in_array($dispatch->status, ['sent', 'escalated'], true)
+                && ! in_array($incident->status, ['resolved', 'cancelled'], true);
+        }
+
+        return $dispatch->status !== 'cancelled'
+            && ! in_array($incident->status, ['resolved', 'cancelled'], true);
     }
 
     public function markDelivered(string $id, string $fcmTokenId): void

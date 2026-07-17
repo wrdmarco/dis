@@ -10,6 +10,7 @@ use App\Services\Firebase\FcmClient;
 use App\Support\PushNotificationIdentity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as ClientRequest;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
@@ -20,7 +21,7 @@ final class PushProviderCoalescingTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_dispatch_alarm_uses_the_same_safe_collapse_id_for_fcm_and_apns(): void
+    public function test_dispatch_alarm_is_non_collapsible_on_fcm_and_uses_the_stable_apns_identifier(): void
     {
         $dispatchId = (string) Str::ulid();
         $collapseId = 'dispatch-'.$dispatchId;
@@ -58,16 +59,20 @@ final class PushProviderCoalescingTest extends TestCase
             'https://fcm.googleapis.com/*' => Http::response(['name' => 'messages/test'], 200),
             'https://api.push.apple.com/*' => Http::response([], 200, ['apns-id' => 'test-apns-id']),
         ]);
-        $data = ['type' => 'dispatch_request', 'dispatch_id' => $dispatchId];
+        $data = [
+            'type' => 'dispatch_request',
+            'action_mode' => 'attendance',
+            'dispatch_id' => $dispatchId,
+        ];
 
         app(FcmClient::class)->send($androidToken, 'Alarm', 'Open de app.', $data);
         app(ApnsClient::class)->send($iosToken, 'Alarm', 'Open de app.', $data);
 
-        Http::assertSent(static function (ClientRequest $request) use ($collapseId): bool {
+        Http::assertSent(static function (ClientRequest $request): bool {
             $payload = $request->data();
 
             return str_contains($request->url(), 'fcm.googleapis.com')
-                && ($payload['message']['android']['collapse_key'] ?? null) === $collapseId;
+                && ! array_key_exists('collapse_key', $payload['message']['android'] ?? []);
         });
         Http::assertSent(static fn (ClientRequest $request): bool => str_contains($request->url(), 'api.push.apple.com')
             && $request->hasHeader('apns-collapse-id', $collapseId));
@@ -77,19 +82,23 @@ final class PushProviderCoalescingTest extends TestCase
         ]));
     }
 
-    public function test_preannouncement_response_sync_and_real_alarm_share_one_provider_ordering_key(): void
+    public function test_apns_dispatch_phases_share_one_safe_provider_collapse_id(): void
     {
         $dispatchId = (string) Str::ulid();
         $collapseId = 'dispatch-'.$dispatchId;
-
-        foreach ([
+        $phases = [
             ['type' => 'dispatch_update', 'action_mode' => 'availability'],
-            ['type' => 'incident_preannouncement'],
-            ['type' => 'dispatch_response_sync', 'action_mode' => 'availability'],
+            ['type' => 'incident_preannouncement', 'action_mode' => 'availability'],
             ['type' => 'dispatch_request', 'action_mode' => 'attendance'],
+            ['type' => 'dispatch_update', 'action_mode' => 'attendance'],
+            ['type' => 'dispatch_response_sync', 'action_mode' => 'availability'],
             ['type' => 'dispatch_response_sync', 'action_mode' => 'attendance'],
             ['type' => 'dispatch_response_sync', 'action_mode' => 'test_ack'],
-        ] as $phase) {
+        ];
+
+        $this->assertLessThanOrEqual(64, strlen($collapseId));
+        $this->assertMatchesRegularExpression('/^[a-z0-9-]+$/i', $collapseId);
+        foreach ($phases as $phase) {
             $this->assertSame($collapseId, PushNotificationIdentity::dispatchCollapseId([
                 ...$phase,
                 'dispatch_id' => $dispatchId,
@@ -106,6 +115,85 @@ final class PushProviderCoalescingTest extends TestCase
             'action_mode' => 'unknown',
             'dispatch_id' => $dispatchId,
         ]));
+    }
+
+    public function test_provider_submission_lock_is_shared_by_all_phases_for_one_incident_and_device(): void
+    {
+        $incidentId = (string) Str::ulid();
+        $dispatchId = (string) Str::ulid();
+        $tokenId = (string) Str::ulid();
+        $otherTokenId = (string) Str::ulid();
+        $preannouncement = [
+            'type' => 'dispatch_update',
+            'action_mode' => 'availability',
+            'incident_id' => $incidentId,
+            'dispatch_id' => $dispatchId,
+        ];
+        $alarm = [
+            'type' => 'dispatch_request',
+            'action_mode' => 'attendance',
+            'incident_id' => $incidentId,
+            'dispatch_id' => $dispatchId,
+        ];
+
+        $preannouncementKey = PushNotificationIdentity::deliveryOrderLockKey($preannouncement, $tokenId, $dispatchId);
+        $alarmKey = PushNotificationIdentity::deliveryOrderLockKey($alarm, $tokenId, $dispatchId);
+
+        $this->assertNotNull($preannouncementKey);
+        $this->assertSame($preannouncementKey, $alarmKey);
+        $this->assertNotSame(
+            $preannouncementKey,
+            PushNotificationIdentity::deliveryOrderLockKey($alarm, $otherTokenId, $dispatchId),
+        );
+        $this->assertStringNotContainsString($incidentId, $preannouncementKey);
+        $this->assertStringNotContainsString($tokenId, $preannouncementKey);
+    }
+
+    public function test_legacy_preannouncement_has_a_bounded_lifetime_on_fcm_and_apns(): void
+    {
+        Carbon::setTestNow('2026-07-17T10:00:00Z');
+        try {
+            $user = User::query()->create([
+                'name' => 'Preannouncement TTL Pilot',
+                'first_name' => 'TTL',
+                'last_name' => 'Pilot',
+                'email' => 'preannouncement-ttl@example.test',
+                'password' => Hash::make('Test-password-123!'),
+                'account_status' => 'active',
+            ]);
+            $androidToken = $this->token($user, 'android', 'android-preannouncement-ttl');
+            $iosToken = $this->token($user, 'ios', 'ios-preannouncement-ttl');
+            $this->configureFcm();
+            $this->configureApns();
+            Http::fake([
+                'https://fcm.googleapis.com/*' => Http::response(['name' => 'messages/test'], 200),
+                'https://api.push.apple.com/*' => Http::response([], 200, ['apns-id' => 'test-apns-id']),
+            ]);
+            $dispatchId = (string) Str::ulid();
+            $data = [
+                'type' => 'dispatch_update',
+                'action_mode' => 'availability',
+                'dispatch_id' => $dispatchId,
+            ];
+
+            app(FcmClient::class)->send($androidToken, 'Vooraankondiging', 'Ben je beschikbaar?', $data);
+            app(ApnsClient::class)->send($iosToken, 'Vooraankondiging', 'Ben je beschikbaar?', $data);
+
+            Http::assertSent(static function (ClientRequest $request): bool {
+                if (! str_contains($request->url(), 'fcm.googleapis.com')) {
+                    return false;
+                }
+                $android = $request->data()['message']['android'] ?? [];
+
+                return ($android['ttl'] ?? null) === '120s'
+                    && ! array_key_exists('collapse_key', $android);
+            });
+            Http::assertSent(static fn (ClientRequest $request): bool => str_contains($request->url(), 'api.push.apple.com')
+                && $request->hasHeader('apns-expiration', '1784282520')
+                && $request->hasHeader('apns-collapse-id', 'dispatch-'.$dispatchId));
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_visible_operational_messages_use_high_android_priority_and_remain_data_only(): void
@@ -163,6 +251,25 @@ final class PushProviderCoalescingTest extends TestCase
         ]);
     }
 
+    private function configureApns(): void
+    {
+        SystemSetting::query()->updateOrCreate(
+            ['key' => 'push.apns.credentials'],
+            ['value' => [
+                'team_id' => 'test-team',
+                'key_id' => 'test-key',
+                'bundle_id' => 'nl.example.dis.operator',
+                'private_key' => 'test-only-unused-key',
+                'environment' => 'production',
+            ], 'is_sensitive' => true],
+        );
+        Cache::put(
+            'apns.provider_token.'.hash('sha256', 'test-keytest-team'),
+            'test-apns-provider-token',
+            now()->addHour(),
+        );
+    }
+
     /**
      * @param  array<string, string>  $expectedPriorities
      */
@@ -185,7 +292,11 @@ final class PushProviderCoalescingTest extends TestCase
             $this->assertSame($expectedPriorities[$type], $message['android']['priority'] ?? null);
             $this->assertArrayNotHasKey('notification', $message);
             $this->assertArrayNotHasKey('notification', $message['android']);
-            $this->assertArrayNotHasKey('ttl', $message['android']);
+            if ($type === 'incident_preannouncement') {
+                $this->assertSame('120s', $message['android']['ttl'] ?? null);
+            } else {
+                $this->assertArrayNotHasKey('ttl', $message['android']);
+            }
         }
     }
 

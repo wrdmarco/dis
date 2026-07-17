@@ -4,6 +4,8 @@ namespace App\Services\Firebase;
 
 use App\Models\SystemSetting;
 use Google\Auth\Credentials\ServiceAccountCredentials;
+use Google\Auth\HttpHandler\HttpHandlerFactory;
+use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Cache;
 use RuntimeException;
 
@@ -35,7 +37,13 @@ final class FirebaseAccessTokenProvider
                 ],
             );
 
-            $token = $serviceAccount->fetchAuthToken();
+            $token = $serviceAccount->fetchAuthToken(HttpHandlerFactory::build(
+                new Client([
+                    'connect_timeout' => 3.0,
+                    'timeout' => 8.0,
+                ]),
+                false,
+            ));
             if (! isset($token['access_token']) || ! is_string($token['access_token'])) {
                 throw new RuntimeException('Unable to fetch Firebase access token.');
             }
