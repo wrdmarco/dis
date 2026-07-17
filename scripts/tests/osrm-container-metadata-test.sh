@@ -79,6 +79,7 @@ mock_run_arguments=" ${mock_run_arguments} "
 [[ "${mock_run_arguments}" == *' --storage-opt=overlay.mountopt=nodev '* ]]
 [[ "${mock_run_arguments}" == *' --cgroups=disabled '* ]]
 [[ "${mock_run_arguments}" == *' --network=none '* ]]
+[[ "${mock_run_arguments}" == *' --uts=host '* ]]
 assert_no_inherited_lock_fds=0
 exec {DIS_OPERATION_LOCK_FD}>&-
 exec 9>&-

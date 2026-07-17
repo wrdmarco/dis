@@ -18,6 +18,27 @@ assert_absent() {
   fi
 }
 
+assert_count() {
+  local path="$1" value="$2" expected="$3" actual
+  actual="$(grep -Fc -- "${value}" "${APP_ROOT}/${path}" || true)"
+  [ "${actual}" -eq "${expected}" ] \
+    || { printf 'Expected %s OSRM contracts in %s, found %s: %s\n' "${expected}" "${path}" "${actual}" "${value}" >&2; exit 1; }
+}
+
+assert_followed_by_count() {
+  local path="$1" first="$2" second="$3" expected="$4" actual
+  actual="$(awk -v first="${first}" -v second="${second}" '
+    index($0, first) {
+      if ((getline next_line) > 0 && index(next_line, second)) {
+        count++
+      }
+    }
+    END { print count + 0 }
+  ' "${APP_ROOT}/${path}")"
+  [ "${actual}" -eq "${expected}" ] \
+    || { printf 'Expected %s adjacent OSRM contracts in %s, found %s: %s then %s\n' "${expected}" "${path}" "${actual}" "${first}" "${second}" >&2; exit 1; }
+}
+
 assert_before() {
   local path="$1" first="$2" second="$3" first_line second_line
   first_line="$(grep -nF -- "${first}" "${APP_ROOT}/${path}" | head -n 1 | cut -d: -f1)"
@@ -193,8 +214,17 @@ assert_contains "${osrm}" '--cap-drop=all'
 assert_contains "${osrm}" '--security-opt=no-new-privileges'
 assert_contains "${osrm}" '--network=none'
 assert_contains "${osrm}" '--network=host'
+assert_count "${osrm}" '--uts=host' 4
+assert_count "${osrm}" '--cap-drop=all' 4
+assert_count "${osrm}" '--security-opt=no-new-privileges' 4
+assert_followed_by_count "${osrm}" '--network=none' '--uts=host' 3
+assert_followed_by_count "${osrm}" '--network=host' '--uts=host' 1
+assert_absent "${osrm}" '--uts=private'
+assert_absent "${osrm}" '--hostname'
 assert_contains "${osrm}" '--ip 127.0.0.1'
 assert_contains 'infrastructure/systemd/dis-osrm.service' 'ReadWritePaths=/var/lib/containers -/run/containers'
+assert_contains 'infrastructure/systemd/dis-osrm.service' 'ProtectHostname=true'
+assert_contains 'infrastructure/systemd/dis-osrm-admin-request.service' 'ProtectHostname=true'
 assert_contains 'infrastructure/systemd/dis-osrm.service' 'ExecStop=-/usr/bin/bash @OSRM_RUNTIME_SCRIPT@ stop'
 assert_contains 'infrastructure/systemd/dis-osrm.service' 'IPAddressAllow=localhost'
 assert_absent 'infrastructure/systemd/dis-osrm.service' 'User=root'

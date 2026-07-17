@@ -45,6 +45,10 @@ OSRM_FUSE_OVERLAYFS_PATH="/usr/bin/fuse-overlayfs"
 OSRM_PODMAN_STORAGE_DRIVER="overlay"
 OSRM_PODMAN_GRAPH_ROOT="/var/lib/containers/dis-osrm-overlay"
 OSRM_PODMAN_RUN_ROOT="/run/containers/dis-osrm-overlay"
+# Rootful Podman is still confined by the outer unprivileged LXC. Every
+# container run below reuses the caller's protected UTS namespace so crun does
+# not attempt the forbidden sethostname operation. Payload capabilities remain
+# fully dropped, and both OSRM systemd services protect their UTS hostname.
 OSRM_PODMAN_GLOBAL_ARGS=(
   "--storage-driver=${OSRM_PODMAN_STORAGE_DRIVER}"
   "--storage-opt=${OSRM_PODMAN_STORAGE_DRIVER}.mount_program=${OSRM_FUSE_OVERLAYFS_PATH}"
@@ -593,6 +597,7 @@ podman_image_id() {
 
 podman_profile_sha() {
   run_podman run --rm --pull=never --network=none --read-only \
+    --uts=host \
     --cgroups=disabled \
     --cap-drop=all --security-opt=no-new-privileges --pids-limit=32 \
     "${OSRM_CONTAINER_IMAGE}" sha256sum "${OSRM_CONTAINER_PROFILE}" \
@@ -1203,6 +1208,7 @@ run_import_stage() {
       --rm \
       --pull=never \
       --network=none \
+      --uts=host \
       --cgroups=disabled \
       --read-only \
       --cap-drop=all \
@@ -2053,6 +2059,7 @@ import_dataset() {
   ) >/dev/null
 
   tool_version="$(run_podman run --rm --pull=never --network=none --read-only \
+    --uts=host \
     --cgroups=disabled \
     --cap-drop=all --security-opt=no-new-privileges --pids-limit=32 \
     "${OSRM_CONTAINER_IMAGE}" osrm-routed --version 2>&1 | head -n 1 || true)"
@@ -2195,6 +2202,7 @@ serve() {
     --name dis-osrm \
     --pull=never \
     --network=host \
+    --uts=host \
     --cgroups=disabled \
     --read-only \
     --cap-drop=all \
