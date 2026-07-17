@@ -132,13 +132,37 @@ verify_osrm_admin_runtime_library() {
     || fail "The OSRM admin runtime parent is not an immutable root-owned directory."
   root_owned_runtime_directory_is_safe "${OSRM_ADMIN_RUNTIME_DIR}" 755 \
     || fail "The OSRM admin runtime bundle is not an immutable root-owned directory."
-  for path in common.sh osrm.sh secure-path.py dis-osrm.service; do
+  for path in common.sh containers.conf osrm.sh secure-path.py dis-osrm.service; do
     root_owned_runtime_file_is_safe "${OSRM_ADMIN_RUNTIME_DIR}/${path}" 644 \
       || fail "Unsafe OSRM admin runtime bundle file: ${path}"
   done
   [ "$(find -P "${OSRM_ADMIN_RUNTIME_DIR}" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort)" = \
-    $'common.sh\ndis-osrm.service\nosrm.sh\nsecure-path.py' ] \
+    $'common.sh\ncontainers.conf\ndis-osrm.service\nosrm.sh\nsecure-path.py' ] \
     || fail "The OSRM admin runtime bundle contains unexpected entries."
+}
+
+verify_existing_osrm_admin_runtime_library_for_upgrade() {
+  local entries path
+
+  root_owned_runtime_directory_is_safe "${OSRM_ADMIN_RUNTIME_PARENT}" 755 \
+    && root_owned_runtime_directory_is_safe "${OSRM_ADMIN_RUNTIME_DIR}" 755 \
+    || fail "The existing OSRM admin runtime directory is unsafe."
+  entries="$(find -P "${OSRM_ADMIN_RUNTIME_DIR}" -mindepth 1 -maxdepth 1 \
+    -printf '%f\n' | LC_ALL=C sort)"
+  case "${entries}" in
+    $'common.sh\ndis-osrm.service\nosrm.sh\nsecure-path.py')
+      for path in common.sh osrm.sh secure-path.py dis-osrm.service; do
+        root_owned_runtime_file_is_safe "${OSRM_ADMIN_RUNTIME_DIR}/${path}" 644 \
+          || fail "Unsafe existing OSRM admin runtime file: ${path}"
+      done
+      ;;
+    $'common.sh\ncontainers.conf\ndis-osrm.service\nosrm.sh\nsecure-path.py')
+      verify_osrm_admin_runtime_library
+      ;;
+    *)
+      fail "The existing OSRM admin runtime bundle has an unexpected layout."
+      ;;
+  esac
 }
 
 verify_osrm_admin_runtime_bundle() {
@@ -175,6 +199,7 @@ install_osrm_admin_runtime_bundle() (
   for source_path in \
     "${app_root}/scripts/lib/common.sh" \
     "${app_root}/scripts/lib/secure-path.py" \
+    "${app_root}/scripts/osrm-containers.conf" \
     "${app_root}/scripts/osrm.sh" \
     "${app_root}/scripts/osrm-admin-request-worker.sh" \
     "${app_root}/infrastructure/systemd/dis-osrm.service"; do
@@ -220,22 +245,24 @@ install_osrm_admin_runtime_bundle() (
   chmod 0755 "${staging}"
   install -m 0644 -o root -g root "${app_root}/scripts/lib/common.sh" "${staging}/common.sh"
   install -m 0644 -o root -g root "${app_root}/scripts/lib/secure-path.py" "${staging}/secure-path.py"
+  install -m 0644 -o root -g root "${app_root}/scripts/osrm-containers.conf" "${staging}/containers.conf"
   install -m 0644 -o root -g root "${app_root}/scripts/osrm.sh" "${staging}/osrm.sh"
   install -m 0644 -o root -g root "${app_root}/infrastructure/systemd/dis-osrm.service" "${staging}/dis-osrm.service"
   install -m 0755 -o root -g root "${app_root}/scripts/osrm-admin-request-worker.sh" "${worker_staging}"
 
-  for source_path in common.sh osrm.sh secure-path.py dis-osrm.service; do
+  for source_path in common.sh containers.conf osrm.sh secure-path.py dis-osrm.service; do
     root_owned_runtime_file_is_safe "${staging}/${source_path}" 644 \
       || fail "Could not stage a safe OSRM admin runtime file: ${source_path}"
   done
   root_owned_runtime_file_is_safe "${worker_staging}" 755 \
     || fail "Could not stage a safe OSRM admin request worker."
-  sync -f "${staging}/common.sh" "${staging}/secure-path.py" "${staging}/osrm.sh" \
+  sync -f "${staging}/common.sh" "${staging}/containers.conf" \
+    "${staging}/secure-path.py" "${staging}/osrm.sh" \
     "${staging}/dis-osrm.service" "${worker_staging}"
   sync -f "${staging}"
 
   if [ -e "${OSRM_ADMIN_RUNTIME_DIR}" ] || [ -L "${OSRM_ADMIN_RUNTIME_DIR}" ]; then
-    verify_osrm_admin_runtime_library
+    verify_existing_osrm_admin_runtime_library_for_upgrade
     previous="${OSRM_ADMIN_RUNTIME_PARENT}/.osrm-admin.previous.$$.$RANDOM"
     mv -T -- "${OSRM_ADMIN_RUNTIME_DIR}" "${previous}"
   fi

@@ -51,7 +51,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   bootstrap_require_bundle_directory /usr/local/lib/dis
   bootstrap_require_bundle_directory "${OSRM_ADMIN_RUNTIME_DIR_FIXED}"
   bootstrap_require_file "$0" 755
-  for bootstrap_file in common.sh osrm.sh secure-path.py dis-osrm.service; do
+  for bootstrap_file in common.sh containers.conf osrm.sh secure-path.py dis-osrm.service; do
     bootstrap_require_file "${OSRM_ADMIN_RUNTIME_DIR_FIXED}/${bootstrap_file}" 644
   done
   RUNTIME_COMMON="${OSRM_ADMIN_RUNTIME_DIR_FIXED}/common.sh"

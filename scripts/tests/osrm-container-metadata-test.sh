@@ -24,6 +24,8 @@ mock_profile_sha='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 trap 'rm -f -- "${mock_run_log}" "${mock_worker_lock}" "${mock_operation_lock}"' EXIT
 
 podman_mock() {
+  [ "${CONTAINERS_CONF:-}" = "${OSRM_PODMAN_CONTAINERS_CONF}" ] || return 92
+  grep -Fxq 'default_sysctls = []' "${CONTAINERS_CONF}" || return 93
   if [ "${assert_no_inherited_lock_fds:-0}" = '1' ]; then
     [ ! -e "/proc/${BASHPID}/fd/9" ] || return 90
     [ ! -e "/proc/${BASHPID}/fd/${DIS_OPERATION_LOCK_FD}" ] || return 91

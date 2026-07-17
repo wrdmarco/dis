@@ -5,8 +5,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIS_DATA_PATH_WAS_EXPLICIT="${DIS_DATA_PATH+x}"
 if [ "${SCRIPT_DIR}" = "/usr/local/lib/dis/osrm-admin" ]; then
   OSRM_COMMON_SOURCE="${SCRIPT_DIR}/common.sh"
+  OSRM_PODMAN_CONTAINERS_CONF="${SCRIPT_DIR}/containers.conf"
 else
   OSRM_COMMON_SOURCE="${SCRIPT_DIR}/lib/common.sh"
+  OSRM_PODMAN_CONTAINERS_CONF="${SCRIPT_DIR}/osrm-containers.conf"
 fi
 # shellcheck source=scripts/lib/common.sh
 source "${OSRM_COMMON_SOURCE}"
@@ -76,6 +78,10 @@ run_podman() (
     exec {inherited_lock_fd}>&-
   fi
   exec 9>&-
+  [ -f "${OSRM_PODMAN_CONTAINERS_CONF}" ] \
+    && [ ! -L "${OSRM_PODMAN_CONTAINERS_CONF}" ] \
+    || fail "The dedicated OSRM Podman configuration is unavailable."
+  export CONTAINERS_CONF="${OSRM_PODMAN_CONTAINERS_CONF}"
   if declare -F "${OSRM_PODMAN_PATH}" >/dev/null; then
     "${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" "$@"
     exit $?
@@ -867,6 +873,7 @@ install_package() {
     "${image_id}" "${profile_sha}"
   installed_container_runtime_matches_receipt \
     || fail "The durable Podman and OSRM container provenance receipt could not be verified."
+  log "Verified OSRM ${OSRM_CONTAINER_IMAGE_VERSION} container runtime is installed and pinned."
 }
 
 provision() {
@@ -1191,7 +1198,8 @@ run_import_stage() {
     --property="IPAddressDeny=any" \
     --property="ReadWritePaths=${staging} /var/lib/containers -/run/containers" \
     "${parent_properties[@]}" \
-    -- "${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" run \
+    -- /usr/bin/env "CONTAINERS_CONF=${OSRM_PODMAN_CONTAINERS_CONF}" \
+      "${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" run \
       --rm \
       --pull=never \
       --network=none \
@@ -2180,7 +2188,8 @@ serve() {
   [[ "${osrm_uid}" =~ ^[1-9][0-9]*$ ]] && [[ "${osrm_gid}" =~ ^[1-9][0-9]*$ ]] \
     || fail "The isolated OSRM runtime identity is invalid."
 
-  exec "${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" run \
+  exec /usr/bin/env "CONTAINERS_CONF=${OSRM_PODMAN_CONTAINERS_CONF}" \
+    "${OSRM_PODMAN_PATH}" "${OSRM_PODMAN_GLOBAL_ARGS[@]}" run \
     --rm \
     --replace \
     --name dis-osrm \
