@@ -2,14 +2,18 @@
 
 namespace App\Services\Routing;
 
+use App\Contracts\RouteGeometryProvider;
 use App\Contracts\RoutingProvider;
 use App\DTO\Routing\RouteEstimate;
+use App\DTO\Routing\RouteGeometry;
 use App\DTO\Routing\RoutePoint;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\Response;
 use RuntimeException;
 use Throwable;
 
-final class OsrmRoutingProvider implements RoutingProvider
+final class OsrmRoutingProvider implements RouteGeometryProvider, RoutingProvider
 {
     private readonly string $baseUrl;
 
@@ -20,6 +24,10 @@ final class OsrmRoutingProvider implements RoutingProvider
     private readonly int $timeoutSeconds;
 
     private readonly int $batchSize;
+
+    private readonly int $geometryMaxRoutes;
+
+    private readonly int $geometryConcurrency;
 
     /** @var list<string> */
     private readonly array $allowedHosts;
@@ -32,12 +40,16 @@ final class OsrmRoutingProvider implements RoutingProvider
         int $timeoutSeconds = 3,
         int $batchSize = 50,
         array $allowedHosts = ['127.0.0.1', 'localhost', '::1'],
+        int $geometryMaxRoutes = 25,
+        int $geometryConcurrency = 10,
     ) {
         $this->baseUrl = rtrim(trim($baseUrl), '/');
         $this->profile = trim($profile);
         $this->connectTimeoutSeconds = max(1, min($connectTimeoutSeconds, 10));
         $this->timeoutSeconds = max($this->connectTimeoutSeconds, min($timeoutSeconds, 15));
         $this->batchSize = max(1, min($batchSize, 99));
+        $this->geometryMaxRoutes = max(1, min($geometryMaxRoutes, 50));
+        $this->geometryConcurrency = max(1, min($geometryConcurrency, $this->geometryMaxRoutes));
         $this->allowedHosts = array_values(array_unique(array_filter(array_map(
             static fn (mixed $host): string => strtolower(trim((string) $host, " \t\n\r\0\x0B[]")),
             $allowedHosts,
@@ -99,6 +111,65 @@ final class OsrmRoutingProvider implements RoutingProvider
     }
 
     /**
+     * Route geometry is intentionally not cached: an operator's moving origin
+     * must not leave a historical route payload in shared cache storage.
+     *
+     * @param  array<string, RoutePoint>  $origins
+     * @return array<string, RouteGeometry>
+     */
+    public function routeGeometriesTo(array $origins, RoutePoint $destination): array
+    {
+        $this->assertOrigins($origins);
+        if ($origins === [] || ! $this->isConfigured()) {
+            return [];
+        }
+
+        // A live map poll may never fan out an unbounded number of routing
+        // requests. Recipients beyond this hard, configuration-clamped limit
+        // remain visible on the map but receive a null route overlay.
+        $boundedOrigins = array_slice($origins, 0, $this->geometryMaxRoutes, true);
+
+        try {
+            $responses = $this->http->pool(function (Pool $pool) use ($boundedOrigins, $destination): void {
+                foreach ($boundedOrigins as $key => $origin) {
+                    $pool->as($key)
+                        ->acceptJson()
+                        ->connectTimeout($this->connectTimeoutSeconds)
+                        ->timeout($this->timeoutSeconds)
+                        ->withoutRedirecting()
+                        ->get($this->routeUrl($origin, $destination), [
+                            'alternatives' => 'false',
+                            'steps' => 'false',
+                            'overview' => 'simplified',
+                            'geometries' => 'geojson',
+                        ]);
+                }
+            }, $this->geometryConcurrency);
+        } catch (Throwable) {
+            return [];
+        }
+
+        $routes = [];
+        foreach ($responses as $key => $response) {
+            if (! is_string($key) || ! $response instanceof Response) {
+                continue;
+            }
+
+            try {
+                $route = $this->parseRouteGeometry($response);
+                if ($route !== null) {
+                    $routes[$key] = $route;
+                }
+            } catch (Throwable) {
+                // Never log a provider payload because it contains current
+                // operational coordinates. Other pilots' routes remain usable.
+            }
+        }
+
+        return $routes;
+    }
+
+    /**
      * @param  array<string, RoutePoint>  $origins
      * @return array<string, RouteEstimate>
      */
@@ -156,6 +227,51 @@ final class OsrmRoutingProvider implements RoutingProvider
         }
 
         return $results;
+    }
+
+    private function routeUrl(RoutePoint $origin, RoutePoint $destination): string
+    {
+        return sprintf(
+            '%s/route/v1/%s/%s;%s',
+            $this->baseUrl,
+            rawurlencode($this->profile),
+            $origin->osrmCoordinate(),
+            $destination->osrmCoordinate(),
+        );
+    }
+
+    private function parseRouteGeometry(Response $response): ?RouteGeometry
+    {
+        if (! $response->successful()) {
+            return null;
+        }
+
+        $payload = $response->json();
+        $route = is_array($payload) && ($payload['code'] ?? null) === 'Ok'
+            && is_array($payload['routes'] ?? null)
+            && count($payload['routes']) === 1
+            ? ($payload['routes'][0] ?? null)
+            : null;
+        if (! is_array($route)
+            || ! is_numeric($route['duration'] ?? null)
+            || ! is_numeric($route['distance'] ?? null)
+            || ! is_array($route['geometry'] ?? null)
+            || ($route['geometry']['type'] ?? null) !== 'LineString'
+            || ! is_array($route['geometry']['coordinates'] ?? null)) {
+            return null;
+        }
+
+        $duration = (float) $route['duration'];
+        $distance = (float) $route['distance'];
+        if (! is_finite($duration) || $duration < 0 || ! is_finite($distance) || $distance < 0) {
+            return null;
+        }
+
+        return RouteGeometry::navigation(
+            (int) ceil($duration),
+            (int) ceil($distance),
+            $route['geometry']['coordinates'],
+        );
     }
 
     /**

@@ -3088,6 +3088,12 @@ select[multiple] {
   width: min(560px, calc(100vw - 24px));
 }
 
+.operational-map-page--fullscreen .operational-map__route-legend {
+  top: max(84px, calc(env(safe-area-inset-top) + 84px));
+  right: max(12px, env(safe-area-inset-right));
+  max-height: min(52dvh, 420px);
+}
+
 .operational-map-page--fullscreen .operational-map__list {
   position: absolute;
   left: max(12px, env(safe-area-inset-left));
@@ -3383,11 +3389,94 @@ select[multiple] {
 }
 
 .operational-map__route-line {
-  stroke-width: 3;
+  stroke-width: 4;
   stroke-linecap: round;
-  stroke-dasharray: 9 9;
-  opacity: 0.92;
+  stroke-linejoin: round;
+  opacity: 0.96;
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.65));
+  pointer-events: none;
+}
+
+.operational-map__route-legend {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 2;
+  width: min(320px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  display: grid;
+  gap: 9px;
+  padding: 11px 12px;
+  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 8px;
+  color: #f8fbff;
+  background: rgba(4, 10, 18, 0.8);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(14px);
+}
+
+.operational-map__route-legend > strong {
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.operational-map__route-legend ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.operational-map__route-legend li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+}
+
+.operational-map__route-legend svg {
+  display: block;
+  width: 34px;
+  height: 12px;
+  overflow: visible;
+}
+
+.operational-map__route-legend line {
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.operational-map__route-legend circle {
+  stroke: #061018;
+  stroke-width: 2;
+}
+
+.operational-map__route-legend span,
+.operational-map__route-legend b,
+.operational-map__route-legend small {
+  min-width: 0;
+  display: block;
+}
+
+.operational-map__route-legend b {
+  overflow: hidden;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operational-map__route-legend small {
+  margin-top: 1px;
+  overflow: hidden;
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .operational-map__marker circle:first-child {
@@ -3571,6 +3660,15 @@ select[multiple] {
     height: 58dvh;
   }
 
+  .operational-map__route-legend {
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    width: auto;
+    max-height: 140px;
+  }
+
   .operational-map-page--fullscreen .operational-map__canvas {
     min-height: 100dvh;
     height: 100dvh;
@@ -3583,6 +3681,14 @@ select[multiple] {
 
   .operational-map-page--fullscreen .operational-map__livebar {
     top: max(148px, calc(env(safe-area-inset-top) + 148px));
+  }
+
+  .operational-map-page--fullscreen .operational-map__route-legend {
+    top: max(214px, calc(env(safe-area-inset-top) + 214px));
+    right: max(12px, env(safe-area-inset-right));
+    bottom: auto;
+    left: max(12px, env(safe-area-inset-left));
+    max-height: 24dvh;
   }
 
   .operational-map-page--fullscreen .operational-map__summary {
@@ -10267,6 +10373,18 @@ pre {
 
 :root[data-theme="light"] :where(.muted-text, .field-label, .form-note, small, th, dt, .data-table th, .definition-grid dt, .operator span, .operator-cell span, .device-card__meta dt, .drone-flight-card dt, .dashboard-metric span, .incident-card__meta > span, .recipient-row__identity span, .recipient-row__time span, .mobile-pairing p, .mobile-pairing small, .mobile-pairing > div > span, .mobile-pairing__header span, .mobile-pairing__manual > span) {
   color: var(--dis-muted) !important;
+}
+
+:root[data-theme="light"] .operational-map__route-legend,
+:root[data-theme="light"] .operational-map__route-legend > strong,
+:root[data-theme="light"] .operational-map__route-legend li,
+:root[data-theme="light"] .operational-map__route-legend span,
+:root[data-theme="light"] .operational-map__route-legend b {
+  color: #f8fbff !important;
+}
+
+:root[data-theme="light"] .operational-map__route-legend small {
+  color: #cbd5e1 !important;
 }
 
 :root[data-theme="light"] .primary-button {

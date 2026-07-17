@@ -10,6 +10,8 @@ import { useAuth } from '../auth/AuthContext';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 import type { Incident, IncidentLiveLocation, OperationalMapLayers } from '../../types/api';
 import { isCurrentLiveLocation } from './etaPresentation';
+import { loadIncidentLocationResults, replaceIncidentLocationsAfterPoll } from './incidentMapRequests';
+import { parseMapPoint, parsePilotRoute, pilotRouteColor, type PilotRoutePresentation } from './pilotRoutePresentation';
 
 const OPEN_INCIDENTS_PATH = '/incidents?status=draft,active,dispatching,in_progress';
 const MAP_LAYERS_PATH = '/operational-map/layers';
@@ -23,6 +25,7 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   historicalIncidents: false,
   pilotHomes: false,
 };
+const LIVE_LOCATION_REQUEST_CONCURRENCY = 2;
 
 export function IncidentMapPage() {
   const { api } = useAuth();
@@ -30,6 +33,8 @@ export function IncidentMapPage() {
   const reloadIncidentsSilently = incidents.silentReload;
   const mapLayers = useApiResource<OperationalMapLayers>(MAP_LAYERS_PATH);
   const fullscreenRootRef = useRef<HTMLDivElement | null>(null);
+  const liveLocationRequestIdRef = useRef(0);
+  const liveLocationRequestRef = useRef<Promise<void> | null>(null);
   const [locationsByIncident, setLocationsByIncident] = useState<Record<string, IncidentLiveLocation[]>>({});
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationsLoading, setLocationsLoading] = useState(false);
@@ -40,9 +45,20 @@ export function IncidentMapPage() {
   const isFullscreen = fullscreenMode !== 'none';
 
   const loadLiveLocations = useCallback(async (items: Incident[], options?: { silent?: boolean }) => {
+    if (liveLocationRequestRef.current !== null) {
+      if (options?.silent === true) {
+        return;
+      }
+      await liveLocationRequestRef.current.catch(() => undefined);
+    }
+
+    const requestId = liveLocationRequestIdRef.current + 1;
+    liveLocationRequestIdRef.current = requestId;
+
     if (items.length === 0) {
       setLocationsByIncident({});
       setLocationError(null);
+      setLocationsLoading(false);
       return;
     }
 
@@ -51,17 +67,45 @@ export function IncidentMapPage() {
     }
     setLocationError(null);
 
+    const request = (async () => {
+      const responses = await loadIncidentLocationResults(
+        items.map((incident) => incident.id),
+        LIVE_LOCATION_REQUEST_CONCURRENCY,
+        async (incidentId) => {
+          const response = await api.get<IncidentLiveLocation[]>(`/incidents/${incidentId}/live-locations?include_routes=1`);
+          return response.data;
+        },
+      );
+      if (liveLocationRequestIdRef.current === requestId) {
+        // Replace every incident and pilot route atomically. A failed
+        // incident refresh immediately loses its old route, so a stale line
+        // can never become a browser-side trail.
+        setLocationsByIncident((current) => replaceIncidentLocationsAfterPoll(current, responses));
+
+        const failedResponse = responses.find((response) => response.error !== null);
+        setLocationError(failedResponse === undefined
+          ? null
+          : liveLocationErrorMessage(failedResponse.error));
+      }
+    })();
+    liveLocationRequestRef.current = request;
+
     try {
-      const responses = await Promise.all(items.map(async (incident) => {
-        const response = await api.get<IncidentLiveLocation[]>(`/incidents/${incident.id}/live-locations`);
-        return [incident.id, response.data] as const;
-      }));
-      setLocationsByIncident(Object.fromEntries(responses));
+      await request;
     } catch (err) {
-      setLocationError(err instanceof ApiClientError ? err.message : 'Live locaties konden niet worden geladen.');
+      if (liveLocationRequestIdRef.current === requestId) {
+        setLocationsByIncident((current) => replaceIncidentLocationsAfterPoll(
+          current,
+          items.map((incident) => ({ incidentId: incident.id, locations: null, error: err })),
+        ));
+        setLocationError(liveLocationErrorMessage(err));
+      }
     } finally {
-      if (options?.silent !== true) {
+      if (liveLocationRequestIdRef.current === requestId) {
         setLocationsLoading(false);
+      }
+      if (liveLocationRequestRef.current === request) {
+        liveLocationRequestRef.current = null;
       }
     }
   }, [api]);
@@ -266,6 +310,7 @@ function OperationsMap({
   const points = models.flatMap((model) => [
     ...(model.incidentPoint ? [model.incidentPoint] : []),
     ...model.liveLocations,
+    ...model.liveLocations.flatMap((location) => location.route?.points ?? []),
   ]);
   const visibleLayerPoints = [
     ...(layerVisibility.commandCenters ? layers.commandCenters : []),
@@ -278,10 +323,22 @@ function OperationsMap({
   const center = hasOperationalPoints ? centerFor(allPoints) : NETHERLANDS_OVERVIEW_CENTER;
   const centerWorld = latLonToWorld(center.latitude, center.longitude, viewport.zoom);
   const tiles = visibleTiles(centerWorld, viewport);
+  const livePilotCount = models.reduce((total, model) => total + model.liveLocations.length, 0);
+  const routeCount = models.reduce(
+    (total, model) => total + model.liveLocations.filter((location) => location.route !== null).length,
+    0,
+  );
 
   return (
     <div className="operational-map__canvas">
-      <svg className="operational-map__svg" viewBox={`0 0 ${viewport.width} ${viewport.height}`} role="img" aria-label={models.length > 0 ? 'Kaart met incidenten en live gebruikerslocaties' : 'Kaart van Nederland zonder actieve incidenten'}>
+      <svg
+        className="operational-map__svg"
+        viewBox={`0 0 ${viewport.width} ${viewport.height}`}
+        role="img"
+        aria-label={models.length > 0
+          ? `Kaart met incidenten, ${livePilotCount} actuele piloten en ${routeCount} navigatieroutes`
+          : 'Kaart van Nederland zonder actieve incidenten'}
+      >
         {tiles.map((tile) => (
           <image
             key={`imagery-${tile.x}-${tile.y}-${tile.z}`}
@@ -305,26 +362,15 @@ function OperationsMap({
             preserveAspectRatio="none"
           />
         ))}
-        {models.map((model) => model.liveLocations.map((location) => {
-          if (model.incidentPoint === null) {
-            return null;
-          }
-
-          const from = markerPosition(location, centerWorld, viewport);
-          const to = markerPosition(model.incidentPoint, centerWorld, viewport);
-
-          return (
-            <line
-              key={`${model.incident.id}-${location.userId}-line`}
-              className="operational-map__route-line"
-              x1={from.x}
-              y1={from.y}
-              x2={to.x}
-              y2={to.y}
-              stroke={model.color}
-            />
-          );
-        }))}
+        {models.map((model) => model.liveLocations.map((location) => location.route === null ? null : (
+          <PilotRoutePath
+            key={`${model.incident.id}-${location.userId}-route`}
+            location={location}
+            centerWorld={centerWorld}
+            viewport={viewport}
+            incidentTitle={model.incident.title}
+          />
+        )))}
         {models.map((model) => model.incidentPoint === null ? null : (
           <MapMarker
             key={`${model.incident.id}-incident`}
@@ -342,7 +388,7 @@ function OperationsMap({
             point={location}
             centerWorld={centerWorld}
             viewport={viewport}
-            color={model.color}
+            color={location.color}
             label={location.name}
             type="user"
           />
@@ -363,7 +409,77 @@ function OperationsMap({
           <span>Nederland blijft als standaardkaart zichtbaar.</span>
         </div>
       ) : null}
+      <PilotRouteLegend models={models} />
     </div>
+  );
+}
+
+function PilotRoutePath({
+  location,
+  centerWorld,
+  viewport,
+  incidentTitle,
+}: {
+  location: UserMapPoint;
+  centerWorld: WorldPoint;
+  viewport: MapViewport;
+  incidentTitle: string;
+}) {
+  if (location.route === null) {
+    return null;
+  }
+
+  const path = location.route.points
+    .map((point, index) => {
+      const position = markerPosition(point, centerWorld, viewport);
+      return `${index === 0 ? 'M' : 'L'} ${position.x} ${position.y}`;
+    })
+    .join(' ');
+
+  return (
+    <path
+      className="operational-map__route-line"
+      d={path}
+      fill="none"
+      stroke={location.color}
+      vectorEffect="non-scaling-stroke"
+    >
+      <title>{`${location.name} naar ${incidentTitle} - ${pilotRouteStatus(location.route)}`}</title>
+    </path>
+  );
+}
+
+function PilotRouteLegend({ models }: { models: IncidentMapModel[] }) {
+  const entries = models.flatMap((model) => model.liveLocations.map((location) => ({
+    incidentId: model.incident.id,
+    incidentTitle: model.incident.title,
+    location,
+  })));
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="operational-map__route-legend" aria-label="Pilootroutes">
+      <strong>Pilootroutes</strong>
+      <ul>
+        {entries.map(({ incidentId, incidentTitle, location }) => (
+          <li key={`${incidentId}-${location.userId}`}>
+            <svg viewBox="0 0 34 12" aria-hidden="true">
+              {location.route === null ? (
+                <circle cx="17" cy="6" r="4" fill={location.color} />
+              ) : (
+                <line x1="2" y1="6" x2="32" y2="6" stroke={location.color} />
+              )}
+            </svg>
+            <span>
+              <b>{location.name}</b>
+              <small>{`${incidentTitle} · ${location.route === null ? 'Route niet beschikbaar' : pilotRouteStatus(location.route)}`}</small>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -562,12 +678,14 @@ interface PilotHomeMapPoint extends MapPoint {
 interface UserMapPoint extends MapPoint {
   userId: string;
   name: string;
+  color: string;
+  route: PilotRoutePresentation | null;
 }
 
 function buildOperationalLayerModels(layers: OperationalMapLayers | null): OperationalLayerModels {
   return {
     commandCenters: (layers?.command_centers ?? []).flatMap((center) => {
-      const point = coordinatePoint(center.latitude, center.longitude);
+      const point = parseMapPoint(center.latitude, center.longitude);
       return point === null ? [] : [{
         id: center.id,
         name: center.name,
@@ -576,7 +694,7 @@ function buildOperationalLayerModels(layers: OperationalMapLayers | null): Opera
       }];
     }),
     historicalIncidents: (layers?.historical_incidents ?? []).flatMap((incident) => {
-      const point = coordinatePoint(incident.latitude, incident.longitude);
+      const point = parseMapPoint(incident.latitude, incident.longitude);
       return point === null ? [] : [{
         id: incident.id,
         reference: incident.reference,
@@ -586,7 +704,7 @@ function buildOperationalLayerModels(layers: OperationalMapLayers | null): Opera
       }];
     }),
     pilotHomes: (layers?.pilot_homes ?? []).flatMap((home) => {
-      const point = coordinatePoint(home.latitude, home.longitude);
+      const point = parseMapPoint(home.latitude, home.longitude);
       return point === null ? [] : [{
         id: home.id,
         name: home.name,
@@ -610,34 +728,43 @@ function buildIncidentMapModels(incidents: Incident[], locationsByIncident: Reco
         incident,
         color,
         colorIndex,
-        incidentPoint: coordinatePoint(incident.latitude, incident.longitude),
+        incidentPoint: parseMapPoint(incident.latitude, incident.longitude),
         locations,
-        liveLocations: locations
-          .filter(isLiveLocation)
-          .map((location) => ({
-            latitude: Number(location.latitude),
-            longitude: Number(location.longitude),
+        liveLocations: locations.flatMap((location) => {
+          const point = parseMapPoint(location.latitude, location.longitude);
+          if (point === null || !isCurrentLiveLocation(location)) {
+            return [];
+          }
+
+          return [{
+            ...point,
             userId: location.user_id,
             name: location.user?.name ?? location.user_id,
-          })),
+            color: pilotRouteColor(location.user_id),
+            route: parsePilotRoute(location.route),
+          }];
+        }),
       };
     });
 }
 
-function coordinatePoint(latitude: string | number | null | undefined, longitude: string | number | null | undefined): MapPoint | null {
-  const lat = Number(latitude);
-  const lon = Number(longitude);
-
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-    return null;
+function pilotRouteStatus(route: PilotRoutePresentation): string {
+  const details: string[] = [];
+  if (route.durationSeconds !== null) {
+    details.push(`${Math.max(1, Math.ceil(route.durationSeconds / 60))} min`);
+  }
+  if (route.distanceMeters !== null) {
+    details.push(route.distanceMeters >= 1000
+      ? `${(route.distanceMeters / 1000).toFixed(1)} km`
+      : `${Math.round(route.distanceMeters)} m`);
   }
 
-  return { latitude: lat, longitude: lon };
+  const label = route.source === 'navigation' ? 'Navigatieroute' : 'Route';
+  return details.length > 0 ? `${label} · ${details.join(' · ')}` : label;
 }
 
-function isLiveLocation(location: IncidentLiveLocation): boolean {
-  const point = coordinatePoint(location.latitude, location.longitude);
-  return point !== null && isCurrentLiveLocation(location);
+function liveLocationErrorMessage(error: unknown): string {
+  return error instanceof ApiClientError ? error.message : 'Live locaties konden niet worden geladen.';
 }
 
 function shortMapLabel(value: string, maxLength: number): string {

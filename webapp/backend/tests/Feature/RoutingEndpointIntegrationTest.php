@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Contracts\DispatchNotificationQueue;
+use App\Contracts\RouteGeometryProvider;
 use App\Contracts\RoutingProvider;
 use App\Jobs\SendFcmNotification;
+use App\Models\AvailabilityStatus;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
@@ -18,6 +20,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Services\DispatchPushOutboxService;
 use App\Services\LocationService;
+use App\Services\Routing\RouteGeometryService;
 use App\Services\Routing\RoutingService;
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
@@ -49,6 +52,8 @@ final class RoutingEndpointIntegrationTest extends TestCase
             'dis.routing.osrm.allowed_hosts' => 'osrm.internal.test',
             'dis.routing.osrm.profile' => 'driving',
             'dis.routing.osrm.batch_size' => 50,
+            'dis.routing.osrm.geometry_max_routes' => 25,
+            'dis.routing.osrm.geometry_concurrency' => 10,
             'dis.dispatch.eta_ring_minutes' => 15,
         ]);
         Cache::flush();
@@ -698,6 +703,197 @@ final class RoutingEndpointIntegrationTest extends TestCase
         $this->assertSame('unknown', $locations[$stalePilot->id]['eta_source']);
     }
 
+    public function test_live_locations_without_route_opt_in_preserves_contract_and_never_calls_route_endpoint(): void
+    {
+        $viewer = $this->user('no-route-opt-in@example.test', 'No Route Opt In');
+        $this->grant($viewer, ['incidents.view', 'operational-map.view']);
+        $pilot = $this->user('no-route-pilot@example.test', 'No Route Pilot');
+        $team = $this->team('NO-ROUTE-OPT-IN');
+        $incident = $this->incident($viewer, $team, 52.3, 5.3, 'NO-ROUTE-OPT-IN-001');
+        $dispatch = $this->sentDispatch($incident, $viewer);
+        $this->acceptedRecipient($dispatch, $pilot);
+        $consent = LocationSharingConsent::query()->create([
+            'incident_id' => $incident->id,
+            'user_id' => $pilot->id,
+            'is_active' => true,
+            'consented_at' => now()->subMinute(),
+        ])->refresh();
+        LocationUpdate::query()->create([
+            'incident_id' => $incident->id,
+            'user_id' => $pilot->id,
+            'consent_state_version' => $consent->state_version,
+            'latitude' => 52.1,
+            'longitude' => 5.1,
+            'recorded_at' => now(),
+            'created_at' => now(),
+        ]);
+        Http::fake(['*' => Http::response([
+            'code' => 'Ok',
+            'durations' => [[600]],
+            'distances' => [[8000]],
+        ])]);
+
+        $this->asWebClient($viewer)
+            ->getJson('/api/incidents/'.$incident->id.'/live-locations')
+            ->assertOk()
+            ->assertJsonMissingPath('data.0.route')
+            ->assertJsonPath('data.0.eta_source', 'navigation');
+        $this->asWebClient($viewer)
+            ->getJson('/api/incidents/'.$incident->id.'/live-locations?include_routes=0')
+            ->assertOk()
+            ->assertJsonMissingPath('data.0.route')
+            ->assertJsonPath('data.0.eta_source', 'navigation');
+
+        Http::assertSentCount(2);
+        Http::assertSent(fn (HttpRequest $request): bool => str_contains($request->url(), '/table/v1/'));
+        Http::assertNotSent(fn (HttpRequest $request): bool => str_contains($request->url(), '/route/v1/'));
+    }
+
+    public function test_route_opt_in_returns_only_current_authorized_geojson_and_reuses_route_eta(): void
+    {
+        $this->travelTo(now()->startOfSecond());
+        $viewer = $this->user('route-map-viewer@example.test', 'Route Map Viewer');
+        $this->grant($viewer, ['incidents.view', 'operational-map.view']);
+        $currentPilot = $this->user('route-current@example.test', 'Route Current');
+        $stalePilot = $this->user('route-stale@example.test', 'Route Stale');
+        $onScenePilot = $this->user('route-on-scene@example.test', 'Route On Scene');
+        $team = $this->team('ROUTE-MAP');
+        $incident = $this->incident($viewer, $team, 52.3, 5.3, 'ROUTE-MAP-001');
+        $dispatch = $this->sentDispatch($incident, $viewer);
+
+        foreach ([$currentPilot, $stalePilot, $onScenePilot] as $pilot) {
+            $this->acceptedRecipient($dispatch, $pilot);
+            $consent = LocationSharingConsent::query()->create([
+                'incident_id' => $incident->id,
+                'user_id' => $pilot->id,
+                'is_active' => true,
+                'consented_at' => now()->subMinutes(10),
+            ])->refresh();
+            $isStale = $pilot->is($stalePilot);
+            LocationUpdate::query()->create([
+                'incident_id' => $incident->id,
+                'user_id' => $pilot->id,
+                'consent_state_version' => $consent->state_version,
+                'latitude' => $pilot->is($currentPilot) ? 52.1 : ($isStale ? 52.2 : 52.25),
+                'longitude' => $pilot->is($currentPilot) ? 5.1 : ($isStale ? 5.2 : 5.25),
+                'recorded_at' => $isStale ? now()->subMinutes(6) : now(),
+                'created_at' => $isStale ? now()->subMinutes(6) : now(),
+            ]);
+        }
+        AvailabilityStatus::query()->create([
+            'user_id' => $onScenePilot->id,
+            'user_name' => $onScenePilot->name,
+            'user_email' => $onScenePilot->email,
+            'status' => 'on_scene',
+            'is_available' => true,
+            'is_system_applied' => false,
+            'effective_at' => now(),
+        ]);
+        Http::fake(['*' => Http::response([
+            'code' => 'Ok',
+            'routes' => [[
+                'duration' => 600.2,
+                'distance' => 8000.4,
+                'geometry' => [
+                    'type' => 'LineString',
+                    'coordinates' => [[5.1, 52.1], [5.2, 52.2], [5.3, 52.3]],
+                ],
+            ]],
+        ])]);
+
+        $response = $this->asWebClient($viewer)
+            ->getJson('/api/incidents/'.$incident->id.'/live-locations?include_routes=1')
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+
+        $locations = collect($response->json('data'))->keyBy('user_id');
+        $this->assertSame('navigation', $locations[$currentPilot->id]['route']['source']);
+        $this->assertSame(601, $locations[$currentPilot->id]['route']['duration_seconds']);
+        $this->assertSame(8001, $locations[$currentPilot->id]['route']['distance_meters']);
+        $this->assertSame('LineString', $locations[$currentPilot->id]['route']['geometry']['type']);
+        $this->assertSame([[5.1, 52.1], [5.2, 52.2], [5.3, 52.3]], $locations[$currentPilot->id]['route']['geometry']['coordinates']);
+        $this->assertSame(11, $locations[$currentPilot->id]['eta_minutes']);
+        $this->assertSame('navigation', $locations[$currentPilot->id]['eta_source']);
+        $this->assertNull($locations[$stalePilot->id]['route']);
+        $this->assertFalse($locations->has($onScenePilot->id));
+
+        Http::assertSentCount(1);
+        Http::assertSent(function (HttpRequest $request): bool {
+            $url = urldecode($request->url());
+
+            return str_contains($url, '/route/v1/driving/5.100000,52.100000;5.300000,52.300000')
+                && ! str_contains($url, '5.200000,52.200000')
+                && ! str_contains($url, '5.250000,52.250000');
+        });
+        Http::assertNotSent(fn (HttpRequest $request): bool => str_contains($request->url(), '/table/v1/'));
+    }
+
+    public function test_route_opt_in_degrades_to_null_geometry_and_fallback_eta_after_osrm_failure(): void
+    {
+        $viewer = $this->user('route-failure-viewer@example.test', 'Route Failure Viewer');
+        $this->grant($viewer, ['incidents.view', 'operational-map.view']);
+        $pilot = $this->user('route-failure-pilot@example.test', 'Route Failure Pilot');
+        $team = $this->team('ROUTE-FAILURE');
+        $incident = $this->incident($viewer, $team, 52.3, 5.3, 'ROUTE-FAILURE-001');
+        $dispatch = $this->sentDispatch($incident, $viewer);
+        $this->acceptedRecipient($dispatch, $pilot);
+        $consent = LocationSharingConsent::query()->create([
+            'incident_id' => $incident->id,
+            'user_id' => $pilot->id,
+            'is_active' => true,
+            'consented_at' => now()->subMinute(),
+        ])->refresh();
+        LocationUpdate::query()->create([
+            'incident_id' => $incident->id,
+            'user_id' => $pilot->id,
+            'consent_state_version' => $consent->state_version,
+            'latitude' => 52.1,
+            'longitude' => 5.1,
+            'recorded_at' => now(),
+            'created_at' => now(),
+        ]);
+        Http::fake(['*' => Http::response([], 503)]);
+
+        $this->asWebClient($viewer)
+            ->getJson('/api/incidents/'.$incident->id.'/live-locations?include_routes=1')
+            ->assertOk()
+            ->assertJsonPath('data.0.route', null)
+            ->assertJsonPath('data.0.eta_source', 'fallback');
+
+        Http::assertSentCount(1);
+        Http::assertSent(fn (HttpRequest $request): bool => str_contains($request->url(), '/route/v1/'));
+        Http::assertNotSent(fn (HttpRequest $request): bool => str_contains($request->url(), '/table/v1/'));
+
+        config()->set('dis.routing.enabled', false);
+        $this->forgetRoutingSingletons();
+        Http::fake();
+
+        $this->asWebClient($viewer)
+            ->getJson('/api/incidents/'.$incident->id.'/live-locations?include_routes=1')
+            ->assertOk()
+            ->assertJsonPath('data.0.route', null)
+            ->assertJsonPath('data.0.eta_source', 'fallback');
+        // Http::fake() replaces the responder but deliberately keeps recorded
+        // history; the count remaining at one proves this disabled poll added
+        // no provider call.
+        Http::assertSentCount(1);
+    }
+
+    public function test_route_opt_in_requires_operational_map_permission_before_contacting_osrm(): void
+    {
+        $viewer = $this->user('route-forbidden-viewer@example.test', 'Route Forbidden Viewer');
+        $this->grant($viewer, ['incidents.view']);
+        $team = $this->team('ROUTE-FORBIDDEN');
+        $incident = $this->incident($viewer, $team, 52.3, 5.3, 'ROUTE-FORBIDDEN-001');
+        Http::fake();
+
+        $this->asWebClient($viewer)
+            ->getJson('/api/incidents/'.$incident->id.'/live-locations?include_routes=1')
+            ->assertForbidden();
+
+        Http::assertNothingSent();
+    }
+
     public function test_live_locations_selects_only_the_latest_received_position_in_the_database(): void
     {
         $this->travelTo(now()->startOfSecond());
@@ -1267,6 +1463,8 @@ final class RoutingEndpointIntegrationTest extends TestCase
 
     private function forgetRoutingSingletons(): void
     {
+        app()->forgetInstance(RouteGeometryService::class);
+        app()->forgetInstance(RouteGeometryProvider::class);
         app()->forgetInstance(RoutingService::class);
         app()->forgetInstance(RoutingProvider::class);
     }

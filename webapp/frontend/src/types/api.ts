@@ -331,6 +331,15 @@ export interface IncidentLiveLocation {
   recorded_at?: string | null;
   eta_minutes?: number | null;
   eta_source?: 'navigation' | 'fallback' | 'unknown' | null;
+  route?: {
+    source: string;
+    distance_meters: number | null;
+    duration_seconds: number | null;
+    geometry: {
+      type: 'LineString';
+      coordinates: Array<[number, number]>;
+    };
+  } | null;
 }
 
 export interface AvailabilityStatus {

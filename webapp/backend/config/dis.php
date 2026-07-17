@@ -59,6 +59,8 @@ return [
             'connect_timeout_seconds' => (int) env('OSRM_CONNECT_TIMEOUT_SECONDS', 1),
             'timeout_seconds' => (int) env('OSRM_TIMEOUT_SECONDS', 3),
             'batch_size' => (int) env('OSRM_BATCH_SIZE', 50),
+            'geometry_max_routes' => (int) env('OSRM_GEOMETRY_MAX_ROUTES', 25),
+            'geometry_concurrency' => (int) env('OSRM_GEOMETRY_CONCURRENCY', 10),
         ],
     ],
     'updates' => [

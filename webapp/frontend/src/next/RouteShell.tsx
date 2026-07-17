@@ -16,7 +16,7 @@ interface ProtectedShellProps {
 const homeRedirectCandidates = [
   { to: '/dashboard', permissions: ['incidents.view', 'incidents.dispatch.view', 'status.view', 'assets.view'] },
   { to: '/incidents', permissions: ['incidents.view'] },
-  { to: '/operational-map', permissions: ['operational-map.view'] },
+  { to: '/operational-map', permissions: ['operational-map.view', 'incidents.view'] },
   { to: '/operational-status', permissions: ['status.view'] },
   { to: '/users', permissions: ['users.view'] },
   { to: '/address-book', permissions: ['address-book.view'] },

@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Contracts\DispatchNotificationQueue;
 use App\Contracts\PushProvider;
+use App\Contracts\RouteGeometryProvider;
 use App\Contracts\RoutingProvider;
 use App\Mail\MicrosoftGraphTransport;
 use App\Models\PersonalAccessToken;
@@ -11,6 +12,7 @@ use App\Models\SystemSetting;
 use App\Services\PushProviderClient;
 use App\Services\QueuedDispatchNotificationQueue;
 use App\Services\Routing\OsrmRoutingProvider;
+use App\Services\Routing\RouteGeometryService;
 use App\Services\Routing\RoutingService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
@@ -42,7 +44,17 @@ final class AppServiceProvider extends ServiceProvider
                 static fn (string $host): string => trim($host),
                 explode(',', (string) config('dis.routing.osrm.allowed_hosts', '127.0.0.1,localhost,::1')),
             ))),
+            geometryMaxRoutes: (int) config('dis.routing.osrm.geometry_max_routes', 25),
+            geometryConcurrency: (int) config('dis.routing.osrm.geometry_concurrency', 10),
         ));
+
+        $this->app->singleton(RouteGeometryProvider::class, function ($app): RouteGeometryProvider {
+            $provider = $app->make(RoutingProvider::class);
+
+            return $provider instanceof RouteGeometryProvider
+                ? $provider
+                : throw new \LogicException('The configured routing provider does not support route geometry.');
+        });
 
         $this->app->singleton(RoutingService::class, fn ($app): RoutingService => new RoutingService(
             provider: $app->make(RoutingProvider::class),
@@ -52,6 +64,12 @@ final class AppServiceProvider extends ServiceProvider
             cacheTtlSeconds: (int) config('dis.routing.cache_ttl_seconds', 900),
             failureCacheTtlSeconds: (int) config('dis.routing.failure_cache_ttl_seconds', 15),
             fallbackSpeedKmh: (float) config('dis.routing.fallback_speed_kmh', 60),
+        ));
+
+        $this->app->singleton(RouteGeometryService::class, fn ($app): RouteGeometryService => new RouteGeometryService(
+            provider: $app->make(RouteGeometryProvider::class),
+            enabled: $this->managedRoutingEnabled()
+                && (string) config('dis.routing.provider', 'osrm') === 'osrm',
         ));
     }
 

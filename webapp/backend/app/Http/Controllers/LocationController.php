@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\DTO\Routing\RouteEstimate;
+use App\DTO\Routing\RouteGeometry;
 use App\DTO\Routing\RoutePoint;
 use App\Http\Responses\ApiResponse;
 use App\Models\Incident;
@@ -11,8 +12,10 @@ use App\Models\LocationUpdate;
 use App\Models\User;
 use App\Services\IncidentAccessService;
 use App\Services\LocationService;
+use App\Services\Routing\RouteGeometryService;
 use App\Services\Routing\RoutingService;
 use App\Support\ApiDateTime;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -24,6 +27,7 @@ final class LocationController extends Controller
         private readonly LocationService $service,
         private readonly IncidentAccessService $access,
         private readonly RoutingService $routingService,
+        private readonly RouteGeometryService $routeGeometryService,
     ) {}
 
     public function consent(Request $request, Incident $incident): JsonResponse
@@ -82,17 +86,28 @@ final class LocationController extends Controller
     public function liveLocations(Request $request, Incident $incident): JsonResponse
     {
         $this->access->assertCanViewIncident($request->user(), $incident);
+        $query = $request->validate([
+            'include_routes' => ['sometimes', 'boolean'],
+        ]);
+        $includeRoutes = (bool) ($query['include_routes'] ?? false);
+        if ($includeRoutes && ! $request->user()->hasPermission('operational-map.view')) {
+            throw new AuthorizationException('Viewing live pilot routes requires operational map access.');
+        }
         if ($this->service->isClosedForLocationSharing($incident)) {
             return ApiResponse::success([]);
         }
 
         $acceptedRecipients = $incident->dispatchRequests()
             ->whereIn('status', ['sent', 'escalated'])
-            ->with(['recipients.user'])
+            ->with(['recipients.user.statuses' => fn ($statuses) => $statuses->latestPerUser()])
             ->latest()
             ->get()
             ->flatMap->recipients
             ->filter(fn ($recipient): bool => $recipient->response_status === 'accepted')
+            // LocationService normally revokes consent on arrival. This
+            // server-side projection also closes the small race between the
+            // status write and that revocation without an N+1 status query.
+            ->reject(fn ($recipient): bool => $recipient->user?->statuses->first()?->status === 'on_scene')
             ->unique('user_id')
             ->values();
 
@@ -164,11 +179,16 @@ final class LocationController extends Controller
             ->keyBy('user_id');
 
         $acceptedRecipientsByUser = $acceptedRecipients->keyBy('user_id');
-        $routeEstimates = $this->liveRouteEstimates($incident, $latestLocations);
+        $routeGeometries = $includeRoutes
+            ? $this->liveRouteGeometries($incident, $latestLocations)
+            : [];
+        $routeEstimates = $includeRoutes
+            ? $this->liveRouteEstimatesFromGeometries($incident, $latestLocations, $routeGeometries)
+            : $this->liveRouteEstimates($incident, $latestLocations);
         $includeLegacyMobileUserFields = in_array($request->user()->currentClientType(), ['operator', 'admin'], true);
 
         return ApiResponse::success($locationUserIds
-            ->map(function (string $userId) use ($acceptedRecipientsByUser, $consentsByUser, $latestLocations, $routeEstimates, $includeLegacyMobileUserFields): array {
+            ->map(function (string $userId) use ($acceptedRecipientsByUser, $consentsByUser, $latestLocations, $routeEstimates, $routeGeometries, $includeRoutes, $includeLegacyMobileUserFields): array {
                 $recipient = $acceptedRecipientsByUser->get($userId);
                 $consent = $consentsByUser->get($userId);
                 $location = $latestLocations->get($userId);
@@ -179,7 +199,7 @@ final class LocationController extends Controller
                     ? ($routeEstimates[$userId] ?? RouteEstimate::unknown())
                     : RouteEstimate::unknown();
 
-                return [
+                $payload = [
                     'user_id' => $userId,
                     'user' => $user === null ? null : $this->locationUserIdentity($user, $includeLegacyMobileUserFields),
                     'sharing_status' => $sharingStatus,
@@ -197,6 +217,12 @@ final class LocationController extends Controller
                     'eta_minutes' => $this->etaMinutes($estimate),
                     'eta_source' => $estimate->source->value,
                 ];
+
+                if ($includeRoutes) {
+                    $payload['route'] = ($routeGeometries[$userId] ?? null)?->toArray();
+                }
+
+                return $payload;
             })
             ->values());
     }
@@ -297,6 +323,74 @@ final class LocationController extends Controller
         }
 
         return $this->routingService->routesTo($origins, $destination);
+    }
+
+    /**
+     * @param  Collection<string, LocationUpdate>  $latestLocations
+     * @return array<string, RouteGeometry>
+     */
+    private function liveRouteGeometries(Incident $incident, Collection $latestLocations): array
+    {
+        $destination = $this->routePoint($incident->latitude, $incident->longitude);
+        if ($destination === null) {
+            return [];
+        }
+
+        $origins = [];
+        foreach ($latestLocations as $userId => $location) {
+            if (! $this->isCurrentLocation($location)) {
+                continue;
+            }
+
+            $origin = $this->routePoint($location->latitude, $location->longitude);
+            if ($origin !== null) {
+                $origins[(string) $userId] = $origin;
+            }
+        }
+
+        return $this->routeGeometryService->routesTo($origins, $destination);
+    }
+
+    /**
+     * Avoid a second OSRM table request during an opted-in map poll. Successful
+     * geometry responses already contain navigation duration and distance;
+     * missing routes receive the same explicit provider-free fallback used by
+     * the normal ETA flow.
+     *
+     * @param  Collection<string, LocationUpdate>  $latestLocations
+     * @param  array<string, RouteGeometry>  $routeGeometries
+     * @return array<string, RouteEstimate>
+     */
+    private function liveRouteEstimatesFromGeometries(
+        Incident $incident,
+        Collection $latestLocations,
+        array $routeGeometries,
+    ): array {
+        $destination = $this->routePoint($incident->latitude, $incident->longitude);
+        if ($destination === null) {
+            return [];
+        }
+
+        $origins = [];
+        foreach ($latestLocations as $userId => $location) {
+            if (! $this->isCurrentLocation($location)) {
+                continue;
+            }
+
+            $origin = $this->routePoint($location->latitude, $location->longitude);
+            if ($origin !== null) {
+                $origins[(string) $userId] = $origin;
+            }
+        }
+
+        $estimates = $this->routingService->fallbackRoutesTo($origins, $destination);
+        foreach ($routeGeometries as $userId => $route) {
+            if (array_key_exists($userId, $origins)) {
+                $estimates[$userId] = RouteEstimate::navigation($route->duration, $route->distance);
+            }
+        }
+
+        return $estimates;
     }
 
     private function etaMinutes(RouteEstimate $estimate): ?int

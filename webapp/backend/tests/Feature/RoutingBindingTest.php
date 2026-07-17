@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\RouteGeometryProvider;
 use App\Contracts\RoutingProvider;
 use App\DTO\Routing\RoutePoint;
 use App\DTO\Routing\RouteSource;
 use App\Services\Routing\OsrmRoutingProvider;
+use App\Services\Routing\RouteGeometryService;
 use App\Services\Routing\RoutingService;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -23,6 +25,8 @@ final class RoutingBindingTest extends TestCase
         $this->forgetRoutingSingletons();
 
         $this->assertInstanceOf(OsrmRoutingProvider::class, app(RoutingProvider::class));
+        $this->assertSame(app(RoutingProvider::class), app(RouteGeometryProvider::class));
+        $this->assertInstanceOf(RouteGeometryService::class, app(RouteGeometryService::class));
         $this->assertInstanceOf(RoutingService::class, app(RoutingService::class));
     }
 
@@ -54,6 +58,8 @@ final class RoutingBindingTest extends TestCase
 
     private function forgetRoutingSingletons(): void
     {
+        app()->forgetInstance(RouteGeometryService::class);
+        app()->forgetInstance(RouteGeometryProvider::class);
         app()->forgetInstance(RoutingService::class);
         app()->forgetInstance(RoutingProvider::class);
     }

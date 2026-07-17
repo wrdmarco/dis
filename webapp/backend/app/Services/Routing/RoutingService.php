@@ -81,6 +81,26 @@ final class RoutingService
         return $results;
     }
 
+    /**
+     * Resolve estimates without contacting or reading from the navigation
+     * provider. Used when another trusted OSRM response already resolved some
+     * origins and only the unresolved rows need the operational fallback.
+     *
+     * @param  array<string, RoutePoint>  $origins
+     * @return array<string, RouteEstimate>
+     */
+    public function fallbackRoutesTo(array $origins, RoutePoint $destination): array
+    {
+        $this->assertOrigins($origins);
+
+        $results = [];
+        foreach ($origins as $key => $origin) {
+            $results[$key] = $this->fallback($origin, $destination);
+        }
+
+        return $results;
+    }
+
     private function cachedEstimate(RoutePoint $origin, RoutePoint $destination): ?RouteEstimate
     {
         try {

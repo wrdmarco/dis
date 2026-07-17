@@ -150,6 +150,112 @@ final class RoutingServiceTest extends TestCase
         $http->assertNothingSent();
     }
 
+    public function test_osrm_provider_returns_bounded_simplified_geojson_routes_in_longitude_latitude_order(): void
+    {
+        $http = new HttpFactory;
+        $http->fake(['*' => HttpFactory::response([
+            'code' => 'Ok',
+            'routes' => [[
+                'duration' => 600.2,
+                'distance' => 12_000.4,
+                'geometry' => [
+                    'type' => 'LineString',
+                    'coordinates' => [[5.1214, 52.0907], [5.3878, 52.1561]],
+                ],
+            ]],
+        ])]);
+        $provider = new OsrmRoutingProvider(
+            http: $http,
+            baseUrl: 'http://osrm.internal.test:5000',
+            profile: 'driving',
+            connectTimeoutSeconds: 1,
+            timeoutSeconds: 3,
+            allowedHosts: ['osrm.internal.test'],
+            geometryMaxRoutes: 2,
+            geometryConcurrency: 2,
+        );
+
+        $routes = $provider->routeGeometriesTo([
+            'pilot-a' => new RoutePoint(52.0907, 5.1214),
+            'pilot-b' => new RoutePoint(52.3702, 4.8952),
+            'pilot-c' => new RoutePoint(51.9244, 4.4777),
+        ], new RoutePoint(52.1561, 5.3878));
+
+        $http->assertSentCount(2);
+        $http->assertSent(function (Request $request): bool {
+            $url = urldecode($request->url());
+
+            return str_contains($url, '/route/v1/driving/5.121400,52.090700;5.387800,52.156100')
+                && str_contains($url, 'alternatives=false')
+                && str_contains($url, 'steps=false')
+                && str_contains($url, 'overview=simplified')
+                && str_contains($url, 'geometries=geojson');
+        });
+        $this->assertCount(2, $routes);
+        $this->assertArrayHasKey('pilot-a', $routes);
+        $this->assertArrayHasKey('pilot-b', $routes);
+        $this->assertArrayNotHasKey('pilot-c', $routes);
+        $this->assertSame([
+            'source' => 'navigation',
+            'duration_seconds' => 601,
+            'distance_meters' => 12_001,
+            'geometry' => [
+                'type' => 'LineString',
+                'coordinates' => [[5.1214, 52.0907], [5.3878, 52.1561]],
+            ],
+        ], $routes['pilot-a']->toArray());
+    }
+
+    public function test_osrm_geometry_failure_or_malformed_coordinates_only_omit_the_affected_route(): void
+    {
+        $http = new HttpFactory;
+        $http->fake(function (Request $request) {
+            $url = urldecode($request->url());
+            if (str_contains($url, '5.000000,52.000000')) {
+                return HttpFactory::response([], 503);
+            }
+            if (str_contains($url, '5.100000,52.100000')) {
+                return HttpFactory::response([
+                    'code' => 'Ok',
+                    'routes' => [[
+                        'duration' => 100,
+                        'distance' => 1000,
+                        'geometry' => ['type' => 'LineString', 'coordinates' => [[181, 52], [5.3, 52.3]]],
+                    ]],
+                ]);
+            }
+            if (str_contains($url, '5.150000,52.150000')) {
+                $route = [
+                    'duration' => 150,
+                    'distance' => 1500,
+                    'geometry' => ['type' => 'LineString', 'coordinates' => [[5.15, 52.15], [5.3, 52.3]]],
+                ];
+
+                return HttpFactory::response(['code' => 'Ok', 'routes' => [$route, $route]]);
+            }
+
+            return HttpFactory::response([
+                'code' => 'Ok',
+                'routes' => [[
+                    'duration' => 200,
+                    'distance' => 2000,
+                    'geometry' => ['type' => 'LineString', 'coordinates' => [[5.2, 52.2], [5.3, 52.3]]],
+                ]],
+            ]);
+        });
+
+        $routes = $this->provider($http)->routeGeometriesTo([
+            'provider-failure' => new RoutePoint(52.0, 5.0),
+            'invalid-geometry' => new RoutePoint(52.1, 5.1),
+            'unexpected-alternative' => new RoutePoint(52.15, 5.15),
+            'healthy' => new RoutePoint(52.2, 5.2),
+        ], new RoutePoint(52.3, 5.3));
+
+        $http->assertSentCount(4);
+        $this->assertSame(['healthy'], array_keys($routes));
+        $this->assertSame(200, $routes['healthy']->duration);
+    }
+
     public function test_routing_service_caches_navigation_results_under_hashed_keys(): void
     {
         $http = new HttpFactory;

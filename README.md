@@ -188,6 +188,14 @@ navigation ETA from that location. A location older than five minutes is stale: 
 its former ETA is not shown. The API's optional `eta_source` value is `navigation`, `fallback`, or `unknown`;
 clients must continue to handle older responses where this field is absent.
 
+The operational map can explicitly request the current OSRM route for each accepted pilot who is actively
+sharing a current location. Each successful poll replaces the complete route geometry, so movement never
+builds a historical location trail behind the pilot. Route geometry is not cached or stored as history. If
+OSRM is unavailable or returns an invalid route, the map keeps the current pilot marker but draws no straight
+line or other route substitute. Route geometry is available only to users who also have
+`operational-map.view`; ordinary incident and mobile location responses retain their existing contract and do
+not trigger route-geometry requests.
+
 Administrators can install and activate the self-hosted Netherlands-and-Belgium OSRM service from the dedicated
 **Routering** admin page. The browser cannot choose download URLs, checksums, readiness coordinates or pass shell
 input. DIS uses an application-fixed Dutch readiness coordinate and a root-controlled Belgian readiness coordinate solely to

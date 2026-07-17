@@ -5,7 +5,7 @@ import { ProtectedShell } from '../../src/next/RouteShell';
 
 export default function Page() {
   return (
-    <ProtectedShell permissions={['operational-map.view']}>
+    <ProtectedShell permissions={['operational-map.view', 'incidents.view']}>
       <IncidentMapPage />
     </ProtectedShell>
   );

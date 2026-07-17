@@ -77,6 +77,37 @@ final class PushProviderCoalescingTest extends TestCase
         ]));
     }
 
+    public function test_preannouncement_response_sync_and_real_alarm_share_one_provider_ordering_key(): void
+    {
+        $dispatchId = (string) Str::ulid();
+        $collapseId = 'dispatch-'.$dispatchId;
+
+        foreach ([
+            ['type' => 'dispatch_update', 'action_mode' => 'availability'],
+            ['type' => 'incident_preannouncement'],
+            ['type' => 'dispatch_response_sync', 'action_mode' => 'availability'],
+            ['type' => 'dispatch_request', 'action_mode' => 'attendance'],
+            ['type' => 'dispatch_response_sync', 'action_mode' => 'attendance'],
+            ['type' => 'dispatch_response_sync', 'action_mode' => 'test_ack'],
+        ] as $phase) {
+            $this->assertSame($collapseId, PushNotificationIdentity::dispatchCollapseId([
+                ...$phase,
+                'dispatch_id' => $dispatchId,
+            ]));
+        }
+
+        $this->assertNull(PushNotificationIdentity::dispatchCollapseId([
+            'type' => 'dispatch_update',
+            'action_mode' => 'additional_info',
+            'dispatch_id' => $dispatchId,
+        ]));
+        $this->assertNull(PushNotificationIdentity::dispatchCollapseId([
+            'type' => 'dispatch_response_sync',
+            'action_mode' => 'unknown',
+            'dispatch_id' => $dispatchId,
+        ]));
+    }
+
     public function test_visible_operational_messages_use_high_android_priority_and_remain_data_only(): void
     {
         $token = $this->androidToken('visible-priority');

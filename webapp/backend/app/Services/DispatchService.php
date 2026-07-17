@@ -726,6 +726,16 @@ final class DispatchService
     {
         $isTestAlert = (bool) $dispatch->incident?->is_test;
         $actionMode = $isTestAlert ? 'test_ack' : ($dispatch->status === 'draft' ? 'availability' : 'attendance');
+
+        // The responder already applied this draft response locally and the
+        // server remains the source of truth for their other devices. Do not
+        // queue an availability synchronisation: normal-priority pushes can
+        // arrive after the later high-priority alarm, and older clients then
+        // dismiss that first real alarm for the same dispatch identifier.
+        if ($actionMode === 'availability') {
+            return;
+        }
+
         $title = match ($actionMode) {
             'availability' => 'D.I.S beschikbaarheid bijgewerkt',
             'test_ack' => 'D.I.S proefalarmering bijgewerkt',

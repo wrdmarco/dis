@@ -45,7 +45,7 @@ const navGroups: NavGroup[] = [
     label: 'Operatie',
     items: [
       { to: '/incidents', label: 'Actieve meldingen', icon: RadioTower, end: true, permissions: ['incidents.view'] },
-      { to: '/operational-map', label: 'Kaart', icon: MapIcon, permissions: ['operational-map.view'] },
+      { to: '/operational-map', label: 'Kaart', icon: MapIcon, permissions: ['operational-map.view', 'incidents.view'] },
       { to: '/incidents/archive', label: 'Archief', icon: Archive, permissions: ['incidents.view'] },
       { to: '/operational-status', label: 'Status', icon: Workflow, permissions: ['status.view'] },
       { to: '/calendar', label: 'Agenda', icon: CalendarDays },
