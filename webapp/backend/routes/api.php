@@ -13,6 +13,7 @@ use App\Http\Controllers\BackupController;
 use App\Http\Controllers\BrandingController;
 use App\Http\Controllers\CalendarEventController;
 use App\Http\Controllers\CertificationController;
+use App\Http\Controllers\DeveloperDispatchDiagnosticsController;
 use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\DispatchController;
 use App\Http\Controllers\DroneTypeController;
@@ -62,6 +63,7 @@ Route::post('/developer/system/update', [AdminDeveloperController::class, 'devel
 Route::post('/developer/users/login-lock/reset', [AdminDeveloperController::class, 'developerResetLoginLock'])->middleware('throttle:developer-update');
 Route::get('/developer/logs', [AdminDeveloperController::class, 'developerLogs'])->middleware('throttle:developer-logs');
 Route::get('/developer/logs/{filename}', [AdminDeveloperController::class, 'developerLog'])->where('filename', '[A-Za-z0-9._-]+\.log')->middleware('throttle:developer-logs');
+Route::get('/developer/dispatches/{dispatchId}/diagnostics', [DeveloperDispatchDiagnosticsController::class, 'show'])->middleware('throttle:developer-logs');
 Route::get('/health', [HealthController::class, 'public'])->middleware('throttle:api');
 
 Route::middleware(['two_factor.challenge', 'operational', 'audit.privileged', 'store.review'])->group(function (): void {
