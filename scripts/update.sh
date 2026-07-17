@@ -249,6 +249,10 @@ refresh_generated_nginx() {
 }
 
 install_update_command() {
+  local install_osrm_runtime="${1:-1}"
+
+  [[ "${install_osrm_runtime}" =~ ^[01]$ ]] \
+    || fail "install_update_command received an invalid OSRM runtime mode."
   log "Installing global update command"
   if [ -e /usr/local/bin/update ] && ! grep -q "${DIS_INSTALL_PATH}/update.sh" /usr/local/bin/update 2>/dev/null; then
     fail "/usr/local/bin/update already exists and is not managed by DIS."
@@ -271,7 +275,9 @@ EOF
   fi
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/backup-request-worker.sh" /usr/local/bin/dis-backup-request-worker
   run_cmd install -m 0755 "${DIS_INSTALL_PATH}/scripts/snapshot-backup-input.sh" /usr/local/bin/dis-snapshot-backup-input
-  install_osrm_admin_runtime_bundle "${DIS_INSTALL_PATH}"
+  if [ "${install_osrm_runtime}" = "1" ]; then
+    install_osrm_admin_runtime_bundle "${DIS_INSTALL_PATH}"
+  fi
   remove_legacy_backup_entrypoints
   install_php_fpm_privileged_helpers_override
   install_backup_request_systemd_units "${DIS_INSTALL_PATH}"
@@ -764,7 +770,10 @@ if [ "${UPDATE_APP}" = "1" ]; then
       bash "${SCRIPT_DIR}/deploy.sh"
     UPDATE_PHASE="stopping services after nested deployment"
     stop_dis_deployment_services
-    install_update_command
+    # The nested deployment has already atomically installed and verified the
+    # new OSRM runtime bundle. The parent updater still has its pre-update shell
+    # functions in memory and must not reinterpret that new bundle schema.
+    install_update_command 0
     install_update_privileges
     run_update_permission_self_heal "post-deploy permission self-heal before cache cleanup"
     clear_application_caches

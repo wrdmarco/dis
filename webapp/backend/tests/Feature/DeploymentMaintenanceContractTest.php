@@ -476,6 +476,10 @@ final class DeploymentMaintenanceContractTest extends TestCase
         );
         self::assertStringContainsString('DIS_DEPLOYMENT_OWNER=update', $script);
         self::assertStringContainsString('DIS_DEFER_OPERATIONAL_SERVICES=1', $script);
+        self::assertStringContainsString(
+            "stop_dis_deployment_services\n    # The nested deployment has already atomically installed and verified the\n    # new OSRM runtime bundle. The parent updater still has its pre-update shell\n    # functions in memory and must not reinterpret that new bundle schema.\n    install_update_command 0",
+            $script,
+        );
 
         $failureHandler = substr(
             $script,
