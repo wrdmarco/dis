@@ -12,6 +12,8 @@ use App\Models\FcmToken;
 use App\Models\Incident;
 use App\Models\User;
 use App\Services\DispatchPushOutboxService;
+use App\Support\ApiDateTime;
+use Carbon\CarbonImmutable;
 use GuzzleHttp\Psr7\Response as PsrResponse;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Response as ClientResponse;
@@ -38,7 +40,11 @@ final class DispatchPushOutboxLifecycleTest extends TestCase
         $this->assertNull($outbox->cancelled_at);
         $this->assertSame(1, $outbox->attempts);
         $this->assertSame('delivery_retry_exhausted', $outbox->last_error_code);
-        $this->assertTrue($outbox->available_at->betweenIncluded(now()->addSeconds(59), now()->addSeconds(61)));
+        $clockNow = ApiDateTime::comparableWallClock(now());
+        $this->assertTrue(ApiDateTime::comparableWallClock($outbox->available_at)->betweenIncluded(
+            $clockNow->addSeconds(59),
+            $clockNow->addSeconds(61),
+        ));
 
         $recordingQueue = $this->recordingQueue();
         $this->app->instance(DispatchNotificationQueue::class, $recordingQueue);
@@ -159,13 +165,63 @@ final class DispatchPushOutboxLifecycleTest extends TestCase
         ]);
     }
 
+    public function test_local_wall_clock_alarm_is_claimed_with_a_utc_database_session(): void
+    {
+        config()->set('app.timezone', 'Europe/Amsterdam');
+        DB::statement("SET LOCAL TIME ZONE 'UTC'");
+        $this->travelTo(CarbonImmutable::parse('2026-07-18 10:00:00', 'Europe/Amsterdam'));
+        [, , $outbox] = $this->outboxFixture('utc-wall-clock');
+        $outbox->refresh();
+
+        // Reproduce the production storage convention: the raw Eloquent cast
+        // carries +00:00 even though the stored clock value was created in the
+        // application timezone. Comparing that raw instant skips the alarm.
+        $this->assertTrue($outbox->available_at->isFuture());
+        $this->assertTrue(ApiDateTime::comparableWallClock($outbox->available_at)
+            ->lessThanOrEqualTo(ApiDateTime::comparableWallClock(now())));
+
+        $recordingQueue = $this->recordingQueue();
+        $this->app->instance(DispatchNotificationQueue::class, $recordingQueue);
+
+        $result = app(DispatchPushOutboxService::class)->flushPending();
+
+        $this->assertSame(['queued' => 1, 'failed' => 0, 'cancelled' => 0], $result);
+        $this->assertSame([(string) $outbox->id], $recordingQueue->outboxIds);
+        $this->assertNotNull($outbox->refresh()->queued_at);
+        $this->assertNotNull($outbox->last_attempted_at);
+    }
+
+    public function test_alarm_is_claimed_during_the_first_repeated_dst_hour(): void
+    {
+        config()->set('app.timezone', 'Europe/Amsterdam');
+        DB::statement("SET LOCAL TIME ZONE 'UTC'");
+        $this->travelTo(CarbonImmutable::parse('2026-10-25T02:30:00+02:00'));
+        [, , $outbox] = $this->outboxFixture('dst-first-repeated-hour');
+        $outbox->refresh();
+
+        $this->assertSame(
+            ApiDateTime::comparableWallClock(now())->format('Y-m-d H:i:s.uP'),
+            ApiDateTime::comparableWallClock($outbox->available_at)->format('Y-m-d H:i:s.uP'),
+        );
+
+        $recordingQueue = $this->recordingQueue();
+        $this->app->instance(DispatchNotificationQueue::class, $recordingQueue);
+
+        $result = app(DispatchPushOutboxService::class)->flushPending();
+
+        $this->assertSame(['queued' => 1, 'failed' => 0, 'cancelled' => 0], $result);
+        $this->assertSame([(string) $outbox->id], $recordingQueue->outboxIds);
+    }
+
     public function test_stale_queue_lease_is_requeued_but_recent_lease_is_left_to_its_worker(): void
     {
+        config()->set('app.timezone', 'Europe/Amsterdam');
+        DB::statement("SET LOCAL TIME ZONE 'UTC'");
         [, , $staleOutbox] = $this->outboxFixture('stale-lease');
         [, , $recentOutbox] = $this->outboxFixture('recent-lease');
         $staleOutbox->forceFill(['queued_at' => now()->subMinutes(16)])->save();
         $recentOutbox->forceFill(['queued_at' => now()->subMinutes(14)])->save();
-        $recentQueuedAt = $recentOutbox->queued_at;
+        $recentQueuedAt = ApiDateTime::comparableWallClock($recentOutbox->refresh()->queued_at);
         $recordingQueue = $this->recordingQueue();
         $this->app->instance(DispatchNotificationQueue::class, $recordingQueue);
         $baselineTransactionLevel = DB::transactionLevel();
@@ -175,8 +231,11 @@ final class DispatchPushOutboxLifecycleTest extends TestCase
         $this->assertSame(['queued' => 1, 'failed' => 0, 'cancelled' => 0], $result);
         $this->assertSame([(string) $staleOutbox->id], $recordingQueue->outboxIds);
         $this->assertSame([$baselineTransactionLevel], $recordingQueue->transactionLevels);
-        $this->assertTrue($staleOutbox->refresh()->queued_at->greaterThan(now()->subSeconds(5)));
-        $this->assertTrue($recentOutbox->refresh()->queued_at->equalTo($recentQueuedAt));
+        $clockNow = ApiDateTime::comparableWallClock(now());
+        $this->assertTrue(ApiDateTime::comparableWallClock($staleOutbox->refresh()->queued_at)
+            ->greaterThan($clockNow->subSeconds(5)));
+        $this->assertTrue(ApiDateTime::comparableWallClock($recentOutbox->refresh()->queued_at)
+            ->equalTo($recentQueuedAt));
     }
 
     public function test_queue_failure_releases_claim_outside_the_database_transaction(): void

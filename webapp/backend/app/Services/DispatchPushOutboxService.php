@@ -6,6 +6,7 @@ use App\Contracts\DispatchNotificationQueue;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
+use App\Support\ApiDateTime;
 use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -97,11 +98,23 @@ final class DispatchPushOutboxService
             DispatchRequest $dispatch,
             Incident $incident,
         ): ?array {
-            $staleQueuedAt = now()->subMinutes(self::QUEUE_LEASE_MINUTES);
+            $clockNow = ApiDateTime::comparableWallClock(now());
+            $staleQueuedAt = $clockNow->subMinutes(self::QUEUE_LEASE_MINUTES);
+            // DIS historically persists application wall-clock values through
+            // a UTC PostgreSQL session. Eloquent therefore hydrates the same
+            // clock value with a UTC offset, which makes it appear two hours in
+            // the future during Dutch summer time. Normalize before comparing;
+            // otherwise an immediately available alarm is silently skipped.
+            $availableAt = $notification->available_at !== null
+                ? ApiDateTime::comparableWallClock($notification->available_at)
+                : null;
+            $queuedAt = $notification->queued_at !== null
+                ? ApiDateTime::comparableWallClock($notification->queued_at)
+                : null;
             if ($notification->delivered_at !== null
                 || $notification->cancelled_at !== null
-                || $notification->available_at?->isFuture() === true
-                || ($notification->queued_at !== null && $notification->queued_at->greaterThan($staleQueuedAt))) {
+                || ($availableAt !== null && $availableAt->greaterThan($clockNow))
+                || ($queuedAt !== null && $queuedAt->greaterThan($staleQueuedAt))) {
                 return null;
             }
             if (! $this->isDeliverablePhase($notification, $dispatch, $incident)) {

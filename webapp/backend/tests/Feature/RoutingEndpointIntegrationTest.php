@@ -134,6 +134,8 @@ final class RoutingEndpointIntegrationTest extends TestCase
 
     public function test_dispatch_keeps_a_doze_sleeping_operator_reachable_without_treating_stale_devices_as_online(): void
     {
+        config()->set('app.timezone', 'Europe/Amsterdam');
+        DB::statement("SET LOCAL TIME ZONE 'UTC'");
         $viewer = $this->user('doze-viewer@example.test', 'Doze Viewer');
         $this->grant($viewer, ['incidents.dispatch.view']);
         $team = $this->team('DOZE-REACHABILITY');

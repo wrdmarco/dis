@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\UsesUlids;
+use App\Support\ApiDateTime;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -39,10 +40,16 @@ final class FcmToken extends Model
 
     public function getIsOnlineAttribute(): bool
     {
+        $lastSeenAt = $this->last_seen_at !== null
+            ? ApiDateTime::comparableWallClock($this->last_seen_at)
+            : null;
+        $onlineCutoff = ApiDateTime::comparableWallClock(now())
+            ->subMinutes(self::onlineThresholdMinutes());
+
         return (bool) $this->is_active
             && $this->client_type === 'operator'
-            && $this->last_seen_at !== null
-            && $this->last_seen_at->greaterThan(now()->subMinutes(self::onlineThresholdMinutes()));
+            && $lastSeenAt !== null
+            && $lastSeenAt->greaterThan($onlineCutoff);
     }
 
     public static function onlineThresholdMinutes(): int
