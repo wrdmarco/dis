@@ -679,19 +679,7 @@ final class DispatchService
 
     private function flushDispatchPushOutboxAfterCommit(string $dispatchRequestId): void
     {
-        $flush = function () use ($dispatchRequestId): void {
-            try {
-                $this->dispatchPushOutboxService->flushPending(100, $dispatchRequestId);
-            } catch (Throwable $exception) {
-                // The alarm and outbox rows are already durable. A later
-                // scheduler run will retry; never turn that committed alarm
-                // into a misleading HTTP failure or log queue credentials.
-                Log::warning('Dispatch push outbox flush failed after commit.', [
-                    'dispatch_request_id' => $dispatchRequestId,
-                    'exception_class' => $exception::class,
-                ]);
-            }
-        };
+        $flush = fn (): bool => $this->flushDispatchPushOutboxNow($dispatchRequestId);
         if (DB::transactionLevel() > 0) {
             DB::afterCommit($flush);
 
@@ -699,6 +687,48 @@ final class DispatchService
         }
 
         $flush();
+    }
+
+    public function flushPushOutboxForIncident(Incident $incident): void
+    {
+        try {
+            $dispatchRequestIds = $incident->dispatchRequests()->pluck('id');
+        } catch (Throwable $exception) {
+            // The incident transition is already committed. Preserve the
+            // successful API response; the scheduled outbox flush remains the
+            // durable recovery path if this lookup is temporarily unavailable.
+            Log::warning('Dispatch push outbox lookup failed after incident commit.', [
+                'incident_id' => (string) $incident->id,
+                'exception_class' => $exception::class,
+            ]);
+
+            return;
+        }
+
+        foreach ($dispatchRequestIds as $dispatchRequestId) {
+            // One unavailable queue operation must not prevent another team
+            // dispatch from being submitted during the same incident change.
+            $this->flushDispatchPushOutboxNow((string) $dispatchRequestId);
+        }
+    }
+
+    private function flushDispatchPushOutboxNow(string $dispatchRequestId): bool
+    {
+        try {
+            $this->dispatchPushOutboxService->flushPending(500, $dispatchRequestId);
+
+            return true;
+        } catch (Throwable $exception) {
+            // The alarm and outbox rows are already durable. A later
+            // scheduler run will retry; never turn that committed alarm
+            // into a misleading HTTP failure or log queue credentials.
+            Log::warning('Dispatch push outbox flush failed after commit.', [
+                'dispatch_request_id' => $dispatchRequestId,
+                'exception_class' => $exception::class,
+            ]);
+
+            return false;
+        }
     }
 
     public function respond(DispatchRequest $dispatch, User $actor, string $response, ?string $note): DispatchRecipient

@@ -92,11 +92,11 @@ final class DispatchPushOutboxService
 
     private function enqueueOne(string $id): ?string
     {
-        return $this->withLockedHierarchy($id, function (
+        $claim = $this->withLockedHierarchy($id, function (
             DispatchPushOutbox $notification,
             DispatchRequest $dispatch,
             Incident $incident,
-        ): ?string {
+        ): ?array {
             $staleQueuedAt = now()->subMinutes(self::QUEUE_LEASE_MINUTES);
             if ($notification->delivered_at !== null
                 || $notification->cancelled_at !== null
@@ -110,35 +110,69 @@ final class DispatchPushOutboxService
                     'last_error_code' => 'dispatch_not_deliverable',
                 ])->save();
 
-                return 'cancelled';
+                return ['outcome' => 'cancelled'];
             }
 
-            try {
-                $this->queue->enqueue($notification);
-                $notification->forceFill([
-                    'queued_at' => now(),
-                    'last_attempted_at' => now(),
-                    'last_error_code' => null,
-                ])->save();
+            $claimedAt = now();
+            $notification->forceFill([
+                'queued_at' => $claimedAt,
+                'last_attempted_at' => $claimedAt,
+                'last_error_code' => null,
+            ])->save();
 
-                return 'queued';
-            } catch (Throwable $exception) {
-                $attempts = ((int) $notification->attempts) + 1;
-                $notification->forceFill([
-                    'attempts' => $attempts,
-                    'queued_at' => null,
-                    'last_attempted_at' => now(),
-                    'last_error_code' => 'queue_unavailable',
-                    'available_at' => now()->addSeconds(min(60, 5 * (2 ** min(3, $attempts - 1)))),
-                ])->save();
-                Log::warning('Dispatch push outbox enqueue failed.', [
-                    'outbox_id' => (string) $notification->id,
-                    'dispatch_request_id' => (string) $notification->dispatch_request_id,
-                    'exception_class' => $exception::class,
-                ]);
+            return [
+                'outcome' => 'claimed',
+                'notification' => $notification->withoutRelations(),
+            ];
+        });
 
-                return 'failed';
+        if ($claim === null) {
+            return null;
+        }
+        if (($claim['outcome'] ?? null) === 'cancelled') {
+            return 'cancelled';
+        }
+
+        /** @var DispatchPushOutbox|null $notification */
+        $notification = $claim['notification'] ?? null;
+        if ($notification === null) {
+            return null;
+        }
+
+        try {
+            // Queue/network I/O deliberately runs after the claim transaction
+            // commits. A fast worker can now observe the durable lease and can
+            // never race an uncommitted outbox row.
+            $this->queue->enqueue($notification);
+
+            return 'queued';
+        } catch (Throwable $exception) {
+            $this->releaseQueueClaimAfterFailure($id);
+            Log::warning('Dispatch push outbox enqueue failed.', [
+                'outbox_id' => (string) $notification->id,
+                'dispatch_request_id' => (string) $notification->dispatch_request_id,
+                'exception_class' => $exception::class,
+            ]);
+
+            return 'failed';
+        }
+    }
+
+    private function releaseQueueClaimAfterFailure(string $id): void
+    {
+        $this->withLockedHierarchy($id, function (DispatchPushOutbox $notification): void {
+            if ($notification->delivered_at !== null || $notification->cancelled_at !== null) {
+                return;
             }
+
+            $attempts = ((int) $notification->attempts) + 1;
+            $notification->forceFill([
+                'attempts' => $attempts,
+                'queued_at' => null,
+                'last_attempted_at' => now(),
+                'last_error_code' => 'queue_unavailable',
+                'available_at' => now()->addSeconds(min(60, 5 * (2 ** min(3, $attempts - 1)))),
+            ])->save();
         });
     }
 
@@ -148,16 +182,31 @@ final class DispatchPushOutboxService
         Incident $incident,
     ): bool {
         if ((string) $notification->message_type === 'incident_preannouncement') {
-            return $dispatch->status === 'draft' && $incident->status === 'active';
+            return $dispatch->status === 'draft'
+                && $incident->status === 'active'
+                && $this->hasPendingRecipientForToken($notification, $dispatch);
         }
 
         if ((string) $notification->message_type === 'dispatch_request') {
             return in_array($dispatch->status, ['sent', 'escalated'], true)
-                && ! in_array($incident->status, ['resolved', 'cancelled'], true);
+                && ! in_array($incident->status, ['resolved', 'cancelled'], true)
+                && $this->hasPendingRecipientForToken($notification, $dispatch);
         }
 
         return $dispatch->status !== 'cancelled'
             && ! in_array($incident->status, ['resolved', 'cancelled'], true);
+    }
+
+    private function hasPendingRecipientForToken(
+        DispatchPushOutbox $notification,
+        DispatchRequest $dispatch,
+    ): bool {
+        return $dispatch->recipients()
+            ->where('response_status', 'pending')
+            ->whereHas('user.fcmTokens', fn ($tokens) => $tokens
+                ->whereKey($notification->fcm_token_id)
+                ->where('is_active', true))
+            ->exists();
     }
 
     public function markDelivered(string $id, string $fcmTokenId): void

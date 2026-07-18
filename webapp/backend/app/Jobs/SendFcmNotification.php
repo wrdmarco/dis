@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Contracts\PushProvider;
 use App\Exceptions\TransientPushDeliveryException;
+use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
 use App\Models\PushDeliveryLog;
@@ -156,6 +157,12 @@ final class SendFcmNotification implements ShouldQueue
             || $actionMode === 'test_ack';
     }
 
+    private function isResponseSync(): bool
+    {
+        return $this->messageType === 'dispatch_response_sync'
+            || ($this->data['type'] ?? null) === 'dispatch_response_sync';
+    }
+
     private function requiresOrderedOperationalDelivery(): bool
     {
         return $this->isPreannouncement()
@@ -168,6 +175,24 @@ final class SendFcmNotification implements ShouldQueue
             return false;
         }
 
+        if ($this->dispatchPushOutboxId !== null && ! DispatchPushOutbox::query()
+            ->whereKey($this->dispatchPushOutboxId)
+            ->where('dispatch_request_id', $this->dispatchRequestId)
+            ->where('fcm_token_id', $this->fcmTokenId)
+            ->whereNull('delivered_at')
+            ->whereNull('cancelled_at')
+            ->exists()) {
+            return false;
+        }
+
+        $recipientUserId = FcmToken::query()
+            ->whereKey($this->fcmTokenId)
+            ->where('is_active', true)
+            ->value('user_id');
+        if ($recipientUserId === null) {
+            return false;
+        }
+
         $query = DispatchRequest::query()
             ->whereKey($this->dispatchRequestId)
             ->whereHas('incident', function ($incident): void {
@@ -176,15 +201,38 @@ final class SendFcmNotification implements ShouldQueue
 
                     return;
                 }
-
                 $incident->whereNotIn('status', ['resolved', 'cancelled']);
             });
 
         if ($this->isPreannouncement()) {
-            return $query->where('status', 'draft')->exists();
+            return $query
+                ->where('status', 'draft')
+                ->whereHas('recipients', fn ($recipients) => $recipients
+                    ->where('user_id', $recipientUserId)
+                    ->where('response_status', 'pending'))
+                ->exists();
         }
 
-        return $query->whereIn('status', ['sent', 'escalated'])->exists();
+        if ($this->isResponseSync()) {
+            $response = $this->data['response'] ?? null;
+            if (! in_array($response, ['accepted', 'declined'], true)) {
+                return false;
+            }
+
+            return $query
+                ->whereIn('status', ['sent', 'escalated'])
+                ->whereHas('recipients', fn ($recipients) => $recipients
+                    ->where('user_id', $recipientUserId)
+                    ->where('response_status', $response))
+                ->exists();
+        }
+
+        return $query
+            ->whereIn('status', ['sent', 'escalated'])
+            ->whereHas('recipients', fn ($recipients) => $recipients
+                ->where('user_id', $recipientUserId)
+                ->where('response_status', 'pending'))
+            ->exists();
     }
 
     private function cancelStaleOutbox(DispatchPushOutboxService $outbox): void

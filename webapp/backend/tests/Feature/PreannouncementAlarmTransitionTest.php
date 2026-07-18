@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Contracts\PushProvider;
 use App\Jobs\SendFcmNotification;
 use App\Models\DispatchPushOutbox;
+use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
 use App\Models\Incident;
@@ -249,7 +250,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
             ->sole();
         $this->assertSame('dispatch_update', $preannouncementOutbox->data['type'] ?? null);
         $this->assertSame('availability', $preannouncementOutbox->data['action_mode'] ?? null);
-        app(DispatchPushOutboxService::class)->flushPending(100, (string) $dispatch->id);
+        $this->assertNotNull($preannouncementOutbox->queued_at);
         Queue::assertPushed(
             SendFcmNotification::class,
             fn (SendFcmNotification $job): bool => $job->messageType === 'incident_preannouncement'
@@ -397,6 +398,13 @@ final class PreannouncementAlarmTransitionTest extends TestCase
             'priority' => 'normal',
             'message' => 'Open de app.',
             'sent_at' => now(),
+        ]);
+        DispatchRecipient::query()->create([
+            'dispatch_request_id' => $dispatch->id,
+            'user_id' => $pilot->id,
+            'user_name' => $pilot->name,
+            'user_email' => $pilot->email,
+            'response_status' => 'pending',
         ]);
         $data = [
             'type' => 'dispatch_request',

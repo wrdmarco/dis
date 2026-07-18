@@ -25,14 +25,10 @@ final class QueuedDispatchNotificationQueue implements DispatchNotificationQueue
             (string) $notification->id,
         ))->onQueue('push')->beforeCommit();
 
-        // The outbox row itself was committed with the dispatch already. This
-        // enqueue must happen inside the flush transaction so a definite
-        // connection failure is caught before queued_at is persisted. A crash
-        // after Redis accepts the job but before the database acknowledgement
-        // can enqueue it again: this is an explicit at-least-once guarantee.
-        // The stable dispatch collapse id reduces visible duplicates that are
-        // still pending at FCM/APNs; it cannot provide exactly-once delivery.
-        // beforeCommit deliberately overrides Redis' global after_commit flag.
+        // The outbox service commits a short claim before calling this method.
+        // beforeCommit deliberately overrides Redis' global after_commit flag:
+        // there is no open database transaction here, and a worker must be
+        // allowed to consume the already durable outbox lease immediately.
         $this->dispatcher->dispatch($job);
     }
 }

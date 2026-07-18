@@ -79,8 +79,10 @@ final class IncidentService
     public function update(Incident $incident, array $data, User $actor): Incident
     {
         $this->lastDispatchWarnings = [];
+        $originalStatus = (string) $incident->status;
+        $requestedStatus = isset($data['status']) ? (string) $data['status'] : null;
 
-        return DB::transaction(function () use ($incident, $data, $actor): Incident {
+        $updatedIncident = DB::transaction(function () use ($incident, $data, $actor): Incident {
             $beforeStatus = $incident->status;
             $statusReason = $data['status_reason'] ?? null;
             $directDispatch = (bool) ($data['direct_dispatch'] ?? false);
@@ -156,6 +158,16 @@ final class IncidentService
 
             return $incident->load(['coordinator', 'team', 'teams', 'statusHistory']);
         });
+
+        if ($requestedStatus !== $originalStatus && in_array($requestedStatus, ['active', 'dispatching'], true)) {
+            // This call is intentionally outside the outer incident
+            // transaction. It is an idempotent safety net for runtimes where a
+            // nested after-commit callback or scheduler is delayed: the first
+            // preannouncement/alarm is queued before the HTTP request returns.
+            $this->dispatchService->flushPushOutboxForIncident($updatedIncident);
+        }
+
+        return $updatedIncident;
     }
 
     /**

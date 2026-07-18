@@ -6,6 +6,7 @@ use App\Contracts\DispatchNotificationQueue;
 use App\Contracts\PushProvider;
 use App\Jobs\SendFcmNotification;
 use App\Models\DispatchPushOutbox;
+use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
 use App\Models\Incident;
@@ -14,6 +15,7 @@ use App\Services\DispatchPushOutboxService;
 use GuzzleHttp\Psr7\Response as PsrResponse;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Response as ClientResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use RuntimeException;
 use Tests\TestCase;
@@ -44,7 +46,7 @@ final class DispatchPushOutboxLifecycleTest extends TestCase
             ['queued' => 0, 'failed' => 0, 'cancelled' => 0],
             app(DispatchPushOutboxService::class)->flushPending(),
         );
-        $this->travel(61)->seconds();
+        $this->travel(16)->minutes();
         $this->assertSame(
             ['queued' => 1, 'failed' => 0, 'cancelled' => 0],
             app(DispatchPushOutboxService::class)->flushPending(),
@@ -79,6 +81,84 @@ final class DispatchPushOutboxLifecycleTest extends TestCase
         $this->assertSame('provider_rejected', $rejectedOutbox->last_error_code);
     }
 
+    public function test_duplicate_queue_jobs_send_only_once_after_the_outbox_is_delivered(): void
+    {
+        [$token, $dispatch, $outbox] = $this->outboxFixture('duplicate-job');
+        $outbox->forceFill(['queued_at' => now()])->save();
+        $provider = new class implements PushProvider
+        {
+            public int $sendCount = 0;
+
+            /** @param array<string, string> $data */
+            public function send(FcmToken $token, string $title, string $body, array $data = []): ClientResponse
+            {
+                $this->sendCount++;
+
+                return new ClientResponse(new PsrResponse(
+                    200,
+                    ['Content-Type' => 'application/json'],
+                    json_encode(['name' => 'messages/duplicate-job'], JSON_THROW_ON_ERROR),
+                ));
+            }
+        };
+        $firstJob = $this->job($token, $dispatch, $outbox);
+        $duplicateJob = $this->job($token, $dispatch, $outbox);
+
+        $firstJob->handle($provider, app(DispatchPushOutboxService::class));
+        $duplicateJob->handle($provider, app(DispatchPushOutboxService::class));
+
+        $this->assertSame(1, $provider->sendCount);
+        $this->assertNotNull($outbox->refresh()->delivered_at);
+    }
+
+    public function test_response_sync_is_delivered_after_the_recipient_response_is_committed(): void
+    {
+        [$token, $dispatch] = $this->outboxFixture('response-sync');
+        DispatchRecipient::query()
+            ->where('dispatch_request_id', $dispatch->id)
+            ->where('user_id', $token->user_id)
+            ->update([
+                'response_status' => 'accepted',
+                'responded_at' => now(),
+            ]);
+        $provider = new class implements PushProvider
+        {
+            public int $sendCount = 0;
+
+            /** @param array<string, string> $data */
+            public function send(FcmToken $token, string $title, string $body, array $data = []): ClientResponse
+            {
+                $this->sendCount++;
+
+                return new ClientResponse(new PsrResponse(200));
+            }
+        };
+        $job = new SendFcmNotification(
+            (string) $token->id,
+            'dispatch_response_sync',
+            'D.I.S alarmering bijgewerkt',
+            'Je reactie is verwerkt.',
+            [
+                'type' => 'dispatch_response_sync',
+                'action_mode' => 'attendance',
+                'dispatch_id' => (string) $dispatch->id,
+                'incident_id' => (string) $dispatch->incident_id,
+                'response' => 'accepted',
+            ],
+            (string) $dispatch->id,
+        );
+
+        $job->handle($provider, app(DispatchPushOutboxService::class));
+
+        $this->assertSame(1, $provider->sendCount);
+        $this->assertDatabaseHas('push_delivery_logs', [
+            'fcm_token_id' => $token->id,
+            'dispatch_request_id' => $dispatch->id,
+            'message_type' => 'dispatch_response_sync',
+            'status' => 'sent',
+        ]);
+    }
+
     public function test_stale_queue_lease_is_requeued_but_recent_lease_is_left_to_its_worker(): void
     {
         [, , $staleOutbox] = $this->outboxFixture('stale-lease');
@@ -88,13 +168,62 @@ final class DispatchPushOutboxLifecycleTest extends TestCase
         $recentQueuedAt = $recentOutbox->queued_at;
         $recordingQueue = $this->recordingQueue();
         $this->app->instance(DispatchNotificationQueue::class, $recordingQueue);
+        $baselineTransactionLevel = DB::transactionLevel();
 
         $result = app(DispatchPushOutboxService::class)->flushPending();
 
         $this->assertSame(['queued' => 1, 'failed' => 0, 'cancelled' => 0], $result);
         $this->assertSame([(string) $staleOutbox->id], $recordingQueue->outboxIds);
-        $this->assertTrue($staleOutbox->refresh()->queued_at->greaterThan(now()->subMinute()));
+        $this->assertSame([$baselineTransactionLevel], $recordingQueue->transactionLevels);
+        $this->assertTrue($staleOutbox->refresh()->queued_at->greaterThan(now()->subSeconds(5)));
         $this->assertTrue($recentOutbox->refresh()->queued_at->equalTo($recentQueuedAt));
+    }
+
+    public function test_queue_failure_releases_claim_outside_the_database_transaction(): void
+    {
+        [, , $outbox] = $this->outboxFixture('queue-failure');
+        $failingQueue = new class implements DispatchNotificationQueue
+        {
+            public ?int $transactionLevel = null;
+
+            public function enqueue(DispatchPushOutbox $notification): void
+            {
+                $this->transactionLevel = DB::transactionLevel();
+
+                throw new RuntimeException('Simulated queue outage.');
+            }
+        };
+        $this->app->instance(DispatchNotificationQueue::class, $failingQueue);
+        $baselineTransactionLevel = DB::transactionLevel();
+
+        $result = app(DispatchPushOutboxService::class)->flushPending();
+
+        $this->assertSame(['queued' => 0, 'failed' => 1, 'cancelled' => 0], $result);
+        $this->assertSame($baselineTransactionLevel, $failingQueue->transactionLevel);
+        $this->assertNull($outbox->refresh()->queued_at);
+        $this->assertSame(1, $outbox->attempts);
+        $this->assertSame('queue_unavailable', $outbox->last_error_code);
+    }
+
+    public function test_pending_alarm_is_cancelled_after_the_recipient_has_already_responded(): void
+    {
+        [$token, $dispatch, $outbox] = $this->outboxFixture('responded-before-flush');
+        DispatchRecipient::query()
+            ->where('dispatch_request_id', $dispatch->id)
+            ->where('user_id', $token->user_id)
+            ->update([
+                'response_status' => 'accepted',
+                'responded_at' => now(),
+            ]);
+        $recordingQueue = $this->recordingQueue();
+        $this->app->instance(DispatchNotificationQueue::class, $recordingQueue);
+
+        $result = app(DispatchPushOutboxService::class)->flushPending();
+
+        $this->assertSame(['queued' => 0, 'failed' => 0, 'cancelled' => 1], $result);
+        $this->assertSame([], $recordingQueue->outboxIds);
+        $this->assertNotNull($outbox->refresh()->cancelled_at);
+        $this->assertSame('dispatch_not_deliverable', $outbox->last_error_code);
     }
 
     public function test_pruning_removes_only_terminal_outbox_rows(): void
@@ -161,6 +290,13 @@ final class DispatchPushOutboxLifecycleTest extends TestCase
             'message' => 'Outbox lifecycle test',
             'sent_at' => now(),
         ]);
+        DispatchRecipient::query()->create([
+            'dispatch_request_id' => $dispatch->id,
+            'user_id' => $user->id,
+            'user_name' => $user->name,
+            'user_email' => $user->email,
+            'response_status' => 'pending',
+        ]);
         $outbox = DispatchPushOutbox::query()->create([
             'deduplication_key' => hash('sha256', $suffix),
             'dispatch_request_id' => $dispatch->id,
@@ -195,9 +331,13 @@ final class DispatchPushOutboxLifecycleTest extends TestCase
             /** @var list<string> */
             public array $outboxIds = [];
 
+            /** @var list<int> */
+            public array $transactionLevels = [];
+
             public function enqueue(DispatchPushOutbox $notification): void
             {
                 $this->outboxIds[] = (string) $notification->id;
+                $this->transactionLevels[] = DB::transactionLevel();
             }
         };
     }
