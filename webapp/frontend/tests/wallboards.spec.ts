@@ -613,6 +613,10 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).not.toContain('autoFocus');
   expect(admin).toContain("`/admin/wallboards/${wallboard.id}/pair`");
   expect(admin).toContain('Code op tv');
+  expect(admin).toContain('const isPaired = wallboard.active_sessions_count > 0;');
+  expect(admin).toContain("const pairingActionLabel = wallboard.paired_at ? 'Tv herkoppelen' : 'Tv koppelen';");
+  expect(admin).toContain('{isPaired ? null : (');
+  expect(admin).toContain('disabled={busyAction !== null || !isPaired}');
   expect(admin).not.toContain('/pairing-code');
   expect(admin).not.toContain('WallboardPairingCode');
   expect(admin).toContain("`/admin/wallboards/${wallboard.id}/display`");

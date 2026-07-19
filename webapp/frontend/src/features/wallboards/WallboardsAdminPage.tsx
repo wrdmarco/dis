@@ -348,6 +348,8 @@ function ScreenEditor({
     next_change_at: null,
   };
   const currentPage = savedConfiguration.pages.find((page) => page.id === display.page_id) ?? null;
+  const isPaired = wallboard.active_sessions_count > 0;
+  const pairingActionLabel = wallboard.paired_at ? 'Tv herkoppelen' : 'Tv koppelen';
 
   useEffect(() => {
     setDraftName(wallboard.name);
@@ -491,7 +493,7 @@ function ScreenEditor({
           <span className="eyebrow">Schermregie</span>
           <h2>{wallboard.name}</h2>
         </div>
-        <StatusPill value={wallboard.active_sessions_count > 0 ? 'Gekoppeld' : 'Niet gekoppeld'} tone={wallboard.active_sessions_count > 0 ? 'good' : 'neutral'} />
+        <StatusPill value={isPaired ? 'Gekoppeld' : 'Niet gekoppeld'} tone={isPaired ? 'good' : 'neutral'} />
       </div>
 
       <section className="wallboard-live-control" aria-labelledby={`wallboard-live-${wallboard.id}`}>
@@ -529,47 +531,53 @@ function ScreenEditor({
         </button>
       </section>
 
-      <section className="wallboard-tv-pairing" aria-labelledby={`wallboard-pair-${wallboard.id}`}>
-        <span className="wallboard-tv-pairing__icon"><KeyRound size={20} aria-hidden /></span>
-        <div className="wallboard-tv-pairing__copy">
-          <small>Schermkoppeling</small>
-          <strong id={`wallboard-pair-${wallboard.id}`}>Tv koppelen</strong>
-          <span>Open <b>/wallboard</b> op de tv. Vul hier de code in die automatisch op het scherm verschijnt.</span>
-        </div>
-        <label>
-          <span>Code op tv</span>
-          <input
-            value={tvPairingCode}
-            onChange={(event) => {
-              const value = formatPairingCodeInput(event.target.value);
-              setTvPairingCode(value);
-              if (validPairingCode(normalizePairingCode(value))) setPairingInputInvalid(false);
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter') return;
-              event.preventDefault();
-              void pairTv();
-            }}
-            inputMode="text"
-            autoComplete="off"
-            autoCapitalize="characters"
-            spellCheck={false}
-            maxLength={9}
-            pattern="[A-HJ-NP-Z2-9]{4} [A-HJ-NP-Z2-9]{4}"
-            placeholder="ABCD EFGH"
-            aria-invalid={pairingInputInvalid}
-            aria-describedby={pairingInputInvalid ? `wallboard-pair-error-${wallboard.id}` : `wallboard-pair-help-${wallboard.id}`}
-          />
-          {pairingInputInvalid ? (
-            <small className="wallboard-tv-pairing__error" id={`wallboard-pair-error-${wallboard.id}`} role="alert">Vul de acht tekens van de tv-code exact in.</small>
-          ) : (
-            <small id={`wallboard-pair-help-${wallboard.id}`}>De code is tijdelijk en kan maar één keer worden gebruikt.</small>
-          )}
-        </label>
-        <button className="secondary-button" type="button" onClick={() => void pairTv()} disabled={busyAction !== null || !draftEnabled || !validPairingCode(normalizePairingCode(tvPairingCode))}>
-          <KeyRound size={17} aria-hidden /> {busyAction === 'pair' ? 'Koppelen…' : 'Tv koppelen'}
-        </button>
-      </section>
+      {isPaired ? null : (
+        <section className="wallboard-tv-pairing" aria-labelledby={`wallboard-pair-${wallboard.id}`}>
+          <span className="wallboard-tv-pairing__icon"><KeyRound size={20} aria-hidden /></span>
+          <div className="wallboard-tv-pairing__copy">
+            <small>Schermkoppeling</small>
+            <strong id={`wallboard-pair-${wallboard.id}`}>{pairingActionLabel}</strong>
+            <span>
+              {wallboard.paired_at
+                ? <>Dit scherm heeft geen actieve koppeling meer. Open <b>/wallboard</b> op de tv en vul de nieuwe code hieronder in.</>
+                : <>Open <b>/wallboard</b> op de tv. Vul hier de code in die automatisch op het scherm verschijnt.</>}
+            </span>
+          </div>
+          <label>
+            <span>Code op tv</span>
+            <input
+              value={tvPairingCode}
+              onChange={(event) => {
+                const value = formatPairingCodeInput(event.target.value);
+                setTvPairingCode(value);
+                if (validPairingCode(normalizePairingCode(value))) setPairingInputInvalid(false);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                void pairTv();
+              }}
+              inputMode="text"
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              maxLength={9}
+              pattern="[A-HJ-NP-Z2-9]{4} [A-HJ-NP-Z2-9]{4}"
+              placeholder="ABCD EFGH"
+              aria-invalid={pairingInputInvalid}
+              aria-describedby={pairingInputInvalid ? `wallboard-pair-error-${wallboard.id}` : `wallboard-pair-help-${wallboard.id}`}
+            />
+            {pairingInputInvalid ? (
+              <small className="wallboard-tv-pairing__error" id={`wallboard-pair-error-${wallboard.id}`} role="alert">Vul de acht tekens van de tv-code exact in.</small>
+            ) : (
+              <small id={`wallboard-pair-help-${wallboard.id}`}>De code is tijdelijk en kan maar één keer worden gebruikt.</small>
+            )}
+          </label>
+          <button className="secondary-button" type="button" onClick={() => void pairTv()} disabled={busyAction !== null || !draftEnabled || !validPairingCode(normalizePairingCode(tvPairingCode))}>
+            <KeyRound size={17} aria-hidden /> {busyAction === 'pair' ? 'Koppelen…' : pairingActionLabel}
+          </button>
+        </section>
+      )}
 
       <section className="wallboard-screen-settings" aria-labelledby={`wallboard-screen-settings-${wallboard.id}`}>
         <div className="wallboard-configuration-section-heading">
@@ -626,7 +634,7 @@ function ScreenEditor({
         <button className="primary-button" type="submit" disabled={busyAction !== null || draftName.trim() === '' || draftPlaylistId === ''}>
           <Save size={17} aria-hidden /> {busyAction === 'save' ? 'Opslaan…' : 'Scherm opslaan'}
         </button>
-        <button className="secondary-button" type="button" onClick={() => void revokeSessions()} disabled={busyAction !== null || wallboard.active_sessions_count === 0}>
+        <button className="secondary-button" type="button" onClick={() => void revokeSessions()} disabled={busyAction !== null || !isPaired}>
           <ShieldOff size={17} aria-hidden /> Koppeling intrekken
         </button>
         {deleteConfirm ? (
