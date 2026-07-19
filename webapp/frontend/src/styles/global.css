@@ -8996,9 +8996,10 @@ textarea:focus {
 }
 
 .wallboard-display__alarm--with-feed {
-  grid-template-columns: minmax(0, 1fr);
-  place-content: center;
-  justify-items: center;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 27vw, 500px);
+  align-items: center;
+  justify-items: stretch;
+  gap: clamp(24px, 3vw, 56px);
   padding: clamp(20px, 3vw, 52px);
   text-align: center;
 }
@@ -9012,6 +9013,19 @@ textarea:focus {
   justify-items: center;
   gap: clamp(10px, 1.6vw, 20px);
   text-align: center;
+}
+
+.wallboard-display__alarm--with-feed .wallboard-display__alarm-main {
+  width: 100%;
+  max-width: 1120px;
+  justify-self: center;
+}
+
+.wallboard-display__alarm--with-feed .wallboard-display__alarm-main h2 {
+  width: 100%;
+  max-width: 15ch;
+  overflow-wrap: anywhere;
+  font-size: clamp(2.5rem, 5.4vw, 6.25rem);
 }
 
 .wallboard-display__focus-availability {
@@ -9199,17 +9213,19 @@ textarea:focus {
 }
 
 .wallboard-display__responses {
-  position: absolute;
+  position: relative;
   z-index: 2;
-  top: clamp(88px, 8vw, 136px);
-  right: clamp(14px, 2vw, 34px);
+  top: auto;
+  right: auto;
   min-width: 0;
   min-height: 0;
-  width: clamp(320px, 27vw, 500px);
-  max-width: calc(100% - clamp(28px, 4vw, 68px));
-  max-height: min(58vh, 520px);
+  width: 100%;
+  max-width: 500px;
+  max-height: min(64vh, 620px);
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
+  align-self: center;
+  justify-self: end;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--wallboard-alarm-color) 38%, var(--dis-border));
   border-radius: 14px;
@@ -9397,6 +9413,7 @@ textarea:focus {
   .wallboard-display--profile-4k .wallboard-display__responses,
   .wallboard-display--profile-auto .wallboard-display__responses {
     width: min(620px, 24vw);
+    max-width: 620px;
     max-height: min(660px, 55vh);
   }
 
@@ -9856,6 +9873,7 @@ textarea:focus {
   }
 
   .wallboard-display__responses {
+    position: absolute;
     top: auto;
     bottom: clamp(14px, 2vw, 34px);
     left: clamp(14px, 2vw, 34px);

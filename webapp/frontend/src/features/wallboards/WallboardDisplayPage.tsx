@@ -578,18 +578,16 @@ export function WallboardDisplayPage() {
               ? wallboardFocusKindLabel(focus.kind)
               : currentPage.type === 'message' ? 'Mededeling' : currentPage.name)}</h1>
           </span>
-          <span className={`wallboard-display__mode wallboard-display__mode--${maintenance !== null ? 'maintenance' : display.mode}`}>
-            {maintenance !== null
-              ? <RefreshCw size={14} aria-hidden />
-              : showFocus
-              ? <Siren size={14} aria-hidden />
-              : display.mode === 'incident_override'
-                ? <LockKeyhole size={14} aria-hidden />
-                : <RotateCw size={14} aria-hidden />}
-            {maintenance !== null
-              ? 'Onderhoud'
-              : focus !== null ? focusDisplayModeLabel(focus) : displayModeLabel(display.mode)}
-          </span>
+          {showFocus ? null : (
+            <span className={`wallboard-display__mode wallboard-display__mode--${maintenance !== null ? 'maintenance' : display.mode}`}>
+              {maintenance !== null
+                ? <RefreshCw size={14} aria-hidden />
+                : display.mode === 'incident_override'
+                  ? <LockKeyhole size={14} aria-hidden />
+                  : <RotateCw size={14} aria-hidden />}
+              {maintenance !== null ? 'Onderhoud' : displayModeLabel(display.mode)}
+            </span>
+          )}
         </div>
         <div className="wallboard-display__controls">
           <time
@@ -652,7 +650,7 @@ export function WallboardDisplayPage() {
         <span>{maintenance !== null
           ? 'Onderhoud actief · het wallboard herstelt automatisch'
           : focus !== null && focus.visible
-          ? `${wallboardFocusKindLabel(focus.kind)} · ${nextSwitchLabel}`
+          ? nextSwitchLabel
           : `Pagina ${Math.max(1, currentPageIndex + 1)} van ${configuration.pages.length} · ${nextSwitchLabel}`}</span>
       </footer>
       {showTicker ? <WallboardTicker items={state.ticker.items} /> : null}
@@ -1110,15 +1108,13 @@ function FocusTakeover({
     >
       <div className="wallboard-display__alarm-main">
         <span className="wallboard-display__alarm-icon" aria-hidden><Icon size={54} strokeWidth={1.8} /></span>
-        <span className="wallboard-display__alarm-eyebrow">{label}</span>
         <div className="wallboard-display__alarm-meta">
           <strong>{focus.reference}</strong>
           <span>{priorityLabel(focus.priority)}</span>
           {focus.kind === 'test_alarm' ? <b>TEST</b> : null}
-          {focus.is_preview === true ? <b>VOORBEELD</b> : null}
         </div>
         <h2>{focus.title}</h2>
-        {pilotCounts !== null ? <FocusPilotAvailability counts={pilotCounts} /> : null}
+        {pilotCounts !== null && !showResponseFeed ? <FocusPilotAvailability counts={pilotCounts} /> : null}
         {focus.kind !== 'test_alarm' ? (
           <p><MapPin size={24} aria-hidden /> {focus.location_label?.trim() || 'Locatie nog niet bekend'}</p>
         ) : null}
@@ -1984,12 +1980,6 @@ function formatDeadlineCountdown(countdown: WallboardDeadlineCountdown, fallback
   const minutes = Math.floor(remainingSeconds / 60);
   const seconds = remainingSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, '0')} min.`;
-}
-
-function focusDisplayModeLabel(focus: WallboardFocusState): string {
-  return focus.visible
-    ? wallboardFocusKindLabel(focus.kind)
-    : `${wallboardFocusKindLabel(focus.kind)} · playlist`;
 }
 
 function focusStatusLabel(kind: WallboardFocusKind): string {

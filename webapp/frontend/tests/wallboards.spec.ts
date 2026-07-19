@@ -1396,7 +1396,7 @@ test('shows one readable rotating story with image, QR and twelve progress segme
   }
 });
 
-test('keeps the live response feed compact at the upper right in Full HD and Ultra HD', async ({ page }) => {
+test('keeps the live response feed in a dedicated right column in Full HD and Ultra HD', async ({ page }) => {
   const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
   const responseItems = Array.from({ length: 24 }, (_, index) => `
     <li class="wallboard-display__response wallboard-display__response--${index % 3 === 0 ? 'accepted' : index % 3 === 1 ? 'declined' : 'pending'}">
@@ -1427,6 +1427,7 @@ test('keeps the live response feed compact at the upper right in Full HD and Ult
 
     const measurement = await page.locator('.wallboard-display').evaluate((element) => {
       const focus = element.querySelector('.wallboard-display__alarm')!.getBoundingClientRect();
+      const main = element.querySelector('.wallboard-display__alarm-main')!.getBoundingClientRect();
       const responses = element.querySelector('.wallboard-display__responses')!.getBoundingClientRect();
       const list = element.querySelector('.wallboard-display__response-list');
       return {
@@ -1436,15 +1437,19 @@ test('keeps the live response feed compact at the upper right in Full HD and Ult
         responseScrollable: list !== null && list.scrollHeight > list.clientHeight,
         responseRightGap: focus.right - responses.right,
         responseTopGap: responses.top - focus.top,
+        responseBottomGap: focus.bottom - responses.bottom,
         responseWidthRatio: responses.width / focus.width,
+        columnsOverlap: main.right > responses.left,
       };
     });
     expect(measurement.horizontalOverflow).toBe(false);
     expect(measurement.verticalOverflow).toBe(false);
     expect(measurement.responseScrollable).toBe(true);
     expect(measurement.responseRightGap).toBeLessThanOrEqual(screen.width * 0.03);
-    expect(measurement.responseTopGap).toBeLessThanOrEqual(screen.height * 0.14);
+    expect(measurement.responseTopGap).toBeGreaterThanOrEqual(0);
+    expect(measurement.responseBottomGap).toBeGreaterThanOrEqual(0);
     expect(measurement.responseWidthRatio).toBeLessThan(0.45);
+    expect(measurement.columnsOverlap).toBe(false);
   }
 });
 
