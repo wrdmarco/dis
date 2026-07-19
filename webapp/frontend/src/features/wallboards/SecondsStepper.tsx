@@ -27,6 +27,8 @@ export interface SecondsStepperProps {
   name?: string;
   description?: string;
   className?: string;
+  unit?: string;
+  unitLabel?: string;
 }
 
 export function SecondsStepper({
@@ -42,6 +44,8 @@ export function SecondsStepper({
   name,
   description,
   className,
+  unit = 'sec.',
+  unitLabel = 'seconden',
 }: SecondsStepperProps) {
   const normalizedValue = normalizeSecondsStepperValue(value, min, max, step);
   const maximumValue = normalizeSecondsStepperValue(max, min, max, step);
@@ -133,7 +137,7 @@ export function SecondsStepper({
             onBlur={commitDraft}
             onKeyDown={handleInputKeyDown}
           />
-          <span className={styles.unit} aria-hidden="true">sec.</span>
+          <span className={styles.unit} aria-hidden="true">{unit}</span>
         </span>
 
         <button
@@ -155,7 +159,7 @@ export function SecondsStepper({
       </div>
 
       <span className={styles.srOnly} id={constraintsId}>
-        Waarde in seconden. Minimum {min}, maximum {max}, stapgrootte {step}.
+        Waarde in {unitLabel}. Minimum {min}, maximum {max}, stapgrootte {step}.
       </span>
     </div>
   );

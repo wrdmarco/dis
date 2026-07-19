@@ -25,6 +25,23 @@ final class WallboardForecastClassifier
         }
 
         return match ($metric) {
+            'weather_code' => $this->weatherCode((int) $value),
+            'temperature_c' => $this->rangeBands(
+                (float) $value,
+                $this->threshold('temperature_c', 'green_min', 0),
+                $this->threshold('temperature_c', 'green_max', 35),
+                $this->threshold('temperature_c', 'orange_min', -10),
+                $this->threshold('temperature_c', 'orange_max', 45),
+                '°C',
+            ),
+            // The supplied classification value is the temperature/dew-point
+            // spread, while the displayed value remains the dew point itself.
+            'dew_point_c' => $this->minimumBands(
+                (float) $value,
+                $this->threshold('dew_point_c', 'green_spread_min', 3),
+                $this->threshold('dew_point_c', 'orange_spread_min', 1.5),
+                '°C temperatuur-dauwpuntverschil',
+            ),
             'wind_speed_kmh' => $this->maximumBands(
                 (float) $value,
                 $this->threshold('wind_speed_kmh', 'green_max', 20),
@@ -43,6 +60,18 @@ final class WallboardForecastClassifier
                 $this->threshold('precipitation_mm', 'orange_max', 0.5),
                 'mm',
             ),
+            'precipitation_probability_pct' => $this->maximumBands(
+                (float) $value,
+                $this->threshold('precipitation_probability_pct', 'green_max', 20),
+                $this->threshold('precipitation_probability_pct', 'orange_max', 50),
+                '%',
+            ),
+            'cloud_cover_pct' => $this->maximumBands(
+                (float) $value,
+                $this->threshold('cloud_cover_pct', 'green_max', 50),
+                $this->threshold('cloud_cover_pct', 'orange_max', 85),
+                '%',
+            ),
             'visibility_m' => $this->minimumBands(
                 (float) $value,
                 $this->threshold('visibility_m', 'green_min', 5000),
@@ -54,10 +83,50 @@ final class WallboardForecastClassifier
                 $this->threshold('kp_index', 'green_max_exclusive', 4),
                 $this->threshold('kp_index', 'orange_max_exclusive', 6),
             ),
+            'wind_direction_degrees' => [
+                'status' => self::STATUS_GREEN,
+                'explanation' => 'Actuele windrichting; dit is informatief en heeft zonder windsnelheid geen zelfstandige veiligheidsdrempel.',
+            ],
             default => [
                 'status' => self::STATUS_UNKNOWN,
                 'explanation' => 'Voor deze waarde is geen centraal gevalideerde drempel beschikbaar.',
             ],
+        };
+    }
+
+    public function weatherCodeRisk(int $code): int
+    {
+        if (in_array($code, [0, 1, 2, 3], true)) {
+            return 0;
+        }
+        if (in_array($code, [45, 48, 51, 53, 55, 61, 63, 71, 73, 77, 80, 85], true)) {
+            return 1;
+        }
+        if (in_array($code, [56, 57, 65, 66, 67, 75, 81, 82, 86, 95, 96, 99], true)) {
+            return 2;
+        }
+
+        return 3;
+    }
+
+    public function weatherCodeLabel(int $code): string
+    {
+        return match ($code) {
+            0 => 'Onbewolkt',
+            1 => 'Overwegend helder',
+            2 => 'Gedeeltelijk bewolkt',
+            3 => 'Bewolkt',
+            45, 48 => 'Mist',
+            51, 53, 55 => 'Motregen',
+            56, 57 => 'IJzelende motregen',
+            61, 63, 65 => 'Regen',
+            66, 67 => 'IJzel',
+            71, 73, 75 => 'Sneeuw',
+            77 => 'Sneeuwkorrels',
+            80, 81, 82 => 'Regenbuien',
+            85, 86 => 'Sneeuwbuien',
+            95, 96, 99 => 'Onweer',
+            default => 'Onbekende weerscode',
         };
     }
 
@@ -94,6 +163,49 @@ final class WallboardForecastClassifier
         return [
             'status' => $status,
             'explanation' => "Groen t/m {$greenMax} {$unit}, oranje t/m {$orangeMax} {$unit}, daarboven rood.",
+        ];
+    }
+
+    /** @return array{status: string, explanation: string} */
+    private function rangeBands(
+        float $value,
+        float $greenMin,
+        float $greenMax,
+        float $orangeMin,
+        float $orangeMax,
+        string $unit,
+    ): array {
+        if ($greenMin > $greenMax) {
+            [$greenMin, $greenMax] = [$greenMax, $greenMin];
+        }
+        if ($orangeMin > $orangeMax) {
+            [$orangeMin, $orangeMax] = [$orangeMax, $orangeMin];
+        }
+        $status = $value >= $greenMin && $value <= $greenMax
+            ? self::STATUS_GREEN
+            : ($value >= $orangeMin && $value <= $orangeMax ? self::STATUS_ORANGE : self::STATUS_RED);
+
+        return [
+            'status' => $status,
+            'explanation' => "Groen tussen {$greenMin} en {$greenMax} {$unit}, oranje tussen {$orangeMin} en {$orangeMax} {$unit}, daarbuiten rood.",
+        ];
+    }
+
+    /** @return array{status: string, explanation: string} */
+    private function weatherCode(int $code): array
+    {
+        $risk = $this->weatherCodeRisk($code);
+
+        return [
+            'status' => match ($risk) {
+                0 => self::STATUS_GREEN,
+                1 => self::STATUS_ORANGE,
+                2 => self::STATUS_RED,
+                default => self::STATUS_UNKNOWN,
+            },
+            'explanation' => $risk === 3
+                ? 'De WMO-weerscode wordt niet herkend en telt daarom niet als veilig.'
+                : 'Centrale indicatieve classificatie van de actuele WMO-weerscode: '.$this->weatherCodeLabel($code).'.',
         ];
     }
 

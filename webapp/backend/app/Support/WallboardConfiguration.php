@@ -11,7 +11,13 @@ final class WallboardConfiguration
     public const DEFAULT_PAGE_ID = 'map';
 
     /** @var list<string> */
-    public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'message', 'safety_notice', 'quote', 'uav_forecast', 'news', 'video', 'photo_carousel'];
+    public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'news', 'video', 'photo_carousel'];
+
+    public const DEFAULT_CALENDAR_MAX_ITEMS = 6;
+
+    public const MIN_CALENDAR_MAX_ITEMS = 1;
+
+    public const MAX_CALENDAR_MAX_ITEMS = 12;
 
     public const MAX_QUOTES = 50;
 
@@ -20,6 +26,27 @@ final class WallboardConfiguration
     public const MAX_QUOTE_AUTHOR_LENGTH = 120;
 
     public const MAX_FORECAST_LOCATION_LABEL_LENGTH = 120;
+
+    public const DEFAULT_FORECAST_LOCATION_MODE = 'netherlands';
+
+    /** @var list<string> */
+    public const FORECAST_LOCATION_MODES = ['netherlands', 'address'];
+
+    /** @var list<string> */
+    public const FORECAST_VISIBLE_BLOCKS = [
+        'weather',
+        'daylight',
+        'temperature',
+        'wind_speed',
+        'wind_gust',
+        'wind_direction',
+        'precipitation_probability',
+        'cloud_cover',
+        'visibility',
+        'gnss_visible',
+        'kp_index',
+        'gnss_usable',
+    ];
 
     public const MAX_VIDEO_URL_LENGTH = 2048;
 
@@ -315,8 +342,12 @@ final class WallboardConfiguration
             $allowedOptionKeys = match ($type) {
                 'message', 'safety_notice' => ['body', 'content'],
                 'quote' => ['quotes'],
-                'uav_forecast' => ['location_label', 'latitude', 'longitude'],
+                // Latitude and longitude are accepted only to migrate legacy
+                // configurations. New canonical configuration never stores
+                // client-supplied coordinates.
+                'uav_forecast' => ['location_mode', 'location_label', 'latitude', 'longitude', 'visible_blocks'],
                 'incident_list', 'summary' => ['show_test_incidents'],
+                'calendar' => ['max_items'],
                 'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds', 'item_transition', 'item_transition_duration_ms', 'item_flip_direction'],
                 'video' => ['url', 'video_duration_seconds'],
                 'photo_carousel' => ['media_playlist_id', 'item_duration_seconds'],
@@ -327,7 +358,17 @@ final class WallboardConfiguration
                     "configuration.pages.{$index}.options" => ['Deze pagina bevat opties die niet bij het gekozen paginatype horen.'],
                 ]);
             }
-            if (in_array($type, ['message', 'safety_notice'], true)) {
+            if ($type === 'calendar') {
+                $maxItems = $options['max_items'] ?? self::DEFAULT_CALENDAR_MAX_ITEMS;
+                if (! is_int($maxItems)
+                    || $maxItems < self::MIN_CALENDAR_MAX_ITEMS
+                    || $maxItems > self::MAX_CALENDAR_MAX_ITEMS) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.max_items" => ['Het aantal kalenderitems moet een geheel getal tussen 1 en 12 zijn.'],
+                    ]);
+                }
+                $options = ['max_items' => $maxItems];
+            } elseif (in_array($type, ['message', 'safety_notice'], true)) {
                 $options = WallboardRichText::normalizeOptions(
                     $options,
                     "configuration.pages.{$index}.options",
@@ -366,41 +407,70 @@ final class WallboardConfiguration
                 }
                 $options = ['quotes' => $normalizedQuotes];
             } elseif ($type === 'uav_forecast') {
-                $locationLabel = trim((string) ($options['location_label'] ?? ''));
-                $latitude = $options['latitude'] ?? null;
-                $longitude = $options['longitude'] ?? null;
-                if ($locationLabel === '' || mb_strlen($locationLabel) > self::MAX_FORECAST_LOCATION_LABEL_LENGTH) {
+                $visibleBlocks = $options['visible_blocks'] ?? self::FORECAST_VISIBLE_BLOCKS;
+                if (! is_array($visibleBlocks) || ! array_is_list($visibleBlocks)) {
                     throw ValidationException::withMessages([
-                        "configuration.pages.{$index}.options.location_label" => ['Geef een locatienaam van maximaal 120 tekens op.'],
+                        "configuration.pages.{$index}.options.visible_blocks" => ['De zichtbare UAV-blokken moeten als lijst worden opgeslagen.'],
                     ]);
                 }
-                if (! is_float($latitude) && ! is_int($latitude)) {
+                foreach ($visibleBlocks as $blockIndex => $block) {
+                    if (! is_string($block) || ! in_array($block, self::FORECAST_VISIBLE_BLOCKS, true)) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.visible_blocks.{$blockIndex}" => ['Kies uitsluitend ondersteunde UAV-blokken.'],
+                        ]);
+                    }
+                }
+                if (count(array_unique($visibleBlocks)) !== count($visibleBlocks)) {
                     throw ValidationException::withMessages([
-                        "configuration.pages.{$index}.options.latitude" => ['Geef een geldige breedtegraad op.'],
+                        "configuration.pages.{$index}.options.visible_blocks" => ['Elk UAV-blok mag maar eenmaal voorkomen.'],
                     ]);
                 }
-                if (! is_float($longitude) && ! is_int($longitude)) {
+                $canonicalVisibleBlocks = array_values(array_filter(
+                    self::FORECAST_VISIBLE_BLOCKS,
+                    static fn (string $block): bool => in_array($block, $visibleBlocks, true),
+                ));
+                $hasExplicitMode = array_key_exists('location_mode', $options);
+                $locationMode = $hasExplicitMode
+                    ? (string) $options['location_mode']
+                    : (array_key_exists('location_label', $options) ? 'address' : self::DEFAULT_FORECAST_LOCATION_MODE);
+                if (! in_array($locationMode, self::FORECAST_LOCATION_MODES, true)) {
                     throw ValidationException::withMessages([
-                        "configuration.pages.{$index}.options.longitude" => ['Geef een geldige lengtegraad op.'],
+                        "configuration.pages.{$index}.options.location_mode" => ['Kies UAV Nederland of een gezocht adres.'],
                     ]);
                 }
-                $latitude = (float) $latitude;
-                $longitude = (float) $longitude;
-                if (! is_finite($latitude) || $latitude < -90 || $latitude > 90) {
+
+                if ($hasExplicitMode
+                    && (array_key_exists('latitude', $options) || array_key_exists('longitude', $options))) {
                     throw ValidationException::withMessages([
-                        "configuration.pages.{$index}.options.latitude" => ['De breedtegraad moet tussen -90 en 90 liggen.'],
+                        "configuration.pages.{$index}.options" => ['Coördinaten worden server-side uit de gekozen locatie bepaald.'],
                     ]);
                 }
-                if (! is_finite($longitude) || $longitude < -180 || $longitude > 180) {
-                    throw ValidationException::withMessages([
-                        "configuration.pages.{$index}.options.longitude" => ['De lengtegraad moet tussen -180 en 180 liggen.'],
-                    ]);
+
+                if ($locationMode === self::DEFAULT_FORECAST_LOCATION_MODE) {
+                    if ($hasExplicitMode && array_key_exists('location_label', $options)) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.location_label" => ['UAV Nederland gebruikt automatisch alle Nederlandse provincies.'],
+                        ]);
+                    }
+                    $options = [
+                        'location_mode' => self::DEFAULT_FORECAST_LOCATION_MODE,
+                        'visible_blocks' => $canonicalVisibleBlocks,
+                    ];
+                } else {
+                    $locationLabel = trim((string) ($options['location_label'] ?? ''));
+                    if ($locationLabel === ''
+                        || mb_strlen($locationLabel) > self::MAX_FORECAST_LOCATION_LABEL_LENGTH
+                        || $locationLabel !== strip_tags($locationLabel)) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.location_label" => ['Kies een gezocht adres van maximaal 120 tekens.'],
+                        ]);
+                    }
+                    $options = [
+                        'location_mode' => 'address',
+                        'location_label' => $locationLabel,
+                        'visible_blocks' => $canonicalVisibleBlocks,
+                    ];
                 }
-                $options = [
-                    'location_label' => $locationLabel,
-                    'latitude' => round($latitude, 7),
-                    'longitude' => round($longitude, 7),
-                ];
             } elseif ($type === 'video') {
                 $url = is_string($options['url'] ?? null)
                     ? self::normalizeVideoUrl($options['url'])

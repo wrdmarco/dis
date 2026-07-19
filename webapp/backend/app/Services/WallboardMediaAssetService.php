@@ -249,10 +249,15 @@ final class WallboardMediaAssetService
         }, 3);
 
         try {
-            Storage::disk((string) config('wallboard_media.disk', 'local'))->delete(array_values(array_filter([
+            $root = trim((string) config('wallboard_media.root', 'wallboard-media'), '/');
+            $canonicalThumbnailPath = $deleted->kind === WallboardMediaAsset::KIND_IMAGE
+                ? $root.'/objects/'.(string) $deleted->id.'.thumbnail.webp'
+                : null;
+            Storage::disk((string) config('wallboard_media.disk', 'local'))->delete(array_values(array_unique(array_filter([
                 (string) $deleted->storage_path,
                 $deleted->thumbnail_storage_path === null ? null : (string) $deleted->thumbnail_storage_path,
-            ])));
+                $canonicalThumbnailPath,
+            ]))));
         } catch (Throwable) {
             $this->auditService->record('wallboard_media.assets.cleanup_deferred', $deleted, $actor, [
                 'byte_size' => (int) $deleted->byte_size,

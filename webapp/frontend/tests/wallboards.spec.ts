@@ -16,7 +16,6 @@ import {
   normalizeWallboardMaintenanceNotice,
   normalizeWallboardNewsState,
   normalizeWallboardState,
-  selectWallboardNextPreloadPage,
   stabilizeWallboardRotationDeadline,
   wallboardCarouselRemainingMilliseconds,
   wallboardDeadlineDurationMilliseconds,
@@ -845,46 +844,6 @@ test('scopes global page effects to playlist page changes and pauses nested news
   expect(stablePageBranch).toContain('running={hasLiveFeed}');
 });
 
-test('preloads only passive media for the next playlist page without starting its content', () => {
-  const mapPage = { ...createWallboardPage('map', 1), id: 'map' };
-  const newsPage = { ...createWallboardPage('news', 2), id: 'news' };
-  const videoPage = { ...createWallboardPage('video', 3), id: 'video' };
-  const pages = [mapPage, newsPage, videoPage];
-
-  expect(selectWallboardNextPreloadPage(pages, 'map', 'rotation', null)?.id).toBe('news');
-  expect(selectWallboardNextPreloadPage(pages, 'news', 'rotation', null)?.id).toBe('video');
-  expect(selectWallboardNextPreloadPage(pages, 'video', 'rotation', null)?.id).toBe('map');
-  expect(selectWallboardNextPreloadPage(pages, 'map', 'static', null)).toBeNull();
-  expect(selectWallboardNextPreloadPage(
-    pages,
-    'map',
-    'rotation',
-    { visible: true, playlist_page_id: 'video' } as WallboardFocusState,
-  )?.id).toBe('video');
-
-  const kiosk = readFileSync(new URL('../src/features/wallboards/WallboardDisplayPage.tsx', import.meta.url), 'utf8');
-  const preload = kiosk.slice(
-    kiosk.indexOf('function WallboardNextPagePreload('),
-    kiosk.indexOf('function MaintenanceTakeover('),
-  );
-  const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
-  const passiveVideo = wallboardVideoEmbedUrl('https://www.youtube.com/embed/dQw4w9WgXcQ', false);
-
-  expect(preload).toContain('wallboardVideoEmbedUrl(page.options.url, false)');
-  expect(preload).toContain('loading="eager"');
-  expect(preload).toContain('inert');
-  expect(preload).toContain('<link rel="preconnect"');
-  expect(preload).not.toContain('<WallboardPageContent');
-  expect(preload).not.toContain('<WallboardNewsPage');
-  expect(preload).not.toContain('<WallboardPhotoCarousel');
-  expect(preload).not.toContain('<iframe');
-  expect(preload).not.toContain('<video');
-  expect(preload).not.toContain('preload="auto"');
-  expect(passiveVideo).toContain('autoplay=0');
-  expect(styles).toMatch(/\.wallboard-display__page-preload[\s\S]*?pointer-events:\s*none/);
-  expect(styles).toMatch(/\.wallboard-display__page-preload \*[\s\S]*?animation:\s*none !important/);
-});
-
 test('slides both global pages and news cards in the requested push direction', async ({ page }) => {
   const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
@@ -1504,7 +1463,7 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain('wallboardEffectivePageTransition(configuration, currentPage)');
   expect(kiosk).toContain("const pairedTransitionActive = transition !== 'none' && visual.previous !== null;");
   expect(kiosk).toContain('running={false}');
-  expect(kiosk).toContain("const usesPairedCards = transition !== 'none';");
+  expect(kiosk).toContain("const usesPairedCards = running && transition !== 'none';");
   expect(kiosk).toContain('wallboard-display__page-card-pane--outgoing');
   expect(kiosk).toContain('wallboard-display__page-card-pane--incoming');
   expect(kiosk).toContain('wallboard-display__news-card-pane--outgoing');

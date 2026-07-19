@@ -84,12 +84,39 @@ return [
         'uav_forecast' => [
             'connect_timeout_seconds' => (int) env('WALLBOARD_UAV_FORECAST_CONNECT_TIMEOUT_SECONDS', 2),
             'timeout_seconds' => (int) env('WALLBOARD_UAV_FORECAST_TIMEOUT_SECONDS', 5),
-            'cache_seconds' => (int) env('WALLBOARD_UAV_FORECAST_CACHE_SECONDS', 300),
+            'cache_seconds' => (int) env('WALLBOARD_UAV_FORECAST_CACHE_SECONDS', 900),
             'last_good_cache_seconds' => (int) env('WALLBOARD_UAV_FORECAST_LAST_GOOD_CACHE_SECONDS', 21600),
+            'geocode_cache_seconds' => (int) env('WALLBOARD_UAV_FORECAST_GEOCODE_CACHE_SECONDS', 2592000),
             'weather_stale_seconds' => (int) env('WALLBOARD_UAV_FORECAST_WEATHER_STALE_SECONDS', 1800),
             'kp_stale_seconds' => (int) env('WALLBOARD_UAV_FORECAST_KP_STALE_SECONDS', 14400),
+            // Application-owned reference points: one stable sample in every Dutch
+            // province. National forecasts never depend on twelve geocoder calls.
+            'province_reference_points' => [
+                ['label' => 'Drenthe', 'latitude' => 52.9928, 'longitude' => 6.5642],
+                ['label' => 'Flevoland', 'latitude' => 52.5185, 'longitude' => 5.4714],
+                ['label' => 'Friesland', 'latitude' => 53.2012, 'longitude' => 5.7999],
+                ['label' => 'Gelderland', 'latitude' => 51.9851, 'longitude' => 5.8987],
+                ['label' => 'Groningen', 'latitude' => 53.2194, 'longitude' => 6.5665],
+                ['label' => 'Limburg', 'latitude' => 50.8514, 'longitude' => 5.6910],
+                ['label' => 'Noord-Brabant', 'latitude' => 51.6978, 'longitude' => 5.3037],
+                ['label' => 'Noord-Holland', 'latitude' => 52.3874, 'longitude' => 4.6462],
+                ['label' => 'Overijssel', 'latitude' => 52.5168, 'longitude' => 6.0830],
+                ['label' => 'Utrecht', 'latitude' => 52.0907, 'longitude' => 5.1214],
+                ['label' => 'Zeeland', 'latitude' => 51.4988, 'longitude' => 3.6100],
+                ['label' => 'Zuid-Holland', 'latitude' => 52.0705, 'longitude' => 4.3007],
+            ],
             'thresholds' => [
                 // Conservatieve operationele defaults; toestel-, missie- en lokale limieten gaan altijd voor.
+                'temperature_c' => [
+                    'green_min' => (float) env('WALLBOARD_UAV_TEMPERATURE_GREEN_MIN_C', 0),
+                    'green_max' => (float) env('WALLBOARD_UAV_TEMPERATURE_GREEN_MAX_C', 35),
+                    'orange_min' => (float) env('WALLBOARD_UAV_TEMPERATURE_ORANGE_MIN_C', -10),
+                    'orange_max' => (float) env('WALLBOARD_UAV_TEMPERATURE_ORANGE_MAX_C', 45),
+                ],
+                'dew_point_c' => [
+                    'green_spread_min' => (float) env('WALLBOARD_UAV_DEW_POINT_GREEN_SPREAD_MIN_C', 3),
+                    'orange_spread_min' => (float) env('WALLBOARD_UAV_DEW_POINT_ORANGE_SPREAD_MIN_C', 1.5),
+                ],
                 'wind_speed_kmh' => [
                     'green_max' => (float) env('WALLBOARD_UAV_WIND_GREEN_MAX_KMH', 20),
                     'orange_max' => (float) env('WALLBOARD_UAV_WIND_ORANGE_MAX_KMH', 30),
@@ -101,6 +128,14 @@ return [
                 'precipitation_mm' => [
                     'green_max' => (float) env('WALLBOARD_UAV_PRECIPITATION_GREEN_MAX_MM', 0),
                     'orange_max' => (float) env('WALLBOARD_UAV_PRECIPITATION_ORANGE_MAX_MM', 0.5),
+                ],
+                'precipitation_probability_pct' => [
+                    'green_max' => (float) env('WALLBOARD_UAV_PRECIPITATION_PROBABILITY_GREEN_MAX_PCT', 20),
+                    'orange_max' => (float) env('WALLBOARD_UAV_PRECIPITATION_PROBABILITY_ORANGE_MAX_PCT', 50),
+                ],
+                'cloud_cover_pct' => [
+                    'green_max' => (float) env('WALLBOARD_UAV_CLOUD_COVER_GREEN_MAX_PCT', 50),
+                    'orange_max' => (float) env('WALLBOARD_UAV_CLOUD_COVER_ORANGE_MAX_PCT', 85),
                 ],
                 'visibility_m' => [
                     'green_min' => (float) env('WALLBOARD_UAV_VISIBILITY_GREEN_MIN_M', 5000),

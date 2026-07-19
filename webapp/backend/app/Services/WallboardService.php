@@ -25,6 +25,7 @@ final class WallboardService
         private readonly WallboardPlaylistResolver $playlistResolver,
         private readonly WallboardMediaCoordinationService $mediaCoordination,
         private readonly WallboardMediaUsageSynchronizer $mediaUsage,
+        private readonly WallboardForecastLocationService $forecastLocations,
         private readonly AuditService $auditService,
         private readonly WallboardDisplayService $displayService,
     ) {}
@@ -54,6 +55,10 @@ final class WallboardService
      */
     public function create(array $data, User $actor, Request $request): Wallboard
     {
+        if (! array_key_exists('playlist_id', $data)) {
+            $this->forecastLocations->assertResolvableAddresses((array) ($data['configuration'] ?? []));
+        }
+
         return DB::transaction(function () use ($data, $actor, $request): Wallboard {
             $playlist = null;
             if (array_key_exists('playlist_id', $data)) {
@@ -124,6 +129,10 @@ final class WallboardService
      */
     public function update(Wallboard $wallboard, array $data, User $actor, Request $request): Wallboard
     {
+        if (array_key_exists('configuration', $data)) {
+            $this->forecastLocations->assertResolvableAddresses((array) $data['configuration']);
+        }
+
         return DB::transaction(function () use ($wallboard, $data, $actor, $request): Wallboard {
             $updatesConfiguration = array_key_exists('configuration', $data);
             $playlist = null;

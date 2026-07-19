@@ -18,6 +18,7 @@ use App\Services\WallboardSessionService;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
@@ -158,6 +159,66 @@ final class WallboardMediaApiIntegrationTest extends TestCase
         $invalidRange->assertStatus(416);
         $invalidRange->assertHeader('Content-Range', 'bytes */'.strlen($this->imageBody()));
         $invalidRange->assertHeader('Cache-Control', 'no-store, private');
+    }
+
+    public function test_image_upload_persists_and_delivers_a_verified_webp_thumbnail(): void
+    {
+        if (! function_exists('imagecreatefrompng') || ! function_exists('imagewebp')) {
+            self::markTestSkipped('De lokale test-PHP heeft geen GD/WebP; productie installeert php8.5-gd.');
+        }
+
+        $source = base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+            true,
+        );
+        self::assertIsString($source);
+        $manager = $this->user('media-thumbnail-upload@example.test', ['wallboards.manage']);
+        $uploaded = UploadedFile::fake()->createWithContent('thumbnail-source.png', $source);
+
+        $created = $this->asAdminClient($manager)
+            ->post('/api/admin/wallboard-media/assets', [
+                'file' => $uploaded,
+                'display_name' => 'Thumbnail regressietest',
+            ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('data.status', WallboardMediaAsset::STATUS_READY);
+
+        $assetId = (string) $created->json('data.id');
+        $thumbnailUrl = $created->json('data.thumbnail_url');
+        self::assertSame(
+            '/api/admin/wallboard-media/assets/'.$assetId.'/thumbnail',
+            $thumbnailUrl,
+        );
+        $asset = WallboardMediaAsset::query()->findOrFail($assetId);
+        self::assertNotNull($asset->thumbnail_storage_path);
+        self::assertSame('image/webp', $asset->thumbnail_mime_type);
+        self::assertGreaterThan(0, (int) $asset->thumbnail_byte_size);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', (string) $asset->thumbnail_sha256);
+        Storage::disk('local')->assertExists((string) $asset->thumbnail_storage_path);
+
+        $thumbnail = $this->asAdminClient($manager)
+            ->get((string) $thumbnailUrl)
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/webp')
+            ->assertHeader('ETag', '"'.(string) $asset->thumbnail_sha256.'"');
+        $body = $thumbnail->streamedContent();
+        self::assertSame((int) $asset->thumbnail_byte_size, strlen($body));
+        self::assertSame((string) $asset->thumbnail_sha256, hash('sha256', $body));
+    }
+
+    public function test_media_upload_rejects_two_file_fields_without_processing_either(): void
+    {
+        $manager = $this->user('media-exclusive-upload@example.test', ['wallboards.manage']);
+
+        $this->asAdminClient($manager)
+            ->post('/api/admin/wallboard-media/assets', [
+                'file' => UploadedFile::fake()->create('video.mp4', 1, 'video/mp4'),
+                'image' => UploadedFile::fake()->create('image.webp', 1, 'image/webp'),
+            ], ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonPath('error.code', 'validation_failed');
+
+        self::assertSame(0, WallboardMediaAsset::query()->count());
     }
 
     public function test_non_media_partial_responses_remain_non_cacheable(): void

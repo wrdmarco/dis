@@ -75,6 +75,9 @@ test('keeps labels, disabled state and native numeric attributes in the componen
   expect(source).toContain("event.key === 'Enter'");
   expect(source).toContain('aria-label={`${label} verlagen`}');
   expect(source).toContain('aria-label={`${label} verhogen`}');
+  expect(source).toContain("unit = 'sec.'");
+  expect(source).toContain("unitLabel = 'seconden'");
+  expect(source).toContain('Waarde in {unitLabel}.');
   expect(styles).toContain('min-width: 44px');
   expect(styles).toContain('min-height: 44px');
   expect(styles).toContain('@media (prefers-reduced-motion: reduce)');
@@ -155,7 +158,7 @@ test('keeps minus, value and plus controls usable in narrow wallboard editor car
   }
 });
 
-test('reuses the seconds stepper for every directly configurable wallboard duration', () => {
+test('reuses the stepper for every directly configurable wallboard duration and count', () => {
   const configurationEditor = readFileSync(
     new URL('../src/features/wallboards/WallboardConfigurationEditor.tsx', import.meta.url),
     'utf8',
@@ -165,7 +168,7 @@ test('reuses the seconds stepper for every directly configurable wallboard durat
     'utf8',
   );
 
-  expect(configurationEditor.match(/<SecondsStepper/g)).toHaveLength(4);
+  expect(configurationEditor.match(/<SecondsStepper/g)).toHaveLength(8);
   expect(configurationEditor).toContain('label="Data verversen"');
   expect(configurationEditor).toContain('id={`${idPrefix}-focus-${kind}-duration`}');
   expect(configurationEditor).toContain('id={`wallboard-page-${page.id}-duration`}');
@@ -173,4 +176,7 @@ test('reuses the seconds stepper for every directly configurable wallboard durat
   expect(photoPageEditor).toContain('<SecondsStepper');
   expect(photoPageEditor).toContain('label="Tijd per foto"');
   expect(configurationEditor).toContain('<span>Maximum aantal berichten</span>');
+  expect(configurationEditor).toContain('label="Maximum aantal agenda-items"');
+  expect(configurationEditor).toContain('unit="items"');
+  expect(configurationEditor).toContain('unitLabel="agenda-items"');
 });

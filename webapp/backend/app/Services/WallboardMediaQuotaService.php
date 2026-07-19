@@ -17,14 +17,24 @@ final class WallboardMediaQuotaService
 
     public function reserve(int $bytes, Closure $callback): mixed
     {
+        return $this->reserveUnderLock($bytes, true, $callback);
+    }
+
+    public function reserveAdditionalBytes(int $bytes, Closure $callback): mixed
+    {
+        return $this->reserveUnderLock($bytes, false, $callback);
+    }
+
+    private function reserveUnderLock(int $bytes, bool $checkAssetCount, Closure $callback): mixed
+    {
         try {
             return Cache::lock(
                 'wallboard-media:quota',
                 max(5, (int) config('wallboard_media.quota_lock_seconds', 30)),
             )->block(
                 max(1, (int) config('wallboard_media.quota_wait_seconds', 5)),
-                function () use ($bytes, $callback): mixed {
-                    $this->assertCapacity($bytes);
+                function () use ($bytes, $checkAssetCount, $callback): mixed {
+                    $this->assertCapacity($bytes, $checkAssetCount);
 
                     return $callback();
                 },
@@ -38,16 +48,16 @@ final class WallboardMediaQuotaService
         }
     }
 
-    private function assertCapacity(int $incomingBytes): void
+    private function assertCapacity(int $incomingBytes, bool $checkAssetCount): void
     {
         $maximumBytes = max(1, (int) config('wallboard_media.max_total_bytes', 5 * 1024 * 1024 * 1024));
-        if ($incomingBytes < 1 || $this->assets->activeByteSize() > $maximumBytes - $incomingBytes) {
+        if ($incomingBytes < 0 || $this->assets->activeByteSize() > $maximumBytes - $incomingBytes) {
             throw ValidationException::withMessages([
                 'image' => ['De opslaglimiet voor wallboardmedia is bereikt.'],
             ]);
         }
         $maximumAssets = max(1, (int) config('wallboard_media.max_assets', 5000));
-        if ($this->assets->activeCount() >= $maximumAssets) {
+        if ($checkAssetCount && $this->assets->activeCount() >= $maximumAssets) {
             throw ValidationException::withMessages([
                 'image' => ['Het maximale aantal wallboardafbeeldingen is bereikt.'],
             ]);

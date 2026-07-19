@@ -184,8 +184,9 @@ density. It does not change the television, HDMI input, operating-system or brow
 shared playlist can therefore be shown on screens with different display profiles.
 
 A playlist contains an ordered set of allowlisted DIS pages: an operational map, incident list, operational
-summary, safely formatted announcement or safety notice, an administrator-managed daily quote, a UAV Forecast,
-curated drone-news page, photo carousel or allowlisted YouTube/Vimeo video. Every page has its own bounded display duration. The playlist also owns
+summary, calendar, safely formatted announcement or safety notice, an administrator-managed daily quote, a
+UAV Forecast, curated drone-news page, photo carousel or allowlisted YouTube/Vimeo video. Every page has its
+own bounded display duration. The playlist also owns
 map layers, rotation, the incident override and an optional bottom ticker. The ticker accepts bounded
 plain-text internal messages and multiple HTTPS RSS or Atom feeds; feed retrieval is cached, size-limited and
 restricted to public destinations. Each RSS source can show between one and eight items; legacy and omitted
@@ -207,13 +208,23 @@ quote. The display selects one entry deterministically from the page identifier 
 oversized values and unknown fields are rejected server-side; a malformed legacy configuration is shown as an
 explicit unconfigured state rather than substituted content.
 
-The UAV Forecast page is bound to an administrator-supplied label and WGS84 coordinate. Current wind, gust,
-precipitation and visibility come from [Open-Meteo](https://open-meteo.com/en/docs); the planetary Kp index comes
-from the fixed [NOAA SWPC feed](https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json). Each value
-shows its source, observation time and stale state. Central server-side thresholds classify the full metric card
-green, orange, red or unknown, and the overall advice uses the worst available factor. Missing, invalid or stale
-data is always unknown and can never become green. GNSS satellite availability remains explicitly unknown until
-a reliable location- and time-dependent source exists. Device limits, mission profile, local observations,
+The calendar page reuses organisation-wide current and upcoming events already managed in the DIS agenda.
+Administrators choose a bounded number of entries per page; the kiosk presents their date, time, relative day
+and location. Team-scoped events are excluded because an anonymous wallboard has no team authorisation context.
+Calendar data remains server-authoritative live state and is not stored as static media.
+
+The UAV Forecast page uses either an administrator-selected address, resolved server-side through the existing
+DIS address search, or the exact average of one reference point in each of the twelve Dutch provinces. Current
+weather, daylight, temperature, dew point, precipitation, cloud cover, visibility and wind come from
+[Open-Meteo](https://open-meteo.com/en/docs) and refresh at most once every fifteen minutes; the planetary Kp
+index comes from the fixed [NOAA SWPC feed](https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json).
+Wind is reported at its source height in metres AGL. The service also derives the highest sampled height at
+10, 80 or 120 metres AGL whose wind classification has not reached red. Visibility changes from metres to
+kilometres with two decimals at 10 km. Administrators may hide individual information cards, but the mandatory
+flight advice always evaluates the complete server-side metric set. Each full metric card is classified green,
+orange, red or unknown and exposes its source, observation time and stale state. Missing, incomplete, invalid or
+stale data is always unknown and can never become green. GNSS satellite availability remains explicitly unknown
+until a reliable location- and time-dependent source exists. Device limits, mission profile, local observations,
 airspace rules and operational authority always override this indicative forecast.
 
 Each drone-news page can enable the fixed Nationaal Drone Team and Dronewatch sources, add up to eight named
@@ -236,6 +247,22 @@ Each playlist also owns a global page-fade switch. When enabled, every normal pl
 short opacity transition; when disabled, page changes are immediate. Browser reduced-motion preferences always
 disable that page fade and reduce spatial news transitions to a brief non-spatial dissolve.
 
+Before normal playlist playback starts, the kiosk inventories every configured page and keeps a dedicated
+preparation screen visible until all referenced, locally cacheable images and posters are completely stored and
+the matching cache version is activated. The screen reports page and asset progress,
+retries automatically without a manual button and never exposes download URLs or technical error details.
+Live API state and external YouTube/Vimeo streams are deliberately not stored as static media; supported
+external players receive only a bounded connection warm-up. MP4 files can be uploaded to managed media storage,
+but assigning them to a video page is deliberately not advertised until the playlist usage and delivery
+authorisation contract is available end to end.
+
+The precache version changes when the playlist configuration or referenced news/media content changes. DIS
+builds the replacement cache in isolation and activates it only after a complete successful pass, so a partial
+download never becomes the presentation source. After activation it removes unused entries and obsolete DIS
+wallboard caches; unpairing, revocation or disabling a display clears all of its wallboard caches. Maintenance
+has highest display priority, followed by a server-issued focus screen. Either may interrupt preparation
+immediately; preparation resumes afterwards and normal rotation starts only when the complete cache is ready.
+
 An unpaired television starts the pairing flow itself and shows a short-lived, human-readable code on
 `/wallboard`; no keyboard is required on the display. An administrator selects the intended wallboard in
 `/wallboards` and enters that television code there. Approval is one-time and database-backed. Only the
@@ -256,8 +283,8 @@ including after a temporary outage. Normal reconnection never performs a hard re
 
 Before an update, direct deployment or manually enabled maintenance stops the web tier, DIS publishes a bounded
 maintenance notice through both wallboard feeds and waits six seconds so connected displays can receive it. The
-notice temporarily replaces playlist and focus content, while the existing offline warning remains visible if
-the connection subsequently drops. A display keeps trying to reconnect and removes the notice automatically
+notice temporarily replaces playlist, focus, preparation and offline-warning content. A display keeps trying to
+reconnect and removes the notice automatically
 only after the server has passed its health checks and reopens production. The notice also expires locally after
 at most six hours, preventing a failed or abandoned operation from leaving an offline television on a permanent
 maintenance screen.

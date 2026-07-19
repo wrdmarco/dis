@@ -21,6 +21,7 @@ final class WallboardPlaylistService
         private readonly WallboardPlaylistSynchronizer $synchronizer,
         private readonly WallboardMediaCoordinationService $mediaCoordination,
         private readonly WallboardMediaUsageSynchronizer $mediaUsage,
+        private readonly WallboardForecastLocationService $forecastLocations,
         private readonly AuditService $auditService,
     ) {}
 
@@ -39,6 +40,7 @@ final class WallboardPlaylistService
     public function create(array $data, User $actor, Request $request): WallboardPlaylist
     {
         $configuration = WallboardConfiguration::normalize((array) $data['configuration']);
+        $this->forecastLocations->assertResolvableAddresses($configuration);
 
         return DB::transaction(function () use ($data, $configuration, $actor, $request): WallboardPlaylist {
             $this->mediaCoordination->lock();
@@ -71,6 +73,10 @@ final class WallboardPlaylistService
         User $actor,
         Request $request,
     ): WallboardPlaylist {
+        if (array_key_exists('configuration', $data)) {
+            $this->forecastLocations->assertResolvableAddresses((array) $data['configuration']);
+        }
+
         return DB::transaction(function () use ($playlist, $data, $actor, $request): WallboardPlaylist {
             if (array_key_exists('configuration', $data)) {
                 $this->mediaCoordination->lock();

@@ -68,7 +68,7 @@ final class StoreWallboardRequest extends FormRequest
             'configuration.pages.*.transition' => ['sometimes', 'nullable', 'string', Rule::in(WallboardConfiguration::PAGE_TRANSITIONS)],
             'configuration.pages.*.transition_duration_ms' => ['sometimes', 'nullable', 'integer:strict', 'between:'.WallboardConfiguration::MIN_TRANSITION_DURATION_MS.','.WallboardConfiguration::MAX_TRANSITION_DURATION_MS],
             'configuration.pages.*.flip_direction' => ['sometimes', 'nullable', 'string', Rule::in(WallboardConfiguration::FLIP_DIRECTIONS)],
-            'configuration.pages.*.options' => ['sometimes', 'array:body,content,quotes,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,item_transition,item_transition_duration_ms,item_flip_direction,url,video_duration_seconds,media_playlist_id,location_label,latitude,longitude'],
+            'configuration.pages.*.options' => ['sometimes', 'array:body,content,quotes,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,item_transition,item_transition_duration_ms,item_flip_direction,url,video_duration_seconds,media_playlist_id,location_mode,location_label,latitude,longitude,visible_blocks'],
             'configuration.pages.*.options.body' => ['sometimes', 'string', 'max:2000'],
             'configuration.pages.*.options.content' => ['sometimes', 'array:version,blocks'],
             'configuration.pages.*.options.content.version' => ['sometimes', 'integer:strict'],
@@ -80,6 +80,9 @@ final class StoreWallboardRequest extends FormRequest
             'configuration.pages.*.options.url' => ['sometimes', 'string', 'max:'.WallboardConfiguration::MAX_VIDEO_URL_LENGTH],
             'configuration.pages.*.options.video_duration_seconds' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_VIDEO_DURATION_SECONDS.','.WallboardConfiguration::MAX_VIDEO_DURATION_SECONDS],
             'configuration.pages.*.options.media_playlist_id' => ['sometimes', 'string', 'ulid'],
+            'configuration.pages.*.options.location_mode' => ['sometimes', 'string', Rule::in(WallboardConfiguration::FORECAST_LOCATION_MODES)],
+            'configuration.pages.*.options.visible_blocks' => ['sometimes', 'array'],
+            'configuration.pages.*.options.visible_blocks.*' => ['required', 'string', 'distinct', Rule::in(WallboardConfiguration::FORECAST_VISIBLE_BLOCKS)],
             'configuration.pages.*.options.location_label' => ['sometimes', 'string', 'max:'.WallboardConfiguration::MAX_FORECAST_LOCATION_LABEL_LENGTH],
             'configuration.pages.*.options.latitude' => ['sometimes', 'numeric', 'between:-90,90'],
             'configuration.pages.*.options.longitude' => ['sometimes', 'numeric', 'between:-180,180'],
@@ -148,8 +151,9 @@ final class StoreWallboardRequest extends FormRequest
             $allowedKeys = match ($type) {
                 'message', 'safety_notice' => ['body', 'content'],
                 'quote' => ['quotes'],
-                'uav_forecast' => ['location_label', 'latitude', 'longitude'],
+                'uav_forecast' => ['location_mode', 'location_label', 'latitude', 'longitude', 'visible_blocks'],
                 'incident_list', 'summary' => ['show_test_incidents'],
+                'calendar' => ['max_items'],
                 'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds', 'item_transition', 'item_transition_duration_ms', 'item_flip_direction'],
                 'video' => ['url', 'video_duration_seconds'],
                 'photo_carousel' => ['media_playlist_id', 'item_duration_seconds'],
@@ -176,15 +180,8 @@ final class StoreWallboardRequest extends FormRequest
                     }
                 }
             }
-            if ($type === 'uav_forecast'
-                && (! is_string($options['location_label'] ?? null)
-                    || trim($options['location_label']) === ''
-                    || ! is_numeric($options['latitude'] ?? null)
-                    || ! is_numeric($options['longitude'] ?? null))) {
-                $validator->errors()->add(
-                    "configuration.pages.{$index}.options",
-                    'Een UAV Forecast-pagina heeft een locatienaam en geldige coördinaten nodig.',
-                );
+            if ($type === 'uav_forecast') {
+                $this->validateForecastLocation($validator, $index, $options);
             }
             if ($type === 'video'
                 && (! is_string($options['url'] ?? null)
@@ -217,6 +214,29 @@ final class StoreWallboardRequest extends FormRequest
             if ($type === 'news') {
                 $this->validateNewsSources($validator, $index, $options);
             }
+        }
+    }
+
+    /** @param array<string, mixed> $options */
+    private function validateForecastLocation(Validator $validator, int|string $pageIndex, array $options): void
+    {
+        $hasMode = array_key_exists('location_mode', $options);
+        $mode = $hasMode
+            ? $options['location_mode']
+            : (array_key_exists('location_label', $options) ? 'address' : WallboardConfiguration::DEFAULT_FORECAST_LOCATION_MODE);
+        $field = "configuration.pages.{$pageIndex}.options";
+
+        if (! is_string($mode) || ! in_array($mode, WallboardConfiguration::FORECAST_LOCATION_MODES, true)) {
+            $validator->errors()->add("{$field}.location_mode", 'Kies UAV Nederland of een gezocht adres.');
+        } elseif ($hasMode && (array_key_exists('latitude', $options) || array_key_exists('longitude', $options))) {
+            $validator->errors()->add($field, 'Coördinaten worden server-side uit de gekozen locatie bepaald.');
+        } elseif ($mode === 'address'
+            && (! is_string($options['location_label'] ?? null) || trim($options['location_label']) === '')) {
+            $validator->errors()->add("{$field}.location_label", 'Kies een adres met de adreszoeker.');
+        } elseif ($mode === WallboardConfiguration::DEFAULT_FORECAST_LOCATION_MODE
+            && $hasMode
+            && array_key_exists('location_label', $options)) {
+            $validator->errors()->add("{$field}.location_label", 'UAV Nederland gebruikt automatisch alle Nederlandse provincies.');
         }
     }
 

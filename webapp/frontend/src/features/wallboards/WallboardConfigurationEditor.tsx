@@ -1,11 +1,13 @@
-import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
+import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
   BarChart3,
   BellRing,
+  CalendarDays,
   List,
   Map,
+  MapPin,
   Clapperboard,
   CloudSun,
   Images,
@@ -25,6 +27,7 @@ import type {
   WallboardConfiguration,
   WallboardCustomNewsSource,
   WallboardFlipDirection,
+  WallboardForecastBlockKey,
   WallboardFocusKind,
   WallboardMapConfiguration,
   WallboardNewsSource,
@@ -35,10 +38,17 @@ import type {
   WallboardTickerSourceType,
 } from '../../types/api';
 import {
+  fetchLocationSuggestions,
+  geocodeAddressLabel,
+  lookupLocationSuggestion,
+  type LocationSuggestion,
+} from '../../lib/locationSearch';
+import {
   MAX_WALLBOARD_FOCUS_DURATION_SECONDS,
   MAX_WALLBOARD_CUSTOM_NEWS_SOURCES,
   MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_LABEL_LENGTH,
   MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_URL_LENGTH,
+  MAX_WALLBOARD_CALENDAR_MAX_ITEMS,
   MAX_WALLBOARD_NEWS_MAX_ITEMS,
   MAX_WALLBOARD_NEWS_ITEM_DURATION_SECONDS,
   MAX_WALLBOARD_QUOTES,
@@ -50,6 +60,7 @@ import {
   MAX_WALLBOARD_TICKER_SOURCES,
   MAX_WALLBOARD_TRANSITION_DURATION_MS,
   MIN_WALLBOARD_FOCUS_DURATION_SECONDS,
+  MIN_WALLBOARD_CALENDAR_MAX_ITEMS,
   MIN_WALLBOARD_NEWS_MAX_ITEMS,
   MIN_WALLBOARD_NEWS_ITEM_DURATION_SECONDS,
   MIN_WALLBOARD_PAGE_DURATION_SECONDS,
@@ -57,12 +68,16 @@ import {
   MIN_WALLBOARD_RSS_MAX_ITEMS,
   MIN_WALLBOARD_TRANSITION_DURATION_MS,
   DEFAULT_WALLBOARD_FLIP_DIRECTION,
+  DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE,
+  DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS,
   DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
   DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS,
   WALLBOARD_FLIP_DIRECTIONS,
+  WALLBOARD_FORECAST_BLOCK_KEYS,
   WALLBOARD_NEWS_ITEM_TRANSITIONS,
   WALLBOARD_PAGE_TRANSITIONS,
   clampWallboardFocusDuration,
+  clampWallboardCalendarMaxItems,
   clampWallboardNewsMaxItems,
   clampWallboardNewsItemDuration,
   clampWallboardPageDuration,
@@ -75,6 +90,7 @@ import {
   normalizeWallboardMediaPlaylistId,
   normalizeWallboardNewsItemTransition,
   normalizeWallboardFlipDirection,
+  normalizeWallboardForecastPageOptions,
   normalizeWallboardPageTransition,
   wallboardEffectivePageDuration,
   wallboardMessageContent,
@@ -113,10 +129,30 @@ const MAP_OPTION_LABELS: Array<{ key: keyof WallboardMapConfiguration; label: st
   { key: 'auto_fit', label: 'Automatisch kaderen', help: 'Houd alle zichtbare kaartpunten binnen beeld.' },
 ];
 
+const FORECAST_BLOCK_OPTIONS: ReadonlyArray<{
+  key: WallboardForecastBlockKey;
+  label: string;
+  help: string;
+}> = [
+  { key: 'weather', label: 'Weer', help: 'Actuele weersituatie op vlieghoogte.' },
+  { key: 'daylight', label: 'Daglicht', help: 'Zonsopkomst en zonsondergang.' },
+  { key: 'temperature', label: 'Temperatuur', help: 'Temperatuur en dauwpunt.' },
+  { key: 'wind_speed', label: 'Windsnelheid', help: 'Verwachte wind rond 120 meter.' },
+  { key: 'wind_gust', label: 'Windstoten', help: 'Verwachte windstoten rond 120 meter.' },
+  { key: 'wind_direction', label: 'Windrichting', help: 'Richting van de wind rond 120 meter.' },
+  { key: 'precipitation_probability', label: 'Neerslagkans', help: 'Kans op neerslag.' },
+  { key: 'cloud_cover', label: 'Bewolking', help: 'Totale bewolkingsgraad.' },
+  { key: 'visibility', label: 'Zichtbaarheid', help: 'Horizontaal zicht.' },
+  { key: 'gnss_visible', label: 'Zichtbare satellieten', help: 'Satellieten boven de lokale horizon.' },
+  { key: 'kp_index', label: 'Kp-index', help: 'Actuele geomagnetische activiteit.' },
+  { key: 'gnss_usable', label: 'Bruikbare satellieten', help: 'Satellieten bruikbaar voor navigatie.' },
+];
+
 const PAGE_TYPE_OPTIONS: Array<{ value: WallboardPageType; label: string }> = [
   { value: 'map', label: 'Kaart' },
   { value: 'incident_list', label: 'Incidentenlijst' },
   { value: 'summary', label: 'Samenvatting' },
+  { value: 'calendar', label: 'Agenda' },
   { value: 'message', label: 'Mededeling' },
   { value: 'safety_notice', label: 'Veiligheidsbericht' },
   { value: 'quote', label: 'Quote van de dag' },
@@ -763,8 +799,46 @@ function WallboardPageEditor({
     globalTransitionDurationMs,
     DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS,
   ).toFixed(1).replace('.', ',');
+  const normalizedForecastOptions = normalizeWallboardForecastPageOptions(page);
+  const forecastLocationMode = normalizedForecastOptions.location_mode
+    ?? DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE;
+  const forecastVisibleBlocks = normalizedForecastOptions.visible_blocks
+    ?? [...DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS];
+  const forecastLocationQuery = page.type === 'uav_forecast' && forecastLocationMode === 'address'
+    ? page.options.location_label ?? ''
+    : '';
+  const [forecastSuggestions, setForecastSuggestions] = useState<LocationSuggestion[]>([]);
+  const [forecastSearchOpen, setForecastSearchOpen] = useState(false);
+  const [forecastSearchLoading, setForecastSearchLoading] = useState(false);
+  const [forecastSearchError, setForecastSearchError] = useState<string | null>(null);
+  const forecastLookupSequence = useRef(0);
+
+  useEffect(() => {
+    const query = forecastLocationQuery.trim();
+    if (page.type !== 'uav_forecast' || forecastLocationMode !== 'address' || query.length < 3) {
+      setForecastSuggestions([]);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      void fetchLocationSuggestions(query, controller.signal)
+        .then((suggestions) => {
+          if (!controller.signal.aborted) setForecastSuggestions(suggestions);
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setForecastSuggestions([]);
+        });
+    }, 220);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [forecastLocationMode, forecastLocationQuery, page.type]);
 
   function updateType(type: WallboardPageType) {
+    forecastLookupSequence.current += 1;
     const previousDefaultTitle = wallboardPageTypeLabel(page.type);
     const nextPage: WallboardPage = {
       ...page,
@@ -776,10 +850,11 @@ function WallboardPageEditor({
           ? { quotes: page.options.quotes?.length ? page.options.quotes : [{ text: '' }] }
         : type === 'uav_forecast'
           ? {
-            location_label: page.options.location_label ?? '',
-            ...(page.options.latitude === undefined ? {} : { latitude: page.options.latitude }),
-            ...(page.options.longitude === undefined ? {} : { longitude: page.options.longitude }),
+            location_mode: DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE,
+            visible_blocks: [...DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS],
           }
+        : type === 'calendar'
+          ? { max_items: clampWallboardCalendarMaxItems(Number(page.options.max_items)) }
         : type === 'news'
           ? {
             sources: ['ndt', 'dronewatch'],
@@ -800,6 +875,98 @@ function WallboardPageEditor({
           : {},
     };
     onChange({ ...nextPage, duration_seconds: wallboardEffectivePageDuration(nextPage) });
+  }
+
+  function updateForecastLocationMode(mode: 'netherlands' | 'address') {
+    if (mode === forecastLocationMode) return;
+    forecastLookupSequence.current += 1;
+    setForecastSuggestions([]);
+    setForecastSearchOpen(false);
+    setForecastSearchLoading(false);
+    setForecastSearchError(null);
+    onChange({
+      ...page,
+      options: mode === 'address'
+        ? { location_mode: 'address', location_label: '', visible_blocks: forecastVisibleBlocks }
+        : {
+          location_mode: DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE,
+          visible_blocks: forecastVisibleBlocks,
+        },
+    });
+  }
+
+  function updateForecastVisibleBlock(key: WallboardForecastBlockKey, checked: boolean) {
+    const selected = new Set(forecastVisibleBlocks);
+    if (checked) selected.add(key);
+    else selected.delete(key);
+    onChange({
+      ...page,
+      options: {
+        ...normalizedForecastOptions,
+        visible_blocks: WALLBOARD_FORECAST_BLOCK_KEYS.filter((candidate) => selected.has(candidate)),
+      },
+    });
+  }
+
+  async function selectForecastSuggestion(suggestion: LocationSuggestion) {
+    const lookupSequence = ++forecastLookupSequence.current;
+    setForecastSearchOpen(false);
+    setForecastSuggestions([]);
+    setForecastSearchError(null);
+    setForecastSearchLoading(true);
+    const resolved = await lookupLocationSuggestion(suggestion).catch(() => null);
+    if (lookupSequence !== forecastLookupSequence.current) return;
+    setForecastSearchLoading(false);
+    if (resolved === null) {
+      setForecastSearchError('Deze locatie kon niet worden gecontroleerd. Kies een ander zoekresultaat.');
+      return;
+    }
+
+    onChange({
+      ...page,
+      options: {
+        location_mode: 'address',
+        location_label: resolved.locationLabel.slice(0, 120),
+        visible_blocks: forecastVisibleBlocks,
+      },
+    });
+  }
+
+  async function resolveTypedForecastLocation() {
+    setForecastSearchOpen(false);
+    const query = forecastLocationQuery.trim();
+    if (query === '') {
+      setForecastSearchError('Zoek en kies een locatie voor deze forecast.');
+      return;
+    }
+
+    const exactSuggestion = forecastSuggestions.find(
+      (suggestion) => suggestion.label.toLocaleLowerCase('nl-NL') === query.toLocaleLowerCase('nl-NL'),
+    );
+    if (exactSuggestion !== undefined) {
+      await selectForecastSuggestion(exactSuggestion);
+      return;
+    }
+
+    setForecastSearchError(null);
+    setForecastSearchLoading(true);
+    const lookupSequence = ++forecastLookupSequence.current;
+    const resolved = await geocodeAddressLabel(query).catch(() => null);
+    if (lookupSequence !== forecastLookupSequence.current) return;
+    setForecastSearchLoading(false);
+    if (resolved === null) {
+      setForecastSearchError('Geen geldige locatie gevonden. Kies een resultaat uit de adreszoeker.');
+      return;
+    }
+
+    onChange({
+      ...page,
+      options: {
+        location_mode: 'address',
+        location_label: resolved.locationLabel.slice(0, 120),
+        visible_blocks: forecastVisibleBlocks,
+      },
+    });
   }
 
   function updatePageTransition(value: string) {
@@ -1079,66 +1246,136 @@ function WallboardPageEditor({
           </button>
           <small>Minimaal 1 en maximaal {MAX_WALLBOARD_QUOTES} quotes; maximaal {MAX_WALLBOARD_QUOTE_TEXT_LENGTH} tekens per quote.</small>
         </fieldset>
+      ) : page.type === 'calendar' ? (
+        <fieldset className="wallboard-page-editor__page-options">
+          <legend>Agenda-inhoud</legend>
+          <p>Toon de eerstvolgende algemene agenda-items uit de bestaande DIS-agenda.</p>
+          <SecondsStepper
+            id={`wallboard-calendar-${page.id}-max-items`}
+            label="Maximum aantal agenda-items"
+            min={MIN_WALLBOARD_CALENDAR_MAX_ITEMS}
+            max={MAX_WALLBOARD_CALENDAR_MAX_ITEMS}
+            value={clampWallboardCalendarMaxItems(Number(page.options.max_items))}
+            onChange={(maxItems) => onChange({
+              ...page,
+              options: {
+                ...page.options,
+                max_items: clampWallboardCalendarMaxItems(maxItems),
+              },
+            })}
+            unit="items"
+            unitLabel="agenda-items"
+            description={`Toon minimaal ${MIN_WALLBOARD_CALENDAR_MAX_ITEMS} en maximaal ${MAX_WALLBOARD_CALENDAR_MAX_ITEMS} toekomstige items.`}
+            required
+          />
+        </fieldset>
       ) : page.type === 'uav_forecast' ? (
-        <div className="wallboard-forecast-editor" role="group" aria-labelledby={`wallboard-forecast-editor-${page.id}-label`}>
-          <div className="wallboard-message-editor__heading">
-            <span id={`wallboard-forecast-editor-${page.id}-label`}>Locatiegebonden vliegweer</span>
-            <small>De server haalt actuele weer- en Kp-data op; drempels zijn centraal beveiligd en niet vanuit het scherm aanpasbaar.</small>
+        <fieldset className="wallboard-page-editor__page-options">
+          <legend id={`wallboard-forecast-editor-${page.id}-label`}>Locatiegebonden vliegweer</legend>
+          <p>De server haalt actuele weer- en Kp-data op. Kies het landelijke overzicht of zoek een specifieke locatie.</p>
+          <div className="segmented-control" role="group" aria-labelledby={`wallboard-forecast-editor-${page.id}-label`}>
+            <button
+              type="button"
+              className={`segmented-control__item${forecastLocationMode === 'netherlands' ? ' segmented-control__item--active' : ''}`}
+              aria-pressed={forecastLocationMode === 'netherlands'}
+              onClick={() => updateForecastLocationMode('netherlands')}
+            >
+              UAV Nederland
+            </button>
+            <button
+              type="button"
+              className={`segmented-control__item${forecastLocationMode === 'address' ? ' segmented-control__item--active' : ''}`}
+              aria-pressed={forecastLocationMode === 'address'}
+              onClick={() => updateForecastLocationMode('address')}
+            >
+              Andere locatie
+            </button>
           </div>
-          <div className="wallboard-page-editor__fields">
-            <label>
-              <span>Locatienaam</span>
+          {forecastLocationMode === 'address' ? (
+            <div className="location-picker__search">
+              <label htmlFor={`wallboard-forecast-${page.id}-location`}>
+                <span>Locatie zoeken</span>
+              </label>
               <input
-                value={page.options.location_label ?? ''}
-                onChange={(event) => onChange({ ...page, options: { ...page.options, location_label: event.target.value } })}
+                id={`wallboard-forecast-${page.id}-location`}
+                type="search"
+                value={forecastLocationQuery}
+                onFocus={() => setForecastSearchOpen(true)}
+                onBlur={() => void resolveTypedForecastLocation()}
+                onChange={(event) => {
+                  forecastLookupSequence.current += 1;
+                  setForecastSearchLoading(false);
+                  setForecastSearchError(null);
+                  setForecastSearchOpen(true);
+                  onChange({
+                    ...page,
+                    options: {
+                      location_mode: 'address',
+                      location_label: event.target.value,
+                      visible_blocks: forecastVisibleBlocks,
+                    },
+                  });
+                }}
                 maxLength={120}
-                placeholder="Bijvoorbeeld: inzetlocatie"
+                placeholder="Zoek op naam, plaats of adres"
+                autoComplete="off"
+                aria-invalid={forecastSearchError !== null}
+                aria-describedby={`wallboard-forecast-${page.id}-location-help`}
                 required
               />
-            </label>
-            <label>
-              <span>Breedtegraad</span>
-              <input
-                type="number"
-                inputMode="decimal"
-                min={-90}
-                max={90}
-                step="0.000001"
-                value={page.options.latitude ?? ''}
-                onChange={(event) => onChange({
-                  ...page,
-                  options: {
-                    ...page.options,
-                    latitude: event.target.value === '' ? undefined : Number(event.target.value),
-                  },
-                })}
-                required
-              />
-            </label>
-            <label>
-              <span>Lengtegraad</span>
-              <input
-                type="number"
-                inputMode="decimal"
-                min={-180}
-                max={180}
-                step="0.000001"
-                value={page.options.longitude ?? ''}
-                onChange={(event) => onChange({
-                  ...page,
-                  options: {
-                    ...page.options,
-                    longitude: event.target.value === '' ? undefined : Number(event.target.value),
-                  },
-                })}
-                required
-              />
-            </label>
-          </div>
+              {forecastSearchOpen && forecastSuggestions.length > 0 ? (
+                <div className="location-picker__results" aria-label="Gevonden locaties">
+                  {forecastSuggestions.map((suggestion) => (
+                    <button
+                      key={suggestion.id}
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => void selectForecastSuggestion(suggestion)}
+                    >
+                      <MapPin size={14} aria-hidden />
+                      <span>{suggestion.label}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {forecastSearchLoading ? <small role="status">Locatie controleren...</small> : null}
+              {forecastSearchError !== null ? <p className="error-text" role="alert">{forecastSearchError}</p> : null}
+              <small id={`wallboard-forecast-${page.id}-location-help`}>
+                Kies een resultaat uit de bestaande DIS-adreszoeker. De server controleert de locatie bij het opslaan.
+              </small>
+            </div>
+          ) : (
+            <p className="wallboard-page-editor__note">
+              UAV Nederland combineert het actuele vliegweer voor alle Nederlandse provincies tot één landelijk overzicht.
+            </p>
+          )}
+          <fieldset
+            className="wallboard-option-grid"
+            aria-describedby={`wallboard-forecast-${page.id}-blocks-help`}
+          >
+            <legend>Zichtbare informatieblokken</legend>
+            {FORECAST_BLOCK_OPTIONS.map((option) => (
+              <label key={option.key}>
+                <input
+                  type="checkbox"
+                  checked={forecastVisibleBlocks.includes(option.key)}
+                  onChange={(event) => updateForecastVisibleBlock(option.key, event.target.checked)}
+                />
+                <span>
+                  <strong>{option.label}</strong>
+                  <small>{option.help}</small>
+                </span>
+              </label>
+            ))}
+          </fieldset>
           <p className="wallboard-page-editor__note">
-            Coördinaten zijn nodig omdat wind, neerslag en zicht per locatie verschillen. GNSS blijft onbekend zolang geen betrouwbare locatie- en tijdafhankelijke satellietbron beschikbaar is.
+            <strong>Vliegadvies blijft altijd zichtbaar.</strong>{' '}
+            <span id={`wallboard-forecast-${page.id}-blocks-help`}>
+              Het advies weegt alle beschikbare waarden mee, ook wanneer je een informatieblok verbergt.
+              Drempels zijn centraal beveiligd en niet vanuit het scherm aanpasbaar.
+            </span>
           </p>
-        </div>
+        </fieldset>
       ) : page.type === 'video' ? (
         <div className="wallboard-video-editor">
           <label>
@@ -1373,6 +1610,7 @@ export function WallboardPageTypeIcon({ type }: { type: WallboardPageType }) {
     case 'map': return <Map size={18} aria-hidden />;
     case 'incident_list': return <List size={18} aria-hidden />;
     case 'summary': return <BarChart3 size={18} aria-hidden />;
+    case 'calendar': return <CalendarDays size={18} aria-hidden />;
     case 'message': return <MessageSquareText size={18} aria-hidden />;
     case 'safety_notice': return <ShieldAlert size={18} aria-hidden />;
     case 'quote': return <QuoteIcon size={18} aria-hidden />;

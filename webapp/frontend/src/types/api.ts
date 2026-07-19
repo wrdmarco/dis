@@ -224,11 +224,25 @@ export interface OperationalMapPilotHome {
 export type WallboardLayout = 'fullscreen_map';
 export type WallboardDisplayProfile = 'auto' | '1080p' | '4k';
 export type WallboardTheme = 'dark' | 'light';
-export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'message' | 'safety_notice' | 'quote' | 'uav_forecast' | 'news' | 'video' | 'photo_carousel';
+export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'calendar' | 'message' | 'safety_notice' | 'quote' | 'uav_forecast' | 'news' | 'video' | 'photo_carousel';
 export type WallboardDisplayMode = 'rotation' | 'static' | 'manual' | 'incident_override';
 export type WallboardNewsItemTransition = 'fade' | 'dissolve' | 'slide' | 'flip' | 'zoom' | 'wipe' | 'none';
 export type WallboardPageTransition = WallboardNewsItemTransition;
 export type WallboardFlipDirection = 'left_to_right' | 'top_to_bottom' | 'bottom_to_top' | 'random';
+export type WallboardForecastLocationMode = 'netherlands' | 'address';
+export type WallboardForecastBlockKey =
+  | 'weather'
+  | 'daylight'
+  | 'temperature'
+  | 'wind_speed'
+  | 'wind_gust'
+  | 'wind_direction'
+  | 'precipitation_probability'
+  | 'cloud_cover'
+  | 'visibility'
+  | 'gnss_visible'
+  | 'kp_index'
+  | 'gnss_usable';
 
 export interface WallboardMapConfiguration {
   show_active_incidents: boolean;
@@ -331,8 +345,12 @@ export interface WallboardPageOptions {
   item_transition?: WallboardNewsItemTransition;
   item_transition_duration_ms?: number;
   item_flip_direction?: WallboardFlipDirection;
+  location_mode?: WallboardForecastLocationMode;
   location_label?: string;
+  visible_blocks?: WallboardForecastBlockKey[];
+  /** Alleen aanwezig bij oudere configuraties; nieuwe writes laten geocodering aan de server. */
   latitude?: number;
+  /** Alleen aanwezig bij oudere configuraties; nieuwe writes laten geocodering aan de server. */
   longitude?: number;
 }
 
@@ -415,6 +433,26 @@ export interface WallboardNewsPageState {
   items: WallboardNewsItem[];
   fallback_used: boolean;
   lookback_days: 7;
+}
+
+export interface WallboardCalendarItem {
+  id: string;
+  title: string;
+  type: 'training' | 'open_day' | 'meeting' | 'exercise' | 'other';
+  starts_at: string;
+  ends_at: string | null;
+  location_label: string | null;
+  description: string | null;
+  team: Pick<Team, 'id' | 'code' | 'name' | 'type'> | null;
+}
+
+export interface WallboardCalendarPageState {
+  items: WallboardCalendarItem[];
+}
+
+export interface WallboardCalendarState {
+  generated_at: string;
+  pages: Record<string, WallboardCalendarPageState>;
 }
 
 export interface WallboardDisplayState {
@@ -656,6 +694,7 @@ export interface WallboardState {
     items: WallboardTickerItem[];
   };
   news: WallboardNewsState;
+  calendar: WallboardCalendarState;
   media: {
     photo_pages: Record<string, WallboardMediaPageState>;
   };
@@ -664,23 +703,98 @@ export interface WallboardState {
 
 export type WallboardForecastStatus = 'green' | 'orange' | 'red' | 'unknown';
 
+export type WallboardForecastMetricKey =
+  | 'weather_code'
+  | 'temperature_c'
+  | 'dew_point_c'
+  | 'wind_speed_kmh'
+  | 'wind_gust_kmh'
+  | 'wind_direction_degrees'
+  | 'precipitation_probability_pct'
+  | 'precipitation_mm'
+  | 'cloud_cover_pct'
+  | 'visibility_m'
+  | 'kp_index'
+  | 'gnss_satellites'
+  | 'gnss_satellites_fix';
+
+export interface WallboardForecastSource {
+  name: string;
+  url: string | null;
+}
+
+export interface WallboardForecastWindSample {
+  height_agl_m: number;
+  speed_kmh: number | null;
+}
+
 export interface WallboardForecastMetric {
-  key: 'wind_speed_kmh' | 'wind_gust_kmh' | 'precipitation_mm' | 'visibility_m' | 'kp_index' | 'gnss_satellites';
+  key: WallboardForecastMetricKey;
   label: string;
   value: number | null;
   unit: string | null;
+  display_value: string | null;
+  display_unit: string | null;
   status: WallboardForecastStatus;
   stale: boolean;
-  source: { name: string; url: string | null };
+  source: WallboardForecastSource;
   measured_at: string | null;
   explanation: string;
+  altitude_m: number | null;
+  source_height_label: string | null;
+  height_samples_agl_m: WallboardForecastWindSample[];
+  max_non_red_wind_height_agl_m: number | null;
+}
+
+export interface WallboardForecastCondition {
+  code: number | null;
+  label: string;
+  status: WallboardForecastStatus;
+  stale: boolean;
+  source: WallboardForecastSource;
+  measured_at: string | null;
+}
+
+export interface WallboardForecastDaylight {
+  timezone: string;
+  sunrise_earliest: string | null;
+  sunrise_latest: string | null;
+  sunset_earliest: string | null;
+  sunset_latest: string | null;
+  stale: boolean;
+  source: WallboardForecastSource;
+}
+
+export interface WallboardForecastWindProfile {
+  samples: WallboardForecastWindSample[];
+  max_non_red_wind_height_agl_m: number | null;
+  stale: boolean;
+}
+
+export interface WallboardForecastAggregation {
+  type: 'province_average' | 'single_location';
+  sample_count: number;
+  expected_sample_count: number;
+  complete: boolean;
+  fresh: boolean;
 }
 
 export interface WallboardForecastPageState {
-  location: { label: string; latitude: number; longitude: number };
+  location: {
+    mode: WallboardForecastLocationMode;
+    label: string;
+    latitude: number | null;
+    longitude: number | null;
+  };
+  aggregation: WallboardForecastAggregation;
+  visible_blocks: WallboardForecastBlockKey[];
   overall_status: WallboardForecastStatus;
   generated_at: string;
+  condition: WallboardForecastCondition;
+  daylight: WallboardForecastDaylight;
+  wind_profile: WallboardForecastWindProfile;
   metrics: WallboardForecastMetric[];
+  scope_note: string;
   disclaimer: string;
 }
 

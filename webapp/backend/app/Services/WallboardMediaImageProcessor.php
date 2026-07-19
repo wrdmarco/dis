@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Support\WallboardMediaProcessedAsset;
+use App\Support\WallboardMediaProcessedThumbnail;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -118,6 +119,85 @@ final class WallboardMediaImageProcessor
             }
             if (is_string($thumbnailTemporaryPath) && is_file($thumbnailTemporaryPath)) {
                 @unlink($thumbnailTemporaryPath);
+            }
+
+            throw $exception;
+        } finally {
+            imagedestroy($image);
+        }
+    }
+
+    public function createThumbnailFromStoredWebp(string $sourcePath): WallboardMediaProcessedThumbnail
+    {
+        $sourceBytes = @filesize($sourcePath);
+        $maximumBytes = max(
+            1024 * 1024,
+            (int) config('wallboard_media.thumbnail_backfill_max_source_bytes', 32 * 1024 * 1024),
+        );
+        if (! is_file($sourcePath)
+            || is_link($sourcePath)
+            || ! is_int($sourceBytes)
+            || $sourceBytes < 1
+            || $sourceBytes > $maximumBytes
+            || $this->detectedMime($sourcePath) !== 'image/webp') {
+            throw new \UnexpectedValueException('Stored wallboard image is missing or invalid.');
+        }
+
+        $dimensions = @getimagesize($sourcePath);
+        $width = is_array($dimensions) ? (int) ($dimensions[0] ?? 0) : 0;
+        $height = is_array($dimensions) ? (int) ($dimensions[1] ?? 0) : 0;
+        $maxPixels = max(1, (int) config('wallboard_media.max_source_pixels', 16_000_000));
+        if (! is_array($dimensions)
+            || (int) ($dimensions[2] ?? 0) !== IMAGETYPE_WEBP
+            || strtolower((string) ($dimensions['mime'] ?? '')) !== 'image/webp'
+            || $width < 1
+            || $height < 1
+            || $width > intdiv($maxPixels, $height)) {
+            throw new \UnexpectedValueException('Stored wallboard image dimensions are invalid.');
+        }
+
+        $source = @file_get_contents($sourcePath);
+        if (! is_string($source)
+            || strlen($source) !== $sourceBytes
+            || str_contains($source, 'ANIM')) {
+            throw new \UnexpectedValueException('Stored wallboard image could not be verified.');
+        }
+
+        $this->assertGdAvailable();
+        $image = @imagecreatefromstring($source);
+        if (! $image instanceof \GdImage) {
+            throw new \UnexpectedValueException('Stored wallboard image could not be decoded.');
+        }
+
+        $thumbnailPath = null;
+        try {
+            $thumbnailPath = $this->encodeThumbnail($image);
+            $thumbnailMime = $this->detectedMime($thumbnailPath);
+            $thumbnailDimensions = @getimagesize($thumbnailPath);
+            $thumbnailBytes = @filesize($thumbnailPath);
+            $thumbnailSha256 = @hash_file('sha256', $thumbnailPath);
+            if ($thumbnailMime !== 'image/webp'
+                || ! is_array($thumbnailDimensions)
+                || (int) ($thumbnailDimensions[2] ?? 0) !== IMAGETYPE_WEBP
+                || ! is_int($thumbnailBytes)
+                || $thumbnailBytes < 1
+                || ! is_string($thumbnailSha256)
+                || preg_match('/^[a-f0-9]{64}$/', $thumbnailSha256) !== 1) {
+                throw new \UnexpectedValueException('Generated wallboard thumbnail could not be verified.');
+            }
+
+            return new WallboardMediaProcessedThumbnail(
+                temporaryPath: $thumbnailPath,
+                sha256: $thumbnailSha256,
+                byteSize: $thumbnailBytes,
+                sourceSha256: hash('sha256', $source),
+                sourceByteSize: $sourceBytes,
+                sourceWidth: $width,
+                sourceHeight: $height,
+            );
+        } catch (Throwable $exception) {
+            if (is_string($thumbnailPath) && is_file($thumbnailPath)) {
+                @unlink($thumbnailPath);
             }
 
             throw $exception;

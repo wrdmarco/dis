@@ -6,6 +6,8 @@ import type {
   WallboardFocusConfiguration,
   WallboardFocusKind,
   WallboardFlipDirection,
+  WallboardForecastBlockKey,
+  WallboardForecastLocationMode,
   WallboardMapConfiguration,
   WallboardNewsSource,
   WallboardNewsItemTransition,
@@ -54,6 +56,26 @@ export const MAX_WALLBOARD_TICKER_SOURCES = 10;
 export const MIN_WALLBOARD_RSS_MAX_ITEMS = 1;
 export const MAX_WALLBOARD_RSS_MAX_ITEMS = 8;
 export const DEFAULT_WALLBOARD_RSS_MAX_ITEMS = 8;
+export const MIN_WALLBOARD_CALENDAR_MAX_ITEMS = 1;
+export const MAX_WALLBOARD_CALENDAR_MAX_ITEMS = 12;
+export const DEFAULT_WALLBOARD_CALENDAR_MAX_ITEMS = 6;
+export const DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE: WallboardForecastLocationMode = 'netherlands';
+export const WALLBOARD_FORECAST_BLOCK_KEYS = [
+  'weather',
+  'daylight',
+  'temperature',
+  'wind_speed',
+  'wind_gust',
+  'wind_direction',
+  'precipitation_probability',
+  'cloud_cover',
+  'visibility',
+  'gnss_visible',
+  'kp_index',
+  'gnss_usable',
+] as const satisfies readonly WallboardForecastBlockKey[];
+export const DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS: readonly WallboardForecastBlockKey[] =
+  WALLBOARD_FORECAST_BLOCK_KEYS;
 export const MIN_WALLBOARD_NEWS_MAX_ITEMS = 1;
 export const MAX_WALLBOARD_NEWS_MAX_ITEMS = 12;
 export const DEFAULT_WALLBOARD_NEWS_MAX_ITEMS = 6;
@@ -450,7 +472,12 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
       : type === 'quote'
         ? { quotes: [{ text: '' }] }
       : type === 'uav_forecast'
-        ? { location_label: '' }
+        ? {
+          location_mode: DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE,
+          visible_blocks: [...DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS],
+        }
+      : type === 'calendar'
+        ? { max_items: DEFAULT_WALLBOARD_CALENDAR_MAX_ITEMS }
       : type === 'news'
         ? {
           sources: [...DEFAULT_WALLBOARD_NEWS_SOURCES],
@@ -502,6 +529,7 @@ export function wallboardPageTypeLabel(type: WallboardPageType): string {
     case 'map': return 'Operationele kaart';
     case 'incident_list': return 'Incidentenoverzicht';
     case 'summary': return 'Operationele samenvatting';
+    case 'calendar': return 'Agenda';
     case 'message': return 'Mededeling';
     case 'safety_notice': return 'Veiligheidsbericht';
     case 'quote': return 'Quote van de dag';
@@ -530,6 +558,14 @@ export function wallboardPageMapConfiguration(
 export function clampRefreshSeconds(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_WALLBOARD_CONFIGURATION.refresh_seconds;
   return Math.min(MAX_WALLBOARD_REFRESH_SECONDS, Math.max(MIN_WALLBOARD_REFRESH_SECONDS, Math.round(value)));
+}
+
+export function clampWallboardCalendarMaxItems(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_WALLBOARD_CALENDAR_MAX_ITEMS;
+  return Math.min(
+    MAX_WALLBOARD_CALENDAR_MAX_ITEMS,
+    Math.max(MIN_WALLBOARD_CALENDAR_MAX_ITEMS, Math.round(value)),
+  );
 }
 
 export function wallboardIsOnline(wallboard: Wallboard, now = Date.now()): boolean {
@@ -684,7 +720,7 @@ function normalizeWallboardPage(
   page: WallboardPage,
   index: number,
 ): WallboardPage {
-  const type: WallboardPageType = ['map', 'incident_list', 'summary', 'message', 'safety_notice', 'quote', 'uav_forecast', 'news', 'video', 'photo_carousel'].includes(page.type)
+  const type: WallboardPageType = ['map', 'incident_list', 'summary', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'news', 'video', 'photo_carousel'].includes(page.type)
     ? page.type
     : 'map';
   const id = typeof page.id === 'string' && page.id.trim() !== '' ? page.id : `page-${index + 1}`;
@@ -715,6 +751,8 @@ function normalizeWallboardPage(
         ? { quotes: normalizeWallboardQuotes(page.options?.quotes) }
       : type === 'uav_forecast'
         ? normalizeWallboardForecastPageOptions(page)
+      : type === 'calendar'
+        ? { max_items: clampWallboardCalendarMaxItems(Number(page.options?.max_items)) }
       : type === 'news'
         ? normalizeWallboardNewsPageOptions(page)
         : type === 'video'
@@ -778,22 +816,30 @@ export function selectWallboardDailyQuote(
   return quotes[(hash >>> 0) % quotes.length] ?? quotes[0];
 }
 
-function normalizeWallboardForecastPageOptions(page: WallboardPage): WallboardPage['options'] {
+export function normalizeWallboardForecastPageOptions(page: WallboardPage): WallboardPage['options'] {
   const label = typeof page.options.location_label === 'string'
     ? page.options.location_label.trim().slice(0, 120)
     : '';
-  const latitude = typeof page.options.latitude === 'number' && Number.isFinite(page.options.latitude)
-    ? Math.min(90, Math.max(-90, page.options.latitude))
-    : undefined;
-  const longitude = typeof page.options.longitude === 'number' && Number.isFinite(page.options.longitude)
-    ? Math.min(180, Math.max(-180, page.options.longitude))
-    : undefined;
+  const explicitMode = page.options.location_mode === 'address'
+    ? 'address'
+    : page.options.location_mode === 'netherlands'
+      ? 'netherlands'
+      : null;
+  const locationMode: WallboardForecastLocationMode = explicitMode
+    ?? (label !== '' && label !== 'UAV Nederland' ? 'address' : DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE);
+  const selectedBlocks = Array.isArray(page.options.visible_blocks)
+    ? new Set(page.options.visible_blocks)
+    : null;
+  const visibleBlocks = selectedBlocks === null
+    ? [...DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS]
+    : WALLBOARD_FORECAST_BLOCK_KEYS.filter((key) => selectedBlocks.has(key));
 
-  return {
-    location_label: label,
-    ...(latitude === undefined ? {} : { latitude }),
-    ...(longitude === undefined ? {} : { longitude }),
-  };
+  return locationMode === 'address'
+    ? { location_mode: 'address', location_label: label, visible_blocks: visibleBlocks }
+    : {
+      location_mode: DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE,
+      visible_blocks: visibleBlocks,
+    };
 }
 
 /**

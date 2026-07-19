@@ -866,10 +866,15 @@ interface AssetCardProps {
 
 function AssetCard({ asset, folders, selected, busy, onSelect, onMove, onDelete }: AssetCardProps) {
   const previewUrl = wallboardMediaAssetPreviewUrl(asset);
+  const fallbackPreviewUrl = wallboardMediaImageUrl(asset.content_url);
+  const [activePreviewUrl, setActivePreviewUrl] = useState(previewUrl);
   const [previewFailed, setPreviewFailed] = useState(false);
   const isImage = asset.kind === 'image';
   const ready = asset.status === 'ready';
-  useEffect(() => setPreviewFailed(false), [previewUrl]);
+  useEffect(() => {
+    setActivePreviewUrl(previewUrl);
+    setPreviewFailed(false);
+  }, [asset.id, asset.version, fallbackPreviewUrl, previewUrl]);
 
   return (
     <li className={selected ? styles.selectedAsset : styles.assetCard}>
@@ -883,14 +888,20 @@ function AssetCard({ asset, folders, selected, busy, onSelect, onMove, onDelete 
       >
         {!isImage ? (
           <FileVideo2 size={38} aria-hidden />
-        ) : previewUrl === null || previewFailed ? (
+        ) : activePreviewUrl === null || previewFailed ? (
           <span className={styles.previewUnavailable}><ImageIcon size={34} aria-hidden /><small>Voorbeeld niet beschikbaar</small></span>
         ) : (
           <img
-            src={previewUrl}
+            src={activePreviewUrl}
             alt={asset.display_name}
             loading="lazy"
-            onError={() => setPreviewFailed(true)}
+            onError={() => {
+              if (fallbackPreviewUrl !== null && activePreviewUrl !== fallbackPreviewUrl) {
+                setActivePreviewUrl(fallbackPreviewUrl);
+                return;
+              }
+              setPreviewFailed(true);
+            }}
           />
         )}
         <span className={styles.mediaKind}>{isImage ? 'Foto' : 'Video'}</span>

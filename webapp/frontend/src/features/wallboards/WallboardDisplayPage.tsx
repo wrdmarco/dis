@@ -8,16 +8,22 @@ import {
 } from 'react';
 import dynamic from 'next/dynamic.js';
 import {
+  Activity,
   AlertTriangle,
   BellRing,
+  CalendarDays,
+  Cloud,
   CloudRain,
   CloudSun,
+  Clock3,
   Eye,
   Expand,
+  Gauge,
   Loader2,
   LockKeyhole,
   MapPin,
   MonitorUp,
+  Navigation,
   Newspaper,
   RefreshCw,
   Radio,
@@ -25,7 +31,10 @@ import {
   RotateCw,
   Siren,
   Satellite,
+  SatelliteDish,
   ShieldAlert,
+  Sunrise,
+  Thermometer,
   UsersRound,
   Wind,
   WifiOff,
@@ -39,8 +48,10 @@ import type {
   WallboardFocusResponses,
   WallboardFocusState,
   WallboardMaintenanceNotice,
+  WallboardForecastBlockKey,
   WallboardForecastMetric,
   WallboardForecastPageState,
+  WallboardForecastSource,
   WallboardForecastState,
   WallboardPage,
   WallboardNewsItem,
@@ -69,6 +80,7 @@ import {
   resolveWallboardFlipDirection,
   selectRecentWallboardIncidents,
   selectWallboardDailyQuote,
+  WALLBOARD_FORECAST_BLOCK_KEYS,
   wallboardConfigurationCopy,
   wallboardEffectivePageTransition,
   wallboardFocusKindLabel,
@@ -83,15 +95,37 @@ import { WallboardNewsQrCode } from './WallboardNewsQrCode';
 import { WallboardRichText } from './WallboardRichText';
 import { normalizeWallboardMediaPageStates } from './wallboardMedia';
 import { wallboardPhotoCarouselAnchorFromDeadline } from './wallboardPhotoRotation';
+import {
+  precacheWallboard,
+  wallboardCacheableAssetUrl,
+  wallboardPrecacheManifest,
+  type WallboardPrecacheProgress,
+} from './wallboardPrecache';
+import {
+  initialWallboardPreloadRuntimeState,
+  wallboardPrecacheBlocksPlaylist,
+  wallboardPreloadRuntimeState,
+} from './wallboardPrecacheRuntime';
+import {
+  activateWallboardPrecacheWorker,
+  createWallboardPrecacheClientSessionToken,
+  disableWallboardPrecache,
+  registerWallboardPrecacheWorker,
+} from './wallboardPrecacheWorker';
 
 const wallboardApi = new ApiClient({ baseUrl: apiBaseUrl, onUnauthenticated: () => undefined });
 const WallboardPhotoCarousel = dynamic(
   () => import('./WallboardPhotoCarousel').then((module) => module.WallboardPhotoCarousel),
   { ssr: false },
 );
+const WallboardPreloadScreen = dynamic(
+  () => import('./WallboardPreloadScreen').then((module) => module.WallboardPreloadScreen),
+  { ssr: false },
+);
 const CONTROL_POLL_MILLISECONDS = 2000;
 const DEFAULT_PAIRING_POLL_MILLISECONDS = 2000;
 const PAIRING_RETRY_MILLISECONDS = 10000;
+const WALLBOARD_PRECACHE_RETRY_MILLISECONDS = 5000;
 export const WALLBOARD_REFRESH_VERSION_STORAGE_KEY = 'dis.wallboard.refresh-version';
 const WALLBOARD_TIME_ZONE = 'Europe/Amsterdam';
 const WALLBOARD_CLOCK_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
@@ -121,7 +155,144 @@ const WALLBOARD_NEWS_DATE_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
   year: 'numeric',
   timeZone: WALLBOARD_TIME_ZONE,
 });
+const WALLBOARD_CALENDAR_DATE_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+  timeZone: WALLBOARD_TIME_ZONE,
+});
+const WALLBOARD_CALENDAR_SHORT_DATE_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
+  weekday: 'short',
+  day: 'numeric',
+  month: 'short',
+  timeZone: WALLBOARD_TIME_ZONE,
+});
+const WALLBOARD_CALENDAR_TIME_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+  timeZone: WALLBOARD_TIME_ZONE,
+});
+const WALLBOARD_CALENDAR_DATE_PARTS_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  timeZone: WALLBOARD_TIME_ZONE,
+});
 let pairingStartInFlight: Promise<WallboardPairingRequest> | null = null;
+
+export interface WallboardCalendarDisplayItem {
+  id: string;
+  title: string;
+  type: string;
+  starts_at: string;
+  ends_at: string | null;
+  location_label: string | null;
+  description: string | null;
+  team: {
+    id: string;
+    code: string;
+    name: string;
+    type: string;
+  } | null;
+}
+
+interface WallboardCalendarStateOverlay {
+  calendar?: {
+    generated_at?: string;
+    pages?: Record<string, { items?: unknown }>;
+  };
+}
+
+export function normalizeWallboardCalendarItems(value: unknown): WallboardCalendarDisplayItem[] {
+  if (!Array.isArray(value)) return [];
+
+  const items: WallboardCalendarDisplayItem[] = [];
+  for (const candidate of value) {
+    if (!isRecord(candidate)) continue;
+    const id = typeof candidate.id === 'string' ? candidate.id.trim() : '';
+    const title = typeof candidate.title === 'string' ? candidate.title.trim() : '';
+    const startsAt = typeof candidate.starts_at === 'string' ? candidate.starts_at : '';
+    if (id === '' || title === '' || !Number.isFinite(Date.parse(startsAt))) continue;
+
+    const endsAt = typeof candidate.ends_at === 'string' && Number.isFinite(Date.parse(candidate.ends_at))
+      ? candidate.ends_at
+      : null;
+    const team = isRecord(candidate.team)
+      && typeof candidate.team.id === 'string'
+      && typeof candidate.team.code === 'string'
+      && typeof candidate.team.name === 'string'
+      && typeof candidate.team.type === 'string'
+      ? {
+          id: candidate.team.id,
+          code: candidate.team.code.trim(),
+          name: candidate.team.name.trim(),
+          type: candidate.team.type,
+        }
+      : null;
+
+    items.push({
+      id,
+      title,
+      type: typeof candidate.type === 'string' && candidate.type.trim() !== '' ? candidate.type.trim() : 'other',
+      starts_at: startsAt,
+      ends_at: endsAt,
+      location_label: normalizedOptionalText(candidate.location_label),
+      description: normalizedOptionalText(candidate.description),
+      team: team?.name ? team : null,
+    });
+  }
+
+  return items
+    .sort((left, right) => Date.parse(left.starts_at) - Date.parse(right.starts_at) || left.id.localeCompare(right.id))
+    .slice(0, 12);
+}
+
+export function wallboardCalendarRelativeDayLabel(startsAt: string, now: number): string {
+  const eventOrdinal = wallboardAmsterdamDayOrdinal(startsAt);
+  const todayOrdinal = wallboardAmsterdamDayOrdinal(now);
+  if (eventOrdinal === null || todayOrdinal === null) return 'Datum onbekend';
+
+  const difference = eventOrdinal - todayOrdinal;
+  if (difference === 0) return 'Vandaag';
+  if (difference === 1) return 'Morgen';
+  if (difference > 1) return `Over ${difference} dagen`;
+  if (difference === -1) return 'Gisteren';
+  return `${Math.abs(difference)} dagen geleden`;
+}
+
+export function wallboardCalendarTimeRange(item: Pick<WallboardCalendarDisplayItem, 'starts_at' | 'ends_at'>): string {
+  const startsAt = new Date(item.starts_at);
+  if (!Number.isFinite(startsAt.getTime())) return 'Tijd onbekend';
+  const startTime = WALLBOARD_CALENDAR_TIME_FORMATTER.format(startsAt);
+  if (item.ends_at === null) return startTime;
+
+  const endsAt = new Date(item.ends_at);
+  if (!Number.isFinite(endsAt.getTime())) return startTime;
+  const endTime = WALLBOARD_CALENDAR_TIME_FORMATTER.format(endsAt);
+  return wallboardAmsterdamDayOrdinal(startsAt) === wallboardAmsterdamDayOrdinal(endsAt)
+    ? `${startTime} – ${endTime}`
+    : `${startTime} – ${WALLBOARD_CALENDAR_SHORT_DATE_FORMATTER.format(endsAt)} ${endTime}`;
+}
+
+function wallboardAmsterdamDayOrdinal(value: string | number | Date): number | null {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  const parts = WALLBOARD_CALENDAR_DATE_PARTS_FORMATTER.formatToParts(date);
+  const year = Number(parts.find((part) => part.type === 'year')?.value);
+  const month = Number(parts.find((part) => part.type === 'month')?.value);
+  const day = Number(parts.find((part) => part.type === 'day')?.value);
+  return Number.isInteger(year) && Number.isInteger(month) && Number.isInteger(day)
+    ? Math.floor(Date.UTC(year, month - 1, day) / 86_400_000)
+    : null;
+}
+
+function normalizedOptionalText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized === '' ? null : normalized;
+}
+
 
 export function WallboardDisplayPage() {
   const rootRef = useRef<HTMLElement | null>(null);
@@ -133,6 +304,12 @@ export function WallboardDisplayPage() {
   const lastControlMaintenanceActiveRef = useRef<boolean | null>(null);
   const lastControlFocusSignatureRef = useRef<string | undefined>(undefined);
   const refreshVersionRef = useRef<number | null>(null);
+  const precacheAttemptCountsRef = useRef(new Map<string, number>());
+  const precacheManifestRef = useRef<ReturnType<typeof wallboardPrecacheManifest> | null>(null);
+  const precachePagesRef = useRef<WallboardPage[]>([]);
+  const lastPrecacheWallboardKeyRef = useRef<string | null>(null);
+  const precacheClientSessionTokenRef = useRef(createWallboardPrecacheClientSessionToken());
+  const precacheCommandGenerationRef = useRef(Date.now());
   const [sessionStatus, setSessionStatus] = useState<'checking' | 'unpaired' | 'paired'>('checking');
   const [state, setState] = useState<WallboardState | null>(null);
   const [control, setControl] = useState<WallboardControlState | null>(null);
@@ -143,6 +320,8 @@ export function WallboardDisplayPage() {
   const [pairingStartGeneration, setPairingStartGeneration] = useState(0);
   const [pollGeneration, setPollGeneration] = useState(0);
   const [controlPollGeneration, setControlPollGeneration] = useState(0);
+  const [precacheRetryGeneration, setPrecacheRetryGeneration] = useState(0);
+  const [preload, setPreload] = useState(initialWallboardPreloadRuntimeState);
   const [fullscreen, setFullscreen] = useState(false);
   const [clock, setClock] = useState(() => Date.now());
   const connectionError = controlError ?? stateError;
@@ -154,6 +333,13 @@ export function WallboardDisplayPage() {
     () => state === null ? null : buildWallboardMapPresentation(state, hasLiveFeed),
     [hasLiveFeed, state],
   );
+  const precacheManifest = useMemo(
+    () => state === null ? null : wallboardPrecacheManifest(state, window.location.origin),
+    [state],
+  );
+  precacheManifestRef.current = precacheManifest;
+  precachePagesRef.current = state?.wallboard.configuration.pages ?? [];
+  if (precacheManifest !== null) lastPrecacheWallboardKeyRef.current = precacheManifest.wallboardKey;
   const observeRefreshVersion = useCallback((incomingVersion: unknown): boolean => {
     const decision = wallboardRefreshDecision(
       refreshVersionRef.current,
@@ -386,6 +572,123 @@ export function WallboardDisplayPage() {
     return () => window.clearInterval(timer);
   }, [hasPairedState]);
 
+  const precacheContentVersion = precacheManifest?.contentVersion ?? null;
+
+  useEffect(() => {
+    if (sessionStatus !== 'paired' || precacheContentVersion === null) return undefined;
+    const manifest = precacheManifestRef.current;
+    const pages = precachePagesRef.current;
+    if (manifest === null || manifest.contentVersion !== precacheContentVersion) return undefined;
+
+    const controller = new AbortController();
+    let retryTimer: number | null = null;
+    let cancelled = false;
+    const previousAttempts = precacheAttemptCountsRef.current.get(precacheContentVersion) ?? 0;
+    precacheAttemptCountsRef.current.set(precacheContentVersion, previousAttempts + 1);
+    const attemptStatus = previousAttempts > 0 ? 'retrying' as const : 'loading' as const;
+    const initialProgress: WallboardPrecacheProgress = {
+      phase: 'preparing',
+      total: manifest.assets.length,
+      completed: 0,
+      completedUrls: [],
+      failed: 0,
+      currentUrl: null,
+      failures: [],
+    };
+
+    const scheduleRetry = () => {
+      if (cancelled || controller.signal.aborted || retryTimer !== null) return;
+      retryTimer = window.setTimeout(() => {
+        retryTimer = null;
+        setPrecacheRetryGeneration((current) => current + 1);
+      }, WALLBOARD_PRECACHE_RETRY_MILLISECONDS);
+    };
+
+    setPreload(wallboardPreloadRuntimeState(initialProgress, manifest, pages, attemptStatus));
+
+    const prepare = async () => {
+      try {
+        const registration = await registerWallboardPrecacheWorker();
+        if (cancelled || controller.signal.aborted) return;
+
+        const result = await precacheWallboard(manifest, {
+          signal: controller.signal,
+          onProgress: (progress) => {
+            if (cancelled || progress.phase === 'cancelled') return;
+            const progressStatus = progress.phase === 'failed' ? 'error' : attemptStatus;
+            setPreload(wallboardPreloadRuntimeState(progress, manifest, pages, progressStatus));
+          },
+        });
+        if (cancelled || controller.signal.aborted) return;
+        if (!result.ready) {
+          scheduleRetry();
+          return;
+        }
+
+        precacheCommandGenerationRef.current += 1;
+        await activateWallboardPrecacheWorker(
+          registration,
+          manifest,
+          result,
+          precacheClientSessionTokenRef.current,
+          precacheCommandGenerationRef.current,
+        );
+        if (cancelled || controller.signal.aborted) return;
+        setPreload(wallboardPreloadRuntimeState(result, manifest, pages, 'ready'));
+      } catch {
+        if (cancelled || controller.signal.aborted) return;
+        setPreload((current) => ({
+          ...current,
+          status: 'error',
+          contentVersion: precacheContentVersion,
+          errorText: 'De lokale voorbereiding is onderbroken. DIS probeert het automatisch opnieuw.',
+        }));
+        scheduleRetry();
+      }
+    };
+
+    void prepare();
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+    };
+  }, [precacheContentVersion, precacheRetryGeneration, sessionStatus]);
+
+  useEffect(() => {
+    if (sessionStatus !== 'unpaired') return undefined;
+    const previousClientSessionToken = precacheClientSessionTokenRef.current;
+    precacheClientSessionTokenRef.current = createWallboardPrecacheClientSessionToken();
+    setPreload(initialWallboardPreloadRuntimeState());
+    precacheAttemptCountsRef.current.clear();
+    precacheCommandGenerationRef.current += 1;
+    void disableWallboardPrecache({
+      wallboardKey: lastPrecacheWallboardKeyRef.current,
+      clientSessionToken: previousClientSessionToken,
+      commandGeneration: precacheCommandGenerationRef.current,
+    }).catch(() => undefined);
+    return undefined;
+  }, [sessionStatus]);
+
+  useEffect(() => {
+    if (sessionStatus !== 'paired' || precacheContentVersion === null) return undefined;
+    const manifest = precacheManifestRef.current;
+    if (manifest === null || manifest.contentVersion !== precacheContentVersion) return undefined;
+
+    const links = [...new Set(manifest.externalPreloadHints.map((hint) => hint.origin))]
+      .map((origin) => {
+        const link = document.createElement('link');
+        link.rel = 'preconnect';
+        link.href = origin;
+        link.crossOrigin = 'anonymous';
+        link.dataset.disWallboardPreconnect = 'true';
+        document.head.appendChild(link);
+        return link;
+      });
+
+    return () => links.forEach((link) => link.remove());
+  }, [precacheContentVersion, sessionStatus]);
+
   const wallboardTheme = state?.wallboard.configuration.theme;
   const wallboardName = state?.wallboard.name;
 
@@ -577,12 +880,6 @@ export function WallboardDisplayPage() {
     ?? configuration.pages.find((page) => page.id === display.page_id)
     ?? configuration.pages[0];
   const currentPageIndex = configuration.pages.findIndex((page) => page.id === currentPage.id);
-  const preloadPage = selectWallboardNextPreloadPage(
-    configuration.pages,
-    currentPage.id,
-    display.mode,
-    focus,
-  );
   const pageTransition = wallboardEffectivePageTransition(configuration, currentPage);
   const nextSwitchLabel = wallboardNextSwitchLabel(focus, display, clock, deadlineCountdown);
   const transientAlert = hasLiveFeed && effectiveControl.focus === undefined
@@ -591,6 +888,15 @@ export function WallboardDisplayPage() {
   const showTransientAlert = wallboardTransientAlertIsActive(transientAlert, clock)
     && !(transientAlert?.is_test === true && state.operational_summary.active_alarm !== null);
   const showFocus = focus?.visible === true;
+  const precacheReady = precacheManifest !== null
+    && preload.status === 'ready'
+    && preload.contentVersion === precacheManifest.contentVersion;
+  const precacheBlocksPlaylist = wallboardPrecacheBlocksPlaylist({
+    maintenanceActive: maintenance !== null,
+    focusVisible: showFocus,
+    transientAlertVisible: showTransientAlert,
+    precacheReady,
+  });
   const showTicker = maintenance === null && wallboardTickerIsVisible(
     hasLiveFeed,
     focus,
@@ -598,6 +904,23 @@ export function WallboardDisplayPage() {
     state.operational_summary.active_alarm !== null,
     state.ticker.items.length,
   );
+
+  if (precacheBlocksPlaylist) {
+    return (
+      <main className="wallboard-preload-root" ref={rootRef}>
+        <WallboardPreloadScreen
+          status={preload.status}
+          completed={preload.completed}
+          total={preload.total}
+          pagesReady={preload.pagesReady}
+          pagesTotal={preload.pagesTotal}
+          onlineOnlyPages={preload.onlineOnlyPages}
+          currentLabel={preload.currentLabel}
+          errorText={preload.errorText}
+        />
+      </main>
+    );
+  }
 
   return (
     <main
@@ -672,16 +995,13 @@ export function WallboardDisplayPage() {
           state={state}
           presentation={presentation}
           hasLiveFeed={hasLiveFeed}
+          now={clock}
           pageDeadlineAt={focus?.next_change_at ?? display.next_change_at ?? null}
           transition={pageTransition.transition}
           transitionDurationMs={pageTransition.durationMs}
           flipDirection={pageTransition.flipDirection}
         />
       )}
-
-      {maintenance === null && preloadPage !== null ? (
-        <WallboardNextPagePreload page={preloadPage} state={state} />
-      ) : null}
 
       <footer className="wallboard-display__footer">
         <span>{maintenance !== null
@@ -701,28 +1021,12 @@ interface WallboardPlaylistPageFrameProps extends WallboardPageContentProps {
   flipDirection: ReturnType<typeof wallboardEffectivePageTransition>['flipDirection'];
 }
 
-export function selectWallboardNextPreloadPage(
-  pages: WallboardPage[],
-  currentPageId: string,
-  displayMode: WallboardDisplayMode,
-  focus: WallboardFocusState | null,
-): WallboardPage | null {
-  if (focus?.visible === true && focus.playlist_page_id !== null) {
-    return pages.find((page) => page.id === focus.playlist_page_id) ?? null;
-  }
-  if (focus !== null || displayMode !== 'rotation' || pages.length < 2) return null;
-
-  const currentIndex = pages.findIndex((page) => page.id === currentPageId);
-  if (currentIndex < 0) return null;
-  const nextPage = pages[(currentIndex + 1) % pages.length];
-  return nextPage.id === currentPageId ? null : nextPage;
-}
-
 function WallboardPlaylistPageFrame({
   page,
   state,
   presentation,
   hasLiveFeed,
+  now,
   pageDeadlineAt,
   transition,
   transitionDurationMs,
@@ -768,19 +1072,25 @@ function WallboardPlaylistPageFrame({
     flipDirection,
     `${visual.current.id}:${visual.sequence}`,
   );
+  const pageFlipSceneClass = transition === 'flip'
+    ? ` wallboard-display__page--flip-${resolvedFlipDirection}`
+    : '';
+  const pageFlipStageClass = transition === 'flip'
+    ? ` wallboard-display__page-card-stage--${resolvedFlipDirection}`
+    : '';
 
   if (pairedTransitionActive) {
     return (
       <section
-        className={`wallboard-display__page wallboard-display__page--card-scene wallboard-display__page--card-${transition} wallboard-display__page--flip-${resolvedFlipDirection}`}
+        className={`wallboard-display__page wallboard-display__page--card-scene wallboard-display__page--card-${transition}${pageFlipSceneClass}`}
         style={style}
         aria-label={visual.current.name}
         aria-live="polite"
       >
         <div
           className={visual.previous === null
-            ? `wallboard-display__page-card-stage wallboard-display__page-card-stage--${transition} wallboard-display__page-card-stage--${resolvedFlipDirection} wallboard-display__page-card-stage--settled`
-            : `wallboard-display__page-card-stage wallboard-display__page-card-stage--${transition} wallboard-display__page-card-stage--${resolvedFlipDirection}`}
+            ? `wallboard-display__page-card-stage wallboard-display__page-card-stage--${transition}${pageFlipStageClass} wallboard-display__page-card-stage--settled`
+            : `wallboard-display__page-card-stage wallboard-display__page-card-stage--${transition}${pageFlipStageClass}`}
           key={visual.sequence}
         >
           {visual.previous === null ? null : (
@@ -790,6 +1100,7 @@ function WallboardPlaylistPageFrame({
                 state={state}
                 presentation={presentation}
                 hasLiveFeed={hasLiveFeed}
+                now={now}
                 pageDeadlineAt={pageDeadlineAt}
                 running={false}
               />
@@ -801,6 +1112,7 @@ function WallboardPlaylistPageFrame({
               state={state}
               presentation={presentation}
               hasLiveFeed={hasLiveFeed}
+              now={now}
               pageDeadlineAt={pageDeadlineAt}
               running={false}
             />
@@ -823,44 +1135,11 @@ function WallboardPlaylistPageFrame({
         state={state}
         presentation={presentation}
         hasLiveFeed={hasLiveFeed}
+        now={now}
         pageDeadlineAt={pageDeadlineAt}
         running={hasLiveFeed}
       />
     </section>
-  );
-}
-
-function WallboardNextPagePreload({
-  page,
-  state,
-}: {
-  page: WallboardPage;
-  state: WallboardState;
-}) {
-  const imageUrls = page.type === 'news'
-    ? (state.news.pages[page.id]?.items ?? []).flatMap((item) => item.image_url ? [item.image_url] : []).slice(0, 2)
-    : page.type === 'photo_carousel'
-      ? (state.media.photo_pages[page.id]?.items ?? []).map((item) => item.image_url).slice(0, 2)
-      : [];
-  const externalVideoUrl = page.type === 'video' ? wallboardVideoEmbedUrl(page.options.url, false) : null;
-  const externalVideoOrigin = externalVideoUrl === null ? null : new URL(externalVideoUrl).origin;
-
-  if (imageUrls.length === 0 && externalVideoOrigin === null) return null;
-
-  return (
-    <aside
-      className="wallboard-display__page-preload"
-      data-wallboard-preload-page={page.id}
-      aria-hidden="true"
-      inert
-    >
-      {imageUrls.map((url) => (
-        <img src={url} alt="" loading="eager" decoding="async" fetchPriority="low" key={url} />
-      ))}
-      {externalVideoOrigin === null ? null : (
-        <link rel="preconnect" href={externalVideoOrigin} crossOrigin="" />
-      )}
-    </aside>
   );
 }
 
@@ -925,6 +1204,7 @@ interface WallboardPageContentProps {
   state: WallboardState;
   presentation: ReturnType<typeof buildWallboardMapPresentation>;
   hasLiveFeed: boolean;
+  now: number;
   pageDeadlineAt: string | null;
   running?: boolean;
 }
@@ -934,6 +1214,7 @@ function WallboardPageContent({
   state,
   presentation,
   hasLiveFeed,
+  now,
   pageDeadlineAt,
   running = hasLiveFeed,
 }: WallboardPageContentProps) {
@@ -1036,6 +1317,16 @@ function WallboardPageContent({
     );
   }
 
+  if (page.type === 'calendar') {
+    const calendarState = (state as WallboardState & WallboardCalendarStateOverlay).calendar;
+    return (
+      <WallboardCalendarPage
+        items={normalizeWallboardCalendarItems(calendarState?.pages?.[page.id]?.items)}
+        now={now}
+      />
+    );
+  }
+
   if (page.type === 'incident_list') {
     return (
       <div className="wallboard-display__list-page">
@@ -1084,6 +1375,29 @@ function WallboardPageContent({
 }
 
 function WallboardVideoPage({ page }: { page: WallboardPage }) {
+  const localVideoUrl = wallboardCacheableAssetUrl(page.options.url);
+  const posterUrl = wallboardCacheableAssetUrl((page.options as WallboardPage['options'] & {
+    poster_url?: unknown;
+  }).poster_url);
+  if (localVideoUrl !== null) {
+    return (
+      <div className="wallboard-display__video">
+        <video
+          src={localVideoUrl}
+          poster={posterUrl ?? undefined}
+          aria-label={page.name}
+          autoPlay
+          muted
+          playsInline
+          preload="auto"
+          controls={false}
+          disablePictureInPicture
+          controlsList="nodownload nofullscreen noremoteplayback"
+        />
+      </div>
+    );
+  }
+
   const embedUrl = wallboardVideoEmbedUrl(page.options.url);
   if (embedUrl === null) {
     return (
@@ -1109,6 +1423,112 @@ function WallboardVideoPage({ page }: { page: WallboardPage }) {
   );
 }
 
+function WallboardCalendarPage({
+  items,
+  now,
+}: {
+  items: WallboardCalendarDisplayItem[];
+  now: number;
+}) {
+  const nextItem = items[0] ?? null;
+  if (nextItem === null) {
+    return (
+      <section className="wallboard-display__calendar wallboard-display__calendar--empty" aria-label="Agenda">
+        <div className="wallboard-display__calendar-empty" role="status">
+          <span aria-hidden><CalendarDays size={58} strokeWidth={1.45} /></span>
+          <strong>Geen agenda-items gepland</strong>
+          <p>Zodra er een nieuw teammoment is, verschijnt het hier automatisch.</p>
+        </div>
+      </section>
+    );
+  }
+
+  const remainingItems = items.slice(1);
+  return (
+    <section className="wallboard-display__calendar" aria-label="Agenda">
+      <header className="wallboard-display__calendar-heading">
+        <span className="wallboard-display__calendar-heading-icon" aria-hidden><CalendarDays size={30} strokeWidth={1.7} /></span>
+        <div>
+          <span>Operationele agenda</span>
+          <strong>{items.length} {items.length === 1 ? 'gepland moment' : 'geplande momenten'}</strong>
+        </div>
+      </header>
+
+      <div className="wallboard-display__calendar-layout">
+        <article className="wallboard-display__calendar-next">
+          <header>
+            <span>Eerstvolgende</span>
+            <strong>{wallboardCalendarRelativeDayLabel(nextItem.starts_at, now)}</strong>
+          </header>
+          <p className="wallboard-display__calendar-date">
+            {WALLBOARD_CALENDAR_DATE_FORMATTER.format(new Date(nextItem.starts_at))}
+          </p>
+          <h2>{nextItem.title}</h2>
+          <span className="wallboard-display__calendar-type">{wallboardCalendarTypeLabel(nextItem.type)}</span>
+          <dl className="wallboard-display__calendar-details">
+            <div>
+              <dt><Clock3 size={22} aria-hidden /> Tijd</dt>
+              <dd>{wallboardCalendarTimeRange(nextItem)}</dd>
+            </div>
+            {nextItem.location_label ? (
+              <div>
+                <dt><MapPin size={22} aria-hidden /> Locatie</dt>
+                <dd>{nextItem.location_label}</dd>
+              </div>
+            ) : null}
+            {nextItem.team ? (
+              <div>
+                <dt><UsersRound size={22} aria-hidden /> Team</dt>
+                <dd>{nextItem.team.name}</dd>
+              </div>
+            ) : null}
+          </dl>
+          {nextItem.description ? <p className="wallboard-display__calendar-description">{nextItem.description}</p> : null}
+        </article>
+
+        <section className="wallboard-display__calendar-upcoming" aria-label="Daarna">
+          <header>
+            <span>Daarna</span>
+            <strong>{remainingItems.length}</strong>
+          </header>
+          {remainingItems.length === 0 ? (
+            <p className="wallboard-display__calendar-finished">Er staan geen verdere agenda-items gepland.</p>
+          ) : (
+            <ol className={remainingItems.length > 6 ? 'wallboard-display__calendar-timeline wallboard-display__calendar-timeline--dense' : 'wallboard-display__calendar-timeline'}>
+              {remainingItems.map((item) => (
+                <li key={item.id}>
+                  <time dateTime={item.starts_at}>
+                    <strong>{wallboardCalendarRelativeDayLabel(item.starts_at, now)}</strong>
+                    <span>{WALLBOARD_CALENDAR_SHORT_DATE_FORMATTER.format(new Date(item.starts_at))}</span>
+                  </time>
+                  <div>
+                    <span className="wallboard-display__calendar-item-time">{wallboardCalendarTimeRange(item)}</span>
+                    <h3>{item.title}</h3>
+                    <p>
+                      {item.location_label ? <span><MapPin size={15} aria-hidden /> {item.location_label}</span> : null}
+                      {item.team ? <span><UsersRound size={15} aria-hidden /> {item.team.name}</span> : null}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function wallboardCalendarTypeLabel(value: string): string {
+  switch (value) {
+    case 'training': return 'Training';
+    case 'open_day': return 'Open dag';
+    case 'exercise': return 'Oefening';
+    case 'meeting': return 'Overleg';
+    default: return 'Agenda';
+  }
+}
+
 function WallboardForecastPage({
   page,
   forecast,
@@ -1127,6 +1547,7 @@ function WallboardForecastPage({
   }
 
   const advice = forecastAdvice(forecast.overall_status);
+  const blocks = wallboardForecastDisplayBlocks(forecast);
 
   return (
     <div className="wallboard-display__forecast">
@@ -1136,45 +1557,244 @@ function WallboardForecastPage({
           <small>Vliegadvies · {forecast.location.label}</small>
           <h2>{advice.label}</h2>
           <p>{advice.description}</p>
+          <span className="wallboard-display__forecast-scope">{forecastAggregationLabel(forecast)}</span>
         </div>
       </section>
-      <div className="wallboard-display__forecast-grid">
-        {forecast.metrics.map((metric) => (
-          <ForecastMetricCard metric={metric} key={metric.key} />
-        ))}
-      </div>
-      <p className="wallboard-display__forecast-disclaimer">{forecast.disclaimer}</p>
+      {blocks.length > 0 ? (
+        <div className="wallboard-display__forecast-grid">
+          {blocks.map((block) => (
+            <ForecastMetricCard block={block} key={block.key} />
+          ))}
+        </div>
+      ) : (
+        <p className="wallboard-display__forecast-no-blocks">Alle informatieblokken zijn verborgen in de wallboardconfiguratie.</p>
+      )}
+      <footer className="wallboard-display__forecast-footer">
+        <p className="wallboard-display__forecast-scope-note">{forecast.scope_note}</p>
+        <p className="wallboard-display__forecast-disclaimer">{forecast.disclaimer}</p>
+      </footer>
     </div>
   );
 }
 
-function ForecastMetricCard({ metric }: { metric: WallboardForecastMetric }) {
-  const Icon = metric.key === 'wind_speed_kmh' || metric.key === 'wind_gust_kmh'
-    ? Wind
-    : metric.key === 'precipitation_mm'
-      ? CloudRain
-      : metric.key === 'visibility_m'
-        ? Eye
-        : Satellite;
-  const value = metric.value === null
-    ? 'Onbekend'
-    : metric.unit === 'Kp'
-      ? `Kp ${formatForecastNumber(metric.value)}`
-      : `${formatForecastNumber(metric.value)}${metric.unit === null ? '' : ` ${metric.unit}`}`;
+export interface WallboardForecastDisplayBlock {
+  key: WallboardForecastBlockKey;
+  label: string;
+  value: string;
+  status: WallboardForecastMetric['status'];
+  stale: boolean;
+  details: string[];
+  explanation: string;
+  source: WallboardForecastSource;
+  measured_at: string | null;
+}
+
+export function wallboardForecastDisplayBlocks(
+  forecast: WallboardForecastPageState,
+): WallboardForecastDisplayBlock[] {
+  const metrics = new Map(forecast.metrics.map((metric) => [metric.key, metric]));
+  const metric = (key: WallboardForecastMetric['key']) => metrics.get(key);
+  const simple = (
+    key: WallboardForecastBlockKey,
+    metricKey: WallboardForecastMetric['key'],
+    fallbackLabel: string,
+  ): WallboardForecastDisplayBlock => forecastMetricDisplayBlock(key, metric(metricKey), fallbackLabel);
+  const temperature = metric('temperature_c');
+  const dewPoint = metric('dew_point_c');
+  const precipitationProbability = metric('precipitation_probability_pct');
+  const precipitation = metric('precipitation_mm');
+  const windSpeed = metric('wind_speed_kmh');
+  const daylightComplete = [
+    forecast.daylight.sunrise_earliest,
+    forecast.daylight.sunrise_latest,
+    forecast.daylight.sunset_earliest,
+    forecast.daylight.sunset_latest,
+  ].every((value) => value !== null);
+  const daylightStatus: WallboardForecastMetric['status'] = forecast.daylight.stale || !daylightComplete
+    ? 'unknown'
+    : 'green';
+
+  const availableBlocks = new Map<WallboardForecastBlockKey, WallboardForecastDisplayBlock>([
+    ['weather', {
+      key: 'weather',
+      label: 'Weer',
+      value: forecast.condition.label || 'Onbekend',
+      status: forecast.condition.stale ? 'unknown' : forecast.condition.status,
+      stale: forecast.condition.stale,
+      details: forecast.condition.code === null ? [] : [`WMO-code ${forecast.condition.code}`],
+      explanation: metric('weather_code')?.explanation ?? 'De actuele weersituatie kon niet betrouwbaar worden vastgesteld.',
+      source: forecast.condition.source,
+      measured_at: forecast.condition.measured_at,
+    }],
+    ['daylight', {
+      key: 'daylight',
+      label: 'Daglicht',
+      value: `Op ${forecastTimeRange(forecast.daylight.sunrise_earliest, forecast.daylight.sunrise_latest)}`,
+      status: daylightStatus,
+      stale: forecast.daylight.stale,
+      details: [`Onder ${forecastTimeRange(forecast.daylight.sunset_earliest, forecast.daylight.sunset_latest)}`],
+      explanation: forecast.daylight.stale
+        ? 'De laatst bekende daglichttijden zijn verouderd.'
+        : 'Zonsopkomst en zonsondergang voor het gekozen gebied.',
+      source: forecast.daylight.source,
+      measured_at: null,
+    }],
+    ['temperature', {
+      ...forecastMetricDisplayBlock('temperature', temperature, 'Temperatuur'),
+      status: worstForecastStatus([temperature?.status, dewPoint?.status]),
+      stale: temperature?.stale === true || dewPoint?.stale === true,
+      details: [`Dauwpunt ${formatForecastMetricValue(dewPoint)}`],
+      explanation: dewPoint?.explanation ?? temperature?.explanation ?? 'Temperatuurdata is niet beschikbaar.',
+    }],
+    ['wind_speed', {
+      ...forecastMetricDisplayBlock('wind_speed', windSpeed, 'Windsnelheid'),
+      details: [
+        forecastWindProfileLabel(forecast),
+        forecast.wind_profile.max_non_red_wind_height_agl_m === null
+          ? 'Niet-rode vlieghoogte onbekend'
+          : `Niet-rood t/m ${forecast.wind_profile.max_non_red_wind_height_agl_m} m AGL`,
+      ],
+    }],
+    ['wind_gust', simple('wind_gust', 'wind_gust_kmh', 'Windstoten')],
+    ['wind_direction', simple('wind_direction', 'wind_direction_degrees', 'Windrichting')],
+    ['precipitation_probability', {
+      ...forecastMetricDisplayBlock('precipitation_probability', precipitationProbability, 'Neerslagkans'),
+      status: worstForecastStatus([precipitationProbability?.status, precipitation?.status]),
+      stale: precipitationProbability?.stale === true || precipitation?.stale === true,
+      details: [`Neerslag ${formatForecastMetricValue(precipitation)}`],
+    }],
+    ['cloud_cover', simple('cloud_cover', 'cloud_cover_pct', 'Bewolking')],
+    ['visibility', simple('visibility', 'visibility_m', 'Zichtbaarheid')],
+    ['gnss_visible', simple('gnss_visible', 'gnss_satellites', 'Zichtbare satellieten')],
+    ['kp_index', simple('kp_index', 'kp_index', 'Kp-index')],
+    ['gnss_usable', simple('gnss_usable', 'gnss_satellites_fix', 'Bruikbare satellieten')],
+  ]);
+  const selected = new Set(forecast.visible_blocks);
+
+  return WALLBOARD_FORECAST_BLOCK_KEYS
+    .filter((key) => selected.has(key))
+    .flatMap((key) => {
+      const block = availableBlocks.get(key);
+      return block === undefined ? [] : [block];
+    });
+}
+
+function forecastMetricDisplayBlock(
+  key: WallboardForecastBlockKey,
+  metric: WallboardForecastMetric | undefined,
+  fallbackLabel: string,
+): WallboardForecastDisplayBlock {
+  if (metric === undefined) {
+    return {
+      key,
+      label: fallbackLabel,
+      value: 'Onbekend',
+      status: 'unknown',
+      stale: false,
+      details: [],
+      explanation: 'Deze waarde ontbreekt in de actuele serverstate.',
+      source: { name: 'Onbekend', url: null },
+      measured_at: null,
+    };
+  }
+
+  return {
+    key,
+    label: metric.label || fallbackLabel,
+    value: formatForecastMetricValue(metric),
+    status: metric.status,
+    stale: metric.stale,
+    details: metric.source_height_label === null ? [] : [metric.source_height_label],
+    explanation: metric.explanation,
+    source: metric.source,
+    measured_at: metric.measured_at,
+  };
+}
+
+export function formatForecastMetricValue(metric: WallboardForecastMetric | undefined): string {
+  if (metric === undefined || metric.value === null) return 'Onbekend';
+  if (metric.display_value !== null) {
+    return `${forecastDisplayNumber(metric.display_value)}${metric.display_unit === null ? '' : ` ${metric.display_unit}`}`;
+  }
+  if (metric.unit === 'Kp') return `Kp ${formatForecastNumber(metric.value)}`;
+  return `${formatForecastNumber(metric.value)}${metric.unit === null ? '' : ` ${metric.unit}`}`;
+}
+
+function forecastDisplayNumber(value: string): string {
+  return value;
+}
+
+function forecastWindProfileLabel(forecast: WallboardForecastPageState): string {
+  if (forecast.wind_profile.samples.length === 0) return 'Windprofiel onbekend';
+  return forecast.wind_profile.samples
+    .map((sample) => `${sample.height_agl_m} m: ${sample.speed_kmh === null ? 'onbekend' : `${formatForecastNumber(sample.speed_kmh)} km/u`}`)
+    .join(' · ');
+}
+
+function forecastTimeRange(earliest: string | null, latest: string | null): string {
+  if (earliest === null || latest === null) return 'onbekend';
+  const earliestDate = new Date(earliest);
+  const latestDate = new Date(latest);
+  if (!Number.isFinite(earliestDate.getTime()) || !Number.isFinite(latestDate.getTime())) return 'onbekend';
+  const first = WALLBOARD_CALENDAR_TIME_FORMATTER.format(earliestDate);
+  const last = WALLBOARD_CALENDAR_TIME_FORMATTER.format(latestDate);
+  return first === last ? first : `${first}–${last}`;
+}
+
+function worstForecastStatus(
+  statuses: Array<WallboardForecastMetric['status'] | undefined>,
+): WallboardForecastMetric['status'] {
+  if (statuses.includes('red')) return 'red';
+  if (statuses.includes('orange')) return 'orange';
+  if (statuses.includes('unknown') || statuses.includes(undefined)) return 'unknown';
+  return 'green';
+}
+
+function forecastAggregationLabel(forecast: WallboardForecastPageState): string {
+  if (forecast.aggregation.type === 'province_average') {
+    return `Gemiddelde van ${forecast.aggregation.sample_count}/${forecast.aggregation.expected_sample_count} provincies`;
+  }
+  return forecast.aggregation.complete ? 'Actuele locatieberekening compleet' : 'Locatieberekening onvolledig';
+}
+
+function ForecastMetricCard({ block }: { block: WallboardForecastDisplayBlock }) {
+  const Icon = forecastBlockIcon(block.key);
 
   return (
-    <article className={`wallboard-display__forecast-metric wallboard-display__forecast-metric--${metric.status}`}>
-      <header><Icon size={25} aria-hidden /><span>{metric.label}</span></header>
-      <strong>{value}</strong>
-      <p>{metric.explanation}</p>
+    <article className={`wallboard-display__forecast-metric wallboard-display__forecast-metric--${block.status}`}>
+      <header><Icon size={25} aria-hidden /><span>{block.label}</span></header>
+      <strong>{block.value}</strong>
+      {block.details.length > 0 ? (
+        <ul className="wallboard-display__forecast-details">
+          {block.details.map((detail) => <li key={detail}>{detail}</li>)}
+        </ul>
+      ) : null}
+      <p>{block.explanation}</p>
       <footer>
-        <span>Bron: {metric.source.name}</span>
-        <time dateTime={metric.measured_at ?? undefined}>
-          {metric.measured_at === null ? 'Meettijd onbekend' : `${metric.stale ? 'Verouderd' : 'Gemeten'} ${formatDateTime(metric.measured_at)}`}
+        <span>Bron: {block.source.name}</span>
+        <time dateTime={block.measured_at ?? undefined}>
+          {block.measured_at === null ? 'Meettijd onbekend' : `${block.stale ? 'Verouderd' : 'Gemeten'} ${formatDateTime(block.measured_at)}`}
         </time>
       </footer>
     </article>
   );
+}
+
+function forecastBlockIcon(key: WallboardForecastBlockKey) {
+  switch (key) {
+    case 'weather': return CloudSun;
+    case 'daylight': return Sunrise;
+    case 'temperature': return Thermometer;
+    case 'wind_speed': return Wind;
+    case 'wind_gust': return Gauge;
+    case 'wind_direction': return Navigation;
+    case 'precipitation_probability': return CloudRain;
+    case 'cloud_cover': return Cloud;
+    case 'visibility': return Eye;
+    case 'gnss_visible': return Satellite;
+    case 'kp_index': return Activity;
+    case 'gnss_usable': return SatelliteDish;
+  }
 }
 
 function forecastAdvice(status: WallboardForecastPageState['overall_status']): { label: string; description: string } {
@@ -1256,6 +1876,7 @@ function WallboardNewsPage({
           transition={itemTransition}
           transitionDurationMs={itemTransitionDurationMs}
           flipDirection={itemFlipDirection}
+          running={running}
         />
         <ol className="wallboard-display__news-position" aria-label="Nieuwsberichten in deze carrousel">
           {news.items.map((item, index) => (
@@ -1278,11 +1899,13 @@ function WallboardNewsCardTransition({
   transition,
   transitionDurationMs,
   flipDirection,
+  running,
 }: {
   item: WallboardNewsItem;
   transition: ReturnType<typeof normalizeWallboardNewsItemTransition>;
   transitionDurationMs: number;
   flipDirection: ReturnType<typeof normalizeWallboardFlipDirection>;
+  running: boolean;
 }) {
   const [visual, setVisual] = useState<{
     current: WallboardNewsItem;
@@ -1293,19 +1916,23 @@ function WallboardNewsCardTransition({
   useEffect(() => {
     setVisual((current) => {
       if (current.current.id === item.id) {
+        if (!running && current.previous !== null) {
+          return { ...current, current: item, previous: null };
+        }
+
         return current.current === item ? current : { ...current, current: item };
       }
 
       return {
         current: item,
-        previous: current.current,
+        previous: running ? current.current : null,
         sequence: current.sequence + 1,
       };
     });
-  }, [item]);
+  }, [item, running]);
 
   useEffect(() => {
-    if (visual.previous === null) return undefined;
+    if (!running || visual.previous === null) return undefined;
 
     const timeoutId = window.setTimeout(() => {
       setVisual((current) => current.sequence === visual.sequence
@@ -1314,32 +1941,38 @@ function WallboardNewsCardTransition({
     }, transitionDurationMs + 50);
 
     return () => window.clearTimeout(timeoutId);
-  }, [transitionDurationMs, visual.previous, visual.sequence]);
+  }, [running, transitionDurationMs, visual.previous, visual.sequence]);
 
-  const usesPairedCards = transition !== 'none';
+  const usesPairedCards = running && transition !== 'none';
   const resolvedFlipDirection = resolveWallboardFlipDirection(
     flipDirection,
     `${visual.current.id}:${visual.sequence}`,
   );
+  const newsFlipSceneClass = transition === 'flip'
+    ? ` wallboard-display__news-card-scene--flip-${resolvedFlipDirection}`
+    : '';
+  const newsFlipStageClass = transition === 'flip'
+    ? ` wallboard-display__news-card-stage--flip-${resolvedFlipDirection}`
+    : '';
 
   if (!usesPairedCards || visual.sequence === 0) {
     return (
       <NewsArticle
         item={usesPairedCards ? visual.current : item}
-        transition={usesPairedCards ? 'none' : transition}
+        transition="none"
       />
     );
   }
 
   return (
     <div
-      className={`wallboard-display__news-card-scene wallboard-display__news-card-scene--${transition} wallboard-display__news-card-scene--flip-${resolvedFlipDirection}`}
+      className={`wallboard-display__news-card-scene wallboard-display__news-card-scene--${transition}${newsFlipSceneClass}`}
       style={{ '--wallboard-news-transition-duration': `${transitionDurationMs}ms` } as CSSProperties}
     >
       <div
         className={visual.previous === null
-          ? `wallboard-display__news-card-stage wallboard-display__news-card-stage--${transition} wallboard-display__news-card-stage--flip-${resolvedFlipDirection} wallboard-display__news-card-stage--settled`
-          : `wallboard-display__news-card-stage wallboard-display__news-card-stage--${transition} wallboard-display__news-card-stage--flip-${resolvedFlipDirection}`}
+          ? `wallboard-display__news-card-stage wallboard-display__news-card-stage--${transition}${newsFlipStageClass} wallboard-display__news-card-stage--settled`
+          : `wallboard-display__news-card-stage wallboard-display__news-card-stage--${transition}${newsFlipStageClass}`}
         key={visual.sequence}
       >
         {visual.previous === null ? null : (
@@ -2159,47 +2792,48 @@ export function normalizeWallboardForecastState(value: unknown): WallboardForeca
       const location = rawPage.location;
       if (
         typeof location.label !== 'string'
-        || typeof location.latitude !== 'number'
-        || !Number.isFinite(location.latitude)
-        || location.latitude < -90
-        || location.latitude > 90
-        || typeof location.longitude !== 'number'
-        || !Number.isFinite(location.longitude)
-        || location.longitude < -180
-        || location.longitude > 180
         || !Array.isArray(rawPage.metrics)
       ) return normalized;
 
       const metrics = rawPage.metrics.flatMap(normalizeWallboardForecastMetric);
-      const expectedKeys = new Set<WallboardForecastMetric['key']>([
-        'wind_speed_kmh',
-        'wind_gust_kmh',
-        'precipitation_mm',
-        'visibility_m',
-        'kp_index',
-        'gnss_satellites',
-      ]);
+      const expectedKeys = new Set<WallboardForecastMetric['key']>(WALLBOARD_FORECAST_METRIC_KEYS);
       if (metrics.length !== expectedKeys.size || metrics.some((metric) => !expectedKeys.delete(metric.key))) {
         return normalized;
       }
-      const overallStatus = metrics.some((metric) => metric.status === 'red')
-        ? 'red'
-        : metrics.some((metric) => metric.status === 'orange')
-          ? 'orange'
-          : metrics.some((metric) => metric.status === 'unknown')
-            ? 'unknown'
-            : 'green';
+      const locationMode = location.mode === 'address' ? 'address' : 'netherlands';
+      const overallStatus = normalizeForecastStatus(rawPage.overall_status);
+      const aggregation = normalizeWallboardForecastAggregation(rawPage.aggregation, locationMode);
+      const condition = normalizeWallboardForecastCondition(rawPage.condition, metrics);
+      const daylight = normalizeWallboardForecastDaylight(rawPage.daylight);
+      const windProfile = normalizeWallboardForecastWindProfile(rawPage.wind_profile, metrics);
+      const selectedBlocks = Array.isArray(rawPage.visible_blocks)
+        ? new Set(rawPage.visible_blocks.filter((candidate): candidate is WallboardForecastBlockKey => (
+            typeof candidate === 'string'
+            && WALLBOARD_FORECAST_BLOCK_KEYS.includes(candidate as WallboardForecastBlockKey)
+          )))
+        : new Set(WALLBOARD_FORECAST_BLOCK_KEYS);
       normalized[pageId] = {
         location: {
+          mode: locationMode,
           label: location.label.trim().slice(0, 120),
-          latitude: location.latitude,
-          longitude: location.longitude,
+          latitude: normalizeForecastCoordinate(location.latitude, -90, 90),
+          longitude: normalizeForecastCoordinate(location.longitude, -180, 180),
         },
+        aggregation,
+        visible_blocks: WALLBOARD_FORECAST_BLOCK_KEYS.filter((key) => selectedBlocks.has(key)),
         overall_status: overallStatus,
         generated_at: typeof rawPage.generated_at === 'string' && Number.isFinite(Date.parse(rawPage.generated_at))
           ? rawPage.generated_at
           : new Date(0).toISOString(),
+        condition,
+        daylight,
+        wind_profile: windProfile,
         metrics,
+        scope_note: typeof rawPage.scope_note === 'string' && rawPage.scope_note.trim() !== ''
+          ? rawPage.scope_note.trim().slice(0, 600)
+          : aggregation.type === 'province_average'
+            ? 'Landelijk overzicht op basis van provinciale modelwaarden.'
+            : 'Actuele modelwaarden voor de gekozen locatie.',
         disclaimer: typeof rawPage.disclaimer === 'string' && rawPage.disclaimer.trim() !== ''
           ? rawPage.disclaimer.trim().slice(0, 600)
           : 'Indicatieve gegevens; operationele en wettelijke limieten gaan altijd voor.',
@@ -2213,45 +2847,203 @@ export function normalizeWallboardForecastState(value: unknown): WallboardForeca
   return { pages };
 }
 
+const WALLBOARD_FORECAST_METRIC_KEYS = [
+  'weather_code',
+  'temperature_c',
+  'dew_point_c',
+  'wind_speed_kmh',
+  'wind_gust_kmh',
+  'wind_direction_degrees',
+  'precipitation_probability_pct',
+  'precipitation_mm',
+  'cloud_cover_pct',
+  'visibility_m',
+  'kp_index',
+  'gnss_satellites',
+  'gnss_satellites_fix',
+] as const satisfies readonly WallboardForecastMetric['key'][];
+
 function normalizeWallboardForecastMetric(value: unknown): WallboardForecastMetric[] {
   if (!isRecord(value)) return [];
-  const keys: WallboardForecastMetric['key'][] = [
-    'wind_speed_kmh',
-    'wind_gust_kmh',
-    'precipitation_mm',
-    'visibility_m',
-    'kp_index',
-    'gnss_satellites',
-  ];
-  if (!keys.includes(value.key as WallboardForecastMetric['key']) || typeof value.label !== 'string' || !isRecord(value.source)) {
+  if (
+    !WALLBOARD_FORECAST_METRIC_KEYS.includes(value.key as WallboardForecastMetric['key'])
+    || typeof value.label !== 'string'
+    || !isRecord(value.source)
+  ) {
     return [];
   }
   const stale = value.stale === true;
-  const statuses: WallboardForecastMetric['status'][] = ['green', 'orange', 'red', 'unknown'];
-  const suppliedStatus = statuses.includes(value.status as WallboardForecastMetric['status'])
-    ? value.status as WallboardForecastMetric['status']
-    : 'unknown';
+  const suppliedStatus = normalizeForecastStatus(value.status);
   const numericValue = typeof value.value === 'number' && Number.isFinite(value.value) ? value.value : null;
   const measuredAt = typeof value.measured_at === 'string' && Number.isFinite(Date.parse(value.measured_at))
     ? value.measured_at
     : null;
+  const displayValue = numericValue !== null && (typeof value.display_value === 'string' || typeof value.display_value === 'number')
+    ? String(value.display_value).trim().slice(0, 32)
+    : null;
+  const altitude = normalizeBoundedInteger(value.altitude_m, 0, 10_000);
+  const maximumWindHeight = normalizeBoundedInteger(value.max_non_red_wind_height_agl_m, 0, 500);
 
   return [{
     key: value.key as WallboardForecastMetric['key'],
     label: value.label.trim().slice(0, 80),
     value: numericValue,
     unit: typeof value.unit === 'string' ? value.unit.trim().slice(0, 16) : null,
+    display_value: displayValue === '' ? null : displayValue,
+    display_unit: displayValue !== null && typeof value.display_unit === 'string'
+      ? value.display_unit.trim().slice(0, 16)
+      : null,
     status: stale || numericValue === null ? 'unknown' : suppliedStatus,
     stale,
-    source: {
-      name: typeof value.source.name === 'string' ? value.source.name.trim().slice(0, 80) : 'Onbekend',
-      url: typeof value.source.url === 'string' ? value.source.url : null,
-    },
+    source: normalizeForecastSource(value.source),
     measured_at: measuredAt,
     explanation: typeof value.explanation === 'string'
       ? value.explanation.trim().slice(0, 300)
       : 'Geen gevalideerde toelichting beschikbaar.',
+    altitude_m: altitude,
+    source_height_label: typeof value.source_height_label === 'string'
+      ? value.source_height_label.trim().slice(0, 120)
+      : null,
+    height_samples_agl_m: normalizeForecastWindSamples(value.height_samples_agl_m),
+    max_non_red_wind_height_agl_m: maximumWindHeight,
   }];
+}
+
+function normalizeWallboardForecastAggregation(
+  value: unknown,
+  locationMode: WallboardForecastPageState['location']['mode'],
+): WallboardForecastPageState['aggregation'] {
+  if (!isRecord(value)) {
+    return {
+      type: locationMode === 'netherlands' ? 'province_average' : 'single_location',
+      sample_count: 0,
+      expected_sample_count: locationMode === 'netherlands' ? 12 : 1,
+      complete: false,
+      fresh: false,
+    };
+  }
+  const type = value.type === 'single_location' ? 'single_location' : 'province_average';
+  const sampleCount = normalizeBoundedInteger(value.sample_count, 0, 12) ?? 0;
+  const expectedSampleCount = normalizeBoundedInteger(value.expected_sample_count, 1, 12)
+    ?? (type === 'province_average' ? 12 : 1);
+  const complete = value.complete === true && sampleCount === expectedSampleCount;
+
+  return {
+    type,
+    sample_count: sampleCount,
+    expected_sample_count: expectedSampleCount,
+    complete,
+    fresh: complete && value.fresh === true,
+  };
+}
+
+function normalizeWallboardForecastCondition(
+  value: unknown,
+  metrics: WallboardForecastMetric[],
+): WallboardForecastPageState['condition'] {
+  const weatherMetric = metrics.find((metric) => metric.key === 'weather_code');
+  if (!isRecord(value)) {
+    return {
+      code: weatherMetric?.value ?? null,
+      label: 'Onbekend',
+      status: 'unknown',
+      stale: weatherMetric?.stale ?? false,
+      source: weatherMetric?.source ?? { name: 'Onbekend', url: null },
+      measured_at: weatherMetric?.measured_at ?? null,
+    };
+  }
+  const code = typeof value.code === 'number' && Number.isInteger(value.code) && value.code >= 0 && value.code <= 99
+    ? value.code
+    : null;
+  const stale = value.stale === true;
+
+  return {
+    code,
+    label: typeof value.label === 'string' && value.label.trim() !== ''
+      ? value.label.trim().slice(0, 80)
+      : 'Onbekend',
+    status: stale || code === null ? 'unknown' : normalizeForecastStatus(value.status),
+    stale,
+    source: normalizeForecastSource(value.source),
+    measured_at: typeof value.measured_at === 'string' && Number.isFinite(Date.parse(value.measured_at))
+      ? value.measured_at
+      : null,
+  };
+}
+
+function normalizeWallboardForecastDaylight(value: unknown): WallboardForecastPageState['daylight'] {
+  const daylightValue = isRecord(value) ? value : {};
+  return {
+    timezone: typeof daylightValue.timezone === 'string' && daylightValue.timezone.trim() !== ''
+      ? daylightValue.timezone.trim().slice(0, 64)
+      : 'UTC',
+    sunrise_earliest: normalizeForecastDateTime(daylightValue.sunrise_earliest),
+    sunrise_latest: normalizeForecastDateTime(daylightValue.sunrise_latest),
+    sunset_earliest: normalizeForecastDateTime(daylightValue.sunset_earliest),
+    sunset_latest: normalizeForecastDateTime(daylightValue.sunset_latest),
+    stale: daylightValue.stale === true,
+    source: normalizeForecastSource(daylightValue.source),
+  };
+}
+
+function normalizeWallboardForecastWindProfile(
+  value: unknown,
+  metrics: WallboardForecastMetric[],
+): WallboardForecastPageState['wind_profile'] {
+  const windMetric = metrics.find((metric) => metric.key === 'wind_speed_kmh');
+  const profile = isRecord(value) ? value : {};
+  const samples = normalizeForecastWindSamples(profile.samples);
+  return {
+    samples: samples.length > 0 ? samples : (windMetric?.height_samples_agl_m ?? []),
+    max_non_red_wind_height_agl_m: normalizeBoundedInteger(profile.max_non_red_wind_height_agl_m, 0, 500)
+      ?? windMetric?.max_non_red_wind_height_agl_m
+      ?? null,
+    stale: profile.stale === true || windMetric?.stale === true,
+  };
+}
+
+function normalizeForecastWindSamples(value: unknown): WallboardForecastMetric['height_samples_agl_m'] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 8).flatMap((sample) => {
+    if (!isRecord(sample)) return [];
+    const height = normalizeBoundedInteger(sample.height_agl_m, 0, 500);
+    const speed = typeof sample.speed_kmh === 'number' && Number.isFinite(sample.speed_kmh) && sample.speed_kmh >= 0
+      ? sample.speed_kmh
+      : null;
+    return height === null ? [] : [{ height_agl_m: height, speed_kmh: speed }];
+  });
+}
+
+function normalizeForecastSource(value: unknown): WallboardForecastSource {
+  if (!isRecord(value)) return { name: 'Onbekend', url: null };
+  return {
+    name: typeof value.name === 'string' && value.name.trim() !== ''
+      ? value.name.trim().slice(0, 80)
+      : 'Onbekend',
+    url: typeof value.url === 'string' ? value.url.slice(0, 2048) : null,
+  };
+}
+
+function normalizeForecastStatus(value: unknown): WallboardForecastMetric['status'] {
+  return value === 'green' || value === 'orange' || value === 'red' || value === 'unknown'
+    ? value
+    : 'unknown';
+}
+
+function normalizeForecastCoordinate(value: unknown, minimum: number, maximum: number): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum
+    ? value
+    : null;
+}
+
+function normalizeForecastDateTime(value: unknown): string | null {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : null;
+}
+
+function normalizeBoundedInteger(value: unknown, minimum: number, maximum: number): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= minimum && value <= maximum
+    ? value
+    : null;
 }
 
 export interface WallboardMaintenanceEstimate {

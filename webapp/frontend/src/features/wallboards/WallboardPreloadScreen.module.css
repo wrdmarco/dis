@@ -1,0 +1,382 @@
+.screen {
+  --preload-canvas: #06111e;
+  --preload-panel: rgba(9, 28, 45, 0.9);
+  --preload-cyan: #5fd4ff;
+  --preload-cyan-soft: rgba(95, 212, 255, 0.18);
+  --preload-mint: #7ff1ce;
+  --preload-text: #f4f9fd;
+  --preload-muted: #9eb2c2;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: hidden;
+  color: var(--preload-text);
+  background:
+    radial-gradient(circle at 28% 49%, rgba(20, 118, 153, 0.18), transparent 34%),
+    radial-gradient(circle at 82% 14%, rgba(40, 129, 165, 0.11), transparent 27%),
+    linear-gradient(135deg, #071523 0%, var(--preload-canvas) 55%, #050e18 100%);
+  font-family: var(--font-body, "Segoe UI", system-ui, sans-serif);
+}
+
+.ambientGrid {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  opacity: 0.2;
+  background-image:
+    linear-gradient(rgba(109, 197, 229, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(109, 197, 229, 0.09) 1px, transparent 1px);
+  background-size: clamp(56px, 5.2vw, 104px) clamp(56px, 5.2vw, 104px);
+  mask-image: radial-gradient(ellipse at center, black, transparent 78%);
+}
+
+.topbar,
+.footer {
+  display: flex;
+  align-items: center;
+  min-height: clamp(64px, 7vh, 98px);
+  padding-inline: clamp(28px, 4vw, 84px);
+  border-color: rgba(142, 207, 232, 0.14);
+  background: rgba(4, 15, 26, 0.62);
+  backdrop-filter: blur(12px);
+}
+
+.topbar {
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(142, 207, 232, 0.14);
+}
+
+.systemName,
+.preflightState,
+.footer {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+
+.systemName {
+  font-size: clamp(0.85rem, 1.05vw, 1.25rem);
+  font-weight: 850;
+}
+
+.preflightState {
+  color: var(--preload-cyan);
+  font-size: clamp(0.7rem, 0.85vw, 1rem);
+  font-weight: 800;
+}
+
+.content {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.82fr) minmax(520px, 1.18fr);
+  align-items: center;
+  width: min(1480px, calc(100% - clamp(56px, 9vw, 176px)));
+  margin-inline: auto;
+  gap: clamp(56px, 7vw, 140px);
+  padding-block: clamp(52px, 7vh, 112px);
+}
+
+.progressStage {
+  display: grid;
+  place-items: center;
+}
+
+.progressRing {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: clamp(300px, 28vw, 510px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, var(--preload-panel) 0 53%, transparent 53.5%),
+    conic-gradient(from 220deg, var(--preload-cyan) 0 var(--wallboard-preload-progress), rgba(95, 212, 255, 0.13) var(--wallboard-preload-progress) 360deg);
+  box-shadow:
+    0 0 0 clamp(14px, 1.1vw, 20px) rgba(5, 19, 31, 0.82),
+    0 0 0 clamp(15px, 1.18vw, 22px) rgba(95, 212, 255, 0.16),
+    0 38px 110px rgba(0, 0, 0, 0.34),
+    0 0 70px rgba(58, 189, 236, 0.12);
+}
+
+.progressRing::before,
+.progressRing::after {
+  position: absolute;
+  content: "";
+  border: 1px solid rgba(126, 214, 245, 0.19);
+  border-radius: 50%;
+}
+
+.progressRing::before {
+  inset: 18%;
+}
+
+.progressRing::after {
+  inset: 34%;
+  border-style: dashed;
+}
+
+.progressCore {
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  gap: 0.25em;
+}
+
+.progressCore strong {
+  font-size: clamp(4rem, 7vw, 8.6rem);
+  font-weight: 860;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.075em;
+  line-height: 0.9;
+}
+
+.progressCore span {
+  color: var(--preload-muted);
+  font-size: clamp(0.75rem, 1vw, 1.15rem);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+}
+
+.radarSweep {
+  position: absolute;
+  z-index: 1;
+  inset: 17%;
+  border-radius: 50%;
+  opacity: 0;
+  background: conic-gradient(from 20deg, transparent 0 75%, rgba(95, 212, 255, 0.22) 94%, transparent 100%);
+  transform-origin: center;
+}
+
+.screen[data-status="loading"] .radarSweep,
+.screen[data-status="retrying"] .radarSweep {
+  opacity: 1;
+  animation: radarSweep 3.8s linear infinite;
+}
+
+.waypoint {
+  position: absolute;
+  z-index: 3;
+  width: clamp(8px, 0.7vw, 13px);
+  aspect-ratio: 1;
+  border: 2px solid #d9f7ff;
+  border-radius: 50%;
+  background: var(--preload-cyan);
+  box-shadow: 0 0 0 7px rgba(95, 212, 255, 0.1), 0 0 22px var(--preload-cyan);
+}
+
+.waypointOne {
+  top: 12%;
+  right: 22%;
+}
+
+.waypointTwo {
+  right: 8%;
+  bottom: 34%;
+}
+
+.waypointThree {
+  bottom: 11%;
+  left: 27%;
+}
+
+.statusCopy {
+  min-width: 0;
+}
+
+.eyebrow {
+  margin: 0 0 clamp(12px, 1.4vh, 22px);
+  color: var(--preload-cyan);
+  font-size: clamp(0.8rem, 1.02vw, 1.25rem);
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+}
+
+.statusCopy h1 {
+  max-width: 11ch;
+  margin: 0;
+  font-size: clamp(3.4rem, 5.4vw, 7rem);
+  font-weight: 850;
+  letter-spacing: -0.055em;
+  line-height: 0.92;
+}
+
+.detail {
+  max-width: 34ch;
+  margin: clamp(22px, 3vh, 38px) 0 0;
+  color: #c8d6e0;
+  font-size: clamp(1.15rem, 1.55vw, 2rem);
+  line-height: 1.45;
+}
+
+.currentItem {
+  display: grid;
+  gap: 6px;
+  min-height: 76px;
+  margin: clamp(24px, 3.8vh, 48px) 0 0;
+  padding: clamp(14px, 1.25vw, 22px) clamp(18px, 1.7vw, 30px);
+  border-left: 4px solid var(--preload-cyan);
+  border-radius: 0 12px 12px 0;
+  background: linear-gradient(90deg, var(--preload-cyan-soft), rgba(95, 212, 255, 0.035));
+}
+
+.currentItem span,
+.metrics span {
+  color: var(--preload-muted);
+  font-size: clamp(0.68rem, 0.82vw, 0.95rem);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+}
+
+.currentItem strong {
+  overflow: hidden;
+  font-size: clamp(1rem, 1.35vw, 1.55rem);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: clamp(30px, 4.5vh, 58px);
+  border-block: 1px solid rgba(142, 207, 232, 0.16);
+}
+
+.metrics > div {
+  display: grid;
+  gap: clamp(10px, 1.1vh, 16px);
+  padding: clamp(18px, 2vw, 30px) clamp(14px, 1.8vw, 28px);
+}
+
+.metrics > div + div {
+  border-left: 1px solid rgba(142, 207, 232, 0.16);
+}
+
+.metrics strong {
+  font-size: clamp(2rem, 3.1vw, 4rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.metrics small {
+  color: var(--preload-muted);
+  font-size: 0.5em;
+}
+
+.onlineOnlyNotice {
+  margin: clamp(16px, 2vh, 24px) 0 0;
+  color: var(--preload-muted);
+  font-size: clamp(0.78rem, 0.9vw, 1.05rem);
+  line-height: 1.45;
+}
+
+.linearTrack {
+  height: clamp(7px, 0.58vw, 11px);
+  margin-top: clamp(26px, 3vh, 42px);
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(95, 212, 255, 0.12);
+}
+
+.linearTrack span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #43c5f5, var(--preload-mint));
+  box-shadow: 0 0 22px rgba(95, 212, 255, 0.36);
+  transition: width 280ms ease-out;
+}
+
+.footer {
+  justify-content: center;
+  gap: 12px;
+  border-top: 1px solid rgba(142, 207, 232, 0.14);
+  color: var(--preload-muted);
+  font-size: clamp(0.68rem, 0.75vw, 0.9rem);
+  font-weight: 750;
+}
+
+.pulse {
+  width: 9px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--preload-mint);
+  box-shadow: 0 0 14px var(--preload-mint);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+.screen[data-status="ready"] {
+  --preload-cyan: var(--preload-mint);
+}
+
+.screen[data-status="error"],
+.screen[data-status="retrying"] {
+  --preload-cyan: #ffbe62;
+  --preload-cyan-soft: rgba(255, 190, 98, 0.16);
+}
+
+@keyframes radarSweep {
+  to { transform: rotate(1turn); }
+}
+
+@keyframes pulse {
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+@media (max-width: 900px) {
+  .content {
+    grid-template-columns: 1fr;
+    width: min(720px, calc(100% - 40px));
+    gap: 44px;
+    padding-block: 44px;
+  }
+
+  .progressRing {
+    width: min(62vw, 360px);
+  }
+
+  .statusCopy {
+    text-align: center;
+  }
+
+  .statusCopy h1,
+  .detail {
+    max-width: none;
+  }
+
+  .currentItem {
+    text-align: left;
+  }
+}
+
+@media (max-width: 560px) {
+  .topbar {
+    padding-inline: 20px;
+  }
+
+  .preflightState {
+    display: none;
+  }
+
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .metrics > div + div {
+    border-top: 1px solid rgba(142, 207, 232, 0.16);
+    border-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .radarSweep,
+  .pulse,
+  .linearTrack span {
+    animation: none !important;
+    transition: none !important;
+  }
+}

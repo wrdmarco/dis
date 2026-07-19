@@ -32,6 +32,7 @@ final class WallboardStateService
         private readonly WallboardMediaStateService $mediaStateService,
         private readonly WallboardMaintenanceNoticeService $maintenanceNoticeService,
         private readonly WallboardForecastService $forecastService,
+        private readonly WallboardCalendarService $calendarService,
     ) {}
 
     /** @return array<string, mixed> */
@@ -61,6 +62,7 @@ final class WallboardStateService
             ],
             'media' => $static['media'],
             'forecast' => ['pages' => $this->forecastService->pages($configuration)],
+            'calendar' => $runtime['calendar'],
             'map' => $runtime['map'],
         ];
     }
@@ -74,6 +76,7 @@ final class WallboardStateService
             'generated_at' => $runtime['generated_at'],
             'maintenance' => $runtime['maintenance'],
             'operational_summary' => $runtime['operational_summary'],
+            'calendar' => $runtime['calendar'],
             'map' => $runtime['map'],
         ];
     }
@@ -191,6 +194,7 @@ final class WallboardStateService
                 'focus' => $focus,
                 'transient_alert' => $transientAlert,
             ],
+            'calendar' => $this->calendarService->pages($configuration),
             'map' => [
                 'incidents' => $incidents->map(fn (Incident $incident): array => $this->incidentPayload($incident))->values()->all(),
                 'command_centers' => $hasMapPage && ($mapConfiguration['show_command_centers'] ?? false) === true

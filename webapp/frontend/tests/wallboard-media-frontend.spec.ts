@@ -149,6 +149,8 @@ test('media management uses CSRF-aware ApiClient writes and no executable markup
   expect(source).toContain('onDragEnter={handleFileDragEnter}');
   expect(source).toContain('onDrop={handleFileDrop}');
   expect(source).toContain('wallboardMediaAssetPreviewUrl(asset)');
+  expect(source).toContain('fallbackPreviewUrl');
+  expect(source).toContain('activePreviewUrl !== fallbackPreviewUrl');
   expect(source).toContain('!isImage');
   expect(WALLBOARD_MEDIA_MAX_BATCH_FILES).toBe(25);
   expect(source).not.toContain('dangerouslySetInnerHTML');
