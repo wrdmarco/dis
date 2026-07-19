@@ -7254,6 +7254,7 @@ textarea:focus {
 
 .wallboard-page-editor__fields label,
 .wallboard-message-editor,
+.wallboard-video-editor,
 .wallboard-incident-override > label:not(.wallboard-switch-row) {
   display: grid;
   gap: 6px;
@@ -7275,6 +7276,7 @@ textarea:focus {
 }
 
 .wallboard-message-editor small,
+.wallboard-video-editor small,
 .wallboard-page-editor__hint {
   margin: 0;
   color: var(--dis-muted);
@@ -8302,6 +8304,40 @@ textarea:focus {
   white-space: pre-wrap;
 }
 
+.wallboard-display__video {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  overflow: hidden;
+  background: #000;
+}
+
+.wallboard-display__video iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #000;
+}
+
+.wallboard-display__video--invalid {
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  color: var(--dis-muted-strong);
+  padding: clamp(24px, 6vw, 88px);
+  text-align: center;
+}
+
+.wallboard-display__video--invalid h2,
+.wallboard-display__video--invalid p {
+  margin: 0;
+}
+
+.wallboard-display__video--invalid h2 {
+  color: var(--dis-text-strong);
+  font-size: clamp(2rem, 5vw, 5rem);
+}
+
 .wallboard-display__news {
   flex: 1 1 auto;
   min-height: 0;
@@ -8915,13 +8951,13 @@ textarea:focus {
 .wallboard-display__responses {
   position: absolute;
   z-index: 2;
-  bottom: clamp(14px, 2vw, 34px);
-  left: clamp(14px, 2vw, 34px);
+  top: clamp(88px, 8vw, 136px);
+  right: clamp(14px, 2vw, 34px);
   min-width: 0;
   min-height: 0;
-  width: clamp(430px, 31vw, 680px);
+  width: clamp(320px, 27vw, 500px);
   max-width: calc(100% - clamp(28px, 4vw, 68px));
-  max-height: clamp(220px, 30vh, 340px);
+  max-height: min(58vh, 520px);
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
@@ -8975,7 +9011,7 @@ textarea:focus {
 
 .wallboard-display__response-counts {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1px;
   margin: 0;
   border-bottom: 1px solid var(--dis-border);
@@ -9110,8 +9146,8 @@ textarea:focus {
 @media (min-width: 2560px) and (min-height: 1200px) {
   .wallboard-display--profile-4k .wallboard-display__responses,
   .wallboard-display--profile-auto .wallboard-display__responses {
-    width: min(800px, 28vw);
-    max-height: min(440px, 31vh);
+    width: min(620px, 24vw);
+    max-height: min(660px, 55vh);
   }
 
   .wallboard-display--profile-4k .wallboard-display__response,
@@ -9564,12 +9600,15 @@ textarea:focus {
 @media (max-width: 1100px) {
   .wallboard-display__alarm--with-feed {
     grid-template-columns: 1fr;
-    place-content: start center;
+    place-content: center;
     overflow: hidden;
-    padding-bottom: clamp(230px, 40vh, 320px);
+    padding-bottom: clamp(210px, 36vh, 290px);
   }
 
   .wallboard-display__responses {
+    top: auto;
+    bottom: clamp(14px, 2vw, 34px);
+    left: clamp(14px, 2vw, 34px);
     right: clamp(14px, 2vw, 34px);
     width: auto;
     max-width: none;

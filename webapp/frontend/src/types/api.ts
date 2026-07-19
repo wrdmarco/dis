@@ -224,7 +224,7 @@ export interface OperationalMapPilotHome {
 export type WallboardLayout = 'fullscreen_map';
 export type WallboardDisplayProfile = 'auto' | '1080p' | '4k';
 export type WallboardTheme = 'dark' | 'light';
-export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'message' | 'news';
+export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'message' | 'news' | 'video';
 export type WallboardDisplayMode = 'rotation' | 'static' | 'manual' | 'incident_override';
 
 export interface WallboardMapConfiguration {
@@ -267,6 +267,7 @@ export interface WallboardFocusConfiguration {
 
 export interface WallboardPageOptions {
   body?: string;
+  url?: string;
   show_test_incidents?: boolean;
   sources?: WallboardNewsSource[];
   custom_sources?: WallboardCustomNewsSource[];
@@ -522,6 +523,7 @@ export interface WallboardMaintenanceNotice {
 export type WallboardFocusResponseStatus = 'pending' | 'accepted' | 'declined' | 'no_response';
 
 export interface WallboardFocusResponseCounts {
+  contacted?: number;
   targeted: number;
   pending: number;
   accepted: number;
@@ -533,11 +535,14 @@ export interface WallboardFocusResponseItem {
   name: string;
   response_status: WallboardFocusResponseStatus;
   responded_at?: string | null;
+  eta_minutes?: number | null;
+  eta_source?: string | null;
 }
 
 export interface WallboardFocusResponses {
   counts: WallboardFocusResponseCounts;
   items: WallboardFocusResponseItem[];
+  coming?: WallboardFocusResponseItem[];
 }
 
 export interface WallboardFocusState {
@@ -556,6 +561,7 @@ export interface WallboardFocusState {
   next_change_at?: string | null;
   pilot_counts?: WallboardFocusPilotCounts | null;
   responses?: WallboardFocusResponses | null;
+  is_preview?: boolean;
 }
 
 export interface WallboardOperationalSummary {

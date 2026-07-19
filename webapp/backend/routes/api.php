@@ -304,6 +304,8 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
             ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
         Route::post('/admin/wallboards/{wallboard}/refresh', [AdminWallboardController::class, 'refresh'])
             ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
+        Route::post('/admin/wallboards/{wallboard}/focus-test', [AdminWallboardController::class, 'previewFocus'])
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-focus-preview']);
         Route::post('/admin/roles', [AdminController::class, 'storeRole'])->middleware('permission:roles.manage');
         Route::patch('/admin/roles/{role}', [AdminController::class, 'updateRole'])->middleware('permission:roles.manage');
         Route::delete('/admin/roles/{role}', [AdminController::class, 'destroyRole'])->middleware('permission:roles.delete');

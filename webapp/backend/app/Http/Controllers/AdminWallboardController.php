@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\Admin\ApproveWallboardPairingRequest;
+use App\Http\Requests\Admin\PreviewWallboardFocusRequest;
 use App\Http\Requests\Admin\RefreshWallboardRequest;
 use App\Http\Requests\Admin\SetWallboardDisplayRequest;
 use App\Http\Requests\Admin\StoreWallboardRequest;
 use App\Http\Requests\Admin\UpdateWallboardRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\Wallboard;
+use App\Services\WallboardFocusPreviewService;
 use App\Services\WallboardPairingService;
 use App\Services\WallboardService;
 use Illuminate\Http\JsonResponse;
@@ -20,6 +22,7 @@ final class AdminWallboardController extends Controller
     public function __construct(
         private readonly WallboardService $wallboards,
         private readonly WallboardPairingService $pairings,
+        private readonly WallboardFocusPreviewService $focusPreviews,
     ) {}
 
     public function index(): JsonResponse
@@ -101,6 +104,20 @@ final class AdminWallboardController extends Controller
 
         return ApiResponse::success($this->wallboards->requestRefresh(
             wallboard: $wallboard,
+            expectedControlVersion: (int) $request->validated('expected_control_version'),
+            actor: $actor,
+            request: $request,
+        ));
+    }
+
+    public function previewFocus(PreviewWallboardFocusRequest $request, Wallboard $wallboard): JsonResponse
+    {
+        $actor = $request->user();
+        abort_if($actor === null, 401);
+
+        return ApiResponse::success($this->focusPreviews->start(
+            wallboard: $wallboard,
+            kind: (string) $request->validated('kind'),
             expectedControlVersion: (int) $request->validated('expected_control_version'),
             actor: $actor,
             request: $request,

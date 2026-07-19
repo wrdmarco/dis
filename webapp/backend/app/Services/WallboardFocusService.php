@@ -2,15 +2,27 @@
 
 namespace App\Services;
 
+use App\DTO\Routing\RouteEstimate;
+use App\DTO\Routing\RoutePoint;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
+use App\Models\LocationSharingConsent;
+use App\Models\LocationUpdate;
+use App\Models\Wallboard;
+use App\Services\Routing\RoutingService;
 use App\Support\ApiDateTime;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Collection;
 
 final class WallboardFocusService
 {
     private const RESPONSE_ITEM_LIMIT = 24;
+
+    public function __construct(
+        private readonly WallboardFocusPreviewService $previewService,
+        private readonly RoutingService $routingService,
+    ) {}
 
     /**
      * Resolve focus once for the supplied normalized wallboard configuration.
@@ -20,7 +32,7 @@ final class WallboardFocusService
      * @param  array<string, mixed>  $configuration
      * @return array<string, mixed>|null
      */
-    public function resolve(array $configuration): ?array
+    public function resolve(array $configuration, ?Wallboard $wallboard = null): ?array
     {
         $focusConfiguration = (array) ($configuration['focus'] ?? []);
         $realIncident = $this->activeRealIncident();
@@ -35,6 +47,16 @@ final class WallboardFocusService
             return $candidate === null
                 ? null
                 : $this->payload($candidate, $settings, (array) ($configuration['pages'] ?? []));
+        }
+
+        // Preview state is intentionally resolved only after the absolute real-
+        // incident priority boundary. A mock can therefore never cover an
+        // operational alarm that starts while the preview TTL is still active.
+        if ($wallboard instanceof Wallboard) {
+            $preview = $this->previewService->current($wallboard);
+            if ($preview !== null) {
+                return $preview;
+            }
         }
 
         $candidates = [];
@@ -87,6 +109,8 @@ final class WallboardFocusService
                 'priority',
                 'is_test',
                 'location_label',
+                'latitude',
+                'longitude',
                 'opened_at',
             ]);
     }
@@ -199,7 +223,7 @@ final class WallboardFocusService
         $phase = $kind === 'preannouncement' ? 'preannouncement' : 'alarm';
         $dispatchIds = $this->phaseDispatchIds((string) $incident->id, $phase);
         $responseSummary = (($settings['show_response_feed'] ?? false) === true || $kind === 'preannouncement')
-            ? $this->responses($dispatchIds)
+            ? $this->responses($dispatchIds, $incident, $kind === 'real_alarm')
             : null;
         $responses = ($settings['show_response_feed'] ?? false) === true
             ? $responseSummary
@@ -253,6 +277,7 @@ final class WallboardFocusService
             'next_change_at' => ApiDateTime::dateTime($nextChangeAt),
             'pilot_counts' => $pilotCounts,
             'responses' => $responses,
+            'is_preview' => false,
         ];
     }
 
@@ -274,9 +299,9 @@ final class WallboardFocusService
 
     /**
      * @param  list<string>  $dispatchIds
-     * @return array{counts: array{targeted: int, contacted: int, pending: int, accepted: int, declined: int, no_response: int}, items: list<array{name: string, response_status: string, responded_at: string|null}>}
+     * @return array{counts: array{targeted: int, contacted: int, pending: int, accepted: int, declined: int, no_response: int}, items: list<array{name: string, response_status: string, responded_at: string|null}>, coming: list<array{name: string, response_status: string, responded_at: string|null, eta_minutes: int|null, eta_source: string|null}>}
      */
-    private function responses(array $dispatchIds): array
+    private function responses(array $dispatchIds, Incident $incident, bool $includeComing): array
     {
         if ($dispatchIds === []) {
             return [
@@ -289,6 +314,7 @@ final class WallboardFocusService
                     'no_response' => 0,
                 ],
                 'items' => [],
+                'coming' => [],
             ];
         }
 
@@ -308,6 +334,9 @@ final class WallboardFocusService
         $statusCounts = $recipients->countBy(
             static fn (DispatchRecipient $recipient): string => (string) $recipient->response_status,
         );
+        $coming = $includeComing
+            ? $this->acceptedComing($recipients, $incident)
+            : [];
 
         $items = $recipients
             ->filter(static fn (DispatchRecipient $recipient): bool => in_array(
@@ -338,7 +367,162 @@ final class WallboardFocusService
                 'no_response' => (int) $statusCounts->get('no_response', 0),
             ],
             'items' => $items,
+            'coming' => $coming,
         ];
+    }
+
+    /**
+     * Keep this list separate from the bounded mixed-status activity feed. It
+     * must contain every deduplicated accepted responder, including responders
+     * whose latest activity falls outside RESPONSE_ITEM_LIMIT.
+     *
+     * @param  Collection<int, DispatchRecipient>  $recipients
+     * @return list<array{name: string, response_status: string, responded_at: string|null, eta_minutes: int|null, eta_source: string|null}>
+     */
+    private function acceptedComing(Collection $recipients, Incident $incident): array
+    {
+        $accepted = $recipients
+            ->filter(static fn (DispatchRecipient $recipient): bool => $recipient->response_status === 'accepted')
+            ->values();
+        if ($accepted->isEmpty()) {
+            return [];
+        }
+
+        $routeEstimates = $this->currentRouteEstimates($accepted, $incident);
+
+        return $accepted
+            ->map(static function (DispatchRecipient $recipient) use ($routeEstimates): array {
+                $estimate = $recipient->user_id === null
+                    ? RouteEstimate::unknown()
+                    : ($routeEstimates[(string) $recipient->user_id] ?? RouteEstimate::unknown());
+
+                return [
+                    'name' => (string) $recipient->user_name,
+                    'response_status' => 'accepted',
+                    'responded_at' => ApiDateTime::dateTime($recipient->responded_at),
+                    'eta_minutes' => $estimate->duration === null
+                        ? null
+                        : max(1, (int) ceil($estimate->duration / 60)),
+                    'eta_source' => $estimate->duration === null ? null : $estimate->source->value,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * ETA is exposed only for a current coordinate received under the currently
+     * active consent generation. Stale, future-skewed or previously consented
+     * coordinates never participate in routing.
+     *
+     * @param  Collection<int, DispatchRecipient>  $accepted
+     * @return array<string, RouteEstimate>
+     */
+    private function currentRouteEstimates(Collection $accepted, Incident $incident): array
+    {
+        $destination = $this->routePoint($incident->latitude, $incident->longitude);
+        if ($destination === null) {
+            return [];
+        }
+
+        $userIds = $accepted
+            ->pluck('user_id')
+            ->filter(static fn (mixed $userId): bool => $userId !== null)
+            ->map(static fn (mixed $userId): string => (string) $userId)
+            ->unique()
+            ->values();
+        if ($userIds->isEmpty()) {
+            return [];
+        }
+
+        $consents = LocationSharingConsent::query()
+            ->where('incident_id', $incident->id)
+            ->whereIn('user_id', $userIds)
+            ->where('is_active', true)
+            ->get(['user_id', 'state_version', 'consented_at'])
+            ->keyBy('user_id');
+        if ($consents->isEmpty()) {
+            return [];
+        }
+
+        $latestLocationUpperBound = now()->addMinutes(2);
+        $locations = LocationUpdate::query()
+            ->where('incident_id', $incident->id)
+            ->whereIn('user_id', $consents->keys())
+            ->where('recorded_at', '<=', $latestLocationUpperBound)
+            ->where('created_at', '<=', $latestLocationUpperBound)
+            ->whereNotExists(function ($newerLocation) use ($latestLocationUpperBound): void {
+                $newerLocation
+                    ->selectRaw('1')
+                    ->from('location_updates as newer_location')
+                    ->whereColumn('newer_location.incident_id', 'location_updates.incident_id')
+                    ->whereColumn('newer_location.user_id', 'location_updates.user_id')
+                    ->where('newer_location.recorded_at', '<=', $latestLocationUpperBound)
+                    ->where('newer_location.created_at', '<=', $latestLocationUpperBound)
+                    ->where(function ($newerReceipt): void {
+                        $newerReceipt
+                            ->whereColumn('newer_location.created_at', '>', 'location_updates.created_at')
+                            ->orWhere(function ($sameReceipt): void {
+                                $sameReceipt
+                                    ->whereColumn('newer_location.created_at', '=', 'location_updates.created_at')
+                                    ->whereColumn('newer_location.id', '>', 'location_updates.id');
+                            });
+                    });
+            })
+            ->get([
+                'id',
+                'user_id',
+                'consent_state_version',
+                'latitude',
+                'longitude',
+                'recorded_at',
+                'created_at',
+            ])
+            ->filter(function (LocationUpdate $location) use ($consents): bool {
+                $consent = $consents->get($location->user_id);
+                $recordedAt = ApiDateTime::localWallClock($location->recorded_at);
+                $createdAt = ApiDateTime::localWallClock($location->created_at);
+                $consentedAt = ApiDateTime::localWallClock($consent?->consented_at);
+                $now = ApiDateTime::localWallClock(now());
+
+                return $consent instanceof LocationSharingConsent
+                    && (int) $location->consent_state_version === (int) $consent->state_version
+                    && $recordedAt !== null
+                    && $createdAt !== null
+                    && $consentedAt !== null
+                    && $now !== null
+                    && $createdAt->greaterThanOrEqualTo($consentedAt)
+                    && $recordedAt->lessThanOrEqualTo($createdAt->addMinutes(2))
+                    && $recordedAt->betweenIncluded($now->subMinutes(5), $now->addMinutes(2))
+                    && $createdAt->betweenIncluded($now->subMinutes(5), $now->addMinutes(2));
+            })
+            ->keyBy('user_id');
+
+        $origins = [];
+        foreach ($locations as $userId => $location) {
+            $origin = $this->routePoint($location->latitude, $location->longitude);
+            if ($origin !== null) {
+                $origins[(string) $userId] = $origin;
+            }
+        }
+
+        return $this->routingService->routesTo($origins, $destination);
+    }
+
+    private function routePoint(mixed $latitude, mixed $longitude): ?RoutePoint
+    {
+        if (! is_numeric($latitude) || ! is_numeric($longitude)) {
+            return null;
+        }
+
+        $latitude = (float) $latitude;
+        $longitude = (float) $longitude;
+        if (! is_finite($latitude) || $latitude < -90 || $latitude > 90
+            || ! is_finite($longitude) || $longitude < -180 || $longitude > 180) {
+            return null;
+        }
+
+        return new RoutePoint($latitude, $longitude);
     }
 
     /**

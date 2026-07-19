@@ -24,6 +24,7 @@ import type {
   Wallboard,
   WallboardConfiguration,
   WallboardDisplayProfile,
+  WallboardFocusKind,
   WallboardPlaylist,
   WallboardPlaylistAssignment,
 } from '../../types/api';
@@ -46,8 +47,31 @@ import {
 import { WallboardPlaylistPreview } from './WallboardPlaylistPreview';
 
 const ADMIN_STATUS_REFRESH_MILLISECONDS = 2500;
+const WALLBOARD_FOCUS_PREVIEW_OPTIONS: ReadonlyArray<{
+  kind: WallboardFocusKind;
+  label: string;
+}> = [
+  { kind: 'preannouncement', label: 'Vooraankondiging' },
+  { kind: 'test_alarm', label: 'Testalarm' },
+  { kind: 'real_alarm', label: 'Echt alarm' },
+];
 
 type AdminSection = 'screens' | 'playlists';
+
+interface WallboardFocusPreviewResponse {
+  wallboard_id: string;
+  kind: WallboardFocusKind;
+  is_preview: true;
+  expires_at: string;
+  duration_seconds: number;
+  control_version: number;
+}
+
+interface ActiveWallboardFocusPreview {
+  kind: WallboardFocusKind;
+  durationSeconds: number;
+  expiresAtEpoch: number;
+}
 
 export function WallboardsAdminPage() {
   const { api } = useAuth();
@@ -334,6 +358,8 @@ function ScreenEditor({
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [activeFocusPreview, setActiveFocusPreview] = useState<ActiveWallboardFocusPreview | null>(null);
+  const [focusPreviewSecondsRemaining, setFocusPreviewSecondsRemaining] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const savedConfiguration = wallboardConfigurationCopy(wallboard.configuration);
   const selectedPlaylist = playlists.find((playlist) => playlist.id === draftPlaylistId) ?? null;
@@ -357,6 +383,23 @@ function ScreenEditor({
     setDraftDisplayProfile(normalizeWallboardDisplayProfile(wallboard.display_profile));
     setDraftPlaylistId(wallboard.playlist_id);
   }, [wallboard.display_profile, wallboard.is_enabled, wallboard.name, wallboard.playlist_id]);
+
+  useEffect(() => {
+    if (activeFocusPreview === null) return;
+
+    const updateCountdown = () => {
+      const secondsRemaining = Math.max(0, Math.ceil((activeFocusPreview.expiresAtEpoch - Date.now()) / 1000));
+      setFocusPreviewSecondsRemaining(secondsRemaining);
+      if (secondsRemaining === 0) {
+        setActiveFocusPreview(null);
+        setActionMessage((current) => current ?? 'De focustest van 30 seconden is afgelopen. Het scherm toont weer de bestaande weergave.');
+      }
+    };
+
+    updateCountdown();
+    const timer = window.setInterval(updateCountdown, 1000);
+    return () => window.clearInterval(timer);
+  }, [activeFocusPreview]);
 
   async function saveScreen(event: FormEvent) {
     event.preventDefault();
@@ -428,6 +471,41 @@ function ScreenEditor({
         setActionError('Een andere beheerder bestuurde dit scherm intussen. De actuele schermstatus is opnieuw geladen.');
       } else {
         setActionError(errorMessage(error, 'De livebesturing kon niet worden uitgevoerd.'));
+      }
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function previewFocus(kind: WallboardFocusKind) {
+    setBusyAction(`focus:${kind}`);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const response = await api.post<WallboardFocusPreviewResponse>(`/admin/wallboards/${wallboard.id}/focus-test`, {
+        kind,
+        expected_control_version: wallboard.control_version ?? 1,
+      });
+      const expiresAtEpoch = Date.parse(response.data.expires_at);
+      const durationSeconds = response.data.duration_seconds;
+      onReplace({
+        ...wallboard,
+        control_version: response.data.control_version,
+      });
+      setFocusPreviewSecondsRemaining(durationSeconds);
+      setActiveFocusPreview({
+        kind: response.data.kind,
+        durationSeconds,
+        expiresAtEpoch: Number.isFinite(expiresAtEpoch)
+          ? expiresAtEpoch
+          : Date.now() + durationSeconds * 1000,
+      });
+    } catch (error) {
+      if (isConflict(error)) {
+        await onReloadWallboards();
+        setActionError('Een andere beheerder bestuurde dit scherm intussen. De actuele schermstatus is opnieuw geladen. Start de focustest opnieuw.');
+      } else {
+        setActionError(errorMessage(error, 'De focustest kon niet worden gestart.'));
       }
     } finally {
       setBusyAction(null);
@@ -563,6 +641,36 @@ function ScreenEditor({
                 : 'De opdracht blijft klaarstaan als het scherm tijdelijk offline is.'}
           </small>
         </div>
+      </section>
+
+      <section className="wallboard-focus-editor" aria-labelledby={`wallboard-focus-preview-${wallboard.id}`}>
+        <div className="wallboard-configuration-section-heading">
+          <span className="eyebrow">Schermvoorbeeld</span>
+          <h3 id={`wallboard-focus-preview-${wallboard.id}`}>Focusscherm testen</h3>
+          <p>Toont 30 seconden vaste voorbeelddata op alleen dit scherm. Er wordt geen incident, alarmering of pushbericht aangemaakt.</p>
+        </div>
+        <div className="wallboard-editor__heading-actions" role="group" aria-label="Focusscherm 30 seconden testen">
+          {WALLBOARD_FOCUS_PREVIEW_OPTIONS.map((option) => {
+            const action = `focus:${option.kind}`;
+            return (
+              <button
+                className="secondary-button"
+                type="button"
+                key={option.kind}
+                onClick={() => void previewFocus(option.kind)}
+                disabled={busyAction !== null || !wallboard.is_enabled}
+              >
+                <Eye size={16} aria-hidden /> {busyAction === action ? 'Starten…' : option.label}
+              </button>
+            );
+          })}
+        </div>
+        {activeFocusPreview ? (
+          <p className="form-note" role="status" aria-live="polite" aria-atomic="true">
+            <strong>Voorbeeld actief: {wallboardFocusPreviewLabel(activeFocusPreview.kind)}.</strong>{' '}
+            Nog {focusPreviewSecondsRemaining} van {activeFocusPreview.durationSeconds} seconden; daarna hervat het scherm automatisch de bestaande weergave.
+          </p>
+        ) : null}
       </section>
 
       {isPaired ? null : (
@@ -874,6 +982,10 @@ function displayModeLabel(mode: 'rotation' | 'static' | 'manual' | 'incident_ove
 function playlistUsageLabel(playlist: WallboardPlaylist): string {
   const count = wallboardPlaylistUsageCount(playlist);
   return `${count} ${count === 1 ? 'scherm' : 'schermen'}`;
+}
+
+function wallboardFocusPreviewLabel(kind: WallboardFocusKind): string {
+  return WALLBOARD_FOCUS_PREVIEW_OPTIONS.find((option) => option.kind === kind)?.label ?? kind;
 }
 
 function retainedSelection<T extends { id: string }>(current: string | null, items: T[]): string | null {

@@ -30,7 +30,6 @@ import type {
   WallboardDisplayMode,
   WallboardFocusKind,
   WallboardFocusPilotCounts,
-  WallboardFocusResponseStatus,
   WallboardFocusResponses,
   WallboardFocusState,
   WallboardMaintenanceNotice,
@@ -61,6 +60,7 @@ import {
   wallboardStateIsStale,
   wallboardTickerDurationSeconds,
   wallboardTransientAlertIsActive,
+  wallboardVideoEmbedUrl,
 } from './wallboardPresentation';
 import { WallboardNewsQrCode } from './WallboardNewsQrCode';
 
@@ -117,7 +117,6 @@ export function WallboardDisplayPage() {
   const [pairingStartGeneration, setPairingStartGeneration] = useState(0);
   const [pollGeneration, setPollGeneration] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
-  const [wakeLockActive, setWakeLockActive] = useState(false);
   const [clock, setClock] = useState(() => Date.now());
   const connectionError = controlError ?? stateError;
   const hasPairedState = sessionStatus === 'paired' && state !== null;
@@ -369,15 +368,13 @@ export function WallboardDisplayPage() {
     try {
       const sentinel = await navigator.wakeLock.request('screen');
       wakeLockRef.current = sentinel;
-      setWakeLockActive(true);
       sentinel.addEventListener('release', () => {
         if (wakeLockRef.current === sentinel) {
           wakeLockRef.current = null;
-          setWakeLockActive(false);
         }
       });
     } catch {
-      setWakeLockActive(false);
+      // Fullscreen blijft bruikbaar wanneer de browser geen wake lock toestaat.
     }
   }, []);
 
@@ -449,12 +446,6 @@ export function WallboardDisplayPage() {
             </div>
           )}
 
-          {pairingError ? (
-            <button className="secondary-button wallboard-pairing-retry" type="button" onClick={() => setPairingStartGeneration((current) => current + 1)}>
-              <RefreshCw size={18} aria-hidden /> Nu opnieuw proberen
-            </button>
-          ) : null}
-          <small>Er is geen toetsenbord nodig. Na goedkeuring opent het wallboard vanzelf.</small>
         </section>
       </main>
     );
@@ -498,13 +489,16 @@ export function WallboardDisplayPage() {
     >
       <header className="wallboard-display__header">
         <div>
-          <span className={`wallboard-display__live wallboard-display__live--${feedStatus}`}>
-            <i aria-hidden />
-            {feedStatus === 'offline' ? 'Offline' : feedStatus === 'stale' ? 'Verouderd' : 'Live'}
-          </span>
+          {feedStatus !== 'offline' ? (
+            <span className={`wallboard-display__live wallboard-display__live--${feedStatus}`}>
+              <i aria-hidden />
+              {feedStatus === 'stale' ? 'Verouderd' : 'Live'}
+            </span>
+          ) : null}
           <span className="wallboard-display__titles">
-            <small>{state.wallboard.name}</small>
-            <h1>{maintenance?.title ?? (showFocus && focus !== null ? wallboardFocusKindLabel(focus.kind) : currentPage.name)}</h1>
+            <h1>{maintenance?.title ?? (showFocus && focus !== null
+              ? wallboardFocusKindLabel(focus.kind)
+              : currentPage.type === 'message' ? 'Mededeling' : currentPage.name)}</h1>
           </span>
           <span className={`wallboard-display__mode wallboard-display__mode--${maintenance !== null ? 'maintenance' : display.mode}`}>
             {maintenance !== null
@@ -539,7 +533,7 @@ export function WallboardDisplayPage() {
         </div>
       </header>
 
-      {!hasLiveFeed ? (
+      {!hasLiveFeed && maintenance === null ? (
         <div className="wallboard-display__connection-warning" role="status" aria-live="polite">
           {connectionError ? <WifiOff size={18} aria-hidden /> : <AlertTriangle size={18} aria-hidden />}
           <span>
@@ -582,7 +576,6 @@ export function WallboardDisplayPage() {
           : focus !== null && focus.visible
           ? `${wallboardFocusKindLabel(focus.kind)} · ${nextSwitchLabel}`
           : `Pagina ${Math.max(1, currentPageIndex + 1)} van ${configuration.pages.length} · ${nextSwitchLabel}`}</span>
-        <span>{wakeLockActive ? 'Scherm blijft actief' : 'Gebruik volledig scherm om slaapstand te voorkomen'}</span>
       </footer>
       {showTicker ? <WallboardTicker items={state.ticker.items} /> : null}
     </main>
@@ -639,10 +632,13 @@ function WallboardPageContent({ page, state, presentation, hasLiveFeed }: Wallbo
     );
   }
 
+  if (page.type === 'video') {
+    return <WallboardVideoPage page={page} />;
+  }
+
   if (page.type === 'message') {
     return (
       <div className="wallboard-display__message">
-        <span className="eyebrow">Mededeling</span>
         <h2>{page.name}</h2>
         <p>{page.options.body?.trim() || 'Er is geen tekst voor deze mededeling ingesteld.'}</p>
       </div>
@@ -705,6 +701,32 @@ function WallboardPageContent({ page, state, presentation, hasLiveFeed }: Wallbo
         ) : null}
       </div>
     </>
+  );
+}
+
+function WallboardVideoPage({ page }: { page: WallboardPage }) {
+  const embedUrl = wallboardVideoEmbedUrl(page.options.url);
+  if (embedUrl === null) {
+    return (
+      <div className="wallboard-display__video wallboard-display__video--invalid" role="status">
+        <span className="eyebrow">Promovideo</span>
+        <h2>{page.name}</h2>
+        <p>Deze video is niet geldig geconfigureerd.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="wallboard-display__video">
+      <iframe
+        src={embedUrl}
+        title={page.name}
+        allow="autoplay; fullscreen; picture-in-picture"
+        sandbox="allow-scripts allow-same-origin allow-presentation"
+        referrerPolicy="no-referrer"
+        allowFullScreen
+      />
+    </div>
   );
 }
 
@@ -866,6 +888,7 @@ function FocusTakeover({
           <strong>{focus.reference}</strong>
           <span>{priorityLabel(focus.priority)}</span>
           {focus.kind === 'test_alarm' ? <b>TEST</b> : null}
+          {focus.is_preview === true ? <b>VOORBEELD</b> : null}
         </div>
         <h2>{focus.title}</h2>
         {pilotCounts !== null ? <FocusPilotAvailability counts={pilotCounts} /> : null}
@@ -878,14 +901,40 @@ function FocusTakeover({
           <time dateTime={focus.started_at}>Gestart {formatDateTime(focus.started_at)}</time>
         </div>
       </div>
-      {showResponseFeed ? <WallboardFocusResponseFeed responses={focus.responses ?? null} /> : null}
+      {showResponseFeed ? (
+        <WallboardFocusResponseFeed
+          kind={focus.kind}
+          pilotCounts={pilotCounts}
+          responses={focus.responses ?? null}
+        />
+      ) : null}
     </section>
   );
 }
 
-function WallboardFocusResponseFeed({ responses }: { responses: WallboardFocusResponses | null }) {
+function WallboardFocusResponseFeed({
+  kind,
+  pilotCounts,
+  responses,
+}: {
+  kind: WallboardFocusState['kind'];
+  pilotCounts: WallboardFocusPilotCounts | null;
+  responses: WallboardFocusResponses | null;
+}) {
   const counts = responses?.counts;
-  const items = responses?.items ?? [];
+  const contacted = wallboardResponseCount(counts?.contacted ?? counts?.targeted);
+  const accepted = wallboardResponseCount(counts?.accepted);
+  const coming = kind === 'real_alarm' ? (responses?.coming ?? []) : [];
+  const heading = kind === 'real_alarm'
+    ? 'Piloten onderweg'
+    : kind === 'preannouncement'
+      ? 'Bereik vooraankondiging'
+      : 'Bereik proefalarm';
+  const primaryLabel = kind === 'test_alarm' ? 'Verstuurd' : 'Gealarmeerd';
+  const secondaryLabel = kind === 'preannouncement' ? 'Beschikbaar' : kind === 'real_alarm' ? 'Komen' : 'Bevestigd';
+  const secondaryCount = kind === 'preannouncement'
+    ? wallboardResponseCount(pilotCounts?.available)
+    : accepted;
 
   return (
     <aside
@@ -898,30 +947,27 @@ function WallboardFocusResponseFeed({ responses }: { responses: WallboardFocusRe
       <header>
         <span><UsersRound size={24} aria-hidden /></span>
         <div>
-          <small>Reactietijdlijn</small>
-          <h3 id="wallboard-focus-responses-title">Live reacties van piloten</h3>
+          <small>Live stand</small>
+          <h3 id="wallboard-focus-responses-title">{heading}</h3>
         </div>
       </header>
       <dl className="wallboard-display__response-counts">
-        <div><dt>Bevestigd</dt><dd>{wallboardResponseCount(counts?.accepted)}</dd></div>
-        <div><dt>Afgewezen</dt><dd>{wallboardResponseCount(counts?.declined)}</dd></div>
-        <div><dt>Wachtend</dt><dd>{wallboardResponseCount(counts?.pending)}</dd></div>
-        <div><dt>Geen reactie</dt><dd>{wallboardResponseCount(counts?.no_response)}</dd></div>
-        <div><dt>Aangeschreven</dt><dd>{wallboardResponseCount(counts?.targeted)}</dd></div>
+        <div><dt>{primaryLabel}</dt><dd>{contacted}</dd></div>
+        <div><dt>{secondaryLabel}</dt><dd>{secondaryCount}</dd></div>
       </dl>
-      {items.length === 0 ? (
-        <p className="wallboard-display__responses-empty">Nog geen reacties ontvangen.</p>
-      ) : (
+      {kind === 'real_alarm' && coming.length === 0 ? (
+        <p className="wallboard-display__responses-empty">Nog niemand heeft bevestigd te komen.</p>
+      ) : kind === 'real_alarm' ? (
         <ol className="wallboard-display__response-list">
-          {items.map((item, index) => (
+          {coming.map((item, index) => (
             <li className={`wallboard-display__response wallboard-display__response--${item.response_status}`} key={`${item.name}-${item.responded_at ?? item.response_status}-${index}`}>
               <i aria-hidden />
-              <span><strong>{item.name}</strong><small>{focusResponseStatusLabel(item.response_status)}</small></span>
-              <time dateTime={item.responded_at ?? undefined}>{item.responded_at ? formatWallboardResponseTime(item.responded_at) : 'Nog niet'}</time>
+              <span><strong>{item.name}</strong><small>Komt naar de inzet</small></span>
+              <time>{wallboardFocusEtaLabel(item.eta_minutes)}</time>
             </li>
           ))}
         </ol>
-      )}
+      ) : null}
     </aside>
   );
 }
@@ -1587,6 +1633,7 @@ function normalizeWallboardFocusState(
 
   return {
     ...focus,
+    is_preview: focus.is_preview === true,
     visible: focus.visible === true,
     expires_at: typeof focus.expires_at === 'string' ? focus.expires_at : null,
     playlist_page_id: typeof focus.playlist_page_id === 'string' && focus.playlist_page_id !== ''
@@ -1605,6 +1652,7 @@ function normalizeWallboardFocusResponses(
   const responseStatuses = new Set(['pending', 'accepted', 'declined', 'no_response']);
   return {
     counts: {
+      contacted: wallboardResponseCount(responses.counts?.contacted ?? responses.counts?.targeted),
       targeted: wallboardResponseCount(responses.counts?.targeted),
       pending: wallboardResponseCount(responses.counts?.pending),
       accepted: wallboardResponseCount(responses.counts?.accepted),
@@ -1620,6 +1668,23 @@ function normalizeWallboardFocusResponses(
         name: item.name.trim(),
         response_status: item.response_status,
         responded_at: typeof item.responded_at === 'string' ? item.responded_at : null,
+      }))
+      : [],
+    coming: Array.isArray(responses.coming)
+      ? responses.coming.filter((item) => (
+        typeof item.name === 'string'
+        && item.name.trim() !== ''
+        && item.response_status === 'accepted'
+      )).map((item) => ({
+        name: item.name.trim(),
+        response_status: 'accepted' as const,
+        responded_at: typeof item.responded_at === 'string' ? item.responded_at : null,
+        eta_minutes: Number.isFinite(item.eta_minutes) && (item.eta_minutes ?? 0) > 0
+          ? Math.trunc(item.eta_minutes ?? 0)
+          : null,
+        eta_source: typeof item.eta_source === 'string' && item.eta_source.trim() !== ''
+          ? item.eta_source.trim()
+          : null,
       }))
       : [],
   };
@@ -1677,22 +1742,13 @@ function focusStatusLabel(kind: WallboardFocusKind): string {
   }
 }
 
-function focusResponseStatusLabel(status: WallboardFocusResponseStatus): string {
-  switch (status) {
-    case 'accepted': return 'Bevestigd';
-    case 'declined': return 'Afgewezen';
-    case 'no_response': return 'Geen reactie';
-    case 'pending': return 'Wacht op reactie';
-  }
-}
-
 function wallboardResponseCount(value: number | undefined): number {
   return Number.isFinite(value) ? Math.max(0, Math.trunc(value ?? 0)) : 0;
 }
 
-function formatWallboardResponseTime(value: string): string {
-  const time = Date.parse(value);
-  return Number.isFinite(time) ? formatWallboardClock(time) : 'Tijd onbekend';
+function wallboardFocusEtaLabel(value: number | null | undefined): string {
+  if (!Number.isFinite(value) || (value ?? 0) <= 0) return 'ETA onbekend';
+  return `ETA ${Math.trunc(value ?? 0)} min.`;
 }
 
 function displayModeLabel(mode: WallboardDisplayMode): string {

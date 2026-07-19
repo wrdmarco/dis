@@ -31,6 +31,8 @@ export function buildContentSecurityPolicy(options: ContentSecurityPolicyOptions
 
   const frameSources = unique([
     'https://www.openstreetmap.org',
+    'https://www.youtube.com',
+    'https://player.vimeo.com',
     ...DEFAULT_AERET_FRAME_ORIGINS,
     ...validatedHttpsOrigins(options.configuredAeretFrameOrigins),
   ]);

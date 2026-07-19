@@ -235,12 +235,21 @@ maintenance screen.
 Each playlist independently configures focus screens for a preannouncement, a real alarm and a test alarm.
 Every focus type has a bounded screen duration and an optional response feed. That feed contains only the
 recipient name snapshot, response status and response timestamp; it never exposes e-mail addresses, response
-notes or user identifiers. A preannouncement and test alarm use a one-shot focus window. While a real non-test
+notes or user identifiers. For a real alarm, the response contract additionally contains the complete list of
+accepted responders. A current live location received under active incident consent is converted server-side
+to a navigation or explicitly labelled fallback ETA; otherwise that responder remains visible with no ETA.
+A preannouncement and test alarm use a one-shot focus window. While a real non-test
 incident is being dispatched or is in progress, its focus screen is inserted server-side before the assigned
 playlist and the combined cycle repeats. A playlist containing only the operational map therefore alternates
 between alarm focus and map until the incident ends. The server supplies every phase and deadline through the
 two-second control feed, so paired displays stay synchronized and refreshes cannot restart a timer. A real alarm
 always takes precedence over a simultaneous preannouncement or test alarm.
+
+Administrators can send a rate-limited focus test for any of the three focus types to one selected screen. DIS
+uses fixed, clearly labelled example counts, names and ETAs from a short-lived per-screen cache; no incident,
+dispatch or recipient is created. The preview is audited, respects optimistic control versions and expires after
+thirty seconds, after which the screen automatically resumes its existing manual page or playlist rotation. A
+real operational alarm blocks a new preview and immediately takes priority if it starts during one.
 
 Per playlist, the legacy optional incident override can still pin a preselected page while at least one non-test
 incident is actually being dispatched or is in progress. It remains the fallback when real-alarm focus is

@@ -49,6 +49,8 @@ import {
   wallboardStateIsStale,
   wallboardTickerDurationSeconds,
   wallboardTransientAlertIsActive,
+  normalizeWallboardVideoUrl,
+  wallboardVideoEmbedUrl,
 } from '../src/features/wallboards/wallboardPresentation';
 
 const now = Date.parse('2026-07-19T10:00:00Z');
@@ -166,9 +168,12 @@ function focusState(overrides: Partial<WallboardFocusState> = {}): WallboardFocu
     next_change_at: '2026-07-19T10:00:20Z',
     pilot_counts: { available: 3, relevant: 8, contacted: 6 },
     responses: {
-      counts: { targeted: 8, pending: 5, accepted: 2, declined: 1, no_response: 0 },
+      counts: { targeted: 8, contacted: 8, pending: 5, accepted: 2, declined: 1, no_response: 0 },
       items: [
         { name: 'Piloot Een', response_status: 'accepted', responded_at: '2026-07-19T09:59:58Z' },
+      ],
+      coming: [
+        { name: 'Piloot Een', response_status: 'accepted', responded_at: '2026-07-19T09:59:58Z', eta_minutes: 9, eta_source: 'osrm' },
       ],
     },
     ...overrides,
@@ -346,6 +351,26 @@ test('bounds page timing and builds typed pages without executable message marku
   expect(normalizeWallboardNewsSources(['dronewatch', 'dronewatch', 'unknown'])).toEqual(['dronewatch']);
   expect(normalizeWallboardNewsSources([])).toEqual(['ndt', 'dronewatch']);
   expect(normalizeWallboardNewsSources([], true)).toEqual([]);
+
+  const video = createWallboardPage('video', 5);
+  expect(video).toMatchObject({ type: 'video', name: 'Promovideo', options: { url: '' } });
+});
+
+test('canonicalizes only supported wallboard video URLs and builds muted autoplay embeds', () => {
+  expect(normalizeWallboardVideoUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ'))
+    .toBe('https://www.youtube.com/embed/dQw4w9WgXcQ');
+  expect(normalizeWallboardVideoUrl('https://youtu.be/dQw4w9WgXcQ'))
+    .toBe('https://www.youtube.com/embed/dQw4w9WgXcQ');
+  expect(normalizeWallboardVideoUrl('https://vimeo.com/123456789'))
+    .toBe('https://player.vimeo.com/video/123456789');
+  expect(normalizeWallboardVideoUrl('https://example.com/video/123')).toBeNull();
+  expect(normalizeWallboardVideoUrl('javascript:alert(1)')).toBeNull();
+
+  const youtubeEmbed = wallboardVideoEmbedUrl('https://www.youtube.com/embed/dQw4w9WgXcQ');
+  expect(youtubeEmbed).toContain('autoplay=1');
+  expect(youtubeEmbed).toContain('mute=1');
+  expect(youtubeEmbed).toContain('playlist=dQw4w9WgXcQ');
+  expect(wallboardVideoEmbedUrl('https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=0')).toBeNull();
 });
 
 test('normalizes up to eight safe custom RSS news sources and supports a custom-only page', () => {
@@ -496,7 +521,8 @@ test('keeps offline status and automatic polling recovery without a reconnect re
   const controlPoll = kiosk.slice(kiosk.indexOf('const pollControl = async () =>'), kiosk.indexOf('}, [hasPairedState, observeRefreshVersion]'));
 
   expect(kiosk).toContain("const feedStatus = connectionError !== null ? 'offline' : stale ? 'stale' : 'live';");
-  expect(kiosk).toContain("feedStatus === 'offline' ? 'Offline'");
+  expect(kiosk).toContain("feedStatus !== 'offline'");
+  expect(kiosk).toContain('!hasLiveFeed && maintenance === null');
   expect(statePoll).toContain("setStateError(errorMessage(error, 'De wallboardfeed is tijdelijk niet bereikbaar.'));");
   expect(statePoll).toContain('setStateError(null);');
   expect(statePoll).toContain('timer = setTimeout(() => void poll(), refreshSecondsRef.current * 1000);');
@@ -928,7 +954,11 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain("focus.kind !== 'test_alarm'");
   expect(kiosk).toContain('!alert.is_test');
   expect(kiosk).toContain('Beschikbaar gemeld');
-  expect(kiosk).toContain('Reactietijdlijn');
+  expect(kiosk).toContain('Live stand');
+  expect(kiosk).toContain("kind === 'real_alarm' ? (responses?.coming ?? []) : []");
+  expect(kiosk).toContain('wallboardFocusEtaLabel(item.eta_minutes)');
+  expect(kiosk).toContain("currentPage.type === 'message' ? 'Mededeling' : currentPage.name");
+  expect(kiosk).not.toContain('<span className="eyebrow">Mededeling</span>');
   expect(kiosk).toContain('showResponseFeed={configuration.focus[focus.kind].show_response_feed}');
   expect(kiosk).toContain('showTransientAlert');
   expect(kiosk).toContain('formatWallboardClock(clock)');
@@ -1049,6 +1079,47 @@ test('separates screen control from shared playlist content management', () => {
   expect(configurationEditor).toContain('Focusschermen');
   expect(configurationEditor).toContain('Vaste incidentpagina als fallback');
   expect(configurationEditor).toContain('Onderticker');
+});
+
+test('offers three bounded mock focus previews for the selected wallboard', () => {
+  const admin = readFileSync(new URL('../src/features/wallboards/WallboardsAdminPage.tsx', import.meta.url), 'utf8');
+  const previewFocus = admin.slice(admin.indexOf('async function previewFocus'), admin.indexOf('async function pairTv'));
+  const previewControls = admin.slice(
+    admin.indexOf('<section className="wallboard-focus-editor"'),
+    admin.indexOf('{isPaired ? null : ('),
+  );
+
+  expect(admin).toContain("{ kind: 'preannouncement', label: 'Vooraankondiging' }");
+  expect(admin).toContain("{ kind: 'test_alarm', label: 'Testalarm' }");
+  expect(admin).toContain("{ kind: 'real_alarm', label: 'Echt alarm' }");
+  expect(previewControls).toContain('WALLBOARD_FOCUS_PREVIEW_OPTIONS.map');
+  expect(previewControls).toContain('onClick={() => void previewFocus(option.kind)}');
+  expect(previewControls).toContain('Toont 30 seconden vaste voorbeelddata op alleen dit scherm.');
+  expect(previewControls).toContain('Er wordt geen incident, alarmering of pushbericht aangemaakt.');
+  expect(previewControls).toContain('Nog {focusPreviewSecondsRemaining} van {activeFocusPreview.durationSeconds} seconden');
+  expect(previewControls).toContain('disabled={busyAction !== null || !wallboard.is_enabled}');
+
+  expect(previewFocus).toContain('`/admin/wallboards/${wallboard.id}/focus-test`');
+  expect(previewFocus).toContain('kind,');
+  expect(previewFocus).toContain('expected_control_version: wallboard.control_version ?? 1');
+  expect(previewFocus).toContain('control_version: response.data.control_version');
+  expect(previewFocus).toContain('durationSeconds = response.data.duration_seconds');
+  expect(previewFocus).toContain('expiresAtEpoch = Date.parse(response.data.expires_at)');
+  expect(previewFocus).toContain('await onReloadWallboards();');
+});
+
+test('clears the focus-preview countdown and reports the automatic restore after thirty seconds', () => {
+  const admin = readFileSync(new URL('../src/features/wallboards/WallboardsAdminPage.tsx', import.meta.url), 'utf8');
+  const countdown = admin.slice(
+    admin.indexOf('const updateCountdown = () =>'),
+    admin.indexOf('async function saveScreen'),
+  );
+
+  expect(countdown).toContain('Math.ceil((activeFocusPreview.expiresAtEpoch - Date.now()) / 1000)');
+  expect(countdown).toContain('window.setInterval(updateCountdown, 1000)');
+  expect(countdown).toContain('return () => window.clearInterval(timer);');
+  expect(countdown).toContain('setActiveFocusPreview(null);');
+  expect(countdown).toContain('De focustest van 30 seconden is afgelopen. Het scherm toont weer de bestaande weergave.');
 });
 
 test('selects only the newly created wallboard requested by the return URL', () => {
@@ -1236,7 +1307,7 @@ test('shows one readable rotating story with image, QR and twelve progress segme
   }
 });
 
-test('keeps the live response timeline compact at the lower left in Full HD and Ultra HD', async ({ page }) => {
+test('keeps the live response feed compact at the upper right in Full HD and Ultra HD', async ({ page }) => {
   const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
   const responseItems = Array.from({ length: 24 }, (_, index) => `
     <li class="wallboard-display__response wallboard-display__response--${index % 3 === 0 ? 'accepted' : index % 3 === 1 ? 'declined' : 'pending'}">
@@ -1256,8 +1327,8 @@ test('keeps the live response timeline compact at the lower left in Full HD and 
         <section class="wallboard-display__alarm wallboard-display__alarm--focus wallboard-display__alarm--real-alarm wallboard-display__alarm--with-feed">
           <div class="wallboard-display__alarm-main"><span class="wallboard-display__alarm-eyebrow">Alarmering</span><h2>Zeer lange operationele alarmtitel voor een inzet</h2><p>Locatie met een lange omschrijving</p></div>
           <aside class="wallboard-display__responses">
-            <header><span></span><div><small>Reactietijdlijn</small><h3>Live reacties van piloten</h3></div></header>
-            <dl class="wallboard-display__response-counts"><div><dt>Bevestigd</dt><dd>8</dd></div><div><dt>Afgewezen</dt><dd>3</dd></div><div><dt>Wachtend</dt><dd>12</dd></div><div><dt>Geen reactie</dt><dd>1</dd></div><div><dt>Aangeschreven</dt><dd>24</dd></div></dl>
+            <header><span></span><div><small>Live stand</small><h3>Piloten onderweg</h3></div></header>
+            <dl class="wallboard-display__response-counts"><div><dt>Gealarmeerd</dt><dd>24</dd></div><div><dt>Komen</dt><dd>8</dd></div></dl>
             <ol class="wallboard-display__response-list">${responseItems}</ol>
           </aside>
         </section>
@@ -1274,16 +1345,16 @@ test('keeps the live response timeline compact at the lower left in Full HD and 
           || element.scrollWidth > element.clientWidth,
         verticalOverflow: element.scrollHeight > element.clientHeight,
         responseScrollable: list !== null && list.scrollHeight > list.clientHeight,
-        responseLeftGap: responses.left - focus.left,
-        responseBottomGap: focus.bottom - responses.bottom,
+        responseRightGap: focus.right - responses.right,
+        responseTopGap: responses.top - focus.top,
         responseWidthRatio: responses.width / focus.width,
       };
     });
     expect(measurement.horizontalOverflow).toBe(false);
     expect(measurement.verticalOverflow).toBe(false);
     expect(measurement.responseScrollable).toBe(true);
-    expect(measurement.responseLeftGap).toBeLessThanOrEqual(screen.width * 0.03);
-    expect(measurement.responseBottomGap).toBeLessThanOrEqual(screen.height * 0.04);
+    expect(measurement.responseRightGap).toBeLessThanOrEqual(screen.width * 0.03);
+    expect(measurement.responseTopGap).toBeLessThanOrEqual(screen.height * 0.14);
     expect(measurement.responseWidthRatio).toBeLessThan(0.45);
   }
 });

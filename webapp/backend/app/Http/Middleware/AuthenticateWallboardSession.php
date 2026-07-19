@@ -18,10 +18,7 @@ final class AuthenticateWallboardSession
         try {
             $session = $this->sessions->authenticate($request);
         } catch (AuthenticationException) {
-            $response = ApiResponse::error('wallboard_unauthenticated', 'Wallboard authentication is required.', 401);
-            $response->headers->setCookie($this->sessions->clearCookie());
-
-            return $response;
+            return ApiResponse::error('wallboard_unauthenticated', 'Wallboard authentication is required.', 401);
         }
 
         /** @var Response $response */

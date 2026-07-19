@@ -335,10 +335,11 @@ final class WallboardSessionSecurityTest extends TestCase
 
     private function assertWallboardSessionRejected(): void
     {
-        $this->browserJson('GET', '/api/wallboard/state')
+        $response = $this->browserJson('GET', '/api/wallboard/state')
             ->assertUnauthorized()
-            ->assertJsonPath('error.code', 'wallboard_unauthenticated')
-            ->assertCookieExpired(WallboardSessionService::COOKIE_NAME);
+            ->assertJsonPath('error.code', 'wallboard_unauthenticated');
+
+        $this->assertNull($response->getCookie(WallboardSessionService::COOKIE_NAME, false));
     }
 
     private function initializeCsrf(): void

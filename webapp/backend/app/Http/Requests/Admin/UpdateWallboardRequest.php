@@ -34,8 +34,9 @@ final class UpdateWallboardRequest extends FormRequest
             'configuration.pages.*.name' => ['required', 'string', 'max:120'],
             'configuration.pages.*.type' => ['required', 'string', Rule::in(WallboardConfiguration::PAGE_TYPES)],
             'configuration.pages.*.duration_seconds' => ['required', 'integer', 'between:5,3600'],
-            'configuration.pages.*.options' => ['sometimes', 'array:body,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds'],
+            'configuration.pages.*.options' => ['sometimes', 'array:body,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,url'],
             'configuration.pages.*.options.body' => ['sometimes', 'string', 'max:2000'],
+            'configuration.pages.*.options.url' => ['sometimes', 'string', 'max:'.WallboardConfiguration::MAX_VIDEO_URL_LENGTH],
             'configuration.pages.*.options.show_test_incidents' => ['sometimes', 'boolean'],
             'configuration.pages.*.options.sources' => ['sometimes', 'array', 'max:'.count(WallboardConfiguration::NEWS_SOURCES)],
             'configuration.pages.*.options.sources.*' => ['required', 'string', Rule::in(WallboardConfiguration::NEWS_SOURCES)],
@@ -116,6 +117,7 @@ final class UpdateWallboardRequest extends FormRequest
                 'message' => ['body'],
                 'incident_list', 'summary' => ['show_test_incidents'],
                 'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds'],
+                'video' => ['url'],
                 'map' => [],
                 default => array_keys($options),
             };
@@ -129,6 +131,14 @@ final class UpdateWallboardRequest extends FormRequest
                 $validator->errors()->add(
                     "configuration.pages.{$index}.options.body",
                     'Een berichtpagina heeft berichttekst nodig.',
+                );
+            }
+            if ($type === 'video'
+                && (! is_string($options['url'] ?? null)
+                    || WallboardConfiguration::normalizeVideoUrl($options['url']) === null)) {
+                $validator->errors()->add(
+                    "configuration.pages.{$index}.options.url",
+                    'Een videopagina heeft een geldige HTTPS-URL van YouTube of Vimeo nodig.',
                 );
             }
             if ($type === 'news') {

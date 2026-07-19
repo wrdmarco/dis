@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
+use App\Models\LocationSharingConsent;
+use App\Models\LocationUpdate;
 use App\Models\User;
 use App\Models\Wallboard;
 use App\Models\WallboardSession;
@@ -358,6 +360,83 @@ final class WallboardFocusTest extends TestCase
         $serialized = $updatedResponse->getContent();
         foreach (['@example.test', 'FEED-RESPONSE-NOTE-SECRET', (string) $available->id] as $privateValue) {
             $this->assertStringNotContainsString($privateValue, $serialized);
+        }
+    }
+
+    public function test_real_alarm_exposes_every_accepted_responder_with_privacy_safe_current_location_eta(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 15:30:00', 'Europe/Amsterdam'));
+        $dispatcher = $this->user('focus-coming-dispatcher@example.test', 'Coming dispatcher');
+        $incident = $this->incident($dispatcher, 'FOCUS-COMING', 'dispatching', false);
+        $incident->forceFill([
+            'latitude' => 52.0907000,
+            'longitude' => 5.1214000,
+        ])->save();
+        $dispatch = $this->dispatch($incident, $dispatcher, 'sent', now());
+
+        $users = [];
+        for ($index = 0; $index < 26; $index++) {
+            $number = str_pad((string) $index, 2, '0', STR_PAD_LEFT);
+            $user = $this->user("focus-coming-{$number}@example.test", "Komende piloot {$number}");
+            $users[] = $user;
+            $this->recipient($dispatch, $user, 'accepted', now()->subSeconds($index));
+        }
+
+        foreach ([$users[0], $users[1]] as $index => $user) {
+            LocationSharingConsent::query()->create([
+                'incident_id' => $incident->id,
+                'user_id' => $user->id,
+                'is_active' => true,
+                'state_version' => 2,
+                'consented_at' => now()->subMinute(),
+            ]);
+            LocationUpdate::query()->create([
+                'incident_id' => $incident->id,
+                'user_id' => $user->id,
+                'consent_state_version' => 2,
+                'latitude' => 52.1601000,
+                'longitude' => 5.0812000,
+                'recorded_at' => $index === 0 ? now() : now()->subMinutes(6),
+                'created_at' => $index === 0 ? now() : now()->subMinutes(6),
+            ]);
+        }
+
+        $focus = app(WallboardStateService::class)
+            ->state($this->wallboard())['operational_summary']['focus'];
+        $responses = $focus['responses'];
+
+        $this->assertSame(26, $responses['counts']['targeted']);
+        $this->assertSame(26, $responses['counts']['contacted']);
+        $this->assertSame(26, $responses['counts']['accepted']);
+        $this->assertCount(24, $responses['items']);
+        $this->assertCount(26, $responses['coming']);
+        $this->assertCount(26, collect($responses['coming'])->pluck('name')->unique());
+
+        $current = collect($responses['coming'])->firstWhere('name', $users[0]->name);
+        $stale = collect($responses['coming'])->firstWhere('name', $users[1]->name);
+        $this->assertIsInt($current['eta_minutes']);
+        $this->assertGreaterThan(0, $current['eta_minutes']);
+        $this->assertSame('fallback', $current['eta_source']);
+        $this->assertNull($stale['eta_minutes']);
+        $this->assertNull($stale['eta_source']);
+
+        foreach ($responses['coming'] as $item) {
+            $keys = array_keys($item);
+            sort($keys);
+            $this->assertSame([
+                'eta_minutes',
+                'eta_source',
+                'name',
+                'responded_at',
+                'response_status',
+            ], $keys);
+            $this->assertSame('accepted', $item['response_status']);
+        }
+
+        $serialized = json_encode($responses['coming'], JSON_THROW_ON_ERROR);
+        foreach ($users as $user) {
+            $this->assertStringNotContainsString($user->email, $serialized);
+            $this->assertStringNotContainsString((string) $user->id, $serialized);
         }
     }
 

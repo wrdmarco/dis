@@ -6,6 +6,7 @@ import {
   BellRing,
   List,
   Map,
+  Clapperboard,
   MessageSquareText,
   Newspaper,
   PauseCircle,
@@ -74,6 +75,7 @@ const PAGE_TYPE_OPTIONS: Array<{ value: WallboardPageType; label: string }> = [
   { value: 'summary', label: 'Samenvatting' },
   { value: 'message', label: 'Mededeling' },
   { value: 'news', label: 'Nieuws' },
+  { value: 'video', label: 'Promovideo' },
 ];
 
 const NEWS_SOURCE_OPTIONS: Array<{ value: WallboardNewsSource; label: string; description: string }> = [
@@ -610,6 +612,8 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
         ? { body: page.options.body ?? '' }
         : type === 'news'
           ? { sources: ['ndt', 'dronewatch'], custom_sources: [], max_items: 6, item_duration_seconds: 12 }
+          : type === 'video'
+            ? { url: page.options.url ?? '' }
           : {},
     });
   }
@@ -701,6 +705,21 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
             required
           />
           <small>{(page.options.body ?? '').length}/2000 tekens · uitsluitend platte tekst</small>
+        </label>
+      ) : page.type === 'video' ? (
+        <label className="wallboard-video-editor">
+          <span>YouTube- of Vimeo-link</span>
+          <input
+            type="url"
+            value={page.options.url ?? ''}
+            onChange={(event) => onChange({ ...page, options: { url: event.target.value } })}
+            maxLength={2048}
+            pattern="https://.+"
+            placeholder="https://www.youtube.com/watch?v=..."
+            inputMode="url"
+            required
+          />
+          <small>Alleen openbare HTTPS-video&apos;s van YouTube en Vimeo. De video start automatisch zonder geluid, zoals browsers voor wallboards vereisen.</small>
         </label>
       ) : page.type === 'news' ? (
         <fieldset className="wallboard-news-editor">
@@ -844,5 +863,6 @@ export function WallboardPageTypeIcon({ type }: { type: WallboardPageType }) {
     case 'summary': return <BarChart3 size={18} aria-hidden />;
     case 'message': return <MessageSquareText size={18} aria-hidden />;
     case 'news': return <Newspaper size={18} aria-hidden />;
+    case 'video': return <Clapperboard size={18} aria-hidden />;
   }
 }

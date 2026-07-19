@@ -151,6 +151,18 @@ final class AppServiceProvider extends ServiceProvider
             perClient: 30,
             perUser: 60,
         ));
+        RateLimiter::for('wallboard-focus-preview', function (Request $request): array {
+            $actor = hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'));
+            $wallboard = $request->route('wallboard');
+            $wallboardId = is_object($wallboard) && isset($wallboard->id)
+                ? (string) $wallboard->id
+                : (is_string($wallboard) ? $wallboard : 'missing');
+
+            return [
+                Limit::perMinute(12)->by('wallboard-focus-preview:actor:'.$actor),
+                Limit::perMinute(6)->by('wallboard-focus-preview:actor-wallboard:'.$actor.':'.hash('sha256', $wallboardId)),
+            ];
+        });
         RateLimiter::for('two-factor', fn (Request $request): array => [
             Limit::perMinute(20)->by('two-factor:ip:'.$request->ip()),
             Limit::perMinute(6)->by('two-factor:subject:'.$this->authenticationSubjectKey($request)),

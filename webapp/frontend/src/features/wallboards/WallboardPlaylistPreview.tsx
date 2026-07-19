@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BellRing,
+  Clapperboard,
   Clock3,
   Eye,
   Map,
@@ -81,6 +82,8 @@ export function WallboardPlaylistPreview({
               ? <Map size={42} aria-hidden />
               : selectedPage.type === 'news'
                 ? <Newspaper size={42} aria-hidden />
+                : selectedPage.type === 'video'
+                  ? <Clapperboard size={42} aria-hidden />
                 : <MessageSquareText size={42} aria-hidden />}
             <span>{wallboardPageTypeLabel(selectedPage.type)}</span>
             <h3 id="wallboard-preview-page-title">{selectedPage.name}</h3>
@@ -93,6 +96,12 @@ export function WallboardPlaylistPreview({
                   + (selectedPage.options.custom_sources ?? []).length} vaste en eigen bron(nen) samen.
                 Elk bericht blijft {selectedPage.options.item_duration_seconds ?? 12} seconden zichtbaar en wisselt daarna vloeiend.
                 Is die periode leeg, dan volgen de laatste publicaties met samenvatting.
+              </p>
+            ) : selectedPage.type === 'video' ? (
+              <p>
+                {selectedPage.options.url?.trim()
+                  ? 'De gekoppelde schermen spelen deze YouTube- of Vimeo-video automatisch en gedempt af.'
+                  : 'Er is nog geen YouTube- of Vimeo-link ingesteld.'}
               </p>
             ) : (
               <p>De live operationele gegevens verschijnen hier pas op het gekoppelde wallboard.</p>

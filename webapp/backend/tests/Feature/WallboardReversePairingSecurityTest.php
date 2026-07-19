@@ -12,6 +12,7 @@ use App\Models\WallboardSession;
 use App\Services\WallboardPairingService;
 use App\Services\WallboardSessionService;
 use App\Support\WallboardConfiguration;
+use Illuminate\Cookie\CookieValuePrefix;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -210,6 +211,60 @@ final class WallboardReversePairingSecurityTest extends TestCase
             (string) $reloadStatus->getCookie(WallboardSessionService::COOKIE_NAME, true)?->getValue(),
         );
         $this->assertDatabaseCount('wallboard_sessions', 2);
+    }
+
+    public function test_late_unauthorized_old_session_responses_cannot_clear_a_newly_paired_session(): void
+    {
+        $wallboard = $this->wallboard('Crisisruimte met nieuws');
+        $oldSecret = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $oldSession = WallboardSession::query()->create([
+            'wallboard_id' => $wallboard->id,
+            'token_hash' => app(WallboardSessionService::class)->tokenHash($oldSecret),
+            'last_seen_at' => now(),
+            'last_rotated_at' => now(),
+            'expires_at' => null,
+        ]);
+        $oldBrowserCookie = $this->encryptCookie(
+            WallboardSessionService::COOKIE_NAME,
+            $oldSession->id.'.'.$oldSecret,
+        );
+        $manager = $this->user('pairing-race-manager@example.test', ['wallboards.manage']);
+
+        $this->initializeCsrf();
+        $code = (string) $this->startPairing()->json('data.code');
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/wallboards/'.$wallboard->id.'/pair', ['code' => $code])
+            ->assertOk();
+        $this->browserJson('POST', '/api/wallboard/pairing/status')
+            ->assertOk()
+            ->assertJsonPath('data.status', 'paired');
+
+        $newBrowserCookie = $this->browserCookies[WallboardSessionService::COOKIE_NAME] ?? null;
+        $this->assertIsString($newBrowserCookie);
+        $this->assertNotSame('', $newBrowserCookie);
+        $this->assertNotNull($oldSession->refresh()->revoked_at);
+
+        foreach ([
+            '/api/wallboard/state',
+            '/api/wallboard/news-images/'.str_repeat('a', 64),
+        ] as $lateRequestPath) {
+            $this->resetHttpState();
+            $lateResponse = $this->withCredentials()
+                ->withUnencryptedCookie(WallboardSessionService::COOKIE_NAME, $oldBrowserCookie)
+                ->withHeaders($this->browserHeaders())
+                ->withServerVariables($this->serverVariables())
+                ->getJson($lateRequestPath)
+                ->assertUnauthorized()
+                ->assertJsonPath('error.code', 'wallboard_unauthenticated');
+
+            $this->assertNull($lateResponse->getCookie(WallboardSessionService::COOKIE_NAME, false));
+            $this->captureCookies($lateResponse);
+            $this->assertSame($newBrowserCookie, $this->browserCookies[WallboardSessionService::COOKIE_NAME] ?? null);
+        }
+
+        $this->browserJson('GET', '/api/wallboard/state')
+            ->assertOk()
+            ->assertJsonPath('data.wallboard.id', $wallboard->id);
     }
 
     public function test_admin_auth_2fa_permission_disabled_expired_and_immutable_rules_are_enforced(): void
@@ -477,6 +532,14 @@ final class WallboardReversePairingSecurityTest extends TestCase
         $this->defaultCookies = [];
         $this->unencryptedCookies = [];
         $this->serverVariables = [];
+    }
+
+    private function encryptCookie(string $name, string $value): string
+    {
+        return encrypt(
+            CookieValuePrefix::create($name, app('encrypter')->getKey()).$value,
+            false,
+        );
     }
 
     /** @return array<string, string> */

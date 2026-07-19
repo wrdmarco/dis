@@ -274,6 +274,8 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
           max_items: DEFAULT_WALLBOARD_NEWS_MAX_ITEMS,
           item_duration_seconds: DEFAULT_WALLBOARD_NEWS_ITEM_DURATION_SECONDS,
         }
+        : type === 'video'
+          ? { url: '' }
         : {},
   };
 }
@@ -304,6 +306,7 @@ export function wallboardPageTypeLabel(type: WallboardPageType): string {
     case 'summary': return 'Operationele samenvatting';
     case 'message': return 'Mededeling';
     case 'news': return 'Dronenieuws';
+    case 'video': return 'Promovideo';
   }
 }
 
@@ -475,7 +478,7 @@ function normalizeWallboardPage(
   page: WallboardPage,
   index: number,
 ): WallboardPage {
-  const type: WallboardPageType = ['map', 'incident_list', 'summary', 'message', 'news'].includes(page.type)
+  const type: WallboardPageType = ['map', 'incident_list', 'summary', 'message', 'news', 'video'].includes(page.type)
     ? page.type
     : 'map';
   const id = typeof page.id === 'string' && page.id.trim() !== '' ? page.id : `page-${index + 1}`;
@@ -495,8 +498,86 @@ function normalizeWallboardPage(
       ? { body: typeof page.options?.body === 'string' ? page.options.body : '' }
       : type === 'news'
         ? normalizeWallboardNewsPageOptions(page)
+        : type === 'video'
+          ? { url: typeof page.options?.url === 'string' ? (normalizeWallboardVideoUrl(page.options.url) ?? page.options.url.trim()) : '' }
         : {},
   };
+}
+
+/**
+ * Canonicaliseert uitsluitend de door de backend toegestane YouTube- en
+ * Vimeo-vormen. Deze clientcontrole is gebruiksgemak; de backend valideert de
+ * URL opnieuw voordat een playlist wordt opgeslagen.
+ */
+export function normalizeWallboardVideoUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (trimmed === '' || trimmed.length > 2048 || /[\u0000-\u0020\u007f]/.test(trimmed)) return null;
+
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== 'https:' || url.username !== '' || url.password !== '' || (url.port !== '' && url.port !== '443')) {
+      return null;
+    }
+
+    const host = url.hostname.toLowerCase();
+    if (['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(host)) {
+      const watchId = url.pathname === '/watch' ? url.searchParams.get('v') : null;
+      const embedMatch = /^\/embed\/([A-Za-z0-9_-]{11})\/?$/.exec(url.pathname);
+      const videoId = watchId ?? embedMatch?.[1] ?? null;
+      return videoId !== null && /^[A-Za-z0-9_-]{11}$/.test(videoId)
+        ? `https://www.youtube.com/embed/${videoId}`
+        : null;
+    }
+
+    if (host === 'youtu.be') {
+      const match = /^\/([A-Za-z0-9_-]{11})\/?$/.exec(url.pathname);
+      return match ? `https://www.youtube.com/embed/${match[1]}` : null;
+    }
+
+    const vimeoPattern = ['vimeo.com', 'www.vimeo.com'].includes(host)
+      ? /^\/([1-9][0-9]{0,11})\/?$/
+      : host === 'player.vimeo.com'
+        ? /^\/video\/([1-9][0-9]{0,11})\/?$/
+        : null;
+    const vimeoMatch = vimeoPattern?.exec(url.pathname) ?? null;
+    return vimeoMatch ? `https://player.vimeo.com/video/${vimeoMatch[1]}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Bouwt een vast, gedempt autoplay-adres uit een server-gecanonicaliseerde URL. */
+export function wallboardVideoEmbedUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const canonical = normalizeWallboardVideoUrl(value);
+  if (canonical === null || canonical !== value.trim().replace(/\/$/, '')) return null;
+
+  const url = new URL(canonical);
+  if (url.hostname === 'www.youtube.com') {
+    const videoId = url.pathname.split('/').at(-1);
+    if (videoId === undefined) return null;
+    url.search = new URLSearchParams({
+      autoplay: '1',
+      mute: '1',
+      controls: '1',
+      rel: '0',
+      playsinline: '1',
+      loop: '1',
+      playlist: videoId,
+    }).toString();
+  } else {
+    url.search = new URLSearchParams({
+      autoplay: '1',
+      muted: '1',
+      loop: '1',
+      autopause: '0',
+      title: '0',
+      byline: '0',
+      portrait: '0',
+    }).toString();
+  }
+
+  return url.toString();
 }
 
 function normalizeWallboardNewsPageOptions(page: WallboardPage): WallboardPage['options'] {

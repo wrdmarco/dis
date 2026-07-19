@@ -1,6 +1,7 @@
 import { expect, test, type APIResponse, type Page } from 'playwright/test';
 import { GET as getSecurityText } from '../app/.well-known/security.txt/route';
 import { canonicalRedirectPath, validatedCanonicalRedirectOrigin } from '../src/lib/redirectPolicy';
+import { buildContentSecurityPolicy } from '../src/lib/securityPolicy';
 
 const requiredCspDirectives = [
   "default-src 'self'",
@@ -9,6 +10,17 @@ const requiredCspDirectives = [
   "frame-ancestors 'none'",
   "form-action 'self'",
 ];
+
+test('CSP allows only the exact supported wallboard video origins', () => {
+  const policy = buildContentSecurityPolicy({ nonce: 'test-nonce', development: false });
+  const frameDirective = policy.split(';').map((part) => part.trim()).find((part) => part.startsWith('frame-src '));
+
+  expect(frameDirective).toContain('https://www.youtube.com');
+  expect(frameDirective).toContain('https://player.vimeo.com');
+  expect(frameDirective).not.toContain('*.youtube.com');
+  expect(frameDirective).not.toContain('*.vimeo.com');
+  expect(policy).toContain("media-src 'none'");
+});
 
 test.describe('public security contract', () => {
   for (const path of [

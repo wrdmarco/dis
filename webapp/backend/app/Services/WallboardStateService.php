@@ -38,7 +38,7 @@ final class WallboardStateService
     {
         $configuration = $this->playlistResolver->resolve($wallboard);
         $activeAlarm = $this->activeAlarm();
-        $focus = $this->focusService->resolve($configuration);
+        $focus = $this->focusService->resolve($configuration, $wallboard);
         $transientAlert = $this->transientAlert();
         $display = $this->displayService->display($wallboard, $configuration, $activeAlarm !== null);
         $mapConfiguration = (array) $configuration['map'];
@@ -126,7 +126,7 @@ final class WallboardStateService
     {
         $configuration = $this->playlistResolver->resolve($wallboard);
         $activeAlarm = $this->activeAlarm();
-        $focus = $this->focusService->resolve($configuration);
+        $focus = $this->focusService->resolve($configuration, $wallboard);
 
         return [
             'generated_at' => ApiDateTime::now(),

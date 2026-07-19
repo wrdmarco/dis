@@ -9,7 +9,9 @@ final class WallboardConfiguration
     public const DEFAULT_PAGE_ID = 'map';
 
     /** @var list<string> */
-    public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'message', 'news'];
+    public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'message', 'news', 'video'];
+
+    public const MAX_VIDEO_URL_LENGTH = 2048;
 
     /** @var list<string> */
     public const NEWS_SOURCES = ['ndt', 'dronewatch'];
@@ -192,6 +194,7 @@ final class WallboardConfiguration
                 'message' => ['body'],
                 'incident_list', 'summary' => ['show_test_incidents'],
                 'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds'],
+                'video' => ['url'],
                 default => [],
             };
             if (array_diff(array_keys($options), $allowedOptionKeys) !== []) {
@@ -207,6 +210,16 @@ final class WallboardConfiguration
                     ]);
                 }
                 $options = ['body' => $body];
+            } elseif ($type === 'video') {
+                $url = is_string($options['url'] ?? null)
+                    ? self::normalizeVideoUrl($options['url'])
+                    : null;
+                if ($url === null) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.url" => ['Een videopagina heeft een geldige HTTPS-URL van YouTube of Vimeo nodig.'],
+                    ]);
+                }
+                $options = ['url' => $url];
             } elseif ($type === 'news') {
                 $sources = array_values((array) ($options['sources'] ?? self::NEWS_SOURCES));
                 if (count($sources) > count(self::NEWS_SOURCES)) {
@@ -546,6 +559,61 @@ final class WallboardConfiguration
             '/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i',
             $host,
         ) === 1;
+    }
+
+    public static function normalizeVideoUrl(string $url): ?string
+    {
+        $url = trim($url);
+        if ($url === ''
+            || strlen($url) > self::MAX_VIDEO_URL_LENGTH
+            || preg_match('/[\x00-\x20\x7f]/', $url) === 1) {
+            return null;
+        }
+
+        $parts = parse_url($url);
+        if (! is_array($parts)
+            || strtolower((string) ($parts['scheme'] ?? '')) !== 'https'
+            || ! is_string($parts['host'] ?? null)
+            || isset($parts['user'])
+            || isset($parts['pass'])
+            || (isset($parts['port']) && (int) $parts['port'] !== 443)) {
+            return null;
+        }
+
+        $host = strtolower($parts['host']);
+        $path = (string) ($parts['path'] ?? '');
+        $videoId = null;
+
+        if (in_array($host, ['youtube.com', 'www.youtube.com', 'm.youtube.com'], true)) {
+            if ($path === '/watch') {
+                parse_str((string) ($parts['query'] ?? ''), $query);
+                $videoId = is_string($query['v'] ?? null) ? $query['v'] : null;
+            } elseif (preg_match('#^/embed/([A-Za-z0-9_-]{11})/?$#D', $path, $matches) === 1) {
+                $videoId = $matches[1];
+            }
+
+            return is_string($videoId) && preg_match('/^[A-Za-z0-9_-]{11}$/D', $videoId) === 1
+                ? 'https://www.youtube.com/embed/'.$videoId
+                : null;
+        }
+
+        if ($host === 'youtu.be') {
+            return preg_match('#^/([A-Za-z0-9_-]{11})/?$#D', $path, $matches) === 1
+                ? 'https://www.youtube.com/embed/'.$matches[1]
+                : null;
+        }
+
+        if (in_array($host, ['vimeo.com', 'www.vimeo.com'], true)) {
+            $pattern = '#^/([1-9][0-9]{0,11})/?$#D';
+        } elseif ($host === 'player.vimeo.com') {
+            $pattern = '#^/video/([1-9][0-9]{0,11})/?$#D';
+        } else {
+            return null;
+        }
+
+        return preg_match($pattern, $path, $matches) === 1
+            ? 'https://player.vimeo.com/video/'.$matches[1]
+            : null;
     }
 
     /**
