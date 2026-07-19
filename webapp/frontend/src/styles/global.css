@@ -7263,6 +7263,29 @@ textarea:focus {
   font-weight: 780;
 }
 
+.wallboard-page-editor__derived-duration {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  border: 1px solid rgba(128, 199, 255, 0.2);
+  border-radius: 7px;
+  background: rgba(128, 199, 255, 0.045);
+  padding: 8px 10px;
+}
+
+.wallboard-page-editor__derived-duration > span,
+.wallboard-page-editor__derived-duration > small {
+  color: var(--dis-muted);
+  font-size: 0.7rem;
+  font-weight: 680;
+}
+
+.wallboard-page-editor__derived-duration > strong {
+  color: var(--dis-text-strong);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .wallboard-message-editor textarea {
   width: 100%;
   resize: vertical;
@@ -8581,6 +8604,10 @@ textarea:focus {
   transform: scaleX(0);
   transform-origin: left;
   animation: wallboard-news-progress var(--wallboard-news-item-duration) linear both;
+}
+
+.wallboard-display__news-carousel--paused .wallboard-display__news-progress {
+  animation-play-state: paused;
 }
 
 .wallboard-display__news-position {

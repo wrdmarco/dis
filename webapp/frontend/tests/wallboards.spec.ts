@@ -15,10 +15,14 @@ import {
   normalizeWallboardNewsState,
   normalizeWallboardState,
   stabilizeWallboardRotationDeadline,
+  wallboardCarouselRemainingMilliseconds,
+  wallboardDeadlineDurationMilliseconds,
+  wallboardDeadlineRemainingSeconds,
+  wallboardDeadlineTickDelayMilliseconds,
   wallboardFocusPilotCounts,
   wallboardMaintenanceNoticeIsActive,
-  wallboardRefreshDecision,
   wallboardNewsCarouselIndex,
+  wallboardRefreshDecision,
   wallboardTickerIsVisible,
 } from '../src/features/wallboards/WallboardDisplayPage';
 import {
@@ -42,6 +46,7 @@ import {
   selectRecentWallboardIncidents,
   wallboardConfigurationCopy,
   wallboardDisplayProfileLabel,
+  wallboardEffectivePageDuration,
   wallboardFocusKindLabel,
   wallboardIsOnline,
   wallboardPageMapConfiguration,
@@ -335,6 +340,7 @@ test('bounds page timing and builds typed pages without executable message marku
   expect(news).toMatchObject({
     type: 'news',
     name: 'Dronenieuws',
+    duration_seconds: 72,
     options: { sources: ['ndt', 'dronewatch'], custom_sources: [], max_items: 6, item_duration_seconds: 12 },
   });
   expect(clampWallboardNewsMaxItems(0)).toBe(1);
@@ -343,23 +349,40 @@ test('bounds page timing and builds typed pages without executable message marku
   expect(clampWallboardNewsItemDuration(1)).toBe(5);
   expect(clampWallboardNewsItemDuration(600)).toBe(300);
   expect(clampWallboardNewsItemDuration(Number.NaN)).toBe(12);
+  expect(wallboardEffectivePageDuration(news)).toBe(72);
+  expect(wallboardEffectivePageDuration({
+    ...news,
+    duration_seconds: 5,
+    options: { ...news.options, max_items: 12, item_duration_seconds: 300 },
+  })).toBe(3600);
   expect(wallboardNewsCarouselIndex(12, 10, 0)).toBe(0);
   expect(wallboardNewsCarouselIndex(12, 10, 9_999)).toBe(0);
   expect(wallboardNewsCarouselIndex(12, 10, 10_000)).toBe(1);
   expect(wallboardNewsCarouselIndex(12, 10, 120_000)).toBe(0);
   expect(wallboardNewsCarouselIndex(0, 10, 120_000)).toBe(0);
+  expect(wallboardCarouselRemainingMilliseconds(12_000, 4_250)).toBe(7_750);
+  expect(wallboardCarouselRemainingMilliseconds(12_000, 20_000)).toBe(1);
+  expect(wallboardDeadlineDurationMilliseconds('2026-07-19T10:00:05Z', now)).toBe(5_000);
+  expect(wallboardDeadlineDurationMilliseconds('2026-07-19T09:59:59Z', now)).toBe(0);
+  expect(wallboardDeadlineRemainingSeconds(3_001)).toBe(4);
+  expect(wallboardDeadlineRemainingSeconds(1)).toBe(1);
+  expect(wallboardDeadlineRemainingSeconds(0)).toBeNull();
+  expect(wallboardDeadlineTickDelayMilliseconds(3_001)).toBe(1);
+  expect(wallboardDeadlineTickDelayMilliseconds(3_000)).toBe(1_000);
   expect(normalizeWallboardNewsSources(['dronewatch', 'dronewatch', 'unknown'])).toEqual(['dronewatch']);
   expect(normalizeWallboardNewsSources([])).toEqual(['ndt', 'dronewatch']);
   expect(normalizeWallboardNewsSources([], true)).toEqual([]);
 
   const video = createWallboardPage('video', 5);
-  expect(video).toMatchObject({ type: 'video', name: 'Promovideo', options: { url: '' } });
+  expect(video).toMatchObject({ type: 'video', name: 'Video', options: { url: '' } });
 });
 
 test('canonicalizes only supported wallboard video URLs and builds muted autoplay embeds', () => {
   expect(normalizeWallboardVideoUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ'))
     .toBe('https://www.youtube.com/embed/dQw4w9WgXcQ');
   expect(normalizeWallboardVideoUrl('https://youtu.be/dQw4w9WgXcQ'))
+    .toBe('https://www.youtube.com/embed/dQw4w9WgXcQ');
+  expect(normalizeWallboardVideoUrl('https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share'))
     .toBe('https://www.youtube.com/embed/dQw4w9WgXcQ');
   expect(normalizeWallboardVideoUrl('https://vimeo.com/123456789'))
     .toBe('https://player.vimeo.com/video/123456789');
@@ -407,6 +430,7 @@ test('normalizes up to eight safe custom RSS news sources and supports a custom-
     item_duration_seconds: 18,
   });
   expect(configuration.pages[0].type).toBe('news');
+  expect(configuration.pages[0].duration_seconds).toBe(72);
 });
 
 test('never normalizes or renders a drone-news page as the operational map', () => {
@@ -915,6 +939,13 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain('pairingStartInFlight');
   expect(kiosk).not.toContain('pairingStartAttemptRef');
   expect(kiosk).not.toContain('expiredPairingCodeRef');
+  expect(kiosk).toContain("requestFullscreen({ navigationUI: 'hide' })");
+  expect(kiosk).toContain("document.addEventListener('pointerdown', onFirstPointerDown, true)");
+  expect(kiosk).toContain("document.addEventListener('keydown', onFirstKeyDown, true)");
+  expect(kiosk).toContain('data-wallboard-fullscreen-toggle');
+  expect(kiosk).toContain('referrerPolicy="strict-origin-when-cross-origin"');
+  expect(kiosk).toContain("'Volgende pagina laden...'");
+  expect(kiosk).toContain('refreshExpiredDeadline');
   expect(apiTypes).toContain("status: 'pending' | 'approved';");
   expect(apiTypes).toContain('expires_at: string | null;');
   expect(apiTypes).toContain('pilot_availability: WallboardPilotAvailability;');
@@ -967,7 +998,9 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain('state.news.pages[page.id]');
   expect(kiosk).toContain('wallboard-display__news-article--${item.source}');
   expect(kiosk).not.toContain('wallboard-display__news-article--${item.source_id}');
-  expect(kiosk).toContain('wallboardNewsCarouselIndex');
+  expect(kiosk).toContain('usePausableWallboardCarousel');
+  expect(kiosk).toContain('remainingMillisecondsRef');
+  expect(kiosk).toContain('running={hasLiveFeed}');
   expect(kiosk).toContain('<WallboardNewsQrCode');
   expect(kiosk).toContain('wallboard-display__news-progress');
   expect(kiosk).toContain('api\\/wallboard\\/news-images');
@@ -1028,6 +1061,11 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(configurationEditor).toContain('MAX_WALLBOARD_NEWS_MAX_ITEMS');
   expect(configurationEditor).toContain('Tijd per nieuwsbericht (seconden)');
   expect(configurationEditor).toContain('MAX_WALLBOARD_NEWS_ITEM_DURATION_SECONDS');
+  expect(configurationEditor).toContain('Totale tijd in playlist');
+  expect(configurationEditor).toContain('wallboardEffectivePageDuration');
+  expect(configurationEditor).not.toContain('de paginatijd hierboven bepaalt');
+  expect(configurationEditor).not.toContain('Promovideo');
+  expect(playlistPreview).toContain('wallboardEffectivePageDuration');
   expect(styles).toContain('.wallboard-display__ticker-track');
   expect(styles).toContain('.wallboard-display__alarm--test');
   expect(styles).toContain('.wallboard-display__alarm--maintenance');
@@ -1038,6 +1076,7 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(styles).toContain('.wallboard-display__focus-availability');
   expect(styles).toContain('.wallboard-display__news-article--custom');
   expect(styles).toContain('.wallboard-display__news-carousel');
+  expect(styles).toContain('.wallboard-display__news-carousel--paused .wallboard-display__news-progress');
   expect(styles).toContain('.wallboard-display__news-article--with-image');
   expect(styles).toContain('.wallboard-display__news-qr');
   expect(styles).toContain('@keyframes wallboard-news-story-enter');

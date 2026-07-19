@@ -17,6 +17,7 @@ import {
 import type { WallboardConfiguration } from '../../types/api';
 import {
   wallboardConfigurationCopy,
+  wallboardEffectivePageDuration,
   wallboardFocusKindLabel,
   wallboardPageTypeLabel,
 } from './wallboardPresentation';
@@ -36,7 +37,7 @@ export function WallboardPlaylistPreview({
   const snapshot = useMemo(() => wallboardConfigurationCopy(configuration), [configuration]);
   const [selectedPageId, setSelectedPageId] = useState(snapshot.pages[0].id);
   const selectedPage = snapshot.pages.find((page) => page.id === selectedPageId) ?? snapshot.pages[0];
-  const totalDuration = snapshot.pages.reduce((total, page) => total + page.duration_seconds, 0);
+  const totalDuration = snapshot.pages.reduce((total, page) => total + wallboardEffectivePageDuration(page), 0);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -75,7 +76,7 @@ export function WallboardPlaylistPreview({
         <section className="wallboard-playlist-preview__screen" aria-labelledby="wallboard-preview-page-title">
           <div className="wallboard-playlist-preview__screen-bar">
             <span><Eye size={16} aria-hidden /> Wallboardvoorbeeld</span>
-            <span><Clock3 size={16} aria-hidden /> {selectedPage.duration_seconds} sec.</span>
+            <span><Clock3 size={16} aria-hidden /> {wallboardEffectivePageDuration(selectedPage)} sec.</span>
           </div>
           <div className={`wallboard-playlist-preview__canvas wallboard-playlist-preview__canvas--${selectedPage.type}`}>
             {selectedPage.type === 'map'
@@ -95,6 +96,7 @@ export function WallboardPlaylistPreview({
                 {' '}{(selectedPage.options.sources ?? ['ndt', 'dronewatch']).length
                   + (selectedPage.options.custom_sources ?? []).length} vaste en eigen bron(nen) samen.
                 Elk bericht blijft {selectedPage.options.item_duration_seconds ?? 12} seconden zichtbaar en wisselt daarna vloeiend.
+                De totale paginatijd wordt automatisch uit het aantal berichten berekend.
                 Is die periode leeg, dan volgen de laatste publicaties met samenvatting.
               </p>
             ) : selectedPage.type === 'video' ? (
@@ -130,7 +132,7 @@ export function WallboardPlaylistPreview({
                   >
                     <span>{index + 1}</span>
                     <span><strong>{page.name}</strong><small>{wallboardPageTypeLabel(page.type)}</small></span>
-                    <time>{page.duration_seconds} sec.</time>
+                    <time>{wallboardEffectivePageDuration(page)} sec.</time>
                   </button>
                 </li>
               ))}

@@ -32,6 +32,7 @@ final class WallboardNewsConfigurationTest extends TestCase
             'max_items' => 6,
             'item_duration_seconds' => 12,
         ], $configuration['pages'][0]['options']);
+        $this->assertSame(72, $configuration['pages'][0]['duration_seconds']);
     }
 
     public function test_custom_rss_can_be_the_only_source_and_can_be_reused_on_multiple_pages(): void
@@ -62,6 +63,7 @@ final class WallboardNewsConfigurationTest extends TestCase
 
         $this->assertSame([$source], $normalized['pages'][0]['options']['sources']);
         $this->assertSame(12, $normalized['pages'][0]['options']['max_items']);
+        $this->assertSame(144, $normalized['pages'][0]['duration_seconds']);
 
         $payload = ['name' => 'Nieuws playlist', 'configuration' => ['pages' => [$page]]];
         $this->assertSame([$source], $this->validateRequest(new StoreWallboardRequest, $payload)['configuration']['pages'][0]['options']['sources']);

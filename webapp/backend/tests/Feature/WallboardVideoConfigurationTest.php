@@ -54,6 +54,14 @@ final class WallboardVideoConfigurationTest extends TestCase
             'https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=0',
             $youtubeEmbed,
         ];
+        yield 'YouTube Shorts' => [
+            'https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share',
+            $youtubeEmbed,
+        ];
+        yield 'YouTube Shorts without www' => [
+            'https://youtube.com/shorts/dQw4w9WgXcQ',
+            $youtubeEmbed,
+        ];
         yield 'Vimeo public link' => [
             'https://vimeo.com/76979871?share=copy',
             'https://player.vimeo.com/video/76979871',
@@ -121,7 +129,7 @@ final class WallboardVideoConfigurationTest extends TestCase
         yield 'YouTube lookalike host' => ['https://www.youtube.com.attacker.example/watch?v=dQw4w9WgXcQ'];
         yield 'credentials in URL' => ['https://attacker@www.youtube.com/watch?v=dQw4w9WgXcQ'];
         yield 'non-standard port' => ['https://www.youtube.com:8443/watch?v=dQw4w9WgXcQ'];
-        yield 'unsupported YouTube Shorts path' => ['https://www.youtube.com/shorts/dQw4w9WgXcQ'];
+        yield 'extra YouTube Shorts path segment' => ['https://www.youtube.com/shorts/dQw4w9WgXcQ/attacker'];
         yield 'invalid YouTube id' => ['https://www.youtube.com/watch?v=too-short'];
         yield 'extra youtu.be path segment' => ['https://youtu.be/dQw4w9WgXcQ/embed'];
         yield 'non-numeric Vimeo id' => ['https://vimeo.com/not-a-video'];

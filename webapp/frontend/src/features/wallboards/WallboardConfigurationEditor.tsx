@@ -54,6 +54,7 @@ import {
   createWallboardPage,
   createWallboardTickerSource,
   normalizeWallboardNewsSources,
+  wallboardEffectivePageDuration,
   wallboardPageTypeLabel,
 } from './wallboardPresentation';
 
@@ -75,7 +76,7 @@ const PAGE_TYPE_OPTIONS: Array<{ value: WallboardPageType; label: string }> = [
   { value: 'summary', label: 'Samenvatting' },
   { value: 'message', label: 'Mededeling' },
   { value: 'news', label: 'Nieuws' },
-  { value: 'video', label: 'Promovideo' },
+  { value: 'video', label: 'Video' },
 ];
 
 const NEWS_SOURCE_OPTIONS: Array<{ value: WallboardNewsSource; label: string; description: string }> = [
@@ -456,7 +457,7 @@ export function WallboardConfigurationEditor({
               <button className="wallboard-page-sequence__select" type="button" onClick={() => setEditingPageId(page.id)} aria-current={editingPage.id === page.id ? 'step' : undefined}>
                 <span className="wallboard-page-sequence__number">{index + 1}</span>
                 <WallboardPageTypeIcon type={page.type} />
-                <span><strong>{page.name}</strong><small>{wallboardPageTypeLabel(page.type)} · {page.duration_seconds} sec.</small></span>
+                <span><strong>{page.name}</strong><small>{wallboardPageTypeLabel(page.type)} · {wallboardEffectivePageDuration(page)} sec.</small></span>
               </button>
               <span className="wallboard-page-sequence__actions">
                 <button type="button" onClick={() => movePage(page.id, -1)} disabled={index === 0} aria-label={`${page.name} omhoog verplaatsen`}><ArrowUp size={16} aria-hidden /></button>
@@ -601,10 +602,11 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
   const customNewsSources = Array.isArray(page.options.custom_sources) ? page.options.custom_sources : [];
   const selectedNewsSources = normalizeWallboardNewsSources(page.options.sources, true);
   const totalNewsSources = selectedNewsSources.length + customNewsSources.length;
+  const effectiveDurationSeconds = wallboardEffectivePageDuration(page);
 
   function updateType(type: WallboardPageType) {
     const previousDefaultTitle = wallboardPageTypeLabel(page.type);
-    onChange({
+    const nextPage: WallboardPage = {
       ...page,
       type,
       name: page.name === previousDefaultTitle ? wallboardPageTypeLabel(type) : page.name,
@@ -615,7 +617,16 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
           : type === 'video'
             ? { url: page.options.url ?? '' }
           : {},
-    });
+    };
+    onChange({ ...nextPage, duration_seconds: wallboardEffectivePageDuration(nextPage) });
+  }
+
+  function updateNewsOptions(update: Partial<WallboardPage['options']>) {
+    const nextPage: WallboardPage = {
+      ...page,
+      options: { ...page.options, ...update },
+    };
+    onChange({ ...nextPage, duration_seconds: wallboardEffectivePageDuration(nextPage) });
   }
 
   function toggleNewsSource(source: WallboardNewsSource, checked: boolean) {
@@ -680,17 +691,28 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
             {PAGE_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
-        <label>
-          <span>Tijd op scherm (seconden)</span>
-          <input
-            type="number"
-            min={MIN_WALLBOARD_PAGE_DURATION_SECONDS}
-            max={MAX_WALLBOARD_PAGE_DURATION_SECONDS}
-            value={page.duration_seconds}
-            onChange={(event) => onChange({ ...page, duration_seconds: clampWallboardPageDuration(Number(event.target.value)) })}
-            required
-          />
-        </label>
+        {page.type === 'news' ? (
+          <div className="wallboard-page-editor__derived-duration">
+            <span>Totale tijd in playlist</span>
+            <strong>{effectiveDurationSeconds} seconden</strong>
+            <small>
+              {clampWallboardNewsMaxItems(Number(page.options.max_items))} berichten ×{' '}
+              {clampWallboardNewsItemDuration(Number(page.options.item_duration_seconds))} seconden
+            </small>
+          </div>
+        ) : (
+          <label>
+            <span>Tijd op scherm (seconden)</span>
+            <input
+              type="number"
+              min={MIN_WALLBOARD_PAGE_DURATION_SECONDS}
+              max={MAX_WALLBOARD_PAGE_DURATION_SECONDS}
+              value={page.duration_seconds}
+              onChange={(event) => onChange({ ...page, duration_seconds: clampWallboardPageDuration(Number(event.target.value)) })}
+              required
+            />
+          </label>
+        )}
       </div>
 
       {page.type === 'message' ? (
@@ -817,12 +839,8 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
               min={MIN_WALLBOARD_NEWS_MAX_ITEMS}
               max={MAX_WALLBOARD_NEWS_MAX_ITEMS}
               value={clampWallboardNewsMaxItems(Number(page.options.max_items))}
-              onChange={(event) => onChange({
-                ...page,
-                options: {
-                  ...page.options,
-                  max_items: clampWallboardNewsMaxItems(Number(event.target.value)),
-                },
+              onChange={(event) => updateNewsOptions({
+                max_items: clampWallboardNewsMaxItems(Number(event.target.value)),
               })}
               required
             />
@@ -835,16 +853,12 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
               min={MIN_WALLBOARD_NEWS_ITEM_DURATION_SECONDS}
               max={MAX_WALLBOARD_NEWS_ITEM_DURATION_SECONDS}
               value={clampWallboardNewsItemDuration(Number(page.options.item_duration_seconds))}
-              onChange={(event) => onChange({
-                ...page,
-                options: {
-                  ...page.options,
-                  item_duration_seconds: clampWallboardNewsItemDuration(Number(event.target.value)),
-                },
+              onChange={(event) => updateNewsOptions({
+                item_duration_seconds: clampWallboardNewsItemDuration(Number(event.target.value)),
               })}
               required
             />
-            <small>Elk artikel wisselt automatisch met een rustige overgang; de paginatijd hierboven bepaalt wanneer de playlist verdergaat.</small>
+            <small>Elk artikel wisselt automatisch met een rustige overgang; de totale paginatijd wordt automatisch berekend.</small>
           </label>
         </fieldset>
       ) : (

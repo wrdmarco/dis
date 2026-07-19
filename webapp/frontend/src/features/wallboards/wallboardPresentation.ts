@@ -207,6 +207,15 @@ export function clampWallboardNewsItemDuration(value: number): number {
   );
 }
 
+export function wallboardEffectivePageDuration(page: Pick<WallboardPage, 'type' | 'duration_seconds' | 'options'>): number {
+  if (page.type !== 'news') return clampWallboardPageDuration(page.duration_seconds);
+
+  return clampWallboardPageDuration(
+    clampWallboardNewsMaxItems(Number(page.options.max_items))
+      * clampWallboardNewsItemDuration(Number(page.options.item_duration_seconds)),
+  );
+}
+
 export function normalizeWallboardNewsSources(value: unknown, allowEmpty = false): WallboardNewsSource[] {
   if (!Array.isArray(value)) return [...DEFAULT_WALLBOARD_NEWS_SOURCES];
 
@@ -259,8 +268,7 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
   const suffix = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : `${Date.now()}-${sequence}`;
-
-  return {
+  const page: WallboardPage = {
     id: `page-${suffix}`,
     type,
     name: wallboardPageTypeLabel(type),
@@ -278,6 +286,8 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
           ? { url: '' }
         : {},
   };
+
+  return { ...page, duration_seconds: wallboardEffectivePageDuration(page) };
 }
 
 export function createWallboardTickerSource(
@@ -306,7 +316,7 @@ export function wallboardPageTypeLabel(type: WallboardPageType): string {
     case 'summary': return 'Operationele samenvatting';
     case 'message': return 'Mededeling';
     case 'news': return 'Dronenieuws';
-    case 'video': return 'Promovideo';
+    case 'video': return 'Video';
   }
 }
 
@@ -489,11 +499,11 @@ function normalizeWallboardPage(
       ? legacyPage.title.trim()
     : wallboardPageTypeLabel(type);
 
-  return {
+  const normalizedPage: WallboardPage = {
     id,
     type,
     name,
-    duration_seconds: clampWallboardPageDuration(page.duration_seconds),
+    duration_seconds: page.duration_seconds,
     options: type === 'message'
       ? { body: typeof page.options?.body === 'string' ? page.options.body : '' }
       : type === 'news'
@@ -501,6 +511,11 @@ function normalizeWallboardPage(
         : type === 'video'
           ? { url: typeof page.options?.url === 'string' ? (normalizeWallboardVideoUrl(page.options.url) ?? page.options.url.trim()) : '' }
         : {},
+  };
+
+  return {
+    ...normalizedPage,
+    duration_seconds: wallboardEffectivePageDuration(normalizedPage),
   };
 }
 
@@ -523,7 +538,8 @@ export function normalizeWallboardVideoUrl(value: string): string | null {
     if (['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(host)) {
       const watchId = url.pathname === '/watch' ? url.searchParams.get('v') : null;
       const embedMatch = /^\/embed\/([A-Za-z0-9_-]{11})\/?$/.exec(url.pathname);
-      const videoId = watchId ?? embedMatch?.[1] ?? null;
+      const shortsMatch = /^\/shorts\/([A-Za-z0-9_-]{11})\/?$/.exec(url.pathname);
+      const videoId = watchId ?? embedMatch?.[1] ?? shortsMatch?.[1] ?? null;
       return videoId !== null && /^[A-Za-z0-9_-]{11}$/.test(videoId)
         ? `https://www.youtube.com/embed/${videoId}`
         : null;

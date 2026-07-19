@@ -116,6 +116,7 @@ export function WallboardDisplayPage() {
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [pairingStartGeneration, setPairingStartGeneration] = useState(0);
   const [pollGeneration, setPollGeneration] = useState(0);
+  const [controlPollGeneration, setControlPollGeneration] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
   const [clock, setClock] = useState(() => Date.now());
   const connectionError = controlError ?? stateError;
@@ -338,7 +339,7 @@ export function WallboardDisplayPage() {
       cancelled = true;
       if (timer !== null) clearTimeout(timer);
     };
-  }, [hasPairedState, observeRefreshVersion]);
+  }, [controlPollGeneration, hasPairedState, observeRefreshVersion]);
 
   useEffect(() => {
     if (!hasPairedState) return undefined;
@@ -393,19 +394,94 @@ export function WallboardDisplayPage() {
     };
   }, [fullscreen, requestWakeLock]);
 
+  const requestWallboardFullscreen = useCallback(async (): Promise<boolean> => {
+    const root = rootRef.current;
+    if (root === null || typeof root.requestFullscreen !== 'function') return false;
+    if (document.fullscreenElement === root) {
+      await requestWakeLock();
+      return true;
+    }
+    if (document.fullscreenElement !== null) return false;
+
+    try {
+      await root.requestFullscreen({ navigationUI: 'hide' });
+      await requestWakeLock();
+      return document.fullscreenElement === root;
+    } catch {
+      // Browsers normally require a user gesture. The first interaction below
+      // retries while it still carries that activation.
+      return false;
+    }
+  }, [requestWakeLock]);
+
+  useEffect(() => {
+    let active = true;
+
+    const detachFallbacks = () => {
+      document.removeEventListener('pointerdown', onFirstPointerDown, true);
+      document.removeEventListener('keydown', onFirstKeyDown, true);
+      document.removeEventListener('fullscreenchange', onFullscreenEntered);
+    };
+    const attemptFullscreen = () => {
+      if (!active) return;
+      void requestWallboardFullscreen().then((succeeded) => {
+        if (active && succeeded) detachFallbacks();
+      });
+    };
+    function onFirstPointerDown(event: PointerEvent) {
+      if (event.target instanceof Element && event.target.closest('[data-wallboard-fullscreen-toggle]') !== null) return;
+      attemptFullscreen();
+    }
+    function onFirstKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') return;
+      attemptFullscreen();
+    }
+    function onFullscreenEntered() {
+      if (document.fullscreenElement === rootRef.current) detachFallbacks();
+    }
+
+    document.addEventListener('pointerdown', onFirstPointerDown, true);
+    document.addEventListener('keydown', onFirstKeyDown, true);
+    document.addEventListener('fullscreenchange', onFullscreenEntered);
+    attemptFullscreen();
+
+    return () => {
+      active = false;
+      detachFallbacks();
+    };
+  }, [requestWallboardFullscreen]);
+
   async function toggleFullscreen() {
     if (document.fullscreenElement === rootRef.current) {
       await document.exitFullscreen().catch(() => undefined);
       await wakeLockRef.current?.release().catch(() => undefined);
       return;
     }
-    await rootRef.current?.requestFullscreen().catch(() => undefined);
-    await requestWakeLock();
+    await requestWallboardFullscreen();
   }
+
+  const runtimeControl = state === null ? null : (control ?? controlFromState(state));
+  const deadlineControl = runtimeControl === null || hasLiveFeed || runtimeControl.focus === undefined
+    ? runtimeControl
+    : { ...runtimeControl, focus: null };
+  const deadlinePhase = wallboardControlDeadlinePhase(deadlineControl);
+  const deadlineDurationMilliseconds = useMemo(
+    () => wallboardDeadlineDurationMilliseconds(deadlinePhase?.deadlineAt ?? null),
+    [deadlinePhase?.deadlineAt],
+  );
+  const refreshExpiredDeadline = useCallback(() => {
+    setControlPollGeneration((current) => current + 1);
+  }, []);
+  const deadlineCountdown = usePausableWallboardDeadline(
+    deadlinePhase?.key ?? null,
+    deadlineDurationMilliseconds,
+    hasLiveFeed,
+    refreshExpiredDeadline,
+  );
 
   if (sessionStatus === 'checking' && state === null) {
     return (
-      <main className="wallboard-pairing-screen" aria-busy="true">
+      <main className="wallboard-pairing-screen" aria-busy="true" ref={rootRef}>
         <Loader2 className="spin" size={28} aria-hidden />
         <strong>Wallboard controleren</strong>
         <span>Beveiligde schermkoppeling wordt geladen.</span>
@@ -417,7 +493,7 @@ export function WallboardDisplayPage() {
     const codeGroups = pairingRequest === null ? [] : pairingCodeGroups(pairingRequest.code);
     const secondsRemaining = pairingRequest?.expires_at ? pairingSecondsRemaining(pairingRequest.expires_at, clock) : null;
     return (
-      <main className="wallboard-pairing-screen">
+      <main className="wallboard-pairing-screen" ref={rootRef}>
         <section className="wallboard-pairing-card" aria-labelledby="wallboard-pairing-title" aria-busy={pairingRequest === null && pairingError === null}>
           <span className="wallboard-pairing-card__icon"><MonitorUp size={30} aria-hidden /></span>
           <span className="eyebrow">DIS Wallboard</span>
@@ -453,7 +529,7 @@ export function WallboardDisplayPage() {
 
   if (state === null || presentation === null) return null;
   const configuration = state.wallboard.configuration;
-  const effectiveControl = control ?? controlFromState(state);
+  const effectiveControl = runtimeControl ?? controlFromState(state);
   const maintenance = wallboardMaintenanceNoticeIsActive(effectiveControl.maintenance, clock)
     ? normalizeWallboardMaintenanceNotice(effectiveControl.maintenance)
     : null;
@@ -466,7 +542,7 @@ export function WallboardDisplayPage() {
     ?? configuration.pages.find((page) => page.id === display.page_id)
     ?? configuration.pages[0];
   const currentPageIndex = configuration.pages.findIndex((page) => page.id === currentPage.id);
-  const nextSwitchLabel = wallboardNextSwitchLabel(focus, display, clock);
+  const nextSwitchLabel = wallboardNextSwitchLabel(focus, display, clock, deadlineCountdown);
   const transientAlert = hasLiveFeed && effectiveControl.focus === undefined
     ? effectiveControl.transient_alert
     : null;
@@ -526,7 +602,7 @@ export function WallboardDisplayPage() {
           <button className="wallboard-display__control" type="button" onClick={() => setPollGeneration((current) => current + 1)} aria-label="Wallboard nu vernieuwen">
             <RefreshCw size={18} aria-hidden />
           </button>
-          <button className="wallboard-display__control" type="button" onClick={() => void toggleFullscreen()} aria-label={fullscreen ? 'Volledig scherm verlaten' : 'Volledig scherm openen'}>
+          <button className="wallboard-display__control" type="button" data-wallboard-fullscreen-toggle onClick={() => void toggleFullscreen()} aria-label={fullscreen ? 'Volledig scherm verlaten' : 'Volledig scherm openen'}>
             <Expand size={18} aria-hidden />
             <span>{fullscreen ? 'Scherm verlaten' : 'Volledig scherm'}</span>
           </button>
@@ -628,6 +704,7 @@ function WallboardPageContent({ page, state, presentation, hasLiveFeed }: Wallbo
       <WallboardNewsPage
         page={page}
         news={state.news.pages[page.id] ?? { items: [], fallback_used: false, lookback_days: 7 }}
+        running={hasLiveFeed}
       />
     );
   }
@@ -709,7 +786,7 @@ function WallboardVideoPage({ page }: { page: WallboardPage }) {
   if (embedUrl === null) {
     return (
       <div className="wallboard-display__video wallboard-display__video--invalid" role="status">
-        <span className="eyebrow">Promovideo</span>
+        <span className="eyebrow">Video</span>
         <h2>{page.name}</h2>
         <p>Deze video is niet geldig geconfigureerd.</p>
       </div>
@@ -723,42 +800,30 @@ function WallboardVideoPage({ page }: { page: WallboardPage }) {
         title={page.name}
         allow="autoplay; fullscreen; picture-in-picture"
         sandbox="allow-scripts allow-same-origin allow-presentation"
-        referrerPolicy="no-referrer"
+        referrerPolicy="strict-origin-when-cross-origin"
         allowFullScreen
       />
     </div>
   );
 }
 
-function WallboardNewsPage({ page, news }: { page: WallboardPage; news: WallboardNewsPageState }) {
+function WallboardNewsPage({
+  page,
+  news,
+  running,
+}: {
+  page: WallboardPage;
+  news: WallboardNewsPageState;
+  running: boolean;
+}) {
   const itemDurationSeconds = clampWallboardNewsItemDuration(Number(page.options.item_duration_seconds));
   const itemSignature = news.items.map((item) => item.id).join('|');
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  useEffect(() => {
-    const itemCount = news.items.length;
-    if (itemCount <= 1) {
-      setActiveIndex(0);
-      return undefined;
-    }
-
-    const intervalMilliseconds = itemDurationSeconds * 1000;
-    let intervalId: number | undefined;
-    const updateIndex = () => setActiveIndex(
-      wallboardNewsCarouselIndex(itemCount, itemDurationSeconds),
-    );
-    updateIndex();
-    const delayUntilNextItem = intervalMilliseconds - (Date.now() % intervalMilliseconds);
-    const timeoutId = window.setTimeout(() => {
-      updateIndex();
-      intervalId = window.setInterval(updateIndex, intervalMilliseconds);
-    }, delayUntilNextItem);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-      if (intervalId !== undefined) window.clearInterval(intervalId);
-    };
-  }, [itemDurationSeconds, itemSignature, news.items.length]);
+  const activeIndex = usePausableWallboardCarousel(
+    itemSignature,
+    news.items.length,
+    itemDurationSeconds * 1000,
+    running,
+  );
 
   if (news.items.length === 0) {
     return (
@@ -788,7 +853,9 @@ function WallboardNewsPage({ page, news }: { page: WallboardPage; news: Wallboar
       </header>
 
       <div
-        className="wallboard-display__news-carousel"
+        className={running
+          ? 'wallboard-display__news-carousel'
+          : 'wallboard-display__news-carousel wallboard-display__news-carousel--paused'}
         style={{ '--wallboard-news-item-duration': `${itemDurationSeconds}s` } as CSSProperties}
       >
         <NewsArticle item={activeItem} key={`${activeItem.id}:${safeIndex}`} />
@@ -846,6 +913,135 @@ function NewsArticle({ item }: { item: WallboardNewsItem }) {
   );
 }
 
+export function usePausableWallboardCarousel(
+  itemSignature: string,
+  itemCount: number,
+  itemDurationMilliseconds: number,
+  running: boolean,
+): number {
+  const safeItemCount = Number.isFinite(itemCount) ? Math.max(0, Math.floor(itemCount)) : 0;
+  const safeDurationMilliseconds = Number.isFinite(itemDurationMilliseconds)
+    ? Math.max(1, Math.round(itemDurationMilliseconds))
+    : 1;
+  const safeDurationSeconds = Math.max(1, Math.ceil(safeDurationMilliseconds / 1000));
+  const [activeIndex, setActiveIndex] = useState(() => wallboardNewsCarouselIndex(
+    safeItemCount,
+    safeDurationSeconds,
+  ));
+
+  useEffect(() => {
+    if (safeItemCount <= 1) {
+      setActiveIndex(0);
+      return undefined;
+    }
+    if (!running) return undefined;
+
+    const updateIndex = () => setActiveIndex(wallboardNewsCarouselIndex(
+      safeItemCount,
+      safeDurationSeconds,
+    ));
+    updateIndex();
+    const delayUntilNextItem = safeDurationMilliseconds - (Date.now() % safeDurationMilliseconds);
+    let intervalId: number | undefined;
+    const timeoutId = window.setTimeout(() => {
+      updateIndex();
+      intervalId = window.setInterval(updateIndex, safeDurationMilliseconds);
+    }, delayUntilNextItem);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+    };
+  }, [itemSignature, running, safeDurationMilliseconds, safeDurationSeconds, safeItemCount]);
+
+  return safeItemCount <= 0 ? 0 : activeIndex % safeItemCount;
+}
+
+interface WallboardDeadlineCountdown {
+  phaseKey: string | null;
+  remainingSeconds: number | null;
+  transitionPending: boolean;
+}
+
+function usePausableWallboardDeadline(
+  phaseKey: string | null,
+  durationMilliseconds: number | null,
+  running: boolean,
+  onDeadline: () => void,
+): WallboardDeadlineCountdown {
+  const safeDurationMilliseconds = durationMilliseconds === null || !Number.isFinite(durationMilliseconds)
+    ? null
+    : Math.max(0, Math.ceil(durationMilliseconds));
+  const remainingMillisecondsRef = useRef<number | null>(safeDurationMilliseconds);
+  const callbackRef = useRef(onDeadline);
+  const firedPhaseRef = useRef<string | null>(null);
+  const [runtime, setRuntime] = useState<{ phaseKey: string | null; remainingMilliseconds: number | null }>(() => ({
+    phaseKey,
+    remainingMilliseconds: safeDurationMilliseconds,
+  }));
+
+  useEffect(() => {
+    callbackRef.current = onDeadline;
+  }, [onDeadline]);
+
+  useEffect(() => {
+    remainingMillisecondsRef.current = safeDurationMilliseconds;
+    firedPhaseRef.current = null;
+    setRuntime({ phaseKey, remainingMilliseconds: safeDurationMilliseconds });
+  }, [phaseKey, safeDurationMilliseconds]);
+
+  useEffect(() => {
+    if (!running) {
+      setRuntime((current) => current.phaseKey === phaseKey
+        ? { ...current, remainingMilliseconds: remainingMillisecondsRef.current }
+        : current);
+      return undefined;
+    }
+    if (phaseKey === null || safeDurationMilliseconds === null) return undefined;
+
+    const remainingMilliseconds = remainingMillisecondsRef.current ?? safeDurationMilliseconds;
+    if (remainingMilliseconds <= 0) {
+      if (firedPhaseRef.current !== phaseKey) {
+        firedPhaseRef.current = phaseKey;
+        callbackRef.current();
+      }
+      return undefined;
+    }
+
+    const startedAt = performance.now();
+    const tickDelay = wallboardDeadlineTickDelayMilliseconds(remainingMilliseconds);
+    let completed = false;
+    const timeoutId = window.setTimeout(() => {
+      completed = true;
+      const nextRemaining = Math.max(0, remainingMilliseconds - (performance.now() - startedAt));
+      remainingMillisecondsRef.current = nextRemaining;
+      setRuntime({ phaseKey, remainingMilliseconds: nextRemaining });
+      if (nextRemaining <= 0 && firedPhaseRef.current !== phaseKey) {
+        firedPhaseRef.current = phaseKey;
+        callbackRef.current();
+      }
+    }, tickDelay);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (completed) return;
+      remainingMillisecondsRef.current = wallboardCarouselRemainingMilliseconds(
+        remainingMilliseconds,
+        performance.now() - startedAt,
+      );
+    };
+  }, [phaseKey, running, runtime.remainingMilliseconds, safeDurationMilliseconds]);
+
+  const visibleRemaining = runtime.phaseKey === phaseKey
+    ? runtime.remainingMilliseconds
+    : safeDurationMilliseconds;
+  return {
+    phaseKey,
+    remainingSeconds: wallboardDeadlineRemainingSeconds(visibleRemaining),
+    transitionPending: phaseKey !== null && visibleRemaining !== null && visibleRemaining <= 0,
+  };
+}
+
 export function wallboardNewsCarouselIndex(
   itemCount: number,
   itemDurationSeconds: number,
@@ -854,6 +1050,32 @@ export function wallboardNewsCarouselIndex(
   if (!Number.isFinite(itemCount) || itemCount <= 1 || !Number.isFinite(now) || now < 0) return 0;
   const duration = clampWallboardNewsItemDuration(itemDurationSeconds);
   return Math.floor(now / (duration * 1000)) % Math.floor(itemCount);
+}
+
+export function wallboardCarouselRemainingMilliseconds(remainingMilliseconds: number, elapsedMilliseconds: number): number {
+  const remaining = Number.isFinite(remainingMilliseconds) ? Math.max(1, remainingMilliseconds) : 1;
+  const elapsed = Number.isFinite(elapsedMilliseconds) ? Math.max(0, elapsedMilliseconds) : 0;
+  return Math.max(1, Math.ceil(remaining - elapsed));
+}
+
+export function wallboardDeadlineDurationMilliseconds(
+  deadlineAt: string | null,
+  now: number = Date.now(),
+): number | null {
+  if (deadlineAt === null || !Number.isFinite(now)) return null;
+  const deadline = Date.parse(deadlineAt);
+  return Number.isFinite(deadline) ? Math.max(0, deadline - now) : null;
+}
+
+export function wallboardDeadlineRemainingSeconds(remainingMilliseconds: number | null): number | null {
+  if (remainingMilliseconds === null || !Number.isFinite(remainingMilliseconds) || remainingMilliseconds <= 0) return null;
+  return Math.max(1, Math.ceil(remainingMilliseconds / 1000));
+}
+
+export function wallboardDeadlineTickDelayMilliseconds(remainingMilliseconds: number): number {
+  if (!Number.isFinite(remainingMilliseconds) || remainingMilliseconds <= 0) return 0;
+  const visibleSeconds = Math.max(1, Math.ceil(remainingMilliseconds / 1000));
+  return Math.max(1, Math.ceil(remainingMilliseconds - ((visibleSeconds - 1) * 1000)));
 }
 
 function FocusTakeover({
@@ -1713,19 +1935,50 @@ function wallboardFocusSignature(focus: WallboardFocusState | null | undefined):
   return [focus.kind, focus.focus_id, focus.visible ? 'focus' : 'playlist', focus.playlist_page_id ?? 'none'].join(':');
 }
 
+function wallboardControlDeadlinePhase(control: WallboardControlState | null): { key: string; deadlineAt: string } | null {
+  if (control === null) return null;
+  if (control.focus !== undefined && control.focus !== null) {
+    const deadlineAt = control.focus.next_change_at ?? control.focus.expires_at;
+    if (!deadlineAt) return null;
+    return {
+      key: `focus:${control.config_version}:${control.control_version}:${wallboardFocusSignature(control.focus)}:${deadlineAt}`,
+      deadlineAt,
+    };
+  }
+  if (control.display.mode !== 'rotation' || !control.display.next_change_at) return null;
+  return {
+    key: `display:${control.config_version}:${control.control_version}:${control.display.page_id}:${control.display.next_change_at}`,
+    deadlineAt: control.display.next_change_at,
+  };
+}
+
 function wallboardNextSwitchLabel(
   focus: WallboardFocusState | null,
   display: WallboardControlState['display'],
   now: number,
+  countdown: WallboardDeadlineCountdown,
 ): string {
   if (focus !== null) {
     const deadline = focus.next_change_at ?? focus.expires_at;
     if (!deadline) return focus.visible ? 'Focusscherm actief' : 'Alarmplaylist actief';
-    return `${focus.visible ? 'Playlist' : 'Focusscherm'} over ${formatRemaining(deadline, now)}`;
+    return countdown.transitionPending
+      ? `${focus.visible ? 'Playlist' : 'Focusscherm'} wisselen...`
+      : `${focus.visible ? 'Playlist' : 'Focusscherm'} over ${formatDeadlineCountdown(countdown, deadline, now)}`;
   }
   return display.mode === 'rotation' && display.next_change_at
-    ? `Volgende pagina over ${formatRemaining(display.next_change_at, now)}`
+    ? countdown.transitionPending
+      ? 'Volgende pagina laden...'
+      : `Volgende pagina over ${formatDeadlineCountdown(countdown, display.next_change_at, now)}`
     : displayModeLabel(display.mode);
+}
+
+function formatDeadlineCountdown(countdown: WallboardDeadlineCountdown, fallbackDeadline: string, now: number): string {
+  const remainingSeconds = countdown.remainingSeconds;
+  if (remainingSeconds === null) return formatRemaining(fallbackDeadline, now);
+  if (remainingSeconds < 60) return `${remainingSeconds} sec.`;
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = remainingSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')} min.`;
 }
 
 function focusDisplayModeLabel(focus: WallboardFocusState): string {

@@ -321,6 +321,7 @@ final class WallboardConfiguration
                     'max_items' => $maximumItems,
                     'item_duration_seconds' => $itemDurationSeconds,
                 ];
+                $durationSeconds = $maximumItems * $itemDurationSeconds;
             } elseif (in_array($type, ['incident_list', 'summary'], true)) {
                 // The legacy option is accepted above for lossless upgrades, but no longer has effect.
                 $options = [];
@@ -589,6 +590,8 @@ final class WallboardConfiguration
                 parse_str((string) ($parts['query'] ?? ''), $query);
                 $videoId = is_string($query['v'] ?? null) ? $query['v'] : null;
             } elseif (preg_match('#^/embed/([A-Za-z0-9_-]{11})/?$#D', $path, $matches) === 1) {
+                $videoId = $matches[1];
+            } elseif (preg_match('#^/shorts/([A-Za-z0-9_-]{11})/?$#D', $path, $matches) === 1) {
                 $videoId = $matches[1];
             }
 
