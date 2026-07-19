@@ -64,7 +64,10 @@ import {
   wallboardVideoDurationFromOptions,
 } from './wallboardPresentation';
 import { WallboardRichTextEditor } from './WallboardRichTextEditor';
-import { WallboardPhotoPageEditor } from './WallboardPhotoPageEditor';
+import {
+  WallboardPhotoPageEditor,
+  type WallboardPhotoPlaylistSource,
+} from './WallboardPhotoPageEditor';
 import { SecondsStepper } from './SecondsStepper';
 import { WallboardVideoInspectionControl } from './WallboardVideoInspectionControl';
 import { formatWallboardVideoDuration } from './wallboardVideoInspection';
@@ -134,16 +137,21 @@ interface WallboardConfigurationEditorProps {
   idPrefix: string;
   configuration: WallboardConfiguration;
   setConfiguration: Dispatch<SetStateAction<WallboardConfiguration>>;
+  photoPlaylists: WallboardPhotoPlaylistSource;
 }
 
 export function WallboardConfigurationEditor({
   idPrefix,
   configuration,
   setConfiguration,
+  photoPlaylists,
 }: WallboardConfigurationEditorProps) {
   const [newPageType, setNewPageType] = useState<WallboardPageType>('map');
   const [editingPageId, setEditingPageId] = useState(() => configuration.pages[0].id);
   const editingPage = configuration.pages.find((page) => page.id === editingPageId) ?? configuration.pages[0];
+  const photoPlaylistIds = photoPlaylists.playlists === null
+    ? null
+    : new Set(photoPlaylists.playlists.map((playlist) => playlist.id));
 
   useEffect(() => {
     if (!configuration.pages.some((page) => page.id === editingPageId)) {
@@ -476,23 +484,36 @@ export function WallboardConfigurationEditor({
         </div>
 
         <ol className="wallboard-page-sequence">
-          {configuration.pages.map((page, index) => (
-            <li className={editingPage.id === page.id ? 'wallboard-page-sequence__item wallboard-page-sequence__item--active' : 'wallboard-page-sequence__item'} key={page.id}>
-              <button className="wallboard-page-sequence__select" type="button" onClick={() => setEditingPageId(page.id)} aria-current={editingPage.id === page.id ? 'step' : undefined}>
-                <span className="wallboard-page-sequence__number">{index + 1}</span>
-                <WallboardPageTypeIcon type={page.type} />
-                <span><strong>{page.name}</strong><small>{wallboardPageTypeLabel(page.type)} · {wallboardEffectivePageDuration(page)} sec.</small></span>
-              </button>
-              <span className="wallboard-page-sequence__actions">
-                <button type="button" onClick={() => movePage(page.id, -1)} disabled={index === 0} aria-label={`${page.name} omhoog verplaatsen`}><ArrowUp size={16} aria-hidden /></button>
-                <button type="button" onClick={() => movePage(page.id, 1)} disabled={index === configuration.pages.length - 1} aria-label={`${page.name} omlaag verplaatsen`}><ArrowDown size={16} aria-hidden /></button>
-                <button type="button" onClick={() => removePage(page.id)} disabled={configuration.pages.length <= 1} aria-label={`${page.name} verwijderen`}><Trash2 size={16} aria-hidden /></button>
-              </span>
-            </li>
-          ))}
+          {configuration.pages.map((page, index) => {
+            const missingPhotoPlaylist = page.type === 'photo_carousel'
+              && photoPlaylistIds !== null
+              && typeof page.options.media_playlist_id === 'string'
+              && page.options.media_playlist_id.trim() !== ''
+              && !photoPlaylistIds.has(page.options.media_playlist_id.trim());
+            const itemClassName = [
+              'wallboard-page-sequence__item',
+              editingPage.id === page.id ? 'wallboard-page-sequence__item--active' : '',
+              missingPhotoPlaylist ? 'wallboard-page-sequence__item--invalid' : '',
+            ].filter(Boolean).join(' ');
+
+            return (
+              <li className={itemClassName} key={page.id}>
+                <button className="wallboard-page-sequence__select" type="button" onClick={() => setEditingPageId(page.id)} aria-current={editingPage.id === page.id ? 'step' : undefined}>
+                  <span className="wallboard-page-sequence__number">{index + 1}</span>
+                  <WallboardPageTypeIcon type={page.type} />
+                  <span><strong>{page.name}</strong><small>{missingPhotoPlaylist ? 'Fotoplaylist ontbreekt - kies opnieuw' : `${wallboardPageTypeLabel(page.type)} · ${wallboardEffectivePageDuration(page)} sec.`}</small></span>
+                </button>
+                <span className="wallboard-page-sequence__actions">
+                  <button type="button" onClick={() => movePage(page.id, -1)} disabled={index === 0} aria-label={`${page.name} omhoog verplaatsen`}><ArrowUp size={16} aria-hidden /></button>
+                  <button type="button" onClick={() => movePage(page.id, 1)} disabled={index === configuration.pages.length - 1} aria-label={`${page.name} omlaag verplaatsen`}><ArrowDown size={16} aria-hidden /></button>
+                  <button type="button" onClick={() => removePage(page.id)} disabled={configuration.pages.length <= 1} aria-label={`${page.name} verwijderen`}><Trash2 size={16} aria-hidden /></button>
+                </span>
+              </li>
+            );
+          })}
         </ol>
 
-        <WallboardPageEditor page={editingPage} onChange={(next) => updatePage(editingPage.id, () => next)} />
+        <WallboardPageEditor page={editingPage} photoPlaylists={photoPlaylists} onChange={(next) => updatePage(editingPage.id, () => next)} />
       </section>
 
       <section className="wallboard-focus-editor" aria-labelledby={`${idPrefix}-focus-title`}>
@@ -620,7 +641,15 @@ function WallboardFocusConfigurationCard({
   );
 }
 
-function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange: (page: WallboardPage) => void }) {
+function WallboardPageEditor({
+  page,
+  photoPlaylists,
+  onChange,
+}: {
+  page: WallboardPage;
+  photoPlaylists: WallboardPhotoPlaylistSource;
+  onChange: (page: WallboardPage) => void;
+}) {
   const customNewsSources = Array.isArray(page.options.custom_sources) ? page.options.custom_sources : [];
   const selectedNewsSources = normalizeWallboardNewsSources(page.options.sources, true);
   const totalNewsSources = selectedNewsSources.length + customNewsSources.length;
@@ -813,6 +842,7 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
       ) : page.type === 'photo_carousel' ? (
         <WallboardPhotoPageEditor
           idPrefix={`wallboard-photo-${page.id}`}
+          source={photoPlaylists}
           value={{
             media_playlist_id: page.options.media_playlist_id,
             item_duration_seconds: page.options.item_duration_seconds,

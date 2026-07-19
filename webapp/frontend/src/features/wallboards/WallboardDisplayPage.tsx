@@ -88,9 +88,10 @@ const WALLBOARD_CLOCK_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
   timeZone: WALLBOARD_TIME_ZONE,
 });
 const WALLBOARD_DATE_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
-  weekday: 'short',
+  weekday: 'long',
   day: 'numeric',
-  month: 'short',
+  month: 'long',
+  year: 'numeric',
   timeZone: WALLBOARD_TIME_ZONE,
 });
 const RECENT_INCIDENT_TIME_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
@@ -2170,7 +2171,7 @@ export function formatWallboardClock(value: number): string {
   return Number.isFinite(date.getTime()) ? WALLBOARD_CLOCK_FORMATTER.format(date) : '--:--:--';
 }
 
-function formatWallboardDate(value: number): string {
+export function formatWallboardDate(value: number): string {
   const date = new Date(value);
   return Number.isFinite(date.getTime()) ? WALLBOARD_DATE_FORMATTER.format(date) : 'Datum onbekend';
 }

@@ -11,6 +11,7 @@ import type {
 } from '../src/types/api';
 import {
   formatWallboardClock,
+  formatWallboardDate,
   normalizeWallboardMaintenanceNotice,
   normalizeWallboardNewsState,
   normalizeWallboardState,
@@ -46,6 +47,7 @@ import {
   requestedWallboardScreenSelection,
   selectRecentWallboardIncidents,
   wallboardConfigurationCopy,
+  wallboardConfigurationHasInvalidPhotoCarousels,
   wallboardConfigurationHasUnverifiedVideos,
   wallboardDisplayProfileLabel,
   wallboardEffectivePageDuration,
@@ -682,6 +684,60 @@ test('formats a seconds clock in the wallboard timezone', () => {
   expect(formatWallboardClock(Number.NaN)).toBe('--:--:--');
 });
 
+test('formats the complete wallboard date in the wallboard timezone', () => {
+  expect(formatWallboardDate(Date.parse('2026-07-19T10:00:05Z'))).toBe('zondag 19 juli 2026');
+  expect(formatWallboardDate(Date.parse('2026-07-18T22:30:00Z'))).toBe('zondag 19 juli 2026');
+  expect(formatWallboardDate(Number.NaN)).toBe('Datum onbekend');
+});
+
+test('renders the news flip option as a visible three-dimensional card turn', async ({ page }) => {
+  const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.setContent(`
+    <style>${styles}</style>
+    <div class="wallboard-display__news-carousel">
+      <article class="wallboard-display__news-article wallboard-display__news-article--transition-flip">
+        Nieuwsbericht
+      </article>
+    </div>
+  `);
+
+  const animation = await page.locator('.wallboard-display__news-article').evaluate((element) => {
+    const computed = getComputedStyle(element);
+    const effect = element.getAnimations()[0]?.effect as KeyframeEffect | undefined;
+    return {
+      animationName: computed.animationName,
+      duration: computed.animationDuration,
+      keyframes: effect?.getKeyframes().map((keyframe) => String(keyframe.transform ?? '')) ?? [],
+      perspective: getComputedStyle(element.parentElement!).perspective,
+    };
+  });
+
+  expect(animation.animationName).toBe('wallboard-news-story-flip');
+  expect(animation.duration).toBe('0.72s');
+  expect(animation.perspective).toBe('1800px');
+  expect(animation.keyframes[0]).toContain('rotateY(-180deg)');
+  expect(animation.keyframes.at(-1)).toContain('rotateY(0deg)');
+});
+
+test('marks a missing photo playlist only after the authoritative media list is loaded', () => {
+  const mediaPlaylistId = '01KXT8SBRPMQM7X2ARSMFFEMFF';
+  const configuration: WallboardConfiguration = {
+    ...wallboardConfigurationCopy(DEFAULT_WALLBOARD_CONFIGURATION),
+    pages: [{
+      id: 'photo-page',
+      type: 'photo_carousel',
+      name: 'Foto-overzicht',
+      duration_seconds: 60,
+      options: { media_playlist_id: mediaPlaylistId, item_duration_seconds: 12 },
+    }],
+  };
+
+  expect(wallboardConfigurationHasInvalidPhotoCarousels(configuration)).toBe(false);
+  expect(wallboardConfigurationHasInvalidPhotoCarousels(configuration, new Set([mediaPlaylistId]))).toBe(false);
+  expect(wallboardConfigurationHasInvalidPhotoCarousels(configuration, new Set())).toBe(true);
+});
+
 test('creates bounded ticker sources and readable motion timing', () => {
   const rss = createWallboardTickerSource('rss', 1);
   const internal = createWallboardTickerSource('internal', 2);
@@ -1296,7 +1352,14 @@ test('selects only the newly created wallboard requested by the return URL', () 
 
 test('keeps explicit screen profiles fluid at Full HD and Ultra HD viewports', async ({ page }) => {
   const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
-  const measurements: Array<{ overflow: boolean; titleFontSize: number; profile: string | undefined }> = [];
+  const measurements: Array<{
+    dateFontSize: number;
+    dateOverflow: boolean;
+    dateWhiteSpace: string;
+    overflow: boolean;
+    titleFontSize: number;
+    profile: string | undefined;
+  }> = [];
   const cases = [
     { profile: '1080p', width: 1920, height: 1080 },
     { profile: '4k', width: 3840, height: 2160 },
@@ -1317,7 +1380,7 @@ test('keeps explicit screen profiles fluid at Full HD and Ultra HD viewports', a
             <span class="wallboard-display__mode">Automatische rotatie</span>
           </div>
           <div class="wallboard-display__controls">
-            <time class="wallboard-display__clock"><span>12:34:56</span><small>zondag 19 juli</small></time>
+            <time class="wallboard-display__clock"><span>12:34:56</span><small>woensdag 30 september 2026</small></time>
             <button class="wallboard-display__control" type="button">Volledig scherm</button>
           </div>
         </header>
@@ -1333,16 +1396,24 @@ test('keeps explicit screen profiles fluid at Full HD and Ultra HD viewports', a
       </main>
     `);
 
-    measurements.push(await page.locator('.wallboard-display').evaluate((element) => ({
-      overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
-        || element.scrollWidth > element.clientWidth,
-      titleFontSize: Number.parseFloat(getComputedStyle(element.querySelector('h1')!).fontSize),
-      profile: (element as HTMLElement).dataset.displayProfile,
-    })));
+    measurements.push(await page.locator('.wallboard-display').evaluate((element) => {
+      const date = element.querySelector<HTMLElement>('.wallboard-display__clock small')!;
+      return {
+        dateFontSize: Number.parseFloat(getComputedStyle(date).fontSize),
+        dateOverflow: date.scrollWidth > date.clientWidth + 1,
+        dateWhiteSpace: getComputedStyle(date).whiteSpace,
+        overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
+          || element.scrollWidth > element.clientWidth,
+        titleFontSize: Number.parseFloat(getComputedStyle(element.querySelector('h1')!).fontSize),
+        profile: (element as HTMLElement).dataset.displayProfile,
+      };
+    }));
   }
 
-  expect(measurements[0]).toMatchObject({ overflow: false, profile: '1080p' });
-  expect(measurements[1]).toMatchObject({ overflow: false, profile: '4k' });
+  expect(measurements[0]).toMatchObject({ dateOverflow: false, dateWhiteSpace: 'nowrap', overflow: false, profile: '1080p' });
+  expect(measurements[1]).toMatchObject({ dateOverflow: false, dateWhiteSpace: 'nowrap', overflow: false, profile: '4k' });
+  expect(measurements[0].dateFontSize).toBeGreaterThanOrEqual(14);
+  expect(measurements[1].dateFontSize).toBeGreaterThan(measurements[0].dateFontSize);
   expect(measurements[1].titleFontSize).toBeGreaterThan(measurements[0].titleFontSize);
 });
 
@@ -1367,7 +1438,7 @@ test('keeps the offline warning and maintenance takeover readable at Full HD and
             <span class="wallboard-display__titles"><small>Meldkamer noord</small><h1>Systeem wordt bijgewerkt</h1></span>
             <span class="wallboard-display__mode wallboard-display__mode--maintenance">Onderhoud</span>
           </div>
-          <time class="wallboard-display__clock"><span>12:34:56</span><small>zondag 19 juli</small></time>
+          <time class="wallboard-display__clock"><span>12:34:56</span><small>zondag 19 juli 2026</small></time>
         </header>
         <div class="wallboard-display__connection-warning" role="status">
           <span><strong>Offline — laatst bekende informatie</strong><small>De verbinding wordt automatisch hersteld.</small></span>

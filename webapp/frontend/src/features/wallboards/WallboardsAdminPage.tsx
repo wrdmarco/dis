@@ -49,6 +49,7 @@ import {
 } from './WallboardConfigurationEditor';
 import { WallboardPlaylistPreview } from './WallboardPlaylistPreview';
 import { WallboardMediaLibrary } from './WallboardMediaLibrary';
+import type { WallboardMediaPlaylist } from './wallboardMedia';
 
 const ADMIN_STATUS_REFRESH_MILLISECONDS = 2500;
 const WALLBOARD_FOCUS_PREVIEW_OPTIONS: ReadonlyArray<{
@@ -84,6 +85,11 @@ export function WallboardsAdminPage() {
   const { silentReload: silentReloadWallboards } = wallboardsResource;
   const { silentReload: silentReloadPlaylists } = playlistsResource;
   const [section, setSection] = useState<AdminSection>('screens');
+  const photoPlaylistsResource = useApiResource<WallboardMediaPlaylist[]>(
+    '/admin/wallboard-media/playlists',
+    section === 'playlists',
+  );
+  const { silentReload: silentReloadPhotoPlaylists } = photoPlaylistsResource;
   const [selectedScreenId, setSelectedScreenId] = useState<string | null>(null);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [newPlaylistName, setNewPlaylistName] = useState('');
@@ -98,8 +104,9 @@ export function WallboardsAdminPage() {
     await Promise.all([
       silentReloadWallboards(),
       silentReloadPlaylists(),
+      silentReloadPhotoPlaylists(),
     ]);
-  }, [silentReloadPlaylists, silentReloadWallboards]);
+  }, [silentReloadPhotoPlaylists, silentReloadPlaylists, silentReloadWallboards]);
 
   useEffect(() => {
     setSelectedScreenId((current) => retainedSelection(current, wallboards));
@@ -338,6 +345,10 @@ export function WallboardsAdminPage() {
             <PlaylistEditor
               key={selectedPlaylist.id}
               playlist={selectedPlaylist}
+              photoPlaylists={photoPlaylistsResource.data}
+              photoPlaylistsLoading={photoPlaylistsResource.loading}
+              photoPlaylistsError={photoPlaylistsResource.error}
+              reloadPhotoPlaylists={photoPlaylistsResource.reload}
               onReplace={replacePlaylist}
               onReloadAll={reloadAll}
               onDeleted={() => {
@@ -822,12 +833,25 @@ function ScreenEditor({
 
 interface PlaylistEditorProps {
   playlist: WallboardPlaylist;
+  photoPlaylists: WallboardMediaPlaylist[] | null;
+  photoPlaylistsLoading: boolean;
+  photoPlaylistsError: string | null;
+  reloadPhotoPlaylists: () => Promise<void>;
   onReplace: (playlist: WallboardPlaylist) => void;
   onReloadAll: () => Promise<void>;
   onDeleted: () => void;
 }
 
-function PlaylistEditor({ playlist, onReplace, onReloadAll, onDeleted }: PlaylistEditorProps) {
+function PlaylistEditor({
+  playlist,
+  photoPlaylists,
+  photoPlaylistsLoading,
+  photoPlaylistsError,
+  reloadPhotoPlaylists,
+  onReplace,
+  onReloadAll,
+  onDeleted,
+}: PlaylistEditorProps) {
   const { api } = useAuth();
   const [draftName, setDraftName] = useState(playlist.name);
   const [draft, setDraft] = useState<WallboardConfiguration>(() => wallboardConfigurationCopy(playlist.configuration));
@@ -838,7 +862,17 @@ function PlaylistEditor({ playlist, onReplace, onReloadAll, onDeleted }: Playlis
   const [previewOpen, setPreviewOpen] = useState(false);
   const usageCount = wallboardPlaylistUsageCount(playlist);
   const hasUnverifiedVideos = wallboardConfigurationHasUnverifiedVideos(draft);
-  const hasInvalidPhotoCarousels = wallboardConfigurationHasInvalidPhotoCarousels(draft);
+  const photoPlaylistIds = useMemo(
+    () => photoPlaylists === null ? null : new Set(photoPlaylists.map((candidate) => candidate.id)),
+    [photoPlaylists],
+  );
+  const missingPhotoCarouselPages = useMemo(() => photoPlaylistIds === null
+    ? []
+    : draft.pages.filter((page) => page.type === 'photo_carousel'
+      && typeof page.options.media_playlist_id === 'string'
+      && page.options.media_playlist_id.trim() !== ''
+      && !photoPlaylistIds.has(page.options.media_playlist_id.trim())), [draft.pages, photoPlaylistIds]);
+  const hasInvalidPhotoCarousels = wallboardConfigurationHasInvalidPhotoCarousels(draft, photoPlaylistIds);
 
   useEffect(() => {
     setDraftName(playlist.name);
@@ -881,6 +915,9 @@ function PlaylistEditor({ playlist, onReplace, onReloadAll, onDeleted }: Playlis
       if (isConflict(error)) {
         await onReloadAll();
         setActionError('Deze playlist is intussen gewijzigd. De nieuwste playlist- en schermversies zijn geladen; controleer je wijzigingen opnieuw.');
+      } else if (error instanceof ApiClientError && error.status === 422 && draft.pages.some((page) => page.type === 'photo_carousel')) {
+        await reloadPhotoPlaylists();
+        setActionError('Een fotocarrousel verwijst naar een niet-beschikbare fotoplaylist. Kies op de gemarkeerde pagina opnieuw een fotoplaylist.');
       } else {
         setActionError(errorMessage(error, 'Playlist kon niet worden opgeslagen.'));
       }
@@ -959,9 +996,24 @@ function PlaylistEditor({ playlist, onReplace, onReloadAll, onDeleted }: Playlis
       <WallboardConfigurationEditor
         idPrefix={`playlist-${playlist.id}`}
         configuration={draft}
-        setConfiguration={setDraft}
+        setConfiguration={(next) => {
+          setActionError(null);
+          setActionMessage(null);
+          setDraft(next);
+        }}
+        photoPlaylists={{
+          playlists: photoPlaylists,
+          loading: photoPlaylistsLoading,
+          error: photoPlaylistsError,
+          reload: reloadPhotoPlaylists,
+        }}
       />
 
+      {missingPhotoCarouselPages.length > 0 ? (
+        <p className="form-error" role="alert">
+          Fotoplaylist ontbreekt bij {missingPhotoCarouselPages.map((page) => `“${page.name}”`).join(', ')}. Open de gemarkeerde pagina en kies een bestaande fotoplaylist.
+        </p>
+      ) : null}
       {actionError ? <p className="form-error" role="alert">{actionError}</p> : null}
       {actionMessage ? <p className="form-note" role="status">{actionMessage}</p> : null}
       {usageCount > 0 ? (

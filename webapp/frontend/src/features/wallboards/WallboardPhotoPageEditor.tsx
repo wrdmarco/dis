@@ -1,7 +1,6 @@
 'use client';
 
 import { Image as ImageIcon, Loader2, RefreshCw, TimerReset } from 'lucide-react';
-import { useApiResource } from '../../lib/useApiResource';
 import {
   type WallboardMediaPlaylist,
   type WallboardPhotoPageOptions,
@@ -26,18 +25,30 @@ export interface WallboardPhotoPageEditorProps {
   idPrefix: string;
   value: WallboardPhotoPageOptions;
   onChange: (selection: WallboardPhotoPageSelection) => void;
+  source: WallboardPhotoPlaylistSource;
   disabled?: boolean;
+}
+
+export interface WallboardPhotoPlaylistSource {
+  playlists: WallboardMediaPlaylist[] | null;
+  loading: boolean;
+  error: string | null;
+  reload: () => Promise<void>;
 }
 
 export function WallboardPhotoPageEditor({
   idPrefix,
   value,
   onChange,
+  source,
   disabled = false,
 }: WallboardPhotoPageEditorProps) {
-  const resource = useApiResource<WallboardMediaPlaylist[]>('/admin/wallboard-media/playlists');
-  const playlists = resource.data ?? [];
+  const playlists = source.playlists ?? [];
   const selectedPlaylist = playlists.find((playlist) => playlist.id === value.media_playlist_id) ?? null;
+  const selectedPlaylistId = value.media_playlist_id?.trim() ?? '';
+  const missingPlaylist = source.playlists !== null
+    && selectedPlaylistId !== ''
+    && selectedPlaylist === null;
   const itemDurationSeconds = wallboardPhotoItemDurationSeconds(value.item_duration_seconds);
   const pageDurationSeconds = wallboardPhotoPageDurationSeconds(
     selectedPlaylist?.item_count ?? 0,
@@ -71,18 +82,18 @@ export function WallboardPhotoPageEditor({
         <button
           type="button"
           className={styles.refresh}
-          onClick={() => void resource.reload()}
-          disabled={disabled || resource.loading}
+          onClick={() => void source.reload()}
+          disabled={disabled || source.loading}
           aria-label="Fotoplaylists vernieuwen"
         >
           <RefreshCw size={16} aria-hidden />
         </button>
       </header>
 
-      {resource.loading ? (
+      {source.loading && source.playlists === null ? (
         <div className={styles.status} role="status"><Loader2 className={styles.spinner} size={18} aria-hidden /> Fotoplaylists laden...</div>
-      ) : resource.error !== null ? (
-        <div className={`${styles.status} ${styles.error}`} role="alert">{resource.error}</div>
+      ) : source.error !== null && source.playlists === null ? (
+        <div className={`${styles.status} ${styles.error}`} role="alert">{source.error}</div>
       ) : playlists.length === 0 ? (
         <div className={styles.status} role="status">
           Maak eerst onder <strong>Media</strong> een fotoplaylist met minimaal één afbeelding.
@@ -102,6 +113,9 @@ export function WallboardPhotoPageEditor({
               required
             >
               <option value="">Selecteer een fotoplaylist</option>
+              {missingPlaylist ? (
+                <option value={selectedPlaylistId} disabled>Niet meer beschikbaar - kies opnieuw</option>
+              ) : null}
               {playlists.map((playlist) => (
                 <option key={playlist.id} value={playlist.id}>
                   {playlist.name} ({playlist.item_count} foto{playlist.item_count === 1 ? '' : "'s"})
@@ -122,18 +136,30 @@ export function WallboardPhotoPageEditor({
         </div>
       )}
 
-      <div className={valid ? styles.summary : `${styles.summary} ${styles.summaryInvalid}`} aria-live="polite">
+      {source.error !== null && source.playlists !== null ? (
+        <div className={`${styles.status} ${styles.error}`} role="alert">
+          De fotoplaylists konden niet worden vernieuwd. De laatst geladen lijst blijft zichtbaar.
+        </div>
+      ) : null}
+
+      <div className={valid || source.playlists === null ? styles.summary : `${styles.summary} ${styles.summaryInvalid}`} aria-live="polite">
         <TimerReset size={18} aria-hidden />
         <div>
           <strong>
-            {selectedPlaylist === null
-              ? 'Nog geen fotoplaylist gekozen'
-              : `${selectedPlaylist.item_count} foto${selectedPlaylist.item_count === 1 ? '' : "'s"} - ${pageDurationSeconds} sec. totaal`}
+            {source.playlists === null
+              ? 'Fotoplaylist wordt gecontroleerd'
+              : missingPlaylist
+                ? 'Deze fotoplaylist bestaat niet meer'
+                : selectedPlaylist === null
+                  ? 'Nog geen fotoplaylist gekozen'
+                  : `${selectedPlaylist.item_count} foto${selectedPlaylist.item_count === 1 ? '' : "'s"} - ${pageDurationSeconds} sec. totaal`}
           </strong>
           <span>
-            {selectedPlaylist !== null && pageDurationSeconds > WALLBOARD_PHOTO_MAX_PAGE_DURATION_SECONDS
-              ? `Verlaag de tijd per foto; een carrousel mag maximaal ${WALLBOARD_PHOTO_MAX_PAGE_DURATION_SECONDS} seconden duren.`
-              : "De playlistpagina wisselt pas nadat alle foto's eenmaal zijn getoond."}
+            {missingPlaylist
+              ? 'Kies hierboven een bestaande fotoplaylist voordat je de wallboardplaylist opslaat.'
+              : selectedPlaylist !== null && pageDurationSeconds > WALLBOARD_PHOTO_MAX_PAGE_DURATION_SECONDS
+                ? `Verlaag de tijd per foto; een carrousel mag maximaal ${WALLBOARD_PHOTO_MAX_PAGE_DURATION_SECONDS} seconden duren.`
+                : "De playlistpagina wisselt pas nadat alle foto's eenmaal zijn getoond."}
           </span>
         </div>
       </div>

@@ -278,13 +278,17 @@ export function wallboardConfigurationHasUnverifiedVideos(configuration: Pick<Wa
   ));
 }
 
-export function wallboardConfigurationHasInvalidPhotoCarousels(configuration: Pick<WallboardConfiguration, 'pages'>): boolean {
+export function wallboardConfigurationHasInvalidPhotoCarousels(
+  configuration: Pick<WallboardConfiguration, 'pages'>,
+  availableMediaPlaylistIds: ReadonlySet<string> | null = null,
+): boolean {
   return configuration.pages.some((page) => {
     if (page.type !== 'photo_carousel') return false;
     const mediaPlaylistId = page.options.media_playlist_id;
     const itemDurationSeconds = page.options.item_duration_seconds;
-    return typeof mediaPlaylistId !== 'string'
-      || !/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(mediaPlaylistId.trim())
+    const normalizedMediaPlaylistId = typeof mediaPlaylistId === 'string' ? mediaPlaylistId.trim() : '';
+    return !/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(normalizedMediaPlaylistId)
+      || (availableMediaPlaylistIds !== null && !availableMediaPlaylistIds.has(normalizedMediaPlaylistId))
       || typeof itemDurationSeconds !== 'number'
       || !Number.isInteger(itemDurationSeconds)
       || itemDurationSeconds < WALLBOARD_PHOTO_MIN_ITEM_DURATION_SECONDS
