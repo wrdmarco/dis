@@ -221,6 +221,154 @@ export interface OperationalMapPilotHome {
   teams: string[];
 }
 
+export type WallboardLayout = 'fullscreen_map';
+export type WallboardTheme = 'dark' | 'light';
+export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'message';
+export type WallboardDisplayMode = 'rotation' | 'static' | 'manual' | 'incident_override';
+
+export interface WallboardMapConfiguration {
+  show_active_incidents: boolean;
+  show_test_incidents: boolean;
+  show_live_locations: boolean;
+  show_routes: boolean;
+  show_command_centers: boolean;
+  show_historical_incidents: boolean;
+  show_summary: boolean;
+  show_incident_list: boolean;
+  show_route_legend: boolean;
+  auto_fit: boolean;
+}
+
+export interface WallboardConfiguration {
+  theme: WallboardTheme;
+  refresh_seconds: number;
+  map: WallboardMapConfiguration;
+  pages: WallboardPage[];
+  rotation_enabled: boolean;
+  incident_override: WallboardIncidentOverride;
+}
+
+export interface WallboardPageOptions {
+  body?: string;
+  show_test_incidents?: boolean;
+}
+
+export interface WallboardPage {
+  id: string;
+  type: WallboardPageType;
+  name: string;
+  duration_seconds: number;
+  options: WallboardPageOptions;
+}
+
+export interface WallboardIncidentOverride {
+  enabled: boolean;
+  page_id: string | null;
+}
+
+export interface WallboardDisplayState {
+  mode: WallboardDisplayMode;
+  page_id: string;
+  incident_active: boolean;
+  next_change_at?: string | null;
+}
+
+export interface Wallboard {
+  id: string;
+  name: string;
+  layout: WallboardLayout;
+  configuration: WallboardConfiguration;
+  is_enabled: boolean;
+  config_version: number;
+  control_version?: number;
+  manual_page_id?: string | null;
+  manual_page_set_at?: string | null;
+  display?: WallboardDisplayState | null;
+  active_sessions_count: number;
+  paired_at?: string | null;
+  last_seen_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface WallboardPairingRequest {
+  code: string;
+  status: 'pending' | 'approved';
+  expires_at: string | null;
+  poll_after_seconds: number;
+}
+
+export interface WallboardPairingStatus {
+  status: 'pending' | 'paired';
+  expires_at?: string | null;
+  poll_after_seconds?: number;
+}
+
+export interface WallboardStateIncident {
+  id: string;
+  reference: string;
+  title: string;
+  status: Incident['status'];
+  priority: Incident['priority'];
+  is_test: boolean;
+  location_label?: string | null;
+  latitude: number | string | null;
+  longitude: number | string | null;
+  opened_at?: string | null;
+}
+
+export interface WallboardStateCommandCenter {
+  id: string;
+  name: string;
+  address?: string | null;
+  latitude: number | string | null;
+  longitude: number | string | null;
+}
+
+export interface WallboardStateHistoricalIncident {
+  id: string;
+  reference: string;
+  title: string;
+  status: Incident['status'];
+  priority: Incident['priority'];
+  location_label?: string | null;
+  latitude: number | string | null;
+  longitude: number | string | null;
+  closed_at?: string | null;
+}
+
+export interface WallboardStateLiveLocation {
+  incident_id: string;
+  user_id: string;
+  user?: Pick<User, 'id' | 'name'> | null;
+  sharing_status: string;
+  location_is_current: boolean;
+  latitude: number | string | null;
+  longitude: number | string | null;
+  accuracy_meters?: number | string | null;
+  recorded_at?: string | null;
+  eta_minutes?: number | null;
+  eta_source?: 'navigation' | 'fallback' | 'unknown' | null;
+  route?: IncidentLiveLocation['route'];
+}
+
+export interface WallboardState {
+  generated_at: string;
+  wallboard: Pick<Wallboard, 'id' | 'name' | 'layout' | 'configuration' | 'config_version' | 'control_version' | 'display' | 'updated_at'>;
+  map: {
+    incidents: WallboardStateIncident[];
+    command_centers: WallboardStateCommandCenter[];
+    historical_incidents: WallboardStateHistoricalIncident[];
+    live_locations: WallboardStateLiveLocation[];
+  };
+}
+
+export interface WallboardControlState {
+  config_version: number;
+  control_version: number;
+  display: WallboardDisplayState;
+}
+
 export interface IncidentInternalNotes {
   internal_notes?: string | null;
   updated_at?: string | null;

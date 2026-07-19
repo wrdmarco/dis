@@ -69,6 +69,14 @@ return [
     'system_metrics' => [
         'disk_path' => env('DIS_DATA_PATH', '/opt/dis-data'),
     ],
+    'wallboards' => [
+        'pairing_ttl_seconds' => (int) env('WALLBOARD_PAIRING_TTL_SECONDS', 300),
+        'session_idle_days' => (int) env('WALLBOARD_SESSION_IDLE_DAYS', 30),
+        'session_absolute_days' => (int) env('WALLBOARD_SESSION_ABSOLUTE_DAYS', 365),
+        'rotation_hours' => (int) env('WALLBOARD_SESSION_ROTATION_HOURS', 12),
+        'rotation_grace_seconds' => (int) env('WALLBOARD_SESSION_ROTATION_GRACE_SECONDS', 120),
+        'touch_interval_seconds' => (int) env('WALLBOARD_SESSION_TOUCH_INTERVAL_SECONDS', 60),
+    ],
     'retention' => [
         'push_logs_days' => (int) env('PUSH_LOG_RETENTION_DAYS', 90),
         'audit_logs_days' => (int) env('AUDIT_LOG_RETENTION_DAYS', 3650),

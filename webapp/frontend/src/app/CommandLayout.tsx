@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, DatabaseBackup, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, Moon, Network, Palette, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, DatabaseBackup, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, MonitorCog, Moon, Network, Palette, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -79,6 +79,7 @@ const navGroups: NavGroup[] = [
       { to: '/branding', label: 'Branding', icon: Palette, permissions: ['settings.manage'] },
       { to: '/audit', label: 'Audit', icon: ScrollText, permissions: ['audit.view', 'status.audit.view'], anyPermission: true },
       { to: '/backups', label: 'Backups', icon: DatabaseBackup, permissions: ['backups.manage'] },
+      { to: '/wallboards', label: 'Wallboards', icon: MonitorCog, permissions: ['wallboards.manage'] },
       { to: '/routing', label: 'Routering', icon: RouteIcon, permissions: ['system.health.view', 'system.routing.manage'], anyPermission: true },
       { to: '/system', label: 'Systeem', icon: Bell, permissions: ['system.health.view'] },
     ],
@@ -116,6 +117,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/branding': () => import('../features/branding/BrandingPage'),
   '/audit': () => import('../features/audit/AuditLogPage'),
   '/backups': () => import('../features/backups/BackupPage'),
+  '/wallboards': () => import('../features/wallboards/WallboardsAdminPage'),
   '/routing': () => import('../features/admin/OsrmAdminPage'),
   '/system': () => import('../features/system/SystemPage'),
   [HELP_PATH]: () => import('../features/help/HelpPage'),

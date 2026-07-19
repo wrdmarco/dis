@@ -102,6 +102,55 @@ final class AppServiceProvider extends ServiceProvider
             Limit::perMinute(20)->by('mobile-pairing:ip:'.$request->ip()),
             Limit::perMinute(10)->by('mobile-pairing:code:'.hash('sha256', (string) $request->input('code', 'missing'))),
         ]);
+        RateLimiter::for('wallboard-pairing-start', fn (Request $request): array => [
+            Limit::perMinute(6)->by('wallboard-pairing-start:ip:'.$request->ip()),
+            Limit::perHour(30)->by('wallboard-pairing-start-hour:ip:'.$request->ip()),
+        ]);
+        RateLimiter::for('wallboard-pairing-status', fn (Request $request): array => [
+            Limit::perMinute(120)->by('wallboard-pairing-status:credential:'.hash(
+                'sha256',
+                (string) $request->cookie('__Host-dis_wallboard_pairing', 'missing'),
+            )),
+            Limit::perMinute(240)->by('wallboard-pairing-status:ip:'.$request->ip()),
+        ]);
+        RateLimiter::for('wallboard-pairing-approve', function (Request $request): array {
+            $actor = hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'));
+            $code = $this->wallboardPairingCodeKey($request);
+
+            return [
+                Limit::perMinute(10)->by('wallboard-pairing-approve:actor:'.$actor),
+                Limit::perMinute(5)->by('wallboard-pairing-approve:actor-code:'.$actor.':'.$code),
+                Limit::perMinute(20)->by('wallboard-pairing-approve:code:'.$code),
+            ];
+        });
+        RateLimiter::for('wallboard-read', function (Request $request): array {
+            $session = $request->attributes->get('wallboard.session');
+            $wallboard = $request->attributes->get('wallboard');
+            $sessionId = is_object($session) && isset($session->id) ? (string) $session->id : 'missing';
+            $wallboardId = is_object($wallboard) && isset($wallboard->id) ? (string) $wallboard->id : 'missing';
+
+            return [
+                Limit::perMinute(120)->by('wallboard-read:session:'.hash('sha256', $sessionId)),
+                Limit::perMinute(600)->by('wallboard-read:wallboard:'.hash('sha256', $wallboardId)),
+            ];
+        });
+        RateLimiter::for('wallboard-control', function (Request $request): array {
+            $session = $request->attributes->get('wallboard.session');
+            $wallboard = $request->attributes->get('wallboard');
+            $sessionId = is_object($session) && isset($session->id) ? (string) $session->id : 'missing';
+            $wallboardId = is_object($wallboard) && isset($wallboard->id) ? (string) $wallboard->id : 'missing';
+
+            return [
+                Limit::perMinute(90)->by('wallboard-control:session:'.hash('sha256', $sessionId)),
+                Limit::perMinute(300)->by('wallboard-control:wallboard:'.hash('sha256', $wallboardId)),
+            ];
+        });
+        RateLimiter::for('wallboard-admin-write', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'wallboard-admin-write',
+            perClient: 30,
+            perUser: 60,
+        ));
         RateLimiter::for('two-factor', fn (Request $request): array => [
             Limit::perMinute(20)->by('two-factor:ip:'.$request->ip()),
             Limit::perMinute(6)->by('two-factor:subject:'.$this->authenticationSubjectKey($request)),
@@ -213,6 +262,17 @@ final class AppServiceProvider extends ServiceProvider
         }
 
         return hash('sha256', 'ip|'.$request->ip());
+    }
+
+    private function wallboardPairingCodeKey(Request $request): string
+    {
+        $normalized = strtoupper(preg_replace(
+            '/[^A-Za-z0-9]/',
+            '',
+            (string) $request->input('code', 'missing'),
+        ) ?? '');
+
+        return hash('sha256', $normalized === '' ? 'missing' : $normalized);
     }
 
     /**

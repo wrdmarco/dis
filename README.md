@@ -168,6 +168,33 @@ The test-alert result reports targeted users, queued devices, users skipped befo
 whom no notification could be queued. The action requires the `incidents.dispatch.manage` permission and
 is recorded in the audit log.
 
+## Managed Wallboards
+
+System administrators with completed 2FA manage paired displays from `/wallboards`; the display itself uses
+the dedicated `/wallboard` kiosk route and never inherits an administrator browser session. Each wallboard
+has an ordered playlist of allowlisted DIS pages: an operational map, incident list, operational summary or
+plain-text announcement. Every page has its own bounded display duration. External URLs and arbitrary HTML
+are not accepted.
+
+An unpaired television starts the pairing flow itself and shows a short-lived, human-readable code on
+`/wallboard`; no keyboard is required on the display. An administrator selects the intended wallboard in
+`/wallboards` and enters that television code there. Approval is one-time and database-backed. Only the
+waiting television receives the resulting dedicated `Secure`, `HttpOnly`, host-only wallboard session cookie;
+the administrator never receives or handles the display credential. Expired requests are replaced by a new
+code on the television, and an administrator can revoke the paired display sessions at any time.
+
+An administrator can pin a configured page immediately or return the display to its server-authoritative
+rotation. A lightweight, authenticated control feed lets the kiosk observe control and configuration
+versions without repeatedly loading the full map payload. Page rotation is derived from a server timestamp
+and the configured durations, so refreshes and process restarts do not create an independent browser clock.
+
+Per wallboard, an optional incident override can pin a preselected page while at least one non-test incident
+is actually being dispatched or is in progress. A preannouncement or merely open incident does not trigger
+this override. The incident page takes precedence over manual pinning and rotation; after the final matching
+incident closes or is cancelled, the previous manual pin or the current rotation becomes effective again.
+All configuration and live-control changes require `wallboards.manage`, are version-checked to prevent stale
+administrators overwriting each other, and are audit logged.
+
 Dispatch ETA selection uses server-side road routing. Before dispatch, the operator's globally geocoded
 home city is the route origin; it remains an approximate origin and never exposes a home address. Navigation
 durations are rounded up into 15-minute rings for recipient selection. The configured OSRM service uses its

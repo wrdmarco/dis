@@ -6,6 +6,7 @@ use App\Http\Controllers\AdminDeveloperController;
 use App\Http\Controllers\AdminOsrmController;
 use App\Http\Controllers\AdminPushController;
 use App\Http\Controllers\AdminStoreReviewController;
+use App\Http\Controllers\AdminWallboardController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\AvailabilityScheduleController;
@@ -36,6 +37,8 @@ use App\Http\Controllers\TestAlertController;
 use App\Http\Controllers\UpdateController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VacationController;
+use App\Http\Controllers\WallboardController;
+use App\Http\Controllers\WallboardPairingController;
 use App\Http\Responses\ApiResponse;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
@@ -44,6 +47,10 @@ Broadcast::routes(['middleware' => ['auth:sanctum', 'web.session', 'operational'
 
 Route::get('/auth/csrf-cookie', [AuthController::class, 'csrfCookie'])->middleware('throttle:api');
 Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
+Route::post('/wallboard/pairing/start', [WallboardPairingController::class, 'start'])->middleware('throttle:wallboard-pairing-start');
+Route::post('/wallboard/pairing/status', [WallboardPairingController::class, 'status'])->middleware('throttle:wallboard-pairing-status');
+Route::get('/wallboard/state', [WallboardController::class, 'state'])->middleware(['wallboard.auth', 'throttle:wallboard-read']);
+Route::get('/wallboard/control', [WallboardController::class, 'control'])->middleware(['wallboard.auth', 'throttle:wallboard-control']);
 Route::post('/auth/mobile-pairing/consume', [MobilePairingController::class, 'consume'])->middleware('throttle:mobile-pairing');
 Route::post('/auth/password/forgot', [PasswordController::class, 'forgot'])->middleware('throttle:password-reset');
 Route::post('/auth/password/reset', [PasswordController::class, 'reset'])->middleware('throttle:password-reset');
@@ -269,6 +276,16 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/devices', [DeviceController::class, 'index']);
 
         Route::get('/admin/roles', [AdminController::class, 'roles'])->middleware('permission:roles.manage');
+        Route::get('/admin/wallboards', [AdminWallboardController::class, 'index'])->middleware('permission:wallboards.manage');
+        Route::post('/admin/wallboards', [AdminWallboardController::class, 'store'])->middleware('permission:wallboards.manage');
+        Route::get('/admin/wallboards/{wallboard}', [AdminWallboardController::class, 'show'])->middleware('permission:wallboards.manage');
+        Route::patch('/admin/wallboards/{wallboard}', [AdminWallboardController::class, 'update'])->middleware('permission:wallboards.manage');
+        Route::delete('/admin/wallboards/{wallboard}', [AdminWallboardController::class, 'destroy'])->middleware('permission:wallboards.manage');
+        Route::post('/admin/wallboards/{wallboard}/pair', [AdminWallboardController::class, 'pair'])
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-pairing-approve']);
+        Route::post('/admin/wallboards/{wallboard}/sessions/revoke', [AdminWallboardController::class, 'revokeSessions'])->middleware('permission:wallboards.manage');
+        Route::post('/admin/wallboards/{wallboard}/display', [AdminWallboardController::class, 'setDisplay'])
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
         Route::post('/admin/roles', [AdminController::class, 'storeRole'])->middleware('permission:roles.manage');
         Route::patch('/admin/roles/{role}', [AdminController::class, 'updateRole'])->middleware('permission:roles.manage');
         Route::delete('/admin/roles/{role}', [AdminController::class, 'destroyRole'])->middleware('permission:roles.delete');

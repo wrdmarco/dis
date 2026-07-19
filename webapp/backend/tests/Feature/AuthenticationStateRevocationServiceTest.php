@@ -5,6 +5,9 @@ namespace Tests\Feature;
 use App\Models\FcmToken;
 use App\Models\SystemSetting;
 use App\Models\User;
+use App\Models\Wallboard;
+use App\Models\WallboardPairingRequest;
+use App\Models\WallboardSession;
 use App\Services\AuthenticationStateRevocationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -65,6 +68,35 @@ final class AuthenticationStateRevocationServiceTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        $wallboard = Wallboard::query()->create([
+            'name' => 'Restore wallboard',
+            'layout' => Wallboard::LAYOUT_FULLSCREEN_MAP,
+            'configuration' => [
+                'theme' => 'dark',
+                'refresh_seconds' => 10,
+                'map' => [
+                    'show_active_incidents' => false,
+                    'show_live_locations' => false,
+                    'show_routes' => false,
+                ],
+            ],
+            'is_enabled' => true,
+        ]);
+        WallboardPairingRequest::query()->create([
+            'code_hash' => hash('sha256', 'restore-wallboard-code'),
+            'secret_hash' => hash('sha256', 'restore-wallboard-secret'),
+            'wallboard_id' => $wallboard->id,
+            'approved_by' => $user->id,
+            'approved_at' => now(),
+            'expires_at' => now()->addMinutes(5),
+        ]);
+        WallboardSession::query()->create([
+            'wallboard_id' => $wallboard->id,
+            'token_hash' => hash('sha256', 'restore-wallboard-session'),
+            'last_seen_at' => now(),
+            'last_rotated_at' => now(),
+            'expires_at' => now()->addDay(),
+        ]);
         SystemSetting::query()->create([
             'key' => 'developer.android_upload',
             'value' => [
@@ -79,12 +111,16 @@ final class AuthenticationStateRevocationServiceTest extends TestCase
 
         $this->assertSame(1, $counts['tokens']);
         $this->assertSame(1, $counts['sessions']);
+        $this->assertSame(1, $counts['wallboard_sessions']);
+        $this->assertSame(1, $counts['wallboard_pairing_requests']);
         $this->assertSame(1, $counts['password_reset_tokens']);
         $this->assertSame(1, $counts['pairing_codes']);
         $this->assertSame(1, $counts['developer_keys']);
         $this->assertSame(1, $counts['push_tokens']);
         $this->assertDatabaseCount('personal_access_tokens', 0);
         $this->assertDatabaseCount('sessions', 0);
+        $this->assertDatabaseCount('wallboard_sessions', 0);
+        $this->assertDatabaseCount('wallboard_pairing_requests', 0);
         $this->assertDatabaseCount('password_reset_tokens', 0);
         $this->assertDatabaseCount('mobile_pairing_codes', 0);
         $this->assertDatabaseMissing('system_settings', ['key' => 'developer.android_upload']);

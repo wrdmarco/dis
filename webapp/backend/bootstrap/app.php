@@ -3,6 +3,7 @@
 use App\Http\Middleware\AuditPrivilegedRequest;
 use App\Http\Middleware\AuditRateLimitedRequest;
 use App\Http\Middleware\AuthenticateTwoFactorChallenge;
+use App\Http\Middleware\AuthenticateWallboardSession;
 use App\Http\Middleware\EnsureFirstPartyRequestsAreStateful;
 use App\Http\Middleware\EnsureOperationalAccess;
 use App\Http\Middleware\EnsureTwoFactorComplete;
@@ -55,6 +56,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'two_factor.challenge' => AuthenticateTwoFactorChallenge::class,
             'two_factor.complete' => EnsureTwoFactorComplete::class,
             'web.session' => EnsureWebSessionIsValid::class,
+            'wallboard.auth' => AuthenticateWallboardSession::class,
             'permission' => RequirePermission::class,
         ]);
     })

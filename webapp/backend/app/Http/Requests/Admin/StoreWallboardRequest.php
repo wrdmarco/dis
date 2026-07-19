@@ -1,0 +1,98 @@
+<?php
+
+namespace App\Http\Requests\Admin;
+
+use App\Models\Wallboard;
+use App\Support\WallboardConfiguration;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
+
+final class StoreWallboardRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'name' => ['required', 'string', 'max:120'],
+            'layout' => ['sometimes', 'string', Rule::in([Wallboard::LAYOUT_FULLSCREEN_MAP])],
+            'is_enabled' => ['sometimes', 'boolean'],
+            ...$this->configurationRules(),
+        ];
+    }
+
+    /** @return list<callable> */
+    public function after(): array
+    {
+        return [fn (Validator $validator) => $this->validatePageOptions($validator)];
+    }
+
+    /** @return array<string, mixed> */
+    private function configurationRules(): array
+    {
+        return [
+            'configuration' => ['sometimes', 'array:theme,refresh_seconds,rotation_enabled,pages,incident_override,map'],
+            'configuration.theme' => ['sometimes', 'string', Rule::in(['dark', 'light'])],
+            'configuration.refresh_seconds' => ['sometimes', 'integer', 'between:5,60'],
+            'configuration.rotation_enabled' => ['sometimes', 'boolean'],
+            'configuration.pages' => ['sometimes', 'array', 'min:1', 'max:20'],
+            'configuration.pages.*' => ['required', 'array:id,name,type,duration_seconds,options'],
+            'configuration.pages.*.id' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9][A-Za-z0-9_-]*$/', 'distinct:strict'],
+            'configuration.pages.*.name' => ['required', 'string', 'max:120'],
+            'configuration.pages.*.type' => ['required', 'string', Rule::in(WallboardConfiguration::PAGE_TYPES)],
+            'configuration.pages.*.duration_seconds' => ['required', 'integer', 'between:5,3600'],
+            'configuration.pages.*.options' => ['sometimes', 'array:body,show_test_incidents'],
+            'configuration.pages.*.options.body' => ['sometimes', 'string', 'max:2000'],
+            'configuration.pages.*.options.show_test_incidents' => ['sometimes', 'boolean'],
+            'configuration.incident_override' => ['sometimes', 'array:enabled,page_id'],
+            'configuration.incident_override.enabled' => ['sometimes', 'boolean'],
+            'configuration.incident_override.page_id' => ['sometimes', 'nullable', 'string', 'max:64', 'regex:/^[A-Za-z0-9][A-Za-z0-9_-]*$/'],
+            'configuration.map' => ['sometimes', 'array:show_active_incidents,show_test_incidents,show_live_locations,show_routes,show_command_centers,show_historical_incidents,show_summary,show_incident_list,show_route_legend,auto_fit'],
+            'configuration.map.show_active_incidents' => ['sometimes', 'boolean'],
+            'configuration.map.show_test_incidents' => ['sometimes', 'boolean'],
+            'configuration.map.show_live_locations' => ['sometimes', 'boolean'],
+            'configuration.map.show_routes' => ['sometimes', 'boolean'],
+            'configuration.map.show_command_centers' => ['sometimes', 'boolean'],
+            'configuration.map.show_historical_incidents' => ['sometimes', 'boolean'],
+            'configuration.map.show_summary' => ['sometimes', 'boolean'],
+            'configuration.map.show_incident_list' => ['sometimes', 'boolean'],
+            'configuration.map.show_route_legend' => ['sometimes', 'boolean'],
+            'configuration.map.auto_fit' => ['sometimes', 'boolean'],
+        ];
+    }
+
+    private function validatePageOptions(Validator $validator): void
+    {
+        foreach ((array) $this->input('configuration.pages', []) as $index => $page) {
+            if (! is_array($page)) {
+                continue;
+            }
+
+            $type = (string) ($page['type'] ?? '');
+            $options = is_array($page['options'] ?? null) ? $page['options'] : [];
+            $allowedKeys = match ($type) {
+                'message' => ['body'],
+                'incident_list', 'summary' => ['show_test_incidents'],
+                'map' => [],
+                default => array_keys($options),
+            };
+            if (array_diff(array_keys($options), $allowedKeys) !== []) {
+                $validator->errors()->add(
+                    "configuration.pages.{$index}.options",
+                    'Deze opties horen niet bij het gekozen paginatype.',
+                );
+            }
+            if ($type === 'message' && trim((string) ($options['body'] ?? '')) === '') {
+                $validator->errors()->add(
+                    "configuration.pages.{$index}.options.body",
+                    'Een berichtpagina heeft berichttekst nodig.',
+                );
+            }
+        }
+    }
+}
