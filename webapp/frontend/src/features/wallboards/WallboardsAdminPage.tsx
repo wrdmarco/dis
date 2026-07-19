@@ -1,4 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   AlertTriangle,
   ExternalLink,
@@ -32,6 +33,7 @@ import {
   DEFAULT_WALLBOARD_CONFIGURATION,
   clampRefreshSeconds,
   normalizeWallboardDisplayProfile,
+  requestedWallboardScreenSelection,
   wallboardConfigurationCopy,
   wallboardConfigurationForSave,
   wallboardDisplayProfileLabel,
@@ -42,6 +44,7 @@ import {
   WallboardConfigurationEditor,
   WallboardPageTypeIcon,
 } from './WallboardConfigurationEditor';
+import { WallboardPlaylistPreview } from './WallboardPlaylistPreview';
 
 const ADMIN_STATUS_REFRESH_MILLISECONDS = 2500;
 
@@ -56,9 +59,6 @@ export function WallboardsAdminPage() {
   const [section, setSection] = useState<AdminSection>('screens');
   const [selectedScreenId, setSelectedScreenId] = useState<string | null>(null);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
-  const [newScreenName, setNewScreenName] = useState('');
-  const [newScreenDisplayProfile, setNewScreenDisplayProfile] = useState<WallboardDisplayProfile>('auto');
-  const [newScreenPlaylistId, setNewScreenPlaylistId] = useState('');
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [creating, setCreating] = useState<AdminSection | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -79,6 +79,15 @@ export function WallboardsAdminPage() {
   }, [wallboards]);
 
   useEffect(() => {
+    const requestedScreenId = requestedWallboardScreenSelection(window.location.search, wallboards);
+    if (requestedScreenId === null) return;
+
+    setSection('screens');
+    setSelectedScreenId(requestedScreenId);
+    window.history.replaceState(window.history.state, '', '/wallboards');
+  }, [wallboards]);
+
+  useEffect(() => {
     setSelectedPlaylistId((current) => retainedSelection(current, playlists));
   }, [playlists]);
 
@@ -86,33 +95,6 @@ export function WallboardsAdminPage() {
     const timer = window.setInterval(() => void silentReloadWallboards(), ADMIN_STATUS_REFRESH_MILLISECONDS);
     return () => window.clearInterval(timer);
   }, [silentReloadWallboards]);
-
-  async function createScreen(event: FormEvent) {
-    event.preventDefault();
-    const name = newScreenName.trim();
-    if (name === '') return;
-    setCreating('screens');
-    setCreateError(null);
-    try {
-      const response = await api.post<Wallboard>('/admin/wallboards', {
-        name,
-        layout: 'fullscreen_map',
-        display_profile: newScreenDisplayProfile,
-        is_enabled: true,
-        ...(newScreenPlaylistId === '' ? {} : { playlist_id: newScreenPlaylistId }),
-      });
-      wallboardsResource.mutate((current) => [...(current ?? []), response.data]);
-      setSelectedScreenId(response.data.id);
-      setNewScreenName('');
-      setNewScreenDisplayProfile('auto');
-      setNewScreenPlaylistId('');
-      await reloadAll();
-    } catch (error) {
-      setCreateError(errorMessage(error, 'Scherm kon niet worden aangemaakt.'));
-    } finally {
-      setCreating(null);
-    }
-  }
 
   async function createPlaylist(event: FormEvent) {
     event.preventDefault();
@@ -160,9 +142,14 @@ export function WallboardsAdminPage() {
           <h1>Wallboards</h1>
           <p>Beheer schermen afzonderlijk en deel één inhoudsplaylist veilig met meerdere locaties.</p>
         </div>
-        <a className="secondary-button" href="/wallboard" target="_blank" rel="noreferrer">
-          <ExternalLink size={17} aria-hidden /> Scherm openen
-        </a>
+        <div className="wallboards-admin-heading__actions">
+          <Link className="primary-button" href="/wallboards/new">
+            <Plus size={17} aria-hidden /> Scherm toevoegen
+          </Link>
+          <a className="secondary-button" href="/wallboard" target="_blank" rel="noreferrer">
+            <ExternalLink size={17} aria-hidden /> Scherm openen
+          </a>
+        </div>
       </header>
 
       <nav className="wallboards-admin-tabs" role="tablist" aria-label="Wallboardbeheer">
@@ -210,42 +197,7 @@ export function WallboardsAdminPage() {
           aria-labelledby={section === 'screens' ? 'wallboards-screens-tab' : 'wallboards-playlists-tab'}
         >
           <div className="wallboards-admin-list-column">
-            {section === 'screens' ? (
-              <form className="wallboard-create-form" onSubmit={createScreen}>
-                <div className="wallboard-create-form__heading">
-                  <strong>Nieuw scherm</strong>
-                  <small>Zonder keuze krijgt het scherm automatisch een eigen playlist.</small>
-                </div>
-                <label>
-                  <span>Schermnaam</span>
-                  <span className="wallboard-create-form__row">
-                    <input value={newScreenName} onChange={(event) => setNewScreenName(event.target.value)} maxLength={120} placeholder="Bijv. Meldkamer noord" required />
-                    <button className="primary-button" type="submit" disabled={creating !== null || newScreenName.trim() === ''}>
-                      <Plus size={17} aria-hidden /> {creating === 'screens' ? 'Toevoegen…' : 'Toevoegen'}
-                    </button>
-                  </span>
-                </label>
-                <label>
-                  <span>Schermprofiel</span>
-                  <select value={newScreenDisplayProfile} onChange={(event) => setNewScreenDisplayProfile(event.target.value as WallboardDisplayProfile)}>
-                    <option value="auto">Auto (aanbevolen)</option>
-                    <option value="1080p">1080p (Full HD)</option>
-                    <option value="4k">4K (Ultra HD)</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Playlist bij aanmaak</span>
-                  <select value={newScreenPlaylistId} onChange={(event) => setNewScreenPlaylistId(event.target.value)}>
-                    <option value="">Nieuwe eigen playlist</option>
-                    {playlists.map((playlist) => (
-                      <option key={playlist.id} value={playlist.id}>{playlist.name} · {playlistUsageLabel(playlist)}</option>
-                    ))}
-                  </select>
-                </label>
-                {playlistsResource.error ? <p className="form-error" role="alert">Playlists konden niet worden geladen: {playlistsResource.error}</p> : null}
-                {createError ? <p className="form-error" role="alert">{createError}</p> : null}
-              </form>
-            ) : (
+            {section === 'playlists' ? (
               <form className="wallboard-create-form" onSubmit={createPlaylist}>
                 <div className="wallboard-create-form__heading">
                   <strong>Nieuwe playlist</strong>
@@ -262,7 +214,7 @@ export function WallboardsAdminPage() {
                 </label>
                 {createError ? <p className="form-error" role="alert">{createError}</p> : null}
               </form>
-            )}
+            ) : null}
 
             <ResourceState
               loading={activeResource.loading}
@@ -712,12 +664,14 @@ function PlaylistEditor({ playlist, onReplace, onReloadAll, onDeleted }: Playlis
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const usageCount = wallboardPlaylistUsageCount(playlist);
 
   useEffect(() => {
     setDraftName(playlist.name);
     setDraft(wallboardConfigurationCopy(playlist.configuration));
     setDeleteConfirm(false);
+    setPreviewOpen(false);
   }, [playlist.configuration, playlist.name, playlist.version]);
 
   async function savePlaylist(event: FormEvent) {
@@ -782,8 +736,21 @@ function PlaylistEditor({ playlist, onReplace, onReloadAll, onDeleted }: Playlis
           <span className="eyebrow">Gedeelde inhoud</span>
           <h2>{playlist.name}</h2>
         </div>
-        <StatusPill value={`Versie ${playlist.version}`} tone="neutral" />
+        <div className="wallboard-editor__heading-actions">
+          <button className="secondary-button" type="button" onClick={() => setPreviewOpen(true)}>
+            <Eye size={17} aria-hidden /> Voorbeeld bekijken
+          </button>
+          <StatusPill value={`Versie ${playlist.version}`} tone="neutral" />
+        </div>
       </div>
+
+      {previewOpen ? (
+        <WallboardPlaylistPreview
+          playlistName={draftName.trim() || playlist.name}
+          configuration={draft}
+          onClose={() => setPreviewOpen(false)}
+        />
+      ) : null}
 
       {usageCount > 1 ? (
         <aside className="wallboard-playlist-shared" role="note" aria-label="Gedeelde playlist">

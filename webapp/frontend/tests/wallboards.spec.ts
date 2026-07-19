@@ -21,11 +21,13 @@ import {
   clampRefreshSeconds,
   clampWallboardFocusDuration,
   clampWallboardPageDuration,
+  clampWallboardRssMaxItems,
   countActiveOperationalWallboardIncidents,
   createWallboardPage,
   createWallboardTickerSource,
   formatWallboardPilotAvailability,
   normalizeWallboardDisplayProfile,
+  requestedWallboardScreenSelection,
   selectRecentWallboardIncidents,
   wallboardConfigurationCopy,
   wallboardDisplayProfileLabel,
@@ -333,9 +335,13 @@ test('creates bounded ticker sources and readable motion timing', () => {
   const rss = createWallboardTickerSource('rss', 1);
   const internal = createWallboardTickerSource('internal', 2);
 
-  expect(rss).toMatchObject({ type: 'rss', label: 'Nieuws- of weer-RSS', url: '' });
+  expect(rss).toMatchObject({ type: 'rss', label: 'Nieuws- of weer-RSS', url: '', max_items: 8 });
   expect(internal).toMatchObject({ type: 'internal', label: 'Intern bericht', text: '' });
   expect(rss.id).toMatch(/^ticker-/);
+  expect(clampWallboardRssMaxItems(Number.NaN)).toBe(8);
+  expect(clampWallboardRssMaxItems(0)).toBe(1);
+  expect(clampWallboardRssMaxItems(9)).toBe(8);
+  expect(clampWallboardRssMaxItems(4.6)).toBe(5);
   expect(wallboardTickerDurationSeconds([])).toBe(24);
   expect(wallboardTickerDurationSeconds(stateFixture().ticker.items)).toBeGreaterThanOrEqual(24);
   expect(wallboardTickerDurationSeconds([{ ...stateFixture().ticker.items[0], text: 'x'.repeat(2000) }])).toBe(120);
@@ -544,16 +550,21 @@ test('dedicated incident pages remain operational when the global map layer is h
 
 test('exposes admin and kiosk routes with separate trust boundaries', () => {
   const adminRoute = readFileSync(new URL('../app/wallboards/page.tsx', import.meta.url), 'utf8');
+  const createRoute = readFileSync(new URL('../app/wallboards/new/page.tsx', import.meta.url), 'utf8');
   const kioskRoute = readFileSync(new URL('../app/wallboard/page.tsx', import.meta.url), 'utf8');
   const providers = readFileSync(new URL('../app/providers.tsx', import.meta.url), 'utf8');
   const navigation = readFileSync(new URL('../src/app/CommandLayout.tsx', import.meta.url), 'utf8');
   const apiTypes = readFileSync(new URL('../src/types/api.ts', import.meta.url), 'utf8');
   const kiosk = readFileSync(new URL('../src/features/wallboards/WallboardDisplayPage.tsx', import.meta.url), 'utf8');
   const admin = readFileSync(new URL('../src/features/wallboards/WallboardsAdminPage.tsx', import.meta.url), 'utf8');
+  const createPage = readFileSync(new URL('../src/features/wallboards/WallboardCreatePage.tsx', import.meta.url), 'utf8');
+  const playlistPreview = readFileSync(new URL('../src/features/wallboards/WallboardPlaylistPreview.tsx', import.meta.url), 'utf8');
   const configurationEditor = readFileSync(new URL('../src/features/wallboards/WallboardConfigurationEditor.tsx', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
 
   expect(adminRoute).toContain("permissions={['wallboards.manage']}");
+  expect(createRoute).toContain("permissions={['wallboards.manage']}");
+  expect(createRoute).toContain('<WallboardCreatePage />');
   expect(navigation).toContain("to: '/wallboards', label: 'Wallboards'");
   expect(navigation).toContain("permissions: ['wallboards.manage']");
   expect(kioskRoute).not.toContain('ProtectedShell');
@@ -611,7 +622,21 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(admin).toContain('Auto (aanbevolen)');
   expect(admin).toContain('TV-, HDMI- of OS-uitvoerresolutie');
   expect(admin).toContain("error.status === 409");
+  expect(admin).toContain('href="/wallboards/new"');
+  expect(admin).toContain('Voorbeeld bekijken');
+  expect(admin).not.toContain('async function createScreen');
+  expect(createPage).toContain("api.post<Wallboard>('/admin/wallboards'");
+  expect(createPage).toContain("useApiResource<WallboardPlaylist[]>('/admin/wallboard-playlists')");
+  expect(createPage).toContain('router.replace(`/wallboards?screen=${encodeURIComponent(response.data.id)}`)');
+  expect(playlistPreview).toContain('<dialog');
+  expect(playlistPreview).toContain('Alleen-lezen voorbeeld');
+  expect(playlistPreview).not.toContain('useAuth');
+  expect(playlistPreview).not.toContain('api.');
+  expect(playlistPreview).not.toContain('dangerouslySetInnerHTML');
   expect(configurationEditor).toContain('Nieuws- of weer-RSS');
+  expect(configurationEditor).toContain('https://data.buienradar.nl/1.0/feed/xml/rssbuienradar');
+  expect(configurationEditor).toContain('Aantal berichten');
+  expect(configurationEditor).toContain('max={MAX_WALLBOARD_RSS_MAX_ITEMS}');
   expect(configurationEditor).toContain("addTickerSource('internal')");
   expect(configurationEditor).toContain('Focusschermen');
   expect(configurationEditor).toContain('focus&nbsp;↔&nbsp;kaart');
@@ -630,8 +655,9 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
 
 test('separates screen control from shared playlist content management', () => {
   const admin = readFileSync(new URL('../src/features/wallboards/WallboardsAdminPage.tsx', import.meta.url), 'utf8');
+  const createPage = readFileSync(new URL('../src/features/wallboards/WallboardCreatePage.tsx', import.meta.url), 'utf8');
   const configurationEditor = readFileSync(new URL('../src/features/wallboards/WallboardConfigurationEditor.tsx', import.meta.url), 'utf8');
-  const createScreen = admin.slice(admin.indexOf('async function createScreen'), admin.indexOf('async function createPlaylist'));
+  const createScreen = createPage.slice(createPage.indexOf('async function createScreen'), createPage.indexOf('return ('));
   const saveScreen = admin.slice(admin.indexOf('async function saveScreen'), admin.indexOf('async function controlDisplay'));
 
   expect(admin).toContain("useApiResource<WallboardPlaylist[]>('/admin/wallboard-playlists')");
@@ -643,8 +669,8 @@ test('separates screen control from shared playlist content management', () => {
   expect(admin).toContain('wallboardPlaylistUsageCount');
   expect(admin).toContain('Gedeelde playlist · {usageCount} schermen');
   expect(admin).toContain('await onReloadAll();');
-  expect(createScreen).toContain("...(newScreenPlaylistId === '' ? {} : { playlist_id: newScreenPlaylistId })");
-  expect(createScreen).toContain('display_profile: newScreenDisplayProfile');
+  expect(createPage).toContain("...(values.playlistId === '' ? {} : { playlist_id: values.playlistId })");
+  expect(createPage).toContain('display_profile: values.displayProfile');
   expect(createScreen).not.toContain('configuration:');
   expect(saveScreen).toContain('name,');
   expect(saveScreen).toContain('is_enabled: draftEnabled');
@@ -657,6 +683,14 @@ test('separates screen control from shared playlist content management', () => {
   expect(configurationEditor).toContain('Focusschermen');
   expect(configurationEditor).toContain('Vaste incidentpagina als fallback');
   expect(configurationEditor).toContain('Onderticker');
+});
+
+test('selects only the newly created wallboard requested by the return URL', () => {
+  const wallboards = [{ id: 'existing' }, { id: 'new-screen' }];
+
+  expect(requestedWallboardScreenSelection('?screen=new-screen', wallboards)).toBe('new-screen');
+  expect(requestedWallboardScreenSelection('?screen=missing', wallboards)).toBeNull();
+  expect(requestedWallboardScreenSelection('', wallboards)).toBeNull();
 });
 
 test('keeps explicit screen profiles fluid at Full HD and Ultra HD viewports', async ({ page }) => {

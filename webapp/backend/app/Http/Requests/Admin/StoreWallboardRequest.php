@@ -80,12 +80,13 @@ final class StoreWallboardRequest extends FormRequest
             'configuration.ticker' => ['sometimes', 'array:enabled,sources'],
             'configuration.ticker.enabled' => ['sometimes', 'boolean'],
             'configuration.ticker.sources' => ['sometimes', 'array', 'max:'.WallboardConfiguration::MAX_TICKER_SOURCES],
-            'configuration.ticker.sources.*' => ['required', 'array:id,type,label,url,text'],
+            'configuration.ticker.sources.*' => ['required', 'array:id,type,label,url,text,max_items'],
             'configuration.ticker.sources.*.id' => ['required', 'string', 'max:'.WallboardConfiguration::MAX_TICKER_SOURCE_ID_LENGTH, 'regex:/^[A-Za-z0-9][A-Za-z0-9_-]*$/', 'distinct:strict'],
             'configuration.ticker.sources.*.type' => ['required', 'string', Rule::in(WallboardConfiguration::TICKER_SOURCE_TYPES)],
             'configuration.ticker.sources.*.label' => ['required', 'string', 'max:'.WallboardConfiguration::MAX_TICKER_LABEL_LENGTH],
             'configuration.ticker.sources.*.url' => ['sometimes', 'string', 'max:'.WallboardConfiguration::MAX_TICKER_URL_LENGTH],
             'configuration.ticker.sources.*.text' => ['sometimes', 'string', 'max:'.WallboardConfiguration::MAX_TICKER_INTERNAL_TEXT_LENGTH],
+            'configuration.ticker.sources.*.max_items' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_TICKER_RSS_MAX_ITEMS.','.WallboardConfiguration::MAX_TICKER_RSS_MAX_ITEMS],
             'configuration.map' => ['sometimes', 'array:show_active_incidents,show_test_incidents,show_live_locations,show_routes,show_command_centers,show_historical_incidents,show_summary,show_incident_list,show_route_legend,auto_fit'],
             'configuration.map.show_active_incidents' => ['sometimes', 'boolean'],
             'configuration.map.show_test_incidents' => ['sometimes', 'boolean'],
@@ -171,10 +172,10 @@ final class StoreWallboardRequest extends FormRequest
             }
 
             if ($type === 'rss') {
-                if (array_diff(array_keys($source), ['id', 'type', 'label', 'url']) !== []) {
+                if (array_diff(array_keys($source), ['id', 'type', 'label', 'url', 'max_items']) !== []) {
                     $validator->errors()->add(
                         "configuration.ticker.sources.{$index}",
-                        'Een RSS-tickerbron mag alleen id, type, label en url bevatten.',
+                        'Een RSS-tickerbron mag alleen id, type, label, url en max_items bevatten.',
                     );
                 }
 

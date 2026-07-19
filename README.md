@@ -187,7 +187,8 @@ A playlist contains an ordered set of allowlisted DIS pages: an operational map,
 summary or plain-text announcement. Every page has its own bounded display duration. The playlist also owns
 map layers, rotation, the incident override and an optional bottom ticker. The ticker accepts bounded
 plain-text internal messages and multiple HTTPS RSS or Atom feeds; feed retrieval is cached, size-limited and
-restricted to public destinations. External display pages, arbitrary HTML and executable content are not
+restricted to public destinations. Each RSS source can show between one and eight items; legacy and omitted
+`max_items` settings default to eight. External display pages, arbitrary HTML and executable content are not
 accepted.
 
 An unpaired television starts the pairing flow itself and shows a short-lived, human-readable code on

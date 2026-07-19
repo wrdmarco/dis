@@ -285,13 +285,23 @@ export interface WallboardIncidentOverride {
 
 export type WallboardTickerSourceType = 'rss' | 'internal';
 
-export interface WallboardTickerSource {
+interface WallboardTickerSourceBase {
   id: string;
-  type: WallboardTickerSourceType;
   label: string;
-  url?: string;
-  text?: string;
 }
+
+export interface WallboardRssTickerSource extends WallboardTickerSourceBase {
+  type: 'rss';
+  url: string;
+  max_items: number;
+}
+
+export interface WallboardInternalTickerSource extends WallboardTickerSourceBase {
+  type: 'internal';
+  text: string;
+}
+
+export type WallboardTickerSource = WallboardRssTickerSource | WallboardInternalTickerSource;
 
 export interface WallboardTickerConfiguration {
   enabled: boolean;

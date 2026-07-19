@@ -317,9 +317,12 @@ final class DeploymentMaintenanceContractTest extends TestCase
             $osrm,
         );
         self::assertStringContainsString(
-            '"${OSRM_IMPORT_USER}" "${profile}" "the selected OSRM profile"',
+            'Custom host OSRM profiles are not accepted by the pinned container runtime.',
             $osrm,
         );
+        self::assertStringContainsString('podman_profile_sha >/dev/null', $osrm);
+        self::assertStringContainsString('printf \'%s\\n\' "${OSRM_CONTAINER_PROFILE}"', $osrm);
+        self::assertStringContainsString('osrm-extract -p "${profile}" /data/routing.osm.pbf', $osrm);
         self::assertStringNotContainsString('runuser -u "${OSRM_USER}" -- test -', $osrm);
         self::assertStringNotContainsString('runuser -u "${OSRM_IMPORT_USER}" -- test -', $osrm);
 

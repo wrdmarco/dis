@@ -37,6 +37,39 @@ final class WallboardPlaylistTest extends TestCase
             ->assertExactJson(['data' => []]);
     }
 
+    public function test_legacy_rss_playlist_payload_exposes_the_backward_compatible_default_item_limit(): void
+    {
+        $manager = $this->user('playlist-legacy-rss@example.test', ['wallboards.manage']);
+        $legacyConfiguration = WallboardConfiguration::defaults();
+        $legacyConfiguration['ticker'] = [
+            'enabled' => true,
+            'sources' => [[
+                'id' => 'weather',
+                'type' => 'rss',
+                'label' => 'Buienradar.nl',
+                'url' => 'https://data.buienradar.nl/1.0/feed/xml/rssbuienradar',
+            ]],
+        ];
+        $playlist = WallboardPlaylist::query()->create([
+            'name' => 'Legacy RSS',
+            'configuration' => $legacyConfiguration,
+            'version' => 1,
+            'created_by' => $manager->id,
+            'updated_by' => $manager->id,
+        ]);
+
+        $this->asAdminClient($manager)
+            ->getJson('/api/admin/wallboard-playlists')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $playlist->id)
+            ->assertJsonPath(
+                'data.0.configuration.ticker.sources.0.max_items',
+                WallboardConfiguration::DEFAULT_TICKER_RSS_MAX_ITEMS,
+            );
+
+        $this->assertArrayNotHasKey('max_items', $playlist->configuration['ticker']['sources'][0]);
+    }
+
     public function test_new_wallboard_gets_its_own_playlist_unless_an_existing_playlist_is_selected(): void
     {
         $manager = $this->user('playlist-create@example.test', ['wallboards.manage']);

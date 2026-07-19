@@ -26,13 +26,19 @@ final class WallboardTickerService
 
     public const MAX_RSS_TEXT_LENGTH = 300;
 
-    public const MAX_RSS_ITEMS_PER_SOURCE = 8;
+    public const DEFAULT_RSS_ITEMS_PER_SOURCE = WallboardConfiguration::DEFAULT_TICKER_RSS_MAX_ITEMS;
+
+    public const MIN_RSS_ITEMS_PER_SOURCE = WallboardConfiguration::MIN_TICKER_RSS_MAX_ITEMS;
+
+    public const MAX_RSS_ITEMS_PER_SOURCE = WallboardConfiguration::MAX_TICKER_RSS_MAX_ITEMS;
 
     public const MAX_ITEMS = 50;
 
     public const MAX_RESPONSE_BYTES = 262_144;
 
     private const MAX_FEED_NODES = 50;
+
+    private const RSS_CACHE_VERSION = 2;
 
     /** @var list<string> */
     private const XML_CONTENT_TYPES = [
@@ -133,7 +139,19 @@ final class WallboardTickerService
                 continue;
             }
 
-            foreach ($this->rssItems((string) ($source['url'] ?? ''), $coldFetchAvailable) as $text) {
+            $maximumItems = array_key_exists('max_items', $source)
+                ? $source['max_items']
+                : self::DEFAULT_RSS_ITEMS_PER_SOURCE;
+            if (! is_int($maximumItems)
+                || $maximumItems < self::MIN_RSS_ITEMS_PER_SOURCE
+                || $maximumItems > self::MAX_RSS_ITEMS_PER_SOURCE) {
+                continue;
+            }
+            foreach (array_slice(
+                $this->rssItems((string) ($source['url'] ?? ''), $coldFetchAvailable),
+                0,
+                $maximumItems,
+            ) as $text) {
                 $items[] = $this->item($sourceId, $type, $label, $text);
                 if (count($items) >= self::MAX_ITEMS) {
                     break 2;
@@ -160,11 +178,13 @@ final class WallboardTickerService
             return [];
         }
 
-        $cacheKey = 'wallboard:ticker:rss:v1:'.hash('sha256', $url);
+        $cacheKey = 'wallboard:ticker:rss:v'.self::RSS_CACHE_VERSION.':'.hash('sha256', $url);
 
         try {
             $cached = Cache::get($cacheKey);
-            if (is_array($cached) && ($cached['version'] ?? null) === 1 && is_array($cached['items'] ?? null)) {
+            if (is_array($cached)
+                && ($cached['version'] ?? null) === self::RSS_CACHE_VERSION
+                && is_array($cached['items'] ?? null)) {
                 return $this->cachedTexts($cached['items']);
             }
 
@@ -180,7 +200,7 @@ final class WallboardTickerService
             $items = $fetched ?? [];
             Cache::put(
                 $cacheKey,
-                ['version' => 1, 'items' => $items],
+                ['version' => self::RSS_CACHE_VERSION, 'items' => $items],
                 now()->addSeconds($fetched === null ? $this->failureCacheSeconds() : $this->successCacheSeconds()),
             );
 
@@ -404,9 +424,7 @@ final class WallboardTickerService
                     break;
                 }
 
-                $text = $this->firstChildText($node, ['title'])
-                    ?? $this->firstChildText($node, ['description', 'summary', 'content', 'encoded']);
-                $text = $this->plainText($text ?? '', self::MAX_RSS_TEXT_LENGTH);
+                $text = $this->feedItemText($node);
                 $key = mb_strtolower($text);
                 if ($text === '' || isset($seen[$key])) {
                     continue;
@@ -426,23 +444,45 @@ final class WallboardTickerService
         }
     }
 
+    private function feedItemText(DOMElement $element): string
+    {
+        $title = $this->firstMeaningfulChildText($element, ['title']);
+        $detail = $this->firstMeaningfulChildText($element, ['description', 'summary', 'content', 'encoded']);
+
+        if ($title === '') {
+            return $detail;
+        }
+        if ($detail === '' || mb_strtolower($detail) === mb_strtolower($title)) {
+            return $title;
+        }
+
+        return mb_substr("{$title} — {$detail}", 0, self::MAX_RSS_TEXT_LENGTH);
+    }
+
     /**
      * @param  list<string>  $names
      */
-    private function firstChildText(DOMElement $element, array $names): ?string
+    private function firstMeaningfulChildText(DOMElement $element, array $names): string
     {
-        foreach ($element->childNodes as $child) {
-            if (! $child instanceof DOMNode) {
-                continue;
-            }
+        foreach ($names as $name) {
+            foreach ($element->childNodes as $child) {
+                if (! $child instanceof DOMNode) {
+                    continue;
+                }
 
-            $localName = strtolower((string) ($child->localName ?? $child->nodeName));
-            if (in_array($localName, $names, true)) {
-                return $child->textContent;
+                $localName = strtolower((string) ($child->localName ?? $child->nodeName));
+                if ($localName !== $name) {
+                    continue;
+                }
+
+                $text = $this->plainText($child->textContent, self::MAX_RSS_TEXT_LENGTH);
+                if ($text !== '') {
+                    return $text;
+                }
             }
         }
 
-        return null;
+        return '';
     }
 
     private function plainText(string $value, int $maximumLength): string

@@ -28,12 +28,15 @@ import {
   MAX_WALLBOARD_FOCUS_DURATION_SECONDS,
   MAX_WALLBOARD_PAGE_DURATION_SECONDS,
   MAX_WALLBOARD_REFRESH_SECONDS,
+  MAX_WALLBOARD_RSS_MAX_ITEMS,
   MAX_WALLBOARD_TICKER_SOURCES,
   MIN_WALLBOARD_FOCUS_DURATION_SECONDS,
   MIN_WALLBOARD_PAGE_DURATION_SECONDS,
   MIN_WALLBOARD_REFRESH_SECONDS,
+  MIN_WALLBOARD_RSS_MAX_ITEMS,
   clampWallboardFocusDuration,
   clampWallboardPageDuration,
+  clampWallboardRssMaxItems,
   createWallboardPage,
   createWallboardTickerSource,
   wallboardPageTypeLabel,
@@ -342,30 +345,55 @@ export function WallboardConfigurationEditor({
                     />
                   </label>
                   {source.type === 'rss' ? (
-                    <label>
-                      <span>HTTPS RSS-adres</span>
-                      <input
-                        type="url"
-                        value={source.url ?? ''}
-                        onChange={(event) => updateTickerSource(source.id, (current) => ({ ...current, url: event.target.value }))}
-                        maxLength={2048}
-                        pattern="https://.*"
-                        placeholder="https://voorbeeld.nl/feed.xml"
-                        required
-                      />
-                    </label>
+                    <>
+                      <label>
+                        <span>HTTPS RSS-adres</span>
+                        <input
+                          type="url"
+                          value={source.url}
+                          onChange={(event) => updateTickerSource(source.id, (current) => current.type === 'rss'
+                            ? { ...current, url: event.target.value }
+                            : current)}
+                          maxLength={2048}
+                          pattern="https://.*"
+                          placeholder="https://data.buienradar.nl/1.0/feed/xml/rssbuienradar"
+                          required
+                        />
+                      </label>
+                      <label className="wallboard-ticker-source__limit">
+                        <span>Aantal berichten</span>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min={MIN_WALLBOARD_RSS_MAX_ITEMS}
+                          max={MAX_WALLBOARD_RSS_MAX_ITEMS}
+                          value={source.max_items}
+                          onChange={(event) => updateTickerSource(source.id, (current) => current.type === 'rss'
+                            ? { ...current, max_items: Number(event.target.value) }
+                            : current)}
+                          onBlur={() => updateTickerSource(source.id, (current) => current.type === 'rss'
+                            ? { ...current, max_items: clampWallboardRssMaxItems(current.max_items) }
+                            : current)}
+                          aria-describedby={`${idPrefix}-ticker-${source.id}-limit-help`}
+                          required
+                        />
+                        <small id={`${idPrefix}-ticker-${source.id}-limit-help`}>Per verversing, maximaal {MAX_WALLBOARD_RSS_MAX_ITEMS}.</small>
+                      </label>
+                    </>
                   ) : (
                     <label className="wallboard-ticker-source__message">
                       <span>Bericht</span>
                       <textarea
-                        value={source.text ?? ''}
-                        onChange={(event) => updateTickerSource(source.id, (current) => ({ ...current, text: event.target.value }))}
+                        value={source.text}
+                        onChange={(event) => updateTickerSource(source.id, (current) => current.type === 'internal'
+                          ? { ...current, text: event.target.value }
+                          : current)}
                         maxLength={500}
                         rows={3}
                         placeholder="Tekst die onderin het wallboard loopt."
                         required
                       />
-                      <small>{(source.text ?? '').length}/500 tekens</small>
+                      <small>{source.text.length}/500 tekens</small>
                     </label>
                   )}
                 </div>

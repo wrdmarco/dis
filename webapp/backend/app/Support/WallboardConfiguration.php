@@ -27,6 +27,12 @@ final class WallboardConfiguration
 
     public const MAX_TICKER_URL_LENGTH = 2048;
 
+    public const DEFAULT_TICKER_RSS_MAX_ITEMS = 8;
+
+    public const MIN_TICKER_RSS_MAX_ITEMS = 1;
+
+    public const MAX_TICKER_RSS_MAX_ITEMS = 8;
+
     /**
      * @return array<string, mixed>
      */
@@ -265,7 +271,7 @@ final class WallboardConfiguration
 
     /**
      * @param  array<string, mixed>  $ticker
-     * @return array{enabled: bool, sources: list<array<string, string>>}
+     * @return array{enabled: bool, sources: list<array<string, string|int>>}
      */
     private static function normalizeTicker(array $ticker): array
     {
@@ -316,7 +322,7 @@ final class WallboardConfiguration
 
             $allowedKeys = $type === 'internal'
                 ? ['id', 'type', 'label', 'text']
-                : ['id', 'type', 'label', 'url'];
+                : ['id', 'type', 'label', 'url', 'max_items'];
             if (array_diff(array_keys($source), $allowedKeys) !== []) {
                 throw ValidationException::withMessages([
                     "configuration.ticker.sources.{$index}" => ['Deze tickerbron bevat velden die niet bij het gekozen type horen.'],
@@ -350,11 +356,21 @@ final class WallboardConfiguration
                 ]);
             }
 
+            $maxItems = $source['max_items'] ?? self::DEFAULT_TICKER_RSS_MAX_ITEMS;
+            if (! is_int($maxItems)
+                || $maxItems < self::MIN_TICKER_RSS_MAX_ITEMS
+                || $maxItems > self::MAX_TICKER_RSS_MAX_ITEMS) {
+                throw ValidationException::withMessages([
+                    "configuration.ticker.sources.{$index}.max_items" => ['Het aantal RSS-items moet een geheel getal tussen 1 en 8 zijn.'],
+                ]);
+            }
+
             $sources[$index] = [
                 'id' => $sourceId,
                 'type' => $type,
                 'label' => $label,
                 'url' => $url,
+                'max_items' => $maxItems,
             ];
         }
 

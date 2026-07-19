@@ -6092,6 +6092,60 @@ textarea:focus {
   max-width: 720px;
 }
 
+.wallboards-admin-heading__actions,
+.wallboard-editor__heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.wallboards-admin-heading__actions > *,
+.wallboard-editor__heading-actions .secondary-button {
+  min-height: 44px;
+}
+
+.wallboard-create-page {
+  max-width: 900px;
+}
+
+.wallboard-create-page__heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.wallboard-create-page__heading p {
+  max-width: 680px;
+}
+
+.wallboard-create-page__body {
+  max-width: 720px;
+}
+
+.wallboard-create-page__form {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+}
+
+.wallboard-create-page__form > label > small {
+  color: var(--dis-muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.wallboard-create-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  border-top: 1px solid var(--dis-border);
+  padding-top: 16px;
+}
+
 .wallboards-admin-tabs {
   display: flex;
   gap: 8px;
@@ -6743,7 +6797,7 @@ textarea:focus {
 
 .wallboard-ticker-source__fields {
   display: grid;
-  grid-template-columns: minmax(180px, 0.55fr) minmax(260px, 1.45fr);
+  grid-template-columns: minmax(180px, 0.55fr) minmax(240px, 1.25fr) minmax(120px, 0.42fr);
   gap: 10px;
   padding: 12px;
 }
@@ -6766,6 +6820,247 @@ textarea:focus {
   padding: 10px 11px;
   font: inherit;
   line-height: 1.45;
+}
+
+.wallboard-ticker-source__message {
+  grid-column: 2 / -1;
+}
+
+.wallboard-ticker-source__limit small {
+  color: var(--dis-muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.wallboard-playlist-preview {
+  width: min(1120px, calc(100vw - 32px));
+  max-height: min(860px, calc(100dvh - 32px));
+  overflow: hidden;
+  border: 1px solid var(--dis-border-strong);
+  border-radius: 12px;
+  background: var(--dis-surface);
+  color: var(--dis-text);
+  padding: 0;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.58);
+}
+
+.wallboard-playlist-preview::backdrop {
+  background: rgba(2, 6, 12, 0.78);
+  backdrop-filter: blur(3px);
+}
+
+.wallboard-playlist-preview__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid var(--dis-border);
+  background: var(--dis-surface-2);
+  padding: 18px 20px;
+}
+
+.wallboard-playlist-preview__header h2 {
+  margin: 3px 0 4px;
+  color: var(--dis-text-strong);
+  font-size: 1.25rem;
+}
+
+.wallboard-playlist-preview__header p,
+.wallboard-playlist-preview__details p {
+  margin: 0;
+  color: var(--dis-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.wallboard-playlist-preview__header .icon-button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.wallboard-playlist-preview__body {
+  max-height: calc(100dvh - 150px);
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(310px, 0.72fr);
+  gap: 16px;
+  overflow: auto;
+  padding: 16px;
+}
+
+.wallboard-playlist-preview__screen {
+  min-width: 0;
+  overflow: hidden;
+  align-self: start;
+  border: 1px solid var(--dis-border-strong);
+  border-radius: 10px;
+  background: #07111d;
+}
+
+.wallboard-playlist-preview__screen-bar {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(128, 199, 255, 0.2);
+  color: #b9dfff;
+  padding: 8px 12px;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.wallboard-playlist-preview__screen-bar span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wallboard-playlist-preview__canvas {
+  min-height: 350px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  background:
+    radial-gradient(circle at 22% 28%, rgba(42, 134, 204, 0.24), transparent 28%),
+    linear-gradient(145deg, #0a1827, #08111c 62%);
+  color: #80c7ff;
+  padding: 28px;
+  text-align: center;
+}
+
+.wallboard-playlist-preview__canvas h3,
+.wallboard-playlist-preview__canvas p {
+  max-width: 520px;
+  margin: 0;
+}
+
+.wallboard-playlist-preview__canvas h3 {
+  color: #f7fbff;
+  font-size: clamp(1.35rem, 3vw, 2.2rem);
+}
+
+.wallboard-playlist-preview__canvas p,
+.wallboard-playlist-preview__canvas > span {
+  color: #9fb5c9;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.wallboard-playlist-preview__ticker {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border-top: 1px solid rgba(128, 199, 255, 0.2);
+  color: #d7edff;
+  padding: 9px 13px;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.wallboard-playlist-preview__details {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.wallboard-playlist-preview__details > section {
+  display: grid;
+  gap: 9px;
+  border: 1px solid var(--dis-border);
+  border-radius: 9px;
+  background: var(--dis-field);
+  padding: 12px;
+}
+
+.wallboard-playlist-preview__details h3 {
+  margin: 0;
+  color: var(--dis-text-strong);
+  font-size: 0.86rem;
+}
+
+.wallboard-playlist-preview__pages,
+.wallboard-playlist-preview__sources,
+.wallboard-playlist-preview__focus {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wallboard-playlist-preview__page {
+  width: 100%;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--dis-border);
+  border-radius: 7px;
+  background: var(--dis-surface);
+  color: var(--dis-text);
+  padding: 7px 9px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wallboard-playlist-preview__page:hover,
+.wallboard-playlist-preview__page:focus-visible,
+.wallboard-playlist-preview__page--active {
+  border-color: rgba(128, 199, 255, 0.62);
+  background: var(--dis-blue-soft);
+}
+
+.wallboard-playlist-preview__page > span:first-child {
+  color: var(--dis-blue);
+  font-weight: 900;
+  text-align: center;
+}
+
+.wallboard-playlist-preview__page strong,
+.wallboard-playlist-preview__page small {
+  display: block;
+}
+
+.wallboard-playlist-preview__page strong {
+  color: var(--dis-text-strong);
+  font-size: 0.76rem;
+}
+
+.wallboard-playlist-preview__page small,
+.wallboard-playlist-preview__page time,
+.wallboard-playlist-preview__sources small,
+.wallboard-playlist-preview__focus small {
+  color: var(--dis-muted);
+  font-size: 0.68rem;
+}
+
+.wallboard-playlist-preview__sources li,
+.wallboard-playlist-preview__focus li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  color: var(--dis-blue);
+  font-size: 0.74rem;
+}
+
+.wallboard-playlist-preview__focus li {
+  grid-template-columns: 20px minmax(0, 1fr);
+}
+
+.wallboard-playlist-preview__focus strong,
+.wallboard-playlist-preview__focus small {
+  display: block;
+}
+
+.wallboard-playlist-preview__focus strong {
+  color: var(--dis-text-strong);
+  font-size: 0.74rem;
 }
 
 .wallboard-ticker-source__message small {
@@ -8687,6 +8982,44 @@ textarea:focus {
     flex-direction: column;
   }
 
+  .wallboards-admin-heading__actions,
+  .wallboard-create-page__heading,
+  .wallboard-editor__heading,
+  .wallboard-editor__heading-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .wallboards-admin-heading__actions > *,
+  .wallboard-create-page__heading > .secondary-button,
+  .wallboard-editor__heading-actions > .secondary-button {
+    justify-content: center;
+  }
+
+  .wallboard-create-page__actions {
+    display: grid;
+  }
+
+  .wallboard-playlist-preview {
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+
+  .wallboard-playlist-preview__header {
+    padding: 14px;
+  }
+
+  .wallboard-playlist-preview__body {
+    max-height: calc(100dvh - 128px);
+    grid-template-columns: 1fr;
+    padding: 10px;
+  }
+
+  .wallboard-playlist-preview__canvas {
+    min-height: 250px;
+    padding: 20px;
+  }
+
   .wallboards-admin-tabs {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -8754,6 +9087,10 @@ textarea:focus {
 
   .wallboard-ticker-source__fields {
     grid-template-columns: 1fr;
+  }
+
+  .wallboard-ticker-source__message {
+    grid-column: auto;
   }
 
   .wallboard-page-add .secondary-button {

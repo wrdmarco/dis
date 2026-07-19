@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Http\Requests\Admin\StoreWallboardPlaylistRequest;
 use App\Http\Requests\Admin\StoreWallboardRequest;
+use App\Http\Requests\Admin\UpdateWallboardPlaylistRequest;
 use App\Http\Requests\Admin\UpdateWallboardRequest;
 use App\Support\WallboardConfiguration;
 use Illuminate\Foundation\Http\FormRequest;
@@ -51,6 +53,7 @@ final class WallboardTickerConfigurationTest extends TestCase
                 'type' => 'rss',
                 'label' => 'Weer',
                 'url' => 'https://weather.example.org/rss.xml',
+                'max_items' => WallboardConfiguration::DEFAULT_TICKER_RSS_MAX_ITEMS,
             ]],
         ], $normalized['ticker']);
     }
@@ -72,6 +75,7 @@ final class WallboardTickerConfigurationTest extends TestCase
                         'type' => 'rss',
                         'label' => 'Weer',
                         'url' => 'https://weather.example.org/rss.xml?region=west',
+                        'max_items' => 3,
                     ],
                 ],
             ],
@@ -88,6 +92,87 @@ final class WallboardTickerConfigurationTest extends TestCase
 
         $this->assertSame($configuration['ticker'], $store['configuration']['ticker']);
         $this->assertSame($configuration['ticker'], $update['configuration']['ticker']);
+    }
+
+    public function test_every_wallboard_request_contract_accepts_rss_item_limit_boundaries(): void
+    {
+        foreach ([
+            [new StoreWallboardRequest, ['name' => 'Scherm']],
+            [new UpdateWallboardRequest, ['expected_config_version' => 1]],
+            [new StoreWallboardPlaylistRequest, ['name' => 'Playlist']],
+            [new UpdateWallboardPlaylistRequest, ['expected_version' => 1]],
+        ] as [$request, $basePayload]) {
+            foreach ([
+                WallboardConfiguration::MIN_TICKER_RSS_MAX_ITEMS,
+                WallboardConfiguration::MAX_TICKER_RSS_MAX_ITEMS,
+            ] as $maximumItems) {
+                $payload = [
+                    ...$basePayload,
+                    'configuration' => [
+                        'ticker' => [
+                            'enabled' => true,
+                            'sources' => [[
+                                'id' => 'weather',
+                                'type' => 'rss',
+                                'label' => 'Weer',
+                                'url' => 'https://weather.example.org/rss.xml',
+                                'max_items' => $maximumItems,
+                            ]],
+                        ],
+                    ],
+                ];
+
+                $validated = $this->validateRequest($request, $payload);
+
+                $this->assertSame(
+                    $maximumItems,
+                    $validated['configuration']['ticker']['sources'][0]['max_items'],
+                );
+            }
+        }
+    }
+
+    #[DataProvider('invalidMaxItemsProvider')]
+    public function test_every_wallboard_request_contract_rejects_non_strict_or_out_of_range_rss_item_limits(mixed $maximumItems): void
+    {
+        foreach ([
+            [new StoreWallboardRequest, ['name' => 'Scherm']],
+            [new UpdateWallboardRequest, ['expected_config_version' => 1]],
+            [new StoreWallboardPlaylistRequest, ['name' => 'Playlist']],
+            [new UpdateWallboardPlaylistRequest, ['expected_version' => 1]],
+        ] as [$request, $basePayload]) {
+            try {
+                $this->validateRequest($request, [
+                    ...$basePayload,
+                    'configuration' => [
+                        'ticker' => [
+                            'enabled' => true,
+                            'sources' => [[
+                                'id' => 'weather',
+                                'type' => 'rss',
+                                'label' => 'Weer',
+                                'url' => 'https://weather.example.org/rss.xml',
+                                'max_items' => $maximumItems,
+                            ]],
+                        ],
+                    ],
+                ]);
+                $this->fail('Een ongeldige RSS-itemlimiet had niet gevalideerd mogen worden.');
+            } catch (ValidationException $exception) {
+                $this->assertArrayHasKey('configuration.ticker.sources.0.max_items', $exception->errors());
+            }
+        }
+    }
+
+    /** @return iterable<string, array{0: mixed}> */
+    public static function invalidMaxItemsProvider(): iterable
+    {
+        yield 'zero' => [0];
+        yield 'above maximum' => [9];
+        yield 'numeric string' => ['3'];
+        yield 'float' => [3.0];
+        yield 'boolean' => [true];
+        yield 'null' => [null];
     }
 
     #[DataProvider('invalidSourceProvider')]
@@ -139,6 +224,14 @@ final class WallboardTickerConfigurationTest extends TestCase
             'label' => 'Intern',
             'text' => 'Bericht',
             'url' => 'https://feeds.example.org/rss.xml',
+        ], 'configuration.ticker.sources.0'];
+
+        yield 'internal with RSS item limit' => [[
+            'id' => 'message',
+            'type' => 'internal',
+            'label' => 'Intern',
+            'text' => 'Bericht',
+            'max_items' => 2,
         ], 'configuration.ticker.sources.0'];
 
         yield 'http feed' => [[
@@ -243,6 +336,30 @@ final class WallboardTickerConfigurationTest extends TestCase
             'label' => 'Feed',
             'url' => 'https://[::1]/feed.xml',
         ], 'configuration.ticker.sources.0.url'];
+
+        yield 'RSS item limit below minimum' => [[
+            'id' => 'feed',
+            'type' => 'rss',
+            'label' => 'Feed',
+            'url' => 'https://feeds.example.org/rss.xml',
+            'max_items' => 0,
+        ], 'configuration.ticker.sources.0.max_items'];
+
+        yield 'RSS item limit above maximum' => [[
+            'id' => 'feed',
+            'type' => 'rss',
+            'label' => 'Feed',
+            'url' => 'https://feeds.example.org/rss.xml',
+            'max_items' => 9,
+        ], 'configuration.ticker.sources.0.max_items'];
+
+        yield 'RSS item limit must be a strict integer' => [[
+            'id' => 'feed',
+            'type' => 'rss',
+            'label' => 'Feed',
+            'url' => 'https://feeds.example.org/rss.xml',
+            'max_items' => '3',
+        ], 'configuration.ticker.sources.0.max_items'];
     }
 
     /** @return array<string, mixed> */

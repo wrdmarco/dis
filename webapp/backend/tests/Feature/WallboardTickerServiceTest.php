@@ -161,6 +161,45 @@ final class WallboardTickerServiceTest extends TestCase
         Http::assertSentCount(2);
     }
 
+    public function test_per_source_max_items_slices_the_complete_cached_feed_without_poisoning_the_cache(): void
+    {
+        $feedItems = '';
+        for ($index = 1; $index <= 6; $index++) {
+            $feedItems .= "<item><title>Bericht {$index}</title></item>";
+        }
+        Http::fake([
+            'https://feeds.example.org/news.xml' => Http::response(
+                "<rss><channel>{$feedItems}</channel></rss>",
+                200,
+                ['Content-Type' => 'application/rss+xml'],
+            ),
+        ]);
+        $service = $this->service();
+        $source = $this->rssSource();
+
+        $source['max_items'] = 1;
+        $this->assertSame(
+            ['Bericht 1'],
+            collect($service->items(['enabled' => true, 'sources' => [$source]]))->pluck('text')->all(),
+        );
+
+        $source['max_items'] = 4;
+        $this->assertSame(
+            ['Bericht 1', 'Bericht 2', 'Bericht 3', 'Bericht 4'],
+            collect($service->items(['enabled' => true, 'sources' => [$source]]))->pluck('text')->all(),
+        );
+        Http::assertSentCount(1);
+    }
+
+    public function test_present_invalid_max_items_fails_closed_before_fetching(): void
+    {
+        $source = $this->rssSource();
+        $source['max_items'] = '3';
+
+        $this->assertSame([], $this->service()->items(['enabled' => true, 'sources' => [$source]]));
+        Http::assertNothingSent();
+    }
+
     public function test_failure_cached_cold_feed_allows_the_next_feed_to_warm_on_the_next_resolution(): void
     {
         Http::fake([
@@ -215,6 +254,98 @@ final class WallboardTickerServiceTest extends TestCase
         $items = $this->service()->items(['enabled' => true, 'sources' => [$this->rssSource()]]);
 
         $this->assertSame('Verwachting: windkracht 6', $items[0]['text'] ?? null);
+    }
+
+    public function test_buienradar_contract_combines_title_with_meaningful_cdata_and_ignores_image_only_body(): void
+    {
+        $url = 'https://data.buienradar.nl/1.0/feed/xml/rssbuienradar';
+        Http::fake([
+            $url => Http::response(
+                <<<'XML'
+                <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+                  <channel>
+                    <atom:link href="https://api.buienradar.nl/data/xml/1.0/rssbuienradar" rel="self" type="application/rss+xml" />
+                    <title>Buienradar.nl weerbericht en actuele radar</title>
+                    <item>
+                      <title>Actueel weerbericht</title>
+                      <pubDate>Sun, 19 Jul 2026 12:15:00 +00:00</pubDate>
+                      <link>https://www.buienradar.nl</link>
+                      <description><![CDATA[De komende tijd hebben we in Nederland te maken met gematigd zomerweer. Dat komt door een noordwestelijke stroming, waarmee relatief koele lucht wordt aangevoerd.&nbsp;Vanmiddag is het wisselend bewolkt, met geregeld ruimte voor de zon.]]></description>
+                    </item>
+                    <item>
+                      <title>Actueel radarbeeld</title>
+                      <pubDate>Sun, 19 Jul 2026 11:50:01 +00:00</pubDate>
+                      <link>https://www.buienradar.nl</link>
+                      <description><![CDATA[<p><a href='http://www.buienradar.nl' target='_blank'><img border='0' src='https://api.buienradar.nl/image/1.0/RadarMapNL?w=256&h=256' width='256' height='256'></a></p>]]></description>
+                    </item>
+                  </channel>
+                </rss>
+                XML,
+                200,
+                ['Content-Type' => 'text/xml; charset=UTF-8'],
+            ),
+        ]);
+        $service = $this->service(static fn (string $host): array => $host === 'data.buienradar.nl'
+            ? ['104.109.143.150', '2a02:26f0:b200::1748:fc89']
+            : []);
+
+        $items = $service->items([
+            'enabled' => true,
+            'sources' => [$this->rssSource($url)],
+        ]);
+
+        $this->assertTrue(WallboardTickerService::hasValidHttpsUrlSyntax($url));
+        $this->assertSame([
+            'Actueel weerbericht — De komende tijd hebben we in Nederland te maken met gematigd zomerweer. Dat komt door een noordwestelijke stroming, waarmee relatief koele lucht wordt aangevoerd. Vanmiddag is het wisselend bewolkt, met geregeld ruimte voor de zon.',
+            'Actueel radarbeeld',
+        ], collect($items)->pluck('text')->all());
+        $this->assertStringNotContainsString('RadarMapNL', implode(' ', collect($items)->pluck('text')->all()));
+    }
+
+    public function test_namespaced_encoded_content_is_used_after_an_image_only_description(): void
+    {
+        Http::fake([
+            '*' => Http::response(
+                <<<'XML'
+                <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+                  <channel>
+                    <item>
+                      <title>Regionaal weer</title>
+                      <description><![CDATA[<img src="https://weather.example.org/radar.png">]]></description>
+                      <content:encoded><![CDATA[<p>Vanavond volgen enkele buien.</p>]]></content:encoded>
+                    </item>
+                  </channel>
+                </rss>
+                XML,
+                200,
+                ['Content-Type' => 'application/rss+xml'],
+            ),
+        ]);
+
+        $items = $this->service()->items(['enabled' => true, 'sources' => [$this->rssSource()]]);
+
+        $this->assertSame('Regionaal weer — Vanavond volgen enkele buien.', $items[0]['text'] ?? null);
+    }
+
+    public function test_old_title_only_cache_payload_is_ignored_after_parser_upgrade(): void
+    {
+        $url = 'https://feeds.example.org/news.xml';
+        Cache::put('wallboard:ticker:rss:v1:'.hash('sha256', $url), [
+            'version' => 1,
+            'items' => ['Verouderde titel'],
+        ], now()->addMinutes(5));
+        Http::fake([
+            $url => Http::response(
+                '<rss><channel><item><title>Actueel</title><description>Nieuwe inhoud</description></item></channel></rss>',
+                200,
+                ['Content-Type' => 'application/rss+xml'],
+            ),
+        ]);
+
+        $items = $this->service()->items(['enabled' => true, 'sources' => [$this->rssSource($url)]]);
+
+        $this->assertSame('Actueel — Nieuwe inhoud', $items[0]['text'] ?? null);
+        Http::assertSentCount(1);
     }
 
     #[DataProvider('unsafeTargetProvider')]
@@ -360,7 +491,7 @@ final class WallboardTickerServiceTest extends TestCase
         return new WallboardTickerService($resolver(...));
     }
 
-    /** @return array{id: string, type: string, label: string, url: string} */
+    /** @return array{id: string, type: string, label: string, url: string, max_items?: int} */
     private function rssSource(string $url = 'https://feeds.example.org/news.xml'): array
     {
         return [

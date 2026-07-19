@@ -31,11 +31,24 @@ export const MAX_WALLBOARD_PAGE_DURATION_SECONDS = 3600;
 export const MIN_WALLBOARD_FOCUS_DURATION_SECONDS = 5;
 export const MAX_WALLBOARD_FOCUS_DURATION_SECONDS = 3600;
 export const MAX_WALLBOARD_TICKER_SOURCES = 10;
+export const MIN_WALLBOARD_RSS_MAX_ITEMS = 1;
+export const MAX_WALLBOARD_RSS_MAX_ITEMS = 8;
+export const DEFAULT_WALLBOARD_RSS_MAX_ITEMS = 8;
 const WALLBOARD_HEARTBEAT_GRACE_SECONDS = 90;
 const DEFAULT_RECENT_INCIDENT_LIMIT = 4;
 
 export function normalizeWallboardDisplayProfile(value: unknown): WallboardDisplayProfile {
   return value === '1080p' || value === '4k' ? value : 'auto';
+}
+
+export function requestedWallboardScreenSelection(
+  search: string,
+  wallboards: Array<Pick<Wallboard, 'id'>>,
+): string | null {
+  const requestedScreenId = new URLSearchParams(search).get('screen');
+  return requestedScreenId !== null && wallboards.some((wallboard) => wallboard.id === requestedScreenId)
+    ? requestedScreenId
+    : null;
 }
 
 export function wallboardDisplayProfileLabel(profile: WallboardDisplayProfile): string {
@@ -158,6 +171,14 @@ export function clampWallboardFocusDuration(value: number, fallbackSeconds: numb
   );
 }
 
+export function clampWallboardRssMaxItems(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_WALLBOARD_RSS_MAX_ITEMS;
+  return Math.min(
+    MAX_WALLBOARD_RSS_MAX_ITEMS,
+    Math.max(MIN_WALLBOARD_RSS_MAX_ITEMS, Math.round(value)),
+  );
+}
+
 export function wallboardFocusKindLabel(kind: WallboardFocusKind): string {
   switch (kind) {
     case 'preannouncement': return 'Vooraankondiging';
@@ -191,7 +212,13 @@ export function createWallboardTickerSource(
     : `${Date.now()}-${sequence}`;
 
   return type === 'rss'
-    ? { id: `ticker-${suffix}`, type, label: 'Nieuws- of weer-RSS', url: '' }
+    ? {
+      id: `ticker-${suffix}`,
+      type,
+      label: 'Nieuws- of weer-RSS',
+      url: '',
+      max_items: DEFAULT_WALLBOARD_RSS_MAX_ITEMS,
+    }
     : { id: `ticker-${suffix}`, type, label: 'Intern bericht', text: '' };
 }
 
@@ -406,12 +433,20 @@ function wallboardTickerConfigurationCopy(
     sources: ticker.sources
       .filter((source) => source.type === 'rss' || source.type === 'internal')
       .slice(0, MAX_WALLBOARD_TICKER_SOURCES)
-      .map((source) => ({
-        id: source.id,
-        type: source.type,
-        label: source.label,
-        ...(source.type === 'rss' ? { url: source.url ?? '' } : { text: source.text ?? '' }),
-      })),
+      .map((source): WallboardTickerSource => source.type === 'rss'
+        ? {
+          id: source.id,
+          type: 'rss',
+          label: source.label,
+          url: source.url ?? '',
+          max_items: clampWallboardRssMaxItems(source.max_items),
+        }
+        : {
+          id: source.id,
+          type: 'internal',
+          label: source.label,
+          text: source.text ?? '',
+        }),
   };
 }
 
