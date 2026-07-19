@@ -6,6 +6,7 @@ import {
   Clapperboard,
   Clock3,
   Eye,
+  Images,
   Map,
   MessageSquareText,
   Newspaper,
@@ -23,6 +24,7 @@ import {
   wallboardPageTypeLabel,
 } from './wallboardPresentation';
 import { WallboardRichText } from './WallboardRichText';
+import { WallboardPhotoPlaylistPreview } from './WallboardPhotoPlaylistPreview';
 
 interface WallboardPlaylistPreviewProps {
   playlistName: string;
@@ -87,6 +89,8 @@ export function WallboardPlaylistPreview({
                 ? <Newspaper size={42} aria-hidden />
                 : selectedPage.type === 'video'
                   ? <Clapperboard size={42} aria-hidden />
+                  : selectedPage.type === 'photo_carousel'
+                    ? <Images size={42} aria-hidden />
                 : <MessageSquareText size={42} aria-hidden />}
             <span id="wallboard-preview-page-title">{wallboardPageTypeLabel(selectedPage.type)}</span>
             {selectedPage.type === 'message' ? null : <h3>{selectedPage.name}</h3>}
@@ -111,6 +115,11 @@ export function WallboardPlaylistPreview({
                   ? 'De gekoppelde schermen spelen deze YouTube- of Vimeo-video automatisch en gedempt af.'
                   : 'Er is nog geen YouTube- of Vimeo-link ingesteld.'}
               </p>
+            ) : selectedPage.type === 'photo_carousel' ? (
+              <WallboardPhotoPlaylistPreview
+                mediaPlaylistId={selectedPage.options.media_playlist_id}
+                itemDurationSeconds={selectedPage.options.item_duration_seconds}
+              />
             ) : (
               <p>De live operationele gegevens verschijnen hier pas op het gekoppelde wallboard.</p>
             )}

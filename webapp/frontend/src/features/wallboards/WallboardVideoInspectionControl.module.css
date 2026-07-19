@@ -1,0 +1,40 @@
+.control {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  border: 1px solid var(--dis-border, rgba(148, 163, 184, 0.22));
+  border-radius: 8px;
+  background: var(--dis-field, rgba(15, 23, 42, 0.56));
+  padding: 10px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.actions button {
+  width: fit-content;
+}
+
+.status {
+  margin: 0;
+  color: var(--dis-muted-strong, #cbd5e1);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.success {
+  color: var(--dis-success, #86efac);
+}
+
+.failure {
+  color: var(--dis-danger, #fda4af);
+}
+
+.duration {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}

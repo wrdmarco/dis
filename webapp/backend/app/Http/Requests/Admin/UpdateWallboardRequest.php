@@ -6,6 +6,7 @@ use App\Models\Wallboard;
 use App\Support\WallboardConfiguration;
 use App\Support\WallboardRichText;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Validator;
@@ -26,22 +27,25 @@ final class UpdateWallboardRequest extends FormRequest
             'layout' => ['sometimes', 'required', 'string', Rule::in([Wallboard::LAYOUT_FULLSCREEN_MAP])],
             'display_profile' => ['sometimes', 'required', 'string', Rule::in(Wallboard::DISPLAY_PROFILES)],
             'is_enabled' => ['sometimes', 'boolean'],
-            'configuration' => ['sometimes', 'required', 'array:theme,refresh_seconds,rotation_enabled,pages,focus,incident_override,ticker,map'],
+            'configuration' => ['sometimes', 'required', 'array:theme,refresh_seconds,rotation_enabled,page_fade_enabled,pages,focus,incident_override,ticker,map'],
             'configuration.theme' => ['sometimes', 'string', Rule::in(['dark', 'light'])],
             'configuration.refresh_seconds' => ['sometimes', 'integer', 'between:5,60'],
             'configuration.rotation_enabled' => ['sometimes', 'boolean'],
+            'configuration.page_fade_enabled' => ['sometimes', 'boolean:strict'],
             'configuration.pages' => ['sometimes', 'array', 'min:1', 'max:20'],
             'configuration.pages.*' => ['required', 'array:id,name,type,duration_seconds,options'],
             'configuration.pages.*.id' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9][A-Za-z0-9_-]*$/', 'distinct:strict'],
             'configuration.pages.*.name' => ['required', 'string', 'max:120'],
             'configuration.pages.*.type' => ['required', 'string', Rule::in(WallboardConfiguration::PAGE_TYPES)],
             'configuration.pages.*.duration_seconds' => ['required', 'integer', 'between:5,3600'],
-            'configuration.pages.*.options' => ['sometimes', 'array:body,content,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,url'],
+            'configuration.pages.*.options' => ['sometimes', 'array:body,content,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,item_transition,url,video_duration_seconds,media_playlist_id'],
             'configuration.pages.*.options.body' => ['sometimes', 'string', 'max:2000'],
             'configuration.pages.*.options.content' => ['sometimes', 'array:version,blocks'],
             'configuration.pages.*.options.content.version' => ['sometimes', 'integer:strict'],
             'configuration.pages.*.options.content.blocks' => ['sometimes', 'array', 'max:'.WallboardRichText::MAX_BLOCKS],
             'configuration.pages.*.options.url' => ['sometimes', 'string', 'max:'.WallboardConfiguration::MAX_VIDEO_URL_LENGTH],
+            'configuration.pages.*.options.video_duration_seconds' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_VIDEO_DURATION_SECONDS.','.WallboardConfiguration::MAX_VIDEO_DURATION_SECONDS],
+            'configuration.pages.*.options.media_playlist_id' => ['sometimes', 'string', 'ulid'],
             'configuration.pages.*.options.show_test_incidents' => ['sometimes', 'boolean'],
             'configuration.pages.*.options.sources' => ['sometimes', 'array', 'max:'.count(WallboardConfiguration::NEWS_SOURCES)],
             'configuration.pages.*.options.sources.*' => ['required', 'string', Rule::in(WallboardConfiguration::NEWS_SOURCES)],
@@ -52,6 +56,7 @@ final class UpdateWallboardRequest extends FormRequest
             'configuration.pages.*.options.custom_sources.*.url' => ['required', 'string', 'max:'.WallboardConfiguration::MAX_NEWS_CUSTOM_SOURCE_URL_LENGTH],
             'configuration.pages.*.options.max_items' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_NEWS_MAX_ITEMS.','.WallboardConfiguration::MAX_NEWS_MAX_ITEMS],
             'configuration.pages.*.options.item_duration_seconds' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_NEWS_ITEM_DURATION_SECONDS.','.WallboardConfiguration::MAX_NEWS_ITEM_DURATION_SECONDS],
+            'configuration.pages.*.options.item_transition' => ['sometimes', 'string', Rule::in(WallboardConfiguration::NEWS_ITEM_TRANSITIONS)],
             'configuration.focus' => ['sometimes', 'array:preannouncement,real_alarm,test_alarm'],
             'configuration.focus.preannouncement' => ['sometimes', 'array:enabled,duration_seconds,show_response_feed'],
             'configuration.focus.real_alarm' => ['sometimes', 'array:enabled,duration_seconds,show_response_feed'],
@@ -121,8 +126,9 @@ final class UpdateWallboardRequest extends FormRequest
             $allowedKeys = match ($type) {
                 'message' => ['body', 'content'],
                 'incident_list', 'summary' => ['show_test_incidents'],
-                'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds'],
-                'video' => ['url'],
+                'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds', 'item_transition'],
+                'video' => ['url', 'video_duration_seconds'],
+                'photo_carousel' => ['media_playlist_id', 'item_duration_seconds'],
                 'map' => [],
                 default => array_keys($options),
             };
@@ -152,6 +158,26 @@ final class UpdateWallboardRequest extends FormRequest
                 $validator->errors()->add(
                     "configuration.pages.{$index}.options.url",
                     'Een videopagina heeft een geldige HTTPS-URL van YouTube of Vimeo nodig.',
+                );
+            }
+            if ($type === 'video'
+                && (! is_int($options['video_duration_seconds'] ?? null)
+                    || $options['video_duration_seconds'] < WallboardConfiguration::MIN_VIDEO_DURATION_SECONDS
+                    || $options['video_duration_seconds'] > WallboardConfiguration::MAX_VIDEO_DURATION_SECONDS)) {
+                $validator->errors()->add(
+                    "configuration.pages.{$index}.options.video_duration_seconds",
+                    'Controleer eerst de videoduur voordat u de pagina opslaat.',
+                );
+            }
+            if ($type === 'photo_carousel'
+                && (! is_string($options['media_playlist_id'] ?? null)
+                    || ! Str::isUlid($options['media_playlist_id'])
+                    || ! is_int($options['item_duration_seconds'] ?? null)
+                    || $options['item_duration_seconds'] < 5
+                    || $options['item_duration_seconds'] > 300)) {
+                $validator->errors()->add(
+                    "configuration.pages.{$index}.options",
+                    'Selecteer een geldige fotoplaylist en een zichtduur per foto tussen 5 en 300 seconden.',
                 );
             }
             if ($type === 'news') {

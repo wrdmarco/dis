@@ -67,7 +67,7 @@ final class WallboardMaintenanceNoticeApiTest extends TestCase
                 ->assertOk()
                 ->assertJsonPath('data.maintenance.active', true)
                 ->assertJsonPath('data.maintenance.kind', 'update')
-                ->assertJsonPath('data.maintenance.title', 'D.I.S. wordt bijgewerkt')
+                ->assertJsonPath('data.maintenance.title', 'Systeem wordt bijgewerkt')
                 ->assertJsonPath('data.maintenance.started_at', '2026-07-19T10:00:00Z')
                 ->assertJsonPath('data.maintenance.expires_at', '2026-07-19T16:00:00Z');
         }

@@ -18,7 +18,7 @@ final class WallboardMaintenanceNoticeService
     /** @var array<string, array{title: string, message: string}> */
     private const COPY = [
         'update' => [
-            'title' => 'D.I.S. wordt bijgewerkt',
+            'title' => 'Systeem wordt bijgewerkt',
             'message' => 'Dit wallboard blijft op de hoogte en herstelt automatisch zodra de update veilig is afgerond.',
         ],
         'maintenance' => [

@@ -208,11 +208,16 @@ and fetched through public-destination-only DNS pinning, strict transport limits
 bounded and cached server-side; the display receives only a sanitized title, short excerpt, publication
 timestamp and canonical article link, never remote markup or executable content. News is presented as one
 readable briefing story at a time instead of up to twelve small cards. Administrators configure the bounded
-display time per story independently from the playlist page duration; all screens derive the active story from
-the same clock so reconnects do not restart the carousel. Each story has a locally generated QR code for its
+display time and transition per story independently from the playlist page duration. Whenever the news page
+becomes active it starts with the first story for one complete configured story duration; a temporary connection
+loss pauses that local story timer. Each story has a locally generated QR code for its
 validated canonical HTTPS article URL. When a feed provides a suitable raster image, DIS exposes it only through
 an authenticated, size-limited same-origin image cache with public-address DNS validation; wallboards never load
 the original remote image URL directly and SVG or executable image content is not accepted.
+
+Each playlist also owns a global page-fade switch. When enabled, every normal playlist page enters with the same
+short opacity transition; when disabled, page changes are immediate. Browser reduced-motion preferences always
+disable that page fade and reduce spatial news transitions to a brief non-spatial dissolve.
 
 An unpaired television starts the pairing flow itself and shows a short-lived, human-readable code on
 `/wallboard`; no keyboard is required on the display. An administrator selects the intended wallboard in

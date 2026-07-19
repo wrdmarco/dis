@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import dynamic from 'next/dynamic.js';
 import {
   AlertTriangle,
   BellRing,
@@ -53,6 +54,7 @@ import {
   countActiveOperationalWallboardIncidents,
   formatWallboardPilotAvailability,
   normalizeWallboardDisplayProfile,
+  normalizeWallboardNewsItemTransition,
   selectRecentWallboardIncidents,
   wallboardConfigurationCopy,
   wallboardFocusKindLabel,
@@ -65,8 +67,14 @@ import {
 } from './wallboardPresentation';
 import { WallboardNewsQrCode } from './WallboardNewsQrCode';
 import { WallboardRichText } from './WallboardRichText';
+import { normalizeWallboardMediaPageStates } from './wallboardMedia';
+import { wallboardPhotoCarouselAnchorFromDeadline } from './wallboardPhotoRotation';
 
 const wallboardApi = new ApiClient({ baseUrl: apiBaseUrl, onUnauthenticated: () => undefined });
+const WallboardPhotoCarousel = dynamic(
+  () => import('./WallboardPhotoCarousel').then((module) => module.WallboardPhotoCarousel),
+  { ssr: false },
+);
 const CONTROL_POLL_MILLISECONDS = 2000;
 const DEFAULT_PAIRING_POLL_MILLISECONDS = 2000;
 const PAIRING_RETRY_MILLISECONDS = 10000;
@@ -453,19 +461,15 @@ export function WallboardDisplayPage() {
     };
   }, [requestWallboardFullscreen]);
 
-  async function toggleFullscreen() {
-    if (document.fullscreenElement === rootRef.current) {
-      await document.exitFullscreen().catch(() => undefined);
-      await wakeLockRef.current?.release().catch(() => undefined);
-      return;
-    }
-    await requestWallboardFullscreen();
-  }
-
   const runtimeControl = state === null ? null : (control ?? controlFromState(state));
-  const deadlineControl = runtimeControl === null || hasLiveFeed || runtimeControl.focus === undefined
+  const deadlineControl = runtimeControl === null || runtimeControl.focus === undefined
     ? runtimeControl
-    : { ...runtimeControl, focus: null };
+    : {
+        ...runtimeControl,
+        focus: hasLiveFeed && !wallboardTransientFocusIsComplete(runtimeControl.focus)
+          ? runtimeControl.focus
+          : null,
+      };
   const deadlinePhase = wallboardControlDeadlinePhase(deadlineControl);
   const deadlineDurationMilliseconds = useMemo(
     () => wallboardDeadlineDurationMilliseconds(deadlinePhase?.deadlineAt ?? null),
@@ -537,7 +541,8 @@ export function WallboardDisplayPage() {
     : null;
   const displayProfile = normalizeWallboardDisplayProfile(effectiveControl.display_profile);
   const display = effectiveControl.display;
-  const focus = hasLiveFeed ? (effectiveControl.focus ?? null) : null;
+  const focusCandidate = hasLiveFeed ? (effectiveControl.focus ?? null) : null;
+  const focus = wallboardTransientFocusIsComplete(focusCandidate) ? null : focusCandidate;
   const focusPlaylistPageId = focus !== null && !focus.visible ? focus.playlist_page_id : null;
   const currentPageId = focusPlaylistPageId ?? display.page_id;
   const currentPage = configuration.pages.find((page) => page.id === currentPageId)
@@ -567,12 +572,6 @@ export function WallboardDisplayPage() {
     >
       <header className="wallboard-display__header">
         <div>
-          {feedStatus !== 'offline' ? (
-            <span className={`wallboard-display__live wallboard-display__live--${feedStatus}`}>
-              <i aria-hidden />
-              {feedStatus === 'stale' ? 'Verouderd' : 'Live'}
-            </span>
-          ) : null}
           <span className="wallboard-display__titles">
             <h1>{maintenance?.title ?? (showFocus && focus !== null
               ? wallboardFocusKindLabel(focus.kind)
@@ -599,13 +598,12 @@ export function WallboardDisplayPage() {
             <span>{formatWallboardClock(clock)}</span>
             <small>{formatWallboardDate(clock)}</small>
           </time>
-          <button className="wallboard-display__control" type="button" onClick={() => setPollGeneration((current) => current + 1)} aria-label="Wallboard nu vernieuwen">
-            <RefreshCw size={18} aria-hidden />
-          </button>
-          <button className="wallboard-display__control" type="button" data-wallboard-fullscreen-toggle onClick={() => void toggleFullscreen()} aria-label={fullscreen ? 'Volledig scherm verlaten' : 'Volledig scherm openen'}>
-            <Expand size={18} aria-hidden />
-            <span>{fullscreen ? 'Scherm verlaten' : 'Volledig scherm'}</span>
-          </button>
+          {!fullscreen ? (
+            <button className="wallboard-display__control" type="button" data-wallboard-fullscreen-toggle onClick={() => void requestWallboardFullscreen()} aria-label="Volledig scherm openen">
+              <Expand size={18} aria-hidden />
+              <span>Volledig scherm</span>
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -632,7 +630,9 @@ export function WallboardDisplayPage() {
         <TransientAlertTakeover alert={transientAlert} />
       ) : (
         <section
-          className="wallboard-display__page"
+          className={configuration.page_fade_enabled
+            ? 'wallboard-display__page wallboard-display__page--fade'
+            : 'wallboard-display__page'}
           key={`${state.wallboard.config_version}:${effectiveControl.control_version}:${focus?.focus_id ?? 'base'}:${focus?.visible ?? false}:${currentPage.id}`}
           aria-label={currentPage.name}
           aria-live="polite"
@@ -642,6 +642,7 @@ export function WallboardDisplayPage() {
             state={state}
             presentation={presentation}
             hasLiveFeed={hasLiveFeed}
+            pageDeadlineAt={focus?.next_change_at ?? display.next_change_at ?? null}
           />
         </section>
       )}
@@ -686,9 +687,16 @@ interface WallboardPageContentProps {
   state: WallboardState;
   presentation: ReturnType<typeof buildWallboardMapPresentation>;
   hasLiveFeed: boolean;
+  pageDeadlineAt: string | null;
 }
 
-function WallboardPageContent({ page, state, presentation, hasLiveFeed }: WallboardPageContentProps) {
+function WallboardPageContent({
+  page,
+  state,
+  presentation,
+  hasLiveFeed,
+  pageDeadlineAt,
+}: WallboardPageContentProps) {
   const configuration = state.wallboard.configuration.map;
   const pagePresentation = ['incident_list', 'summary'].includes(page.type)
     ? buildWallboardMapPresentation(
@@ -711,6 +719,20 @@ function WallboardPageContent({ page, state, presentation, hasLiveFeed }: Wallbo
 
   if (page.type === 'video') {
     return <WallboardVideoPage page={page} />;
+  }
+
+  if (page.type === 'photo_carousel') {
+    const media = state.media.photo_pages[page.id];
+    return (
+      <WallboardPhotoCarousel
+        media={media}
+        running={hasLiveFeed}
+        anchor={wallboardPhotoCarouselAnchorFromDeadline(
+          pageDeadlineAt,
+          media?.total_duration_seconds ?? page.duration_seconds,
+        )}
+      />
+    );
   }
 
   if (page.type === 'message') {
@@ -820,6 +842,7 @@ function WallboardNewsPage({
   running: boolean;
 }) {
   const itemDurationSeconds = clampWallboardNewsItemDuration(Number(page.options.item_duration_seconds));
+  const itemTransition = normalizeWallboardNewsItemTransition(page.options.item_transition);
   const itemSignature = news.items.map((item) => item.id).join('|');
   const activeIndex = usePausableWallboardCarousel(
     itemSignature,
@@ -861,7 +884,7 @@ function WallboardNewsPage({
           : 'wallboard-display__news-carousel wallboard-display__news-carousel--paused'}
         style={{ '--wallboard-news-item-duration': `${itemDurationSeconds}s` } as CSSProperties}
       >
-        <NewsArticle item={activeItem} key={`${activeItem.id}:${safeIndex}`} />
+        <NewsArticle item={activeItem} transition={itemTransition} key={`${activeItem.id}:${safeIndex}`} />
         <ol className="wallboard-display__news-position" aria-label="Nieuwsberichten in deze carrousel">
           {news.items.map((item, index) => (
             <li
@@ -878,19 +901,26 @@ function WallboardNewsPage({
   );
 }
 
-function NewsArticle({ item }: { item: WallboardNewsItem }) {
+function NewsArticle({
+  item,
+  transition,
+}: {
+  item: WallboardNewsItem;
+  transition: ReturnType<typeof normalizeWallboardNewsItemTransition>;
+}) {
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = typeof item.image_url === 'string' && !imageFailed;
 
   useEffect(() => setImageFailed(false), [item.image_url]);
 
   return (
-    <article className={`wallboard-display__news-article wallboard-display__news-article--${item.source} ${showImage ? 'wallboard-display__news-article--with-image' : 'wallboard-display__news-article--without-image'}`}>
+    <article className={`wallboard-display__news-article wallboard-display__news-article--${item.source} wallboard-display__news-article--transition-${transition} ${showImage ? 'wallboard-display__news-article--with-image' : 'wallboard-display__news-article--without-image'}`}>
       {showImage ? (
         <figure className="wallboard-display__news-image">
           <img
             src={item.image_url ?? undefined}
-            alt=""
+            alt={`Afbeelding bij ${item.title}`}
+            decoding="async"
             referrerPolicy="no-referrer"
             onError={() => setImageFailed(true)}
           />
@@ -926,38 +956,44 @@ export function usePausableWallboardCarousel(
   const safeDurationMilliseconds = Number.isFinite(itemDurationMilliseconds)
     ? Math.max(1, Math.round(itemDurationMilliseconds))
     : 1;
-  const safeDurationSeconds = Math.max(1, Math.ceil(safeDurationMilliseconds / 1000));
-  const [activeIndex, setActiveIndex] = useState(() => wallboardNewsCarouselIndex(
-    safeItemCount,
-    safeDurationSeconds,
-  ));
+  const phaseKey = `${itemSignature}:${safeItemCount}:${safeDurationMilliseconds}`;
+  const remainingMillisecondsRef = useRef(safeDurationMilliseconds);
+  const [runtime, setRuntime] = useState(() => ({ phaseKey, activeIndex: 0 }));
 
   useEffect(() => {
-    if (safeItemCount <= 1) {
-      setActiveIndex(0);
-      return undefined;
-    }
-    if (!running) return undefined;
+    remainingMillisecondsRef.current = safeDurationMilliseconds;
+    setRuntime({ phaseKey, activeIndex: 0 });
+  }, [phaseKey, safeDurationMilliseconds]);
 
-    const updateIndex = () => setActiveIndex(wallboardNewsCarouselIndex(
-      safeItemCount,
-      safeDurationSeconds,
-    ));
-    updateIndex();
-    const delayUntilNextItem = safeDurationMilliseconds - (Date.now() % safeDurationMilliseconds);
-    let intervalId: number | undefined;
+  useEffect(() => {
+    if (!running || safeItemCount <= 1 || runtime.phaseKey !== phaseKey) return undefined;
+
+    const remainingMilliseconds = remainingMillisecondsRef.current;
+    const startedAt = performance.now();
+    let completed = false;
     const timeoutId = window.setTimeout(() => {
-      updateIndex();
-      intervalId = window.setInterval(updateIndex, safeDurationMilliseconds);
-    }, delayUntilNextItem);
+      completed = true;
+      remainingMillisecondsRef.current = safeDurationMilliseconds;
+      setRuntime((current) => ({
+        phaseKey,
+        activeIndex: current.phaseKey === phaseKey
+          ? (current.activeIndex + 1) % safeItemCount
+          : 0,
+      }));
+    }, remainingMilliseconds);
 
     return () => {
       window.clearTimeout(timeoutId);
-      if (intervalId !== undefined) window.clearInterval(intervalId);
+      if (completed || runtime.phaseKey !== phaseKey) return;
+      remainingMillisecondsRef.current = wallboardCarouselRemainingMilliseconds(
+        remainingMilliseconds,
+        performance.now() - startedAt,
+      );
     };
-  }, [itemSignature, running, safeDurationMilliseconds, safeDurationSeconds, safeItemCount]);
+  }, [phaseKey, running, runtime.activeIndex, runtime.phaseKey, safeDurationMilliseconds, safeItemCount]);
 
-  return safeItemCount <= 0 ? 0 : activeIndex % safeItemCount;
+  if (safeItemCount <= 0 || runtime.phaseKey !== phaseKey) return 0;
+  return runtime.activeIndex % safeItemCount;
 }
 
 interface WallboardDeadlineCountdown {
@@ -1048,11 +1084,16 @@ function usePausableWallboardDeadline(
 export function wallboardNewsCarouselIndex(
   itemCount: number,
   itemDurationSeconds: number,
-  now: number = Date.now(),
+  elapsedMilliseconds: number,
 ): number {
-  if (!Number.isFinite(itemCount) || itemCount <= 1 || !Number.isFinite(now) || now < 0) return 0;
+  if (
+    !Number.isFinite(itemCount)
+    || itemCount <= 1
+    || !Number.isFinite(elapsedMilliseconds)
+    || elapsedMilliseconds < 0
+  ) return 0;
   const duration = clampWallboardNewsItemDuration(itemDurationSeconds);
-  return Math.floor(now / (duration * 1000)) % Math.floor(itemCount);
+  return Math.floor(elapsedMilliseconds / (duration * 1000)) % Math.floor(itemCount);
 }
 
 export function wallboardCarouselRemainingMilliseconds(remainingMilliseconds: number, elapsedMilliseconds: number): number {
@@ -1081,6 +1122,27 @@ export function wallboardDeadlineTickDelayMilliseconds(remainingMilliseconds: nu
   return Math.max(1, Math.ceil(remainingMilliseconds - ((visibleSeconds - 1) * 1000)));
 }
 
+export function wallboardTransientFocusIsComplete(
+  focus: WallboardFocusState | null | undefined,
+): boolean {
+  if (
+    focus === null
+    || focus === undefined
+    || focus.is_preview === true
+    || focus.kind === 'real_alarm'
+  ) return false;
+
+  const counts = focus.responses?.counts;
+  if (
+    counts === null
+    || counts === undefined
+    || !isWallboardCount(counts.targeted)
+    || !isWallboardCount(counts.pending)
+  ) return false;
+
+  return Math.trunc(counts.targeted) > 0 && Math.trunc(counts.pending) === 0;
+}
+
 function FocusTakeover({
   focus,
   fallbackPilotAvailability,
@@ -1098,10 +1160,21 @@ function FocusTakeover({
   const pilotCounts = focus.kind === 'preannouncement'
     ? wallboardFocusPilotCounts(focus.pilot_counts, fallbackPilotAvailability, isCurrent)
     : null;
+  const inlineResponseKind = focus.kind === 'preannouncement' || focus.kind === 'test_alarm'
+    ? focus.kind
+    : null;
+  const showInlineResponseSummary = inlineResponseKind !== null
+    && showResponseFeed
+    && focus.responses !== null
+    && focus.responses !== undefined;
+  const showRealAlarmResponseFeed = focus.kind === 'real_alarm'
+    && showResponseFeed
+    && focus.responses !== null
+    && focus.responses !== undefined;
 
   return (
     <section
-      className={`wallboard-display__alarm wallboard-display__alarm--focus wallboard-display__alarm--${focusClass}${showResponseFeed ? ' wallboard-display__alarm--with-feed' : ''}`}
+      className={`wallboard-display__alarm wallboard-display__alarm--focus wallboard-display__alarm--${focusClass}${showRealAlarmResponseFeed ? ' wallboard-display__alarm--with-feed' : ''}`}
       key={focus.focus_id}
       role="alert"
       aria-label={`${label} ${focus.reference}: ${focus.title}`}
@@ -1114,7 +1187,13 @@ function FocusTakeover({
           {focus.kind === 'test_alarm' ? <b>TEST</b> : null}
         </div>
         <h2>{focus.title}</h2>
-        {pilotCounts !== null && !showResponseFeed ? <FocusPilotAvailability counts={pilotCounts} /> : null}
+        {showInlineResponseSummary ? (
+          <WallboardFocusResponseSummary
+            kind={inlineResponseKind}
+            pilotCounts={pilotCounts}
+            responses={focus.responses ?? null}
+          />
+        ) : pilotCounts !== null ? <FocusPilotAvailability counts={pilotCounts} /> : null}
         {focus.kind !== 'test_alarm' ? (
           <p><MapPin size={24} aria-hidden /> {focus.location_label?.trim() || 'Locatie nog niet bekend'}</p>
         ) : null}
@@ -1124,7 +1203,7 @@ function FocusTakeover({
           <time dateTime={focus.started_at}>Gestart {formatDateTime(focus.started_at)}</time>
         </div>
       </div>
-      {showResponseFeed ? (
+      {showRealAlarmResponseFeed ? (
         <WallboardFocusResponseFeed
           kind={focus.kind}
           pilotCounts={pilotCounts}
@@ -1132,6 +1211,34 @@ function FocusTakeover({
         />
       ) : null}
     </section>
+  );
+}
+
+function WallboardFocusResponseSummary({
+  kind,
+  pilotCounts,
+  responses,
+}: {
+  kind: WallboardFocusState['kind'];
+  pilotCounts: WallboardFocusPilotCounts | null;
+  responses: WallboardFocusResponses | null;
+}) {
+  const counts = responses?.counts;
+  const contacted = wallboardResponseCount(counts?.contacted ?? counts?.targeted);
+  const accepted = kind === 'preannouncement'
+    ? wallboardResponseCount(pilotCounts?.available)
+    : wallboardResponseCount(counts?.accepted);
+
+  return (
+    <dl
+      className="wallboard-display__response-counts wallboard-display__response-counts--inline"
+      aria-label={kind === 'preannouncement'
+        ? `${contacted} piloten gealarmeerd, ${accepted} beschikbaar gemeld`
+        : `${contacted} proefalarmen verstuurd, ${accepted} bevestigd`}
+    >
+      <div><dt>{kind === 'test_alarm' ? 'Verstuurd' : 'Gealarmeerd'}</dt><dd>{contacted}</dd></div>
+      <div><dt>{kind === 'test_alarm' ? 'Bevestigd' : 'Beschikbaar'}</dt><dd>{accepted}</dd></div>
+    </dl>
   );
 }
 
@@ -1480,6 +1587,7 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
     maintenance?: unknown;
     ticker?: WallboardState['ticker'];
     news?: unknown;
+    media?: unknown;
   };
   const operationalSummary = rawState.operational_summary;
   const hasFocusContract = operationalSummary !== undefined
@@ -1514,6 +1622,11 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
     },
     ticker: rawState.ticker ?? { items: [] },
     news: normalizeWallboardNewsState(rawState.news),
+    media: {
+      photo_pages: normalizeWallboardMediaPageStates(
+        isRecord(rawState.media) ? rawState.media.photo_pages : undefined,
+      ),
+    },
     wallboard: {
       ...state.wallboard,
       display_profile: normalizeWallboardDisplayProfile(rawWallboard.display_profile),

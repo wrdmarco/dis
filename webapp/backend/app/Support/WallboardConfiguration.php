@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Services\WallboardMediaUsageSynchronizer;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 final class WallboardConfiguration
@@ -9,12 +11,23 @@ final class WallboardConfiguration
     public const DEFAULT_PAGE_ID = 'map';
 
     /** @var list<string> */
-    public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'message', 'news', 'video'];
+    public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'message', 'news', 'video', 'photo_carousel'];
 
     public const MAX_VIDEO_URL_LENGTH = 2048;
 
+    public const MIN_VIDEO_DURATION_SECONDS = 1;
+
+    public const MAX_VIDEO_DURATION_SECONDS = 3595;
+
+    public const VIDEO_STARTUP_BUFFER_SECONDS = 5;
+
     /** @var list<string> */
     public const NEWS_SOURCES = ['ndt', 'dronewatch'];
+
+    /** @var list<string> */
+    public const NEWS_ITEM_TRANSITIONS = ['fade', 'dissolve', 'slide', 'flip', 'zoom', 'wipe', 'none'];
+
+    public const DEFAULT_NEWS_ITEM_TRANSITION = 'fade';
 
     public const DEFAULT_NEWS_MAX_ITEMS = 6;
 
@@ -67,6 +80,7 @@ final class WallboardConfiguration
             'theme' => 'dark',
             'refresh_seconds' => 10,
             'rotation_enabled' => true,
+            'page_fade_enabled' => true,
             'pages' => [
                 [
                     'id' => self::DEFAULT_PAGE_ID,
@@ -124,6 +138,11 @@ final class WallboardConfiguration
     public static function normalize(array $input, array $base = []): array
     {
         $normalized = array_replace_recursive(self::defaults(), $base, $input);
+        if (! is_bool($normalized['page_fade_enabled'] ?? null)) {
+            throw ValidationException::withMessages([
+                'configuration.page_fade_enabled' => ['De globale paginafade moet aan of uit staan.'],
+            ]);
+        }
         // Test alerts are transient reachability signals, never persistent wallboard incidents.
         // Keep accepting the legacy key so existing playlists remain readable, but force it off.
         $normalized['map']['show_test_incidents'] = false;
@@ -193,8 +212,9 @@ final class WallboardConfiguration
             $allowedOptionKeys = match ($type) {
                 'message' => ['body', 'content'],
                 'incident_list', 'summary' => ['show_test_incidents'],
-                'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds'],
-                'video' => ['url'],
+                'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds', 'item_transition'],
+                'video' => ['url', 'video_duration_seconds'],
+                'photo_carousel' => ['media_playlist_id', 'item_duration_seconds'],
                 default => [],
             };
             if (array_diff(array_keys($options), $allowedOptionKeys) !== []) {
@@ -216,7 +236,45 @@ final class WallboardConfiguration
                         "configuration.pages.{$index}.options.url" => ['Een videopagina heeft een geldige HTTPS-URL van YouTube of Vimeo nodig.'],
                     ]);
                 }
-                $options = ['url' => $url];
+                $videoDurationSeconds = $options['video_duration_seconds']
+                    ?? max(self::MIN_VIDEO_DURATION_SECONDS, min(
+                        self::MAX_VIDEO_DURATION_SECONDS,
+                        $durationSeconds - self::VIDEO_STARTUP_BUFFER_SECONDS,
+                    ));
+                if (! is_int($videoDurationSeconds)
+                    || $videoDurationSeconds < self::MIN_VIDEO_DURATION_SECONDS
+                    || $videoDurationSeconds > self::MAX_VIDEO_DURATION_SECONDS) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.video_duration_seconds" => ['De gecontroleerde videoduur moet een geheel getal tussen 1 en 3595 seconden zijn.'],
+                    ]);
+                }
+                $options = [
+                    'url' => $url,
+                    'video_duration_seconds' => $videoDurationSeconds,
+                ];
+                $durationSeconds = min(
+                    3600,
+                    $videoDurationSeconds + self::VIDEO_STARTUP_BUFFER_SECONDS,
+                );
+            } elseif ($type === WallboardMediaUsageSynchronizer::PAGE_TYPE) {
+                $mediaPlaylistId = trim((string) ($options['media_playlist_id'] ?? ''));
+                $itemDurationSeconds = $options['item_duration_seconds'] ?? null;
+                if (! Str::isUlid($mediaPlaylistId)) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.media_playlist_id" => ['Selecteer een geldige fotoplaylist.'],
+                    ]);
+                }
+                if (! is_int($itemDurationSeconds)
+                    || $itemDurationSeconds < WallboardMediaUsageSynchronizer::MIN_ITEM_DURATION_SECONDS
+                    || $itemDurationSeconds > WallboardMediaUsageSynchronizer::MAX_ITEM_DURATION_SECONDS) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.item_duration_seconds" => ['De zichtduur per foto moet een geheel getal tussen 5 en 300 seconden zijn.'],
+                    ]);
+                }
+                $options = [
+                    'media_playlist_id' => $mediaPlaylistId,
+                    'item_duration_seconds' => $itemDurationSeconds,
+                ];
             } elseif ($type === 'news') {
                 $sources = array_values((array) ($options['sources'] ?? self::NEWS_SOURCES));
                 if (count($sources) > count(self::NEWS_SOURCES)) {
@@ -312,11 +370,20 @@ final class WallboardConfiguration
                     ]);
                 }
 
+                $itemTransition = $options['item_transition'] ?? self::DEFAULT_NEWS_ITEM_TRANSITION;
+                if (! is_string($itemTransition)
+                    || ! in_array($itemTransition, self::NEWS_ITEM_TRANSITIONS, true)) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.item_transition" => ['Kies een ondersteunde overgang voor nieuwsberichten.'],
+                    ]);
+                }
+
                 $options = [
                     'sources' => $sources,
                     'custom_sources' => $customSources,
                     'max_items' => $maximumItems,
                     'item_duration_seconds' => $itemDurationSeconds,
+                    'item_transition' => $itemTransition,
                 ];
                 $durationSeconds = $maximumItems * $itemDurationSeconds;
             } elseif (in_array($type, ['incident_list', 'summary'], true)) {

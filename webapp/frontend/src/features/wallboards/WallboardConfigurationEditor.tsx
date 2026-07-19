@@ -7,6 +7,7 @@ import {
   List,
   Map,
   Clapperboard,
+  Images,
   MessageSquareText,
   Newspaper,
   PauseCircle,
@@ -22,6 +23,7 @@ import type {
   WallboardCustomNewsSource,
   WallboardFocusKind,
   WallboardMapConfiguration,
+  WallboardNewsItemTransition,
   WallboardNewsSource,
   WallboardPage,
   WallboardPageType,
@@ -45,6 +47,7 @@ import {
   MIN_WALLBOARD_PAGE_DURATION_SECONDS,
   MIN_WALLBOARD_REFRESH_SECONDS,
   MIN_WALLBOARD_RSS_MAX_ITEMS,
+  WALLBOARD_NEWS_ITEM_TRANSITIONS,
   clampWallboardFocusDuration,
   clampWallboardNewsMaxItems,
   clampWallboardNewsItemDuration,
@@ -54,11 +57,17 @@ import {
   createWallboardPage,
   createWallboardTickerSource,
   normalizeWallboardNewsSources,
+  normalizeWallboardNewsItemTransition,
   wallboardEffectivePageDuration,
   wallboardMessageContent,
   wallboardPageTypeLabel,
+  wallboardVideoDurationFromOptions,
 } from './wallboardPresentation';
 import { WallboardRichTextEditor } from './WallboardRichTextEditor';
+import { WallboardPhotoPageEditor } from './WallboardPhotoPageEditor';
+import { SecondsStepper } from './SecondsStepper';
+import { WallboardVideoInspectionControl } from './WallboardVideoInspectionControl';
+import { formatWallboardVideoDuration } from './wallboardVideoInspection';
 
 const MAP_OPTION_LABELS: Array<{ key: keyof WallboardMapConfiguration; label: string; help: string }> = [
   { key: 'show_active_incidents', label: 'Actieve incidenten', help: 'Toon open operationele meldingen.' },
@@ -79,6 +88,7 @@ const PAGE_TYPE_OPTIONS: Array<{ value: WallboardPageType; label: string }> = [
   { value: 'message', label: 'Mededeling' },
   { value: 'news', label: 'Nieuws' },
   { value: 'video', label: 'Video' },
+  { value: 'photo_carousel', label: 'Fotocarrousel' },
 ];
 
 const NEWS_SOURCE_OPTIONS: Array<{ value: WallboardNewsSource; label: string; description: string }> = [
@@ -261,20 +271,18 @@ export function WallboardConfigurationEditor({
               <option value="light">Licht</option>
             </select>
           </label>
-          <label>
-            <span>Data verversen (seconden)</span>
-            <input
-              type="number"
-              min={MIN_WALLBOARD_REFRESH_SECONDS}
-              max={MAX_WALLBOARD_REFRESH_SECONDS}
-              value={configuration.refresh_seconds}
-              onChange={(event) => setConfiguration((current) => ({
-                ...current,
-                refresh_seconds: Number(event.target.value),
-              }))}
-              required
-            />
-          </label>
+          <SecondsStepper
+            id={`${idPrefix}-refresh-seconds`}
+            label="Data verversen"
+            min={MIN_WALLBOARD_REFRESH_SECONDS}
+            max={MAX_WALLBOARD_REFRESH_SECONDS}
+            value={configuration.refresh_seconds}
+            onChange={(refreshSeconds) => setConfiguration((current) => ({
+              ...current,
+              refresh_seconds: refreshSeconds,
+            }))}
+            required
+          />
           <label className="wallboard-switch-row">
             <input
               type="checkbox"
@@ -287,6 +295,20 @@ export function WallboardConfigurationEditor({
             <span>
               <strong>Pagina’s automatisch roteren</strong>
               <small>Iedere pagina blijft zichtbaar gedurende de ingestelde tijd.</small>
+            </span>
+          </label>
+          <label className="wallboard-switch-row">
+            <input
+              type="checkbox"
+              checked={configuration.page_fade_enabled}
+              onChange={(event) => setConfiguration((current) => ({
+                ...current,
+                page_fade_enabled: event.target.checked,
+              }))}
+            />
+            <span>
+              <strong>Paginaovergangen vervagen</strong>
+              <small>Laat iedere nieuwe playlistpagina rustig in beeld komen.</small>
             </span>
           </label>
         </div>
@@ -569,24 +591,22 @@ function WallboardFocusConfigurationCard({
         />
         <span><strong>Focusscherm inschakelen</strong><small>De server bepaalt exact wanneer dit scherm verschijnt en verdwijnt.</small></span>
       </label>
-      <label className="wallboard-focus-card__duration" htmlFor={`${idPrefix}-focus-${kind}-duration`}>
-        <span>Tijd op scherm (seconden)</span>
-        <input
-          id={`${idPrefix}-focus-${kind}-duration`}
-          type="number"
-          min={MIN_WALLBOARD_FOCUS_DURATION_SECONDS}
-          max={MAX_WALLBOARD_FOCUS_DURATION_SECONDS}
-          value={focusConfiguration.duration_seconds}
-          disabled={!focusConfiguration.enabled}
-          onChange={(event) => updateFocus({
+      <SecondsStepper
+        className="wallboard-focus-card__duration"
+        id={`${idPrefix}-focus-${kind}-duration`}
+        label="Tijd op scherm"
+        min={MIN_WALLBOARD_FOCUS_DURATION_SECONDS}
+        max={MAX_WALLBOARD_FOCUS_DURATION_SECONDS}
+        value={focusConfiguration.duration_seconds}
+        disabled={!focusConfiguration.enabled}
+        onChange={(durationSeconds) => updateFocus({
             duration_seconds: clampWallboardFocusDuration(
-              Number(event.target.value),
+              durationSeconds,
               focusConfiguration.duration_seconds,
             ),
           })}
-          required={focusConfiguration.enabled}
-        />
-      </label>
+        required={focusConfiguration.enabled}
+      />
       <label className="wallboard-switch-row wallboard-focus-card__feed">
         <input
           type="checkbox"
@@ -605,6 +625,7 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
   const selectedNewsSources = normalizeWallboardNewsSources(page.options.sources, true);
   const totalNewsSources = selectedNewsSources.length + customNewsSources.length;
   const effectiveDurationSeconds = wallboardEffectivePageDuration(page);
+  const videoDurationSeconds = wallboardVideoDurationFromOptions(page.options);
 
   function updateType(type: WallboardPageType) {
     const previousDefaultTitle = wallboardPageTypeLabel(page.type);
@@ -615,9 +636,20 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
       options: type === 'message'
         ? { content: wallboardMessageContent(page.options) }
         : type === 'news'
-          ? { sources: ['ndt', 'dronewatch'], custom_sources: [], max_items: 6, item_duration_seconds: 12 }
+          ? {
+            sources: ['ndt', 'dronewatch'],
+            custom_sources: [],
+            max_items: 6,
+            item_duration_seconds: 12,
+            item_transition: 'fade',
+          }
           : type === 'video'
-            ? { url: page.options.url ?? '' }
+            ? {
+              url: page.options.url ?? '',
+              ...(videoDurationSeconds === null ? {} : { video_duration_seconds: videoDurationSeconds }),
+            }
+            : type === 'photo_carousel'
+              ? { media_playlist_id: '', item_duration_seconds: 12 }
           : {},
     };
     onChange({ ...nextPage, duration_seconds: wallboardEffectivePageDuration(nextPage) });
@@ -702,18 +734,35 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
               {clampWallboardNewsItemDuration(Number(page.options.item_duration_seconds))} seconden
             </small>
           </div>
+        ) : page.type === 'video' ? (
+          <div className="wallboard-page-editor__derived-duration">
+            <span>Automatische schermtijd</span>
+            <strong>{videoDurationSeconds === null ? 'Nog niet gecontroleerd' : `${effectiveDurationSeconds} seconden`}</strong>
+            <small>
+              {videoDurationSeconds === null
+                ? 'Controleer de video voordat je de playlist opslaat.'
+                : `${formatWallboardVideoDuration(videoDurationSeconds)} video + 5 seconden startmarge`}
+            </small>
+          </div>
+        ) : page.type === 'photo_carousel' ? (
+          <div className="wallboard-page-editor__derived-duration">
+            <span>Automatische schermtijd</span>
+            <strong>{page.duration_seconds} seconden</strong>
+            <small>De volledige fotoplaylist wordt eenmaal getoond voordat de volgende pagina start.</small>
+          </div>
         ) : (
-          <label>
-            <span>Tijd op scherm (seconden)</span>
-            <input
-              type="number"
-              min={MIN_WALLBOARD_PAGE_DURATION_SECONDS}
-              max={MAX_WALLBOARD_PAGE_DURATION_SECONDS}
-              value={page.duration_seconds}
-              onChange={(event) => onChange({ ...page, duration_seconds: clampWallboardPageDuration(Number(event.target.value)) })}
-              required
-            />
-          </label>
+          <SecondsStepper
+            id={`wallboard-page-${page.id}-duration`}
+            label="Tijd op scherm"
+            min={MIN_WALLBOARD_PAGE_DURATION_SECONDS}
+            max={MAX_WALLBOARD_PAGE_DURATION_SECONDS}
+            value={page.duration_seconds}
+            onChange={(durationSeconds) => onChange({
+              ...page,
+              duration_seconds: clampWallboardPageDuration(durationSeconds),
+            })}
+            required
+          />
         )}
       </div>
 
@@ -730,20 +779,50 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
           />
         </div>
       ) : page.type === 'video' ? (
-        <label className="wallboard-video-editor">
-          <span>YouTube- of Vimeo-link</span>
-          <input
-            type="url"
-            value={page.options.url ?? ''}
-            onChange={(event) => onChange({ ...page, options: { url: event.target.value } })}
-            maxLength={2048}
-            pattern="https://.+"
-            placeholder="https://www.youtube.com/watch?v=..."
-            inputMode="url"
-            required
+        <div className="wallboard-video-editor">
+          <label>
+            <span>YouTube-, Shorts- of Vimeo-link</span>
+            <input
+              type="url"
+              value={page.options.url ?? ''}
+              onChange={(event) => onChange({ ...page, options: { url: event.target.value } })}
+              maxLength={2048}
+              pattern="https://.+"
+              placeholder="https://www.youtube.com/watch?v=..."
+              inputMode="url"
+              required
+            />
+            <small>Alleen openbare HTTPS-video&apos;s. De video start automatisch, gedempt en met bediening en branding zoveel mogelijk verborgen.</small>
+          </label>
+          <WallboardVideoInspectionControl
+            url={page.options.url ?? ''}
+            onInspectionStart={() => onChange({
+              ...page,
+              options: { url: page.options.url ?? '' },
+            })}
+            onVerified={(result) => onChange({
+              ...page,
+              duration_seconds: result.recommendedDisplayDurationSeconds,
+              options: {
+                url: page.options.url ?? '',
+                video_duration_seconds: result.durationSeconds,
+              },
+            })}
           />
-          <small>Alleen openbare HTTPS-video&apos;s van YouTube en Vimeo. De video start automatisch zonder geluid, zoals browsers voor wallboards vereisen.</small>
-        </label>
+        </div>
+      ) : page.type === 'photo_carousel' ? (
+        <WallboardPhotoPageEditor
+          idPrefix={`wallboard-photo-${page.id}`}
+          value={{
+            media_playlist_id: page.options.media_playlist_id,
+            item_duration_seconds: page.options.item_duration_seconds,
+          }}
+          onChange={(selection) => onChange({
+            ...page,
+            duration_seconds: selection.pageDurationSeconds,
+            options: selection.options,
+          })}
+        />
       ) : page.type === 'news' ? (
         <fieldset className="wallboard-news-editor">
           <legend>Nieuwsinhoud</legend>
@@ -847,19 +926,32 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
             />
             <small>Begrenst zowel de recente set als de laatste berichten wanneer de 7-dagenperiode leeg is.</small>
           </label>
+          <SecondsStepper
+            className="wallboard-news-editor__count"
+            id={`wallboard-news-${page.id}-item-duration`}
+            label="Tijd per nieuwsbericht"
+            min={MIN_WALLBOARD_NEWS_ITEM_DURATION_SECONDS}
+            max={MAX_WALLBOARD_NEWS_ITEM_DURATION_SECONDS}
+            value={clampWallboardNewsItemDuration(Number(page.options.item_duration_seconds))}
+            onChange={(durationSeconds) => updateNewsOptions({
+              item_duration_seconds: clampWallboardNewsItemDuration(durationSeconds),
+            })}
+            description="Elk artikel wisselt automatisch met de gekozen overgang; de totale paginatijd wordt automatisch berekend."
+            required
+          />
           <label className="wallboard-news-editor__count">
-            <span>Tijd per nieuwsbericht (seconden)</span>
-            <input
-              type="number"
-              min={MIN_WALLBOARD_NEWS_ITEM_DURATION_SECONDS}
-              max={MAX_WALLBOARD_NEWS_ITEM_DURATION_SECONDS}
-              value={clampWallboardNewsItemDuration(Number(page.options.item_duration_seconds))}
+            <span>Overgang tussen nieuwsberichten</span>
+            <select
+              value={normalizeWallboardNewsItemTransition(page.options.item_transition)}
               onChange={(event) => updateNewsOptions({
-                item_duration_seconds: clampWallboardNewsItemDuration(Number(event.target.value)),
+                item_transition: event.target.value as WallboardNewsItemTransition,
               })}
-              required
-            />
-            <small>Elk artikel wisselt automatisch met een rustige overgang; de totale paginatijd wordt automatisch berekend.</small>
+            >
+              {WALLBOARD_NEWS_ITEM_TRANSITIONS.map((transition) => (
+                <option key={transition.value} value={transition.value}>{transition.label}</option>
+              ))}
+            </select>
+            <small>Bij minder beweging vallen Schuiven, Flip, Zachte zoom en Wipe automatisch terug op een rustige dissolve.</small>
           </label>
         </fieldset>
       ) : (
@@ -879,5 +971,6 @@ export function WallboardPageTypeIcon({ type }: { type: WallboardPageType }) {
     case 'message': return <MessageSquareText size={18} aria-hidden />;
     case 'news': return <Newspaper size={18} aria-hidden />;
     case 'video': return <Clapperboard size={18} aria-hidden />;
+    case 'photo_carousel': return <Images size={18} aria-hidden />;
   }
 }

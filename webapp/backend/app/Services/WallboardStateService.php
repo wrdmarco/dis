@@ -28,8 +28,8 @@ final class WallboardStateService
         private readonly WallboardFocusService $focusService,
         private readonly WallboardPlaylistResolver $playlistResolver,
         private readonly AvailabilityScheduleService $availabilityScheduleService,
-        private readonly WallboardTickerService $tickerService,
-        private readonly WallboardNewsService $newsService,
+        private readonly WallboardContentSnapshotService $contentSnapshots,
+        private readonly WallboardMediaStateService $mediaStateService,
         private readonly WallboardMaintenanceNoticeService $maintenanceNoticeService,
     ) {}
 
@@ -37,14 +37,114 @@ final class WallboardStateService
     public function state(Wallboard $wallboard): array
     {
         $configuration = $this->playlistResolver->resolve($wallboard);
+        $runtime = $this->runtime($wallboard, $configuration);
+        $static = $this->staticContent($wallboard, $configuration);
+        $news = $this->contentSnapshots->news($wallboard);
+        $ticker = $this->contentSnapshots->ticker($wallboard);
+
+        return [
+            'generated_at' => $runtime['generated_at'],
+            'maintenance' => $runtime['maintenance'],
+            'wallboard' => [
+                ...$static['wallboard'],
+                'control_version' => (int) $wallboard->control_version,
+                'refresh_version' => (int) $wallboard->refresh_version,
+                'display' => $runtime['display'],
+                'updated_at' => ApiDateTime::dateTime($wallboard->updated_at),
+            ],
+            'operational_summary' => $runtime['operational_summary'],
+            'ticker' => ['items' => $ticker['items']],
+            'news' => [
+                'pages' => $news['pages'],
+                'generated_at' => $news['generated_at'] ?? $runtime['generated_at'],
+            ],
+            'media' => $static['media'],
+            'map' => $runtime['map'],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function live(Wallboard $wallboard): array
+    {
+        $runtime = $this->runtime($wallboard, $this->playlistResolver->resolve($wallboard));
+
+        return [
+            'generated_at' => $runtime['generated_at'],
+            'maintenance' => $runtime['maintenance'],
+            'operational_summary' => $runtime['operational_summary'],
+            'map' => $runtime['map'],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $configuration
+     * @return array<string, mixed>
+     */
+    public function staticContent(Wallboard $wallboard, ?array $configuration = null): array
+    {
+        $configuration ??= $this->playlistResolver->resolve($wallboard);
+
+        return [
+            'wallboard' => [
+                'id' => (string) $wallboard->id,
+                'name' => (string) $wallboard->name,
+                'layout' => (string) $wallboard->layout,
+                'display_profile' => (string) $wallboard->display_profile,
+                'configuration' => $configuration,
+                'config_version' => (int) $wallboard->config_version,
+            ],
+            'media' => [
+                'photo_pages' => $this->mediaStateService->pages($wallboard, $configuration),
+            ],
+        ];
+    }
+
+    /** @return array{revision: int, pages: array<string, mixed>, generated_at: string|null} */
+    public function news(Wallboard $wallboard): array
+    {
+        return $this->contentSnapshots->news($wallboard);
+    }
+
+    /** @return array{revision: int, items: list<array<string, mixed>>} */
+    public function ticker(Wallboard $wallboard): array
+    {
+        return $this->contentSnapshots->ticker($wallboard);
+    }
+
+    /** @return array<string, mixed> */
+    public function control(Wallboard $wallboard): array
+    {
+        $configuration = $this->playlistResolver->resolve($wallboard);
+        $activeAlarm = $this->activeAlarm();
+        $focus = $this->focusService->resolve($configuration, $wallboard);
+
+        return [
+            'generated_at' => ApiDateTime::now(),
+            'maintenance' => $this->maintenanceNoticeService->current(),
+            'display_profile' => (string) $wallboard->display_profile,
+            'config_version' => (int) $wallboard->config_version,
+            'control_version' => (int) $wallboard->control_version,
+            'refresh_version' => (int) $wallboard->refresh_version,
+            'content_versions' => $this->contentSnapshots->contentVersions($wallboard),
+            'display' => $this->displayService->display($wallboard, $configuration, $activeAlarm !== null),
+            'focus' => $focus,
+            'transient_alert' => $this->transientAlert(),
+            'poll_after_seconds' => 2,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $configuration
+     * @return array<string, mixed>
+     */
+    private function runtime(Wallboard $wallboard, array $configuration): array
+    {
         $activeAlarm = $this->activeAlarm();
         $focus = $this->focusService->resolve($configuration, $wallboard);
         $transientAlert = $this->transientAlert();
         $display = $this->displayService->display($wallboard, $configuration, $activeAlarm !== null);
         $mapConfiguration = (array) $configuration['map'];
         $pages = collect((array) $configuration['pages']);
-        $hasNewsPage = $pages->contains(fn (mixed $page): bool => is_array($page)
-            && (string) ($page['type'] ?? '') === 'news');
         $hasMapPage = $pages->contains(fn (mixed $page): bool => is_array($page)
             && (string) ($page['type'] ?? '') === 'map');
         $incidentPages = $pages
@@ -77,18 +177,7 @@ final class WallboardStateService
         return [
             'generated_at' => ApiDateTime::now(),
             'maintenance' => $this->maintenanceNoticeService->current(),
-            'wallboard' => [
-                'id' => (string) $wallboard->id,
-                'name' => (string) $wallboard->name,
-                'layout' => (string) $wallboard->layout,
-                'display_profile' => (string) $wallboard->display_profile,
-                'configuration' => $configuration,
-                'config_version' => (int) $wallboard->config_version,
-                'control_version' => (int) $wallboard->control_version,
-                'refresh_version' => (int) $wallboard->refresh_version,
-                'display' => $display,
-                'updated_at' => ApiDateTime::dateTime($wallboard->updated_at),
-            ],
+            'display' => $display,
             'operational_summary' => [
                 'pilot_availability' => $showsOperationalSummary
                     ? $this->pilotAvailability()
@@ -100,12 +189,6 @@ final class WallboardStateService
                 'focus' => $focus,
                 'transient_alert' => $transientAlert,
             ],
-            'ticker' => [
-                'items' => $this->tickerService->items((array) $configuration['ticker']),
-            ],
-            'news' => $hasNewsPage
-                ? $this->newsService->pages($pages->all())
-                : ['pages' => [], 'generated_at' => ApiDateTime::now()],
             'map' => [
                 'incidents' => $incidents->map(fn (Incident $incident): array => $this->incidentPayload($incident))->values()->all(),
                 'command_centers' => $hasMapPage && ($mapConfiguration['show_command_centers'] ?? false) === true
@@ -118,27 +201,6 @@ final class WallboardStateService
                     ? $this->liveLocations($incidents, (bool) ($mapConfiguration['show_routes'] ?? false))
                     : [],
             ],
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    public function control(Wallboard $wallboard): array
-    {
-        $configuration = $this->playlistResolver->resolve($wallboard);
-        $activeAlarm = $this->activeAlarm();
-        $focus = $this->focusService->resolve($configuration, $wallboard);
-
-        return [
-            'generated_at' => ApiDateTime::now(),
-            'maintenance' => $this->maintenanceNoticeService->current(),
-            'display_profile' => (string) $wallboard->display_profile,
-            'config_version' => (int) $wallboard->config_version,
-            'control_version' => (int) $wallboard->control_version,
-            'refresh_version' => (int) $wallboard->refresh_version,
-            'display' => $this->displayService->display($wallboard, $configuration, $activeAlarm !== null),
-            'focus' => $focus,
-            'transient_alert' => $this->transientAlert(),
-            'poll_after_seconds' => 2,
         ];
     }
 
@@ -324,12 +386,14 @@ final class WallboardStateService
         }
 
         $userIds = $acceptedPairs->pluck('user_id')->map(fn ($id): string => (string) $id)->unique()->values();
-        $onSceneUserIds = AvailabilityStatus::query()
+        $latestOperationalStatuses = AvailabilityStatus::query()
             ->latestPerUser()
             ->whereIn('user_id', $userIds)
-            ->where('status', 'on_scene')
-            ->pluck('user_id')
-            ->map(fn ($id): string => (string) $id)
+            ->pluck('status', 'user_id')
+            ->mapWithKeys(fn (string $status, string $userId): array => [(string) $userId => $status]);
+        $onSceneUserIds = $latestOperationalStatuses
+            ->filter(fn (string $status): bool => $status === 'on_scene')
+            ->keys()
             ->all();
         $onSceneLookup = array_fill_keys($onSceneUserIds, true);
         $acceptedPairLookup = $acceptedPairs
@@ -416,15 +480,21 @@ final class WallboardStateService
             : [];
 
         return $locations
-            ->map(function (LocationUpdate $location) use ($users, $routes): array {
+            ->map(function (LocationUpdate $location) use ($latestOperationalStatuses, $users, $routes): array {
                 $key = (string) $location->incident_id.'|'.(string) $location->user_id;
                 $route = $routes[$key] ?? null;
                 $user = $users->get($location->user_id);
+                $latestStatus = $latestOperationalStatuses->get((string) $location->user_id);
+                $operationalStatus = in_array($latestStatus, ['en_route', 'on_scene'], true)
+                    ? $latestStatus
+                    : null;
 
                 return [
                     'incident_id' => (string) $location->incident_id,
                     'user_id' => (string) $location->user_id,
                     'user' => $user instanceof User ? ['id' => (string) $user->id, 'name' => (string) $user->name] : null,
+                    'dispatch_response_status' => 'accepted',
+                    'operational_status' => $operationalStatus,
                     'sharing_status' => 'shared',
                     'location_is_current' => true,
                     'latitude' => (float) $location->latitude,

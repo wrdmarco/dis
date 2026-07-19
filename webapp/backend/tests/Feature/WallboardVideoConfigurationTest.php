@@ -21,12 +21,15 @@ final class WallboardVideoConfigurationTest extends TestCase
         string $expected,
     ): void {
         $configuration = WallboardConfiguration::normalize([
-            'pages' => [$this->page($input, 47)],
+            'pages' => [$this->page($input, 5, 42)],
         ]);
 
         $this->assertContains('video', WallboardConfiguration::PAGE_TYPES);
         $this->assertSame(47, $configuration['pages'][0]['duration_seconds']);
-        $this->assertSame(['url' => $expected], $configuration['pages'][0]['options']);
+        $this->assertSame([
+            'url' => $expected,
+            'video_duration_seconds' => 42,
+        ], $configuration['pages'][0]['options']);
     }
 
     /** @return iterable<string, array{0: string, 1: string}> */
@@ -74,7 +77,7 @@ final class WallboardVideoConfigurationTest extends TestCase
 
     public function test_every_admin_configuration_request_accepts_the_video_contract(): void
     {
-        $page = $this->page('https://youtu.be/dQw4w9WgXcQ', 90);
+        $page = $this->page('https://youtu.be/dQw4w9WgXcQ', 5, 90);
 
         foreach ($this->requestContracts() as [$request, $basePayload]) {
             $validated = $this->validateRequest($request, [
@@ -83,10 +86,14 @@ final class WallboardVideoConfigurationTest extends TestCase
             ]);
 
             $this->assertSame('video', $validated['configuration']['pages'][0]['type']);
-            $this->assertSame(90, $validated['configuration']['pages'][0]['duration_seconds']);
+            $this->assertSame(5, $validated['configuration']['pages'][0]['duration_seconds']);
             $this->assertSame(
                 'https://youtu.be/dQw4w9WgXcQ',
                 $validated['configuration']['pages'][0]['options']['url'],
+            );
+            $this->assertSame(
+                90,
+                $validated['configuration']['pages'][0]['options']['video_duration_seconds'],
             );
         }
     }
@@ -164,35 +171,46 @@ final class WallboardVideoConfigurationTest extends TestCase
         }
     }
 
-    #[DataProvider('validDurationProvider')]
-    public function test_video_page_preserves_the_existing_duration_boundaries(int $durationSeconds): void
-    {
-        $page = $this->page('https://vimeo.com/76979871', $durationSeconds);
+    #[DataProvider('validVideoDurationProvider')]
+    public function test_video_page_derives_rotation_duration_from_verified_video_duration(
+        int $videoDurationSeconds,
+        int $expectedRotationSeconds,
+    ): void {
+        $page = $this->page('https://vimeo.com/76979871', 5, $videoDurationSeconds);
         $configuration = WallboardConfiguration::normalize(['pages' => [$page]]);
 
-        $this->assertSame($durationSeconds, $configuration['pages'][0]['duration_seconds']);
+        $this->assertSame($expectedRotationSeconds, $configuration['pages'][0]['duration_seconds']);
+        $this->assertSame(
+            $videoDurationSeconds,
+            $configuration['pages'][0]['options']['video_duration_seconds'],
+        );
 
         foreach ($this->requestContracts() as [$request, $basePayload]) {
             $validated = $this->validateRequest($request, [
                 ...$basePayload,
                 'configuration' => ['pages' => [$page]],
             ]);
-            $this->assertSame($durationSeconds, $validated['configuration']['pages'][0]['duration_seconds']);
+            $this->assertSame(5, $validated['configuration']['pages'][0]['duration_seconds']);
+            $this->assertSame(
+                $videoDurationSeconds,
+                $validated['configuration']['pages'][0]['options']['video_duration_seconds'],
+            );
         }
     }
 
-    /** @return iterable<string, array{0: int}> */
-    public static function validDurationProvider(): iterable
+    /** @return iterable<string, array{0: int, 1: int}> */
+    public static function validVideoDurationProvider(): iterable
     {
-        yield 'minimum' => [5];
-        yield 'maximum' => [3600];
+        yield 'minimum' => [1, 6];
+        yield 'maximum' => [3595, 3600];
     }
 
-    #[DataProvider('invalidDurationProvider')]
-    public function test_video_page_rejects_durations_outside_the_existing_contract(int $durationSeconds): void
-    {
-        $page = $this->page('https://vimeo.com/76979871', $durationSeconds);
-        $errorKey = 'configuration.pages.0.duration_seconds';
+    #[DataProvider('invalidVideoDurationProvider')]
+    public function test_video_page_rejects_unverified_or_out_of_range_video_durations(
+        mixed $videoDurationSeconds,
+    ): void {
+        $page = $this->page('https://vimeo.com/76979871', 30, $videoDurationSeconds);
+        $errorKey = 'configuration.pages.0.options.video_duration_seconds';
 
         try {
             WallboardConfiguration::normalize(['pages' => [$page]]);
@@ -214,11 +232,44 @@ final class WallboardVideoConfigurationTest extends TestCase
         }
     }
 
-    /** @return iterable<string, array{0: int}> */
-    public static function invalidDurationProvider(): iterable
+    /** @return iterable<string, array{0: mixed}> */
+    public static function invalidVideoDurationProvider(): iterable
     {
-        yield 'below minimum' => [4];
-        yield 'above maximum' => [3601];
+        yield 'below minimum' => [0];
+        yield 'above maximum' => [3596];
+        yield 'numeric string' => ['90'];
+        yield 'fraction' => [90.5];
+    }
+
+    public function test_admin_requests_require_verified_video_duration_and_reject_client_duration_tampering(): void
+    {
+        foreach ($this->requestContracts() as [$request, $basePayload]) {
+            $missing = $this->page('https://youtu.be/dQw4w9WgXcQ', 30, 90);
+            unset($missing['options']['video_duration_seconds']);
+            try {
+                $this->validateRequest($request, [
+                    ...$basePayload,
+                    'configuration' => ['pages' => [$missing]],
+                ]);
+                $this->fail('Een nieuwe videopagina zonder gecontroleerde videoduur moet worden geweigerd.');
+            } catch (ValidationException $exception) {
+                $this->assertArrayHasKey(
+                    'configuration.pages.0.options.video_duration_seconds',
+                    $exception->errors(),
+                );
+            }
+        }
+
+        foreach ([5, 30, 3600] as $forgedRotationSeconds) {
+            $configuration = WallboardConfiguration::normalize([
+                'pages' => [$this->page(
+                    'https://youtu.be/dQw4w9WgXcQ',
+                    $forgedRotationSeconds,
+                    120,
+                )],
+            ]);
+            $this->assertSame(125, $configuration['pages'][0]['duration_seconds']);
+        }
     }
 
     /**
@@ -235,14 +286,20 @@ final class WallboardVideoConfigurationTest extends TestCase
     }
 
     /** @return array<string, mixed> */
-    private function page(mixed $url, int $durationSeconds = 30): array
-    {
+    private function page(
+        mixed $url,
+        int $durationSeconds = 30,
+        mixed $videoDurationSeconds = 30,
+    ): array {
         return [
             'id' => 'promo-video',
             'name' => 'Promovideo',
             'type' => 'video',
             'duration_seconds' => $durationSeconds,
-            'options' => ['url' => $url],
+            'options' => [
+                'url' => $url,
+                'video_duration_seconds' => $videoDurationSeconds,
+            ],
         ];
     }
 

@@ -23,6 +23,8 @@ final class WallboardService
         private readonly WallboardPlaylistRepository $playlistRepository,
         private readonly WallboardPlaylistSynchronizer $playlistSynchronizer,
         private readonly WallboardPlaylistResolver $playlistResolver,
+        private readonly WallboardMediaCoordinationService $mediaCoordination,
+        private readonly WallboardMediaUsageSynchronizer $mediaUsage,
         private readonly AuditService $auditService,
         private readonly WallboardDisplayService $displayService,
     ) {}
@@ -58,6 +60,7 @@ final class WallboardService
                 $playlist = $this->playlistRepository->lockPlaylist((string) $data['playlist_id']);
                 $configuration = WallboardConfiguration::normalize((array) $playlist->configuration);
             } else {
+                $this->mediaCoordination->lock();
                 $configuration = WallboardConfiguration::normalize((array) ($data['configuration'] ?? []));
                 $createdPlaylist = $this->playlistRepository->create([
                     'name' => trim((string) $data['name']),
@@ -70,6 +73,8 @@ final class WallboardService
                     throw new \LogicException('Wallboard playlist repository returned an unexpected model.');
                 }
                 $playlist = $createdPlaylist;
+                $configuration = $this->mediaUsage->synchronize($playlist, $configuration);
+                $playlist->forceFill(['configuration' => $configuration])->save();
                 $this->auditService->record('wallboard_playlists.created', $playlist, $actor, [
                     'name' => $playlist->name,
                     'version' => 1,
@@ -123,13 +128,22 @@ final class WallboardService
             $updatesConfiguration = array_key_exists('configuration', $data);
             $playlist = null;
             $linkedWallboards = collect();
+            $preparedConfiguration = null;
+            $createdImplicitPlaylist = false;
 
             if ($updatesConfiguration) {
+                $this->mediaCoordination->lock();
                 $candidatePlaylistId = $this->repository->playlistId((string) $wallboard->getKey());
                 if ($candidatePlaylistId !== null) {
-                    // Keep lock ordering consistent with direct playlist writes:
-                    // playlist first, then every linked wallboard by ULID.
                     $playlist = $this->playlistRepository->lockPlaylist($candidatePlaylistId);
+                    $preparedConfiguration = WallboardConfiguration::normalize(
+                        (array) $data['configuration'],
+                        (array) $playlist->configuration,
+                    );
+                    $preparedConfiguration = $this->mediaUsage->synchronize(
+                        $playlist,
+                        $preparedConfiguration,
+                    );
                     $linkedWallboards = $this->playlistRepository->lockLinkedWallboards($candidatePlaylistId);
                     $locked = $linkedWallboards->first(
                         fn (Wallboard $candidate): bool => (string) $candidate->id === (string) $wallboard->getKey(),
@@ -140,10 +154,31 @@ final class WallboardService
                     }
                     $locked->setRelation('playlist', $playlist);
                 } else {
+                    $preparedConfiguration = WallboardConfiguration::normalize(
+                        (array) $data['configuration'],
+                        (array) $wallboard->configuration,
+                    );
+                    $createdPlaylist = $this->playlistRepository->create([
+                        'name' => (string) $wallboard->name,
+                        'configuration' => $preparedConfiguration,
+                        'version' => 1,
+                        'created_by' => $actor->id,
+                        'updated_by' => $actor->id,
+                    ]);
+                    if (! $createdPlaylist instanceof WallboardPlaylist) {
+                        throw new \LogicException('Wallboard playlist repository returned an unexpected model.');
+                    }
+                    $playlist = $createdPlaylist;
+                    $preparedConfiguration = $this->mediaUsage->synchronize(
+                        $playlist,
+                        $preparedConfiguration,
+                    );
+                    $playlist->forceFill(['configuration' => $preparedConfiguration])->save();
                     $locked = $this->repository->lockWallboard((string) $wallboard->getKey());
                     if ($locked->playlist_id !== null) {
                         throw new ConflictHttpException('Wallboard playlist assignment changed.');
                     }
+                    $createdImplicitPlaylist = true;
                 }
             } else {
                 $locked = $this->repository->lockWallboard((string) $wallboard->getKey());
@@ -170,14 +205,12 @@ final class WallboardService
             $nextConfiguration = $this->playlistResolver->resolve($locked);
             $displayVersionsIncremented = false;
             if ($updatesConfiguration) {
-                $nextConfiguration = WallboardConfiguration::normalize(
-                    (array) $data['configuration'],
-                    $playlist instanceof WallboardPlaylist
-                        ? (array) $playlist->configuration
-                        : (array) $locked->configuration,
-                );
+                if (! is_array($preparedConfiguration) || ! $playlist instanceof WallboardPlaylist) {
+                    throw new \LogicException('Prepared wallboard playlist configuration is missing.');
+                }
+                $nextConfiguration = $preparedConfiguration;
 
-                if ($playlist instanceof WallboardPlaylist) {
+                if (! $createdImplicitPlaylist) {
                     $this->playlistSynchronizer->updatePlaylistAndLinkedWallboards(
                         $playlist,
                         $linkedWallboards,
@@ -191,17 +224,6 @@ final class WallboardService
                         'source_wallboard_id' => (string) $locked->id,
                     ], null, $request);
                 } else {
-                    $createdPlaylist = $this->playlistRepository->create([
-                        'name' => (string) $locked->name,
-                        'configuration' => $nextConfiguration,
-                        'version' => 1,
-                        'created_by' => $actor->id,
-                        'updated_by' => $actor->id,
-                    ]);
-                    if (! $createdPlaylist instanceof WallboardPlaylist) {
-                        throw new \LogicException('Wallboard playlist repository returned an unexpected model.');
-                    }
-                    $playlist = $createdPlaylist;
                     $this->playlistSynchronizer->copyConfigurationToWallboard(
                         $locked,
                         $playlist,
@@ -221,7 +243,9 @@ final class WallboardService
                 $changes['is_enabled'] = (bool) $data['is_enabled'];
             }
 
-            if ((array_key_exists('layout', $changes) || array_key_exists('display_profile', $changes))
+            if ((array_key_exists('name', $changes)
+                || array_key_exists('layout', $changes)
+                || array_key_exists('display_profile', $changes))
                 && ! $displayVersionsIncremented) {
                 $changes['config_version'] = (int) $locked->config_version + 1;
                 $changes['control_version'] = (int) $locked->control_version + 1;

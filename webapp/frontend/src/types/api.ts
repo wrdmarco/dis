@@ -224,8 +224,9 @@ export interface OperationalMapPilotHome {
 export type WallboardLayout = 'fullscreen_map';
 export type WallboardDisplayProfile = 'auto' | '1080p' | '4k';
 export type WallboardTheme = 'dark' | 'light';
-export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'message' | 'news' | 'video';
+export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'message' | 'news' | 'video' | 'photo_carousel';
 export type WallboardDisplayMode = 'rotation' | 'static' | 'manual' | 'incident_override';
+export type WallboardNewsItemTransition = 'fade' | 'dissolve' | 'slide' | 'flip' | 'zoom' | 'wipe' | 'none';
 
 export interface WallboardMapConfiguration {
   show_active_incidents: boolean;
@@ -248,6 +249,7 @@ export interface WallboardConfiguration {
   focus: WallboardFocusConfiguration;
   pages: WallboardPage[];
   rotation_enabled: boolean;
+  page_fade_enabled: boolean;
   incident_override: WallboardIncidentOverride;
 }
 
@@ -307,11 +309,14 @@ export interface WallboardPageOptions {
   body?: string;
   content?: WallboardRichTextDocument;
   url?: string;
+  video_duration_seconds?: number;
+  media_playlist_id?: string;
   show_test_incidents?: boolean;
   sources?: WallboardNewsSource[];
   custom_sources?: WallboardCustomNewsSource[];
   max_items?: number;
   item_duration_seconds?: number;
+  item_transition?: WallboardNewsItemTransition;
 }
 
 export interface WallboardPage {
@@ -495,6 +500,8 @@ export interface WallboardStateLiveLocation {
   incident_id: string;
   user_id: string;
   user?: Pick<User, 'id' | 'name'> | null;
+  dispatch_response_status: 'accepted';
+  operational_status: 'en_route' | 'on_scene' | null;
   sharing_status: string;
   location_is_current: boolean;
   latitude: number | string | null;
@@ -626,6 +633,25 @@ export interface WallboardState {
     items: WallboardTickerItem[];
   };
   news: WallboardNewsState;
+  media: {
+    photo_pages: Record<string, WallboardMediaPageState>;
+  };
+}
+
+export interface WallboardMediaPageStateItem {
+  id: string;
+  name: string;
+  image_url: string;
+  width: number;
+  height: number;
+}
+
+export interface WallboardMediaPageState {
+  media_playlist_id: string;
+  media_playlist_version: number;
+  item_duration_seconds: number;
+  total_duration_seconds: number;
+  items: WallboardMediaPageStateItem[];
 }
 
 export interface WallboardControlState {

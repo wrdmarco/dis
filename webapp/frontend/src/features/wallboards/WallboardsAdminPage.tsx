@@ -5,6 +5,7 @@ import {
   Eye,
   KeyRound,
   Library,
+  Images,
   Link2,
   MonitorCog,
   Plus,
@@ -36,6 +37,8 @@ import {
   requestedWallboardScreenSelection,
   wallboardConfigurationCopy,
   wallboardConfigurationForSave,
+  wallboardConfigurationHasInvalidPhotoCarousels,
+  wallboardConfigurationHasUnverifiedVideos,
   wallboardDisplayProfileLabel,
   wallboardIsOnline,
   wallboardPlaylistUsageCount,
@@ -45,6 +48,7 @@ import {
   WallboardPageTypeIcon,
 } from './WallboardConfigurationEditor';
 import { WallboardPlaylistPreview } from './WallboardPlaylistPreview';
+import { WallboardMediaLibrary } from './WallboardMediaLibrary';
 
 const ADMIN_STATUS_REFRESH_MILLISECONDS = 2500;
 const WALLBOARD_FOCUS_PREVIEW_OPTIONS: ReadonlyArray<{
@@ -56,7 +60,7 @@ const WALLBOARD_FOCUS_PREVIEW_OPTIONS: ReadonlyArray<{
   { kind: 'real_alarm', label: 'Echt alarm' },
 ];
 
-type AdminSection = 'screens' | 'playlists';
+type AdminSection = 'screens' | 'playlists' | 'media';
 
 interface WallboardFocusPreviewResponse {
   wallboard_id: string;
@@ -203,19 +207,38 @@ export function WallboardsAdminPage() {
           <Library size={18} aria-hidden />
           <span><strong>Playlists</strong><small>{playlists.length} programma’s</small></span>
         </button>
+        <button
+          id="wallboards-media-tab"
+          type="button"
+          role="tab"
+          aria-selected={section === 'media'}
+          aria-controls="wallboards-media-panel"
+          className={section === 'media' ? 'wallboards-admin-tab wallboards-admin-tab--active' : 'wallboards-admin-tab'}
+          onClick={() => {
+            setSection('media');
+            setCreateError(null);
+          }}
+        >
+          <Images size={18} aria-hidden />
+          <span><strong>Media</strong><small>Foto&apos;s en fotoplaylists</small></span>
+        </button>
       </nav>
 
-      <Panel title={section === 'screens' ? 'Schermen' : 'Playlists'} action={(
+      <Panel title={section === 'screens' ? 'Schermen' : section === 'playlists' ? 'Playlists' : 'Media'} action={(
         <button className="icon-button" type="button" onClick={() => void reloadAll()} aria-label="Schermen en playlists vernieuwen">
           <RefreshCw size={17} aria-hidden />
         </button>
       )}>
         <div
-          className="panel-body wallboards-admin-grid"
-          id={section === 'screens' ? 'wallboards-screens-panel' : 'wallboards-playlists-panel'}
+          className={section === 'media' ? 'panel-body' : 'panel-body wallboards-admin-grid'}
+          id={section === 'screens' ? 'wallboards-screens-panel' : section === 'playlists' ? 'wallboards-playlists-panel' : 'wallboards-media-panel'}
           role="tabpanel"
-          aria-labelledby={section === 'screens' ? 'wallboards-screens-tab' : 'wallboards-playlists-tab'}
+          aria-labelledby={section === 'screens' ? 'wallboards-screens-tab' : section === 'playlists' ? 'wallboards-playlists-tab' : 'wallboards-media-tab'}
         >
+          {section === 'media' ? (
+            <WallboardMediaLibrary />
+          ) : (
+            <>
           <div className="wallboards-admin-list-column">
             {section === 'playlists' ? (
               <form className="wallboard-create-form" onSubmit={createPlaylist}>
@@ -322,6 +345,8 @@ export function WallboardsAdminPage() {
                 setSelectedPlaylistId(null);
               }}
             />
+          )}
+            </>
           )}
         </div>
       </Panel>
@@ -812,6 +837,8 @@ function PlaylistEditor({ playlist, onReplace, onReloadAll, onDeleted }: Playlis
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const usageCount = wallboardPlaylistUsageCount(playlist);
+  const hasUnverifiedVideos = wallboardConfigurationHasUnverifiedVideos(draft);
+  const hasInvalidPhotoCarousels = wallboardConfigurationHasInvalidPhotoCarousels(draft);
 
   useEffect(() => {
     setDraftName(playlist.name);
@@ -824,6 +851,14 @@ function PlaylistEditor({ playlist, onReplace, onReloadAll, onDeleted }: Playlis
     event.preventDefault();
     const name = draftName.trim();
     if (name === '') return;
+    if (hasUnverifiedVideos) {
+      setActionError('Controleer iedere video op insluitbaarheid en speelduur voordat je de playlist opslaat.');
+      return;
+    }
+    if (hasInvalidPhotoCarousels) {
+      setActionError('Kies voor iedere fotocarrousel een geldige fotoplaylist en tijd per foto.');
+      return;
+    }
     setBusyAction('save');
     setActionError(null);
     setActionMessage(null);
@@ -934,7 +969,7 @@ function PlaylistEditor({ playlist, onReplace, onReloadAll, onDeleted }: Playlis
       ) : null}
 
       <div className="wallboard-editor__actions">
-        <button className="primary-button" type="submit" disabled={busyAction !== null || draftName.trim() === ''}>
+        <button className="primary-button" type="submit" disabled={busyAction !== null || draftName.trim() === '' || hasUnverifiedVideos || hasInvalidPhotoCarousels}>
           <Save size={17} aria-hidden /> {busyAction === 'save' ? 'Opslaan…' : 'Playlist opslaan'}
         </button>
         {deleteConfirm ? (

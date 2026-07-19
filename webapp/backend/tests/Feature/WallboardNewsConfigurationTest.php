@@ -31,6 +31,7 @@ final class WallboardNewsConfigurationTest extends TestCase
             'custom_sources' => [],
             'max_items' => 6,
             'item_duration_seconds' => 12,
+            'item_transition' => 'fade',
         ], $configuration['pages'][0]['options']);
         $this->assertSame(72, $configuration['pages'][0]['duration_seconds']);
     }

@@ -6,6 +6,7 @@ use App\Contracts\DispatchNotificationQueue;
 use App\Contracts\PushProvider;
 use App\Contracts\RouteGeometryProvider;
 use App\Contracts\RoutingProvider;
+use App\Contracts\WallboardContentProvider;
 use App\Mail\MicrosoftGraphTransport;
 use App\Models\PersonalAccessToken;
 use App\Models\SystemSetting;
@@ -14,6 +15,7 @@ use App\Services\QueuedDispatchNotificationQueue;
 use App\Services\Routing\OsrmRoutingProvider;
 use App\Services\Routing\RouteGeometryService;
 use App\Services\Routing\RoutingService;
+use App\Services\SecureWallboardContentProvider;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Http\Client\Factory as HttpFactory;
@@ -32,6 +34,7 @@ final class AppServiceProvider extends ServiceProvider
     {
         $this->app->bind(DispatchNotificationQueue::class, QueuedDispatchNotificationQueue::class);
         $this->app->bind(PushProvider::class, PushProviderClient::class);
+        $this->app->bind(WallboardContentProvider::class, SecureWallboardContentProvider::class);
 
         $this->app->singleton(RoutingProvider::class, fn ($app): RoutingProvider => new OsrmRoutingProvider(
             http: $app->make(HttpFactory::class),
@@ -145,6 +148,23 @@ final class AppServiceProvider extends ServiceProvider
                 Limit::perMinute(300)->by('wallboard-control:wallboard:'.hash('sha256', $wallboardId)),
             ];
         });
+        RateLimiter::for('wallboard-media-read', function (Request $request): array {
+            $session = $request->attributes->get('wallboard.session');
+            $wallboard = $request->attributes->get('wallboard');
+            $sessionId = is_object($session) && isset($session->id) ? (string) $session->id : 'missing';
+            $wallboardId = is_object($wallboard) && isset($wallboard->id) ? (string) $wallboard->id : 'missing';
+
+            return [
+                Limit::perMinute(600)->by('wallboard-media-read:session:'.hash('sha256', $sessionId)),
+                Limit::perMinute(3600)->by('wallboard-media-read:wallboard:'.hash('sha256', $wallboardId)),
+            ];
+        });
+        RateLimiter::for('wallboard-media-upload', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'wallboard-media-upload',
+            perClient: 10,
+            perUser: 20,
+        ));
         RateLimiter::for('wallboard-admin-write', fn (Request $request): array => $this->authenticatedClientLimits(
             request: $request,
             scope: 'wallboard-admin-write',

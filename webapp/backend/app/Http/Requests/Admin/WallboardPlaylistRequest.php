@@ -21,22 +21,25 @@ abstract class WallboardPlaylistRequest extends FormRequest
     protected function configurationRules(string $presence): array
     {
         return [
-            'configuration' => [$presence, 'array:theme,refresh_seconds,rotation_enabled,pages,focus,incident_override,ticker,map'],
+            'configuration' => [$presence, 'array:theme,refresh_seconds,rotation_enabled,page_fade_enabled,pages,focus,incident_override,ticker,map'],
             'configuration.theme' => ['sometimes', 'string', Rule::in(['dark', 'light'])],
             'configuration.refresh_seconds' => ['sometimes', 'integer', 'between:5,60'],
             'configuration.rotation_enabled' => ['sometimes', 'boolean'],
+            'configuration.page_fade_enabled' => ['sometimes', 'boolean:strict'],
             'configuration.pages' => ['sometimes', 'array', 'min:1', 'max:20'],
             'configuration.pages.*' => ['required', 'array:id,name,type,duration_seconds,options'],
             'configuration.pages.*.id' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9][A-Za-z0-9_-]*$/', 'distinct:strict'],
             'configuration.pages.*.name' => ['required', 'string', 'max:120'],
             'configuration.pages.*.type' => ['required', 'string', Rule::in(WallboardConfiguration::PAGE_TYPES)],
             'configuration.pages.*.duration_seconds' => ['required', 'integer', 'between:5,3600'],
-            'configuration.pages.*.options' => ['sometimes', 'array:body,content,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,url'],
+            'configuration.pages.*.options' => ['sometimes', 'array:body,content,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,item_transition,url,video_duration_seconds,media_playlist_id'],
             'configuration.pages.*.options.body' => ['sometimes', 'string', 'max:2000'],
             'configuration.pages.*.options.content' => ['sometimes', 'array:version,blocks'],
             'configuration.pages.*.options.content.version' => ['sometimes', 'integer:strict'],
             'configuration.pages.*.options.content.blocks' => ['sometimes', 'array', 'max:'.WallboardRichText::MAX_BLOCKS],
             'configuration.pages.*.options.url' => ['sometimes', 'string', 'max:'.WallboardConfiguration::MAX_VIDEO_URL_LENGTH],
+            'configuration.pages.*.options.video_duration_seconds' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_VIDEO_DURATION_SECONDS.','.WallboardConfiguration::MAX_VIDEO_DURATION_SECONDS],
+            'configuration.pages.*.options.media_playlist_id' => ['sometimes', 'string', 'ulid'],
             'configuration.pages.*.options.show_test_incidents' => ['sometimes', 'boolean'],
             'configuration.pages.*.options.sources' => ['sometimes', 'array', 'max:'.count(WallboardConfiguration::NEWS_SOURCES)],
             'configuration.pages.*.options.sources.*' => ['required', 'string', Rule::in(WallboardConfiguration::NEWS_SOURCES)],
@@ -47,6 +50,7 @@ abstract class WallboardPlaylistRequest extends FormRequest
             'configuration.pages.*.options.custom_sources.*.url' => ['required', 'string', 'max:'.WallboardConfiguration::MAX_NEWS_CUSTOM_SOURCE_URL_LENGTH],
             'configuration.pages.*.options.max_items' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_NEWS_MAX_ITEMS.','.WallboardConfiguration::MAX_NEWS_MAX_ITEMS],
             'configuration.pages.*.options.item_duration_seconds' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_NEWS_ITEM_DURATION_SECONDS.','.WallboardConfiguration::MAX_NEWS_ITEM_DURATION_SECONDS],
+            'configuration.pages.*.options.item_transition' => ['sometimes', 'string', Rule::in(WallboardConfiguration::NEWS_ITEM_TRANSITIONS)],
             'configuration.focus' => ['sometimes', 'array:preannouncement,real_alarm,test_alarm'],
             'configuration.focus.preannouncement' => ['sometimes', 'array:enabled,duration_seconds,show_response_feed'],
             'configuration.focus.real_alarm' => ['sometimes', 'array:enabled,duration_seconds,show_response_feed'],
@@ -92,6 +96,22 @@ abstract class WallboardPlaylistRequest extends FormRequest
     {
         return [function (Validator $validator): void {
             if ($validator->errors()->isNotEmpty() || ! $this->has('configuration')) {
+                return;
+            }
+
+            foreach ((array) $this->input('configuration.pages', []) as $index => $page) {
+                if (! is_array($page) || ($page['type'] ?? null) !== 'video') {
+                    continue;
+                }
+                $options = is_array($page['options'] ?? null) ? $page['options'] : [];
+                if (! is_int($options['video_duration_seconds'] ?? null)) {
+                    $validator->errors()->add(
+                        "configuration.pages.{$index}.options.video_duration_seconds",
+                        'Controleer eerst de videoduur voordat u de pagina opslaat.',
+                    );
+                }
+            }
+            if ($validator->errors()->isNotEmpty()) {
                 return;
             }
 

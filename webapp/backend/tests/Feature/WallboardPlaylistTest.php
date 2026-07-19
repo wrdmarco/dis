@@ -314,6 +314,8 @@ final class WallboardPlaylistTest extends TestCase
     {
         $manager = $this->user('playlist-migration@example.test', ['wallboards.manage']);
         $migration = require database_path('migrations/2026_07_19_000004_create_wallboard_playlists.php');
+        $snapshotMigration = require database_path('migrations/2026_07_19_000010_create_wallboard_content_snapshots.php');
+        $snapshotMigration->down();
         $migration->down();
 
         $firstConfiguration = $this->configuration(['map'], 'Exact een');
@@ -339,6 +341,7 @@ final class WallboardPlaylistTest extends TestCase
         }
 
         $migration->up();
+        $snapshotMigration->up();
 
         $wallboards = DB::table('wallboards')->orderBy('name')->get();
         $this->assertCount(2, $wallboards);

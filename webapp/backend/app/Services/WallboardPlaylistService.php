@@ -19,6 +19,8 @@ final class WallboardPlaylistService
         private readonly WallboardPlaylistRepository $repository,
         private readonly WallboardRepository $wallboards,
         private readonly WallboardPlaylistSynchronizer $synchronizer,
+        private readonly WallboardMediaCoordinationService $mediaCoordination,
+        private readonly WallboardMediaUsageSynchronizer $mediaUsage,
         private readonly AuditService $auditService,
     ) {}
 
@@ -39,6 +41,7 @@ final class WallboardPlaylistService
         $configuration = WallboardConfiguration::normalize((array) $data['configuration']);
 
         return DB::transaction(function () use ($data, $configuration, $actor, $request): WallboardPlaylist {
+            $this->mediaCoordination->lock();
             $playlist = $this->repository->create([
                 'name' => trim((string) $data['name']),
                 'configuration' => $configuration,
@@ -49,6 +52,8 @@ final class WallboardPlaylistService
             if (! $playlist instanceof WallboardPlaylist) {
                 throw new \LogicException('Wallboard playlist repository returned an unexpected model.');
             }
+            $configuration = $this->mediaUsage->synchronize($playlist, $configuration);
+            $playlist->forceFill(['configuration' => $configuration])->save();
 
             $this->auditService->record('wallboard_playlists.created', $playlist, $actor, [
                 'name' => $playlist->name,
@@ -67,6 +72,9 @@ final class WallboardPlaylistService
         Request $request,
     ): WallboardPlaylist {
         return DB::transaction(function () use ($playlist, $data, $actor, $request): WallboardPlaylist {
+            if (array_key_exists('configuration', $data)) {
+                $this->mediaCoordination->lock();
+            }
             $locked = $this->repository->lockPlaylist((string) $playlist->getKey());
             if ((int) $data['expected_version'] !== (int) $locked->version) {
                 throw new ConflictHttpException('Wallboard playlist changed.');
@@ -78,6 +86,7 @@ final class WallboardPlaylistService
                     (array) $data['configuration'],
                     (array) $locked->configuration,
                 );
+                $configuration = $this->mediaUsage->synchronize($locked, $configuration);
                 $linkedWallboards = $this->repository->lockLinkedWallboards((string) $locked->id);
                 if (array_key_exists('name', $data)) {
                     $locked->name = trim((string) $data['name']);
@@ -160,6 +169,7 @@ final class WallboardPlaylistService
         Request $request,
     ): void {
         DB::transaction(function () use ($playlist, $expectedVersion, $actor, $request): void {
+            $this->mediaCoordination->lock();
             $locked = $this->repository->lockPlaylist((string) $playlist->getKey());
             if ($expectedVersion !== (int) $locked->version) {
                 throw new ConflictHttpException('Wallboard playlist changed.');
@@ -172,6 +182,7 @@ final class WallboardPlaylistService
                 'name' => $locked->name,
                 'version' => (int) $locked->version,
             ], null, $request);
+            $this->mediaUsage->clear($locked);
             $locked->delete();
         }, 3);
     }

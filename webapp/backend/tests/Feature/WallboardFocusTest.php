@@ -287,8 +287,12 @@ final class WallboardFocusTest extends TestCase
         $stateFocus = $service->state($feedOffWallboard)['operational_summary']['focus'];
         $controlFocus = $service->control($feedOffWallboard)['focus'];
 
-        $this->assertNull($stateFocus['responses']);
-        $this->assertNull($controlFocus['responses']);
+        $this->assertSame($responses['counts'], $stateFocus['responses']['counts']);
+        $this->assertSame($responses['counts'], $controlFocus['responses']['counts']);
+        $this->assertSame([], $stateFocus['responses']['items']);
+        $this->assertSame([], $stateFocus['responses']['coming']);
+        $this->assertSame([], $controlFocus['responses']['items']);
+        $this->assertSame([], $controlFocus['responses']['coming']);
         $serializedFocus = json_encode([$stateFocus, $controlFocus], JSON_THROW_ON_ERROR);
         foreach ($users as $user) {
             $this->assertStringNotContainsString($user->name, $serializedFocus);

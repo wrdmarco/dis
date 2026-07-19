@@ -41,10 +41,12 @@ import {
   formatWallboardPilotAvailability,
   normalizeWallboardDisplayProfile,
   normalizeWallboardCustomNewsSources,
+  normalizeWallboardNewsItemTransition,
   normalizeWallboardNewsSources,
   requestedWallboardScreenSelection,
   selectRecentWallboardIncidents,
   wallboardConfigurationCopy,
+  wallboardConfigurationHasUnverifiedVideos,
   wallboardDisplayProfileLabel,
   wallboardEffectivePageDuration,
   wallboardFocusKindLabel,
@@ -57,12 +59,14 @@ import {
   wallboardTransientAlertIsActive,
   normalizeWallboardVideoUrl,
   wallboardVideoEmbedUrl,
+  wallboardVideoDurationFromOptions,
 } from '../src/features/wallboards/wallboardPresentation';
 import {
   normalizeWallboardRichText,
   wallboardRichTextCharacterCount,
   wallboardRichTextIsEmpty,
 } from '../src/features/wallboards/WallboardRichText';
+import { pilotOperationalDetail } from '../src/features/incidents/OperationalMapCanvas';
 
 const now = Date.parse('2026-07-19T10:00:00Z');
 
@@ -108,6 +112,7 @@ function stateFixture(): WallboardState {
       pages: {},
       generated_at: '2026-07-19T09:55:00Z',
     },
+    media: { photo_pages: {} },
     map: {
       incidents: [
         { id: 'incident-1', reference: 'DIS-1', title: 'Operationeel', status: 'active', priority: 'high', is_test: false, location_label: 'Utrecht', latitude: 52.09, longitude: 5.12 },
@@ -121,10 +126,13 @@ function stateFixture(): WallboardState {
           incident_id: 'incident-1',
           user_id: 'pilot-1',
           user: { id: 'pilot-1', name: 'Piloot Een' },
+          dispatch_response_status: 'accepted',
+          operational_status: 'en_route',
           sharing_status: 'shared',
           location_is_current: true,
           latitude: 52.08,
           longitude: 5.11,
+          eta_minutes: 10,
           route: {
             source: 'navigation',
             duration_seconds: 600,
@@ -136,6 +144,8 @@ function stateFixture(): WallboardState {
           incident_id: 'incident-1',
           user_id: 'pilot-stale',
           user: { id: 'pilot-stale', name: 'Verlopen piloot' },
+          dispatch_response_status: 'accepted',
+          operational_status: null,
           sharing_status: 'stale',
           location_is_current: false,
           latitude: 52.07,
@@ -201,9 +211,19 @@ test('filters wallboard data by server configuration and keeps only current pilo
     { longitude: 5.11, latitude: 52.08 },
     { longitude: 5.12, latitude: 52.09 },
   ]);
+  expect(presentation.models[0].liveLocations[0]).toMatchObject({
+    operationalStatus: 'en_route',
+    etaMinutes: 10,
+  });
   expect(presentation.layers.commandCenters).toHaveLength(1);
   expect(presentation.layers.historicalIncidents).toHaveLength(0);
   expect(presentation.layers.pilotHomes).toEqual([]);
+});
+
+test('formats exact pilot status and ETA without treating acceptance as underway', () => {
+  expect(pilotOperationalDetail({ operationalStatus: 'accepted', etaMinutes: 8 })).toBe('Komt · ETA 8 min');
+  expect(pilotOperationalDetail({ operationalStatus: 'en_route', etaMinutes: 8 })).toBe('Onderweg · ETA 8 min');
+  expect(pilotOperationalDetail({ operationalStatus: 'on_scene', etaMinutes: 8 })).toBe('Op locatie');
 });
 
 test('never exposes pilot locations or routes when live locations are disabled', () => {
@@ -294,6 +314,7 @@ test('normalizes legacy wallboard configuration into a safe page program', () =>
     options: {},
   }]);
   expect(normalized.rotation_enabled).toBe(true);
+  expect(normalized.page_fade_enabled).toBe(true);
   expect(normalized.incident_override).toEqual({ enabled: false, page_id: 'map-overview' });
   expect(normalized.focus).toEqual({
     preannouncement: { enabled: true, duration_seconds: 120, show_response_feed: true },
@@ -352,7 +373,13 @@ test('bounds page timing and builds typed pages without executable message marku
     type: 'news',
     name: 'Dronenieuws',
     duration_seconds: 72,
-    options: { sources: ['ndt', 'dronewatch'], custom_sources: [], max_items: 6, item_duration_seconds: 12 },
+    options: {
+      sources: ['ndt', 'dronewatch'],
+      custom_sources: [],
+      max_items: 6,
+      item_duration_seconds: 12,
+      item_transition: 'fade',
+    },
   });
   expect(clampWallboardNewsMaxItems(0)).toBe(1);
   expect(clampWallboardNewsMaxItems(99)).toBe(12);
@@ -383,9 +410,28 @@ test('bounds page timing and builds typed pages without executable message marku
   expect(normalizeWallboardNewsSources(['dronewatch', 'dronewatch', 'unknown'])).toEqual(['dronewatch']);
   expect(normalizeWallboardNewsSources([])).toEqual(['ndt', 'dronewatch']);
   expect(normalizeWallboardNewsSources([], true)).toEqual([]);
+  expect(normalizeWallboardNewsItemTransition('fade')).toBe('fade');
+  expect(normalizeWallboardNewsItemTransition('dissolve')).toBe('dissolve');
+  expect(normalizeWallboardNewsItemTransition('slide')).toBe('slide');
+  expect(normalizeWallboardNewsItemTransition('flip')).toBe('flip');
+  expect(normalizeWallboardNewsItemTransition('zoom')).toBe('zoom');
+  expect(normalizeWallboardNewsItemTransition('wipe')).toBe('wipe');
+  expect(normalizeWallboardNewsItemTransition('none')).toBe('none');
+  expect(normalizeWallboardNewsItemTransition('spin')).toBe('fade');
 
   const video = createWallboardPage('video', 5);
   expect(video).toMatchObject({ type: 'video', name: 'Video', options: { url: '' } });
+  expect(wallboardConfigurationHasUnverifiedVideos({ pages: [video] })).toBe(true);
+  const verifiedVideo = {
+    ...video,
+    options: {
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      video_duration_seconds: 62,
+    },
+  };
+  expect(wallboardVideoDurationFromOptions(verifiedVideo.options)).toBe(62);
+  expect(wallboardEffectivePageDuration(verifiedVideo)).toBe(67);
+  expect(wallboardConfigurationHasUnverifiedVideos({ pages: [verifiedVideo] })).toBe(false);
 });
 
 test('normalizes legacy and formatted wallboard messages without rendering management metadata', () => {
@@ -423,7 +469,14 @@ test('canonicalizes only supported wallboard video URLs and builds muted autopla
   const youtubeEmbed = wallboardVideoEmbedUrl('https://www.youtube.com/embed/dQw4w9WgXcQ');
   expect(youtubeEmbed).toContain('autoplay=1');
   expect(youtubeEmbed).toContain('mute=1');
-  expect(youtubeEmbed).toContain('playlist=dQw4w9WgXcQ');
+  expect(youtubeEmbed).toContain('controls=0');
+  expect(youtubeEmbed).toContain('disablekb=1');
+  expect(youtubeEmbed).not.toContain('loop=1');
+  expect(youtubeEmbed).not.toContain('playlist=');
+  const vimeoEmbed = wallboardVideoEmbedUrl('https://player.vimeo.com/video/123456789');
+  expect(vimeoEmbed).toContain('controls=0');
+  expect(vimeoEmbed).toContain('dnt=1');
+  expect(vimeoEmbed).not.toContain('loop=1');
   expect(wallboardVideoEmbedUrl('https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=0')).toBeNull();
 });
 
@@ -459,6 +512,7 @@ test('normalizes up to eight safe custom RSS news sources and supports a custom-
     custom_sources: customSources,
     max_items: 4,
     item_duration_seconds: 18,
+    item_transition: 'fade',
   });
   expect(configuration.pages[0].type).toBe('news');
   expect(configuration.pages[0].duration_seconds).toBe(72);
@@ -557,6 +611,7 @@ test('normalizes page-scoped news content and rejects unsafe article links', () 
     image_url: null,
   });
   expect(normalizeWallboardState({ ...stateFixture(), news: undefined as never }).news).toEqual({ pages: {}, generated_at: '' });
+  expect(normalizeWallboardState({ ...stateFixture(), media: undefined as never }).media).toEqual({ photo_pages: {} });
 });
 
 test('hard reloads only for a higher server refresh version after the first baseline', () => {
@@ -576,7 +631,7 @@ test('keeps offline status and automatic polling recovery without a reconnect re
   const controlPoll = kiosk.slice(kiosk.indexOf('const pollControl = async () =>'), kiosk.indexOf('}, [hasPairedState, observeRefreshVersion]'));
 
   expect(kiosk).toContain("const feedStatus = connectionError !== null ? 'offline' : stale ? 'stale' : 'live';");
-  expect(kiosk).toContain("feedStatus !== 'offline'");
+  expect(kiosk).toContain("const hasLiveFeed = feedStatus === 'live';");
   expect(kiosk).toContain('!hasLiveFeed && maintenance === null');
   expect(statePoll).toContain("setStateError(errorMessage(error, 'De wallboardfeed is tijdelijk niet bereikbaar.'));");
   expect(statePoll).toContain('setStateError(null);');
@@ -696,7 +751,7 @@ test('accepts only bounded active wallboard maintenance notices and expires them
   const notice = {
     active: true,
     kind: 'update',
-    title: ' D.I.S. wordt bijgewerkt ',
+    title: ' Systeem wordt bijgewerkt ',
     message: ' Het wallboard herstelt automatisch. ',
     started_at: '2026-07-19T10:00:00Z',
     expires_at: '2026-07-19T15:59:59Z',
@@ -704,7 +759,7 @@ test('accepts only bounded active wallboard maintenance notices and expires them
 
   expect(normalizeWallboardMaintenanceNotice(notice)).toEqual({
     ...notice,
-    title: 'D.I.S. wordt bijgewerkt',
+    title: 'Systeem wordt bijgewerkt',
     message: 'Het wallboard herstelt automatisch.',
   });
   expect(wallboardMaintenanceNoticeIsActive(notice, Date.parse('2026-07-19T12:00:00Z'))).toBe(true);
@@ -722,7 +777,7 @@ test('keeps maintenance state authoritative when state and control responses arr
     maintenance: {
       active: true,
       kind: 'update',
-      title: 'D.I.S. wordt bijgewerkt',
+      title: 'Systeem wordt bijgewerkt',
       message: 'Het wallboard herstelt automatisch.',
       started_at: '2026-07-19T10:00:00Z',
       expires_at: '2026-07-19T16:00:00Z',
@@ -998,6 +1053,9 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(apiTypes).toContain("export type WallboardNewsItemSource = WallboardNewsSource | 'custom';");
   expect(apiTypes).toContain('custom_sources?: WallboardCustomNewsSource[];');
   expect(apiTypes).toContain('item_duration_seconds?: number;');
+  expect(apiTypes).toContain("export type WallboardNewsItemTransition = 'fade' | 'dissolve' | 'slide' | 'flip' | 'zoom' | 'wipe' | 'none';");
+  expect(apiTypes).toContain('page_fade_enabled: boolean;');
+  expect(apiTypes).toContain('item_transition?: WallboardNewsItemTransition;');
   expect(apiTypes).toContain('image_url?: string | null;');
   expect(apiTypes).toContain('source_id: string;');
   expect(apiTypes).toContain('playlist: WallboardPlaylistReference;');
@@ -1035,11 +1093,20 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain('wallboard-display__ticker');
   expect(kiosk).toContain('<WallboardNewsPage');
   expect(kiosk).toContain('state.news.pages[page.id]');
+  expect(kiosk).toContain("if (page.type === 'photo_carousel')");
+  expect(kiosk).toContain('state.media.photo_pages[page.id]');
+  expect(kiosk).toContain("import('./WallboardPhotoCarousel')");
   expect(kiosk).toContain('wallboard-display__news-article--${item.source}');
   expect(kiosk).not.toContain('wallboard-display__news-article--${item.source_id}');
   expect(kiosk).toContain('usePausableWallboardCarousel');
   expect(kiosk).toContain('remainingMillisecondsRef');
+  expect(kiosk).toContain('setRuntime({ phaseKey, activeIndex: 0 });');
+  expect(kiosk).not.toContain('Date.now() % safeDurationMilliseconds');
   expect(kiosk).toContain('running={hasLiveFeed}');
+  expect(kiosk).toContain('configuration.page_fade_enabled');
+  expect(kiosk).toContain('wallboard-display__page--fade');
+  expect(kiosk).toContain('wallboard-display__news-article--transition-${transition}');
+  expect(kiosk).toContain('alt={`Afbeelding bij ${item.title}`}');
   expect(kiosk).toContain('<WallboardNewsQrCode');
   expect(kiosk).toContain('wallboard-display__news-progress');
   expect(kiosk).toContain('api\\/wallboard\\/news-images');
@@ -1049,6 +1116,14 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(newsQr).toContain('width: 256');
   expect(newsQr).not.toContain('api.qrserver.com');
   expect(kiosk).not.toContain('autoFocus');
+  expect(configurationEditor).toContain('Paginaovergangen vervagen');
+  expect(configurationEditor).toContain('Overgang tussen nieuwsberichten');
+  expect(configurationEditor).toContain('WALLBOARD_NEWS_ITEM_TRANSITIONS.map');
+  for (const transition of ['fade', 'dissolve', 'slide', 'flip', 'zoom', 'wipe', 'none']) {
+    expect(styles).toContain(`.wallboard-display__news-article--transition-${transition}`);
+  }
+  expect(styles).toContain('.wallboard-display__page--fade');
+  expect(styles).toContain('@media (prefers-reduced-motion: reduce)');
   expect(admin).toContain("`/admin/wallboards/${wallboard.id}/pair`");
   expect(admin).toContain('Code op tv');
   expect(admin).toContain('const isPaired = wallboard.active_sessions_count > 0;');
@@ -1107,7 +1182,7 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(configurationEditor).toContain('het maximum aantal berichten geldt gecombineerd');
   expect(configurationEditor).toContain('afgelopen 7 dagen');
   expect(configurationEditor).toContain('MAX_WALLBOARD_NEWS_MAX_ITEMS');
-  expect(configurationEditor).toContain('Tijd per nieuwsbericht (seconden)');
+  expect(configurationEditor).toContain('label="Tijd per nieuwsbericht"');
   expect(configurationEditor).toContain('MAX_WALLBOARD_NEWS_ITEM_DURATION_SECONDS');
   expect(configurationEditor).toContain('Totale tijd in playlist');
   expect(configurationEditor).toContain('wallboardEffectivePageDuration');
@@ -1129,7 +1204,7 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(styles).toContain('.wallboard-display__news-qr');
   expect(styles).toContain('.wallboard-rich-editor__toolbar');
   expect(styles).toContain('.wallboard-display__message-content');
-  expect(styles).toContain('@keyframes wallboard-news-story-enter');
+  expect(styles).toContain('@keyframes wallboard-news-story-fade');
   expect(kiosk).toContain('wallboard-display--profile-${displayProfile}');
   expect(kiosk).toContain('data-display-profile={displayProfile}');
   expect(styles).toContain('.wallboard-display--profile-4k .wallboard-display__header');
@@ -1289,7 +1364,7 @@ test('keeps the offline warning and maintenance takeover readable at Full HD and
         <header class="wallboard-display__header">
           <div>
             <span class="wallboard-display__live wallboard-display__live--offline"><i></i>Offline</span>
-            <span class="wallboard-display__titles"><small>Meldkamer noord</small><h1>D.I.S. wordt bijgewerkt</h1></span>
+            <span class="wallboard-display__titles"><small>Meldkamer noord</small><h1>Systeem wordt bijgewerkt</h1></span>
             <span class="wallboard-display__mode wallboard-display__mode--maintenance">Onderhoud</span>
           </div>
           <time class="wallboard-display__clock"><span>12:34:56</span><small>zondag 19 juli</small></time>
@@ -1300,7 +1375,7 @@ test('keeps the offline warning and maintenance takeover readable at Full HD and
         <section class="wallboard-display__alarm wallboard-display__alarm--maintenance" role="status">
           <span class="wallboard-display__alarm-icon">↻</span>
           <span class="wallboard-display__alarm-eyebrow">Systeemupdate</span>
-          <h2>D.I.S. wordt bijgewerkt</h2>
+          <h2>Systeem wordt bijgewerkt</h2>
           <p>Dit wallboard komt automatisch terug zodra de update veilig is afgerond.</p>
           <div class="wallboard-display__alarm-status"><i></i><strong>Automatisch herstel is actief</strong><time>Gestart 12:34</time></div>
         </section>

@@ -7,6 +7,7 @@ import type {
   WallboardFocusKind,
   WallboardMapConfiguration,
   WallboardNewsSource,
+  WallboardNewsItemTransition,
   WallboardPage,
   WallboardPageOptions,
   WallboardPageType,
@@ -22,6 +23,11 @@ import type {
   WallboardTransientAlert,
 } from '../../types/api';
 import {
+  WALLBOARD_PHOTO_MAX_ITEM_DURATION_SECONDS,
+  WALLBOARD_PHOTO_MIN_ITEM_DURATION_SECONDS,
+  wallboardPhotoItemDurationSeconds,
+} from './wallboardMedia';
+import {
   type OperationalMapIncidentModel,
   type OperationalMapLayerModels,
 } from '../incidents/OperationalMapCanvas';
@@ -30,6 +36,10 @@ import {
   normalizeWallboardRichText,
   wallboardRichTextFromPlainText,
 } from './WallboardRichText';
+import {
+  WALLBOARD_VIDEO_MAX_CONTENT_DURATION_SECONDS,
+  WALLBOARD_VIDEO_STARTUP_ALLOWANCE_SECONDS,
+} from './wallboardVideoInspection';
 
 const INCIDENT_COLORS = ['#7dd3fc', '#fbbf24', '#a7f3d0', '#fca5a5', '#c4b5fd', '#fdba74', '#93c5fd', '#f0abfc'];
 export const MIN_WALLBOARD_REFRESH_SECONDS = 5;
@@ -48,6 +58,19 @@ export const DEFAULT_WALLBOARD_NEWS_MAX_ITEMS = 6;
 export const MIN_WALLBOARD_NEWS_ITEM_DURATION_SECONDS = 5;
 export const MAX_WALLBOARD_NEWS_ITEM_DURATION_SECONDS = 300;
 export const DEFAULT_WALLBOARD_NEWS_ITEM_DURATION_SECONDS = 12;
+export const DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION: WallboardNewsItemTransition = 'fade';
+export const WALLBOARD_NEWS_ITEM_TRANSITIONS: ReadonlyArray<{
+  value: WallboardNewsItemTransition;
+  label: string;
+}> = [
+  { value: 'fade', label: 'Vervagen' },
+  { value: 'dissolve', label: 'Dissolve' },
+  { value: 'slide', label: 'Schuiven' },
+  { value: 'flip', label: 'Flip' },
+  { value: 'zoom', label: 'Zachte zoom' },
+  { value: 'wipe', label: 'Wipe' },
+  { value: 'none', label: 'Direct wisselen' },
+];
 export const DEFAULT_WALLBOARD_NEWS_SOURCES: WallboardNewsSource[] = ['ndt', 'dronewatch'];
 export const MAX_WALLBOARD_CUSTOM_NEWS_SOURCES = 8;
 export const MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_LABEL_LENGTH = 80;
@@ -123,6 +146,7 @@ export const DEFAULT_WALLBOARD_CONFIGURATION: WallboardConfiguration = {
     options: {},
   }],
   rotation_enabled: true,
+  page_fade_enabled: true,
   incident_override: {
     enabled: false,
     page_id: 'map-overview',
@@ -139,6 +163,7 @@ export function wallboardConfigurationCopy(configuration: WallboardConfiguration
   const legacyConfiguration = configuration as WallboardConfiguration & {
     pages?: WallboardPage[];
     rotation_enabled?: boolean;
+    page_fade_enabled?: boolean;
     incident_override?: WallboardConfiguration['incident_override'];
     focus?: Partial<WallboardFocusConfiguration>;
   };
@@ -162,6 +187,7 @@ export function wallboardConfigurationCopy(configuration: WallboardConfiguration
     focus: wallboardFocusConfigurationCopy(legacyConfiguration.focus),
     pages,
     rotation_enabled: legacyConfiguration.rotation_enabled ?? true,
+    page_fade_enabled: legacyConfiguration.page_fade_enabled ?? true,
     incident_override: {
       enabled: legacyConfiguration.incident_override?.enabled ?? false,
       page_id: overridePageId,
@@ -213,13 +239,57 @@ export function clampWallboardNewsItemDuration(value: number): number {
   );
 }
 
+export function normalizeWallboardNewsItemTransition(value: unknown): WallboardNewsItemTransition {
+  return WALLBOARD_NEWS_ITEM_TRANSITIONS.some((transition) => transition.value === value)
+    ? value as WallboardNewsItemTransition
+    : DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION;
+}
+
 export function wallboardEffectivePageDuration(page: Pick<WallboardPage, 'type' | 'duration_seconds' | 'options'>): number {
+  if (page.type === 'video') {
+    const videoDurationSeconds = wallboardVideoDurationFromOptions(page.options);
+    return videoDurationSeconds === null
+      ? clampWallboardPageDuration(page.duration_seconds)
+      : clampWallboardPageDuration(videoDurationSeconds + WALLBOARD_VIDEO_STARTUP_ALLOWANCE_SECONDS);
+  }
   if (page.type !== 'news') return clampWallboardPageDuration(page.duration_seconds);
 
   return clampWallboardPageDuration(
     clampWallboardNewsMaxItems(Number(page.options.max_items))
       * clampWallboardNewsItemDuration(Number(page.options.item_duration_seconds)),
   );
+}
+
+export function wallboardVideoDurationFromOptions(options: WallboardPageOptions): number | null {
+  const value = options.video_duration_seconds;
+  return typeof value === 'number'
+    && Number.isInteger(value)
+    && value >= 1
+    && value <= WALLBOARD_VIDEO_MAX_CONTENT_DURATION_SECONDS
+    ? value
+    : null;
+}
+
+export function wallboardConfigurationHasUnverifiedVideos(configuration: Pick<WallboardConfiguration, 'pages'>): boolean {
+  return configuration.pages.some((page) => page.type === 'video' && (
+    typeof page.options.url !== 'string'
+    || normalizeWallboardVideoUrl(page.options.url) === null
+    || wallboardVideoDurationFromOptions(page.options) === null
+  ));
+}
+
+export function wallboardConfigurationHasInvalidPhotoCarousels(configuration: Pick<WallboardConfiguration, 'pages'>): boolean {
+  return configuration.pages.some((page) => {
+    if (page.type !== 'photo_carousel') return false;
+    const mediaPlaylistId = page.options.media_playlist_id;
+    const itemDurationSeconds = page.options.item_duration_seconds;
+    return typeof mediaPlaylistId !== 'string'
+      || !/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(mediaPlaylistId.trim())
+      || typeof itemDurationSeconds !== 'number'
+      || !Number.isInteger(itemDurationSeconds)
+      || itemDurationSeconds < WALLBOARD_PHOTO_MIN_ITEM_DURATION_SECONDS
+      || itemDurationSeconds > WALLBOARD_PHOTO_MAX_ITEM_DURATION_SECONDS;
+  });
 }
 
 export function normalizeWallboardNewsSources(value: unknown, allowEmpty = false): WallboardNewsSource[] {
@@ -287,9 +357,12 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
           custom_sources: [],
           max_items: DEFAULT_WALLBOARD_NEWS_MAX_ITEMS,
           item_duration_seconds: DEFAULT_WALLBOARD_NEWS_ITEM_DURATION_SECONDS,
+          item_transition: DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION,
         }
         : type === 'video'
           ? { url: '' }
+          : type === 'photo_carousel'
+            ? { media_playlist_id: '', item_duration_seconds: 12 }
         : {},
   };
 
@@ -330,6 +403,7 @@ export function wallboardPageTypeLabel(type: WallboardPageType): string {
     case 'message': return 'Mededeling';
     case 'news': return 'Dronenieuws';
     case 'video': return 'Video';
+    case 'photo_carousel': return 'Fotocarrousel';
   }
 }
 
@@ -471,6 +545,10 @@ export function buildWallboardMapPresentation(
             name: location.user?.name ?? location.user_id,
             color: pilotRouteColor(location.user_id),
             route: configuration.show_routes ? parsePilotRoute(location.route) : null,
+            operationalStatus: location.operational_status ?? location.dispatch_response_status,
+            etaMinutes: typeof location.eta_minutes === 'number' && Number.isFinite(location.eta_minutes)
+              ? Math.max(1, Math.ceil(location.eta_minutes))
+              : null,
           }];
         }),
     };
@@ -501,7 +579,7 @@ function normalizeWallboardPage(
   page: WallboardPage,
   index: number,
 ): WallboardPage {
-  const type: WallboardPageType = ['map', 'incident_list', 'summary', 'message', 'news', 'video'].includes(page.type)
+  const type: WallboardPageType = ['map', 'incident_list', 'summary', 'message', 'news', 'video', 'photo_carousel'].includes(page.type)
     ? page.type
     : 'map';
   const id = typeof page.id === 'string' && page.id.trim() !== '' ? page.id : `page-${index + 1}`;
@@ -522,7 +600,9 @@ function normalizeWallboardPage(
       : type === 'news'
         ? normalizeWallboardNewsPageOptions(page)
         : type === 'video'
-          ? { url: typeof page.options?.url === 'string' ? (normalizeWallboardVideoUrl(page.options.url) ?? page.options.url.trim()) : '' }
+          ? normalizeWallboardVideoPageOptions(page)
+          : type === 'photo_carousel'
+            ? normalizeWallboardPhotoPageOptions(page)
         : {},
   };
 
@@ -588,25 +668,51 @@ export function wallboardVideoEmbedUrl(value: unknown): string | null {
     url.search = new URLSearchParams({
       autoplay: '1',
       mute: '1',
-      controls: '1',
+      controls: '0',
       rel: '0',
       playsinline: '1',
-      loop: '1',
-      playlist: videoId,
+      disablekb: '1',
+      fs: '0',
+      iv_load_policy: '3',
     }).toString();
   } else {
     url.search = new URLSearchParams({
       autoplay: '1',
       muted: '1',
-      loop: '1',
+      controls: '0',
       autopause: '0',
+      dnt: '1',
       title: '0',
       byline: '0',
       portrait: '0',
+      badge: '0',
     }).toString();
   }
 
   return url.toString();
+}
+
+function normalizeWallboardVideoPageOptions(page: WallboardPage): WallboardPage['options'] {
+  const url = typeof page.options?.url === 'string'
+    ? (normalizeWallboardVideoUrl(page.options.url) ?? page.options.url.trim())
+    : '';
+  const videoDurationSeconds = wallboardVideoDurationFromOptions(page.options ?? {});
+  return {
+    url,
+    ...(videoDurationSeconds === null ? {} : { video_duration_seconds: videoDurationSeconds }),
+  };
+}
+
+function normalizeWallboardPhotoPageOptions(page: WallboardPage): WallboardPage['options'] {
+  const mediaPlaylistId = typeof page.options?.media_playlist_id === 'string'
+    && /^[0-9A-HJKMNP-TV-Z]{26}$/i.test(page.options.media_playlist_id.trim())
+    ? page.options.media_playlist_id.trim().toUpperCase()
+    : '';
+
+  return {
+    media_playlist_id: mediaPlaylistId,
+    item_duration_seconds: wallboardPhotoItemDurationSeconds(page.options?.item_duration_seconds),
+  };
 }
 
 function normalizeWallboardNewsPageOptions(page: WallboardPage): WallboardPage['options'] {
@@ -616,6 +722,7 @@ function normalizeWallboardNewsPageOptions(page: WallboardPage): WallboardPage['
     custom_sources: customSources,
     max_items: clampWallboardNewsMaxItems(Number(page.options?.max_items)),
     item_duration_seconds: clampWallboardNewsItemDuration(Number(page.options?.item_duration_seconds)),
+    item_transition: normalizeWallboardNewsItemTransition(page.options?.item_transition),
   };
 }
 

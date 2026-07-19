@@ -272,7 +272,7 @@
   </div>
   <main>
     <span class="status">Onderhoud actief</span>
-    <h1>Drone Inzet Systeem wordt bijgewerkt</h1>
+    <h1>Systeem wordt bijgewerkt</h1>
     <p>De operationele omgeving staat tijdelijk in onderhoud. Deze pagina ververst automatisch zodra de controle is afgerond.</p>
   </main>
 </body>

@@ -3516,6 +3516,14 @@ select[multiple] {
   font-weight: 800;
 }
 
+.operational-map__marker--user .operational-map__marker-detail {
+  fill: #dbeafe;
+  stroke-width: 4px;
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0.015em;
+}
+
 .operational-map__marker--command-center line {
   stroke: #f8fafc;
   stroke-width: 4;
@@ -7306,6 +7314,11 @@ textarea:focus {
   font-weight: 780;
 }
 
+.wallboard-video-editor > label {
+  display: grid;
+  gap: 6px;
+}
+
 .wallboard-page-editor__derived-duration {
   display: grid;
   align-content: center;
@@ -8075,7 +8088,6 @@ textarea:focus {
     font-size: 0.78rem;
   }
 
-  .wallboard-display--profile-4k .wallboard-display__live,
   .wallboard-display--profile-4k .wallboard-display__mode {
     padding: 7px 12px;
     font-size: 0.82rem;
@@ -8297,41 +8309,6 @@ textarea:focus {
   color: #7dd3fc;
 }
 
-.wallboard-display__live {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border: 1px solid rgba(110, 231, 183, 0.32);
-  border-radius: 999px;
-  background: var(--dis-positive-soft);
-  color: var(--dis-positive);
-  padding: 5px 9px;
-  font-size: 0.74rem;
-  font-weight: 900;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.wallboard-display__live i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 0 4px rgba(110, 231, 183, 0.13);
-}
-
-.wallboard-display__live--offline,
-.wallboard-display__live--stale {
-  border-color: rgba(251, 191, 36, 0.34);
-  background: rgba(120, 53, 15, 0.38);
-  color: #fbbf24;
-}
-
-.wallboard-display__live--offline i,
-.wallboard-display__live--stale i {
-  box-shadow: none;
-}
-
 .wallboard-display__controls {
   display: flex;
   align-items: center;
@@ -8412,7 +8389,10 @@ textarea:focus {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  animation: wallboard-page-enter 180ms ease-out both;
+}
+
+.wallboard-display__page--fade {
+  animation: wallboard-page-enter 320ms ease-out both;
 }
 
 @keyframes wallboard-page-enter {
@@ -8551,14 +8531,19 @@ textarea:focus {
 }
 
 .wallboard-display__video {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
-  display: grid;
   overflow: hidden;
   background: #000;
 }
 
 .wallboard-display__video iframe {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   border: 0;
@@ -8675,7 +8660,35 @@ textarea:focus {
     radial-gradient(circle at 8% 12%, color-mix(in srgb, var(--wallboard-news-accent) 18%, transparent), transparent 36%),
     linear-gradient(145deg, color-mix(in srgb, var(--dis-surface-2) 96%, var(--wallboard-news-accent)), var(--dis-surface-2));
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
-  animation: wallboard-news-story-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.wallboard-display__news-article--transition-fade {
+  animation: wallboard-news-story-fade 320ms ease-out both;
+}
+
+.wallboard-display__news-article--transition-dissolve {
+  animation: wallboard-news-story-dissolve 360ms ease-out both;
+}
+
+.wallboard-display__news-article--transition-slide {
+  animation: wallboard-news-story-slide 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.wallboard-display__news-article--transition-flip {
+  transform-origin: left center;
+  animation: wallboard-news-story-flip 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.wallboard-display__news-article--transition-zoom {
+  animation: wallboard-news-story-zoom 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.wallboard-display__news-article--transition-wipe {
+  animation: wallboard-news-story-wipe 400ms ease-out both;
+}
+
+.wallboard-display__news-article--transition-none {
+  animation: none;
 }
 
 .wallboard-display__news-article--with-image {
@@ -8762,7 +8775,6 @@ textarea:focus {
   height: 100%;
   display: block;
   object-fit: cover;
-  animation: wallboard-news-image-enter 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .wallboard-display__news-copy {
@@ -8854,14 +8866,34 @@ textarea:focus {
   box-shadow: 0 0 18px rgba(56, 189, 248, 0.32);
 }
 
-@keyframes wallboard-news-story-enter {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes wallboard-news-story-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-@keyframes wallboard-news-image-enter {
-  from { opacity: 0; transform: scale(1.025); }
+@keyframes wallboard-news-story-dissolve {
+  from { opacity: 0; filter: blur(7px) saturate(0.82); }
+  to { opacity: 1; filter: blur(0) saturate(1); }
+}
+
+@keyframes wallboard-news-story-slide {
+  from { opacity: 0; transform: translateX(4%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes wallboard-news-story-flip {
+  from { opacity: 0; transform: perspective(1400px) rotateY(-8deg); }
+  to { opacity: 1; transform: perspective(1400px) rotateY(0); }
+}
+
+@keyframes wallboard-news-story-zoom {
+  from { opacity: 0; transform: scale(0.97); }
   to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes wallboard-news-story-wipe {
+  from { opacity: 0.65; clip-path: inset(0 100% 0 0); }
+  to { opacity: 1; clip-path: inset(0); }
 }
 
 @keyframes wallboard-news-progress {
@@ -8909,8 +8941,16 @@ textarea:focus {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .wallboard-display__news-article,
-  .wallboard-display__news-image img,
+  .wallboard-display__news-article--transition-fade,
+  .wallboard-display__news-article--transition-dissolve,
+  .wallboard-display__news-article--transition-slide,
+  .wallboard-display__news-article--transition-flip,
+  .wallboard-display__news-article--transition-zoom,
+  .wallboard-display__news-article--transition-wipe {
+    animation: wallboard-news-story-fade 120ms ease-out both;
+  }
+
+  .wallboard-display__news-article--transition-none,
   .wallboard-display__news-progress {
     animation: none;
   }
@@ -8997,7 +9037,9 @@ textarea:focus {
 
 .wallboard-display__alarm--with-feed {
   grid-template-columns: minmax(0, 1fr) clamp(320px, 27vw, 500px);
-  align-items: center;
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+  align-items: stretch;
   justify-items: stretch;
   gap: clamp(24px, 3vw, 56px);
   padding: clamp(20px, 3vw, 52px);
@@ -9018,6 +9060,7 @@ textarea:focus {
 .wallboard-display__alarm--with-feed .wallboard-display__alarm-main {
   width: 100%;
   max-width: 1120px;
+  align-self: center;
   justify-self: center;
 }
 
@@ -9224,7 +9267,7 @@ textarea:focus {
   max-height: min(64vh, 620px);
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
-  align-self: center;
+  align-self: start;
   justify-self: end;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--wallboard-alarm-color) 38%, var(--dis-border));
@@ -9307,6 +9350,33 @@ textarea:focus {
   font-size: clamp(1.05rem, 1.35vw, 1.5rem);
   font-weight: 950;
   font-variant-numeric: tabular-nums;
+}
+
+.wallboard-display__response-counts--inline {
+  width: min(460px, 78vw);
+  justify-self: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--wallboard-alarm-color) 46%, var(--dis-border));
+  border-radius: 14px;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.18);
+}
+
+.wallboard-display__response-counts--inline > div {
+  justify-items: center;
+  padding: clamp(11px, 1.25vw, 16px) clamp(18px, 2.2vw, 30px);
+}
+
+.wallboard-display__response-counts--inline dt {
+  color: var(--wallboard-alarm-color);
+  font-size: clamp(0.68rem, 0.9vw, 0.82rem);
+  font-weight: 850;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.wallboard-display__response-counts--inline dd {
+  font-size: clamp(2rem, 3.8vw, 3.75rem);
+  line-height: 1;
 }
 
 .wallboard-display__responses-empty {
@@ -10063,10 +10133,6 @@ textarea:focus {
     min-height: 58px;
   }
 
-  .wallboard-display__live {
-    display: none;
-  }
-
   .wallboard-display__summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -10162,11 +10228,7 @@ textarea:focus {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .wallboard-display__live i {
-    box-shadow: none;
-  }
-
-  .wallboard-display__page {
+  .wallboard-display__page--fade {
     animation: none;
   }
 
@@ -12099,6 +12161,10 @@ pre {
 :root[data-theme="light"] .operational-map__marker text {
   fill: #07111e;
   stroke: rgba(255, 255, 255, 0.92);
+}
+
+:root[data-theme="light"] .operational-map__marker--user .operational-map__marker-detail {
+  fill: #183047;
 }
 
 :root[data-theme="light"] .operational-map__marker--command-center text,

@@ -18,7 +18,6 @@ final class SecurityHeaders
 
     public function apply(Request $request, Response $response): Response
     {
-
         $response->headers->set('X-Content-Type-Options', 'nosniff');
         $response->headers->set('X-Frame-Options', 'DENY');
         $response->headers->set('Referrer-Policy', 'no-referrer');
@@ -28,9 +27,28 @@ final class SecurityHeaders
 
         if ($request->is('api/*', 'sanctum/*')) {
             $response->headers->set('Content-Security-Policy', "default-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
-            $response->headers->set('Cache-Control', 'no-store, private');
-            $response->headers->set('Pragma', 'no-cache');
-            $response->headers->set('Expires', '0');
+            $cacheableWallboardMedia = $request->routeIs(
+                'wallboard-media.content',
+                'wallboard-media.admin-content',
+            )
+                && in_array($response->getStatusCode(), [200, 304], true)
+                && $response->headers->has('ETag')
+                && str_contains((string) $response->headers->get('Cache-Control'), 'immutable');
+            $revalidatableWallboardContent = $request->routeIs(
+                'wallboard.static',
+                'wallboard.news',
+                'wallboard.ticker',
+            )
+                && in_array($response->getStatusCode(), [200, 304], true)
+                && $response->headers->has('ETag')
+                && str_contains((string) $response->headers->get('Cache-Control'), 'private')
+                && str_contains((string) $response->headers->get('Cache-Control'), 'no-cache')
+                && str_contains(strtolower((string) $response->headers->get('Vary')), 'cookie');
+            if (! $cacheableWallboardMedia && ! $revalidatableWallboardContent) {
+                $response->headers->set('Cache-Control', 'no-store, private');
+                $response->headers->set('Pragma', 'no-cache');
+                $response->headers->set('Expires', '0');
+            }
         }
 
         if ($request->isSecure()) {

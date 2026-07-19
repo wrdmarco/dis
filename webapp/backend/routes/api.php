@@ -7,6 +7,9 @@ use App\Http\Controllers\AdminOsrmController;
 use App\Http\Controllers\AdminPushController;
 use App\Http\Controllers\AdminStoreReviewController;
 use App\Http\Controllers\AdminWallboardController;
+use App\Http\Controllers\AdminWallboardMediaAssetController;
+use App\Http\Controllers\AdminWallboardMediaFolderController;
+use App\Http\Controllers\AdminWallboardMediaPlaylistController;
 use App\Http\Controllers\AdminWallboardPlaylistController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AuthController;
@@ -39,6 +42,7 @@ use App\Http\Controllers\UpdateController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VacationController;
 use App\Http\Controllers\WallboardController;
+use App\Http\Controllers\WallboardMediaController;
 use App\Http\Controllers\WallboardPairingController;
 use App\Http\Responses\ApiResponse;
 use Illuminate\Support\Facades\Broadcast;
@@ -51,10 +55,24 @@ Route::post('/auth/login', [AuthController::class, 'login'])->middleware('thrott
 Route::post('/wallboard/pairing/start', [WallboardPairingController::class, 'start'])->middleware('throttle:wallboard-pairing-start');
 Route::post('/wallboard/pairing/status', [WallboardPairingController::class, 'status'])->middleware('throttle:wallboard-pairing-status');
 Route::get('/wallboard/state', [WallboardController::class, 'state'])->middleware(['wallboard.auth', 'throttle:wallboard-read']);
+Route::get('/wallboard/live', [WallboardController::class, 'live'])->middleware(['wallboard.auth', 'throttle:wallboard-read']);
+Route::get('/wallboard/static', [WallboardController::class, 'staticContent'])
+    ->middleware(['wallboard.auth', 'throttle:wallboard-read'])
+    ->name('wallboard.static');
+Route::get('/wallboard/news', [WallboardController::class, 'news'])
+    ->middleware(['wallboard.auth', 'throttle:wallboard-read'])
+    ->name('wallboard.news');
+Route::get('/wallboard/ticker', [WallboardController::class, 'ticker'])
+    ->middleware(['wallboard.auth', 'throttle:wallboard-read'])
+    ->name('wallboard.ticker');
 Route::get('/wallboard/control', [WallboardController::class, 'control'])->middleware(['wallboard.auth', 'throttle:wallboard-control']);
 Route::get('/wallboard/news-images/{image}', [WallboardController::class, 'newsImage'])
     ->where('image', '[a-f0-9]{64}')
     ->middleware(['wallboard.auth', 'throttle:wallboard-read']);
+Route::get('/wallboard/media/{asset}', [WallboardMediaController::class, 'content'])
+    ->whereUlid('asset')
+    ->middleware(['wallboard.auth', 'throttle:wallboard-media-read'])
+    ->name('wallboard-media.content');
 Route::post('/auth/mobile-pairing/consume', [MobilePairingController::class, 'consume'])->middleware('throttle:mobile-pairing');
 Route::post('/auth/password/forgot', [PasswordController::class, 'forgot'])->middleware('throttle:password-reset');
 Route::post('/auth/password/reset', [PasswordController::class, 'reset'])->middleware('throttle:password-reset');
@@ -280,6 +298,46 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/devices', [DeviceController::class, 'index']);
 
         Route::get('/admin/roles', [AdminController::class, 'roles'])->middleware('permission:roles.manage');
+        Route::get('/admin/wallboard-media/folders', [AdminWallboardMediaFolderController::class, 'index'])
+            ->middleware('permission:wallboards.manage');
+        Route::post('/admin/wallboard-media/folders', [AdminWallboardMediaFolderController::class, 'store'])
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
+        Route::patch('/admin/wallboard-media/folders/{folder}', [AdminWallboardMediaFolderController::class, 'update'])
+            ->whereUlid('folder')
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
+        Route::delete('/admin/wallboard-media/folders/{folder}', [AdminWallboardMediaFolderController::class, 'destroy'])
+            ->whereUlid('folder')
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
+        Route::get('/admin/wallboard-media/assets', [AdminWallboardMediaAssetController::class, 'index'])
+            ->middleware('permission:wallboards.manage');
+        Route::post('/admin/wallboard-media/assets', [AdminWallboardMediaAssetController::class, 'store'])
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-media-upload']);
+        Route::get('/admin/wallboard-media/assets/{asset}', [AdminWallboardMediaAssetController::class, 'show'])
+            ->whereUlid('asset')
+            ->middleware('permission:wallboards.manage');
+        Route::patch('/admin/wallboard-media/assets/{asset}', [AdminWallboardMediaAssetController::class, 'update'])
+            ->whereUlid('asset')
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
+        Route::delete('/admin/wallboard-media/assets/{asset}', [AdminWallboardMediaAssetController::class, 'destroy'])
+            ->whereUlid('asset')
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
+        Route::get('/admin/wallboard-media/assets/{asset}/content', [AdminWallboardMediaAssetController::class, 'content'])
+            ->whereUlid('asset')
+            ->middleware('permission:wallboards.manage')
+            ->name('wallboard-media.admin-content');
+        Route::get('/admin/wallboard-media/playlists', [AdminWallboardMediaPlaylistController::class, 'index'])
+            ->middleware('permission:wallboards.manage');
+        Route::post('/admin/wallboard-media/playlists', [AdminWallboardMediaPlaylistController::class, 'store'])
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
+        Route::get('/admin/wallboard-media/playlists/{mediaPlaylist}', [AdminWallboardMediaPlaylistController::class, 'show'])
+            ->whereUlid('mediaPlaylist')
+            ->middleware('permission:wallboards.manage');
+        Route::patch('/admin/wallboard-media/playlists/{mediaPlaylist}', [AdminWallboardMediaPlaylistController::class, 'update'])
+            ->whereUlid('mediaPlaylist')
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
+        Route::delete('/admin/wallboard-media/playlists/{mediaPlaylist}', [AdminWallboardMediaPlaylistController::class, 'destroy'])
+            ->whereUlid('mediaPlaylist')
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
         Route::get('/admin/wallboard-playlists', [AdminWallboardPlaylistController::class, 'index'])
             ->middleware('permission:wallboards.manage');
         Route::post('/admin/wallboard-playlists', [AdminWallboardPlaylistController::class, 'store'])

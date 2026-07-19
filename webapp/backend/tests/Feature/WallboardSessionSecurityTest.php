@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AvailabilityStatus;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
@@ -242,6 +243,12 @@ final class WallboardSessionSecurityTest extends TestCase
         $dispatch = $this->sentDispatch($incident, $pilot);
         $this->acceptedRecipient($dispatch, $pilot);
         $this->acceptedRecipient($dispatch, $stalePilot);
+        AvailabilityStatus::query()->create([
+            'user_id' => $pilot->id,
+            'status' => 'en_route',
+            'is_available' => false,
+            'effective_at' => now(),
+        ]);
         $consent = $this->consent($incident, $pilot);
         $staleConsent = $this->consent($incident, $stalePilot);
         $this->location($incident, $pilot, $consent, now());
@@ -254,6 +261,8 @@ final class WallboardSessionSecurityTest extends TestCase
             ->assertJsonCount(1, 'data.map.live_locations')
             ->assertJsonPath('data.map.live_locations.0.user.id', $pilot->id)
             ->assertJsonPath('data.map.live_locations.0.user.name', $pilot->name)
+            ->assertJsonPath('data.map.live_locations.0.dispatch_response_status', 'accepted')
+            ->assertJsonPath('data.map.live_locations.0.operational_status', 'en_route')
             ->assertJsonPath('data.map.live_locations.0.location_is_current', true)
             ->assertJsonPath('data.map.live_locations.0.route', null);
 

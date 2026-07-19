@@ -42,7 +42,7 @@ final class WallboardMaintenanceNoticeServiceTest extends TestCase
         self::assertSame([
             'active' => true,
             'kind' => 'update',
-            'title' => 'D.I.S. wordt bijgewerkt',
+            'title' => 'Systeem wordt bijgewerkt',
             'message' => 'Dit wallboard blijft op de hoogte en herstelt automatisch zodra de update veilig is afgerond.',
             'started_at' => '2026-07-19T10:00:00Z',
             'expires_at' => '2026-07-19T16:00:00Z',

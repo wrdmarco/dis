@@ -4,6 +4,7 @@ namespace App\Repositories;
 
 use App\Models\Wallboard;
 use App\Models\WallboardPlaylist;
+use Closure;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -39,6 +40,22 @@ final class WallboardPlaylistRepository extends BaseRepository
             ->whereKey($id)
             ->lockForUpdate()
             ->firstOrFail();
+    }
+
+    public function findForContentRefresh(string $id): ?WallboardPlaylist
+    {
+        return WallboardPlaylist::query()
+            ->select(['id', 'configuration'])
+            ->find($id);
+    }
+
+    /** @param Closure(Collection<int, WallboardPlaylist>): void $callback */
+    public function chunkForContentRefresh(Closure $callback, int $size = 50): void
+    {
+        WallboardPlaylist::query()
+            ->select(['id', 'configuration'])
+            ->orderBy('id')
+            ->chunkById($size, $callback);
     }
 
     /** @return Collection<int, Wallboard> */

@@ -15,6 +15,8 @@ export interface OperationalMapUserPoint extends MapPoint {
   name: string;
   color: string;
   route: PilotRoutePresentation | null;
+  operationalStatus?: 'accepted' | 'en_route' | 'on_scene' | null;
+  etaMinutes?: number | null;
 }
 
 export interface OperationalMapIncidentModel {
@@ -159,6 +161,7 @@ export function OperationalMapCanvas({
             viewport={viewport}
             color={location.color}
             label={location.name}
+            detail={pilotOperationalDetail(location)}
             type="user"
           />
         )))}
@@ -235,7 +238,7 @@ function PilotRouteLegend({ models }: { models: OperationalMapIncidentModel[] })
             </svg>
             <span>
               <b>{location.name}</b>
-              <small>{`${incidentTitle} · ${location.route === null ? 'Route niet beschikbaar' : pilotRouteStatus(location.route)}`}</small>
+              <small>{`${incidentTitle} · ${pilotOperationalDetail(location) ?? (location.route === null ? 'Route niet beschikbaar' : pilotRouteStatus(location.route))}`}</small>
             </span>
           </li>
         ))}
@@ -244,12 +247,13 @@ function PilotRouteLegend({ models }: { models: OperationalMapIncidentModel[] })
   );
 }
 
-function MapMarker({ point, centerWorld, viewport, color, label, type }: {
+function MapMarker({ point, centerWorld, viewport, color, label, detail, type }: {
   point: MapPoint;
   centerWorld: WorldPoint;
   viewport: MapViewport;
   color: string;
   label: string;
+  detail?: string | null;
   type: 'incident' | 'user';
 }) {
   const position = markerPosition(point, centerWorld, viewport);
@@ -261,10 +265,28 @@ function MapMarker({ point, centerWorld, viewport, color, label, type }: {
     <g className={`operational-map__marker operational-map__marker--${type}`}>
       <circle cx={position.x} cy={position.y} r={type === 'incident' ? 11 : 7} fill={color} />
       <circle cx={position.x} cy={position.y} r={type === 'incident' ? 17 : 12} stroke={color} />
-      <title>{label}</title>
-      <text x={labelX} y={labelY} textAnchor={labelAnchor}>{shortMapLabel(label, type === 'incident' ? 38 : 26)}</text>
+      <title>{detail ? `${label} - ${detail}` : label}</title>
+      <text x={labelX} y={labelY} textAnchor={labelAnchor}>
+        <tspan x={labelX}>{shortMapLabel(label, type === 'incident' ? 38 : 26)}</tspan>
+        {detail ? <tspan className="operational-map__marker-detail" x={labelX} dy="17">{shortMapLabel(detail, 34)}</tspan> : null}
+      </text>
     </g>
   );
+}
+
+export function pilotOperationalDetail(location: Pick<OperationalMapUserPoint, 'operationalStatus' | 'etaMinutes'>): string | null {
+  const status = location.operationalStatus === 'on_scene'
+    ? 'Op locatie'
+    : location.operationalStatus === 'en_route'
+      ? 'Onderweg'
+      : location.operationalStatus === 'accepted'
+        ? 'Komt'
+        : null;
+  const eta = typeof location.etaMinutes === 'number' && Number.isFinite(location.etaMinutes) && location.etaMinutes > 0
+    ? `ETA ${Math.max(1, Math.ceil(location.etaMinutes))} min`
+    : null;
+  if (status === null) return eta;
+  return eta === null || location.operationalStatus === 'on_scene' ? status : `${status} · ${eta}`;
 }
 
 function CommandCenterMarker({ point, centerWorld, viewport }: {

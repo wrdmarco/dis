@@ -222,12 +222,16 @@ final class WallboardFocusService
         $durationSeconds = (int) ($settings['duration_seconds'] ?? 0);
         $phase = $kind === 'preannouncement' ? 'preannouncement' : 'alarm';
         $dispatchIds = $this->phaseDispatchIds((string) $incident->id, $phase);
-        $responseSummary = (($settings['show_response_feed'] ?? false) === true || $kind === 'preannouncement')
-            ? $this->responses($dispatchIds, $incident, $kind === 'real_alarm')
-            : null;
-        $responses = ($settings['show_response_feed'] ?? false) === true
-            ? $responseSummary
-            : null;
+        $showResponseFeed = ($settings['show_response_feed'] ?? false) === true;
+        $responseSummary = $this->responses($dispatchIds, $incident, $kind === 'real_alarm' && $showResponseFeed);
+        $responses = [
+            // Totals are privacy-safe and remain available when the named feed
+            // is disabled. A wallboard can therefore stop transient focus as
+            // soon as every selected recipient has reached a terminal state.
+            'counts' => $responseSummary['counts'],
+            'items' => $showResponseFeed ? $responseSummary['items'] : [],
+            'coming' => $showResponseFeed ? $responseSummary['coming'] : [],
+        ];
         $pilotCounts = $kind === 'preannouncement'
             ? [
                 // Dispatch recipients are the durable result of DispatchService's
