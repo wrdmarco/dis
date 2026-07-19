@@ -235,7 +235,11 @@ export async function precacheWallboard(
 
     const request = new Request(asset.url, {
       method: 'GET',
-      credentials: 'same-origin',
+      // Wallboard media is protected by the HttpOnly wallboard-session cookie.
+      // Keep the credential mode aligned with every other wallboard API call;
+      // embedded/standalone TV browsers do not consistently attach that cookie
+      // when a Request is rebuilt with the narrower `same-origin` mode.
+      credentials: 'include',
       mode: 'same-origin',
       redirect: 'error',
       cache: 'no-cache',
