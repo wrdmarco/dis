@@ -24,7 +24,10 @@ final class SystemUpdateStatusService
 
     private const PUBLIC_LOG_LINE_LIMIT = 1000;
 
-    public function __construct(private readonly SensitiveDataRedactor $redactor) {}
+    public function __construct(
+        private readonly SensitiveDataRedactor $redactor,
+        private readonly SystemUpdateDurationEstimator $durationEstimator,
+    ) {}
 
     /**
      * @return array<string, mixed>
@@ -43,6 +46,11 @@ final class SystemUpdateStatusService
             'runner_unit' => null,
             'last_log_at' => null,
             'reboot_required' => $this->rebootRequired(),
+            'includes_system_updates' => false,
+            'estimated_duration_seconds' => null,
+            'estimated_completion_at' => null,
+            'estimate_source' => null,
+            'duration_recorded' => false,
         ]);
 
         if (is_array($status)) {
@@ -85,6 +93,11 @@ final class SystemUpdateStatusService
             'runner_unit' => null,
             'last_log_at' => null,
             'reboot_required' => $this->rebootRequired(),
+            'includes_system_updates' => false,
+            'estimated_duration_seconds' => null,
+            'estimated_completion_at' => null,
+            'estimate_source' => null,
+            'duration_recorded' => false,
         ];
     }
 
@@ -98,11 +111,14 @@ final class SystemUpdateStatusService
         return $this->publicPayload($this->current());
     }
 
-    public function start(string $message): void
+    public function start(string $message, bool $includesSystemUpdates = false): void
     {
+        $startedAt = now();
+        $estimate = $this->durationEstimator->estimate($includesSystemUpdates);
+
         $this->store([
             'state' => 'running',
-            'started_at' => ApiDateTime::now(),
+            'started_at' => ApiDateTime::dateTime($startedAt),
             'finished_at' => null,
             'exit_code' => null,
             'message' => $message,
@@ -110,8 +126,13 @@ final class SystemUpdateStatusService
             'runner_log_offset' => $this->runnerLogSize(),
             'runner_pid' => null,
             'runner_unit' => null,
-            'last_log_at' => ApiDateTime::now(),
+            'last_log_at' => ApiDateTime::dateTime($startedAt),
             'reboot_required' => $this->rebootRequired(),
+            'includes_system_updates' => $includesSystemUpdates,
+            'estimated_duration_seconds' => $estimate['duration_seconds'],
+            'estimated_completion_at' => ApiDateTime::dateTime($startedAt->copy()->addSeconds($estimate['duration_seconds'])),
+            'estimate_source' => $estimate['source'],
+            'duration_recorded' => false,
         ]);
     }
 
@@ -149,6 +170,9 @@ final class SystemUpdateStatusService
         $status['runner_unit'] = null;
         $status['last_log_at'] = ApiDateTime::now();
         $status['reboot_required'] = $this->rebootRequired();
+        if ($exitCode === 0) {
+            $status = $this->recordSuccessfulDuration($status);
+        }
         if ($exitCode === 0 && $status['reboot_required'] === true) {
             $status['message'] = 'Update afgerond. Serverherstart vereist.';
             $log = is_array($status['log'] ?? null) ? $status['log'] : [];
@@ -380,6 +404,8 @@ final class SystemUpdateStatusService
         $status['last_log_at'] = ApiDateTime::now();
         $status['reboot_required'] = $this->rebootRequired();
 
+        $status = $this->recordSuccessfulDuration($status);
+
         return $status;
     }
 
@@ -479,6 +505,10 @@ final class SystemUpdateStatusService
             ? $status['state']
             : 'idle';
 
+        $estimatedCompletionAt = is_string($status['estimated_completion_at'] ?? null)
+            ? $status['estimated_completion_at']
+            : null;
+
         return [
             'state' => $state,
             'started_at' => is_string($status['started_at'] ?? null) ? $status['started_at'] : null,
@@ -487,6 +517,60 @@ final class SystemUpdateStatusService
             'message' => is_string($status['message'] ?? null) ? $this->sanitizeLine($status['message']) : null,
             'log' => is_array($status['log'] ?? null) ? array_values(array_filter($status['log'], 'is_string')) : [],
             'reboot_required' => (bool) ($status['reboot_required'] ?? false),
+            'includes_system_updates' => (bool) ($status['includes_system_updates'] ?? false),
+            'estimated_duration_seconds' => is_int($status['estimated_duration_seconds'] ?? null)
+                ? $status['estimated_duration_seconds']
+                : null,
+            'estimated_completion_at' => $estimatedCompletionAt,
+            'remaining_seconds' => $state === 'running'
+                ? $this->remainingSeconds($estimatedCompletionAt)
+                : ($estimatedCompletionAt === null ? null : 0),
+            'estimate_source' => in_array(($status['estimate_source'] ?? null), ['historical', 'fallback'], true)
+                ? $status['estimate_source']
+                : null,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $status
+     * @return array<string, mixed>
+     */
+    private function recordSuccessfulDuration(array $status): array
+    {
+        if (($status['duration_recorded'] ?? false) === true
+            || ! is_string($status['started_at'] ?? null)
+            || ! is_string($status['finished_at'] ?? null)) {
+            return $status;
+        }
+
+        try {
+            $startedAt = Carbon::parse($status['started_at']);
+            $finishedAt = Carbon::parse($status['finished_at']);
+            $durationSeconds = $startedAt->diffInSeconds($finishedAt, false);
+            if ($durationSeconds > 0) {
+                $this->durationEstimator->recordSuccessfulRun(
+                    (bool) ($status['includes_system_updates'] ?? false),
+                    $durationSeconds,
+                );
+            }
+            $status['duration_recorded'] = true;
+        } catch (Throwable) {
+            // Invalid legacy status data is ignored and never blocks recovery.
+        }
+
+        return $status;
+    }
+
+    private function remainingSeconds(?string $estimatedCompletionAt): ?int
+    {
+        if ($estimatedCompletionAt === null) {
+            return null;
+        }
+
+        try {
+            return max(0, now()->diffInSeconds(Carbon::parse($estimatedCompletionAt), false));
+        } catch (Throwable) {
+            return null;
+        }
     }
 }

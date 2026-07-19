@@ -45,12 +45,61 @@ final class WallboardMaintenanceNoticeServiceTest extends TestCase
             'title' => 'Systeem wordt bijgewerkt',
             'message' => 'Dit wallboard blijft op de hoogte en herstelt automatisch zodra de update veilig is afgerond.',
             'started_at' => '2026-07-19T10:00:00Z',
+            'estimated_duration_seconds' => null,
+            'estimated_completion_at' => null,
+            'remaining_seconds' => null,
             'expires_at' => '2026-07-19T16:00:00Z',
         ], $this->service()->current());
 
         $this->writeNotice('maintenance', '2026-07-19T10:00:00Z', '2026-07-19T10:30:00Z');
 
         self::assertSame('D.I.S. is tijdelijk in onderhoud', $this->service()->current()['title'] ?? null);
+    }
+
+    public function test_it_returns_a_live_countdown_baseline_for_a_version_two_update_notice(): void
+    {
+        $this->writeEstimatedNotice(
+            '2026-07-19T09:55:00Z',
+            900,
+            '2026-07-19T10:10:00Z',
+            '2026-07-19T15:55:00Z',
+        );
+
+        self::assertSame([
+            'active' => true,
+            'kind' => 'update',
+            'title' => 'Systeem wordt bijgewerkt',
+            'message' => 'Dit wallboard blijft op de hoogte en herstelt automatisch zodra de update veilig is afgerond.',
+            'started_at' => '2026-07-19T09:55:00Z',
+            'estimated_duration_seconds' => 900,
+            'estimated_completion_at' => '2026-07-19T10:10:00Z',
+            'remaining_seconds' => 600,
+            'expires_at' => '2026-07-19T15:55:00Z',
+        ], $this->service()->current());
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-19T10:20:00Z'));
+        $overdue = $this->service()->current();
+        self::assertNotNull($overdue, 'Een verlopen prognose mag de onderhoudsnotice niet beëindigen.');
+        self::assertSame(0, $overdue['remaining_seconds']);
+    }
+
+    public function test_it_rejects_inconsistent_or_unbounded_version_two_estimates(): void
+    {
+        $this->writeEstimatedNotice(
+            '2026-07-19T10:00:00Z',
+            900,
+            '2026-07-19T10:14:59Z',
+            '2026-07-19T16:00:00Z',
+        );
+        self::assertNull($this->service()->current());
+
+        $this->writeEstimatedNotice(
+            '2026-07-19T10:00:00Z',
+            2701,
+            '2026-07-19T10:45:01Z',
+            '2026-07-19T16:00:00Z',
+        );
+        self::assertNull($this->service()->current());
     }
 
     public function test_it_fails_closed_for_expired_future_or_overlong_notices(): void
@@ -103,6 +152,24 @@ final class WallboardMaintenanceNoticeServiceTest extends TestCase
             $this->path,
             json_encode($this->payload($kind, $startedAt, $expiresAt), JSON_THROW_ON_ERROR),
         );
+        clearstatcache(true, $this->path);
+    }
+
+    private function writeEstimatedNotice(
+        string $startedAt,
+        int $durationSeconds,
+        string $estimatedCompletionAt,
+        string $expiresAt,
+    ): void {
+        file_put_contents($this->path, json_encode([
+            'version' => 2,
+            'active' => true,
+            'kind' => 'update',
+            'started_at' => $startedAt,
+            'estimated_duration_seconds' => $durationSeconds,
+            'estimated_completion_at' => $estimatedCompletionAt,
+            'expires_at' => $expiresAt,
+        ], JSON_THROW_ON_ERROR));
         clearstatcache(true, $this->path);
     }
 

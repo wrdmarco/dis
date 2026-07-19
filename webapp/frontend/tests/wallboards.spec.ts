@@ -12,6 +12,7 @@ import type {
 import {
   formatWallboardClock,
   formatWallboardDate,
+  formatWallboardMaintenanceDuration,
   normalizeWallboardMaintenanceNotice,
   normalizeWallboardNewsState,
   normalizeWallboardState,
@@ -21,6 +22,7 @@ import {
   wallboardDeadlineRemainingSeconds,
   wallboardDeadlineTickDelayMilliseconds,
   wallboardFocusPilotCounts,
+  wallboardMaintenanceEstimate,
   wallboardMaintenanceNoticeIsActive,
   wallboardNewsCarouselIndex,
   wallboardRefreshDecision,
@@ -35,22 +37,30 @@ import {
   clampWallboardNewsMaxItems,
   clampWallboardNewsItemDuration,
   clampWallboardRssMaxItems,
+  clampWallboardTransitionDurationMs,
   countActiveOperationalWallboardIncidents,
   createWallboardCustomNewsSource,
   createWallboardPage,
   createWallboardTickerSource,
+  DEFAULT_WALLBOARD_FLIP_DIRECTION,
+  DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
+  DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS,
   formatWallboardPilotAvailability,
   normalizeWallboardDisplayProfile,
+  normalizeWallboardFlipDirection,
   normalizeWallboardCustomNewsSources,
   normalizeWallboardNewsItemTransition,
   normalizeWallboardNewsSources,
+  normalizeWallboardPageTransition,
   requestedWallboardScreenSelection,
+  resolveWallboardFlipDirection,
   selectRecentWallboardIncidents,
   wallboardConfigurationCopy,
   wallboardConfigurationHasInvalidPhotoCarousels,
   wallboardConfigurationHasUnverifiedVideos,
   wallboardDisplayProfileLabel,
   wallboardEffectivePageDuration,
+  wallboardEffectivePageTransition,
   wallboardFocusKindLabel,
   wallboardIsOnline,
   wallboardMessageContent,
@@ -316,6 +326,9 @@ test('normalizes legacy wallboard configuration into a safe page program', () =>
     options: {},
   }]);
   expect(normalized.rotation_enabled).toBe(true);
+  expect(normalized.page_transition).toBe('fade');
+  expect(normalized.page_transition_duration_ms).toBe(DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS);
+  expect(normalized.page_flip_direction).toBe(DEFAULT_WALLBOARD_FLIP_DIRECTION);
   expect(normalized.page_fade_enabled).toBe(true);
   expect(normalized.incident_override).toEqual({ enabled: false, page_id: 'map-overview' });
   expect(normalized.focus).toEqual({
@@ -323,6 +336,51 @@ test('normalizes legacy wallboard configuration into a safe page program', () =>
     real_alarm: { enabled: true, duration_seconds: 30, show_response_feed: true },
     test_alarm: { enabled: true, duration_seconds: 300, show_response_feed: true },
   });
+});
+
+test('normalizes global and per-page transition timing with legacy compatibility', () => {
+  const legacyDisabled = wallboardConfigurationCopy({
+    ...DEFAULT_WALLBOARD_CONFIGURATION,
+    page_transition: undefined,
+    page_transition_duration_ms: undefined,
+    page_fade_enabled: false,
+  } as unknown as WallboardConfiguration);
+  expect(legacyDisabled.page_transition).toBe('none');
+  expect(legacyDisabled.page_fade_enabled).toBe(false);
+
+  expect(normalizeWallboardPageTransition('flip')).toBe('flip');
+  expect(normalizeWallboardPageTransition('unknown')).toBe('fade');
+  expect(clampWallboardTransitionDurationMs(10)).toBe(100);
+  expect(clampWallboardTransitionDurationMs(9000)).toBe(5000);
+  expect(clampWallboardTransitionDurationMs(undefined, 720)).toBe(720);
+
+  const configuration = wallboardConfigurationCopy({
+    ...DEFAULT_WALLBOARD_CONFIGURATION,
+    page_transition: 'slide',
+    page_transition_duration_ms: 900,
+  });
+  expect(wallboardEffectivePageTransition(configuration, configuration.pages[0])).toEqual({
+    transition: 'slide',
+    durationMs: 900,
+    flipDirection: 'left_to_right',
+  });
+  expect(wallboardEffectivePageTransition(configuration, {
+    ...configuration.pages[0],
+    transition: 'flip',
+    transition_duration_ms: 1400,
+    flip_direction: 'bottom_to_top',
+  })).toEqual({ transition: 'flip', durationMs: 1400, flipDirection: 'bottom_to_top' });
+
+  expect(normalizeWallboardFlipDirection('left_to_right')).toBe('left_to_right');
+  expect(normalizeWallboardFlipDirection('top_to_bottom')).toBe('top_to_bottom');
+  expect(normalizeWallboardFlipDirection('bottom_to_top')).toBe('bottom_to_top');
+  expect(normalizeWallboardFlipDirection('random')).toBe('random');
+  expect(normalizeWallboardFlipDirection('diagonal')).toBe(DEFAULT_WALLBOARD_FLIP_DIRECTION);
+
+  const randomDirection = resolveWallboardFlipDirection('random', 'page-2:7');
+  expect(['left_to_right', 'top_to_bottom', 'bottom_to_top']).toContain(randomDirection);
+  expect(resolveWallboardFlipDirection('random', 'page-2:7')).toBe(randomDirection);
+  expect(resolveWallboardFlipDirection('top_to_bottom', 'ignored')).toBe('top_to_bottom');
 });
 
 test('bounds focus timing and labels all three server focus types explicitly', () => {
@@ -381,6 +439,8 @@ test('bounds page timing and builds typed pages without executable message marku
       max_items: 6,
       item_duration_seconds: 12,
       item_transition: 'fade',
+      item_transition_duration_ms: DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
+      item_flip_direction: DEFAULT_WALLBOARD_FLIP_DIRECTION,
     },
   });
   expect(clampWallboardNewsMaxItems(0)).toBe(1);
@@ -515,6 +575,8 @@ test('normalizes up to eight safe custom RSS news sources and supports a custom-
     max_items: 4,
     item_duration_seconds: 18,
     item_transition: 'fade',
+    item_transition_duration_ms: DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
+    item_flip_direction: DEFAULT_WALLBOARD_FLIP_DIRECTION,
   });
   expect(configuration.pages[0].type).toBe('news');
   expect(configuration.pages[0].duration_seconds).toBe(72);
@@ -630,7 +692,7 @@ test('hard reloads only for a higher server refresh version after the first base
 test('keeps offline status and automatic polling recovery without a reconnect reload path', () => {
   const kiosk = readFileSync(new URL('../src/features/wallboards/WallboardDisplayPage.tsx', import.meta.url), 'utf8');
   const statePoll = kiosk.slice(kiosk.indexOf('const poll = async () =>'), kiosk.indexOf('}, [observeRefreshVersion, pollGeneration]'));
-  const controlPoll = kiosk.slice(kiosk.indexOf('const pollControl = async () =>'), kiosk.indexOf('}, [hasPairedState, observeRefreshVersion]'));
+  const controlPoll = kiosk.slice(kiosk.indexOf('const pollControl = async () =>'), kiosk.indexOf('}, [controlPollGeneration, hasPairedState, observeRefreshVersion]'));
 
   expect(kiosk).toContain("const feedStatus = connectionError !== null ? 'offline' : stale ? 'stale' : 'live';");
   expect(kiosk).toContain("const hasLiveFeed = feedStatus === 'live';");
@@ -640,6 +702,8 @@ test('keeps offline status and automatic polling recovery without a reconnect re
   expect(statePoll).toContain('timer = setTimeout(() => void poll(), refreshSecondsRef.current * 1000);');
   expect(controlPoll).toContain("setControlError(errorMessage(error, 'De live schermbesturing is tijdelijk niet bereikbaar.'));");
   expect(controlPoll).toContain('setControlError(null);');
+  expect(controlPoll).toContain('lastControlMaintenanceActiveRef.current === true && !nextMaintenanceActive');
+  expect(controlPoll).toContain('setPollGeneration((current) => current + 1)');
   expect(controlPoll).toContain('timer = setTimeout(() => void pollControl(), CONTROL_POLL_MILLISECONDS);');
   expect(statePoll).not.toContain('window.location.reload()');
   expect(controlPoll).not.toContain('window.location.reload()');
@@ -690,34 +754,170 @@ test('formats the complete wallboard date in the wallboard timezone', () => {
   expect(formatWallboardDate(Number.NaN)).toBe('Datum onbekend');
 });
 
-test('renders the news flip option as a visible three-dimensional card turn', async ({ page }) => {
+test('renders every animated news transition with simultaneous outgoing and incoming cards', async ({ page }) => {
+  const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+
+  for (const transition of ['fade', 'dissolve', 'slide', 'zoom', 'wipe'] as const) {
+    await page.setContent(`
+      <style>${styles}</style>
+      <div class="wallboard-display__news-card-scene wallboard-display__news-card-scene--${transition} wallboard-display__news-card-scene--flip-left_to_right">
+        <div class="wallboard-display__news-card-stage wallboard-display__news-card-stage--${transition}" style="--wallboard-news-transition-duration: 1.4s">
+          <div class="wallboard-display__news-card-pane wallboard-display__news-card-pane--outgoing"><article>Oud nieuws</article></div>
+          <div class="wallboard-display__news-card-pane wallboard-display__news-card-pane--incoming"><article>Nieuw nieuws</article></div>
+        </div>
+      </div>
+    `);
+
+    const result = await page.locator('.wallboard-display__news-card-stage').evaluate((stage) => {
+      const panes = [...stage.querySelectorAll<HTMLElement>('.wallboard-display__news-card-pane')];
+      return panes.map((pane) => ({
+        text: pane.textContent,
+        animationName: getComputedStyle(pane).animationName,
+        duration: getComputedStyle(pane).animationDuration,
+      }));
+    });
+
+    expect(result).toEqual([
+      { text: 'Oud nieuws', animationName: `wallboard-card-${transition}-out`, duration: '1.4s' },
+      { text: 'Nieuw nieuws', animationName: `wallboard-card-${transition}-in`, duration: '1.4s' },
+    ]);
+  }
+});
+
+test('renders every animated global playlist transition with simultaneous outgoing and incoming pages', async ({ page }) => {
+  const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+
+  for (const transition of ['fade', 'dissolve', 'slide', 'zoom', 'wipe'] as const) {
+    await page.setContent(`
+      <style>${styles}</style>
+      <section class="wallboard-display__page wallboard-display__page--card-scene wallboard-display__page--card-${transition} wallboard-display__page--flip-left_to_right" style="--wallboard-page-transition-duration: 1.1s">
+        <div class="wallboard-display__page-card-stage wallboard-display__page-card-stage--${transition}">
+          <div class="wallboard-display__page-card-pane wallboard-display__page-card-pane--outgoing">Oude pagina</div>
+          <div class="wallboard-display__page-card-pane wallboard-display__page-card-pane--incoming">Nieuwe pagina</div>
+        </div>
+      </section>
+    `);
+
+    const result = await page.locator('.wallboard-display__page-card-stage').evaluate((stage) => {
+      const panes = [...stage.querySelectorAll<HTMLElement>('.wallboard-display__page-card-pane')];
+      return panes.map((pane) => ({
+        text: pane.textContent,
+        animationName: getComputedStyle(pane).animationName,
+        duration: getComputedStyle(pane).animationDuration,
+      }));
+    });
+
+    expect(result).toEqual([
+      { text: 'Oude pagina', animationName: `wallboard-card-${transition}-out`, duration: '1.1s' },
+      { text: 'Nieuwe pagina', animationName: `wallboard-card-${transition}-in`, duration: '1.1s' },
+    ]);
+  }
+});
+
+test('slides both global pages and news cards in the requested push direction', async ({ page }) => {
   const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.setContent(`
     <style>${styles}</style>
-    <div class="wallboard-display__news-carousel">
-      <article class="wallboard-display__news-article wallboard-display__news-article--transition-flip">
-        Nieuwsbericht
-      </article>
+    <div class="wallboard-display__page-card-stage wallboard-display__page-card-stage--slide" style="--wallboard-page-transition-duration: 1s">
+      <div class="wallboard-display__page-card-pane wallboard-display__page-card-pane--outgoing">Oud</div>
+      <div class="wallboard-display__page-card-pane wallboard-display__page-card-pane--incoming">Nieuw</div>
+    </div>
+    <div class="wallboard-display__news-card-stage wallboard-display__news-card-stage--slide" style="--wallboard-news-transition-duration: 1s">
+      <div class="wallboard-display__news-card-pane wallboard-display__news-card-pane--outgoing">Oud nieuws</div>
+      <div class="wallboard-display__news-card-pane wallboard-display__news-card-pane--incoming">Nieuw nieuws</div>
     </div>
   `);
 
-  const animation = await page.locator('.wallboard-display__news-article').evaluate((element) => {
-    const computed = getComputedStyle(element);
-    const effect = element.getAnimations()[0]?.effect as KeyframeEffect | undefined;
-    return {
-      animationName: computed.animationName,
-      duration: computed.animationDuration,
-      keyframes: effect?.getKeyframes().map((keyframe) => String(keyframe.transform ?? '')) ?? [],
-      perspective: getComputedStyle(element.parentElement!).perspective,
-    };
-  });
+  for (const prefix of ['page', 'news'] as const) {
+    const stageSelector = `.wallboard-display__${prefix}-card-stage`;
+    const paneSelector = `.wallboard-display__${prefix}-card-pane`;
+    const keyframes = await page.locator(stageSelector).evaluate((stage, selector) => (
+      [...stage.querySelectorAll<HTMLElement>(selector)].map((pane) => {
+        const effect = pane.getAnimations()[0]?.effect as KeyframeEffect | undefined;
+        return effect?.getKeyframes().map((frame) => String(frame.transform ?? '')) ?? [];
+      })
+    ), paneSelector);
+    expect(keyframes[0][0]).toContain('translateX(0');
+    expect(keyframes[0].at(-1)).toContain('translateX(100%');
+    expect(keyframes[1][0]).toContain('translateX(-100%');
+    expect(keyframes[1].at(-1)).toContain('translateX(0');
+  }
+});
 
-  expect(animation.animationName).toBe('wallboard-news-story-flip');
-  expect(animation.duration).toBe('0.72s');
-  expect(animation.perspective).toBe('1800px');
-  expect(animation.keyframes[0]).toContain('rotateY(-180deg)');
-  expect(animation.keyframes.at(-1)).toContain('rotateY(0deg)');
+test('turns real two-sided global and news cards in every configured flip direction', async ({ page }) => {
+  const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+
+  for (const direction of ['left_to_right', 'top_to_bottom', 'bottom_to_top'] as const) {
+    await page.setContent(`
+      <style>${styles}</style>
+      <section class="wallboard-display__page wallboard-display__page--card-scene wallboard-display__page--card-flip wallboard-display__page--flip-${direction}" style="--wallboard-page-transition-duration: 1.1s">
+        <div class="wallboard-display__page-card-stage wallboard-display__page-card-stage--flip wallboard-display__page-card-stage--${direction}">
+          <div class="wallboard-display__page-card-pane wallboard-display__page-card-pane--outgoing">Oude pagina</div>
+          <div class="wallboard-display__page-card-pane wallboard-display__page-card-pane--incoming">Nieuwe pagina</div>
+        </div>
+      </section>
+      <div class="wallboard-display__news-card-scene wallboard-display__news-card-scene--flip wallboard-display__news-card-scene--flip-${direction}">
+        <div class="wallboard-display__news-card-stage wallboard-display__news-card-stage--flip wallboard-display__news-card-stage--flip-${direction}" style="--wallboard-news-transition-duration: 1.4s">
+          <div class="wallboard-display__news-card-pane wallboard-display__news-card-pane--outgoing">Oud nieuws</div>
+          <div class="wallboard-display__news-card-pane wallboard-display__news-card-pane--incoming">Nieuw nieuws</div>
+        </div>
+      </div>
+    `);
+
+    const expectedAnimation = direction === 'left_to_right'
+      ? 'wallboard-page-card-flip-left-to-right'
+      : direction === 'top_to_bottom'
+        ? 'wallboard-page-card-flip-top-to-bottom'
+        : 'wallboard-page-card-flip-bottom-to-top';
+    const expectedAxis = direction === 'left_to_right' ? 'rotateY' : 'rotateX';
+    const expectedEnd = direction === 'top_to_bottom' ? '-180deg' : '180deg';
+
+    for (const prefix of ['page', 'news'] as const) {
+      const stageSelector = `.wallboard-display__${prefix}-card-stage`;
+      const paneSelector = `.wallboard-display__${prefix}-card-pane`;
+      const result = await page.locator(stageSelector).evaluate((stage, selector) => {
+        const animation = stage.getAnimations()[0];
+        animation?.pause();
+        if (animation !== undefined) animation.currentTime = 0;
+        const effect = animation?.effect as KeyframeEffect | undefined;
+        const panes = [...stage.querySelectorAll<HTMLElement>(selector)];
+        return {
+          animationName: getComputedStyle(stage).animationName,
+          duration: getComputedStyle(stage).animationDuration,
+          keyframes: effect?.getKeyframes().map((frame) => String(frame.transform ?? '')) ?? [],
+          paneTransforms: panes.map((pane) => getComputedStyle(pane).transform),
+          backfaceVisibility: panes.map((pane) => getComputedStyle(pane).backfaceVisibility),
+          perspective: getComputedStyle(stage.parentElement!).perspective,
+        };
+      }, paneSelector);
+
+      expect(result.animationName).toBe(expectedAnimation);
+      expect(result.duration).toBe(prefix === 'page' ? '1.1s' : '1.4s');
+      expect(result.keyframes[0]).toContain(`${expectedAxis}(0deg)`);
+      expect(result.keyframes.at(-1)).toContain(`${expectedAxis}(${expectedEnd})`);
+      expect(result.paneTransforms[0]).not.toBe(result.paneTransforms[1]);
+      expect(result.backfaceVisibility).toEqual(['hidden', 'hidden']);
+      expect(result.perspective).toBe('1800px');
+    }
+  }
+});
+
+test('uses no paired transition or animation when none is selected', async ({ page }) => {
+  const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
+  await page.setContent(`
+    <style>${styles}</style>
+    <section class="wallboard-display__page">Directe playlistpagina</section>
+    <article class="wallboard-display__news-article">Direct nieuwsbericht</article>
+  `);
+
+  await expect(page.locator('.wallboard-display__page-card-stage')).toHaveCount(0);
+  await expect(page.locator('.wallboard-display__news-card-stage')).toHaveCount(0);
+  expect(await page.locator('.wallboard-display__page').evaluate((element) => getComputedStyle(element).animationName)).toBe('none');
+  expect(await page.locator('.wallboard-display__news-article').evaluate((element) => getComputedStyle(element).animationName)).toBe('none');
 });
 
 test('marks a missing photo playlist only after the authoritative media list is loaded', () => {
@@ -817,6 +1017,9 @@ test('accepts only bounded active wallboard maintenance notices and expires them
     ...notice,
     title: 'Systeem wordt bijgewerkt',
     message: 'Het wallboard herstelt automatisch.',
+    estimated_duration_seconds: null,
+    estimated_completion_at: null,
+    remaining_seconds: null,
   });
   expect(wallboardMaintenanceNoticeIsActive(notice, Date.parse('2026-07-19T12:00:00Z'))).toBe(true);
   expect(wallboardMaintenanceNoticeIsActive(notice, Date.parse(notice.expires_at))).toBe(false);
@@ -825,6 +1028,59 @@ test('accepts only bounded active wallboard maintenance notices and expires them
   expect(normalizeWallboardMaintenanceNotice({ ...notice, expires_at: notice.started_at })).toBeNull();
   expect(normalizeWallboardMaintenanceNotice({ ...notice, expires_at: '2026-07-19T16:00:01Z' })).toBeNull();
   expect(normalizeWallboardMaintenanceNotice({ ...notice, started_at: 'ongeldig' })).toBeNull();
+});
+
+test('keeps the update takeover active after its estimate and exposes a live countdown', () => {
+  const notice = normalizeWallboardMaintenanceNotice({
+    active: true,
+    kind: 'update',
+    title: 'Systeem wordt bijgewerkt',
+    message: 'Het wallboard herstelt automatisch.',
+    started_at: '2026-07-19T10:00:00Z',
+    estimated_duration_seconds: 900,
+    estimated_completion_at: '2026-07-19T10:15:00Z',
+    remaining_seconds: 900,
+    expires_at: '2026-07-19T16:00:00Z',
+  });
+
+  expect(notice).not.toBeNull();
+  if (notice === null) return;
+
+  expect(wallboardMaintenanceEstimate(notice, Date.parse('2026-07-19T10:07:30Z'))).toEqual({
+    totalSeconds: 900,
+    remainingSeconds: 450,
+    progressPercent: 50,
+  });
+  expect(wallboardMaintenanceEstimate(notice, Date.parse('2026-07-19T10:16:00Z'))).toEqual({
+    totalSeconds: 900,
+    remainingSeconds: 0,
+    progressPercent: 100,
+  });
+  expect(wallboardMaintenanceNoticeIsActive(notice, Date.parse('2026-07-19T10:16:00Z'))).toBe(true);
+  expect(formatWallboardMaintenanceDuration(0)).toBe('0:00');
+  expect(formatWallboardMaintenanceDuration(65)).toBe('1:05');
+  expect(formatWallboardMaintenanceDuration(3661)).toBe('1:01:01');
+});
+
+test('ignores malformed optional update estimates without rejecting a valid notice', () => {
+  const notice = normalizeWallboardMaintenanceNotice({
+    active: true,
+    kind: 'update',
+    title: 'Systeem wordt bijgewerkt',
+    message: 'Het wallboard herstelt automatisch.',
+    started_at: '2026-07-19T10:00:00Z',
+    estimated_duration_seconds: -1,
+    estimated_completion_at: 'ongeldig',
+    remaining_seconds: -1,
+    expires_at: '2026-07-19T16:00:00Z',
+  });
+
+  expect(notice).toMatchObject({
+    estimated_duration_seconds: null,
+    estimated_completion_at: null,
+    remaining_seconds: null,
+  });
+  expect(notice === null ? null : wallboardMaintenanceEstimate(notice, now)).toBeNull();
 });
 
 test('keeps maintenance state authoritative when state and control responses arrive out of order', () => {
@@ -1110,8 +1366,17 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(apiTypes).toContain('custom_sources?: WallboardCustomNewsSource[];');
   expect(apiTypes).toContain('item_duration_seconds?: number;');
   expect(apiTypes).toContain("export type WallboardNewsItemTransition = 'fade' | 'dissolve' | 'slide' | 'flip' | 'zoom' | 'wipe' | 'none';");
+  expect(apiTypes).toContain("export type WallboardFlipDirection = 'left_to_right' | 'top_to_bottom' | 'bottom_to_top' | 'random';");
+  expect(apiTypes).toContain('page_transition: WallboardPageTransition;');
+  expect(apiTypes).toContain('page_transition_duration_ms: number;');
+  expect(apiTypes).toContain('page_flip_direction: WallboardFlipDirection;');
   expect(apiTypes).toContain('page_fade_enabled: boolean;');
   expect(apiTypes).toContain('item_transition?: WallboardNewsItemTransition;');
+  expect(apiTypes).toContain('item_transition_duration_ms?: number;');
+  expect(apiTypes).toContain('item_flip_direction?: WallboardFlipDirection;');
+  expect(apiTypes).toContain('transition?: WallboardPageTransition;');
+  expect(apiTypes).toContain('transition_duration_ms?: number;');
+  expect(apiTypes).toContain('flip_direction?: WallboardFlipDirection;');
   expect(apiTypes).toContain('image_url?: string | null;');
   expect(apiTypes).toContain('source_id: string;');
   expect(apiTypes).toContain('playlist: WallboardPlaylistReference;');
@@ -1121,7 +1386,8 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain('Laatste meldingen');
   expect(kiosk).toContain('Proefalarmering');
   expect(kiosk).toContain('<FocusTakeover');
-  expect(kiosk).toContain('<MaintenanceTakeover notice={maintenance} />');
+  expect(kiosk).toContain('<MaintenanceTakeover notice={maintenance} now={clock} />');
+  expect(kiosk).toContain("'Nog even geduld'");
   expect(kiosk).toContain('wallboardMaintenanceNoticeIsActive(effectiveControl.maintenance, clock)');
   expect(kiosk).toContain("'Onderhoud actief · het wallboard herstelt automatisch'");
   expect(kiosk).toContain('maintenance === null && wallboardTickerIsVisible');
@@ -1159,11 +1425,18 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain('setRuntime({ phaseKey, activeIndex: 0 });');
   expect(kiosk).not.toContain('Date.now() % safeDurationMilliseconds');
   expect(kiosk).toContain('running={hasLiveFeed}');
-  expect(kiosk).toContain('configuration.page_fade_enabled');
-  expect(kiosk).toContain('wallboard-display__page--fade');
-  expect(kiosk).toContain('wallboard-display__news-article--transition-${transition}');
+  expect(kiosk).toContain('wallboardEffectivePageTransition(configuration, currentPage)');
+  expect(kiosk).toContain("const pairedTransitionActive = transition !== 'none' && visual.sequence > 0;");
+  expect(kiosk).toContain("const usesPairedCards = transition !== 'none';");
+  expect(kiosk).toContain('wallboard-display__page-card-pane--outgoing');
+  expect(kiosk).toContain('wallboard-display__page-card-pane--incoming');
+  expect(kiosk).toContain('wallboard-display__news-card-pane--outgoing');
+  expect(kiosk).toContain('wallboard-display__news-card-pane--incoming');
+  expect(kiosk).toContain('resolveWallboardFlipDirection');
   expect(kiosk).toContain('alt={`Afbeelding bij ${item.title}`}');
   expect(kiosk).toContain('<WallboardNewsQrCode');
+  expect(kiosk).not.toContain('Volledig artikel op');
+  expect(kiosk).not.toContain('wallboard-display__news-header');
   expect(kiosk).toContain('wallboard-display__news-progress');
   expect(kiosk).toContain('api\\/wallboard\\/news-images');
   expect(newsQr).toContain("import QRCode from 'qrcode';");
@@ -1172,13 +1445,31 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(newsQr).toContain('width: 256');
   expect(newsQr).not.toContain('api.qrserver.com');
   expect(kiosk).not.toContain('autoFocus');
-  expect(configurationEditor).toContain('Paginaovergangen vervagen');
+  expect(configurationEditor).toContain('Globale paginaovergang');
+  expect(configurationEditor).toContain('Duur paginaovergang');
+  expect(configurationEditor).toContain('Globale fliprichting');
+  expect(configurationEditor).toContain('Overgang naar deze pagina');
+  expect(configurationEditor).toContain('Eigen animatieduur');
+  expect(configurationEditor).toContain('Eigen fliprichting');
   expect(configurationEditor).toContain('Overgang tussen nieuwsberichten');
+  expect(configurationEditor).toContain('Duur nieuwsberichtovergang');
+  expect(configurationEditor).toContain('Fliprichting nieuwsberichten');
+  expect(configurationEditor).toContain('WALLBOARD_PAGE_TRANSITIONS.map');
   expect(configurationEditor).toContain('WALLBOARD_NEWS_ITEM_TRANSITIONS.map');
-  for (const transition of ['fade', 'dissolve', 'slide', 'flip', 'zoom', 'wipe', 'none']) {
-    expect(styles).toContain(`.wallboard-display__news-article--transition-${transition}`);
+  expect(configurationEditor).toContain('WALLBOARD_FLIP_DIRECTIONS.map');
+  for (const transition of ['fade', 'dissolve', 'slide', 'zoom', 'wipe']) {
+    expect(styles).toContain(`.wallboard-display__page-card-stage--${transition} .wallboard-display__page-card-pane--outgoing`);
+    expect(styles).toContain(`.wallboard-display__page-card-stage--${transition} .wallboard-display__page-card-pane--incoming`);
+    expect(styles).toContain(`.wallboard-display__news-card-stage--${transition} .wallboard-display__news-card-pane--outgoing`);
+    expect(styles).toContain(`.wallboard-display__news-card-stage--${transition} .wallboard-display__news-card-pane--incoming`);
   }
-  expect(styles).toContain('.wallboard-display__page--fade');
+  expect(styles).toContain('.wallboard-display__page-card-stage--flip.wallboard-display__page-card-stage--left_to_right');
+  expect(styles).toContain('.wallboard-display__page-card-stage--flip.wallboard-display__page-card-stage--top_to_bottom');
+  expect(styles).toContain('.wallboard-display__page-card-stage--flip.wallboard-display__page-card-stage--bottom_to_top');
+  expect(styles).toContain('.wallboard-display__news-card-stage--flip.wallboard-display__news-card-stage--flip-left_to_right');
+  expect(styles).toContain('.wallboard-display__news-card-stage--flip.wallboard-display__news-card-stage--flip-top_to_bottom');
+  expect(styles).toContain('.wallboard-display__news-card-stage--flip.wallboard-display__news-card-stage--flip-bottom_to_top');
+  expect(styles).not.toContain('.wallboard-display__news-header');
   expect(styles).toContain('@media (prefers-reduced-motion: reduce)');
   expect(admin).toContain("`/admin/wallboards/${wallboard.id}/pair`");
   expect(admin).toContain('Code op tv');
@@ -1260,7 +1551,10 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(styles).toContain('.wallboard-display__news-qr');
   expect(styles).toContain('.wallboard-rich-editor__toolbar');
   expect(styles).toContain('.wallboard-display__message-content');
-  expect(styles).toContain('@keyframes wallboard-news-story-fade');
+  expect(styles).toContain('@keyframes wallboard-card-fade-out');
+  expect(styles).toContain('@keyframes wallboard-card-fade-in');
+  expect(styles).toContain('@keyframes wallboard-card-slide-out');
+  expect(styles).toContain('@keyframes wallboard-card-slide-in');
   expect(kiosk).toContain('wallboard-display--profile-${displayProfile}');
   expect(kiosk).toContain('data-display-profile={displayProfile}');
   expect(styles).toContain('.wallboard-display--profile-4k .wallboard-display__header');
@@ -1434,15 +1728,11 @@ test('keeps the offline warning and maintenance takeover readable at Full HD and
       <main class="wallboard-display wallboard-display--dark wallboard-display--profile-${screen.profile}">
         <header class="wallboard-display__header">
           <div>
-            <span class="wallboard-display__live wallboard-display__live--offline"><i></i>Offline</span>
             <span class="wallboard-display__titles"><small>Meldkamer noord</small><h1>Systeem wordt bijgewerkt</h1></span>
             <span class="wallboard-display__mode wallboard-display__mode--maintenance">Onderhoud</span>
           </div>
           <time class="wallboard-display__clock"><span>12:34:56</span><small>zondag 19 juli 2026</small></time>
         </header>
-        <div class="wallboard-display__connection-warning" role="status">
-          <span><strong>Offline — laatst bekende informatie</strong><small>De verbinding wordt automatisch hersteld.</small></span>
-        </div>
         <section class="wallboard-display__alarm wallboard-display__alarm--maintenance" role="status">
           <span class="wallboard-display__alarm-icon">↻</span>
           <span class="wallboard-display__alarm-eyebrow">Systeemupdate</span>
@@ -1455,12 +1745,12 @@ test('keeps the offline warning and maintenance takeover readable at Full HD and
     `);
 
     const result = await page.locator('.wallboard-display').evaluate((element) => {
-      const warning = element.querySelector('.wallboard-display__connection-warning') as HTMLElement;
+      const warning = element.querySelector('.wallboard-display__connection-warning') as HTMLElement | null;
       const takeover = element.querySelector('.wallboard-display__alarm--maintenance') as HTMLElement;
       const takeoverBox = takeover.getBoundingClientRect();
       return {
         overflow: element.scrollWidth > element.clientWidth || element.scrollHeight > element.clientHeight,
-        warningVisible: warning.offsetWidth > 0 && warning.offsetHeight > 0,
+        warningCount: warning === null ? 0 : 1,
         takeoverVisible: takeover.offsetWidth > 0 && takeover.offsetHeight > 0,
         takeoverInsideViewport: takeoverBox.top >= 0 && takeoverBox.bottom <= window.innerHeight,
       };
@@ -1468,7 +1758,7 @@ test('keeps the offline warning and maintenance takeover readable at Full HD and
 
     expect(result).toEqual({
       overflow: false,
-      warningVisible: true,
+      warningCount: 0,
       takeoverVisible: true,
       takeoverInsideViewport: true,
     });
@@ -1492,7 +1782,6 @@ test('shows one readable rotating story with image, QR and twelve progress segme
         <header class="wallboard-display__header"><div><span class="wallboard-display__titles"><small>Meldkamer</small><h1>Dronenieuws</h1></span></div></header>
         <section class="wallboard-display__page">
           <div class="wallboard-display__news">
-            <header class="wallboard-display__news-header"><span><strong>Dronenieuws</strong><small>Gepubliceerd in de afgelopen 7 dagen</small></span><b>3 / 12</b></header>
             <div class="wallboard-display__news-carousel" style="--wallboard-news-item-duration: 12s">
               <article class="wallboard-display__news-article wallboard-display__news-article--ndt wallboard-display__news-article--with-image">
                 <figure class="wallboard-display__news-image"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='900'%3E%3Crect width='800' height='900' fill='%231d4ed8'/%3E%3C/svg%3E"></figure>
@@ -1500,7 +1789,7 @@ test('shows one readable rotating story with image, QR and twelve progress segme
                   <div class="wallboard-display__news-meta"><strong>Nationaal Droneteam</strong><time>19 juli 2026</time></div>
                   <h2>Nieuwe inzetmogelijkheden voor professionele droneteams</h2>
                   <p>Het actuele nieuws staat per bericht groot en rustig in beeld. De samenvatting blijft vanaf de andere kant van de ruimte leesbaar.</p>
-                  <footer class="wallboard-display__news-article-footer"><span>Volledig artikel op Nationaal Droneteam</span><a class="wallboard-display__news-qr"><img alt="QR-code" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Crect width='256' height='256' fill='white'/%3E%3C/svg%3E"><span>Scan voor het hele bericht</span></a></footer>
+                  <footer class="wallboard-display__news-article-footer"><a class="wallboard-display__news-qr"><img alt="QR-code" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Crect width='256' height='256' fill='white'/%3E%3C/svg%3E"><span>Scan voor het hele bericht</span></a></footer>
                 </div>
                 <i class="wallboard-display__news-progress"></i>
               </article>

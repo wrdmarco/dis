@@ -33,7 +33,7 @@ final class WallboardMaintenanceNoticeService
     ) {}
 
     /**
-     * @return array{active: true, kind: 'update'|'maintenance', title: string, message: string, started_at: string, expires_at: string}|null
+     * @return array{active: true, kind: 'update'|'maintenance', title: string, message: string, started_at: string, estimated_duration_seconds: int|null, estimated_completion_at: string|null, remaining_seconds: int|null, expires_at: string}|null
      */
     public function current(): ?array
     {
@@ -53,15 +53,26 @@ final class WallboardMaintenanceNoticeService
             return null;
         }
 
+        $version = $payload['version'] ?? null;
         $keys = array_keys($payload);
         sort($keys);
-        if ($keys !== ['active', 'expires_at', 'kind', 'started_at', 'version']
-            || ($payload['version'] ?? null) !== 1
+        $validV1Keys = ['active', 'expires_at', 'kind', 'started_at', 'version'];
+        $validV2Keys = ['active', 'estimated_completion_at', 'estimated_duration_seconds', 'expires_at', 'kind', 'started_at', 'version'];
+        if (! in_array($version, [1, 2], true)
+            || ($version === 1 && $keys !== $validV1Keys)
+            || ($version === 2 && $keys !== $validV2Keys)
             || ($payload['active'] ?? null) !== true
             || ! is_string($payload['kind'] ?? null)
             || ! array_key_exists($payload['kind'], self::COPY)
             || ! is_string($payload['started_at'] ?? null)
             || ! is_string($payload['expires_at'] ?? null)) {
+            return null;
+        }
+
+        if ($version === 2
+            && (($payload['kind'] ?? null) !== 'update'
+                || ! is_int($payload['estimated_duration_seconds'] ?? null)
+                || ! is_string($payload['estimated_completion_at'] ?? null))) {
             return null;
         }
 
@@ -80,6 +91,23 @@ final class WallboardMaintenanceNoticeService
             return null;
         }
 
+        $estimatedDurationSeconds = null;
+        $estimatedCompletionAt = null;
+        $remainingSeconds = null;
+        if ($version === 2) {
+            $estimatedDurationSeconds = $payload['estimated_duration_seconds'];
+            $estimatedCompletionAt = $this->strictUtcTimestamp($payload['estimated_completion_at']);
+            if (! $estimatedCompletionAt instanceof CarbonImmutable
+                || $estimatedDurationSeconds < 180
+                || $estimatedDurationSeconds > 2700
+                || $estimatedCompletionAt->getTimestamp() - $startedAt->getTimestamp() !== $estimatedDurationSeconds
+                || $estimatedCompletionAt->greaterThan($expiresAt)) {
+                return null;
+            }
+
+            $remainingSeconds = max(0, $estimatedCompletionAt->getTimestamp() - $now->getTimestamp());
+        }
+
         $kind = $payload['kind'];
 
         return [
@@ -88,6 +116,9 @@ final class WallboardMaintenanceNoticeService
             'title' => self::COPY[$kind]['title'],
             'message' => self::COPY[$kind]['message'],
             'started_at' => $startedAt->format('Y-m-d\TH:i:s\Z'),
+            'estimated_duration_seconds' => $estimatedDurationSeconds,
+            'estimated_completion_at' => $estimatedCompletionAt?->format('Y-m-d\TH:i:s\Z'),
+            'remaining_seconds' => $remainingSeconds,
             'expires_at' => $expiresAt->format('Y-m-d\TH:i:s\Z'),
         ];
     }

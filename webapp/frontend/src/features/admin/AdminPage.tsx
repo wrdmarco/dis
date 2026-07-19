@@ -1426,6 +1426,14 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               <dd>{updaterStatus?.message ?? '-'}</dd>
               <dt>Gestart</dt>
               <dd>{formatDate(updaterStatus?.started_at)}</dd>
+              <dt>Geschatte duur</dt>
+              <dd>{formatUpdateDuration(updaterStatus?.estimated_duration_seconds)}</dd>
+              <dt>Geschat klaar</dt>
+              <dd>{formatDate(updaterStatus?.estimated_completion_at)}</dd>
+              <dt>Geschat resterend</dt>
+              <dd>{updaterStatus?.state === 'running' && updaterStatus.remaining_seconds === 0
+                ? 'Nog even geduld'
+                : formatUpdateDuration(updaterStatus?.remaining_seconds)}</dd>
               <dt>Afgerond</dt>
               <dd>{formatDate(updaterStatus?.finished_at)}</dd>
               <dt>Exit code</dt>
@@ -2953,6 +2961,17 @@ function optionsFromTextarea(value: string): Array<{ label: string; value: strin
 
 function formatDate(value?: string | null): string {
   return formatDateTime(value);
+}
+
+function formatUpdateDuration(value?: number | null): string {
+  if (!Number.isFinite(value) || (value ?? 0) < 0) return '-';
+  const seconds = Math.ceil(value ?? 0);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  return hours > 0
+    ? `${hours}:${minutes.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}`
+    : `${minutes}:${remainder.toString().padStart(2, '0')}`;
 }
 
 function defaultDeveloperKeyForm(): DeveloperKeyForm {

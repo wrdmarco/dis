@@ -10,8 +10,6 @@ import dynamic from 'next/dynamic.js';
 import {
   AlertTriangle,
   BellRing,
-  Clock3,
-  ExternalLink,
   Expand,
   Loader2,
   LockKeyhole,
@@ -51,12 +49,17 @@ import {
   buildWallboardMapPresentation,
   clampRefreshSeconds,
   clampWallboardNewsItemDuration,
+  clampWallboardTransitionDurationMs,
   countActiveOperationalWallboardIncidents,
+  DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
   formatWallboardPilotAvailability,
   normalizeWallboardDisplayProfile,
+  normalizeWallboardFlipDirection,
   normalizeWallboardNewsItemTransition,
+  resolveWallboardFlipDirection,
   selectRecentWallboardIncidents,
   wallboardConfigurationCopy,
+  wallboardEffectivePageTransition,
   wallboardFocusKindLabel,
   wallboardMessageContent,
   wallboardPageMapConfiguration,
@@ -116,6 +119,7 @@ export function WallboardDisplayPage() {
   const configVersionRef = useRef<number | null>(null);
   const pendingConfigVersionRef = useRef<number | null>(null);
   const lastControlIncidentActiveRef = useRef<boolean | null>(null);
+  const lastControlMaintenanceActiveRef = useRef<boolean | null>(null);
   const lastControlFocusSignatureRef = useRef<string | undefined>(undefined);
   const refreshVersionRef = useRef<number | null>(null);
   const [sessionStatus, setSessionStatus] = useState<'checking' | 'unpaired' | 'paired'>('checking');
@@ -250,6 +254,9 @@ export function WallboardDisplayPage() {
         if (lastControlIncidentActiveRef.current === null) {
           lastControlIncidentActiveRef.current = nextControl.display.incident_active;
         }
+        if (lastControlMaintenanceActiveRef.current === null) {
+          lastControlMaintenanceActiveRef.current = wallboardMaintenanceNoticeIsActive(nextControl.maintenance);
+        }
         if (lastControlFocusSignatureRef.current === undefined) {
           lastControlFocusSignatureRef.current = wallboardFocusSignature(nextControl.focus);
         }
@@ -269,6 +276,7 @@ export function WallboardDisplayPage() {
           setStateError(null);
           setControlError(null);
           lastControlIncidentActiveRef.current = null;
+          lastControlMaintenanceActiveRef.current = null;
           lastControlFocusSignatureRef.current = undefined;
           refreshVersionRef.current = null;
           clearPersistedWallboardRefreshVersion(window.sessionStorage);
@@ -315,6 +323,10 @@ export function WallboardDisplayPage() {
         ) {
           needsStateRefresh = true;
         }
+        const nextMaintenanceActive = wallboardMaintenanceNoticeIsActive(nextControl.maintenance);
+        if (lastControlMaintenanceActiveRef.current === true && !nextMaintenanceActive) {
+          needsStateRefresh = true;
+        }
         const nextFocusSignature = wallboardFocusSignature(nextControl.focus);
         if (
           lastControlFocusSignatureRef.current !== undefined
@@ -323,6 +335,7 @@ export function WallboardDisplayPage() {
           needsStateRefresh = true;
         }
         lastControlIncidentActiveRef.current = nextControl.display.incident_active;
+        lastControlMaintenanceActiveRef.current = nextMaintenanceActive;
         lastControlFocusSignatureRef.current = nextFocusSignature;
         if (needsStateRefresh) setPollGeneration((current) => current + 1);
         timer = setTimeout(() => void pollControl(), CONTROL_POLL_MILLISECONDS);
@@ -335,6 +348,7 @@ export function WallboardDisplayPage() {
           setStateError(null);
           setControlError(null);
           lastControlIncidentActiveRef.current = null;
+          lastControlMaintenanceActiveRef.current = null;
           lastControlFocusSignatureRef.current = undefined;
           refreshVersionRef.current = null;
           clearPersistedWallboardRefreshVersion(window.sessionStorage);
@@ -550,6 +564,7 @@ export function WallboardDisplayPage() {
     ?? configuration.pages.find((page) => page.id === display.page_id)
     ?? configuration.pages[0];
   const currentPageIndex = configuration.pages.findIndex((page) => page.id === currentPage.id);
+  const pageTransition = wallboardEffectivePageTransition(configuration, currentPage);
   const nextSwitchLabel = wallboardNextSwitchLabel(focus, display, clock, deadlineCountdown);
   const transientAlert = hasLiveFeed && effectiveControl.focus === undefined
     ? effectiveControl.transient_alert
@@ -595,7 +610,6 @@ export function WallboardDisplayPage() {
             dateTime={new Date(clock).toISOString()}
             aria-label={`Lokale tijd ${formatWallboardClock(clock)}, ${formatWallboardDate(clock)}`}
           >
-            <Clock3 size={20} aria-hidden />
             <span>{formatWallboardClock(clock)}</span>
             <small>{formatWallboardDate(clock)}</small>
           </time>
@@ -619,7 +633,7 @@ export function WallboardDisplayPage() {
       ) : null}
 
       {maintenance !== null ? (
-        <MaintenanceTakeover notice={maintenance} />
+        <MaintenanceTakeover notice={maintenance} now={clock} />
       ) : showFocus && focus !== null ? (
         <FocusTakeover
           focus={focus}
@@ -630,22 +644,16 @@ export function WallboardDisplayPage() {
       ) : showTransientAlert && transientAlert !== null ? (
         <TransientAlertTakeover alert={transientAlert} />
       ) : (
-        <section
-          className={configuration.page_fade_enabled
-            ? 'wallboard-display__page wallboard-display__page--fade'
-            : 'wallboard-display__page'}
-          key={`${state.wallboard.config_version}:${effectiveControl.control_version}:${focus?.focus_id ?? 'base'}:${focus?.visible ?? false}:${currentPage.id}`}
-          aria-label={currentPage.name}
-          aria-live="polite"
-        >
-          <WallboardPageContent
-            page={currentPage}
-            state={state}
-            presentation={presentation}
-            hasLiveFeed={hasLiveFeed}
-            pageDeadlineAt={focus?.next_change_at ?? display.next_change_at ?? null}
-          />
-        </section>
+        <WallboardPlaylistPageFrame
+          page={currentPage}
+          state={state}
+          presentation={presentation}
+          hasLiveFeed={hasLiveFeed}
+          pageDeadlineAt={focus?.next_change_at ?? display.next_change_at ?? null}
+          transition={pageTransition.transition}
+          transitionDurationMs={pageTransition.durationMs}
+          flipDirection={pageTransition.flipDirection}
+        />
       )}
 
       <footer className="wallboard-display__footer">
@@ -660,7 +668,133 @@ export function WallboardDisplayPage() {
   );
 }
 
-function MaintenanceTakeover({ notice }: { notice: WallboardMaintenanceNotice }) {
+interface WallboardPlaylistPageFrameProps extends WallboardPageContentProps {
+  transition: ReturnType<typeof wallboardEffectivePageTransition>['transition'];
+  transitionDurationMs: number;
+  flipDirection: ReturnType<typeof wallboardEffectivePageTransition>['flipDirection'];
+}
+
+function WallboardPlaylistPageFrame({
+  page,
+  state,
+  presentation,
+  hasLiveFeed,
+  pageDeadlineAt,
+  transition,
+  transitionDurationMs,
+  flipDirection,
+}: WallboardPlaylistPageFrameProps) {
+  const [visual, setVisual] = useState<{
+    current: WallboardPage;
+    previous: WallboardPage | null;
+    sequence: number;
+  }>(() => ({ current: page, previous: null, sequence: 0 }));
+
+  useEffect(() => {
+    setVisual((current) => {
+      if (current.current.id === page.id) {
+        return current.current === page ? current : { ...current, current: page };
+      }
+
+      return {
+        current: page,
+        previous: current.current,
+        sequence: current.sequence + 1,
+      };
+    });
+  }, [page]);
+
+  useEffect(() => {
+    if (visual.previous === null) return undefined;
+
+    const timeoutId = window.setTimeout(() => {
+      setVisual((current) => current.sequence === visual.sequence
+        ? { ...current, previous: null }
+        : current);
+    }, transitionDurationMs + 50);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [transitionDurationMs, visual.previous, visual.sequence]);
+
+  const style = {
+    '--wallboard-page-transition-duration': `${transitionDurationMs}ms`,
+  } as CSSProperties;
+  const pairedTransitionActive = transition !== 'none' && visual.sequence > 0;
+  const resolvedFlipDirection = resolveWallboardFlipDirection(
+    flipDirection,
+    `${visual.current.id}:${visual.sequence}`,
+  );
+
+  if (pairedTransitionActive) {
+    return (
+      <section
+        className={`wallboard-display__page wallboard-display__page--card-scene wallboard-display__page--card-${transition} wallboard-display__page--flip-${resolvedFlipDirection}`}
+        style={style}
+        aria-label={visual.current.name}
+        aria-live="polite"
+      >
+        <div
+          className={visual.previous === null
+            ? `wallboard-display__page-card-stage wallboard-display__page-card-stage--${transition} wallboard-display__page-card-stage--${resolvedFlipDirection} wallboard-display__page-card-stage--settled`
+            : `wallboard-display__page-card-stage wallboard-display__page-card-stage--${transition} wallboard-display__page-card-stage--${resolvedFlipDirection}`}
+          key={visual.sequence}
+        >
+          {visual.previous === null ? null : (
+            <div className="wallboard-display__page-card-pane wallboard-display__page-card-pane--outgoing" aria-hidden="true" key="outgoing">
+              <WallboardPageContent
+                page={visual.previous}
+                state={state}
+                presentation={presentation}
+                hasLiveFeed={hasLiveFeed}
+                pageDeadlineAt={pageDeadlineAt}
+                running={false}
+              />
+            </div>
+          )}
+          <div className="wallboard-display__page-card-pane wallboard-display__page-card-pane--incoming" key={visual.current.id}>
+            <WallboardPageContent
+              page={visual.current}
+              state={state}
+              presentation={presentation}
+              hasLiveFeed={hasLiveFeed}
+              pageDeadlineAt={pageDeadlineAt}
+              running={hasLiveFeed}
+            />
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      className="wallboard-display__page wallboard-display__page--transition-none"
+      style={style}
+      key={`${visual.current.id}:${visual.sequence}`}
+      aria-label={visual.current.name}
+      aria-live="polite"
+    >
+      <WallboardPageContent
+        page={visual.current}
+        state={state}
+        presentation={presentation}
+        hasLiveFeed={hasLiveFeed}
+        pageDeadlineAt={pageDeadlineAt}
+        running={hasLiveFeed}
+      />
+    </section>
+  );
+}
+
+function MaintenanceTakeover({
+  notice,
+  now,
+}: {
+  notice: WallboardMaintenanceNotice;
+  now: number;
+}) {
+  const estimate = wallboardMaintenanceEstimate(notice, now);
+
   return (
     <section
       className="wallboard-display__alarm wallboard-display__alarm--maintenance"
@@ -674,6 +808,31 @@ function MaintenanceTakeover({ notice }: { notice: WallboardMaintenanceNotice })
       </span>
       <h2>{notice.title}</h2>
       <p>{notice.message}</p>
+      {estimate !== null ? (
+        <div
+          className="wallboard-display__maintenance-countdown"
+          role="timer"
+          aria-label={`Geschatte resterende updatetijd ${formatWallboardMaintenanceDuration(estimate.remainingSeconds)}`}
+        >
+          <svg viewBox="0 0 120 120" aria-hidden>
+            <circle className="wallboard-display__maintenance-countdown-track" cx="60" cy="60" r="52" pathLength="100" />
+            <circle
+              className="wallboard-display__maintenance-countdown-progress"
+              cx="60"
+              cy="60"
+              r="52"
+              pathLength="100"
+              style={{ strokeDashoffset: 100 - estimate.progressPercent } as CSSProperties}
+            />
+          </svg>
+          <span>
+            <strong>{estimate.remainingSeconds > 0
+              ? formatWallboardMaintenanceDuration(estimate.remainingSeconds)
+              : 'Nog even geduld'}</strong>
+            <small>{estimate.remainingSeconds > 0 ? 'geschat resterend' : 'serverstatus controleren'}</small>
+          </span>
+        </div>
+      ) : null}
       <div className="wallboard-display__alarm-status">
         <i aria-hidden />
         <strong>Automatisch herstel is actief</strong>
@@ -689,6 +848,7 @@ interface WallboardPageContentProps {
   presentation: ReturnType<typeof buildWallboardMapPresentation>;
   hasLiveFeed: boolean;
   pageDeadlineAt: string | null;
+  running?: boolean;
 }
 
 function WallboardPageContent({
@@ -697,6 +857,7 @@ function WallboardPageContent({
   presentation,
   hasLiveFeed,
   pageDeadlineAt,
+  running = hasLiveFeed,
 }: WallboardPageContentProps) {
   const configuration = state.wallboard.configuration.map;
   const pagePresentation = ['incident_list', 'summary'].includes(page.type)
@@ -713,7 +874,7 @@ function WallboardPageContent({
       <WallboardNewsPage
         page={page}
         news={state.news.pages[page.id] ?? { items: [], fallback_used: false, lookback_days: 7 }}
-        running={hasLiveFeed}
+        running={running}
       />
     );
   }
@@ -727,7 +888,7 @@ function WallboardPageContent({
     return (
       <WallboardPhotoCarousel
         media={media}
-        running={hasLiveFeed}
+        running={running}
         anchor={wallboardPhotoCarouselAnchorFromDeadline(
           pageDeadlineAt,
           media?.total_duration_seconds ?? page.duration_seconds,
@@ -844,6 +1005,11 @@ function WallboardNewsPage({
 }) {
   const itemDurationSeconds = clampWallboardNewsItemDuration(Number(page.options.item_duration_seconds));
   const itemTransition = normalizeWallboardNewsItemTransition(page.options.item_transition);
+  const itemTransitionDurationMs = clampWallboardTransitionDurationMs(
+    page.options.item_transition_duration_ms,
+    DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
+  );
+  const itemFlipDirection = normalizeWallboardFlipDirection(page.options.item_flip_direction);
   const itemSignature = news.items.map((item) => item.id).join('|');
   const activeIndex = usePausableWallboardCarousel(
     itemSignature,
@@ -868,24 +1034,21 @@ function WallboardNewsPage({
 
   return (
     <div className="wallboard-display__news">
-      <header className="wallboard-display__news-header">
-        <span>
-          <Newspaper size={21} aria-hidden />
-          <strong>Dronenieuws</strong>
-          <small>{news.fallback_used
-            ? `Geen nieuws in de afgelopen ${news.lookback_days} dagen · meest recente publicaties`
-            : `Gepubliceerd in de afgelopen ${news.lookback_days} dagen`}</small>
-        </span>
-        <b>{safeIndex + 1} / {news.items.length}</b>
-      </header>
-
       <div
         className={running
           ? 'wallboard-display__news-carousel'
           : 'wallboard-display__news-carousel wallboard-display__news-carousel--paused'}
-        style={{ '--wallboard-news-item-duration': `${itemDurationSeconds}s` } as CSSProperties}
+        style={{
+          '--wallboard-news-item-duration': `${itemDurationSeconds}s`,
+          '--wallboard-news-transition-duration': `${itemTransitionDurationMs}ms`,
+        } as CSSProperties}
       >
-        <NewsArticle item={activeItem} transition={itemTransition} key={`${activeItem.id}:${safeIndex}`} />
+        <WallboardNewsCardTransition
+          item={activeItem}
+          transition={itemTransition}
+          transitionDurationMs={itemTransitionDurationMs}
+          flipDirection={itemFlipDirection}
+        />
         <ol className="wallboard-display__news-position" aria-label="Nieuwsberichten in deze carrousel">
           {news.items.map((item, index) => (
             <li
@@ -902,12 +1065,96 @@ function WallboardNewsPage({
   );
 }
 
-function NewsArticle({
+function WallboardNewsCardTransition({
   item,
   transition,
+  transitionDurationMs,
+  flipDirection,
 }: {
   item: WallboardNewsItem;
   transition: ReturnType<typeof normalizeWallboardNewsItemTransition>;
+  transitionDurationMs: number;
+  flipDirection: ReturnType<typeof normalizeWallboardFlipDirection>;
+}) {
+  const [visual, setVisual] = useState<{
+    current: WallboardNewsItem;
+    previous: WallboardNewsItem | null;
+    sequence: number;
+  }>(() => ({ current: item, previous: null, sequence: 0 }));
+
+  useEffect(() => {
+    setVisual((current) => {
+      if (current.current.id === item.id) {
+        return current.current === item ? current : { ...current, current: item };
+      }
+
+      return {
+        current: item,
+        previous: current.current,
+        sequence: current.sequence + 1,
+      };
+    });
+  }, [item]);
+
+  useEffect(() => {
+    if (visual.previous === null) return undefined;
+
+    const timeoutId = window.setTimeout(() => {
+      setVisual((current) => current.sequence === visual.sequence
+        ? { ...current, previous: null }
+        : current);
+    }, transitionDurationMs + 50);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [transitionDurationMs, visual.previous, visual.sequence]);
+
+  const usesPairedCards = transition !== 'none';
+  const resolvedFlipDirection = resolveWallboardFlipDirection(
+    flipDirection,
+    `${visual.current.id}:${visual.sequence}`,
+  );
+
+  if (!usesPairedCards || visual.sequence === 0) {
+    return (
+      <NewsArticle
+        item={usesPairedCards ? visual.current : item}
+        transition={usesPairedCards ? 'none' : transition}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={`wallboard-display__news-card-scene wallboard-display__news-card-scene--${transition} wallboard-display__news-card-scene--flip-${resolvedFlipDirection}`}
+      style={{ '--wallboard-news-transition-duration': `${transitionDurationMs}ms` } as CSSProperties}
+    >
+      <div
+        className={visual.previous === null
+          ? `wallboard-display__news-card-stage wallboard-display__news-card-stage--${transition} wallboard-display__news-card-stage--flip-${resolvedFlipDirection} wallboard-display__news-card-stage--settled`
+          : `wallboard-display__news-card-stage wallboard-display__news-card-stage--${transition} wallboard-display__news-card-stage--flip-${resolvedFlipDirection}`}
+        key={visual.sequence}
+      >
+        {visual.previous === null ? null : (
+          <div className="wallboard-display__news-card-pane wallboard-display__news-card-pane--outgoing" aria-hidden="true" key="outgoing">
+            <NewsArticle item={visual.previous} transition="none" showProgress={false} />
+          </div>
+        )}
+        <div className="wallboard-display__news-card-pane wallboard-display__news-card-pane--incoming" key={visual.current.id}>
+          <NewsArticle item={visual.current} transition="none" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NewsArticle({
+  item,
+  transition,
+  showProgress = true,
+}: {
+  item: WallboardNewsItem;
+  transition: ReturnType<typeof normalizeWallboardNewsItemTransition>;
+  showProgress?: boolean;
 }) {
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = typeof item.image_url === 'string' && !imageFailed;
@@ -935,14 +1182,10 @@ function NewsArticle({
         <h2>{item.title}</h2>
         <p>{item.excerpt || 'Scan de QR-code voor de volledige inhoud van dit bericht.'}</p>
         <footer className="wallboard-display__news-article-footer">
-          <span>
-            <ExternalLink size={16} aria-hidden />
-            Volledig artikel op {item.source_label}
-          </span>
           <WallboardNewsQrCode title={item.title} url={item.url} />
         </footer>
       </div>
-      <i className="wallboard-display__news-progress" aria-hidden />
+      {showProgress ? <i className="wallboard-display__news-progress" aria-hidden /> : null}
     </article>
   );
 }
@@ -1581,6 +1824,18 @@ function optionalNonNegativeRefreshVersion(value: unknown): number | null {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
+function optionalPositiveInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? value
+    : null;
+}
+
+function optionalNonNegativeInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : null;
+}
+
 export function normalizeWallboardState(state: WallboardState): WallboardState {
   const configuration = wallboardConfigurationCopy(state.wallboard.configuration);
   const rawState = state as WallboardState & {
@@ -1663,6 +1918,13 @@ export function normalizeWallboardMaintenanceNotice(value: unknown): WallboardMa
     || expiresAt - startedAt > maximumLifetimeMilliseconds
   ) return null;
 
+  const estimatedDurationSeconds = optionalPositiveInteger(value.estimated_duration_seconds);
+  const estimatedCompletionAt = typeof value.estimated_completion_at === 'string'
+    && Number.isFinite(Date.parse(value.estimated_completion_at))
+    ? value.estimated_completion_at
+    : null;
+  const remainingSeconds = optionalNonNegativeInteger(value.remaining_seconds);
+
   return {
     active: true,
     kind: value.kind as WallboardMaintenanceNotice['kind'],
@@ -1670,7 +1932,58 @@ export function normalizeWallboardMaintenanceNotice(value: unknown): WallboardMa
     message: message.slice(0, 500),
     started_at: value.started_at,
     expires_at: value.expires_at,
+    estimated_duration_seconds: estimatedDurationSeconds,
+    estimated_completion_at: estimatedCompletionAt,
+    remaining_seconds: remainingSeconds,
   };
+}
+
+export interface WallboardMaintenanceEstimate {
+  totalSeconds: number;
+  remainingSeconds: number;
+  progressPercent: number;
+}
+
+export function wallboardMaintenanceEstimate(
+  notice: WallboardMaintenanceNotice,
+  now: number = Date.now(),
+): WallboardMaintenanceEstimate | null {
+  if (!Number.isFinite(now) || notice.kind !== 'update') return null;
+  const startedAt = Date.parse(notice.started_at);
+  const estimatedCompletionAt = typeof notice.estimated_completion_at === 'string'
+    ? Date.parse(notice.estimated_completion_at)
+    : Number.NaN;
+  const configuredDuration = optionalPositiveInteger(notice.estimated_duration_seconds);
+  const derivedDuration = Number.isFinite(startedAt) && Number.isFinite(estimatedCompletionAt)
+    ? Math.ceil((estimatedCompletionAt - startedAt) / 1000)
+    : null;
+  const totalSeconds = configuredDuration ?? derivedDuration;
+  if (
+    totalSeconds === null
+    || totalSeconds < 1
+    || !Number.isFinite(startedAt)
+    || !Number.isFinite(estimatedCompletionAt)
+    || estimatedCompletionAt <= startedAt
+  ) return null;
+
+  const remainingSeconds = Math.max(0, Math.ceil((estimatedCompletionAt - now) / 1000));
+  const progressPercent = Math.min(100, Math.max(
+    0,
+    ((totalSeconds - remainingSeconds) / totalSeconds) * 100,
+  ));
+
+  return { totalSeconds, remainingSeconds, progressPercent };
+}
+
+export function formatWallboardMaintenanceDuration(value: number): string {
+  const totalSeconds = Number.isFinite(value) ? Math.max(0, Math.ceil(value)) : 0;
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  }
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
 export function wallboardMaintenanceNoticeIsActive(value: unknown, now: number = Date.now()): boolean {

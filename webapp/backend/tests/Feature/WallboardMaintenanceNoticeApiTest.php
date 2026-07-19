@@ -54,10 +54,12 @@ final class WallboardMaintenanceNoticeApiTest extends TestCase
     public function test_state_and_control_publish_the_same_maintenance_contract_and_expire_it(): void
     {
         file_put_contents($this->path, json_encode([
-            'version' => 1,
+            'version' => 2,
             'active' => true,
             'kind' => 'update',
             'started_at' => '2026-07-19T10:00:00Z',
+            'estimated_duration_seconds' => 900,
+            'estimated_completion_at' => '2026-07-19T10:15:00Z',
             'expires_at' => '2026-07-19T16:00:00Z',
         ], JSON_THROW_ON_ERROR));
 
@@ -69,6 +71,9 @@ final class WallboardMaintenanceNoticeApiTest extends TestCase
                 ->assertJsonPath('data.maintenance.kind', 'update')
                 ->assertJsonPath('data.maintenance.title', 'Systeem wordt bijgewerkt')
                 ->assertJsonPath('data.maintenance.started_at', '2026-07-19T10:00:00Z')
+                ->assertJsonPath('data.maintenance.estimated_duration_seconds', 900)
+                ->assertJsonPath('data.maintenance.estimated_completion_at', '2026-07-19T10:15:00Z')
+                ->assertJsonPath('data.maintenance.remaining_seconds', 900)
                 ->assertJsonPath('data.maintenance.expires_at', '2026-07-19T16:00:00Z');
         }
 

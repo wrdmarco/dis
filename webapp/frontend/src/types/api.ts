@@ -227,6 +227,8 @@ export type WallboardTheme = 'dark' | 'light';
 export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'message' | 'news' | 'video' | 'photo_carousel';
 export type WallboardDisplayMode = 'rotation' | 'static' | 'manual' | 'incident_override';
 export type WallboardNewsItemTransition = 'fade' | 'dissolve' | 'slide' | 'flip' | 'zoom' | 'wipe' | 'none';
+export type WallboardPageTransition = WallboardNewsItemTransition;
+export type WallboardFlipDirection = 'left_to_right' | 'top_to_bottom' | 'bottom_to_top' | 'random';
 
 export interface WallboardMapConfiguration {
   show_active_incidents: boolean;
@@ -249,6 +251,10 @@ export interface WallboardConfiguration {
   focus: WallboardFocusConfiguration;
   pages: WallboardPage[];
   rotation_enabled: boolean;
+  page_transition: WallboardPageTransition;
+  page_transition_duration_ms: number;
+  page_flip_direction: WallboardFlipDirection;
+  /** Behouden voor oudere clients; nieuwe clients gebruiken page_transition. */
   page_fade_enabled: boolean;
   incident_override: WallboardIncidentOverride;
 }
@@ -317,6 +323,8 @@ export interface WallboardPageOptions {
   max_items?: number;
   item_duration_seconds?: number;
   item_transition?: WallboardNewsItemTransition;
+  item_transition_duration_ms?: number;
+  item_flip_direction?: WallboardFlipDirection;
 }
 
 export interface WallboardPage {
@@ -324,6 +332,9 @@ export interface WallboardPage {
   type: WallboardPageType;
   name: string;
   duration_seconds: number;
+  transition?: WallboardPageTransition;
+  transition_duration_ms?: number;
+  flip_direction?: WallboardFlipDirection;
   options: WallboardPageOptions;
 }
 
@@ -564,6 +575,9 @@ export interface WallboardMaintenanceNotice {
   message: string;
   started_at: string;
   expires_at: string;
+  estimated_duration_seconds?: number | null;
+  estimated_completion_at?: string | null;
+  remaining_seconds?: number | null;
 }
 
 export type WallboardFocusResponseStatus = 'pending' | 'accepted' | 'declined' | 'no_response';
@@ -1049,6 +1063,11 @@ export interface SystemUpdateStatus {
   message?: string | null;
   log?: string[];
   reboot_required?: boolean;
+  includes_system_updates?: boolean;
+  estimated_duration_seconds?: number | null;
+  estimated_completion_at?: string | null;
+  remaining_seconds?: number | null;
+  estimate_source?: 'historical' | 'fallback' | null;
 }
 
 export interface SystemMetrics {

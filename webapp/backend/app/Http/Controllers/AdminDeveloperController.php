@@ -127,7 +127,10 @@ final class AdminDeveloperController extends Controller
         }
 
         $updateSystem = $request->boolean('update_system');
-        $this->updateStatus->start($updateSystem ? 'Systeem- en app-update gestart vanuit admin.' : 'App-update gestart vanuit admin.');
+        $this->updateStatus->start(
+            $updateSystem ? 'Systeem- en app-update gestart vanuit admin.' : 'App-update gestart vanuit admin.',
+            $updateSystem,
+        );
         if (! $this->startUpdateProcess($updateSystem)) {
             $this->updateStatus->append('Updateproces kon niet als achtergrondproces worden gestart.');
             $this->updateStatus->finish(1);
@@ -167,7 +170,10 @@ final class AdminDeveloperController extends Controller
         }
 
         $updateSystem = $request->boolean('update_system');
-        $this->updateStatus->start($updateSystem ? 'Systeem- en app-update gestart via developer API.' : 'App-update gestart via developer API.');
+        $this->updateStatus->start(
+            $updateSystem ? 'Systeem- en app-update gestart via developer API.' : 'App-update gestart via developer API.',
+            $updateSystem,
+        );
         if (! $this->startUpdateProcess($updateSystem)) {
             $this->updateStatus->append('Updateproces kon niet als achtergrondproces worden gestart.');
             $this->updateStatus->finish(1);

@@ -27,6 +27,24 @@ final class WallboardConfiguration
     /** @var list<string> */
     public const NEWS_ITEM_TRANSITIONS = ['fade', 'dissolve', 'slide', 'flip', 'zoom', 'wipe', 'none'];
 
+    /** @var list<string> */
+    public const PAGE_TRANSITIONS = self::NEWS_ITEM_TRANSITIONS;
+
+    /** @var list<string> */
+    public const FLIP_DIRECTIONS = ['left_to_right', 'top_to_bottom', 'bottom_to_top', 'random'];
+
+    public const DEFAULT_PAGE_TRANSITION = 'fade';
+
+    public const DEFAULT_FLIP_DIRECTION = 'left_to_right';
+
+    public const DEFAULT_PAGE_TRANSITION_DURATION_MS = 320;
+
+    public const DEFAULT_NEWS_ITEM_TRANSITION_DURATION_MS = 720;
+
+    public const MIN_TRANSITION_DURATION_MS = 100;
+
+    public const MAX_TRANSITION_DURATION_MS = 5000;
+
     public const DEFAULT_NEWS_ITEM_TRANSITION = 'fade';
 
     public const DEFAULT_NEWS_MAX_ITEMS = 6;
@@ -81,6 +99,9 @@ final class WallboardConfiguration
             'refresh_seconds' => 10,
             'rotation_enabled' => true,
             'page_fade_enabled' => true,
+            'page_transition' => self::DEFAULT_PAGE_TRANSITION,
+            'page_transition_duration_ms' => self::DEFAULT_PAGE_TRANSITION_DURATION_MS,
+            'page_flip_direction' => self::DEFAULT_FLIP_DIRECTION,
             'pages' => [
                 [
                     'id' => self::DEFAULT_PAGE_ID,
@@ -138,11 +159,62 @@ final class WallboardConfiguration
     public static function normalize(array $input, array $base = []): array
     {
         $normalized = array_replace_recursive(self::defaults(), $base, $input);
-        if (! is_bool($normalized['page_fade_enabled'] ?? null)) {
+        $legacyFade = array_key_exists('page_fade_enabled', $input)
+            ? $input['page_fade_enabled']
+            : (array_key_exists('page_fade_enabled', $base) ? $base['page_fade_enabled'] : true);
+        if (! is_bool($legacyFade)) {
             throw ValidationException::withMessages([
                 'configuration.page_fade_enabled' => ['De globale paginafade moet aan of uit staan.'],
             ]);
         }
+        $hasInputTransition = array_key_exists('page_transition', $input);
+        $hasBaseTransition = array_key_exists('page_transition', $base);
+        if ($hasInputTransition) {
+            $pageTransition = $input['page_transition'];
+        } elseif ($hasBaseTransition) {
+            $baseTransition = $base['page_transition'];
+            $baseLegacyFade = is_string($baseTransition) && $baseTransition !== 'none';
+            // Older clients echo the legacy boolean on every write. Preserve a richer
+            // stored transition while that derived boolean is unchanged.
+            $pageTransition = array_key_exists('page_fade_enabled', $input)
+                && $input['page_fade_enabled'] !== $baseLegacyFade
+                    ? ($legacyFade ? self::DEFAULT_PAGE_TRANSITION : 'none')
+                    : $baseTransition;
+        } else {
+            $pageTransition = $legacyFade ? self::DEFAULT_PAGE_TRANSITION : 'none';
+        }
+        if (! is_string($pageTransition) || ! in_array($pageTransition, self::PAGE_TRANSITIONS, true)) {
+            throw ValidationException::withMessages([
+                'configuration.page_transition' => ['Kies een ondersteunde globale paginaovergang.'],
+            ]);
+        }
+        $pageTransitionDuration = array_key_exists('page_transition_duration_ms', $input)
+            ? $input['page_transition_duration_ms']
+            : (array_key_exists('page_transition_duration_ms', $base)
+                ? $base['page_transition_duration_ms']
+                : self::DEFAULT_PAGE_TRANSITION_DURATION_MS);
+        if (! is_int($pageTransitionDuration)
+            || $pageTransitionDuration < self::MIN_TRANSITION_DURATION_MS
+            || $pageTransitionDuration > self::MAX_TRANSITION_DURATION_MS) {
+            throw ValidationException::withMessages([
+                'configuration.page_transition_duration_ms' => ['De globale overgangsduur moet een geheel getal tussen 100 en 5000 milliseconden zijn.'],
+            ]);
+        }
+        $pageFlipDirection = array_key_exists('page_flip_direction', $input)
+            ? $input['page_flip_direction']
+            : (array_key_exists('page_flip_direction', $base)
+                ? $base['page_flip_direction']
+                : self::DEFAULT_FLIP_DIRECTION);
+        if (! is_string($pageFlipDirection) || ! in_array($pageFlipDirection, self::FLIP_DIRECTIONS, true)) {
+            throw ValidationException::withMessages([
+                'configuration.page_flip_direction' => ['Kies een ondersteunde globale fliprichting.'],
+            ]);
+        }
+        $normalized['page_transition'] = $pageTransition;
+        $normalized['page_transition_duration_ms'] = $pageTransitionDuration;
+        $normalized['page_flip_direction'] = $pageFlipDirection;
+        // The legacy flag remains in output for older displays, while the richer transition is authoritative.
+        $normalized['page_fade_enabled'] = $pageTransition !== 'none';
         // Test alerts are transient reachability signals, never persistent wallboard incidents.
         // Keep accepting the legacy key so existing playlists remain readable, but force it off.
         $normalized['map']['show_test_incidents'] = false;
@@ -209,10 +281,33 @@ final class WallboardConfiguration
                     "configuration.pages.{$index}.duration_seconds" => ['De zichtduur moet tussen 5 en 3600 seconden liggen.'],
                 ]);
             }
+            $transition = $page['transition'] ?? null;
+            if ($transition !== null
+                && (! is_string($transition) || ! in_array($transition, self::PAGE_TRANSITIONS, true))) {
+                throw ValidationException::withMessages([
+                    "configuration.pages.{$index}.transition" => ['Kies een ondersteunde paginaovergang of gebruik de globale instelling.'],
+                ]);
+            }
+            $transitionDuration = $page['transition_duration_ms'] ?? null;
+            if ($transitionDuration !== null
+                && (! is_int($transitionDuration)
+                    || $transitionDuration < self::MIN_TRANSITION_DURATION_MS
+                    || $transitionDuration > self::MAX_TRANSITION_DURATION_MS)) {
+                throw ValidationException::withMessages([
+                    "configuration.pages.{$index}.transition_duration_ms" => ['De overgangsduur moet een geheel getal tussen 100 en 5000 milliseconden zijn.'],
+                ]);
+            }
+            $flipDirection = $page['flip_direction'] ?? null;
+            if ($flipDirection !== null
+                && (! is_string($flipDirection) || ! in_array($flipDirection, self::FLIP_DIRECTIONS, true))) {
+                throw ValidationException::withMessages([
+                    "configuration.pages.{$index}.flip_direction" => ['Kies een ondersteunde fliprichting of gebruik de globale instelling.'],
+                ]);
+            }
             $allowedOptionKeys = match ($type) {
                 'message' => ['body', 'content'],
                 'incident_list', 'summary' => ['show_test_incidents'],
-                'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds', 'item_transition'],
+                'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds', 'item_transition', 'item_transition_duration_ms', 'item_flip_direction'],
                 'video' => ['url', 'video_duration_seconds'],
                 'photo_carousel' => ['media_playlist_id', 'item_duration_seconds'],
                 default => [],
@@ -378,12 +473,32 @@ final class WallboardConfiguration
                     ]);
                 }
 
+                $itemTransitionDuration = $options['item_transition_duration_ms']
+                    ?? self::DEFAULT_NEWS_ITEM_TRANSITION_DURATION_MS;
+                if (! is_int($itemTransitionDuration)
+                    || $itemTransitionDuration < self::MIN_TRANSITION_DURATION_MS
+                    || $itemTransitionDuration > self::MAX_TRANSITION_DURATION_MS) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.item_transition_duration_ms" => ['De nieuwsovergangsduur moet een geheel getal tussen 100 en 5000 milliseconden zijn.'],
+                    ]);
+                }
+
+                $itemFlipDirection = $options['item_flip_direction'] ?? self::DEFAULT_FLIP_DIRECTION;
+                if (! is_string($itemFlipDirection)
+                    || ! in_array($itemFlipDirection, self::FLIP_DIRECTIONS, true)) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.item_flip_direction" => ['Kies een ondersteunde fliprichting voor nieuwsberichten.'],
+                    ]);
+                }
+
                 $options = [
                     'sources' => $sources,
                     'custom_sources' => $customSources,
                     'max_items' => $maximumItems,
                     'item_duration_seconds' => $itemDurationSeconds,
                     'item_transition' => $itemTransition,
+                    'item_transition_duration_ms' => $itemTransitionDuration,
+                    'item_flip_direction' => $itemFlipDirection,
                 ];
                 $durationSeconds = $maximumItems * $itemDurationSeconds;
             } elseif (in_array($type, ['incident_list', 'summary'], true)) {
@@ -393,13 +508,23 @@ final class WallboardConfiguration
                 $options = [];
             }
 
-            $pages[$index] = [
+            $normalizedPage = [
                 'id' => $pageId,
                 'name' => $name,
                 'type' => $type,
                 'duration_seconds' => $durationSeconds,
                 'options' => $options,
             ];
+            if ($transition !== null) {
+                $normalizedPage['transition'] = $transition;
+            }
+            if ($transitionDuration !== null) {
+                $normalizedPage['transition_duration_ms'] = $transitionDuration;
+            }
+            if ($flipDirection !== null) {
+                $normalizedPage['flip_direction'] = $flipDirection;
+            }
+            $pages[$index] = $normalizedPage;
         }
 
         $normalized['pages'] = $pages;

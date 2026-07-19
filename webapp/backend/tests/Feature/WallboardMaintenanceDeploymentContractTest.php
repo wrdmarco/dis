@@ -26,6 +26,11 @@ final class WallboardMaintenanceDeploymentContractTest extends TestCase
         self::assertIsInt($stop);
         self::assertTrue($announce < $lock && $lock < $stop);
         self::assertStringContainsString('WALLBOARD_MAINTENANCE_NOTICE_SECONDS=6', $this->read('scripts/lib/common.sh'));
+        self::assertStringContainsString('estimate_update_duration_seconds "${UPDATE_SYSTEM}"', $update);
+        self::assertStringContainsString(
+            'announce_wallboard_maintenance update "${UPDATE_ESTIMATED_DURATION_SECONDS}"',
+            $update,
+        );
     }
 
     public function test_direct_deploy_announces_once_but_nested_update_deploy_does_not(): void
@@ -55,6 +60,10 @@ final class WallboardMaintenanceDeploymentContractTest extends TestCase
         self::assertStringContainsString('0:0:644:1', $common);
         self::assertStringContainsString('require_user_can_open_file_for_reading', $common);
         self::assertStringContainsString('if [ "${DRY_RUN:-0}" = "1" ]; then', $common);
+        self::assertStringContainsString('dis:estimate-update-duration', $common);
+        self::assertStringContainsString('"version":2', $common);
+        self::assertStringContainsString('"estimated_duration_seconds":%s', $common);
+        self::assertStringContainsString('"estimated_completion_at":"%s"', $common);
 
         $complete = $this->functionBody($common, 'complete_deployment_maintenance()', 'stop_dis_deployment_services()');
         $backendUp = strpos($complete, 'prepare_backend_for_deployment_verification');
@@ -74,6 +83,11 @@ final class WallboardMaintenanceDeploymentContractTest extends TestCase
             $this->read('scripts/deploy.sh'),
             'deployment_exit_handler()',
             "trap 'deployment_exit_handler",
+        ));
+        self::assertStringNotContainsString('estimated_completion_at', $this->functionBody(
+            $common,
+            'clear_wallboard_maintenance_notice()',
+            'write_maintenance_page()',
         ));
     }
 

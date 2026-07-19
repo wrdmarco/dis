@@ -24,6 +24,10 @@ use Throwable;
 
 final class AdminController extends Controller
 {
+    private const INTERNAL_SETTING_KEYS = [
+        'system.update_duration_history',
+    ];
+
     private const SENSITIVE_SETTING_KEYS = [
         'drone.aeret_api_key',
         'mail.password',
@@ -240,6 +244,7 @@ final class AdminController extends Controller
     public function settings(): JsonResponse
     {
         $settings = SystemSetting::query()
+            ->whereNotIn('key', self::INTERNAL_SETTING_KEYS)
             ->orderBy('key')
             ->get()
             ->map(function (SystemSetting $setting): array {

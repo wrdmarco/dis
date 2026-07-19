@@ -21,11 +21,12 @@ import {
 import type {
   WallboardConfiguration,
   WallboardCustomNewsSource,
+  WallboardFlipDirection,
   WallboardFocusKind,
   WallboardMapConfiguration,
-  WallboardNewsItemTransition,
   WallboardNewsSource,
   WallboardPage,
+  WallboardPageTransition,
   WallboardPageType,
   WallboardTickerSource,
   WallboardTickerSourceType,
@@ -41,23 +42,33 @@ import {
   MAX_WALLBOARD_REFRESH_SECONDS,
   MAX_WALLBOARD_RSS_MAX_ITEMS,
   MAX_WALLBOARD_TICKER_SOURCES,
+  MAX_WALLBOARD_TRANSITION_DURATION_MS,
   MIN_WALLBOARD_FOCUS_DURATION_SECONDS,
   MIN_WALLBOARD_NEWS_MAX_ITEMS,
   MIN_WALLBOARD_NEWS_ITEM_DURATION_SECONDS,
   MIN_WALLBOARD_PAGE_DURATION_SECONDS,
   MIN_WALLBOARD_REFRESH_SECONDS,
   MIN_WALLBOARD_RSS_MAX_ITEMS,
+  MIN_WALLBOARD_TRANSITION_DURATION_MS,
+  DEFAULT_WALLBOARD_FLIP_DIRECTION,
+  DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
+  DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS,
+  WALLBOARD_FLIP_DIRECTIONS,
   WALLBOARD_NEWS_ITEM_TRANSITIONS,
+  WALLBOARD_PAGE_TRANSITIONS,
   clampWallboardFocusDuration,
   clampWallboardNewsMaxItems,
   clampWallboardNewsItemDuration,
   clampWallboardPageDuration,
   clampWallboardRssMaxItems,
+  clampWallboardTransitionDurationMs,
   createWallboardCustomNewsSource,
   createWallboardPage,
   createWallboardTickerSource,
   normalizeWallboardNewsSources,
   normalizeWallboardNewsItemTransition,
+  normalizeWallboardFlipDirection,
+  normalizeWallboardPageTransition,
   wallboardEffectivePageDuration,
   wallboardMessageContent,
   wallboardPageTypeLabel,
@@ -71,6 +82,17 @@ import {
 import { SecondsStepper } from './SecondsStepper';
 import { WallboardVideoInspectionControl } from './WallboardVideoInspectionControl';
 import { formatWallboardVideoDuration } from './wallboardVideoInspection';
+
+const MIN_WALLBOARD_TRANSITION_DURATION_SECONDS = MIN_WALLBOARD_TRANSITION_DURATION_MS / 1000;
+const MAX_WALLBOARD_TRANSITION_DURATION_SECONDS = MAX_WALLBOARD_TRANSITION_DURATION_MS / 1000;
+
+function transitionDurationSeconds(durationMs: unknown, fallbackMs: number): number {
+  return clampWallboardTransitionDurationMs(durationMs, fallbackMs) / 1000;
+}
+
+function transitionDurationMilliseconds(durationSeconds: number, fallbackMs: number): number {
+  return clampWallboardTransitionDurationMs(Math.round(durationSeconds * 1000), fallbackMs);
+}
 
 const MAP_OPTION_LABELS: Array<{ key: keyof WallboardMapConfiguration; label: string; help: string }> = [
   { key: 'show_active_incidents', label: 'Actieve incidenten', help: 'Toon open operationele meldingen.' },
@@ -152,6 +174,8 @@ export function WallboardConfigurationEditor({
   const photoPlaylistIds = photoPlaylists.playlists === null
     ? null
     : new Set(photoPlaylists.playlists.map((playlist) => playlist.id));
+  const globalPageTransition = normalizeWallboardPageTransition(configuration.page_transition);
+  const globalFlipDirection = normalizeWallboardFlipDirection(configuration.page_flip_direction);
 
   useEffect(() => {
     if (!configuration.pages.some((page) => page.id === editingPageId)) {
@@ -305,20 +329,63 @@ export function WallboardConfigurationEditor({
               <small>Iedere pagina blijft zichtbaar gedurende de ingestelde tijd.</small>
             </span>
           </label>
-          <label className="wallboard-switch-row">
-            <input
-              type="checkbox"
-              checked={configuration.page_fade_enabled}
-              onChange={(event) => setConfiguration((current) => ({
-                ...current,
-                page_fade_enabled: event.target.checked,
-              }))}
-            />
-            <span>
-              <strong>Paginaovergangen vervagen</strong>
-              <small>Laat iedere nieuwe playlistpagina rustig in beeld komen.</small>
-            </span>
+          <label>
+            <span>Globale paginaovergang</span>
+            <select
+              value={globalPageTransition}
+              onChange={(event) => {
+                const pageTransition = normalizeWallboardPageTransition(event.target.value);
+                setConfiguration((current) => ({
+                  ...current,
+                  page_transition: pageTransition,
+                  page_fade_enabled: pageTransition !== 'none',
+                }));
+              }}
+            >
+              {WALLBOARD_PAGE_TRANSITIONS.map((transition) => (
+                <option key={transition.value} value={transition.value}>{transition.label}</option>
+              ))}
+            </select>
+            <small>Standaard voor alle pagina’s zonder eigen overgang.</small>
           </label>
+          {globalPageTransition === 'flip' ? (
+            <label>
+              <span>Globale fliprichting</span>
+              <select
+                value={globalFlipDirection}
+                onChange={(event) => setConfiguration((current) => ({
+                  ...current,
+                  page_flip_direction: normalizeWallboardFlipDirection(event.target.value),
+                }))}
+              >
+                {WALLBOARD_FLIP_DIRECTIONS.map((direction) => (
+                  <option key={direction.value} value={direction.value}>{direction.label}</option>
+                ))}
+              </select>
+              <small>Standaard voor elke pagina die de globale flip gebruikt.</small>
+            </label>
+          ) : null}
+          <SecondsStepper
+            id={`${idPrefix}-page-transition-duration`}
+            label="Duur paginaovergang"
+            min={MIN_WALLBOARD_TRANSITION_DURATION_SECONDS}
+            max={MAX_WALLBOARD_TRANSITION_DURATION_SECONDS}
+            step={0.1}
+            value={transitionDurationSeconds(
+              configuration.page_transition_duration_ms,
+              DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS,
+            )}
+            disabled={globalPageTransition === 'none'}
+            onChange={(durationSeconds) => setConfiguration((current) => ({
+              ...current,
+              page_transition_duration_ms: transitionDurationMilliseconds(
+                durationSeconds,
+                DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS,
+              ),
+            }))}
+            description="Hoe lang de wisselanimatie tussen pagina’s duurt."
+            required={globalPageTransition !== 'none'}
+          />
         </div>
       </section>
 
@@ -513,7 +580,17 @@ export function WallboardConfigurationEditor({
           })}
         </ol>
 
-        <WallboardPageEditor page={editingPage} photoPlaylists={photoPlaylists} onChange={(next) => updatePage(editingPage.id, () => next)} />
+        <WallboardPageEditor
+          page={editingPage}
+          globalTransition={globalPageTransition}
+          globalTransitionDurationMs={clampWallboardTransitionDurationMs(
+            configuration.page_transition_duration_ms,
+            DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS,
+          )}
+          globalFlipDirection={globalFlipDirection}
+          photoPlaylists={photoPlaylists}
+          onChange={(next) => updatePage(editingPage.id, () => next)}
+        />
       </section>
 
       <section className="wallboard-focus-editor" aria-labelledby={`${idPrefix}-focus-title`}>
@@ -643,10 +720,16 @@ function WallboardFocusConfigurationCard({
 
 function WallboardPageEditor({
   page,
+  globalTransition,
+  globalTransitionDurationMs,
+  globalFlipDirection,
   photoPlaylists,
   onChange,
 }: {
   page: WallboardPage;
+  globalTransition: WallboardPageTransition;
+  globalTransitionDurationMs: number;
+  globalFlipDirection: WallboardFlipDirection;
   photoPlaylists: WallboardPhotoPlaylistSource;
   onChange: (page: WallboardPage) => void;
 }) {
@@ -655,6 +738,21 @@ function WallboardPageEditor({
   const totalNewsSources = selectedNewsSources.length + customNewsSources.length;
   const effectiveDurationSeconds = wallboardEffectivePageDuration(page);
   const videoDurationSeconds = wallboardVideoDurationFromOptions(page.options);
+  const pageTransition = page.transition === undefined
+    ? undefined
+    : normalizeWallboardPageTransition(page.transition);
+  const pageFlipDirection = page.flip_direction === undefined
+    ? globalFlipDirection
+    : normalizeWallboardFlipDirection(page.flip_direction);
+  const newsItemTransition = normalizeWallboardNewsItemTransition(page.options.item_transition);
+  const newsItemFlipDirection = normalizeWallboardFlipDirection(page.options.item_flip_direction);
+  const globalTransitionLabel = WALLBOARD_PAGE_TRANSITIONS.find(
+    (transition) => transition.value === globalTransition,
+  )?.label ?? globalTransition;
+  const globalTransitionDurationSeconds = transitionDurationSeconds(
+    globalTransitionDurationMs,
+    DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS,
+  ).toFixed(1).replace('.', ',');
 
   function updateType(type: WallboardPageType) {
     const previousDefaultTitle = wallboardPageTypeLabel(page.type);
@@ -671,6 +769,8 @@ function WallboardPageEditor({
             max_items: 6,
             item_duration_seconds: 12,
             item_transition: 'fade',
+            item_transition_duration_ms: DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
+            item_flip_direction: DEFAULT_WALLBOARD_FLIP_DIRECTION,
           }
           : type === 'video'
             ? {
@@ -682,6 +782,35 @@ function WallboardPageEditor({
           : {},
     };
     onChange({ ...nextPage, duration_seconds: wallboardEffectivePageDuration(nextPage) });
+  }
+
+  function updatePageTransition(value: string) {
+    if (value === '') {
+      const nextPage = { ...page };
+      delete nextPage.transition;
+      delete nextPage.transition_duration_ms;
+      delete nextPage.flip_direction;
+      onChange(nextPage);
+      return;
+    }
+
+    const transition = normalizeWallboardPageTransition(value);
+    const nextPage: WallboardPage = {
+      ...page,
+      transition,
+      transition_duration_ms: clampWallboardTransitionDurationMs(
+        page.transition_duration_ms,
+        globalTransitionDurationMs,
+      ),
+    };
+    if (transition === 'flip') {
+      nextPage.flip_direction = pageTransition === 'flip'
+        ? pageFlipDirection
+        : globalFlipDirection;
+    } else {
+      delete nextPage.flip_direction;
+    }
+    onChange(nextPage);
   }
 
   function updateNewsOptions(update: Partial<WallboardPage['options']>) {
@@ -791,6 +920,60 @@ function WallboardPageEditor({
               duration_seconds: clampWallboardPageDuration(durationSeconds),
             })}
             required
+          />
+        )}
+        <label>
+          <span>Overgang naar deze pagina</span>
+          <select
+            value={pageTransition ?? ''}
+            onChange={(event) => updatePageTransition(event.target.value)}
+          >
+            <option value="">Globale instelling</option>
+            {WALLBOARD_PAGE_TRANSITIONS.map((transition) => (
+              <option key={transition.value} value={transition.value}>{transition.label}</option>
+            ))}
+          </select>
+          <small>
+            {pageTransition === undefined
+              ? `Globaal: ${globalTransitionLabel}, ${globalTransitionDurationSeconds} sec.`
+              : 'Alleen deze pagina wijkt af van de globale instelling.'}
+          </small>
+        </label>
+        {pageTransition === 'flip' ? (
+          <label>
+            <span>Eigen fliprichting</span>
+            <select
+              value={pageFlipDirection}
+              onChange={(event) => onChange({
+                ...page,
+                flip_direction: normalizeWallboardFlipDirection(event.target.value),
+              })}
+            >
+              {WALLBOARD_FLIP_DIRECTIONS.map((direction) => (
+                <option key={direction.value} value={direction.value}>{direction.label}</option>
+              ))}
+            </select>
+            <small>Bepaalt de draairichting voor alleen deze pagina.</small>
+          </label>
+        ) : null}
+        {pageTransition === undefined ? null : (
+          <SecondsStepper
+            id={`wallboard-page-${page.id}-transition-duration`}
+            label="Eigen animatieduur"
+            min={MIN_WALLBOARD_TRANSITION_DURATION_SECONDS}
+            max={MAX_WALLBOARD_TRANSITION_DURATION_SECONDS}
+            step={0.1}
+            value={transitionDurationSeconds(page.transition_duration_ms, globalTransitionDurationMs)}
+            disabled={pageTransition === 'none'}
+            onChange={(durationSeconds) => onChange({
+              ...page,
+              transition_duration_ms: transitionDurationMilliseconds(
+                durationSeconds,
+                globalTransitionDurationMs,
+              ),
+            })}
+            description="Geldt alleen voor deze pagina."
+            required={pageTransition !== 'none'}
           />
         )}
       </div>
@@ -972,10 +1155,16 @@ function WallboardPageEditor({
           <label className="wallboard-news-editor__count">
             <span>Overgang tussen nieuwsberichten</span>
             <select
-              value={normalizeWallboardNewsItemTransition(page.options.item_transition)}
-              onChange={(event) => updateNewsOptions({
-                item_transition: event.target.value as WallboardNewsItemTransition,
-              })}
+              value={newsItemTransition}
+              onChange={(event) => {
+                const itemTransition = normalizeWallboardNewsItemTransition(event.target.value);
+                updateNewsOptions({
+                  item_transition: itemTransition,
+                  ...(itemTransition === 'flip'
+                    ? { item_flip_direction: newsItemFlipDirection }
+                    : {}),
+                });
+              }}
             >
               {WALLBOARD_NEWS_ITEM_TRANSITIONS.map((transition) => (
                 <option key={transition.value} value={transition.value}>{transition.label}</option>
@@ -983,6 +1172,43 @@ function WallboardPageEditor({
             </select>
             <small>Bij minder beweging vallen Schuiven, Flip, Zachte zoom en Wipe automatisch terug op een rustige dissolve.</small>
           </label>
+          {newsItemTransition === 'flip' ? (
+            <label className="wallboard-news-editor__count">
+              <span>Fliprichting nieuwsberichten</span>
+              <select
+                value={newsItemFlipDirection}
+                onChange={(event) => updateNewsOptions({
+                  item_flip_direction: normalizeWallboardFlipDirection(event.target.value),
+                })}
+              >
+                {WALLBOARD_FLIP_DIRECTIONS.map((direction) => (
+                  <option key={direction.value} value={direction.value}>{direction.label}</option>
+                ))}
+              </select>
+              <small>Bepaalt hoe ieder volgend nieuwsbericht omdraait.</small>
+            </label>
+          ) : null}
+          <SecondsStepper
+            className="wallboard-news-editor__count"
+            id={`wallboard-news-${page.id}-transition-duration`}
+            label="Duur nieuwsberichtovergang"
+            min={MIN_WALLBOARD_TRANSITION_DURATION_SECONDS}
+            max={MAX_WALLBOARD_TRANSITION_DURATION_SECONDS}
+            step={0.1}
+            value={transitionDurationSeconds(
+              page.options.item_transition_duration_ms,
+              DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
+            )}
+            disabled={newsItemTransition === 'none'}
+            onChange={(durationSeconds) => updateNewsOptions({
+              item_transition_duration_ms: transitionDurationMilliseconds(
+                durationSeconds,
+                DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
+              ),
+            })}
+            description="Hoe lang de wisselanimatie tussen twee nieuwsberichten duurt."
+            required={newsItemTransition !== 'none'}
+          />
         </fieldset>
       ) : (
         <div className="wallboard-page-editor__page-options">

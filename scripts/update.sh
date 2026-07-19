@@ -29,6 +29,7 @@ APP_UPDATES_AVAILABLE=0
 APP_UPSTREAM=""
 DEPLOYMENT_SERVICES_STOPPED=0
 UPDATE_MUTATION_STARTED=0
+UPDATE_ESTIMATED_DURATION_SECONDS=""
 UPDATE_PHASE="initialization"
 DIS_GIT_REMOTE_URL="${DIS_GIT_REMOTE_URL:-https://github.com/wrdmarco/dis.git}"
 DIS_GIT_BRANCH="${DIS_GIT_BRANCH:-main}"
@@ -680,7 +681,9 @@ require_dis_frontend_release_artifacts
 
 trap 'update_exit_handler "$?"' EXIT
 UPDATE_PHASE="notifying wallboards before update maintenance"
-announce_wallboard_maintenance update
+UPDATE_ESTIMATED_DURATION_SECONDS="$(estimate_update_duration_seconds "${UPDATE_SYSTEM}")"
+log "Estimated update duration: ${UPDATE_ESTIMATED_DURATION_SECONDS} seconds."
+announce_wallboard_maintenance update "${UPDATE_ESTIMATED_DURATION_SECONDS}"
 UPDATE_PHASE="enabling frontend maintenance"
 enable_frontend_maintenance
 # Mark the partial stop before the first systemd mutation. If a broker fails to

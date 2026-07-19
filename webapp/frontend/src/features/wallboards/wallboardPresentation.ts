@@ -5,11 +5,13 @@ import type {
   WallboardDisplayProfile,
   WallboardFocusConfiguration,
   WallboardFocusKind,
+  WallboardFlipDirection,
   WallboardMapConfiguration,
   WallboardNewsSource,
   WallboardNewsItemTransition,
   WallboardPage,
   WallboardPageOptions,
+  WallboardPageTransition,
   WallboardPageType,
   WallboardRichTextDocument,
   WallboardPilotAvailability,
@@ -59,8 +61,23 @@ export const MIN_WALLBOARD_NEWS_ITEM_DURATION_SECONDS = 5;
 export const MAX_WALLBOARD_NEWS_ITEM_DURATION_SECONDS = 300;
 export const DEFAULT_WALLBOARD_NEWS_ITEM_DURATION_SECONDS = 12;
 export const DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION: WallboardNewsItemTransition = 'fade';
-export const WALLBOARD_NEWS_ITEM_TRANSITIONS: ReadonlyArray<{
-  value: WallboardNewsItemTransition;
+export const MIN_WALLBOARD_TRANSITION_DURATION_MS = 100;
+export const MAX_WALLBOARD_TRANSITION_DURATION_MS = 5000;
+export const DEFAULT_WALLBOARD_PAGE_TRANSITION: WallboardPageTransition = 'fade';
+export const DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS = 320;
+export const DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS = 720;
+export const DEFAULT_WALLBOARD_FLIP_DIRECTION: WallboardFlipDirection = 'left_to_right';
+export const WALLBOARD_FLIP_DIRECTIONS: ReadonlyArray<{
+  value: WallboardFlipDirection;
+  label: string;
+}> = [
+  { value: 'left_to_right', label: 'Links → rechts' },
+  { value: 'top_to_bottom', label: 'Boven → onder' },
+  { value: 'bottom_to_top', label: 'Onder → boven' },
+  { value: 'random', label: 'Willekeurig' },
+];
+export const WALLBOARD_PAGE_TRANSITIONS: ReadonlyArray<{
+  value: WallboardPageTransition;
   label: string;
 }> = [
   { value: 'fade', label: 'Vervagen' },
@@ -71,6 +88,7 @@ export const WALLBOARD_NEWS_ITEM_TRANSITIONS: ReadonlyArray<{
   { value: 'wipe', label: 'Wipe' },
   { value: 'none', label: 'Direct wisselen' },
 ];
+export const WALLBOARD_NEWS_ITEM_TRANSITIONS = WALLBOARD_PAGE_TRANSITIONS;
 export const DEFAULT_WALLBOARD_NEWS_SOURCES: WallboardNewsSource[] = ['ndt', 'dronewatch'];
 export const MAX_WALLBOARD_CUSTOM_NEWS_SOURCES = 8;
 export const MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_LABEL_LENGTH = 80;
@@ -146,6 +164,9 @@ export const DEFAULT_WALLBOARD_CONFIGURATION: WallboardConfiguration = {
     options: {},
   }],
   rotation_enabled: true,
+  page_transition: DEFAULT_WALLBOARD_PAGE_TRANSITION,
+  page_transition_duration_ms: DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS,
+  page_flip_direction: DEFAULT_WALLBOARD_FLIP_DIRECTION,
   page_fade_enabled: true,
   incident_override: {
     enabled: false,
@@ -163,6 +184,9 @@ export function wallboardConfigurationCopy(configuration: WallboardConfiguration
   const legacyConfiguration = configuration as WallboardConfiguration & {
     pages?: WallboardPage[];
     rotation_enabled?: boolean;
+    page_transition?: WallboardPageTransition;
+    page_transition_duration_ms?: number;
+    page_flip_direction?: WallboardFlipDirection;
     page_fade_enabled?: boolean;
     incident_override?: WallboardConfiguration['incident_override'];
     focus?: Partial<WallboardFocusConfiguration>;
@@ -178,6 +202,10 @@ export function wallboardConfigurationCopy(configuration: WallboardConfiguration
   const overridePageId = pages.some((page) => page.id === requestedOverridePageId)
     ? requestedOverridePageId
     : pages[0].id;
+  const pageTransition = normalizeWallboardPageTransition(
+    legacyConfiguration.page_transition
+      ?? (legacyConfiguration.page_fade_enabled === false ? 'none' : DEFAULT_WALLBOARD_PAGE_TRANSITION),
+  );
 
   return {
     ...legacyConfiguration,
@@ -187,7 +215,13 @@ export function wallboardConfigurationCopy(configuration: WallboardConfiguration
     focus: wallboardFocusConfigurationCopy(legacyConfiguration.focus),
     pages,
     rotation_enabled: legacyConfiguration.rotation_enabled ?? true,
-    page_fade_enabled: legacyConfiguration.page_fade_enabled ?? true,
+    page_transition: pageTransition,
+    page_transition_duration_ms: clampWallboardTransitionDurationMs(
+      legacyConfiguration.page_transition_duration_ms,
+      DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS,
+    ),
+    page_flip_direction: normalizeWallboardFlipDirection(legacyConfiguration.page_flip_direction),
+    page_fade_enabled: pageTransition !== 'none',
     incident_override: {
       enabled: legacyConfiguration.incident_override?.enabled ?? false,
       page_id: overridePageId,
@@ -240,9 +274,67 @@ export function clampWallboardNewsItemDuration(value: number): number {
 }
 
 export function normalizeWallboardNewsItemTransition(value: unknown): WallboardNewsItemTransition {
-  return WALLBOARD_NEWS_ITEM_TRANSITIONS.some((transition) => transition.value === value)
+  return WALLBOARD_PAGE_TRANSITIONS.some((transition) => transition.value === value)
     ? value as WallboardNewsItemTransition
     : DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION;
+}
+
+export function normalizeWallboardPageTransition(value: unknown): WallboardPageTransition {
+  return WALLBOARD_PAGE_TRANSITIONS.some((transition) => transition.value === value)
+    ? value as WallboardPageTransition
+    : DEFAULT_WALLBOARD_PAGE_TRANSITION;
+}
+
+export function normalizeWallboardFlipDirection(value: unknown): WallboardFlipDirection {
+  return WALLBOARD_FLIP_DIRECTIONS.some((direction) => direction.value === value)
+    ? value as WallboardFlipDirection
+    : DEFAULT_WALLBOARD_FLIP_DIRECTION;
+}
+
+export type WallboardResolvedFlipDirection = Exclude<WallboardFlipDirection, 'random'>;
+
+export function resolveWallboardFlipDirection(
+  value: unknown,
+  transitionKey: string | number,
+): WallboardResolvedFlipDirection {
+  const direction = normalizeWallboardFlipDirection(value);
+  if (direction !== 'random') return direction;
+
+  const choices: WallboardResolvedFlipDirection[] = ['left_to_right', 'top_to_bottom', 'bottom_to_top'];
+  const hash = String(transitionKey).split('').reduce(
+    (current, character) => Math.imul(current ^ character.charCodeAt(0), 16777619) >>> 0,
+    2166136261,
+  );
+  return choices[hash % choices.length];
+}
+
+export function clampWallboardTransitionDurationMs(
+  value: unknown,
+  fallback = DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS,
+): number {
+  const duration = typeof value === 'number' ? value : Number.NaN;
+  if (!Number.isFinite(duration)) return fallback;
+  return Math.min(
+    MAX_WALLBOARD_TRANSITION_DURATION_MS,
+    Math.max(MIN_WALLBOARD_TRANSITION_DURATION_MS, Math.round(duration)),
+  );
+}
+
+export function wallboardEffectivePageTransition(
+  configuration: Pick<WallboardConfiguration, 'page_transition' | 'page_transition_duration_ms' | 'page_flip_direction'>,
+  page: Pick<WallboardPage, 'transition' | 'transition_duration_ms' | 'flip_direction'>,
+): { transition: WallboardPageTransition; durationMs: number; flipDirection: WallboardFlipDirection } {
+  return {
+    transition: page.transition === undefined
+      ? normalizeWallboardPageTransition(configuration.page_transition)
+      : normalizeWallboardPageTransition(page.transition),
+    durationMs: page.transition_duration_ms === undefined
+      ? clampWallboardTransitionDurationMs(configuration.page_transition_duration_ms)
+      : clampWallboardTransitionDurationMs(page.transition_duration_ms),
+    flipDirection: page.flip_direction === undefined
+      ? normalizeWallboardFlipDirection(configuration.page_flip_direction)
+      : normalizeWallboardFlipDirection(page.flip_direction),
+  };
 }
 
 export function wallboardEffectivePageDuration(page: Pick<WallboardPage, 'type' | 'duration_seconds' | 'options'>): number {
@@ -362,6 +454,8 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
           max_items: DEFAULT_WALLBOARD_NEWS_MAX_ITEMS,
           item_duration_seconds: DEFAULT_WALLBOARD_NEWS_ITEM_DURATION_SECONDS,
           item_transition: DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION,
+          item_transition_duration_ms: DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
+          item_flip_direction: DEFAULT_WALLBOARD_FLIP_DIRECTION,
         }
         : type === 'video'
           ? { url: '' }
@@ -599,6 +693,15 @@ function normalizeWallboardPage(
     type,
     name,
     duration_seconds: page.duration_seconds,
+    ...(WALLBOARD_PAGE_TRANSITIONS.some((transition) => transition.value === page.transition)
+      ? { transition: page.transition }
+      : {}),
+    ...(typeof page.transition_duration_ms === 'number' && Number.isFinite(page.transition_duration_ms)
+      ? { transition_duration_ms: clampWallboardTransitionDurationMs(page.transition_duration_ms) }
+      : {}),
+    ...(page.flip_direction === undefined
+      ? {}
+      : { flip_direction: normalizeWallboardFlipDirection(page.flip_direction) }),
     options: type === 'message'
       ? { content: wallboardMessageContent(page.options ?? {}) }
       : type === 'news'
@@ -727,6 +830,11 @@ function normalizeWallboardNewsPageOptions(page: WallboardPage): WallboardPage['
     max_items: clampWallboardNewsMaxItems(Number(page.options?.max_items)),
     item_duration_seconds: clampWallboardNewsItemDuration(Number(page.options?.item_duration_seconds)),
     item_transition: normalizeWallboardNewsItemTransition(page.options?.item_transition),
+    item_transition_duration_ms: clampWallboardTransitionDurationMs(
+      page.options?.item_transition_duration_ms,
+      DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
+    ),
+    item_flip_direction: normalizeWallboardFlipDirection(page.options?.item_flip_direction),
   };
 }
 

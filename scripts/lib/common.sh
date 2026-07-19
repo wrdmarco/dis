@@ -347,7 +347,7 @@ EOF
 write_wallboard_maintenance_notice() (
   set -euo pipefail
 
-  local kind="$1" directory temporary="" started_at expires_at metadata
+  local kind="$1" estimated_duration_seconds="${2:-}" directory temporary="" started_epoch started_at estimated_completion_at expires_at metadata
   case "${kind}" in
     update|maintenance) ;;
     *) fail "Unsupported wallboard maintenance notice kind: ${kind}" ;;
@@ -360,12 +360,20 @@ write_wallboard_maintenance_notice() (
     return 0
   fi
 
-  started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  expires_at="$(date -u -d "+${WALLBOARD_MAINTENANCE_NOTICE_TTL_SECONDS} seconds" +%Y-%m-%dT%H:%M:%SZ)"
+  started_epoch="$(date -u +%s)"
+  started_at="$(date -u -d "@${started_epoch}" +%Y-%m-%dT%H:%M:%SZ)"
+  expires_at="$(date -u -d "@$((started_epoch + WALLBOARD_MAINTENANCE_NOTICE_TTL_SECONDS))" +%Y-%m-%dT%H:%M:%SZ)"
   temporary="$(mktemp "${directory}/.wallboard-status.XXXXXX")"
   trap 'rm -f -- "${temporary}" 2>/dev/null || true' EXIT
-  printf '{"version":1,"active":true,"kind":"%s","started_at":"%s","expires_at":"%s"}\n' \
-    "${kind}" "${started_at}" "${expires_at}" > "${temporary}"
+  if [ "${kind}" = "update" ] && [[ "${estimated_duration_seconds}" =~ ^[0-9]+$ ]] \
+    && [ "${estimated_duration_seconds}" -ge 180 ] && [ "${estimated_duration_seconds}" -le 2700 ]; then
+    estimated_completion_at="$(date -u -d "@$((started_epoch + estimated_duration_seconds))" +%Y-%m-%dT%H:%M:%SZ)"
+    printf '{"version":2,"active":true,"kind":"%s","started_at":"%s","estimated_duration_seconds":%s,"estimated_completion_at":"%s","expires_at":"%s"}\n' \
+      "${kind}" "${started_at}" "${estimated_duration_seconds}" "${estimated_completion_at}" "${expires_at}" > "${temporary}"
+  else
+    printf '{"version":1,"active":true,"kind":"%s","started_at":"%s","expires_at":"%s"}\n' \
+      "${kind}" "${started_at}" "${expires_at}" > "${temporary}"
+  fi
   run_cmd chown root:root "${temporary}"
   run_cmd chmod 0644 "${temporary}"
   run_cmd mv -fT -- "${temporary}" "${WALLBOARD_MAINTENANCE_NOTICE_PATH}"
@@ -383,15 +391,45 @@ write_wallboard_maintenance_notice() (
 
 announce_wallboard_maintenance() {
   local kind="$1"
+  local estimated_duration_seconds="${2:-}"
 
   log "Publishing maintenance notice to paired wallboards before service interruption"
-  write_wallboard_maintenance_notice "${kind}"
+  write_wallboard_maintenance_notice "${kind}" "${estimated_duration_seconds}"
   if [ "${DRY_RUN:-0}" = "1" ]; then
     log "Would wait ${WALLBOARD_MAINTENANCE_NOTICE_SECONDS} seconds for wallboard control polls."
     return 0
   fi
   sleep "${WALLBOARD_MAINTENANCE_NOTICE_SECONDS}"
 }
+
+estimate_update_duration_seconds() (
+  set +e
+
+  local includes_system_updates="$1" backend_dir estimate fallback option=""
+  backend_dir="${DIS_INSTALL_PATH}/webapp/backend"
+  if [ "${includes_system_updates}" = "1" ]; then
+    fallback=1500
+    option="--system"
+  else
+    fallback=900
+  fi
+
+  if [ ! -f "${backend_dir}/artisan" ]; then
+    printf '%s\n' "${fallback}"
+    return 0
+  fi
+
+  if [ -n "${option}" ]; then
+    estimate="$(runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" dis:estimate-update-duration "${option}" 2>/dev/null | tail -n 1)"
+  else
+    estimate="$(runuser -u "${DIS_USER}" -- php "${backend_dir}/artisan" dis:estimate-update-duration 2>/dev/null | tail -n 1)"
+  fi
+  if [[ ! "${estimate}" =~ ^[0-9]+$ ]] || [ "${estimate}" -lt 180 ] || [ "${estimate}" -gt 2700 ]; then
+    estimate="${fallback}"
+  fi
+
+  printf '%s\n' "${estimate}"
+)
 
 clear_wallboard_maintenance_notice() {
   local metadata
