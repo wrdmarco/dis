@@ -2,7 +2,6 @@ import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react
 import Link from 'next/link';
 import {
   AlertTriangle,
-  ExternalLink,
   Eye,
   KeyRound,
   Library,
@@ -146,9 +145,6 @@ export function WallboardsAdminPage() {
           <Link className="primary-button" href="/wallboards/new">
             <Plus size={17} aria-hidden /> Scherm toevoegen
           </Link>
-          <a className="secondary-button" href="/wallboard" target="_blank" rel="noreferrer">
-            <ExternalLink size={17} aria-hidden /> Scherm openen
-          </a>
         </div>
       </header>
 
