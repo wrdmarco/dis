@@ -93,6 +93,7 @@ final class WallboardNewsServiceTest extends TestCase
             self::NDT_FEED_PAGE_TWO => Http::response($this->feed([]), 200, ['Content-Type' => 'application/rss+xml']),
             $firstUrl => Http::response($this->ndtDetail(
                 'Na een <strong>intensieve zoekactie</strong> heeft het team de inzet zorgvuldig afgerond. <script>geheime code</script>',
+                'https://nationaaldroneteam.nl/uploads/eerste.jpg',
             ), 200, ['Content-Type' => 'text/html; charset=UTF-8']),
             $secondUrl => Http::response($this->ndtDetail(
                 'Het Nationaal Drone Team trainde communicatie en samenwerking tijdens een realistisch scenario.',
@@ -109,6 +110,11 @@ final class WallboardNewsServiceTest extends TestCase
         );
         $this->assertStringNotContainsString('script', implode(' ', array_column($news['items'], 'excerpt')));
         $this->assertStringNotContainsString('geheime code', implode(' ', array_column($news['items'], 'excerpt')));
+        $this->assertMatchesRegularExpression(
+            '#^/api/wallboard/news-images/[a-f0-9]{64}$#',
+            (string) $news['items'][0]['image_url'],
+        );
+        $this->assertStringNotContainsString('nationaaldroneteam.nl/uploads', json_encode($news, JSON_THROW_ON_ERROR));
         Http::assertNotSent(fn (Request $request): bool => $request->url() === $thirdUrl);
     }
 
@@ -262,7 +268,61 @@ final class WallboardNewsServiceTest extends TestCase
         $this->assertSame('eigen_nieuws', $news['items'][0]['source_id']);
         $this->assertSame('Eigen nieuws', $news['items'][0]['source_label']);
         $this->assertSame('Inhoud van de eigen RSS-bron.', $news['items'][0]['excerpt']);
+        $this->assertMatchesRegularExpression('#^/api/wallboard/news-images/[a-f0-9]{64}$#', (string) $news['items'][0]['image_url']);
+        $this->assertStringNotContainsString('news.example.org/beeld.jpg', json_encode($news, JSON_THROW_ON_ERROR));
         Http::assertSentCount(1);
+    }
+
+    public function test_image_proxy_fetches_only_registered_same_origin_raster_images(): void
+    {
+        $imageUrl = 'https://news.example.org/images/article.png';
+        $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true);
+        $this->assertIsString($png);
+        Http::fake([
+            self::CUSTOM_FEED => Http::response(
+                '<?xml version="1.0"?><rss xmlns:media="http://search.yahoo.com/mrss/"><channel><item>'
+                .'<title>Nieuws met beeld</title><link>https://news.example.org/drone/met-beeld</link>'
+                .'<pubDate>Sun, 19 Jul 2026 09:45:00 +0000</pubDate>'
+                .'<media:content url="'.$imageUrl.'" type="image/png" />'
+                .'</item></channel></rss>',
+                200,
+                ['Content-Type' => 'application/rss+xml'],
+            ),
+            $imageUrl => Http::response($png, 200, ['Content-Type' => 'image/png']),
+        ]);
+        $service = $this->service();
+        $custom = [['id' => 'eigen', 'label' => 'Eigen', 'url' => self::CUSTOM_FEED]];
+
+        $item = $service->pages([$this->page('custom', [], 4, $custom)])['pages']['custom']['items'][0];
+        $this->assertMatchesRegularExpression('#^/api/wallboard/news-images/([a-f0-9]{64})$#', (string) $item['image_url']);
+        preg_match('#([a-f0-9]{64})$#', (string) $item['image_url'], $matches);
+        $image = $service->image($matches[1]);
+
+        $this->assertSame('image/png', $image['content_type'] ?? null);
+        $this->assertSame($png, $image['body'] ?? null);
+        $this->assertNull($service->image(str_repeat('0', 64)));
+        Http::assertSent(fn (Request $request): bool => $request->url() === $imageUrl);
+    }
+
+    public function test_cross_origin_or_non_raster_images_are_never_exposed(): void
+    {
+        Http::fake([
+            self::CUSTOM_FEED => Http::response(
+                '<?xml version="1.0"?><rss xmlns:media="http://search.yahoo.com/mrss/"><channel><item>'
+                .'<title>Nieuws zonder veilig beeld</title><link>https://news.example.org/drone/zonder-beeld</link>'
+                .'<pubDate>Sun, 19 Jul 2026 09:45:00 +0000</pubDate>'
+                .'<media:content url="https://attacker.example/internal.svg" type="image/svg+xml" />'
+                .'</item></channel></rss>',
+                200,
+                ['Content-Type' => 'application/rss+xml'],
+            ),
+        ]);
+        $custom = [['id' => 'eigen', 'label' => 'Eigen', 'url' => self::CUSTOM_FEED]];
+
+        $item = $this->service()->pages([$this->page('custom', [], 4, $custom)])['pages']['custom']['items'][0];
+
+        $this->assertNull($item['image_url']);
+        $this->assertStringNotContainsString('attacker.example', json_encode($item, JSON_THROW_ON_ERROR));
     }
 
     public function test_custom_feed_rejects_private_dns_and_never_sends_the_request(): void
@@ -412,9 +472,13 @@ final class WallboardNewsServiceTest extends TestCase
             .'<description><![CDATA['.$description.']]></description></item>';
     }
 
-    private function ndtDetail(string $paragraph): string
+    private function ndtDetail(string $paragraph, ?string $imageUrl = null): string
     {
-        return '<!doctype html><html><body><main><p class="dmach-acf-value">'.$paragraph.'</p>'
+        $head = $imageUrl === null
+            ? ''
+            : '<head><meta property="og:image" content="'.htmlspecialchars($imageUrl, ENT_QUOTES, 'UTF-8').'"></head>';
+
+        return '<!doctype html><html>'.$head.'<body><main><p class="dmach-acf-value">'.$paragraph.'</p>'
             .'<p class="dmach-acf-value">Tweede alinea die niet volledig op het wallboard hoeft te worden gereproduceerd.</p>'
             .'</main></body></html>';
     }

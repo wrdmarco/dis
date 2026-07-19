@@ -52,6 +52,9 @@ Route::post('/wallboard/pairing/start', [WallboardPairingController::class, 'sta
 Route::post('/wallboard/pairing/status', [WallboardPairingController::class, 'status'])->middleware('throttle:wallboard-pairing-status');
 Route::get('/wallboard/state', [WallboardController::class, 'state'])->middleware(['wallboard.auth', 'throttle:wallboard-read']);
 Route::get('/wallboard/control', [WallboardController::class, 'control'])->middleware(['wallboard.auth', 'throttle:wallboard-control']);
+Route::get('/wallboard/news-images/{image}', [WallboardController::class, 'newsImage'])
+    ->where('image', '[a-f0-9]{64}')
+    ->middleware(['wallboard.auth', 'throttle:wallboard-read']);
 Route::post('/auth/mobile-pairing/consume', [MobilePairingController::class, 'consume'])->middleware('throttle:mobile-pairing');
 Route::post('/auth/password/forgot', [PasswordController::class, 'forgot'])->middleware('throttle:password-reset');
 Route::post('/auth/password/reset', [PasswordController::class, 'reset'])->middleware('throttle:password-reset');

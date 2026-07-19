@@ -30,6 +30,7 @@ final class WallboardNewsConfigurationTest extends TestCase
             'sources' => ['ndt', 'dronewatch'],
             'custom_sources' => [],
             'max_items' => 6,
+            'item_duration_seconds' => 12,
         ], $configuration['pages'][0]['options']);
     }
 
@@ -134,6 +135,24 @@ final class WallboardNewsConfigurationTest extends TestCase
             'max_items' => '6',
         ], 'configuration.pages.0.options.max_items'];
 
+        yield 'berichtduur te laag' => [[
+            'sources' => ['ndt'],
+            'max_items' => 6,
+            'item_duration_seconds' => 4,
+        ], 'configuration.pages.0.options.item_duration_seconds'];
+
+        yield 'berichtduur te hoog' => [[
+            'sources' => ['ndt'],
+            'max_items' => 6,
+            'item_duration_seconds' => 301,
+        ], 'configuration.pages.0.options.item_duration_seconds'];
+
+        yield 'berichtduur is geen strict integer' => [[
+            'sources' => ['ndt'],
+            'max_items' => 6,
+            'item_duration_seconds' => '12',
+        ], 'configuration.pages.0.options.item_duration_seconds'];
+
         yield 'onbekende optie' => [[
             'sources' => ['ndt'],
             'max_items' => 6,
@@ -173,12 +192,15 @@ final class WallboardNewsConfigurationTest extends TestCase
 
     public function test_update_request_accepts_news_options_and_requires_existing_version_contract(): void
     {
+        $page = $this->page(['dronewatch'], 4);
+        $page['options']['item_duration_seconds'] = 18;
         $validated = $this->validateRequest(new UpdateWallboardRequest, [
             'expected_config_version' => 3,
-            'configuration' => ['pages' => [$this->page(['dronewatch'], 4)]],
+            'configuration' => ['pages' => [$page]],
         ]);
 
         $this->assertSame(4, $validated['configuration']['pages'][0]['options']['max_items']);
+        $this->assertSame(18, $validated['configuration']['pages'][0]['options']['item_duration_seconds']);
     }
 
     /** @return array<string, mixed> */

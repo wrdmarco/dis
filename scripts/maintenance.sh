@@ -16,6 +16,7 @@ ensure_data_links "${APP_ROOT}"
 case "${ACTION}" in
   enable)
     require_file "${BACKEND_DIR}/artisan"
+    announce_wallboard_maintenance maintenance
     enable_deployment_maintenance "${BACKEND_DIR}"
     ;;
   disable)

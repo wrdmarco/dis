@@ -271,6 +271,7 @@ export interface WallboardPageOptions {
   sources?: WallboardNewsSource[];
   custom_sources?: WallboardCustomNewsSource[];
   max_items?: number;
+  item_duration_seconds?: number;
 }
 
 export interface WallboardPage {
@@ -336,6 +337,7 @@ export interface WallboardNewsItem {
   title: string;
   excerpt: string;
   url: string;
+  image_url?: string | null;
   published_at: string;
 }
 
@@ -508,6 +510,15 @@ export interface WallboardTransientAlert {
   is_test: boolean;
 }
 
+export interface WallboardMaintenanceNotice {
+  active: true;
+  kind: 'update' | 'maintenance';
+  title: string;
+  message: string;
+  started_at: string;
+  expires_at: string;
+}
+
 export type WallboardFocusResponseStatus = 'pending' | 'accepted' | 'declined' | 'no_response';
 
 export interface WallboardFocusResponseCounts {
@@ -557,6 +568,7 @@ export interface WallboardOperationalSummary {
 
 export interface WallboardState {
   generated_at: string;
+  maintenance?: WallboardMaintenanceNotice | null;
   wallboard: Pick<Wallboard, 'id' | 'name' | 'layout' | 'display_profile' | 'configuration' | 'config_version' | 'control_version' | 'refresh_version' | 'display' | 'updated_at'>;
   map: {
     incidents: WallboardStateIncident[];
@@ -573,6 +585,7 @@ export interface WallboardState {
 
 export interface WallboardControlState {
   generated_at?: string;
+  maintenance?: WallboardMaintenanceNotice | null;
   config_version: number;
   control_version: number;
   refresh_version: number;

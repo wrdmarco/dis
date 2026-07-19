@@ -91,6 +91,7 @@ export function WallboardPlaylistPreview({
                 Maximaal {selectedPage.options.max_items ?? 6} berichten uit de laatste 7 dagen en
                 {' '}{(selectedPage.options.sources ?? ['ndt', 'dronewatch']).length
                   + (selectedPage.options.custom_sources ?? []).length} vaste en eigen bron(nen) samen.
+                Elk bericht blijft {selectedPage.options.item_duration_seconds ?? 12} seconden zichtbaar en wisselt daarna vloeiend.
                 Is die periode leeg, dan volgen de laatste publicaties met samenvatting.
               </p>
             ) : (

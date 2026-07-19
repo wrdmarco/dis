@@ -679,6 +679,8 @@ log "Preflighting the current frontend release before deployment maintenance"
 require_dis_frontend_release_artifacts
 
 trap 'update_exit_handler "$?"' EXIT
+UPDATE_PHASE="notifying wallboards before update maintenance"
+announce_wallboard_maintenance update
 UPDATE_PHASE="enabling frontend maintenance"
 enable_frontend_maintenance
 # Mark the partial stop before the first systemd mutation. If a broker fails to

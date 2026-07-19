@@ -58,7 +58,7 @@ final class StoreWallboardRequest extends FormRequest
             'configuration.pages.*.name' => ['required', 'string', 'max:120'],
             'configuration.pages.*.type' => ['required', 'string', Rule::in(WallboardConfiguration::PAGE_TYPES)],
             'configuration.pages.*.duration_seconds' => ['required', 'integer', 'between:5,3600'],
-            'configuration.pages.*.options' => ['sometimes', 'array:body,show_test_incidents,sources,custom_sources,max_items'],
+            'configuration.pages.*.options' => ['sometimes', 'array:body,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds'],
             'configuration.pages.*.options.body' => ['sometimes', 'string', 'max:2000'],
             'configuration.pages.*.options.show_test_incidents' => ['sometimes', 'boolean'],
             'configuration.pages.*.options.sources' => ['sometimes', 'array', 'max:'.count(WallboardConfiguration::NEWS_SOURCES)],
@@ -69,6 +69,7 @@ final class StoreWallboardRequest extends FormRequest
             'configuration.pages.*.options.custom_sources.*.label' => ['required', 'string', 'max:'.WallboardConfiguration::MAX_NEWS_CUSTOM_SOURCE_LABEL_LENGTH],
             'configuration.pages.*.options.custom_sources.*.url' => ['required', 'string', 'max:'.WallboardConfiguration::MAX_NEWS_CUSTOM_SOURCE_URL_LENGTH],
             'configuration.pages.*.options.max_items' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_NEWS_MAX_ITEMS.','.WallboardConfiguration::MAX_NEWS_MAX_ITEMS],
+            'configuration.pages.*.options.item_duration_seconds' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_NEWS_ITEM_DURATION_SECONDS.','.WallboardConfiguration::MAX_NEWS_ITEM_DURATION_SECONDS],
             'configuration.focus' => ['sometimes', 'array:preannouncement,real_alarm,test_alarm'],
             'configuration.focus.preannouncement' => ['sometimes', 'array:enabled,duration_seconds,show_response_feed'],
             'configuration.focus.real_alarm' => ['sometimes', 'array:enabled,duration_seconds,show_response_feed'],
@@ -121,7 +122,7 @@ final class StoreWallboardRequest extends FormRequest
             $allowedKeys = match ($type) {
                 'message' => ['body'],
                 'incident_list', 'summary' => ['show_test_incidents'],
-                'news' => ['sources', 'custom_sources', 'max_items'],
+                'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds'],
                 'map' => [],
                 default => array_keys($options),
             };

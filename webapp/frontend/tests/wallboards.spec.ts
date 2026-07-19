@@ -11,11 +11,14 @@ import type {
 } from '../src/types/api';
 import {
   formatWallboardClock,
+  normalizeWallboardMaintenanceNotice,
   normalizeWallboardNewsState,
   normalizeWallboardState,
   stabilizeWallboardRotationDeadline,
   wallboardFocusPilotCounts,
+  wallboardMaintenanceNoticeIsActive,
   wallboardRefreshDecision,
+  wallboardNewsCarouselIndex,
   wallboardTickerIsVisible,
 } from '../src/features/wallboards/WallboardDisplayPage';
 import {
@@ -25,6 +28,7 @@ import {
   clampWallboardFocusDuration,
   clampWallboardPageDuration,
   clampWallboardNewsMaxItems,
+  clampWallboardNewsItemDuration,
   clampWallboardRssMaxItems,
   countActiveOperationalWallboardIncidents,
   createWallboardCustomNewsSource,
@@ -326,11 +330,19 @@ test('bounds page timing and builds typed pages without executable message marku
   expect(news).toMatchObject({
     type: 'news',
     name: 'Dronenieuws',
-    options: { sources: ['ndt', 'dronewatch'], custom_sources: [], max_items: 6 },
+    options: { sources: ['ndt', 'dronewatch'], custom_sources: [], max_items: 6, item_duration_seconds: 12 },
   });
   expect(clampWallboardNewsMaxItems(0)).toBe(1);
   expect(clampWallboardNewsMaxItems(99)).toBe(12);
   expect(clampWallboardNewsMaxItems(Number.NaN)).toBe(6);
+  expect(clampWallboardNewsItemDuration(1)).toBe(5);
+  expect(clampWallboardNewsItemDuration(600)).toBe(300);
+  expect(clampWallboardNewsItemDuration(Number.NaN)).toBe(12);
+  expect(wallboardNewsCarouselIndex(12, 10, 0)).toBe(0);
+  expect(wallboardNewsCarouselIndex(12, 10, 9_999)).toBe(0);
+  expect(wallboardNewsCarouselIndex(12, 10, 10_000)).toBe(1);
+  expect(wallboardNewsCarouselIndex(12, 10, 120_000)).toBe(0);
+  expect(wallboardNewsCarouselIndex(0, 10, 120_000)).toBe(0);
   expect(normalizeWallboardNewsSources(['dronewatch', 'dronewatch', 'unknown'])).toEqual(['dronewatch']);
   expect(normalizeWallboardNewsSources([])).toEqual(['ndt', 'dronewatch']);
   expect(normalizeWallboardNewsSources([], true)).toEqual([]);
@@ -360,14 +372,38 @@ test('normalizes up to eight safe custom RSS news sources and supports a custom-
       type: 'news',
       name: 'Eigen nieuws',
       duration_seconds: 30,
-      options: { sources: [], custom_sources: customSources, max_items: 4 },
+      options: { sources: [], custom_sources: customSources, max_items: 4, item_duration_seconds: 18 },
     }],
   });
   expect(configuration.pages[0].options).toEqual({
     sources: [],
     custom_sources: customSources,
     max_items: 4,
+    item_duration_seconds: 18,
   });
+  expect(configuration.pages[0].type).toBe('news');
+});
+
+test('never normalizes or renders a drone-news page as the operational map', () => {
+  const normalized = wallboardConfigurationCopy({
+    ...DEFAULT_WALLBOARD_CONFIGURATION,
+    pages: [{
+      id: 'drone-news',
+      type: 'news',
+      name: 'Drone nieuws',
+      duration_seconds: 30,
+      options: { sources: ['ndt', 'dronewatch'], custom_sources: [], max_items: 6 },
+    }],
+  });
+  expect(normalized.pages[0]).toMatchObject({ id: 'drone-news', type: 'news', name: 'Drone nieuws' });
+
+  const kiosk = readFileSync(new URL('../src/features/wallboards/WallboardDisplayPage.tsx', import.meta.url), 'utf8');
+  const newsBranch = kiosk.indexOf("if (page.type === 'news')");
+  const mapCanvas = kiosk.indexOf('<OperationalMapCanvas', newsBranch);
+  expect(newsBranch).toBeGreaterThan(-1);
+  expect(mapCanvas).toBeGreaterThan(newsBranch);
+  expect(kiosk.slice(newsBranch, mapCanvas)).toContain('<WallboardNewsPage');
+  expect(kiosk.slice(newsBranch, mapCanvas)).toContain('state.news.pages[page.id]');
 });
 
 test('normalizes page-scoped news content and rejects unsafe article links', () => {
@@ -386,6 +422,7 @@ test('normalizes page-scoped news content and rejects unsafe article links', () 
             title: ' Nieuwe Europese droneontwikkelingen ',
             excerpt: 'Een inhoudelijke samenvatting voor het wallboard.',
             url: 'https://www.dronewatch.nl/nieuwsbericht/',
+            image_url: '/api/wallboard/news-images/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
             published_at: '2026-07-18T08:00:00Z',
           },
           {
@@ -406,6 +443,7 @@ test('normalizes page-scoped news content and rejects unsafe article links', () 
             title: 'Nieuwe Europese luchtruimregels',
             excerpt: 'Samenvatting uit een eigen RSS-bron.',
             url: 'https://voorbeeld.nl/nieuws/europese-regels',
+            image_url: 'https://tracking.example.org/raw-image.jpg',
             published_at: '2026-07-17T08:00:00Z',
           },
           {
@@ -430,11 +468,13 @@ test('normalizes page-scoped news content and rejects unsafe article links', () 
     source_id: 'dronewatch',
     title: 'Nieuwe Europese droneontwikkelingen',
     url: 'https://www.dronewatch.nl/nieuwsbericht/',
+    image_url: '/api/wallboard/news-images/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   });
   expect(normalized.pages['news-main'].items[1]).toMatchObject({
     source: 'custom',
     source_id: 'luchtvaart',
     source_label: 'Luchtvaartnieuws',
+    image_url: null,
   });
   expect(normalizeWallboardState({ ...stateFixture(), news: undefined as never }).news).toEqual({ pages: {}, generated_at: '' });
 });
@@ -569,6 +609,76 @@ test('does not postpone a rotation deadline within the same active server phase'
     repeatedPoll,
     Date.parse('2026-07-19T10:00:06Z'),
   ).display.next_change_at).toBe('2026-07-19T10:00:07Z');
+});
+
+test('accepts only bounded active wallboard maintenance notices and expires them locally', () => {
+  const notice = {
+    active: true,
+    kind: 'update',
+    title: ' D.I.S. wordt bijgewerkt ',
+    message: ' Het wallboard herstelt automatisch. ',
+    started_at: '2026-07-19T10:00:00Z',
+    expires_at: '2026-07-19T15:59:59Z',
+  };
+
+  expect(normalizeWallboardMaintenanceNotice(notice)).toEqual({
+    ...notice,
+    title: 'D.I.S. wordt bijgewerkt',
+    message: 'Het wallboard herstelt automatisch.',
+  });
+  expect(wallboardMaintenanceNoticeIsActive(notice, Date.parse('2026-07-19T12:00:00Z'))).toBe(true);
+  expect(wallboardMaintenanceNoticeIsActive(notice, Date.parse(notice.expires_at))).toBe(false);
+  expect(normalizeWallboardMaintenanceNotice({ ...notice, active: false })).toBeNull();
+  expect(normalizeWallboardMaintenanceNotice({ ...notice, kind: 'deploy' })).toBeNull();
+  expect(normalizeWallboardMaintenanceNotice({ ...notice, expires_at: notice.started_at })).toBeNull();
+  expect(normalizeWallboardMaintenanceNotice({ ...notice, expires_at: '2026-07-19T16:00:01Z' })).toBeNull();
+  expect(normalizeWallboardMaintenanceNotice({ ...notice, started_at: 'ongeldig' })).toBeNull();
+});
+
+test('keeps maintenance state authoritative when state and control responses arrive out of order', () => {
+  const current: WallboardControlState = {
+    generated_at: '2026-07-19T10:00:05Z',
+    maintenance: {
+      active: true,
+      kind: 'update',
+      title: 'D.I.S. wordt bijgewerkt',
+      message: 'Het wallboard herstelt automatisch.',
+      started_at: '2026-07-19T10:00:00Z',
+      expires_at: '2026-07-19T16:00:00Z',
+    },
+    config_version: 4,
+    control_version: 7,
+    refresh_version: 2,
+    display_profile: 'auto',
+    transient_alert: null,
+    display: {
+      mode: 'static',
+      page_id: 'map-overview',
+      incident_active: false,
+      next_change_at: null,
+    },
+  };
+  const olderWithoutMaintenance: WallboardControlState = {
+    ...current,
+    generated_at: '2026-07-19T10:00:01Z',
+    maintenance: null,
+  };
+
+  expect(stabilizeWallboardRotationDeadline(current, olderWithoutMaintenance, now).maintenance)
+    .toEqual(current.maintenance);
+  expect(stabilizeWallboardRotationDeadline(
+    { ...current, maintenance: null },
+    { ...olderWithoutMaintenance, maintenance: current.maintenance },
+    now,
+  ).maintenance).toBeNull();
+  expect(stabilizeWallboardRotationDeadline(current, {
+    ...olderWithoutMaintenance,
+    generated_at: '2026-07-19T10:00:06Z',
+  }, now).maintenance).toBeNull();
+
+  const legacyState = stateFixture();
+  delete (legacyState as Partial<WallboardState>).maintenance;
+  expect(normalizeWallboardState(legacyState).maintenance).toBeNull();
 });
 
 test('keeps focus deadlines server-authoritative without postponing one active phase', () => {
@@ -746,6 +856,7 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   const createPage = readFileSync(new URL('../src/features/wallboards/WallboardCreatePage.tsx', import.meta.url), 'utf8');
   const playlistPreview = readFileSync(new URL('../src/features/wallboards/WallboardPlaylistPreview.tsx', import.meta.url), 'utf8');
   const configurationEditor = readFileSync(new URL('../src/features/wallboards/WallboardConfigurationEditor.tsx', import.meta.url), 'utf8');
+  const newsQr = readFileSync(new URL('../src/features/wallboards/WallboardNewsQrCode.tsx', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
 
   expect(adminRoute).toContain("permissions={['wallboards.manage']}");
@@ -790,9 +901,14 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(apiTypes).toContain("export type WallboardDisplayProfile = 'auto' | '1080p' | '4k';");
   expect(apiTypes).toContain('display_profile: WallboardDisplayProfile;');
   expect(apiTypes).toContain('refresh_version: number;');
+  expect(apiTypes).toContain('export interface WallboardMaintenanceNotice');
+  expect(apiTypes).toContain("kind: 'update' | 'maintenance';");
+  expect(apiTypes).toContain('maintenance?: WallboardMaintenanceNotice | null;');
   expect(apiTypes).toContain("export type WallboardNewsSource = 'ndt' | 'dronewatch';");
   expect(apiTypes).toContain("export type WallboardNewsItemSource = WallboardNewsSource | 'custom';");
   expect(apiTypes).toContain('custom_sources?: WallboardCustomNewsSource[];');
+  expect(apiTypes).toContain('item_duration_seconds?: number;');
+  expect(apiTypes).toContain('image_url?: string | null;');
   expect(apiTypes).toContain('source_id: string;');
   expect(apiTypes).toContain('playlist: WallboardPlaylistReference;');
   expect(apiTypes).toContain('linked_wallboards_count: number;');
@@ -801,6 +917,10 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain('Laatste meldingen');
   expect(kiosk).toContain('Proefalarmering');
   expect(kiosk).toContain('<FocusTakeover');
+  expect(kiosk).toContain('<MaintenanceTakeover notice={maintenance} />');
+  expect(kiosk).toContain('wallboardMaintenanceNoticeIsActive(effectiveControl.maintenance, clock)');
+  expect(kiosk).toContain("'Onderhoud actief · het wallboard herstelt automatisch'");
+  expect(kiosk).toContain('maintenance === null && wallboardTickerIsVisible');
   expect(kiosk).toContain("effectiveControl.focus === undefined");
   expect(kiosk).toContain("transientAlert?.is_test === true && state.operational_summary.active_alarm !== null");
   expect(kiosk).toContain('focus.playlist_page_id');
@@ -817,6 +937,15 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain('state.news.pages[page.id]');
   expect(kiosk).toContain('wallboard-display__news-article--${item.source}');
   expect(kiosk).not.toContain('wallboard-display__news-article--${item.source_id}');
+  expect(kiosk).toContain('wallboardNewsCarouselIndex');
+  expect(kiosk).toContain('<WallboardNewsQrCode');
+  expect(kiosk).toContain('wallboard-display__news-progress');
+  expect(kiosk).toContain('api\\/wallboard\\/news-images');
+  expect(newsQr).toContain("import QRCode from 'qrcode';");
+  expect(newsQr).toContain('QRCode.toDataURL(url');
+  expect(newsQr).toContain("errorCorrectionLevel: 'M'");
+  expect(newsQr).toContain('width: 256');
+  expect(newsQr).not.toContain('api.qrserver.com');
   expect(kiosk).not.toContain('autoFocus');
   expect(admin).toContain("`/admin/wallboards/${wallboard.id}/pair`");
   expect(admin).toContain('Code op tv');
@@ -829,6 +958,10 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(admin).toContain("`/admin/wallboards/${wallboard.id}/display`");
   expect(admin).toContain("`/admin/wallboards/${wallboard.id}/refresh`");
   expect(admin).toContain('Wallboard herstarten');
+  expect(admin.match(/Wallboard herstarten/g)).toHaveLength(1);
+  expect(admin.slice(admin.indexOf('<section className="wallboard-live-control"'), admin.indexOf('{isPaired ? null : (')))
+    .toContain('Wallboard herstarten');
+  expect(admin).toContain('De opdracht blijft klaarstaan als het scherm tijdelijk offline is.');
   expect(admin).toContain('expected_control_version');
   expect(admin).toContain('expected_config_version');
   expect(admin).toContain('display_profile: draftDisplayProfile');
@@ -863,15 +996,21 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(configurationEditor).toContain('het maximum aantal berichten geldt gecombineerd');
   expect(configurationEditor).toContain('afgelopen 7 dagen');
   expect(configurationEditor).toContain('MAX_WALLBOARD_NEWS_MAX_ITEMS');
+  expect(configurationEditor).toContain('Tijd per nieuwsbericht (seconden)');
+  expect(configurationEditor).toContain('MAX_WALLBOARD_NEWS_ITEM_DURATION_SECONDS');
   expect(styles).toContain('.wallboard-display__ticker-track');
   expect(styles).toContain('.wallboard-display__alarm--test');
+  expect(styles).toContain('.wallboard-display__alarm--maintenance');
+  expect(styles).toContain('.wallboard-display__mode--maintenance');
   expect(styles).toContain('.wallboard-display__alarm--with-feed');
   expect(styles).toContain('.wallboard-display__responses');
   expect(styles).toMatch(/\.wallboard-display__responses\s*\{[\s\S]*?position: absolute;[\s\S]*?bottom:[\s\S]*?left:/);
   expect(styles).toContain('.wallboard-display__focus-availability');
-  expect(styles).toContain('.wallboard-display__news-article--lead');
   expect(styles).toContain('.wallboard-display__news-article--custom');
-  expect(styles).toContain('.wallboard-display__news-supporting--dense');
+  expect(styles).toContain('.wallboard-display__news-carousel');
+  expect(styles).toContain('.wallboard-display__news-article--with-image');
+  expect(styles).toContain('.wallboard-display__news-qr');
+  expect(styles).toContain('@keyframes wallboard-news-story-enter');
   expect(kiosk).toContain('wallboard-display--profile-${displayProfile}');
   expect(kiosk).toContain('data-display-profile={displayProfile}');
   expect(styles).toContain('.wallboard-display--profile-4k .wallboard-display__header');
@@ -972,20 +1111,73 @@ test('keeps explicit screen profiles fluid at Full HD and Ultra HD viewports', a
   expect(measurements[1].titleFontSize).toBeGreaterThan(measurements[0].titleFontSize);
 });
 
-test('fits a full twelve-item news page at Full HD and Ultra HD without clipping the article grid', async ({ page }) => {
+test('keeps the offline warning and maintenance takeover readable at Full HD and Ultra HD', async ({ page }) => {
   const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
-  const supportingArticles = Array.from({ length: 11 }, (_, index) => `
-    <article class="wallboard-display__news-article wallboard-display__news-article--${index % 2 === 0 ? 'ndt' : 'dronewatch'}">
-      <div class="wallboard-display__news-meta"><strong>${index % 2 === 0 ? 'Nationaal Droneteam' : 'Dronewatch'}</strong><time>19 juli 2026</time></div>
-      <h2>Actueel dronenieuws nummer ${index + 2} met een duidelijke kop</h2>
-      <p>Een veilige platte-tekstsamenvatting geeft op afstand voldoende context over het volledige nieuwsbericht.</p>
-      <a>Bronbericht</a>
-    </article>
-  `).join('');
-
-  for (const screen of [
+  const cases = [
     { profile: '1080p', width: 1920, height: 1080 },
     { profile: '4k', width: 3840, height: 2160 },
+  ] as const;
+
+  for (const screen of cases) {
+    await page.setViewportSize({ width: screen.width, height: screen.height });
+    await page.setContent(`
+      <style>
+        ${styles}
+        html, body { width: 100%; min-width: 0; margin: 0; overflow: hidden; }
+      </style>
+      <main class="wallboard-display wallboard-display--dark wallboard-display--profile-${screen.profile}">
+        <header class="wallboard-display__header">
+          <div>
+            <span class="wallboard-display__live wallboard-display__live--offline"><i></i>Offline</span>
+            <span class="wallboard-display__titles"><small>Meldkamer noord</small><h1>D.I.S. wordt bijgewerkt</h1></span>
+            <span class="wallboard-display__mode wallboard-display__mode--maintenance">Onderhoud</span>
+          </div>
+          <time class="wallboard-display__clock"><span>12:34:56</span><small>zondag 19 juli</small></time>
+        </header>
+        <div class="wallboard-display__connection-warning" role="status">
+          <span><strong>Offline — laatst bekende informatie</strong><small>De verbinding wordt automatisch hersteld.</small></span>
+        </div>
+        <section class="wallboard-display__alarm wallboard-display__alarm--maintenance" role="status">
+          <span class="wallboard-display__alarm-icon">↻</span>
+          <span class="wallboard-display__alarm-eyebrow">Systeemupdate</span>
+          <h2>D.I.S. wordt bijgewerkt</h2>
+          <p>Dit wallboard komt automatisch terug zodra de update veilig is afgerond.</p>
+          <div class="wallboard-display__alarm-status"><i></i><strong>Automatisch herstel is actief</strong><time>Gestart 12:34</time></div>
+        </section>
+        <footer class="wallboard-display__footer"><span>Onderhoud actief</span><span>Scherm blijft actief</span></footer>
+      </main>
+    `);
+
+    const result = await page.locator('.wallboard-display').evaluate((element) => {
+      const warning = element.querySelector('.wallboard-display__connection-warning') as HTMLElement;
+      const takeover = element.querySelector('.wallboard-display__alarm--maintenance') as HTMLElement;
+      const takeoverBox = takeover.getBoundingClientRect();
+      return {
+        overflow: element.scrollWidth > element.clientWidth || element.scrollHeight > element.clientHeight,
+        warningVisible: warning.offsetWidth > 0 && warning.offsetHeight > 0,
+        takeoverVisible: takeover.offsetWidth > 0 && takeover.offsetHeight > 0,
+        takeoverInsideViewport: takeoverBox.top >= 0 && takeoverBox.bottom <= window.innerHeight,
+      };
+    });
+
+    expect(result).toEqual({
+      overflow: false,
+      warningVisible: true,
+      takeoverVisible: true,
+      takeoverInsideViewport: true,
+    });
+  }
+});
+
+test('shows one readable rotating story with image, QR and twelve progress segments at Full HD and Ultra HD', async ({ page }) => {
+  const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
+  const progressSegments = Array.from({ length: 12 }, (_, index) => (
+    `<li class="wallboard-display__news-position-item${index === 2 ? ' wallboard-display__news-position-item--active' : ''}"></li>`
+  )).join('');
+
+  for (const screen of [
+    { profile: '1080p', width: 1920, height: 1080, minimumQr: 128, minimumTitle: 32 },
+    { profile: '4k', width: 3840, height: 2160, minimumQr: 192, minimumTitle: 48 },
   ] as const) {
     await page.setViewportSize({ width: screen.width, height: screen.height });
     await page.setContent(`
@@ -994,15 +1186,19 @@ test('fits a full twelve-item news page at Full HD and Ultra HD without clipping
         <header class="wallboard-display__header"><div><span class="wallboard-display__titles"><small>Meldkamer</small><h1>Dronenieuws</h1></span></div></header>
         <section class="wallboard-display__page">
           <div class="wallboard-display__news">
-            <header class="wallboard-display__news-header"><span><strong>Dronenieuws</strong><small>Gepubliceerd in de afgelopen 7 dagen</small></span><b>12 berichten</b></header>
-            <div class="wallboard-display__news-grid">
-              <article class="wallboard-display__news-article wallboard-display__news-article--ndt wallboard-display__news-article--lead">
-                <div class="wallboard-display__news-meta"><strong>Nationaal Droneteam</strong><time>19 juli 2026</time></div>
-                <h2>Nieuwe inzetmogelijkheden voor professionele droneteams</h2>
-                <p>Het belangrijkste nieuws krijgt een prominente positie met een inhoudelijke samenvatting.</p>
-                <a>Bronbericht</a>
+            <header class="wallboard-display__news-header"><span><strong>Dronenieuws</strong><small>Gepubliceerd in de afgelopen 7 dagen</small></span><b>3 / 12</b></header>
+            <div class="wallboard-display__news-carousel" style="--wallboard-news-item-duration: 12s">
+              <article class="wallboard-display__news-article wallboard-display__news-article--ndt wallboard-display__news-article--with-image">
+                <figure class="wallboard-display__news-image"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='900'%3E%3Crect width='800' height='900' fill='%231d4ed8'/%3E%3C/svg%3E"></figure>
+                <div class="wallboard-display__news-copy">
+                  <div class="wallboard-display__news-meta"><strong>Nationaal Droneteam</strong><time>19 juli 2026</time></div>
+                  <h2>Nieuwe inzetmogelijkheden voor professionele droneteams</h2>
+                  <p>Het actuele nieuws staat per bericht groot en rustig in beeld. De samenvatting blijft vanaf de andere kant van de ruimte leesbaar.</p>
+                  <footer class="wallboard-display__news-article-footer"><span>Volledig artikel op Nationaal Droneteam</span><a class="wallboard-display__news-qr"><img alt="QR-code" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Crect width='256' height='256' fill='white'/%3E%3C/svg%3E"><span>Scan voor het hele bericht</span></a></footer>
+                </div>
+                <i class="wallboard-display__news-progress"></i>
               </article>
-              <div class="wallboard-display__news-supporting wallboard-display__news-supporting--dense" style="--wallboard-news-rows: 6">${supportingArticles}</div>
+              <ol class="wallboard-display__news-position">${progressSegments}</ol>
             </div>
           </div>
         </section>
@@ -1013,17 +1209,30 @@ test('fits a full twelve-item news page at Full HD and Ultra HD without clipping
     const metrics = await page.locator('.wallboard-display__news').evaluate((news) => {
       const cards = [...news.querySelectorAll<HTMLElement>('.wallboard-display__news-article')];
       const newsRect = news.getBoundingClientRect();
+      const qr = news.querySelector<HTMLElement>('.wallboard-display__news-qr img');
+      const title = news.querySelector<HTMLElement>('.wallboard-display__news-article h2');
+      const image = news.querySelector<HTMLElement>('.wallboard-display__news-image');
       return {
         count: cards.length,
+        segments: news.querySelectorAll('.wallboard-display__news-position-item').length,
         overflow: news.scrollHeight > news.clientHeight + 1 || news.scrollWidth > news.clientWidth + 1,
         cardsInside: cards.every((card) => {
           const rect = card.getBoundingClientRect();
           return rect.top >= newsRect.top - 1 && rect.bottom <= newsRect.bottom + 1;
         }),
+        qrSize: qr?.getBoundingClientRect().width ?? 0,
+        titleSize: title === null ? 0 : Number.parseFloat(getComputedStyle(title).fontSize),
+        imageVisible: image !== null && image.getBoundingClientRect().width > 0,
       };
     });
 
-    expect(metrics).toEqual({ count: 12, overflow: false, cardsInside: true });
+    expect(metrics.count).toBe(1);
+    expect(metrics.segments).toBe(12);
+    expect(metrics.overflow).toBe(false);
+    expect(metrics.cardsInside).toBe(true);
+    expect(metrics.qrSize).toBeGreaterThanOrEqual(screen.minimumQr);
+    expect(metrics.titleSize).toBeGreaterThanOrEqual(screen.minimumTitle);
+    expect(metrics.imageVisible).toBe(true);
   }
 });
 

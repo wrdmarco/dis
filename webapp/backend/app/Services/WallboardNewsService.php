@@ -24,11 +24,13 @@ final class WallboardNewsService
 
     public const MAX_RESPONSE_BYTES = 524_288;
 
+    public const MAX_IMAGE_RESPONSE_BYTES = 2_097_152;
+
     private const MAX_SOURCE_ITEMS = 50;
 
     private const MAX_COLD_DETAIL_FETCHES = WallboardConfiguration::MAX_NEWS_MAX_ITEMS;
 
-    private const CACHE_VERSION = 2;
+    private const CACHE_VERSION = 3;
 
     private const SOURCE_CACHE_SECONDS = 900;
 
@@ -41,6 +43,19 @@ final class WallboardNewsService
     private const DETAIL_STALE_CACHE_SECONDS = 604_800;
 
     private const DETAIL_FAILURE_CACHE_SECONDS = 300;
+
+    private const IMAGE_TARGET_CACHE_SECONDS = 604_800;
+
+    private const IMAGE_BODY_CACHE_SECONDS = 86_400;
+
+    /** @var list<string> */
+    private const IMAGE_CONTENT_TYPES = [
+        'image/avif',
+        'image/gif',
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+    ];
 
     private const DRONEWATCH_FEED_URL = 'https://www.dronewatch.nl/feed/';
 
@@ -109,7 +124,7 @@ final class WallboardNewsService
      * NDT detail pages are fetched concurrently, at most the global item cap.
      *
      * @param  array<int, mixed>  $pages
-     * @return array{pages: array<string, array{items: list<array{id: string, source: string, source_label: string, title: string, excerpt: string, url: string, published_at: string}>, fallback_used: bool, lookback_days: int}>, generated_at: string}
+     * @return array{pages: array<string, array{items: list<array{id: string, source: string, source_label: string, title: string, excerpt: string, url: string, image_url: string|null, published_at: string}>, fallback_used: bool, lookback_days: int}>, generated_at: string}
      */
     public function pages(array $pages): array
     {
@@ -170,12 +185,20 @@ final class WallboardNewsService
             ->unique()
             ->values()
             ->all();
-        $ndtExcerpts = $this->ndtExcerpts($ndtUrls);
+        $ndtDetails = $this->ndtDetails($ndtUrls);
 
         foreach ($selectedByPage as &$result) {
             foreach ($result['items'] as &$item) {
-                if ($item['source'] === 'ndt' && isset($ndtExcerpts[$item['url']])) {
-                    $item['excerpt'] = $ndtExcerpts[$item['url']];
+                $detail = $item['source'] === 'ndt'
+                    ? ($ndtDetails[$item['url']] ?? null)
+                    : null;
+                if (is_array($detail)) {
+                    if ($detail['excerpt'] !== '') {
+                        $item['excerpt'] = $detail['excerpt'];
+                    }
+                    if ($detail['image_url'] !== null) {
+                        $item['image_url'] = $detail['image_url'];
+                    }
                 }
             }
             unset($item);
@@ -186,6 +209,121 @@ final class WallboardNewsService
             'pages' => $selectedByPage,
             'generated_at' => ApiDateTime::now(),
         ];
+    }
+
+    /**
+     * Fetch an image that was registered while building authenticated wallboard
+     * state. Callers can only address the opaque identifier; remote URLs never
+     * cross the API boundary and are revalidated before every cold fetch.
+     *
+     * @return array{body: string, content_type: string}|null
+     */
+    public function image(string $identifier): ?array
+    {
+        if (preg_match('/^[a-f0-9]{64}$/D', $identifier) !== 1) {
+            return null;
+        }
+
+        $cachedBody = $this->cachedImageBody(Cache::get($this->imageBodyKey($identifier)));
+        if ($cachedBody !== null) {
+            return $cachedBody;
+        }
+
+        $targetPayload = Cache::get($this->imageTargetKey($identifier));
+        if (! is_array($targetPayload)
+            || ($targetPayload['version'] ?? null) !== self::CACHE_VERSION
+            || ! is_string($targetPayload['url'] ?? null)
+            || ! is_string($targetPayload['article_url'] ?? null)
+            || ! is_string($targetPayload['source'] ?? null)) {
+            return null;
+        }
+
+        $url = $this->safeRemoteImageUrl(
+            $targetPayload['url'],
+            $targetPayload['article_url'],
+            $targetPayload['source'],
+        );
+        if ($url === null || ! hash_equals($identifier, $this->imageIdentifier(
+            $targetPayload['source'],
+            $targetPayload['article_url'],
+            $url,
+        ))) {
+            return null;
+        }
+
+        $target = $this->validatedTarget($url, false);
+        if ($target === null || ! defined('CURLOPT_RESOLVE') || ! defined('CURLOPT_PROXY')) {
+            return null;
+        }
+
+        try {
+            $curlOptions = [
+                CURLOPT_RESOLVE => [$this->curlResolveEntry($target['host'], $target['ip'])],
+                CURLOPT_PROXY => '',
+            ];
+            if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
+                $curlOptions[CURLOPT_PROTOCOLS] = CURLPROTO_HTTPS;
+            }
+            $response = Http::accept(implode(', ', self::IMAGE_CONTENT_TYPES))
+                ->withHeaders([
+                    'Accept-Encoding' => 'identity',
+                    'User-Agent' => 'DIS-Wallboard-News-Image/1.0',
+                ])
+                ->connectTimeout(2)
+                ->timeout(5)
+                ->withoutRedirecting()
+                ->withOptions([
+                    'allow_redirects' => false,
+                    'decode_content' => false,
+                    'http_errors' => false,
+                    'proxy' => null,
+                    'verify' => true,
+                    'curl' => $curlOptions,
+                    'on_headers' => static function ($response): void {
+                        $length = trim((string) $response->getHeaderLine('Content-Length'));
+                        if ($length !== '' && ctype_digit($length) && (int) $length > self::MAX_IMAGE_RESPONSE_BYTES) {
+                            throw new \RuntimeException('News image response is too large.');
+                        }
+                    },
+                    'progress' => static function (
+                        int|float $downloadTotal,
+                        int|float $downloadedBytes,
+                        int|float $uploadTotal,
+                        int|float $uploadedBytes,
+                    ): void {
+                        unset($downloadTotal, $uploadTotal, $uploadedBytes);
+                        if ($downloadedBytes > self::MAX_IMAGE_RESPONSE_BYTES) {
+                            throw new \RuntimeException('News image response is too large.');
+                        }
+                    },
+                ])
+                ->get($url);
+        } catch (Throwable) {
+            return null;
+        }
+
+        if ($response->status() !== 200
+            || ! $this->hasContentType($response->header('Content-Type'), self::IMAGE_CONTENT_TYPES)) {
+            return null;
+        }
+        $body = $response->body();
+        if ($body === '' || strlen($body) > self::MAX_IMAGE_RESPONSE_BYTES) {
+            return null;
+        }
+        $contentType = $this->detectedImageContentType($body);
+        if ($contentType === null
+            || ! $this->sameImageContentType($contentType, (string) $response->header('Content-Type'))) {
+            return null;
+        }
+
+        $result = ['body' => $body, 'content_type' => $contentType];
+        Cache::put(
+            $this->imageBodyKey($identifier),
+            ['version' => self::CACHE_VERSION, ...$result],
+            now()->addSeconds(self::IMAGE_BODY_CACHE_SECONDS),
+        );
+
+        return $result;
     }
 
     /**
@@ -393,9 +531,9 @@ final class WallboardNewsService
 
     /**
      * @param  list<string>  $urls
-     * @return array<string, string>
+     * @return array<string, array{excerpt: string, image_url: string|null}>
      */
-    private function ndtExcerpts(array $urls): array
+    private function ndtDetails(array $urls): array
     {
         $results = [];
         $toFetch = [];
@@ -405,17 +543,17 @@ final class WallboardNewsService
                 continue;
             }
 
-            $cached = Cache::get($this->detailFreshKey($url));
-            if (is_string($cached) && ($excerpt = $this->plainText($cached, self::MAX_EXCERPT_LENGTH)) !== '') {
-                $results[$url] = $excerpt;
+            $cached = $this->cachedNdtDetail(Cache::get($this->detailFreshKey($url)), $url);
+            if ($cached !== null) {
+                $results[$url] = $cached;
 
                 continue;
             }
 
             if (Cache::has($this->detailFailureKey($url))) {
-                $stale = Cache::get($this->detailStaleKey($url));
-                if (is_string($stale) && ($excerpt = $this->plainText($stale, self::MAX_EXCERPT_LENGTH)) !== '') {
-                    $results[$url] = $excerpt;
+                $stale = $this->cachedNdtDetail(Cache::get($this->detailStaleKey($url)), $url);
+                if ($stale !== null) {
+                    $results[$url] = $stale;
                 }
 
                 continue;
@@ -432,19 +570,20 @@ final class WallboardNewsService
         $documents = $this->fetchDocuments($toFetch);
         foreach ($toFetch as $key => $request) {
             $url = $request['url'];
-            $excerpt = $this->parseNdtDetail($documents[$key] ?? null);
-            if ($excerpt !== null && $excerpt !== '') {
-                Cache::put($this->detailFreshKey($url), $excerpt, now()->addSeconds(self::DETAIL_CACHE_SECONDS));
-                Cache::put($this->detailStaleKey($url), $excerpt, now()->addSeconds(self::DETAIL_STALE_CACHE_SECONDS));
+            $detail = $this->parseNdtDetail($documents[$key] ?? null, $url);
+            if ($detail !== null) {
+                $payload = ['version' => self::CACHE_VERSION, ...$detail];
+                Cache::put($this->detailFreshKey($url), $payload, now()->addSeconds(self::DETAIL_CACHE_SECONDS));
+                Cache::put($this->detailStaleKey($url), $payload, now()->addSeconds(self::DETAIL_STALE_CACHE_SECONDS));
                 Cache::forget($this->detailFailureKey($url));
-                $results[$url] = $excerpt;
+                $results[$url] = $detail;
 
                 continue;
             }
 
             Cache::put($this->detailFailureKey($url), true, now()->addSeconds(self::DETAIL_FAILURE_CACHE_SECONDS));
-            $stale = Cache::get($this->detailStaleKey($url));
-            if (is_string($stale) && ($stale = $this->plainText($stale, self::MAX_EXCERPT_LENGTH)) !== '') {
+            $stale = $this->cachedNdtDetail(Cache::get($this->detailStaleKey($url)), $url);
+            if ($stale !== null) {
                 $results[$url] = $stale;
             }
         }
@@ -579,7 +718,16 @@ final class WallboardNewsService
                 continue;
             }
 
-            $items[] = $this->item('dronewatch', 'dronewatch', self::SOURCE_LABELS['dronewatch'], $title, $excerpt, $url, $publishedAt);
+            $items[] = $this->item(
+                'dronewatch',
+                'dronewatch',
+                self::SOURCE_LABELS['dronewatch'],
+                $title,
+                $excerpt,
+                $url,
+                $publishedAt,
+                $this->feedImageUrl($node, $url, 'dronewatch'),
+            );
         }
 
         return $items;
@@ -619,7 +767,16 @@ final class WallboardNewsService
                     continue;
                 }
 
-                $items[] = $this->item('ndt', 'ndt', self::SOURCE_LABELS['ndt'], $title, '', $url, $publishedAt);
+                $items[] = $this->item(
+                    'ndt',
+                    'ndt',
+                    self::SOURCE_LABELS['ndt'],
+                    $title,
+                    '',
+                    $url,
+                    $publishedAt,
+                    $this->feedImageUrl($node, $url, 'ndt'),
+                );
             }
         }
 
@@ -672,13 +829,15 @@ final class WallboardNewsService
                 $excerpt,
                 $url,
                 $publishedAt,
+                $this->feedImageUrl($node, $url, 'custom'),
             );
         }
 
         return $items;
     }
 
-    private function parseNdtDetail(?string $html): ?string
+    /** @return array{excerpt: string, image_url: string|null}|null */
+    private function parseNdtDetail(?string $html, string $articleUrl): ?array
     {
         $document = $this->document($html, false);
         if (! $document instanceof DOMDocument) {
@@ -686,14 +845,15 @@ final class WallboardNewsService
         }
 
         $xpath = new DOMXPath($document);
+        $imageUrl = $this->detailImageUrl($xpath, $articleUrl, 'ndt');
         $preferred = $xpath->query('//p[contains(concat(" ", normalize-space(@class), " "), " dmach-acf-value ")]');
         $excerpt = $this->firstSubstantialParagraph($preferred);
-        if ($excerpt !== '') {
-            return $excerpt;
+        if ($excerpt === '') {
+            $excerpt = $this->firstSubstantialParagraph($xpath->query('//main//p | //article//p'));
         }
 
-        return ($excerpt = $this->firstSubstantialParagraph($xpath->query('//main//p | //article//p'))) !== ''
-            ? $excerpt
+        return $excerpt !== '' || $imageUrl !== null
+            ? ['excerpt' => $excerpt, 'image_url' => $imageUrl]
             : null;
     }
 
@@ -795,6 +955,107 @@ final class WallboardNewsService
         return $fallback;
     }
 
+    private function feedImageUrl(DOMElement $element, string $articleUrl, string $source): ?string
+    {
+        $markupCandidates = [];
+        foreach ($element->childNodes as $child) {
+            if (! $child instanceof DOMElement) {
+                continue;
+            }
+
+            $name = strtolower((string) ($child->localName ?? $child->nodeName));
+            $namespace = strtolower((string) $child->namespaceURI);
+            $candidate = '';
+            if (($name === 'content' || $name === 'thumbnail')
+                && str_contains($namespace, 'search.yahoo.com/mrss')) {
+                $candidate = trim($child->getAttribute('url'));
+            } elseif ($name === 'enclosure'
+                && str_starts_with(strtolower(trim($child->getAttribute('type'))), 'image/')) {
+                $candidate = trim($child->getAttribute('url'));
+            }
+
+            if ($candidate !== ''
+                && ($safe = $this->proxiedImageUrl($candidate, $articleUrl, $source)) !== null) {
+                return $safe;
+            }
+
+            if (in_array($name, ['content', 'description', 'summary', 'encoded'], true)) {
+                $markupCandidates[] = (string) $child->textContent;
+            }
+        }
+
+        foreach ($markupCandidates as $markup) {
+            $candidate = $this->imageFromMarkup($markup);
+            if ($candidate !== null
+                && ($safe = $this->proxiedImageUrl($candidate, $articleUrl, $source)) !== null) {
+                return $safe;
+            }
+        }
+
+        return null;
+    }
+
+    private function detailImageUrl(DOMXPath $xpath, string $articleUrl, string $source): ?string
+    {
+        $nodes = $xpath->query('//meta[@content] | //main//img[@src] | //article//img[@src]');
+        if ($nodes === false) {
+            return null;
+        }
+
+        $fallbacks = [];
+        foreach ($nodes as $node) {
+            if (! $node instanceof DOMElement) {
+                continue;
+            }
+
+            $name = strtolower($node->tagName);
+            $candidate = $name === 'meta'
+                ? trim($node->getAttribute('content'))
+                : trim($node->getAttribute('src'));
+            if ($candidate === '') {
+                continue;
+            }
+
+            if ($name === 'meta') {
+                $kind = strtolower(trim($node->getAttribute('property') ?: $node->getAttribute('name')));
+                if (! in_array($kind, ['og:image', 'og:image:url', 'twitter:image', 'twitter:image:src'], true)) {
+                    continue;
+                }
+                if (($safe = $this->proxiedImageUrl($candidate, $articleUrl, $source)) !== null) {
+                    return $safe;
+                }
+
+                continue;
+            }
+            $fallbacks[] = $candidate;
+        }
+
+        foreach ($fallbacks as $candidate) {
+            if (($safe = $this->proxiedImageUrl($candidate, $articleUrl, $source)) !== null) {
+                return $safe;
+            }
+        }
+
+        return null;
+    }
+
+    private function imageFromMarkup(string $markup): ?string
+    {
+        if ($markup === '' || strlen($markup) > self::MAX_RESPONSE_BYTES) {
+            return null;
+        }
+        $document = $this->document('<!doctype html><html><body>'.$markup.'</body></html>', false);
+        if (! $document instanceof DOMDocument) {
+            return null;
+        }
+        $nodes = (new DOMXPath($document))->query('//img[@src]');
+        $node = $nodes === false ? null : $nodes->item(0);
+
+        return $node instanceof DOMElement && trim($node->getAttribute('src')) !== ''
+            ? trim($node->getAttribute('src'))
+            : null;
+    }
+
     /** @param list<string> $names */
     private function firstMeaningfulExcerpt(DOMElement $element, array $names): string
     {
@@ -823,7 +1084,7 @@ final class WallboardNewsService
     }
 
     /**
-     * @return array{id: string, source: string, source_label: string, title: string, excerpt: string, url: string, published_at: string}
+     * @return array{id: string, source: string, source_label: string, title: string, excerpt: string, url: string, image_url: string|null, published_at: string}
      */
     private function item(
         string $source,
@@ -833,6 +1094,7 @@ final class WallboardNewsService
         string $excerpt,
         string $url,
         CarbonImmutable $publishedAt,
+        ?string $imageUrl = null,
     ): array {
         return [
             'id' => substr(hash('sha256', $source.'|'.$sourceId.'|'.$url.'|'.$title.'|'.$publishedAt->toIso8601String()), 0, 32),
@@ -842,8 +1104,91 @@ final class WallboardNewsService
             'title' => $title,
             'excerpt' => $excerpt,
             'url' => $url,
+            'image_url' => $this->normalizedImageUrl($imageUrl, $url, $source),
             'published_at' => (string) ApiDateTime::dateTime($publishedAt),
         ];
+    }
+
+    private function normalizedImageUrl(?string $imageUrl, string $articleUrl, string $source): ?string
+    {
+        if (! is_string($imageUrl) || $imageUrl === '') {
+            return null;
+        }
+        if (preg_match('#^/api/wallboard/news-images/([a-f0-9]{64})$#D', $imageUrl, $matches) === 1) {
+            $payload = Cache::get($this->imageTargetKey($matches[1]));
+            if (! is_array($payload)
+                || ($payload['version'] ?? null) !== self::CACHE_VERSION
+                || (string) ($payload['source'] ?? '') !== $source
+                || (string) ($payload['article_url'] ?? '') !== $articleUrl
+                || ! is_string($payload['url'] ?? null)
+                || $this->safeRemoteImageUrl($payload['url'], $articleUrl, $source) === null) {
+                return null;
+            }
+
+            return $imageUrl;
+        }
+
+        return $this->proxiedImageUrl($imageUrl, $articleUrl, $source);
+    }
+
+    private function proxiedImageUrl(string $candidate, string $articleUrl, string $source): ?string
+    {
+        $url = $this->safeRemoteImageUrl($candidate, $articleUrl, $source);
+        if ($url === null) {
+            return null;
+        }
+
+        $identifier = $this->imageIdentifier($source, $articleUrl, $url);
+        Cache::put($this->imageTargetKey($identifier), [
+            'version' => self::CACHE_VERSION,
+            'url' => $url,
+            'article_url' => $articleUrl,
+            'source' => $source,
+        ], now()->addSeconds(self::IMAGE_TARGET_CACHE_SECONDS));
+
+        return '/api/wallboard/news-images/'.$identifier;
+    }
+
+    private function safeRemoteImageUrl(string $candidate, string $articleUrl, string $source): ?string
+    {
+        $candidate = trim(html_entity_decode($candidate, ENT_QUOTES | ENT_HTML5 | ENT_SUBSTITUTE, 'UTF-8'));
+        $article = parse_url($articleUrl);
+        if (! is_array($article) || ! is_string($article['host'] ?? null)) {
+            return null;
+        }
+
+        if (str_starts_with($candidate, '/')) {
+            if (str_starts_with($candidate, '//')) {
+                $candidate = 'https:'.$candidate;
+            } else {
+                $candidate = 'https://'.strtolower($article['host']).$candidate;
+            }
+        }
+        if (! WallboardConfiguration::hasValidTickerHttpsUrlSyntax($candidate)) {
+            return null;
+        }
+
+        $image = parse_url($candidate);
+        if (! is_array($image) || ! is_string($image['host'] ?? null)) {
+            return null;
+        }
+        $imageHost = strtolower($image['host']);
+        $articleHost = strtolower($article['host']);
+        $allowed = match ($source) {
+            'ndt' => $articleHost === 'nationaaldroneteam.nl'
+                && $imageHost === 'nationaaldroneteam.nl',
+            'dronewatch' => in_array($articleHost, ['dronewatch.nl', 'www.dronewatch.nl'], true)
+                && in_array($imageHost, ['dronewatch.nl', 'www.dronewatch.nl'], true),
+            'custom' => hash_equals($articleHost, $imageHost),
+            default => false,
+        };
+
+        return $allowed ? $candidate : null;
+    }
+
+    private function imageIdentifier(string $source, string $articleUrl, string $imageUrl): string
+    {
+        return hash('sha256', $source."\0".$articleUrl."\0".$imageUrl);
     }
 
     private function itemDate(array $item): ?CarbonImmutable
@@ -1086,10 +1431,70 @@ final class WallboardNewsService
                 $excerpt,
                 (string) $item['url'],
                 $publishedAt,
+                is_string($item['image_url'] ?? null) ? $item['image_url'] : null,
             );
         }
 
         return $items;
+    }
+
+    /** @return array{excerpt: string, image_url: string|null}|null */
+    private function cachedNdtDetail(mixed $payload, string $articleUrl): ?array
+    {
+        if (! is_array($payload) || ($payload['version'] ?? null) !== self::CACHE_VERSION) {
+            return null;
+        }
+        $excerpt = $this->plainText((string) ($payload['excerpt'] ?? ''), self::MAX_EXCERPT_LENGTH);
+        $imageUrl = is_string($payload['image_url'] ?? null)
+            ? $this->normalizedImageUrl($payload['image_url'], $articleUrl, 'ndt')
+            : null;
+
+        return $excerpt !== '' || $imageUrl !== null
+            ? ['excerpt' => $excerpt, 'image_url' => $imageUrl]
+            : null;
+    }
+
+    /** @return array{body: string, content_type: string}|null */
+    private function cachedImageBody(mixed $payload): ?array
+    {
+        if (! is_array($payload)
+            || ($payload['version'] ?? null) !== self::CACHE_VERSION
+            || ! is_string($payload['body'] ?? null)
+            || $payload['body'] === ''
+            || strlen($payload['body']) > self::MAX_IMAGE_RESPONSE_BYTES
+            || ! is_string($payload['content_type'] ?? null)
+            || ! in_array($payload['content_type'], self::IMAGE_CONTENT_TYPES, true)
+            || $this->detectedImageContentType($payload['body']) !== $payload['content_type']) {
+            return null;
+        }
+
+        return ['body' => $payload['body'], 'content_type' => $payload['content_type']];
+    }
+
+    private function detectedImageContentType(string $body): ?string
+    {
+        if (! class_exists(\finfo::class)) {
+            return null;
+        }
+        try {
+            $contentType = (new \finfo(FILEINFO_MIME_TYPE))->buffer($body);
+        } catch (Throwable) {
+            return null;
+        }
+
+        return is_string($contentType) && in_array($contentType, self::IMAGE_CONTENT_TYPES, true)
+            ? $contentType
+            : null;
+    }
+
+    private function sameImageContentType(string $detected, string $header): bool
+    {
+        $declared = strtolower(trim(explode(';', $header, 2)[0]));
+        if ($declared === 'image/jpg') {
+            $declared = 'image/jpeg';
+        }
+
+        return hash_equals($detected, $declared);
     }
 
     /**
@@ -1125,6 +1530,7 @@ final class WallboardNewsService
                 $excerpt,
                 (string) $item['url'],
                 $publishedAt,
+                is_string($item['image_url'] ?? null) ? $item['image_url'] : null,
             );
         }
 
@@ -1153,6 +1559,7 @@ final class WallboardNewsService
                     $this->newsExcerpt((string) ($item['excerpt'] ?? '')),
                     (string) ($item['url'] ?? $source['url']),
                     $publishedAt,
+                    is_string($item['image_url'] ?? null) ? $item['image_url'] : null,
                 );
             })
             ->filter()
@@ -1188,5 +1595,15 @@ final class WallboardNewsService
     private function detailFailureKey(string $url): string
     {
         return 'wallboard:news:detail:failure:v'.self::CACHE_VERSION.':'.hash('sha256', $url);
+    }
+
+    private function imageTargetKey(string $identifier): string
+    {
+        return 'wallboard:news:image:target:v'.self::CACHE_VERSION.':'.$identifier;
+    }
+
+    private function imageBodyKey(string $identifier): string
+    {
+        return 'wallboard:news:image:body:v'.self::CACHE_VERSION.':'.$identifier;
     }
 }

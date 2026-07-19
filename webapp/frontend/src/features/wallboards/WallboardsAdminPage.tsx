@@ -548,9 +548,21 @@ function ScreenEditor({
             </button>
           ))}
         </div>
-        <button className="secondary-button wallboard-live-control__resume" type="button" onClick={() => void controlDisplay(null)} disabled={busyAction !== null || display.mode === 'rotation' || !wallboard.is_enabled}>
-          <RotateCcw size={17} aria-hidden /> Rotatie hervatten
-        </button>
+        <div className="wallboard-live-control__actions">
+          <button className="secondary-button" type="button" onClick={() => void controlDisplay(null)} disabled={busyAction !== null || display.mode === 'rotation' || !wallboard.is_enabled}>
+            <RotateCcw size={17} aria-hidden /> Rotatie hervatten
+          </button>
+          <button className="secondary-button" type="button" onClick={() => void restartWallboard()} disabled={busyAction !== null || !isPaired || !wallboard.is_enabled}>
+            <RefreshCw size={17} aria-hidden /> {busyAction === 'restart' ? 'Herstarten…' : 'Wallboard herstarten'}
+          </button>
+          <small>
+            {!isPaired
+              ? 'Koppel het scherm eerst om het op afstand te herstarten.'
+              : !wallboard.is_enabled
+                ? 'Activeer het scherm om een herstartopdracht te sturen.'
+                : 'De opdracht blijft klaarstaan als het scherm tijdelijk offline is.'}
+          </small>
+        </div>
       </section>
 
       {isPaired ? null : (
@@ -658,9 +670,6 @@ function ScreenEditor({
         </button>
         <button className="secondary-button" type="button" onClick={() => void revokeSessions()} disabled={busyAction !== null || !isPaired}>
           <ShieldOff size={17} aria-hidden /> Koppeling intrekken
-        </button>
-        <button className="secondary-button" type="button" onClick={() => void restartWallboard()} disabled={busyAction !== null || !isPaired || !wallboard.is_enabled}>
-          <RefreshCw size={17} aria-hidden /> {busyAction === 'restart' ? 'Herstarten…' : 'Wallboard herstarten'}
         </button>
         {deleteConfirm ? (
           <span className="wallboard-delete-confirm">

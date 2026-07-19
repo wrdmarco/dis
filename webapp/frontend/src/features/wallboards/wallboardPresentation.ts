@@ -39,6 +39,9 @@ export const DEFAULT_WALLBOARD_RSS_MAX_ITEMS = 8;
 export const MIN_WALLBOARD_NEWS_MAX_ITEMS = 1;
 export const MAX_WALLBOARD_NEWS_MAX_ITEMS = 12;
 export const DEFAULT_WALLBOARD_NEWS_MAX_ITEMS = 6;
+export const MIN_WALLBOARD_NEWS_ITEM_DURATION_SECONDS = 5;
+export const MAX_WALLBOARD_NEWS_ITEM_DURATION_SECONDS = 300;
+export const DEFAULT_WALLBOARD_NEWS_ITEM_DURATION_SECONDS = 12;
 export const DEFAULT_WALLBOARD_NEWS_SOURCES: WallboardNewsSource[] = ['ndt', 'dronewatch'];
 export const MAX_WALLBOARD_CUSTOM_NEWS_SOURCES = 8;
 export const MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_LABEL_LENGTH = 80;
@@ -196,6 +199,14 @@ export function clampWallboardNewsMaxItems(value: number): number {
   );
 }
 
+export function clampWallboardNewsItemDuration(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_WALLBOARD_NEWS_ITEM_DURATION_SECONDS;
+  return Math.min(
+    MAX_WALLBOARD_NEWS_ITEM_DURATION_SECONDS,
+    Math.max(MIN_WALLBOARD_NEWS_ITEM_DURATION_SECONDS, Math.round(value)),
+  );
+}
+
 export function normalizeWallboardNewsSources(value: unknown, allowEmpty = false): WallboardNewsSource[] {
   if (!Array.isArray(value)) return [...DEFAULT_WALLBOARD_NEWS_SOURCES];
 
@@ -261,6 +272,7 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
           sources: [...DEFAULT_WALLBOARD_NEWS_SOURCES],
           custom_sources: [],
           max_items: DEFAULT_WALLBOARD_NEWS_MAX_ITEMS,
+          item_duration_seconds: DEFAULT_WALLBOARD_NEWS_ITEM_DURATION_SECONDS,
         }
         : {},
   };
@@ -493,6 +505,7 @@ function normalizeWallboardNewsPageOptions(page: WallboardPage): WallboardPage['
     sources: normalizeWallboardNewsSources(page.options?.sources, customSources.length > 0),
     custom_sources: customSources,
     max_items: clampWallboardNewsMaxItems(Number(page.options?.max_items)),
+    item_duration_seconds: clampWallboardNewsItemDuration(Number(page.options?.item_duration_seconds)),
   };
 }
 

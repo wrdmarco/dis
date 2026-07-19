@@ -12,6 +12,9 @@ COMMON_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OSRM_ADMIN_RUNTIME_PARENT="/usr/local/lib/dis"
 OSRM_ADMIN_RUNTIME_DIR="${OSRM_ADMIN_RUNTIME_PARENT}/osrm-admin"
 OSRM_ADMIN_WORKER_PATH="/usr/local/bin/dis-osrm-admin-request-worker"
+WALLBOARD_MAINTENANCE_NOTICE_PATH="${DIS_INSTALL_PATH}/maintenance/wallboard-status.json"
+WALLBOARD_MAINTENANCE_NOTICE_SECONDS=6
+WALLBOARD_MAINTENANCE_NOTICE_TTL_SECONDS=21600
 
 log() {
   printf '[dis] %s\n' "$*"
@@ -339,6 +342,72 @@ NoNewPrivileges=false
 RestrictSUIDSGID=false
 EOF
   run_cmd chmod 0644 "${override_file}"
+}
+
+write_wallboard_maintenance_notice() (
+  set -euo pipefail
+
+  local kind="$1" directory temporary="" started_at expires_at metadata
+  case "${kind}" in
+    update|maintenance) ;;
+    *) fail "Unsupported wallboard maintenance notice kind: ${kind}" ;;
+  esac
+
+  directory="$(dirname "${WALLBOARD_MAINTENANCE_NOTICE_PATH}")"
+  ensure_directory "${directory}" root root 0755
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "Would publish the ${kind} notice for paired wallboards."
+    return 0
+  fi
+
+  started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  expires_at="$(date -u -d "+${WALLBOARD_MAINTENANCE_NOTICE_TTL_SECONDS} seconds" +%Y-%m-%dT%H:%M:%SZ)"
+  temporary="$(mktemp "${directory}/.wallboard-status.XXXXXX")"
+  trap 'rm -f -- "${temporary}" 2>/dev/null || true' EXIT
+  printf '{"version":1,"active":true,"kind":"%s","started_at":"%s","expires_at":"%s"}\n' \
+    "${kind}" "${started_at}" "${expires_at}" > "${temporary}"
+  run_cmd chown root:root "${temporary}"
+  run_cmd chmod 0644 "${temporary}"
+  run_cmd mv -fT -- "${temporary}" "${WALLBOARD_MAINTENANCE_NOTICE_PATH}"
+  temporary=""
+
+  metadata="$(stat -c '%u:%g:%a:%h' -- "${WALLBOARD_MAINTENANCE_NOTICE_PATH}" 2>/dev/null || true)"
+  [ "${metadata}" = "0:0:644:1" ] \
+    || fail "The wallboard maintenance notice is not safely root-controlled."
+  if id www-data >/dev/null 2>&1; then
+    require_user_can_open_file_for_reading \
+      www-data "${WALLBOARD_MAINTENANCE_NOTICE_PATH}" "the wallboard maintenance notice"
+  fi
+  trap - EXIT
+)
+
+announce_wallboard_maintenance() {
+  local kind="$1"
+
+  log "Publishing maintenance notice to paired wallboards before service interruption"
+  write_wallboard_maintenance_notice "${kind}"
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "Would wait ${WALLBOARD_MAINTENANCE_NOTICE_SECONDS} seconds for wallboard control polls."
+    return 0
+  fi
+  sleep "${WALLBOARD_MAINTENANCE_NOTICE_SECONDS}"
+}
+
+clear_wallboard_maintenance_notice() {
+  local metadata
+
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "Would clear the wallboard maintenance notice after successful verification."
+    return 0
+  fi
+  if [ -e "${WALLBOARD_MAINTENANCE_NOTICE_PATH}" ] || [ -L "${WALLBOARD_MAINTENANCE_NOTICE_PATH}" ]; then
+    metadata="$(stat -c '%u:%g:%a:%h' -- "${WALLBOARD_MAINTENANCE_NOTICE_PATH}" 2>/dev/null || true)"
+    [ -f "${WALLBOARD_MAINTENANCE_NOTICE_PATH}" ] \
+      && [ ! -L "${WALLBOARD_MAINTENANCE_NOTICE_PATH}" ] \
+      && [ "${metadata}" = "0:0:644:1" ] \
+      || fail "Refusing to clear an unsafe wallboard maintenance notice."
+    run_cmd rm -f -- "${WALLBOARD_MAINTENANCE_NOTICE_PATH}"
+  fi
 }
 
 write_maintenance_page() {
@@ -729,6 +798,7 @@ complete_deployment_maintenance() {
 
   # Keep Nginx fail-closed until Laravel has successfully left maintenance mode.
   prepare_backend_for_deployment_verification "${backend_dir}"
+  clear_wallboard_maintenance_notice
   disable_frontend_maintenance
 }
 

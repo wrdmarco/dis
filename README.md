@@ -198,7 +198,13 @@ days. When none of the enabled sources has a recent item, it falls back to the c
 and marks that state on the display. Fixed source addresses are application-owned; custom sources are validated
 and fetched through public-destination-only DNS pinning, strict transport limits and XML hardening. Retrieval is
 bounded and cached server-side; the display receives only a sanitized title, short excerpt, publication
-timestamp and canonical article link, never remote markup or executable content.
+timestamp and canonical article link, never remote markup or executable content. News is presented as one
+readable briefing story at a time instead of up to twelve small cards. Administrators configure the bounded
+display time per story independently from the playlist page duration; all screens derive the active story from
+the same clock so reconnects do not restart the carousel. Each story has a locally generated QR code for its
+validated canonical HTTPS article URL. When a feed provides a suitable raster image, DIS exposes it only through
+an authenticated, size-limited same-origin image cache with public-address DNS validation; wallboards never load
+the original remote image URL directly and SVG or executable image content is not accepted.
 
 An unpaired television starts the pairing flow itself and shows a short-lived, human-readable code on
 `/wallboard`; no keyboard is required on the display. An administrator selects the intended wallboard in
@@ -217,6 +223,14 @@ When connectivity is lost, the kiosk keeps the last known presentation visible w
 continues reconnecting automatically. An audited `Wallboard herstarten` command can be sent from administration;
 the command is persisted and causes exactly one hard browser reload when that paired screen next receives it,
 including after a temporary outage. Normal reconnection never performs a hard reload by itself.
+
+Before an update, direct deployment or manually enabled maintenance stops the web tier, DIS publishes a bounded
+maintenance notice through both wallboard feeds and waits six seconds so connected displays can receive it. The
+notice temporarily replaces playlist and focus content, while the existing offline warning remains visible if
+the connection subsequently drops. A display keeps trying to reconnect and removes the notice automatically
+only after the server has passed its health checks and reopens production. The notice also expires locally after
+at most six hours, preventing a failed or abandoned operation from leaving an offline television on a permanent
+maintenance screen.
 
 Each playlist independently configures focus screens for a preannouncement, a real alarm and a test alarm.
 Every focus type has a bounded screen duration and an optional response feed. That feed contains only the
@@ -371,6 +385,9 @@ the privileged backup-request worker, websocket server and frontend are stopped 
 intentionally keeps maintenance enabled and leaves stopped services stopped; correct the error and rerun
 the command. Production is reopened only after Laravel, Nginx, the frontend, health endpoint and all DIS
 runtime services have passed verification.
+Paired wallboards are notified six seconds before this boundary closes. Their maintenance screen is cleared only
+as part of the same health-gated reopening; failed operations leave the bounded notice and last known content in
+place while the kiosk continues its normal automatic reconnect cycle.
 
 ## Uninstall
 

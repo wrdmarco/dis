@@ -33,6 +33,7 @@ import type {
   WallboardFocusResponseStatus,
   WallboardFocusResponses,
   WallboardFocusState,
+  WallboardMaintenanceNotice,
   WallboardPage,
   WallboardNewsItem,
   WallboardNewsPageState,
@@ -49,6 +50,7 @@ import { OperationalMapCanvas } from '../incidents/OperationalMapCanvas';
 import {
   buildWallboardMapPresentation,
   clampRefreshSeconds,
+  clampWallboardNewsItemDuration,
   countActiveOperationalWallboardIncidents,
   formatWallboardPilotAvailability,
   normalizeWallboardDisplayProfile,
@@ -60,6 +62,7 @@ import {
   wallboardTickerDurationSeconds,
   wallboardTransientAlertIsActive,
 } from './wallboardPresentation';
+import { WallboardNewsQrCode } from './WallboardNewsQrCode';
 
 const wallboardApi = new ApiClient({ baseUrl: apiBaseUrl, onUnauthenticated: () => undefined });
 const CONTROL_POLL_MILLISECONDS = 2000;
@@ -460,6 +463,9 @@ export function WallboardDisplayPage() {
   if (state === null || presentation === null) return null;
   const configuration = state.wallboard.configuration;
   const effectiveControl = control ?? controlFromState(state);
+  const maintenance = wallboardMaintenanceNoticeIsActive(effectiveControl.maintenance, clock)
+    ? normalizeWallboardMaintenanceNotice(effectiveControl.maintenance)
+    : null;
   const displayProfile = normalizeWallboardDisplayProfile(effectiveControl.display_profile);
   const display = effectiveControl.display;
   const focus = hasLiveFeed ? (effectiveControl.focus ?? null) : null;
@@ -476,7 +482,7 @@ export function WallboardDisplayPage() {
   const showTransientAlert = wallboardTransientAlertIsActive(transientAlert, clock)
     && !(transientAlert?.is_test === true && state.operational_summary.active_alarm !== null);
   const showFocus = focus?.visible === true;
-  const showTicker = wallboardTickerIsVisible(
+  const showTicker = maintenance === null && wallboardTickerIsVisible(
     hasLiveFeed,
     focus,
     showTransientAlert,
@@ -498,15 +504,19 @@ export function WallboardDisplayPage() {
           </span>
           <span className="wallboard-display__titles">
             <small>{state.wallboard.name}</small>
-            <h1>{showFocus && focus !== null ? wallboardFocusKindLabel(focus.kind) : currentPage.name}</h1>
+            <h1>{maintenance?.title ?? (showFocus && focus !== null ? wallboardFocusKindLabel(focus.kind) : currentPage.name)}</h1>
           </span>
-          <span className={`wallboard-display__mode wallboard-display__mode--${display.mode}`}>
-            {showFocus
+          <span className={`wallboard-display__mode wallboard-display__mode--${maintenance !== null ? 'maintenance' : display.mode}`}>
+            {maintenance !== null
+              ? <RefreshCw size={14} aria-hidden />
+              : showFocus
               ? <Siren size={14} aria-hidden />
               : display.mode === 'incident_override'
                 ? <LockKeyhole size={14} aria-hidden />
                 : <RotateCw size={14} aria-hidden />}
-            {focus !== null ? focusDisplayModeLabel(focus) : displayModeLabel(display.mode)}
+            {maintenance !== null
+              ? 'Onderhoud'
+              : focus !== null ? focusDisplayModeLabel(focus) : displayModeLabel(display.mode)}
           </span>
         </div>
         <div className="wallboard-display__controls">
@@ -539,7 +549,9 @@ export function WallboardDisplayPage() {
         </div>
       ) : null}
 
-      {showFocus && focus !== null ? (
+      {maintenance !== null ? (
+        <MaintenanceTakeover notice={maintenance} />
+      ) : showFocus && focus !== null ? (
         <FocusTakeover
           focus={focus}
           fallbackPilotAvailability={state.operational_summary.pilot_availability}
@@ -565,13 +577,38 @@ export function WallboardDisplayPage() {
       )}
 
       <footer className="wallboard-display__footer">
-        <span>{focus !== null && focus.visible
+        <span>{maintenance !== null
+          ? 'Onderhoud actief · het wallboard herstelt automatisch'
+          : focus !== null && focus.visible
           ? `${wallboardFocusKindLabel(focus.kind)} · ${nextSwitchLabel}`
           : `Pagina ${Math.max(1, currentPageIndex + 1)} van ${configuration.pages.length} · ${nextSwitchLabel}`}</span>
         <span>{wakeLockActive ? 'Scherm blijft actief' : 'Gebruik volledig scherm om slaapstand te voorkomen'}</span>
       </footer>
       {showTicker ? <WallboardTicker items={state.ticker.items} /> : null}
     </main>
+  );
+}
+
+function MaintenanceTakeover({ notice }: { notice: WallboardMaintenanceNotice }) {
+  return (
+    <section
+      className="wallboard-display__alarm wallboard-display__alarm--maintenance"
+      role="status"
+      aria-live="assertive"
+      aria-atomic="true"
+    >
+      <span className="wallboard-display__alarm-icon"><RefreshCw className="spin" size={58} aria-hidden /></span>
+      <span className="wallboard-display__alarm-eyebrow">
+        {notice.kind === 'update' ? 'Systeemupdate' : 'Gepland onderhoud'}
+      </span>
+      <h2>{notice.title}</h2>
+      <p>{notice.message}</p>
+      <div className="wallboard-display__alarm-status">
+        <i aria-hidden />
+        <strong>Automatisch herstel is actief</strong>
+        <time dateTime={notice.started_at}>Gestart {formatDateTime(notice.started_at)}</time>
+      </div>
+    </section>
   );
 }
 
@@ -672,10 +709,36 @@ function WallboardPageContent({ page, state, presentation, hasLiveFeed }: Wallbo
 }
 
 function WallboardNewsPage({ page, news }: { page: WallboardPage; news: WallboardNewsPageState }) {
-  const [lead, ...supporting] = news.items;
-  const supportingRows = Math.max(1, Math.ceil(supporting.length / 2));
+  const itemDurationSeconds = clampWallboardNewsItemDuration(Number(page.options.item_duration_seconds));
+  const itemSignature = news.items.map((item) => item.id).join('|');
+  const [activeIndex, setActiveIndex] = useState(0);
 
-  if (lead === undefined) {
+  useEffect(() => {
+    const itemCount = news.items.length;
+    if (itemCount <= 1) {
+      setActiveIndex(0);
+      return undefined;
+    }
+
+    const intervalMilliseconds = itemDurationSeconds * 1000;
+    let intervalId: number | undefined;
+    const updateIndex = () => setActiveIndex(
+      wallboardNewsCarouselIndex(itemCount, itemDurationSeconds),
+    );
+    updateIndex();
+    const delayUntilNextItem = intervalMilliseconds - (Date.now() % intervalMilliseconds);
+    const timeoutId = window.setTimeout(() => {
+      updateIndex();
+      intervalId = window.setInterval(updateIndex, intervalMilliseconds);
+    }, delayUntilNextItem);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+    };
+  }, [itemDurationSeconds, itemSignature, news.items.length]);
+
+  if (news.items.length === 0) {
     return (
       <div className="wallboard-display__news wallboard-display__news--empty">
         <Newspaper size={52} aria-hidden />
@@ -686,8 +749,11 @@ function WallboardNewsPage({ page, news }: { page: WallboardPage; news: Wallboar
     );
   }
 
+  const safeIndex = activeIndex % news.items.length;
+  const activeItem = news.items[safeIndex];
+
   return (
-    <div className={`wallboard-display__news ${supporting.length === 0 ? 'wallboard-display__news--single' : ''}`}>
+    <div className="wallboard-display__news">
       <header className="wallboard-display__news-header">
         <span>
           <Newspaper size={21} aria-hidden />
@@ -696,38 +762,76 @@ function WallboardNewsPage({ page, news }: { page: WallboardPage; news: Wallboar
             ? `Geen nieuws in de afgelopen ${news.lookback_days} dagen · meest recente publicaties`
             : `Gepubliceerd in de afgelopen ${news.lookback_days} dagen`}</small>
         </span>
-        <b>{news.items.length} {news.items.length === 1 ? 'bericht' : 'berichten'}</b>
+        <b>{safeIndex + 1} / {news.items.length}</b>
       </header>
 
-      <div className="wallboard-display__news-grid">
-        <NewsArticle item={lead} lead />
-        {supporting.length > 0 ? (
-          <div
-            className={`wallboard-display__news-supporting ${supporting.length > 6 ? 'wallboard-display__news-supporting--dense' : ''}`}
-            style={{ '--wallboard-news-rows': supportingRows } as CSSProperties}
-          >
-            {supporting.map((item) => <NewsArticle item={item} key={item.id} />)}
-          </div>
-        ) : null}
+      <div
+        className="wallboard-display__news-carousel"
+        style={{ '--wallboard-news-item-duration': `${itemDurationSeconds}s` } as CSSProperties}
+      >
+        <NewsArticle item={activeItem} key={`${activeItem.id}:${safeIndex}`} />
+        <ol className="wallboard-display__news-position" aria-label="Nieuwsberichten in deze carrousel">
+          {news.items.map((item, index) => (
+            <li
+              className={index === safeIndex ? 'wallboard-display__news-position-item wallboard-display__news-position-item--active' : 'wallboard-display__news-position-item'}
+              key={item.id}
+              aria-current={index === safeIndex ? 'true' : undefined}
+              aria-label={`Bericht ${index + 1}: ${item.title}`}
+              title={item.title}
+            />
+          ))}
+        </ol>
       </div>
     </div>
   );
 }
 
-function NewsArticle({ item, lead = false }: { item: WallboardNewsItem; lead?: boolean }) {
+function NewsArticle({ item }: { item: WallboardNewsItem }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const showImage = typeof item.image_url === 'string' && !imageFailed;
+
+  useEffect(() => setImageFailed(false), [item.image_url]);
+
   return (
-    <article className={`wallboard-display__news-article wallboard-display__news-article--${item.source} ${lead ? 'wallboard-display__news-article--lead' : ''}`}>
-      <div className="wallboard-display__news-meta">
-        <strong>{item.source_label}</strong>
-        <time dateTime={item.published_at}>{formatWallboardNewsDate(item.published_at)}</time>
+    <article className={`wallboard-display__news-article wallboard-display__news-article--${item.source} ${showImage ? 'wallboard-display__news-article--with-image' : 'wallboard-display__news-article--without-image'}`}>
+      {showImage ? (
+        <figure className="wallboard-display__news-image">
+          <img
+            src={item.image_url ?? undefined}
+            alt=""
+            referrerPolicy="no-referrer"
+            onError={() => setImageFailed(true)}
+          />
+        </figure>
+      ) : null}
+      <div className="wallboard-display__news-copy">
+        <div className="wallboard-display__news-meta">
+          <strong>{item.source_label}</strong>
+          <time dateTime={item.published_at}>{formatWallboardNewsDate(item.published_at)}</time>
+        </div>
+        <h2>{item.title}</h2>
+        <p>{item.excerpt || 'Scan de QR-code voor de volledige inhoud van dit bericht.'}</p>
+        <footer className="wallboard-display__news-article-footer">
+          <span>
+            <ExternalLink size={16} aria-hidden />
+            Volledig artikel op {item.source_label}
+          </span>
+          <WallboardNewsQrCode title={item.title} url={item.url} />
+        </footer>
       </div>
-      <h2>{item.title}</h2>
-      <p>{item.excerpt || 'Open het bronbericht voor de volledige inhoud.'}</p>
-      <a href={item.url} target="_blank" rel="noreferrer" tabIndex={-1}>
-        Bronbericht <ExternalLink size={14} aria-hidden />
-      </a>
+      <i className="wallboard-display__news-progress" aria-hidden />
     </article>
   );
+}
+
+export function wallboardNewsCarouselIndex(
+  itemCount: number,
+  itemDurationSeconds: number,
+  now: number = Date.now(),
+): number {
+  if (!Number.isFinite(itemCount) || itemCount <= 1 || !Number.isFinite(now) || now < 0) return 0;
+  const duration = clampWallboardNewsItemDuration(itemDurationSeconds);
+  return Math.floor(now / (duration * 1000)) % Math.floor(itemCount);
 }
 
 function FocusTakeover({
@@ -1104,6 +1208,7 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
   const configuration = wallboardConfigurationCopy(state.wallboard.configuration);
   const rawState = state as WallboardState & {
     operational_summary?: WallboardState['operational_summary'];
+    maintenance?: unknown;
     ticker?: WallboardState['ticker'];
     news?: unknown;
   };
@@ -1129,6 +1234,7 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
 
   return {
     ...state,
+    maintenance: normalizeWallboardMaintenanceNotice(rawState.maintenance),
     operational_summary: {
       pilot_availability: operationalSummary?.pilot_availability
         ?? { available: Number.NaN, total: Number.NaN },
@@ -1148,6 +1254,48 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
       display: { ...display, page_id: pageId },
     },
   };
+}
+
+export function normalizeWallboardMaintenanceNotice(value: unknown): WallboardMaintenanceNotice | null {
+  if (!isRecord(value) || value.active !== true) return null;
+  if (!['update', 'maintenance'].includes(String(value.kind))) return null;
+  if (
+    typeof value.title !== 'string'
+    || typeof value.message !== 'string'
+    || typeof value.started_at !== 'string'
+    || typeof value.expires_at !== 'string'
+  ) return null;
+
+  const title = value.title.trim();
+  const message = value.message.trim();
+  const startedAt = Date.parse(value.started_at);
+  const expiresAt = Date.parse(value.expires_at);
+  const maximumLifetimeMilliseconds = 6 * 60 * 60 * 1000;
+  if (
+    title === ''
+    || message === ''
+    || !Number.isFinite(startedAt)
+    || !Number.isFinite(expiresAt)
+    || expiresAt <= startedAt
+    || expiresAt - startedAt > maximumLifetimeMilliseconds
+  ) return null;
+
+  return {
+    active: true,
+    kind: value.kind as WallboardMaintenanceNotice['kind'],
+    title: title.slice(0, 120),
+    message: message.slice(0, 500),
+    started_at: value.started_at,
+    expires_at: value.expires_at,
+  };
+}
+
+export function wallboardMaintenanceNoticeIsActive(value: unknown, now: number = Date.now()): boolean {
+  const notice = normalizeWallboardMaintenanceNotice(value);
+  if (notice === null) return false;
+  const expiresAt = Date.parse(notice.expires_at);
+
+  return Number.isFinite(now) && expiresAt > now;
 }
 
 export function normalizeWallboardNewsState(value: unknown): WallboardNewsState {
@@ -1193,6 +1341,9 @@ function normalizeWallboardNewsItem(value: unknown): WallboardNewsItem[] {
   const sourceId = typeof value.source_id === 'string' ? value.source_id.trim() : source;
   const sourceLabel = value.source_label.trim();
   const url = safeWallboardNewsUrl(value.url);
+  const imageUrl = value.image_url === null || value.image_url === undefined
+    ? null
+    : typeof value.image_url === 'string' ? safeWallboardNewsImageUrl(value.image_url) : null;
   if (
     title === ''
     || sourceLabel === ''
@@ -1209,6 +1360,7 @@ function normalizeWallboardNewsItem(value: unknown): WallboardNewsItem[] {
     title: title.slice(0, 240),
     excerpt: value.excerpt.trim().slice(0, 1200),
     url,
+    image_url: imageUrl,
     published_at: value.published_at,
   }];
 }
@@ -1220,6 +1372,11 @@ function safeWallboardNewsUrl(value: string): string | null {
   } catch {
     return null;
   }
+}
+
+function safeWallboardNewsImageUrl(value: string): string | null {
+  const trimmed = value.trim();
+  return /^\/api\/wallboard\/news-images\/[a-f0-9]{64}$/.test(trimmed) ? trimmed : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1234,6 +1391,7 @@ function controlFromState(state: WallboardState): WallboardControlState {
 
   return {
     generated_at: state.generated_at,
+    maintenance: normalizeWallboardMaintenanceNotice(state.maintenance),
     config_version: state.wallboard.config_version,
     control_version: state.wallboard.control_version ?? 1,
     refresh_version: state.wallboard.refresh_version,
@@ -1253,6 +1411,7 @@ function controlFromState(state: WallboardState): WallboardControlState {
 
 function normalizeWallboardControlState(state: WallboardControlState): WallboardControlState {
   const legacyState = state as WallboardControlState & {
+    maintenance?: unknown;
     refresh_version?: unknown;
     display_profile?: unknown;
     transient_alert?: WallboardTransientAlert | null;
@@ -1261,6 +1420,7 @@ function normalizeWallboardControlState(state: WallboardControlState): Wallboard
   const hasFocusContract = Object.prototype.hasOwnProperty.call(legacyState, 'focus');
   return {
     ...state,
+    maintenance: normalizeWallboardMaintenanceNotice(legacyState.maintenance),
     display_profile: normalizeWallboardDisplayProfile(legacyState.display_profile),
     refresh_version: nonNegativeRefreshVersion(legacyState.refresh_version),
     transient_alert: legacyState.transient_alert ?? null,
@@ -1317,8 +1477,18 @@ function stabilizeWallboardControlState(
   next: WallboardControlState,
   now: number,
 ): WallboardControlState {
-  const focusStabilized = stabilizeWallboardFocus(current, next, now);
+  const maintenanceStabilized = stabilizeWallboardMaintenance(current, next);
+  const focusStabilized = stabilizeWallboardFocus(current, maintenanceStabilized, now);
   return stabilizeWallboardTransientAlert(current, focusStabilized, now);
+}
+
+function stabilizeWallboardMaintenance(
+  current: WallboardControlState | null,
+  next: WallboardControlState,
+): WallboardControlState {
+  if (current === null || !wallboardControlIsOlder(next, current)) return next;
+
+  return { ...next, maintenance: current.maintenance ?? null };
 }
 
 function stabilizeWallboardFocus(

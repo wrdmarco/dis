@@ -20,6 +20,12 @@ final class WallboardConfiguration
 
     public const MAX_NEWS_MAX_ITEMS = 12;
 
+    public const DEFAULT_NEWS_ITEM_DURATION_SECONDS = 12;
+
+    public const MIN_NEWS_ITEM_DURATION_SECONDS = 5;
+
+    public const MAX_NEWS_ITEM_DURATION_SECONDS = 300;
+
     public const MAX_NEWS_CUSTOM_SOURCES = 8;
 
     public const MAX_NEWS_CUSTOM_SOURCE_ID_LENGTH = 64;
@@ -185,7 +191,7 @@ final class WallboardConfiguration
             $allowedOptionKeys = match ($type) {
                 'message' => ['body'],
                 'incident_list', 'summary' => ['show_test_incidents'],
-                'news' => ['sources', 'custom_sources', 'max_items'],
+                'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds'],
                 default => [],
             };
             if (array_diff(array_keys($options), $allowedOptionKeys) !== []) {
@@ -287,10 +293,20 @@ final class WallboardConfiguration
                     ]);
                 }
 
+                $itemDurationSeconds = $options['item_duration_seconds'] ?? self::DEFAULT_NEWS_ITEM_DURATION_SECONDS;
+                if (! is_int($itemDurationSeconds)
+                    || $itemDurationSeconds < self::MIN_NEWS_ITEM_DURATION_SECONDS
+                    || $itemDurationSeconds > self::MAX_NEWS_ITEM_DURATION_SECONDS) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.item_duration_seconds" => ['De zichtduur per nieuwsbericht moet een geheel getal tussen 5 en 300 seconden zijn.'],
+                    ]);
+                }
+
                 $options = [
                     'sources' => $sources,
                     'custom_sources' => $customSources,
                     'max_items' => $maximumItems,
+                    'item_duration_seconds' => $itemDurationSeconds,
                 ];
             } elseif (in_array($type, ['incident_list', 'summary'], true)) {
                 // The legacy option is accepted above for lossless upgrades, but no longer has effect.

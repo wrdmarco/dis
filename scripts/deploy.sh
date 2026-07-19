@@ -55,6 +55,9 @@ trap 'deployment_exit_handler "$?"' EXIT
 # Do not bootstrap a just-updated source tree through the previous release's
 # dependencies or executable caches. Nginx closes the public surface first;
 # Laravel maintenance is enabled after dependencies and manifests are ready.
+if [ "${DIS_DEPLOYMENT_OWNER}" = "deploy" ]; then
+  announce_wallboard_maintenance maintenance
+fi
 enable_frontend_maintenance
 stop_dis_deployment_services
 DIS_BACKUP_KEY_CUTOVER_ALLOWED=1 ensure_backup_encryption_key >/dev/null

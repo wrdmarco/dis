@@ -30,6 +30,7 @@ final class WallboardStateService
         private readonly AvailabilityScheduleService $availabilityScheduleService,
         private readonly WallboardTickerService $tickerService,
         private readonly WallboardNewsService $newsService,
+        private readonly WallboardMaintenanceNoticeService $maintenanceNoticeService,
     ) {}
 
     /** @return array<string, mixed> */
@@ -75,6 +76,7 @@ final class WallboardStateService
 
         return [
             'generated_at' => ApiDateTime::now(),
+            'maintenance' => $this->maintenanceNoticeService->current(),
             'wallboard' => [
                 'id' => (string) $wallboard->id,
                 'name' => (string) $wallboard->name,
@@ -128,6 +130,7 @@ final class WallboardStateService
 
         return [
             'generated_at' => ApiDateTime::now(),
+            'maintenance' => $this->maintenanceNoticeService->current(),
             'display_profile' => (string) $wallboard->display_profile,
             'config_version' => (int) $wallboard->config_version,
             'control_version' => (int) $wallboard->control_version,

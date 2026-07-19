@@ -33,17 +33,20 @@ import {
   MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_LABEL_LENGTH,
   MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_URL_LENGTH,
   MAX_WALLBOARD_NEWS_MAX_ITEMS,
+  MAX_WALLBOARD_NEWS_ITEM_DURATION_SECONDS,
   MAX_WALLBOARD_PAGE_DURATION_SECONDS,
   MAX_WALLBOARD_REFRESH_SECONDS,
   MAX_WALLBOARD_RSS_MAX_ITEMS,
   MAX_WALLBOARD_TICKER_SOURCES,
   MIN_WALLBOARD_FOCUS_DURATION_SECONDS,
   MIN_WALLBOARD_NEWS_MAX_ITEMS,
+  MIN_WALLBOARD_NEWS_ITEM_DURATION_SECONDS,
   MIN_WALLBOARD_PAGE_DURATION_SECONDS,
   MIN_WALLBOARD_REFRESH_SECONDS,
   MIN_WALLBOARD_RSS_MAX_ITEMS,
   clampWallboardFocusDuration,
   clampWallboardNewsMaxItems,
+  clampWallboardNewsItemDuration,
   clampWallboardPageDuration,
   clampWallboardRssMaxItems,
   createWallboardCustomNewsSource,
@@ -606,7 +609,7 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
       options: type === 'message'
         ? { body: page.options.body ?? '' }
         : type === 'news'
-          ? { sources: ['ndt', 'dronewatch'], custom_sources: [], max_items: 6 }
+          ? { sources: ['ndt', 'dronewatch'], custom_sources: [], max_items: 6, item_duration_seconds: 12 }
           : {},
     });
   }
@@ -805,6 +808,24 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
               required
             />
             <small>Begrenst zowel de recente set als de laatste berichten wanneer de 7-dagenperiode leeg is.</small>
+          </label>
+          <label className="wallboard-news-editor__count">
+            <span>Tijd per nieuwsbericht (seconden)</span>
+            <input
+              type="number"
+              min={MIN_WALLBOARD_NEWS_ITEM_DURATION_SECONDS}
+              max={MAX_WALLBOARD_NEWS_ITEM_DURATION_SECONDS}
+              value={clampWallboardNewsItemDuration(Number(page.options.item_duration_seconds))}
+              onChange={(event) => onChange({
+                ...page,
+                options: {
+                  ...page.options,
+                  item_duration_seconds: clampWallboardNewsItemDuration(Number(event.target.value)),
+                },
+              })}
+              required
+            />
+            <small>Elk artikel wisselt automatisch met een rustige overgang; de paginatijd hierboven bepaalt wanneer de playlist verdergaat.</small>
           </label>
         </fieldset>
       ) : (
