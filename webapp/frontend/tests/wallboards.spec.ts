@@ -4,6 +4,7 @@ import type {
   Wallboard,
   WallboardConfiguration,
   WallboardControlState,
+  WallboardFocusState,
   WallboardPage,
   WallboardState,
   WallboardTransientAlert,
@@ -12,12 +13,15 @@ import {
   formatWallboardClock,
   normalizeWallboardState,
   stabilizeWallboardRotationDeadline,
+  wallboardTickerIsVisible,
 } from '../src/features/wallboards/WallboardDisplayPage';
 import {
   DEFAULT_WALLBOARD_CONFIGURATION,
   buildWallboardMapPresentation,
   clampRefreshSeconds,
+  clampWallboardFocusDuration,
   clampWallboardPageDuration,
+  countActiveOperationalWallboardIncidents,
   createWallboardPage,
   createWallboardTickerSource,
   formatWallboardPilotAvailability,
@@ -25,6 +29,7 @@ import {
   selectRecentWallboardIncidents,
   wallboardConfigurationCopy,
   wallboardDisplayProfileLabel,
+  wallboardFocusKindLabel,
   wallboardIsOnline,
   wallboardPageMapConfiguration,
   wallboardPlaylistUsageCount,
@@ -122,6 +127,31 @@ function transientAlert(overrides: Partial<WallboardTransientAlert> = {}): Wallb
     received_at: '2026-07-19T09:59:50Z',
     expires_at: '2026-07-19T10:05:00Z',
     is_test: false,
+    ...overrides,
+  };
+}
+
+function focusState(overrides: Partial<WallboardFocusState> = {}): WallboardFocusState {
+  return {
+    kind: 'real_alarm',
+    focus_id: 'focus-1',
+    dispatch_id: 'dispatch-1',
+    incident_id: 'incident-1',
+    reference: 'DIS-1',
+    title: 'Nieuwe inzet',
+    priority: 'high',
+    location_label: 'Utrecht',
+    started_at: '2026-07-19T09:59:50Z',
+    expires_at: null,
+    visible: true,
+    playlist_page_id: null,
+    next_change_at: '2026-07-19T10:00:20Z',
+    responses: {
+      counts: { targeted: 8, pending: 5, accepted: 2, declined: 1, no_response: 0 },
+      items: [
+        { name: 'Piloot Een', response_status: 'accepted', responded_at: '2026-07-19T09:59:58Z' },
+      ],
+    },
     ...overrides,
   };
 }
@@ -229,6 +259,20 @@ test('normalizes legacy wallboard configuration into a safe page program', () =>
   }]);
   expect(normalized.rotation_enabled).toBe(true);
   expect(normalized.incident_override).toEqual({ enabled: false, page_id: 'map-overview' });
+  expect(normalized.focus).toEqual({
+    preannouncement: { enabled: true, duration_seconds: 120, show_response_feed: true },
+    real_alarm: { enabled: true, duration_seconds: 30, show_response_feed: true },
+    test_alarm: { enabled: true, duration_seconds: 300, show_response_feed: true },
+  });
+});
+
+test('bounds focus timing and labels all three server focus types explicitly', () => {
+  expect(clampWallboardFocusDuration(1, 120)).toBe(5);
+  expect(clampWallboardFocusDuration(7200, 30)).toBe(3600);
+  expect(clampWallboardFocusDuration(Number.NaN, 300)).toBe(300);
+  expect(wallboardFocusKindLabel('preannouncement')).toBe('Vooraankondiging');
+  expect(wallboardFocusKindLabel('real_alarm')).toBe('Alarmering');
+  expect(wallboardFocusKindLabel('test_alarm')).toBe('Proefalarmering');
 });
 
 test('bounds page timing and builds typed pages without executable message markup', () => {
@@ -241,6 +285,9 @@ test('bounds page timing and builds typed pages without executable message marku
   expect(page.type).toBe('message');
   expect(page.duration_seconds).toBe(30);
   expect(page.options).toEqual({ body: '' });
+
+  const summary = createWallboardPage('summary', 3);
+  expect(summary.options).toEqual({});
 });
 
 test('presents operational pilot availability independently from live location sharing', () => {
@@ -251,23 +298,22 @@ test('presents operational pilot availability independently from live location s
   expect(formatWallboardPilotAvailability({ available: Number.NaN, total: 8 })).toBe('Operationele beschikbaarheid onbekend');
 });
 
-test('selects coordinate-independent recent incidents and includes tests only when configured', () => {
+test('selects only coordinate-independent real incidents for the operational overview', () => {
   const incidents = stateFixture().operational_summary.recent_incidents;
 
   expect(selectRecentWallboardIncidents(incidents).map((incident) => incident.id)).toEqual([
     'recent-latest',
     'recent-older',
   ]);
-  expect(selectRecentWallboardIncidents(incidents, true).map((incident) => incident.id)).toEqual([
+  expect(selectRecentWallboardIncidents(incidents, 2).map((incident) => incident.id)).toEqual([
     'recent-latest',
-    'recent-test',
     'recent-older',
   ]);
-  expect(selectRecentWallboardIncidents(incidents, true, 2).map((incident) => incident.id)).toEqual([
-    'recent-latest',
-    'recent-test',
-  ]);
   expect(incidents.find((incident) => incident.id === 'recent-latest')).not.toHaveProperty('latitude');
+});
+
+test('counts only real active incidents in wallboard overview metrics', () => {
+  expect(countActiveOperationalWallboardIncidents(stateFixture().map.incidents)).toBe(1);
 });
 
 test('uses server transient expiry for both real and test alert focus', () => {
@@ -343,6 +389,100 @@ test('does not postpone a rotation deadline within the same active server phase'
   ).display.next_change_at).toBe('2026-07-19T10:00:07Z');
 });
 
+test('keeps focus deadlines server-authoritative without postponing one active phase', () => {
+  const current: WallboardControlState = {
+    generated_at: '2026-07-19T10:00:02Z',
+    config_version: 4,
+    control_version: 7,
+    display_profile: 'auto',
+    transient_alert: transientAlert(),
+    focus: focusState({ next_change_at: '2026-07-19T10:00:05Z' }),
+    display: {
+      mode: 'rotation',
+      page_id: 'map-overview',
+      incident_active: true,
+      next_change_at: null,
+    },
+  };
+  const postponed: WallboardControlState = {
+    ...current,
+    generated_at: '2026-07-19T10:00:03Z',
+    focus: focusState({ next_change_at: '2026-07-19T10:00:09Z' }),
+  };
+
+  expect(stabilizeWallboardRotationDeadline(current, postponed, Date.parse('2026-07-19T10:00:03Z')).focus?.next_change_at)
+    .toBe('2026-07-19T10:00:05Z');
+  expect(stabilizeWallboardRotationDeadline(current, {
+    ...postponed,
+    focus: focusState({ next_change_at: '2026-07-19T10:00:04Z' }),
+  }, Date.parse('2026-07-19T10:00:03Z')).focus?.next_change_at).toBe('2026-07-19T10:00:04Z');
+
+  const playlistPhase: WallboardControlState = {
+    ...postponed,
+    focus: focusState({ visible: false, playlist_page_id: 'map-overview', next_change_at: '2026-07-19T10:00:30Z' }),
+  };
+  expect(stabilizeWallboardRotationDeadline(current, playlistPhase, Date.parse('2026-07-19T10:00:03Z')).focus)
+    .toMatchObject({ visible: false, playlist_page_id: 'map-overview', next_change_at: '2026-07-19T10:00:30Z' });
+});
+
+test('restores the configured ticker during a real-alarm playlist phase', () => {
+  const playlistPhase = focusState({
+    kind: 'real_alarm',
+    visible: false,
+    playlist_page_id: 'map-overview',
+  });
+
+  expect(wallboardTickerIsVisible(true, playlistPhase, false, true, 2)).toBe(true);
+  expect(wallboardTickerIsVisible(true, { ...playlistPhase, visible: true }, false, true, 2)).toBe(false);
+  expect(wallboardTickerIsVisible(true, null, false, true, 2)).toBe(false);
+});
+
+test('rejects an older focus transition but accepts a current server focus removal immediately', () => {
+  const current: WallboardControlState = {
+    generated_at: '2026-07-19T10:00:05Z',
+    config_version: 4,
+    control_version: 7,
+    display_profile: 'auto',
+    transient_alert: transientAlert(),
+    focus: focusState(),
+    display: { mode: 'rotation', page_id: 'map-overview', incident_active: true, next_change_at: null },
+  };
+  const olderRemoval: WallboardControlState = {
+    ...current,
+    generated_at: '2026-07-19T10:00:01Z',
+    focus: null,
+  };
+  const currentRemoval: WallboardControlState = {
+    ...olderRemoval,
+    generated_at: '2026-07-19T10:00:06Z',
+  };
+
+  expect(stabilizeWallboardRotationDeadline(current, olderRemoval, now).focus?.focus_id).toBe('focus-1');
+  expect(stabilizeWallboardRotationDeadline(current, currentRemoval, now).focus).toBeNull();
+});
+
+test('normalizes explicit server focus while retaining the absent-focus legacy contract', () => {
+  const legacy = normalizeWallboardState(stateFixture());
+  expect(legacy.operational_summary.focus).toBeUndefined();
+
+  const current = stateFixture();
+  current.operational_summary.focus = focusState({
+    responses: {
+      counts: { targeted: 2, pending: 1, accepted: 1, declined: 0, no_response: 0 },
+      items: [{ name: '  Piloot Een  ', response_status: 'accepted', responded_at: null }],
+    },
+  });
+  const normalized = normalizeWallboardState(current);
+  expect(normalized.operational_summary.focus).toMatchObject({
+    kind: 'real_alarm',
+    visible: true,
+    responses: {
+      counts: { targeted: 2, accepted: 1 },
+      items: [{ name: 'Piloot Een', response_status: 'accepted', responded_at: null }],
+    },
+  });
+});
+
 test('does not lose an unexpired transient alert to an older state response', () => {
   const current: WallboardControlState = {
     config_version: 4,
@@ -388,7 +528,18 @@ test('dedicated incident pages remain operational when the global map layer is h
 
   page.options.show_test_incidents = true;
   const withTests = wallboardPageMapConfiguration(state.wallboard.configuration, page);
-  expect(buildWallboardMapPresentation(state, true, withTests).models.map((model) => model.incident.id)).toEqual(['incident-1', 'incident-2']);
+  expect(withTests.show_test_incidents).toBe(false);
+  expect(buildWallboardMapPresentation(state, true, withTests).models.map((model) => model.incident.id)).toEqual(['incident-1']);
+
+  const summaryPage: WallboardPage = {
+    ...page,
+    id: 'summary',
+    type: 'summary',
+    options: { show_test_incidents: true },
+  };
+  const summaryConfiguration = wallboardPageMapConfiguration(state.wallboard.configuration, summaryPage);
+  expect(summaryConfiguration.show_test_incidents).toBe(false);
+  expect(buildWallboardMapPresentation(state, true, summaryConfiguration).models.map((model) => model.incident.id)).toEqual(['incident-1']);
 });
 
 test('exposes admin and kiosk routes with separate trust boundaries', () => {
@@ -429,6 +580,8 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(apiTypes).toContain('pilot_availability: WallboardPilotAvailability;');
   expect(apiTypes).toContain('recent_incidents: WallboardStateRecentIncident[];');
   expect(apiTypes).toContain('transient_alert: WallboardTransientAlert | null;');
+  expect(apiTypes).toContain("export type WallboardFocusKind = 'preannouncement' | 'real_alarm' | 'test_alarm';");
+  expect(apiTypes).toContain('response_status: WallboardFocusResponseStatus;');
   expect(apiTypes).toContain('playlist_id: string;');
   expect(apiTypes).toContain("export type WallboardDisplayProfile = 'auto' | '1080p' | '4k';");
   expect(apiTypes).toContain('display_profile: WallboardDisplayProfile;');
@@ -438,6 +591,11 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain('Operationeel beschikbaar');
   expect(kiosk).toContain('Laatste meldingen');
   expect(kiosk).toContain('Proefalarmering');
+  expect(kiosk).toContain('<FocusTakeover');
+  expect(kiosk).toContain("effectiveControl.focus === undefined");
+  expect(kiosk).toContain("transientAlert?.is_test === true && state.operational_summary.active_alarm !== null");
+  expect(kiosk).toContain('focus.playlist_page_id');
+  expect(kiosk).toContain('showResponseFeed={configuration.focus[focus.kind].show_response_feed}');
   expect(kiosk).toContain('showTransientAlert');
   expect(kiosk).toContain('formatWallboardClock(clock)');
   expect(kiosk).toContain('wallboard-display__ticker');
@@ -455,8 +613,13 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(admin).toContain("error.status === 409");
   expect(configurationEditor).toContain('Nieuws- of weer-RSS');
   expect(configurationEditor).toContain("addTickerSource('internal')");
+  expect(configurationEditor).toContain('Focusschermen');
+  expect(configurationEditor).toContain('focus&nbsp;↔&nbsp;kaart');
+  expect(configurationEditor).toContain('Reactiefeed tonen');
   expect(styles).toContain('.wallboard-display__ticker-track');
   expect(styles).toContain('.wallboard-display__alarm--test');
+  expect(styles).toContain('.wallboard-display__alarm--with-feed');
+  expect(styles).toContain('.wallboard-display__responses');
   expect(kiosk).toContain('wallboard-display--profile-${displayProfile}');
   expect(kiosk).toContain('data-display-profile={displayProfile}');
   expect(styles).toContain('.wallboard-display--profile-4k .wallboard-display__header');
@@ -491,7 +654,8 @@ test('separates screen control from shared playlist content management', () => {
   expect(configurationEditor).toContain('Weergave en ritme');
   expect(configurationEditor).toContain('Gegevens en kaartlagen');
   expect(configurationEditor).toContain('Pagina’s en volgorde');
-  expect(configurationEditor).toContain('Automatisch bij een actief incident');
+  expect(configurationEditor).toContain('Focusschermen');
+  expect(configurationEditor).toContain('Vaste incidentpagina als fallback');
   expect(configurationEditor).toContain('Onderticker');
 });
 
@@ -545,6 +709,50 @@ test('keeps explicit screen profiles fluid at Full HD and Ultra HD viewports', a
   expect(measurements[0]).toMatchObject({ overflow: false, profile: '1080p' });
   expect(measurements[1]).toMatchObject({ overflow: false, profile: '4k' });
   expect(measurements[1].titleFontSize).toBeGreaterThan(measurements[0].titleFontSize);
+});
+
+test('keeps a populated alarm focus and response rail contained at Full HD and Ultra HD', async ({ page }) => {
+  const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
+  const responseItems = Array.from({ length: 24 }, (_, index) => `
+    <li class="wallboard-display__response wallboard-display__response--${index % 3 === 0 ? 'accepted' : index % 3 === 1 ? 'declined' : 'pending'}">
+      <i></i><span><strong>Piloot met lange naam ${index + 1}</strong><small>Reactiestatus</small></span><time>12:34:${String(index).padStart(2, '0')}</time>
+    </li>
+  `).join('');
+
+  for (const screen of [
+    { profile: '1080p', width: 1920, height: 1080 },
+    { profile: '4k', width: 3840, height: 2160 },
+  ] as const) {
+    await page.setViewportSize({ width: screen.width, height: screen.height });
+    await page.setContent(`
+      <style>${styles} html, body { width: 100%; min-width: 0; margin: 0; overflow: hidden; }</style>
+      <main class="wallboard-display wallboard-display--dark wallboard-display--profile-${screen.profile}">
+        <header class="wallboard-display__header"><div><span class="wallboard-display__titles"><h1>Alarmering</h1></span></div></header>
+        <section class="wallboard-display__alarm wallboard-display__alarm--focus wallboard-display__alarm--real-alarm wallboard-display__alarm--with-feed">
+          <div class="wallboard-display__alarm-main"><span class="wallboard-display__alarm-eyebrow">Alarmering</span><h2>Zeer lange operationele alarmtitel voor een inzet</h2><p>Locatie met een lange omschrijving</p></div>
+          <aside class="wallboard-display__responses">
+            <header><span></span><div><small>Live reactiefeed</small><h2>Reacties van piloten</h2></div></header>
+            <dl class="wallboard-display__response-counts"><div><dt>Bevestigd</dt><dd>8</dd></div><div><dt>Afgewezen</dt><dd>3</dd></div><div><dt>Wachtend</dt><dd>12</dd></div><div><dt>Geen reactie</dt><dd>1</dd></div><div><dt>Aangeschreven</dt><dd>24</dd></div></dl>
+            <ol class="wallboard-display__response-list">${responseItems}</ol>
+          </aside>
+        </section>
+        <footer class="wallboard-display__footer"><span>Alarmering · Playlist over 30 sec.</span></footer>
+      </main>
+    `);
+
+    const measurement = await page.locator('.wallboard-display').evaluate((element) => ({
+      horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
+        || element.scrollWidth > element.clientWidth,
+      verticalOverflow: element.scrollHeight > element.clientHeight,
+      responseScrollable: (() => {
+        const list = element.querySelector('.wallboard-display__response-list');
+        return list !== null && list.scrollHeight > list.clientHeight;
+      })(),
+    }));
+    expect(measurement.horizontalOverflow).toBe(false);
+    expect(measurement.verticalOverflow).toBe(false);
+    expect(measurement.responseScrollable).toBe(true);
+  }
 });
 
 test('reuses the extracted map canvas for the operational map and kiosk', () => {

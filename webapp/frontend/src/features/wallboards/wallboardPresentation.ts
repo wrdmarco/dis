@@ -2,11 +2,14 @@ import type {
   Wallboard,
   WallboardConfiguration,
   WallboardDisplayProfile,
+  WallboardFocusConfiguration,
+  WallboardFocusKind,
   WallboardMapConfiguration,
   WallboardPage,
   WallboardPageType,
   WallboardPilotAvailability,
   WallboardState,
+  WallboardStateIncident,
   WallboardStateRecentIncident,
   WallboardTickerConfiguration,
   WallboardTickerItem,
@@ -25,6 +28,8 @@ export const MIN_WALLBOARD_REFRESH_SECONDS = 5;
 export const MAX_WALLBOARD_REFRESH_SECONDS = 60;
 export const MIN_WALLBOARD_PAGE_DURATION_SECONDS = 5;
 export const MAX_WALLBOARD_PAGE_DURATION_SECONDS = 3600;
+export const MIN_WALLBOARD_FOCUS_DURATION_SECONDS = 5;
+export const MAX_WALLBOARD_FOCUS_DURATION_SECONDS = 3600;
 export const MAX_WALLBOARD_TICKER_SOURCES = 10;
 const WALLBOARD_HEARTBEAT_GRACE_SECONDS = 90;
 const DEFAULT_RECENT_INCIDENT_LIMIT = 4;
@@ -62,6 +67,23 @@ export const DEFAULT_WALLBOARD_CONFIGURATION: WallboardConfiguration = {
     enabled: false,
     sources: [],
   },
+  focus: {
+    preannouncement: {
+      enabled: true,
+      duration_seconds: 120,
+      show_response_feed: true,
+    },
+    real_alarm: {
+      enabled: true,
+      duration_seconds: 30,
+      show_response_feed: true,
+    },
+    test_alarm: {
+      enabled: true,
+      duration_seconds: 300,
+      show_response_feed: true,
+    },
+  },
   pages: [{
     id: 'map-overview',
     type: 'map',
@@ -87,8 +109,10 @@ export function wallboardConfigurationCopy(configuration: WallboardConfiguration
     pages?: WallboardPage[];
     rotation_enabled?: boolean;
     incident_override?: WallboardConfiguration['incident_override'];
+    focus?: Partial<WallboardFocusConfiguration>;
   };
   const fallbackMap = { ...DEFAULT_WALLBOARD_MAP_CONFIGURATION, ...legacyConfiguration.map };
+  fallbackMap.show_test_incidents = false;
   const ticker = wallboardTickerConfigurationCopy(legacyConfiguration.ticker);
   const sourcePages = Array.isArray(legacyConfiguration.pages) && legacyConfiguration.pages.length > 0
     ? legacyConfiguration.pages
@@ -104,6 +128,7 @@ export function wallboardConfigurationCopy(configuration: WallboardConfiguration
     refresh_seconds: clampRefreshSeconds(legacyConfiguration.refresh_seconds),
     map: fallbackMap,
     ticker,
+    focus: wallboardFocusConfigurationCopy(legacyConfiguration.focus),
     pages,
     rotation_enabled: legacyConfiguration.rotation_enabled ?? true,
     incident_override: {
@@ -125,6 +150,22 @@ export function clampWallboardPageDuration(value: number): number {
   );
 }
 
+export function clampWallboardFocusDuration(value: number, fallbackSeconds: number): number {
+  if (!Number.isFinite(value)) return fallbackSeconds;
+  return Math.min(
+    MAX_WALLBOARD_FOCUS_DURATION_SECONDS,
+    Math.max(MIN_WALLBOARD_FOCUS_DURATION_SECONDS, Math.round(value)),
+  );
+}
+
+export function wallboardFocusKindLabel(kind: WallboardFocusKind): string {
+  switch (kind) {
+    case 'preannouncement': return 'Vooraankondiging';
+    case 'real_alarm': return 'Alarmering';
+    case 'test_alarm': return 'Proefalarmering';
+  }
+}
+
 export function createWallboardPage(type: WallboardPageType, sequence: number): WallboardPage {
   const suffix = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -137,9 +178,7 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
     duration_seconds: 30,
     options: type === 'message'
       ? { body: '' }
-      : ['incident_list', 'summary'].includes(type)
-        ? { show_test_incidents: false }
-        : {},
+      : {},
   };
 }
 
@@ -176,7 +215,7 @@ export function wallboardPageMapConfiguration(
   return {
     ...configuration.map,
     show_active_incidents: true,
-    show_test_incidents: page.options.show_test_incidents ?? configuration.map.show_test_incidents,
+    show_test_incidents: false,
   };
 }
 
@@ -235,12 +274,11 @@ export function wallboardTransientAlertIsActive(alert: WallboardTransientAlert |
 
 export function selectRecentWallboardIncidents(
   incidents: WallboardStateRecentIncident[],
-  includeTestIncidents = false,
   limit = DEFAULT_RECENT_INCIDENT_LIMIT,
 ): WallboardStateRecentIncident[] {
   const boundedLimit = Math.max(0, Math.trunc(limit));
   return incidents
-    .filter((incident) => includeTestIncidents || !incident.is_test)
+    .filter((incident) => !incident.is_test)
     .slice()
     .sort((left, right) => {
       const leftTimestamp = incidentTimestamp(left.closed_at);
@@ -249,6 +287,12 @@ export function selectRecentWallboardIncidents(
       return rightTimestamp > leftTimestamp ? 1 : -1;
     })
     .slice(0, boundedLimit);
+}
+
+export function countActiveOperationalWallboardIncidents(incidents: WallboardStateIncident[]): number {
+  return incidents.reduce((count, incident) => (
+    !incident.is_test && !['resolved', 'cancelled'].includes(incident.status) ? count + 1 : count
+  ), 0);
 }
 
 export function wallboardTickerDurationSeconds(items: WallboardTickerItem[]): number {
@@ -274,7 +318,7 @@ export function buildWallboardMapPresentation(
   const incidents = state.map.incidents.filter((incident) => (
     configuration.show_active_incidents
     && !['resolved', 'cancelled'].includes(incident.status)
-    && (configuration.show_test_incidents || !incident.is_test)
+    && !incident.is_test
   ));
   const visibleIncidentIds = new Set(incidents.map((incident) => incident.id));
   const liveLocations = configuration.show_live_locations && includeLiveData
@@ -346,9 +390,7 @@ function normalizeWallboardPage(
     duration_seconds: clampWallboardPageDuration(page.duration_seconds),
     options: type === 'message'
       ? { body: typeof page.options?.body === 'string' ? page.options.body : '' }
-      : ['incident_list', 'summary'].includes(type)
-        ? { show_test_incidents: page.options?.show_test_incidents === true }
-        : {},
+      : {},
   };
 }
 
@@ -370,6 +412,32 @@ function wallboardTickerConfigurationCopy(
         label: source.label,
         ...(source.type === 'rss' ? { url: source.url ?? '' } : { text: source.text ?? '' }),
       })),
+  };
+}
+
+function wallboardFocusConfigurationCopy(
+  focus: Partial<WallboardFocusConfiguration> | undefined,
+): WallboardFocusConfiguration {
+  const defaults = DEFAULT_WALLBOARD_CONFIGURATION.focus;
+
+  return {
+    preannouncement: wallboardFocusTypeConfigurationCopy(focus?.preannouncement, defaults.preannouncement),
+    real_alarm: wallboardFocusTypeConfigurationCopy(focus?.real_alarm, defaults.real_alarm),
+    test_alarm: wallboardFocusTypeConfigurationCopy(focus?.test_alarm, defaults.test_alarm),
+  };
+}
+
+function wallboardFocusTypeConfigurationCopy(
+  configuration: Partial<WallboardFocusConfiguration['preannouncement']> | undefined,
+  defaults: WallboardFocusConfiguration['preannouncement'],
+): WallboardFocusConfiguration['preannouncement'] {
+  return {
+    enabled: configuration?.enabled ?? defaults.enabled,
+    duration_seconds: clampWallboardFocusDuration(
+      configuration?.duration_seconds ?? defaults.duration_seconds,
+      defaults.duration_seconds,
+    ),
+    show_response_feed: configuration?.show_response_feed ?? defaults.show_response_feed,
   };
 }
 

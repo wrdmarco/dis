@@ -202,11 +202,22 @@ rotation. A lightweight, authenticated control feed lets the kiosk observe contr
 versions without repeatedly loading the full map payload. Page rotation is derived from a server timestamp
 and the configured durations, so refreshes and process restarts do not create an independent browser clock.
 
-Per playlist, an optional incident override can pin a preselected page while at least one non-test incident
-is actually being dispatched or is in progress. A preannouncement or merely open incident does not trigger
-this persistent override; a newly sent real or test alarm is still shown prominently for its bounded alert
-window. The incident page takes precedence over manual pinning and rotation; after the final matching
-incident closes or is cancelled, the previous manual pin or the current rotation becomes effective again.
+Each playlist independently configures focus screens for a preannouncement, a real alarm and a test alarm.
+Every focus type has a bounded screen duration and an optional response feed. That feed contains only the
+recipient name snapshot, response status and response timestamp; it never exposes e-mail addresses, response
+notes or user identifiers. A preannouncement and test alarm use a one-shot focus window. While a real non-test
+incident is being dispatched or is in progress, its focus screen is inserted server-side before the assigned
+playlist and the combined cycle repeats. A playlist containing only the operational map therefore alternates
+between alarm focus and map until the incident ends. The server supplies every phase and deadline through the
+two-second control feed, so paired displays stay synchronized and refreshes cannot restart a timer. A real alarm
+always takes precedence over a simultaneous preannouncement or test alarm.
+
+Per playlist, the legacy optional incident override can still pin a preselected page while at least one non-test
+incident is actually being dispatched or is in progress. It remains the fallback when real-alarm focus is
+disabled. Test alerts never count as active incidents and are omitted from every persistent operational summary,
+map, incident list and historical wallboard layer; they can only appear in their bounded focus screen. After the
+final matching real incident closes or is cancelled, the previous manual pin or the current rotation becomes
+effective again.
 Playlist configuration, screen assignment and live-control changes require `wallboards.manage`, use
 optimistic versions to prevent stale administrators overwriting each other, and are audit logged. Updating a
 shared playlist atomically advances every linked screen to the same configuration while preserving each

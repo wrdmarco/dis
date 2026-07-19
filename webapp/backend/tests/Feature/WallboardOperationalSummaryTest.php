@@ -93,7 +93,7 @@ final class WallboardOperationalSummaryTest extends TestCase
         );
     }
 
-    public function test_recent_incidents_are_summary_specific_coordinate_independent_and_page_test_aware(): void
+    public function test_recent_incidents_are_summary_specific_coordinate_independent_and_always_exclude_tests(): void
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 10:00:00', 'Europe/Amsterdam'));
         $creator = $this->user('recent-summary@example.test');
@@ -111,12 +111,16 @@ final class WallboardOperationalSummaryTest extends TestCase
 
         $withTests = app(WallboardStateService::class)->state($this->wallboard(true));
         $this->assertSame(
-            ['RECENT-TEST', 'RECENT-REAL'],
+            ['RECENT-REAL'],
             collect($withTests['operational_summary']['recent_incidents'])->pluck('reference')->all(),
         );
-        $this->assertTrue($withTests['operational_summary']['recent_incidents'][0]['is_test']);
-        $this->assertSame($test->id, $withTests['operational_summary']['recent_incidents'][0]['id']);
-        $this->assertSame($real->id, $withTests['operational_summary']['recent_incidents'][1]['id']);
+        $this->assertFalse($withTests['operational_summary']['recent_incidents'][0]['is_test']);
+        $this->assertSame($real->id, $withTests['operational_summary']['recent_incidents'][0]['id']);
+        $this->assertNotContains(
+            $test->id,
+            collect($withTests['operational_summary']['recent_incidents'])->pluck('id')->all(),
+        );
+        $this->assertSame([], $withTests['wallboard']['configuration']['pages'][0]['options']);
 
         $defaultMap = app(WallboardStateService::class)->state($this->mapWallboard(false));
         $this->assertSame(
@@ -125,7 +129,7 @@ final class WallboardOperationalSummaryTest extends TestCase
         );
         $testAwareMap = app(WallboardStateService::class)->state($this->mapWallboard(true));
         $this->assertSame(
-            ['RECENT-TEST', 'RECENT-REAL'],
+            ['RECENT-REAL'],
             collect($testAwareMap['operational_summary']['recent_incidents'])->pluck('reference')->all(),
         );
     }
@@ -177,6 +181,84 @@ final class WallboardOperationalSummaryTest extends TestCase
         $this->assertNull($afterFocus['operational_summary']['transient_alert']);
         $this->assertSame($realIncident->id, $afterFocus['operational_summary']['active_alarm']['id']);
         $this->assertTrue($afterFocus['wallboard']['display']['incident_active']);
+    }
+
+    public function test_test_alarm_focus_expires_after_five_minutes_and_returns_to_the_static_page(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 10:00:00', 'Europe/Amsterdam'));
+        SystemSetting::query()->create([
+            'key' => 'dispatch.response_timeout_seconds',
+            'value' => 300,
+            'is_sensitive' => false,
+        ]);
+        $creator = $this->user('static-test-focus@example.test');
+        $wallboard = $this->wallboard(true);
+        $testIncident = $this->incident($creator, 'STATIC-TEST', 'dispatching', true);
+        $dispatch = $this->dispatch($testIncident, $creator);
+        $service = app(WallboardStateService::class);
+
+        $duringFocus = $service->state($wallboard);
+        $this->assertSame('static', $duringFocus['wallboard']['display']['mode']);
+        $this->assertFalse($duringFocus['wallboard']['display']['incident_active']);
+        $this->assertNull($duringFocus['operational_summary']['active_alarm']);
+        $this->assertSame($dispatch->id, $duringFocus['operational_summary']['transient_alert']['dispatch_id']);
+        $this->assertSame('2026-07-20T10:05:00+02:00', $duringFocus['operational_summary']['transient_alert']['expires_at']);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 10:05:00', 'Europe/Amsterdam'));
+        $afterFocus = $service->state($wallboard);
+        $this->assertNull($afterFocus['operational_summary']['transient_alert']);
+        $this->assertNull($afterFocus['operational_summary']['active_alarm']);
+        $this->assertSame('static', $afterFocus['wallboard']['display']['mode']);
+        $this->assertFalse($afterFocus['wallboard']['display']['incident_active']);
+    }
+
+    public function test_summary_fetches_only_real_active_incidents_even_when_map_markers_are_disabled(): void
+    {
+        $creator = $this->user('summary-active-count@example.test');
+        $configuration = WallboardConfiguration::defaults();
+        $configuration['map']['show_active_incidents'] = false;
+        $configuration['map']['show_live_locations'] = false;
+        $configuration['map']['show_routes'] = false;
+        $configuration['map']['show_summary'] = true;
+        $configuration['map']['show_test_incidents'] = true;
+        $wallboard = Wallboard::query()->create([
+            'name' => 'Alleen samenvattingsbalk',
+            'layout' => Wallboard::LAYOUT_FULLSCREEN_MAP,
+            'configuration' => $configuration,
+            'is_enabled' => true,
+            'rotation_started_at' => now(),
+        ]);
+        $real = $this->incident($creator, 'ACTIVE-REAL', 'active', false);
+        $test = $this->incident($creator, 'ACTIVE-TEST', 'active', true);
+
+        $state = app(WallboardStateService::class)->state($wallboard);
+
+        $this->assertSame([$real->id], collect($state['map']['incidents'])->pluck('id')->all());
+        $this->assertNotContains($test->id, collect($state['map']['incidents'])->pluck('id')->all());
+        $this->assertFalse($state['wallboard']['configuration']['map']['show_test_incidents']);
+    }
+
+    public function test_wallboard_historical_layer_excludes_test_incidents(): void
+    {
+        $creator = $this->user('historical-summary@example.test');
+        $configuration = WallboardConfiguration::defaults();
+        $configuration['map']['show_historical_incidents'] = true;
+        $wallboard = Wallboard::query()->create([
+            'name' => 'Historische operationele kaart',
+            'layout' => Wallboard::LAYOUT_FULLSCREEN_MAP,
+            'configuration' => $configuration,
+            'is_enabled' => true,
+            'rotation_started_at' => now(),
+        ]);
+        $real = $this->incident($creator, 'HISTORY-REAL', 'resolved', false, now()->subMinutes(10));
+        $real->forceFill(['latitude' => 52.09, 'longitude' => 5.12])->save();
+        $test = $this->incident($creator, 'HISTORY-TEST', 'cancelled', true, now()->subMinutes(5));
+        $test->forceFill(['latitude' => 52.10, 'longitude' => 5.13])->save();
+
+        $state = app(WallboardStateService::class)->state($wallboard);
+
+        $this->assertSame([$real->id], collect($state['map']['historical_incidents'])->pluck('id')->all());
+        $this->assertNotContains($test->id, collect($state['map']['historical_incidents'])->pluck('id')->all());
     }
 
     public function test_full_state_resolves_internal_ticker_items_without_adding_them_to_control_feed(): void

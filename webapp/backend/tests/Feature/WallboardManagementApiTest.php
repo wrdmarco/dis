@@ -71,6 +71,7 @@ final class WallboardManagementApiTest extends TestCase
             ->assertJsonPath('data.layout', 'fullscreen_map')
             ->assertJsonPath('data.configuration.refresh_seconds', 15)
             ->assertJsonPath('data.configuration.map.show_routes', true)
+            ->assertJsonPath('data.configuration.map.show_test_incidents', false)
             ->assertJsonPath('data.config_version', 1);
         $wallboard = Wallboard::query()->findOrFail($create->json('data.id'));
 
@@ -138,6 +139,19 @@ final class WallboardManagementApiTest extends TestCase
                 ],
             ],
         ])->assertUnprocessable();
+
+        $client->postJson('/api/admin/wallboards', [
+            'name' => 'Onvolledige alarmfocus',
+            'configuration' => [
+                'focus' => [
+                    'real_alarm' => [
+                        'duration_seconds' => 30,
+                        'show_response_feed' => true,
+                    ],
+                ],
+            ],
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['configuration.focus.real_alarm.enabled']]]);
 
         $this->assertDatabaseCount('wallboards', 0);
     }

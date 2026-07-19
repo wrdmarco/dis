@@ -19,10 +19,11 @@ final class OperationalMapService
         bool $includePilotHomes = false,
         bool $includeCommandCenters = true,
         bool $includeHistoricalIncidents = true,
+        bool $includeTestIncidents = true,
     ): array {
         return [
             'command_centers' => $includeCommandCenters ? $this->commandCenters() : [],
-            'historical_incidents' => $includeHistoricalIncidents ? $this->historicalIncidents() : [],
+            'historical_incidents' => $includeHistoricalIncidents ? $this->historicalIncidents($includeTestIncidents) : [],
             'pilot_homes' => $includePilotHomes ? $this->pilotHomes() : [],
         ];
     }
@@ -66,10 +67,11 @@ final class OperationalMapService
     /**
      * @return list<array{id: string, reference: string, title: string, status: string, priority: string, location_label: string|null, latitude: float, longitude: float, closed_at: string|null}>
      */
-    private function historicalIncidents(): array
+    private function historicalIncidents(bool $includeTestIncidents): array
     {
         return Incident::query()
             ->whereIn('status', ['resolved', 'cancelled'])
+            ->when(! $includeTestIncidents, fn ($query) => $query->where('is_test', false))
             ->whereNotNull('latitude')
             ->whereNotNull('longitude')
             ->latest('closed_at')

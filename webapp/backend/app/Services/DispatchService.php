@@ -283,7 +283,12 @@ final class DispatchService
                 }
             }
 
-            $dispatch->recipients()->whereNull('notified_at')->update(['notified_at' => now()]);
+            $preannouncedAt = now();
+            // This timestamp identifies the start of the current wallboard
+            // preannouncement window. Advance it for every explicit resend;
+            // recipient notified_at remains the per-recipient delivery phase.
+            $dispatch->forceFill(['preannounced_at' => $preannouncedAt])->save();
+            $dispatch->recipients()->whereNull('notified_at')->update(['notified_at' => $preannouncedAt]);
             $this->broadcastDispatchChange($dispatch->refresh(), 'preannouncement_sent');
             $this->flushDispatchPushOutboxAfterCommit((string) $dispatch->id);
         }

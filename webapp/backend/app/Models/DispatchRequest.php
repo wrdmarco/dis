@@ -21,6 +21,7 @@ final class DispatchRequest extends Model
         'priority',
         'message',
         'includes_unavailable_recipients',
+        'preannounced_at',
         'sent_at',
         'cancelled_at',
     ];
@@ -29,6 +30,7 @@ final class DispatchRequest extends Model
     {
         return [
             'includes_unavailable_recipients' => 'boolean',
+            'preannounced_at' => 'immutable_datetime',
             'sent_at' => 'immutable_datetime',
             'cancelled_at' => 'immutable_datetime',
         ];

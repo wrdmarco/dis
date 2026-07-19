@@ -245,9 +245,24 @@ export interface WallboardConfiguration {
   refresh_seconds: number;
   map: WallboardMapConfiguration;
   ticker: WallboardTickerConfiguration;
+  focus: WallboardFocusConfiguration;
   pages: WallboardPage[];
   rotation_enabled: boolean;
   incident_override: WallboardIncidentOverride;
+}
+
+export type WallboardFocusKind = 'preannouncement' | 'real_alarm' | 'test_alarm';
+
+export interface WallboardFocusTypeConfiguration {
+  enabled: boolean;
+  duration_seconds: number;
+  show_response_feed: boolean;
+}
+
+export interface WallboardFocusConfiguration {
+  preannouncement: WallboardFocusTypeConfiguration;
+  real_alarm: WallboardFocusTypeConfiguration;
+  test_alarm: WallboardFocusTypeConfiguration;
 }
 
 export interface WallboardPageOptions {
@@ -441,11 +456,50 @@ export interface WallboardTransientAlert {
   is_test: boolean;
 }
 
+export type WallboardFocusResponseStatus = 'pending' | 'accepted' | 'declined' | 'no_response';
+
+export interface WallboardFocusResponseCounts {
+  targeted: number;
+  pending: number;
+  accepted: number;
+  declined: number;
+  no_response: number;
+}
+
+export interface WallboardFocusResponseItem {
+  name: string;
+  response_status: WallboardFocusResponseStatus;
+  responded_at?: string | null;
+}
+
+export interface WallboardFocusResponses {
+  counts: WallboardFocusResponseCounts;
+  items: WallboardFocusResponseItem[];
+}
+
+export interface WallboardFocusState {
+  kind: WallboardFocusKind;
+  focus_id: string;
+  dispatch_id: string;
+  incident_id: string;
+  reference: string;
+  title: string;
+  priority: Incident['priority'];
+  location_label?: string | null;
+  started_at: string;
+  expires_at?: string | null;
+  visible: boolean;
+  playlist_page_id?: string | null;
+  next_change_at?: string | null;
+  responses?: WallboardFocusResponses | null;
+}
+
 export interface WallboardOperationalSummary {
   pilot_availability: WallboardPilotAvailability;
   active_alarm: WallboardStateActiveAlarm | null;
   recent_incidents: WallboardStateRecentIncident[];
   transient_alert: WallboardTransientAlert | null;
+  focus?: WallboardFocusState | null;
 }
 
 export interface WallboardState {
@@ -464,11 +518,13 @@ export interface WallboardState {
 }
 
 export interface WallboardControlState {
+  generated_at?: string;
   config_version: number;
   control_version: number;
   display_profile: WallboardDisplayProfile;
   display: WallboardDisplayState;
   transient_alert: WallboardTransientAlert | null;
+  focus?: WallboardFocusState | null;
 }
 
 export interface IncidentInternalNotes {

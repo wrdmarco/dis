@@ -3,16 +3,21 @@ import {
   ArrowDown,
   ArrowUp,
   BarChart3,
+  BellRing,
   List,
   Map,
   MessageSquareText,
   PauseCircle,
   Plus,
+  Radio,
   Rss,
+  Siren,
   Trash2,
+  UsersRound,
 } from 'lucide-react';
 import type {
   WallboardConfiguration,
+  WallboardFocusKind,
   WallboardMapConfiguration,
   WallboardPage,
   WallboardPageType,
@@ -20,11 +25,14 @@ import type {
   WallboardTickerSourceType,
 } from '../../types/api';
 import {
+  MAX_WALLBOARD_FOCUS_DURATION_SECONDS,
   MAX_WALLBOARD_PAGE_DURATION_SECONDS,
   MAX_WALLBOARD_REFRESH_SECONDS,
   MAX_WALLBOARD_TICKER_SOURCES,
+  MIN_WALLBOARD_FOCUS_DURATION_SECONDS,
   MIN_WALLBOARD_PAGE_DURATION_SECONDS,
   MIN_WALLBOARD_REFRESH_SECONDS,
+  clampWallboardFocusDuration,
   clampWallboardPageDuration,
   createWallboardPage,
   createWallboardTickerSource,
@@ -33,7 +41,6 @@ import {
 
 const MAP_OPTION_LABELS: Array<{ key: keyof WallboardMapConfiguration; label: string; help: string }> = [
   { key: 'show_active_incidents', label: 'Actieve incidenten', help: 'Toon open operationele meldingen.' },
-  { key: 'show_test_incidents', label: 'Proefmeldingen', help: 'Neem ook als test gemarkeerde incidenten op.' },
   { key: 'show_live_locations', label: 'Live pilootlocaties', help: 'Toon alleen actuele, gedeelde locaties.' },
   { key: 'show_routes', label: 'Navigatieroutes', help: 'Teken de actuele route van piloten naar het incident.' },
   { key: 'show_command_centers', label: 'Meldkamers', help: 'Toon de geconfigureerde meldkamers.' },
@@ -49,6 +56,32 @@ const PAGE_TYPE_OPTIONS: Array<{ value: WallboardPageType; label: string }> = [
   { value: 'incident_list', label: 'Incidentenlijst' },
   { value: 'summary', label: 'Samenvatting' },
   { value: 'message', label: 'Mededeling' },
+];
+
+const FOCUS_TYPES: Array<{
+  kind: WallboardFocusKind;
+  label: string;
+  description: string;
+  icon: typeof Siren;
+}> = [
+  {
+    kind: 'preannouncement',
+    label: 'Vooraankondiging',
+    description: 'Toont een vroege operationele melding voordat de daadwerkelijke alarmering start.',
+    icon: BellRing,
+  },
+  {
+    kind: 'real_alarm',
+    label: 'Alarmering',
+    description: 'Herhaalt servergestuurd tussen dit focusscherm en de toegewezen playlistpagina’s.',
+    icon: Siren,
+  },
+  {
+    kind: 'test_alarm',
+    label: 'Proefalarmering',
+    description: 'Maakt een proefalarm tijdelijk prominent zonder het als actief incident te tellen.',
+    icon: Radio,
+  },
 ];
 
 interface WallboardConfigurationEditorProps {
@@ -379,8 +412,31 @@ export function WallboardConfigurationEditor({
         <WallboardPageEditor page={editingPage} onChange={(next) => updatePage(editingPage.id, () => next)} />
       </section>
 
+      <section className="wallboard-focus-editor" aria-labelledby={`${idPrefix}-focus-title`}>
+        <div className="wallboard-configuration-section-heading">
+          <span className="eyebrow">Alarmweergave</span>
+          <h3 id={`${idPrefix}-focus-title`}>Focusschermen</h3>
+          <p>Stel per type in hoelang het prominent blijft en of live reacties zichtbaar zijn.</p>
+        </div>
+        <div className="wallboard-focus-editor__grid">
+          {FOCUS_TYPES.map((focusType) => (
+            <WallboardFocusConfigurationCard
+              key={focusType.kind}
+              idPrefix={idPrefix}
+              {...focusType}
+              configuration={configuration}
+              setConfiguration={setConfiguration}
+            />
+          ))}
+        </div>
+        <p className="wallboard-focus-editor__note">
+          <Siren size={17} aria-hidden />
+          Een echte alarmering heeft altijd voorrang. De server wisselt het focusscherm af met de toegewezen playlist; met alleen een kaartpagina ontstaat focus&nbsp;↔&nbsp;kaart.
+        </p>
+      </section>
+
       <fieldset className="wallboard-incident-override">
-        <legend>Automatisch bij een actief incident</legend>
+        <legend>Vaste incidentpagina als fallback</legend>
         <label className="wallboard-switch-row">
           <input
             type="checkbox"
@@ -393,7 +449,7 @@ export function WallboardConfigurationEditor({
               },
             }))}
           />
-          <span><strong>Incidentpagina vastzetten</strong><small>De rotatie pauzeert zolang minimaal één operationeel incident actief is.</small></span>
+          <span><strong>Incidentpagina vastzetten</strong><small>Alleen gebruikt wanneer het focusscherm voor echte alarmeringen uitstaat.</small></span>
         </label>
         <label>
           <span>Pagina tijdens incident</span>
@@ -408,9 +464,78 @@ export function WallboardConfigurationEditor({
             {configuration.pages.map((page) => <option key={page.id} value={page.id}>{page.name}</option>)}
           </select>
         </label>
-        <p><PauseCircle size={16} aria-hidden /> Een actief incident heeft voorrang; daarna keert ieder gekoppeld scherm terug naar de handmatige pagina of rotatie.</p>
+        <p><PauseCircle size={16} aria-hidden /> Na het incident keert het scherm terug naar de handmatige pagina of normale rotatie.</p>
       </fieldset>
     </div>
+  );
+}
+
+function WallboardFocusConfigurationCard({
+  idPrefix,
+  kind,
+  label,
+  description,
+  icon: Icon,
+  configuration,
+  setConfiguration,
+}: {
+  idPrefix: string;
+  kind: WallboardFocusKind;
+  label: string;
+  description: string;
+  icon: typeof Siren;
+  configuration: WallboardConfiguration;
+  setConfiguration: Dispatch<SetStateAction<WallboardConfiguration>>;
+}) {
+  const focusConfiguration = configuration.focus[kind];
+  const updateFocus = (update: Partial<typeof focusConfiguration>) => setConfiguration((current) => ({
+    ...current,
+    focus: {
+      ...current.focus,
+      [kind]: { ...current.focus[kind], ...update },
+    },
+  }));
+
+  return (
+    <fieldset className={`wallboard-focus-card wallboard-focus-card--${kind}`}>
+      <legend><Icon size={18} aria-hidden /> {label}</legend>
+      <p>{description}</p>
+      <label className="wallboard-switch-row">
+        <input
+          type="checkbox"
+          checked={focusConfiguration.enabled}
+          onChange={(event) => updateFocus({ enabled: event.target.checked })}
+        />
+        <span><strong>Focusscherm inschakelen</strong><small>De server bepaalt exact wanneer dit scherm verschijnt en verdwijnt.</small></span>
+      </label>
+      <label className="wallboard-focus-card__duration" htmlFor={`${idPrefix}-focus-${kind}-duration`}>
+        <span>Tijd op scherm (seconden)</span>
+        <input
+          id={`${idPrefix}-focus-${kind}-duration`}
+          type="number"
+          min={MIN_WALLBOARD_FOCUS_DURATION_SECONDS}
+          max={MAX_WALLBOARD_FOCUS_DURATION_SECONDS}
+          value={focusConfiguration.duration_seconds}
+          disabled={!focusConfiguration.enabled}
+          onChange={(event) => updateFocus({
+            duration_seconds: clampWallboardFocusDuration(
+              Number(event.target.value),
+              focusConfiguration.duration_seconds,
+            ),
+          })}
+          required={focusConfiguration.enabled}
+        />
+      </label>
+      <label className="wallboard-switch-row wallboard-focus-card__feed">
+        <input
+          type="checkbox"
+          checked={focusConfiguration.show_response_feed}
+          disabled={!focusConfiguration.enabled}
+          onChange={(event) => updateFocus({ show_response_feed: event.target.checked })}
+        />
+        <span><strong><UsersRound size={16} aria-hidden /> Reactiefeed tonen</strong><small>Toon aantallen en de meest recente reacties op deze dispatch.</small></span>
+      </label>
+    </fieldset>
   );
 }
 
@@ -423,9 +548,7 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
       name: page.name === previousDefaultTitle ? wallboardPageTypeLabel(type) : page.name,
       options: type === 'message'
         ? { body: page.options.body ?? '' }
-        : ['incident_list', 'summary'].includes(type)
-          ? { show_test_incidents: page.options.show_test_incidents ?? false }
-          : {},
+        : {},
     });
   }
 
@@ -474,20 +597,7 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
         </label>
       ) : (
         <div className="wallboard-page-editor__page-options">
-          <p className="wallboard-page-editor__hint">Deze pagina gebruikt de geselecteerde gegevens en kaartlagen van de playlist.</p>
-          {['incident_list', 'summary'].includes(page.type) ? (
-            <label className="wallboard-switch-row">
-              <input
-                type="checkbox"
-                checked={page.options.show_test_incidents === true}
-                onChange={(event) => onChange({
-                  ...page,
-                  options: { ...page.options, show_test_incidents: event.target.checked },
-                })}
-              />
-              <span><strong>Proefmeldingen op deze pagina</strong><small>Dit kan per incidentenlijst of samenvatting afwijken.</small></span>
-            </label>
-          ) : null}
+          <p className="wallboard-page-editor__hint">Deze pagina toont uitsluitend operationele incidenten; proefalarmen verschijnen alleen tijdelijk als prominente alarmmelding.</p>
         </div>
       )}
     </div>

@@ -20,7 +20,7 @@ abstract class WallboardPlaylistRequest extends FormRequest
     protected function configurationRules(string $presence): array
     {
         return [
-            'configuration' => [$presence, 'array:theme,refresh_seconds,rotation_enabled,pages,incident_override,ticker,map'],
+            'configuration' => [$presence, 'array:theme,refresh_seconds,rotation_enabled,pages,focus,incident_override,ticker,map'],
             'configuration.theme' => ['sometimes', 'string', Rule::in(['dark', 'light'])],
             'configuration.refresh_seconds' => ['sometimes', 'integer', 'between:5,60'],
             'configuration.rotation_enabled' => ['sometimes', 'boolean'],
@@ -33,6 +33,19 @@ abstract class WallboardPlaylistRequest extends FormRequest
             'configuration.pages.*.options' => ['sometimes', 'array:body,show_test_incidents'],
             'configuration.pages.*.options.body' => ['sometimes', 'string', 'max:2000'],
             'configuration.pages.*.options.show_test_incidents' => ['sometimes', 'boolean'],
+            'configuration.focus' => ['sometimes', 'array:preannouncement,real_alarm,test_alarm'],
+            'configuration.focus.preannouncement' => ['sometimes', 'array:enabled,duration_seconds,show_response_feed'],
+            'configuration.focus.real_alarm' => ['sometimes', 'array:enabled,duration_seconds,show_response_feed'],
+            'configuration.focus.test_alarm' => ['sometimes', 'array:enabled,duration_seconds,show_response_feed'],
+            'configuration.focus.preannouncement.enabled' => [Rule::requiredIf(fn (): bool => $this->has('configuration.focus.preannouncement')), 'boolean'],
+            'configuration.focus.preannouncement.duration_seconds' => [Rule::requiredIf(fn (): bool => $this->has('configuration.focus.preannouncement')), 'integer', 'between:5,3600'],
+            'configuration.focus.preannouncement.show_response_feed' => [Rule::requiredIf(fn (): bool => $this->has('configuration.focus.preannouncement')), 'boolean'],
+            'configuration.focus.real_alarm.enabled' => [Rule::requiredIf(fn (): bool => $this->has('configuration.focus.real_alarm')), 'boolean'],
+            'configuration.focus.real_alarm.duration_seconds' => [Rule::requiredIf(fn (): bool => $this->has('configuration.focus.real_alarm')), 'integer', 'between:5,3600'],
+            'configuration.focus.real_alarm.show_response_feed' => [Rule::requiredIf(fn (): bool => $this->has('configuration.focus.real_alarm')), 'boolean'],
+            'configuration.focus.test_alarm.enabled' => [Rule::requiredIf(fn (): bool => $this->has('configuration.focus.test_alarm')), 'boolean'],
+            'configuration.focus.test_alarm.duration_seconds' => [Rule::requiredIf(fn (): bool => $this->has('configuration.focus.test_alarm')), 'integer', 'between:5,3600'],
+            'configuration.focus.test_alarm.show_response_feed' => [Rule::requiredIf(fn (): bool => $this->has('configuration.focus.test_alarm')), 'boolean'],
             'configuration.incident_override' => ['sometimes', 'array:enabled,page_id'],
             'configuration.incident_override.enabled' => ['sometimes', 'boolean'],
             'configuration.incident_override.page_id' => ['sometimes', 'nullable', 'string', 'max:64', 'regex:/^[A-Za-z0-9][A-Za-z0-9_-]*$/'],

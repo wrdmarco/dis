@@ -14,6 +14,9 @@ final class WallboardConfiguration
     /** @var list<string> */
     public const TICKER_SOURCE_TYPES = ['internal', 'rss'];
 
+    /** @var list<string> */
+    public const FOCUS_KINDS = ['preannouncement', 'real_alarm', 'test_alarm'];
+
     public const MAX_TICKER_SOURCES = 10;
 
     public const MAX_TICKER_SOURCE_ID_LENGTH = 64;
@@ -40,6 +43,23 @@ final class WallboardConfiguration
                     'type' => 'map',
                     'duration_seconds' => 30,
                     'options' => [],
+                ],
+            ],
+            'focus' => [
+                'preannouncement' => [
+                    'enabled' => true,
+                    'duration_seconds' => 120,
+                    'show_response_feed' => true,
+                ],
+                'real_alarm' => [
+                    'enabled' => true,
+                    'duration_seconds' => 30,
+                    'show_response_feed' => true,
+                ],
+                'test_alarm' => [
+                    'enabled' => true,
+                    'duration_seconds' => 300,
+                    'show_response_feed' => true,
                 ],
             ],
             'incident_override' => [
@@ -73,6 +93,9 @@ final class WallboardConfiguration
     public static function normalize(array $input, array $base = []): array
     {
         $normalized = array_replace_recursive(self::defaults(), $base, $input);
+        // Test alerts are transient reachability signals, never persistent wallboard incidents.
+        // Keep accepting the legacy key so existing playlists remain readable, but force it off.
+        $normalized['map']['show_test_incidents'] = false;
 
         // Numeric arrays must be replaced rather than recursively merged. Otherwise
         // removing or reordering pages can silently retain entries from the old list.
@@ -155,7 +178,8 @@ final class WallboardConfiguration
                 }
                 $options = ['body' => $body];
             } elseif (in_array($type, ['incident_list', 'summary'], true)) {
-                $options = ['show_test_incidents' => (bool) ($options['show_test_incidents'] ?? false)];
+                // The legacy option is accepted above for lossless upgrades, but no longer has effect.
+                $options = [];
             } else {
                 $options = [];
             }
@@ -170,6 +194,7 @@ final class WallboardConfiguration
         }
 
         $normalized['pages'] = $pages;
+        $normalized['focus'] = self::normalizeFocus((array) ($normalized['focus'] ?? []));
 
         $override = (array) ($normalized['incident_override'] ?? []);
         $overridePageId = (string) ($override['page_id'] ?? '');
@@ -194,6 +219,45 @@ final class WallboardConfiguration
             throw ValidationException::withMessages([
                 'configuration.map.show_routes' => ['Routes vereisen dat live locaties zichtbaar zijn.'],
             ]);
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param  array<string, mixed>  $focus
+     * @return array<string, array{enabled: bool, duration_seconds: int, show_response_feed: bool}>
+     */
+    private static function normalizeFocus(array $focus): array
+    {
+        if (array_diff(array_keys($focus), self::FOCUS_KINDS) !== []) {
+            throw ValidationException::withMessages([
+                'configuration.focus' => ['De focusconfiguratie bevat niet-ondersteunde instellingen.'],
+            ]);
+        }
+
+        $normalized = [];
+        foreach (self::FOCUS_KINDS as $kind) {
+            $settings = $focus[$kind] ?? null;
+            if (! is_array($settings)
+                || array_diff(array_keys($settings), ['enabled', 'duration_seconds', 'show_response_feed']) !== []) {
+                throw ValidationException::withMessages([
+                    "configuration.focus.{$kind}" => ['Deze focusfase bevat niet-ondersteunde instellingen.'],
+                ]);
+            }
+
+            $durationSeconds = (int) ($settings['duration_seconds'] ?? 0);
+            if ($durationSeconds < 5 || $durationSeconds > 3600) {
+                throw ValidationException::withMessages([
+                    "configuration.focus.{$kind}.duration_seconds" => ['De focusduur moet tussen 5 en 3600 seconden liggen.'],
+                ]);
+            }
+
+            $normalized[$kind] = [
+                'enabled' => (bool) ($settings['enabled'] ?? false),
+                'duration_seconds' => $durationSeconds,
+                'show_response_feed' => (bool) ($settings['show_response_feed'] ?? false),
+            ];
         }
 
         return $normalized;

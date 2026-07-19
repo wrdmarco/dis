@@ -25,6 +25,7 @@ final class WallboardStateService
         private readonly OperationalMapService $operationalMap,
         private readonly RouteGeometryService $routeGeometryService,
         private readonly WallboardDisplayService $displayService,
+        private readonly WallboardFocusService $focusService,
         private readonly WallboardPlaylistResolver $playlistResolver,
         private readonly AvailabilityScheduleService $availabilityScheduleService,
         private readonly WallboardTickerService $tickerService,
@@ -35,6 +36,7 @@ final class WallboardStateService
     {
         $configuration = $this->playlistResolver->resolve($wallboard);
         $activeAlarm = $this->activeAlarm();
+        $focus = $this->focusService->resolve($configuration);
         $transientAlert = $this->transientAlert();
         $display = $this->displayService->display($wallboard, $configuration, $activeAlarm !== null);
         $mapConfiguration = (array) $configuration['map'];
@@ -48,20 +50,14 @@ final class WallboardStateService
             ->filter(fn (array $page): bool => (string) ($page['type'] ?? '') === 'summary');
         $showsOperationalSummary = $summaryPages->isNotEmpty()
             || ($hasMapPage && ($mapConfiguration['show_summary'] ?? false) === true);
-        $needsIncidents = ($hasMapPage && (
-            ($mapConfiguration['show_active_incidents'] ?? false) === true
-            || ($mapConfiguration['show_live_locations'] ?? false) === true
-        ))
+        $needsIncidents = $showsOperationalSummary
+            || ($hasMapPage && (
+                ($mapConfiguration['show_active_incidents'] ?? false) === true
+                || ($mapConfiguration['show_live_locations'] ?? false) === true
+            ))
             || $incidentPages->isNotEmpty();
-        $includeTestIncidents = ($hasMapPage && ($mapConfiguration['show_test_incidents'] ?? false) === true)
-            || $incidentPages->contains(fn (array $page): bool => ((array) ($page['options'] ?? []))['show_test_incidents'] ?? false);
-        $includeTestRecentIncidents = $summaryPages->contains(
-            fn (array $page): bool => ((array) ($page['options'] ?? []))['show_test_incidents'] ?? false,
-        ) || ($hasMapPage
-            && ($mapConfiguration['show_summary'] ?? false) === true
-            && ($mapConfiguration['show_test_incidents'] ?? false) === true);
         $incidents = $needsIncidents
-            ? $this->activeIncidents($includeTestIncidents)
+            ? $this->activeIncidents()
             : collect();
         $layers = ($hasMapPage && (($mapConfiguration['show_command_centers'] ?? false) === true
             || ($mapConfiguration['show_historical_incidents'] ?? false) === true)
@@ -70,6 +66,7 @@ final class WallboardStateService
                     includePilotHomes: false,
                     includeCommandCenters: (bool) ($mapConfiguration['show_command_centers'] ?? false),
                     includeHistoricalIncidents: (bool) ($mapConfiguration['show_historical_incidents'] ?? false),
+                    includeTestIncidents: false,
                 )
                 : ['command_centers' => [], 'historical_incidents' => [], 'pilot_homes' => []];
 
@@ -92,8 +89,9 @@ final class WallboardStateService
                     : ['available' => 0, 'total' => 0],
                 'active_alarm' => $activeAlarm,
                 'recent_incidents' => $showsOperationalSummary
-                    ? $this->recentIncidents($includeTestRecentIncidents)
+                    ? $this->recentIncidents()
                     : [],
+                'focus' => $focus,
                 'transient_alert' => $transientAlert,
             ],
             'ticker' => [
@@ -119,6 +117,7 @@ final class WallboardStateService
     {
         $configuration = $this->playlistResolver->resolve($wallboard);
         $activeAlarm = $this->activeAlarm();
+        $focus = $this->focusService->resolve($configuration);
 
         return [
             'generated_at' => ApiDateTime::now(),
@@ -126,6 +125,7 @@ final class WallboardStateService
             'config_version' => (int) $wallboard->config_version,
             'control_version' => (int) $wallboard->control_version,
             'display' => $this->displayService->display($wallboard, $configuration, $activeAlarm !== null),
+            'focus' => $focus,
             'transient_alert' => $this->transientAlert(),
             'poll_after_seconds' => 2,
         ];
@@ -179,11 +179,11 @@ final class WallboardStateService
     }
 
     /** @return list<array<string, mixed>> */
-    private function recentIncidents(bool $includeTestIncidents): array
+    private function recentIncidents(): array
     {
         return Incident::query()
             ->whereIn('status', ['resolved', 'cancelled'])
-            ->when(! $includeTestIncidents, fn ($query) => $query->where('is_test', false))
+            ->where('is_test', false)
             ->orderByRaw('case when closed_at is null then 1 else 0 end')
             ->orderByDesc('closed_at')
             ->orderByDesc('updated_at')
@@ -248,11 +248,11 @@ final class WallboardStateService
     }
 
     /** @return Collection<int, Incident> */
-    private function activeIncidents(bool $includeTestIncidents): Collection
+    private function activeIncidents(): Collection
     {
         return Incident::query()
             ->whereIn('status', ['active', 'dispatching', 'in_progress'])
-            ->when(! $includeTestIncidents, fn ($query) => $query->where('is_test', false))
+            ->where('is_test', false)
             ->latest('opened_at')
             ->limit(100)
             ->get([
