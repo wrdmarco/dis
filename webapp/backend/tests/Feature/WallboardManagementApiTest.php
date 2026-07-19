@@ -312,11 +312,10 @@ final class WallboardManagementApiTest extends TestCase
             'token_hash' => hash('sha256', 'online-session'),
             'last_seen_at' => now(),
             'last_rotated_at' => now(),
-            'expires_at' => now()->addDay(),
+            'expires_at' => null,
         ]);
         DB::table('wallboard_sessions')->where('id', $session->id)->update([
             'last_seen_at' => '2026-07-19 10:00:30.000000+00',
-            'expires_at' => '2026-07-20 10:01:00.000000+00',
         ]);
 
         $client = $this->asAdminClient($manager);
@@ -340,7 +339,7 @@ final class WallboardManagementApiTest extends TestCase
             ->assertJsonPath('data.0.is_online', false);
     }
 
-    public function test_management_session_expiry_uses_utc_carrier_wall_clock_in_summer_and_winter(): void
+    public function test_management_counts_permanent_sessions_and_rejects_expired_legacy_sessions(): void
     {
         config()->set('app.timezone', 'Europe/Amsterdam');
         $service = app(WallboardService::class);
@@ -355,12 +354,16 @@ final class WallboardManagementApiTest extends TestCase
             $current = (new WallboardSession)->newFromBuilder([
                 'expires_at' => $date.' 10:01:01.000000+00',
             ]);
+            $permanent = (new WallboardSession)->newFromBuilder([
+                'expires_at' => null,
+            ]);
 
-            $wallboard->setRelation('nonRevokedSessions', collect([$expired, $current]));
+            $wallboard->setRelation('nonRevokedSessions', collect([$expired, $current, $permanent]));
             $resolved = $activeSessions->invoke($service, $wallboard);
 
-            $this->assertCount(1, $resolved, $date);
+            $this->assertCount(2, $resolved, $date);
             $this->assertSame($current, $resolved->first(), $date);
+            $this->assertSame($permanent, $resolved->last(), $date);
         }
     }
 

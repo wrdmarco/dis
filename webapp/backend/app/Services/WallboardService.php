@@ -411,8 +411,8 @@ final class WallboardService
         $now = ApiDateTime::comparableWallClock(now());
 
         return $wallboard->nonRevokedSessions
-            ->filter(fn (WallboardSession $session): bool => $session->expires_at !== null
-                && ApiDateTime::comparableWallClock($session->expires_at)->isAfter($now))
+            ->filter(fn (WallboardSession $session): bool => $session->expires_at === null
+                || ApiDateTime::comparableWallClock($session->expires_at)->isAfter($now))
             ->values();
     }
 }
