@@ -46,13 +46,12 @@ final class WallboardSessionSecurityTest extends TestCase
             'sanctum.stateful' => ['dis.example.test'],
             'dis.wallboards.rotation_hours' => 1,
             'dis.wallboards.rotation_grace_seconds' => 120,
-            'dis.wallboards.session_idle_days' => 30,
-            'dis.wallboards.session_absolute_days' => 365,
+            'dis.wallboards.credential_cookie_days' => 365,
             'dis.wallboards.touch_interval_seconds' => 10,
         ]);
     }
 
-    public function test_revoked_idle_expired_absolute_expired_and_disabled_sessions_are_rejected(): void
+    public function test_revoked_legacy_expired_and_disabled_sessions_are_rejected(): void
     {
         $wallboard = $this->wallboard();
 
@@ -66,20 +65,32 @@ final class WallboardSessionSecurityTest extends TestCase
         $this->browserCookies[WallboardSessionService::COOKIE_NAME] = $idleExpiredCookie;
         $this->assertWallboardSessionRejected();
 
-        [$absoluteExpired, $absoluteExpiredCookie] = $this->sessionCredential($wallboard);
-        $absoluteExpired->forceFill([
-            'created_at' => now()->subDays(366),
-            'expires_at' => now()->addDay(),
-        ])->saveQuietly();
-        $this->browserCookies[WallboardSessionService::COOKIE_NAME] = $absoluteExpiredCookie;
-        $this->assertWallboardSessionRejected();
-
         [$disabledSession, $disabledCookie] = $this->sessionCredential($wallboard);
         $wallboard->forceFill(['is_enabled' => false])->save();
         $this->browserCookies[WallboardSessionService::COOKIE_NAME] = $disabledCookie;
         $this->assertWallboardSessionRejected();
 
         $this->assertDatabaseCount('personal_access_tokens', 0);
+    }
+
+    public function test_permanent_session_remains_valid_beyond_the_former_idle_and_absolute_limits(): void
+    {
+        $this->travelTo(now()->startOfSecond());
+        $wallboard = $this->wallboard();
+        [$session, $rawCookie] = $this->sessionCredential($wallboard);
+        $session->forceFill([
+            'created_at' => now()->subDays(730),
+            'last_seen_at' => now()->subDays(60),
+            'last_rotated_at' => now(),
+            'expires_at' => null,
+        ])->saveQuietly();
+        $this->browserCookies[WallboardSessionService::COOKIE_NAME] = $rawCookie;
+
+        $this->browserJson('GET', '/api/wallboard/state')->assertOk();
+
+        $session->refresh();
+        $this->assertNull($session->expires_at);
+        $this->assertSame(now()->timestamp, $session->last_seen_at?->timestamp);
     }
 
     public function test_due_session_rotates_with_a_short_previous_credential_grace_window(): void
@@ -111,26 +122,24 @@ final class WallboardSessionSecurityTest extends TestCase
         $this->browserJson('GET', '/api/wallboard/state')->assertOk();
     }
 
-    public function test_rotation_and_idle_touch_never_extend_beyond_the_absolute_lifetime(): void
+    public function test_rotation_renews_the_persistent_cookie_without_adding_a_server_expiry(): void
     {
         $this->travelTo(now()->startOfSecond());
         $wallboard = $this->wallboard();
         [$session, $rawCookie] = $this->sessionCredential($wallboard);
-        $createdAt = now()->subDays(350);
-        $absoluteExpiry = $createdAt->copy()->addDays(365);
         $session->forceFill([
-            'created_at' => $createdAt,
+            'created_at' => now()->subDays(730),
             'last_seen_at' => now()->subMinute(),
             'last_rotated_at' => now()->subHours(2),
-            'expires_at' => now()->addDay(),
+            'expires_at' => null,
         ])->saveQuietly();
         $this->browserCookies[WallboardSessionService::COOKIE_NAME] = $rawCookie;
 
         $response = $this->browserJson('GET', '/api/wallboard/state')->assertOk();
         $replacementCookie = $response->getCookie(WallboardSessionService::COOKIE_NAME, false);
         $this->assertNotNull($replacementCookie);
-        $this->assertSame($absoluteExpiry->timestamp, $replacementCookie->getExpiresTime());
-        $this->assertSame($absoluteExpiry->timestamp, $session->refresh()->expires_at->timestamp);
+        $this->assertSame(now()->addDays(365)->timestamp, $replacementCookie->getExpiresTime());
+        $this->assertNull($session->refresh()->expires_at);
     }
 
     public function test_pairing_session_immediately_marks_the_wallboard_seen(): void
@@ -150,10 +159,11 @@ final class WallboardSessionSecurityTest extends TestCase
         );
 
         $this->assertSame('2026-07-19 10:00:00', $created['session']->last_seen_at->format('Y-m-d H:i:s'));
+        $this->assertNull($created['session']->expires_at);
         $this->assertSame('2026-07-19 10:00:00', $wallboard->refresh()->last_seen_at->format('Y-m-d H:i:s'));
     }
 
-    public function test_postgresql_utc_carrier_heartbeat_is_touched_on_schedule_and_expiry_stays_fail_closed(): void
+    public function test_postgresql_utc_carrier_heartbeat_is_touched_and_legacy_expiry_stays_fail_closed(): void
     {
         config()->set('app.timezone', 'Europe/Amsterdam');
         $this->travelTo(CarbonImmutable::parse('2026-07-19 10:00:00', 'Europe/Amsterdam'));
@@ -163,9 +173,10 @@ final class WallboardSessionSecurityTest extends TestCase
         ]);
         $service = app(WallboardSessionService::class);
         $touchDue = new \ReflectionMethod($service, 'heartbeatTouchDue');
-        $expired = new \ReflectionMethod($service, 'atOrBefore');
+        $expired = new \ReflectionMethod($service, 'hasExpired');
         $this->assertTrue($touchDue->invoke($service, $carrierSession, now()->addSeconds(10)));
         $this->assertTrue($expired->invoke($service, $carrierSession->expires_at, now()->addSeconds(11)));
+        $this->assertFalse($expired->invoke($service, null, now()->addYears(10)));
 
         $this->travelTo(CarbonImmutable::parse('2026-01-19 10:00:00', 'Europe/Amsterdam'));
         $winterCarrierSession = (new WallboardSession)->newFromBuilder([
@@ -191,6 +202,7 @@ final class WallboardSessionSecurityTest extends TestCase
         $this->browserJson('GET', '/api/wallboard/control')->assertOk();
 
         $this->assertSame('2026-07-19 10:00:11', $session->refresh()->last_seen_at->format('Y-m-d H:i:s'));
+        $this->assertNull($session->expires_at);
         $this->assertSame('2026-07-19 10:00:11', $wallboard->refresh()->last_seen_at->format('Y-m-d H:i:s'));
 
         [$expiredSession, $expiredCookie] = $this->sessionCredential($wallboard);
@@ -304,7 +316,7 @@ final class WallboardSessionSecurityTest extends TestCase
             'token_hash' => hash_hmac('sha256', $secret, (string) config('app.key')),
             'last_seen_at' => now(),
             'last_rotated_at' => now(),
-            'expires_at' => now()->addDays(30),
+            'expires_at' => null,
         ]);
         $credential = $session->id.'.'.$secret;
 

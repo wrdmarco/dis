@@ -41,8 +41,7 @@ final class WallboardReversePairingSecurityTest extends TestCase
             'session.trusted_origins' => [self::ORIGIN],
             'sanctum.stateful' => ['dis.example.test'],
             'dis.wallboards.pairing_ttl_seconds' => 300,
-            'dis.wallboards.session_idle_days' => 30,
-            'dis.wallboards.session_absolute_days' => 365,
+            'dis.wallboards.credential_cookie_days' => 365,
         ]);
     }
 
@@ -170,6 +169,7 @@ final class WallboardReversePairingSecurityTest extends TestCase
         $this->assertDatabaseCount('wallboard_sessions', 2);
         $newSession = WallboardSession::query()->findOrFail($pairingRequest->wallboard_session_id);
         $this->assertSame($wallboard->id, $newSession->wallboard_id);
+        $this->assertNull($newSession->expires_at);
         $this->assertStringNotContainsString('Crisisruimte noord', $firstConsumption->getContent());
 
         $auditPayload = AuditLog::query()->get()->toJson();

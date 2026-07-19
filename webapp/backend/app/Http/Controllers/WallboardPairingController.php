@@ -54,7 +54,6 @@ final class WallboardPairingController extends Controller
         if (isset($result['session'], $result['credential'])) {
             $response->headers->setCookie($this->sessions->cookie(
                 $result['credential'],
-                $result['session'],
             ));
             $response->headers->setCookie($this->pairings->clearCookie());
         }

@@ -28,7 +28,7 @@ final class AuthenticateWallboardSession
         $response = $next($request);
         $rotatedCredential = $request->attributes->get('wallboard.rotated_credential');
         if (is_string($rotatedCredential) && $rotatedCredential !== '') {
-            $response->headers->setCookie($this->sessions->cookie($rotatedCredential, $session));
+            $response->headers->setCookie($this->sessions->cookie($rotatedCredential));
         }
 
         return $response;

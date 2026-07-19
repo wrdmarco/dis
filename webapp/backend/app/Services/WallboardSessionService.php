@@ -38,7 +38,7 @@ final class WallboardSessionService
             'user_agent' => mb_substr((string) $request->userAgent(), 0, 512),
             'last_seen_at' => $now,
             'last_rotated_at' => $now,
-            'expires_at' => $this->idleExpiresAt(),
+            'expires_at' => null,
         ]);
         $wallboard->forceFill(['last_seen_at' => $now])->save();
 
@@ -58,8 +58,7 @@ final class WallboardSessionService
         if ((string) $session->wallboard_id !== (string) $wallboard->id
             || ! $wallboard->is_enabled
             || $session->revoked_at !== null
-            || $this->absoluteExpiryReached($session, $now)
-            || $this->atOrBefore($session->expires_at, $now)
+            || $this->hasExpired($session->expires_at, $now)
             || ! hash_equals((string) $session->token_hash, $this->tokenHash($secret))) {
             return null;
         }
@@ -83,8 +82,7 @@ final class WallboardSessionService
                 || $session->wallboard === null
                 || ! $session->wallboard->is_enabled
                 || $session->revoked_at !== null
-                || $this->absoluteExpiryReached($session, $now)
-                || $this->atOrBefore($session->expires_at, $now)) {
+                || $this->hasExpired($session->expires_at, $now)) {
                 throw new AuthenticationException('Invalid wallboard session.');
             }
 
@@ -121,7 +119,7 @@ final class WallboardSessionService
             if ($this->heartbeatTouchDue($session, $touchBefore)) {
                 $session->forceFill([
                     'last_seen_at' => $now,
-                    'expires_at' => $this->idleExpiresAt($session),
+                    'expires_at' => null,
                     'ip_address' => mb_substr((string) $request->ip(), 0, 64),
                     'user_agent' => mb_substr((string) $request->userAgent(), 0, 512),
                 ]);
@@ -139,12 +137,17 @@ final class WallboardSessionService
         }, 3);
     }
 
-    public function cookie(string $credential, WallboardSession $session): Cookie
+    public function cookie(string $credential): Cookie
     {
+        $expiresAt = (ApiDateTime::localWallClock(now()) ?? now())->addDays(max(
+            1,
+            (int) config('dis.wallboards.credential_cookie_days', 365),
+        ));
+
         return new Cookie(
             self::COOKIE_NAME,
             $credential,
-            ApiDateTime::localWallClock($session->expires_at) ?? $session->expires_at,
+            $expiresAt,
             '/',
             null,
             true,
@@ -180,32 +183,10 @@ final class WallboardSessionService
             );
     }
 
-    private function idleExpiresAt(?WallboardSession $session = null): DateTimeInterface
+    private function hasExpired(?DateTimeInterface $value, DateTimeInterface $boundary): bool
     {
-        $now = ApiDateTime::localWallClock(now()) ?? now();
-        $createdAt = ApiDateTime::localWallClock($session?->created_at) ?? $now;
-        $idleExpiry = $now->addDays(max(1, (int) config('dis.wallboards.session_idle_days', 30)));
-        $absoluteExpiry = $createdAt->addDays(max(
-            1,
-            (int) config('dis.wallboards.session_absolute_days', 365),
-        ));
-
-        return $idleExpiry->lessThan($absoluteExpiry) ? $idleExpiry : $absoluteExpiry;
-    }
-
-    private function absoluteExpiryReached(WallboardSession $session, DateTimeInterface $now): bool
-    {
-        return $session->created_at === null
-            || ApiDateTime::comparableWallClock($session->created_at)->addDays(max(
-                1,
-                (int) config('dis.wallboards.session_absolute_days', 365),
-            ))->lessThanOrEqualTo(ApiDateTime::comparableWallClock($now));
-    }
-
-    private function atOrBefore(?DateTimeInterface $value, DateTimeInterface $boundary): bool
-    {
-        return $value === null
-            || ApiDateTime::comparableWallClock($value)
+        return $value !== null
+            && ApiDateTime::comparableWallClock($value)
                 ->lessThanOrEqualTo(ApiDateTime::comparableWallClock($boundary));
     }
 

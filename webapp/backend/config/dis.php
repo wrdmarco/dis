@@ -71,8 +71,7 @@ return [
     ],
     'wallboards' => [
         'pairing_ttl_seconds' => (int) env('WALLBOARD_PAIRING_TTL_SECONDS', 300),
-        'session_idle_days' => (int) env('WALLBOARD_SESSION_IDLE_DAYS', 30),
-        'session_absolute_days' => (int) env('WALLBOARD_SESSION_ABSOLUTE_DAYS', 365),
+        'credential_cookie_days' => (int) env('WALLBOARD_CREDENTIAL_COOKIE_DAYS', 365),
         'rotation_hours' => (int) env('WALLBOARD_SESSION_ROTATION_HOURS', 12),
         'rotation_grace_seconds' => (int) env('WALLBOARD_SESSION_ROTATION_GRACE_SECONDS', 120),
         'touch_interval_seconds' => (int) env('WALLBOARD_SESSION_TOUCH_INTERVAL_SECONDS', 60),
