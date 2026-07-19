@@ -27,10 +27,13 @@ final class WallboardMediaCleanupService
                 3600,
                 (int) config('wallboard_media.orphan_grace_seconds', 24 * 60 * 60),
             ))->getTimestamp();
-            $protected = WallboardMediaAsset::query()
-                ->pluck('storage_path')
-                ->mapWithKeys(static fn (mixed $path): array => [(string) $path => true])
-                ->all();
+            $protected = [];
+            foreach (WallboardMediaAsset::query()->get(['storage_path', 'thumbnail_storage_path']) as $asset) {
+                $protected[(string) $asset->storage_path] = true;
+                if ($asset->thumbnail_storage_path !== null) {
+                    $protected[(string) $asset->thumbnail_storage_path] = true;
+                }
+            }
 
             $stagingDeleted = $this->deleteEligible(
                 $disk,
@@ -43,7 +46,7 @@ final class WallboardMediaCleanupService
                 $disk,
                 $disk->files($root.'/objects'),
                 $cutoff,
-                '#^'.preg_quote($root, '#').'/objects/[0-9A-HJKMNP-TV-Z]{26}\.webp$#',
+                '#^'.preg_quote($root, '#').'/objects/[0-9A-HJKMNP-TV-Z]{26}(?:\.thumbnail)?\.(?:webp|mp4)$#',
                 $protected,
             );
             $usagesDeleted = DB::transaction(function (): int {

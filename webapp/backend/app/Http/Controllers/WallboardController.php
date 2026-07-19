@@ -35,6 +35,14 @@ final class WallboardController extends Controller
         return ApiResponse::success($this->state->control($wallboard));
     }
 
+    public function clearCache(Request $request): Response
+    {
+        $wallboard = $request->attributes->get('wallboard');
+        abort_unless($wallboard instanceof Wallboard, 401);
+
+        return response()->noContent()->header('Clear-Site-Data', '"cache"');
+    }
+
     public function live(Request $request): JsonResponse
     {
         $wallboard = $request->attributes->get('wallboard');

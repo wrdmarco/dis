@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Middleware\SecurityHeaders;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -136,6 +137,44 @@ final class WallboardMediaApiIntegrationTest extends TestCase
             ->assertStatus(304)
             ->assertHeader('ETag', $etag)
             ->assertHeader('Cache-Control', 'immutable, max-age=3600, private');
+
+        $partial = $this->wallboardGet($uri, $credential, [
+            'If-None-Match' => '',
+            'Range' => 'bytes=2-9',
+        ]);
+        $partial->assertStatus(206);
+        self::assertSame(substr($this->imageBody(), 2, 8), $partial->streamedContent());
+        $partial->assertHeader('ETag', $etag);
+        $partial->assertHeader('Accept-Ranges', 'bytes');
+        $partial->assertHeader('Content-Range', 'bytes 2-9/'.strlen($this->imageBody()));
+        $partial->assertHeader('Content-Length', '8');
+        $partial->assertHeader('Cache-Control', 'immutable, max-age=31536000, private');
+
+        $invalidRange = $this->wallboardGet(
+            $uri,
+            $credential,
+            ['Range' => 'bytes='.strlen($this->imageBody()).'-'],
+        );
+        $invalidRange->assertStatus(416);
+        $invalidRange->assertHeader('Content-Range', 'bytes */'.strlen($this->imageBody()));
+        $invalidRange->assertHeader('Cache-Control', 'no-store, private');
+    }
+
+    public function test_non_media_partial_responses_remain_non_cacheable(): void
+    {
+        $request = Request::create('/api/not-wallboard-media', 'GET');
+        $response = response('partial', 206, [
+            'Accept-Ranges' => 'bytes',
+            'Cache-Control' => 'private, max-age=3600, immutable',
+            'Content-Range' => 'bytes 0-6/7',
+            'ETag' => '"partial"',
+        ]);
+
+        $secured = app(SecurityHeaders::class)->apply($request, $response);
+
+        self::assertSame('no-store, private', $secured->headers->get('Cache-Control'));
+        self::assertSame('no-cache', $secured->headers->get('Pragma'));
+        self::assertSame('0', $secured->headers->get('Expires'));
     }
 
     public function test_media_playlist_item_changes_rederive_duration_and_invalidate_linked_wallboards(): void

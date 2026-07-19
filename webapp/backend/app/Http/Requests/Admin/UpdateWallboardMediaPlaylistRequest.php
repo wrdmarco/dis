@@ -28,6 +28,7 @@ final class UpdateWallboardMediaPlaylistRequest extends FormRequest
                 'distinct:strict',
                 Rule::exists('wallboard_media_assets', 'id')
                     ->where('status', 'ready')
+                    ->where('kind', 'image')
                     ->whereNull('deleted_at'),
             ],
         ];

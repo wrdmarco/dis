@@ -1,5 +1,6 @@
 import { expect, test, type APIResponse, type Page } from 'playwright/test';
 import { GET as getSecurityText } from '../app/.well-known/security.txt/route';
+import { isAuthenticatedSessionFailure } from '../src/lib/apiClient';
 import { canonicalRedirectPath, validatedCanonicalRedirectOrigin } from '../src/lib/redirectPolicy';
 import { buildContentSecurityPolicy } from '../src/lib/securityPolicy';
 
@@ -10,6 +11,14 @@ const requiredCspDirectives = [
   "frame-ancestors 'none'",
   "form-action 'self'",
 ];
+
+test('only a definitive authenticated-session 401 clears the active web login', () => {
+  expect(isAuthenticatedSessionFailure(401, 'unauthenticated')).toBe(true);
+  expect(isAuthenticatedSessionFailure(401, 'session_expired')).toBe(true);
+  expect(isAuthenticatedSessionFailure(401, 'registration_session_expired')).toBe(false);
+  expect(isAuthenticatedSessionFailure(401, 'wallboard_unauthenticated')).toBe(false);
+  expect(isAuthenticatedSessionFailure(403, 'unauthenticated')).toBe(false);
+});
 
 test('CSP allows only the exact supported wallboard video origins', () => {
   const policy = buildContentSecurityPolicy({ nonce: 'test-nonce', development: false });

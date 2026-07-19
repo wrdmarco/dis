@@ -36,7 +36,8 @@ final class WallboardMediaStateService
                 continue;
             }
             $items = $usage->mediaPlaylist?->items
-                ?->filter(fn ($item): bool => $item->asset?->status === 'ready')
+                ?->filter(fn ($item): bool => $item->asset?->status === 'ready'
+                    && ($item->asset->kind ?: 'image') === 'image')
                 ->map(fn ($item): array => [
                     'id' => (string) $item->asset->id,
                     'name' => (string) $item->asset->display_name,

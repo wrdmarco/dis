@@ -3,11 +3,14 @@ import { expect, test } from 'playwright/test';
 import {
   type WallboardMediaFolder,
   type WallboardMediaPlaylist,
+  WALLBOARD_MEDIA_MAX_BATCH_FILES,
+  WALLBOARD_MEDIA_MAX_VIDEO_UPLOAD_BYTES,
   WALLBOARD_MEDIA_MAX_UPLOAD_BYTES,
   wallboardMediaAssetIds,
   wallboardMediaFileValidationMessage,
   wallboardMediaFolderTree,
   wallboardMediaImageUrl,
+  wallboardMediaThumbnailUrl,
   wallboardMediaPageStateFromPlaylist,
   wallboardPhotoPageDurationSeconds,
   wallboardPhotoPageIsWithinDurationLimit,
@@ -52,6 +55,9 @@ test('allows only exact same-origin media content paths in image elements', () =
   expect(wallboardMediaImageUrl(`https://evil.example/api/wallboard/media/${id}`)).toBeNull();
   expect(wallboardMediaImageUrl('/api/wallboard/media/not-a-ulid')).toBeNull();
   expect(wallboardMediaImageUrl('javascript:alert(1)')).toBeNull();
+  expect(wallboardMediaThumbnailUrl(`/api/admin/wallboard-media/assets/${id}/thumbnail`))
+    .toBe(`/api/admin/wallboard-media/assets/${id}/thumbnail`);
+  expect(wallboardMediaThumbnailUrl(`/api/admin/wallboard-media/assets/${id}/content`)).toBeNull();
 });
 
 test('derives the carousel page duration and applies the server maximum', () => {
@@ -113,14 +119,19 @@ test('keeps the order returned by a media playlist', () => {
 
 test('rejects unsupported, empty and oversized uploads before sending them', () => {
   expect(wallboardMediaFileValidationMessage(new File(['image'], 'image.jpg', { type: 'image/jpeg' }))).toBeNull();
+  expect(wallboardMediaFileValidationMessage(new File(['video'], 'briefing.mp4', { type: 'video/mp4' }))).toBeNull();
   expect(wallboardMediaFileValidationMessage(new File(['<svg/>'], 'image.svg', { type: 'image/svg+xml' })))
-    .toBe('Gebruik een JPEG-, PNG- of WebP-afbeelding.');
+    .toBe('Gebruik een JPEG-, PNG-, WebP-afbeelding of MP4-video.');
   expect(wallboardMediaFileValidationMessage(new File([], 'empty.png', { type: 'image/png' })))
-    .toBe('De geselecteerde afbeelding is leeg.');
+    .toBe('Het geselecteerde mediabestand is leeg.');
   expect(wallboardMediaFileValidationMessage({
     type: 'image/webp',
     size: WALLBOARD_MEDIA_MAX_UPLOAD_BYTES + 1,
-  } as File)).toBe('De afbeelding mag maximaal 15 MB groot zijn.');
+  } as File)).toBe('Een afbeelding mag maximaal 15 MB groot zijn.');
+  expect(wallboardMediaFileValidationMessage({
+    type: 'video/mp4',
+    size: WALLBOARD_MEDIA_MAX_VIDEO_UPLOAD_BYTES + 1,
+  } as File)).toBe('Een MP4-video mag maximaal 250 MB groot zijn.');
 });
 
 test('media management uses CSRF-aware ApiClient writes and no executable markup', () => {
@@ -129,10 +140,17 @@ test('media management uses CSRF-aware ApiClient writes and no executable markup
     'utf8',
   );
 
+  expect(source).toContain("payload.set('file', item.file)");
   expect(source).toContain("api.postForm('/admin/wallboard-media/assets', payload)");
   expect(source).toContain('expected_version: asset.version');
   expect(source).toContain('expected_version: selectedPlaylist.version');
-  expect(source).toContain('accept="image/jpeg,image/png,image/webp"');
+  expect(source).toContain('accept="image/jpeg,image/png,image/webp,video/mp4"');
+  expect(source).toContain('multiple');
+  expect(source).toContain('onDragEnter={handleFileDragEnter}');
+  expect(source).toContain('onDrop={handleFileDrop}');
+  expect(source).toContain('wallboardMediaAssetPreviewUrl(asset)');
+  expect(source).toContain('!isImage');
+  expect(WALLBOARD_MEDIA_MAX_BATCH_FILES).toBe(25);
   expect(source).not.toContain('dangerouslySetInnerHTML');
   expect(source).not.toContain('innerHTML');
   expect(source).not.toContain('URL.createObjectURL');

@@ -2,6 +2,7 @@
 
 import {
   type ChangeEvent,
+  type DragEvent,
   type FormEvent,
   useCallback,
   useEffect,
@@ -16,6 +17,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  FileVideo2,
   Image as ImageIcon,
   Images,
   Loader2,
@@ -35,8 +37,11 @@ import {
   type WallboardMediaFolder,
   type WallboardMediaPlaylist,
   WALLBOARD_MEDIA_MAX_PLAYLIST_ITEMS,
+  WALLBOARD_MEDIA_MAX_BATCH_FILES,
+  wallboardMediaAssetPreviewUrl,
   wallboardMediaAssetIds,
   wallboardMediaFileValidationMessage,
+  wallboardMediaFileKind,
   wallboardMediaFolderTree,
   wallboardMediaFormatBytes,
   wallboardMediaImageUrl,
@@ -47,6 +52,17 @@ type LibraryView = 'assets' | 'playlists';
 type FolderFilter = 'all' | 'unfiled' | string;
 
 const EMPTY_PAGINATION = { current_page: 1, last_page: 1, per_page: 25, total: 0 };
+
+type UploadStatus = 'pending' | 'uploading' | 'failed';
+
+interface UploadQueueItem {
+  id: string;
+  file: File;
+  displayName: string;
+  validationMessage: string | null;
+  status: UploadStatus;
+  uploadError: string | null;
+}
 
 export function WallboardMediaLibrary() {
   const { api } = useAuth();
@@ -65,8 +81,8 @@ export function WallboardMediaLibrary() {
   const [newFolderName, setNewFolderName] = useState('');
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState('');
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadDisplayName, setUploadDisplayName] = useState('');
+  const [uploadItems, setUploadItems] = useState<UploadQueueItem[]>([]);
+  const [draggingFiles, setDraggingFiles] = useState(false);
   const [loadingLibrary, setLoadingLibrary] = useState(true);
   const [loadingAssets, setLoadingAssets] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -74,6 +90,8 @@ export function WallboardMediaLibrary() {
   const [notice, setNotice] = useState<string | null>(null);
   const assetRequestRef = useRef(0);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const uploadSequenceRef = useRef(0);
+  const dragDepthRef = useRef(0);
 
   const folderTree = useMemo(() => wallboardMediaFolderTree(folders), [folders]);
   const selectedPlaylist = playlists.find((playlist) => playlist.id === selectedPlaylistId) ?? null;
@@ -232,41 +250,105 @@ export function WallboardMediaLibrary() {
     }
   }
 
-  function selectUploadFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] ?? null;
-    setUploadFile(file);
-    setUploadDisplayName(file === null ? '' : file.name.replace(/\.[^.]+$/, ''));
-    setError(file === null ? null : wallboardMediaFileValidationMessage(file));
-    setNotice(null);
+  function queueUploadFiles(files: Iterable<File>) {
+    const selectedFiles = Array.from(files);
+    if (selectedFiles.length === 0) return;
+    clearFeedback();
+    const availableSlots = Math.max(0, WALLBOARD_MEDIA_MAX_BATCH_FILES - uploadItems.length);
+    const accepted = selectedFiles.slice(0, availableSlots);
+    if (selectedFiles.length > availableSlots) {
+      setError(`Selecteer maximaal ${WALLBOARD_MEDIA_MAX_BATCH_FILES} bestanden per uploadronde.`);
+    }
+    setUploadItems((current) => {
+      const additions = accepted.map((file): UploadQueueItem => {
+        uploadSequenceRef.current += 1;
+        return {
+          id: `${file.name}:${file.size}:${file.lastModified}:${uploadSequenceRef.current}`,
+          file,
+          displayName: file.name.replace(/\.[^.]+$/, ''),
+          validationMessage: wallboardMediaFileValidationMessage(file),
+          status: 'pending',
+          uploadError: null,
+        };
+      });
+      return [...current, ...additions];
+    });
   }
 
-  async function uploadAsset(event: FormEvent) {
+  function selectUploadFiles(event: ChangeEvent<HTMLInputElement>) {
+    if (event.target.files !== null) queueUploadFiles(event.target.files);
+    event.target.value = '';
+  }
+
+  function handleFileDragEnter(event: DragEvent<HTMLFormElement>) {
+    if (!event.dataTransfer.types.includes('Files')) return;
     event.preventDefault();
-    if (uploadFile === null) return;
-    const validationMessage = wallboardMediaFileValidationMessage(uploadFile);
-    if (validationMessage !== null) {
-      setError(validationMessage);
+    dragDepthRef.current += 1;
+    setDraggingFiles(true);
+  }
+
+  function handleFileDragOver(event: DragEvent<HTMLFormElement>) {
+    if (!event.dataTransfer.types.includes('Files')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  }
+
+  function handleFileDragLeave(event: DragEvent<HTMLFormElement>) {
+    if (!event.dataTransfer.types.includes('Files')) return;
+    event.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDraggingFiles(false);
+  }
+
+  function handleFileDrop(event: DragEvent<HTMLFormElement>) {
+    if (!event.dataTransfer.types.includes('Files')) return;
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setDraggingFiles(false);
+    queueUploadFiles(event.dataTransfer.files);
+  }
+
+  async function uploadAssets(event: FormEvent) {
+    event.preventDefault();
+    const pendingItems = uploadItems.filter((item) => item.validationMessage === null);
+    if (pendingItems.length === 0) {
+      setError('Selecteer minimaal één geldig mediabestand.');
       return;
     }
     setBusy('upload');
     clearFeedback();
-    const payload = new FormData();
-    payload.set('image', uploadFile);
-    if (isFolderId(folderFilter)) payload.set('folder_id', folderFilter);
-    if (uploadDisplayName.trim() !== '') payload.set('display_name', uploadDisplayName.trim());
-    try {
-      await api.postForm('/admin/wallboard-media/assets', payload);
-      setUploadFile(null);
-      setUploadDisplayName('');
-      if (uploadInputRef.current !== null) uploadInputRef.current.value = '';
-      setNotice('Afbeelding veilig verwerkt en toegevoegd.');
+    const completedIds = new Set<string>();
+    let failedCount = 0;
+
+    for (const item of pendingItems) {
+      setUploadItems((current) => current.map((candidate) => candidate.id === item.id
+        ? { ...candidate, status: 'uploading', uploadError: null }
+        : candidate));
+      const payload = new FormData();
+      payload.set('file', item.file);
+      if (isFolderId(folderFilter)) payload.set('folder_id', folderFilter);
+      if (item.displayName.trim() !== '') payload.set('display_name', item.displayName.trim());
+      try {
+        await api.postForm('/admin/wallboard-media/assets', payload);
+        completedIds.add(item.id);
+      } catch (mutationError) {
+        failedCount += 1;
+        const message = errorMessage(mutationError, `${item.file.name} kon niet worden verwerkt.`);
+        setUploadItems((current) => current.map((candidate) => candidate.id === item.id
+          ? { ...candidate, status: 'failed', uploadError: message }
+          : candidate));
+      }
+    }
+
+    setUploadItems((current) => current.filter((item) => !completedIds.has(item.id)));
+    if (uploadInputRef.current !== null) uploadInputRef.current.value = '';
+    if (completedIds.size > 0) {
+      setNotice(`${completedIds.size} mediabestand${completedIds.size === 1 ? '' : 'en'} veilig verwerkt en toegevoegd.`);
       await Promise.all([loadLibrary(true), loadAssets(folderFilter, search, 1)]);
       setAssetPageNumber(1);
-    } catch (mutationError) {
-      setError(errorMessage(mutationError, 'Afbeelding kon niet worden verwerkt.'));
-    } finally {
-      setBusy(null);
     }
+    if (failedCount > 0) setError(`${failedCount} bestand${failedCount === 1 ? '' : 'en'} kon niet worden geüpload. Controleer de melding per bestand.`);
+    setBusy(null);
   }
 
   async function moveAsset(asset: WallboardMediaAsset, folderId: string | null) {
@@ -526,44 +608,105 @@ export function WallboardMediaLibrary() {
               </button>
             </div>
 
-            <form className={styles.uploadCard} onSubmit={(event) => void uploadAsset(event)}>
+            <form
+              className={`${styles.uploadCard} ${draggingFiles ? styles.uploadCardDragging : ''}`}
+              onSubmit={(event) => void uploadAssets(event)}
+              onDragEnter={handleFileDragEnter}
+              onDragOver={handleFileDragOver}
+              onDragLeave={handleFileDragLeave}
+              onDrop={handleFileDrop}
+              aria-busy={busy === 'upload'}
+            >
               <span className={styles.uploadIcon}><Upload size={22} aria-hidden /></span>
               <div>
-                <strong>Afbeelding uploaden</strong>
-                <span>JPEG, PNG of WebP, maximaal 15 MB. DIS verwerkt het bestand naar een veilige statische afbeelding.</span>
+                <strong>Media uploaden</strong>
+                <span>Sleep één of meer bestanden hierheen, of kies ze op je toestel. JPEG, PNG en WebP maximaal 15 MB; MP4 maximaal 250 MB.</span>
               </div>
               <label className={styles.fileButton}>
-                <input ref={uploadInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={selectUploadFile} />
-                Bestand kiezen
+                <input
+                  ref={uploadInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,video/mp4"
+                  multiple
+                  onChange={selectUploadFiles}
+                />
+                Bestanden kiezen
               </label>
-              {uploadFile !== null ? (
+              {draggingFiles ? <strong className={styles.dropPrompt}>Laat los om bestanden toe te voegen</strong> : null}
+              {uploadItems.length > 0 ? (
                 <div className={styles.uploadSelection}>
-                  <span>{uploadFile.name} - {wallboardMediaFormatBytes(uploadFile.size)}</span>
-                  <input
-                    value={uploadDisplayName}
-                    maxLength={180}
-                    aria-label="Weergavenaam afbeelding"
-                    placeholder="Weergavenaam"
-                    onChange={(event) => setUploadDisplayName(event.target.value)}
-                  />
-                  <button type="submit" className={styles.primaryButton} disabled={busy === 'upload'}>
-                    {busy === 'upload' ? <Loader2 size={16} aria-hidden /> : <Upload size={16} aria-hidden />}
-                    Uploaden
-                  </button>
+                  <ul className={styles.uploadQueue} aria-label="Geselecteerde mediabestanden">
+                    {uploadItems.map((item) => {
+                      const kind = wallboardMediaFileKind(item.file);
+                      const itemError = item.validationMessage ?? item.uploadError;
+                      return (
+                        <li key={item.id} className={itemError === null ? undefined : styles.uploadQueueError}>
+                          <span className={styles.uploadQueueIcon}>
+                            {kind === 'video' ? <FileVideo2 size={20} aria-hidden /> : <ImageIcon size={20} aria-hidden />}
+                          </span>
+                          <span className={styles.uploadQueueFile}>
+                            <strong title={item.file.name}>{item.file.name}</strong>
+                            <small>{wallboardMediaFormatBytes(item.file.size)}{kind === null ? '' : ` · ${kind === 'video' ? 'MP4-video' : 'Afbeelding'}`}</small>
+                            {itemError === null ? null : <em>{itemError}</em>}
+                          </span>
+                          <input
+                            value={item.displayName}
+                            maxLength={180}
+                            aria-label={`Weergavenaam voor ${item.file.name}`}
+                            placeholder="Weergavenaam"
+                            disabled={busy === 'upload'}
+                            onChange={(event) => setUploadItems((current) => current.map((candidate) => candidate.id === item.id
+                              ? { ...candidate, displayName: event.target.value }
+                              : candidate))}
+                          />
+                          <span className={styles.uploadQueueStatus} aria-live="polite">
+                            {item.status === 'uploading' ? <><Loader2 className={styles.spinning} size={15} aria-hidden /> Bezig</> : item.status === 'failed' ? 'Mislukt' : 'Klaar' }
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={`${item.file.name} uit uploadlijst verwijderen`}
+                            disabled={busy === 'upload'}
+                            onClick={() => setUploadItems((current) => current.filter((candidate) => candidate.id !== item.id))}
+                          >
+                            <X size={16} aria-hidden />
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <footer className={styles.uploadQueueFooter}>
+                    <span>{uploadItems.length} van maximaal {WALLBOARD_MEDIA_MAX_BATCH_FILES} bestanden geselecteerd</span>
+                    <button
+                      type="button"
+                      className={styles.secondaryButton}
+                      disabled={busy === 'upload'}
+                      onClick={() => setUploadItems([])}
+                    >
+                      Lijst wissen
+                    </button>
+                    <button
+                      type="submit"
+                      className={styles.primaryButton}
+                      disabled={busy === 'upload' || !uploadItems.some((item) => item.validationMessage === null)}
+                    >
+                      {busy === 'upload' ? <Loader2 className={styles.spinning} size={16} aria-hidden /> : <Upload size={16} aria-hidden />}
+                      Alles uploaden
+                    </button>
+                  </footer>
                 </div>
               ) : null}
             </form>
 
             {loadingAssets ? (
-              <div className={styles.loading} role="status"><Loader2 size={20} aria-hidden /> Afbeeldingen laden...</div>
+              <div className={styles.loading} role="status"><Loader2 size={20} aria-hidden /> Media laden...</div>
             ) : assetsPage.items.length === 0 ? (
               <div className={styles.emptyState}>
                 <ImageIcon size={34} aria-hidden />
-                <strong>Geen afbeeldingen gevonden</strong>
-                <span>Upload een eerste afbeelding of kies een andere map.</span>
+                <strong>Geen media gevonden</strong>
+                <span>Upload een eerste afbeelding of video, of kies een andere map.</span>
               </div>
             ) : (
-              <ul className={styles.assetGrid} aria-label="Afbeeldingen">
+              <ul className={styles.assetGrid} aria-label="Media">
                 {assetsPage.items.map((asset) => (
                   <AssetCard
                     key={asset.id}
@@ -722,17 +865,40 @@ interface AssetCardProps {
 }
 
 function AssetCard({ asset, folders, selected, busy, onSelect, onMove, onDelete }: AssetCardProps) {
-  const imageUrl = wallboardMediaImageUrl(asset.content_url);
-  const ready = asset.status === 'ready' && imageUrl !== null;
+  const previewUrl = wallboardMediaAssetPreviewUrl(asset);
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const isImage = asset.kind === 'image';
+  const ready = asset.status === 'ready';
+  useEffect(() => setPreviewFailed(false), [previewUrl]);
+
   return (
     <li className={selected ? styles.selectedAsset : styles.assetCard}>
-      <button type="button" className={styles.assetPreview} onClick={onSelect} aria-pressed={selected} disabled={!ready}>
-        {imageUrl === null ? <ImageIcon size={34} aria-hidden /> : <img src={imageUrl} alt={asset.display_name} loading="lazy" />}
-        <span className={styles.selectionMark}>{selected ? <Check size={16} aria-hidden /> : null}</span>
+      <button
+        type="button"
+        className={styles.assetPreview}
+        onClick={onSelect}
+        aria-pressed={isImage ? selected : undefined}
+        disabled={!ready || !isImage}
+        title={isImage ? 'Afbeelding selecteren' : 'Video’s kunnen niet aan een fotoplaylist worden toegevoegd.'}
+      >
+        {!isImage ? (
+          <FileVideo2 size={38} aria-hidden />
+        ) : previewUrl === null || previewFailed ? (
+          <span className={styles.previewUnavailable}><ImageIcon size={34} aria-hidden /><small>Voorbeeld niet beschikbaar</small></span>
+        ) : (
+          <img
+            src={previewUrl}
+            alt={asset.display_name}
+            loading="lazy"
+            onError={() => setPreviewFailed(true)}
+          />
+        )}
+        <span className={styles.mediaKind}>{isImage ? 'Foto' : 'Video'}</span>
+        {isImage ? <span className={styles.selectionMark}>{selected ? <Check size={16} aria-hidden /> : null}</span> : null}
       </button>
       <div className={styles.assetDetails}>
         <strong title={asset.display_name}>{asset.display_name}</strong>
-        <span>{asset.width} x {asset.height} - {wallboardMediaFormatBytes(asset.byte_size)}</span>
+        <span>{wallboardMediaAssetMetadata(asset)} · {wallboardMediaFormatBytes(asset.byte_size)}</span>
       </div>
       <div className={styles.assetControls}>
         <label>
@@ -748,6 +914,18 @@ function AssetCard({ asset, folders, selected, busy, onSelect, onMove, onDelete 
       </div>
     </li>
   );
+}
+
+function wallboardMediaAssetMetadata(asset: WallboardMediaAsset): string {
+  if (asset.kind === 'video') {
+    const seconds = asset.duration_seconds;
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return 'MP4-video';
+    const rounded = Math.ceil(seconds);
+    const minutes = Math.floor(rounded / 60);
+    const remainder = rounded % 60;
+    return minutes > 0 ? `${minutes}:${String(remainder).padStart(2, '0')} min` : `${remainder} sec.`;
+  }
+  return asset.width === null || asset.height === null ? 'Afbeelding' : `${asset.width} × ${asset.height}`;
 }
 
 interface PaginationProps {

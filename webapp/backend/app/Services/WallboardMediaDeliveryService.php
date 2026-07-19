@@ -6,6 +6,7 @@ use App\Models\Wallboard;
 use App\Models\WallboardMediaAsset;
 use App\Repositories\WallboardMediaAssetRepository;
 use App\Support\WallboardMediaContent;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
@@ -16,6 +17,26 @@ final class WallboardMediaDeliveryService
     public function forAdmin(WallboardMediaAsset $asset): ?WallboardMediaContent
     {
         return $this->content($this->assets->findReady((string) $asset->getKey()));
+    }
+
+    public function thumbnailForAdmin(WallboardMediaAsset $asset): ?WallboardMediaContent
+    {
+        $ready = $this->assets->findReady((string) $asset->getKey());
+        if (! $ready instanceof WallboardMediaAsset
+            || ($ready->kind ?: WallboardMediaAsset::KIND_IMAGE) !== WallboardMediaAsset::KIND_IMAGE) {
+            return null;
+        }
+        if ($ready->thumbnail_storage_path === null) {
+            return $this->content($ready);
+        }
+
+        return $this->verifiedContent(
+            path: (string) $ready->thumbnail_storage_path,
+            expectedPath: $this->objectPath($ready, '.thumbnail.webp'),
+            mimeType: (string) $ready->thumbnail_mime_type,
+            byteSize: (int) $ready->thumbnail_byte_size,
+            sha256: (string) $ready->thumbnail_sha256,
+        );
     }
 
     public function forWallboard(Wallboard $wallboard, WallboardMediaAsset $asset): ?WallboardMediaContent
@@ -33,45 +54,89 @@ final class WallboardMediaDeliveryService
 
     private function content(?WallboardMediaAsset $asset): ?WallboardMediaContent
     {
-        if (! $asset instanceof WallboardMediaAsset
-            || $asset->mime_type !== 'image/webp'
-            || preg_match('/^[a-f0-9]{64}$/', (string) $asset->sha256) !== 1) {
+        if (! $asset instanceof WallboardMediaAsset) {
             return null;
         }
-        $root = preg_quote(trim((string) config('wallboard_media.root', 'wallboard-media'), '/'), '#');
-        if (preg_match(
-            '#^'.$root.'/objects/'.preg_quote((string) $asset->id, '#').'\.webp$#',
-            (string) $asset->storage_path,
-        ) !== 1) {
+        $kind = (string) ($asset->kind ?: WallboardMediaAsset::KIND_IMAGE);
+        $expectedMime = match ($kind) {
+            WallboardMediaAsset::KIND_IMAGE => 'image/webp',
+            WallboardMediaAsset::KIND_VIDEO => 'video/mp4',
+            default => null,
+        };
+        if ($expectedMime === null || $asset->mime_type !== $expectedMime) {
+            return null;
+        }
+
+        return $this->verifiedContent(
+            path: (string) $asset->storage_path,
+            expectedPath: $this->objectPath(
+                $asset,
+                $kind === WallboardMediaAsset::KIND_VIDEO ? '.mp4' : '.webp',
+            ),
+            mimeType: $expectedMime,
+            byteSize: (int) $asset->byte_size,
+            sha256: (string) $asset->sha256,
+        );
+    }
+
+    private function verifiedContent(
+        string $path,
+        string $expectedPath,
+        string $mimeType,
+        int $byteSize,
+        string $sha256,
+    ): ?WallboardMediaContent {
+        if ($path !== $expectedPath
+            || $byteSize < 1
+            || preg_match('/^[a-f0-9]{64}$/', $sha256) !== 1) {
             return null;
         }
 
         try {
             $diskName = (string) config('wallboard_media.disk', 'local');
             $disk = Storage::disk($diskName);
-            $path = (string) $asset->storage_path;
             if (! $disk->exists($path)
-                || $disk->size($path) !== (int) $asset->byte_size) {
+                || $disk->size($path) !== $byteSize) {
                 return null;
             }
             $absolutePath = $disk->path($path);
-            $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($absolutePath);
-            $sha256 = hash_file('sha256', $absolutePath);
-            if ($mime !== 'image/webp'
-                || ! is_string($sha256)
-                || ! hash_equals((string) $asset->sha256, $sha256)) {
+            $lastModified = $disk->lastModified($path);
+            $cacheKey = 'wallboard-media:verified:'.hash(
+                'sha256',
+                implode('|', [$diskName, $path, $byteSize, $lastModified, $sha256, $mimeType]),
+            );
+            $verified = Cache::remember($cacheKey, 300, static function () use (
+                $absolutePath,
+                $mimeType,
+                $sha256,
+            ): bool {
+                $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($absolutePath);
+                $actualSha256 = hash_file('sha256', $absolutePath);
+
+                return $mime === $mimeType
+                    && is_string($actualSha256)
+                    && hash_equals($sha256, $actualSha256);
+            });
+            if ($verified !== true) {
                 return null;
             }
 
             return new WallboardMediaContent(
                 disk: $diskName,
                 path: $path,
-                contentType: 'image/webp',
-                byteSize: (int) $asset->byte_size,
+                contentType: $mimeType,
+                byteSize: $byteSize,
                 etag: '"'.$sha256.'"',
             );
         } catch (Throwable) {
             return null;
         }
+    }
+
+    private function objectPath(WallboardMediaAsset $asset, string $suffix): string
+    {
+        $root = trim((string) config('wallboard_media.root', 'wallboard-media'), '/');
+
+        return $root.'/objects/'.(string) $asset->id.$suffix;
     }
 }

@@ -5,6 +5,7 @@ namespace App\Repositories;
 use App\Models\WallboardMediaAsset;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 
 /** @extends BaseRepository<WallboardMediaAsset> */
 final class WallboardMediaAssetRepository extends BaseRepository
@@ -77,7 +78,7 @@ final class WallboardMediaAssetRepository extends BaseRepository
                 WallboardMediaAsset::STATUS_PROCESSING,
                 WallboardMediaAsset::STATUS_READY,
             ])
-            ->sum('byte_size');
+            ->sum(DB::raw('byte_size + COALESCE(thumbnail_byte_size, 0)'));
     }
 
     public function activeCount(): int
@@ -103,6 +104,7 @@ final class WallboardMediaAssetRepository extends BaseRepository
         return WallboardMediaAsset::query()
             ->whereKey($assetId)
             ->where('status', WallboardMediaAsset::STATUS_READY)
+            ->where('kind', WallboardMediaAsset::KIND_IMAGE)
             ->whereHas('playlistItems.playlist.usages', fn ($query) => $query->where(
                 'wallboard_playlist_id',
                 $wallboardPlaylistId,

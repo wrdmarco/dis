@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BellRing,
   Clapperboard,
+  CloudSun,
   Clock3,
   Eye,
   Images,
@@ -11,7 +12,9 @@ import {
   MessageSquareText,
   Newspaper,
   Radio,
+  Quote as QuoteIcon,
   Rss,
+  ShieldAlert,
   Siren,
   X,
 } from 'lucide-react';
@@ -22,6 +25,7 @@ import {
   wallboardFocusKindLabel,
   wallboardMessageContent,
   wallboardPageTypeLabel,
+  selectWallboardDailyQuote,
 } from './wallboardPresentation';
 import { WallboardRichText } from './WallboardRichText';
 import { WallboardPhotoPlaylistPreview } from './WallboardPhotoPlaylistPreview';
@@ -42,6 +46,9 @@ export function WallboardPlaylistPreview({
   const [selectedPageId, setSelectedPageId] = useState(snapshot.pages[0].id);
   const selectedPage = snapshot.pages.find((page) => page.id === selectedPageId) ?? snapshot.pages[0];
   const totalDuration = snapshot.pages.reduce((total, page) => total + wallboardEffectivePageDuration(page), 0);
+  const selectedQuote = selectedPage.type === 'quote'
+    ? selectWallboardDailyQuote(selectedPage.options.quotes, selectedPage.id)
+    : null;
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -87,6 +94,12 @@ export function WallboardPlaylistPreview({
               ? <Map size={42} aria-hidden />
               : selectedPage.type === 'news'
                 ? <Newspaper size={42} aria-hidden />
+                : selectedPage.type === 'uav_forecast'
+                  ? <CloudSun size={42} aria-hidden />
+                  : selectedPage.type === 'safety_notice'
+                    ? <ShieldAlert size={42} aria-hidden />
+                  : selectedPage.type === 'quote'
+                    ? <QuoteIcon size={42} aria-hidden />
                 : selectedPage.type === 'video'
                   ? <Clapperboard size={42} aria-hidden />
                   : selectedPage.type === 'photo_carousel'
@@ -94,12 +107,26 @@ export function WallboardPlaylistPreview({
                 : <MessageSquareText size={42} aria-hidden />}
             <span id="wallboard-preview-page-title">{wallboardPageTypeLabel(selectedPage.type)}</span>
             {selectedPage.type === 'message' ? null : <h3>{selectedPage.name}</h3>}
-            {selectedPage.type === 'message' ? (
+            {selectedPage.type === 'message' || selectedPage.type === 'safety_notice' ? (
               <WallboardRichText
                 content={wallboardMessageContent(selectedPage.options)}
                 className="wallboard-playlist-preview__message-content"
-                ariaLabel="Voorbeeld mededeling"
+                ariaLabel={selectedPage.type === 'safety_notice' ? 'Voorbeeld veiligheidsbericht' : 'Voorbeeld mededeling'}
               />
+            ) : selectedPage.type === 'quote' ? (
+              selectedQuote === null ? (
+                <p>Er is nog geen geldige quote geconfigureerd.</p>
+              ) : (
+                <blockquote className="wallboard-playlist-preview__quote">
+                  <p>{selectedQuote.text}</p>
+                  {selectedQuote.author ? <cite>{selectedQuote.author}</cite> : null}
+                </blockquote>
+              )
+            ) : selectedPage.type === 'uav_forecast' ? (
+              <p>
+                Actueel vliegweer voor {selectedPage.options.location_label?.trim() || 'nog te kiezen locatie'}.
+                Wind, windstoten, neerslag, zicht en Kp worden server-side beoordeeld; onbekende of verouderde waarden worden nooit groen.
+              </p>
             ) : selectedPage.type === 'news' ? (
               <p>
                 Maximaal {selectedPage.options.max_items ?? 6} berichten uit de laatste 7 dagen en

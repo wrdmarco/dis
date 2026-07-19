@@ -19,6 +19,20 @@ if (!/credentials\s*:\s*['"]include['"]/.test(apiClient)) {
   violations.push(`${displayPath(apiClientPath)}: web-API requests must use credentials: 'include'`);
 }
 
+const authContextPath = join(frontendRoot, 'src', 'features', 'auth', 'AuthContext.tsx');
+const authContext = await readFile(authContextPath, 'utf8');
+for (const requiredActivitySignal of ['keydown', 'pointerdown', 'touchstart', 'visibilitychange']) {
+  if (!authContext.includes(`'${requiredActivitySignal}'`)) {
+    violations.push(`${displayPath(authContextPath)}: authenticated session activity must include ${requiredActivitySignal}`);
+  }
+}
+if (!/api\.post<void>\(['"]\/auth\/session\/touch['"]\)/.test(authContext)) {
+  violations.push(`${displayPath(authContextPath)}: authenticated activity must refresh the server-side session`);
+}
+if (/setInterval\s*\([^)]*\/auth\/session\/touch/s.test(authContext)) {
+  violations.push(`${displayPath(authContextPath)}: an idle browser tab may not keep a session alive automatically`);
+}
+
 if (violations.length > 0) {
   process.stderr.write(`Browser authentication source check failed:\n- ${violations.join('\n- ')}\n`);
   process.exitCode = 1;

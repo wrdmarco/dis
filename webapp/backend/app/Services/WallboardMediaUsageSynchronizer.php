@@ -51,7 +51,8 @@ final class WallboardMediaUsageSynchronizer
         foreach ($references as $reference) {
             $playlist = $locked[$reference['media_playlist_id']] ?? null;
             $readyItems = $playlist instanceof WallboardMediaPlaylist
-                ? $playlist->items->filter(fn ($item): bool => $item->asset?->status === 'ready')->count()
+                ? $playlist->items->filter(fn ($item): bool => $item->asset?->status === 'ready'
+                    && ($item->asset->kind ?: 'image') === 'image')->count()
                 : 0;
             if ($readyItems < 1) {
                 throw ValidationException::withMessages([
@@ -133,7 +134,7 @@ final class WallboardMediaUsageSynchronizer
             }
             $pageId = trim((string) ($page['id'] ?? ''));
             $options = is_array($page['options'] ?? null) ? $page['options'] : [];
-            $playlistId = trim((string) ($options['media_playlist_id'] ?? ''));
+            $playlistId = strtolower(trim((string) ($options['media_playlist_id'] ?? '')));
             $duration = filter_var($options['item_duration_seconds'] ?? null, FILTER_VALIDATE_INT);
             if (preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/', $pageId) !== 1
                 || ! Str::isUlid($playlistId)

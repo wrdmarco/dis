@@ -184,7 +184,8 @@ density. It does not change the television, HDMI input, operating-system or brow
 shared playlist can therefore be shown on screens with different display profiles.
 
 A playlist contains an ordered set of allowlisted DIS pages: an operational map, incident list, operational
-summary, safely formatted announcement, curated drone-news page or allowlisted YouTube/Vimeo video. Every page has its own bounded display duration. The playlist also owns
+summary, safely formatted announcement or safety notice, an administrator-managed daily quote, a UAV Forecast,
+curated drone-news page, photo carousel or allowlisted YouTube/Vimeo video. Every page has its own bounded display duration. The playlist also owns
 map layers, rotation, the incident override and an optional bottom ticker. The ticker accepts bounded
 plain-text internal messages and multiple HTTPS RSS or Atom feeds; feed retrieval is cached, size-limited and
 restricted to public destinations. Each RSS source can show between one and eight items; legacy and omitted
@@ -198,6 +199,22 @@ bullet or numbered lists, left/centred alignment and bold/italic text. Unknown f
 styles, embedded media and executable markup are rejected server-side. Existing plain-text announcement bodies
 are read losslessly and emitted through the same canonical structured document, so no manual data migration is
 required.
+
+The distinct `Quote van de dag` page contains between one and fifty administrator-managed plain-text quotes,
+each with an optional author. DIS never fills this page from an external service and ships no production example
+quote. The display selects one entry deterministically from the page identifier and the current
+`Europe/Amsterdam` calendar date, so every refresh on the same local day shows the same quote. Empty lists,
+oversized values and unknown fields are rejected server-side; a malformed legacy configuration is shown as an
+explicit unconfigured state rather than substituted content.
+
+The UAV Forecast page is bound to an administrator-supplied label and WGS84 coordinate. Current wind, gust,
+precipitation and visibility come from [Open-Meteo](https://open-meteo.com/en/docs); the planetary Kp index comes
+from the fixed [NOAA SWPC feed](https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json). Each value
+shows its source, observation time and stale state. Central server-side thresholds classify the full metric card
+green, orange, red or unknown, and the overall advice uses the worst available factor. Missing, invalid or stale
+data is always unknown and can never become green. GNSS satellite availability remains explicitly unknown until
+a reliable location- and time-dependent source exists. Device limits, mission profile, local observations,
+airspace rules and operational authority always override this indicative forecast.
 
 Each drone-news page can enable the fixed Nationaal Drone Team and Dronewatch sources, add up to eight named
 custom HTTPS RSS or Atom sources and show between one and twelve items across all enabled sources. At least one

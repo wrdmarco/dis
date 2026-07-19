@@ -292,6 +292,7 @@
 }
 
 .uploadCard {
+  position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -300,6 +301,13 @@
   border: 1px dashed rgb(93 185 229 / 35%);
   border-radius: 14px;
   background: linear-gradient(115deg, rgb(41 132 175 / 10%), transparent 55%);
+  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.uploadCardDragging {
+  border-color: #6cccf6;
+  background: rgb(32 124 169 / 18%);
+  box-shadow: inset 0 0 0 2px rgb(86 194 239 / 18%);
 }
 
 .uploadIcon {
@@ -381,11 +389,117 @@
 .uploadSelection {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, .6fr) auto;
-  align-items: center;
   gap: 10px;
   padding-top: 12px;
   border-top: 1px solid rgb(115 170 203 / 14%);
+}
+
+.dropPrompt {
+  grid-column: 1 / -1;
+  padding: 12px;
+  color: #cbefff;
+  text-align: center;
+  border-radius: 10px;
+  background: rgb(47 157 207 / 16%);
+}
+
+.uploadQueue {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.uploadQueue li {
+  display: grid;
+  grid-template-columns: 36px minmax(130px, 1fr) minmax(150px, .65fr) 74px 34px;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid rgb(113 169 201 / 18%);
+  border-radius: 11px;
+  background: rgb(4 16 26 / 68%);
+}
+
+.uploadQueue li.uploadQueueError {
+  border-color: rgb(231 111 111 / 48%);
+  background: rgb(81 24 31 / 20%);
+}
+
+.uploadQueueIcon {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  color: #70c9f1 !important;
+  border-radius: 9px;
+  background: rgb(63 151 193 / 13%);
+}
+
+.uploadQueueFile {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.uploadQueueFile strong,
+.uploadQueueFile small,
+.uploadQueueFile em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uploadQueueFile small {
+  color: #819eb0;
+  font-size: .72rem;
+}
+
+.uploadQueueFile em {
+  color: #ffaaaa;
+  font-size: .72rem;
+  font-style: normal;
+}
+
+.uploadQueue input {
+  width: 100%;
+}
+
+.uploadQueueStatus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.spinning {
+  animation: spin 900ms linear infinite;
+}
+
+.uploadQueue li > button {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  color: #9eb5c3;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.uploadQueueFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
+.uploadQueueFooter > span {
+  margin-right: auto;
 }
 
 .assetGrid {
@@ -429,6 +543,37 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.assetPreview:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.previewUnavailable {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+}
+
+.previewUnavailable small {
+  color: #7895a7;
+  font-size: .68rem;
+}
+
+.mediaKind {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  padding: 3px 7px;
+  color: #d8edf8 !important;
+  font-size: .64rem !important;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  border: 1px solid rgb(160 207 231 / 20%);
+  border-radius: 999px;
+  background: rgb(3 14 23 / 82%);
 }
 
 .selectionMark {
@@ -783,6 +928,29 @@
   .uploadCard,
   .uploadSelection {
     grid-template-columns: 1fr;
+  }
+
+  .uploadQueue li {
+    grid-template-columns: 36px minmax(0, 1fr) 34px;
+  }
+
+  .uploadQueue li > input,
+  .uploadQueueStatus {
+    grid-column: 2 / -1;
+  }
+
+  .uploadQueue li > button {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .uploadQueueFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .uploadQueueFooter > span {
+    margin-right: 0;
   }
 
   .uploadIcon {

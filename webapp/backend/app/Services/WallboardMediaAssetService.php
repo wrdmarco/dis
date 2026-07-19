@@ -23,6 +23,7 @@ final class WallboardMediaAssetService
         private readonly WallboardMediaAssetRepository $repository,
         private readonly WallboardMediaFolderRepository $folders,
         private readonly WallboardMediaImageProcessor $processor,
+        private readonly WallboardMediaVideoProcessor $videoProcessor,
         private readonly WallboardMediaQuotaService $quota,
         private readonly AuditService $auditService,
     ) {}
@@ -40,19 +41,27 @@ final class WallboardMediaAssetService
     /** @param array<string, mixed> $data */
     public function upload(array $data, User $actor, Request $request): WallboardMediaAsset
     {
-        $upload = $data['image'] ?? null;
+        $field = array_key_exists('file', $data) ? 'file' : 'image';
+        $upload = $data[$field] ?? null;
         if (! $upload instanceof UploadedFile) {
-            throw ValidationException::withMessages(['image' => ['Selecteer een afbeelding om te uploaden.']]);
+            throw ValidationException::withMessages(['file' => ['Selecteer een afbeelding of MP4-video om te uploaden.']]);
         }
-        $processed = $this->processor->process($upload);
+        $detectedMime = $this->detectedMime($upload);
+        $processed = $detectedMime === 'video/mp4'
+            ? $this->videoProcessor->process($upload, $field)
+            : $this->processor->process($upload, $field);
         $assetId = (string) Str::ulid();
         $root = trim((string) config('wallboard_media.root', 'wallboard-media'), '/');
-        $storagePath = $root.'/objects/'.$assetId.'.webp';
+        $storagePath = $root.'/objects/'.$assetId.($processed->kind === WallboardMediaAsset::KIND_VIDEO ? '.mp4' : '.webp');
+        $thumbnailStoragePath = $processed->thumbnailTemporaryPath === null
+            ? null
+            : $root.'/objects/'.$assetId.'.thumbnail.webp';
         $diskName = (string) config('wallboard_media.disk', 'local');
         $stored = false;
+        $thumbnailStored = false;
 
         try {
-            return $this->quota->reserve($processed->byteSize, function () use (
+            return $this->quota->reserve($processed->byteSize + ($processed->thumbnailByteSize ?? 0), function () use (
                 $data,
                 $actor,
                 $request,
@@ -60,8 +69,10 @@ final class WallboardMediaAssetService
                 $processed,
                 $assetId,
                 $storagePath,
+                $thumbnailStoragePath,
                 $diskName,
                 &$stored,
+                &$thumbnailStored,
             ): WallboardMediaAsset {
                 return DB::transaction(function () use (
                     $data,
@@ -71,8 +82,10 @@ final class WallboardMediaAssetService
                     $processed,
                     $assetId,
                     $storagePath,
+                    $thumbnailStoragePath,
                     $diskName,
                     &$stored,
+                    &$thumbnailStored,
                 ): WallboardMediaAsset {
                     $folderId = $this->nullableId($data['folder_id'] ?? null);
                     if ($folderId !== null) {
@@ -88,12 +101,18 @@ final class WallboardMediaAssetService
                         'folder_id' => $folderId,
                         'display_name' => $displayName,
                         'original_name' => $originalName,
+                        'kind' => $processed->kind,
                         'storage_path' => $storagePath,
+                        'thumbnail_storage_path' => $thumbnailStoragePath,
+                        'thumbnail_sha256' => $processed->thumbnailSha256,
+                        'thumbnail_mime_type' => $thumbnailStoragePath === null ? null : 'image/webp',
+                        'thumbnail_byte_size' => $processed->thumbnailByteSize,
                         'sha256' => $processed->sha256,
-                        'mime_type' => 'image/webp',
+                        'mime_type' => $processed->mimeType,
                         'byte_size' => $processed->byteSize,
                         'width' => $processed->width,
                         'height' => $processed->height,
+                        'duration_seconds' => $processed->durationSeconds,
                         'status' => WallboardMediaAsset::STATUS_PROCESSING,
                         'version' => 1,
                         'created_by' => $actor->id,
@@ -113,14 +132,24 @@ final class WallboardMediaAssetService
                     $stored = true;
                     @chmod($directory, 0770);
                     @chmod($destination, 0640);
+                    if ($thumbnailStoragePath !== null && $processed->thumbnailTemporaryPath !== null) {
+                        $thumbnailDestination = $disk->path($thumbnailStoragePath);
+                        if (! @rename($processed->thumbnailTemporaryPath, $thumbnailDestination)) {
+                            throw new HttpException(503, 'De miniatuur kon niet veilig worden opgeslagen.');
+                        }
+                        $thumbnailStored = true;
+                        @chmod($thumbnailDestination, 0640);
+                    }
 
                     $created->forceFill(['status' => WallboardMediaAsset::STATUS_READY])->save();
                     $this->auditService->record('wallboard_media.assets.uploaded', $created, $actor, [
                         'folder_id' => $folderId,
-                        'mime_type' => 'image/webp',
+                        'kind' => $processed->kind,
+                        'mime_type' => $processed->mimeType,
                         'byte_size' => $processed->byteSize,
                         'width' => $processed->width,
                         'height' => $processed->height,
+                        'duration_seconds' => $processed->durationSeconds,
                         'sha256_prefix' => substr($processed->sha256, 0, 12),
                         'version' => 1,
                     ], null, $request);
@@ -137,11 +166,21 @@ final class WallboardMediaAssetService
                     // orphan path is never publicly addressable.
                 }
             }
+            if ($thumbnailStored && $thumbnailStoragePath !== null) {
+                try {
+                    Storage::disk($diskName)->delete($thumbnailStoragePath);
+                } catch (Throwable) {
+                    // The opaque orphan is removed by scheduled cleanup.
+                }
+            }
 
             throw $exception;
         } finally {
             if (is_file($processed->temporaryPath)) {
                 @unlink($processed->temporaryPath);
+            }
+            if ($processed->thumbnailTemporaryPath !== null && is_file($processed->thumbnailTemporaryPath)) {
+                @unlink($processed->thumbnailTemporaryPath);
             }
         }
     }
@@ -160,7 +199,7 @@ final class WallboardMediaAssetService
             }
             $locked = $this->repository->lockAsset((string) $asset->getKey());
             if ((int) $data['expected_version'] !== (int) $locked->version) {
-                throw new ConflictHttpException('De media-afbeelding is gewijzigd.');
+                throw new ConflictHttpException('Het mediabestand is gewijzigd.');
             }
 
             $changes = [
@@ -193,10 +232,10 @@ final class WallboardMediaAssetService
         $deleted = DB::transaction(function () use ($asset, $expectedVersion, $actor, $request): WallboardMediaAsset {
             $locked = $this->repository->lockAsset((string) $asset->getKey());
             if ($expectedVersion !== (int) $locked->version) {
-                throw new ConflictHttpException('De media-afbeelding is gewijzigd.');
+                throw new ConflictHttpException('Het mediabestand is gewijzigd.');
             }
             if ($this->repository->usedByPlaylist((string) $locked->id)) {
-                throw new ConflictHttpException('Deze afbeelding wordt nog door een fotoplaylist gebruikt.');
+                throw new ConflictHttpException('Dit mediabestand wordt nog door een fotoplaylist gebruikt.');
             }
 
             $this->auditService->record('wallboard_media.assets.deleted', $locked, $actor, [
@@ -210,7 +249,10 @@ final class WallboardMediaAssetService
         }, 3);
 
         try {
-            Storage::disk((string) config('wallboard_media.disk', 'local'))->delete((string) $deleted->storage_path);
+            Storage::disk((string) config('wallboard_media.disk', 'local'))->delete(array_values(array_filter([
+                (string) $deleted->storage_path,
+                $deleted->thumbnail_storage_path === null ? null : (string) $deleted->thumbnail_storage_path,
+            ])));
         } catch (Throwable) {
             $this->auditService->record('wallboard_media.assets.cleanup_deferred', $deleted, $actor, [
                 'byte_size' => (int) $deleted->byte_size,
@@ -227,7 +269,7 @@ final class WallboardMediaAssetService
         $candidate = preg_replace('/\s+/u', ' ', trim($candidate)) ?? '';
         if ($candidate === '' || mb_strlen($candidate) > 180 || $candidate !== strip_tags($candidate)
             || preg_match('/[\x00-\x1F\x7F]/u', $candidate) === 1) {
-            throw ValidationException::withMessages(['display_name' => ['Geef een geldige afbeeldingsnaam op.']]);
+            throw ValidationException::withMessages(['display_name' => ['Geef een geldige medianaam op.']]);
         }
 
         return $candidate;
@@ -239,7 +281,22 @@ final class WallboardMediaAssetService
         $clean = preg_replace('/[\x00-\x1F\x7F]/u', '', $clean) ?? '';
         $clean = mb_substr(trim($clean), 0, 255);
 
-        return $clean === '' ? 'afbeelding' : $clean;
+        return $clean === '' ? 'mediabestand' : $clean;
+    }
+
+    private function detectedMime(UploadedFile $upload): string
+    {
+        $path = $upload->getRealPath();
+        if (! is_string($path)) {
+            return '';
+        }
+        try {
+            $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($path);
+        } catch (Throwable) {
+            return '';
+        }
+
+        return is_string($mime) ? strtolower(trim($mime)) : '';
     }
 
     private function nullableId(mixed $id): ?string

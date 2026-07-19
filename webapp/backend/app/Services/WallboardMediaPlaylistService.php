@@ -190,6 +190,12 @@ final class WallboardMediaPlaylistService
                 'asset_ids' => ['Een of meer afbeeldingen bestaan niet of zijn niet beschikbaar.'],
             ]);
         }
+        if ($assets->contains(fn (WallboardMediaAsset $asset): bool => ($asset->kind ?: WallboardMediaAsset::KIND_IMAGE)
+            !== WallboardMediaAsset::KIND_IMAGE)) {
+            throw ValidationException::withMessages([
+                'asset_ids' => ['Een fotoplaylist mag uitsluitend afbeeldingen bevatten.'],
+            ]);
+        }
 
         return $assets;
     }

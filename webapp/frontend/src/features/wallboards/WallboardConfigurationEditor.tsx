@@ -7,6 +7,7 @@ import {
   List,
   Map,
   Clapperboard,
+  CloudSun,
   Images,
   MessageSquareText,
   Newspaper,
@@ -14,6 +15,8 @@ import {
   Plus,
   Radio,
   Rss,
+  Quote as QuoteIcon,
+  ShieldAlert,
   Siren,
   Trash2,
   UsersRound,
@@ -38,6 +41,9 @@ import {
   MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_URL_LENGTH,
   MAX_WALLBOARD_NEWS_MAX_ITEMS,
   MAX_WALLBOARD_NEWS_ITEM_DURATION_SECONDS,
+  MAX_WALLBOARD_QUOTES,
+  MAX_WALLBOARD_QUOTE_AUTHOR_LENGTH,
+  MAX_WALLBOARD_QUOTE_TEXT_LENGTH,
   MAX_WALLBOARD_PAGE_DURATION_SECONDS,
   MAX_WALLBOARD_REFRESH_SECONDS,
   MAX_WALLBOARD_RSS_MAX_ITEMS,
@@ -66,6 +72,7 @@ import {
   createWallboardPage,
   createWallboardTickerSource,
   normalizeWallboardNewsSources,
+  normalizeWallboardMediaPlaylistId,
   normalizeWallboardNewsItemTransition,
   normalizeWallboardFlipDirection,
   normalizeWallboardPageTransition,
@@ -111,6 +118,9 @@ const PAGE_TYPE_OPTIONS: Array<{ value: WallboardPageType; label: string }> = [
   { value: 'incident_list', label: 'Incidentenlijst' },
   { value: 'summary', label: 'Samenvatting' },
   { value: 'message', label: 'Mededeling' },
+  { value: 'safety_notice', label: 'Veiligheidsbericht' },
+  { value: 'quote', label: 'Quote van de dag' },
+  { value: 'uav_forecast', label: 'UAV Forecast' },
   { value: 'news', label: 'Nieuws' },
   { value: 'video', label: 'Video' },
   { value: 'photo_carousel', label: 'Fotocarrousel' },
@@ -173,7 +183,7 @@ export function WallboardConfigurationEditor({
   const editingPage = configuration.pages.find((page) => page.id === editingPageId) ?? configuration.pages[0];
   const photoPlaylistIds = photoPlaylists.playlists === null
     ? null
-    : new Set(photoPlaylists.playlists.map((playlist) => playlist.id));
+    : new Set(photoPlaylists.playlists.map((playlist) => normalizeWallboardMediaPlaylistId(playlist.id)));
   const globalPageTransition = normalizeWallboardPageTransition(configuration.page_transition);
   const globalFlipDirection = normalizeWallboardFlipDirection(configuration.page_flip_direction);
 
@@ -555,8 +565,8 @@ export function WallboardConfigurationEditor({
             const missingPhotoPlaylist = page.type === 'photo_carousel'
               && photoPlaylistIds !== null
               && typeof page.options.media_playlist_id === 'string'
-              && page.options.media_playlist_id.trim() !== ''
-              && !photoPlaylistIds.has(page.options.media_playlist_id.trim());
+              && normalizeWallboardMediaPlaylistId(page.options.media_playlist_id) !== ''
+              && !photoPlaylistIds.has(normalizeWallboardMediaPlaylistId(page.options.media_playlist_id));
             const itemClassName = [
               'wallboard-page-sequence__item',
               editingPage.id === page.id ? 'wallboard-page-sequence__item--active' : '',
@@ -760,8 +770,16 @@ function WallboardPageEditor({
       ...page,
       type,
       name: page.name === previousDefaultTitle ? wallboardPageTypeLabel(type) : page.name,
-      options: type === 'message'
+      options: type === 'message' || type === 'safety_notice'
         ? { content: wallboardMessageContent(page.options) }
+        : type === 'quote'
+          ? { quotes: page.options.quotes?.length ? page.options.quotes : [{ text: '' }] }
+        : type === 'uav_forecast'
+          ? {
+            location_label: page.options.location_label ?? '',
+            ...(page.options.latitude === undefined ? {} : { latitude: page.options.latitude }),
+            ...(page.options.longitude === undefined ? {} : { longitude: page.options.longitude }),
+          }
         : type === 'news'
           ? {
             sources: ['ndt', 'dronewatch'],
@@ -978,10 +996,10 @@ function WallboardPageEditor({
         )}
       </div>
 
-      {page.type === 'message' ? (
+      {page.type === 'message' || page.type === 'safety_notice' ? (
         <div className="wallboard-message-editor" role="group" aria-labelledby={`wallboard-message-editor-${page.id}-label`}>
           <div className="wallboard-message-editor__heading">
-            <span id={`wallboard-message-editor-${page.id}-label`}>Inhoud op het scherm</span>
+            <span id={`wallboard-message-editor-${page.id}-label`}>{page.type === 'safety_notice' ? 'Veiligheidsinhoud op het scherm' : 'Inhoud op het scherm'}</span>
             <small>De naam hierboven is alleen zichtbaar in beheer.</small>
           </div>
           <WallboardRichTextEditor
@@ -989,6 +1007,137 @@ function WallboardPageEditor({
             value={wallboardMessageContent(page.options)}
             onChange={(content) => onChange({ ...page, options: { content } })}
           />
+        </div>
+      ) : page.type === 'quote' ? (
+        <fieldset className="wallboard-quote-editor">
+          <legend>Quotes</legend>
+          <p>
+            Het wallboard kiest per kalenderdag in Europe/Amsterdam steeds dezelfde quote. Voeg alleen eigen,
+            gecontroleerde inhoud toe; er wordt geen externe quote opgehaald.
+          </p>
+          <div className="wallboard-quote-editor__list">
+            {(page.options.quotes ?? []).map((quote, quoteIndex) => (
+              <div className="wallboard-quote-editor__item" key={`${page.id}-quote-${quoteIndex}`}>
+                <label>
+                  <span>Quote {quoteIndex + 1}</span>
+                  <textarea
+                    value={quote.text}
+                    maxLength={MAX_WALLBOARD_QUOTE_TEXT_LENGTH}
+                    required
+                    onChange={(event) => onChange({
+                      ...page,
+                      options: {
+                        quotes: (page.options.quotes ?? []).map((candidate, candidateIndex) => (
+                          candidateIndex === quoteIndex ? { ...candidate, text: event.target.value } : candidate
+                        )),
+                      },
+                    })}
+                  />
+                </label>
+                <label>
+                  <span>Auteur (optioneel)</span>
+                  <input
+                    value={quote.author ?? ''}
+                    maxLength={MAX_WALLBOARD_QUOTE_AUTHOR_LENGTH}
+                    onChange={(event) => onChange({
+                      ...page,
+                      options: {
+                        quotes: (page.options.quotes ?? []).map((candidate, candidateIndex) => (
+                          candidateIndex === quoteIndex
+                            ? { ...candidate, author: event.target.value }
+                            : candidate
+                        )),
+                      },
+                    })}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="icon-button danger"
+                  aria-label={`Quote ${quoteIndex + 1} verwijderen`}
+                  disabled={(page.options.quotes?.length ?? 0) <= 1}
+                  onClick={() => onChange({
+                    ...page,
+                    options: { quotes: (page.options.quotes ?? []).filter((_, index) => index !== quoteIndex) },
+                  })}
+                >
+                  <Trash2 size={17} aria-hidden />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={(page.options.quotes?.length ?? 0) >= MAX_WALLBOARD_QUOTES}
+            onClick={() => onChange({
+              ...page,
+              options: { quotes: [...(page.options.quotes ?? []), { text: '' }] },
+            })}
+          >
+            <Plus size={16} aria-hidden /> Quote toevoegen
+          </button>
+          <small>Minimaal 1 en maximaal {MAX_WALLBOARD_QUOTES} quotes; maximaal {MAX_WALLBOARD_QUOTE_TEXT_LENGTH} tekens per quote.</small>
+        </fieldset>
+      ) : page.type === 'uav_forecast' ? (
+        <div className="wallboard-forecast-editor" role="group" aria-labelledby={`wallboard-forecast-editor-${page.id}-label`}>
+          <div className="wallboard-message-editor__heading">
+            <span id={`wallboard-forecast-editor-${page.id}-label`}>Locatiegebonden vliegweer</span>
+            <small>De server haalt actuele weer- en Kp-data op; drempels zijn centraal beveiligd en niet vanuit het scherm aanpasbaar.</small>
+          </div>
+          <div className="wallboard-page-editor__fields">
+            <label>
+              <span>Locatienaam</span>
+              <input
+                value={page.options.location_label ?? ''}
+                onChange={(event) => onChange({ ...page, options: { ...page.options, location_label: event.target.value } })}
+                maxLength={120}
+                placeholder="Bijvoorbeeld: inzetlocatie"
+                required
+              />
+            </label>
+            <label>
+              <span>Breedtegraad</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min={-90}
+                max={90}
+                step="0.000001"
+                value={page.options.latitude ?? ''}
+                onChange={(event) => onChange({
+                  ...page,
+                  options: {
+                    ...page.options,
+                    latitude: event.target.value === '' ? undefined : Number(event.target.value),
+                  },
+                })}
+                required
+              />
+            </label>
+            <label>
+              <span>Lengtegraad</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min={-180}
+                max={180}
+                step="0.000001"
+                value={page.options.longitude ?? ''}
+                onChange={(event) => onChange({
+                  ...page,
+                  options: {
+                    ...page.options,
+                    longitude: event.target.value === '' ? undefined : Number(event.target.value),
+                  },
+                })}
+                required
+              />
+            </label>
+          </div>
+          <p className="wallboard-page-editor__note">
+            Coördinaten zijn nodig omdat wind, neerslag en zicht per locatie verschillen. GNSS blijft onbekend zolang geen betrouwbare locatie- en tijdafhankelijke satellietbron beschikbaar is.
+          </p>
         </div>
       ) : page.type === 'video' ? (
         <div className="wallboard-video-editor">
@@ -1225,6 +1374,9 @@ export function WallboardPageTypeIcon({ type }: { type: WallboardPageType }) {
     case 'incident_list': return <List size={18} aria-hidden />;
     case 'summary': return <BarChart3 size={18} aria-hidden />;
     case 'message': return <MessageSquareText size={18} aria-hidden />;
+    case 'safety_notice': return <ShieldAlert size={18} aria-hidden />;
+    case 'quote': return <QuoteIcon size={18} aria-hidden />;
+    case 'uav_forecast': return <CloudSun size={18} aria-hidden />;
     case 'news': return <Newspaper size={18} aria-hidden />;
     case 'video': return <Clapperboard size={18} aria-hidden />;
     case 'photo_carousel': return <Images size={18} aria-hidden />;

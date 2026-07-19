@@ -415,6 +415,32 @@ final class WebSessionSecurityTest extends TestCase
         $this->assertDatabaseMissing('sessions', ['id' => $absoluteExpiredSessionId]);
     }
 
+    public function test_real_browser_activity_extends_idle_lifetime_without_rotating_or_extending_absolute_lifetime(): void
+    {
+        config([
+            'session.lifetime' => 2,
+            'session.absolute_lifetime' => 4,
+        ]);
+        $this->authenticateBrowserUser('active-session@example.test', 'ACTIVE-12345');
+        $sessionId = $this->currentSessionId();
+
+        $this->travel(90)->seconds();
+        $this->browserJson('POST', '/api/auth/session/touch')->assertNoContent();
+        $this->assertSame($sessionId, $this->currentSessionId(), 'Activity must not rotate an already authenticated session.');
+
+        $this->travel(90)->seconds();
+        $this->browserJson('GET', '/api/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.email', 'active-session@example.test');
+        $this->assertSame($sessionId, $this->currentSessionId());
+
+        $this->travel(61)->seconds();
+        $this->browserJson('POST', '/api/auth/session/touch')
+            ->assertUnauthorized()
+            ->assertJsonPath('error.code', 'session_expired');
+        $this->assertDatabaseMissing('sessions', ['id' => $sessionId]);
+    }
+
     private function initializeCsrf(): TestResponse
     {
         $response = $this->browserJson('GET', '/api/auth/csrf-cookie', includeCsrf: false);

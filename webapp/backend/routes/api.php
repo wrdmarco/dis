@@ -66,6 +66,9 @@ Route::get('/wallboard/ticker', [WallboardController::class, 'ticker'])
     ->middleware(['wallboard.auth', 'throttle:wallboard-read'])
     ->name('wallboard.ticker');
 Route::get('/wallboard/control', [WallboardController::class, 'control'])->middleware(['wallboard.auth', 'throttle:wallboard-control']);
+Route::get('/wallboard/cache', [WallboardController::class, 'clearCache'])
+    ->middleware(['wallboard.auth', 'throttle:wallboard-read'])
+    ->name('wallboard.cache');
 Route::get('/wallboard/news-images/{image}', [WallboardController::class, 'newsImage'])
     ->where('image', '[a-f0-9]{64}')
     ->middleware(['wallboard.auth', 'throttle:wallboard-read']);
@@ -105,6 +108,7 @@ Route::middleware(['two_factor.challenge', 'operational', 'audit.privileged', 's
 Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileged', 'store.review', 'throttle:authenticated'])->group(function (): void {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me'])->middleware('two_factor.complete');
+    Route::post('/auth/session/touch', [AuthController::class, 'touchSession'])->middleware('two_factor.complete');
     Route::patch('/auth/me', [AuthController::class, 'updateMe'])->middleware('two_factor.complete');
 
     Route::middleware('two_factor.complete')->group(function (): void {
@@ -325,6 +329,10 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
             ->whereUlid('asset')
             ->middleware('permission:wallboards.manage')
             ->name('wallboard-media.admin-content');
+        Route::get('/admin/wallboard-media/assets/{asset}/thumbnail', [AdminWallboardMediaAssetController::class, 'thumbnail'])
+            ->whereUlid('asset')
+            ->middleware('permission:wallboards.manage')
+            ->name('wallboard-media.admin-thumbnail');
         Route::get('/admin/wallboard-media/playlists', [AdminWallboardMediaPlaylistController::class, 'index'])
             ->middleware('permission:wallboards.manage');
         Route::post('/admin/wallboard-media/playlists', [AdminWallboardMediaPlaylistController::class, 'store'])

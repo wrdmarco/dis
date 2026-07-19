@@ -18,10 +18,10 @@ import {
   useRef,
   useState,
   type ClipboardEvent,
+  type CompositionEvent,
   type FormEvent,
   type KeyboardEvent,
   type MouseEvent,
-  type ReactNode,
 } from 'react';
 import type {
   WallboardRichTextBlock,
@@ -43,6 +43,8 @@ interface PendingSelection extends RichTarget {
   offset: number;
 }
 
+const CARET_SENTINEL = '\u200B';
+
 export function WallboardRichTextEditor({
   value,
   onChange,
@@ -55,6 +57,7 @@ export function WallboardRichTextEditor({
   const documentValue = useMemo(() => normalizeWallboardRichText(value), [value]);
   const [activeTarget, setActiveTarget] = useState<RichTarget>({ blockIndex: 0, itemIndex: null });
   const targetElements = useRef(new Map<string, HTMLDivElement>());
+  const composingTargets = useRef(new Set<string>());
   const pendingSelection = useRef<PendingSelection | null>(null);
   const activeBlock = documentValue.blocks[activeTarget.blockIndex] ?? documentValue.blocks[0];
 
@@ -78,48 +81,87 @@ export function WallboardRichTextEditor({
     onChange(next);
   }
 
-  function updateTargetRuns(target: RichTarget, runs: WallboardRichTextRun[], selectionOffset?: number) {
+  function updateTargetRuns(
+    target: RichTarget,
+    runs: WallboardRichTextRun[],
+    selectionOffset?: number,
+    source = documentValue,
+  ) {
     updateDocument(
-      replaceTargetRuns(documentValue, target, runs),
+      replaceTargetRuns(source, target, runs),
       selectionOffset === undefined ? undefined : { ...target, offset: selectionOffset },
     );
   }
 
   function handleInput(target: RichTarget, event: FormEvent<HTMLDivElement>) {
+    const nativeEvent = event.nativeEvent as InputEvent;
+    if (nativeEvent.isComposing || composingTargets.current.has(targetKey(target))) return;
     const root = event.currentTarget;
-    const selection = selectionOffsets(root);
-    updateTargetRuns(target, runsFromEditable(root), selection?.end ?? root.textContent?.length ?? 0);
+    updateTargetRuns(target, runsFromEditable(root));
+  }
+
+  function handleCompositionStart(target: RichTarget) {
+    composingTargets.current.add(targetKey(target));
+  }
+
+  function handleCompositionEnd(target: RichTarget, event: CompositionEvent<HTMLDivElement>) {
+    composingTargets.current.delete(targetKey(target));
+    updateTargetRuns(target, runsFromEditable(event.currentTarget));
   }
 
   function handlePaste(target: RichTarget, event: ClipboardEvent<HTMLDivElement>) {
     event.preventDefault();
     const text = event.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
     const root = event.currentTarget;
-    const offsets = selectionOffsets(root) ?? { start: targetTextLength(documentValue, target), end: targetTextLength(documentValue, target) };
-    const runs = replaceRunRange(targetRuns(documentValue, target), offsets.start, offsets.end, text);
-    updateTargetRuns(target, runs, offsets.start + text.length);
+    replaceEditableSelection(root, text);
+    updateTargetRuns(target, runsFromEditable(root));
   }
 
   function handleKeyDown(target: RichTarget, event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key !== 'Enter') return;
+    if (event.key !== 'Enter' || event.nativeEvent.isComposing || composingTargets.current.has(targetKey(target))) return;
     event.preventDefault();
     const root = event.currentTarget;
-    const offsets = selectionOffsets(root) ?? { start: targetTextLength(documentValue, target), end: targetTextLength(documentValue, target) };
-    splitTargetAt(documentValue, target, offsets.start, offsets.end, updateDocument, setActiveTarget);
+    replaceEditableSelection(root, '\n');
+    updateTargetRuns(target, runsFromEditable(root));
+  }
+
+  function handleBeforeInput(target: RichTarget, event: FormEvent<HTMLDivElement>) {
+    const nativeEvent = event.nativeEvent as InputEvent;
+    if (
+      nativeEvent.isComposing
+      || composingTargets.current.has(targetKey(target))
+      || (nativeEvent.inputType !== 'insertParagraph' && nativeEvent.inputType !== 'insertLineBreak')
+    ) return;
+    event.preventDefault();
+    const root = event.currentTarget;
+    replaceEditableSelection(root, '\n');
+    updateTargetRuns(target, runsFromEditable(root));
+  }
+
+  function liveDocumentFor(target: RichTarget): WallboardRichTextDocument {
+    const root = targetElements.current.get(targetKey(target));
+    return root === undefined ? documentValue : replaceTargetRuns(documentValue, target, runsFromEditable(root));
   }
 
   function toggleMark(mark: WallboardRichTextMark) {
     const root = targetElements.current.get(targetKey(activeTarget));
-    const runs = targetRuns(documentValue, activeTarget);
+    const source = liveDocumentFor(activeTarget);
+    const runs = targetRuns(source, activeTarget);
     if (root === undefined || runs.length === 0) return;
     const selected = selectionOffsets(root);
     const start = selected && selected.start !== selected.end ? selected.start : 0;
-    const end = selected && selected.start !== selected.end ? selected.end : targetTextLength(documentValue, activeTarget);
-    updateTargetRuns(activeTarget, toggleRunMark(runs, start, end, mark), end);
+    const end = selected && selected.start !== selected.end ? selected.end : targetTextLength(source, activeTarget);
+    const nextRuns = toggleRunMark(runs, start, end, mark);
+    writeRunsToEditable(root, nextRuns);
+    restoreCaret(root, end);
+    updateTargetRuns(activeTarget, nextRuns, end, source);
   }
 
   function changeBlockType(type: WallboardRichTextBlock['type']) {
-    const blocks = documentValue.blocks.map((block, index): WallboardRichTextBlock => {
+    const source = liveDocumentFor(activeTarget);
+    const root = targetElements.current.get(targetKey(activeTarget));
+    const caretOffset = root === undefined ? 0 : (selectionOffsets(root)?.end ?? root.textContent?.length ?? 0);
+    const blocks = source.blocks.map((block, index): WallboardRichTextBlock => {
       if (index !== activeTarget.blockIndex) return block;
       if (type === 'bullet_list' || type === 'numbered_list') {
         const items = block.type === 'bullet_list' || block.type === 'numbered_list'
@@ -134,11 +176,12 @@ export function WallboardRichTextEditor({
     });
     const target = { blockIndex: activeTarget.blockIndex, itemIndex: type === 'bullet_list' || type === 'numbered_list' ? 0 : null };
     setActiveTarget(target);
-    updateDocument({ version: 1, blocks }, { ...target, offset: 0 });
+    updateDocument({ version: 1, blocks }, { ...target, offset: caretOffset });
   }
 
   function changeAlignment(align: 'left' | 'center') {
-    const blocks = documentValue.blocks.map((block, index): WallboardRichTextBlock => (
+    const source = liveDocumentFor(activeTarget);
+    const blocks = source.blocks.map((block, index): WallboardRichTextBlock => (
       index === activeTarget.blockIndex && block.type !== 'bullet_list' && block.type !== 'numbered_list'
         ? { ...block, align }
         : block
@@ -147,8 +190,9 @@ export function WallboardRichTextEditor({
   }
 
   function addBlock() {
+    const source = liveDocumentFor(activeTarget);
     const insertAt = activeTarget.blockIndex + 1;
-    const blocks = [...documentValue.blocks];
+    const blocks = [...source.blocks];
     blocks.splice(insertAt, 0, { type: 'paragraph', align: 'left', runs: [{ text: '' }] });
     const target = { blockIndex: insertAt, itemIndex: null };
     setActiveTarget(target);
@@ -156,8 +200,9 @@ export function WallboardRichTextEditor({
   }
 
   function removeBlock() {
-    if (documentValue.blocks.length <= 1) return;
-    const blocks = documentValue.blocks.filter((_, index) => index !== activeTarget.blockIndex);
+    const source = liveDocumentFor(activeTarget);
+    if (source.blocks.length <= 1) return;
+    const blocks = source.blocks.filter((_, index) => index !== activeTarget.blockIndex);
     const nextIndex = Math.max(0, Math.min(activeTarget.blockIndex, blocks.length - 1));
     const nextBlock = blocks[nextIndex];
     const target = {
@@ -189,20 +234,25 @@ export function WallboardRichTextEditor({
         <button type="button" className={activeAlignment === 'left' ? 'is-active' : ''} disabled={blockType === 'bullet_list' || blockType === 'numbered_list'} onMouseDown={retainSelection} onClick={() => changeAlignment('left')} aria-label="Links uitlijnen"><AlignLeft size={17} aria-hidden /></button>
         <button type="button" className={activeAlignment === 'center' ? 'is-active' : ''} disabled={blockType === 'bullet_list' || blockType === 'numbered_list'} onMouseDown={retainSelection} onClick={() => changeAlignment('center')} aria-label="Centreren"><AlignCenter size={17} aria-hidden /></button>
         <span className="wallboard-rich-editor__toolbar-spacer" aria-hidden />
-        <button type="button" onMouseDown={retainSelection} onClick={addBlock} aria-label="Tekstblok toevoegen"><Plus size={17} aria-hidden /></button>
-        <button type="button" onMouseDown={retainSelection} onClick={removeBlock} disabled={documentValue.blocks.length <= 1} aria-label="Tekstblok verwijderen"><Trash2 size={17} aria-hidden /></button>
+        <span className="wallboard-rich-editor__block-actions">
+          <button type="button" onMouseDown={retainSelection} onClick={addBlock} aria-label="Tekstblok toevoegen"><Plus size={17} aria-hidden /></button>
+          <button type="button" onMouseDown={retainSelection} onClick={removeBlock} disabled={documentValue.blocks.length <= 1} aria-label="Tekstblok verwijderen"><Trash2 size={17} aria-hidden /></button>
+        </span>
       </div>
 
       <div className="wallboard-rich-editor__canvas" aria-label="Visuele mededeling-editor">
         {documentValue.blocks.map((block, blockIndex) => (
           <RichBlockEditor
-            key={`${block.type}-${blockIndex}`}
+            key={`block-${blockIndex}`}
             block={block}
             blockIndex={blockIndex}
             activeTarget={activeTarget}
             setActiveTarget={setActiveTarget}
             registerTarget={registerTarget}
             onInput={handleInput}
+            onBeforeInput={handleBeforeInput}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
             onPaste={handlePaste}
             onKeyDown={handleKeyDown}
           />
@@ -220,6 +270,9 @@ function RichBlockEditor({
   setActiveTarget,
   registerTarget,
   onInput,
+  onBeforeInput,
+  onCompositionStart,
+  onCompositionEnd,
   onPaste,
   onKeyDown,
 }: {
@@ -229,6 +282,9 @@ function RichBlockEditor({
   setActiveTarget: (target: RichTarget) => void;
   registerTarget: (target: RichTarget, element: HTMLDivElement | null) => void;
   onInput: (target: RichTarget, event: FormEvent<HTMLDivElement>) => void;
+  onBeforeInput: (target: RichTarget, event: FormEvent<HTMLDivElement>) => void;
+  onCompositionStart: (target: RichTarget) => void;
+  onCompositionEnd: (target: RichTarget, event: CompositionEvent<HTMLDivElement>) => void;
   onPaste: (target: RichTarget, event: ClipboardEvent<HTMLDivElement>) => void;
   onKeyDown: (target: RichTarget, event: KeyboardEvent<HTMLDivElement>) => void;
 }) {
@@ -247,6 +303,9 @@ function RichBlockEditor({
                 setActiveTarget={setActiveTarget}
                 registerTarget={registerTarget}
                 onInput={onInput}
+                onBeforeInput={onBeforeInput}
+                onCompositionStart={onCompositionStart}
+                onCompositionEnd={onCompositionEnd}
                 onPaste={onPaste}
                 onKeyDown={onKeyDown}
               />
@@ -267,6 +326,9 @@ function RichBlockEditor({
         setActiveTarget={setActiveTarget}
         registerTarget={registerTarget}
         onInput={onInput}
+        onBeforeInput={onBeforeInput}
+        onCompositionStart={onCompositionStart}
+        onCompositionEnd={onCompositionEnd}
         onPaste={onPaste}
         onKeyDown={onKeyDown}
       />
@@ -281,6 +343,9 @@ function EditableRuns({
   setActiveTarget,
   registerTarget,
   onInput,
+  onBeforeInput,
+  onCompositionStart,
+  onCompositionEnd,
   onPaste,
   onKeyDown,
 }: {
@@ -290,73 +355,56 @@ function EditableRuns({
   setActiveTarget: (target: RichTarget) => void;
   registerTarget: (target: RichTarget, element: HTMLDivElement | null) => void;
   onInput: (target: RichTarget, event: FormEvent<HTMLDivElement>) => void;
+  onBeforeInput: (target: RichTarget, event: FormEvent<HTMLDivElement>) => void;
+  onCompositionStart: (target: RichTarget) => void;
+  onCompositionEnd: (target: RichTarget, event: CompositionEvent<HTMLDivElement>) => void;
   onPaste: (target: RichTarget, event: ClipboardEvent<HTMLDivElement>) => void;
   onKeyDown: (target: RichTarget, event: KeyboardEvent<HTMLDivElement>) => void;
 }) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const composing = useRef(false);
+  const blockIndex = target.blockIndex;
+  const itemIndex = target.itemIndex;
+
+  const setRoot = useCallback((element: HTMLDivElement | null) => {
+    rootRef.current = element;
+    registerTarget({ blockIndex, itemIndex }, element);
+  }, [blockIndex, itemIndex, registerTarget]);
+
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (root === null || composing.current) return;
+    const focused = document.activeElement === root;
+    const currentRuns = runsFromEditable(root);
+    if (sameRuns(currentRuns, runs) || focused) return;
+    writeRunsToEditable(root, runs);
+  }, [runs]);
+
   return (
     <div
-      ref={(element) => registerTarget(target, element)}
+      ref={setRoot}
       className={active ? 'wallboard-rich-editor__editable is-active' : 'wallboard-rich-editor__editable'}
       contentEditable
       suppressContentEditableWarning
       role="textbox"
-      aria-multiline="false"
+      aria-multiline="true"
       data-placeholder="Schrijf hier de mededeling…"
       onFocus={() => setActiveTarget(target)}
       onInput={(event) => onInput(target, event)}
+      onBeforeInput={(event) => onBeforeInput(target, event)}
+      onCompositionStart={() => {
+        composing.current = true;
+        onCompositionStart(target);
+      }}
+      onCompositionEnd={(event) => {
+        composing.current = false;
+        onCompositionEnd(target, event);
+      }}
       onPaste={(event) => onPaste(target, event)}
       onDrop={(event) => event.preventDefault()}
       onKeyDown={(event) => onKeyDown(target, event)}
-    >
-      {runs.map((run, index) => renderEditableRun(run, index))}
-    </div>
+    />
   );
-}
-
-function renderEditableRun(run: WallboardRichTextRun, index: number): ReactNode {
-  const marks = run.marks ?? [];
-  return (
-    <span
-      key={`${index}-${marks.join('-')}`}
-      data-rich-marks={marks.join(',')}
-      className={marks.map((mark) => `is-${mark}`).join(' ')}
-    >
-      {run.text}
-    </span>
-  );
-}
-
-function splitTargetAt(
-  documentValue: WallboardRichTextDocument,
-  target: RichTarget,
-  start: number,
-  end: number,
-  updateDocument: (next: WallboardRichTextDocument, selection?: PendingSelection) => void,
-  setActiveTarget: (target: RichTarget) => void,
-) {
-  const runs = targetRuns(documentValue, target);
-  const left = sliceRuns(runs, 0, start);
-  const right = sliceRuns(runs, end, targetTextLength(documentValue, target));
-  const blocks = [...documentValue.blocks];
-  const block = blocks[target.blockIndex];
-
-  if ((block.type === 'bullet_list' || block.type === 'numbered_list') && target.itemIndex !== null) {
-    const items = [...block.items];
-    items[target.itemIndex] = { runs: ensureRuns(left) };
-    items.splice(target.itemIndex + 1, 0, { runs: ensureRuns(right) });
-    blocks[target.blockIndex] = { ...block, items };
-    const nextTarget = { blockIndex: target.blockIndex, itemIndex: target.itemIndex + 1 };
-    setActiveTarget(nextTarget);
-    updateDocument({ version: 1, blocks }, { ...nextTarget, offset: 0 });
-    return;
-  }
-
-  if (block.type === 'bullet_list' || block.type === 'numbered_list') return;
-  blocks[target.blockIndex] = { ...block, runs: ensureRuns(left) };
-  blocks.splice(target.blockIndex + 1, 0, { type: 'paragraph', align: block.align, runs: ensureRuns(right) });
-  const nextTarget = { blockIndex: target.blockIndex + 1, itemIndex: null };
-  setActiveTarget(nextTarget);
-  updateDocument({ version: 1, blocks }, { ...nextTarget, offset: 0 });
 }
 
 function replaceTargetRuns(
@@ -421,22 +469,6 @@ function toggleRunMark(
   return mergeRuns(result);
 }
 
-function replaceRunRange(
-  runs: WallboardRichTextRun[],
-  start: number,
-  end: number,
-  text: string,
-): WallboardRichTextRun[] {
-  const before = sliceRuns(runs, 0, start);
-  const after = sliceRuns(runs, end, runs.reduce((total, run) => total + run.text.length, 0));
-  const inheritedMarks = sliceRuns(runs, Math.max(0, start - 1), start).at(-1)?.marks;
-  return mergeRuns([
-    ...before,
-    ...(text === '' ? [] : [{ text, ...(inheritedMarks ? { marks: [...inheritedMarks] } : {}) }]),
-    ...after,
-  ]);
-}
-
 function sliceRuns(runs: WallboardRichTextRun[], start: number, end: number): WallboardRichTextRun[] {
   let offset = 0;
   const result: WallboardRichTextRun[] = [];
@@ -453,21 +485,109 @@ function sliceRuns(runs: WallboardRichTextRun[], start: number, end: number): Wa
 }
 
 function runsFromEditable(root: HTMLDivElement): WallboardRichTextRun[] {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const runs: WallboardRichTextRun[] = [];
-  let node = walker.nextNode();
-  while (node !== null) {
-    const text = node.textContent ?? '';
-    if (text !== '') {
-      const parent = node.parentElement?.closest<HTMLElement>('[data-rich-marks]');
-      const marks = (parent?.dataset.richMarks ?? '')
+  const append = (text: string, marks: WallboardRichTextMark[]) => {
+    if (text === '') return;
+    runs.push(marks.length > 0 ? { text, marks: [...marks] } : { text });
+  };
+  const visit = (node: Node, inheritedMarks: WallboardRichTextMark[]) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      append((node.textContent ?? '').replaceAll(CARET_SENTINEL, ''), inheritedMarks);
+      return;
+    }
+    if (!(node instanceof HTMLElement)) return;
+    const ownMarks = node.dataset.richMarks === undefined
+      ? inheritedMarks
+      : node.dataset.richMarks
         .split(',')
         .filter((mark): mark is WallboardRichTextMark => mark === 'bold' || mark === 'italic');
-      runs.push(marks.length > 0 ? { text, marks } : { text });
+    if (node.tagName === 'BR') {
+      append('\n', ownMarks);
+      return;
     }
-    node = walker.nextNode();
-  }
+    for (const child of node.childNodes) visit(child, ownMarks);
+  };
+  for (const child of root.childNodes) visit(child, []);
   return ensureRuns(mergeRuns(runs));
+}
+
+function writeRunsToEditable(root: HTMLDivElement, runs: WallboardRichTextRun[]) {
+  const fragment = document.createDocumentFragment();
+  for (const run of runs) {
+    if (run.text === '') continue;
+    const marks = run.marks ?? [];
+    const parts = run.text.split('\n');
+    parts.forEach((part, index) => {
+      if (part !== '') {
+        const span = document.createElement('span');
+        span.dataset.richMarks = marks.join(',');
+        span.className = marks.map((mark) => `is-${mark}`).join(' ');
+        span.textContent = part;
+        fragment.append(span);
+      }
+      if (index < parts.length - 1) {
+        const lineBreak = document.createElement('br');
+        lineBreak.dataset.richMarks = marks.join(',');
+        fragment.append(lineBreak);
+      }
+    });
+  }
+  if (runs.at(-1)?.text.endsWith('\n')) fragment.append(document.createTextNode(CARET_SENTINEL));
+  root.replaceChildren(fragment);
+}
+
+function replaceEditableSelection(root: HTMLDivElement, text: string) {
+  const selection = window.getSelection();
+  if (selection === null) return;
+
+  let range: Range;
+  if (
+    selection.rangeCount > 0
+    && selection.anchorNode !== null
+    && selection.focusNode !== null
+    && root.contains(selection.anchorNode)
+    && root.contains(selection.focusNode)
+  ) {
+    range = selection.getRangeAt(0);
+  } else {
+    range = document.createRange();
+    range.selectNodeContents(root);
+    range.collapse(false);
+  }
+
+  range.deleteContents();
+  const fragment = document.createDocumentFragment();
+  const parts = text.split('\n');
+  let caretNode: Node | null = null;
+  parts.forEach((part, index) => {
+    if (part !== '') {
+      caretNode = document.createTextNode(part);
+      fragment.append(caretNode);
+    }
+    if (index < parts.length - 1) {
+      const lineBreak = document.createElement('br');
+      fragment.append(lineBreak);
+      caretNode = lineBreak;
+    }
+  });
+  if (text.endsWith('\n')) {
+    caretNode = document.createTextNode(CARET_SENTINEL);
+    fragment.append(caretNode);
+  }
+  range.insertNode(fragment);
+  if (caretNode?.nodeType === Node.TEXT_NODE) range.setStart(caretNode, caretNode.textContent?.length ?? 0);
+  else if (caretNode !== null) range.setStartAfter(caretNode);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function sameRuns(left: WallboardRichTextRun[], right: WallboardRichTextRun[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((run, index) => (
+    run.text === right[index]?.text
+    && sameMarks(run.marks, [...(right[index]?.marks ?? [])].sort() as WallboardRichTextMark[])
+  ));
 }
 
 function selectionOffsets(root: HTMLElement): { start: number; end: number } | null {
@@ -481,32 +601,65 @@ function selectionOffsets(root: HTMLElement): { start: number; end: number } | n
   const beforeEnd = document.createRange();
   beforeEnd.selectNodeContents(root);
   beforeEnd.setEnd(range.endContainer, range.endOffset);
-  const first = beforeStart.toString().length;
-  const second = beforeEnd.toString().length;
+  const first = editablePlainText(beforeStart.cloneContents()).length;
+  const second = editablePlainText(beforeEnd.cloneContents()).length;
   return { start: Math.min(first, second), end: Math.max(first, second) };
 }
 
 function restoreCaret(root: HTMLElement, offset: number) {
   const selection = window.getSelection();
   if (selection === null) return;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
   let remaining = Math.max(0, offset);
   let node = walker.nextNode();
   while (node !== null) {
-    const length = node.textContent?.length ?? 0;
-    if (remaining <= length) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const length = node.textContent?.length ?? 0;
+      if (remaining <= length) {
+        const range = document.createRange();
+        range.setStart(node, remaining);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        root.focus();
+        return;
+      }
+      remaining -= length;
+    } else if (node instanceof HTMLBRElement) {
       const range = document.createRange();
-      range.setStart(node, remaining);
+      if (remaining === 0) range.setStartBefore(node);
+      else if (remaining === 1) range.setStartAfter(node);
+      else {
+        remaining -= 1;
+        node = walker.nextNode();
+        continue;
+      }
       range.collapse(true);
       selection.removeAllRanges();
       selection.addRange(range);
       root.focus();
       return;
     }
-    remaining -= length;
     node = walker.nextNode();
   }
   root.focus();
+}
+
+function editablePlainText(root: Node): string {
+  let text = '';
+  const visit = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += (node.textContent ?? '').replaceAll(CARET_SENTINEL, '');
+      return;
+    }
+    if (node instanceof HTMLBRElement) {
+      text += '\n';
+      return;
+    }
+    for (const child of node.childNodes) visit(child);
+  };
+  visit(root);
+  return text;
 }
 
 function joinListRuns(block: Extract<WallboardRichTextBlock, { type: 'bullet_list' | 'numbered_list' }>): WallboardRichTextRun[] {

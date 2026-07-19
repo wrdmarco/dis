@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Support\WallboardMediaProcessedImage;
+use App\Support\WallboardMediaProcessedAsset;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -18,7 +18,7 @@ final class WallboardMediaImageProcessor
         'image/webp' => IMAGETYPE_WEBP,
     ];
 
-    public function process(UploadedFile $upload): WallboardMediaProcessedImage
+    public function process(UploadedFile $upload, string $field = 'image'): WallboardMediaProcessedAsset
     {
         $sourcePath = $upload->getRealPath();
         $sourceBytes = $upload->getSize();
@@ -29,7 +29,7 @@ final class WallboardMediaImageProcessor
             || ! is_int($sourceBytes)
             || $sourceBytes < 1
             || $sourceBytes > $maxBytes) {
-            $this->invalid('image', 'Upload een geldige afbeelding binnen de toegestane bestandsgrootte.');
+            $this->invalid($field, 'Upload een geldige afbeelding binnen de toegestane bestandsgrootte.');
         }
 
         $detectedMime = $this->detectedMime($sourcePath);
@@ -38,14 +38,14 @@ final class WallboardMediaImageProcessor
             || ! is_array($dimensions)
             || (int) ($dimensions[2] ?? 0) !== self::ALLOWED_TYPES[$detectedMime]
             || strtolower((string) ($dimensions['mime'] ?? '')) !== $detectedMime) {
-            $this->invalid('image', 'Alleen geldige JPG-, PNG- en WebP-afbeeldingen zijn toegestaan.');
+            $this->invalid($field, 'Alleen geldige JPG-, PNG- en WebP-afbeeldingen zijn toegestaan.');
         }
 
         $width = (int) ($dimensions[0] ?? 0);
         $height = (int) ($dimensions[1] ?? 0);
         $maxPixels = max(1, (int) config('wallboard_media.max_source_pixels', 16_000_000));
         if ($width < 1 || $height < 1 || $width > intdiv($maxPixels, $height)) {
-            $this->invalid('image', 'De afbeelding heeft te veel pixels om veilig te verwerken.');
+            $this->invalid($field, 'De afbeelding heeft te veel pixels om veilig te verwerken.');
         }
 
         $source = @file_get_contents($sourcePath);
@@ -54,16 +54,17 @@ final class WallboardMediaImageProcessor
         }
         if (($detectedMime === 'image/webp' && str_contains($source, 'ANIM'))
             || ($detectedMime === 'image/png' && str_contains($source, 'acTL'))) {
-            $this->invalid('image', 'Geanimeerde afbeeldingen zijn niet toegestaan.');
+            $this->invalid($field, 'Geanimeerde afbeeldingen zijn niet toegestaan.');
         }
 
         $this->assertGdAvailable();
         $image = @imagecreatefromstring($source);
         if (! $image instanceof \GdImage) {
-            $this->invalid('image', 'De afbeelding is beschadigd of kan niet veilig worden gedecodeerd.');
+            $this->invalid($field, 'De afbeelding is beschadigd of kan niet veilig worden gedecodeerd.');
         }
 
         $temporaryPath = null;
+        $thumbnailTemporaryPath = null;
         try {
             $image = $this->applyOrientation($image, $sourcePath, $detectedMime);
             $image = $this->resize($image);
@@ -73,6 +74,7 @@ final class WallboardMediaImageProcessor
                 throw new HttpException(503, 'De afbeelding kon niet veilig worden gecodeerd.');
             }
             @chmod($temporaryPath, 0640);
+            $thumbnailTemporaryPath = $this->encodeThumbnail($image);
 
             $outputMime = $this->detectedMime($temporaryPath);
             $outputDimensions = @getimagesize($temporaryPath);
@@ -88,21 +90,83 @@ final class WallboardMediaImageProcessor
                 throw new HttpException(503, 'De gecodeerde afbeelding kon niet worden geverifieerd.');
             }
 
-            return new WallboardMediaProcessedImage(
+            $thumbnailByteSize = @filesize($thumbnailTemporaryPath);
+            $thumbnailSha256 = @hash_file('sha256', $thumbnailTemporaryPath);
+            if (! is_int($thumbnailByteSize)
+                || $thumbnailByteSize < 1
+                || ! is_string($thumbnailSha256)
+                || preg_match('/^[a-f0-9]{64}$/', $thumbnailSha256) !== 1) {
+                throw new HttpException(503, 'De miniatuur kon niet veilig worden geverifieerd.');
+            }
+
+            return new WallboardMediaProcessedAsset(
+                kind: 'image',
                 temporaryPath: $temporaryPath,
                 sha256: $sha256,
+                mimeType: 'image/webp',
                 byteSize: $byteSize,
                 width: (int) $outputDimensions[0],
                 height: (int) $outputDimensions[1],
+                durationSeconds: null,
+                thumbnailTemporaryPath: $thumbnailTemporaryPath,
+                thumbnailSha256: $thumbnailSha256,
+                thumbnailByteSize: $thumbnailByteSize,
             );
         } catch (Throwable $exception) {
             if (is_string($temporaryPath) && is_file($temporaryPath)) {
                 @unlink($temporaryPath);
             }
+            if (is_string($thumbnailTemporaryPath) && is_file($thumbnailTemporaryPath)) {
+                @unlink($thumbnailTemporaryPath);
+            }
 
             throw $exception;
         } finally {
             imagedestroy($image);
+        }
+    }
+
+    private function encodeThumbnail(\GdImage $image): string
+    {
+        $width = imagesx($image);
+        $height = imagesy($image);
+        $maxEdge = min(max((int) config('wallboard_media.thumbnail_edge_pixels', 640), 160), 1280);
+        $scale = min(1, $maxEdge / max($width, $height));
+        $targetWidth = max(1, (int) floor($width * $scale));
+        $targetHeight = max(1, (int) floor($height * $scale));
+        $thumbnail = imagecreatetruecolor($targetWidth, $targetHeight);
+        if (! $thumbnail instanceof \GdImage) {
+            throw new HttpException(503, 'De miniatuur kon niet worden aangemaakt.');
+        }
+        try {
+            imagealphablending($thumbnail, false);
+            imagesavealpha($thumbnail, true);
+            $transparent = imagecolorallocatealpha($thumbnail, 0, 0, 0, 127);
+            imagefilledrectangle($thumbnail, 0, 0, $targetWidth, $targetHeight, $transparent);
+            if (! imagecopyresampled(
+                $thumbnail,
+                $image,
+                0,
+                0,
+                0,
+                0,
+                $targetWidth,
+                $targetHeight,
+                $width,
+                $height,
+            )) {
+                throw new HttpException(503, 'De miniatuur kon niet worden verkleind.');
+            }
+            $path = $this->temporaryPath();
+            if (! @imagewebp($thumbnail, $path, 82)) {
+                @unlink($path);
+                throw new HttpException(503, 'De miniatuur kon niet worden gecodeerd.');
+            }
+            @chmod($path, 0640);
+
+            return $path;
+        } finally {
+            imagedestroy($thumbnail);
         }
     }
 

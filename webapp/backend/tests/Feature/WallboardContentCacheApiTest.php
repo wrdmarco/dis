@@ -40,6 +40,14 @@ final class WallboardContentCacheApiTest extends TestCase
                 ->assertHeader('Cache-Control', 'no-store, private')
                 ->assertHeaderMissing('ETag');
         }
+        $this->getJson('/api/wallboard/cache')
+            ->assertUnauthorized()
+            ->assertHeaderMissing('Clear-Site-Data');
+
+        $this->wallboardGet('/api/wallboard/cache', $credential)
+            ->assertNoContent()
+            ->assertHeader('Clear-Site-Data', '"cache"')
+            ->assertHeader('Cache-Control', 'no-store, private');
 
         $static = $this->wallboardGet('/api/wallboard/static', $credential)
             ->assertOk()
@@ -85,6 +93,7 @@ final class WallboardContentCacheApiTest extends TestCase
         $control = $this->wallboardGet('/api/wallboard/control', $credential)
             ->assertOk()
             ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertHeaderMissing('Clear-Site-Data')
             ->assertJsonPath('data.content_versions.static', 's:1');
         self::assertMatchesRegularExpression(
             '/^1:[a-f0-9]{64}$/D',
@@ -109,6 +118,7 @@ final class WallboardContentCacheApiTest extends TestCase
         $this->wallboardGet('/api/wallboard/state', $credential)
             ->assertOk()
             ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertHeaderMissing('Clear-Site-Data')
             ->assertJsonPath('data.wallboard.id', $wallboard->id)
             ->assertJsonPath('data.news.pages.news.items.0.title', 'Veilig nieuws')
             ->assertJsonPath('data.ticker.items.0.text', 'Operationeel bericht')

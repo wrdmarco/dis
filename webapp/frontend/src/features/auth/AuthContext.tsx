@@ -31,6 +31,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const legacyTokenKey = 'dis.session.token';
 const legacyTokenPurposeKey = 'dis.session.purpose';
 const themeKey = 'dis.theme';
+const sessionTouchIntervalMs = 45_000;
 type ThemePreference = 'dark' | 'light';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -88,6 +89,91 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [api, applyAuthenticatedUser]);
+
+  useEffect(() => {
+    if (user === null || !isBrowser()) {
+      return;
+    }
+
+    let disposed = false;
+    let requestInFlight = false;
+    let activityVersion = 0;
+    let touchedActivityVersion = 0;
+    let lastTouchAttemptAt = 0;
+    let timer: number | null = null;
+
+    const clearTimer = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    const scheduleTouch = () => {
+      clearTimer();
+      if (disposed
+        || document.visibilityState !== 'visible'
+        || activityVersion === touchedActivityVersion
+        || requestInFlight) {
+        return;
+      }
+
+      const delay = Math.max(0, sessionTouchIntervalMs - (Date.now() - lastTouchAttemptAt));
+      timer = window.setTimeout(() => {
+        timer = null;
+        if (disposed || document.visibilityState !== 'visible' || requestInFlight) {
+          return;
+        }
+
+        const versionBeingTouched = activityVersion;
+        lastTouchAttemptAt = Date.now();
+        requestInFlight = true;
+        void api.post<void>('/auth/session/touch')
+          .then(() => {
+            touchedActivityVersion = Math.max(touchedActivityVersion, versionBeingTouched);
+          })
+          .catch(() => {
+            // ApiClient handles a definitive 401 centrally. Transient network and
+            // maintenance failures are retried only after fresh user activity.
+            touchedActivityVersion = Math.max(touchedActivityVersion, versionBeingTouched);
+          })
+          .finally(() => {
+            requestInFlight = false;
+            scheduleTouch();
+          });
+      }, delay);
+    };
+
+    const recordActivity = () => {
+      activityVersion += 1;
+      scheduleTouch();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        recordActivity();
+      } else {
+        clearTimer();
+      }
+    };
+
+    window.addEventListener('keydown', recordActivity);
+    window.addEventListener('pointerdown', recordActivity, { passive: true });
+    window.addEventListener('touchstart', recordActivity, { passive: true });
+    window.addEventListener('wheel', recordActivity, { passive: true });
+    window.addEventListener('focus', recordActivity);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      disposed = true;
+      clearTimer();
+      window.removeEventListener('keydown', recordActivity);
+      window.removeEventListener('pointerdown', recordActivity);
+      window.removeEventListener('touchstart', recordActivity);
+      window.removeEventListener('wheel', recordActivity);
+      window.removeEventListener('focus', recordActivity);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [api, user]);
 
   const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
     const response = await api.post<LoginResult>('/auth/login', {

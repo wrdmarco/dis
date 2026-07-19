@@ -445,8 +445,12 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
     type,
     name: wallboardPageTypeLabel(type),
     duration_seconds: 30,
-    options: type === 'message'
+    options: type === 'message' || type === 'safety_notice'
       ? { content: wallboardRichTextFromPlainText('') }
+      : type === 'quote'
+        ? { quotes: [{ text: '' }] }
+      : type === 'uav_forecast'
+        ? { location_label: '' }
       : type === 'news'
         ? {
           sources: [...DEFAULT_WALLBOARD_NEWS_SOURCES],
@@ -499,6 +503,9 @@ export function wallboardPageTypeLabel(type: WallboardPageType): string {
     case 'incident_list': return 'Incidentenoverzicht';
     case 'summary': return 'Operationele samenvatting';
     case 'message': return 'Mededeling';
+    case 'safety_notice': return 'Veiligheidsbericht';
+    case 'quote': return 'Quote van de dag';
+    case 'uav_forecast': return 'UAV Forecast';
     case 'news': return 'Dronenieuws';
     case 'video': return 'Video';
     case 'photo_carousel': return 'Fotocarrousel';
@@ -677,7 +684,7 @@ function normalizeWallboardPage(
   page: WallboardPage,
   index: number,
 ): WallboardPage {
-  const type: WallboardPageType = ['map', 'incident_list', 'summary', 'message', 'news', 'video', 'photo_carousel'].includes(page.type)
+  const type: WallboardPageType = ['map', 'incident_list', 'summary', 'message', 'safety_notice', 'quote', 'uav_forecast', 'news', 'video', 'photo_carousel'].includes(page.type)
     ? page.type
     : 'map';
   const id = typeof page.id === 'string' && page.id.trim() !== '' ? page.id : `page-${index + 1}`;
@@ -702,8 +709,12 @@ function normalizeWallboardPage(
     ...(page.flip_direction === undefined
       ? {}
       : { flip_direction: normalizeWallboardFlipDirection(page.flip_direction) }),
-    options: type === 'message'
+    options: type === 'message' || type === 'safety_notice'
       ? { content: wallboardMessageContent(page.options ?? {}) }
+      : type === 'quote'
+        ? { quotes: normalizeWallboardQuotes(page.options?.quotes) }
+      : type === 'uav_forecast'
+        ? normalizeWallboardForecastPageOptions(page)
       : type === 'news'
         ? normalizeWallboardNewsPageOptions(page)
         : type === 'video'
@@ -716,6 +727,72 @@ function normalizeWallboardPage(
   return {
     ...normalizedPage,
     duration_seconds: wallboardEffectivePageDuration(normalizedPage),
+  };
+}
+
+export const MAX_WALLBOARD_QUOTES = 50;
+export const MAX_WALLBOARD_QUOTE_TEXT_LENGTH = 500;
+export const MAX_WALLBOARD_QUOTE_AUTHOR_LENGTH = 120;
+
+export function normalizeWallboardQuotes(value: unknown): NonNullable<WallboardPage['options']['quotes']> {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, MAX_WALLBOARD_QUOTES).flatMap((candidate) => {
+    if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return [];
+    const quote = candidate as { text?: unknown; author?: unknown };
+    const text = typeof quote.text === 'string'
+      ? quote.text.trim().slice(0, MAX_WALLBOARD_QUOTE_TEXT_LENGTH)
+      : '';
+    if (text === '') return [];
+    const author = typeof quote.author === 'string'
+      ? quote.author.trim().slice(0, MAX_WALLBOARD_QUOTE_AUTHOR_LENGTH)
+      : '';
+    return [{ text, ...(author === '' ? {} : { author }) }];
+  });
+}
+
+export function wallboardAmsterdamDateKey(date: Date): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Amsterdam',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const part = (type: 'year' | 'month' | 'day') => parts.find((candidate) => candidate.type === type)?.value ?? '00';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+export function selectWallboardDailyQuote(
+  value: unknown,
+  pageId: string,
+  date = new Date(),
+): NonNullable<WallboardPage['options']['quotes']>[number] | null {
+  const quotes = normalizeWallboardQuotes(value);
+  if (quotes.length === 0) return null;
+  const dateKey = wallboardAmsterdamDateKey(date);
+  const seed = `${pageId}|${dateKey}`;
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return quotes[(hash >>> 0) % quotes.length] ?? quotes[0];
+}
+
+function normalizeWallboardForecastPageOptions(page: WallboardPage): WallboardPage['options'] {
+  const label = typeof page.options.location_label === 'string'
+    ? page.options.location_label.trim().slice(0, 120)
+    : '';
+  const latitude = typeof page.options.latitude === 'number' && Number.isFinite(page.options.latitude)
+    ? Math.min(90, Math.max(-90, page.options.latitude))
+    : undefined;
+  const longitude = typeof page.options.longitude === 'number' && Number.isFinite(page.options.longitude)
+    ? Math.min(180, Math.max(-180, page.options.longitude))
+    : undefined;
+
+  return {
+    location_label: label,
+    ...(latitude === undefined ? {} : { latitude }),
+    ...(longitude === undefined ? {} : { longitude }),
   };
 }
 
@@ -762,8 +839,8 @@ export function normalizeWallboardVideoUrl(value: string): string | null {
   }
 }
 
-/** Bouwt een vast, gedempt autoplay-adres uit een server-gecanonicaliseerde URL. */
-export function wallboardVideoEmbedUrl(value: unknown): string | null {
+/** Bouwt een vast, gedempt embed-adres uit een server-gecanonicaliseerde URL. */
+export function wallboardVideoEmbedUrl(value: unknown, autoplay = true): string | null {
   if (typeof value !== 'string') return null;
   const canonical = normalizeWallboardVideoUrl(value);
   if (canonical === null || canonical !== value.trim().replace(/\/$/, '')) return null;
@@ -773,7 +850,7 @@ export function wallboardVideoEmbedUrl(value: unknown): string | null {
     const videoId = url.pathname.split('/').at(-1);
     if (videoId === undefined) return null;
     url.search = new URLSearchParams({
-      autoplay: '1',
+      autoplay: autoplay ? '1' : '0',
       mute: '1',
       controls: '0',
       rel: '0',
@@ -784,7 +861,7 @@ export function wallboardVideoEmbedUrl(value: unknown): string | null {
     }).toString();
   } else {
     url.search = new URLSearchParams({
-      autoplay: '1',
+      autoplay: autoplay ? '1' : '0',
       muted: '1',
       controls: '0',
       autopause: '0',
@@ -811,15 +888,19 @@ function normalizeWallboardVideoPageOptions(page: WallboardPage): WallboardPage[
 }
 
 function normalizeWallboardPhotoPageOptions(page: WallboardPage): WallboardPage['options'] {
-  const mediaPlaylistId = typeof page.options?.media_playlist_id === 'string'
-    && /^[0-9A-HJKMNP-TV-Z]{26}$/i.test(page.options.media_playlist_id.trim())
-    ? page.options.media_playlist_id.trim().toUpperCase()
-    : '';
+  const mediaPlaylistId = normalizeWallboardMediaPlaylistId(page.options?.media_playlist_id);
 
   return {
     media_playlist_id: mediaPlaylistId,
     item_duration_seconds: wallboardPhotoItemDurationSeconds(page.options?.item_duration_seconds),
   };
+}
+
+export function normalizeWallboardMediaPlaylistId(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+
+  return /^[0-9A-HJKMNP-TV-Z]{26}$/i.test(trimmed) ? trimmed.toLowerCase() : '';
 }
 
 function normalizeWallboardNewsPageOptions(page: WallboardPage): WallboardPage['options'] {

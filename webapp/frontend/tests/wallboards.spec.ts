@@ -16,6 +16,7 @@ import {
   normalizeWallboardMaintenanceNotice,
   normalizeWallboardNewsState,
   normalizeWallboardState,
+  selectWallboardNextPreloadPage,
   stabilizeWallboardRotationDeadline,
   wallboardCarouselRemainingMilliseconds,
   wallboardDeadlineDurationMilliseconds,
@@ -703,6 +704,9 @@ test('keeps offline status and automatic polling recovery without a reconnect re
   expect(controlPoll).toContain("setControlError(errorMessage(error, 'De live schermbesturing is tijdelijk niet bereikbaar.'));");
   expect(controlPoll).toContain('setControlError(null);');
   expect(controlPoll).toContain('lastControlMaintenanceActiveRef.current === true && !nextMaintenanceActive');
+  expect(controlPoll).toContain("await wallboardApi.get<null>('/wallboard/cache');");
+  expect(controlPoll.indexOf("await wallboardApi.get<null>('/wallboard/cache');"))
+    .toBeLessThan(controlPoll.indexOf('pendingConfigVersionRef.current = nextControl.config_version;'));
   expect(controlPoll).toContain('setPollGeneration((current) => current + 1)');
   expect(controlPoll).toContain('timer = setTimeout(() => void pollControl(), CONTROL_POLL_MILLISECONDS);');
   expect(statePoll).not.toContain('window.location.reload()');
@@ -814,6 +818,71 @@ test('renders every animated global playlist transition with simultaneous outgoi
       { text: 'Nieuwe pagina', animationName: `wallboard-card-${transition}-in`, duration: '1.1s' },
     ]);
   }
+});
+
+test('scopes global page effects to playlist page changes and pauses nested news rotation', () => {
+  const kiosk = readFileSync(new URL('../src/features/wallboards/WallboardDisplayPage.tsx', import.meta.url), 'utf8');
+  const pageFrame = kiosk.slice(
+    kiosk.indexOf('function WallboardPlaylistPageFrame('),
+    kiosk.indexOf('function MaintenanceTakeover('),
+  );
+  const globalTransitionBranch = pageFrame.slice(
+    pageFrame.indexOf('if (pairedTransitionActive)'),
+    pageFrame.indexOf('className="wallboard-display__page wallboard-display__page--transition-none"'),
+  );
+  const stablePageBranch = pageFrame.slice(
+    pageFrame.indexOf('className="wallboard-display__page wallboard-display__page--transition-none"'),
+  );
+
+  expect(pageFrame).toContain("const pairedTransitionActive = transition !== 'none' && visual.previous !== null;");
+  expect(pageFrame).not.toContain("pairedTransitionActive = transition !== 'none' && visual.sequence > 0");
+  expect(pageFrame).toContain('if (current.current.id === page.id)');
+  expect(pageFrame).toContain('previous: current.current');
+  expect(pageFrame).toContain('sequence: current.sequence + 1');
+  expect(globalTransitionBranch.match(/running=\{false\}/g)).toHaveLength(2);
+  expect(globalTransitionBranch).not.toContain('running={hasLiveFeed}');
+  expect(stablePageBranch).toContain('key={`${visual.current.id}:${visual.sequence}`}');
+  expect(stablePageBranch).toContain('running={hasLiveFeed}');
+});
+
+test('preloads only passive media for the next playlist page without starting its content', () => {
+  const mapPage = { ...createWallboardPage('map', 1), id: 'map' };
+  const newsPage = { ...createWallboardPage('news', 2), id: 'news' };
+  const videoPage = { ...createWallboardPage('video', 3), id: 'video' };
+  const pages = [mapPage, newsPage, videoPage];
+
+  expect(selectWallboardNextPreloadPage(pages, 'map', 'rotation', null)?.id).toBe('news');
+  expect(selectWallboardNextPreloadPage(pages, 'news', 'rotation', null)?.id).toBe('video');
+  expect(selectWallboardNextPreloadPage(pages, 'video', 'rotation', null)?.id).toBe('map');
+  expect(selectWallboardNextPreloadPage(pages, 'map', 'static', null)).toBeNull();
+  expect(selectWallboardNextPreloadPage(
+    pages,
+    'map',
+    'rotation',
+    { visible: true, playlist_page_id: 'video' } as WallboardFocusState,
+  )?.id).toBe('video');
+
+  const kiosk = readFileSync(new URL('../src/features/wallboards/WallboardDisplayPage.tsx', import.meta.url), 'utf8');
+  const preload = kiosk.slice(
+    kiosk.indexOf('function WallboardNextPagePreload('),
+    kiosk.indexOf('function MaintenanceTakeover('),
+  );
+  const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
+  const passiveVideo = wallboardVideoEmbedUrl('https://www.youtube.com/embed/dQw4w9WgXcQ', false);
+
+  expect(preload).toContain('wallboardVideoEmbedUrl(page.options.url, false)');
+  expect(preload).toContain('loading="eager"');
+  expect(preload).toContain('inert');
+  expect(preload).toContain('<link rel="preconnect"');
+  expect(preload).not.toContain('<WallboardPageContent');
+  expect(preload).not.toContain('<WallboardNewsPage');
+  expect(preload).not.toContain('<WallboardPhotoCarousel');
+  expect(preload).not.toContain('<iframe');
+  expect(preload).not.toContain('<video');
+  expect(preload).not.toContain('preload="auto"');
+  expect(passiveVideo).toContain('autoplay=0');
+  expect(styles).toMatch(/\.wallboard-display__page-preload[\s\S]*?pointer-events:\s*none/);
+  expect(styles).toMatch(/\.wallboard-display__page-preload \*[\s\S]*?animation:\s*none !important/);
 });
 
 test('slides both global pages and news cards in the requested push direction', async ({ page }) => {
@@ -1046,15 +1115,20 @@ test('keeps the update takeover active after its estimate and exposes a live cou
   expect(notice).not.toBeNull();
   if (notice === null) return;
 
+  expect(wallboardMaintenanceEstimate(notice, Date.parse('2026-07-19T10:00:00Z'))).toEqual({
+    totalSeconds: 900,
+    remainingSeconds: 900,
+    remainingPercent: 100,
+  });
   expect(wallboardMaintenanceEstimate(notice, Date.parse('2026-07-19T10:07:30Z'))).toEqual({
     totalSeconds: 900,
     remainingSeconds: 450,
-    progressPercent: 50,
+    remainingPercent: 50,
   });
   expect(wallboardMaintenanceEstimate(notice, Date.parse('2026-07-19T10:16:00Z'))).toEqual({
     totalSeconds: 900,
     remainingSeconds: 0,
-    progressPercent: 100,
+    remainingPercent: 0,
   });
   expect(wallboardMaintenanceNoticeIsActive(notice, Date.parse('2026-07-19T10:16:00Z'))).toBe(true);
   expect(formatWallboardMaintenanceDuration(0)).toBe('0:00');
@@ -1329,6 +1403,7 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).not.toMatch(/wallboardApi\.(?:get|post|patch|delete)\([^\n]*\/incidents\//);
   expect(kiosk.match(/\/wallboard\/state/g)).toHaveLength(1);
   expect(kiosk.match(/\/wallboard\/control/g)).toHaveLength(1);
+  expect(kiosk.match(/\/wallboard\/cache/g)).toHaveLength(1);
   expect(kiosk).toContain('CONTROL_POLL_MILLISECONDS = 2000');
   expect(kiosk).not.toContain('nextControlPollDelay');
   expect(kiosk).not.toContain('dangerouslySetInnerHTML');
@@ -1401,7 +1476,8 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain('Live stand');
   expect(kiosk).toContain("kind === 'real_alarm' ? (responses?.coming ?? []) : []");
   expect(kiosk).toContain('wallboardFocusEtaLabel(item.eta_minutes)');
-  expect(kiosk).toContain("currentPage.type === 'message' ? 'Mededeling' : currentPage.name");
+  expect(kiosk).toContain("currentPage.type === 'message'");
+  expect(kiosk).toContain("? 'Mededeling'");
   expect(kiosk).not.toContain('<span className="eyebrow">Mededeling</span>');
   expect(kiosk).toContain('content={wallboardMessageContent(page.options)}');
   const messagePageRender = kiosk.slice(
@@ -1426,7 +1502,8 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).not.toContain('Date.now() % safeDurationMilliseconds');
   expect(kiosk).toContain('running={hasLiveFeed}');
   expect(kiosk).toContain('wallboardEffectivePageTransition(configuration, currentPage)');
-  expect(kiosk).toContain("const pairedTransitionActive = transition !== 'none' && visual.sequence > 0;");
+  expect(kiosk).toContain("const pairedTransitionActive = transition !== 'none' && visual.previous !== null;");
+  expect(kiosk).toContain('running={false}');
   expect(kiosk).toContain("const usesPairedCards = transition !== 'none';");
   expect(kiosk).toContain('wallboard-display__page-card-pane--outgoing');
   expect(kiosk).toContain('wallboard-display__page-card-pane--incoming');
@@ -1655,6 +1732,7 @@ test('keeps explicit screen profiles fluid at Full HD and Ultra HD viewports', a
     profile: string | undefined;
   }> = [];
   const cases = [
+    { profile: 'auto', width: 1280, height: 800 },
     { profile: '1080p', width: 1920, height: 1080 },
     { profile: '4k', width: 3840, height: 2160 },
   ] as const;
@@ -1704,15 +1782,17 @@ test('keeps explicit screen profiles fluid at Full HD and Ultra HD viewports', a
     }));
   }
 
-  expect(measurements[0]).toMatchObject({ dateOverflow: false, dateWhiteSpace: 'nowrap', overflow: false, profile: '1080p' });
-  expect(measurements[1]).toMatchObject({ dateOverflow: false, dateWhiteSpace: 'nowrap', overflow: false, profile: '4k' });
-  expect(measurements[0].dateFontSize).toBeGreaterThanOrEqual(14);
-  expect(measurements[1].dateFontSize).toBeGreaterThan(measurements[0].dateFontSize);
-  expect(measurements[1].titleFontSize).toBeGreaterThan(measurements[0].titleFontSize);
+  expect(measurements[0]).toMatchObject({ dateOverflow: false, dateWhiteSpace: 'nowrap', overflow: false, profile: 'auto' });
+  expect(measurements[1]).toMatchObject({ dateOverflow: false, dateWhiteSpace: 'nowrap', overflow: false, profile: '1080p' });
+  expect(measurements[2]).toMatchObject({ dateOverflow: false, dateWhiteSpace: 'nowrap', overflow: false, profile: '4k' });
+  expect(measurements[1].dateFontSize).toBeGreaterThanOrEqual(14);
+  expect(measurements[2].dateFontSize).toBeGreaterThan(measurements[1].dateFontSize);
+  expect(measurements[2].titleFontSize).toBeGreaterThan(measurements[1].titleFontSize);
 });
 
-test('keeps the offline warning and maintenance takeover readable at Full HD and Ultra HD', async ({ page }) => {
+test('keeps the maintenance icon and countdown fully visible at compact, Full HD and Ultra HD sizes', async ({ page }) => {
   const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
+  expect(styles).toMatch(/\.wallboard-display__maintenance-countdown-progress\s*\{[\s\S]*?scaleX\(-1\)/);
   const cases = [
     { profile: '1080p', width: 1920, height: 1080 },
     { profile: '4k', width: 3840, height: 2160 },
@@ -1738,6 +1818,10 @@ test('keeps the offline warning and maintenance takeover readable at Full HD and
           <span class="wallboard-display__alarm-eyebrow">Systeemupdate</span>
           <h2>Systeem wordt bijgewerkt</h2>
           <p>Dit wallboard komt automatisch terug zodra de update veilig is afgerond.</p>
+          <div class="wallboard-display__maintenance-countdown">
+            <svg viewBox="0 0 120 120"><circle class="wallboard-display__maintenance-countdown-track" cx="60" cy="60" r="52" pathLength="100"></circle><circle class="wallboard-display__maintenance-countdown-progress" cx="60" cy="60" r="52" pathLength="100" style="stroke-dashoffset: 50"></circle></svg>
+            <span><strong>7:30</strong><small>geschat resterend</small></span>
+          </div>
           <div class="wallboard-display__alarm-status"><i></i><strong>Automatisch herstel is actief</strong><time>Gestart 12:34</time></div>
         </section>
         <footer class="wallboard-display__footer"><span>Onderhoud actief</span><span>Scherm blijft actief</span></footer>
@@ -1747,12 +1831,16 @@ test('keeps the offline warning and maintenance takeover readable at Full HD and
     const result = await page.locator('.wallboard-display').evaluate((element) => {
       const warning = element.querySelector('.wallboard-display__connection-warning') as HTMLElement | null;
       const takeover = element.querySelector('.wallboard-display__alarm--maintenance') as HTMLElement;
+      const icon = element.querySelector('.wallboard-display__alarm-icon') as HTMLElement;
       const takeoverBox = takeover.getBoundingClientRect();
+      const iconBox = icon.getBoundingClientRect();
       return {
         overflow: element.scrollWidth > element.clientWidth || element.scrollHeight > element.clientHeight,
         warningCount: warning === null ? 0 : 1,
         takeoverVisible: takeover.offsetWidth > 0 && takeover.offsetHeight > 0,
         takeoverInsideViewport: takeoverBox.top >= 0 && takeoverBox.bottom <= window.innerHeight,
+        iconFullyVisible: iconBox.top >= takeoverBox.top && iconBox.bottom <= takeoverBox.bottom,
+        verticalScrollNeeded: takeover.scrollHeight > takeover.clientHeight,
       };
     });
 
@@ -1761,6 +1849,8 @@ test('keeps the offline warning and maintenance takeover readable at Full HD and
       warningCount: 0,
       takeoverVisible: true,
       takeoverInsideViewport: true,
+      iconFullyVisible: true,
+      verticalScrollNeeded: false,
     });
   }
 });

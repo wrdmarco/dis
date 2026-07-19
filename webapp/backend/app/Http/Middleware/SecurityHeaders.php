@@ -27,13 +27,25 @@ final class SecurityHeaders
 
         if ($request->is('api/*', 'sanctum/*')) {
             $response->headers->set('Content-Security-Policy', "default-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
+            $responseStatus = $response->getStatusCode();
+            $mediaCacheControl = (string) $response->headers->get('Cache-Control');
             $cacheableWallboardMedia = $request->routeIs(
                 'wallboard-media.content',
                 'wallboard-media.admin-content',
+                'wallboard-media.admin-thumbnail',
             )
-                && in_array($response->getStatusCode(), [200, 304], true)
+                && in_array($responseStatus, [200, 206, 304], true)
                 && $response->headers->has('ETag')
-                && str_contains((string) $response->headers->get('Cache-Control'), 'immutable');
+                && str_contains($mediaCacheControl, 'private')
+                && str_contains($mediaCacheControl, 'max-age=')
+                && str_contains($mediaCacheControl, 'immutable')
+                && ($responseStatus !== 206 || (
+                    $response->headers->get('Accept-Ranges') === 'bytes'
+                    && preg_match(
+                        '/^bytes \d+-\d+\/\d+$/D',
+                        (string) $response->headers->get('Content-Range'),
+                    ) === 1
+                ));
             $revalidatableWallboardContent = $request->routeIs(
                 'wallboard.static',
                 'wallboard.news',

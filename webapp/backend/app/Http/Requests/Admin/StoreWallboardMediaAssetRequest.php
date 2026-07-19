@@ -14,9 +14,23 @@ final class StoreWallboardMediaAssetRequest extends FormRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
+        $maximum = max(
+            1,
+            (int) config('wallboard_media.max_upload_kilobytes', 15 * 1024),
+            (int) config('wallboard_media.max_video_upload_kilobytes', 250 * 1024),
+        );
+
         return [
+            'file' => [
+                'required_without:image',
+                'prohibited_with:image',
+                'file',
+                'max:'.$maximum,
+                'mimetypes:image/jpeg,image/png,image/webp,video/mp4',
+            ],
             'image' => [
-                'required',
+                'required_without:file',
+                'prohibited_with:file',
                 'file',
                 'max:'.max(1, (int) config('wallboard_media.max_upload_kilobytes', 15 * 1024)),
                 'mimetypes:image/jpeg,image/png,image/webp',

@@ -42,6 +42,8 @@ secrets/*
 !/webapp/backend/storage/framework/cache/.gitkeep
 /webapp/backend/storage/framework/sessions/*
 !/webapp/backend/storage/framework/sessions/.gitkeep
+/webapp/backend/storage/framework/testing/*
+!/webapp/backend/storage/framework/testing/.gitkeep
 /webapp/backend/storage/framework/views/*
 !/webapp/backend/storage/framework/views/.gitkeep
 /webapp/backend/storage/tmp/*

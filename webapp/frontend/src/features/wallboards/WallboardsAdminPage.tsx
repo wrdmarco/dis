@@ -50,6 +50,10 @@ import {
 import { WallboardPlaylistPreview } from './WallboardPlaylistPreview';
 import { WallboardMediaLibrary } from './WallboardMediaLibrary';
 import type { WallboardMediaPlaylist } from './wallboardMedia';
+import {
+  isPhotoCarouselValidationFailure,
+  normalizeWallboardMediaPlaylistId,
+} from './wallboardPlaylistValidation';
 
 const ADMIN_STATUS_REFRESH_MILLISECONDS = 2500;
 const WALLBOARD_FOCUS_PREVIEW_OPTIONS: ReadonlyArray<{
@@ -863,7 +867,9 @@ function PlaylistEditor({
   const usageCount = wallboardPlaylistUsageCount(playlist);
   const hasUnverifiedVideos = wallboardConfigurationHasUnverifiedVideos(draft);
   const photoPlaylistIds = useMemo(
-    () => photoPlaylists === null ? null : new Set(photoPlaylists.map((candidate) => candidate.id)),
+    () => photoPlaylists === null
+      ? null
+      : new Set(photoPlaylists.map((candidate) => normalizeWallboardMediaPlaylistId(candidate.id))),
     [photoPlaylists],
   );
   const missingPhotoCarouselPages = useMemo(() => photoPlaylistIds === null
@@ -871,7 +877,7 @@ function PlaylistEditor({
     : draft.pages.filter((page) => page.type === 'photo_carousel'
       && typeof page.options.media_playlist_id === 'string'
       && page.options.media_playlist_id.trim() !== ''
-      && !photoPlaylistIds.has(page.options.media_playlist_id.trim())), [draft.pages, photoPlaylistIds]);
+      && !photoPlaylistIds.has(normalizeWallboardMediaPlaylistId(page.options.media_playlist_id))), [draft.pages, photoPlaylistIds]);
   const hasInvalidPhotoCarousels = wallboardConfigurationHasInvalidPhotoCarousels(draft, photoPlaylistIds);
 
   useEffect(() => {
@@ -915,10 +921,10 @@ function PlaylistEditor({
       if (isConflict(error)) {
         await onReloadAll();
         setActionError('Deze playlist is intussen gewijzigd. De nieuwste playlist- en schermversies zijn geladen; controleer je wijzigingen opnieuw.');
-      } else if (error instanceof ApiClientError && error.status === 422 && draft.pages.some((page) => page.type === 'photo_carousel')) {
-        await reloadPhotoPlaylists();
-        setActionError('Een fotocarrousel verwijst naar een niet-beschikbare fotoplaylist. Kies op de gemarkeerde pagina opnieuw een fotoplaylist.');
       } else {
+        if (isPhotoCarouselValidationFailure(error)) {
+          await reloadPhotoPlaylists();
+        }
         setActionError(errorMessage(error, 'Playlist kon niet worden opgeslagen.'));
       }
     } finally {

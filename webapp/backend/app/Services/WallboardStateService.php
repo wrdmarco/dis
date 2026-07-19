@@ -31,6 +31,7 @@ final class WallboardStateService
         private readonly WallboardContentSnapshotService $contentSnapshots,
         private readonly WallboardMediaStateService $mediaStateService,
         private readonly WallboardMaintenanceNoticeService $maintenanceNoticeService,
+        private readonly WallboardForecastService $forecastService,
     ) {}
 
     /** @return array<string, mixed> */
@@ -59,6 +60,7 @@ final class WallboardStateService
                 'generated_at' => $news['generated_at'] ?? $runtime['generated_at'],
             ],
             'media' => $static['media'],
+            'forecast' => ['pages' => $this->forecastService->pages($configuration)],
             'map' => $runtime['map'],
         ];
     }

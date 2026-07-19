@@ -65,11 +65,10 @@ export function normalizeWallboardRichText(
 
     if (!['heading', 'paragraph', 'quote'].includes(candidate.type) || !Array.isArray(candidate.runs)) return [];
     const runs = normalizeRuns(candidate.runs, () => runCount, (value) => { runCount = value; }, () => characterCount, (value) => { characterCount = value; });
-    if (runs.length === 0) return [];
     return [{
       type: candidate.type as 'heading' | 'paragraph' | 'quote',
       align: candidate.align === 'center' ? 'center' : 'left',
-      runs,
+      runs: runs.length > 0 ? runs : [{ text: '' }],
     }];
   });
 
@@ -112,13 +111,13 @@ function renderBlock(block: WallboardRichTextBlock, index: number): ReactNode {
     return (
       <List className={`wallboard-rich-text__${block.type}`}>
         {block.items.map((item, itemIndex) => (
-          <li key={`${index}-${itemIndex}`}>{renderRuns(item.runs)}</li>
+          <li key={`${index}-${itemIndex}`} style={{ whiteSpace: 'pre-wrap' }}>{renderRuns(item.runs)}</li>
         ))}
       </List>
     );
   }
 
-  const style = { textAlign: block.align } as const;
+  const style = { textAlign: block.align, whiteSpace: 'pre-wrap' } as const;
   if (block.type === 'heading') return <h2 style={style}>{renderRuns(block.runs)}</h2>;
   if (block.type === 'quote') return <blockquote style={style}>{renderRuns(block.runs)}</blockquote>;
   return <p style={style}>{renderRuns(block.runs)}</p>;

@@ -11,7 +11,15 @@ final class WallboardConfiguration
     public const DEFAULT_PAGE_ID = 'map';
 
     /** @var list<string> */
-    public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'message', 'news', 'video', 'photo_carousel'];
+    public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'message', 'safety_notice', 'quote', 'uav_forecast', 'news', 'video', 'photo_carousel'];
+
+    public const MAX_QUOTES = 50;
+
+    public const MAX_QUOTE_TEXT_LENGTH = 500;
+
+    public const MAX_QUOTE_AUTHOR_LENGTH = 120;
+
+    public const MAX_FORECAST_LOCATION_LABEL_LENGTH = 120;
 
     public const MAX_VIDEO_URL_LENGTH = 2048;
 
@@ -305,7 +313,9 @@ final class WallboardConfiguration
                 ]);
             }
             $allowedOptionKeys = match ($type) {
-                'message' => ['body', 'content'],
+                'message', 'safety_notice' => ['body', 'content'],
+                'quote' => ['quotes'],
+                'uav_forecast' => ['location_label', 'latitude', 'longitude'],
                 'incident_list', 'summary' => ['show_test_incidents'],
                 'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds', 'item_transition', 'item_transition_duration_ms', 'item_flip_direction'],
                 'video' => ['url', 'video_duration_seconds'],
@@ -317,11 +327,80 @@ final class WallboardConfiguration
                     "configuration.pages.{$index}.options" => ['Deze pagina bevat opties die niet bij het gekozen paginatype horen.'],
                 ]);
             }
-            if ($type === 'message') {
+            if (in_array($type, ['message', 'safety_notice'], true)) {
                 $options = WallboardRichText::normalizeOptions(
                     $options,
                     "configuration.pages.{$index}.options",
                 );
+            } elseif ($type === 'quote') {
+                $quotes = $options['quotes'] ?? null;
+                if (! is_array($quotes) || $quotes === [] || count($quotes) > self::MAX_QUOTES) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.quotes" => ['Voeg tussen 1 en 50 quotes toe.'],
+                    ]);
+                }
+
+                $normalizedQuotes = [];
+                foreach (array_values($quotes) as $quoteIndex => $quote) {
+                    if (! is_array($quote) || array_diff(array_keys($quote), ['text', 'author']) !== []) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.quotes.{$quoteIndex}" => ['De quote bevat ongeldige velden.'],
+                        ]);
+                    }
+                    $text = is_string($quote['text'] ?? null) ? trim($quote['text']) : '';
+                    $author = is_string($quote['author'] ?? null) ? trim($quote['author']) : '';
+                    if ($text === '' || mb_strlen($text) > self::MAX_QUOTE_TEXT_LENGTH) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.quotes.{$quoteIndex}.text" => ['Een quote is verplicht en mag maximaal 500 tekens bevatten.'],
+                        ]);
+                    }
+                    if (mb_strlen($author) > self::MAX_QUOTE_AUTHOR_LENGTH) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.quotes.{$quoteIndex}.author" => ['De auteur mag maximaal 120 tekens bevatten.'],
+                        ]);
+                    }
+                    $normalizedQuotes[] = [
+                        'text' => $text,
+                        ...($author === '' ? [] : ['author' => $author]),
+                    ];
+                }
+                $options = ['quotes' => $normalizedQuotes];
+            } elseif ($type === 'uav_forecast') {
+                $locationLabel = trim((string) ($options['location_label'] ?? ''));
+                $latitude = $options['latitude'] ?? null;
+                $longitude = $options['longitude'] ?? null;
+                if ($locationLabel === '' || mb_strlen($locationLabel) > self::MAX_FORECAST_LOCATION_LABEL_LENGTH) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.location_label" => ['Geef een locatienaam van maximaal 120 tekens op.'],
+                    ]);
+                }
+                if (! is_float($latitude) && ! is_int($latitude)) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.latitude" => ['Geef een geldige breedtegraad op.'],
+                    ]);
+                }
+                if (! is_float($longitude) && ! is_int($longitude)) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.longitude" => ['Geef een geldige lengtegraad op.'],
+                    ]);
+                }
+                $latitude = (float) $latitude;
+                $longitude = (float) $longitude;
+                if (! is_finite($latitude) || $latitude < -90 || $latitude > 90) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.latitude" => ['De breedtegraad moet tussen -90 en 90 liggen.'],
+                    ]);
+                }
+                if (! is_finite($longitude) || $longitude < -180 || $longitude > 180) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.longitude" => ['De lengtegraad moet tussen -180 en 180 liggen.'],
+                    ]);
+                }
+                $options = [
+                    'location_label' => $locationLabel,
+                    'latitude' => round($latitude, 7),
+                    'longitude' => round($longitude, 7),
+                ];
             } elseif ($type === 'video') {
                 $url = is_string($options['url'] ?? null)
                     ? self::normalizeVideoUrl($options['url'])
@@ -352,13 +431,14 @@ final class WallboardConfiguration
                     $videoDurationSeconds + self::VIDEO_STARTUP_BUFFER_SECONDS,
                 );
             } elseif ($type === WallboardMediaUsageSynchronizer::PAGE_TYPE) {
-                $mediaPlaylistId = trim((string) ($options['media_playlist_id'] ?? ''));
+                $mediaPlaylistId = strtolower(trim((string) ($options['media_playlist_id'] ?? '')));
                 $itemDurationSeconds = $options['item_duration_seconds'] ?? null;
                 if (! Str::isUlid($mediaPlaylistId)) {
                     throw ValidationException::withMessages([
                         "configuration.pages.{$index}.options.media_playlist_id" => ['Selecteer een geldige fotoplaylist.'],
                     ]);
                 }
+                $mediaPlaylistId = strtolower($mediaPlaylistId);
                 if (! is_int($itemDurationSeconds)
                     || $itemDurationSeconds < WallboardMediaUsageSynchronizer::MIN_ITEM_DURATION_SECONDS
                     || $itemDurationSeconds > WallboardMediaUsageSynchronizer::MAX_ITEM_DURATION_SECONDS) {

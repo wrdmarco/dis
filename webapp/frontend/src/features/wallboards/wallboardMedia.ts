@@ -9,8 +9,17 @@ export type {
   WallboardMediaPageStateItem,
 } from '../../types/api';
 
-export const WALLBOARD_MEDIA_ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
-export const WALLBOARD_MEDIA_MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+export const WALLBOARD_MEDIA_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+export const WALLBOARD_MEDIA_VIDEO_TYPES = ['video/mp4'] as const;
+export const WALLBOARD_MEDIA_ACCEPTED_TYPES = [
+  ...WALLBOARD_MEDIA_IMAGE_TYPES,
+  ...WALLBOARD_MEDIA_VIDEO_TYPES,
+] as const;
+export const WALLBOARD_MEDIA_MAX_IMAGE_UPLOAD_BYTES = 15 * 1024 * 1024;
+export const WALLBOARD_MEDIA_MAX_VIDEO_UPLOAD_BYTES = 250 * 1024 * 1024;
+/** @deprecated Gebruik de limiet per mediatype. */
+export const WALLBOARD_MEDIA_MAX_UPLOAD_BYTES = WALLBOARD_MEDIA_MAX_IMAGE_UPLOAD_BYTES;
+export const WALLBOARD_MEDIA_MAX_BATCH_FILES = 25;
 export const WALLBOARD_MEDIA_MAX_PLAYLIST_ITEMS = 100;
 export const WALLBOARD_PHOTO_MIN_ITEM_DURATION_SECONDS = 5;
 export const WALLBOARD_PHOTO_MAX_ITEM_DURATION_SECONDS = 300;
@@ -33,13 +42,16 @@ export interface WallboardMediaAsset {
   folder_name: string | null;
   display_name: string;
   original_name: string;
-  mime_type: 'image/jpeg' | 'image/png' | 'image/webp';
+  kind: 'image' | 'video';
+  mime_type: 'image/jpeg' | 'image/png' | 'image/webp' | 'video/mp4';
   byte_size: number;
-  width: number;
-  height: number;
+  width: number | null;
+  height: number | null;
+  duration_seconds: number | null;
   status: 'processing' | 'ready' | 'failed';
   version: number;
   playlist_references_count: number;
+  thumbnail_url: string | null;
   content_url: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -77,12 +89,30 @@ export interface WallboardMediaFolderTreeItem extends WallboardMediaFolder {
 }
 
 const ADMIN_ASSET_CONTENT_PATH = /^\/api\/admin\/wallboard-media\/assets\/[0-9A-HJKMNP-TV-Z]{26}\/content$/i;
+const ADMIN_ASSET_THUMBNAIL_PATH = /^\/api\/admin\/wallboard-media\/assets\/[0-9A-HJKMNP-TV-Z]{26}\/thumbnail$/i;
 const WALLBOARD_ASSET_CONTENT_PATH = /^\/api\/wallboard\/media\/[0-9A-HJKMNP-TV-Z]{26}$/i;
 
 export function wallboardMediaImageUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const path = value.trim();
   return ADMIN_ASSET_CONTENT_PATH.test(path) || WALLBOARD_ASSET_CONTENT_PATH.test(path) ? path : null;
+}
+
+export function wallboardMediaThumbnailUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const path = value.trim();
+  return ADMIN_ASSET_THUMBNAIL_PATH.test(path) ? path : null;
+}
+
+export function wallboardMediaAssetPreviewUrl(asset: WallboardMediaAsset): string | null {
+  if (asset.kind !== 'image') return null;
+  return wallboardMediaThumbnailUrl(asset.thumbnail_url) ?? wallboardMediaImageUrl(asset.content_url);
+}
+
+export function wallboardMediaFileKind(file: Pick<File, 'type'>): WallboardMediaAsset['kind'] | null {
+  if ((WALLBOARD_MEDIA_IMAGE_TYPES as readonly string[]).includes(file.type)) return 'image';
+  if ((WALLBOARD_MEDIA_VIDEO_TYPES as readonly string[]).includes(file.type)) return 'video';
+  return null;
 }
 
 export function wallboardMediaFolderTree(folders: readonly WallboardMediaFolder[]): WallboardMediaFolderTreeItem[] {
@@ -135,8 +165,12 @@ export function wallboardMediaPageStateFromPlaylist(
   const items = [...playlist.items]
     .sort((left, right) => left.position - right.position)
     .flatMap((item) => {
+      if (item.asset.kind === 'video') return [];
       const imageUrl = wallboardMediaImageUrl(item.asset.content_url);
-      return imageUrl === null ? [] : [{
+      return imageUrl === null
+        || typeof item.asset.width !== 'number'
+        || typeof item.asset.height !== 'number'
+        ? [] : [{
         id: item.asset.id,
         name: item.asset.display_name,
         image_url: imageUrl,
@@ -238,11 +272,15 @@ export function wallboardMediaFormatBytes(bytes: number): string {
 }
 
 export function wallboardMediaFileValidationMessage(file: File): string | null {
-  if (!(WALLBOARD_MEDIA_ACCEPTED_TYPES as readonly string[]).includes(file.type)) {
-    return 'Gebruik een JPEG-, PNG- of WebP-afbeelding.';
+  const kind = wallboardMediaFileKind(file);
+  if (kind === null) return 'Gebruik een JPEG-, PNG-, WebP-afbeelding of MP4-video.';
+  if (file.size <= 0) return 'Het geselecteerde mediabestand is leeg.';
+  if (kind === 'image' && file.size > WALLBOARD_MEDIA_MAX_IMAGE_UPLOAD_BYTES) {
+    return 'Een afbeelding mag maximaal 15 MB groot zijn.';
   }
-  if (file.size <= 0) return 'De geselecteerde afbeelding is leeg.';
-  if (file.size > WALLBOARD_MEDIA_MAX_UPLOAD_BYTES) return 'De afbeelding mag maximaal 15 MB groot zijn.';
+  if (kind === 'video' && file.size > WALLBOARD_MEDIA_MAX_VIDEO_UPLOAD_BYTES) {
+    return 'Een MP4-video mag maximaal 250 MB groot zijn.';
+  }
   return null;
 }
 

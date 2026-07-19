@@ -19,24 +19,34 @@ final class WallboardMediaAsset extends Model
 
     public const STATUS_FAILED = 'failed';
 
+    public const KIND_IMAGE = 'image';
+
+    public const KIND_VIDEO = 'video';
+
     protected $fillable = [
         'id',
         'folder_id',
         'display_name',
         'original_name',
+        'kind',
         'storage_path',
+        'thumbnail_storage_path',
+        'thumbnail_sha256',
+        'thumbnail_mime_type',
+        'thumbnail_byte_size',
         'sha256',
         'mime_type',
         'byte_size',
         'width',
         'height',
+        'duration_seconds',
         'status',
         'version',
         'created_by',
         'updated_by',
     ];
 
-    protected $hidden = ['storage_path'];
+    protected $hidden = ['storage_path', 'thumbnail_storage_path'];
 
     protected function casts(): array
     {
@@ -44,6 +54,8 @@ final class WallboardMediaAsset extends Model
             'byte_size' => 'integer',
             'width' => 'integer',
             'height' => 'integer',
+            'duration_seconds' => 'integer',
+            'thumbnail_byte_size' => 'integer',
             'version' => 'integer',
             'deleted_at' => 'immutable_datetime',
         ];

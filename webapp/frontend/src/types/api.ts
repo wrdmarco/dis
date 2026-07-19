@@ -224,7 +224,7 @@ export interface OperationalMapPilotHome {
 export type WallboardLayout = 'fullscreen_map';
 export type WallboardDisplayProfile = 'auto' | '1080p' | '4k';
 export type WallboardTheme = 'dark' | 'light';
-export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'message' | 'news' | 'video' | 'photo_carousel';
+export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'message' | 'safety_notice' | 'quote' | 'uav_forecast' | 'news' | 'video' | 'photo_carousel';
 export type WallboardDisplayMode = 'rotation' | 'static' | 'manual' | 'incident_override';
 export type WallboardNewsItemTransition = 'fade' | 'dissolve' | 'slide' | 'flip' | 'zoom' | 'wipe' | 'none';
 export type WallboardPageTransition = WallboardNewsItemTransition;
@@ -310,10 +310,16 @@ export interface WallboardRichTextDocument {
   blocks: WallboardRichTextBlock[];
 }
 
+export interface WallboardQuote {
+  text: string;
+  author?: string;
+}
+
 export interface WallboardPageOptions {
   /** Alleen aanwezig bij het inlezen van oudere configuraties. Nieuwe writes gebruiken content. */
   body?: string;
   content?: WallboardRichTextDocument;
+  quotes?: WallboardQuote[];
   url?: string;
   video_duration_seconds?: number;
   media_playlist_id?: string;
@@ -325,6 +331,9 @@ export interface WallboardPageOptions {
   item_transition?: WallboardNewsItemTransition;
   item_transition_duration_ms?: number;
   item_flip_direction?: WallboardFlipDirection;
+  location_label?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface WallboardPage {
@@ -650,6 +659,33 @@ export interface WallboardState {
   media: {
     photo_pages: Record<string, WallboardMediaPageState>;
   };
+  forecast: WallboardForecastState;
+}
+
+export type WallboardForecastStatus = 'green' | 'orange' | 'red' | 'unknown';
+
+export interface WallboardForecastMetric {
+  key: 'wind_speed_kmh' | 'wind_gust_kmh' | 'precipitation_mm' | 'visibility_m' | 'kp_index' | 'gnss_satellites';
+  label: string;
+  value: number | null;
+  unit: string | null;
+  status: WallboardForecastStatus;
+  stale: boolean;
+  source: { name: string; url: string | null };
+  measured_at: string | null;
+  explanation: string;
+}
+
+export interface WallboardForecastPageState {
+  location: { label: string; latitude: number; longitude: number };
+  overall_status: WallboardForecastStatus;
+  generated_at: string;
+  metrics: WallboardForecastMetric[];
+  disclaimer: string;
+}
+
+export interface WallboardForecastState {
+  pages: Record<string, WallboardForecastPageState>;
 }
 
 export interface WallboardMediaPageStateItem {

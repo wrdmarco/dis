@@ -10,6 +10,9 @@ import dynamic from 'next/dynamic.js';
 import {
   AlertTriangle,
   BellRing,
+  CloudRain,
+  CloudSun,
+  Eye,
   Expand,
   Loader2,
   LockKeyhole,
@@ -18,9 +21,13 @@ import {
   Newspaper,
   RefreshCw,
   Radio,
+  Quote as QuoteIcon,
   RotateCw,
   Siren,
+  Satellite,
+  ShieldAlert,
   UsersRound,
+  Wind,
   WifiOff,
 } from 'lucide-react';
 import { ApiClient, ApiClientError, apiBaseUrl } from '../../lib/apiClient';
@@ -32,6 +39,9 @@ import type {
   WallboardFocusResponses,
   WallboardFocusState,
   WallboardMaintenanceNotice,
+  WallboardForecastMetric,
+  WallboardForecastPageState,
+  WallboardForecastState,
   WallboardPage,
   WallboardNewsItem,
   WallboardNewsPageState,
@@ -58,6 +68,7 @@ import {
   normalizeWallboardNewsItemTransition,
   resolveWallboardFlipDirection,
   selectRecentWallboardIncidents,
+  selectWallboardDailyQuote,
   wallboardConfigurationCopy,
   wallboardEffectivePageTransition,
   wallboardFocusKindLabel,
@@ -314,6 +325,8 @@ export function WallboardDisplayPage() {
           configVersionRef.current !== nextControl.config_version
           && pendingConfigVersionRef.current !== nextControl.config_version
         ) {
+          await wallboardApi.get<null>('/wallboard/cache');
+          if (cancelled) return;
           pendingConfigVersionRef.current = nextControl.config_version;
           needsStateRefresh = true;
         }
@@ -564,6 +577,12 @@ export function WallboardDisplayPage() {
     ?? configuration.pages.find((page) => page.id === display.page_id)
     ?? configuration.pages[0];
   const currentPageIndex = configuration.pages.findIndex((page) => page.id === currentPage.id);
+  const preloadPage = selectWallboardNextPreloadPage(
+    configuration.pages,
+    currentPage.id,
+    display.mode,
+    focus,
+  );
   const pageTransition = wallboardEffectivePageTransition(configuration, currentPage);
   const nextSwitchLabel = wallboardNextSwitchLabel(focus, display, clock, deadlineCountdown);
   const transientAlert = hasLiveFeed && effectiveControl.focus === undefined
@@ -591,7 +610,11 @@ export function WallboardDisplayPage() {
           <span className="wallboard-display__titles">
             <h1>{maintenance?.title ?? (showFocus && focus !== null
               ? wallboardFocusKindLabel(focus.kind)
-              : currentPage.type === 'message' ? 'Mededeling' : currentPage.name)}</h1>
+              : currentPage.type === 'message'
+                ? 'Mededeling'
+                : currentPage.type === 'safety_notice'
+                  ? 'Veiligheidsbericht'
+                  : currentPage.name)}</h1>
           </span>
           {showFocus ? null : (
             <span className={`wallboard-display__mode wallboard-display__mode--${maintenance !== null ? 'maintenance' : display.mode}`}>
@@ -656,6 +679,10 @@ export function WallboardDisplayPage() {
         />
       )}
 
+      {maintenance === null && preloadPage !== null ? (
+        <WallboardNextPagePreload page={preloadPage} state={state} />
+      ) : null}
+
       <footer className="wallboard-display__footer">
         <span>{maintenance !== null
           ? 'Onderhoud actief · het wallboard herstelt automatisch'
@@ -672,6 +699,23 @@ interface WallboardPlaylistPageFrameProps extends WallboardPageContentProps {
   transition: ReturnType<typeof wallboardEffectivePageTransition>['transition'];
   transitionDurationMs: number;
   flipDirection: ReturnType<typeof wallboardEffectivePageTransition>['flipDirection'];
+}
+
+export function selectWallboardNextPreloadPage(
+  pages: WallboardPage[],
+  currentPageId: string,
+  displayMode: WallboardDisplayMode,
+  focus: WallboardFocusState | null,
+): WallboardPage | null {
+  if (focus?.visible === true && focus.playlist_page_id !== null) {
+    return pages.find((page) => page.id === focus.playlist_page_id) ?? null;
+  }
+  if (focus !== null || displayMode !== 'rotation' || pages.length < 2) return null;
+
+  const currentIndex = pages.findIndex((page) => page.id === currentPageId);
+  if (currentIndex < 0) return null;
+  const nextPage = pages[(currentIndex + 1) % pages.length];
+  return nextPage.id === currentPageId ? null : nextPage;
 }
 
 function WallboardPlaylistPageFrame({
@@ -719,7 +763,7 @@ function WallboardPlaylistPageFrame({
   const style = {
     '--wallboard-page-transition-duration': `${transitionDurationMs}ms`,
   } as CSSProperties;
-  const pairedTransitionActive = transition !== 'none' && visual.sequence > 0;
+  const pairedTransitionActive = transition !== 'none' && visual.previous !== null;
   const resolvedFlipDirection = resolveWallboardFlipDirection(
     flipDirection,
     `${visual.current.id}:${visual.sequence}`,
@@ -758,7 +802,7 @@ function WallboardPlaylistPageFrame({
               presentation={presentation}
               hasLiveFeed={hasLiveFeed}
               pageDeadlineAt={pageDeadlineAt}
-              running={hasLiveFeed}
+              running={false}
             />
           </div>
         </div>
@@ -783,6 +827,40 @@ function WallboardPlaylistPageFrame({
         running={hasLiveFeed}
       />
     </section>
+  );
+}
+
+function WallboardNextPagePreload({
+  page,
+  state,
+}: {
+  page: WallboardPage;
+  state: WallboardState;
+}) {
+  const imageUrls = page.type === 'news'
+    ? (state.news.pages[page.id]?.items ?? []).flatMap((item) => item.image_url ? [item.image_url] : []).slice(0, 2)
+    : page.type === 'photo_carousel'
+      ? (state.media.photo_pages[page.id]?.items ?? []).map((item) => item.image_url).slice(0, 2)
+      : [];
+  const externalVideoUrl = page.type === 'video' ? wallboardVideoEmbedUrl(page.options.url, false) : null;
+  const externalVideoOrigin = externalVideoUrl === null ? null : new URL(externalVideoUrl).origin;
+
+  if (imageUrls.length === 0 && externalVideoOrigin === null) return null;
+
+  return (
+    <aside
+      className="wallboard-display__page-preload"
+      data-wallboard-preload-page={page.id}
+      aria-hidden="true"
+      inert
+    >
+      {imageUrls.map((url) => (
+        <img src={url} alt="" loading="eager" decoding="async" fetchPriority="low" key={url} />
+      ))}
+      {externalVideoOrigin === null ? null : (
+        <link rel="preconnect" href={externalVideoOrigin} crossOrigin="" />
+      )}
+    </aside>
   );
 }
 
@@ -822,7 +900,7 @@ function MaintenanceTakeover({
               cy="60"
               r="52"
               pathLength="100"
-              style={{ strokeDashoffset: 100 - estimate.progressPercent } as CSSProperties}
+              style={{ strokeDashoffset: 100 - estimate.remainingPercent } as CSSProperties}
             />
           </svg>
           <span>
@@ -909,6 +987,43 @@ function WallboardPageContent({
     );
   }
 
+  if (page.type === 'safety_notice') {
+    return (
+      <div className="wallboard-display__safety-notice">
+        <span className="wallboard-display__safety-notice-icon" aria-hidden><ShieldAlert size={52} strokeWidth={1.7} /></span>
+        <WallboardRichText
+          content={wallboardMessageContent(page.options)}
+          className="wallboard-display__message-content wallboard-display__safety-notice-content"
+          ariaLabel="Veiligheidsbericht"
+        />
+      </div>
+    );
+  }
+
+  if (page.type === 'quote') {
+    const quote = selectWallboardDailyQuote(page.options.quotes, page.id);
+    return (
+      <div className="wallboard-display__quote-page">
+        <QuoteIcon className="wallboard-display__quote-icon" size={64} strokeWidth={1.5} aria-hidden />
+        {quote === null ? (
+          <div className="wallboard-display__quote-empty" role="status">
+            <strong>Geen quote geconfigureerd</strong>
+            <span>Vul in het wallboardbeheer minimaal één quote in.</span>
+          </div>
+        ) : (
+          <blockquote>
+            <p>{quote.text}</p>
+            {quote.author ? <cite>{quote.author}</cite> : null}
+          </blockquote>
+        )}
+      </div>
+    );
+  }
+
+  if (page.type === 'uav_forecast') {
+    return <WallboardForecastPage page={page} forecast={state.forecast.pages[page.id]} />;
+  }
+
   if (page.type === 'summary') {
     return (
       <div className="wallboard-display__overview">
@@ -992,6 +1107,99 @@ function WallboardVideoPage({ page }: { page: WallboardPage }) {
       />
     </div>
   );
+}
+
+function WallboardForecastPage({
+  page,
+  forecast,
+}: {
+  page: WallboardPage;
+  forecast: WallboardForecastPageState | undefined;
+}) {
+  if (forecast === undefined) {
+    return (
+      <div className="wallboard-display__forecast wallboard-display__forecast--empty" role="status">
+        <CloudSun size={56} aria-hidden />
+        <h2>{page.name}</h2>
+        <p>Actuele vliegweerdata is tijdelijk niet beschikbaar. Er wordt geen groen vliegadvies gegeven.</p>
+      </div>
+    );
+  }
+
+  const advice = forecastAdvice(forecast.overall_status);
+
+  return (
+    <div className="wallboard-display__forecast">
+      <section className={`wallboard-display__forecast-advice wallboard-display__forecast-advice--${forecast.overall_status}`} aria-label={`Vliegadvies: ${advice.label}`}>
+        <span><CloudSun size={38} aria-hidden /></span>
+        <div>
+          <small>Vliegadvies · {forecast.location.label}</small>
+          <h2>{advice.label}</h2>
+          <p>{advice.description}</p>
+        </div>
+      </section>
+      <div className="wallboard-display__forecast-grid">
+        {forecast.metrics.map((metric) => (
+          <ForecastMetricCard metric={metric} key={metric.key} />
+        ))}
+      </div>
+      <p className="wallboard-display__forecast-disclaimer">{forecast.disclaimer}</p>
+    </div>
+  );
+}
+
+function ForecastMetricCard({ metric }: { metric: WallboardForecastMetric }) {
+  const Icon = metric.key === 'wind_speed_kmh' || metric.key === 'wind_gust_kmh'
+    ? Wind
+    : metric.key === 'precipitation_mm'
+      ? CloudRain
+      : metric.key === 'visibility_m'
+        ? Eye
+        : Satellite;
+  const value = metric.value === null
+    ? 'Onbekend'
+    : metric.unit === 'Kp'
+      ? `Kp ${formatForecastNumber(metric.value)}`
+      : `${formatForecastNumber(metric.value)}${metric.unit === null ? '' : ` ${metric.unit}`}`;
+
+  return (
+    <article className={`wallboard-display__forecast-metric wallboard-display__forecast-metric--${metric.status}`}>
+      <header><Icon size={25} aria-hidden /><span>{metric.label}</span></header>
+      <strong>{value}</strong>
+      <p>{metric.explanation}</p>
+      <footer>
+        <span>Bron: {metric.source.name}</span>
+        <time dateTime={metric.measured_at ?? undefined}>
+          {metric.measured_at === null ? 'Meettijd onbekend' : `${metric.stale ? 'Verouderd' : 'Gemeten'} ${formatDateTime(metric.measured_at)}`}
+        </time>
+      </footer>
+    </article>
+  );
+}
+
+function forecastAdvice(status: WallboardForecastPageState['overall_status']): { label: string; description: string } {
+  switch (status) {
+    case 'green': return {
+      label: 'Binnen standaarddrempels',
+      description: 'Alle actuele, beoordeelde waarden vallen binnen de centrale groene drempels.',
+    };
+    case 'orange': return {
+      label: 'Extra beoordeling vereist',
+      description: 'Minimaal één waarde vraagt om een expliciete operationele afweging.',
+    };
+    case 'red': return {
+      label: 'Niet vliegen',
+      description: 'Minimaal één waarde overschrijdt de centrale rode standaarddrempel.',
+    };
+    case 'unknown': return {
+      label: 'Advies onvolledig',
+      description: 'Minimaal één noodzakelijke waarde ontbreekt of is verouderd; dit is nooit een groen advies.',
+    };
+  }
+}
+
+function formatForecastNumber(value: number): string {
+  return new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 2 }).format(value);
 }
 
 function WallboardNewsPage({
@@ -1424,7 +1632,7 @@ function FocusTakeover({
       aria-label={`${label} ${focus.reference}: ${focus.title}`}
     >
       <div className="wallboard-display__alarm-main">
-        <span className="wallboard-display__alarm-icon" aria-hidden><Icon size={54} strokeWidth={1.8} /></span>
+        <span className={`wallboard-display__alarm-icon wallboard-display__alarm-icon--${focusClass}`} aria-hidden><Icon size={54} strokeWidth={1.8} /></span>
         <div className="wallboard-display__alarm-meta">
           <strong>{focus.reference}</strong>
           <span>{priorityLabel(focus.priority)}</span>
@@ -1556,7 +1764,7 @@ function TransientAlertTakeover({ alert }: { alert: WallboardTransientAlert }) {
       role="alert"
       aria-label={`${alertLabel} ${alert.reference}: ${alert.title}`}
     >
-      <span className="wallboard-display__alarm-icon" aria-hidden><Siren size={54} strokeWidth={1.8} /></span>
+      <span className="wallboard-display__alarm-icon wallboard-display__alarm-icon--real-alarm" aria-hidden><Siren size={54} strokeWidth={1.8} /></span>
       <span className="wallboard-display__alarm-eyebrow">{alertLabel}</span>
       <div className="wallboard-display__alarm-meta">
         <strong>{alert.reference}</strong>
@@ -1844,6 +2052,7 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
     ticker?: WallboardState['ticker'];
     news?: unknown;
     media?: unknown;
+    forecast?: unknown;
   };
   const operationalSummary = rawState.operational_summary;
   const hasFocusContract = operationalSummary !== undefined
@@ -1883,6 +2092,7 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
         isRecord(rawState.media) ? rawState.media.photo_pages : undefined,
       ),
     },
+    forecast: normalizeWallboardForecastState(rawState.forecast),
     wallboard: {
       ...state.wallboard,
       display_profile: normalizeWallboardDisplayProfile(rawWallboard.display_profile),
@@ -1938,10 +2148,116 @@ export function normalizeWallboardMaintenanceNotice(value: unknown): WallboardMa
   };
 }
 
+export function normalizeWallboardForecastState(value: unknown): WallboardForecastState {
+  if (!isRecord(value) || !isRecord(value.pages)) return { pages: {} };
+
+  const pages = Object.entries(value.pages).slice(0, 20).reduce<Record<string, WallboardForecastPageState>>(
+    (normalized, [pageId, rawPage]) => {
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(pageId) || !isRecord(rawPage) || !isRecord(rawPage.location)) {
+        return normalized;
+      }
+      const location = rawPage.location;
+      if (
+        typeof location.label !== 'string'
+        || typeof location.latitude !== 'number'
+        || !Number.isFinite(location.latitude)
+        || location.latitude < -90
+        || location.latitude > 90
+        || typeof location.longitude !== 'number'
+        || !Number.isFinite(location.longitude)
+        || location.longitude < -180
+        || location.longitude > 180
+        || !Array.isArray(rawPage.metrics)
+      ) return normalized;
+
+      const metrics = rawPage.metrics.flatMap(normalizeWallboardForecastMetric);
+      const expectedKeys = new Set<WallboardForecastMetric['key']>([
+        'wind_speed_kmh',
+        'wind_gust_kmh',
+        'precipitation_mm',
+        'visibility_m',
+        'kp_index',
+        'gnss_satellites',
+      ]);
+      if (metrics.length !== expectedKeys.size || metrics.some((metric) => !expectedKeys.delete(metric.key))) {
+        return normalized;
+      }
+      const overallStatus = metrics.some((metric) => metric.status === 'red')
+        ? 'red'
+        : metrics.some((metric) => metric.status === 'orange')
+          ? 'orange'
+          : metrics.some((metric) => metric.status === 'unknown')
+            ? 'unknown'
+            : 'green';
+      normalized[pageId] = {
+        location: {
+          label: location.label.trim().slice(0, 120),
+          latitude: location.latitude,
+          longitude: location.longitude,
+        },
+        overall_status: overallStatus,
+        generated_at: typeof rawPage.generated_at === 'string' && Number.isFinite(Date.parse(rawPage.generated_at))
+          ? rawPage.generated_at
+          : new Date(0).toISOString(),
+        metrics,
+        disclaimer: typeof rawPage.disclaimer === 'string' && rawPage.disclaimer.trim() !== ''
+          ? rawPage.disclaimer.trim().slice(0, 600)
+          : 'Indicatieve gegevens; operationele en wettelijke limieten gaan altijd voor.',
+      };
+
+      return normalized;
+    },
+    {},
+  );
+
+  return { pages };
+}
+
+function normalizeWallboardForecastMetric(value: unknown): WallboardForecastMetric[] {
+  if (!isRecord(value)) return [];
+  const keys: WallboardForecastMetric['key'][] = [
+    'wind_speed_kmh',
+    'wind_gust_kmh',
+    'precipitation_mm',
+    'visibility_m',
+    'kp_index',
+    'gnss_satellites',
+  ];
+  if (!keys.includes(value.key as WallboardForecastMetric['key']) || typeof value.label !== 'string' || !isRecord(value.source)) {
+    return [];
+  }
+  const stale = value.stale === true;
+  const statuses: WallboardForecastMetric['status'][] = ['green', 'orange', 'red', 'unknown'];
+  const suppliedStatus = statuses.includes(value.status as WallboardForecastMetric['status'])
+    ? value.status as WallboardForecastMetric['status']
+    : 'unknown';
+  const numericValue = typeof value.value === 'number' && Number.isFinite(value.value) ? value.value : null;
+  const measuredAt = typeof value.measured_at === 'string' && Number.isFinite(Date.parse(value.measured_at))
+    ? value.measured_at
+    : null;
+
+  return [{
+    key: value.key as WallboardForecastMetric['key'],
+    label: value.label.trim().slice(0, 80),
+    value: numericValue,
+    unit: typeof value.unit === 'string' ? value.unit.trim().slice(0, 16) : null,
+    status: stale || numericValue === null ? 'unknown' : suppliedStatus,
+    stale,
+    source: {
+      name: typeof value.source.name === 'string' ? value.source.name.trim().slice(0, 80) : 'Onbekend',
+      url: typeof value.source.url === 'string' ? value.source.url : null,
+    },
+    measured_at: measuredAt,
+    explanation: typeof value.explanation === 'string'
+      ? value.explanation.trim().slice(0, 300)
+      : 'Geen gevalideerde toelichting beschikbaar.',
+  }];
+}
+
 export interface WallboardMaintenanceEstimate {
   totalSeconds: number;
   remainingSeconds: number;
-  progressPercent: number;
+  remainingPercent: number;
 }
 
 export function wallboardMaintenanceEstimate(
@@ -1967,12 +2283,12 @@ export function wallboardMaintenanceEstimate(
   ) return null;
 
   const remainingSeconds = Math.max(0, Math.ceil((estimatedCompletionAt - now) / 1000));
-  const progressPercent = Math.min(100, Math.max(
+  const remainingPercent = Math.min(100, Math.max(
     0,
-    ((totalSeconds - remainingSeconds) / totalSeconds) * 100,
+    (remainingSeconds / totalSeconds) * 100,
   ));
 
-  return { totalSeconds, remainingSeconds, progressPercent };
+  return { totalSeconds, remainingSeconds, remainingPercent };
 }
 
 export function formatWallboardMaintenanceDuration(value: number): string {

@@ -20,6 +20,7 @@ use App\Services\WallboardMediaPlaylistService;
 use App\Services\WallboardMediaQuotaService;
 use App\Services\WallboardMediaStateService;
 use App\Services\WallboardMediaUsageSynchronizer;
+use App\Support\WallboardConfiguration;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -129,6 +130,46 @@ final class WallboardMediaLibraryTest extends TestCase
 
         Storage::disk('local')->put((string) $asset->storage_path, 'tampered');
         self::assertNull(app(WallboardMediaDeliveryService::class)->forAdmin($asset));
+    }
+
+    public function test_existing_lowercase_photo_playlist_is_resolved_from_uppercase_configuration_id(): void
+    {
+        $actor = $this->actor();
+        $asset = $this->storedAsset($actor);
+        $mediaPlaylist = WallboardMediaPlaylist::query()->create([
+            'name' => 'Bestaande fotoplaylist',
+            'version' => 1,
+            'created_by' => $actor->id,
+            'updated_by' => $actor->id,
+        ]);
+        WallboardMediaPlaylistItem::query()->create([
+            'media_playlist_id' => $mediaPlaylist->id,
+            'media_asset_id' => $asset->id,
+            'position' => 0,
+        ]);
+        $configuration = $this->photoConfiguration(strtoupper((string) $mediaPlaylist->id), 10);
+        $normalized = WallboardConfiguration::normalize($configuration);
+        self::assertSame(
+            (string) $mediaPlaylist->id,
+            $normalized['pages'][0]['options']['media_playlist_id'],
+        );
+
+        $wallboardPlaylist = WallboardPlaylist::query()->create([
+            'name' => 'Playlist met uppercase verwijzing',
+            'configuration' => $normalized,
+            'version' => 1,
+            'created_by' => $actor->id,
+            'updated_by' => $actor->id,
+        ]);
+        $synchronized = app(WallboardMediaUsageSynchronizer::class)->synchronize(
+            $wallboardPlaylist,
+            $configuration,
+        );
+        self::assertSame(10, $synchronized['pages'][0]['duration_seconds']);
+        self::assertDatabaseHas('wallboard_media_playlist_usages', [
+            'wallboard_playlist_id' => (string) $wallboardPlaylist->id,
+            'media_playlist_id' => (string) $mediaPlaylist->id,
+        ]);
     }
 
     public function test_media_playlist_preserves_order_and_rejects_deletion_while_in_use(): void
@@ -393,7 +434,10 @@ final class WallboardMediaLibraryTest extends TestCase
             self::assertSame(hash_file('sha256', $result->temporaryPath), $result->sha256);
             self::assertSame(16, $result->width);
             self::assertSame(9, $result->height);
+            self::assertNotNull($result->thumbnailTemporaryPath);
+            self::assertSame('image/webp', (new \finfo(FILEINFO_MIME_TYPE))->file($result->thumbnailTemporaryPath));
             @unlink($result->temporaryPath);
+            @unlink((string) $result->thumbnailTemporaryPath);
         } finally {
             @unlink($path);
         }

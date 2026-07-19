@@ -68,14 +68,21 @@ final class StoreWallboardRequest extends FormRequest
             'configuration.pages.*.transition' => ['sometimes', 'nullable', 'string', Rule::in(WallboardConfiguration::PAGE_TRANSITIONS)],
             'configuration.pages.*.transition_duration_ms' => ['sometimes', 'nullable', 'integer:strict', 'between:'.WallboardConfiguration::MIN_TRANSITION_DURATION_MS.','.WallboardConfiguration::MAX_TRANSITION_DURATION_MS],
             'configuration.pages.*.flip_direction' => ['sometimes', 'nullable', 'string', Rule::in(WallboardConfiguration::FLIP_DIRECTIONS)],
-            'configuration.pages.*.options' => ['sometimes', 'array:body,content,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,item_transition,item_transition_duration_ms,item_flip_direction,url,video_duration_seconds,media_playlist_id'],
+            'configuration.pages.*.options' => ['sometimes', 'array:body,content,quotes,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,item_transition,item_transition_duration_ms,item_flip_direction,url,video_duration_seconds,media_playlist_id,location_label,latitude,longitude'],
             'configuration.pages.*.options.body' => ['sometimes', 'string', 'max:2000'],
             'configuration.pages.*.options.content' => ['sometimes', 'array:version,blocks'],
             'configuration.pages.*.options.content.version' => ['sometimes', 'integer:strict'],
             'configuration.pages.*.options.content.blocks' => ['sometimes', 'array', 'max:'.WallboardRichText::MAX_BLOCKS],
+            'configuration.pages.*.options.quotes' => ['sometimes', 'array', 'min:1', 'max:'.WallboardConfiguration::MAX_QUOTES],
+            'configuration.pages.*.options.quotes.*' => ['required', 'array:text,author'],
+            'configuration.pages.*.options.quotes.*.text' => ['required', 'string', 'max:'.WallboardConfiguration::MAX_QUOTE_TEXT_LENGTH],
+            'configuration.pages.*.options.quotes.*.author' => ['sometimes', 'nullable', 'string', 'max:'.WallboardConfiguration::MAX_QUOTE_AUTHOR_LENGTH],
             'configuration.pages.*.options.url' => ['sometimes', 'string', 'max:'.WallboardConfiguration::MAX_VIDEO_URL_LENGTH],
             'configuration.pages.*.options.video_duration_seconds' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_VIDEO_DURATION_SECONDS.','.WallboardConfiguration::MAX_VIDEO_DURATION_SECONDS],
             'configuration.pages.*.options.media_playlist_id' => ['sometimes', 'string', 'ulid'],
+            'configuration.pages.*.options.location_label' => ['sometimes', 'string', 'max:'.WallboardConfiguration::MAX_FORECAST_LOCATION_LABEL_LENGTH],
+            'configuration.pages.*.options.latitude' => ['sometimes', 'numeric', 'between:-90,90'],
+            'configuration.pages.*.options.longitude' => ['sometimes', 'numeric', 'between:-180,180'],
             'configuration.pages.*.options.show_test_incidents' => ['sometimes', 'boolean'],
             'configuration.pages.*.options.sources' => ['sometimes', 'array', 'max:'.count(WallboardConfiguration::NEWS_SOURCES)],
             'configuration.pages.*.options.sources.*' => ['required', 'string', Rule::in(WallboardConfiguration::NEWS_SOURCES)],
@@ -139,7 +146,9 @@ final class StoreWallboardRequest extends FormRequest
             $type = (string) ($page['type'] ?? '');
             $options = is_array($page['options'] ?? null) ? $page['options'] : [];
             $allowedKeys = match ($type) {
-                'message' => ['body', 'content'],
+                'message', 'safety_notice' => ['body', 'content'],
+                'quote' => ['quotes'],
+                'uav_forecast' => ['location_label', 'latitude', 'longitude'],
                 'incident_list', 'summary' => ['show_test_incidents'],
                 'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds', 'item_transition', 'item_transition_duration_ms', 'item_flip_direction'],
                 'video' => ['url', 'video_duration_seconds'],
@@ -153,7 +162,7 @@ final class StoreWallboardRequest extends FormRequest
                     'Deze opties horen niet bij het gekozen paginatype.',
                 );
             }
-            if ($type === 'message') {
+            if (in_array($type, ['message', 'safety_notice'], true)) {
                 try {
                     WallboardRichText::normalizeOptions(
                         $options,
@@ -166,6 +175,16 @@ final class StoreWallboardRequest extends FormRequest
                         }
                     }
                 }
+            }
+            if ($type === 'uav_forecast'
+                && (! is_string($options['location_label'] ?? null)
+                    || trim($options['location_label']) === ''
+                    || ! is_numeric($options['latitude'] ?? null)
+                    || ! is_numeric($options['longitude'] ?? null))) {
+                $validator->errors()->add(
+                    "configuration.pages.{$index}.options",
+                    'Een UAV Forecast-pagina heeft een locatienaam en geldige coördinaten nodig.',
+                );
             }
             if ($type === 'video'
                 && (! is_string($options['url'] ?? null)

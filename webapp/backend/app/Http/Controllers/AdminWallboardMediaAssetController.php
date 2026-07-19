@@ -86,4 +86,12 @@ final class AdminWallboardMediaAssetController extends Controller
 
         return WallboardMediaResponse::make($request, $content, 3600);
     }
+
+    public function thumbnail(Request $request, WallboardMediaAsset $asset): Response|StreamedResponse
+    {
+        $content = $this->delivery->thumbnailForAdmin($asset);
+        abort_if($content === null, 404);
+
+        return WallboardMediaResponse::make($request, $content, 3600);
+    }
 }

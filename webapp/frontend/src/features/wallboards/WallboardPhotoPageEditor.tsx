@@ -12,6 +12,7 @@ import {
   wallboardPhotoPageIsWithinDurationLimit,
 } from './wallboardMedia';
 import { SecondsStepper } from './SecondsStepper';
+import { normalizeWallboardMediaPlaylistId } from './wallboardPresentation';
 import styles from './WallboardPhotoPageEditor.module.css';
 
 export interface WallboardPhotoPageSelection {
@@ -44,8 +45,10 @@ export function WallboardPhotoPageEditor({
   disabled = false,
 }: WallboardPhotoPageEditorProps) {
   const playlists = source.playlists ?? [];
-  const selectedPlaylist = playlists.find((playlist) => playlist.id === value.media_playlist_id) ?? null;
-  const selectedPlaylistId = value.media_playlist_id?.trim() ?? '';
+  const selectedPlaylistId = normalizeWallboardMediaPlaylistId(value.media_playlist_id);
+  const selectedPlaylist = playlists.find((playlist) => (
+    normalizeWallboardMediaPlaylistId(playlist.id) === selectedPlaylistId
+  )) ?? null;
   const missingPlaylist = source.playlists !== null
     && selectedPlaylistId !== ''
     && selectedPlaylist === null;
@@ -62,7 +65,7 @@ export function WallboardPhotoPageEditor({
     const itemCount = playlist?.item_count ?? 0;
     onChange({
       options: {
-        media_playlist_id: playlist?.id ?? '',
+        media_playlist_id: normalizeWallboardMediaPlaylistId(playlist?.id),
         item_duration_seconds: safeDuration,
       },
       itemCount,
@@ -104,10 +107,12 @@ export function WallboardPhotoPageEditor({
             <span>Fotoplaylist</span>
             <select
               id={`${idPrefix}-media-playlist`}
-              value={value.media_playlist_id ?? ''}
+              value={selectedPlaylist?.id ?? selectedPlaylistId}
               disabled={disabled}
               onChange={(event) => {
-                const playlist = playlists.find((candidate) => candidate.id === event.target.value) ?? null;
+                const playlist = playlists.find((candidate) => (
+                  normalizeWallboardMediaPlaylistId(candidate.id) === normalizeWallboardMediaPlaylistId(event.target.value)
+                )) ?? null;
                 emit(playlist, itemDurationSeconds);
               }}
               required

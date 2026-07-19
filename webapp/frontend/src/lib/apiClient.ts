@@ -141,21 +141,26 @@ export class ApiClient {
       ? (payload as ApiErrorBody).error
       : undefined;
     const validationMessage = readValidationMessage(payload) ?? readValidationMessage(error?.details);
+    const code = error?.code ?? (validationMessage ? 'validation_failed' : 'server_error');
 
-    if (status === 401) {
+    if (isAuthenticatedSessionFailure(status, code)) {
       this.options.onUnauthenticated();
     }
 
     return new ApiClientError(
       validationMessage ?? error?.message ?? fallbackMessage,
       status,
-      error?.code ?? (validationMessage ? 'validation_failed' : 'server_error'),
+      code,
       error?.details,
     );
   }
 }
 
 export const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? '/api';
+
+export function isAuthenticatedSessionFailure(status: number, code: string): boolean {
+  return status === 401 && ['unauthenticated', 'session_expired'].includes(code);
+}
 
 export function csrfTokenFromCookie(): string | null {
   if (typeof document === 'undefined') {

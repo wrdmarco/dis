@@ -81,6 +81,37 @@ return [
         'ticker_timeout_seconds' => (int) env('WALLBOARD_TICKER_TIMEOUT_SECONDS', 4),
         'ticker_cache_seconds' => (int) env('WALLBOARD_TICKER_CACHE_SECONDS', 300),
         'ticker_failure_cache_seconds' => (int) env('WALLBOARD_TICKER_FAILURE_CACHE_SECONDS', 60),
+        'uav_forecast' => [
+            'connect_timeout_seconds' => (int) env('WALLBOARD_UAV_FORECAST_CONNECT_TIMEOUT_SECONDS', 2),
+            'timeout_seconds' => (int) env('WALLBOARD_UAV_FORECAST_TIMEOUT_SECONDS', 5),
+            'cache_seconds' => (int) env('WALLBOARD_UAV_FORECAST_CACHE_SECONDS', 300),
+            'last_good_cache_seconds' => (int) env('WALLBOARD_UAV_FORECAST_LAST_GOOD_CACHE_SECONDS', 21600),
+            'weather_stale_seconds' => (int) env('WALLBOARD_UAV_FORECAST_WEATHER_STALE_SECONDS', 1800),
+            'kp_stale_seconds' => (int) env('WALLBOARD_UAV_FORECAST_KP_STALE_SECONDS', 14400),
+            'thresholds' => [
+                // Conservatieve operationele defaults; toestel-, missie- en lokale limieten gaan altijd voor.
+                'wind_speed_kmh' => [
+                    'green_max' => (float) env('WALLBOARD_UAV_WIND_GREEN_MAX_KMH', 20),
+                    'orange_max' => (float) env('WALLBOARD_UAV_WIND_ORANGE_MAX_KMH', 30),
+                ],
+                'wind_gust_kmh' => [
+                    'green_max' => (float) env('WALLBOARD_UAV_GUST_GREEN_MAX_KMH', 30),
+                    'orange_max' => (float) env('WALLBOARD_UAV_GUST_ORANGE_MAX_KMH', 45),
+                ],
+                'precipitation_mm' => [
+                    'green_max' => (float) env('WALLBOARD_UAV_PRECIPITATION_GREEN_MAX_MM', 0),
+                    'orange_max' => (float) env('WALLBOARD_UAV_PRECIPITATION_ORANGE_MAX_MM', 0.5),
+                ],
+                'visibility_m' => [
+                    'green_min' => (float) env('WALLBOARD_UAV_VISIBILITY_GREEN_MIN_M', 5000),
+                    'orange_min' => (float) env('WALLBOARD_UAV_VISIBILITY_ORANGE_MIN_M', 2000),
+                ],
+                'kp_index' => [
+                    'green_max_exclusive' => (float) env('WALLBOARD_UAV_KP_GREEN_MAX_EXCLUSIVE', 4),
+                    'orange_max_exclusive' => (float) env('WALLBOARD_UAV_KP_ORANGE_MAX_EXCLUSIVE', 6),
+                ],
+            ],
+        ],
     ],
     'retention' => [
         'push_logs_days' => (int) env('PUSH_LOG_RETENTION_DAYS', 90),
