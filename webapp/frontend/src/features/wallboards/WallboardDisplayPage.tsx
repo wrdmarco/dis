@@ -12,9 +12,11 @@ import {
   Expand,
   Loader2,
   LockKeyhole,
+  MapPin,
   MonitorUp,
   RefreshCw,
   RotateCw,
+  Siren,
   WifiOff,
 } from 'lucide-react';
 import { ApiClient, ApiClientError, apiBaseUrl } from '../../lib/apiClient';
@@ -24,21 +26,51 @@ import type {
   WallboardPage,
   WallboardPairingRequest,
   WallboardPairingStatus,
+  WallboardPilotAvailability,
   WallboardState,
+  WallboardStateRecentIncident,
+  WallboardTickerItem,
+  WallboardTransientAlert,
 } from '../../types/api';
 import { OperationalMapCanvas } from '../incidents/OperationalMapCanvas';
 import {
   buildWallboardMapPresentation,
   clampRefreshSeconds,
+  formatWallboardPilotAvailability,
+  normalizeWallboardDisplayProfile,
+  selectRecentWallboardIncidents,
   wallboardConfigurationCopy,
   wallboardPageMapConfiguration,
   wallboardStateIsStale,
+  wallboardTickerDurationSeconds,
+  wallboardTransientAlertIsActive,
 } from './wallboardPresentation';
 
 const wallboardApi = new ApiClient({ baseUrl: apiBaseUrl, onUnauthenticated: () => undefined });
 const CONTROL_POLL_MILLISECONDS = 2000;
 const DEFAULT_PAIRING_POLL_MILLISECONDS = 2000;
 const PAIRING_RETRY_MILLISECONDS = 10000;
+const WALLBOARD_TIME_ZONE = 'Europe/Amsterdam';
+const WALLBOARD_CLOCK_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+  timeZone: WALLBOARD_TIME_ZONE,
+});
+const WALLBOARD_DATE_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
+  weekday: 'short',
+  day: 'numeric',
+  month: 'short',
+  timeZone: WALLBOARD_TIME_ZONE,
+});
+const RECENT_INCIDENT_TIME_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
+  day: '2-digit',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: WALLBOARD_TIME_ZONE,
+});
 let pairingStartInFlight: Promise<WallboardPairingRequest> | null = null;
 
 export function WallboardDisplayPage() {
@@ -160,7 +192,9 @@ export function WallboardDisplayPage() {
         const nextState = normalizeWallboardState(response.data);
         setState(nextState);
         const nextControl = controlFromState(nextState);
-        setControl((current) => current !== null && current.control_version > nextControl.control_version ? current : nextControl);
+        setControl((current) => current !== null && current.control_version > nextControl.control_version
+          ? current
+          : stabilizeWallboardRotationDeadline(current, nextControl));
         if (lastControlIncidentActiveRef.current === null) {
           lastControlIncidentActiveRef.current = nextControl.display.incident_active;
         }
@@ -204,8 +238,8 @@ export function WallboardDisplayPage() {
       try {
         const response = await wallboardApi.get<WallboardControlState>('/wallboard/control');
         if (cancelled) return;
-        const nextControl = response.data;
-        setControl(nextControl);
+        const nextControl = normalizeWallboardControlState(response.data);
+        setControl((current) => stabilizeWallboardRotationDeadline(current, nextControl));
         setClock(Date.now());
         setControlError(null);
         let needsStateRefresh = false;
@@ -249,10 +283,11 @@ export function WallboardDisplayPage() {
   }, [hasPairedState]);
 
   useEffect(() => {
-    if (control?.display.mode !== 'rotation' || !control.display.next_change_at) return undefined;
+    if (!hasPairedState) return undefined;
+    setClock(Date.now());
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [control?.display.mode, control?.display.next_change_at]);
+  }, [hasPairedState]);
 
   const wallboardTheme = state?.wallboard.configuration.theme;
   const wallboardName = state?.wallboard.name;
@@ -369,15 +404,27 @@ export function WallboardDisplayPage() {
   if (state === null || presentation === null) return null;
   const configuration = state.wallboard.configuration;
   const effectiveControl = control ?? controlFromState(state);
+  const displayProfile = normalizeWallboardDisplayProfile(effectiveControl.display_profile);
   const display = effectiveControl.display;
   const currentPage = configuration.pages.find((page) => page.id === display.page_id) ?? configuration.pages[0];
   const currentPageIndex = configuration.pages.findIndex((page) => page.id === currentPage.id);
   const nextSwitchLabel = display.mode === 'rotation' && display.next_change_at
     ? `Volgende pagina over ${formatRemaining(display.next_change_at, clock)}`
     : displayModeLabel(display.mode);
+  const transientAlert = hasLiveFeed ? effectiveControl.transient_alert : null;
+  const showTransientAlert = wallboardTransientAlertIsActive(transientAlert, clock);
+  const persistentAlarmFocus = hasLiveFeed && state.operational_summary.active_alarm !== null;
+  const showTicker = hasLiveFeed
+    && !showTransientAlert
+    && !persistentAlarmFocus
+    && state.ticker.items.length > 0;
 
   return (
-    <main className={`wallboard-display wallboard-display--${configuration.theme}`} ref={rootRef}>
+    <main
+      className={`wallboard-display wallboard-display--${configuration.theme} wallboard-display--profile-${displayProfile}`}
+      data-display-profile={displayProfile}
+      ref={rootRef}
+    >
       <header className="wallboard-display__header">
         <div>
           <span className={`wallboard-display__live wallboard-display__live--${feedStatus}`}>
@@ -394,7 +441,15 @@ export function WallboardDisplayPage() {
           </span>
         </div>
         <div className="wallboard-display__controls">
-          <span className="wallboard-display__updated"><Clock3 size={15} aria-hidden /> {formatTime(state.generated_at)}</span>
+          <time
+            className="wallboard-display__clock"
+            dateTime={new Date(clock).toISOString()}
+            aria-label={`Lokale tijd ${formatWallboardClock(clock)}, ${formatWallboardDate(clock)}`}
+          >
+            <Clock3 size={20} aria-hidden />
+            <span>{formatWallboardClock(clock)}</span>
+            <small>{formatWallboardDate(clock)}</small>
+          </time>
           <button className="wallboard-display__control" type="button" onClick={() => setPollGeneration((current) => current + 1)} aria-label="Wallboard nu vernieuwen">
             <RefreshCw size={18} aria-hidden />
           </button>
@@ -415,24 +470,29 @@ export function WallboardDisplayPage() {
         </div>
       ) : null}
 
-      <section
-        className="wallboard-display__page"
-        key={`${state.wallboard.config_version}:${effectiveControl.control_version}:${currentPage.id}`}
-        aria-label={currentPage.name}
-        aria-live="polite"
-      >
-        <WallboardPageContent
-          page={currentPage}
-          state={state}
-          presentation={presentation}
-          hasLiveFeed={hasLiveFeed}
-        />
-      </section>
+      {showTransientAlert && transientAlert !== null ? (
+        <TransientAlertTakeover alert={transientAlert} />
+      ) : (
+        <section
+          className="wallboard-display__page"
+          key={`${state.wallboard.config_version}:${effectiveControl.control_version}:${currentPage.id}`}
+          aria-label={currentPage.name}
+          aria-live="polite"
+        >
+          <WallboardPageContent
+            page={currentPage}
+            state={state}
+            presentation={presentation}
+            hasLiveFeed={hasLiveFeed}
+          />
+        </section>
+      )}
 
       <footer className="wallboard-display__footer">
         <span>Pagina {Math.max(1, currentPageIndex + 1)} van {configuration.pages.length} · {nextSwitchLabel}</span>
         <span>{wakeLockActive ? 'Scherm blijft actief' : 'Gebruik volledig scherm om slaapstand te voorkomen'}</span>
       </footer>
+      {showTicker ? <WallboardTicker items={state.ticker.items} /> : null}
     </main>
   );
 }
@@ -453,8 +513,13 @@ function WallboardPageContent({ page, state, presentation, hasLiveFeed }: Wallbo
       wallboardPageMapConfiguration(state.wallboard.configuration, page),
     )
     : presentation;
-  const livePilots = pagePresentation.models.reduce((total, model) => total + model.liveLocations.length, 0);
-
+  const includeTestIncidents = ['incident_list', 'summary'].includes(page.type)
+    ? page.options.show_test_incidents === true
+    : configuration.show_test_incidents;
+  const recentIncidents = selectRecentWallboardIncidents(
+    state.operational_summary.recent_incidents,
+    includeTestIncidents,
+  );
   if (page.type === 'message') {
     return (
       <div className="wallboard-display__message">
@@ -469,14 +534,10 @@ function WallboardPageContent({ page, state, presentation, hasLiveFeed }: Wallbo
     return (
       <div className="wallboard-display__overview">
         <Summary label="Actieve incidenten" value={pagePresentation.models.length} emphasis />
-        <Summary label="Live piloten" value={hasLiveFeed ? livePilots : '—'} />
+        <PilotAvailabilityMetric availability={state.operational_summary.pilot_availability} isCurrent={hasLiveFeed} />
         <Summary label="Meldkamers" value={pagePresentation.layers.commandCenters.length} />
-        <Summary label="Historie" value={pagePresentation.layers.historicalIncidents.length} />
-        <div className="wallboard-display__overview-note">
-          <small>Operationele status</small>
-          <strong>{pagePresentation.models.length === 0 ? 'Geen actieve incidenten' : `${pagePresentation.models.length} actieve ${pagePresentation.models.length === 1 ? 'melding' : 'meldingen'}`}</strong>
-          <span>Bijgewerkt om {formatTime(state.generated_at)}</span>
-        </div>
+        <Summary label="Laatste meldingen" value={recentIncidents.length} />
+        <RecentIncidentList incidents={recentIncidents} />
       </div>
     );
   }
@@ -495,9 +556,9 @@ function WallboardPageContent({ page, state, presentation, hasLiveFeed }: Wallbo
       {configuration.show_summary ? (
         <section className="wallboard-display__summary" aria-label="Operationele samenvatting">
           <Summary label="Actieve incidenten" value={presentation.models.length} />
-          <Summary label="Live piloten" value={hasLiveFeed ? livePilots : '—'} />
+          <PilotAvailabilityMetric availability={state.operational_summary.pilot_availability} isCurrent={hasLiveFeed} />
           <Summary label="Meldkamers" value={presentation.layers.commandCenters.length} />
-          <Summary label="Historie" value={presentation.layers.historicalIncidents.length} />
+          <Summary label="Laatste meldingen" value={recentIncidents.length} />
         </section>
       ) : null}
 
@@ -528,6 +589,131 @@ function WallboardPageContent({ page, state, presentation, hasLiveFeed }: Wallbo
   );
 }
 
+function TransientAlertTakeover({ alert }: { alert: WallboardTransientAlert }) {
+  const alertLabel = alert.is_test ? 'Proefalarmering' : 'Nieuwe alarmering';
+
+  return (
+    <section
+      className={`wallboard-display__alarm ${alert.is_test ? 'wallboard-display__alarm--test' : ''}`}
+      key={alert.dispatch_id}
+      role="alert"
+      aria-label={`${alertLabel} ${alert.reference}: ${alert.title}`}
+    >
+      <span className="wallboard-display__alarm-icon" aria-hidden><Siren size={54} strokeWidth={1.8} /></span>
+      <span className="wallboard-display__alarm-eyebrow">{alertLabel}</span>
+      <div className="wallboard-display__alarm-meta">
+        <strong>{alert.reference}</strong>
+        <span>{priorityLabel(alert.priority)}</span>
+        {alert.is_test ? <b>TEST</b> : null}
+      </div>
+      <h2>{alert.title}</h2>
+      <p><MapPin size={24} aria-hidden /> {alert.location_label?.trim() || 'Locatie nog niet bekend'}</p>
+      <div className="wallboard-display__alarm-status">
+        <i aria-hidden />
+        <strong>{alert.is_test ? 'Proefalarm ontvangen' : 'Piloten worden gealarmeerd'}</strong>
+        <time dateTime={alert.received_at}>Binnengekomen {formatDateTime(alert.received_at)}</time>
+      </div>
+    </section>
+  );
+}
+
+function PilotAvailabilityMetric({
+  availability,
+  isCurrent,
+}: {
+  availability: WallboardPilotAvailability;
+  isCurrent: boolean;
+}) {
+  const hasValidCounts = isCurrent
+    && Number.isFinite(availability.available)
+    && Number.isFinite(availability.total)
+    && availability.available >= 0
+    && availability.total >= 0;
+  const total = hasValidCounts ? Math.max(0, Math.trunc(availability.total)) : null;
+  const available = hasValidCounts && total !== null
+    ? Math.min(total, Math.max(0, Math.trunc(availability.available)))
+    : null;
+  const pilotLabel = total === 1 ? 'piloot' : 'piloten';
+
+  return (
+    <div
+      className="wallboard-display__metric wallboard-display__metric--availability"
+      aria-label={formatWallboardPilotAvailability(availability, hasValidCounts)}
+    >
+      <small>Operationeel beschikbaar</small>
+      <strong>
+        <b>{available ?? '—'}</b>
+        <span>van {total ?? '—'} {pilotLabel}</span>
+      </strong>
+    </div>
+  );
+}
+
+function RecentIncidentList({ incidents }: { incidents: WallboardStateRecentIncident[] }) {
+  return (
+    <section className="wallboard-display__recent" aria-labelledby="wallboard-recent-incidents-title">
+      <header>
+        <span>
+          <small>Recent afgesloten</small>
+          <strong id="wallboard-recent-incidents-title">Laatste meldingen</strong>
+        </span>
+        <b>{incidents.length}</b>
+      </header>
+      {incidents.length === 0 ? (
+        <p>Er zijn nog geen laatste meldingen om te tonen.</p>
+      ) : (
+        <ul>
+          {incidents.map((incident) => (
+            <li key={incident.id}>
+              <span className="wallboard-display__recent-reference">{incident.reference}</span>
+              <strong>{incident.title}</strong>
+              <span>
+                {incident.is_test ? <b className="wallboard-display__recent-test">TEST</b> : null}
+                {incident.location_label?.trim() || 'Locatie niet vastgelegd'}
+              </span>
+              <time dateTime={incident.closed_at ?? undefined}>{formatRecentIncidentTime(incident.closed_at)}</time>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function WallboardTicker({ items }: { items: WallboardTickerItem[] }) {
+  const durationSeconds = wallboardTickerDurationSeconds(items);
+  const style = { '--wallboard-ticker-duration': `${durationSeconds}s` } as CSSProperties;
+
+  return (
+    <section className="wallboard-display__ticker" aria-labelledby="wallboard-ticker-title">
+      <h2 className="sr-only" id="wallboard-ticker-title">Actuele berichten</h2>
+      <ul className="sr-only">
+        {items.map((item, index) => <li key={`accessible-${item.source_id}-${index}`}>{item.source_label}: {item.text}</li>)}
+      </ul>
+      <strong className="wallboard-display__ticker-label">Actueel</strong>
+      <div className="wallboard-display__ticker-viewport" aria-hidden>
+        <div className="wallboard-display__ticker-track" style={style}>
+          <WallboardTickerGroup items={items} />
+          <WallboardTickerGroup items={items} duplicate />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function WallboardTickerGroup({ items, duplicate = false }: { items: WallboardTickerItem[]; duplicate?: boolean }) {
+  return (
+    <span className="wallboard-display__ticker-group">
+      {items.map((item, index) => (
+        <span className="wallboard-display__ticker-item" key={`${duplicate ? 'copy' : 'original'}-${item.source_id}-${index}`}>
+          <strong>{item.source_label}</strong>
+          <span>{item.text}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function IncidentCards({
   state,
   presentation,
@@ -539,12 +725,15 @@ function IncidentCards({
         const incident = state.map.incidents.find((item) => item.id === model.incident.id);
         return (
           <article key={model.incident.id} style={{ '--wallboard-incident-color': model.color } as CSSProperties}>
-            <span className="wallboard-display__incident-reference">{incident?.reference ?? 'Incident'}</span>
+            <span className="wallboard-display__incident-reference">
+              {incident?.reference ?? 'Incident'}
+              {incident?.is_test ? <b>TEST</b> : null}
+            </span>
             <h2>{model.incident.title}</h2>
             <p>{incident?.location_label ?? 'Locatie onbekend'}</p>
             <footer>
               <span>{priorityLabel(incident?.priority)}</span>
-              <span>{hasLiveFeed ? `${model.liveLocations.length} live` : 'Live status onbekend'}</span>
+              <span>{hasLiveFeed ? `${model.liveLocations.length} live op kaart` : 'Locatiestatus onbekend'}</span>
             </footer>
           </article>
         );
@@ -557,10 +746,16 @@ function Summary({ label, value, emphasis = false }: { label: string; value: num
   return <div className={emphasis ? 'wallboard-display__metric wallboard-display__metric--emphasis' : 'wallboard-display__metric'}><small>{label}</small><strong>{value}</strong></div>;
 }
 
-function normalizeWallboardState(state: WallboardState): WallboardState {
+export function normalizeWallboardState(state: WallboardState): WallboardState {
   const configuration = wallboardConfigurationCopy(state.wallboard.configuration);
+  const rawState = state as WallboardState & {
+    operational_summary?: WallboardState['operational_summary'];
+    ticker?: WallboardState['ticker'];
+  };
+  const operationalSummary = rawState.operational_summary;
   const rawWallboard = state.wallboard as WallboardState['wallboard'] & {
     control_version?: number;
+    display_profile?: unknown;
     display?: NonNullable<WallboardState['wallboard']['display']>;
   };
   const fallbackMode: WallboardDisplayMode = !configuration.rotation_enabled || configuration.pages.length <= 1 ? 'static' : 'rotation';
@@ -576,8 +771,17 @@ function normalizeWallboardState(state: WallboardState): WallboardState {
 
   return {
     ...state,
+    operational_summary: {
+      pilot_availability: operationalSummary?.pilot_availability
+        ?? { available: Number.NaN, total: Number.NaN },
+      active_alarm: operationalSummary?.active_alarm ?? null,
+      recent_incidents: operationalSummary?.recent_incidents ?? [],
+      transient_alert: operationalSummary?.transient_alert ?? null,
+    },
+    ticker: rawState.ticker ?? { items: [] },
     wallboard: {
       ...state.wallboard,
+      display_profile: normalizeWallboardDisplayProfile(rawWallboard.display_profile),
       configuration,
       control_version: rawWallboard.control_version ?? 1,
       display: { ...display, page_id: pageId },
@@ -594,6 +798,8 @@ function controlFromState(state: WallboardState): WallboardControlState {
   return {
     config_version: state.wallboard.config_version,
     control_version: state.wallboard.control_version ?? 1,
+    display_profile: normalizeWallboardDisplayProfile(state.wallboard.display_profile),
+    transient_alert: state.operational_summary.transient_alert,
     display: state.wallboard.display ?? {
       mode: fallbackMode,
       page_id: state.wallboard.configuration.pages[0].id,
@@ -601,6 +807,81 @@ function controlFromState(state: WallboardState): WallboardControlState {
       next_change_at: null,
     },
   };
+}
+
+function normalizeWallboardControlState(state: WallboardControlState): WallboardControlState {
+  const legacyState = state as WallboardControlState & {
+    display_profile?: unknown;
+    transient_alert?: WallboardTransientAlert | null;
+  };
+  return {
+    ...state,
+    display_profile: normalizeWallboardDisplayProfile(legacyState.display_profile),
+    transient_alert: legacyState.transient_alert ?? null,
+  };
+}
+
+export function stabilizeWallboardRotationDeadline(
+  current: WallboardControlState | null,
+  next: WallboardControlState,
+  now: number = Date.now(),
+): WallboardControlState {
+  // A control/config version identifies one server-controlled rotation phase.
+  // Polling that phase may never postpone its still-pending page deadline.
+  if (
+    current === null
+    || current.config_version !== next.config_version
+    || current.control_version !== next.control_version
+    || current.display.mode !== 'rotation'
+    || next.display.mode !== 'rotation'
+    || current.display.page_id !== next.display.page_id
+  ) {
+    return stabilizeWallboardTransientAlert(current, next, now);
+  }
+
+  const currentDeadline = current.display.next_change_at;
+  const nextDeadline = next.display.next_change_at;
+  if (currentDeadline === null || currentDeadline === undefined || nextDeadline === null || nextDeadline === undefined) {
+    return stabilizeWallboardTransientAlert(current, next, now);
+  }
+
+  const currentDeadlineMilliseconds = Date.parse(currentDeadline);
+  const nextDeadlineMilliseconds = Date.parse(nextDeadline);
+  if (
+    !Number.isFinite(currentDeadlineMilliseconds)
+    || !Number.isFinite(nextDeadlineMilliseconds)
+    || currentDeadlineMilliseconds <= now
+    || nextDeadlineMilliseconds <= currentDeadlineMilliseconds
+  ) {
+    return stabilizeWallboardTransientAlert(current, next, now);
+  }
+
+  return stabilizeWallboardTransientAlert(current, {
+    ...next,
+    display: {
+      ...next.display,
+      next_change_at: currentDeadline,
+    },
+  }, now);
+}
+
+function stabilizeWallboardTransientAlert(
+  current: WallboardControlState | null,
+  next: WallboardControlState,
+  now: number,
+): WallboardControlState {
+  const currentAlert = current?.transient_alert ?? null;
+  const nextAlert = next.transient_alert;
+  if (currentAlert === null || !wallboardTransientAlertIsActive(currentAlert, now)) return next;
+  if (nextAlert === null) return { ...next, transient_alert: currentAlert };
+
+  const currentReceivedAt = Date.parse(currentAlert.received_at);
+  const nextReceivedAt = Date.parse(nextAlert.received_at);
+  if (Number.isFinite(currentReceivedAt) && (!Number.isFinite(nextReceivedAt) || currentReceivedAt > nextReceivedAt)) {
+    return { ...next, transient_alert: currentAlert };
+  }
+
+  return next;
 }
 
 function displayModeLabel(mode: WallboardDisplayMode): string {
@@ -656,9 +937,20 @@ function formatPairingCountdown(totalSeconds: number): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
-function formatTime(value: string): string {
+export function formatWallboardClock(value: number): string {
   const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('nl-NL', { timeStyle: 'medium' }).format(date) : '--:--';
+  return Number.isFinite(date.getTime()) ? WALLBOARD_CLOCK_FORMATTER.format(date) : '--:--:--';
+}
+
+function formatWallboardDate(value: number): string {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? WALLBOARD_DATE_FORMATTER.format(date) : 'Datum onbekend';
+}
+
+function formatRecentIncidentTime(value: string | null | undefined): string {
+  if (!value) return 'Tijd niet vastgelegd';
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? RECENT_INCIDENT_TIME_FORMATTER.format(date) : 'Tijd niet vastgelegd';
 }
 
 function formatDateTime(value: string): string {

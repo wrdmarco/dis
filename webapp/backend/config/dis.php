@@ -76,6 +76,10 @@ return [
         'rotation_hours' => (int) env('WALLBOARD_SESSION_ROTATION_HOURS', 12),
         'rotation_grace_seconds' => (int) env('WALLBOARD_SESSION_ROTATION_GRACE_SECONDS', 120),
         'touch_interval_seconds' => (int) env('WALLBOARD_SESSION_TOUCH_INTERVAL_SECONDS', 60),
+        'ticker_connect_timeout_seconds' => (int) env('WALLBOARD_TICKER_CONNECT_TIMEOUT_SECONDS', 2),
+        'ticker_timeout_seconds' => (int) env('WALLBOARD_TICKER_TIMEOUT_SECONDS', 4),
+        'ticker_cache_seconds' => (int) env('WALLBOARD_TICKER_CACHE_SECONDS', 300),
+        'ticker_failure_cache_seconds' => (int) env('WALLBOARD_TICKER_FAILURE_CACHE_SECONDS', 60),
     ],
     'retention' => [
         'push_logs_days' => (int) env('PUSH_LOG_RETENTION_DAYS', 90),

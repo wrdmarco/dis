@@ -7,6 +7,7 @@ use App\Http\Controllers\AdminOsrmController;
 use App\Http\Controllers\AdminPushController;
 use App\Http\Controllers\AdminStoreReviewController;
 use App\Http\Controllers\AdminWallboardController;
+use App\Http\Controllers\AdminWallboardPlaylistController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\AvailabilityScheduleController;
@@ -276,11 +277,23 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/devices', [DeviceController::class, 'index']);
 
         Route::get('/admin/roles', [AdminController::class, 'roles'])->middleware('permission:roles.manage');
+        Route::get('/admin/wallboard-playlists', [AdminWallboardPlaylistController::class, 'index'])
+            ->middleware('permission:wallboards.manage');
+        Route::post('/admin/wallboard-playlists', [AdminWallboardPlaylistController::class, 'store'])
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
+        Route::get('/admin/wallboard-playlists/{wallboardPlaylist}', [AdminWallboardPlaylistController::class, 'show'])
+            ->middleware('permission:wallboards.manage');
+        Route::patch('/admin/wallboard-playlists/{wallboardPlaylist}', [AdminWallboardPlaylistController::class, 'update'])
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
+        Route::delete('/admin/wallboard-playlists/{wallboardPlaylist}', [AdminWallboardPlaylistController::class, 'destroy'])
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
         Route::get('/admin/wallboards', [AdminWallboardController::class, 'index'])->middleware('permission:wallboards.manage');
         Route::post('/admin/wallboards', [AdminWallboardController::class, 'store'])->middleware('permission:wallboards.manage');
         Route::get('/admin/wallboards/{wallboard}', [AdminWallboardController::class, 'show'])->middleware('permission:wallboards.manage');
         Route::patch('/admin/wallboards/{wallboard}', [AdminWallboardController::class, 'update'])->middleware('permission:wallboards.manage');
         Route::delete('/admin/wallboards/{wallboard}', [AdminWallboardController::class, 'destroy'])->middleware('permission:wallboards.manage');
+        Route::patch('/admin/wallboards/{wallboard}/playlist', [AdminWallboardPlaylistController::class, 'assign'])
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
         Route::post('/admin/wallboards/{wallboard}/pair', [AdminWallboardController::class, 'pair'])
             ->middleware(['permission:wallboards.manage', 'throttle:wallboard-pairing-approve']);
         Route::post('/admin/wallboards/{wallboard}/sessions/revoke', [AdminWallboardController::class, 'revokeSessions'])->middleware('permission:wallboards.manage');

@@ -13,9 +13,24 @@ final class Wallboard extends Model
 
     public const LAYOUT_FULLSCREEN_MAP = 'fullscreen_map';
 
+    public const DISPLAY_PROFILE_AUTO = 'auto';
+
+    public const DISPLAY_PROFILE_1080P = '1080p';
+
+    public const DISPLAY_PROFILE_4K = '4k';
+
+    /** @var list<string> */
+    public const DISPLAY_PROFILES = [
+        self::DISPLAY_PROFILE_AUTO,
+        self::DISPLAY_PROFILE_1080P,
+        self::DISPLAY_PROFILE_4K,
+    ];
+
     protected $fillable = [
         'name',
+        'playlist_id',
         'layout',
+        'display_profile',
         'configuration',
         'config_version',
         'control_version',
@@ -48,9 +63,20 @@ final class Wallboard extends Model
         return $this->hasMany(WallboardSession::class);
     }
 
+    public function nonRevokedSessions(): HasMany
+    {
+        return $this->sessions()
+            ->whereNull('revoked_at');
+    }
+
     public function pairingRequests(): HasMany
     {
         return $this->hasMany(WallboardPairingRequest::class);
+    }
+
+    public function playlist(): BelongsTo
+    {
+        return $this->belongsTo(WallboardPlaylist::class, 'playlist_id');
     }
 
     public function creator(): BelongsTo

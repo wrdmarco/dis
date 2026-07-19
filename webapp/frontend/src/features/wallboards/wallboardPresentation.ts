@@ -1,10 +1,18 @@
 import type {
   Wallboard,
   WallboardConfiguration,
+  WallboardDisplayProfile,
   WallboardMapConfiguration,
   WallboardPage,
   WallboardPageType,
+  WallboardPilotAvailability,
   WallboardState,
+  WallboardStateRecentIncident,
+  WallboardTickerConfiguration,
+  WallboardTickerItem,
+  WallboardTickerSource,
+  WallboardTickerSourceType,
+  WallboardTransientAlert,
 } from '../../types/api';
 import {
   type OperationalMapIncidentModel,
@@ -17,6 +25,21 @@ export const MIN_WALLBOARD_REFRESH_SECONDS = 5;
 export const MAX_WALLBOARD_REFRESH_SECONDS = 60;
 export const MIN_WALLBOARD_PAGE_DURATION_SECONDS = 5;
 export const MAX_WALLBOARD_PAGE_DURATION_SECONDS = 3600;
+export const MAX_WALLBOARD_TICKER_SOURCES = 10;
+const WALLBOARD_HEARTBEAT_GRACE_SECONDS = 90;
+const DEFAULT_RECENT_INCIDENT_LIMIT = 4;
+
+export function normalizeWallboardDisplayProfile(value: unknown): WallboardDisplayProfile {
+  return value === '1080p' || value === '4k' ? value : 'auto';
+}
+
+export function wallboardDisplayProfileLabel(profile: WallboardDisplayProfile): string {
+  switch (profile) {
+    case 'auto': return 'Auto';
+    case '1080p': return '1080p';
+    case '4k': return '4K';
+  }
+}
 
 export const DEFAULT_WALLBOARD_MAP_CONFIGURATION: WallboardMapConfiguration = {
   show_active_incidents: true,
@@ -35,6 +58,10 @@ export const DEFAULT_WALLBOARD_CONFIGURATION: WallboardConfiguration = {
   theme: 'dark',
   refresh_seconds: 10,
   map: DEFAULT_WALLBOARD_MAP_CONFIGURATION,
+  ticker: {
+    enabled: false,
+    sources: [],
+  },
   pages: [{
     id: 'map-overview',
     type: 'map',
@@ -62,6 +89,7 @@ export function wallboardConfigurationCopy(configuration: WallboardConfiguration
     incident_override?: WallboardConfiguration['incident_override'];
   };
   const fallbackMap = { ...DEFAULT_WALLBOARD_MAP_CONFIGURATION, ...legacyConfiguration.map };
+  const ticker = wallboardTickerConfigurationCopy(legacyConfiguration.ticker);
   const sourcePages = Array.isArray(legacyConfiguration.pages) && legacyConfiguration.pages.length > 0
     ? legacyConfiguration.pages
     : [{ ...DEFAULT_WALLBOARD_CONFIGURATION.pages[0], options: {} }];
@@ -75,6 +103,7 @@ export function wallboardConfigurationCopy(configuration: WallboardConfiguration
     ...legacyConfiguration,
     refresh_seconds: clampRefreshSeconds(legacyConfiguration.refresh_seconds),
     map: fallbackMap,
+    ticker,
     pages,
     rotation_enabled: legacyConfiguration.rotation_enabled ?? true,
     incident_override: {
@@ -114,6 +143,19 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
   };
 }
 
+export function createWallboardTickerSource(
+  type: WallboardTickerSourceType,
+  sequence: number,
+): WallboardTickerSource {
+  const suffix = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${sequence}`;
+
+  return type === 'rss'
+    ? { id: `ticker-${suffix}`, type, label: 'Nieuws- of weer-RSS', url: '' }
+    : { id: `ticker-${suffix}`, type, label: 'Intern bericht', text: '' };
+}
+
 export function wallboardPageTypeLabel(type: WallboardPageType): string {
   switch (type) {
     case 'map': return 'Operationele kaart';
@@ -144,16 +186,77 @@ export function clampRefreshSeconds(value: number): number {
 }
 
 export function wallboardIsOnline(wallboard: Wallboard, now = Date.now()): boolean {
-  if (
-    !wallboard.is_enabled
-    || wallboard.active_sessions_count <= 0
-    || wallboard.last_seen_at === null
-    || wallboard.last_seen_at === undefined
-  ) return false;
+  if (!wallboard.is_enabled) return false;
+  if (typeof wallboard.is_online === 'boolean') return wallboard.is_online;
+  if (wallboard.active_sessions_count <= 0 || !wallboard.last_seen_at) return false;
+
   const lastSeen = Date.parse(wallboard.last_seen_at);
   if (!Number.isFinite(lastSeen)) return false;
-  const allowedAge = Math.max(60, clampRefreshSeconds(wallboard.configuration.refresh_seconds) * 3) * 1000;
+
+  // The kiosk persists its heartbeat at most once per minute. A short grace
+  // window prevents the management status from flapping between two touches,
+  // while the timestamp still provides a real liveness boundary.
+  const allowedAge = Math.max(
+    WALLBOARD_HEARTBEAT_GRACE_SECONDS,
+    clampRefreshSeconds(wallboard.configuration.refresh_seconds) * 3,
+  ) * 1000;
   return now - lastSeen <= allowedAge;
+}
+
+export function wallboardPlaylistUsageCount(playlist: {
+  linked_wallboards_count: number;
+}): number {
+  const value = playlist.linked_wallboards_count;
+  return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+}
+
+export function formatWallboardPilotAvailability(
+  availability: WallboardPilotAvailability,
+  isCurrent = true,
+): string {
+  if (
+    !isCurrent
+    || !Number.isFinite(availability.available)
+    || !Number.isFinite(availability.total)
+    || availability.available < 0
+    || availability.total < 0
+  ) return 'Operationele beschikbaarheid onbekend';
+
+  const total = nonNegativeInteger(availability.total);
+  const available = Math.min(total, nonNegativeInteger(availability.available));
+  return `Operationeel beschikbaar ${available} van ${total} ${total === 1 ? 'piloot' : 'piloten'}`;
+}
+
+export function wallboardTransientAlertIsActive(alert: WallboardTransientAlert | null, now = Date.now()): boolean {
+  if (alert === null) return false;
+  const expiresAt = Date.parse(alert.expires_at);
+  return Number.isFinite(expiresAt) && expiresAt > now;
+}
+
+export function selectRecentWallboardIncidents(
+  incidents: WallboardStateRecentIncident[],
+  includeTestIncidents = false,
+  limit = DEFAULT_RECENT_INCIDENT_LIMIT,
+): WallboardStateRecentIncident[] {
+  const boundedLimit = Math.max(0, Math.trunc(limit));
+  return incidents
+    .filter((incident) => includeTestIncidents || !incident.is_test)
+    .slice()
+    .sort((left, right) => {
+      const leftTimestamp = incidentTimestamp(left.closed_at);
+      const rightTimestamp = incidentTimestamp(right.closed_at);
+      if (leftTimestamp === rightTimestamp) return 0;
+      return rightTimestamp > leftTimestamp ? 1 : -1;
+    })
+    .slice(0, boundedLimit);
+}
+
+export function wallboardTickerDurationSeconds(items: WallboardTickerItem[]): number {
+  const characters = items.reduce(
+    (total, item) => total + item.source_label.length + item.text.length + 6,
+    0,
+  );
+  return Math.min(120, Math.max(24, Math.ceil(characters / 8)));
 }
 
 export function wallboardStateIsStale(state: WallboardState, now = Date.now()): boolean {
@@ -247,4 +350,35 @@ function normalizeWallboardPage(
         ? { show_test_incidents: page.options?.show_test_incidents === true }
         : {},
   };
+}
+
+function wallboardTickerConfigurationCopy(
+  ticker: WallboardTickerConfiguration | undefined,
+): WallboardTickerConfiguration {
+  if (ticker === undefined || !Array.isArray(ticker.sources)) {
+    return { ...DEFAULT_WALLBOARD_CONFIGURATION.ticker, sources: [] };
+  }
+
+  return {
+    enabled: ticker.enabled === true,
+    sources: ticker.sources
+      .filter((source) => source.type === 'rss' || source.type === 'internal')
+      .slice(0, MAX_WALLBOARD_TICKER_SOURCES)
+      .map((source) => ({
+        id: source.id,
+        type: source.type,
+        label: source.label,
+        ...(source.type === 'rss' ? { url: source.url ?? '' } : { text: source.text ?? '' }),
+      })),
+  };
+}
+
+function incidentTimestamp(value: string | null | undefined): number {
+  if (!value) return Number.NEGATIVE_INFINITY;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+}
+
+function nonNegativeInteger(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
 }

@@ -20,9 +20,10 @@ final class WallboardRepository extends BaseRepository
     public function allForManagement(): Collection
     {
         return Wallboard::query()
-            ->withCount(['sessions as active_sessions_count' => fn ($query) => $query
-                ->whereNull('revoked_at')
-                ->where('expires_at', '>', now())])
+            ->with([
+                'playlist:id,name,configuration,version',
+                'nonRevokedSessions:id,wallboard_id,last_seen_at,expires_at',
+            ])
             ->orderBy('name')
             ->get();
     }
@@ -30,15 +31,23 @@ final class WallboardRepository extends BaseRepository
     public function findForManagement(string $id): Wallboard
     {
         return Wallboard::query()
-            ->withCount(['sessions as active_sessions_count' => fn ($query) => $query
-                ->whereNull('revoked_at')
-                ->where('expires_at', '>', now())])
+            ->with([
+                'playlist:id,name,configuration,version',
+                'nonRevokedSessions:id,wallboard_id,last_seen_at,expires_at',
+            ])
             ->findOrFail($id);
     }
 
     public function lockWallboard(string $id): Wallboard
     {
         return Wallboard::query()->whereKey($id)->lockForUpdate()->firstOrFail();
+    }
+
+    public function playlistId(string $id): ?string
+    {
+        $playlistId = Wallboard::query()->whereKey($id)->value('playlist_id');
+
+        return $playlistId === null ? null : (string) $playlistId;
     }
 
     public function lockWallboardOrNull(string $id): ?Wallboard
@@ -49,7 +58,7 @@ final class WallboardRepository extends BaseRepository
     public function lockSession(string $id): ?WallboardSession
     {
         return WallboardSession::query()
-            ->with('wallboard')
+            ->with('wallboard.playlist')
             ->whereKey($id)
             ->lockForUpdate()
             ->first();

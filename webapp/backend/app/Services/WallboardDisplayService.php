@@ -10,6 +10,8 @@ use Carbon\CarbonInterface;
 
 final class WallboardDisplayService
 {
+    public function __construct(private readonly WallboardPlaylistResolver $playlistResolver) {}
+
     /**
      * Resolve the page server-side so an administrator and the kiosk always see
      * the same rotation position. Incident override deliberately takes priority
@@ -20,7 +22,7 @@ final class WallboardDisplayService
      */
     public function display(Wallboard $wallboard, ?array $configuration = null, ?bool $incidentActive = null): array
     {
-        $configuration ??= WallboardConfiguration::normalize((array) $wallboard->configuration);
+        $configuration ??= $this->playlistResolver->resolve($wallboard);
         $pages = array_values((array) $configuration['pages']);
         $firstPageId = (string) $pages[0]['id'];
         $incidentActive ??= $this->hasActiveAlarmIncident();
@@ -56,11 +58,16 @@ final class WallboardDisplayService
      */
     private function rotationResult(Wallboard $wallboard, array $pages, bool $incidentActive): array
     {
-        $now = now();
-        $anchor = $wallboard->rotation_started_at;
-        if (! $anchor instanceof CarbonInterface || $anchor->isFuture()) {
+        $now = ApiDateTime::comparableWallClock(now());
+        $anchor = $wallboard->rotation_started_at instanceof CarbonInterface
+            ? ApiDateTime::comparableWallClock($wallboard->rotation_started_at)
+            : null;
+        if (! $anchor instanceof CarbonInterface || $anchor->isAfter($now)) {
             $anchor = collect([$wallboard->updated_at, $wallboard->created_at])
-                ->first(fn (mixed $candidate): bool => $candidate instanceof CarbonInterface && ! $candidate->isFuture())
+                ->map(fn (mixed $candidate): ?CarbonInterface => $candidate instanceof CarbonInterface
+                    ? ApiDateTime::comparableWallClock($candidate)
+                    : null)
+                ->first(fn (mixed $candidate): bool => $candidate instanceof CarbonInterface && ! $candidate->isAfter($now))
                 ?? $now;
         }
 
@@ -70,11 +77,15 @@ final class WallboardDisplayService
         ));
         $elapsedSeconds = max(0, $now->getTimestamp() - $anchor->getTimestamp());
         $cycleOffset = $cycleSeconds === 0 ? 0 : $elapsedSeconds % $cycleSeconds;
+        $cycleStartedAfterSeconds = $elapsedSeconds - $cycleOffset;
+        $pageStartedAfterSeconds = 0;
 
         foreach ($pages as $page) {
             $duration = (int) $page['duration_seconds'];
             if ($cycleOffset < $duration) {
-                $nextChangeAt = $now->copy()->addSeconds(max(1, $duration - $cycleOffset));
+                $nextChangeAt = $anchor->copy()->addSeconds(
+                    $cycleStartedAfterSeconds + $pageStartedAfterSeconds + $duration,
+                );
 
                 return $this->result(
                     'rotation',
@@ -85,6 +96,7 @@ final class WallboardDisplayService
             }
 
             $cycleOffset -= $duration;
+            $pageStartedAfterSeconds += $duration;
         }
 
         return $this->result('rotation', (string) $pages[0]['id'], $incidentActive, $now->copy()->addSecond());

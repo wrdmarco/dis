@@ -222,6 +222,7 @@ export interface OperationalMapPilotHome {
 }
 
 export type WallboardLayout = 'fullscreen_map';
+export type WallboardDisplayProfile = 'auto' | '1080p' | '4k';
 export type WallboardTheme = 'dark' | 'light';
 export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'message';
 export type WallboardDisplayMode = 'rotation' | 'static' | 'manual' | 'incident_override';
@@ -243,6 +244,7 @@ export interface WallboardConfiguration {
   theme: WallboardTheme;
   refresh_seconds: number;
   map: WallboardMapConfiguration;
+  ticker: WallboardTickerConfiguration;
   pages: WallboardPage[];
   rotation_enabled: boolean;
   incident_override: WallboardIncidentOverride;
@@ -266,6 +268,28 @@ export interface WallboardIncidentOverride {
   page_id: string | null;
 }
 
+export type WallboardTickerSourceType = 'rss' | 'internal';
+
+export interface WallboardTickerSource {
+  id: string;
+  type: WallboardTickerSourceType;
+  label: string;
+  url?: string;
+  text?: string;
+}
+
+export interface WallboardTickerConfiguration {
+  enabled: boolean;
+  sources: WallboardTickerSource[];
+}
+
+export interface WallboardTickerItem {
+  source_id: string;
+  source_type: WallboardTickerSourceType;
+  source_label: string;
+  text: string;
+}
+
 export interface WallboardDisplayState {
   mode: WallboardDisplayMode;
   page_id: string;
@@ -273,12 +297,39 @@ export interface WallboardDisplayState {
   next_change_at?: string | null;
 }
 
+export interface WallboardPlaylistReference {
+  id: string;
+  name: string;
+  version: number;
+}
+
+export interface WallboardPlaylist extends WallboardPlaylistReference {
+  configuration: WallboardConfiguration;
+  linked_wallboards_count: number;
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface WallboardPlaylistAssignment {
+  wallboard_id: string;
+  playlist_id: string;
+  configuration: WallboardConfiguration;
+  config_version: number;
+  control_version: number;
+}
+
 export interface Wallboard {
   id: string;
   name: string;
   layout: WallboardLayout;
+  display_profile: WallboardDisplayProfile;
   configuration: WallboardConfiguration;
+  playlist_id: string;
+  playlist: WallboardPlaylistReference;
   is_enabled: boolean;
+  is_online?: boolean;
   config_version: number;
   control_version?: number;
   manual_page_id?: string | null;
@@ -352,21 +403,72 @@ export interface WallboardStateLiveLocation {
   route?: IncidentLiveLocation['route'];
 }
 
+export interface WallboardPilotAvailability {
+  available: number;
+  total: number;
+}
+
+export interface WallboardStateActiveAlarm {
+  id: string;
+  reference: string;
+  title: string;
+  status: Extract<Incident['status'], 'dispatching' | 'in_progress'>;
+  priority: Incident['priority'];
+  location_label?: string | null;
+  opened_at?: string | null;
+}
+
+export interface WallboardStateRecentIncident {
+  id: string;
+  reference: string;
+  title: string;
+  status: Extract<Incident['status'], 'resolved' | 'cancelled'>;
+  priority: Incident['priority'];
+  is_test: boolean;
+  location_label?: string | null;
+  closed_at?: string | null;
+}
+
+export interface WallboardTransientAlert {
+  dispatch_id: string;
+  incident_id: string;
+  reference: string;
+  title: string;
+  priority: Incident['priority'];
+  location_label?: string | null;
+  received_at: string;
+  expires_at: string;
+  is_test: boolean;
+}
+
+export interface WallboardOperationalSummary {
+  pilot_availability: WallboardPilotAvailability;
+  active_alarm: WallboardStateActiveAlarm | null;
+  recent_incidents: WallboardStateRecentIncident[];
+  transient_alert: WallboardTransientAlert | null;
+}
+
 export interface WallboardState {
   generated_at: string;
-  wallboard: Pick<Wallboard, 'id' | 'name' | 'layout' | 'configuration' | 'config_version' | 'control_version' | 'display' | 'updated_at'>;
+  wallboard: Pick<Wallboard, 'id' | 'name' | 'layout' | 'display_profile' | 'configuration' | 'config_version' | 'control_version' | 'display' | 'updated_at'>;
   map: {
     incidents: WallboardStateIncident[];
     command_centers: WallboardStateCommandCenter[];
     historical_incidents: WallboardStateHistoricalIncident[];
     live_locations: WallboardStateLiveLocation[];
   };
+  operational_summary: WallboardOperationalSummary;
+  ticker: {
+    items: WallboardTickerItem[];
+  };
 }
 
 export interface WallboardControlState {
   config_version: number;
   control_version: number;
+  display_profile: WallboardDisplayProfile;
   display: WallboardDisplayState;
+  transient_alert: WallboardTransientAlert | null;
 }
 
 export interface IncidentInternalNotes {

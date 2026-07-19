@@ -6,29 +6,37 @@ use App\DTO\Routing\RouteGeometry;
 use App\DTO\Routing\RoutePoint;
 use App\Models\AvailabilityStatus;
 use App\Models\DispatchRecipient;
+use App\Models\DispatchRequest;
 use App\Models\Incident;
 use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
+use App\Models\SystemSetting;
 use App\Models\User;
 use App\Models\Wallboard;
 use App\Services\Routing\RouteGeometryService;
 use App\Support\ApiDateTime;
-use App\Support\WallboardConfiguration;
 use Illuminate\Support\Collection;
 
 final class WallboardStateService
 {
+    private const RECENT_INCIDENT_LIMIT = 20;
+
     public function __construct(
         private readonly OperationalMapService $operationalMap,
         private readonly RouteGeometryService $routeGeometryService,
         private readonly WallboardDisplayService $displayService,
+        private readonly WallboardPlaylistResolver $playlistResolver,
+        private readonly AvailabilityScheduleService $availabilityScheduleService,
+        private readonly WallboardTickerService $tickerService,
     ) {}
 
     /** @return array<string, mixed> */
     public function state(Wallboard $wallboard): array
     {
-        $configuration = WallboardConfiguration::normalize((array) $wallboard->configuration);
-        $display = $this->displayService->display($wallboard, $configuration);
+        $configuration = $this->playlistResolver->resolve($wallboard);
+        $activeAlarm = $this->activeAlarm();
+        $transientAlert = $this->transientAlert();
+        $display = $this->displayService->display($wallboard, $configuration, $activeAlarm !== null);
         $mapConfiguration = (array) $configuration['map'];
         $pages = collect((array) $configuration['pages']);
         $hasMapPage = $pages->contains(fn (mixed $page): bool => is_array($page)
@@ -36,6 +44,10 @@ final class WallboardStateService
         $incidentPages = $pages
             ->filter(fn (mixed $page): bool => is_array($page)
                 && in_array((string) ($page['type'] ?? ''), ['incident_list', 'summary'], true));
+        $summaryPages = $incidentPages
+            ->filter(fn (array $page): bool => (string) ($page['type'] ?? '') === 'summary');
+        $showsOperationalSummary = $summaryPages->isNotEmpty()
+            || ($hasMapPage && ($mapConfiguration['show_summary'] ?? false) === true);
         $needsIncidents = ($hasMapPage && (
             ($mapConfiguration['show_active_incidents'] ?? false) === true
             || ($mapConfiguration['show_live_locations'] ?? false) === true
@@ -43,6 +55,11 @@ final class WallboardStateService
             || $incidentPages->isNotEmpty();
         $includeTestIncidents = ($hasMapPage && ($mapConfiguration['show_test_incidents'] ?? false) === true)
             || $incidentPages->contains(fn (array $page): bool => ((array) ($page['options'] ?? []))['show_test_incidents'] ?? false);
+        $includeTestRecentIncidents = $summaryPages->contains(
+            fn (array $page): bool => ((array) ($page['options'] ?? []))['show_test_incidents'] ?? false,
+        ) || ($hasMapPage
+            && ($mapConfiguration['show_summary'] ?? false) === true
+            && ($mapConfiguration['show_test_incidents'] ?? false) === true);
         $incidents = $needsIncidents
             ? $this->activeIncidents($includeTestIncidents)
             : collect();
@@ -62,11 +79,25 @@ final class WallboardStateService
                 'id' => (string) $wallboard->id,
                 'name' => (string) $wallboard->name,
                 'layout' => (string) $wallboard->layout,
+                'display_profile' => (string) $wallboard->display_profile,
                 'configuration' => $configuration,
                 'config_version' => (int) $wallboard->config_version,
                 'control_version' => (int) $wallboard->control_version,
                 'display' => $display,
                 'updated_at' => ApiDateTime::dateTime($wallboard->updated_at),
+            ],
+            'operational_summary' => [
+                'pilot_availability' => $showsOperationalSummary
+                    ? $this->pilotAvailability()
+                    : ['available' => 0, 'total' => 0],
+                'active_alarm' => $activeAlarm,
+                'recent_incidents' => $showsOperationalSummary
+                    ? $this->recentIncidents($includeTestRecentIncidents)
+                    : [],
+                'transient_alert' => $transientAlert,
+            ],
+            'ticker' => [
+                'items' => $this->tickerService->items((array) $configuration['ticker']),
             ],
             'map' => [
                 'incidents' => $incidents->map(fn (Incident $incident): array => $this->incidentPayload($incident))->values()->all(),
@@ -86,14 +117,133 @@ final class WallboardStateService
     /** @return array<string, mixed> */
     public function control(Wallboard $wallboard): array
     {
-        $configuration = WallboardConfiguration::normalize((array) $wallboard->configuration);
+        $configuration = $this->playlistResolver->resolve($wallboard);
+        $activeAlarm = $this->activeAlarm();
 
         return [
             'generated_at' => ApiDateTime::now(),
+            'display_profile' => (string) $wallboard->display_profile,
             'config_version' => (int) $wallboard->config_version,
             'control_version' => (int) $wallboard->control_version,
-            'display' => $this->displayService->display($wallboard, $configuration),
+            'display' => $this->displayService->display($wallboard, $configuration, $activeAlarm !== null),
+            'transient_alert' => $this->transientAlert(),
             'poll_after_seconds' => 2,
+        ];
+    }
+
+    /** @return array{available: int, total: int} */
+    private function pilotAvailability(): array
+    {
+        $pilots = User::query()
+            ->where('account_status', 'active')
+            ->whereHas('teams', fn ($teams) => $teams->where('teams.code', 'OCP'))
+            ->whereHas('roles', fn ($roles) => $roles->where('roles.name', 'operator-pilot'))
+            ->with(['statuses' => fn ($statuses) => $statuses->latestPerUser()])
+            ->get(['id', 'push_enabled']);
+        $scheduledAvailability = $this->availabilityScheduleService->availabilityByUser($pilots);
+        $available = $pilots->filter(function (User $pilot) use ($scheduledAvailability): bool {
+            $latestStatus = $pilot->statuses->first();
+
+            return (bool) $pilot->push_enabled
+                && ($latestStatus === null || (bool) $latestStatus->is_available)
+                && ($scheduledAvailability[(string) $pilot->id] ?? true);
+        })->count();
+
+        return ['available' => $available, 'total' => $pilots->count()];
+    }
+
+    /**
+     * @return array{id: string, reference: string, title: string, status: string, priority: string, location_label: string|null, opened_at: string|null}|null
+     */
+    private function activeAlarm(): ?array
+    {
+        $incident = Incident::query()
+            ->whereIn('status', ['dispatching', 'in_progress'])
+            ->where('is_test', false)
+            ->orderByDesc('opened_at')
+            ->orderByDesc('created_at')
+            ->first(['id', 'reference', 'title', 'status', 'priority', 'location_label', 'opened_at']);
+        if (! $incident instanceof Incident) {
+            return null;
+        }
+
+        return [
+            'id' => (string) $incident->id,
+            'reference' => (string) $incident->reference,
+            'title' => (string) $incident->title,
+            'status' => (string) $incident->status,
+            'priority' => (string) $incident->priority,
+            'location_label' => $incident->location_label,
+            'opened_at' => ApiDateTime::dateTime($incident->opened_at),
+        ];
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function recentIncidents(bool $includeTestIncidents): array
+    {
+        return Incident::query()
+            ->whereIn('status', ['resolved', 'cancelled'])
+            ->when(! $includeTestIncidents, fn ($query) => $query->where('is_test', false))
+            ->orderByRaw('case when closed_at is null then 1 else 0 end')
+            ->orderByDesc('closed_at')
+            ->orderByDesc('updated_at')
+            ->limit(self::RECENT_INCIDENT_LIMIT)
+            ->get(['id', 'reference', 'title', 'status', 'priority', 'is_test', 'location_label', 'closed_at'])
+            ->map(fn (Incident $incident): array => [
+                'id' => (string) $incident->id,
+                'reference' => (string) $incident->reference,
+                'title' => (string) $incident->title,
+                'status' => (string) $incident->status,
+                'priority' => (string) $incident->priority,
+                'is_test' => (bool) $incident->is_test,
+                'location_label' => $incident->location_label,
+                'closed_at' => ApiDateTime::dateTime($incident->closed_at),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /** @return array<string, mixed>|null */
+    private function transientAlert(): ?array
+    {
+        $dispatch = DispatchRequest::query()
+            ->with('incident:id,reference,title,priority,is_test,location_label')
+            ->whereIn('status', ['sent', 'escalated'])
+            ->whereNotNull('sent_at')
+            ->whereHas('incident')
+            ->orderByDesc('sent_at')
+            ->orderByDesc('id')
+            ->first(['id', 'incident_id', 'status', 'priority', 'sent_at']);
+        if (! $dispatch instanceof DispatchRequest
+            || ! $dispatch->incident instanceof Incident
+            || $dispatch->sent_at === null) {
+            return null;
+        }
+
+        $receivedAt = ApiDateTime::localWallClock($dispatch->sent_at);
+        if ($receivedAt === null) {
+            return null;
+        }
+        $expiresAt = $receivedAt->addSeconds(max(
+            1,
+            SystemSetting::integer('dispatch.response_timeout_seconds', 300),
+        ));
+        $now = ApiDateTime::localWallClock(now());
+        if ($now === null || $expiresAt->lessThanOrEqualTo($now)) {
+            return null;
+        }
+        $incident = $dispatch->incident;
+
+        return [
+            'dispatch_id' => (string) $dispatch->id,
+            'incident_id' => (string) $incident->id,
+            'reference' => (string) $incident->reference,
+            'title' => (string) $incident->title,
+            'priority' => (string) ($incident->priority ?: $dispatch->priority),
+            'location_label' => $incident->location_label,
+            'received_at' => ApiDateTime::dateTime($receivedAt),
+            'expires_at' => ApiDateTime::dateTime($expiresAt),
+            'is_test' => (bool) $incident->is_test,
         ];
     }
 

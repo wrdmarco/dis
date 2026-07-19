@@ -9,10 +9,13 @@ use App\Models\User;
 use App\Models\Wallboard;
 use App\Models\WallboardPairingRequest;
 use App\Models\WallboardSession;
+use App\Services\WallboardService;
 use App\Support\WallboardConfiguration;
+use Carbon\CarbonImmutable;
 use Database\Seeders\RoleAndPermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
@@ -137,6 +140,214 @@ final class WallboardManagementApiTest extends TestCase
         ])->assertUnprocessable();
 
         $this->assertDatabaseCount('wallboards', 0);
+    }
+
+    public function test_display_profile_is_per_wallboard_defaulted_validated_versioned_and_audited(): void
+    {
+        $manager = $this->user('wallboard-display-profile@example.test', ['wallboards.manage']);
+        $client = $this->asAdminClient($manager);
+
+        $automatic = $client->postJson('/api/admin/wallboards', [
+            'name' => 'Automatisch scherm',
+        ])->assertCreated()
+            ->assertJsonPath('data.display_profile', Wallboard::DISPLAY_PROFILE_AUTO)
+            ->assertJsonPath('data.config_version', 1)
+            ->assertJsonPath('data.control_version', 1);
+        $this->assertDatabaseHas('wallboards', [
+            'id' => $automatic->json('data.id'),
+            'display_profile' => Wallboard::DISPLAY_PROFILE_AUTO,
+        ]);
+
+        $fourK = $client->postJson('/api/admin/wallboards', [
+            'name' => 'Vier K scherm',
+            'display_profile' => Wallboard::DISPLAY_PROFILE_4K,
+        ])->assertCreated()
+            ->assertJsonPath('data.display_profile', Wallboard::DISPLAY_PROFILE_4K);
+        $wallboard = Wallboard::query()->findOrFail($fourK->json('data.id'));
+        $sibling = $client->postJson('/api/admin/wallboards', [
+            'name' => 'Gedeelde playlist, eigen profiel',
+            'playlist_id' => $fourK->json('data.playlist_id'),
+        ])->assertCreated()
+            ->assertJsonPath('data.display_profile', Wallboard::DISPLAY_PROFILE_AUTO);
+
+        $manualPageId = (string) $wallboard->configuration['pages'][0]['id'];
+        $rotationStartedAt = now()->subMinutes(3);
+        $wallboard->forceFill([
+            'manual_page_id' => $manualPageId,
+            'manual_page_set_at' => now()->subMinute(),
+            'rotation_started_at' => $rotationStartedAt,
+        ])->save();
+        $storedRotationStartedAt = DB::table('wallboards')
+            ->where('id', $wallboard->id)
+            ->value('rotation_started_at');
+        WallboardSession::query()->create([
+            'wallboard_id' => $wallboard->id,
+            'token_hash' => hash('sha256', 'display-profile-session'),
+            'last_seen_at' => now(),
+            'last_rotated_at' => now(),
+            'expires_at' => now()->addDay(),
+        ]);
+        WallboardPairingRequest::query()->create([
+            'code_hash' => hash('sha256', 'display-profile-code'),
+            'secret_hash' => hash('sha256', 'display-profile-secret'),
+            'wallboard_id' => $wallboard->id,
+            'expires_at' => now()->addMinutes(5),
+        ]);
+
+        $client->postJson('/api/admin/wallboards', [
+            'name' => 'Onbekend profiel',
+            'display_profile' => '1440p',
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['display_profile']]]);
+
+        $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
+            'display_profile' => Wallboard::DISPLAY_PROFILE_1080P,
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['expected_config_version']]]);
+
+        $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
+            'expected_config_version' => 1,
+            'display_profile' => Wallboard::DISPLAY_PROFILE_1080P,
+        ])->assertOk()
+            ->assertJsonPath('data.display_profile', Wallboard::DISPLAY_PROFILE_1080P)
+            ->assertJsonPath('data.config_version', 2)
+            ->assertJsonPath('data.control_version', 2);
+
+        $wallboard->refresh();
+        $this->assertSame(Wallboard::DISPLAY_PROFILE_1080P, $wallboard->display_profile);
+        $this->assertSame($manualPageId, $wallboard->manual_page_id);
+        $this->assertSame(
+            $storedRotationStartedAt,
+            DB::table('wallboards')->where('id', $wallboard->id)->value('rotation_started_at'),
+        );
+        $this->assertDatabaseHas('wallboard_sessions', [
+            'wallboard_id' => $wallboard->id,
+            'revoked_at' => null,
+        ]);
+        $this->assertDatabaseHas('wallboard_pairing_requests', [
+            'wallboard_id' => $wallboard->id,
+            'consumed_at' => null,
+        ]);
+        $this->assertSame(
+            Wallboard::DISPLAY_PROFILE_AUTO,
+            Wallboard::query()->findOrFail($sibling->json('data.id'))->display_profile,
+        );
+        $audit = AuditLog::query()
+            ->where('action', 'wallboards.updated')
+            ->where('target_id', $wallboard->id)
+            ->latest('created_at')
+            ->firstOrFail();
+        $this->assertContains('display_profile', $audit->metadata['changed_fields']);
+
+        $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
+            'expected_config_version' => 1,
+            'display_profile' => Wallboard::DISPLAY_PROFILE_4K,
+        ])->assertConflict();
+        $this->assertSame(Wallboard::DISPLAY_PROFILE_1080P, $wallboard->fresh()->display_profile);
+
+        $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
+            'expected_config_version' => 2,
+            'display_profile' => Wallboard::DISPLAY_PROFILE_1080P,
+        ])->assertOk()
+            ->assertJsonPath('data.config_version', 2)
+            ->assertJsonPath('data.control_version', 2);
+    }
+
+    public function test_display_profile_migration_backfills_existing_wallboards_to_auto(): void
+    {
+        $manager = $this->user('wallboard-profile-migration@example.test', ['wallboards.manage']);
+        $migration = require database_path('migrations/2026_07_19_000005_add_display_profile_to_wallboards.php');
+        $migration->down();
+
+        $wallboardId = (string) str()->ulid();
+        DB::table('wallboards')->insert([
+            'id' => $wallboardId,
+            'name' => 'Bestaand scherm',
+            'layout' => Wallboard::LAYOUT_FULLSCREEN_MAP,
+            'configuration' => json_encode(WallboardConfiguration::defaults(), JSON_THROW_ON_ERROR),
+            'is_enabled' => true,
+            'created_by' => $manager->id,
+            'updated_by' => $manager->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $migration->up();
+
+        $this->assertSame(
+            Wallboard::DISPLAY_PROFILE_AUTO,
+            DB::table('wallboards')->where('id', $wallboardId)->value('display_profile'),
+        );
+    }
+
+    public function test_management_online_state_is_derived_server_side_from_a_current_active_session(): void
+    {
+        config()->set('app.timezone', 'Europe/Amsterdam');
+        $this->travelTo(CarbonImmutable::parse('2026-07-19 10:01:00', 'Europe/Amsterdam'));
+        $manager = $this->user('wallboard-online@example.test', ['wallboards.manage']);
+        $wallboard = Wallboard::query()->create([
+            'name' => 'Online wallboard',
+            'layout' => Wallboard::LAYOUT_FULLSCREEN_MAP,
+            'configuration' => WallboardConfiguration::defaults(),
+            'is_enabled' => true,
+            'created_by' => $manager->id,
+            'updated_by' => $manager->id,
+        ]);
+        $session = WallboardSession::query()->create([
+            'wallboard_id' => $wallboard->id,
+            'token_hash' => hash('sha256', 'online-session'),
+            'last_seen_at' => now(),
+            'last_rotated_at' => now(),
+            'expires_at' => now()->addDay(),
+        ]);
+        DB::table('wallboard_sessions')->where('id', $session->id)->update([
+            'last_seen_at' => '2026-07-19 10:00:30.000000+00',
+            'expires_at' => '2026-07-20 10:01:00.000000+00',
+        ]);
+
+        $client = $this->asAdminClient($manager);
+        $client->getJson('/api/admin/wallboards')
+            ->assertOk()
+            ->assertJsonPath('data.0.active_sessions_count', 1)
+            ->assertJsonPath('data.0.is_online', true);
+
+        DB::table('wallboard_sessions')->where('id', $session->id)->update([
+            'last_seen_at' => '2026-07-19 07:58:59.000000+00',
+        ]);
+        $client->getJson('/api/admin/wallboards')
+            ->assertOk()
+            ->assertJsonPath('data.0.active_sessions_count', 1)
+            ->assertJsonPath('data.0.is_online', false);
+
+        $session->forceFill(['revoked_at' => now()])->save();
+        $client->getJson('/api/admin/wallboards')
+            ->assertOk()
+            ->assertJsonPath('data.0.active_sessions_count', 0)
+            ->assertJsonPath('data.0.is_online', false);
+    }
+
+    public function test_management_session_expiry_uses_utc_carrier_wall_clock_in_summer_and_winter(): void
+    {
+        config()->set('app.timezone', 'Europe/Amsterdam');
+        $service = app(WallboardService::class);
+        $activeSessions = new \ReflectionMethod($service, 'activeSessions');
+
+        foreach (['2026-07-19', '2026-01-19'] as $date) {
+            $this->travelTo(CarbonImmutable::parse($date.' 10:01:00', 'Europe/Amsterdam'));
+            $wallboard = new Wallboard;
+            $expired = (new WallboardSession)->newFromBuilder([
+                'expires_at' => $date.' 10:00:59.000000+00',
+            ]);
+            $current = (new WallboardSession)->newFromBuilder([
+                'expires_at' => $date.' 10:01:01.000000+00',
+            ]);
+
+            $wallboard->setRelation('nonRevokedSessions', collect([$expired, $current]));
+            $resolved = $activeSessions->invoke($service, $wallboard);
+
+            $this->assertCount(1, $resolved, $date);
+            $this->assertSame($current, $resolved->first(), $date);
+        }
     }
 
     public function test_disabling_a_wallboard_immediately_revokes_sessions_and_pending_pairing(): void

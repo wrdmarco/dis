@@ -171,10 +171,24 @@ is recorded in the audit log.
 ## Managed Wallboards
 
 System administrators with completed 2FA manage paired displays from `/wallboards`; the display itself uses
-the dedicated `/wallboard` kiosk route and never inherits an administrator browser session. Each wallboard
-has an ordered playlist of allowlisted DIS pages: an operational map, incident list, operational summary or
-plain-text announcement. Every page has its own bounded display duration. External URLs and arbitrary HTML
-are not accepted.
+the dedicated `/wallboard` kiosk route and never inherits an administrator browser session. Screen control
+and reusable content playlists are managed separately. A new screen receives its own playlist by default,
+or can be assigned to an existing playlist that is shared by multiple screens. Existing installations are
+migrated without losing their wallboard configuration: every existing screen initially receives a separate
+playlist containing its current content.
+
+Each physical wallboard also has its own display profile, independent of the assigned playlist. `auto` is
+the default and keeps the responsive browser layout; administrators can select `1080p` or `4k` when a TV
+browser needs an explicit Full HD or Ultra HD readability profile. This setting adjusts only DIS presentation
+density. It does not change the television, HDMI input, operating-system or browser output resolution, and a
+shared playlist can therefore be shown on screens with different display profiles.
+
+A playlist contains an ordered set of allowlisted DIS pages: an operational map, incident list, operational
+summary or plain-text announcement. Every page has its own bounded display duration. The playlist also owns
+map layers, rotation, the incident override and an optional bottom ticker. The ticker accepts bounded
+plain-text internal messages and multiple HTTPS RSS or Atom feeds; feed retrieval is cached, size-limited and
+restricted to public destinations. External display pages, arbitrary HTML and executable content are not
+accepted.
 
 An unpaired television starts the pairing flow itself and shows a short-lived, human-readable code on
 `/wallboard`; no keyboard is required on the display. An administrator selects the intended wallboard in
@@ -188,12 +202,15 @@ rotation. A lightweight, authenticated control feed lets the kiosk observe contr
 versions without repeatedly loading the full map payload. Page rotation is derived from a server timestamp
 and the configured durations, so refreshes and process restarts do not create an independent browser clock.
 
-Per wallboard, an optional incident override can pin a preselected page while at least one non-test incident
+Per playlist, an optional incident override can pin a preselected page while at least one non-test incident
 is actually being dispatched or is in progress. A preannouncement or merely open incident does not trigger
-this override. The incident page takes precedence over manual pinning and rotation; after the final matching
+this persistent override; a newly sent real or test alarm is still shown prominently for its bounded alert
+window. The incident page takes precedence over manual pinning and rotation; after the final matching
 incident closes or is cancelled, the previous manual pin or the current rotation becomes effective again.
-All configuration and live-control changes require `wallboards.manage`, are version-checked to prevent stale
-administrators overwriting each other, and are audit logged.
+Playlist configuration, screen assignment and live-control changes require `wallboards.manage`, use
+optimistic versions to prevent stale administrators overwriting each other, and are audit logged. Updating a
+shared playlist atomically advances every linked screen to the same configuration while preserving each
+screen's pairing, online state and live-control selection where that page still exists.
 
 Dispatch ETA selection uses server-side road routing. Before dispatch, the operator's globally geocoded
 home city is the route origin; it remains an approximate origin and never exposes a home address. Navigation

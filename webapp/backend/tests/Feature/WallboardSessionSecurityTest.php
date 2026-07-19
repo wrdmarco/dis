@@ -12,9 +12,12 @@ use App\Models\Wallboard;
 use App\Models\WallboardSession;
 use App\Services\WallboardSessionService;
 use App\Support\WallboardConfiguration;
+use Carbon\CarbonImmutable;
 use Illuminate\Cookie\CookieValuePrefix;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
@@ -128,6 +131,79 @@ final class WallboardSessionSecurityTest extends TestCase
         $this->assertNotNull($replacementCookie);
         $this->assertSame($absoluteExpiry->timestamp, $replacementCookie->getExpiresTime());
         $this->assertSame($absoluteExpiry->timestamp, $session->refresh()->expires_at->timestamp);
+    }
+
+    public function test_pairing_session_immediately_marks_the_wallboard_seen(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-07-19 10:00:00', 'Europe/Amsterdam'));
+        $wallboard = $this->wallboard();
+        $request = Request::create('/api/wallboard/pairing/status', 'POST', server: [
+            'REMOTE_ADDR' => '192.0.2.61',
+            'HTTP_USER_AGENT' => 'DIS wallboard test',
+        ]);
+
+        $created = app(WallboardSessionService::class)->createFromPairing(
+            $wallboard,
+            rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '='),
+            'Crisisruimte',
+            $request,
+        );
+
+        $this->assertSame('2026-07-19 10:00:00', $created['session']->last_seen_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-07-19 10:00:00', $wallboard->refresh()->last_seen_at->format('Y-m-d H:i:s'));
+    }
+
+    public function test_postgresql_utc_carrier_heartbeat_is_touched_on_schedule_and_expiry_stays_fail_closed(): void
+    {
+        config()->set('app.timezone', 'Europe/Amsterdam');
+        $this->travelTo(CarbonImmutable::parse('2026-07-19 10:00:00', 'Europe/Amsterdam'));
+        $carrierSession = (new WallboardSession)->newFromBuilder([
+            'last_seen_at' => '2026-07-19 10:00:00.000000+00',
+            'expires_at' => '2026-07-19 10:00:10.000000+00',
+        ]);
+        $service = app(WallboardSessionService::class);
+        $touchDue = new \ReflectionMethod($service, 'heartbeatTouchDue');
+        $expired = new \ReflectionMethod($service, 'atOrBefore');
+        $this->assertTrue($touchDue->invoke($service, $carrierSession, now()->addSeconds(10)));
+        $this->assertTrue($expired->invoke($service, $carrierSession->expires_at, now()->addSeconds(11)));
+
+        $this->travelTo(CarbonImmutable::parse('2026-01-19 10:00:00', 'Europe/Amsterdam'));
+        $winterCarrierSession = (new WallboardSession)->newFromBuilder([
+            'last_seen_at' => '2026-01-19 10:00:00.000000+00',
+        ]);
+        $this->assertTrue($touchDue->invoke($service, $winterCarrierSession, now()->addSeconds(10)));
+
+        $this->travelTo(CarbonImmutable::parse('2026-07-19 10:00:00', 'Europe/Amsterdam'));
+
+        $wallboard = $this->wallboard();
+        [$session, $rawCookie] = $this->sessionCredential($wallboard);
+        DB::table('wallboard_sessions')->where('id', $session->id)->update([
+            'created_at' => '2026-07-19 08:00:00.000000+00',
+            'updated_at' => '2026-07-19 08:00:00.000000+00',
+            'last_seen_at' => '2026-07-19 08:00:00.000000+00',
+            'last_rotated_at' => '2026-07-19 08:00:00.000000+00',
+            'expires_at' => '2026-07-20 08:00:00.000000+00',
+        ]);
+        $wallboard->forceFill(['last_seen_at' => null])->save();
+        $this->travel(11)->seconds();
+        $this->browserCookies[WallboardSessionService::COOKIE_NAME] = $rawCookie;
+
+        $this->browserJson('GET', '/api/wallboard/control')->assertOk();
+
+        $this->assertSame('2026-07-19 10:00:11', $session->refresh()->last_seen_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-07-19 10:00:11', $wallboard->refresh()->last_seen_at->format('Y-m-d H:i:s'));
+
+        [$expiredSession, $expiredCookie] = $this->sessionCredential($wallboard);
+        DB::table('wallboard_sessions')->where('id', $expiredSession->id)->update([
+            'created_at' => '2026-07-19 08:00:00.000000+00',
+            'updated_at' => '2026-07-19 08:00:00.000000+00',
+            'last_seen_at' => '2026-07-19 08:00:00.000000+00',
+            'last_rotated_at' => '2026-07-19 08:00:00.000000+00',
+            'expires_at' => '2026-07-19 08:00:10.000000+00',
+        ]);
+        $this->browserCookies[WallboardSessionService::COOKIE_NAME] = $expiredCookie;
+
+        $this->assertWallboardSessionRejected();
     }
 
     public function test_state_is_no_store_and_contains_only_current_consented_operational_map_data(): void

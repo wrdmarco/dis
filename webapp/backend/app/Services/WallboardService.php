@@ -4,10 +4,14 @@ namespace App\Services;
 
 use App\Models\User;
 use App\Models\Wallboard;
+use App\Models\WallboardPlaylist;
+use App\Models\WallboardSession;
+use App\Repositories\WallboardPlaylistRepository;
 use App\Repositories\WallboardRepository;
 use App\Support\ApiDateTime;
 use App\Support\WallboardConfiguration;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
@@ -16,6 +20,9 @@ final class WallboardService
 {
     public function __construct(
         private readonly WallboardRepository $repository,
+        private readonly WallboardPlaylistRepository $playlistRepository,
+        private readonly WallboardPlaylistSynchronizer $playlistSynchronizer,
+        private readonly WallboardPlaylistResolver $playlistResolver,
         private readonly AuditService $auditService,
         private readonly WallboardDisplayService $displayService,
     ) {}
@@ -45,12 +52,36 @@ final class WallboardService
      */
     public function create(array $data, User $actor, Request $request): Wallboard
     {
-        $configuration = WallboardConfiguration::normalize((array) ($data['configuration'] ?? []));
+        return DB::transaction(function () use ($data, $actor, $request): Wallboard {
+            $playlist = null;
+            if (array_key_exists('playlist_id', $data)) {
+                $playlist = $this->playlistRepository->lockPlaylist((string) $data['playlist_id']);
+                $configuration = WallboardConfiguration::normalize((array) $playlist->configuration);
+            } else {
+                $configuration = WallboardConfiguration::normalize((array) ($data['configuration'] ?? []));
+                $createdPlaylist = $this->playlistRepository->create([
+                    'name' => trim((string) $data['name']),
+                    'configuration' => $configuration,
+                    'version' => 1,
+                    'created_by' => $actor->id,
+                    'updated_by' => $actor->id,
+                ]);
+                if (! $createdPlaylist instanceof WallboardPlaylist) {
+                    throw new \LogicException('Wallboard playlist repository returned an unexpected model.');
+                }
+                $playlist = $createdPlaylist;
+                $this->auditService->record('wallboard_playlists.created', $playlist, $actor, [
+                    'name' => $playlist->name,
+                    'version' => 1,
+                    'created_for_wallboard' => true,
+                ], null, $request);
+            }
 
-        return DB::transaction(function () use ($data, $configuration, $actor, $request): Wallboard {
             $wallboard = $this->repository->create([
                 'name' => trim((string) $data['name']),
+                'playlist_id' => $playlist->id,
                 'layout' => (string) ($data['layout'] ?? Wallboard::LAYOUT_FULLSCREEN_MAP),
+                'display_profile' => (string) ($data['display_profile'] ?? Wallboard::DISPLAY_PROFILE_AUTO),
                 'configuration' => $configuration,
                 'rotation_started_at' => now(),
                 'is_enabled' => (bool) ($data['is_enabled'] ?? true),
@@ -60,11 +91,24 @@ final class WallboardService
             if (! $wallboard instanceof Wallboard) {
                 throw new \LogicException('Wallboard repository returned an unexpected model.');
             }
+            $wallboard->setRelation('playlist', $playlist);
 
             $this->auditService->record('wallboards.created', $wallboard, $actor, [
                 'layout' => $wallboard->layout,
+                'display_profile' => $wallboard->display_profile,
                 'is_enabled' => $wallboard->is_enabled,
+                'playlist_id' => (string) $playlist->id,
             ], null, $request);
+            if (array_key_exists('playlist_id', $data)) {
+                $this->auditService->record('wallboards.playlist_assigned', $wallboard, $actor, [
+                    'previous_playlist_id' => null,
+                    'playlist_id' => (string) $playlist->id,
+                    'playlist_version' => (int) $playlist->version,
+                    'config_version' => (int) $wallboard->config_version,
+                    'control_version' => (int) $wallboard->control_version,
+                    'during_creation' => true,
+                ], null, $request);
+            }
 
             return $wallboard;
         }, 3);
@@ -76,7 +120,35 @@ final class WallboardService
     public function update(Wallboard $wallboard, array $data, User $actor, Request $request): Wallboard
     {
         return DB::transaction(function () use ($wallboard, $data, $actor, $request): Wallboard {
-            $locked = $this->repository->lockWallboard((string) $wallboard->getKey());
+            $updatesConfiguration = array_key_exists('configuration', $data);
+            $playlist = null;
+            $linkedWallboards = collect();
+
+            if ($updatesConfiguration) {
+                $candidatePlaylistId = $this->repository->playlistId((string) $wallboard->getKey());
+                if ($candidatePlaylistId !== null) {
+                    // Keep lock ordering consistent with direct playlist writes:
+                    // playlist first, then every linked wallboard by ULID.
+                    $playlist = $this->playlistRepository->lockPlaylist($candidatePlaylistId);
+                    $linkedWallboards = $this->playlistRepository->lockLinkedWallboards($candidatePlaylistId);
+                    $locked = $linkedWallboards->first(
+                        fn (Wallboard $candidate): bool => (string) $candidate->id === (string) $wallboard->getKey(),
+                    );
+                    if (! $locked instanceof Wallboard
+                        || (string) $locked->playlist_id !== (string) $playlist->id) {
+                        throw new ConflictHttpException('Wallboard playlist assignment changed.');
+                    }
+                    $locked->setRelation('playlist', $playlist);
+                } else {
+                    $locked = $this->repository->lockWallboard((string) $wallboard->getKey());
+                    if ($locked->playlist_id !== null) {
+                        throw new ConflictHttpException('Wallboard playlist assignment changed.');
+                    }
+                }
+            } else {
+                $locked = $this->repository->lockWallboard((string) $wallboard->getKey());
+            }
+
             if (array_key_exists('expected_config_version', $data)
                 && (int) $data['expected_config_version'] !== (int) $locked->config_version) {
                 throw new ConflictHttpException('Wallboard configuration changed.');
@@ -90,21 +162,71 @@ final class WallboardService
             if (array_key_exists('layout', $data)) {
                 $changes['layout'] = (string) $data['layout'];
             }
-            $nextConfiguration = (array) $locked->configuration;
-            if (array_key_exists('configuration', $data)) {
+            $displayProfileChanged = array_key_exists('display_profile', $data)
+                && (string) $data['display_profile'] !== (string) $locked->display_profile;
+            if ($displayProfileChanged) {
+                $changes['display_profile'] = (string) $data['display_profile'];
+            }
+            $nextConfiguration = $this->playlistResolver->resolve($locked);
+            $displayVersionsIncremented = false;
+            if ($updatesConfiguration) {
                 $nextConfiguration = WallboardConfiguration::normalize(
                     (array) $data['configuration'],
-                    (array) $locked->configuration,
+                    $playlist instanceof WallboardPlaylist
+                        ? (array) $playlist->configuration
+                        : (array) $locked->configuration,
                 );
-                $changes['configuration'] = $nextConfiguration;
+
+                if ($playlist instanceof WallboardPlaylist) {
+                    $this->playlistSynchronizer->updatePlaylistAndLinkedWallboards(
+                        $playlist,
+                        $linkedWallboards,
+                        $nextConfiguration,
+                        $actor,
+                    );
+                    $this->auditService->record('wallboard_playlists.updated', $playlist, $actor, [
+                        'changed_fields' => ['configuration'],
+                        'version' => (int) $playlist->version,
+                        'linked_wallboards_count' => $linkedWallboards->count(),
+                        'source_wallboard_id' => (string) $locked->id,
+                    ], null, $request);
+                } else {
+                    $createdPlaylist = $this->playlistRepository->create([
+                        'name' => (string) $locked->name,
+                        'configuration' => $nextConfiguration,
+                        'version' => 1,
+                        'created_by' => $actor->id,
+                        'updated_by' => $actor->id,
+                    ]);
+                    if (! $createdPlaylist instanceof WallboardPlaylist) {
+                        throw new \LogicException('Wallboard playlist repository returned an unexpected model.');
+                    }
+                    $playlist = $createdPlaylist;
+                    $this->playlistSynchronizer->copyConfigurationToWallboard(
+                        $locked,
+                        $playlist,
+                        $nextConfiguration,
+                        $actor,
+                        true,
+                    );
+                    $this->auditService->record('wallboard_playlists.created', $playlist, $actor, [
+                        'name' => $playlist->name,
+                        'version' => 1,
+                        'created_for_legacy_wallboard' => (string) $locked->id,
+                    ], null, $request);
+                }
+                $displayVersionsIncremented = true;
             }
             if (array_key_exists('is_enabled', $data)) {
                 $changes['is_enabled'] = (bool) $data['is_enabled'];
             }
 
-            if (array_key_exists('layout', $changes) || array_key_exists('configuration', $changes)) {
+            if ((array_key_exists('layout', $changes) || array_key_exists('display_profile', $changes))
+                && ! $displayVersionsIncremented) {
                 $changes['config_version'] = (int) $locked->config_version + 1;
                 $changes['control_version'] = (int) $locked->control_version + 1;
+            }
+            if (array_key_exists('layout', $changes) && ! $displayVersionsIncremented) {
                 $changes['rotation_started_at'] = now();
                 if ($locked->manual_page_id !== null
                     && ! WallboardConfiguration::hasPage($nextConfiguration, (string) $locked->manual_page_id)) {
@@ -124,19 +246,23 @@ final class WallboardService
                 $locked->forceFill([
                     'manual_page_id' => null,
                     'manual_page_set_at' => null,
-                    'control_version' => array_key_exists('control_version', $changes)
+                    'control_version' => $displayVersionsIncremented || array_key_exists('control_version', $changes)
                         ? (int) $locked->control_version
                         : (int) $locked->control_version + 1,
                 ])->save();
             }
 
+            $changedFields = array_values(array_diff(array_keys($data), ['expected_config_version']));
+            if (array_key_exists('display_profile', $data) && ! $displayProfileChanged) {
+                $changedFields = array_values(array_diff($changedFields, ['display_profile']));
+            }
             $this->auditService->record('wallboards.updated', $locked, $actor, [
-                'changed_fields' => array_values(array_diff(array_keys($data), ['expected_config_version'])),
+                'changed_fields' => $changedFields,
                 'config_version' => (int) $locked->config_version,
                 'is_enabled' => (bool) $locked->is_enabled,
             ], null, $request);
 
-            return $locked->refresh();
+            return $locked->refresh()->load('playlist');
         }, 3);
     }
 
@@ -161,7 +287,7 @@ final class WallboardService
                 throw new ConflictHttpException('Wallboard control changed.');
             }
 
-            $configuration = WallboardConfiguration::normalize((array) $locked->configuration);
+            $configuration = $this->playlistResolver->resolve($locked);
             if ($pageId !== null && ! WallboardConfiguration::hasPage($configuration, $pageId)) {
                 throw ValidationException::withMessages([
                     'page_id' => ['De gekozen pagina bestaat niet op dit wallboard.'],
@@ -223,22 +349,70 @@ final class WallboardService
     /** @return array<string, mixed> */
     public function resource(Wallboard $wallboard, ?bool $incidentActive = null): array
     {
-        $configuration = WallboardConfiguration::normalize((array) $wallboard->configuration);
+        $configuration = $this->playlistResolver->resolve($wallboard);
+        $wallboard->loadMissing([
+            'playlist:id,name,configuration,version',
+            'nonRevokedSessions:id,wallboard_id,last_seen_at,expires_at',
+        ]);
+        $activeSessions = $this->activeSessions($wallboard);
+        $playlist = $wallboard->playlist;
 
         return [
             'id' => (string) $wallboard->id,
             'name' => (string) $wallboard->name,
+            'playlist_id' => $wallboard->playlist_id === null ? null : (string) $wallboard->playlist_id,
+            'playlist' => $playlist instanceof WallboardPlaylist ? [
+                'id' => (string) $playlist->id,
+                'name' => (string) $playlist->name,
+                'version' => (int) $playlist->version,
+            ] : null,
             'layout' => (string) $wallboard->layout,
+            'display_profile' => (string) $wallboard->display_profile,
             'configuration' => $configuration,
             'is_enabled' => (bool) $wallboard->is_enabled,
+            'is_online' => $this->isOnline($wallboard, $configuration, $activeSessions),
             'config_version' => (int) $wallboard->config_version,
             'control_version' => (int) $wallboard->control_version,
             'display' => $this->displayService->display($wallboard, $configuration, $incidentActive),
             'paired_at' => ApiDateTime::dateTime($wallboard->paired_at),
             'last_seen_at' => ApiDateTime::dateTime($wallboard->last_seen_at),
-            'active_sessions_count' => (int) ($wallboard->active_sessions_count ?? 0),
+            'active_sessions_count' => $activeSessions->count(),
             'created_at' => ApiDateTime::dateTime($wallboard->created_at),
             'updated_at' => ApiDateTime::dateTime($wallboard->updated_at),
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $configuration
+     * @param  Collection<int, WallboardSession>  $activeSessions
+     */
+    private function isOnline(Wallboard $wallboard, array $configuration, Collection $activeSessions): bool
+    {
+        if (! $wallboard->is_enabled) {
+            return false;
+        }
+
+        $allowedAgeSeconds = max(
+            90,
+            max(10, (int) config('dis.wallboards.touch_interval_seconds', 60)) + 30,
+            (int) ($configuration['refresh_seconds'] ?? 5) * 3,
+        );
+        $cutoff = ApiDateTime::comparableWallClock(now())->subSeconds($allowedAgeSeconds);
+
+        return $activeSessions->contains(
+            fn (WallboardSession $session): bool => $session->last_seen_at !== null
+                && ApiDateTime::comparableWallClock($session->last_seen_at)->isAfter($cutoff),
+        );
+    }
+
+    /** @return Collection<int, WallboardSession> */
+    private function activeSessions(Wallboard $wallboard): Collection
+    {
+        $now = ApiDateTime::comparableWallClock(now());
+
+        return $wallboard->nonRevokedSessions
+            ->filter(fn (WallboardSession $session): bool => $session->expires_at !== null
+                && ApiDateTime::comparableWallClock($session->expires_at)->isAfter($now))
+            ->values();
     }
 }

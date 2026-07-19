@@ -13,8 +13,11 @@ use Illuminate\Support\Facades\DB;
 final class AvailabilityScheduleService
 {
     private const DAY_PART_ALL_DAY = 'all_day';
+
     private const DAY_PART_MORNING = 'morning';
+
     private const DAY_PART_AFTERNOON = 'afternoon';
+
     private const DAY_PART_EVENING = 'evening';
 
     public function __construct(
@@ -25,6 +28,55 @@ final class AvailabilityScheduleService
     public function isAvailable(User $user, ?CarbonImmutable $date = null): bool
     {
         return $this->availabilityFor($user, $date)['is_available'];
+    }
+
+    /**
+     * Resolve the current schedule for a read-model cohort without issuing two
+     * schedule queries per user.
+     *
+     * @param  Collection<int, User>  $users
+     * @return array<string, bool>
+     */
+    public function availabilityByUser(Collection $users, ?CarbonImmutable $date = null): array
+    {
+        $date ??= CarbonImmutable::now();
+        $userIds = $users->pluck('id')->map(fn (mixed $id): string => (string) $id)->unique()->values();
+        if ($userIds->isEmpty()) {
+            return [];
+        }
+
+        $dayPart = $this->dayPartFor($date);
+        $overrides = AvailabilityOverride::query()
+            ->whereIn('user_id', $userIds)
+            ->whereDate('starts_at', '<=', $date->toDateString())
+            ->whereDate('ends_at', '>=', $date->toDateString())
+            ->whereIn('day_part', [self::DAY_PART_ALL_DAY, $dayPart])
+            ->orderByRaw('case when day_part = ? then 0 else 1 end', [$dayPart])
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id')
+            ->get(['id', 'user_id', 'day_part', 'is_available', 'updated_at'])
+            ->unique(fn (AvailabilityOverride $override): string => (string) $override->user_id)
+            ->keyBy(fn (AvailabilityOverride $override): string => (string) $override->user_id);
+        $patterns = AvailabilityWeekPattern::query()
+            ->whereIn('user_id', $userIds)
+            ->where('day_of_week', $date->dayOfWeekIso)
+            ->whereIn('day_part', [self::DAY_PART_ALL_DAY, $dayPart])
+            ->orderByRaw('case when day_part = ? then 0 else 1 end', [$dayPart])
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id')
+            ->get(['id', 'user_id', 'day_part', 'is_available', 'updated_at'])
+            ->unique(fn (AvailabilityWeekPattern $pattern): string => (string) $pattern->user_id)
+            ->keyBy(fn (AvailabilityWeekPattern $pattern): string => (string) $pattern->user_id);
+
+        return $users->mapWithKeys(function (User $user) use ($overrides, $patterns): array {
+            $userId = (string) $user->id;
+            $override = $overrides->get($userId);
+            $pattern = $patterns->get($userId);
+
+            return [$userId => $override instanceof AvailabilityOverride
+                ? (bool) $override->is_available
+                : ($pattern instanceof AvailabilityWeekPattern ? (bool) $pattern->is_available : true)];
+        })->all();
     }
 
     /**
@@ -62,7 +114,7 @@ final class AvailabilityScheduleService
             ->whereDate('starts_at', '<=', $date->toDateString())
             ->whereDate('ends_at', '>=', $date->toDateString())
             ->whereIn('day_part', [self::DAY_PART_ALL_DAY, $dayPart])
-            ->orderByRaw("case when day_part = ? then 0 else 1 end", [$dayPart])
+            ->orderByRaw('case when day_part = ? then 0 else 1 end', [$dayPart])
             ->latest('updated_at')
             ->first();
         if ($override !== null) {
@@ -77,7 +129,7 @@ final class AvailabilityScheduleService
             ->where('user_id', $user->id)
             ->where('day_of_week', $date->dayOfWeekIso)
             ->whereIn('day_part', [self::DAY_PART_ALL_DAY, $dayPart])
-            ->orderByRaw("case when day_part = ? then 0 else 1 end", [$dayPart])
+            ->orderByRaw('case when day_part = ? then 0 else 1 end', [$dayPart])
             ->latest('updated_at')
             ->first();
         if ($pattern !== null) {
@@ -157,7 +209,7 @@ final class AvailabilityScheduleService
     }
 
     /**
-     * @param array<int, array{day_of_week: int, day_part?: string|null, is_available: bool, note?: string|null}> $patterns
+     * @param  array<int, array{day_of_week: int, day_part?: string|null, is_available: bool, note?: string|null}>  $patterns
      * @return Collection<int, AvailabilityWeekPattern>
      */
     public function replaceWeekPattern(User $user, array $patterns, User $actor): Collection
@@ -190,7 +242,7 @@ final class AvailabilityScheduleService
     }
 
     /**
-     * @param array{starts_at: string, ends_at: string, is_available: bool, note?: string|null} $data
+     * @param  array{starts_at: string, ends_at: string, is_available: bool, note?: string|null}  $data
      */
     public function createOverride(User $user, array $data, User $actor): AvailabilityOverride
     {

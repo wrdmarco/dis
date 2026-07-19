@@ -11,6 +11,19 @@ final class WallboardConfiguration
     /** @var list<string> */
     public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'message'];
 
+    /** @var list<string> */
+    public const TICKER_SOURCE_TYPES = ['internal', 'rss'];
+
+    public const MAX_TICKER_SOURCES = 10;
+
+    public const MAX_TICKER_SOURCE_ID_LENGTH = 64;
+
+    public const MAX_TICKER_LABEL_LENGTH = 80;
+
+    public const MAX_TICKER_INTERNAL_TEXT_LENGTH = 500;
+
+    public const MAX_TICKER_URL_LENGTH = 2048;
+
     /**
      * @return array<string, mixed>
      */
@@ -32,6 +45,10 @@ final class WallboardConfiguration
             'incident_override' => [
                 'enabled' => false,
                 'page_id' => self::DEFAULT_PAGE_ID,
+            ],
+            'ticker' => [
+                'enabled' => false,
+                'sources' => [],
             ],
             'map' => [
                 'show_active_incidents' => true,
@@ -63,6 +80,11 @@ final class WallboardConfiguration
             $normalized['pages'] = array_values((array) $input['pages']);
         } elseif (array_key_exists('pages', $base)) {
             $normalized['pages'] = array_values((array) $base['pages']);
+        }
+        if (array_key_exists('ticker', $input) && is_array($input['ticker']) && array_key_exists('sources', $input['ticker'])) {
+            $normalized['ticker']['sources'] = array_values((array) $input['ticker']['sources']);
+        } elseif (array_key_exists('ticker', $base) && is_array($base['ticker']) && array_key_exists('sources', $base['ticker'])) {
+            $normalized['ticker']['sources'] = array_values((array) $base['ticker']['sources']);
         }
 
         $pages = array_values((array) ($normalized['pages'] ?? []));
@@ -165,6 +187,8 @@ final class WallboardConfiguration
             'page_id' => $overridePageId,
         ];
 
+        $normalized['ticker'] = self::normalizeTicker((array) ($normalized['ticker'] ?? []));
+
         if (($normalized['map']['show_routes'] ?? false) === true
             && ($normalized['map']['show_live_locations'] ?? false) !== true) {
             throw ValidationException::withMessages([
@@ -173,6 +197,150 @@ final class WallboardConfiguration
         }
 
         return $normalized;
+    }
+
+    /**
+     * @param  array<string, mixed>  $ticker
+     * @return array{enabled: bool, sources: list<array<string, string>>}
+     */
+    private static function normalizeTicker(array $ticker): array
+    {
+        if (array_diff(array_keys($ticker), ['enabled', 'sources']) !== []) {
+            throw ValidationException::withMessages([
+                'configuration.ticker' => ['De ticker bevat niet-ondersteunde instellingen.'],
+            ]);
+        }
+
+        $sources = array_values((array) ($ticker['sources'] ?? []));
+        if (count($sources) > self::MAX_TICKER_SOURCES) {
+            throw ValidationException::withMessages([
+                'configuration.ticker.sources' => ['Een wallboardticker kan maximaal tien bronnen bevatten.'],
+            ]);
+        }
+
+        $sourceIds = [];
+        foreach ($sources as $index => $source) {
+            if (! is_array($source)) {
+                throw ValidationException::withMessages([
+                    "configuration.ticker.sources.{$index}" => ['De tickerbron is ongeldig.'],
+                ]);
+            }
+
+            $sourceId = trim((string) ($source['id'] ?? ''));
+            if (preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/', $sourceId) !== 1 || isset($sourceIds[$sourceId])) {
+                throw ValidationException::withMessages([
+                    "configuration.ticker.sources.{$index}.id" => ['Elke tickerbron heeft een unieke veilige bron-ID nodig.'],
+                ]);
+            }
+            $sourceIds[$sourceId] = true;
+
+            $type = (string) ($source['type'] ?? '');
+            if (! in_array($type, self::TICKER_SOURCE_TYPES, true)) {
+                throw ValidationException::withMessages([
+                    "configuration.ticker.sources.{$index}.type" => ['Dit tickerbrontype wordt niet ondersteund.'],
+                ]);
+            }
+
+            $label = trim((string) ($source['label'] ?? ''));
+            if ($label === ''
+                || mb_strlen($label) > self::MAX_TICKER_LABEL_LENGTH
+                || $label !== strip_tags($label)) {
+                throw ValidationException::withMessages([
+                    "configuration.ticker.sources.{$index}.label" => ['Het bronlabel is platte tekst van maximaal 80 tekens.'],
+                ]);
+            }
+
+            $allowedKeys = $type === 'internal'
+                ? ['id', 'type', 'label', 'text']
+                : ['id', 'type', 'label', 'url'];
+            if (array_diff(array_keys($source), $allowedKeys) !== []) {
+                throw ValidationException::withMessages([
+                    "configuration.ticker.sources.{$index}" => ['Deze tickerbron bevat velden die niet bij het gekozen type horen.'],
+                ]);
+            }
+
+            if ($type === 'internal') {
+                $text = trim((string) ($source['text'] ?? ''));
+                if ($text === ''
+                    || mb_strlen($text) > self::MAX_TICKER_INTERNAL_TEXT_LENGTH
+                    || $text !== strip_tags($text)) {
+                    throw ValidationException::withMessages([
+                        "configuration.ticker.sources.{$index}.text" => ['Een intern tickerbericht is platte tekst van maximaal 500 tekens.'],
+                    ]);
+                }
+
+                $sources[$index] = [
+                    'id' => $sourceId,
+                    'type' => $type,
+                    'label' => $label,
+                    'text' => $text,
+                ];
+
+                continue;
+            }
+
+            $url = trim((string) ($source['url'] ?? ''));
+            if (! self::hasValidTickerHttpsUrlSyntax($url)) {
+                throw ValidationException::withMessages([
+                    "configuration.ticker.sources.{$index}.url" => ['Een RSS-bron heeft een geldige openbare HTTPS-URL op poort 443 nodig.'],
+                ]);
+            }
+
+            $sources[$index] = [
+                'id' => $sourceId,
+                'type' => $type,
+                'label' => $label,
+                'url' => $url,
+            ];
+        }
+
+        return [
+            'enabled' => (bool) ($ticker['enabled'] ?? false),
+            'sources' => $sources,
+        ];
+    }
+
+    public static function hasValidTickerHttpsUrlSyntax(string $url): bool
+    {
+        if ($url === ''
+            || strlen($url) > self::MAX_TICKER_URL_LENGTH
+            || preg_match('/[\x00-\x20\x7f]/', $url) === 1) {
+            return false;
+        }
+
+        $parts = parse_url($url);
+        if (! is_array($parts)
+            || strtolower((string) ($parts['scheme'] ?? '')) !== 'https'
+            || ! is_string($parts['host'] ?? null)
+            || $parts['host'] === ''
+            || isset($parts['user'])
+            || isset($parts['pass'])
+            || isset($parts['fragment'])
+            || (isset($parts['port']) && (int) $parts['port'] !== 443)) {
+            return false;
+        }
+
+        $host = strtolower(trim($parts['host'], '[]'));
+        if ($host === '' || str_ends_with($host, '.') || strlen($host) > 253 || str_contains($host, '%')) {
+            return false;
+        }
+
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            return filter_var(
+                $host,
+                FILTER_VALIDATE_IP,
+                FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE,
+            ) !== false;
+        }
+
+        if (preg_match('/^[0-9.]+$/', $host) === 1) {
+            return false;
+        }
+
+        return preg_match(
+            '/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i',
+            $host,
+        ) === 1;
     }
 
     /**

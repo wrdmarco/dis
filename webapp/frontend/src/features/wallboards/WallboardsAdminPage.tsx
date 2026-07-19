@@ -1,16 +1,12 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowDown,
-  ArrowUp,
-  BarChart3,
+  AlertTriangle,
   ExternalLink,
   Eye,
   KeyRound,
-  List,
-  Map,
-  MessageSquareText,
+  Library,
+  Link2,
   MonitorCog,
-  PauseCircle,
   Plus,
   Radio,
   RefreshCw,
@@ -27,97 +23,134 @@ import { useApiResource } from '../../lib/useApiResource';
 import type {
   Wallboard,
   WallboardConfiguration,
-  WallboardMapConfiguration,
-  WallboardPage,
-  WallboardPageType,
+  WallboardDisplayProfile,
+  WallboardPlaylist,
+  WallboardPlaylistAssignment,
 } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import {
   DEFAULT_WALLBOARD_CONFIGURATION,
-  MAX_WALLBOARD_PAGE_DURATION_SECONDS,
-  MAX_WALLBOARD_REFRESH_SECONDS,
-  MIN_WALLBOARD_PAGE_DURATION_SECONDS,
-  MIN_WALLBOARD_REFRESH_SECONDS,
   clampRefreshSeconds,
-  clampWallboardPageDuration,
-  createWallboardPage,
+  normalizeWallboardDisplayProfile,
   wallboardConfigurationCopy,
   wallboardConfigurationForSave,
+  wallboardDisplayProfileLabel,
   wallboardIsOnline,
-  wallboardPageTypeLabel,
+  wallboardPlaylistUsageCount,
 } from './wallboardPresentation';
+import {
+  WallboardConfigurationEditor,
+  WallboardPageTypeIcon,
+} from './WallboardConfigurationEditor';
 
 const ADMIN_STATUS_REFRESH_MILLISECONDS = 2500;
 
-const MAP_OPTION_LABELS: Array<{ key: keyof WallboardMapConfiguration; label: string; help: string }> = [
-  { key: 'show_active_incidents', label: 'Actieve incidenten', help: 'Toon open operationele meldingen.' },
-  { key: 'show_test_incidents', label: 'Proefmeldingen', help: 'Neem ook als test gemarkeerde incidenten op.' },
-  { key: 'show_live_locations', label: 'Live piloten', help: 'Toon alleen actuele, gedeelde locaties.' },
-  { key: 'show_routes', label: 'Navigatieroutes', help: 'Teken de actuele route van piloten naar het incident.' },
-  { key: 'show_command_centers', label: 'Meldkamers', help: 'Toon de geconfigureerde meldkamers.' },
-  { key: 'show_historical_incidents', label: 'Historische incidenten', help: 'Toon gesloten incidenten uit de wallboardfeed.' },
-  { key: 'show_summary', label: 'Samenvattingsbalk', help: 'Toon aantallen boven een kaartpagina.' },
-  { key: 'show_incident_list', label: 'Incidentenlijst naast kaart', help: 'Toon een compacte lijst naast een kaartpagina.' },
-  { key: 'show_route_legend', label: 'Routelabels', help: 'Toon pilootnaam en route-informatie.' },
-  { key: 'auto_fit', label: 'Automatisch kaderen', help: 'Houd alle zichtbare kaartpunten binnen beeld.' },
-];
-
-const PAGE_TYPE_OPTIONS: Array<{ value: WallboardPageType; label: string }> = [
-  { value: 'map', label: 'Kaart' },
-  { value: 'incident_list', label: 'Incidentenlijst' },
-  { value: 'summary', label: 'Samenvatting' },
-  { value: 'message', label: 'Mededeling' },
-];
+type AdminSection = 'screens' | 'playlists';
 
 export function WallboardsAdminPage() {
   const { api } = useAuth();
-  const resource = useApiResource<Wallboard[]>('/admin/wallboards');
-  const { silentReload } = resource;
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [newName, setNewName] = useState('');
-  const [creating, setCreating] = useState(false);
+  const wallboardsResource = useApiResource<Wallboard[]>('/admin/wallboards');
+  const playlistsResource = useApiResource<WallboardPlaylist[]>('/admin/wallboard-playlists');
+  const { silentReload: silentReloadWallboards } = wallboardsResource;
+  const { silentReload: silentReloadPlaylists } = playlistsResource;
+  const [section, setSection] = useState<AdminSection>('screens');
+  const [selectedScreenId, setSelectedScreenId] = useState<string | null>(null);
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
+  const [newScreenName, setNewScreenName] = useState('');
+  const [newScreenDisplayProfile, setNewScreenDisplayProfile] = useState<WallboardDisplayProfile>('auto');
+  const [newScreenPlaylistId, setNewScreenPlaylistId] = useState('');
+  const [newPlaylistName, setNewPlaylistName] = useState('');
+  const [creating, setCreating] = useState<AdminSection | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
-  const wallboards = useMemo(() => resource.data ?? [], [resource.data]);
-  const selected = wallboards.find((wallboard) => wallboard.id === selectedId) ?? null;
+  const wallboards = useMemo(() => wallboardsResource.data ?? [], [wallboardsResource.data]);
+  const playlists = useMemo(() => playlistsResource.data ?? [], [playlistsResource.data]);
+  const selectedScreen = wallboards.find((wallboard) => wallboard.id === selectedScreenId) ?? null;
+  const selectedPlaylist = playlists.find((playlist) => playlist.id === selectedPlaylistId) ?? null;
+
+  const reloadAll = useCallback(async () => {
+    await Promise.all([
+      silentReloadWallboards(),
+      silentReloadPlaylists(),
+    ]);
+  }, [silentReloadPlaylists, silentReloadWallboards]);
 
   useEffect(() => {
-    if (selectedId === null && wallboards.length > 0) setSelectedId(wallboards[0].id);
-    if (selectedId !== null && wallboards.length > 0 && !wallboards.some((wallboard) => wallboard.id === selectedId)) {
-      setSelectedId(wallboards[0].id);
-    }
-  }, [selectedId, wallboards]);
+    setSelectedScreenId((current) => retainedSelection(current, wallboards));
+  }, [wallboards]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => void silentReload(), ADMIN_STATUS_REFRESH_MILLISECONDS);
+    setSelectedPlaylistId((current) => retainedSelection(current, playlists));
+  }, [playlists]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => void silentReloadWallboards(), ADMIN_STATUS_REFRESH_MILLISECONDS);
     return () => window.clearInterval(timer);
-  }, [silentReload]);
+  }, [silentReloadWallboards]);
 
-  async function createWallboard(event: FormEvent) {
+  async function createScreen(event: FormEvent) {
     event.preventDefault();
-    const name = newName.trim();
+    const name = newScreenName.trim();
     if (name === '') return;
-    setCreating(true);
+    setCreating('screens');
     setCreateError(null);
     try {
       const response = await api.post<Wallboard>('/admin/wallboards', {
         name,
         layout: 'fullscreen_map',
-        configuration: wallboardConfigurationCopy(DEFAULT_WALLBOARD_CONFIGURATION),
+        display_profile: newScreenDisplayProfile,
         is_enabled: true,
+        ...(newScreenPlaylistId === '' ? {} : { playlist_id: newScreenPlaylistId }),
       });
-      resource.mutate((current) => [...(current ?? []), response.data]);
-      setSelectedId(response.data.id);
-      setNewName('');
+      wallboardsResource.mutate((current) => [...(current ?? []), response.data]);
+      setSelectedScreenId(response.data.id);
+      setNewScreenName('');
+      setNewScreenDisplayProfile('auto');
+      setNewScreenPlaylistId('');
+      await reloadAll();
     } catch (error) {
-      setCreateError(errorMessage(error, 'Wallboard kon niet worden aangemaakt.'));
+      setCreateError(errorMessage(error, 'Scherm kon niet worden aangemaakt.'));
     } finally {
-      setCreating(false);
+      setCreating(null);
+    }
+  }
+
+  async function createPlaylist(event: FormEvent) {
+    event.preventDefault();
+    const name = newPlaylistName.trim();
+    if (name === '') return;
+    setCreating('playlists');
+    setCreateError(null);
+    try {
+      const response = await api.post<WallboardPlaylist>('/admin/wallboard-playlists', {
+        name,
+        configuration: wallboardConfigurationForSave(
+          wallboardConfigurationCopy(DEFAULT_WALLBOARD_CONFIGURATION),
+        ),
+      });
+      playlistsResource.mutate((current) => [...(current ?? []), response.data]);
+      setSelectedPlaylistId(response.data.id);
+      setNewPlaylistName('');
+      await reloadAll();
+    } catch (error) {
+      setCreateError(errorMessage(error, 'Playlist kon niet worden aangemaakt.'));
+    } finally {
+      setCreating(null);
     }
   }
 
   function replaceWallboard(next: Wallboard) {
-    resource.mutate((current) => (current ?? []).map((wallboard) => wallboard.id === next.id ? next : wallboard));
+    wallboardsResource.mutate((current) => (current ?? []).map((wallboard) => (
+      wallboard.id === next.id ? next : wallboard
+    )));
   }
+
+  function replacePlaylist(next: WallboardPlaylist) {
+    playlistsResource.mutate((current) => (current ?? []).map((playlist) => (
+      playlist.id === next.id ? next : playlist
+    )));
+  }
+
+  const activeResource = section === 'screens' ? wallboardsResource : playlistsResource;
 
   return (
     <div className="page-stack wallboards-admin-page">
@@ -125,74 +158,196 @@ export function WallboardsAdminPage() {
         <div>
           <span className="eyebrow">Beheer</span>
           <h1>Wallboards</h1>
-          <p>Stel pagina’s samen, bestuur ieder scherm live en laat een incidentpagina automatisch voorrang krijgen.</p>
+          <p>Beheer schermen afzonderlijk en deel één inhoudsplaylist veilig met meerdere locaties.</p>
         </div>
         <a className="secondary-button" href="/wallboard" target="_blank" rel="noreferrer">
           <ExternalLink size={17} aria-hidden /> Scherm openen
         </a>
       </header>
 
-      <Panel title="Wallboards" action={(
-        <button className="icon-button" type="button" onClick={() => void resource.reload()} aria-label="Wallboards vernieuwen">
+      <nav className="wallboards-admin-tabs" role="tablist" aria-label="Wallboardbeheer">
+        <button
+          id="wallboards-screens-tab"
+          type="button"
+          role="tab"
+          aria-selected={section === 'screens'}
+          aria-controls="wallboards-screens-panel"
+          className={section === 'screens' ? 'wallboards-admin-tab wallboards-admin-tab--active' : 'wallboards-admin-tab'}
+          onClick={() => {
+            setSection('screens');
+            setCreateError(null);
+          }}
+        >
+          <MonitorCog size={18} aria-hidden />
+          <span><strong>Schermen</strong><small>{wallboards.length} apparaten</small></span>
+        </button>
+        <button
+          id="wallboards-playlists-tab"
+          type="button"
+          role="tab"
+          aria-selected={section === 'playlists'}
+          aria-controls="wallboards-playlists-panel"
+          className={section === 'playlists' ? 'wallboards-admin-tab wallboards-admin-tab--active' : 'wallboards-admin-tab'}
+          onClick={() => {
+            setSection('playlists');
+            setCreateError(null);
+          }}
+        >
+          <Library size={18} aria-hidden />
+          <span><strong>Playlists</strong><small>{playlists.length} programma’s</small></span>
+        </button>
+      </nav>
+
+      <Panel title={section === 'screens' ? 'Schermen' : 'Playlists'} action={(
+        <button className="icon-button" type="button" onClick={() => void reloadAll()} aria-label="Schermen en playlists vernieuwen">
           <RefreshCw size={17} aria-hidden />
         </button>
       )}>
-        <div className="panel-body wallboards-admin-grid">
+        <div
+          className="panel-body wallboards-admin-grid"
+          id={section === 'screens' ? 'wallboards-screens-panel' : 'wallboards-playlists-panel'}
+          role="tabpanel"
+          aria-labelledby={section === 'screens' ? 'wallboards-screens-tab' : 'wallboards-playlists-tab'}
+        >
           <div className="wallboards-admin-list-column">
-            <form className="wallboard-create-form" onSubmit={createWallboard}>
-              <label>
-                <span>Nieuw wallboard</span>
-                <span className="wallboard-create-form__row">
-                  <input value={newName} onChange={(event) => setNewName(event.target.value)} maxLength={120} placeholder="Bijv. Meldkamer noord" required />
-                  <button className="primary-button" type="submit" disabled={creating || newName.trim() === ''}>
-                    <Plus size={17} aria-hidden /> {creating ? 'Toevoegen…' : 'Toevoegen'}
-                  </button>
-                </span>
-              </label>
-              {createError ? <p className="form-error" role="alert">{createError}</p> : null}
-            </form>
-
-            <ResourceState loading={resource.loading} error={resource.error} empty={wallboards.length === 0}>
-              <div className="wallboard-list" role="list" aria-label="Geconfigureerde wallboards">
-                {wallboards.map((wallboard) => {
-                  const online = wallboardIsOnline(wallboard);
-                  const displayLabel = displayPageLabel(wallboard);
-                  return (
-                    <button
-                      className={`wallboard-list-card ${selected?.id === wallboard.id ? 'wallboard-list-card--active' : ''}`}
-                      key={wallboard.id}
-                      type="button"
-                      onClick={() => setSelectedId(wallboard.id)}
-                      role="listitem"
-                    >
-                      <span className="wallboard-list-card__icon"><MonitorCog size={20} aria-hidden /></span>
-                      <span className="wallboard-list-card__copy">
-                        <strong>{wallboard.name}</strong>
-                        <small>{displayLabel ?? (wallboard.last_seen_at ? `Laatst gezien ${formatDateTime(wallboard.last_seen_at)}` : 'Nog niet gekoppeld')}</small>
-                      </span>
-                      <StatusPill value={!wallboard.is_enabled ? 'Uitgeschakeld' : online ? 'Online' : 'Offline'} tone={!wallboard.is_enabled ? 'neutral' : online ? 'good' : 'warn'} />
+            {section === 'screens' ? (
+              <form className="wallboard-create-form" onSubmit={createScreen}>
+                <div className="wallboard-create-form__heading">
+                  <strong>Nieuw scherm</strong>
+                  <small>Zonder keuze krijgt het scherm automatisch een eigen playlist.</small>
+                </div>
+                <label>
+                  <span>Schermnaam</span>
+                  <span className="wallboard-create-form__row">
+                    <input value={newScreenName} onChange={(event) => setNewScreenName(event.target.value)} maxLength={120} placeholder="Bijv. Meldkamer noord" required />
+                    <button className="primary-button" type="submit" disabled={creating !== null || newScreenName.trim() === ''}>
+                      <Plus size={17} aria-hidden /> {creating === 'screens' ? 'Toevoegen…' : 'Toevoegen'}
                     </button>
-                  );
-                })}
-              </div>
+                  </span>
+                </label>
+                <label>
+                  <span>Schermprofiel</span>
+                  <select value={newScreenDisplayProfile} onChange={(event) => setNewScreenDisplayProfile(event.target.value as WallboardDisplayProfile)}>
+                    <option value="auto">Auto (aanbevolen)</option>
+                    <option value="1080p">1080p (Full HD)</option>
+                    <option value="4k">4K (Ultra HD)</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Playlist bij aanmaak</span>
+                  <select value={newScreenPlaylistId} onChange={(event) => setNewScreenPlaylistId(event.target.value)}>
+                    <option value="">Nieuwe eigen playlist</option>
+                    {playlists.map((playlist) => (
+                      <option key={playlist.id} value={playlist.id}>{playlist.name} · {playlistUsageLabel(playlist)}</option>
+                    ))}
+                  </select>
+                </label>
+                {playlistsResource.error ? <p className="form-error" role="alert">Playlists konden niet worden geladen: {playlistsResource.error}</p> : null}
+                {createError ? <p className="form-error" role="alert">{createError}</p> : null}
+              </form>
+            ) : (
+              <form className="wallboard-create-form" onSubmit={createPlaylist}>
+                <div className="wallboard-create-form__heading">
+                  <strong>Nieuwe playlist</strong>
+                  <small>Start met een veilige standaardindeling en pas daarna de inhoud aan.</small>
+                </div>
+                <label>
+                  <span>Playlistnaam</span>
+                  <span className="wallboard-create-form__row">
+                    <input value={newPlaylistName} onChange={(event) => setNewPlaylistName(event.target.value)} maxLength={120} placeholder="Bijv. Operationeel standaard" required />
+                    <button className="primary-button" type="submit" disabled={creating !== null || newPlaylistName.trim() === ''}>
+                      <Plus size={17} aria-hidden /> {creating === 'playlists' ? 'Toevoegen…' : 'Toevoegen'}
+                    </button>
+                  </span>
+                </label>
+                {createError ? <p className="form-error" role="alert">{createError}</p> : null}
+              </form>
+            )}
+
+            <ResourceState
+              loading={activeResource.loading}
+              error={activeResource.error}
+              empty={section === 'screens' ? wallboards.length === 0 : playlists.length === 0}
+            >
+              {section === 'screens' ? (
+                <div className="wallboard-list" role="list" aria-label="Geconfigureerde schermen">
+                  {wallboards.map((wallboard) => {
+                    const online = wallboardIsOnline(wallboard);
+                    const displayLabel = displayPageLabel(wallboard);
+                    return (
+                      <button
+                        className={`wallboard-list-card ${selectedScreen?.id === wallboard.id ? 'wallboard-list-card--active' : ''}`}
+                        key={wallboard.id}
+                        type="button"
+                        onClick={() => setSelectedScreenId(wallboard.id)}
+                        role="listitem"
+                      >
+                        <span className="wallboard-list-card__icon"><MonitorCog size={20} aria-hidden /></span>
+                        <span className="wallboard-list-card__copy">
+                          <strong>{wallboard.name}</strong>
+                          <small>{displayLabel ?? (wallboard.last_seen_at ? `Laatst gezien ${formatDateTime(wallboard.last_seen_at)}` : 'Nog niet gekoppeld')}</small>
+                          <small className="wallboard-list-card__playlist">Playlist: {wallboard.playlist.name}</small>
+                          <small>Schermprofiel: {wallboardDisplayProfileLabel(normalizeWallboardDisplayProfile(wallboard.display_profile))}</small>
+                        </span>
+                        <StatusPill value={!wallboard.is_enabled ? 'Uitgeschakeld' : online ? 'Online' : 'Offline'} tone={!wallboard.is_enabled ? 'neutral' : online ? 'good' : 'warn'} />
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="wallboard-list" role="list" aria-label="Wallboardplaylists">
+                  {playlists.map((playlist) => {
+                    const usageCount = wallboardPlaylistUsageCount(playlist);
+                    return (
+                      <button
+                        className={`wallboard-list-card ${selectedPlaylist?.id === playlist.id ? 'wallboard-list-card--active' : ''}`}
+                        key={playlist.id}
+                        type="button"
+                        onClick={() => setSelectedPlaylistId(playlist.id)}
+                        role="listitem"
+                      >
+                        <span className="wallboard-list-card__icon"><Library size={20} aria-hidden /></span>
+                        <span className="wallboard-list-card__copy">
+                          <strong>{playlist.name}</strong>
+                          <small>{playlist.configuration.pages.length} pagina’s · versie {playlist.version}</small>
+                        </span>
+                        <StatusPill value={playlistUsageLabel(playlist)} tone={usageCount > 1 ? 'warn' : usageCount === 1 ? 'good' : 'neutral'} />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </ResourceState>
           </div>
 
-          {selected === null ? (
-            <div className="wallboard-editor-empty">
-              <MonitorCog size={32} aria-hidden />
-              <strong>Selecteer of maak een wallboard</strong>
-              <span>De livebesturing en paginaopbouw verschijnen hier.</span>
-            </div>
+          {section === 'screens' ? (
+            selectedScreen === null ? (
+              <EditorEmpty icon="screen" title="Selecteer of maak een scherm" description="De livebesturing, koppeling en playlisttoewijzing verschijnen hier." />
+            ) : (
+              <ScreenEditor
+                key={selectedScreen.id}
+                wallboard={selectedScreen}
+                playlists={playlists}
+                onReplace={replaceWallboard}
+                onReloadWallboards={wallboardsResource.silentReload}
+                onReloadAll={reloadAll}
+                onDeleted={() => {
+                  wallboardsResource.mutate((current) => (current ?? []).filter((wallboard) => wallboard.id !== selectedScreen.id));
+                  setSelectedScreenId(null);
+                }}
+              />
+            )
+          ) : selectedPlaylist === null ? (
+            <EditorEmpty icon="playlist" title="Selecteer of maak een playlist" description="Pagina’s, tijden, kaartlagen, ticker en incidentvoorrang worden hier als één programma beheerd." />
           ) : (
-            <WallboardEditor
-              key={`${selected.id}:${selected.config_version}`}
-              wallboard={selected}
-              onReplace={replaceWallboard}
-              onReload={silentReload}
+            <PlaylistEditor
+              key={selectedPlaylist.id}
+              playlist={selectedPlaylist}
+              onReplace={replacePlaylist}
+              onReloadAll={reloadAll}
               onDeleted={() => {
-                resource.mutate((current) => (current ?? []).filter((wallboard) => wallboard.id !== selected.id));
-                setSelectedId(null);
+                playlistsResource.mutate((current) => (current ?? []).filter((playlist) => playlist.id !== selectedPlaylist.id));
+                setSelectedPlaylistId(null);
               }}
             />
           )}
@@ -202,20 +357,30 @@ export function WallboardsAdminPage() {
   );
 }
 
-interface WallboardEditorProps {
+interface ScreenEditorProps {
   wallboard: Wallboard;
+  playlists: WallboardPlaylist[];
   onReplace: (wallboard: Wallboard) => void;
-  onReload: () => Promise<void>;
+  onReloadWallboards: () => Promise<void>;
+  onReloadAll: () => Promise<void>;
   onDeleted: () => void;
 }
 
-function WallboardEditor({ wallboard, onReplace, onReload, onDeleted }: WallboardEditorProps) {
+function ScreenEditor({
+  wallboard,
+  playlists,
+  onReplace,
+  onReloadWallboards,
+  onReloadAll,
+  onDeleted,
+}: ScreenEditorProps) {
   const { api } = useAuth();
-  const [draft, setDraft] = useState<WallboardConfiguration>(() => wallboardConfigurationCopy(wallboard.configuration));
   const [draftName, setDraftName] = useState(wallboard.name);
   const [draftEnabled, setDraftEnabled] = useState(wallboard.is_enabled);
-  const [newPageType, setNewPageType] = useState<WallboardPageType>('map');
-  const [editingPageId, setEditingPageId] = useState(() => draft.pages[0].id);
+  const [draftDisplayProfile, setDraftDisplayProfile] = useState<WallboardDisplayProfile>(() => (
+    normalizeWallboardDisplayProfile(wallboard.display_profile)
+  ));
+  const [draftPlaylistId, setDraftPlaylistId] = useState(wallboard.playlist_id);
   const [tvPairingCode, setTvPairingCode] = useState('');
   const [pairingInputInvalid, setPairingInputInvalid] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -223,6 +388,7 @@ function WallboardEditor({ wallboard, onReplace, onReload, onDeleted }: Wallboar
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const savedConfiguration = wallboardConfigurationCopy(wallboard.configuration);
+  const selectedPlaylist = playlists.find((playlist) => playlist.id === draftPlaylistId) ?? null;
   const display = wallboard.display ?? {
     mode: wallboard.manual_page_id
       ? 'manual' as const
@@ -234,34 +400,60 @@ function WallboardEditor({ wallboard, onReplace, onReload, onDeleted }: Wallboar
     next_change_at: null,
   };
   const currentPage = savedConfiguration.pages.find((page) => page.id === display.page_id) ?? null;
-  const editingPage = draft.pages.find((page) => page.id === editingPageId) ?? draft.pages[0];
 
-  async function saveWallboard(event: FormEvent) {
+  useEffect(() => {
+    setDraftName(wallboard.name);
+    setDraftEnabled(wallboard.is_enabled);
+    setDraftDisplayProfile(normalizeWallboardDisplayProfile(wallboard.display_profile));
+    setDraftPlaylistId(wallboard.playlist_id);
+  }, [wallboard.display_profile, wallboard.is_enabled, wallboard.name, wallboard.playlist_id]);
+
+  async function saveScreen(event: FormEvent) {
     event.preventDefault();
-    if (draftName.trim() === '') return;
+    const name = draftName.trim();
+    if (name === '' || draftPlaylistId === '') return;
+    const metadataChanged = name !== wallboard.name
+      || draftEnabled !== wallboard.is_enabled
+      || draftDisplayProfile !== wallboard.display_profile;
+    const playlistChanged = draftPlaylistId !== wallboard.playlist_id;
+    if (!metadataChanged && !playlistChanged) {
+      setActionError(null);
+      setActionMessage('Er zijn geen schermwijzigingen om op te slaan.');
+      return;
+    }
+
     setBusyAction('save');
     setActionError(null);
     setActionMessage(null);
     try {
-      const configuration = wallboardConfigurationForSave({
-        ...draft,
-        refresh_seconds: clampRefreshSeconds(draft.refresh_seconds),
-      });
-      const response = await api.patch<Wallboard>(`/admin/wallboards/${wallboard.id}`, {
-        name: draftName.trim(),
-        layout: 'fullscreen_map',
-        configuration,
-        is_enabled: draftEnabled,
-        expected_config_version: wallboard.config_version,
-      });
-      onReplace(response.data);
-      setActionMessage('Pagina’s en instellingen opgeslagen. Het scherm neemt ze direct over.');
+      let currentWallboard = wallboard;
+      if (metadataChanged) {
+        const response = await api.patch<Wallboard>(`/admin/wallboards/${wallboard.id}`, {
+          name,
+          is_enabled: draftEnabled,
+          display_profile: draftDisplayProfile,
+          expected_config_version: wallboard.config_version,
+        });
+        currentWallboard = response.data;
+        onReplace(response.data);
+      }
+
+      if (playlistChanged) {
+        await api.patch<WallboardPlaylistAssignment>(`/admin/wallboards/${wallboard.id}/playlist`, {
+          playlist_id: draftPlaylistId,
+          expected_config_version: currentWallboard.config_version,
+        });
+        await onReloadAll();
+        setActionMessage('Scherminstellingen en playlisttoewijzing zijn opgeslagen. De actuele inhoud is geladen.');
+      } else {
+        setActionMessage('Scherminstellingen zijn opgeslagen.');
+      }
     } catch (error) {
       if (isConflict(error)) {
-        await onReload();
-        setActionError('De configuratie was intussen gewijzigd. De nieuwste versie is geladen; controleer je wijzigingen opnieuw.');
+        await onReloadAll();
+        setActionError('Dit scherm is intussen gewijzigd. De nieuwste scherm- en playlistversies zijn geladen; controleer je keuze opnieuw.');
       } else {
-        setActionError(errorMessage(error, 'Wallboard kon niet worden opgeslagen.'));
+        setActionError(errorMessage(error, 'Scherm kon niet worden opgeslagen.'));
       }
     } finally {
       setBusyAction(null);
@@ -278,12 +470,12 @@ function WallboardEditor({ wallboard, onReplace, onReload, onDeleted }: Wallboar
         expected_control_version: wallboard.control_version ?? 1,
       });
       if (isWallboard(response.data)) onReplace(response.data);
-      else await onReload();
-      setActionMessage(pageId === null ? 'De automatische paginarotatie is hervat.' : 'De gekozen pagina wordt nu op het wallboard getoond.');
+      else await onReloadWallboards();
+      setActionMessage(pageId === null ? 'De automatische paginarotatie is hervat.' : 'De gekozen pagina wordt nu op het scherm getoond.');
     } catch (error) {
       if (isConflict(error)) {
-        await onReload();
-        setActionError('Een andere beheerder bestuurde dit wallboard intussen. De actuele schermstatus is opnieuw geladen.');
+        await onReloadWallboards();
+        setActionError('Een andere beheerder bestuurde dit scherm intussen. De actuele schermstatus is opnieuw geladen.');
       } else {
         setActionError(errorMessage(error, 'De livebesturing kon niet worden uitgevoerd.'));
       }
@@ -305,7 +497,7 @@ function WallboardEditor({ wallboard, onReplace, onReload, onDeleted }: Wallboar
       await api.post(`/admin/wallboards/${wallboard.id}/pair`, { code });
       setTvPairingCode('');
       setPairingInputInvalid(false);
-      await onReload();
+      await onReloadWallboards();
       setActionMessage('De tv is gekoppeld en opent het wallboard automatisch.');
     } catch (error) {
       setActionError(errorMessage(error, 'De tv kon niet worden gekoppeld. Controleer de code op het scherm.'));
@@ -317,9 +509,10 @@ function WallboardEditor({ wallboard, onReplace, onReload, onDeleted }: Wallboar
   async function revokeSessions() {
     setBusyAction('revoke');
     setActionError(null);
+    setActionMessage(null);
     try {
       await api.post(`/admin/wallboards/${wallboard.id}/sessions/revoke`);
-      await onReload();
+      await onReloadWallboards();
       setActionMessage('De schermkoppeling is ingetrokken. Het scherm moet opnieuw worden gekoppeld.');
     } catch (error) {
       setActionError(errorMessage(error, 'Wallboardsessie kon niet worden ingetrokken.'));
@@ -328,75 +521,26 @@ function WallboardEditor({ wallboard, onReplace, onReload, onDeleted }: Wallboar
     }
   }
 
-  async function deleteWallboard() {
+  async function deleteScreen() {
     if (!deleteConfirm) return;
     setBusyAction('delete');
     setActionError(null);
     try {
       await api.delete(`/admin/wallboards/${wallboard.id}`);
       onDeleted();
+      await onReloadAll();
     } catch (error) {
-      setActionError(errorMessage(error, 'Wallboard kon niet worden verwijderd.'));
+      setActionError(errorMessage(error, 'Scherm kon niet worden verwijderd.'));
     } finally {
       setBusyAction(null);
     }
   }
 
-  function addPage() {
-    const page = createWallboardPage(newPageType, draft.pages.length + 1);
-    setDraft((current) => ({ ...current, pages: [...current.pages, page] }));
-    setEditingPageId(page.id);
-  }
-
-  function updatePage(pageId: string, update: (page: WallboardPage) => WallboardPage) {
-    setDraft((current) => ({
-      ...current,
-      pages: current.pages.map((page) => page.id === pageId ? update(page) : page),
-    }));
-  }
-
-  function removePage(pageId: string) {
-    if (draft.pages.length <= 1) return;
-    setDraft((current) => {
-      const pages = current.pages.filter((page) => page.id !== pageId);
-      const overridePageId = current.incident_override.page_id === pageId ? pages[0].id : current.incident_override.page_id;
-      return {
-        ...current,
-        pages,
-        incident_override: { ...current.incident_override, page_id: overridePageId },
-      };
-    });
-    const nextPage = draft.pages.find((page) => page.id !== pageId);
-    if (editingPageId === pageId && nextPage) setEditingPageId(nextPage.id);
-  }
-
-  function movePage(pageId: string, direction: -1 | 1) {
-    setDraft((current) => {
-      const index = current.pages.findIndex((page) => page.id === pageId);
-      const nextIndex = index + direction;
-      if (index < 0 || nextIndex < 0 || nextIndex >= current.pages.length) return current;
-      const pages = [...current.pages];
-      [pages[index], pages[nextIndex]] = [pages[nextIndex], pages[index]];
-      return { ...current, pages };
-    });
-  }
-
-  function setMapOption(key: keyof WallboardMapConfiguration, checked: boolean) {
-    setDraft((current) => ({
-      ...current,
-      map: {
-        ...current.map,
-        [key]: checked,
-        ...(key === 'show_live_locations' && !checked ? { show_routes: false } : {}),
-      },
-    }));
-  }
-
   return (
-    <form className="wallboard-editor" onSubmit={saveWallboard}>
+    <form className="wallboard-editor" onSubmit={saveScreen}>
       <div className="wallboard-editor__heading">
         <div>
-          <span className="eyebrow">Live schermregie</span>
+          <span className="eyebrow">Schermregie</span>
           <h2>{wallboard.name}</h2>
         </div>
         <StatusPill value={wallboard.active_sessions_count > 0 ? 'Gekoppeld' : 'Niet gekoppeld'} tone={wallboard.active_sessions_count > 0 ? 'good' : 'neutral'} />
@@ -426,7 +570,7 @@ function WallboardEditor({ wallboard, onReplace, onReload, onDeleted }: Wallboar
               disabled={busyAction !== null || !wallboard.is_enabled}
               aria-pressed={display.mode !== 'rotation' && display.page_id === page.id}
             >
-              <PageTypeIcon type={page.type} />
+              <WallboardPageTypeIcon type={page.type} />
               <span><strong>{page.name}</strong><small>Nu tonen</small></span>
               <Eye size={16} aria-hidden />
             </button>
@@ -479,142 +623,73 @@ function WallboardEditor({ wallboard, onReplace, onReload, onDeleted }: Wallboar
         </button>
       </section>
 
-      <div className="wallboard-editor__fields">
-        <label>
-          <span>Naam</span>
-          <input value={draftName} onChange={(event) => setDraftName(event.target.value)} maxLength={120} required />
-        </label>
-        <label>
-          <span>Thema</span>
-          <select value={draft.theme} onChange={(event) => setDraft((current) => ({ ...current, theme: event.target.value as WallboardConfiguration['theme'] }))}>
-            <option value="dark">Donker</option>
-            <option value="light">Licht</option>
-          </select>
-        </label>
-        <label>
-          <span>Data verversen (seconden)</span>
-          <input
-            type="number"
-            min={MIN_WALLBOARD_REFRESH_SECONDS}
-            max={MAX_WALLBOARD_REFRESH_SECONDS}
-            value={draft.refresh_seconds}
-            onChange={(event) => setDraft((current) => ({ ...current, refresh_seconds: Number(event.target.value) }))}
-            required
-          />
-        </label>
-        <label className="wallboard-switch-row">
-          <input type="checkbox" checked={draftEnabled} onChange={(event) => setDraftEnabled(event.target.checked)} />
-          <span><strong>Wallboard actief</strong><small>Uitgeschakelde schermen krijgen geen informatie meer.</small></span>
-        </label>
-        <label className="wallboard-switch-row">
-          <input type="checkbox" checked={draft.rotation_enabled} onChange={(event) => setDraft((current) => ({ ...current, rotation_enabled: event.target.checked }))} />
-          <span><strong>Pagina’s automatisch roteren</strong><small>Iedere pagina blijft zichtbaar gedurende de ingestelde tijd.</small></span>
-        </label>
-      </div>
-
-      <fieldset className="wallboard-option-grid wallboard-global-options">
-        <legend>Gegevens en kaartlagen</legend>
-        {MAP_OPTION_LABELS.map((option) => (
-          <label key={option.key}>
-            <input
-              type="checkbox"
-              checked={draft.map[option.key]}
-              disabled={option.key === 'show_routes' && !draft.map.show_live_locations}
-              onChange={(event) => setMapOption(option.key, event.target.checked)}
-            />
-            <span><strong>{option.label}</strong><small>{option.help}</small></span>
-          </label>
-        ))}
-      </fieldset>
-
-      <section className="wallboard-page-composer" aria-labelledby={`wallboard-pages-${wallboard.id}`}>
-        <div className="wallboard-page-composer__heading">
-          <div>
-            <span className="eyebrow">Programmering</span>
-            <h3 id={`wallboard-pages-${wallboard.id}`}>Pagina’s en volgorde</h3>
-          </div>
-          <div className="wallboard-page-add">
-            <label className="sr-only" htmlFor={`wallboard-page-type-${wallboard.id}`}>Nieuw paginatype</label>
-            <select id={`wallboard-page-type-${wallboard.id}`} value={newPageType} onChange={(event) => setNewPageType(event.target.value as WallboardPageType)}>
-              {PAGE_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-            <button className="secondary-button" type="button" onClick={addPage}>
-              <Plus size={17} aria-hidden /> Pagina toevoegen
-            </button>
-          </div>
+      <section className="wallboard-screen-settings" aria-labelledby={`wallboard-screen-settings-${wallboard.id}`}>
+        <div className="wallboard-configuration-section-heading">
+          <span className="eyebrow">Apparaat</span>
+          <h3 id={`wallboard-screen-settings-${wallboard.id}`}>Scherm en playlist</h3>
         </div>
-
-        <ol className="wallboard-page-sequence">
-          {draft.pages.map((page, index) => (
-            <li className={editingPage.id === page.id ? 'wallboard-page-sequence__item wallboard-page-sequence__item--active' : 'wallboard-page-sequence__item'} key={page.id}>
-              <button className="wallboard-page-sequence__select" type="button" onClick={() => setEditingPageId(page.id)} aria-current={editingPage.id === page.id ? 'step' : undefined}>
-                <span className="wallboard-page-sequence__number">{index + 1}</span>
-                <PageTypeIcon type={page.type} />
-                <span><strong>{page.name}</strong><small>{wallboardPageTypeLabel(page.type)} · {page.duration_seconds} sec.</small></span>
-              </button>
-              <span className="wallboard-page-sequence__actions">
-                <button type="button" onClick={() => movePage(page.id, -1)} disabled={index === 0} aria-label={`${page.name} omhoog verplaatsen`}><ArrowUp size={16} aria-hidden /></button>
-                <button type="button" onClick={() => movePage(page.id, 1)} disabled={index === draft.pages.length - 1} aria-label={`${page.name} omlaag verplaatsen`}><ArrowDown size={16} aria-hidden /></button>
-                <button type="button" onClick={() => removePage(page.id)} disabled={draft.pages.length <= 1} aria-label={`${page.name} verwijderen`}><Trash2 size={16} aria-hidden /></button>
-              </span>
-            </li>
-          ))}
-        </ol>
-
-        <WallboardPageEditor page={editingPage} onChange={(next) => updatePage(editingPage.id, () => next)} />
+        <div className="wallboard-editor__fields wallboard-editor__fields--screen">
+          <label>
+            <span>Schermnaam</span>
+            <input value={draftName} onChange={(event) => setDraftName(event.target.value)} maxLength={120} required />
+          </label>
+          <label>
+            <span>Schermprofiel</span>
+            <select
+              value={draftDisplayProfile}
+              onChange={(event) => setDraftDisplayProfile(event.target.value as WallboardDisplayProfile)}
+              aria-describedby={`wallboard-display-profile-help-${wallboard.id}`}
+            >
+              <option value="auto">Auto (aanbevolen)</option>
+              <option value="1080p">1080p (Full HD)</option>
+              <option value="4k">4K (Ultra HD)</option>
+            </select>
+            <small id={`wallboard-display-profile-help-${wallboard.id}`}>
+              Auto past de indeling aan de beschikbare browserruimte aan. Het profiel wijzigt niet de TV-, HDMI- of OS-uitvoerresolutie; kies 1080p of 4K alleen als de tv-browser tekst structureel te groot of te klein toont.
+            </small>
+          </label>
+          <label>
+            <span>Toegewezen playlist</span>
+            <select value={draftPlaylistId} onChange={(event) => setDraftPlaylistId(event.target.value)} required>
+              {playlists.map((playlist) => (
+                <option key={playlist.id} value={playlist.id}>{playlist.name} · {playlistUsageLabel(playlist)}</option>
+              ))}
+              {!playlists.some((playlist) => playlist.id === wallboard.playlist_id) ? (
+                <option value={wallboard.playlist_id}>{wallboard.playlist.name}</option>
+              ) : null}
+            </select>
+            <small>
+              {selectedPlaylist && wallboardPlaylistUsageCount(selectedPlaylist) > 1
+                ? `Gedeeld door ${wallboardPlaylistUsageCount(selectedPlaylist)} schermen.`
+                : 'Wijzig de inhoud onder Playlists; dit scherm neemt die versie direct over.'}
+            </small>
+          </label>
+          <label className="wallboard-switch-row">
+            <input type="checkbox" checked={draftEnabled} onChange={(event) => setDraftEnabled(event.target.checked)} />
+            <span><strong>Scherm actief</strong><small>Uitgeschakelde schermen krijgen geen informatie meer.</small></span>
+          </label>
+        </div>
       </section>
-
-      <fieldset className="wallboard-incident-override">
-        <legend>Automatisch bij een actief incident</legend>
-        <label className="wallboard-switch-row">
-          <input
-            type="checkbox"
-            checked={draft.incident_override.enabled}
-            onChange={(event) => setDraft((current) => ({
-              ...current,
-              incident_override: {
-                enabled: event.target.checked,
-                page_id: current.incident_override.page_id ?? current.pages[0].id,
-              },
-            }))}
-          />
-          <span><strong>Incidentpagina vastzetten</strong><small>De rotatie pauzeert zolang minimaal één operationeel incident actief is.</small></span>
-        </label>
-        <label>
-          <span>Pagina tijdens incident</span>
-          <select
-            value={draft.incident_override.page_id ?? ''}
-            disabled={!draft.incident_override.enabled}
-            onChange={(event) => setDraft((current) => ({
-              ...current,
-              incident_override: { ...current.incident_override, page_id: event.target.value },
-            }))}
-          >
-            {draft.pages.map((page) => <option key={page.id} value={page.id}>{page.name}</option>)}
-          </select>
-        </label>
-        <p><PauseCircle size={16} aria-hidden /> Een actief incident heeft voorrang; daarna keert het scherm terug naar de handmatige pagina of rotatie.</p>
-      </fieldset>
 
       {actionError ? <p className="form-error" role="alert">{actionError}</p> : null}
       {actionMessage ? <p className="form-note" role="status">{actionMessage}</p> : null}
 
       <div className="wallboard-editor__actions">
-        <button className="primary-button" type="submit" disabled={busyAction !== null || draftName.trim() === ''}>
-          <Save size={17} aria-hidden /> {busyAction === 'save' ? 'Opslaan…' : 'Alles opslaan'}
+        <button className="primary-button" type="submit" disabled={busyAction !== null || draftName.trim() === '' || draftPlaylistId === ''}>
+          <Save size={17} aria-hidden /> {busyAction === 'save' ? 'Opslaan…' : 'Scherm opslaan'}
         </button>
         <button className="secondary-button" type="button" onClick={() => void revokeSessions()} disabled={busyAction !== null || wallboard.active_sessions_count === 0}>
           <ShieldOff size={17} aria-hidden /> Koppeling intrekken
         </button>
         {deleteConfirm ? (
           <span className="wallboard-delete-confirm">
-            <span>Definitief verwijderen?</span>
-            <button className="danger-button" type="button" onClick={() => void deleteWallboard()} disabled={busyAction !== null}>Ja, verwijderen</button>
+            <span>Dit scherm definitief verwijderen?</span>
+            <button className="danger-button" type="button" onClick={() => void deleteScreen()} disabled={busyAction !== null}>Ja, verwijderen</button>
             <button className="secondary-button" type="button" onClick={() => setDeleteConfirm(false)}>Annuleren</button>
           </span>
         ) : (
           <button className="danger-button" type="button" onClick={() => setDeleteConfirm(true)} disabled={busyAction !== null}>
-            <Trash2 size={17} aria-hidden /> Verwijderen
+            <Trash2 size={17} aria-hidden /> Scherm verwijderen
           </button>
         )}
       </div>
@@ -622,93 +697,158 @@ function WallboardEditor({ wallboard, onReplace, onReload, onDeleted }: Wallboar
   );
 }
 
-function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange: (page: WallboardPage) => void }) {
-  function updateType(type: WallboardPageType) {
-    const previousDefaultTitle = wallboardPageTypeLabel(page.type);
-    onChange({
-      ...page,
-      type,
-      name: page.name === previousDefaultTitle ? wallboardPageTypeLabel(type) : page.name,
-      options: type === 'message'
-        ? { body: page.options.body ?? '' }
-        : ['incident_list', 'summary'].includes(type)
-          ? { show_test_incidents: page.options.show_test_incidents ?? false }
-          : {},
-    });
+interface PlaylistEditorProps {
+  playlist: WallboardPlaylist;
+  onReplace: (playlist: WallboardPlaylist) => void;
+  onReloadAll: () => Promise<void>;
+  onDeleted: () => void;
+}
+
+function PlaylistEditor({ playlist, onReplace, onReloadAll, onDeleted }: PlaylistEditorProps) {
+  const { api } = useAuth();
+  const [draftName, setDraftName] = useState(playlist.name);
+  const [draft, setDraft] = useState<WallboardConfiguration>(() => wallboardConfigurationCopy(playlist.configuration));
+  const [busyAction, setBusyAction] = useState<'save' | 'delete' | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const usageCount = wallboardPlaylistUsageCount(playlist);
+
+  useEffect(() => {
+    setDraftName(playlist.name);
+    setDraft(wallboardConfigurationCopy(playlist.configuration));
+    setDeleteConfirm(false);
+  }, [playlist.configuration, playlist.name, playlist.version]);
+
+  async function savePlaylist(event: FormEvent) {
+    event.preventDefault();
+    const name = draftName.trim();
+    if (name === '') return;
+    setBusyAction('save');
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const configuration = wallboardConfigurationForSave({
+        ...draft,
+        refresh_seconds: clampRefreshSeconds(draft.refresh_seconds),
+      });
+      const response = await api.patch<WallboardPlaylist>(`/admin/wallboard-playlists/${playlist.id}`, {
+        name,
+        configuration,
+        expected_version: playlist.version,
+      });
+      onReplace(response.data);
+      await onReloadAll();
+      setActionMessage(usageCount > 1
+        ? `Playlist opgeslagen en bijgewerkt op alle ${usageCount} gekoppelde schermen.`
+        : 'Playlist opgeslagen. Gekoppelde schermen nemen de inhoud direct over.');
+    } catch (error) {
+      if (isConflict(error)) {
+        await onReloadAll();
+        setActionError('Deze playlist is intussen gewijzigd. De nieuwste playlist- en schermversies zijn geladen; controleer je wijzigingen opnieuw.');
+      } else {
+        setActionError(errorMessage(error, 'Playlist kon niet worden opgeslagen.'));
+      }
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function deletePlaylist() {
+    if (!deleteConfirm || usageCount > 0) return;
+    setBusyAction('delete');
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      await api.delete(`/admin/wallboard-playlists/${playlist.id}?expected_version=${encodeURIComponent(String(playlist.version))}`);
+      onDeleted();
+      await onReloadAll();
+    } catch (error) {
+      await onReloadAll();
+      if (isConflict(error)) {
+        setActionError('De playlist is gewijzigd of inmiddels aan een scherm gekoppeld. De actuele gegevens zijn geladen; ontkoppel alle schermen voordat je verwijdert.');
+      } else {
+        setActionError(errorMessage(error, 'Playlist kon niet worden verwijderd.'));
+      }
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   return (
-    <div className="wallboard-page-editor">
-      <div className="wallboard-page-editor__heading">
-        <PageTypeIcon type={page.type} />
-        <div><small>Pagina bewerken</small><strong>{page.name}</strong></div>
-      </div>
-      <div className="wallboard-page-editor__fields">
-        <label>
-          <span>Titel</span>
-          <input value={page.name} onChange={(event) => onChange({ ...page, name: event.target.value })} maxLength={120} required />
-        </label>
-        <label>
-          <span>Type</span>
-          <select value={page.type} onChange={(event) => updateType(event.target.value as WallboardPageType)}>
-            {PAGE_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </label>
-        <label>
-          <span>Tijd op scherm (seconden)</span>
-          <input
-            type="number"
-            min={MIN_WALLBOARD_PAGE_DURATION_SECONDS}
-            max={MAX_WALLBOARD_PAGE_DURATION_SECONDS}
-            value={page.duration_seconds}
-            onChange={(event) => onChange({ ...page, duration_seconds: clampWallboardPageDuration(Number(event.target.value)) })}
-            required
-          />
-        </label>
+    <form className="wallboard-editor wallboard-playlist-editor" onSubmit={savePlaylist}>
+      <div className="wallboard-editor__heading">
+        <div>
+          <span className="eyebrow">Gedeelde inhoud</span>
+          <h2>{playlist.name}</h2>
+        </div>
+        <StatusPill value={`Versie ${playlist.version}`} tone="neutral" />
       </div>
 
-      {page.type === 'message' ? (
-        <label className="wallboard-message-editor">
-          <span>Tekst op het scherm</span>
-          <textarea
-            value={page.options.body ?? ''}
-            onChange={(event) => onChange({ ...page, options: { ...page.options, body: event.target.value } })}
-            maxLength={2000}
-            rows={5}
-            placeholder="Schrijf hier de mededeling voor het wallboard."
-            required
-          />
-          <small>{(page.options.body ?? '').length}/2000 tekens · uitsluitend platte tekst</small>
-        </label>
+      {usageCount > 1 ? (
+        <aside className="wallboard-playlist-shared" role="note" aria-label="Gedeelde playlist">
+          <AlertTriangle size={22} aria-hidden />
+          <div>
+            <strong>Gedeelde playlist · {usageCount} schermen</strong>
+            <span>Wijzigingen aan pagina’s, tijden, kaartlagen, ticker of incidentvoorrang verschijnen na opslaan op al deze schermen.</span>
+          </div>
+        </aside>
       ) : (
-        <div className="wallboard-page-editor__page-options">
-          <p className="wallboard-page-editor__hint">Deze pagina gebruikt de geselecteerde gegevens en kaartlagen van het wallboard.</p>
-          {['incident_list', 'summary'].includes(page.type) ? (
-            <label className="wallboard-switch-row">
-              <input
-                type="checkbox"
-                checked={page.options.show_test_incidents === true}
-                onChange={(event) => onChange({
-                  ...page,
-                  options: { ...page.options, show_test_incidents: event.target.checked },
-                })}
-              />
-              <span><strong>Proefmeldingen op deze pagina</strong><small>Dit kan per incidentenlijst of samenvatting afwijken.</small></span>
-            </label>
-          ) : null}
-        </div>
+        <p className="wallboard-playlist-usage"><Link2 size={16} aria-hidden /> {usageCount === 1 ? 'Deze playlist is aan 1 scherm gekoppeld.' : 'Deze playlist is nog niet aan een scherm gekoppeld.'}</p>
       )}
-    </div>
+
+      <section className="wallboard-playlist-name" aria-labelledby={`playlist-name-${playlist.id}`}>
+        <div className="wallboard-configuration-section-heading">
+          <span className="eyebrow">Identiteit</span>
+          <h3 id={`playlist-name-${playlist.id}`}>Naam</h3>
+        </div>
+        <label>
+          <span>Playlistnaam</span>
+          <input value={draftName} onChange={(event) => setDraftName(event.target.value)} maxLength={120} required />
+        </label>
+      </section>
+
+      <WallboardConfigurationEditor
+        idPrefix={`playlist-${playlist.id}`}
+        configuration={draft}
+        setConfiguration={setDraft}
+      />
+
+      {actionError ? <p className="form-error" role="alert">{actionError}</p> : null}
+      {actionMessage ? <p className="form-note" role="status">{actionMessage}</p> : null}
+      {usageCount > 0 ? (
+        <p className="wallboard-playlist-delete-help"><AlertTriangle size={16} aria-hidden /> Verwijderen kan pas nadat alle {usageCount === 1 ? 'scherm is' : 'schermen zijn'} toegewezen aan een andere playlist.</p>
+      ) : null}
+
+      <div className="wallboard-editor__actions">
+        <button className="primary-button" type="submit" disabled={busyAction !== null || draftName.trim() === ''}>
+          <Save size={17} aria-hidden /> {busyAction === 'save' ? 'Opslaan…' : 'Playlist opslaan'}
+        </button>
+        {deleteConfirm ? (
+          <span className="wallboard-delete-confirm">
+            <span>Deze ongebruikte playlist definitief verwijderen?</span>
+            <button className="danger-button" type="button" onClick={() => void deletePlaylist()} disabled={busyAction !== null || usageCount > 0}>Ja, verwijderen</button>
+            <button className="secondary-button" type="button" onClick={() => setDeleteConfirm(false)}>Annuleren</button>
+          </span>
+        ) : (
+          <button className="danger-button" type="button" onClick={() => setDeleteConfirm(true)} disabled={busyAction !== null || usageCount > 0} aria-describedby={usageCount > 0 ? `playlist-delete-help-${playlist.id}` : undefined}>
+            <Trash2 size={17} aria-hidden /> Playlist verwijderen
+          </button>
+        )}
+        {usageCount > 0 ? <span className="sr-only" id={`playlist-delete-help-${playlist.id}`}>Deze playlist is nog gekoppeld en kan niet worden verwijderd.</span> : null}
+      </div>
+    </form>
   );
 }
 
-function PageTypeIcon({ type }: { type: WallboardPageType }) {
-  switch (type) {
-    case 'map': return <Map size={18} aria-hidden />;
-    case 'incident_list': return <List size={18} aria-hidden />;
-    case 'summary': return <BarChart3 size={18} aria-hidden />;
-    case 'message': return <MessageSquareText size={18} aria-hidden />;
-  }
+function EditorEmpty({ icon, title, description }: { icon: 'screen' | 'playlist'; title: string; description: string }) {
+  return (
+    <div className="wallboard-editor-empty">
+      {icon === 'screen' ? <MonitorCog size={32} aria-hidden /> : <Library size={32} aria-hidden />}
+      <strong>{title}</strong>
+      <span>{description}</span>
+    </div>
+  );
 }
 
 function displayPageLabel(wallboard: Wallboard): string | null {
@@ -724,6 +864,16 @@ function displayModeLabel(mode: 'rotation' | 'static' | 'manual' | 'incident_ove
   if (mode === 'incident_override') return 'Vastgezet zolang het incident actief is';
   if (mode === 'static') return 'Vaste pagina';
   return incidentActive ? 'Rotatie · incident actief zonder override' : 'Automatische rotatie';
+}
+
+function playlistUsageLabel(playlist: WallboardPlaylist): string {
+  const count = wallboardPlaylistUsageCount(playlist);
+  return `${count} ${count === 1 ? 'scherm' : 'schermen'}`;
+}
+
+function retainedSelection<T extends { id: string }>(current: string | null, items: T[]): string | null {
+  if (items.length === 0) return null;
+  return current !== null && items.some((item) => item.id === current) ? current : items[0].id;
 }
 
 function formatTime(value: string): string {

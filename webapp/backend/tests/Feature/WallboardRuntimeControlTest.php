@@ -9,6 +9,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Models\Wallboard;
 use App\Models\WallboardSession;
+use App\Services\WallboardDisplayService;
 use App\Services\WallboardSessionService;
 use App\Support\WallboardConfiguration;
 use Carbon\CarbonImmutable;
@@ -130,6 +131,33 @@ final class WallboardRuntimeControlTest extends TestCase
             ])->assertUnprocessable();
     }
 
+    public function test_runtime_state_and_control_expose_the_physical_wallboard_display_profile(): void
+    {
+        $manager = $this->user('wallboard-profile-runtime@example.test', ['wallboards.manage']);
+        $wallboard = $this->wallboard($manager, $this->configuration());
+        [, $cookie] = $this->wallboardCredential($wallboard);
+
+        $this->asAdminClient($manager)
+            ->patchJson('/api/admin/wallboards/'.$wallboard->id, [
+                'expected_config_version' => 1,
+                'display_profile' => Wallboard::DISPLAY_PROFILE_4K,
+            ])->assertOk()
+            ->assertJsonPath('data.config_version', 2)
+            ->assertJsonPath('data.control_version', 2);
+
+        $this->wallboardGet('/api/wallboard/state', $cookie)
+            ->assertOk()
+            ->assertJsonPath('data.wallboard.display_profile', Wallboard::DISPLAY_PROFILE_4K)
+            ->assertJsonPath('data.wallboard.config_version', 2)
+            ->assertJsonPath('data.wallboard.control_version', 2);
+
+        $this->wallboardGet('/api/wallboard/control', $cookie)
+            ->assertOk()
+            ->assertJsonPath('data.display_profile', Wallboard::DISPLAY_PROFILE_4K)
+            ->assertJsonPath('data.config_version', 2)
+            ->assertJsonPath('data.control_version', 2);
+    }
+
     public function test_rotation_is_server_authoritative_and_resume_reanchors_the_cycle(): void
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-19 10:00:00', 'Europe/Amsterdam'));
@@ -168,6 +196,35 @@ final class WallboardRuntimeControlTest extends TestCase
             ->assertJsonPath('data.display.mode', 'rotation')
             ->assertJsonPath('data.display.page_id', 'map')
             ->assertJsonPath('data.display.next_change_at', '2026-07-19T10:00:11+02:00');
+    }
+
+    public function test_postgresql_utc_carrier_timestamp_does_not_restart_rotation_on_each_poll(): void
+    {
+        config()->set('app.timezone', 'Europe/Amsterdam');
+        $configuration = $this->configuration();
+        $wallboard = (new Wallboard)->newFromBuilder([
+            'rotation_started_at' => '2026-07-19 10:00:00.250000+00',
+            'created_at' => '2026-07-19 10:00:00.250000+00',
+            'updated_at' => '2026-07-19 10:00:00.250000+00',
+        ]);
+        $display = app(WallboardDisplayService::class);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-19 10:00:01.900000', 'Europe/Amsterdam'));
+        $firstPoll = $display->display($wallboard, $configuration, false);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-19 10:00:03.100000', 'Europe/Amsterdam'));
+        $secondPoll = $display->display($wallboard, $configuration, false);
+
+        $this->assertSame('map', $firstPoll['page_id']);
+        $this->assertSame('2026-07-19T10:00:05+02:00', $firstPoll['next_change_at']);
+        $this->assertSame('map', $secondPoll['page_id']);
+        $this->assertSame($firstPoll['next_change_at'], $secondPoll['next_change_at']);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-19 10:00:05.300000', 'Europe/Amsterdam'));
+        $thirdPoll = $display->display($wallboard, $configuration, false);
+
+        $this->assertSame('summary', $thirdPoll['page_id']);
+        $this->assertSame('2026-07-19T10:00:15+02:00', $thirdPoll['next_change_at']);
     }
 
     public function test_a_future_rotation_anchor_falls_back_to_the_current_time(): void
