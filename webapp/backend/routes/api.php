@@ -299,6 +299,8 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::post('/admin/wallboards/{wallboard}/sessions/revoke', [AdminWallboardController::class, 'revokeSessions'])->middleware('permission:wallboards.manage');
         Route::post('/admin/wallboards/{wallboard}/display', [AdminWallboardController::class, 'setDisplay'])
             ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
+        Route::post('/admin/wallboards/{wallboard}/refresh', [AdminWallboardController::class, 'refresh'])
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
         Route::post('/admin/roles', [AdminController::class, 'storeRole'])->middleware('permission:roles.manage');
         Route::patch('/admin/roles/{role}', [AdminController::class, 'updateRole'])->middleware('permission:roles.manage');
         Route::delete('/admin/roles/{role}', [AdminController::class, 'destroyRole'])->middleware('permission:roles.delete');

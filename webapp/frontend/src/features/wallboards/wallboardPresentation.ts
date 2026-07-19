@@ -1,10 +1,12 @@
 import type {
   Wallboard,
   WallboardConfiguration,
+  WallboardCustomNewsSource,
   WallboardDisplayProfile,
   WallboardFocusConfiguration,
   WallboardFocusKind,
   WallboardMapConfiguration,
+  WallboardNewsSource,
   WallboardPage,
   WallboardPageType,
   WallboardPilotAvailability,
@@ -34,6 +36,13 @@ export const MAX_WALLBOARD_TICKER_SOURCES = 10;
 export const MIN_WALLBOARD_RSS_MAX_ITEMS = 1;
 export const MAX_WALLBOARD_RSS_MAX_ITEMS = 8;
 export const DEFAULT_WALLBOARD_RSS_MAX_ITEMS = 8;
+export const MIN_WALLBOARD_NEWS_MAX_ITEMS = 1;
+export const MAX_WALLBOARD_NEWS_MAX_ITEMS = 12;
+export const DEFAULT_WALLBOARD_NEWS_MAX_ITEMS = 6;
+export const DEFAULT_WALLBOARD_NEWS_SOURCES: WallboardNewsSource[] = ['ndt', 'dronewatch'];
+export const MAX_WALLBOARD_CUSTOM_NEWS_SOURCES = 8;
+export const MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_LABEL_LENGTH = 80;
+export const MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_URL_LENGTH = 2048;
 const WALLBOARD_HEARTBEAT_GRACE_SECONDS = 90;
 const DEFAULT_RECENT_INCIDENT_LIMIT = 4;
 
@@ -179,6 +188,54 @@ export function clampWallboardRssMaxItems(value: number): number {
   );
 }
 
+export function clampWallboardNewsMaxItems(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_WALLBOARD_NEWS_MAX_ITEMS;
+  return Math.min(
+    MAX_WALLBOARD_NEWS_MAX_ITEMS,
+    Math.max(MIN_WALLBOARD_NEWS_MAX_ITEMS, Math.round(value)),
+  );
+}
+
+export function normalizeWallboardNewsSources(value: unknown, allowEmpty = false): WallboardNewsSource[] {
+  if (!Array.isArray(value)) return [...DEFAULT_WALLBOARD_NEWS_SOURCES];
+
+  const sources = [...new Set(value.filter((source): source is WallboardNewsSource => (
+    source === 'ndt' || source === 'dronewatch'
+  )))];
+  return sources.length > 0 || allowEmpty ? sources : [...DEFAULT_WALLBOARD_NEWS_SOURCES];
+}
+
+export function normalizeWallboardCustomNewsSources(value: unknown): WallboardCustomNewsSource[] {
+  if (!Array.isArray(value)) return [];
+
+  const seenIds = new Set<string>();
+  return value.flatMap((source): WallboardCustomNewsSource[] => {
+    if (typeof source !== 'object' || source === null || Array.isArray(source)) return [];
+    const candidate = source as Partial<WallboardCustomNewsSource>;
+    const id = typeof candidate.id === 'string' ? candidate.id.trim() : '';
+    const label = typeof candidate.label === 'string' ? candidate.label.trim() : '';
+    const url = typeof candidate.url === 'string' ? safeWallboardCustomNewsUrl(candidate.url) : null;
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id) || seenIds.has(id) || label === '' || url === null) return [];
+    seenIds.add(id);
+    return [{
+      id,
+      label: label.slice(0, MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_LABEL_LENGTH),
+      url,
+    }];
+  }).slice(0, MAX_WALLBOARD_CUSTOM_NEWS_SOURCES);
+}
+
+export function createWallboardCustomNewsSource(sequence: number): WallboardCustomNewsSource {
+  const suffix = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${sequence}`;
+  return {
+    id: `rss-${suffix}`.slice(0, 64),
+    label: `Eigen RSS-bron ${sequence}`,
+    url: '',
+  };
+}
+
 export function wallboardFocusKindLabel(kind: WallboardFocusKind): string {
   switch (kind) {
     case 'preannouncement': return 'Vooraankondiging';
@@ -199,7 +256,13 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
     duration_seconds: 30,
     options: type === 'message'
       ? { body: '' }
-      : {},
+      : type === 'news'
+        ? {
+          sources: [...DEFAULT_WALLBOARD_NEWS_SOURCES],
+          custom_sources: [],
+          max_items: DEFAULT_WALLBOARD_NEWS_MAX_ITEMS,
+        }
+        : {},
   };
 }
 
@@ -228,6 +291,7 @@ export function wallboardPageTypeLabel(type: WallboardPageType): string {
     case 'incident_list': return 'Incidentenoverzicht';
     case 'summary': return 'Operationele samenvatting';
     case 'message': return 'Mededeling';
+    case 'news': return 'Dronenieuws';
   }
 }
 
@@ -399,7 +463,7 @@ function normalizeWallboardPage(
   page: WallboardPage,
   index: number,
 ): WallboardPage {
-  const type: WallboardPageType = ['map', 'incident_list', 'summary', 'message'].includes(page.type)
+  const type: WallboardPageType = ['map', 'incident_list', 'summary', 'message', 'news'].includes(page.type)
     ? page.type
     : 'map';
   const id = typeof page.id === 'string' && page.id.trim() !== '' ? page.id : `page-${index + 1}`;
@@ -417,8 +481,30 @@ function normalizeWallboardPage(
     duration_seconds: clampWallboardPageDuration(page.duration_seconds),
     options: type === 'message'
       ? { body: typeof page.options?.body === 'string' ? page.options.body : '' }
-      : {},
+      : type === 'news'
+        ? normalizeWallboardNewsPageOptions(page)
+        : {},
   };
+}
+
+function normalizeWallboardNewsPageOptions(page: WallboardPage): WallboardPage['options'] {
+  const customSources = normalizeWallboardCustomNewsSources(page.options?.custom_sources);
+  return {
+    sources: normalizeWallboardNewsSources(page.options?.sources, customSources.length > 0),
+    custom_sources: customSources,
+    max_items: clampWallboardNewsMaxItems(Number(page.options?.max_items)),
+  };
+}
+
+function safeWallboardCustomNewsUrl(value: string): string | null {
+  if (value.length > MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_URL_LENGTH) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.port !== '' || url.username !== '' || url.password !== '') return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 function wallboardTickerConfigurationCopy(

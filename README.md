@@ -184,24 +184,39 @@ density. It does not change the television, HDMI input, operating-system or brow
 shared playlist can therefore be shown on screens with different display profiles.
 
 A playlist contains an ordered set of allowlisted DIS pages: an operational map, incident list, operational
-summary or plain-text announcement. Every page has its own bounded display duration. The playlist also owns
+summary, plain-text announcement or curated drone-news page. Every page has its own bounded display duration. The playlist also owns
 map layers, rotation, the incident override and an optional bottom ticker. The ticker accepts bounded
 plain-text internal messages and multiple HTTPS RSS or Atom feeds; feed retrieval is cached, size-limited and
 restricted to public destinations. Each RSS source can show between one and eight items; legacy and omitted
 `max_items` settings default to eight. External display pages, arbitrary HTML and executable content are not
 accepted.
 
+Each drone-news page can enable the fixed Nationaal Drone Team and Dronewatch sources, add up to eight named
+custom HTTPS RSS or Atom sources and show between one and twelve items across all enabled sources. At least one
+fixed or custom source must remain enabled. DIS first selects only items published during the preceding seven
+days. When none of the enabled sources has a recent item, it falls back to the configured number of latest items
+and marks that state on the display. Fixed source addresses are application-owned; custom sources are validated
+and fetched through public-destination-only DNS pinning, strict transport limits and XML hardening. Retrieval is
+bounded and cached server-side; the display receives only a sanitized title, short excerpt, publication
+timestamp and canonical article link, never remote markup or executable content.
+
 An unpaired television starts the pairing flow itself and shows a short-lived, human-readable code on
 `/wallboard`; no keyboard is required on the display. An administrator selects the intended wallboard in
 `/wallboards` and enters that television code there. Approval is one-time and database-backed. Only the
 waiting television receives the resulting dedicated `Secure`, `HttpOnly`, host-only wallboard session cookie;
 the administrator never receives or handles the display credential. Expired requests are replaced by a new
-code on the television, and an administrator can revoke the paired display sessions at any time.
+code on the television. A paired display session has no idle or absolute server-side expiry: it remains paired
+until an administrator revokes it or disables the wallboard. Its persistent browser cookie is renewed whenever
+the credential rotates, and an administrator can revoke all paired display sessions at any time.
 
 An administrator can pin a configured page immediately or return the display to its server-authoritative
 rotation. A lightweight, authenticated control feed lets the kiosk observe control and configuration
 versions without repeatedly loading the full map payload. Page rotation is derived from a server timestamp
 and the configured durations, so refreshes and process restarts do not create an independent browser clock.
+When connectivity is lost, the kiosk keeps the last known presentation visible with an offline warning and
+continues reconnecting automatically. An audited `Wallboard herstarten` command can be sent from administration;
+the command is persisted and causes exactly one hard browser reload when that paired screen next receives it,
+including after a temporary outage. Normal reconnection never performs a hard reload by itself.
 
 Each playlist independently configures focus screens for a preannouncement, a real alarm and a test alarm.
 Every focus type has a bounded screen duration and an optional response feed. That feed contains only the

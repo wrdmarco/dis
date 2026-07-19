@@ -7,6 +7,7 @@ import {
   Eye,
   Map,
   MessageSquareText,
+  Newspaper,
   Radio,
   Rss,
   Siren,
@@ -76,11 +77,22 @@ export function WallboardPlaylistPreview({
             <span><Clock3 size={16} aria-hidden /> {selectedPage.duration_seconds} sec.</span>
           </div>
           <div className={`wallboard-playlist-preview__canvas wallboard-playlist-preview__canvas--${selectedPage.type}`}>
-            {selectedPage.type === 'map' ? <Map size={42} aria-hidden /> : <MessageSquareText size={42} aria-hidden />}
+            {selectedPage.type === 'map'
+              ? <Map size={42} aria-hidden />
+              : selectedPage.type === 'news'
+                ? <Newspaper size={42} aria-hidden />
+                : <MessageSquareText size={42} aria-hidden />}
             <span>{wallboardPageTypeLabel(selectedPage.type)}</span>
             <h3 id="wallboard-preview-page-title">{selectedPage.name}</h3>
             {selectedPage.type === 'message' ? (
               <p>{selectedPage.options.body?.trim() || 'Nog geen mededeling ingevuld.'}</p>
+            ) : selectedPage.type === 'news' ? (
+              <p>
+                Maximaal {selectedPage.options.max_items ?? 6} berichten uit de laatste 7 dagen en
+                {' '}{(selectedPage.options.sources ?? ['ndt', 'dronewatch']).length
+                  + (selectedPage.options.custom_sources ?? []).length} vaste en eigen bron(nen) samen.
+                Is die periode leeg, dan volgen de laatste publicaties met samenvatting.
+              </p>
             ) : (
               <p>De live operationele gegevens verschijnen hier pas op het gekoppelde wallboard.</p>
             )}

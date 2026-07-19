@@ -198,8 +198,22 @@ final class WallboardFocusService
         $durationSeconds = (int) ($settings['duration_seconds'] ?? 0);
         $phase = $kind === 'preannouncement' ? 'preannouncement' : 'alarm';
         $dispatchIds = $this->phaseDispatchIds((string) $incident->id, $phase);
-        $responses = ($settings['show_response_feed'] ?? false) === true
+        $responseSummary = (($settings['show_response_feed'] ?? false) === true || $kind === 'preannouncement')
             ? $this->responses($dispatchIds)
+            : null;
+        $responses = ($settings['show_response_feed'] ?? false) === true
+            ? $responseSummary
+            : null;
+        $pilotCounts = $kind === 'preannouncement'
+            ? [
+                // Dispatch recipients are the durable result of DispatchService's
+                // existing eligibility and recipient-selection rules. Deriving
+                // these counters from them avoids inventing a second wallboard-
+                // specific interpretation of certifications or availability.
+                'available' => (int) ($responseSummary['counts']['accepted'] ?? 0),
+                'relevant' => (int) ($responseSummary['counts']['targeted'] ?? 0),
+                'contacted' => (int) ($responseSummary['counts']['contacted'] ?? 0),
+            ]
             : null;
 
         $expiresAt = null;
@@ -229,12 +243,15 @@ final class WallboardFocusService
             'reference' => (string) $incident->reference,
             'title' => (string) $incident->title,
             'priority' => (string) ($incident->priority ?: $dispatch->priority),
-            'location_label' => $incident->location_label,
+            // A reachability test has no operational destination. Never let a
+            // stale or synthetic incident location appear as a test-alarm route.
+            'location_label' => $kind === 'test_alarm' ? null : $incident->location_label,
             'started_at' => ApiDateTime::dateTime($startedAt),
             'expires_at' => ApiDateTime::dateTime($expiresAt),
             'visible' => $visible,
             'playlist_page_id' => $playlistPageId,
             'next_change_at' => ApiDateTime::dateTime($nextChangeAt),
+            'pilot_counts' => $pilotCounts,
             'responses' => $responses,
         ];
     }
@@ -257,7 +274,7 @@ final class WallboardFocusService
 
     /**
      * @param  list<string>  $dispatchIds
-     * @return array{counts: array{targeted: int, pending: int, accepted: int, declined: int, no_response: int}, items: list<array{name: string, response_status: string, responded_at: string|null}>}
+     * @return array{counts: array{targeted: int, contacted: int, pending: int, accepted: int, declined: int, no_response: int}, items: list<array{name: string, response_status: string, responded_at: string|null}>}
      */
     private function responses(array $dispatchIds): array
     {
@@ -265,6 +282,7 @@ final class WallboardFocusService
             return [
                 'counts' => [
                     'targeted' => 0,
+                    'contacted' => 0,
                     'pending' => 0,
                     'accepted' => 0,
                     'declined' => 0,
@@ -277,9 +295,15 @@ final class WallboardFocusService
         $recipients = DispatchRecipient::query()
             ->whereIn('dispatch_request_id', $dispatchIds)
             ->orderByDesc('updated_at')
+            // PostgreSQL sorts NULL first for DESC. Prefer a real response when
+            // duplicate team dispatches happen to share an update timestamp.
+            ->orderByRaw('CASE WHEN responded_at IS NULL THEN 1 ELSE 0 END ASC')
+            ->orderByDesc('responded_at')
             ->orderByDesc('id')
-            ->get(['id', 'user_id', 'user_name', 'response_status', 'responded_at', 'updated_at'])
-            ->unique(static fn (DispatchRecipient $recipient): string => (string) $recipient->user_id)
+            ->get(['id', 'user_id', 'user_name', 'response_status', 'notified_at', 'responded_at', 'updated_at'])
+            ->unique(static fn (DispatchRecipient $recipient): string => $recipient->user_id === null
+                ? 'deleted:'.(string) $recipient->id
+                : 'user:'.(string) $recipient->user_id)
             ->values();
         $statusCounts = $recipients->countBy(
             static fn (DispatchRecipient $recipient): string => (string) $recipient->response_status,
@@ -288,7 +312,7 @@ final class WallboardFocusService
         $items = $recipients
             ->filter(static fn (DispatchRecipient $recipient): bool => in_array(
                 (string) $recipient->response_status,
-                ['accepted', 'declined'],
+                ['accepted', 'declined', 'no_response'],
                 true,
             ) && $recipient->responded_at !== null)
             ->sortBy([
@@ -307,6 +331,7 @@ final class WallboardFocusService
         return [
             'counts' => [
                 'targeted' => $recipients->count(),
+                'contacted' => $recipients->whereNotNull('notified_at')->count(),
                 'pending' => (int) $statusCounts->get('pending', 0),
                 'accepted' => (int) $statusCounts->get('accepted', 0),
                 'declined' => (int) $statusCounts->get('declined', 0),

@@ -11,8 +11,11 @@ import type {
 } from '../src/types/api';
 import {
   formatWallboardClock,
+  normalizeWallboardNewsState,
   normalizeWallboardState,
   stabilizeWallboardRotationDeadline,
+  wallboardFocusPilotCounts,
+  wallboardRefreshDecision,
   wallboardTickerIsVisible,
 } from '../src/features/wallboards/WallboardDisplayPage';
 import {
@@ -21,12 +24,16 @@ import {
   clampRefreshSeconds,
   clampWallboardFocusDuration,
   clampWallboardPageDuration,
+  clampWallboardNewsMaxItems,
   clampWallboardRssMaxItems,
   countActiveOperationalWallboardIncidents,
+  createWallboardCustomNewsSource,
   createWallboardPage,
   createWallboardTickerSource,
   formatWallboardPilotAvailability,
   normalizeWallboardDisplayProfile,
+  normalizeWallboardCustomNewsSources,
+  normalizeWallboardNewsSources,
   requestedWallboardScreenSelection,
   selectRecentWallboardIncidents,
   wallboardConfigurationCopy,
@@ -56,6 +63,7 @@ function stateFixture(): WallboardState {
       },
       config_version: 1,
       control_version: 3,
+      refresh_version: 2,
       display: {
         mode: 'rotation',
         page_id: 'map-overview',
@@ -78,6 +86,10 @@ function stateFixture(): WallboardState {
       items: [
         { source_id: 'internal-1', source_type: 'internal', source_label: 'Meldkamer', text: 'Windwaarschuwing actief.' },
       ],
+    },
+    news: {
+      pages: {},
+      generated_at: '2026-07-19T09:55:00Z',
     },
     map: {
       incidents: [
@@ -148,6 +160,7 @@ function focusState(overrides: Partial<WallboardFocusState> = {}): WallboardFocu
     visible: true,
     playlist_page_id: null,
     next_change_at: '2026-07-19T10:00:20Z',
+    pilot_counts: { available: 3, relevant: 8, contacted: 6 },
     responses: {
       counts: { targeted: 8, pending: 5, accepted: 2, declined: 1, no_response: 0 },
       items: [
@@ -206,6 +219,7 @@ test('uses backend refresh limits and reports online and stale state predictably
     playlist: { id: 'playlist-1', name: 'Meldkamer', version: 1 },
     is_enabled: true,
     config_version: 1,
+    refresh_version: 0,
     active_sessions_count: 1,
     last_seen_at: '2026-07-19T09:59:30Z',
   };
@@ -277,6 +291,23 @@ test('bounds focus timing and labels all three server focus types explicitly', (
   expect(wallboardFocusKindLabel('test_alarm')).toBe('Proefalarmering');
 });
 
+test('prefers focus-specific pilot counts and falls back defensively to the operational summary', () => {
+  expect(wallboardFocusPilotCounts(
+    { available: 5, relevant: 9, contacted: 7 },
+    { available: 2, total: 4 },
+  )).toEqual({ available: 5, relevant: 9, contacted: 7 });
+  expect(wallboardFocusPilotCounts(
+    { available: 12, relevant: 9, contacted: 10 },
+    { available: 2, total: 4 },
+  )).toEqual({ available: 9, relevant: 9, contacted: 10 });
+  expect(wallboardFocusPilotCounts(
+    { available: Number.NaN, relevant: 9, contacted: 7 },
+    { available: 3, total: 8 },
+  )).toEqual({ available: 3, relevant: 8, contacted: 0 });
+  expect(wallboardFocusPilotCounts(undefined, { available: 3, total: 8 }, false)).toBeNull();
+  expect(wallboardFocusPilotCounts(undefined, { available: Number.NaN, total: 8 })).toBeNull();
+});
+
 test('bounds page timing and builds typed pages without executable message markup', () => {
   expect(clampWallboardPageDuration(1)).toBe(5);
   expect(clampWallboardPageDuration(7200)).toBe(3600);
@@ -290,6 +321,150 @@ test('bounds page timing and builds typed pages without executable message marku
 
   const summary = createWallboardPage('summary', 3);
   expect(summary.options).toEqual({});
+
+  const news = createWallboardPage('news', 4);
+  expect(news).toMatchObject({
+    type: 'news',
+    name: 'Dronenieuws',
+    options: { sources: ['ndt', 'dronewatch'], custom_sources: [], max_items: 6 },
+  });
+  expect(clampWallboardNewsMaxItems(0)).toBe(1);
+  expect(clampWallboardNewsMaxItems(99)).toBe(12);
+  expect(clampWallboardNewsMaxItems(Number.NaN)).toBe(6);
+  expect(normalizeWallboardNewsSources(['dronewatch', 'dronewatch', 'unknown'])).toEqual(['dronewatch']);
+  expect(normalizeWallboardNewsSources([])).toEqual(['ndt', 'dronewatch']);
+  expect(normalizeWallboardNewsSources([], true)).toEqual([]);
+});
+
+test('normalizes up to eight safe custom RSS news sources and supports a custom-only page', () => {
+  const created = createWallboardCustomNewsSource(1);
+  expect(created).toMatchObject({ label: 'Eigen RSS-bron 1', url: '' });
+  expect(created.id).toMatch(/^rss-[A-Za-z0-9-]+$/);
+
+  const customSources = normalizeWallboardCustomNewsSources([
+    { id: 'luchtvaart', label: ' Luchtvaartnieuws ', url: 'https://voorbeeld.nl/feed.xml' },
+    { id: 'luchtvaart', label: 'Dubbel', url: 'https://voorbeeld.nl/anders.xml' },
+    { id: 'onveilig', label: 'Onveilig', url: 'http://voorbeeld.nl/feed.xml' },
+    { id: 'credentials', label: 'Credentials', url: 'https://naam:wachtwoord@voorbeeld.nl/feed.xml' },
+  ]);
+  expect(customSources).toEqual([{
+    id: 'luchtvaart',
+    label: 'Luchtvaartnieuws',
+    url: 'https://voorbeeld.nl/feed.xml',
+  }]);
+
+  const configuration = wallboardConfigurationCopy({
+    ...DEFAULT_WALLBOARD_CONFIGURATION,
+    pages: [{
+      id: 'news-custom',
+      type: 'news',
+      name: 'Eigen nieuws',
+      duration_seconds: 30,
+      options: { sources: [], custom_sources: customSources, max_items: 4 },
+    }],
+  });
+  expect(configuration.pages[0].options).toEqual({
+    sources: [],
+    custom_sources: customSources,
+    max_items: 4,
+  });
+});
+
+test('normalizes page-scoped news content and rejects unsafe article links', () => {
+  const normalized = normalizeWallboardNewsState({
+    generated_at: '2026-07-19T09:59:00Z',
+    pages: {
+      'news-main': {
+        fallback_used: true,
+        lookback_days: 99,
+        items: [
+          {
+            id: 'article-1',
+            source: 'dronewatch',
+            source_id: 'dronewatch',
+            source_label: 'Dronewatch',
+            title: ' Nieuwe Europese droneontwikkelingen ',
+            excerpt: 'Een inhoudelijke samenvatting voor het wallboard.',
+            url: 'https://www.dronewatch.nl/nieuwsbericht/',
+            published_at: '2026-07-18T08:00:00Z',
+          },
+          {
+            id: 'unsafe',
+            source: 'ndt',
+            source_id: 'ndt',
+            source_label: 'NDT',
+            title: 'Onveilig',
+            excerpt: 'Mag niet zichtbaar worden.',
+            url: 'javascript:alert(1)',
+            published_at: '2026-07-18T08:00:00Z',
+          },
+          {
+            id: 'custom-article',
+            source: 'custom',
+            source_id: 'luchtvaart',
+            source_label: 'Luchtvaartnieuws',
+            title: 'Nieuwe Europese luchtruimregels',
+            excerpt: 'Samenvatting uit een eigen RSS-bron.',
+            url: 'https://voorbeeld.nl/nieuws/europese-regels',
+            published_at: '2026-07-17T08:00:00Z',
+          },
+          {
+            id: 'custom-without-id',
+            source: 'custom',
+            source_label: 'Geen geldige custom bron',
+            title: 'Wordt geweigerd',
+            excerpt: 'Een custom item moet zijn afzonderlijke bron-ID meesturen.',
+            url: 'https://voorbeeld.nl/nieuws/zonder-id',
+            published_at: '2026-07-17T08:00:00Z',
+          },
+        ],
+      },
+    },
+  });
+
+  expect(normalized.generated_at).toBe('2026-07-19T09:59:00Z');
+  expect(normalized.pages['news-main']).toMatchObject({ fallback_used: true, lookback_days: 7 });
+  expect(normalized.pages['news-main'].items).toHaveLength(2);
+  expect(normalized.pages['news-main'].items[0]).toMatchObject({
+    source: 'dronewatch',
+    source_id: 'dronewatch',
+    title: 'Nieuwe Europese droneontwikkelingen',
+    url: 'https://www.dronewatch.nl/nieuwsbericht/',
+  });
+  expect(normalized.pages['news-main'].items[1]).toMatchObject({
+    source: 'custom',
+    source_id: 'luchtvaart',
+    source_label: 'Luchtvaartnieuws',
+  });
+  expect(normalizeWallboardState({ ...stateFixture(), news: undefined as never }).news).toEqual({ pages: {}, generated_at: '' });
+});
+
+test('hard reloads only for a higher server refresh version after the first baseline', () => {
+  expect(wallboardRefreshDecision(null, 9)).toEqual({ version: 9, reload: false });
+  expect(wallboardRefreshDecision(null, 10, '9')).toEqual({ version: 10, reload: true });
+  expect(wallboardRefreshDecision(null, 10, '10')).toEqual({ version: 10, reload: false });
+  expect(wallboardRefreshDecision(null, 10, null)).toEqual({ version: 10, reload: false });
+  expect(wallboardRefreshDecision(9, 9)).toEqual({ version: 9, reload: false });
+  expect(wallboardRefreshDecision(9, 8)).toEqual({ version: 9, reload: false });
+  expect(wallboardRefreshDecision(9, 10)).toEqual({ version: 10, reload: true });
+  expect(wallboardRefreshDecision(null, 'invalid')).toEqual({ version: 0, reload: false });
+});
+
+test('keeps offline status and automatic polling recovery without a reconnect reload path', () => {
+  const kiosk = readFileSync(new URL('../src/features/wallboards/WallboardDisplayPage.tsx', import.meta.url), 'utf8');
+  const statePoll = kiosk.slice(kiosk.indexOf('const poll = async () =>'), kiosk.indexOf('}, [observeRefreshVersion, pollGeneration]'));
+  const controlPoll = kiosk.slice(kiosk.indexOf('const pollControl = async () =>'), kiosk.indexOf('}, [hasPairedState, observeRefreshVersion]'));
+
+  expect(kiosk).toContain("const feedStatus = connectionError !== null ? 'offline' : stale ? 'stale' : 'live';");
+  expect(kiosk).toContain("feedStatus === 'offline' ? 'Offline'");
+  expect(statePoll).toContain("setStateError(errorMessage(error, 'De wallboardfeed is tijdelijk niet bereikbaar.'));");
+  expect(statePoll).toContain('setStateError(null);');
+  expect(statePoll).toContain('timer = setTimeout(() => void poll(), refreshSecondsRef.current * 1000);');
+  expect(controlPoll).toContain("setControlError(errorMessage(error, 'De live schermbesturing is tijdelijk niet bereikbaar.'));");
+  expect(controlPoll).toContain('setControlError(null);');
+  expect(controlPoll).toContain('timer = setTimeout(() => void pollControl(), CONTROL_POLL_MILLISECONDS);');
+  expect(statePoll).not.toContain('window.location.reload()');
+  expect(controlPoll).not.toContain('window.location.reload()');
 });
 
 test('presents operational pilot availability independently from live location sharing', () => {
@@ -357,6 +532,7 @@ test('does not postpone a rotation deadline within the same active server phase'
   const current: WallboardControlState = {
     config_version: 4,
     control_version: 7,
+    refresh_version: 2,
     display_profile: 'auto',
     transient_alert: null,
     display: {
@@ -400,6 +576,7 @@ test('keeps focus deadlines server-authoritative without postponing one active p
     generated_at: '2026-07-19T10:00:02Z',
     config_version: 4,
     control_version: 7,
+    refresh_version: 2,
     display_profile: 'auto',
     transient_alert: transientAlert(),
     focus: focusState({ next_change_at: '2026-07-19T10:00:05Z' }),
@@ -448,6 +625,7 @@ test('rejects an older focus transition but accepts a current server focus remov
     generated_at: '2026-07-19T10:00:05Z',
     config_version: 4,
     control_version: 7,
+    refresh_version: 2,
     display_profile: 'auto',
     transient_alert: transientAlert(),
     focus: focusState(),
@@ -482,17 +660,25 @@ test('normalizes explicit server focus while retaining the absent-focus legacy c
   expect(normalized.operational_summary.focus).toMatchObject({
     kind: 'real_alarm',
     visible: true,
+    pilot_counts: { available: 3, relevant: 8, contacted: 6 },
     responses: {
       counts: { targeted: 2, accepted: 1 },
       items: [{ name: 'Piloot Een', response_status: 'accepted', responded_at: null }],
     },
   });
+
+  const invalidCounts = stateFixture();
+  invalidCounts.operational_summary.focus = focusState({
+    pilot_counts: { available: Number.NaN, relevant: 8, contacted: 6 },
+  });
+  expect(normalizeWallboardState(invalidCounts).operational_summary.focus?.pilot_counts).toBeNull();
 });
 
 test('does not lose an unexpired transient alert to an older state response', () => {
   const current: WallboardControlState = {
     config_version: 4,
     control_version: 7,
+    refresh_version: 2,
     display_profile: 'auto',
     transient_alert: transientAlert(),
     display: {
@@ -571,7 +757,13 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(providers).toContain("pathname === '/wallboard'");
   expect(kiosk).not.toContain('useAuth');
   expect(kiosk).not.toContain('localStorage');
-  expect(kiosk).not.toContain('sessionStorage');
+  expect(kiosk).toContain('window.sessionStorage');
+  expect(kiosk).toContain('window.location.reload()');
+  expect(kiosk.match(/window\.location\.reload\(\)/g)).toHaveLength(1);
+  expect(kiosk).toContain('persistWallboardRefreshVersion(window.sessionStorage');
+  expect(kiosk).toContain('readPersistedWallboardRefreshVersion(window.sessionStorage)');
+  expect(kiosk).toContain('clearPersistedWallboardRefreshVersion(window.sessionStorage)');
+  expect(kiosk).toContain('if (observeRefreshVersion(nextControl.refresh_version)) return;');
   expect(kiosk).not.toContain('URLSearchParams');
   expect(kiosk).not.toMatch(/wallboardApi\.(?:get|post|patch|delete)\([^\n]*\/incidents\//);
   expect(kiosk.match(/\/wallboard\/state/g)).toHaveLength(1);
@@ -592,10 +784,16 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(apiTypes).toContain('recent_incidents: WallboardStateRecentIncident[];');
   expect(apiTypes).toContain('transient_alert: WallboardTransientAlert | null;');
   expect(apiTypes).toContain("export type WallboardFocusKind = 'preannouncement' | 'real_alarm' | 'test_alarm';");
+  expect(apiTypes).toContain('pilot_counts?: WallboardFocusPilotCounts | null;');
   expect(apiTypes).toContain('response_status: WallboardFocusResponseStatus;');
   expect(apiTypes).toContain('playlist_id: string;');
   expect(apiTypes).toContain("export type WallboardDisplayProfile = 'auto' | '1080p' | '4k';");
   expect(apiTypes).toContain('display_profile: WallboardDisplayProfile;');
+  expect(apiTypes).toContain('refresh_version: number;');
+  expect(apiTypes).toContain("export type WallboardNewsSource = 'ndt' | 'dronewatch';");
+  expect(apiTypes).toContain("export type WallboardNewsItemSource = WallboardNewsSource | 'custom';");
+  expect(apiTypes).toContain('custom_sources?: WallboardCustomNewsSource[];');
+  expect(apiTypes).toContain('source_id: string;');
   expect(apiTypes).toContain('playlist: WallboardPlaylistReference;');
   expect(apiTypes).toContain('linked_wallboards_count: number;');
   expect(kiosk).toContain('Koppel deze tv');
@@ -606,10 +804,19 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain("effectiveControl.focus === undefined");
   expect(kiosk).toContain("transientAlert?.is_test === true && state.operational_summary.active_alarm !== null");
   expect(kiosk).toContain('focus.playlist_page_id');
+  expect(kiosk).toContain('wallboardFocusPilotCounts(focus.pilot_counts, fallbackPilotAvailability, isCurrent)');
+  expect(kiosk).toContain("focus.kind !== 'test_alarm'");
+  expect(kiosk).toContain('!alert.is_test');
+  expect(kiosk).toContain('Beschikbaar gemeld');
+  expect(kiosk).toContain('Reactietijdlijn');
   expect(kiosk).toContain('showResponseFeed={configuration.focus[focus.kind].show_response_feed}');
   expect(kiosk).toContain('showTransientAlert');
   expect(kiosk).toContain('formatWallboardClock(clock)');
   expect(kiosk).toContain('wallboard-display__ticker');
+  expect(kiosk).toContain('<WallboardNewsPage');
+  expect(kiosk).toContain('state.news.pages[page.id]');
+  expect(kiosk).toContain('wallboard-display__news-article--${item.source}');
+  expect(kiosk).not.toContain('wallboard-display__news-article--${item.source_id}');
   expect(kiosk).not.toContain('autoFocus');
   expect(admin).toContain("`/admin/wallboards/${wallboard.id}/pair`");
   expect(admin).toContain('Code op tv');
@@ -620,6 +827,8 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(admin).not.toContain('/pairing-code');
   expect(admin).not.toContain('WallboardPairingCode');
   expect(admin).toContain("`/admin/wallboards/${wallboard.id}/display`");
+  expect(admin).toContain("`/admin/wallboards/${wallboard.id}/refresh`");
+  expect(admin).toContain('Wallboard herstarten');
   expect(admin).toContain('expected_control_version');
   expect(admin).toContain('expected_config_version');
   expect(admin).toContain('display_profile: draftDisplayProfile');
@@ -645,10 +854,24 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(configurationEditor).toContain('Focusschermen');
   expect(configurationEditor).toContain('focus&nbsp;↔&nbsp;kaart');
   expect(configurationEditor).toContain('Reactiefeed tonen');
+  expect(configurationEditor).toContain('Nationaal Droneteam');
+  expect(configurationEditor).toContain('Dronewatch');
+  expect(configurationEditor).toContain('Eigen RSS-bronnen');
+  expect(configurationEditor).toContain('RSS-bron toevoegen');
+  expect(configurationEditor).toContain('pattern="https://.+"');
+  expect(configurationEditor).toContain('MAX_WALLBOARD_CUSTOM_NEWS_SOURCES');
+  expect(configurationEditor).toContain('het maximum aantal berichten geldt gecombineerd');
+  expect(configurationEditor).toContain('afgelopen 7 dagen');
+  expect(configurationEditor).toContain('MAX_WALLBOARD_NEWS_MAX_ITEMS');
   expect(styles).toContain('.wallboard-display__ticker-track');
   expect(styles).toContain('.wallboard-display__alarm--test');
   expect(styles).toContain('.wallboard-display__alarm--with-feed');
   expect(styles).toContain('.wallboard-display__responses');
+  expect(styles).toMatch(/\.wallboard-display__responses\s*\{[\s\S]*?position: absolute;[\s\S]*?bottom:[\s\S]*?left:/);
+  expect(styles).toContain('.wallboard-display__focus-availability');
+  expect(styles).toContain('.wallboard-display__news-article--lead');
+  expect(styles).toContain('.wallboard-display__news-article--custom');
+  expect(styles).toContain('.wallboard-display__news-supporting--dense');
   expect(kiosk).toContain('wallboard-display--profile-${displayProfile}');
   expect(kiosk).toContain('data-display-profile={displayProfile}');
   expect(styles).toContain('.wallboard-display--profile-4k .wallboard-display__header');
@@ -749,7 +972,62 @@ test('keeps explicit screen profiles fluid at Full HD and Ultra HD viewports', a
   expect(measurements[1].titleFontSize).toBeGreaterThan(measurements[0].titleFontSize);
 });
 
-test('keeps a populated alarm focus and response rail contained at Full HD and Ultra HD', async ({ page }) => {
+test('fits a full twelve-item news page at Full HD and Ultra HD without clipping the article grid', async ({ page }) => {
+  const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
+  const supportingArticles = Array.from({ length: 11 }, (_, index) => `
+    <article class="wallboard-display__news-article wallboard-display__news-article--${index % 2 === 0 ? 'ndt' : 'dronewatch'}">
+      <div class="wallboard-display__news-meta"><strong>${index % 2 === 0 ? 'Nationaal Droneteam' : 'Dronewatch'}</strong><time>19 juli 2026</time></div>
+      <h2>Actueel dronenieuws nummer ${index + 2} met een duidelijke kop</h2>
+      <p>Een veilige platte-tekstsamenvatting geeft op afstand voldoende context over het volledige nieuwsbericht.</p>
+      <a>Bronbericht</a>
+    </article>
+  `).join('');
+
+  for (const screen of [
+    { profile: '1080p', width: 1920, height: 1080 },
+    { profile: '4k', width: 3840, height: 2160 },
+  ] as const) {
+    await page.setViewportSize({ width: screen.width, height: screen.height });
+    await page.setContent(`
+      <style>${styles} html, body { width: 100%; min-width: 0; margin: 0; overflow: hidden; }</style>
+      <main class="wallboard-display wallboard-display--dark wallboard-display--profile-${screen.profile}">
+        <header class="wallboard-display__header"><div><span class="wallboard-display__titles"><small>Meldkamer</small><h1>Dronenieuws</h1></span></div></header>
+        <section class="wallboard-display__page">
+          <div class="wallboard-display__news">
+            <header class="wallboard-display__news-header"><span><strong>Dronenieuws</strong><small>Gepubliceerd in de afgelopen 7 dagen</small></span><b>12 berichten</b></header>
+            <div class="wallboard-display__news-grid">
+              <article class="wallboard-display__news-article wallboard-display__news-article--ndt wallboard-display__news-article--lead">
+                <div class="wallboard-display__news-meta"><strong>Nationaal Droneteam</strong><time>19 juli 2026</time></div>
+                <h2>Nieuwe inzetmogelijkheden voor professionele droneteams</h2>
+                <p>Het belangrijkste nieuws krijgt een prominente positie met een inhoudelijke samenvatting.</p>
+                <a>Bronbericht</a>
+              </article>
+              <div class="wallboard-display__news-supporting wallboard-display__news-supporting--dense" style="--wallboard-news-rows: 6">${supportingArticles}</div>
+            </div>
+          </div>
+        </section>
+        <footer class="wallboard-display__footer"><span>Pagina 1 van 1</span></footer>
+      </main>
+    `);
+
+    const metrics = await page.locator('.wallboard-display__news').evaluate((news) => {
+      const cards = [...news.querySelectorAll<HTMLElement>('.wallboard-display__news-article')];
+      const newsRect = news.getBoundingClientRect();
+      return {
+        count: cards.length,
+        overflow: news.scrollHeight > news.clientHeight + 1 || news.scrollWidth > news.clientWidth + 1,
+        cardsInside: cards.every((card) => {
+          const rect = card.getBoundingClientRect();
+          return rect.top >= newsRect.top - 1 && rect.bottom <= newsRect.bottom + 1;
+        }),
+      };
+    });
+
+    expect(metrics).toEqual({ count: 12, overflow: false, cardsInside: true });
+  }
+});
+
+test('keeps the live response timeline compact at the lower left in Full HD and Ultra HD', async ({ page }) => {
   const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
   const responseItems = Array.from({ length: 24 }, (_, index) => `
     <li class="wallboard-display__response wallboard-display__response--${index % 3 === 0 ? 'accepted' : index % 3 === 1 ? 'declined' : 'pending'}">
@@ -769,7 +1047,7 @@ test('keeps a populated alarm focus and response rail contained at Full HD and U
         <section class="wallboard-display__alarm wallboard-display__alarm--focus wallboard-display__alarm--real-alarm wallboard-display__alarm--with-feed">
           <div class="wallboard-display__alarm-main"><span class="wallboard-display__alarm-eyebrow">Alarmering</span><h2>Zeer lange operationele alarmtitel voor een inzet</h2><p>Locatie met een lange omschrijving</p></div>
           <aside class="wallboard-display__responses">
-            <header><span></span><div><small>Live reactiefeed</small><h2>Reacties van piloten</h2></div></header>
+            <header><span></span><div><small>Reactietijdlijn</small><h3>Live reacties van piloten</h3></div></header>
             <dl class="wallboard-display__response-counts"><div><dt>Bevestigd</dt><dd>8</dd></div><div><dt>Afgewezen</dt><dd>3</dd></div><div><dt>Wachtend</dt><dd>12</dd></div><div><dt>Geen reactie</dt><dd>1</dd></div><div><dt>Aangeschreven</dt><dd>24</dd></div></dl>
             <ol class="wallboard-display__response-list">${responseItems}</ol>
           </aside>
@@ -778,18 +1056,62 @@ test('keeps a populated alarm focus and response rail contained at Full HD and U
       </main>
     `);
 
-    const measurement = await page.locator('.wallboard-display').evaluate((element) => ({
-      horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
-        || element.scrollWidth > element.clientWidth,
-      verticalOverflow: element.scrollHeight > element.clientHeight,
-      responseScrollable: (() => {
-        const list = element.querySelector('.wallboard-display__response-list');
-        return list !== null && list.scrollHeight > list.clientHeight;
-      })(),
-    }));
+    const measurement = await page.locator('.wallboard-display').evaluate((element) => {
+      const focus = element.querySelector('.wallboard-display__alarm')!.getBoundingClientRect();
+      const responses = element.querySelector('.wallboard-display__responses')!.getBoundingClientRect();
+      const list = element.querySelector('.wallboard-display__response-list');
+      return {
+        horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
+          || element.scrollWidth > element.clientWidth,
+        verticalOverflow: element.scrollHeight > element.clientHeight,
+        responseScrollable: list !== null && list.scrollHeight > list.clientHeight,
+        responseLeftGap: responses.left - focus.left,
+        responseBottomGap: focus.bottom - responses.bottom,
+        responseWidthRatio: responses.width / focus.width,
+      };
+    });
     expect(measurement.horizontalOverflow).toBe(false);
     expect(measurement.verticalOverflow).toBe(false);
     expect(measurement.responseScrollable).toBe(true);
+    expect(measurement.responseLeftGap).toBeLessThanOrEqual(screen.width * 0.03);
+    expect(measurement.responseBottomGap).toBeLessThanOrEqual(screen.height * 0.04);
+    expect(measurement.responseWidthRatio).toBeLessThan(0.45);
+  }
+});
+
+test('keeps the preannouncement pilot availability counter readable across display profiles', async ({ page }) => {
+  const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
+
+  for (const screen of [
+    { profile: '1080p', width: 1920, height: 1080 },
+    { profile: '4k', width: 3840, height: 2160 },
+  ] as const) {
+    await page.setViewportSize({ width: screen.width, height: screen.height });
+    await page.setContent(`
+      <style>${styles} html, body { width: 100%; min-width: 0; margin: 0; overflow: hidden; }</style>
+      <main class="wallboard-display wallboard-display--dark wallboard-display--profile-${screen.profile}">
+        <section class="wallboard-display__alarm wallboard-display__alarm--focus wallboard-display__alarm--preannouncement">
+          <div class="wallboard-display__alarm-main">
+            <span class="wallboard-display__alarm-eyebrow">Vooraankondiging</span>
+            <h2>Inzet wordt voorbereid</h2>
+            <section class="wallboard-display__focus-availability">
+              <span>Beschikbaar gemeld</span>
+              <strong><b>7</b><span>van 12 geselecteerde piloten</span></strong>
+              <small>9 piloten bereikt</small>
+            </section>
+          </div>
+        </section>
+      </main>
+    `);
+
+    const measurement = await page.locator('.wallboard-display__focus-availability').evaluate((element) => ({
+      horizontalOverflow: element.scrollWidth > element.clientWidth,
+      availableFontSize: Number.parseFloat(getComputedStyle(element.querySelector('b')!).fontSize),
+      visible: element.getBoundingClientRect().width > 0 && element.getBoundingClientRect().height > 0,
+    }));
+    expect(measurement.horizontalOverflow).toBe(false);
+    expect(measurement.visible).toBe(true);
+    expect(measurement.availableFontSize).toBeGreaterThanOrEqual(40);
   }
 });
 

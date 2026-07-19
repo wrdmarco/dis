@@ -471,6 +471,28 @@ function ScreenEditor({
     }
   }
 
+  async function restartWallboard() {
+    setBusyAction('restart');
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      await api.post<{ control_version: number; refresh_version: number }>(`/admin/wallboards/${wallboard.id}/refresh`, {
+        expected_control_version: wallboard.control_version ?? 1,
+      });
+      await onReloadWallboards();
+      setActionMessage('Het gekoppelde wallboard herlaadt zodra het de herstartopdracht ontvangt.');
+    } catch (error) {
+      if (isConflict(error)) {
+        await onReloadWallboards();
+        setActionError('Een andere beheerder wijzigde dit scherm intussen. De actuele schermstatus is opnieuw geladen.');
+      } else {
+        setActionError(errorMessage(error, 'Het wallboard kon niet worden herstart.'));
+      }
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function deleteScreen() {
     if (!deleteConfirm) return;
     setBusyAction('delete');
@@ -636,6 +658,9 @@ function ScreenEditor({
         </button>
         <button className="secondary-button" type="button" onClick={() => void revokeSessions()} disabled={busyAction !== null || !isPaired}>
           <ShieldOff size={17} aria-hidden /> Koppeling intrekken
+        </button>
+        <button className="secondary-button" type="button" onClick={() => void restartWallboard()} disabled={busyAction !== null || !isPaired || !wallboard.is_enabled}>
+          <RefreshCw size={17} aria-hidden /> {busyAction === 'restart' ? 'Herstarten…' : 'Wallboard herstarten'}
         </button>
         {deleteConfirm ? (
           <span className="wallboard-delete-confirm">

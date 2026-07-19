@@ -7,12 +7,17 @@ use App\Models\DispatchRequest;
 use App\Models\Incident;
 use App\Models\User;
 use App\Models\Wallboard;
+use App\Models\WallboardSession;
 use App\Services\WallboardFocusService;
+use App\Services\WallboardSessionService;
 use App\Services\WallboardStateService;
 use App\Support\WallboardConfiguration;
 use Carbon\CarbonImmutable;
+use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Testing\TestResponse;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
@@ -117,12 +122,24 @@ final class WallboardFocusTest extends TestCase
         $wallboard = $this->wallboard();
         $incident = $this->incident($dispatcher, 'FOCUS-TEST', 'active', true);
         $dispatch = $this->dispatch($incident, $dispatcher, 'sent', now());
+        $confirmed = $this->user('focus-test-confirmed@example.test', 'Test bevestigd');
+        $missed = $this->user('focus-test-missed@example.test', 'Test gemist');
+        $this->recipient($dispatch, $confirmed, 'accepted', now());
+        $this->recipient($dispatch, $missed, 'no_response', now());
         $service = app(WallboardStateService::class);
 
         $focus = $service->state($wallboard)['operational_summary']['focus'];
 
         $this->assertSame('test_alarm', $focus['kind']);
         $this->assertSame($dispatch->id, $focus['dispatch_id']);
+        $this->assertNull($focus['location_label']);
+        $this->assertNull($focus['pilot_counts']);
+        $this->assertSame(1, $focus['responses']['counts']['accepted']);
+        $this->assertSame(1, $focus['responses']['counts']['no_response']);
+        $this->assertSame(
+            ['accepted', 'no_response'],
+            collect($focus['responses']['items'])->pluck('response_status')->sort()->values()->all(),
+        );
         $this->assertSame('2026-07-20T11:05:00+02:00', $focus['expires_at']);
         $this->assertTrue($focus['visible']);
 
@@ -245,6 +262,7 @@ final class WallboardFocusTest extends TestCase
         $responses = $focus['responses'];
 
         $this->assertSame(26, $responses['counts']['targeted']);
+        $this->assertSame(26, $responses['counts']['contacted']);
         $this->assertSame(1, $responses['counts']['pending']);
         $this->assertSame(12, $responses['counts']['accepted']);
         $this->assertSame(12, $responses['counts']['declined']);
@@ -272,6 +290,74 @@ final class WallboardFocusTest extends TestCase
         $serializedFocus = json_encode([$stateFocus, $controlFocus], JSON_THROW_ON_ERROR);
         foreach ($users as $user) {
             $this->assertStringNotContainsString($user->name, $serializedFocus);
+        }
+    }
+
+    public function test_preannouncement_exposes_live_selected_pilot_counts_and_current_privacy_limited_responses(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 15:00:00', 'Europe/Amsterdam'));
+        $dispatcher = $this->user('focus-pre-count-dispatcher@example.test', 'Pre count dispatcher');
+        $incident = $this->incident($dispatcher, 'FOCUS-PRE-COUNTS', 'active', false);
+        $dispatch = $this->dispatch($incident, $dispatcher, 'draft', preannouncedAt: now());
+        $available = $this->user('focus-pre-available@example.test', 'Beschikbare piloot');
+        $unavailable = $this->user('focus-pre-unavailable@example.test', 'Niet beschikbare piloot');
+        $pending = $this->user('focus-pre-pending@example.test', 'Wachtende piloot');
+        $noResponse = $this->user('focus-pre-no-response@example.test', 'Niet reagerende piloot');
+
+        $this->recipient($dispatch, $available, 'accepted', now());
+        $this->recipient($dispatch, $unavailable, 'declined', now());
+        $pendingRecipient = $this->recipient($dispatch, $pending, 'pending', null);
+        $this->recipient($dispatch, $noResponse, 'no_response', now());
+
+        $wallboard = $this->wallboard();
+        $cookie = $this->wallboardCredential($wallboard);
+        $focusResponse = $this->wallboardGet('/api/wallboard/control', $cookie)
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('data.focus.kind', 'preannouncement')
+            ->assertJsonPath('data.focus.pilot_counts.available', 1)
+            ->assertJsonPath('data.focus.pilot_counts.relevant', 4)
+            ->assertJsonPath('data.focus.pilot_counts.contacted', 4)
+            ->assertJsonPath('data.focus.responses.counts.accepted', 1);
+        $focus = $focusResponse->json('data.focus');
+
+        $this->assertSame('preannouncement', $focus['kind']);
+        $this->assertSame('Utrecht', $focus['location_label']);
+        $this->assertSame([
+            'available' => 1,
+            'relevant' => 4,
+            'contacted' => 4,
+        ], $focus['pilot_counts']);
+        $this->assertSame(4, $focus['responses']['counts']['targeted']);
+        $this->assertSame(4, $focus['responses']['counts']['contacted']);
+        $this->assertSame(
+            ['accepted', 'declined', 'no_response'],
+            collect($focus['responses']['items'])->pluck('response_status')->sort()->values()->all(),
+        );
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 15:00:02', 'Europe/Amsterdam'));
+        $pendingRecipient->forceFill([
+            'response_status' => 'accepted',
+            'responded_at' => now(),
+        ])->save();
+        $updatedResponse = $this->wallboardGet('/api/wallboard/control', $cookie)
+            ->assertOk()
+            ->assertJsonPath('data.focus.pilot_counts.available', 2)
+            ->assertJsonPath('data.focus.responses.counts.accepted', 2)
+            ->assertJsonCount(4, 'data.focus.responses.items');
+        $updated = $updatedResponse->json('data.focus');
+
+        $this->assertSame(2, $updated['pilot_counts']['available']);
+        $this->assertSame(2, $updated['responses']['counts']['accepted']);
+        $this->assertCount(4, $updated['responses']['items']);
+        foreach ($updated['responses']['items'] as $item) {
+            $keys = array_keys($item);
+            sort($keys);
+            $this->assertSame(['name', 'responded_at', 'response_status'], $keys);
+        }
+        $serialized = $updatedResponse->getContent();
+        foreach (['@example.test', 'FEED-RESPONSE-NOTE-SECRET', (string) $available->id] as $privateValue) {
+            $this->assertStringNotContainsString($privateValue, $serialized);
         }
     }
 
@@ -319,6 +405,32 @@ final class WallboardFocusTest extends TestCase
             'is_enabled' => true,
             'rotation_started_at' => now(),
         ]);
+    }
+
+    private function wallboardCredential(Wallboard $wallboard): string
+    {
+        $secret = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $session = WallboardSession::query()->create([
+            'wallboard_id' => $wallboard->id,
+            'token_hash' => hash_hmac('sha256', $secret, (string) config('app.key')),
+            'last_seen_at' => now(),
+            'last_rotated_at' => now(),
+            'expires_at' => now()->addDays(30),
+        ]);
+
+        return $session->id.'.'.$secret;
+    }
+
+    private function wallboardGet(string $uri, string $cookie): TestResponse
+    {
+        Auth::forgetGuards();
+        $this->withoutMiddleware(EncryptCookies::class);
+
+        return $this->disableCookieEncryption()
+            ->withUnencryptedCookie(WallboardSessionService::COOKIE_NAME, $cookie)
+            ->withCredentials()
+            ->withHeaders(['Origin' => 'https://dis.example.test'])
+            ->getJson($uri);
     }
 
     private function user(string $email, string $name): User

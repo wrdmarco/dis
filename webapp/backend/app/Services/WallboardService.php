@@ -325,6 +325,43 @@ final class WallboardService
         }, 3);
     }
 
+    /** @return array<string, mixed> */
+    public function requestRefresh(
+        Wallboard $wallboard,
+        int $expectedControlVersion,
+        User $actor,
+        Request $request,
+    ): array {
+        return DB::transaction(function () use ($wallboard, $expectedControlVersion, $actor, $request): array {
+            $locked = $this->repository->lockWallboard((string) $wallboard->getKey());
+            if (! $locked->is_enabled) {
+                throw ValidationException::withMessages([
+                    'wallboard' => ['Een uitgeschakeld wallboard kan niet worden herstart.'],
+                ]);
+            }
+            if ($expectedControlVersion !== (int) $locked->control_version) {
+                throw new ConflictHttpException('Wallboard control changed.');
+            }
+
+            $previousControlVersion = (int) $locked->control_version;
+            $previousRefreshVersion = (int) $locked->refresh_version;
+            $locked->forceFill([
+                'control_version' => $previousControlVersion + 1,
+                'refresh_version' => $previousRefreshVersion + 1,
+                'updated_by' => $actor->id,
+            ])->save();
+
+            $this->auditService->record('wallboards.refresh_commanded', $locked, $actor, [
+                'previous_control_version' => $previousControlVersion,
+                'control_version' => (int) $locked->control_version,
+                'previous_refresh_version' => $previousRefreshVersion,
+                'refresh_version' => (int) $locked->refresh_version,
+            ], null, $request);
+
+            return $this->resource($locked->refresh(), $this->displayService->hasActiveAlarmIncident());
+        }, 3);
+    }
+
     /** @return array{revoked: bool} */
     public function revokeSessions(Wallboard $wallboard, User $actor, Request $request): array
     {
@@ -373,6 +410,7 @@ final class WallboardService
             'is_online' => $this->isOnline($wallboard, $configuration, $activeSessions),
             'config_version' => (int) $wallboard->config_version,
             'control_version' => (int) $wallboard->control_version,
+            'refresh_version' => (int) $wallboard->refresh_version,
             'display' => $this->displayService->display($wallboard, $configuration, $incidentActive),
             'paired_at' => ApiDateTime::dateTime($wallboard->paired_at),
             'last_seen_at' => ApiDateTime::dateTime($wallboard->last_seen_at),

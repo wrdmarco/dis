@@ -58,9 +58,17 @@ final class StoreWallboardRequest extends FormRequest
             'configuration.pages.*.name' => ['required', 'string', 'max:120'],
             'configuration.pages.*.type' => ['required', 'string', Rule::in(WallboardConfiguration::PAGE_TYPES)],
             'configuration.pages.*.duration_seconds' => ['required', 'integer', 'between:5,3600'],
-            'configuration.pages.*.options' => ['sometimes', 'array:body,show_test_incidents'],
+            'configuration.pages.*.options' => ['sometimes', 'array:body,show_test_incidents,sources,custom_sources,max_items'],
             'configuration.pages.*.options.body' => ['sometimes', 'string', 'max:2000'],
             'configuration.pages.*.options.show_test_incidents' => ['sometimes', 'boolean'],
+            'configuration.pages.*.options.sources' => ['sometimes', 'array', 'max:'.count(WallboardConfiguration::NEWS_SOURCES)],
+            'configuration.pages.*.options.sources.*' => ['required', 'string', Rule::in(WallboardConfiguration::NEWS_SOURCES)],
+            'configuration.pages.*.options.custom_sources' => ['sometimes', 'array', 'max:'.WallboardConfiguration::MAX_NEWS_CUSTOM_SOURCES],
+            'configuration.pages.*.options.custom_sources.*' => ['required', 'array:id,label,url'],
+            'configuration.pages.*.options.custom_sources.*.id' => ['required', 'string', 'max:'.WallboardConfiguration::MAX_NEWS_CUSTOM_SOURCE_ID_LENGTH, 'regex:/^[A-Za-z0-9][A-Za-z0-9_-]*$/'],
+            'configuration.pages.*.options.custom_sources.*.label' => ['required', 'string', 'max:'.WallboardConfiguration::MAX_NEWS_CUSTOM_SOURCE_LABEL_LENGTH],
+            'configuration.pages.*.options.custom_sources.*.url' => ['required', 'string', 'max:'.WallboardConfiguration::MAX_NEWS_CUSTOM_SOURCE_URL_LENGTH],
+            'configuration.pages.*.options.max_items' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_NEWS_MAX_ITEMS.','.WallboardConfiguration::MAX_NEWS_MAX_ITEMS],
             'configuration.focus' => ['sometimes', 'array:preannouncement,real_alarm,test_alarm'],
             'configuration.focus.preannouncement' => ['sometimes', 'array:enabled,duration_seconds,show_response_feed'],
             'configuration.focus.real_alarm' => ['sometimes', 'array:enabled,duration_seconds,show_response_feed'],
@@ -113,6 +121,7 @@ final class StoreWallboardRequest extends FormRequest
             $allowedKeys = match ($type) {
                 'message' => ['body'],
                 'incident_list', 'summary' => ['show_test_incidents'],
+                'news' => ['sources', 'custom_sources', 'max_items'],
                 'map' => [],
                 default => array_keys($options),
             };
@@ -126,6 +135,78 @@ final class StoreWallboardRequest extends FormRequest
                 $validator->errors()->add(
                     "configuration.pages.{$index}.options.body",
                     'Een berichtpagina heeft berichttekst nodig.',
+                );
+            }
+            if ($type === 'news') {
+                $this->validateNewsSources($validator, $index, $options);
+            }
+        }
+    }
+
+    /** @param array<string, mixed> $options */
+    private function validateNewsSources(Validator $validator, int|string $pageIndex, array $options): void
+    {
+        $sources = array_key_exists('sources', $options) && is_array($options['sources'])
+            ? $options['sources']
+            : WallboardConfiguration::NEWS_SOURCES;
+        $customSources = is_array($options['custom_sources'] ?? null) ? $options['custom_sources'] : [];
+        if ($sources === [] && $customSources === []) {
+            $validator->errors()->add(
+                "configuration.pages.{$pageIndex}.options.sources",
+                'Kies minimaal een ingebouwde of eigen RSS-nieuwsbron.',
+            );
+        }
+
+        $seenBuiltIn = [];
+        foreach ($sources as $sourceIndex => $source) {
+            if (is_string($source) && isset($seenBuiltIn[$source])) {
+                $validator->errors()->add(
+                    "configuration.pages.{$pageIndex}.options.sources.{$sourceIndex}",
+                    'Elke ingebouwde nieuwsbron mag maar een keer worden gekozen.',
+                );
+            }
+            if (is_string($source)) {
+                $seenBuiltIn[$source] = true;
+            }
+        }
+
+        $seenIds = [];
+        $seenUrls = [];
+        foreach ($customSources as $sourceIndex => $source) {
+            if (! is_array($source)) {
+                continue;
+            }
+            $label = trim((string) ($source['label'] ?? ''));
+            $id = trim((string) ($source['id'] ?? ''));
+            $url = trim((string) ($source['url'] ?? ''));
+            if (in_array($id, WallboardConfiguration::NEWS_SOURCES, true) || isset($seenIds[$id])) {
+                $validator->errors()->add(
+                    "configuration.pages.{$pageIndex}.options.custom_sources.{$sourceIndex}.id",
+                    'Elke eigen RSS-bron heeft een unieke, niet-gereserveerde bron-ID nodig.',
+                );
+            }
+            if ($id !== '') {
+                $seenIds[$id] = true;
+            }
+            if (isset($seenUrls[$url])) {
+                $validator->errors()->add(
+                    "configuration.pages.{$pageIndex}.options.custom_sources.{$sourceIndex}.url",
+                    'Elke eigen RSS-URL mag per pagina maar een keer worden gebruikt.',
+                );
+            }
+            if ($url !== '') {
+                $seenUrls[$url] = true;
+            }
+            if ($label !== '' && $label !== strip_tags($label)) {
+                $validator->errors()->add(
+                    "configuration.pages.{$pageIndex}.options.custom_sources.{$sourceIndex}.label",
+                    'Het bronlabel mag alleen platte tekst bevatten.',
+                );
+            }
+            if (! WallboardConfiguration::hasValidTickerHttpsUrlSyntax($url)) {
+                $validator->errors()->add(
+                    "configuration.pages.{$pageIndex}.options.custom_sources.{$sourceIndex}.url",
+                    'Een eigen RSS-bron heeft een geldige openbare HTTPS-URL op poort 443 nodig.',
                 );
             }
         }

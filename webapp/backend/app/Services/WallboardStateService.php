@@ -29,6 +29,7 @@ final class WallboardStateService
         private readonly WallboardPlaylistResolver $playlistResolver,
         private readonly AvailabilityScheduleService $availabilityScheduleService,
         private readonly WallboardTickerService $tickerService,
+        private readonly WallboardNewsService $newsService,
     ) {}
 
     /** @return array<string, mixed> */
@@ -41,6 +42,8 @@ final class WallboardStateService
         $display = $this->displayService->display($wallboard, $configuration, $activeAlarm !== null);
         $mapConfiguration = (array) $configuration['map'];
         $pages = collect((array) $configuration['pages']);
+        $hasNewsPage = $pages->contains(fn (mixed $page): bool => is_array($page)
+            && (string) ($page['type'] ?? '') === 'news');
         $hasMapPage = $pages->contains(fn (mixed $page): bool => is_array($page)
             && (string) ($page['type'] ?? '') === 'map');
         $incidentPages = $pages
@@ -80,6 +83,7 @@ final class WallboardStateService
                 'configuration' => $configuration,
                 'config_version' => (int) $wallboard->config_version,
                 'control_version' => (int) $wallboard->control_version,
+                'refresh_version' => (int) $wallboard->refresh_version,
                 'display' => $display,
                 'updated_at' => ApiDateTime::dateTime($wallboard->updated_at),
             ],
@@ -97,6 +101,9 @@ final class WallboardStateService
             'ticker' => [
                 'items' => $this->tickerService->items((array) $configuration['ticker']),
             ],
+            'news' => $hasNewsPage
+                ? $this->newsService->pages($pages->all())
+                : ['pages' => [], 'generated_at' => ApiDateTime::now()],
             'map' => [
                 'incidents' => $incidents->map(fn (Incident $incident): array => $this->incidentPayload($incident))->values()->all(),
                 'command_centers' => $hasMapPage && ($mapConfiguration['show_command_centers'] ?? false) === true
@@ -124,6 +131,7 @@ final class WallboardStateService
             'display_profile' => (string) $wallboard->display_profile,
             'config_version' => (int) $wallboard->config_version,
             'control_version' => (int) $wallboard->control_version,
+            'refresh_version' => (int) $wallboard->refresh_version,
             'display' => $this->displayService->display($wallboard, $configuration, $activeAlarm !== null),
             'focus' => $focus,
             'transient_alert' => $this->transientAlert(),

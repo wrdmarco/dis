@@ -7,6 +7,7 @@ import {
   List,
   Map,
   MessageSquareText,
+  Newspaper,
   PauseCircle,
   Plus,
   Radio,
@@ -17,8 +18,10 @@ import {
 } from 'lucide-react';
 import type {
   WallboardConfiguration,
+  WallboardCustomNewsSource,
   WallboardFocusKind,
   WallboardMapConfiguration,
+  WallboardNewsSource,
   WallboardPage,
   WallboardPageType,
   WallboardTickerSource,
@@ -26,19 +29,27 @@ import type {
 } from '../../types/api';
 import {
   MAX_WALLBOARD_FOCUS_DURATION_SECONDS,
+  MAX_WALLBOARD_CUSTOM_NEWS_SOURCES,
+  MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_LABEL_LENGTH,
+  MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_URL_LENGTH,
+  MAX_WALLBOARD_NEWS_MAX_ITEMS,
   MAX_WALLBOARD_PAGE_DURATION_SECONDS,
   MAX_WALLBOARD_REFRESH_SECONDS,
   MAX_WALLBOARD_RSS_MAX_ITEMS,
   MAX_WALLBOARD_TICKER_SOURCES,
   MIN_WALLBOARD_FOCUS_DURATION_SECONDS,
+  MIN_WALLBOARD_NEWS_MAX_ITEMS,
   MIN_WALLBOARD_PAGE_DURATION_SECONDS,
   MIN_WALLBOARD_REFRESH_SECONDS,
   MIN_WALLBOARD_RSS_MAX_ITEMS,
   clampWallboardFocusDuration,
+  clampWallboardNewsMaxItems,
   clampWallboardPageDuration,
   clampWallboardRssMaxItems,
+  createWallboardCustomNewsSource,
   createWallboardPage,
   createWallboardTickerSource,
+  normalizeWallboardNewsSources,
   wallboardPageTypeLabel,
 } from './wallboardPresentation';
 
@@ -59,6 +70,20 @@ const PAGE_TYPE_OPTIONS: Array<{ value: WallboardPageType; label: string }> = [
   { value: 'incident_list', label: 'Incidentenlijst' },
   { value: 'summary', label: 'Samenvatting' },
   { value: 'message', label: 'Mededeling' },
+  { value: 'news', label: 'Nieuws' },
+];
+
+const NEWS_SOURCE_OPTIONS: Array<{ value: WallboardNewsSource; label: string; description: string }> = [
+  {
+    value: 'ndt',
+    label: 'Nationaal Droneteam',
+    description: 'Nieuws en publicaties uit het officiële nieuwsoverzicht.',
+  },
+  {
+    value: 'dronewatch',
+    label: 'Dronewatch',
+    description: 'Actueel nieuws over drones, regelgeving en luchtvaart.',
+  },
 ];
 
 const FOCUS_TYPES: Array<{
@@ -568,6 +593,10 @@ function WallboardFocusConfigurationCard({
 }
 
 function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange: (page: WallboardPage) => void }) {
+  const customNewsSources = Array.isArray(page.options.custom_sources) ? page.options.custom_sources : [];
+  const selectedNewsSources = normalizeWallboardNewsSources(page.options.sources, true);
+  const totalNewsSources = selectedNewsSources.length + customNewsSources.length;
+
   function updateType(type: WallboardPageType) {
     const previousDefaultTitle = wallboardPageTypeLabel(page.type);
     onChange({
@@ -576,7 +605,54 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
       name: page.name === previousDefaultTitle ? wallboardPageTypeLabel(type) : page.name,
       options: type === 'message'
         ? { body: page.options.body ?? '' }
-        : {},
+        : type === 'news'
+          ? { sources: ['ndt', 'dronewatch'], custom_sources: [], max_items: 6 }
+          : {},
+    });
+  }
+
+  function toggleNewsSource(source: WallboardNewsSource, checked: boolean) {
+    const sources = checked
+      ? [...new Set([...selectedNewsSources, source])]
+      : selectedNewsSources.filter((current) => current !== source);
+    if (sources.length + customNewsSources.length === 0) return;
+    onChange({ ...page, options: { ...page.options, sources } });
+  }
+
+  function addCustomNewsSource() {
+    if (customNewsSources.length >= MAX_WALLBOARD_CUSTOM_NEWS_SOURCES) return;
+    onChange({
+      ...page,
+      options: {
+        ...page.options,
+        custom_sources: [
+          ...customNewsSources,
+          createWallboardCustomNewsSource(customNewsSources.length + 1),
+        ],
+      },
+    });
+  }
+
+  function updateCustomNewsSource(sourceId: string, update: Partial<WallboardCustomNewsSource>) {
+    onChange({
+      ...page,
+      options: {
+        ...page.options,
+        custom_sources: customNewsSources.map((source) => source.id === sourceId
+          ? { ...source, ...update }
+          : source),
+      },
+    });
+  }
+
+  function removeCustomNewsSource(sourceId: string) {
+    if (totalNewsSources <= 1) return;
+    onChange({
+      ...page,
+      options: {
+        ...page.options,
+        custom_sources: customNewsSources.filter((source) => source.id !== sourceId),
+      },
     });
   }
 
@@ -623,6 +699,114 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
           />
           <small>{(page.options.body ?? '').length}/2000 tekens · uitsluitend platte tekst</small>
         </label>
+      ) : page.type === 'news' ? (
+        <fieldset className="wallboard-news-editor">
+          <legend>Nieuwsinhoud</legend>
+          <p>
+            Het wallboard toont alleen berichten uit de afgelopen 7 dagen. Zijn die er niet, dan worden de
+            meest recente berichten getoond tot het ingestelde maximum.
+          </p>
+          <div className="wallboard-news-editor__sources">
+            {NEWS_SOURCE_OPTIONS.map((source) => {
+              const checked = selectedNewsSources.includes(source.value);
+              return (
+                <label className="wallboard-switch-row" key={source.value}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={checked && totalNewsSources === 1}
+                    onChange={(event) => toggleNewsSource(source.value, event.target.checked)}
+                  />
+                  <span><strong>{source.label}</strong><small>{source.description}</small></span>
+                </label>
+              );
+            })}
+          </div>
+          <section className="wallboard-news-editor__custom" aria-label="Eigen RSS-bronnen">
+            <header>
+              <span>
+                <strong>Eigen RSS-bronnen</strong>
+                <small>Voeg maximaal {MAX_WALLBOARD_CUSTOM_NEWS_SOURCES} openbare HTTPS-feeds toe.</small>
+              </span>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={addCustomNewsSource}
+                disabled={customNewsSources.length >= MAX_WALLBOARD_CUSTOM_NEWS_SOURCES}
+              >
+                <Plus size={16} aria-hidden /> RSS-bron toevoegen
+              </button>
+            </header>
+            {customNewsSources.length === 0 ? (
+              <p className="wallboard-news-editor__custom-empty">Nog geen eigen RSS-bronnen toegevoegd.</p>
+            ) : (
+              <div className="wallboard-news-editor__custom-list">
+                {customNewsSources.map((source, index) => (
+                  <article className="wallboard-news-editor__custom-source" key={source.id}>
+                    <header>
+                      <span><Rss size={17} aria-hidden /> Eigen bron {index + 1}</span>
+                      <button
+                        type="button"
+                        className="icon-button danger-button"
+                        onClick={() => removeCustomNewsSource(source.id)}
+                        disabled={totalNewsSources === 1}
+                        aria-label={`${source.label || `Eigen bron ${index + 1}`} verwijderen`}
+                      >
+                        <Trash2 size={16} aria-hidden />
+                      </button>
+                    </header>
+                    <div>
+                      <label>
+                        <span>Naam op het wallboard</span>
+                        <input
+                          value={source.label}
+                          onChange={(event) => updateCustomNewsSource(source.id, { label: event.target.value })}
+                          maxLength={MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_LABEL_LENGTH}
+                          placeholder="Bijvoorbeeld Luchtvaartnieuws"
+                          required
+                        />
+                      </label>
+                      <label>
+                        <span>HTTPS-feed URL</span>
+                        <input
+                          type="url"
+                          value={source.url}
+                          onChange={(event) => updateCustomNewsSource(source.id, { url: event.target.value })}
+                          maxLength={MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_URL_LENGTH}
+                          pattern="https://.+"
+                          placeholder="https://voorbeeld.nl/feed.xml"
+                          inputMode="url"
+                          required
+                        />
+                      </label>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+            <small className="wallboard-news-editor__source-total">
+              {totalNewsSources} {totalNewsSources === 1 ? 'bron geselecteerd' : 'bronnen geselecteerd'} · het maximum aantal berichten geldt gecombineerd.
+            </small>
+          </section>
+          <label className="wallboard-news-editor__count">
+            <span>Maximum aantal berichten</span>
+            <input
+              type="number"
+              min={MIN_WALLBOARD_NEWS_MAX_ITEMS}
+              max={MAX_WALLBOARD_NEWS_MAX_ITEMS}
+              value={clampWallboardNewsMaxItems(Number(page.options.max_items))}
+              onChange={(event) => onChange({
+                ...page,
+                options: {
+                  ...page.options,
+                  max_items: clampWallboardNewsMaxItems(Number(event.target.value)),
+                },
+              })}
+              required
+            />
+            <small>Begrenst zowel de recente set als de laatste berichten wanneer de 7-dagenperiode leeg is.</small>
+          </label>
+        </fieldset>
       ) : (
         <div className="wallboard-page-editor__page-options">
           <p className="wallboard-page-editor__hint">Deze pagina toont uitsluitend operationele incidenten; proefalarmen verschijnen alleen tijdelijk als prominente alarmmelding.</p>
@@ -638,5 +822,6 @@ export function WallboardPageTypeIcon({ type }: { type: WallboardPageType }) {
     case 'incident_list': return <List size={18} aria-hidden />;
     case 'summary': return <BarChart3 size={18} aria-hidden />;
     case 'message': return <MessageSquareText size={18} aria-hidden />;
+    case 'news': return <Newspaper size={18} aria-hidden />;
   }
 }

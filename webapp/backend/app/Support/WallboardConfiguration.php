@@ -9,7 +9,24 @@ final class WallboardConfiguration
     public const DEFAULT_PAGE_ID = 'map';
 
     /** @var list<string> */
-    public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'message'];
+    public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'message', 'news'];
+
+    /** @var list<string> */
+    public const NEWS_SOURCES = ['ndt', 'dronewatch'];
+
+    public const DEFAULT_NEWS_MAX_ITEMS = 6;
+
+    public const MIN_NEWS_MAX_ITEMS = 1;
+
+    public const MAX_NEWS_MAX_ITEMS = 12;
+
+    public const MAX_NEWS_CUSTOM_SOURCES = 8;
+
+    public const MAX_NEWS_CUSTOM_SOURCE_ID_LENGTH = 64;
+
+    public const MAX_NEWS_CUSTOM_SOURCE_LABEL_LENGTH = 80;
+
+    public const MAX_NEWS_CUSTOM_SOURCE_URL_LENGTH = 2048;
 
     /** @var list<string> */
     public const TICKER_SOURCE_TYPES = ['internal', 'rss'];
@@ -168,6 +185,7 @@ final class WallboardConfiguration
             $allowedOptionKeys = match ($type) {
                 'message' => ['body'],
                 'incident_list', 'summary' => ['show_test_incidents'],
+                'news' => ['sources', 'custom_sources', 'max_items'],
                 default => [],
             };
             if (array_diff(array_keys($options), $allowedOptionKeys) !== []) {
@@ -183,6 +201,97 @@ final class WallboardConfiguration
                     ]);
                 }
                 $options = ['body' => $body];
+            } elseif ($type === 'news') {
+                $sources = array_values((array) ($options['sources'] ?? self::NEWS_SOURCES));
+                if (count($sources) > count(self::NEWS_SOURCES)) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.sources" => ['Kies alleen unieke, ondersteunde nieuwsbronnen.'],
+                    ]);
+                }
+                $seenSources = [];
+                foreach ($sources as $sourceIndex => $source) {
+                    if (! is_string($source) || ! in_array($source, self::NEWS_SOURCES, true)) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.sources.{$sourceIndex}" => ['Deze nieuwsbron wordt niet ondersteund.'],
+                        ]);
+                    }
+                    if (isset($seenSources[$source])) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.sources.{$sourceIndex}" => ['Elke nieuwsbron mag maar een keer worden gekozen.'],
+                        ]);
+                    }
+                    $seenSources[$source] = true;
+                }
+
+                $customSources = array_values((array) ($options['custom_sources'] ?? []));
+                if (count($customSources) > self::MAX_NEWS_CUSTOM_SOURCES) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.custom_sources" => ['Een nieuwspagina kan maximaal acht eigen RSS-bronnen bevatten.'],
+                    ]);
+                }
+                $customSourceIds = [];
+                $customSourceUrls = [];
+                foreach ($customSources as $customSourceIndex => $customSource) {
+                    if (! is_array($customSource)
+                        || array_diff(array_keys($customSource), ['id', 'label', 'url']) !== []) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.custom_sources.{$customSourceIndex}" => ['Een eigen RSS-bron bevat alleen id, label en url.'],
+                        ]);
+                    }
+
+                    $sourceId = trim((string) ($customSource['id'] ?? ''));
+                    if (preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/', $sourceId) !== 1
+                        || in_array($sourceId, self::NEWS_SOURCES, true)
+                        || isset($customSourceIds[$sourceId])) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.custom_sources.{$customSourceIndex}.id" => ['Elke eigen RSS-bron heeft een unieke veilige bron-ID nodig.'],
+                        ]);
+                    }
+                    $customSourceIds[$sourceId] = true;
+
+                    $label = trim((string) ($customSource['label'] ?? ''));
+                    if ($label === ''
+                        || mb_strlen($label) > self::MAX_NEWS_CUSTOM_SOURCE_LABEL_LENGTH
+                        || $label !== strip_tags($label)) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.custom_sources.{$customSourceIndex}.label" => ['Het bronlabel is platte tekst van maximaal 80 tekens.'],
+                        ]);
+                    }
+
+                    $url = trim((string) ($customSource['url'] ?? ''));
+                    if (! self::hasValidTickerHttpsUrlSyntax($url) || isset($customSourceUrls[$url])) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.custom_sources.{$customSourceIndex}.url" => ['Elke eigen RSS-bron heeft een unieke openbare HTTPS-URL op poort 443 nodig.'],
+                        ]);
+                    }
+                    $customSourceUrls[$url] = true;
+                    $customSources[$customSourceIndex] = [
+                        'id' => $sourceId,
+                        'label' => $label,
+                        'url' => $url,
+                    ];
+                }
+
+                if ($sources === [] && $customSources === []) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.sources" => ['Kies minimaal een ingebouwde of eigen RSS-nieuwsbron.'],
+                    ]);
+                }
+
+                $maximumItems = $options['max_items'] ?? self::DEFAULT_NEWS_MAX_ITEMS;
+                if (! is_int($maximumItems)
+                    || $maximumItems < self::MIN_NEWS_MAX_ITEMS
+                    || $maximumItems > self::MAX_NEWS_MAX_ITEMS) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.max_items" => ['Het aantal nieuwsberichten moet een geheel getal tussen 1 en 12 zijn.'],
+                    ]);
+                }
+
+                $options = [
+                    'sources' => $sources,
+                    'custom_sources' => $customSources,
+                    'max_items' => $maximumItems,
+                ];
             } elseif (in_array($type, ['incident_list', 'summary'], true)) {
                 // The legacy option is accepted above for lossless upgrades, but no longer has effect.
                 $options = [];

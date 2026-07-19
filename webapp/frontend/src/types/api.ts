@@ -224,7 +224,7 @@ export interface OperationalMapPilotHome {
 export type WallboardLayout = 'fullscreen_map';
 export type WallboardDisplayProfile = 'auto' | '1080p' | '4k';
 export type WallboardTheme = 'dark' | 'light';
-export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'message';
+export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'message' | 'news';
 export type WallboardDisplayMode = 'rotation' | 'static' | 'manual' | 'incident_override';
 
 export interface WallboardMapConfiguration {
@@ -268,6 +268,9 @@ export interface WallboardFocusConfiguration {
 export interface WallboardPageOptions {
   body?: string;
   show_test_incidents?: boolean;
+  sources?: WallboardNewsSource[];
+  custom_sources?: WallboardCustomNewsSource[];
+  max_items?: number;
 }
 
 export interface WallboardPage {
@@ -315,6 +318,38 @@ export interface WallboardTickerItem {
   text: string;
 }
 
+export type WallboardNewsSource = 'ndt' | 'dronewatch';
+
+export interface WallboardCustomNewsSource {
+  id: string;
+  label: string;
+  url: string;
+}
+
+export type WallboardNewsItemSource = WallboardNewsSource | 'custom';
+
+export interface WallboardNewsItem {
+  id: string;
+  source: WallboardNewsItemSource;
+  source_id: string;
+  source_label: string;
+  title: string;
+  excerpt: string;
+  url: string;
+  published_at: string;
+}
+
+export interface WallboardNewsState {
+  pages: Record<string, WallboardNewsPageState>;
+  generated_at: string;
+}
+
+export interface WallboardNewsPageState {
+  items: WallboardNewsItem[];
+  fallback_used: boolean;
+  lookback_days: 7;
+}
+
 export interface WallboardDisplayState {
   mode: WallboardDisplayMode;
   page_id: string;
@@ -357,6 +392,7 @@ export interface Wallboard {
   is_online?: boolean;
   config_version: number;
   control_version?: number;
+  refresh_version: number;
   manual_page_id?: string | null;
   manual_page_set_at?: string | null;
   display?: WallboardDisplayState | null;
@@ -433,6 +469,12 @@ export interface WallboardPilotAvailability {
   total: number;
 }
 
+export interface WallboardFocusPilotCounts {
+  available: number;
+  relevant: number;
+  contacted: number;
+}
+
 export interface WallboardStateActiveAlarm {
   id: string;
   reference: string;
@@ -501,6 +543,7 @@ export interface WallboardFocusState {
   visible: boolean;
   playlist_page_id?: string | null;
   next_change_at?: string | null;
+  pilot_counts?: WallboardFocusPilotCounts | null;
   responses?: WallboardFocusResponses | null;
 }
 
@@ -514,7 +557,7 @@ export interface WallboardOperationalSummary {
 
 export interface WallboardState {
   generated_at: string;
-  wallboard: Pick<Wallboard, 'id' | 'name' | 'layout' | 'display_profile' | 'configuration' | 'config_version' | 'control_version' | 'display' | 'updated_at'>;
+  wallboard: Pick<Wallboard, 'id' | 'name' | 'layout' | 'display_profile' | 'configuration' | 'config_version' | 'control_version' | 'refresh_version' | 'display' | 'updated_at'>;
   map: {
     incidents: WallboardStateIncident[];
     command_centers: WallboardStateCommandCenter[];
@@ -525,12 +568,14 @@ export interface WallboardState {
   ticker: {
     items: WallboardTickerItem[];
   };
+  news: WallboardNewsState;
 }
 
 export interface WallboardControlState {
   generated_at?: string;
   config_version: number;
   control_version: number;
+  refresh_version: number;
   display_profile: WallboardDisplayProfile;
   display: WallboardDisplayState;
   transient_alert: WallboardTransientAlert | null;

@@ -10,11 +10,13 @@ import {
   AlertTriangle,
   BellRing,
   Clock3,
+  ExternalLink,
   Expand,
   Loader2,
   LockKeyhole,
   MapPin,
   MonitorUp,
+  Newspaper,
   RefreshCw,
   Radio,
   RotateCw,
@@ -27,10 +29,14 @@ import type {
   WallboardControlState,
   WallboardDisplayMode,
   WallboardFocusKind,
+  WallboardFocusPilotCounts,
   WallboardFocusResponseStatus,
   WallboardFocusResponses,
   WallboardFocusState,
   WallboardPage,
+  WallboardNewsItem,
+  WallboardNewsPageState,
+  WallboardNewsState,
   WallboardPairingRequest,
   WallboardPairingStatus,
   WallboardPilotAvailability,
@@ -59,6 +65,7 @@ const wallboardApi = new ApiClient({ baseUrl: apiBaseUrl, onUnauthenticated: () 
 const CONTROL_POLL_MILLISECONDS = 2000;
 const DEFAULT_PAIRING_POLL_MILLISECONDS = 2000;
 const PAIRING_RETRY_MILLISECONDS = 10000;
+export const WALLBOARD_REFRESH_VERSION_STORAGE_KEY = 'dis.wallboard.refresh-version';
 const WALLBOARD_TIME_ZONE = 'Europe/Amsterdam';
 const WALLBOARD_CLOCK_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
   hour: '2-digit',
@@ -80,6 +87,12 @@ const RECENT_INCIDENT_TIME_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
   minute: '2-digit',
   timeZone: WALLBOARD_TIME_ZONE,
 });
+const WALLBOARD_NEWS_DATE_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+  timeZone: WALLBOARD_TIME_ZONE,
+});
 let pairingStartInFlight: Promise<WallboardPairingRequest> | null = null;
 
 export function WallboardDisplayPage() {
@@ -90,6 +103,7 @@ export function WallboardDisplayPage() {
   const pendingConfigVersionRef = useRef<number | null>(null);
   const lastControlIncidentActiveRef = useRef<boolean | null>(null);
   const lastControlFocusSignatureRef = useRef<string | undefined>(undefined);
+  const refreshVersionRef = useRef<number | null>(null);
   const [sessionStatus, setSessionStatus] = useState<'checking' | 'unpaired' | 'paired'>('checking');
   const [state, setState] = useState<WallboardState | null>(null);
   const [control, setControl] = useState<WallboardControlState | null>(null);
@@ -111,6 +125,19 @@ export function WallboardDisplayPage() {
     () => state === null ? null : buildWallboardMapPresentation(state, hasLiveFeed),
     [hasLiveFeed, state],
   );
+  const observeRefreshVersion = useCallback((incomingVersion: unknown): boolean => {
+    const decision = wallboardRefreshDecision(
+      refreshVersionRef.current,
+      incomingVersion,
+      readPersistedWallboardRefreshVersion(window.sessionStorage),
+    );
+    const isBaseline = refreshVersionRef.current === null;
+    refreshVersionRef.current = decision.version;
+    if (isBaseline || decision.reload) persistWallboardRefreshVersion(window.sessionStorage, decision.version);
+    if (!decision.reload) return false;
+    window.location.reload();
+    return true;
+  }, []);
 
   useEffect(() => {
     if (sessionStatus !== 'unpaired') return;
@@ -200,6 +227,7 @@ export function WallboardDisplayPage() {
         const response = await wallboardApi.get<WallboardState>('/wallboard/state');
         if (cancelled) return;
         const nextState = normalizeWallboardState(response.data);
+        if (observeRefreshVersion(nextState.wallboard.refresh_version)) return;
         setState(nextState);
         const nextControl = controlFromState(nextState);
         setControl((current) => current !== null && current.control_version > nextControl.control_version
@@ -228,6 +256,8 @@ export function WallboardDisplayPage() {
           setControlError(null);
           lastControlIncidentActiveRef.current = null;
           lastControlFocusSignatureRef.current = undefined;
+          refreshVersionRef.current = null;
+          clearPersistedWallboardRefreshVersion(window.sessionStorage);
           return;
         }
         setSessionStatus((current) => current === 'checking' ? 'checking' : 'paired');
@@ -241,7 +271,7 @@ export function WallboardDisplayPage() {
       cancelled = true;
       if (timer !== null) clearTimeout(timer);
     };
-  }, [pollGeneration]);
+  }, [observeRefreshVersion, pollGeneration]);
 
   useEffect(() => {
     if (!hasPairedState) return undefined;
@@ -253,6 +283,7 @@ export function WallboardDisplayPage() {
         const response = await wallboardApi.get<WallboardControlState>('/wallboard/control');
         if (cancelled) return;
         const nextControl = normalizeWallboardControlState(response.data);
+        if (observeRefreshVersion(nextControl.refresh_version)) return;
         setControl((current) => stabilizeWallboardRotationDeadline(current, nextControl));
         setClock(Date.now());
         setControlError(null);
@@ -291,6 +322,8 @@ export function WallboardDisplayPage() {
           setControlError(null);
           lastControlIncidentActiveRef.current = null;
           lastControlFocusSignatureRef.current = undefined;
+          refreshVersionRef.current = null;
+          clearPersistedWallboardRefreshVersion(window.sessionStorage);
           return;
         }
         setControlError(errorMessage(error, 'De live schermbesturing is tijdelijk niet bereikbaar.'));
@@ -303,7 +336,7 @@ export function WallboardDisplayPage() {
       cancelled = true;
       if (timer !== null) clearTimeout(timer);
     };
-  }, [hasPairedState]);
+  }, [hasPairedState, observeRefreshVersion]);
 
   useEffect(() => {
     if (!hasPairedState) return undefined;
@@ -509,6 +542,8 @@ export function WallboardDisplayPage() {
       {showFocus && focus !== null ? (
         <FocusTakeover
           focus={focus}
+          fallbackPilotAvailability={state.operational_summary.pilot_availability}
+          isCurrent={hasLiveFeed}
           showResponseFeed={configuration.focus[focus.kind].show_response_feed}
         />
       ) : showTransientAlert && transientAlert !== null ? (
@@ -558,6 +593,15 @@ function WallboardPageContent({ page, state, presentation, hasLiveFeed }: Wallbo
     : presentation;
   const recentIncidents = selectRecentWallboardIncidents(state.operational_summary.recent_incidents);
   const activeOperationalIncidentCount = countActiveOperationalWallboardIncidents(state.map.incidents);
+  if (page.type === 'news') {
+    return (
+      <WallboardNewsPage
+        page={page}
+        news={state.news.pages[page.id] ?? { items: [], fallback_used: false, lookback_days: 7 }}
+      />
+    );
+  }
+
   if (page.type === 'message') {
     return (
       <div className="wallboard-display__message">
@@ -627,16 +671,82 @@ function WallboardPageContent({ page, state, presentation, hasLiveFeed }: Wallbo
   );
 }
 
+function WallboardNewsPage({ page, news }: { page: WallboardPage; news: WallboardNewsPageState }) {
+  const [lead, ...supporting] = news.items;
+  const supportingRows = Math.max(1, Math.ceil(supporting.length / 2));
+
+  if (lead === undefined) {
+    return (
+      <div className="wallboard-display__news wallboard-display__news--empty">
+        <Newspaper size={52} aria-hidden />
+        <span className="eyebrow">Dronenieuws</span>
+        <h2>{page.name}</h2>
+        <p>Er zijn tijdelijk geen nieuwsberichten uit de gekozen bronnen beschikbaar.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`wallboard-display__news ${supporting.length === 0 ? 'wallboard-display__news--single' : ''}`}>
+      <header className="wallboard-display__news-header">
+        <span>
+          <Newspaper size={21} aria-hidden />
+          <strong>Dronenieuws</strong>
+          <small>{news.fallback_used
+            ? `Geen nieuws in de afgelopen ${news.lookback_days} dagen · meest recente publicaties`
+            : `Gepubliceerd in de afgelopen ${news.lookback_days} dagen`}</small>
+        </span>
+        <b>{news.items.length} {news.items.length === 1 ? 'bericht' : 'berichten'}</b>
+      </header>
+
+      <div className="wallboard-display__news-grid">
+        <NewsArticle item={lead} lead />
+        {supporting.length > 0 ? (
+          <div
+            className={`wallboard-display__news-supporting ${supporting.length > 6 ? 'wallboard-display__news-supporting--dense' : ''}`}
+            style={{ '--wallboard-news-rows': supportingRows } as CSSProperties}
+          >
+            {supporting.map((item) => <NewsArticle item={item} key={item.id} />)}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function NewsArticle({ item, lead = false }: { item: WallboardNewsItem; lead?: boolean }) {
+  return (
+    <article className={`wallboard-display__news-article wallboard-display__news-article--${item.source} ${lead ? 'wallboard-display__news-article--lead' : ''}`}>
+      <div className="wallboard-display__news-meta">
+        <strong>{item.source_label}</strong>
+        <time dateTime={item.published_at}>{formatWallboardNewsDate(item.published_at)}</time>
+      </div>
+      <h2>{item.title}</h2>
+      <p>{item.excerpt || 'Open het bronbericht voor de volledige inhoud.'}</p>
+      <a href={item.url} target="_blank" rel="noreferrer" tabIndex={-1}>
+        Bronbericht <ExternalLink size={14} aria-hidden />
+      </a>
+    </article>
+  );
+}
+
 function FocusTakeover({
   focus,
+  fallbackPilotAvailability,
+  isCurrent,
   showResponseFeed,
 }: {
   focus: WallboardFocusState;
+  fallbackPilotAvailability: WallboardPilotAvailability;
+  isCurrent: boolean;
   showResponseFeed: boolean;
 }) {
   const Icon = focus.kind === 'preannouncement' ? BellRing : focus.kind === 'test_alarm' ? Radio : Siren;
   const label = wallboardFocusKindLabel(focus.kind);
   const focusClass = focus.kind.replace('_', '-');
+  const pilotCounts = focus.kind === 'preannouncement'
+    ? wallboardFocusPilotCounts(focus.pilot_counts, fallbackPilotAvailability, isCurrent)
+    : null;
 
   return (
     <section
@@ -654,7 +764,10 @@ function FocusTakeover({
           {focus.kind === 'test_alarm' ? <b>TEST</b> : null}
         </div>
         <h2>{focus.title}</h2>
-        <p><MapPin size={24} aria-hidden /> {focus.location_label?.trim() || 'Locatie nog niet bekend'}</p>
+        {pilotCounts !== null ? <FocusPilotAvailability counts={pilotCounts} /> : null}
+        {focus.kind !== 'test_alarm' ? (
+          <p><MapPin size={24} aria-hidden /> {focus.location_label?.trim() || 'Locatie nog niet bekend'}</p>
+        ) : null}
         <div className="wallboard-display__alarm-status">
           <i aria-hidden />
           <strong>{focusStatusLabel(focus.kind)}</strong>
@@ -671,12 +784,18 @@ function WallboardFocusResponseFeed({ responses }: { responses: WallboardFocusRe
   const items = responses?.items ?? [];
 
   return (
-    <aside className="wallboard-display__responses" aria-labelledby="wallboard-focus-responses-title" aria-live="polite">
+    <aside
+      className="wallboard-display__responses"
+      aria-labelledby="wallboard-focus-responses-title"
+      aria-live="polite"
+      aria-atomic="false"
+      aria-relevant="additions text"
+    >
       <header>
         <span><UsersRound size={24} aria-hidden /></span>
         <div>
-          <small>Live reactiefeed</small>
-          <h2 id="wallboard-focus-responses-title">Reacties van piloten</h2>
+          <small>Reactietijdlijn</small>
+          <h3 id="wallboard-focus-responses-title">Live reacties van piloten</h3>
         </div>
       </header>
       <dl className="wallboard-display__response-counts">
@@ -721,7 +840,9 @@ function TransientAlertTakeover({ alert }: { alert: WallboardTransientAlert }) {
         {alert.is_test ? <b>TEST</b> : null}
       </div>
       <h2>{alert.title}</h2>
-      <p><MapPin size={24} aria-hidden /> {alert.location_label?.trim() || 'Locatie nog niet bekend'}</p>
+      {!alert.is_test ? (
+        <p><MapPin size={24} aria-hidden /> {alert.location_label?.trim() || 'Locatie nog niet bekend'}</p>
+      ) : null}
       <div className="wallboard-display__alarm-status">
         <i aria-hidden />
         <strong>{alert.is_test ? 'Proefalarm ontvangen' : 'Piloten worden gealarmeerd'}</strong>
@@ -729,6 +850,68 @@ function TransientAlertTakeover({ alert }: { alert: WallboardTransientAlert }) {
       </div>
     </section>
   );
+}
+
+function FocusPilotAvailability({ counts }: { counts: WallboardFocusPilotCounts }) {
+  const pilotLabel = counts.relevant === 1 ? 'piloot' : 'piloten';
+  const contactedLabel = counts.contacted === 1 ? 'piloot bereikt' : 'piloten bereikt';
+
+  return (
+    <section
+      className="wallboard-display__focus-availability"
+      aria-label={`${counts.available} van ${counts.relevant} geselecteerde ${pilotLabel} hebben zich beschikbaar gemeld`}
+    >
+      <span><UsersRound size={22} aria-hidden /> Beschikbaar gemeld</span>
+      <strong>
+        <b>{counts.available}</b>
+        <span>van {counts.relevant} geselecteerde {pilotLabel}</span>
+      </strong>
+      {counts.contacted > 0 ? <small>{counts.contacted} {contactedLabel}</small> : null}
+    </section>
+  );
+}
+
+export function wallboardFocusPilotCounts(
+  focusCounts: WallboardFocusPilotCounts | null | undefined,
+  fallbackAvailability: WallboardPilotAvailability | null | undefined,
+  isCurrent = true,
+): WallboardFocusPilotCounts | null {
+  if (!isCurrent) return null;
+
+  if (
+    focusCounts !== null
+    && focusCounts !== undefined
+    && isWallboardCount(focusCounts.available)
+    && isWallboardCount(focusCounts.relevant)
+    && isWallboardCount(focusCounts.contacted)
+  ) {
+    const relevant = Math.trunc(focusCounts.relevant);
+    return {
+      available: Math.min(relevant, Math.trunc(focusCounts.available)),
+      relevant,
+      contacted: Math.trunc(focusCounts.contacted),
+    };
+  }
+
+  if (
+    fallbackAvailability !== null
+    && fallbackAvailability !== undefined
+    && isWallboardCount(fallbackAvailability.available)
+    && isWallboardCount(fallbackAvailability.total)
+  ) {
+    const relevant = Math.trunc(fallbackAvailability.total);
+    return {
+      available: Math.min(relevant, Math.trunc(fallbackAvailability.available)),
+      relevant,
+      contacted: 0,
+    };
+  }
+
+  return null;
+}
+
+function isWallboardCount(value: number): boolean {
+  return Number.isFinite(value) && value >= 0;
 }
 
 function PilotAvailabilityMetric({
@@ -860,17 +1043,76 @@ function Summary({ label, value, emphasis = false }: { label: string; value: num
   return <div className={emphasis ? 'wallboard-display__metric wallboard-display__metric--emphasis' : 'wallboard-display__metric'}><small>{label}</small><strong>{value}</strong></div>;
 }
 
+export function wallboardRefreshDecision(
+  currentVersion: number | null,
+  incomingVersion: unknown,
+  persistedVersion: unknown = null,
+): { version: number; reload: boolean } {
+  const incoming = nonNegativeRefreshVersion(incomingVersion);
+  if (currentVersion === null) {
+    const persisted = optionalNonNegativeRefreshVersion(persistedVersion);
+    if (persisted === null) return { version: incoming, reload: false };
+    return incoming > persisted
+      ? { version: incoming, reload: true }
+      : { version: Math.max(incoming, persisted), reload: false };
+  }
+  const current = nonNegativeRefreshVersion(currentVersion);
+  return incoming > current
+    ? { version: incoming, reload: true }
+    : { version: current, reload: false };
+}
+
+function persistWallboardRefreshVersion(storage: Pick<Storage, 'setItem'>, version: number): void {
+  try {
+    storage.setItem(WALLBOARD_REFRESH_VERSION_STORAGE_KEY, String(version));
+  } catch {
+    // A wallboard remains controllable when kiosk storage is unavailable. The
+    // in-memory baseline still prevents repeated refreshes in the active page.
+  }
+}
+
+function readPersistedWallboardRefreshVersion(storage: Pick<Storage, 'getItem'>): number | null {
+  try {
+    return optionalNonNegativeRefreshVersion(storage.getItem(WALLBOARD_REFRESH_VERSION_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function clearPersistedWallboardRefreshVersion(storage: Pick<Storage, 'removeItem'>): void {
+  try {
+    storage.removeItem(WALLBOARD_REFRESH_VERSION_STORAGE_KEY);
+  } catch {
+    // Pairing remains functional when kiosk storage is unavailable.
+  }
+}
+
+function nonNegativeRefreshVersion(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.trunc(value))
+    : 0;
+}
+
+function optionalNonNegativeRefreshVersion(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.trunc(value));
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 export function normalizeWallboardState(state: WallboardState): WallboardState {
   const configuration = wallboardConfigurationCopy(state.wallboard.configuration);
   const rawState = state as WallboardState & {
     operational_summary?: WallboardState['operational_summary'];
     ticker?: WallboardState['ticker'];
+    news?: unknown;
   };
   const operationalSummary = rawState.operational_summary;
   const hasFocusContract = operationalSummary !== undefined
     && Object.prototype.hasOwnProperty.call(operationalSummary, 'focus');
   const rawWallboard = state.wallboard as WallboardState['wallboard'] & {
     control_version?: number;
+    refresh_version?: unknown;
     display_profile?: unknown;
     display?: NonNullable<WallboardState['wallboard']['display']>;
   };
@@ -896,14 +1138,92 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
       ...(hasFocusContract ? { focus: normalizeWallboardFocusState(operationalSummary?.focus) } : {}),
     },
     ticker: rawState.ticker ?? { items: [] },
+    news: normalizeWallboardNewsState(rawState.news),
     wallboard: {
       ...state.wallboard,
       display_profile: normalizeWallboardDisplayProfile(rawWallboard.display_profile),
       configuration,
       control_version: rawWallboard.control_version ?? 1,
+      refresh_version: nonNegativeRefreshVersion(rawWallboard.refresh_version),
       display: { ...display, page_id: pageId },
     },
   };
+}
+
+export function normalizeWallboardNewsState(value: unknown): WallboardNewsState {
+  if (!isRecord(value) || !isRecord(value.pages)) return { pages: {}, generated_at: '' };
+
+  const pages = Object.fromEntries(
+    Object.entries(value.pages)
+      .flatMap(([pageId, page]) => pageId.trim() !== '' && isRecord(page) ? [[pageId, page] as const] : [])
+      .slice(0, 20)
+      .map(([pageId, page]) => {
+        const items = Array.isArray(page.items)
+          ? page.items.flatMap((item) => normalizeWallboardNewsItem(item)).slice(0, 12)
+          : [];
+        return [pageId, {
+          items,
+          fallback_used: page.fallback_used === true,
+          lookback_days: 7 as const,
+        }];
+      }),
+  );
+
+  return {
+    pages,
+    generated_at: typeof value.generated_at === 'string' ? value.generated_at : '',
+  };
+}
+
+function normalizeWallboardNewsItem(value: unknown): WallboardNewsItem[] {
+  if (!isRecord(value) || !['ndt', 'dronewatch', 'custom'].includes(String(value.source))) return [];
+  if (
+    typeof value.id !== 'string'
+    || (value.source_id !== undefined && typeof value.source_id !== 'string')
+    || typeof value.source_label !== 'string'
+    || typeof value.title !== 'string'
+    || typeof value.excerpt !== 'string'
+    || typeof value.url !== 'string'
+    || typeof value.published_at !== 'string'
+  ) return [];
+
+  const title = value.title.trim();
+  const source = value.source as WallboardNewsItem['source'];
+  if (source === 'custom' && typeof value.source_id !== 'string') return [];
+  const sourceId = typeof value.source_id === 'string' ? value.source_id.trim() : source;
+  const sourceLabel = value.source_label.trim();
+  const url = safeWallboardNewsUrl(value.url);
+  if (
+    title === ''
+    || sourceLabel === ''
+    || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(sourceId)
+    || url === null
+    || !Number.isFinite(Date.parse(value.published_at))
+  ) return [];
+
+  return [{
+    id: value.id.slice(0, 180),
+    source,
+    source_id: sourceId,
+    source_label: sourceLabel.slice(0, 80),
+    title: title.slice(0, 240),
+    excerpt: value.excerpt.trim().slice(0, 1200),
+    url,
+    published_at: value.published_at,
+  }];
+}
+
+function safeWallboardNewsUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function controlFromState(state: WallboardState): WallboardControlState {
@@ -916,6 +1236,7 @@ function controlFromState(state: WallboardState): WallboardControlState {
     generated_at: state.generated_at,
     config_version: state.wallboard.config_version,
     control_version: state.wallboard.control_version ?? 1,
+    refresh_version: state.wallboard.refresh_version,
     display_profile: normalizeWallboardDisplayProfile(state.wallboard.display_profile),
     transient_alert: state.operational_summary.transient_alert,
     ...(state.operational_summary.focus === undefined
@@ -932,6 +1253,7 @@ function controlFromState(state: WallboardState): WallboardControlState {
 
 function normalizeWallboardControlState(state: WallboardControlState): WallboardControlState {
   const legacyState = state as WallboardControlState & {
+    refresh_version?: unknown;
     display_profile?: unknown;
     transient_alert?: WallboardTransientAlert | null;
     focus?: WallboardFocusState | null;
@@ -940,6 +1262,7 @@ function normalizeWallboardControlState(state: WallboardControlState): Wallboard
   return {
     ...state,
     display_profile: normalizeWallboardDisplayProfile(legacyState.display_profile),
+    refresh_version: nonNegativeRefreshVersion(legacyState.refresh_version),
     transient_alert: legacyState.transient_alert ?? null,
     ...(hasFocusContract ? { focus: normalizeWallboardFocusState(legacyState.focus) } : {}),
   };
@@ -1100,6 +1423,7 @@ function normalizeWallboardFocusState(
       ? focus.playlist_page_id
       : null,
     next_change_at: typeof focus.next_change_at === 'string' ? focus.next_change_at : null,
+    pilot_counts: wallboardFocusPilotCounts(focus.pilot_counts, null),
     responses: normalizeWallboardFocusResponses(focus.responses),
   };
 }
@@ -1262,6 +1586,11 @@ export function formatWallboardClock(value: number): string {
 function formatWallboardDate(value: number): string {
   const date = new Date(value);
   return Number.isFinite(date.getTime()) ? WALLBOARD_DATE_FORMATTER.format(date) : 'Datum onbekend';
+}
+
+function formatWallboardNewsDate(value: string): string {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? WALLBOARD_NEWS_DATE_FORMATTER.format(date) : 'Datum onbekend';
 }
 
 function formatRecentIncidentTime(value: string | null | undefined): string {
