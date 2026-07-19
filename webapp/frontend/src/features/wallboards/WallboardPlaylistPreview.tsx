@@ -19,8 +19,10 @@ import {
   wallboardConfigurationCopy,
   wallboardEffectivePageDuration,
   wallboardFocusKindLabel,
+  wallboardMessageContent,
   wallboardPageTypeLabel,
 } from './wallboardPresentation';
+import { WallboardRichText } from './WallboardRichText';
 
 interface WallboardPlaylistPreviewProps {
   playlistName: string;
@@ -86,10 +88,14 @@ export function WallboardPlaylistPreview({
                 : selectedPage.type === 'video'
                   ? <Clapperboard size={42} aria-hidden />
                 : <MessageSquareText size={42} aria-hidden />}
-            <span>{wallboardPageTypeLabel(selectedPage.type)}</span>
-            <h3 id="wallboard-preview-page-title">{selectedPage.name}</h3>
+            <span id="wallboard-preview-page-title">{wallboardPageTypeLabel(selectedPage.type)}</span>
+            {selectedPage.type === 'message' ? null : <h3>{selectedPage.name}</h3>}
             {selectedPage.type === 'message' ? (
-              <p>{selectedPage.options.body?.trim() || 'Nog geen mededeling ingevuld.'}</p>
+              <WallboardRichText
+                content={wallboardMessageContent(selectedPage.options)}
+                className="wallboard-playlist-preview__message-content"
+                ariaLabel="Voorbeeld mededeling"
+              />
             ) : selectedPage.type === 'news' ? (
               <p>
                 Maximaal {selectedPage.options.max_items ?? 6} berichten uit de laatste 7 dagen en

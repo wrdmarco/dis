@@ -184,12 +184,20 @@ density. It does not change the television, HDMI input, operating-system or brow
 shared playlist can therefore be shown on screens with different display profiles.
 
 A playlist contains an ordered set of allowlisted DIS pages: an operational map, incident list, operational
-summary, plain-text announcement or curated drone-news page. Every page has its own bounded display duration. The playlist also owns
+summary, safely formatted announcement, curated drone-news page or allowlisted YouTube/Vimeo video. Every page has its own bounded display duration. The playlist also owns
 map layers, rotation, the incident override and an optional bottom ticker. The ticker accepts bounded
 plain-text internal messages and multiple HTTPS RSS or Atom feeds; feed retrieval is cached, size-limited and
 restricted to public destinations. Each RSS source can show between one and eight items; legacy and omitted
 `max_items` settings default to eight. External display pages, arbitrary HTML and executable content are not
 accepted.
+
+Announcement page names are management metadata for playlist and page selection; the kiosk labels the page
+as `Mededeling` and does not render that management name in the announcement body. Announcement content uses
+a versioned structured document rather than HTML. The allowlist is limited to headings, paragraphs, quotes,
+bullet or numbered lists, left/centred alignment and bold/italic text. Unknown fields and formatting, links,
+styles, embedded media and executable markup are rejected server-side. Existing plain-text announcement bodies
+are read losslessly and emitted through the same canonical structured document, so no manual data migration is
+required.
 
 Each drone-news page can enable the fixed Nationaal Drone Team and Dronewatch sources, add up to eight named
 custom HTTPS RSS or Atom sources and show between one and twelve items across all enabled sources. At least one

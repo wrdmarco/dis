@@ -265,8 +265,47 @@ export interface WallboardFocusConfiguration {
   test_alarm: WallboardFocusTypeConfiguration;
 }
 
+export type WallboardRichTextMark = 'bold' | 'italic';
+export type WallboardRichTextAlignment = 'left' | 'center';
+
+export interface WallboardRichTextRun {
+  text: string;
+  marks?: WallboardRichTextMark[];
+}
+
+interface WallboardRichTextTextBlockBase {
+  align: WallboardRichTextAlignment;
+  runs: WallboardRichTextRun[];
+}
+
+export type WallboardRichTextTextBlock =
+  | (WallboardRichTextTextBlockBase & { type: 'heading' })
+  | (WallboardRichTextTextBlockBase & { type: 'paragraph' })
+  | (WallboardRichTextTextBlockBase & { type: 'quote' });
+
+export interface WallboardRichTextListItem {
+  runs: WallboardRichTextRun[];
+}
+
+interface WallboardRichTextListBlockBase {
+  items: WallboardRichTextListItem[];
+}
+
+export type WallboardRichTextListBlock =
+  | (WallboardRichTextListBlockBase & { type: 'bullet_list' })
+  | (WallboardRichTextListBlockBase & { type: 'numbered_list' });
+
+export type WallboardRichTextBlock = WallboardRichTextTextBlock | WallboardRichTextListBlock;
+
+export interface WallboardRichTextDocument {
+  version: 1;
+  blocks: WallboardRichTextBlock[];
+}
+
 export interface WallboardPageOptions {
+  /** Alleen aanwezig bij het inlezen van oudere configuraties. Nieuwe writes gebruiken content. */
   body?: string;
+  content?: WallboardRichTextDocument;
   url?: string;
   show_test_incidents?: boolean;
   sources?: WallboardNewsSource[];

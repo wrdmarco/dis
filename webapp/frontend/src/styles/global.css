@@ -6961,6 +6961,49 @@ textarea:focus {
   line-height: 1.55;
 }
 
+.wallboard-playlist-preview__message-content {
+  width: min(100%, 560px);
+  display: grid;
+  gap: 9px;
+  color: #dcecff;
+  text-align: left;
+}
+
+.wallboard-playlist-preview__message-content h2,
+.wallboard-playlist-preview__message-content p,
+.wallboard-playlist-preview__message-content blockquote,
+.wallboard-playlist-preview__message-content ul,
+.wallboard-playlist-preview__message-content ol {
+  max-width: none;
+  margin: 0;
+}
+
+.wallboard-playlist-preview__message-content h2 {
+  color: #f7fbff;
+  font-size: clamp(1.35rem, 3vw, 2.2rem);
+  line-height: 1.1;
+}
+
+.wallboard-playlist-preview__message-content p,
+.wallboard-playlist-preview__message-content li,
+.wallboard-playlist-preview__message-content blockquote {
+  color: #c4d6e8;
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.wallboard-playlist-preview__message-content blockquote {
+  border-left: 3px solid #80c7ff;
+  padding-left: 12px;
+}
+
+.wallboard-playlist-preview__message-content ul,
+.wallboard-playlist-preview__message-content ol {
+  display: grid;
+  gap: 4px;
+  padding-left: 24px;
+}
+
 .wallboard-playlist-preview__ticker {
   min-height: 44px;
   display: flex;
@@ -7286,16 +7329,163 @@ textarea:focus {
   font-variant-numeric: tabular-nums;
 }
 
-.wallboard-message-editor textarea {
-  width: 100%;
-  resize: vertical;
+.wallboard-message-editor__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wallboard-message-editor__heading > span {
+  color: var(--dis-muted-strong);
+  font-size: 0.78rem;
+  font-weight: 780;
+}
+
+.wallboard-message-editor__heading > small {
+  color: var(--dis-muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.wallboard-rich-editor {
+  overflow: hidden;
   border: 1px solid var(--dis-border-strong);
-  border-radius: 7px;
+  border-radius: 9px;
   background: var(--dis-field);
+}
+
+.wallboard-rich-editor__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--dis-border);
+  background: rgba(128, 199, 255, 0.035);
+  padding: 6px;
+}
+
+.wallboard-rich-editor__toolbar > button {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dis-muted-strong);
+  padding: 0;
+}
+
+.wallboard-rich-editor__toolbar > button:hover:not(:disabled),
+.wallboard-rich-editor__toolbar > button:focus-visible,
+.wallboard-rich-editor__toolbar > button.is-active {
+  border-color: rgba(128, 199, 255, 0.36);
+  background: rgba(128, 199, 255, 0.12);
   color: var(--dis-text-strong);
-  padding: 10px 11px;
-  font: inherit;
+}
+
+.wallboard-rich-editor__toolbar > button:focus-visible {
+  outline: 2px solid var(--dis-blue);
+  outline-offset: 1px;
+}
+
+.wallboard-rich-editor__toolbar > button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.wallboard-rich-editor__toolbar > span:not(.wallboard-rich-editor__toolbar-spacer) {
+  flex: 0 0 1px;
+  align-self: stretch;
+  margin: 3px 2px;
+  background: var(--dis-border);
+}
+
+.wallboard-rich-editor__toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.wallboard-rich-editor__canvas {
+  min-height: 210px;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 15px;
+}
+
+.wallboard-rich-editor__block,
+.wallboard-rich-editor__list {
+  margin: 0;
+}
+
+.wallboard-rich-editor__block--heading {
+  font-size: 1.4rem;
+  font-weight: 850;
+  line-height: 1.15;
+}
+
+.wallboard-rich-editor__block--paragraph,
+.wallboard-rich-editor__list {
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.wallboard-rich-editor__block--quote {
+  border-left: 3px solid var(--dis-blue);
+  color: var(--dis-muted-strong);
+  padding: 5px 0 5px 13px;
+  font-size: 1rem;
+  font-style: italic;
   line-height: 1.5;
+}
+
+.wallboard-rich-editor__list {
+  display: grid;
+  gap: 4px;
+  padding-left: 24px;
+}
+
+.wallboard-rich-editor__editable {
+  min-height: 1.5em;
+  border-radius: 4px;
+  padding: 3px 5px;
+  color: var(--dis-text-strong);
+  cursor: text;
+}
+
+.wallboard-rich-editor__editable:hover,
+.wallboard-rich-editor__editable.is-active {
+  background: rgba(128, 199, 255, 0.06);
+}
+
+.wallboard-rich-editor__editable:focus {
+  outline: 1px solid rgba(128, 199, 255, 0.48);
+  outline-offset: 1px;
+}
+
+.wallboard-rich-editor__editable:empty::before {
+  color: var(--dis-muted);
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+.wallboard-rich-editor__editable .is-bold {
+  font-weight: 850;
+}
+
+.wallboard-rich-editor__editable .is-italic {
+  font-style: italic;
+}
+
+.wallboard-rich-editor > small {
+  display: block;
+  border-top: 1px solid var(--dis-border);
+  color: var(--dis-muted);
+  padding: 7px 11px;
+  font-size: 0.7rem;
+  font-weight: 650;
 }
 
 .wallboard-message-editor small,
@@ -8306,8 +8496,20 @@ textarea:focus {
   text-align: center;
 }
 
+.wallboard-display__message-content {
+  width: min(100%, 72rem);
+  display: grid;
+  justify-items: stretch;
+  gap: clamp(14px, 2vw, 26px);
+}
+
 .wallboard-display__message h2,
-.wallboard-display__message p {
+.wallboard-display__message p,
+.wallboard-display__message blockquote,
+.wallboard-display__message ul,
+.wallboard-display__message ol {
+  width: min(100%, 58rem);
+  justify-self: center;
   margin: 0;
 }
 
@@ -8325,6 +8527,27 @@ textarea:focus {
   font-size: clamp(1.05rem, 2.5vw, 2rem);
   line-height: 1.45;
   white-space: pre-wrap;
+}
+
+.wallboard-display__message blockquote {
+  border-left: clamp(4px, 0.4vw, 8px) solid var(--dis-blue);
+  color: var(--dis-muted-strong);
+  padding: clamp(8px, 1vw, 18px) 0 clamp(8px, 1vw, 18px) clamp(18px, 2vw, 34px);
+  font-size: clamp(1.15rem, 2.8vw, 2.3rem);
+  font-style: italic;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.wallboard-display__message ul,
+.wallboard-display__message ol {
+  display: grid;
+  gap: clamp(7px, 1vw, 14px);
+  color: var(--dis-muted-strong);
+  padding-left: clamp(30px, 4vw, 64px);
+  font-size: clamp(1.05rem, 2.5vw, 2rem);
+  line-height: 1.4;
+  text-align: left;
 }
 
 .wallboard-display__video {

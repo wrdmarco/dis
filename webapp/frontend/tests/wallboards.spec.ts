@@ -49,6 +49,7 @@ import {
   wallboardEffectivePageDuration,
   wallboardFocusKindLabel,
   wallboardIsOnline,
+  wallboardMessageContent,
   wallboardPageMapConfiguration,
   wallboardPlaylistUsageCount,
   wallboardStateIsStale,
@@ -57,6 +58,11 @@ import {
   normalizeWallboardVideoUrl,
   wallboardVideoEmbedUrl,
 } from '../src/features/wallboards/wallboardPresentation';
+import {
+  normalizeWallboardRichText,
+  wallboardRichTextCharacterCount,
+  wallboardRichTextIsEmpty,
+} from '../src/features/wallboards/WallboardRichText';
 
 const now = Date.parse('2026-07-19T10:00:00Z');
 
@@ -331,7 +337,12 @@ test('bounds page timing and builds typed pages without executable message marku
   expect(page.id).toMatch(/^page-/);
   expect(page.type).toBe('message');
   expect(page.duration_seconds).toBe(30);
-  expect(page.options).toEqual({ body: '' });
+  expect(page.options).toEqual({
+    content: {
+      version: 1,
+      blocks: [{ type: 'paragraph', align: 'left', runs: [{ text: '' }] }],
+    },
+  });
 
   const summary = createWallboardPage('summary', 3);
   expect(summary.options).toEqual({});
@@ -375,6 +386,26 @@ test('bounds page timing and builds typed pages without executable message marku
 
   const video = createWallboardPage('video', 5);
   expect(video).toMatchObject({ type: 'video', name: 'Video', options: { url: '' } });
+});
+
+test('normalizes legacy and formatted wallboard messages without rendering management metadata', () => {
+  expect(wallboardMessageContent({ body: 'Bestaande mededeling' })).toEqual({
+    version: 1,
+    blocks: [{ type: 'paragraph', align: 'left', runs: [{ text: 'Bestaande mededeling' }] }],
+  });
+
+  const content = normalizeWallboardRichText({
+    version: 1,
+    blocks: [
+      { type: 'heading', align: 'center', runs: [{ text: 'Vliegveilig', marks: ['bold'] }] },
+      { type: 'bullet_list', items: [{ runs: [{ text: 'Controleer de wind', marks: ['italic'] }] }] },
+    ],
+  });
+
+  expect(wallboardMessageContent({ content })).toEqual(content);
+  expect(wallboardRichTextCharacterCount(content)).toBe(29);
+  expect(wallboardRichTextIsEmpty(content)).toBe(false);
+  expect(wallboardRichTextIsEmpty(normalizeWallboardRichText(undefined))).toBe(true);
 });
 
 test('canonicalizes only supported wallboard video URLs and builds muted autoplay embeds', () => {
@@ -906,6 +937,8 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   const createPage = readFileSync(new URL('../src/features/wallboards/WallboardCreatePage.tsx', import.meta.url), 'utf8');
   const playlistPreview = readFileSync(new URL('../src/features/wallboards/WallboardPlaylistPreview.tsx', import.meta.url), 'utf8');
   const configurationEditor = readFileSync(new URL('../src/features/wallboards/WallboardConfigurationEditor.tsx', import.meta.url), 'utf8');
+  const richText = readFileSync(new URL('../src/features/wallboards/WallboardRichText.tsx', import.meta.url), 'utf8');
+  const richTextEditor = readFileSync(new URL('../src/features/wallboards/WallboardRichTextEditor.tsx', import.meta.url), 'utf8');
   const newsQr = readFileSync(new URL('../src/features/wallboards/WallboardNewsQrCode.tsx', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
 
@@ -990,6 +1023,12 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain('wallboardFocusEtaLabel(item.eta_minutes)');
   expect(kiosk).toContain("currentPage.type === 'message' ? 'Mededeling' : currentPage.name");
   expect(kiosk).not.toContain('<span className="eyebrow">Mededeling</span>');
+  expect(kiosk).toContain('content={wallboardMessageContent(page.options)}');
+  const messagePageRender = kiosk.slice(
+    kiosk.indexOf("if (page.type === 'message')"),
+    kiosk.indexOf("if (page.type === 'summary')"),
+  );
+  expect(messagePageRender).not.toContain('page.name');
   expect(kiosk).toContain('showResponseFeed={configuration.focus[focus.kind].show_response_feed}');
   expect(kiosk).toContain('showTransientAlert');
   expect(kiosk).toContain('formatWallboardClock(clock)');
@@ -1042,6 +1081,15 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(playlistPreview).not.toContain('useAuth');
   expect(playlistPreview).not.toContain('api.');
   expect(playlistPreview).not.toContain('dangerouslySetInnerHTML');
+  expect(playlistPreview).toContain('<WallboardRichText');
+  expect(playlistPreview).toContain("selectedPage.type === 'message' ? null : <h3>{selectedPage.name}</h3>");
+  expect(richText).not.toContain('dangerouslySetInnerHTML');
+  expect(richText).toContain("ALLOWED_MARKS = new Set<WallboardRichTextMark>(['bold', 'italic'])");
+  expect(richTextEditor).toContain('aria-label="Opmaak voor mededeling"');
+  expect(richTextEditor).toContain('contentEditable');
+  expect(configurationEditor).toContain('<WallboardRichTextEditor');
+  expect(configurationEditor).toContain('De naam hierboven is alleen zichtbaar in beheer.');
+  expect(configurationEditor).not.toContain('uitsluitend platte tekst');
   expect(configurationEditor).toContain('Nieuws- of weer-RSS');
   expect(configurationEditor).toContain('https://data.buienradar.nl/1.0/feed/xml/rssbuienradar');
   expect(configurationEditor).toContain('Aantal berichten');
@@ -1079,6 +1127,8 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(styles).toContain('.wallboard-display__news-carousel--paused .wallboard-display__news-progress');
   expect(styles).toContain('.wallboard-display__news-article--with-image');
   expect(styles).toContain('.wallboard-display__news-qr');
+  expect(styles).toContain('.wallboard-rich-editor__toolbar');
+  expect(styles).toContain('.wallboard-display__message-content');
   expect(styles).toContain('@keyframes wallboard-news-story-enter');
   expect(kiosk).toContain('wallboard-display--profile-${displayProfile}');
   expect(kiosk).toContain('data-display-profile={displayProfile}');

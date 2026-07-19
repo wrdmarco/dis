@@ -4,8 +4,10 @@ namespace App\Http\Requests\Admin;
 
 use App\Models\Wallboard;
 use App\Support\WallboardConfiguration;
+use App\Support\WallboardRichText;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Validator;
 
 final class StoreWallboardRequest extends FormRequest
@@ -58,8 +60,11 @@ final class StoreWallboardRequest extends FormRequest
             'configuration.pages.*.name' => ['required', 'string', 'max:120'],
             'configuration.pages.*.type' => ['required', 'string', Rule::in(WallboardConfiguration::PAGE_TYPES)],
             'configuration.pages.*.duration_seconds' => ['required', 'integer', 'between:5,3600'],
-            'configuration.pages.*.options' => ['sometimes', 'array:body,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,url'],
+            'configuration.pages.*.options' => ['sometimes', 'array:body,content,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,url'],
             'configuration.pages.*.options.body' => ['sometimes', 'string', 'max:2000'],
+            'configuration.pages.*.options.content' => ['sometimes', 'array:version,blocks'],
+            'configuration.pages.*.options.content.version' => ['sometimes', 'integer:strict'],
+            'configuration.pages.*.options.content.blocks' => ['sometimes', 'array', 'max:'.WallboardRichText::MAX_BLOCKS],
             'configuration.pages.*.options.url' => ['sometimes', 'string', 'max:'.WallboardConfiguration::MAX_VIDEO_URL_LENGTH],
             'configuration.pages.*.options.show_test_incidents' => ['sometimes', 'boolean'],
             'configuration.pages.*.options.sources' => ['sometimes', 'array', 'max:'.count(WallboardConfiguration::NEWS_SOURCES)],
@@ -121,7 +126,7 @@ final class StoreWallboardRequest extends FormRequest
             $type = (string) ($page['type'] ?? '');
             $options = is_array($page['options'] ?? null) ? $page['options'] : [];
             $allowedKeys = match ($type) {
-                'message' => ['body'],
+                'message' => ['body', 'content'],
                 'incident_list', 'summary' => ['show_test_incidents'],
                 'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds'],
                 'video' => ['url'],
@@ -134,11 +139,19 @@ final class StoreWallboardRequest extends FormRequest
                     'Deze opties horen niet bij het gekozen paginatype.',
                 );
             }
-            if ($type === 'message' && trim((string) ($options['body'] ?? '')) === '') {
-                $validator->errors()->add(
-                    "configuration.pages.{$index}.options.body",
-                    'Een berichtpagina heeft berichttekst nodig.',
-                );
+            if ($type === 'message') {
+                try {
+                    WallboardRichText::normalizeOptions(
+                        $options,
+                        "configuration.pages.{$index}.options",
+                    );
+                } catch (ValidationException $exception) {
+                    foreach ($exception->errors() as $field => $messages) {
+                        foreach ($messages as $message) {
+                            $validator->errors()->add($field, $message);
+                        }
+                    }
+                }
             }
             if ($type === 'video'
                 && (! is_string($options['url'] ?? null)

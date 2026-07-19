@@ -49,7 +49,11 @@ final class WallboardRuntimeControlTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('data.config_version', 2)
             ->assertJsonPath('data.control_version', 2)
-            ->assertJsonPath('data.configuration.pages.1.options.body', 'Start briefing om 14:00.');
+            ->assertJsonPath(
+                'data.configuration.pages.1.options.content.blocks.0.runs.0.text',
+                'Start briefing om 14:00.',
+            )
+            ->assertJsonMissingPath('data.configuration.pages.1.options.body');
 
         $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
             'expected_config_version' => 1,

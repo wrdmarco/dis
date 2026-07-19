@@ -56,6 +56,7 @@ import {
   selectRecentWallboardIncidents,
   wallboardConfigurationCopy,
   wallboardFocusKindLabel,
+  wallboardMessageContent,
   wallboardPageMapConfiguration,
   wallboardStateIsStale,
   wallboardTickerDurationSeconds,
@@ -63,6 +64,7 @@ import {
   wallboardVideoEmbedUrl,
 } from './wallboardPresentation';
 import { WallboardNewsQrCode } from './WallboardNewsQrCode';
+import { WallboardRichText } from './WallboardRichText';
 
 const wallboardApi = new ApiClient({ baseUrl: apiBaseUrl, onUnauthenticated: () => undefined });
 const CONTROL_POLL_MILLISECONDS = 2000;
@@ -716,8 +718,11 @@ function WallboardPageContent({ page, state, presentation, hasLiveFeed }: Wallbo
   if (page.type === 'message') {
     return (
       <div className="wallboard-display__message">
-        <h2>{page.name}</h2>
-        <p>{page.options.body?.trim() || 'Er is geen tekst voor deze mededeling ingesteld.'}</p>
+        <WallboardRichText
+          content={wallboardMessageContent(page.options)}
+          className="wallboard-display__message-content"
+          ariaLabel="Mededeling"
+        />
       </div>
     );
   }

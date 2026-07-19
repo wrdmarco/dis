@@ -4,6 +4,7 @@ namespace App\Http\Requests\Admin;
 
 use App\Models\WallboardPlaylist;
 use App\Support\WallboardConfiguration;
+use App\Support\WallboardRichText;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -30,8 +31,11 @@ abstract class WallboardPlaylistRequest extends FormRequest
             'configuration.pages.*.name' => ['required', 'string', 'max:120'],
             'configuration.pages.*.type' => ['required', 'string', Rule::in(WallboardConfiguration::PAGE_TYPES)],
             'configuration.pages.*.duration_seconds' => ['required', 'integer', 'between:5,3600'],
-            'configuration.pages.*.options' => ['sometimes', 'array:body,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,url'],
+            'configuration.pages.*.options' => ['sometimes', 'array:body,content,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,url'],
             'configuration.pages.*.options.body' => ['sometimes', 'string', 'max:2000'],
+            'configuration.pages.*.options.content' => ['sometimes', 'array:version,blocks'],
+            'configuration.pages.*.options.content.version' => ['sometimes', 'integer:strict'],
+            'configuration.pages.*.options.content.blocks' => ['sometimes', 'array', 'max:'.WallboardRichText::MAX_BLOCKS],
             'configuration.pages.*.options.url' => ['sometimes', 'string', 'max:'.WallboardConfiguration::MAX_VIDEO_URL_LENGTH],
             'configuration.pages.*.options.show_test_incidents' => ['sometimes', 'boolean'],
             'configuration.pages.*.options.sources' => ['sometimes', 'array', 'max:'.count(WallboardConfiguration::NEWS_SOURCES)],

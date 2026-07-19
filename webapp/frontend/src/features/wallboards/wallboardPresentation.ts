@@ -8,7 +8,9 @@ import type {
   WallboardMapConfiguration,
   WallboardNewsSource,
   WallboardPage,
+  WallboardPageOptions,
   WallboardPageType,
+  WallboardRichTextDocument,
   WallboardPilotAvailability,
   WallboardState,
   WallboardStateIncident,
@@ -24,6 +26,10 @@ import {
   type OperationalMapLayerModels,
 } from '../incidents/OperationalMapCanvas';
 import { parseMapPoint, parsePilotRoute, pilotRouteColor } from '../incidents/pilotRoutePresentation';
+import {
+  normalizeWallboardRichText,
+  wallboardRichTextFromPlainText,
+} from './WallboardRichText';
 
 const INCIDENT_COLORS = ['#7dd3fc', '#fbbf24', '#a7f3d0', '#fca5a5', '#c4b5fd', '#fdba74', '#93c5fd', '#f0abfc'];
 export const MIN_WALLBOARD_REFRESH_SECONDS = 5;
@@ -274,7 +280,7 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
     name: wallboardPageTypeLabel(type),
     duration_seconds: 30,
     options: type === 'message'
-      ? { body: '' }
+      ? { content: wallboardRichTextFromPlainText('') }
       : type === 'news'
         ? {
           sources: [...DEFAULT_WALLBOARD_NEWS_SOURCES],
@@ -288,6 +294,13 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
   };
 
   return { ...page, duration_seconds: wallboardEffectivePageDuration(page) };
+}
+
+export function wallboardMessageContent(options: WallboardPageOptions): WallboardRichTextDocument {
+  return normalizeWallboardRichText(
+    options.content,
+    typeof options.body === 'string' ? options.body : '',
+  );
 }
 
 export function createWallboardTickerSource(
@@ -505,7 +518,7 @@ function normalizeWallboardPage(
     name,
     duration_seconds: page.duration_seconds,
     options: type === 'message'
-      ? { body: typeof page.options?.body === 'string' ? page.options.body : '' }
+      ? { content: wallboardMessageContent(page.options ?? {}) }
       : type === 'news'
         ? normalizeWallboardNewsPageOptions(page)
         : type === 'video'

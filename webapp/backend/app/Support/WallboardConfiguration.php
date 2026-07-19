@@ -191,7 +191,7 @@ final class WallboardConfiguration
                 ]);
             }
             $allowedOptionKeys = match ($type) {
-                'message' => ['body'],
+                'message' => ['body', 'content'],
                 'incident_list', 'summary' => ['show_test_incidents'],
                 'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds'],
                 'video' => ['url'],
@@ -203,13 +203,10 @@ final class WallboardConfiguration
                 ]);
             }
             if ($type === 'message') {
-                $body = trim((string) ($options['body'] ?? ''));
-                if ($body === '' || mb_strlen($body) > 2000 || $body !== strip_tags($body)) {
-                    throw ValidationException::withMessages([
-                        "configuration.pages.{$index}.options.body" => ['Een berichtpagina heeft maximaal 2000 tekens platte tekst nodig.'],
-                    ]);
-                }
-                $options = ['body' => $body];
+                $options = WallboardRichText::normalizeOptions(
+                    $options,
+                    "configuration.pages.{$index}.options",
+                );
             } elseif ($type === 'video') {
                 $url = is_string($options['url'] ?? null)
                     ? self::normalizeVideoUrl($options['url'])

@@ -55,8 +55,10 @@ import {
   createWallboardTickerSource,
   normalizeWallboardNewsSources,
   wallboardEffectivePageDuration,
+  wallboardMessageContent,
   wallboardPageTypeLabel,
 } from './wallboardPresentation';
+import { WallboardRichTextEditor } from './WallboardRichTextEditor';
 
 const MAP_OPTION_LABELS: Array<{ key: keyof WallboardMapConfiguration; label: string; help: string }> = [
   { key: 'show_active_incidents', label: 'Actieve incidenten', help: 'Toon open operationele meldingen.' },
@@ -611,7 +613,7 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
       type,
       name: page.name === previousDefaultTitle ? wallboardPageTypeLabel(type) : page.name,
       options: type === 'message'
-        ? { body: page.options.body ?? '' }
+        ? { content: wallboardMessageContent(page.options) }
         : type === 'news'
           ? { sources: ['ndt', 'dronewatch'], custom_sources: [], max_items: 6, item_duration_seconds: 12 }
           : type === 'video'
@@ -682,7 +684,7 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
       </div>
       <div className="wallboard-page-editor__fields">
         <label>
-          <span>Titel</span>
+          <span>{page.type === 'message' ? 'Naam in beheer' : 'Titel'}</span>
           <input value={page.name} onChange={(event) => onChange({ ...page, name: event.target.value })} maxLength={120} required />
         </label>
         <label>
@@ -716,18 +718,17 @@ function WallboardPageEditor({ page, onChange }: { page: WallboardPage; onChange
       </div>
 
       {page.type === 'message' ? (
-        <label className="wallboard-message-editor">
-          <span>Tekst op het scherm</span>
-          <textarea
-            value={page.options.body ?? ''}
-            onChange={(event) => onChange({ ...page, options: { ...page.options, body: event.target.value } })}
-            maxLength={2000}
-            rows={5}
-            placeholder="Schrijf hier de mededeling voor het wallboard."
-            required
+        <div className="wallboard-message-editor" role="group" aria-labelledby={`wallboard-message-editor-${page.id}-label`}>
+          <div className="wallboard-message-editor__heading">
+            <span id={`wallboard-message-editor-${page.id}-label`}>Inhoud op het scherm</span>
+            <small>De naam hierboven is alleen zichtbaar in beheer.</small>
+          </div>
+          <WallboardRichTextEditor
+            id={`wallboard-message-editor-${page.id}`}
+            value={wallboardMessageContent(page.options)}
+            onChange={(content) => onChange({ ...page, options: { content } })}
           />
-          <small>{(page.options.body ?? '').length}/2000 tekens · uitsluitend platte tekst</small>
-        </label>
+        </div>
       ) : page.type === 'video' ? (
         <label className="wallboard-video-editor">
           <span>YouTube- of Vimeo-link</span>
