@@ -13,6 +13,10 @@ import type {
   WallboardPlaylist,
 } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
+import {
+  WallboardPlaylistDataModePill,
+} from './WallboardPlaylistDataModePill';
+import { wallboardPlaylistOptionLabel } from './wallboardPlaylistDataMode';
 import { wallboardPlaylistUsageCount } from './wallboardPresentation';
 
 export interface WallboardScreenCreateValues {
@@ -41,6 +45,7 @@ export function WallboardCreatePage() {
   const [playlistId, setPlaylistId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const selectedPlaylist = playlists.find((playlist) => playlist.id === playlistId) ?? null;
 
   async function createScreen(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -103,19 +108,27 @@ export function WallboardCreatePage() {
               <small>Dit schaalt de wallboardindeling; de tv-uitvoerresolutie blijft een apparaatinstelling.</small>
             </label>
             <label>
-              <span>Playlist bij aanmaak</span>
+              <span className="wallboard-playlist-selector-label">
+                <span>Playlist bij aanmaak</span>
+                <WallboardPlaylistDataModePill mode={selectedPlaylist?.data_mode ?? 'live'} />
+              </span>
               <select
                 value={playlistId}
                 onChange={(event) => setPlaylistId(event.target.value)}
                 disabled={playlistsResource.loading}
               >
-                <option value="">Nieuwe eigen playlist</option>
+                <option value="">Nieuwe eigen playlist · LIVE DATA</option>
                 {playlists.map((playlist) => {
                   const count = wallboardPlaylistUsageCount(playlist);
-                  return <option key={playlist.id} value={playlist.id}>{playlist.name} · {count} {count === 1 ? 'scherm' : 'schermen'}</option>;
+                  return <option key={playlist.id} value={playlist.id}>{wallboardPlaylistOptionLabel(playlist)} · {count} {count === 1 ? 'scherm' : 'schermen'}</option>;
                 })}
               </select>
               {playlistsResource.loading ? <small role="status">Playlists laden…</small> : null}
+              {!playlistsResource.loading ? (
+                <small>{selectedPlaylist?.data_mode === 'demo'
+                  ? 'Dynamische operationele gegevens zijn fictief; ingestelde teksten en media blijven ongewijzigd.'
+                  : 'Dit scherm gebruikt actuele operationele gegevens.'}</small>
+              ) : null}
             </label>
 
             {playlistsResource.error ? <p className="form-error" role="alert">Playlists konden niet worden geladen: {playlistsResource.error}</p> : null}

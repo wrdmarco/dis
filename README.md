@@ -211,6 +211,14 @@ restricted to public destinations. Each RSS source can show between one and eigh
 `max_items` settings default to eight. External display pages, arbitrary HTML and executable content are not
 accepted.
 
+Every playlist explicitly uses either `live` or `demo` data. A demo playlist keeps its configured pages and
+managed static media, but replaces operational summaries, incidents, locations, calendar entries, KPI values,
+news, ticker items and UAV Forecast readings with fixed, clearly labelled fictitious fixtures. That path does
+not query operational records or retrieve external feeds, weather or address data, and it never reacts to a real
+incident, focus event or active-deployment override. Demo weather is presentation data only and must never be
+used for a flight decision. Changing mode advances the playlist and linked-screen cache versions and removes
+live content snapshots. An active-deployment playlist must remain `live`.
+
 The managed media library accepts ordered photo playlists and local MP4 videos. Administrators can reorder a
 photo playlist with pointer, keyboard or touch-friendly controls; the stored order is the presentation order.
 New raster images must have at least Full HD source detail in either landscape or portrait orientation. DIS

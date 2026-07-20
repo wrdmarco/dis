@@ -512,10 +512,13 @@ export interface WallboardDisplayState {
   next_change_at?: string | null;
 }
 
+export type WallboardPlaylistDataMode = 'live' | 'demo';
+
 export interface WallboardPlaylistReference {
   id: string;
   name: string;
   version: number;
+  data_mode?: WallboardPlaylistDataMode;
 }
 
 export interface WallboardPlaylist extends WallboardPlaylistReference {
@@ -530,6 +533,7 @@ export interface WallboardPlaylist extends WallboardPlaylistReference {
 export interface WallboardPlaylistAssignment {
   wallboard_id: string;
   playlist_id: string;
+  data_mode?: WallboardPlaylistDataMode;
   configuration: WallboardConfiguration;
   config_version: number;
   control_version: number;
@@ -735,6 +739,7 @@ export interface WallboardState {
   generated_at: string;
   maintenance?: WallboardMaintenanceNotice | null;
   wallboard: Pick<Wallboard, 'id' | 'name' | 'layout' | 'display_profile' | 'configuration' | 'config_version' | 'control_version' | 'refresh_version' | 'display' | 'updated_at'> & {
+    data_mode?: WallboardPlaylistDataMode;
     runtime_playlist_id?: string | null;
     runtime_playlist_version?: number;
     active_incident_playlist?: boolean;
@@ -837,7 +842,7 @@ export interface WallboardForecastCloudBaseObservation {
   station: WallboardForecastCloudBaseStation | null;
   observed_at: string | null;
   period_minutes: 30;
-  attribution: 'KNMI';
+  attribution: 'KNMI' | 'DIS_DEMO';
 }
 
 export interface WallboardForecastMetric {
@@ -936,6 +941,7 @@ export interface WallboardMediaPageState {
 export interface WallboardControlState {
   generated_at?: string;
   maintenance?: WallboardMaintenanceNotice | null;
+  data_mode?: WallboardPlaylistDataMode;
   config_version: number;
   control_version: number;
   refresh_version: number;

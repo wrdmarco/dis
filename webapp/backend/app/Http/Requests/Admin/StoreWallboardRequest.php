@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Admin;
 
 use App\Models\Wallboard;
+use App\Models\WallboardPlaylist;
 use App\Support\WallboardConfiguration;
 use App\Support\WallboardKpiDefinition;
 use App\Support\WallboardRichText;
@@ -25,7 +26,12 @@ final class StoreWallboardRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:120'],
             'playlist_id' => ['sometimes', 'required', 'ulid', Rule::exists('wallboard_playlists', 'id')],
-            'active_incident_playlist_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('wallboard_playlists', 'id')],
+            'active_incident_playlist_id' => [
+                'sometimes',
+                'nullable',
+                'ulid',
+                Rule::exists('wallboard_playlists', 'id')->where('data_mode', WallboardPlaylist::DATA_MODE_LIVE),
+            ],
             'layout' => ['sometimes', 'string', Rule::in([Wallboard::LAYOUT_FULLSCREEN_MAP])],
             'display_profile' => ['sometimes', 'string', Rule::in(Wallboard::DISPLAY_PROFILES)],
             'is_enabled' => ['sometimes', 'boolean'],

@@ -58,6 +58,7 @@ final class AdminWallboardPlaylistController extends Controller
         return ApiResponse::success($this->preview->state(
             $wallboardPlaylist,
             (array) $request->validated('configuration'),
+            (string) ($request->validated('data_mode') ?? $wallboardPlaylist->data_mode),
         ));
     }
 

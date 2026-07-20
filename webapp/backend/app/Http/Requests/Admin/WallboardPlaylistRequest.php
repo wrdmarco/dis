@@ -18,6 +18,12 @@ abstract class WallboardPlaylistRequest extends FormRequest
         return true;
     }
 
+    /** @return array<int, mixed> */
+    protected function dataModeRules(): array
+    {
+        return ['sometimes', 'string', Rule::in(WallboardPlaylist::DATA_MODES)];
+    }
+
     /** @return array<string, mixed> */
     protected function configurationRules(string $presence): array
     {

@@ -76,4 +76,11 @@ final class WallboardContentSnapshotRepository
             ->where('kind', $kind)
             ->update(['checked_at' => $checkedAt]);
     }
+
+    public function deleteForPlaylist(string $playlistId): void
+    {
+        DB::table('wallboard_content_snapshots')
+            ->where('playlist_id', $playlistId)
+            ->delete();
+    }
 }

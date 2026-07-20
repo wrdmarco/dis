@@ -14,14 +14,23 @@ final class WallboardPlaylistPreviewService
         private readonly WallboardContentSnapshotService $contentSnapshots,
         private readonly WallboardMediaStateService $mediaStateService,
         private readonly WallboardForecastService $forecastService,
+        private readonly WallboardDemoStateService $demoStateService,
     ) {}
 
     /**
      * @param  array<string, mixed>  $conceptConfiguration
      * @return array<string, mixed>
      */
-    public function state(WallboardPlaylist $playlist, array $conceptConfiguration): array
-    {
+    public function state(
+        WallboardPlaylist $playlist,
+        array $conceptConfiguration,
+        ?string $dataMode = null,
+    ): array {
+        $dataMode = in_array($dataMode, WallboardPlaylist::DATA_MODES, true)
+            ? $dataMode
+            : (in_array($playlist->data_mode, WallboardPlaylist::DATA_MODES, true)
+                ? (string) $playlist->data_mode
+                : WallboardPlaylist::DATA_MODE_LIVE);
         $configuration = WallboardConfiguration::normalize(
             $conceptConfiguration,
             (array) $playlist->configuration,
@@ -29,9 +38,16 @@ final class WallboardPlaylistPreviewService
         $media = $this->mediaStateService->preview($configuration);
         $configuration = $media['configuration'];
         $wallboard = $this->previewWallboard($playlist, $configuration);
-        $runtime = $this->stateService->previewRuntime($wallboard, $configuration);
-        $news = $this->contentSnapshots->news($wallboard, $configuration, null);
-        $ticker = $this->contentSnapshots->ticker($wallboard, $configuration, null);
+        $isDemo = $dataMode === WallboardPlaylist::DATA_MODE_DEMO;
+        $runtime = $isDemo
+            ? $this->demoStateService->runtime($wallboard, $configuration, includeMaintenance: false)
+            : $this->stateService->previewRuntime($wallboard, $configuration);
+        $news = $isDemo
+            ? $this->demoStateService->news($configuration, (int) $playlist->version)
+            : $this->contentSnapshots->news($wallboard, $configuration, null);
+        $ticker = $isDemo
+            ? $this->demoStateService->ticker($configuration, (int) $playlist->version)
+            : $this->contentSnapshots->ticker($wallboard, $configuration, null);
 
         return [
             'generated_at' => $runtime['generated_at'],
@@ -41,6 +57,7 @@ final class WallboardPlaylistPreviewService
                 'name' => (string) $playlist->name,
                 'layout' => Wallboard::LAYOUT_FULLSCREEN_MAP,
                 'display_profile' => Wallboard::DISPLAY_PROFILE_AUTO,
+                'data_mode' => $dataMode,
                 'configuration' => $configuration,
                 'config_version' => (int) $playlist->version,
                 'control_version' => 0,
@@ -59,7 +76,9 @@ final class WallboardPlaylistPreviewService
                 'generated_at' => $news['generated_at'] ?? $runtime['generated_at'],
             ],
             'media' => ['photo_pages' => $media['photo_pages']],
-            'forecast' => ['pages' => $this->forecastService->pages($configuration)],
+            'forecast' => ['pages' => $isDemo
+                ? $this->demoStateService->forecast($configuration)
+                : $this->forecastService->pages($configuration)],
             'calendar' => $runtime['calendar'],
             'map' => $runtime['map'],
         ];

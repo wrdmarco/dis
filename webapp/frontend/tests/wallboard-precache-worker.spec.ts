@@ -49,6 +49,23 @@ test('latest activation wins when an older cache validation finishes later', asy
   expect(await storage.keys()).toContain(cacheName('new'));
 });
 
+test('prunes the previous live cache after the replacement demo cache is activated', async () => {
+  const storage = new WorkerCacheStorage();
+  const liveCacheName = cacheName('live-mode');
+  const demoCacheName = cacheName('demo-mode');
+  await putImage(storage, liveCacheName, 'live-image');
+  const worker = new WorkerRuntime(storage, async () => imageResponse('network'));
+
+  expect((await worker.message(activation(1, liveCacheName))).ok).toBe(true);
+  expect(await storage.keys()).toContain(liveCacheName);
+
+  await putImage(storage, demoCacheName, 'demo-image');
+  expect((await worker.message(activation(2, demoCacheName))).ok).toBe(true);
+  expect(await storage.keys()).toContain(demoCacheName);
+  expect(await storage.keys()).not.toContain(liveCacheName);
+  expect(await (await worker.fetch(ASSET_URL)).text()).toBe('demo-image');
+});
+
 test('durable disable tombstone rejects a delayed activation after restart', async () => {
   const storage = new WorkerCacheStorage();
   await putImage(storage, cacheName('active'), 'cached-active');

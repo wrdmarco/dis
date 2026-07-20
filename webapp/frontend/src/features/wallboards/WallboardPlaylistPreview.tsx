@@ -21,7 +21,11 @@ import {
   SkipForward,
   X,
 } from 'lucide-react';
-import type { WallboardConfiguration, WallboardState } from '../../types/api';
+import type {
+  WallboardConfiguration,
+  WallboardPlaylistDataMode,
+  WallboardState,
+} from '../../types/api';
 import {
   buildWallboardMapPresentation,
   clampRefreshSeconds,
@@ -34,6 +38,7 @@ import {
   formatWallboardClock,
   formatWallboardDate,
   normalizeWallboardState,
+  WallboardDemoDataIndicator,
   WallboardPlaylistPageFrame,
   WallboardTicker,
 } from './WallboardDisplayPage';
@@ -45,12 +50,14 @@ import {
   selectWallboardPlaylistPreviewPage,
   wallboardPlaylistPreviewRemainingMilliseconds,
 } from './wallboardPlaylistPreviewRotation';
+import { normalizeWallboardPlaylistDataMode } from './wallboardPlaylistDataMode';
 
 const PREVIEW_WIDTH = 1920;
 const PREVIEW_HEIGHT = 1080;
 
 interface WallboardPlaylistPreviewProps {
   playlistName: string;
+  dataMode: WallboardPlaylistDataMode;
   configuration: WallboardConfiguration;
   loadState: (configuration: WallboardConfiguration) => Promise<WallboardState>;
   onClose: () => void;
@@ -58,6 +65,7 @@ interface WallboardPlaylistPreviewProps {
 
 export function WallboardPlaylistPreview({
   playlistName,
+  dataMode,
   configuration,
   loadState,
   onClose,
@@ -191,6 +199,7 @@ export function WallboardPlaylistPreview({
   const remainingSeconds = Math.max(0, Math.ceil(remainingMilliseconds / 1000));
   const progress = Math.min(1, Math.max(0, 1 - (remainingMilliseconds / pageDurationMilliseconds)));
   const totalDuration = pages.reduce((total, page) => total + wallboardEffectivePageDuration(page), 0);
+  const previewDataMode = normalizeWallboardPlaylistDataMode(state?.wallboard.data_mode ?? dataMode);
   const previousContentRunningRef = useRef(contentRunning);
 
   useEffect(() => {
@@ -245,9 +254,11 @@ export function WallboardPlaylistPreview({
     >
       <header className="wallboard-playlist-preview__header">
         <div>
-          <span className="eyebrow"><i className="wallboard-playlist-preview__live-dot" aria-hidden /> Live conceptpreview</span>
+          <span className="eyebrow"><i className="wallboard-playlist-preview__live-dot" aria-hidden /> {previewDataMode === 'demo' ? 'Demo-conceptpreview' : 'Live conceptpreview'}</span>
           <h2 id="wallboard-playlist-preview-title">{playlistName || 'Naamloze playlist'}</h2>
-          <p>Actuele inhoud, paginatijden en media zoals ze op het wallboard worden afgespeeld. Er wordt niets gepubliceerd.</p>
+          <p>{previewDataMode === 'demo'
+            ? 'Dynamische operationele gegevens zijn fictief; ingestelde teksten en media blijven ongewijzigd. De paginatijden worden afgespeeld zonder iets te publiceren.'
+            : 'Actuele inhoud, paginatijden en media zoals ze op het wallboard worden afgespeeld. Er wordt niets gepubliceerd.'}</p>
         </div>
         <button className="icon-button" type="button" onClick={() => dialogRef.current?.close()} aria-label="Voorbeeld sluiten">
           <X size={20} aria-hidden />
@@ -255,11 +266,11 @@ export function WallboardPlaylistPreview({
       </header>
 
       <div className="wallboard-playlist-preview__body">
-        <section className="wallboard-playlist-preview__screen" aria-label="Live wallboardweergave">
+        <section className="wallboard-playlist-preview__screen" aria-label={previewDataMode === 'demo' ? 'Demo-wallboardweergave met fictieve gegevens' : 'Live wallboardweergave'}>
           <div className="wallboard-playlist-preview__screen-bar">
             <span className="wallboard-playlist-preview__runtime-status">
               <Eye size={16} aria-hidden />
-              {contentRunning ? 'Live' : 'Gepauzeerd'}
+              {contentRunning ? (previewDataMode === 'demo' ? 'Demo' : 'Live') : 'Gepauzeerd'}
             </span>
             <div className="wallboard-playlist-preview__playback-controls" aria-label="Preview bedienen">
               <button type="button" onClick={() => setPlaying((current) => !current)} aria-label={playing ? 'Preview pauzeren' : 'Preview afspelen'}>
@@ -291,13 +302,15 @@ export function WallboardPlaylistPreview({
           {loading && state === null ? (
             <div className="wallboard-playlist-preview__loading" role="status">
               <Loader2 className="spin" size={28} aria-hidden />
-              <strong>Live inhoud laden</strong>
-              <span>Nieuws, vliegweer, agenda en operationele gegevens worden opgehaald.</span>
+              <strong>{previewDataMode === 'demo' ? 'Demogegevens laden' : 'Live inhoud laden'}</strong>
+              <span>{previewDataMode === 'demo'
+                ? 'De server bouwt fictieve dynamische gegevens op; ingestelde teksten en media blijven ongewijzigd.'
+                : 'Nieuws, vliegweer, agenda en operationele gegevens worden opgehaald.'}</span>
             </div>
           ) : state === null ? (
             <div className="wallboard-playlist-preview__loading wallboard-playlist-preview__loading--error" role="alert">
               <AlertTriangle size={28} aria-hidden />
-              <strong>Live preview kon niet worden geladen</strong>
+              <strong>{previewDataMode === 'demo' ? 'Demo-preview kon niet worden geladen' : 'Live preview kon niet worden geladen'}</strong>
               <span>{loadError}</span>
               <button className="secondary-button" type="button" onClick={() => void refreshPreview(true)}>Opnieuw proberen</button>
             </div>
@@ -387,6 +400,7 @@ function WallboardPreviewStage({
   const page = configuration.pages[pageIndex] ?? configuration.pages[0];
   const presentation = useMemo(() => buildWallboardMapPresentation(state, true), [state]);
   const transition = wallboardEffectivePageTransition(configuration, page);
+  const stageDataMode = normalizeWallboardPlaylistDataMode(state.wallboard.data_mode);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -414,12 +428,16 @@ function WallboardPreviewStage({
       <div className="wallboard-playlist-preview__viewport" inert aria-hidden="true">
         <div
           className={`wallboard-display wallboard-display--${configuration.theme} wallboard-display--profile-1080p wallboard-display--preview`}
+          data-data-mode={stageDataMode}
           data-display-profile="1080p"
         >
+          <WallboardDemoDataIndicator dataMode={stageDataMode} />
           <header className="wallboard-display__header">
             <div>
               <span className="wallboard-display__titles"><h1>{currentTitle}</h1></span>
-              <span className="wallboard-display__mode"><RotateCw size={14} aria-hidden /> Live preview</span>
+              <span className="wallboard-display__mode">
+                <RotateCw size={14} aria-hidden /> {stageDataMode === 'demo' ? 'Demo preview' : 'Live preview'}
+              </span>
             </div>
             <div className="wallboard-display__controls">
               <time className="wallboard-display__clock" dateTime={new Date(now).toISOString()}>

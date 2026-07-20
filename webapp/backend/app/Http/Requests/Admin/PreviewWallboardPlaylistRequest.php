@@ -7,6 +7,9 @@ final class PreviewWallboardPlaylistRequest extends WallboardPlaylistRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
-        return $this->configurationRules('required');
+        return [
+            'data_mode' => $this->dataModeRules(),
+            ...$this->configurationRules('required'),
+        ];
     }
 }

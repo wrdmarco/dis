@@ -29,6 +29,7 @@ import type {
   WallboardFocusKind,
   WallboardPlaylist,
   WallboardPlaylistAssignment,
+  WallboardPlaylistDataMode,
   WallboardState,
 } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
@@ -55,6 +56,13 @@ import {
   isPhotoCarouselValidationFailure,
   normalizeWallboardMediaPlaylistId,
 } from './wallboardPlaylistValidation';
+import {
+  WallboardPlaylistDataModePill,
+} from './WallboardPlaylistDataModePill';
+import {
+  normalizeWallboardPlaylistDataMode,
+  wallboardPlaylistOptionLabel,
+} from './wallboardPlaylistDataMode';
 
 const ADMIN_STATUS_REFRESH_MILLISECONDS = 2500;
 const WallboardPlaylistPreview = dynamic(
@@ -102,6 +110,7 @@ export function WallboardsAdminPage() {
   const [selectedScreenId, setSelectedScreenId] = useState<string | null>(null);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [newPlaylistName, setNewPlaylistName] = useState('');
+  const [newPlaylistDataMode, setNewPlaylistDataMode] = useState<WallboardPlaylistDataMode>('live');
   const [creating, setCreating] = useState<AdminSection | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const wallboards = useMemo(() => wallboardsResource.data ?? [], [wallboardsResource.data]);
@@ -148,6 +157,7 @@ export function WallboardsAdminPage() {
     try {
       const response = await api.post<WallboardPlaylist>('/admin/wallboard-playlists', {
         name,
+        data_mode: newPlaylistDataMode,
         configuration: wallboardConfigurationForSave(
           wallboardConfigurationCopy(DEFAULT_WALLBOARD_CONFIGURATION),
         ),
@@ -155,6 +165,7 @@ export function WallboardsAdminPage() {
       playlistsResource.mutate((current) => [...(current ?? []), response.data]);
       setSelectedPlaylistId(response.data.id);
       setNewPlaylistName('');
+      setNewPlaylistDataMode('live');
       await reloadAll();
     } catch (error) {
       setCreateError(errorMessage(error, 'Playlist kon niet worden aangemaakt.'));
@@ -271,6 +282,18 @@ export function WallboardsAdminPage() {
                     </button>
                   </span>
                 </label>
+                <label className="wallboard-switch-row wallboard-playlist-data-mode-control">
+                  <input
+                    type="checkbox"
+                    checked={newPlaylistDataMode === 'demo'}
+                    onChange={(event) => setNewPlaylistDataMode(event.target.checked ? 'demo' : 'live')}
+                  />
+                  <span>
+                    <strong>Demomodus {newPlaylistDataMode === 'demo' ? 'aan' : 'uit'}</strong>
+                    <small>Aan maakt dynamische operationele gegevens fictief; ingestelde teksten, foto&apos;s en video&apos;s blijven ongewijzigd. Uit gebruikt actuele operationele gegevens.</small>
+                  </span>
+                  <WallboardPlaylistDataModePill mode={newPlaylistDataMode} />
+                </label>
                 {createError ? <p className="form-error" role="alert">{createError}</p> : null}
               </form>
             ) : null}
@@ -300,7 +323,10 @@ export function WallboardsAdminPage() {
                           <small className="wallboard-list-card__playlist">Playlist: {wallboard.playlist.name}</small>
                           <small>Schermprofiel: {wallboardDisplayProfileLabel(normalizeWallboardDisplayProfile(wallboard.display_profile))}</small>
                         </span>
-                        <StatusPill value={!wallboard.is_enabled ? 'Uitgeschakeld' : online ? 'Online' : 'Offline'} tone={!wallboard.is_enabled ? 'neutral' : online ? 'good' : 'warn'} />
+                        <span className="wallboard-list-card__pills">
+                          <WallboardPlaylistDataModePill mode={wallboard.playlist.data_mode} />
+                          <StatusPill value={!wallboard.is_enabled ? 'Uitgeschakeld' : online ? 'Online' : 'Offline'} tone={!wallboard.is_enabled ? 'neutral' : online ? 'good' : 'warn'} />
+                        </span>
                       </button>
                     );
                   })}
@@ -322,7 +348,10 @@ export function WallboardsAdminPage() {
                           <strong>{playlist.name}</strong>
                           <small>{playlist.configuration.pages.length} pagina’s · versie {playlist.version}</small>
                         </span>
-                        <StatusPill value={playlistUsageLabel(playlist)} tone={usageCount > 1 ? 'warn' : usageCount === 1 ? 'good' : 'neutral'} />
+                        <span className="wallboard-list-card__pills">
+                          <WallboardPlaylistDataModePill mode={playlist.data_mode} />
+                          <StatusPill value={playlistUsageLabel(playlist)} tone={usageCount > 1 ? 'warn' : usageCount === 1 ? 'good' : 'neutral'} />
+                        </span>
                       </button>
                     );
                   })}
@@ -411,6 +440,12 @@ function ScreenEditor({
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const savedConfiguration = wallboardConfigurationCopy(wallboard.configuration);
   const selectedPlaylist = playlists.find((playlist) => playlist.id === draftPlaylistId) ?? null;
+  const selectedActiveIncidentPlaylist = playlists.find(
+    (playlist) => playlist.id === draftActiveIncidentPlaylistId,
+  ) ?? (wallboard.active_incident_playlist?.id === draftActiveIncidentPlaylistId
+    ? wallboard.active_incident_playlist
+    : null);
+  const activeIncidentPlaylistIsDemo = selectedActiveIncidentPlaylist?.data_mode === 'demo';
   const display = wallboard.display ?? {
     mode: wallboard.manual_page_id
       ? 'manual' as const
@@ -460,6 +495,10 @@ function ScreenEditor({
     event.preventDefault();
     const name = draftName.trim();
     if (name === '' || draftPlaylistId === '') return;
+    if (activeIncidentPlaylistIsDemo) {
+      setActionError('Een demoplaylist kan niet tijdens een actieve inzet worden gebruikt. Kies een LIVE DATA-playlist of blijf de normale playlist gebruiken.');
+      return;
+    }
     const metadataChanged = name !== wallboard.name
       || draftEnabled !== wallboard.is_enabled
       || draftDisplayProfile !== wallboard.display_profile
@@ -806,13 +845,16 @@ function ScreenEditor({
             </small>
           </label>
           <label>
-            <span>Toegewezen playlist</span>
+            <span className="wallboard-playlist-selector-label">
+              <span>Toegewezen playlist</span>
+              <WallboardPlaylistDataModePill mode={selectedPlaylist?.data_mode ?? wallboard.playlist.data_mode} />
+            </span>
             <select value={draftPlaylistId} onChange={(event) => setDraftPlaylistId(event.target.value)} required>
               {playlists.map((playlist) => (
-                <option key={playlist.id} value={playlist.id}>{playlist.name} · {playlistUsageLabel(playlist)}</option>
+                <option key={playlist.id} value={playlist.id}>{wallboardPlaylistOptionLabel(playlist)} · {playlistUsageLabel(playlist)}</option>
               ))}
               {!playlists.some((playlist) => playlist.id === wallboard.playlist_id) ? (
-                <option value={wallboard.playlist_id}>{wallboard.playlist.name}</option>
+                <option value={wallboard.playlist_id}>{wallboardPlaylistOptionLabel(wallboard.playlist)}</option>
               ) : null}
             </select>
             <small>
@@ -822,18 +864,39 @@ function ScreenEditor({
             </small>
           </label>
           <label>
-            <span>Playlist tijdens actieve inzet</span>
+            <span className="wallboard-playlist-selector-label">
+              <span>Playlist tijdens actieve inzet</span>
+              {selectedActiveIncidentPlaylist ? <WallboardPlaylistDataModePill mode={selectedActiveIncidentPlaylist.data_mode} /> : null}
+            </span>
             <select
               value={draftActiveIncidentPlaylistId}
-              onChange={(event) => setDraftActiveIncidentPlaylistId(event.target.value)}
+              onChange={(event) => {
+                setDraftActiveIncidentPlaylistId(event.target.value);
+                setActionError(null);
+              }}
+              aria-describedby={`wallboard-active-playlist-help-${wallboard.id}`}
             >
               <option value="">Normale playlist blijven gebruiken</option>
               {playlists.map((playlist) => (
-                <option key={playlist.id} value={playlist.id}>{playlist.name}</option>
+                <option key={playlist.id} value={playlist.id} disabled={playlist.data_mode === 'demo'}>
+                  {wallboardPlaylistOptionLabel(playlist)}{playlist.data_mode === 'demo' ? ' · niet beschikbaar voor actieve inzet' : ''}
+                </option>
               ))}
+              {wallboard.active_incident_playlist
+                && !playlists.some((playlist) => playlist.id === wallboard.active_incident_playlist?.id) ? (
+                  <option
+                    value={wallboard.active_incident_playlist.id}
+                    disabled={wallboard.active_incident_playlist.data_mode === 'demo'}
+                  >
+                    {wallboardPlaylistOptionLabel(wallboard.active_incident_playlist)}
+                    {wallboard.active_incident_playlist.data_mode === 'demo' ? ' · niet beschikbaar voor actieve inzet' : ''}
+                  </option>
+                ) : null}
             </select>
-            <small>
-              Zodra de alarmering is afgerond en de inzet actief wordt, schakelt alleen dit scherm over op deze playlist. Na afsluiten van het incident keert de normale playlist automatisch terug.
+            <small id={`wallboard-active-playlist-help-${wallboard.id}`} className={activeIncidentPlaylistIsDemo ? 'wallboard-playlist-selector-warning' : undefined}>
+              {activeIncidentPlaylistIsDemo
+                ? 'Deze DEMO-playlist is niet toegestaan tijdens een actieve inzet. Kies een LIVE DATA-playlist of de normale playlist.'
+                : 'Alleen LIVE DATA-playlists zijn beschikbaar. Na afsluiten van het incident keert de normale playlist automatisch terug.'}
             </small>
           </label>
           <label className="wallboard-switch-row">
@@ -847,7 +910,7 @@ function ScreenEditor({
       {actionMessage ? <p className="form-note" role="status">{actionMessage}</p> : null}
 
       <div className="wallboard-editor__actions">
-        <button className="primary-button" type="submit" disabled={busyAction !== null || draftName.trim() === '' || draftPlaylistId === ''}>
+        <button className="primary-button" type="submit" disabled={busyAction !== null || draftName.trim() === '' || draftPlaylistId === '' || activeIncidentPlaylistIsDemo}>
           <Save size={17} aria-hidden /> {busyAction === 'save' ? 'Opslaan…' : 'Scherm opslaan'}
         </button>
         <button className="secondary-button" type="button" onClick={() => void revokeSessions()} disabled={busyAction !== null || !isPaired}>
@@ -892,6 +955,9 @@ function PlaylistEditor({
 }: PlaylistEditorProps) {
   const { api } = useAuth();
   const [draftName, setDraftName] = useState(playlist.name);
+  const [draftDataMode, setDraftDataMode] = useState<WallboardPlaylistDataMode>(() => (
+    normalizeWallboardPlaylistDataMode(playlist.data_mode)
+  ));
   const [draft, setDraft] = useState<WallboardConfiguration>(() => wallboardConfigurationCopy(playlist.configuration));
   const [busyAction, setBusyAction] = useState<'save' | 'delete' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -916,10 +982,11 @@ function PlaylistEditor({
 
   useEffect(() => {
     setDraftName(playlist.name);
+    setDraftDataMode(normalizeWallboardPlaylistDataMode(playlist.data_mode));
     setDraft(wallboardConfigurationCopy(playlist.configuration));
     setDeleteConfirm(false);
     setPreviewOpen(false);
-  }, [playlist.configuration, playlist.name, playlist.version]);
+  }, [playlist.configuration, playlist.data_mode, playlist.name, playlist.version]);
 
   async function savePlaylist(event: FormEvent) {
     event.preventDefault();
@@ -943,6 +1010,7 @@ function PlaylistEditor({
       });
       const response = await api.patch<WallboardPlaylist>(`/admin/wallboard-playlists/${playlist.id}`, {
         name,
+        data_mode: draftDataMode,
         configuration,
         expected_version: playlist.version,
       });
@@ -990,10 +1058,11 @@ function PlaylistEditor({
   const loadPreviewState = useCallback(async (configuration: WallboardConfiguration): Promise<WallboardState> => {
     const response = await api.post<WallboardState>(`/admin/wallboard-playlists/${playlist.id}/preview-state`, {
       configuration,
+      data_mode: draftDataMode,
     });
 
     return response.data;
-  }, [api, playlist.id]);
+  }, [api, draftDataMode, playlist.id]);
 
   return (
     <form className="wallboard-editor wallboard-playlist-editor" onSubmit={savePlaylist}>
@@ -1006,6 +1075,7 @@ function PlaylistEditor({
           <button className="secondary-button" type="button" onClick={() => setPreviewOpen(true)}>
             <Eye size={17} aria-hidden /> Voorbeeld bekijken
           </button>
+          <WallboardPlaylistDataModePill mode={draftDataMode} />
           <StatusPill value={`Versie ${playlist.version}`} tone="neutral" />
         </div>
       </div>
@@ -1013,6 +1083,7 @@ function PlaylistEditor({
       {previewOpen ? (
         <WallboardPlaylistPreview
           playlistName={draftName.trim() || playlist.name}
+          dataMode={draftDataMode}
           configuration={draft}
           loadState={loadPreviewState}
           onClose={() => setPreviewOpen(false)}
@@ -1039,6 +1110,22 @@ function PlaylistEditor({
         <label>
           <span>Playlistnaam</span>
           <input value={draftName} onChange={(event) => setDraftName(event.target.value)} maxLength={120} required />
+        </label>
+        <label className="wallboard-switch-row wallboard-playlist-data-mode-control">
+          <input
+            type="checkbox"
+            checked={draftDataMode === 'demo'}
+            onChange={(event) => {
+              setDraftDataMode(event.target.checked ? 'demo' : 'live');
+              setActionError(null);
+              setActionMessage(null);
+            }}
+          />
+          <span>
+            <strong>Demomodus {draftDataMode === 'demo' ? 'aan' : 'uit'}</strong>
+            <small>Aan maakt dynamische operationele gegevens fictief; ingestelde teksten, foto&apos;s en video&apos;s blijven ongewijzigd. Uit toont actuele operationele gegevens. Een demoplaylist kan niet als actieve-inzetplaylist worden gebruikt.</small>
+          </span>
+          <WallboardPlaylistDataModePill mode={draftDataMode} />
         </label>
       </section>
 

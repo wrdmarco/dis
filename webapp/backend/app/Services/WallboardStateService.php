@@ -13,6 +13,7 @@ use App\Models\LocationUpdate;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Models\Wallboard;
+use App\Models\WallboardPlaylist;
 use App\Services\Routing\RouteGeometryService;
 use App\Support\ApiDateTime;
 use Illuminate\Support\Collection;
@@ -33,11 +34,17 @@ final class WallboardStateService
         private readonly WallboardMaintenanceNoticeService $maintenanceNoticeService,
         private readonly WallboardForecastService $forecastService,
         private readonly WallboardCalendarService $calendarService,
+        private readonly WallboardDemoStateService $demoStateService,
     ) {}
 
     /** @return array<string, mixed> */
     public function state(Wallboard $wallboard): array
     {
+        $base = $this->playlistResolver->resolveRuntime($wallboard, false);
+        if ($base['data_mode'] === WallboardPlaylist::DATA_MODE_DEMO) {
+            return $this->demoState($wallboard, $base);
+        }
+
         $activeAlarm = $this->activeAlarm();
         $resolved = $this->playlistResolver->resolveRuntime(
             $wallboard,
@@ -51,6 +58,7 @@ final class WallboardStateService
             $resolved['playlist_id'],
             $resolved['playlist_version'],
             $resolved['active_incident_playlist'],
+            $resolved['data_mode'],
         );
         $news = $this->contentSnapshots->news($wallboard, $configuration, $resolved['playlist_id']);
         $ticker = $this->contentSnapshots->ticker($wallboard, $configuration, $resolved['playlist_id']);
@@ -82,6 +90,20 @@ final class WallboardStateService
     /** @return array<string, mixed> */
     public function live(Wallboard $wallboard): array
     {
+        $base = $this->playlistResolver->resolveRuntime($wallboard, false);
+        if ($base['data_mode'] === WallboardPlaylist::DATA_MODE_DEMO) {
+            $runtime = $this->demoStateService->runtime($wallboard, $base['configuration']);
+
+            return [
+                'generated_at' => $runtime['generated_at'],
+                'maintenance' => $runtime['maintenance'],
+                'operational_summary' => $runtime['operational_summary'],
+                'kpi' => $runtime['kpi'],
+                'calendar' => $runtime['calendar'],
+                'map' => $runtime['map'],
+            ];
+        }
+
         $activeAlarm = $this->activeAlarm();
         $resolved = $this->playlistResolver->resolveRuntime(
             $wallboard,
@@ -127,17 +149,24 @@ final class WallboardStateService
         ?string $playlistId = null,
         ?int $playlistVersion = null,
         bool $activeIncidentPlaylist = false,
+        string $dataMode = WallboardPlaylist::DATA_MODE_LIVE,
     ): array {
         if ($configuration === null) {
-            $activeAlarm = $this->activeAlarm();
-            $resolved = $this->playlistResolver->resolveRuntime(
-                $wallboard,
-                $this->activeDeploymentExists($activeAlarm),
-            );
+            $base = $this->playlistResolver->resolveRuntime($wallboard, false);
+            if ($base['data_mode'] === WallboardPlaylist::DATA_MODE_DEMO) {
+                $resolved = $base;
+            } else {
+                $activeAlarm = $this->activeAlarm();
+                $resolved = $this->playlistResolver->resolveRuntime(
+                    $wallboard,
+                    $this->activeDeploymentExists($activeAlarm),
+                );
+            }
             $configuration = $resolved['configuration'];
             $playlistId = $resolved['playlist_id'];
             $playlistVersion = $resolved['playlist_version'];
             $activeIncidentPlaylist = $resolved['active_incident_playlist'];
+            $dataMode = $resolved['data_mode'];
         }
 
         return [
@@ -151,6 +180,7 @@ final class WallboardStateService
                 'runtime_playlist_id' => $playlistId,
                 'runtime_playlist_version' => $playlistVersion ?? 0,
                 'active_incident_playlist' => $activeIncidentPlaylist,
+                'data_mode' => $dataMode,
             ],
             'media' => [
                 'photo_pages' => $this->mediaStateService->pagesForPlaylist($playlistId, $configuration),
@@ -161,6 +191,11 @@ final class WallboardStateService
     /** @return array{revision: int, pages: array<string, mixed>, generated_at: string|null} */
     public function news(Wallboard $wallboard): array
     {
+        $base = $this->playlistResolver->resolveRuntime($wallboard, false);
+        if ($base['data_mode'] === WallboardPlaylist::DATA_MODE_DEMO) {
+            return $this->demoStateService->news($base['configuration'], $base['playlist_version']);
+        }
+
         $activeAlarm = $this->activeAlarm();
         $resolved = $this->playlistResolver->resolveRuntime(
             $wallboard,
@@ -177,6 +212,11 @@ final class WallboardStateService
     /** @return array{revision: int, items: list<array<string, mixed>>} */
     public function ticker(Wallboard $wallboard): array
     {
+        $base = $this->playlistResolver->resolveRuntime($wallboard, false);
+        if ($base['data_mode'] === WallboardPlaylist::DATA_MODE_DEMO) {
+            return $this->demoStateService->ticker($base['configuration'], $base['playlist_version']);
+        }
+
         $activeAlarm = $this->activeAlarm();
         $resolved = $this->playlistResolver->resolveRuntime(
             $wallboard,
@@ -193,6 +233,33 @@ final class WallboardStateService
     /** @return array<string, mixed> */
     public function control(Wallboard $wallboard): array
     {
+        $base = $this->playlistResolver->resolveRuntime($wallboard, false);
+        if ($base['data_mode'] === WallboardPlaylist::DATA_MODE_DEMO) {
+            $configuration = $base['configuration'];
+
+            return [
+                'generated_at' => ApiDateTime::now(),
+                'maintenance' => $this->maintenanceNoticeService->current(),
+                'display_profile' => (string) $wallboard->display_profile,
+                'data_mode' => WallboardPlaylist::DATA_MODE_DEMO,
+                'config_version' => (int) $wallboard->config_version,
+                'control_version' => (int) $wallboard->control_version,
+                'refresh_version' => (int) $wallboard->refresh_version,
+                'runtime_playlist_id' => $base['playlist_id'],
+                'runtime_playlist_version' => $base['playlist_version'],
+                'active_incident_playlist' => false,
+                'content_versions' => $this->demoStateService->contentVersions(
+                    $wallboard,
+                    $configuration,
+                    $base['playlist_version'],
+                ),
+                'display' => $this->displayService->display($wallboard, $configuration, false),
+                'focus' => null,
+                'transient_alert' => null,
+                'poll_after_seconds' => 2,
+            ];
+        }
+
         $activeAlarm = $this->activeAlarm();
         $resolved = $this->playlistResolver->resolveRuntime(
             $wallboard,
@@ -205,6 +272,7 @@ final class WallboardStateService
             'generated_at' => ApiDateTime::now(),
             'maintenance' => $this->maintenanceNoticeService->current(),
             'display_profile' => (string) $wallboard->display_profile,
+            'data_mode' => $resolved['data_mode'],
             'config_version' => (int) $wallboard->config_version,
             'control_version' => (int) $wallboard->control_version,
             'refresh_version' => (int) $wallboard->refresh_version,
@@ -306,6 +374,46 @@ final class WallboardStateService
                     ? $this->liveLocations($incidents, (bool) ($mapConfiguration['show_routes'] ?? false))
                     : [],
             ],
+        ];
+    }
+
+    /**
+     * @param  array{configuration: array<string, mixed>, playlist_id: string|null, playlist_version: int, active_incident_playlist: bool, data_mode: string}  $resolved
+     * @return array<string, mixed>
+     */
+    private function demoState(Wallboard $wallboard, array $resolved): array
+    {
+        $configuration = $resolved['configuration'];
+        $runtime = $this->demoStateService->runtime($wallboard, $configuration);
+        $static = $this->staticContent(
+            $wallboard,
+            $configuration,
+            $resolved['playlist_id'],
+            $resolved['playlist_version'],
+            false,
+            WallboardPlaylist::DATA_MODE_DEMO,
+        );
+        $news = $this->demoStateService->news($configuration, $resolved['playlist_version']);
+        $ticker = $this->demoStateService->ticker($configuration, $resolved['playlist_version']);
+
+        return [
+            'generated_at' => $runtime['generated_at'],
+            'maintenance' => $runtime['maintenance'],
+            'wallboard' => [
+                ...$static['wallboard'],
+                'control_version' => (int) $wallboard->control_version,
+                'refresh_version' => (int) $wallboard->refresh_version,
+                'display' => $runtime['display'],
+                'updated_at' => ApiDateTime::dateTime($wallboard->updated_at),
+            ],
+            'operational_summary' => $runtime['operational_summary'],
+            'kpi' => $runtime['kpi'],
+            'ticker' => ['items' => $ticker['items']],
+            'news' => ['pages' => $news['pages'], 'generated_at' => $news['generated_at']],
+            'media' => $static['media'],
+            'forecast' => ['pages' => $this->demoStateService->forecast($configuration)],
+            'calendar' => $runtime['calendar'],
+            'map' => $runtime['map'],
         ];
     }
 

@@ -93,6 +93,18 @@ test('builds one stable manifest across all configured cacheable wallboard pages
   runtimeActivationChanged.wallboard.active_incident_playlist = true;
   expect(wallboardPrecacheManifest(runtimeActivationChanged, 'https://dis.example.test').contentVersion)
     .not.toBe(manifest.contentVersion);
+
+  const demoMode = wallboardState();
+  demoMode.wallboard.data_mode = 'demo';
+  demoMode.news.pages.news.items = [];
+  const demoManifest = wallboardPrecacheManifest(demoMode, 'https://dis.example.test');
+  expect(demoManifest.contentVersion).not.toBe(manifest.contentVersion);
+  expect(demoManifest.assets.some((asset) => asset.url.includes(NEWS_HASH))).toBe(false);
+
+  const legacyWithoutMode = wallboardState();
+  delete legacyWithoutMode.wallboard.data_mode;
+  expect(wallboardPrecacheManifest(legacyWithoutMode, 'https://dis.example.test').contentVersion)
+    .toBe(manifest.contentVersion);
 });
 
 test('allows only immutable wallboard media paths and never state feeds', () => {
@@ -501,6 +513,7 @@ function wallboardState(): WallboardState {
     wallboard: {
       id: '01KXW0QZTP0000000000000009',
       name: 'Entree',
+      data_mode: 'live',
       layout: 'fullscreen_map',
       display_profile: '1080p',
       configuration: {

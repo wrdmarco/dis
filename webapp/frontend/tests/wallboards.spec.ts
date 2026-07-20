@@ -90,6 +90,7 @@ function stateFixture(): WallboardState {
     wallboard: {
       id: 'wallboard-1',
       name: 'Meldkamer',
+      data_mode: 'live',
       layout: 'fullscreen_map',
       display_profile: 'auto',
       configuration: {
@@ -270,7 +271,7 @@ test('uses backend refresh limits and reports online and stale state predictably
     display_profile: 'auto',
     configuration: { ...DEFAULT_WALLBOARD_CONFIGURATION, map: { ...DEFAULT_WALLBOARD_CONFIGURATION.map } },
     playlist_id: 'playlist-1',
-    playlist: { id: 'playlist-1', name: 'Meldkamer', version: 1 },
+    playlist: { id: 'playlist-1', name: 'Meldkamer', version: 1, data_mode: 'live' },
     is_enabled: true,
     config_version: 1,
     refresh_version: 0,
@@ -304,9 +305,16 @@ test('normalizes display profiles safely and keeps operator-facing labels explic
 
   const legacyState = stateFixture();
   (legacyState.wallboard as WallboardState['wallboard'] & { display_profile?: unknown }).display_profile = '8k';
+  (legacyState.wallboard as WallboardState['wallboard'] & { data_mode?: unknown }).data_mode = 'preview';
   expect(normalizeWallboardState(legacyState).wallboard.display_profile).toBe('auto');
+  expect(normalizeWallboardState(legacyState).wallboard.data_mode).toBe('live');
   delete (legacyState.wallboard as Partial<WallboardState['wallboard']>).display_profile;
+  delete (legacyState.wallboard as Partial<WallboardState['wallboard']>).data_mode;
   expect(normalizeWallboardState(legacyState).wallboard.display_profile).toBe('auto');
+  expect(normalizeWallboardState(legacyState).wallboard.data_mode).toBe('live');
+  const demoState = stateFixture();
+  demoState.wallboard.data_mode = 'demo';
+  expect(normalizeWallboardState(demoState).wallboard.data_mode).toBe('demo');
 });
 
 test('normalizes legacy wallboard configuration into a safe page program', () => {
@@ -725,6 +733,7 @@ test('detects runtime playlist activation and version changes independently from
 
   const dispatching = controlFromState(state);
   expect(dispatching).toMatchObject({
+    data_mode: 'live',
     runtime_playlist_id: basePlaylistId,
     runtime_playlist_version: 3,
     active_incident_playlist: false,
@@ -742,6 +751,13 @@ test('detects runtime playlist activation and version changes independently from
     .not.toBe(wallboardRuntimePlaylistSignature(dispatching));
   expect(wallboardRuntimePlaylistSignature({ ...inProgress, runtime_playlist_version: 8 }))
     .not.toBe(wallboardRuntimePlaylistSignature(inProgress));
+  expect(wallboardRuntimePlaylistSignature({ ...dispatching, data_mode: 'demo' }))
+    .not.toBe(wallboardRuntimePlaylistSignature(dispatching));
+  expect(wallboardRuntimePlaylistSignature({
+    runtime_playlist_id: dispatching.runtime_playlist_id,
+    runtime_playlist_version: dispatching.runtime_playlist_version,
+    active_incident_playlist: dispatching.active_incident_playlist,
+  })).toBe(wallboardRuntimePlaylistSignature(dispatching));
 });
 
 test('keeps offline status and automatic polling recovery without a reconnect reload path', () => {
@@ -1825,7 +1841,13 @@ test('keeps explicit screen profiles fluid at Full HD and Ultra HD viewports', a
 
 test('keeps the maintenance icon and countdown fully visible at compact, Full HD and Ultra HD sizes', async ({ page }) => {
   const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
-  expect(styles).toMatch(/\.wallboard-display__maintenance-countdown-progress\s*\{[\s\S]*?scaleX\(-1\)/);
+  const generalMaintenance = readFileSync(
+    new URL('../../backend/resources/views/errors/503.blade.php', import.meta.url),
+    'utf8',
+  );
+  expect(generalMaintenance).toContain('transform="rotate(-90 26 26)"');
+  expect(styles).toMatch(/\.wallboard-display__maintenance-countdown-progress\s*\{[\s\S]*?transform:\s*rotate\(-90deg\);/);
+  expect(styles).not.toMatch(/\.wallboard-display__maintenance-countdown-progress\s*\{[\s\S]*?scaleX\(-1\)/);
   const cases = [
     { profile: '1080p', width: 1920, height: 1080 },
     { profile: '4k', width: 3840, height: 2160 },
@@ -1865,14 +1887,17 @@ test('keeps the maintenance icon and countdown fully visible at compact, Full HD
       const warning = element.querySelector('.wallboard-display__connection-warning') as HTMLElement | null;
       const takeover = element.querySelector('.wallboard-display__alarm--maintenance') as HTMLElement;
       const icon = element.querySelector('.wallboard-display__alarm-icon') as HTMLElement;
+      const progress = element.querySelector('.wallboard-display__maintenance-countdown-progress') as SVGCircleElement;
       const takeoverBox = takeover.getBoundingClientRect();
       const iconBox = icon.getBoundingClientRect();
+      const progressTransform = getComputedStyle(progress).transform;
       return {
         overflow: element.scrollWidth > element.clientWidth || element.scrollHeight > element.clientHeight,
         warningCount: warning === null ? 0 : 1,
         takeoverVisible: takeover.offsetWidth > 0 && takeover.offsetHeight > 0,
         takeoverInsideViewport: takeoverBox.top >= 0 && takeoverBox.bottom <= window.innerHeight,
         iconFullyVisible: iconBox.top >= takeoverBox.top && iconBox.bottom <= takeoverBox.bottom,
+        progressTransform,
         verticalScrollNeeded: takeover.scrollHeight > takeover.clientHeight,
       };
     });
@@ -1883,6 +1908,7 @@ test('keeps the maintenance icon and countdown fully visible at compact, Full HD
       takeoverVisible: true,
       takeoverInsideViewport: true,
       iconFullyVisible: true,
+      progressTransform: 'matrix(0, -1, 1, 0, 0, 0)',
       verticalScrollNeeded: false,
     });
   }

@@ -240,6 +240,183 @@ final class WallboardKpiService
         ];
     }
 
+    /**
+     * Render the configured KPI selection from a fixed, internally coherent
+     * fixture. This path intentionally performs no repository or schedule
+     * queries and never incorporates operational records.
+     *
+     * @param  array<string, mixed>  $configuration
+     * @return array<string, mixed>
+     */
+    public function demoPages(array $configuration): array
+    {
+        $pages = collect((array) ($configuration['pages'] ?? []))
+            ->filter(static fn (mixed $page): bool => is_array($page) && ($page['type'] ?? null) === 'kpi')
+            ->values();
+        if ($pages->isEmpty()) {
+            return ['generated_at' => ApiDateTime::now(), 'pages' => []];
+        }
+
+        $values = [
+            'pilots_available' => 12,
+            'pilots_unavailable' => 6,
+            'pilots_total' => 18,
+            'pilot_availability_rate' => 66.7,
+            'pilots_en_route' => 3,
+            'pilots_on_scene' => 2,
+            'pilots_push_disabled' => 1,
+            'incidents_total' => 7,
+            'incidents_registered_total' => 248,
+            'incidents_active' => 2,
+            'incidents_dispatching' => 3,
+            'incidents_in_progress' => 2,
+            'incidents_low' => 1,
+            'incidents_normal' => 3,
+            'incidents_high' => 2,
+            'incidents_critical' => 1,
+            'incidents_opened_today' => 4,
+            'incidents_resolved_today' => 3,
+            'incidents_cancelled_today' => 1,
+            'incidents_resolved_total' => 225,
+            'incidents_cancelled_total' => 16,
+            'assets_total' => 28,
+            'assets_ready' => 23,
+            'assets_maintenance' => 3,
+            'assets_unavailable' => 2,
+            'assets_issues' => 5,
+            'drones_total' => 12,
+            'drones_ready' => 10,
+            'responses_targeted' => 12,
+            'responses_contacted' => 11,
+            'responses_pending' => 3,
+            'responses_accepted' => 6,
+            'responses_declined' => 2,
+            'responses_no_response' => 1,
+            'dispatches_active' => 3,
+            'dispatch_acceptance_rate' => 50.0,
+            'flight_reports_this_month' => 32,
+            'flight_minutes_this_month' => 1480,
+            'average_flight_minutes_this_month' => 46.3,
+            'drones_flown_distribution' => 32,
+            'incidents_by_province' => 248,
+            'incidents_by_country' => 248,
+        ];
+        $denominators = [
+            'pilots_available' => 18,
+            'pilots_unavailable' => 18,
+            'pilot_availability_rate' => 18,
+            'pilots_en_route' => 18,
+            'pilots_on_scene' => 18,
+            'pilots_push_disabled' => 18,
+            'incidents_active' => 7,
+            'incidents_dispatching' => 7,
+            'incidents_in_progress' => 7,
+            'incidents_low' => 7,
+            'incidents_normal' => 7,
+            'incidents_high' => 7,
+            'incidents_critical' => 7,
+            'incidents_resolved_total' => 248,
+            'incidents_cancelled_total' => 248,
+            'assets_ready' => 28,
+            'assets_maintenance' => 28,
+            'assets_unavailable' => 28,
+            'assets_issues' => 28,
+            'drones_ready' => 12,
+            'responses_contacted' => 12,
+            'responses_pending' => 12,
+            'responses_accepted' => 12,
+            'responses_declined' => 12,
+            'responses_no_response' => 12,
+            'dispatch_acceptance_rate' => 12,
+        ];
+        $numerators = [
+            'pilot_availability_rate' => 12,
+            'dispatch_acceptance_rate' => 6,
+        ];
+        $segments = [
+            'drones_flown_distribution' => [
+                ['label' => 'DJI Mavic 3 Enterprise', 'value' => 7],
+                ['label' => 'DJI Matrice 350 RTK', 'value' => 6],
+                ['label' => 'Autel EVO Max 4T', 'value' => 5],
+                ['label' => 'DJI Matrice 30T', 'value' => 4],
+                ['label' => 'DJI Mavic 3 Thermal', 'value' => 3],
+                ['label' => 'Parrot Anafi USA', 'value' => 2],
+                ['label' => 'DJI FlyCart 30', 'value' => 1],
+                ['label' => 'Autel EVO II Dual', 'value' => 1],
+                ['label' => 'Overig', 'value' => 2],
+                ['label' => 'Onbekend', 'value' => 1],
+            ],
+            'incidents_by_province' => [
+                ['label' => 'Groningen', 'value' => 9],
+                ['label' => 'Fryslân', 'value' => 12],
+                ['label' => 'Drenthe', 'value' => 8],
+                ['label' => 'Overijssel', 'value' => 15],
+                ['label' => 'Flevoland', 'value' => 10],
+                ['label' => 'Gelderland', 'value' => 38],
+                ['label' => 'Utrecht', 'value' => 42],
+                ['label' => 'Noord-Holland', 'value' => 35],
+                ['label' => 'Zuid-Holland', 'value' => 34],
+                ['label' => 'Zeeland', 'value' => 7],
+                ['label' => 'Noord-Brabant', 'value' => 25],
+                ['label' => 'Limburg', 'value' => 10],
+                ['label' => 'Onbekend', 'value' => 3],
+            ],
+            'incidents_by_country' => [
+                ['label' => 'Nederland', 'value' => 226],
+                ['label' => 'België', 'value' => 13],
+                ['label' => 'Duitsland', 'value' => 7],
+                ['label' => 'Onbekend', 'value' => 2],
+            ],
+        ];
+        $definitions = WallboardKpiDefinition::definitions();
+
+        return [
+            'generated_at' => ApiDateTime::now(),
+            'pages' => $pages->mapWithKeys(function (array $page) use (
+                $definitions,
+                $denominators,
+                $numerators,
+                $segments,
+                $values,
+            ): array {
+                $options = (array) ($page['options'] ?? []);
+                $visualizations = $this->selectedVisualizations($options);
+                $metrics = array_map(function (string $key) use (
+                    $definitions,
+                    $denominators,
+                    $numerators,
+                    $segments,
+                    $values,
+                    $visualizations,
+                ): array {
+                    $visualization = $visualizations[$key];
+                    $metric = [
+                        'key' => $key,
+                        'label' => $definitions[$key]['label'],
+                        'value' => $values[$key],
+                        'unit' => $definitions[$key]['unit'],
+                        'category' => $definitions[$key]['category'],
+                        'context' => 'Fictieve demodata',
+                        'visualization' => $visualization,
+                    ];
+                    if ($visualization !== 'counter') {
+                        $metric['segments'] = $segments[$key]
+                            ?? $this->ratioSegments(
+                                $key,
+                                (int) ($numerators[$key] ?? $values[$key]),
+                                (int) ($denominators[$key] ?? 0),
+                                $definitions[$key]['label'],
+                            );
+                    }
+
+                    return $metric;
+                }, $this->selectedMetrics($options));
+
+                return [(string) $page['id'] => ['metrics' => $metrics]];
+            })->all(),
+        ];
+    }
+
     /** @return array{available: int, total: int} */
     public function pilotAvailability(): array
     {

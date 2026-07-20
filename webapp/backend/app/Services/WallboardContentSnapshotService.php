@@ -47,6 +47,10 @@ final class WallboardContentSnapshotService
     /** @return array{snapshots: int, failures: int} */
     public function refreshPlaylist(WallboardPlaylist $playlist): array
     {
+        if ($playlist->isDemo()) {
+            return ['snapshots' => 0, 'failures' => 0];
+        }
+
         $result = ['snapshots' => 0, 'failures' => 0];
         foreach (WallboardContentSnapshot::KINDS as $kind) {
             if ($this->refreshKind((string) $playlist->getKey(), $kind)) {
@@ -116,6 +120,12 @@ final class WallboardContentSnapshotService
             $configuration = $this->playlistResolver->resolve($wallboard);
             $playlistId = $this->playlistId($wallboard);
         }
+        if ($playlistId !== null) {
+            $playlist = $this->playlists->findForContentRefresh($playlistId);
+            if ($playlist?->isDemo()) {
+                return ['revision' => 0, 'payload' => $this->emptyPayload($kind)];
+            }
+        }
         $fingerprint = $this->configFingerprint($configuration, $kind);
         if ($playlistId === null) {
             try {
@@ -158,6 +168,9 @@ final class WallboardContentSnapshotService
             if (! $playlist instanceof WallboardPlaylist) {
                 return false;
             }
+            if ($playlist->isDemo()) {
+                return true;
+            }
 
             $configuration = WallboardConfiguration::normalize((array) $playlist->configuration);
             $fingerprint = $this->configFingerprint($configuration, $kind);
@@ -182,6 +195,9 @@ final class WallboardContentSnapshotService
                     $payload,
                 ): ?bool {
                     $lockedPlaylist = $this->playlists->lockPlaylist($playlistId);
+                    if ($lockedPlaylist->isDemo()) {
+                        return true;
+                    }
                     $currentConfiguration = WallboardConfiguration::normalize(
                         (array) $lockedPlaylist->configuration,
                     );

@@ -6347,6 +6347,39 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.wallboard-list-card__pills {
+  min-width: max-content;
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.wallboard-playlist-data-mode-pill {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.wallboard-playlist-data-mode-pill .status-pill {
+  display: inline-flex;
+  border: 1px solid transparent;
+  font-weight: 900;
+  letter-spacing: 0.045em;
+  line-height: 1;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.wallboard-playlist-data-mode-pill--demo .status-pill {
+  border-color: #fb923c;
+  background: #7c2d12;
+  color: #ffedd5;
+}
+
+.wallboard-playlist-data-mode-pill--live .status-pill {
+  border-color: rgba(52, 211, 153, 0.42);
+}
+
 .wallboard-list-card__copy .wallboard-list-card__playlist {
   color: var(--dis-blue);
   font-weight: 720;
@@ -6448,6 +6481,36 @@ textarea:focus {
   color: var(--dis-muted-strong);
   font-size: 0.82rem;
   font-weight: 780;
+}
+
+.wallboard-playlist-selector-label {
+  min-width: 0;
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wallboard-playlist-selector-label > span:first-child {
+  min-width: 0;
+}
+
+.wallboard-playlist-selector-warning {
+  color: var(--dis-warning) !important;
+}
+
+.wallboard-playlist-data-mode-control {
+  background: var(--dis-surface-2);
+}
+
+.wallboard-playlist-data-mode-control > span:not(.wallboard-playlist-data-mode-pill) {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.wallboard-playlist-data-mode-control > .wallboard-playlist-data-mode-pill {
+  display: inline-flex !important;
+  margin-left: auto;
 }
 
 .wallboard-playlist-shared {
@@ -8369,11 +8432,65 @@ textarea:focus {
   width: 100%;
   height: 100dvh;
   min-height: 480px;
+  position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: #070b10;
   color: #e7eef7;
+}
+
+.wallboard-display__demo-indicator {
+  position: absolute;
+  z-index: 85;
+  top: 84px;
+  right: clamp(14px, 2vw, 28px);
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 8px;
+  border: 1px solid #fb923c;
+  border-radius: 8px;
+  background: rgba(124, 45, 18, 0.96);
+  box-shadow: 0 8px 22px rgba(67, 20, 7, 0.3);
+  color: #ffedd5;
+  padding: 6px 10px;
+  pointer-events: none;
+}
+
+.wallboard-display__demo-indicator svg {
+  grid-row: 1 / -1;
+}
+
+.wallboard-display__demo-indicator strong,
+.wallboard-display__demo-indicator small {
+  display: block;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.wallboard-display__demo-indicator strong {
+  font-size: 0.78rem;
+  font-weight: 950;
+  letter-spacing: 0.11em;
+}
+
+.wallboard-display__demo-indicator small {
+  margin-top: 3px;
+  color: #fed7aa;
+  font-size: 0.56rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+}
+
+.wallboard-preload-root {
+  position: relative;
+}
+
+.wallboard-preload-root .wallboard-display__demo-indicator {
+  top: 16px;
 }
 
 /*
@@ -10305,7 +10422,7 @@ textarea:focus {
   stroke-dasharray: 100;
   stroke-dashoffset: 100;
   stroke-linecap: round;
-  transform: rotate(-90deg) scaleX(-1);
+  transform: rotate(-90deg);
   transform-origin: 50% 50%;
   transition: stroke-dashoffset 600ms linear;
   filter: drop-shadow(0 0 8px color-mix(in srgb, var(--wallboard-alarm-color) 60%, transparent));
@@ -14719,6 +14836,52 @@ pre {
   border-color: #bbf7d0 !important;
   background: #f0fdf4 !important;
   color: #166534 !important;
+}
+
+/* Data provenance remains visually unambiguous in both admin themes. */
+:root[data-theme="light"] .wallboard-playlist-data-mode-pill--demo .status-pill {
+  border-color: #f97316 !important;
+  background: #ffedd5 !important;
+  color: #9a3412 !important;
+}
+
+:root[data-theme="light"] .wallboard-playlist-data-mode-pill--live .status-pill {
+  border-color: #22c55e !important;
+  background: #dcfce7 !important;
+  color: #14532d !important;
+}
+
+@media (min-width: 1600px) and (min-height: 800px) {
+  .wallboard-display--profile-4k .wallboard-display__demo-indicator {
+    top: 100px;
+    min-height: 42px;
+    padding: 8px 13px;
+  }
+
+  .wallboard-display--profile-4k .wallboard-display__demo-indicator strong {
+    font-size: 0.94rem;
+  }
+
+  .wallboard-display--profile-4k .wallboard-display__demo-indicator small {
+    font-size: 0.66rem;
+  }
+}
+
+@media (max-width: 720px) {
+  .wallboard-display__demo-indicator {
+    top: 80px;
+    right: 10px;
+    min-height: 30px;
+    padding: 5px 8px;
+  }
+
+  .wallboard-display__demo-indicator strong {
+    font-size: 0.7rem;
+  }
+
+  .wallboard-display__demo-indicator small {
+    font-size: 0.5rem;
+  }
 }
 
 /* Preserve telemetry semantics after the global light-mode text enforcement above. */

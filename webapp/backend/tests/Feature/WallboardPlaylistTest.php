@@ -362,9 +362,11 @@ final class WallboardPlaylistTest extends TestCase
         $snapshotMigration = require database_path('migrations/2026_07_19_000010_create_wallboard_content_snapshots.php');
         $mediaUsageMigration = require database_path('migrations/2026_07_20_000001_create_wallboard_media_asset_usages.php');
         $activeIncidentPlaylistMigration = require database_path('migrations/2026_07_20_000002_add_active_incident_playlist_to_wallboards.php');
+        $dataModeMigration = require database_path('migrations/2026_07_20_000006_add_data_mode_to_wallboard_playlists.php');
         // Recreate the historical boundary in dependency order. Newer tables and
         // columns deliberately keep their foreign keys instead of weakening the
         // production schema solely to make this migration test possible.
+        $dataModeMigration->down();
         $activeIncidentPlaylistMigration->down();
         $mediaUsageMigration->down();
         $snapshotMigration->down();
@@ -396,6 +398,7 @@ final class WallboardPlaylistTest extends TestCase
         $snapshotMigration->up();
         $mediaUsageMigration->up();
         $activeIncidentPlaylistMigration->up();
+        $dataModeMigration->up();
 
         $wallboards = DB::table('wallboards')->orderBy('name')->get();
         $this->assertCount(2, $wallboards);
@@ -410,6 +413,7 @@ final class WallboardPlaylistTest extends TestCase
                 json_decode((string) $playlist->configuration, true, 512, JSON_THROW_ON_ERROR),
             );
             $this->assertSame(1, (int) $playlist->version);
+            $this->assertSame(WallboardPlaylist::DATA_MODE_LIVE, $playlist->data_mode);
         }
     }
 

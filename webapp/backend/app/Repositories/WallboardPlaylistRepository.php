@@ -44,7 +44,7 @@ final class WallboardPlaylistRepository extends BaseRepository
     public function findForContentRefresh(string $id): ?WallboardPlaylist
     {
         return WallboardPlaylist::query()
-            ->select(['id', 'configuration'])
+            ->select(['id', 'data_mode', 'configuration'])
             ->find($id);
     }
 
@@ -52,7 +52,8 @@ final class WallboardPlaylistRepository extends BaseRepository
     public function chunkForContentRefresh(Closure $callback, int $size = 50): void
     {
         WallboardPlaylist::query()
-            ->select(['id', 'configuration'])
+            ->select(['id', 'data_mode', 'configuration'])
+            ->where('data_mode', WallboardPlaylist::DATA_MODE_LIVE)
             ->orderBy('id')
             ->chunkById($size, $callback);
     }
@@ -73,6 +74,13 @@ final class WallboardPlaylistRepository extends BaseRepository
             ->where(fn (Builder $query): Builder => $query
                 ->where('playlist_id', $playlistId)
                 ->orWhere('active_incident_playlist_id', $playlistId))
+            ->exists();
+    }
+
+    public function activeIncidentLinkedWallboardsExist(string $playlistId): bool
+    {
+        return Wallboard::query()
+            ->where('active_incident_playlist_id', $playlistId)
             ->exists();
     }
 

@@ -70,6 +70,7 @@ import type {
   WallboardPairingRequest,
   WallboardPairingStatus,
   WallboardPilotAvailability,
+  WallboardPlaylistDataMode,
   WallboardState,
   WallboardStateRecentIncident,
   WallboardTickerItem,
@@ -108,6 +109,10 @@ import {
   wallboardVideoEmbedUrl,
 } from './wallboardPresentation';
 import { WallboardNewsQrCode } from './WallboardNewsQrCode';
+import {
+  normalizeWallboardPlaylistDataMode,
+  wallboardPlaylistDataModeNeedsRefresh,
+} from './wallboardPlaylistDataMode';
 import { WallboardRichText } from './WallboardRichText';
 import { normalizeWallboardMediaPageStates } from './wallboardMedia';
 import { wallboardPhotoCarouselAnchorFromDeadline } from './wallboardPhotoRotation';
@@ -926,6 +931,33 @@ export function WallboardDisplayPage() {
   const maintenance = wallboardMaintenanceNoticeIsActive(effectiveControl.maintenance, clock)
     ? normalizeWallboardMaintenanceNotice(effectiveControl.maintenance)
     : null;
+  const loadedDataMode = normalizeWallboardPlaylistDataMode(state.wallboard.data_mode);
+  const targetDataMode = normalizeWallboardPlaylistDataMode(effectiveControl.data_mode);
+  const dataModeTransitionPending = wallboardPlaylistDataModeNeedsRefresh(
+    loadedDataMode,
+    targetDataMode,
+  );
+  if (dataModeTransitionPending && maintenance === null) {
+    return (
+      <main
+        className="wallboard-preload-root"
+        data-data-mode={targetDataMode}
+        data-mode-transition="pending"
+        ref={rootRef}
+      >
+        <WallboardDemoDataIndicator dataMode={targetDataMode} />
+        <WallboardPreloadScreen
+          status="loading"
+          completed={0}
+          total={0}
+          pagesReady={0}
+          pagesTotal={0}
+          onlineOnlyPages={0}
+          currentLabel="Nieuwe playlistgegevens ophalen"
+        />
+      </main>
+    );
+  }
   const displayProfile = normalizeWallboardDisplayProfile(effectiveControl.display_profile);
   const display = effectiveControl.display;
   const focusCandidate = hasLiveFeed ? (effectiveControl.focus ?? null) : null;
@@ -965,6 +997,7 @@ export function WallboardDisplayPage() {
   if (precacheBlocksPlaylist) {
     return (
       <main className="wallboard-preload-root" ref={rootRef}>
+        <WallboardDemoDataIndicator dataMode={state.wallboard.data_mode} />
         <WallboardPreloadScreen
           status={preload.status}
           completed={preload.completed}
@@ -982,9 +1015,14 @@ export function WallboardDisplayPage() {
   return (
     <main
       className={`wallboard-display wallboard-display--${configuration.theme} wallboard-display--profile-${displayProfile}`}
+      data-data-mode={state.wallboard.data_mode}
       data-display-profile={displayProfile}
       ref={rootRef}
     >
+      <WallboardDemoDataIndicator
+        dataMode={state.wallboard.data_mode}
+        suppressed={maintenance !== null}
+      />
       <header className="wallboard-display__header">
         <div>
           <span className="wallboard-display__titles">
@@ -1073,6 +1111,24 @@ export function WallboardDisplayPage() {
       </footer>
       {showTicker ? <WallboardTicker items={state.ticker.items} /> : null}
     </main>
+  );
+}
+
+export function WallboardDemoDataIndicator({
+  dataMode,
+  suppressed = false,
+}: {
+  dataMode: WallboardPlaylistDataMode | null | undefined;
+  suppressed?: boolean;
+}) {
+  if (suppressed || normalizeWallboardPlaylistDataMode(dataMode) !== 'demo') return null;
+
+  return (
+    <span className="wallboard-display__demo-indicator" aria-label="Demomodus: fictieve gegevens">
+      <ShieldAlert size={18} aria-hidden />
+      <strong>DEMO</strong>
+      <small>FICTIEVE DATA</small>
+    </span>
   );
 }
 
@@ -2089,16 +2145,19 @@ function forecastCloudBaseObservationDetails(
   observation: WallboardForecastMetric['cloud_base_observation'],
 ): string[] {
   if (observation === null || observation.status === 'unknown') {
-    return ['Actuele KNMI-wolkenbasis niet beschikbaar'];
+    return [observation?.attribution === 'DIS_DEMO'
+      ? 'Demo-wolkenbasis niet beschikbaar'
+      : 'Actuele KNMI-wolkenbasis niet beschikbaar'];
   }
 
+  const isDemo = observation.attribution === 'DIS_DEMO';
   const station = observation.station;
   const stationDetail = station === null || observation.observed_at === null
     ? null
-    : `Puntmeting ${station.name} (${formatForecastNumber(station.distance_km)} km), ${formatWallboardForecastUpdateTime(observation.observed_at)}; kaartkleur volgt model`;
+    : `${isDemo ? 'Demopunt' : 'Puntmeting'} ${station.name} (${formatForecastNumber(station.distance_km)} km), ${formatWallboardForecastUpdateTime(observation.observed_at)}; kaartkleur volgt model`;
   if (observation.status === 'no_cloud_detected') {
     return [
-      `KNMI heeft in ${observation.period_minutes} min geen wolkenbasis gedetecteerd`,
+      `${isDemo ? 'Demo' : 'KNMI'} heeft in ${observation.period_minutes} min geen wolkenbasis gedetecteerd`,
       ...(stationDetail === null ? [] : [stationDetail]),
     ];
   }
@@ -2108,7 +2167,7 @@ function forecastCloudBaseObservationDetails(
     ? ''
     : ` (${baseLayer.cover_okta}/8 bewolkt)`;
   return [
-    `Laagste KNMI-wolkenbasis in ${observation.period_minutes} min: ${formatForecastNumber(observation.base_height_m ?? 0)} m boven zeeniveau${cover}`,
+    `${isDemo ? 'Demo-wolkenbasis' : 'Laagste KNMI-wolkenbasis'} in ${observation.period_minutes} min: ${formatForecastNumber(observation.base_height_m ?? 0)} m boven zeeniveau${cover}`,
     ...(stationDetail === null ? [] : [stationDetail]),
   ];
 }
@@ -3134,6 +3193,7 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
     refresh_version?: unknown;
     display_profile?: unknown;
     display?: NonNullable<WallboardState['wallboard']['display']>;
+    data_mode?: unknown;
     runtime_playlist_id?: unknown;
     runtime_playlist_version?: unknown;
     active_incident_playlist?: unknown;
@@ -3171,6 +3231,7 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
     forecast: normalizeWallboardForecastState(rawState.forecast),
     wallboard: {
       ...state.wallboard,
+      data_mode: normalizeWallboardPlaylistDataMode(rawWallboard.data_mode),
       display_profile: normalizeWallboardDisplayProfile(rawWallboard.display_profile),
       configuration,
       control_version: rawWallboard.control_version ?? 1,
@@ -3455,7 +3516,7 @@ function normalizeForecastCloudBaseObservation(
     !['measured', 'no_cloud_detected', 'unknown'].includes(String(value.status))
     || value.period_minutes !== 30
     || value.height_reference !== 'mean_sea_level'
-    || value.attribution !== 'KNMI'
+    || !['KNMI', 'DIS_DEMO'].includes(String(value.attribution))
     || !Array.isArray(value.layers)
     || value.layers.length > 3
   ) {
@@ -3463,6 +3524,7 @@ function normalizeForecastCloudBaseObservation(
   }
 
   const status = value.status as NonNullable<WallboardForecastMetric['cloud_base_observation']>['status'];
+  const attribution = value.attribution as NonNullable<WallboardForecastMetric['cloud_base_observation']>['attribution'];
   const baseHeight = normalizeBoundedInteger(value.base_height_m, 0, 20_000);
   const layers = value.layers.flatMap((candidate) => {
     if (!isRecord(candidate)) return [];
@@ -3505,7 +3567,7 @@ function normalizeForecastCloudBaseObservation(
           station: null,
           observed_at: null,
           period_minutes: 30,
-          attribution: 'KNMI',
+          attribution,
         }
       : null;
   }
@@ -3521,7 +3583,7 @@ function normalizeForecastCloudBaseObservation(
     station,
     observed_at: observedAt,
     period_minutes: 30,
-    attribution: 'KNMI',
+    attribution,
   };
 }
 
@@ -3815,6 +3877,7 @@ export function controlFromState(state: WallboardState): WallboardControlState {
   return {
     generated_at: state.generated_at,
     maintenance: normalizeWallboardMaintenanceNotice(state.maintenance),
+    data_mode: normalizeWallboardPlaylistDataMode(state.wallboard.data_mode),
     config_version: state.wallboard.config_version,
     control_version: state.wallboard.control_version ?? 1,
     refresh_version: state.wallboard.refresh_version,
@@ -3838,6 +3901,7 @@ export function controlFromState(state: WallboardState): WallboardControlState {
 function normalizeWallboardControlState(state: WallboardControlState): WallboardControlState {
   const legacyState = state as WallboardControlState & {
     maintenance?: unknown;
+    data_mode?: unknown;
     refresh_version?: unknown;
     display_profile?: unknown;
     transient_alert?: WallboardTransientAlert | null;
@@ -3850,6 +3914,7 @@ function normalizeWallboardControlState(state: WallboardControlState): Wallboard
   return {
     ...state,
     maintenance: normalizeWallboardMaintenanceNotice(legacyState.maintenance),
+    data_mode: normalizeWallboardPlaylistDataMode(legacyState.data_mode),
     display_profile: normalizeWallboardDisplayProfile(legacyState.display_profile),
     refresh_version: nonNegativeRefreshVersion(legacyState.refresh_version),
     runtime_playlist_id: normalizeRuntimePlaylistId(legacyState.runtime_playlist_id),
@@ -3863,11 +3928,12 @@ function normalizeWallboardControlState(state: WallboardControlState): Wallboard
 export function wallboardRuntimePlaylistSignature(
   control: Pick<
     WallboardControlState,
-    'runtime_playlist_id' | 'runtime_playlist_version' | 'active_incident_playlist'
+    'data_mode' | 'runtime_playlist_id' | 'runtime_playlist_version' | 'active_incident_playlist'
   >,
 ): string {
   return [
     control.active_incident_playlist === true ? 'incident' : 'base',
+    normalizeWallboardPlaylistDataMode(control.data_mode),
     normalizeRuntimePlaylistId(control.runtime_playlist_id) ?? 'none',
     nonNegativeRefreshVersion(control.runtime_playlist_version),
   ].join(':');

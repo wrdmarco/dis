@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Http\Responses\ApiResponse;
 use App\Http\Responses\WallboardContentResponse;
 use App\Models\Wallboard;
+use App\Models\WallboardPlaylist;
 use App\Services\WallboardNewsService;
+use App\Services\WallboardPlaylistResolver;
 use App\Services\WallboardStateService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +19,7 @@ final class WallboardController extends Controller
     public function __construct(
         private readonly WallboardStateService $state,
         private readonly WallboardNewsService $newsImages,
+        private readonly WallboardPlaylistResolver $playlists,
     ) {}
 
     public function state(Request $request): JsonResponse
@@ -79,6 +82,10 @@ final class WallboardController extends Controller
     {
         $wallboard = $request->attributes->get('wallboard');
         abort_unless($wallboard instanceof Wallboard, 401);
+        abort_if(
+            $this->playlists->resolveRuntime($wallboard, false)['data_mode'] === WallboardPlaylist::DATA_MODE_DEMO,
+            404,
+        );
 
         $result = $this->newsImages->image($image);
         abort_if($result === null, 404);

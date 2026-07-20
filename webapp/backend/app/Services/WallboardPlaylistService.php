@@ -5,12 +5,14 @@ namespace App\Services;
 use App\Models\User;
 use App\Models\Wallboard;
 use App\Models\WallboardPlaylist;
+use App\Repositories\WallboardContentSnapshotRepository;
 use App\Repositories\WallboardPlaylistRepository;
 use App\Repositories\WallboardRepository;
 use App\Support\WallboardConfiguration;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 final class WallboardPlaylistService
@@ -22,6 +24,7 @@ final class WallboardPlaylistService
         private readonly WallboardMediaCoordinationService $mediaCoordination,
         private readonly WallboardMediaUsageSynchronizer $mediaUsage,
         private readonly WallboardForecastLocationService $forecastLocations,
+        private readonly WallboardContentSnapshotRepository $contentSnapshots,
         private readonly AuditService $auditService,
     ) {}
 
@@ -40,12 +43,16 @@ final class WallboardPlaylistService
     public function create(array $data, User $actor, Request $request): WallboardPlaylist
     {
         $configuration = WallboardConfiguration::normalize((array) $data['configuration']);
-        $this->forecastLocations->assertResolvableAddresses($configuration);
+        $dataMode = (string) ($data['data_mode'] ?? WallboardPlaylist::DATA_MODE_LIVE);
+        if ($dataMode === WallboardPlaylist::DATA_MODE_LIVE) {
+            $this->forecastLocations->assertResolvableAddresses($configuration);
+        }
 
-        return DB::transaction(function () use ($data, $configuration, $actor, $request): WallboardPlaylist {
+        return DB::transaction(function () use ($data, $configuration, $dataMode, $actor, $request): WallboardPlaylist {
             $this->mediaCoordination->lock();
             $playlist = $this->repository->create([
                 'name' => trim((string) $data['name']),
+                'data_mode' => $dataMode,
                 'configuration' => $configuration,
                 'version' => 1,
                 'created_by' => $actor->id,
@@ -59,6 +66,7 @@ final class WallboardPlaylistService
 
             $this->auditService->record('wallboard_playlists.created', $playlist, $actor, [
                 'name' => $playlist->name,
+                'data_mode' => $playlist->data_mode,
                 'version' => 1,
             ], null, $request);
 
@@ -73,8 +81,15 @@ final class WallboardPlaylistService
         User $actor,
         Request $request,
     ): WallboardPlaylist {
-        if (array_key_exists('configuration', $data)) {
-            $this->forecastLocations->assertResolvableAddresses((array) $data['configuration']);
+        $currentDataMode = in_array($playlist->data_mode, WallboardPlaylist::DATA_MODES, true)
+            ? (string) $playlist->data_mode
+            : WallboardPlaylist::DATA_MODE_LIVE;
+        $nextDataMode = (string) ($data['data_mode'] ?? $currentDataMode);
+        if ($nextDataMode === WallboardPlaylist::DATA_MODE_LIVE
+            && (array_key_exists('configuration', $data) || $nextDataMode !== $currentDataMode)) {
+            $this->forecastLocations->assertResolvableAddresses(
+                (array) ($data['configuration'] ?? $playlist->configuration),
+            );
         }
 
         return DB::transaction(function () use ($playlist, $data, $actor, $request): WallboardPlaylist {
@@ -86,13 +101,28 @@ final class WallboardPlaylistService
                 throw new ConflictHttpException('Wallboard playlist changed.');
             }
 
+            $currentDataMode = in_array($locked->data_mode, WallboardPlaylist::DATA_MODES, true)
+                ? (string) $locked->data_mode
+                : WallboardPlaylist::DATA_MODE_LIVE;
+            $nextDataMode = (string) ($data['data_mode'] ?? $currentDataMode);
+            $dataModeChanged = $nextDataMode !== $currentDataMode;
+            if ($dataModeChanged
+                && $nextDataMode === WallboardPlaylist::DATA_MODE_DEMO
+                && $this->repository->activeIncidentLinkedWallboardsExist((string) $locked->id)) {
+                throw ValidationException::withMessages([
+                    'data_mode' => ['Een actieve-inzetplaylist moet live gegevens blijven gebruiken.'],
+                ]);
+            }
+
             $linkedWallboards = new Collection;
-            if (array_key_exists('configuration', $data)) {
+            if (array_key_exists('configuration', $data) || $dataModeChanged) {
                 $configuration = WallboardConfiguration::normalize(
-                    (array) $data['configuration'],
+                    (array) ($data['configuration'] ?? $locked->configuration),
                     (array) $locked->configuration,
                 );
-                $configuration = $this->mediaUsage->synchronize($locked, $configuration);
+                if (array_key_exists('configuration', $data)) {
+                    $configuration = $this->mediaUsage->synchronize($locked, $configuration);
+                }
                 $linkedWallboards = $this->repository->lockLinkedWallboards((string) $locked->id);
                 if (array_key_exists('name', $data)) {
                     $locked->name = trim((string) $data['name']);
@@ -102,13 +132,20 @@ final class WallboardPlaylistService
                     $linkedWallboards,
                     $configuration,
                     $actor,
+                    $nextDataMode,
                 );
+                if ($dataModeChanged) {
+                    $this->contentSnapshots->deleteForPlaylist((string) $locked->id);
+                }
             } else {
-                $locked->forceFill([
-                    'name' => trim((string) $data['name']),
+                $changes = [
                     'version' => (int) $locked->version + 1,
                     'updated_by' => $actor->id,
-                ])->save();
+                ];
+                if (array_key_exists('name', $data)) {
+                    $changes['name'] = trim((string) $data['name']);
+                }
+                $locked->forceFill($changes)->save();
             }
             $linkedWallboardsCount = $this->repository->linkedWallboardsCount((string) $locked->id);
 
@@ -116,6 +153,10 @@ final class WallboardPlaylistService
                 'changed_fields' => array_values(array_diff(array_keys($data), ['expected_version'])),
                 'version' => (int) $locked->version,
                 'linked_wallboards_count' => $linkedWallboardsCount,
+                ...($dataModeChanged ? [
+                    'previous_data_mode' => $currentDataMode,
+                    'data_mode' => $nextDataMode,
+                ] : []),
             ], null, $request);
 
             return $this->repository->findForManagement((string) $locked->id);
@@ -158,6 +199,9 @@ final class WallboardPlaylistService
                 'previous_playlist_id' => $previousPlaylistId,
                 'playlist_id' => (string) $playlist->id,
                 'playlist_version' => (int) $playlist->version,
+                'data_mode' => in_array($playlist->data_mode, WallboardPlaylist::DATA_MODES, true)
+                    ? (string) $playlist->data_mode
+                    : WallboardPlaylist::DATA_MODE_LIVE,
                 'config_version' => (int) $lockedWallboard->config_version,
                 'control_version' => (int) $lockedWallboard->control_version,
             ], null, $request);

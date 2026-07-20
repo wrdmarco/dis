@@ -1,4 +1,5 @@
 import type { WallboardPage, WallboardState } from '../../types/api';
+import { normalizeWallboardPlaylistDataMode } from './wallboardPlaylistDataMode';
 
 export const WALLBOARD_PRECACHE_PREFIX = 'dis-wallboard-static-v1-';
 export const WALLBOARD_PRECACHE_CONCURRENCY = 4;
@@ -91,6 +92,7 @@ export function wallboardPrecacheManifest(
     : 0;
   const contentParts: string[] = [
     `config:${state.wallboard.config_version}`,
+    `data-mode:${normalizeWallboardPlaylistDataMode(state.wallboard.data_mode)}`,
     `runtime-playlist:${runtimePlaylistId}:${runtimePlaylistVersion}:${state.wallboard.active_incident_playlist === true ? 1 : 0}`,
   ];
 

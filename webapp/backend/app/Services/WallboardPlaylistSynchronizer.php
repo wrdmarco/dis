@@ -19,12 +19,17 @@ final class WallboardPlaylistSynchronizer
         Collection $wallboards,
         array $configuration,
         User $actor,
+        ?string $dataMode = null,
     ): void {
-        $playlist->forceFill([
+        $changes = [
             'configuration' => $configuration,
             'version' => (int) $playlist->version + 1,
             'updated_by' => $actor->id,
-        ])->save();
+        ];
+        if ($dataMode !== null) {
+            $changes['data_mode'] = $dataMode;
+        }
+        $playlist->forceFill($changes)->save();
 
         foreach ($wallboards as $wallboard) {
             $this->copyConfigurationToWallboard($wallboard, $playlist, $configuration, $actor, true);

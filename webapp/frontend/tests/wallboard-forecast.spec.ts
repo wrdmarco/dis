@@ -218,6 +218,23 @@ test('shows an explicit no-cloud detection without overriding the authoritative 
   expect(cloud?.details[0]).toBe('KNMI heeft in 30 min geen wolkenbasis gedetecteerd');
 });
 
+test('labels fictitious cloud-base observations as demo data without a KNMI claim', () => {
+  const payload = backendForecast();
+  const lowCloud = payload.metrics.find((candidate) => candidate.key === 'low_cloud_cover_pct');
+  if (lowCloud === undefined || lowCloud.cloud_base_observation === null) throw new Error('Missing cloud fixture.');
+  lowCloud.cloud_base_observation.attribution = 'DIS_DEMO';
+
+  const forecast = normalizeWallboardForecastState({ pages: { forecast: payload } }).pages.forecast;
+  const cloud = wallboardForecastDisplayBlocks(forecast).find((block) => block.key === 'cloud_cover');
+
+  expect(cloud?.details).toEqual([
+    'Demo-wolkenbasis in 30 min: 640 m boven zeeniveau (6/8 bewolkt)',
+    'Demopunt De Bilt (5,2 km), 14:10; kaartkleur volgt model',
+    'Model: 0-3 km 20%; 3-8 km 40%; >8 km 60%; totaal 100%',
+  ]);
+  expect(cloud?.details.join(' ')).not.toContain('KNMI');
+});
+
 test('uses server visibility formatting and exposes the AGL wind profile', () => {
   const forecast = normalizeWallboardForecastState({ pages: { forecast: backendForecast() } }).pages.forecast;
   const visibility = forecast.metrics.find((candidate) => candidate.key === 'visibility_m');

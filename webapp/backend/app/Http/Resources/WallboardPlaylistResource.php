@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\WallboardPlaylist;
 use App\Support\ApiDateTime;
 use App\Support\WallboardConfiguration;
 use Illuminate\Http\Request;
@@ -15,6 +16,9 @@ final class WallboardPlaylistResource extends JsonResource
         return [
             'id' => (string) $this->resource->id,
             'name' => (string) $this->resource->name,
+            'data_mode' => in_array($this->resource->data_mode, WallboardPlaylist::DATA_MODES, true)
+                ? (string) $this->resource->data_mode
+                : WallboardPlaylist::DATA_MODE_LIVE,
             'configuration' => WallboardConfiguration::normalize((array) $this->resource->configuration),
             'version' => (int) $this->resource->version,
             'linked_wallboards_count' => (int) ($this->resource->wallboards_count ?? 0),
