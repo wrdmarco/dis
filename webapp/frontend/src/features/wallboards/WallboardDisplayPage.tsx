@@ -1035,14 +1035,16 @@ export function WallboardDisplayPage() {
 
 interface WallboardPlaylistPageFrameProps extends WallboardPageContentProps {
   active: boolean;
+  running?: boolean;
   pages: readonly WallboardPage[];
   transition: ReturnType<typeof wallboardEffectivePageTransition>['transition'];
   transitionDurationMs: number;
   flipDirection: ReturnType<typeof wallboardEffectivePageTransition>['flipDirection'];
 }
 
-function WallboardPlaylistPageFrame({
+export function WallboardPlaylistPageFrame({
   active,
+  running = active,
   page,
   pages,
   state,
@@ -1053,6 +1055,7 @@ function WallboardPlaylistPageFrame({
   transition,
   transitionDurationMs,
   flipDirection,
+  adminPreview = false,
 }: WallboardPlaylistPageFrameProps) {
   const [visual, setVisual] = useState<{
     currentPageId: string;
@@ -1088,6 +1091,7 @@ function WallboardPlaylistPageFrame({
     '--wallboard-page-transition-duration': `${transitionDurationMs}ms`,
   } as CSSProperties;
   const pairedTransitionActive = active
+    && running
     && transition !== 'none'
     && visual.previousPageId !== null
     && pages.some((candidate) => candidate.id === visual.previousPageId);
@@ -1097,7 +1101,7 @@ function WallboardPlaylistPageFrame({
     visual.previousPageId,
     pairedTransitionActive,
     active,
-    hasLiveFeed,
+    hasLiveFeed && running,
   );
   const resolvedFlipDirection = resolveWallboardFlipDirection(
     flipDirection,
@@ -1146,6 +1150,7 @@ function WallboardPlaylistPageFrame({
               now={now}
               pageDeadlineAt={layer.role === 'current' ? pageDeadlineAt : null}
               running={layer.running}
+              adminPreview={adminPreview}
             />
           </div>
         ))}
@@ -1218,6 +1223,7 @@ interface WallboardPageContentProps {
   now: number;
   pageDeadlineAt: string | null;
   running?: boolean;
+  adminPreview?: boolean;
 }
 
 function WallboardPageContent({
@@ -1228,6 +1234,7 @@ function WallboardPageContent({
   now,
   pageDeadlineAt,
   running = hasLiveFeed,
+  adminPreview = false,
 }: WallboardPageContentProps) {
   const configuration = state.wallboard.configuration.map;
   const pagePresentation = ['incident_list', 'summary'].includes(page.type)
@@ -1250,7 +1257,7 @@ function WallboardPageContent({
   }
 
   if (page.type === 'video') {
-    return <WallboardVideoPage page={page} running={running} />;
+    return <WallboardVideoPage page={page} running={running} adminPreview={adminPreview} />;
   }
 
   if (page.type === 'photo_carousel') {
@@ -1391,9 +1398,19 @@ function WallboardPageContent({
   );
 }
 
-function WallboardVideoPage({ page, running }: { page: WallboardPage; running: boolean }) {
+function WallboardVideoPage({
+  page,
+  running,
+  adminPreview,
+}: {
+  page: WallboardPage;
+  running: boolean;
+  adminPreview: boolean;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const localVideoUrl = wallboardCacheableAssetUrl(page.options.url);
+  const localVideoUrl = adminPreview
+    ? wallboardAdminPreviewVideoUrl(page.options.url, page.options.media_asset_version)
+    : wallboardCacheableAssetUrl(page.options.url);
   const posterUrl = wallboardCacheableAssetUrl((page.options as WallboardPage['options'] & {
     poster_url?: unknown;
   }).poster_url);
@@ -1455,6 +1472,15 @@ function WallboardVideoPage({ page, running }: { page: WallboardPage; running: b
       />
     </div>
   );
+}
+
+function wallboardAdminPreviewVideoUrl(value: unknown, version: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const path = value.trim();
+  if (!/^\/api\/admin\/wallboard-media\/assets\/[0-9A-HJKMNP-TV-Z]{26}\/content$/i.test(path)) return null;
+  return Number.isSafeInteger(version) && Number(version) >= 1
+    ? `${path}?v=${String(version)}`
+    : path;
 }
 
 function WallboardCalendarPage({
@@ -1637,6 +1663,8 @@ export function wallboardForecastDisplayBlocks(
   const precipitationProbability = metric('precipitation_probability_pct');
   const precipitation = metric('precipitation_mm');
   const windSpeed = metric('wind_speed_kmh');
+  const totalCloudCover = metric('cloud_cover_pct');
+  const lowCloudCover = metric('low_cloud_cover_pct');
   const daylightComplete = [
     forecast.daylight.sunrise_earliest,
     forecast.daylight.sunrise_latest,
@@ -1692,7 +1720,7 @@ export function wallboardForecastDisplayBlocks(
       stale: precipitationProbability?.stale === true || precipitation?.stale === true,
       details: [`Neerslag ${formatForecastMetricValue(precipitation)}`],
     }],
-    ['cloud_cover', simple('cloud_cover', 'cloud_cover_pct', 'Bewolking')],
+    ['cloud_cover', forecastCloudCoverDisplayBlock(lowCloudCover, totalCloudCover)],
     ['visibility', simple('visibility', 'visibility_m', 'Zichtbaarheid')],
     ['gnss_visible', simple('gnss_visible', 'gnss_satellites', 'Zichtbare satellieten')],
     ['kp_index', simple('kp_index', 'kp_index', 'Kp-index')],
@@ -1706,6 +1734,63 @@ export function wallboardForecastDisplayBlocks(
       const block = availableBlocks.get(key);
       return block === undefined ? [] : [block];
     });
+}
+
+function forecastCloudCoverDisplayBlock(
+  lowCloudCover: WallboardForecastMetric | undefined,
+  totalCloudCover: WallboardForecastMetric | undefined,
+): WallboardForecastDisplayBlock {
+  const metric = lowCloudCover ?? totalCloudCover;
+  const block = forecastMetricDisplayBlock(
+    'cloud_cover',
+    metric,
+    lowCloudCover === undefined ? 'Totale modelbewolking' : 'Lage bewolking',
+  );
+  if (lowCloudCover === undefined) return block;
+
+  const layers = lowCloudCover.cloud_layers;
+  const observation = lowCloudCover.cloud_base_observation;
+  return {
+    ...block,
+    details: [
+      ...forecastCloudBaseObservationDetails(observation),
+      ...(observation !== null && observation.status !== 'unknown' ? [] : [
+        lowCloudCover.source_height_label
+          ?? 'Lage bewolking en mist tot circa 3 km; geen meting op vaste hoogte',
+      ]),
+      ...(layers === null ? [] : [
+        `Model: 0-3 km ${formatForecastNumber(layers.low_pct)}%; 3-8 km ${formatForecastNumber(layers.mid_pct)}%; >8 km ${formatForecastNumber(layers.high_pct)}%; totaal ${formatForecastNumber(layers.total_pct)}%`,
+      ]),
+    ],
+  };
+}
+
+function forecastCloudBaseObservationDetails(
+  observation: WallboardForecastMetric['cloud_base_observation'],
+): string[] {
+  if (observation === null || observation.status === 'unknown') {
+    return ['Actuele KNMI-wolkenbasis niet beschikbaar'];
+  }
+
+  const station = observation.station;
+  const stationDetail = station === null || observation.observed_at === null
+    ? null
+    : `Puntmeting ${station.name} (${formatForecastNumber(station.distance_km)} km), ${formatWallboardForecastUpdateTime(observation.observed_at)}; kaartkleur volgt model`;
+  if (observation.status === 'no_cloud_detected') {
+    return [
+      `KNMI heeft in ${observation.period_minutes} min geen wolkenbasis gedetecteerd`,
+      ...(stationDetail === null ? [] : [stationDetail]),
+    ];
+  }
+
+  const baseLayer = observation.layers.find((layer) => layer.height_m === observation.base_height_m);
+  const cover = baseLayer?.cover_okta === null || baseLayer?.cover_okta === undefined
+    ? ''
+    : ` (${baseLayer.cover_okta}/8 bewolkt)`;
+  return [
+    `Laagste KNMI-wolkenbasis in ${observation.period_minutes} min: ${formatForecastNumber(observation.base_height_m ?? 0)} m boven zeeniveau${cover}`,
+    ...(stationDetail === null ? [] : [stationDetail]),
+  ];
 }
 
 function forecastMetricDisplayBlock(
@@ -2566,12 +2651,21 @@ function RecentIncidentList({ incidents }: { incidents: WallboardStateRecentInci
   );
 }
 
-function WallboardTicker({ items }: { items: WallboardTickerItem[] }) {
+export function WallboardTicker({
+  items,
+  running = true,
+}: {
+  items: WallboardTickerItem[];
+  running?: boolean;
+}) {
   const durationSeconds = wallboardTickerDurationSeconds(items);
   const style = { '--wallboard-ticker-duration': `${durationSeconds}s` } as CSSProperties;
 
   return (
-    <section className="wallboard-display__ticker" aria-labelledby="wallboard-ticker-title">
+    <section
+      className={running ? 'wallboard-display__ticker' : 'wallboard-display__ticker wallboard-display__ticker--paused'}
+      aria-labelledby="wallboard-ticker-title"
+    >
       <h2 className="sr-only" id="wallboard-ticker-title">Actuele berichten</h2>
       <ul className="sr-only">
         {items.map((item, index) => <li key={`accessible-${item.source_id}-${index}`}>{item.source_label}: {item.text}</li>)}
@@ -2826,8 +2920,12 @@ export function normalizeWallboardForecastState(value: unknown): WallboardForeca
       ) return normalized;
 
       const metrics = rawPage.metrics.flatMap(normalizeWallboardForecastMetric);
-      const expectedKeys = new Set<WallboardForecastMetric['key']>(WALLBOARD_FORECAST_METRIC_KEYS);
-      if (metrics.length !== expectedKeys.size || metrics.some((metric) => !expectedKeys.delete(metric.key))) {
+      const metricKeys = new Set(metrics.map((metric) => metric.key));
+      const requiredKeys = WALLBOARD_FORECAST_METRIC_KEYS.filter((key) => key !== 'low_cloud_cover_pct');
+      if (
+        metricKeys.size !== metrics.length
+        || requiredKeys.some((key) => !metricKeys.has(key))
+      ) {
         return normalized;
       }
       const locationMode = location.mode === 'address' ? 'address' : 'netherlands';
@@ -2887,6 +2985,7 @@ const WALLBOARD_FORECAST_METRIC_KEYS = [
   'precipitation_probability_pct',
   'precipitation_mm',
   'cloud_cover_pct',
+  'low_cloud_cover_pct',
   'visibility_m',
   'kp_index',
   'gnss_satellites',
@@ -2936,7 +3035,103 @@ function normalizeWallboardForecastMetric(value: unknown): WallboardForecastMetr
       : null,
     height_samples_agl_m: normalizeForecastWindSamples(value.height_samples_agl_m),
     max_non_red_wind_height_agl_m: maximumWindHeight,
+    cloud_layers: normalizeForecastCloudLayers(value.cloud_layers),
+    cloud_base_observation: normalizeForecastCloudBaseObservation(value.cloud_base_observation),
   }];
+}
+
+function normalizeForecastCloudLayers(value: unknown): WallboardForecastMetric['cloud_layers'] {
+  if (!isRecord(value)) return null;
+  const percentage = (candidate: unknown): number | null => (
+    typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0 && candidate <= 100
+      ? candidate
+      : null
+  );
+  const low = percentage(value.low_pct);
+  const mid = percentage(value.mid_pct);
+  const high = percentage(value.high_pct);
+  const total = percentage(value.total_pct);
+  if (low === null || mid === null || high === null || total === null) return null;
+
+  return { low_pct: low, mid_pct: mid, high_pct: high, total_pct: total };
+}
+
+function normalizeForecastCloudBaseObservation(
+  value: unknown,
+): WallboardForecastMetric['cloud_base_observation'] {
+  if (!isRecord(value)) return null;
+  if (
+    !['measured', 'no_cloud_detected', 'unknown'].includes(String(value.status))
+    || value.period_minutes !== 30
+    || value.height_reference !== 'mean_sea_level'
+    || value.attribution !== 'KNMI'
+    || !Array.isArray(value.layers)
+    || value.layers.length > 3
+  ) {
+    return null;
+  }
+
+  const status = value.status as NonNullable<WallboardForecastMetric['cloud_base_observation']>['status'];
+  const baseHeight = normalizeBoundedInteger(value.base_height_m, 0, 20_000);
+  const layers = value.layers.flatMap((candidate) => {
+    if (!isRecord(candidate)) return [];
+    const height = normalizeBoundedInteger(candidate.height_m, 0, 20_000);
+    const cover = candidate.cover_okta === null
+      ? null
+      : normalizeBoundedInteger(candidate.cover_okta, 0, 8);
+    return height === null || (candidate.cover_okta !== null && cover === null)
+      ? []
+      : [{ height_m: height, cover_okta: cover }];
+  });
+  if (layers.length !== value.layers.length) return null;
+
+  const station = isRecord(value.station)
+    && typeof value.station.id === 'string'
+    && value.station.id.trim() !== ''
+    && typeof value.station.name === 'string'
+    && value.station.name.trim() !== ''
+    && typeof value.station.distance_km === 'number'
+    && Number.isFinite(value.station.distance_km)
+    && value.station.distance_km >= 0
+    && value.station.distance_km <= 1_000
+    ? {
+        id: value.station.id.trim().slice(0, 80),
+        name: value.station.name.trim().slice(0, 100),
+        distance_km: value.station.distance_km,
+      }
+    : null;
+  const observedAt = typeof value.observed_at === 'string' && Number.isFinite(Date.parse(value.observed_at))
+    ? value.observed_at
+    : null;
+
+  if (status === 'unknown') {
+    return baseHeight === null && layers.length === 0 && station === null && observedAt === null
+      ? {
+          status,
+          base_height_m: null,
+          height_reference: 'mean_sea_level',
+          layers: [],
+          station: null,
+          observed_at: null,
+          period_minutes: 30,
+          attribution: 'KNMI',
+        }
+      : null;
+  }
+  if (station === null || observedAt === null) return null;
+  if (status === 'measured' && baseHeight === null) return null;
+  if (status === 'no_cloud_detected' && (baseHeight !== null || layers.length !== 0)) return null;
+
+  return {
+    status,
+    base_height_m: baseHeight,
+    height_reference: 'mean_sea_level',
+    layers,
+    station,
+    observed_at: observedAt,
+    period_minutes: 30,
+    attribution: 'KNMI',
+  };
 }
 
 function normalizeWallboardForecastAggregation(
@@ -3210,7 +3405,10 @@ function safeWallboardNewsUrl(value: string): string | null {
 
 function safeWallboardNewsImageUrl(value: string): string | null {
   const trimmed = value.trim();
-  return /^\/api\/wallboard\/news-images\/[a-f0-9]{64}$/.test(trimmed) ? trimmed : null;
+  return /^\/api\/wallboard\/news-images\/[a-f0-9]{64}$/.test(trimmed)
+    || /^\/api\/admin\/wallboard-news-images\/[a-f0-9]{64}$/.test(trimmed)
+    ? trimmed
+    : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

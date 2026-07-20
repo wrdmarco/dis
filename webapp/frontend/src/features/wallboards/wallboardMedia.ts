@@ -93,14 +93,23 @@ export interface WallboardMediaFolderTreeItem extends WallboardMediaFolder {
   depth: number;
 }
 
-const ADMIN_ASSET_CONTENT_PATH = /^\/api\/admin\/wallboard-media\/assets\/[0-9A-HJKMNP-TV-Z]{26}\/content$/i;
+const ADMIN_ASSET_VERSIONED_CONTENT_PATH = /^(\/api\/admin\/wallboard-media\/assets\/[0-9A-HJKMNP-TV-Z]{26}\/content)(?:\?v=[1-9]\d{0,9})?$/i;
 const ADMIN_ASSET_THUMBNAIL_PATH = /^\/api\/admin\/wallboard-media\/assets\/[0-9A-HJKMNP-TV-Z]{26}\/thumbnail$/i;
 const WALLBOARD_ASSET_CONTENT_PATH = /^\/api\/wallboard\/media\/[0-9A-HJKMNP-TV-Z]{26}$/i;
 
 export function wallboardMediaImageUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const path = value.trim();
-  return ADMIN_ASSET_CONTENT_PATH.test(path) || WALLBOARD_ASSET_CONTENT_PATH.test(path) ? path : null;
+  return ADMIN_ASSET_VERSIONED_CONTENT_PATH.test(path) || WALLBOARD_ASSET_CONTENT_PATH.test(path) ? path : null;
+}
+
+export function wallboardAdminMediaVersionedUrl(value: string, version: unknown): string {
+  const match = ADMIN_ASSET_VERSIONED_CONTENT_PATH.exec(value);
+  return match !== null
+    && Number.isSafeInteger(version)
+    && Number(version) >= 1
+    ? `${match[1]}?v=${String(version)}`
+    : value;
 }
 
 export function wallboardMediaThumbnailUrl(value: unknown): string | null {

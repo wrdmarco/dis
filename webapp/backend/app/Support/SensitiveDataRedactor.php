@@ -14,6 +14,7 @@ final class SensitiveDataRedactor
      */
     private const SENSITIVE_KEY_FRAGMENTS = [
         'authorization',
+        'api_key',
         'cookie',
         'credential',
         'csrf',
@@ -57,8 +58,8 @@ final class SensitiveDataRedactor
             '/\b([a-z][a-z0-9+.-]*:\/\/)[^\/@\s]+:[^@\s]+@/i' => '$1'.self::REDACTED.'@',
             '/\b((?=[A-Z0-9_.-]*(?:APP[_.-]?KEY|API[_.-]?KEY|ACCESS[_.-]?KEY|DEVELOPER[_.-]?KEY|PASSWORD|PASSWD|PASSPHRASE|PRIVATE[_.-]?KEY|SECRET|TOKEN|CREDENTIAL|DATABASE[_.-]?URL|REDIS[_.-]?URL|MAIL[_.-]?URL|DSN)[A-Z0-9_.-]*\s*[:=])[A-Z][A-Z0-9_.-]*\s*[:=]\s*)(?:"[^"\r\n]*"|\'[^\'\r\n]*\'|[^\s\r\n]+)/i' => '$1'.self::REDACTED,
             '/(?<![A-Za-z0-9_-])(--?(?:password|passwd|passphrase|secret|token|api[-_]?key|access[-_]?key|developer[-_]?key|private[-_]?key))(?:=|\s+)(?:"[^"\r\n]*"|\'[^\'\r\n]*\'|[^\s\r\n]+)/i' => '$1 '.self::REDACTED,
-            '/([?&](?:access_token|refresh_token|token|password|secret|developer_key|csrf_token|xsrf_token|code)=)[^&\s]+/i' => '$1'.self::REDACTED,
-            '/("(?:access_token|refresh_token|token|password|secret|csrf_token|xsrf_token|two_factor_code|totp|otp)"\s*:\s*")[^"]*(")/i' => '$1'.self::REDACTED.'$2',
+            '/([?&](?:access_token|refresh_token|token|password|secret|api[-_]?key|developer_key|csrf_token|xsrf_token|code)=)[^&\s]+/i' => '$1'.self::REDACTED,
+            '/("(?:access_token|refresh_token|token|password|secret|api[-_]?key|csrf_token|xsrf_token|two_factor_code|totp|otp)"\s*:\s*")[^"]*(")/i' => '$1'.self::REDACTED.'$2',
             '/\b((?:__Host-)?dis_session|XSRF-TOKEN)=([^;\s]+)/i' => '$1='.self::REDACTED,
         ];
 

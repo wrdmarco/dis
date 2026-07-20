@@ -27,6 +27,7 @@ final class SensitiveLoggingTest extends TestCase
             'password' => 'correct horse battery staple',
             'nested' => [
                 'two_factor_code' => '123456',
+                'knmi_api_key' => 'structured-knmi-secret',
                 'x_dis_developer_key' => 'structured-developer-secret',
                 'safe' => 'visible',
                 'message' => 'Authorization: Bearer bearer-secret Cookie: __Host-dis_session=session-secret X-DIS-Developer-Key: header-developer-secret',
@@ -40,6 +41,7 @@ final class SensitiveLoggingTest extends TestCase
         $this->assertSensitiveValuesMissing($redacted, [
             'correct horse battery staple',
             '123456',
+            'structured-knmi-secret',
             'bearer-secret',
             'session-secret',
             'structured-developer-secret',

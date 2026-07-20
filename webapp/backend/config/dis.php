@@ -89,6 +89,10 @@ return [
             'geocode_cache_seconds' => (int) env('WALLBOARD_UAV_FORECAST_GEOCODE_CACHE_SECONDS', 2592000),
             'weather_stale_seconds' => (int) env('WALLBOARD_UAV_FORECAST_WEATHER_STALE_SECONDS', 1800),
             'kp_stale_seconds' => (int) env('WALLBOARD_UAV_FORECAST_KP_STALE_SECONDS', 14400),
+            'knmi_edr_api_key' => env('KNMI_EDR_API_KEY'),
+            'cloud_base_station_cache_seconds' => (int) env('WALLBOARD_UAV_CLOUD_BASE_STATION_CACHE_SECONDS', 86400),
+            'cloud_base_stale_seconds' => (int) env('WALLBOARD_UAV_CLOUD_BASE_STALE_SECONDS', 1800),
+            'cloud_base_max_distance_km' => (float) env('WALLBOARD_UAV_CLOUD_BASE_MAX_DISTANCE_KM', 30),
             // Application-owned reference points: one stable sample in every Dutch
             // province. National forecasts never depend on twelve geocoder calls.
             'province_reference_points' => [

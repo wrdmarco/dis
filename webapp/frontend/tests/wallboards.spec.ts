@@ -676,6 +676,26 @@ test('normalizes page-scoped news content and rejects unsafe article links', () 
     source_label: 'Luchtvaartnieuws',
     image_url: null,
   });
+  const adminPreview = normalizeWallboardNewsState({
+    generated_at: '2026-07-19T09:59:00Z',
+    pages: {
+      preview: {
+        items: [{
+          id: 'admin-preview-image',
+          source: 'ndt',
+          source_id: 'ndt',
+          source_label: 'Nationaal Drone Team',
+          title: 'Admin preview',
+          excerpt: 'Beveiligde previewafbeelding.',
+          url: 'https://nationaaldroneteam.nl/in_het_nieuws/preview/',
+          image_url: '/api/admin/wallboard-news-images/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          published_at: '2026-07-18T08:00:00Z',
+        }],
+      },
+    },
+  });
+  expect(adminPreview.pages.preview.items[0].image_url)
+    .toBe('/api/admin/wallboard-news-images/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
   expect(normalizeWallboardState({ ...stateFixture(), news: undefined as never }).news).toEqual({ pages: {}, generated_at: '' });
   expect(normalizeWallboardState({ ...stateFixture(), media: undefined as never }).media).toEqual({ photo_pages: {} });
 });
@@ -1581,12 +1601,16 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(createPage).toContain("useApiResource<WallboardPlaylist[]>('/admin/wallboard-playlists')");
   expect(createPage).toContain('router.replace(`/wallboards?screen=${encodeURIComponent(response.data.id)}`)');
   expect(playlistPreview).toContain('<dialog');
-  expect(playlistPreview).toContain('Alleen-lezen voorbeeld');
+  expect(playlistPreview).toContain('Live conceptpreview');
   expect(playlistPreview).not.toContain('useAuth');
   expect(playlistPreview).not.toContain('api.');
   expect(playlistPreview).not.toContain('dangerouslySetInnerHTML');
-  expect(playlistPreview).toContain('<WallboardRichText');
-  expect(playlistPreview).toContain("selectedPage.type === 'message' ? null : <h3>{selectedPage.name}</h3>");
+  expect(admin).toContain('`/admin/wallboard-playlists/${playlist.id}/preview-state`');
+  expect(admin).toContain("import('./WallboardPlaylistPreview')");
+  expect(playlistPreview).toContain('<WallboardPlaylistPageFrame');
+  expect(playlistPreview).toContain('<WallboardTicker');
+  expect(playlistPreview).toContain('running={contentRunning}');
+  expect(playlistPreview).toContain('wallboardEffectivePageTransition(configuration, page)');
   expect(richText).not.toContain('dangerouslySetInnerHTML');
   expect(richText).toContain("ALLOWED_MARKS = new Set<WallboardRichTextMark>(['bold', 'italic'])");
   expect(richTextEditor).toContain('aria-label="Opmaak voor mededeling"');

@@ -11,6 +11,7 @@ use App\Models\SystemSetting;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\KnmiEdrConfiguration;
 use App\Services\PasswordPolicy;
 use App\Services\RoleService;
 use App\Services\TwoFactorService;
@@ -30,6 +31,7 @@ final class AdminController extends Controller
 
     private const SENSITIVE_SETTING_KEYS = [
         'drone.aeret_api_key',
+        'weather.knmi_edr_api_key',
         'mail.password',
         'mail.microsoft365_client_secret',
         'firebase.service_account',
@@ -39,6 +41,7 @@ final class AdminController extends Controller
     public function __construct(
         private readonly AuditService $auditService,
         private readonly RoleService $roleService,
+        private readonly KnmiEdrConfiguration $knmiEdr,
     ) {}
 
     public function roles(): JsonResponse
@@ -255,7 +258,15 @@ final class AdminController extends Controller
                 ];
             });
 
-        return ApiResponse::success($settings);
+        if (! $settings->contains('key', KnmiEdrConfiguration::API_KEY_SETTING)) {
+            $settings->push([
+                'key' => KnmiEdrConfiguration::API_KEY_SETTING,
+                'value' => ['configured' => $this->knmiEdr->isConfigured()],
+                'is_sensitive' => true,
+            ]);
+        }
+
+        return ApiResponse::success($settings->sortBy('key')->values());
     }
 
     public function updateSettings(Request $request): JsonResponse
@@ -354,7 +365,8 @@ final class AdminController extends Controller
             'mobile.firebase_config' => $this->validateMobileFirebaseConfig($key, $value),
             'drone.aeret_map_url',
             'drone.aeret_api_url' => $this->validateNullableUrlSetting($key, $value, 2048),
-            'drone.aeret_api_key' => $this->validateStringSetting($key, $value, 2000),
+            'drone.aeret_api_key',
+            'weather.knmi_edr_api_key' => $this->validateOptionalSecretSetting($key, $value, 2000),
             'retention.push_logs_days',
             'retention.audit_logs_days',
             'retention.location_days' => $this->validateIntegerSetting($key, $value, 1, 3650),
@@ -420,6 +432,14 @@ final class AdminController extends Controller
             return ['configured' => filled($setting->value)];
         }
 
+        if ($setting->key === KnmiEdrConfiguration::API_KEY_SETTING) {
+            return ['configured' => $this->knmiEdr->isConfigured()];
+        }
+
+        if ($setting->key === 'drone.aeret_api_key') {
+            return ['configured' => filled($setting->value)];
+        }
+
         return $setting->is_sensitive ? null : $setting->value;
     }
 
@@ -446,6 +466,25 @@ final class AdminController extends Controller
 
         if (mb_strlen($value) > $max) {
             throw ValidationException::withMessages(["settings.$key" => ["The setting value may not be greater than $max characters."]]);
+        }
+
+        return $value;
+    }
+
+    private function validateOptionalSecretSetting(string $key, mixed $value, int $max): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        $value = trim($this->validateStringSetting($key, $value, $max));
+        if ($value === '') {
+            return '';
+        }
+        if (preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+            throw ValidationException::withMessages([
+                "settings.$key" => ['The setting value may not contain control characters.'],
+            ]);
         }
 
         return $value;

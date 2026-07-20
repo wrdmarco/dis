@@ -171,6 +171,18 @@ final class AppServiceProvider extends ServiceProvider
             perClient: 30,
             perUser: 60,
         ));
+        RateLimiter::for('wallboard-playlist-preview', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'wallboard-playlist-preview',
+            perClient: 30,
+            perUser: 60,
+        ));
+        RateLimiter::for('wallboard-preview-news-image', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'wallboard-preview-news-image',
+            perClient: 120,
+            perUser: 240,
+        ));
         RateLimiter::for('wallboard-focus-preview', function (Request $request): array {
             $actor = hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'));
             $wallboard = $request->route('wallboard');

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\Admin\AssignWallboardPlaylistRequest;
 use App\Http\Requests\Admin\DeleteWallboardPlaylistRequest;
+use App\Http\Requests\Admin\PreviewWallboardPlaylistRequest;
 use App\Http\Requests\Admin\StoreWallboardPlaylistRequest;
 use App\Http\Requests\Admin\UpdateWallboardPlaylistRequest;
 use App\Http\Resources\WallboardPlaylistAssignmentResource;
@@ -11,6 +12,7 @@ use App\Http\Resources\WallboardPlaylistResource;
 use App\Http\Responses\ApiResponse;
 use App\Models\Wallboard;
 use App\Models\WallboardPlaylist;
+use App\Services\WallboardPlaylistPreviewService;
 use App\Services\WallboardPlaylistService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +20,10 @@ use Symfony\Component\HttpFoundation\Response;
 
 final class AdminWallboardPlaylistController extends Controller
 {
-    public function __construct(private readonly WallboardPlaylistService $playlists) {}
+    public function __construct(
+        private readonly WallboardPlaylistService $playlists,
+        private readonly WallboardPlaylistPreviewService $preview,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -44,6 +49,16 @@ final class AdminWallboardPlaylistController extends Controller
         $playlist = $this->playlists->show($wallboardPlaylist);
 
         return ApiResponse::success((new WallboardPlaylistResource($playlist))->resolve($request));
+    }
+
+    public function previewState(
+        PreviewWallboardPlaylistRequest $request,
+        WallboardPlaylist $wallboardPlaylist,
+    ): JsonResponse {
+        return ApiResponse::success($this->preview->state(
+            $wallboardPlaylist,
+            (array) $request->validated('configuration'),
+        ));
     }
 
     public function update(

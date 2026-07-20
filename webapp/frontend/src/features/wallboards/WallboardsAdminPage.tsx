@@ -1,4 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import {
   AlertTriangle,
@@ -28,6 +29,7 @@ import type {
   WallboardFocusKind,
   WallboardPlaylist,
   WallboardPlaylistAssignment,
+  WallboardState,
 } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import {
@@ -47,7 +49,6 @@ import {
   WallboardConfigurationEditor,
   WallboardPageTypeIcon,
 } from './WallboardConfigurationEditor';
-import { WallboardPlaylistPreview } from './WallboardPlaylistPreview';
 import { WallboardMediaLibrary } from './WallboardMediaLibrary';
 import type { WallboardMediaPlaylist } from './wallboardMedia';
 import {
@@ -56,6 +57,10 @@ import {
 } from './wallboardPlaylistValidation';
 
 const ADMIN_STATUS_REFRESH_MILLISECONDS = 2500;
+const WallboardPlaylistPreview = dynamic(
+  () => import('./WallboardPlaylistPreview').then((module) => module.WallboardPlaylistPreview),
+  { ssr: false },
+);
 const WALLBOARD_FOCUS_PREVIEW_OPTIONS: ReadonlyArray<{
   kind: WallboardFocusKind;
   label: string;
@@ -982,6 +987,14 @@ function PlaylistEditor({
     }
   }
 
+  const loadPreviewState = useCallback(async (configuration: WallboardConfiguration): Promise<WallboardState> => {
+    const response = await api.post<WallboardState>(`/admin/wallboard-playlists/${playlist.id}/preview-state`, {
+      configuration,
+    });
+
+    return response.data;
+  }, [api, playlist.id]);
+
   return (
     <form className="wallboard-editor wallboard-playlist-editor" onSubmit={savePlaylist}>
       <div className="wallboard-editor__heading">
@@ -1001,6 +1014,7 @@ function PlaylistEditor({
         <WallboardPlaylistPreview
           playlistName={draftName.trim() || playlist.name}
           configuration={draft}
+          loadState={loadPreviewState}
           onClose={() => setPreviewOpen(false)}
         />
       ) : null}

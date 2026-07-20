@@ -47,7 +47,9 @@ test('renders stable keyed page layers and gates news, photo and video runtimes'
   expect(DISPLAY_SOURCE).toContain('key={layer.page.id}');
   expect(PLAYLIST_FRAME_SOURCE).not.toContain('key={visual.sequence}');
   expect(DISPLAY_SOURCE).toContain('running={layer.running}');
-  expect(DISPLAY_SOURCE).toContain('<WallboardVideoPage page={page} running={running} />');
+  expect(DISPLAY_SOURCE).toContain('<WallboardVideoPage page={page} running={running} adminPreview={adminPreview} />');
   expect(DISPLAY_SOURCE).toContain('autoPlay={running}');
   expect(DISPLAY_SOURCE).toContain('wallboardVideoEmbedUrl(page.options.url, running)');
+  expect(DISPLAY_SOURCE).toContain('wallboardAdminPreviewVideoUrl(page.options.url, page.options.media_asset_version)');
+  expect(DISPLAY_SOURCE).toContain('/^\\/api\\/admin\\/wallboard-media\\/assets\\/');
 });

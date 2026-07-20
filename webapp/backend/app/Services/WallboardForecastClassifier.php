@@ -72,6 +72,12 @@ final class WallboardForecastClassifier
                 $this->threshold('cloud_cover_pct', 'orange_max', 85),
                 '%',
             ),
+            'low_cloud_cover_pct' => $this->maximumBands(
+                (float) $value,
+                $this->threshold('cloud_cover_pct', 'green_max', 50),
+                $this->threshold('cloud_cover_pct', 'orange_max', 85),
+                '%',
+            ),
             'visibility_m' => $this->minimumBands(
                 (float) $value,
                 $this->threshold('visibility_m', 'green_min', 5000),

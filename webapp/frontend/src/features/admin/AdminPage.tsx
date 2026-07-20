@@ -12,6 +12,13 @@ import { useAuth } from '../auth/AuthContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiClientError } from '../../lib/apiClient';
 import { MapPin } from 'lucide-react';
+import {
+  buildAdminApiSettingsPayload,
+  KNMI_EDR_COLLECTION_ENDPOINT,
+  mapAdminApiSettings,
+  preserveAdminApiSecrets,
+  type AdminApiSettingsForm,
+} from './adminApiSettings';
 
 interface MobileSettingsForm {
   tenantName: string;
@@ -53,9 +60,6 @@ interface ManagedSettingsForm {
   locationRetentionDays: string;
   deviceHeartbeatIntervalMinutes: string;
   androidApplicationId: string;
-  aeretMapUrl: string;
-  aeretApiUrl: string;
-  aeretApiKey: string;
 }
 
 interface PasswordPolicySettingsForm {
@@ -89,12 +93,13 @@ const incidentTimelineVisibilityOptions = [
   { value: 'audit', label: 'Auditacties' },
 ] as const;
 
-type AdminTab = 'firebase' | 'mail' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'apps' | 'store' | 'pilotReport' | 'incidentForm' | 'settings';
+type AdminTab = 'firebase' | 'mail' | 'api' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'apps' | 'store' | 'pilotReport' | 'incidentForm' | 'settings';
 type AdminPageMode = 'admin' | 'forms';
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'firebase', label: 'Push' },
   { id: 'mail', label: 'Mail' },
+  { id: 'api', label: 'API' },
   { id: 'system', label: 'Systeem' },
   { id: 'passwords', label: 'Wachtwoorden' },
   { id: 'developer', label: 'Ontwikkel' },
@@ -163,11 +168,13 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const incidentFormConfig = useApiResource<IncidentFormConfig>('/admin/incident-form/config', canManageSettings && mode === 'forms');
   const mobileSettings = useMemo(() => toMobileSettingsForm(settings.data ?? []), [settings.data]);
   const managedSettings = useMemo(() => toManagedSettingsForm(settings.data ?? []), [settings.data]);
+  const adminApiSettings = useMemo(() => mapAdminApiSettings(settings.data ?? []), [settings.data]);
   const passwordPolicySettings = useMemo(() => toPasswordPolicySettingsForm(settings.data ?? []), [settings.data]);
   const appLinks = useMemo(() => toAppLinksForm(settings.data ?? []), [settings.data]);
   const operationalMapCommandCenters = useMemo(() => toOperationalMapCommandCenters(settings.data ?? []), [settings.data]);
   const [form, setForm] = useState<MobileSettingsForm>(mobileSettings);
   const [managedForm, setManagedForm] = useState<ManagedSettingsForm>(managedSettings);
+  const [adminApiForm, setAdminApiForm] = useState<AdminApiSettingsForm>(adminApiSettings.form);
   const [passwordPolicyForm, setPasswordPolicyForm] = useState<PasswordPolicySettingsForm>(passwordPolicySettings);
   const [appLinksForm, setAppLinksForm] = useState<AppLinksForm>(appLinks);
   const [commandCenters, setCommandCenters] = useState<OperationalMapCommandCenterForm[]>(operationalMapCommandCenters);
@@ -180,6 +187,9 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const [managedSaving, setManagedSaving] = useState(false);
   const [managedError, setManagedError] = useState<string | null>(null);
   const [managedMessage, setManagedMessage] = useState<string | null>(null);
+  const [adminApiSaving, setAdminApiSaving] = useState(false);
+  const [adminApiError, setAdminApiError] = useState<string | null>(null);
+  const [adminApiMessage, setAdminApiMessage] = useState<string | null>(null);
   const [tokenActionId, setTokenActionId] = useState<string | null>(null);
   const [tokenActionError, setTokenActionError] = useState<string | null>(null);
   const [developerActionError, setDeveloperActionError] = useState<string | null>(null);
@@ -218,9 +228,12 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       mailMicrosoft365ClientSecret: current.mailMicrosoft365ClientSecret,
       firebaseServicePrivateKey: current.firebaseServicePrivateKey,
       apnsPrivateKey: current.apnsPrivateKey,
-      aeretApiKey: current.aeretApiKey,
     }));
   }, [managedSettings, settings.data]);
+
+  useEffect(() => {
+    setAdminApiForm((current) => preserveAdminApiSecrets(current, adminApiSettings.form));
+  }, [adminApiSettings]);
 
   useEffect(() => {
     setPasswordPolicyForm(passwordPolicySettings);
@@ -441,7 +454,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     }
   }
 
-  async function saveManagedSettings() {
+  async function saveSystemSettings() {
     setManagedSaving(true);
     setManagedError(null);
     setManagedMessage(null);
@@ -452,21 +465,31 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
         'retention.location_days': Number(managedForm.locationRetentionDays || 30),
         'devices.heartbeat_interval_minutes': Number(normalizeHeartbeatInterval(managedForm.deviceHeartbeatIntervalMinutes)),
         'updates.android.application_id': managedForm.androidApplicationId,
-        'drone.aeret_map_url': managedForm.aeretMapUrl.trim() === '' ? null : managedForm.aeretMapUrl,
-        'drone.aeret_api_url': managedForm.aeretApiUrl.trim() === '' ? null : managedForm.aeretApiUrl,
       };
 
-      if (managedForm.aeretApiKey.trim() !== '') {
-        payload['drone.aeret_api_key'] = managedForm.aeretApiKey;
-      }
-
       await api.patch('/admin/settings', { settings: payload });
-      setManagedForm((current) => ({ ...current, aeretApiKey: '' }));
       await settings.reload();
     } catch (error) {
-      setManagedError(error instanceof Error ? error.message : 'Instellingen opslaan mislukt.');
+      setManagedError(error instanceof Error ? error.message : 'Systeeminstellingen opslaan mislukt.');
     } finally {
       setManagedSaving(false);
+    }
+  }
+
+  async function saveAdminApiSettings() {
+    setAdminApiSaving(true);
+    setAdminApiError(null);
+    setAdminApiMessage(null);
+
+    try {
+      await api.patch('/admin/settings', { settings: buildAdminApiSettingsPayload(adminApiForm) });
+      setAdminApiForm((current) => ({ ...current, aeretApiKey: '', knmiEdrApiKey: '' }));
+      await settings.reload();
+      setAdminApiMessage('API-instellingen opgeslagen.');
+    } catch (error) {
+      setAdminApiError(error instanceof Error ? error.message : 'API-instellingen opslaan mislukt.');
+    } finally {
+      setAdminApiSaving(false);
     }
   }
 
@@ -1136,6 +1159,80 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
         </Panel>
       ) : null}
 
+      {activeTab === 'api' ? (
+        <Panel title="Externe API's">
+          <div className="settings-group">
+            <h3>KNMI Data Platform (EDR)</h3>
+            <p className="muted-text">D.I.S gebruikt deze KNMI-collectie voor actuele wolkenbasismetingen in de UAV Forecast.</p>
+            <dl className="definition-grid">
+              <dt>API-key</dt>
+              <dd>{adminApiSettings.knmiEdrApiKeyConfigured ? 'Ingesteld' : 'Niet ingesteld'}</dd>
+            </dl>
+            <div className="form-grid">
+              <label className="form-grid__wide">
+                KNMI EDR collection endpoint
+                <input className="mono" readOnly value={KNMI_EDR_COLLECTION_ENDPOINT} />
+                <small>Dit vaste endpoint wordt door D.I.S beheerd en kan hier niet worden gewijzigd.</small>
+              </label>
+              <label className="form-grid__wide">
+                KNMI EDR API-key
+                <input
+                  type="password"
+                  value={adminApiForm.knmiEdrApiKey}
+                  placeholder="Ongewijzigd laten"
+                  onChange={(event) => setAdminApiForm((current) => ({ ...current, knmiEdrApiKey: event.target.value }))}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="settings-group">
+            <h3>Aeret</h3>
+            <dl className="definition-grid">
+              <dt>API-key</dt>
+              <dd>{adminApiSettings.aeretApiKeyConfigured ? 'Ingesteld' : 'Niet ingesteld'}</dd>
+            </dl>
+            <div className="form-grid">
+              <label className="form-grid__wide">
+                Aeret dronekaart URL
+                <input
+                  type="url"
+                  value={adminApiForm.aeretMapUrl}
+                  placeholder="https://aeret.kaartviewer.nl/?@dpf_basic"
+                  onChange={(event) => setAdminApiForm((current) => ({ ...current, aeretMapUrl: event.target.value }))}
+                />
+              </label>
+              <label className="form-grid__wide">
+                Aeret API endpoint
+                <input
+                  type="url"
+                  value={adminApiForm.aeretApiUrl}
+                  placeholder="https://..."
+                  onChange={(event) => setAdminApiForm((current) => ({ ...current, aeretApiUrl: event.target.value }))}
+                />
+              </label>
+              <label className="form-grid__wide">
+                Aeret API-key
+                <input
+                  type="password"
+                  value={adminApiForm.aeretApiKey}
+                  placeholder="Ongewijzigd laten"
+                  onChange={(event) => setAdminApiForm((current) => ({ ...current, aeretApiKey: event.target.value }))}
+                />
+              </label>
+            </div>
+          </div>
+
+          {adminApiError ? <p className="error-text">{adminApiError}</p> : null}
+          {adminApiMessage ? <p className="success-text">{adminApiMessage}</p> : null}
+          <div className="actions-row">
+            <button className="primary-button" type="button" onClick={saveAdminApiSettings} disabled={adminApiSaving}>
+              {adminApiSaving ? 'Opslaan...' : 'API-instellingen opslaan'}
+            </button>
+          </div>
+        </Panel>
+      ) : null}
+
       {activeTab === 'system' ? (
         <Panel title="Beheerbare systeeminstellingen">
           <div className="form-grid">
@@ -1160,22 +1257,10 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               <input type="number" min="15" max="60" value={managedForm.deviceHeartbeatIntervalMinutes} onChange={(event) => setManagedForm((current) => ({ ...current, deviceHeartbeatIntervalMinutes: event.target.value }))} />
               <small>Standaard 15. Offline na ongeveer 2x dit interval.</small>
             </label>
-            <label className="form-grid__wide">
-              Aeret dronekaart URL
-              <input value={managedForm.aeretMapUrl} placeholder="https://aeret.kaartviewer.nl/?@dpf_basic" onChange={(event) => setManagedForm((current) => ({ ...current, aeretMapUrl: event.target.value }))} />
-            </label>
-            <label className="form-grid__wide">
-              Aeret API endpoint
-              <input value={managedForm.aeretApiUrl} placeholder="https://..." onChange={(event) => setManagedForm((current) => ({ ...current, aeretApiUrl: event.target.value }))} />
-            </label>
-            <label className="form-grid__wide">
-              Aeret API key
-              <input type="password" value={managedForm.aeretApiKey} placeholder="Ongewijzigd laten" onChange={(event) => setManagedForm((current) => ({ ...current, aeretApiKey: event.target.value }))} />
-            </label>
           </div>
           {managedError ? <p className="error-text">{managedError}</p> : null}
           <div className="actions-row">
-            <button className="primary-button" type="button" onClick={saveManagedSettings} disabled={managedSaving}>
+            <button className="primary-button" type="button" onClick={saveSystemSettings} disabled={managedSaving}>
               {managedSaving ? 'Opslaan...' : 'Systeeminstellingen opslaan'}
             </button>
           </div>
@@ -3079,9 +3164,6 @@ function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
     locationRetentionDays: asStringOrNumber(byKey.get('retention.location_days'), '30'),
     deviceHeartbeatIntervalMinutes: normalizeHeartbeatInterval(byKey.get('devices.heartbeat_interval_minutes')),
     androidApplicationId: asString(byKey.get('updates.android.application_id')) || 'nl.wrdmarco.dis',
-    aeretMapUrl: asString(byKey.get('drone.aeret_map_url')) || 'https://aeret.kaartviewer.nl/?@dpf_basic',
-    aeretApiUrl: asString(byKey.get('drone.aeret_api_url')),
-    aeretApiKey: '',
   };
 }
 

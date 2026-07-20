@@ -6,6 +6,7 @@ import {
   WALLBOARD_MEDIA_MAX_BATCH_FILES,
   WALLBOARD_MEDIA_MAX_VIDEO_UPLOAD_BYTES,
   WALLBOARD_MEDIA_MAX_UPLOAD_BYTES,
+  wallboardAdminMediaVersionedUrl,
   wallboardMediaAssetIds,
   wallboardMediaFileValidationMessage,
   wallboardMediaFolderTree,
@@ -50,6 +51,10 @@ test('allows only exact same-origin media content paths in image elements', () =
   const id = '01KXW0QZTP0000000000000000';
   expect(wallboardMediaImageUrl(`/api/admin/wallboard-media/assets/${id}/content`))
     .toBe(`/api/admin/wallboard-media/assets/${id}/content`);
+  expect(wallboardMediaImageUrl(`/api/admin/wallboard-media/assets/${id}/content?v=7`))
+    .toBe(`/api/admin/wallboard-media/assets/${id}/content?v=7`);
+  expect(wallboardMediaImageUrl(`/api/admin/wallboard-media/assets/${id}/content?v=7&download=1`))
+    .toBeNull();
   expect(wallboardMediaImageUrl(`/api/wallboard/media/${id}`)).toBe(`/api/wallboard/media/${id}`);
   expect(wallboardMediaImageUrl(`/api/wallboard/media/${id.toLowerCase()}`)).toBe(`/api/wallboard/media/${id.toLowerCase()}`);
   expect(wallboardMediaImageUrl(`https://evil.example/api/wallboard/media/${id}`)).toBeNull();
@@ -58,6 +63,12 @@ test('allows only exact same-origin media content paths in image elements', () =
   expect(wallboardMediaThumbnailUrl(`/api/admin/wallboard-media/assets/${id}/thumbnail`))
     .toBe(`/api/admin/wallboard-media/assets/${id}/thumbnail`);
   expect(wallboardMediaThumbnailUrl(`/api/admin/wallboard-media/assets/${id}/content`)).toBeNull();
+  expect(wallboardAdminMediaVersionedUrl(`/api/admin/wallboard-media/assets/${id}/content`, 7))
+    .toBe(`/api/admin/wallboard-media/assets/${id}/content?v=7`);
+  expect(wallboardAdminMediaVersionedUrl(`/api/admin/wallboard-media/assets/${id}/content?v=3`, 7))
+    .toBe(`/api/admin/wallboard-media/assets/${id}/content?v=7`);
+  expect(wallboardAdminMediaVersionedUrl(`/api/wallboard/media/${id}`, 7))
+    .toBe(`/api/wallboard/media/${id}`);
 });
 
 test('derives the carousel page duration and applies the server maximum', () => {

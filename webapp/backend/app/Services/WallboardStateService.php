@@ -98,6 +98,24 @@ final class WallboardStateService
     }
 
     /**
+     * Build the live operational portion for an administrator preview. Current
+     * operational data remains visible, while focus, transient alerts,
+     * maintenance and incident-driven page takeover are deliberately disabled.
+     *
+     * @param  array<string, mixed>  $configuration
+     * @return array<string, mixed>
+     */
+    public function previewRuntime(Wallboard $wallboard, array $configuration): array
+    {
+        return $this->runtime(
+            $wallboard,
+            $configuration,
+            $this->activeAlarm(),
+            suppressTakeovers: true,
+        );
+    }
+
+    /**
      * @param  array<string, mixed>|null  $configuration
      * @return array<string, mixed>
      */
@@ -207,11 +225,19 @@ final class WallboardStateService
      * @param  array<string, mixed>  $configuration
      * @return array<string, mixed>
      */
-    private function runtime(Wallboard $wallboard, array $configuration, ?array $activeAlarm): array
-    {
-        $focus = $this->focusService->resolve($configuration, $wallboard);
-        $transientAlert = $this->transientAlert();
-        $display = $this->displayService->display($wallboard, $configuration, $activeAlarm !== null);
+    private function runtime(
+        Wallboard $wallboard,
+        array $configuration,
+        ?array $activeAlarm,
+        bool $suppressTakeovers = false,
+    ): array {
+        $focus = $suppressTakeovers ? null : $this->focusService->resolve($configuration, $wallboard);
+        $transientAlert = $suppressTakeovers ? null : $this->transientAlert();
+        $display = $this->displayService->display(
+            $wallboard,
+            $configuration,
+            $suppressTakeovers ? false : $activeAlarm !== null,
+        );
         $mapConfiguration = (array) $configuration['map'];
         $pages = collect((array) $configuration['pages']);
         $hasMapPage = $pages->contains(fn (mixed $page): bool => is_array($page)
@@ -245,7 +271,7 @@ final class WallboardStateService
 
         return [
             'generated_at' => ApiDateTime::now(),
-            'maintenance' => $this->maintenanceNoticeService->current(),
+            'maintenance' => $suppressTakeovers ? null : $this->maintenanceNoticeService->current(),
             'display' => $display,
             'operational_summary' => [
                 'pilot_availability' => $showsOperationalSummary

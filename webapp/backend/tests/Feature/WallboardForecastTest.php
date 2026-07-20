@@ -42,6 +42,9 @@ final class WallboardForecastTest extends TestCase
         $this->assertSame('orange', $classifier->classify('dew_point_c', 2)['status']);
         $this->assertSame('red', $classifier->classify('precipitation_probability_pct', 80)['status']);
         $this->assertSame('orange', $classifier->classify('cloud_cover_pct', 75)['status']);
+        $this->assertSame('green', $classifier->classify('low_cloud_cover_pct', 50)['status']);
+        $this->assertSame('orange', $classifier->classify('low_cloud_cover_pct', 75)['status']);
+        $this->assertSame('red', $classifier->classify('low_cloud_cover_pct', 86)['status']);
         $this->assertSame('unknown', $classifier->classify('wind_speed_kmh', 10, true)['status']);
         $this->assertSame('red', $classifier->overall([
             ['status' => 'green'],
@@ -63,6 +66,10 @@ final class WallboardForecastTest extends TestCase
             'https://api.open-meteo.com/v1/forecast*' => Http::response($this->weatherPayload(
                 latitude: 52.09,
                 longitude: 5.12,
+                cloudCover: 100,
+                cloudCoverLow: 20,
+                cloudCoverMid: 60,
+                cloudCoverHigh: 80,
                 visibility: 9000,
             )),
             'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json' => Http::response([
@@ -93,6 +100,33 @@ final class WallboardForecastTest extends TestCase
             ['height_agl_m' => 120, 'speed_kmh' => 35.0],
         ], $metrics['wind_speed_kmh']['height_samples_agl_m']);
         $this->assertSame(10, $metrics['wind_gust_kmh']['altitude_m']);
+        $this->assertSame(100.0, $metrics['cloud_cover_pct']['value']);
+        $this->assertSame('Totale modelbewolking', $metrics['cloud_cover_pct']['label']);
+        $this->assertNull($metrics['cloud_cover_pct']['altitude_m']);
+        $this->assertSame('Totale hemelkolom; geen meting op vaste hoogte', $metrics['cloud_cover_pct']['source_height_label']);
+        $this->assertSame(20.0, $metrics['low_cloud_cover_pct']['value']);
+        $this->assertSame('green', $metrics['low_cloud_cover_pct']['status']);
+        $this->assertNull($metrics['low_cloud_cover_pct']['altitude_m']);
+        $this->assertSame(
+            'Lage bewolking en mist tot 3 km; geen meting op vaste hoogte',
+            $metrics['low_cloud_cover_pct']['source_height_label'],
+        );
+        $this->assertSame([
+            'low_pct' => 20.0,
+            'mid_pct' => 60.0,
+            'high_pct' => 80.0,
+            'total_pct' => 100.0,
+        ], $metrics['low_cloud_cover_pct']['cloud_layers']);
+        $this->assertSame([
+            'status' => 'unknown',
+            'base_height_m' => null,
+            'height_reference' => 'mean_sea_level',
+            'layers' => [],
+            'station' => null,
+            'observed_at' => null,
+            'period_minutes' => 30,
+            'attribution' => 'KNMI',
+        ], $metrics['low_cloud_cover_pct']['cloud_base_observation']);
         $this->assertSame('9000', $metrics['visibility_m']['display_value']);
         $this->assertSame('m', $metrics['visibility_m']['display_unit']);
         $this->assertSame('NOAA SWPC Kp (1 minuut)', $metrics['kp_index']['source']['name']);
@@ -105,7 +139,47 @@ final class WallboardForecastTest extends TestCase
             && str_contains((string) $request['current'], 'wind_speed_10m')
             && str_contains((string) $request['current'], 'wind_speed_80m')
             && str_contains((string) $request['current'], 'wind_speed_120m')
+            && str_contains((string) $request['current'], 'cloud_cover_low')
+            && str_contains((string) $request['current'], 'cloud_cover_mid')
+            && str_contains((string) $request['current'], 'cloud_cover_high')
             && $request['timezone'] === 'Europe/Amsterdam');
+    }
+
+    public function test_overall_advice_uses_low_instead_of_total_cloud_cover(): void
+    {
+        $this->setForecastTestNow();
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://nominatim.openstreetmap.org/search*' => Http::response([['lat' => '52.0907', 'lon' => '5.1214']]),
+            'https://api.open-meteo.com/v1/forecast*' => Http::response($this->weatherPayload(
+                latitude: 52.09,
+                longitude: 5.12,
+                wind10: 10,
+                wind80: 15,
+                wind120: 20,
+                windGust: 20,
+                precipitationProbability: 0,
+                cloudCover: 100,
+                cloudCoverLow: 20,
+                cloudCoverMid: 100,
+                cloudCoverHigh: 100,
+                weatherCode: 0,
+            )),
+            'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json' => Http::response([
+                ['time_tag' => '2026-07-20T12:10:00Z', 'estimated_kp' => 3.0],
+            ]),
+        ]);
+
+        $forecast = app(WallboardForecastService::class)->pages([
+            'pages' => [$this->addressPage()],
+        ])['forecast-utrecht'];
+        $metrics = collect($forecast['metrics'])->keyBy('key');
+
+        $this->assertSame('red', $metrics['cloud_cover_pct']['status']);
+        $this->assertSame('green', $metrics['low_cloud_cover_pct']['status']);
+        // GNSS remains deliberately unknown. If total cloud cover still counted,
+        // the overall result would be red instead of fail-closed unknown.
+        $this->assertSame('unknown', $forecast['overall_status']);
     }
 
     public function test_uav_netherlands_averages_exactly_twelve_provinces_in_one_validated_weather_batch(): void
@@ -124,6 +198,9 @@ final class WallboardForecastTest extends TestCase
                 wind120: 31 + $index,
                 precipitationProbability: 20 + $index,
                 cloudCover: 25 + $index,
+                cloudCoverLow: 10 + $index,
+                cloudCoverMid: 20 + $index,
+                cloudCoverHigh: 30 + $index,
                 visibility: 12000,
                 weatherCode: $index < 7 ? 2 : 0,
                 sunrise: sprintf('2026-07-20T04:%02d:00Z', $index),
@@ -158,6 +235,14 @@ final class WallboardForecastTest extends TestCase
         $this->assertSame(36.5, $metrics['wind_speed_kmh']['value']);
         $this->assertSame(25.5, $metrics['wind_speed_kmh']['height_samples_agl_m'][1]['speed_kmh']);
         $this->assertSame(80, $metrics['wind_speed_kmh']['max_non_red_wind_height_agl_m']);
+        $this->assertSame(31.0, $metrics['cloud_cover_pct']['value']);
+        $this->assertSame(16.0, $metrics['low_cloud_cover_pct']['value']);
+        $this->assertSame([
+            'low_pct' => 16.0,
+            'mid_pct' => 26.0,
+            'high_pct' => 36.0,
+            'total_pct' => 31.0,
+        ], $metrics['low_cloud_cover_pct']['cloud_layers']);
         $this->assertSame('12.00', $metrics['visibility_m']['display_value']);
         $this->assertSame('km', $metrics['visibility_m']['display_unit']);
         $this->assertSame(2.0, $forecast['condition']['code']);
@@ -468,6 +553,9 @@ final class WallboardForecastTest extends TestCase
         float $precipitationProbability = 20,
         float $precipitation = 0,
         float $cloudCover = 40,
+        float $cloudCoverLow = 30,
+        float $cloudCoverMid = 20,
+        float $cloudCoverHigh = 10,
         float $visibility = 10000,
         int $weatherCode = 2,
         string $sunrise = '2026-07-20T04:30:00Z',
@@ -489,6 +577,9 @@ final class WallboardForecastTest extends TestCase
                 'precipitation_probability' => $precipitationProbability,
                 'precipitation' => $precipitation,
                 'cloud_cover' => $cloudCover,
+                'cloud_cover_low' => $cloudCoverLow,
+                'cloud_cover_mid' => $cloudCoverMid,
+                'cloud_cover_high' => $cloudCoverHigh,
                 'visibility' => $visibility,
                 'weather_code' => $weatherCode,
             ],
@@ -521,6 +612,7 @@ final class WallboardForecastTest extends TestCase
             'dis.geocoding.provider' => 'nominatim',
             'dis.geocoding.nominatim_url' => 'https://nominatim.openstreetmap.org/search',
             'dis.wallboards.uav_forecast.cache_seconds' => 900,
+            'dis.wallboards.uav_forecast.knmi_edr_api_key' => null,
         ]);
     }
 

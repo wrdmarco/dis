@@ -38,6 +38,8 @@ function metric(
     source_height_label: null,
     height_samples_agl_m: [],
     max_non_red_wind_height_agl_m: null,
+    cloud_layers: null,
+    cloud_base_observation: null,
     ...overrides,
   };
 }
@@ -105,7 +107,27 @@ function backendForecast(overrides: Record<string, unknown> = {}) {
       metric('wind_direction_degrees', 'green', 225, { unit: '°', altitude_m: 120 }),
       metric('precipitation_probability_pct', 'green', 10, { unit: '%' }),
       metric('precipitation_mm', 'green', 0, { unit: 'mm' }),
-      metric('cloud_cover_pct', 'green', 30, { unit: '%' }),
+      metric('cloud_cover_pct', 'red', 100, {
+        label: 'Totale modelbewolking',
+        unit: '%',
+        source_height_label: 'Totale hemelkolom; geen vaste meethoogte',
+      }),
+      metric('low_cloud_cover_pct', 'green', 20, {
+        label: 'Lage bewolking',
+        unit: '%',
+        source_height_label: 'Lage bewolking en mist tot circa 3 km; geen meting op vaste hoogte',
+        cloud_layers: { low_pct: 20, mid_pct: 40, high_pct: 60, total_pct: 100 },
+        cloud_base_observation: {
+          status: 'measured',
+          base_height_m: 640,
+          height_reference: 'mean_sea_level',
+          layers: [{ height_m: 640, cover_okta: 6 }],
+          station: { id: '0-20000-0-06260', name: 'De Bilt', distance_km: 5.2 },
+          observed_at: '2026-07-20T12:10:00Z',
+          period_minutes: 30,
+          attribution: 'KNMI',
+        },
+      }),
       metric('visibility_m', 'green', 12_000, {
         unit: 'm',
         display_value: '12.00',
@@ -126,11 +148,74 @@ test('preserves the authoritative backend advice and complete expanded contract'
   const forecast = state.pages.forecast;
 
   expect(forecast.overall_status).toBe('red');
-  expect(forecast.metrics).toHaveLength(13);
+  expect(forecast.metrics).toHaveLength(14);
   expect(forecast.condition).toMatchObject({ code: 95, label: 'Onweer', status: 'red' });
   expect(forecast.aggregation).toMatchObject({ sample_count: 12, expected_sample_count: 12, complete: true });
   expect(wallboardForecastDisplayBlocks(forecast).map((block) => block.key))
     .toEqual(WALLBOARD_FORECAST_BLOCK_KEYS);
+});
+
+test('shows low cloud cover as the operational card while retaining total and higher model layers', () => {
+  const forecast = normalizeWallboardForecastState({ pages: { forecast: backendForecast() } }).pages.forecast;
+  const cloud = wallboardForecastDisplayBlocks(forecast).find((block) => block.key === 'cloud_cover');
+
+  expect(cloud).toMatchObject({ label: 'Lage bewolking', value: '20 %', status: 'green' });
+  expect(cloud?.details).toEqual([
+    'Laagste KNMI-wolkenbasis in 30 min: 640 m boven zeeniveau (6/8 bewolkt)',
+    'Puntmeting De Bilt (5,2 km), 14:10; kaartkleur volgt model',
+    'Model: 0-3 km 20%; 3-8 km 40%; >8 km 60%; totaal 100%',
+  ]);
+});
+
+test('keeps the total-cloud fallback when an older backend has no low-cloud metric yet', () => {
+  const payload = backendForecast();
+  payload.metrics = payload.metrics.filter((candidate) => candidate.key !== 'low_cloud_cover_pct');
+
+  const forecast = normalizeWallboardForecastState({ pages: { forecast: payload } }).pages.forecast;
+  const cloud = wallboardForecastDisplayBlocks(forecast).find((block) => block.key === 'cloud_cover');
+
+  expect(forecast.metrics).toHaveLength(13);
+  expect(cloud).toMatchObject({ label: 'Totale modelbewolking', value: '100 %', status: 'red' });
+  expect(cloud?.details).toEqual(['Totale hemelkolom; geen vaste meethoogte']);
+});
+
+test('keeps an invalid KNMI station observation fail-closed', () => {
+  const payload = backendForecast();
+  const lowCloud = payload.metrics.find((candidate) => candidate.key === 'low_cloud_cover_pct');
+  if (lowCloud === undefined || lowCloud.cloud_base_observation === null) throw new Error('Missing cloud fixture.');
+  lowCloud.cloud_base_observation.station = { ...lowCloud.cloud_base_observation.station!, distance_km: -1 };
+
+  const forecast = normalizeWallboardForecastState({ pages: { forecast: payload } }).pages.forecast;
+  const normalizedLowCloud = forecast.metrics.find((candidate) => candidate.key === 'low_cloud_cover_pct');
+  const cloud = wallboardForecastDisplayBlocks(forecast).find((block) => block.key === 'cloud_cover');
+
+  expect(normalizedLowCloud?.cloud_base_observation).toBeNull();
+  expect(cloud?.details[0]).toBe('Actuele KNMI-wolkenbasis niet beschikbaar');
+});
+
+test('shows an explicit no-cloud detection without overriding the authoritative model status', () => {
+  const payload = backendForecast();
+  const lowCloud = payload.metrics.find((candidate) => candidate.key === 'low_cloud_cover_pct');
+  if (lowCloud === undefined) throw new Error('Missing cloud fixture.');
+  lowCloud.status = 'red';
+  lowCloud.value = 90;
+  lowCloud.cloud_layers = { low_pct: 90, mid_pct: 40, high_pct: 60, total_pct: 100 };
+  lowCloud.cloud_base_observation = {
+    status: 'no_cloud_detected',
+    base_height_m: null,
+    height_reference: 'mean_sea_level',
+    layers: [],
+    station: { id: '0-20000-0-06260', name: 'De Bilt', distance_km: 5.2 },
+    observed_at: '2026-07-20T12:10:00Z',
+    period_minutes: 30,
+    attribution: 'KNMI',
+  };
+
+  const forecast = normalizeWallboardForecastState({ pages: { forecast: payload } }).pages.forecast;
+  const cloud = wallboardForecastDisplayBlocks(forecast).find((block) => block.key === 'cloud_cover');
+
+  expect(cloud).toMatchObject({ status: 'red', value: '90 %' });
+  expect(cloud?.details[0]).toBe('KNMI heeft in 30 min geen wolkenbasis gedetecteerd');
 });
 
 test('uses server visibility formatting and exposes the AGL wind profile', () => {

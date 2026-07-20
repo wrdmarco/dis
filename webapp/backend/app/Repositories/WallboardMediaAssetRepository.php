@@ -66,6 +66,18 @@ final class WallboardMediaAssetRepository extends BaseRepository
     /** @param list<string> $ids
      * @return Collection<int, WallboardMediaAsset>
      */
+    public function readyAssets(array $ids): Collection
+    {
+        return WallboardMediaAsset::query()
+            ->whereIn('id', $ids)
+            ->where('status', WallboardMediaAsset::STATUS_READY)
+            ->orderBy('id')
+            ->get();
+    }
+
+    /** @param list<string> $ids
+     * @return Collection<int, WallboardMediaAsset>
+     */
     public function lockReadyAssets(array $ids): Collection
     {
         return WallboardMediaAsset::query()

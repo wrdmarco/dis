@@ -38,6 +38,18 @@ final class WallboardMediaPlaylistRepository extends BaseRepository
         return WallboardMediaPlaylist::query()->whereKey($id)->lockForUpdate()->firstOrFail();
     }
 
+    /** @param list<string> $ids
+     * @return Collection<int, WallboardMediaPlaylist>
+     */
+    public function withItems(array $ids): Collection
+    {
+        return WallboardMediaPlaylist::query()
+            ->whereIn('id', $ids)
+            ->with(['items.asset'])
+            ->orderBy('id')
+            ->get();
+    }
+
     /** @return list<string> */
     public function wallboardPlaylistIdsUsing(string $mediaPlaylistId): array
     {

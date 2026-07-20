@@ -10,6 +10,7 @@ use App\Http\Controllers\AdminWallboardController;
 use App\Http\Controllers\AdminWallboardMediaAssetController;
 use App\Http\Controllers\AdminWallboardMediaFolderController;
 use App\Http\Controllers\AdminWallboardMediaPlaylistController;
+use App\Http\Controllers\AdminWallboardNewsImageController;
 use App\Http\Controllers\AdminWallboardPlaylistController;
 use App\Http\Controllers\AssetController;
 use App\Http\Controllers\AuthController;
@@ -352,6 +353,12 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
             ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
         Route::get('/admin/wallboard-playlists/{wallboardPlaylist}', [AdminWallboardPlaylistController::class, 'show'])
             ->middleware('permission:wallboards.manage');
+        Route::post('/admin/wallboard-playlists/{wallboardPlaylist}/preview-state', [AdminWallboardPlaylistController::class, 'previewState'])
+            ->withoutMiddleware('audit.privileged')
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-playlist-preview']);
+        Route::get('/admin/wallboard-news-images/{image}', [AdminWallboardNewsImageController::class, 'show'])
+            ->where('image', '[a-f0-9]{64}')
+            ->middleware(['permission:wallboards.manage', 'throttle:wallboard-preview-news-image']);
         Route::patch('/admin/wallboard-playlists/{wallboardPlaylist}', [AdminWallboardPlaylistController::class, 'update'])
             ->middleware(['permission:wallboards.manage', 'throttle:wallboard-admin-write']);
         Route::delete('/admin/wallboard-playlists/{wallboardPlaylist}', [AdminWallboardPlaylistController::class, 'destroy'])

@@ -722,6 +722,7 @@ export type WallboardForecastMetricKey =
   | 'precipitation_probability_pct'
   | 'precipitation_mm'
   | 'cloud_cover_pct'
+  | 'low_cloud_cover_pct'
   | 'visibility_m'
   | 'kp_index'
   | 'gnss_satellites'
@@ -735,6 +736,35 @@ export interface WallboardForecastSource {
 export interface WallboardForecastWindSample {
   height_agl_m: number;
   speed_kmh: number | null;
+}
+
+export interface WallboardForecastCloudLayers {
+  low_pct: number;
+  mid_pct: number;
+  high_pct: number;
+  total_pct: number;
+}
+
+export interface WallboardForecastCloudBaseLayer {
+  height_m: number;
+  cover_okta: number | null;
+}
+
+export interface WallboardForecastCloudBaseStation {
+  id: string;
+  name: string;
+  distance_km: number;
+}
+
+export interface WallboardForecastCloudBaseObservation {
+  status: 'measured' | 'no_cloud_detected' | 'unknown';
+  base_height_m: number | null;
+  height_reference: 'mean_sea_level';
+  layers: WallboardForecastCloudBaseLayer[];
+  station: WallboardForecastCloudBaseStation | null;
+  observed_at: string | null;
+  period_minutes: 30;
+  attribution: 'KNMI';
 }
 
 export interface WallboardForecastMetric {
@@ -753,6 +783,8 @@ export interface WallboardForecastMetric {
   source_height_label: string | null;
   height_samples_agl_m: WallboardForecastWindSample[];
   max_non_red_wind_height_agl_m: number | null;
+  cloud_layers: WallboardForecastCloudLayers | null;
+  cloud_base_observation: WallboardForecastCloudBaseObservation | null;
 }
 
 export interface WallboardForecastCondition {

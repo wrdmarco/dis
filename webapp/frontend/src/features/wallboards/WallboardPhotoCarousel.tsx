@@ -8,6 +8,7 @@ import type {
 } from '../../types/api';
 import type { WallboardMediaPageState, WallboardMediaPageStateItem } from './wallboardMedia';
 import {
+  wallboardAdminMediaVersionedUrl,
   wallboardMediaImageUrl,
   wallboardPhotoItemDurationSeconds,
 } from './wallboardMedia';
@@ -253,7 +254,10 @@ function PhotoPane({
 function displayablePhotos(items: readonly WallboardMediaPageStateItem[]): DisplayablePhoto[] {
   return items.flatMap((item) => {
     const imageUrl = wallboardMediaImageUrl(item.image_url);
-    return imageUrl === null ? [] : [{ ...item, imageUrl }];
+    return imageUrl === null ? [] : [{
+      ...item,
+      imageUrl: wallboardAdminMediaVersionedUrl(imageUrl, item.media_asset_version),
+    }];
   });
 }
 
