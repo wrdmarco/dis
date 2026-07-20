@@ -90,6 +90,9 @@ final class WallboardService
             $wallboard = $this->repository->create([
                 'name' => trim((string) $data['name']),
                 'playlist_id' => $playlist->id,
+                'active_incident_playlist_id' => isset($data['active_incident_playlist_id'])
+                    ? (string) $data['active_incident_playlist_id']
+                    : null,
                 'layout' => (string) ($data['layout'] ?? Wallboard::LAYOUT_FULLSCREEN_MAP),
                 'display_profile' => (string) ($data['display_profile'] ?? Wallboard::DISPLAY_PROFILE_AUTO),
                 'configuration' => $configuration,
@@ -108,6 +111,9 @@ final class WallboardService
                 'display_profile' => $wallboard->display_profile,
                 'is_enabled' => $wallboard->is_enabled,
                 'playlist_id' => (string) $playlist->id,
+                'active_incident_playlist_id' => $wallboard->active_incident_playlist_id === null
+                    ? null
+                    : (string) $wallboard->active_incident_playlist_id,
             ], null, $request);
             if (array_key_exists('playlist_id', $data)) {
                 $this->auditService->record('wallboards.playlist_assigned', $wallboard, $actor, [
@@ -211,6 +217,18 @@ final class WallboardService
             if ($displayProfileChanged) {
                 $changes['display_profile'] = (string) $data['display_profile'];
             }
+            $previousActiveIncidentPlaylistId = $locked->active_incident_playlist_id === null
+                ? null
+                : (string) $locked->active_incident_playlist_id;
+            $requestedActiveIncidentPlaylistId = ! array_key_exists('active_incident_playlist_id', $data)
+                || $data['active_incident_playlist_id'] === null
+                    ? null
+                    : (string) $data['active_incident_playlist_id'];
+            $activeIncidentPlaylistChanged = array_key_exists('active_incident_playlist_id', $data)
+                && $requestedActiveIncidentPlaylistId !== $previousActiveIncidentPlaylistId;
+            if ($activeIncidentPlaylistChanged) {
+                $changes['active_incident_playlist_id'] = $requestedActiveIncidentPlaylistId;
+            }
             $nextConfiguration = $this->playlistResolver->resolve($locked);
             $displayVersionsIncremented = false;
             if ($updatesConfiguration) {
@@ -229,7 +247,9 @@ final class WallboardService
                     $this->auditService->record('wallboard_playlists.updated', $playlist, $actor, [
                         'changed_fields' => ['configuration'],
                         'version' => (int) $playlist->version,
-                        'linked_wallboards_count' => $linkedWallboards->count(),
+                        'linked_wallboards_count' => $this->playlistRepository->linkedWallboardsCount(
+                            (string) $playlist->id,
+                        ),
                         'source_wallboard_id' => (string) $locked->id,
                     ], null, $request);
                 } else {
@@ -254,7 +274,8 @@ final class WallboardService
 
             if ((array_key_exists('name', $changes)
                 || array_key_exists('layout', $changes)
-                || array_key_exists('display_profile', $changes))
+                || array_key_exists('display_profile', $changes)
+                || array_key_exists('active_incident_playlist_id', $changes))
                 && ! $displayVersionsIncremented) {
                 $changes['config_version'] = (int) $locked->config_version + 1;
                 $changes['control_version'] = (int) $locked->control_version + 1;
@@ -289,13 +310,20 @@ final class WallboardService
             if (array_key_exists('display_profile', $data) && ! $displayProfileChanged) {
                 $changedFields = array_values(array_diff($changedFields, ['display_profile']));
             }
+            if (array_key_exists('active_incident_playlist_id', $data) && ! $activeIncidentPlaylistChanged) {
+                $changedFields = array_values(array_diff($changedFields, ['active_incident_playlist_id']));
+            }
             $this->auditService->record('wallboards.updated', $locked, $actor, [
                 'changed_fields' => $changedFields,
                 'config_version' => (int) $locked->config_version,
                 'is_enabled' => (bool) $locked->is_enabled,
+                ...($activeIncidentPlaylistChanged ? [
+                    'previous_active_incident_playlist_id' => $previousActiveIncidentPlaylistId,
+                    'active_incident_playlist_id' => $requestedActiveIncidentPlaylistId,
+                ] : []),
             ], null, $request);
 
-            return $locked->refresh()->load('playlist');
+            return $locked->refresh()->load(['playlist', 'activeIncidentPlaylist']);
         }, 3);
     }
 
@@ -422,10 +450,12 @@ final class WallboardService
         $configuration = $this->playlistResolver->resolve($wallboard);
         $wallboard->loadMissing([
             'playlist:id,name,configuration,version',
+            'activeIncidentPlaylist:id,name,configuration,version',
             'nonRevokedSessions:id,wallboard_id,last_seen_at,expires_at',
         ]);
         $activeSessions = $this->activeSessions($wallboard);
         $playlist = $wallboard->playlist;
+        $activeIncidentPlaylist = $wallboard->activeIncidentPlaylist;
 
         return [
             'id' => (string) $wallboard->id,
@@ -435,6 +465,14 @@ final class WallboardService
                 'id' => (string) $playlist->id,
                 'name' => (string) $playlist->name,
                 'version' => (int) $playlist->version,
+            ] : null,
+            'active_incident_playlist_id' => $wallboard->active_incident_playlist_id === null
+                ? null
+                : (string) $wallboard->active_incident_playlist_id,
+            'active_incident_playlist' => $activeIncidentPlaylist instanceof WallboardPlaylist ? [
+                'id' => (string) $activeIncidentPlaylist->id,
+                'name' => (string) $activeIncidentPlaylist->name,
+                'version' => (int) $activeIncidentPlaylist->version,
             ] : null,
             'layout' => (string) $wallboard->layout,
             'display_profile' => (string) $wallboard->display_profile,

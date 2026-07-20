@@ -146,6 +146,9 @@ export function WallboardPlaylistPreview({
               <WallboardPhotoPlaylistPreview
                 mediaPlaylistId={selectedPage.options.media_playlist_id}
                 itemDurationSeconds={selectedPage.options.item_duration_seconds}
+                transition={selectedPage.options.item_transition}
+                transitionDurationMs={selectedPage.options.item_transition_duration_ms}
+                flipDirection={selectedPage.options.item_flip_direction}
               />
             ) : (
               <p>De live operationele gegevens verschijnen hier pas op het gekoppelde wallboard.</p>

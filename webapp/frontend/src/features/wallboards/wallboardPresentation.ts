@@ -88,6 +88,8 @@ export const MAX_WALLBOARD_TRANSITION_DURATION_MS = 5000;
 export const DEFAULT_WALLBOARD_PAGE_TRANSITION: WallboardPageTransition = 'fade';
 export const DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS = 320;
 export const DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS = 720;
+export const DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION = DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION;
+export const DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION_DURATION_MS = DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS;
 export const DEFAULT_WALLBOARD_FLIP_DIRECTION: WallboardFlipDirection = 'left_to_right';
 export const WALLBOARD_FLIP_DIRECTIONS: ReadonlyArray<{
   value: WallboardFlipDirection;
@@ -385,11 +387,16 @@ export function wallboardVideoDurationFromOptions(options: WallboardPageOptions)
 }
 
 export function wallboardConfigurationHasUnverifiedVideos(configuration: Pick<WallboardConfiguration, 'pages'>): boolean {
-  return configuration.pages.some((page) => page.type === 'video' && (
-    typeof page.options.url !== 'string'
-    || normalizeWallboardVideoUrl(page.options.url) === null
-    || wallboardVideoDurationFromOptions(page.options) === null
-  ));
+  return configuration.pages.some((page) => {
+    if (page.type !== 'video') return false;
+    const localUrl = wallboardLocalVideoUrl(page.options.media_asset_id);
+    if (localUrl !== null) {
+      return page.options.url !== localUrl || wallboardVideoDurationFromOptions(page.options) === null;
+    }
+    return typeof page.options.url !== 'string'
+      || normalizeWallboardVideoUrl(page.options.url) === null
+      || wallboardVideoDurationFromOptions(page.options) === null;
+  });
 }
 
 export function wallboardConfigurationHasInvalidPhotoCarousels(
@@ -491,7 +498,13 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
         : type === 'video'
           ? { url: '' }
           : type === 'photo_carousel'
-            ? { media_playlist_id: '', item_duration_seconds: 12 }
+            ? {
+              media_playlist_id: '',
+              item_duration_seconds: 12,
+              item_transition: DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION,
+              item_transition_duration_ms: DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION_DURATION_MS,
+              item_flip_direction: DEFAULT_WALLBOARD_FLIP_DIRECTION,
+            }
         : {},
   };
 
@@ -923,10 +936,19 @@ export function wallboardVideoEmbedUrl(value: unknown, autoplay = true): string 
 }
 
 function normalizeWallboardVideoPageOptions(page: WallboardPage): WallboardPage['options'] {
+  const mediaAssetId = normalizeWallboardMediaAssetId(page.options?.media_asset_id);
+  const localUrl = wallboardLocalVideoUrl(mediaAssetId);
+  const videoDurationSeconds = wallboardVideoDurationFromOptions(page.options ?? {});
+  if (localUrl !== null) {
+    return {
+      media_asset_id: mediaAssetId,
+      url: localUrl,
+      ...(videoDurationSeconds === null ? {} : { video_duration_seconds: videoDurationSeconds }),
+    };
+  }
   const url = typeof page.options?.url === 'string'
     ? (normalizeWallboardVideoUrl(page.options.url) ?? page.options.url.trim())
     : '';
-  const videoDurationSeconds = wallboardVideoDurationFromOptions(page.options ?? {});
   return {
     url,
     ...(videoDurationSeconds === null ? {} : { video_duration_seconds: videoDurationSeconds }),
@@ -939,6 +961,12 @@ function normalizeWallboardPhotoPageOptions(page: WallboardPage): WallboardPage[
   return {
     media_playlist_id: mediaPlaylistId,
     item_duration_seconds: wallboardPhotoItemDurationSeconds(page.options?.item_duration_seconds),
+    item_transition: normalizeWallboardNewsItemTransition(page.options?.item_transition),
+    item_transition_duration_ms: clampWallboardTransitionDurationMs(
+      page.options?.item_transition_duration_ms,
+      DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION_DURATION_MS,
+    ),
+    item_flip_direction: normalizeWallboardFlipDirection(page.options?.item_flip_direction),
   };
 }
 
@@ -947,6 +975,15 @@ export function normalizeWallboardMediaPlaylistId(value: unknown): string {
   const trimmed = value.trim();
 
   return /^[0-9A-HJKMNP-TV-Z]{26}$/i.test(trimmed) ? trimmed.toLowerCase() : '';
+}
+
+export function normalizeWallboardMediaAssetId(value: unknown): string {
+  return normalizeWallboardMediaPlaylistId(value);
+}
+
+export function wallboardLocalVideoUrl(value: unknown): string | null {
+  const mediaAssetId = normalizeWallboardMediaAssetId(value);
+  return mediaAssetId === '' ? null : `/api/wallboard/media/${mediaAssetId}`;
 }
 
 function normalizeWallboardNewsPageOptions(page: WallboardPage): WallboardPage['options'] {

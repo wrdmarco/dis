@@ -23,6 +23,86 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertStringNotContainsString('--queue=default,push,broadcasts', $service);
     }
 
+    public function test_media_worker_is_independent_interruptible_and_resource_bounded(): void
+    {
+        $queue = $this->read('infrastructure/systemd/dis-queue.service');
+        $media = $this->read('infrastructure/systemd/dis-media.service');
+        $common = $this->read('scripts/lib/common.sh');
+        $deploy = $this->read('scripts/deploy.sh');
+        $install = $this->read('scripts/install.sh');
+        $update = $this->read('scripts/update.sh');
+        $restore = $this->read('scripts/restore.sh');
+        $selfHeal = $this->read('scripts/self-heal-permissions.sh');
+        $uninstall = $this->read('scripts/uninstall.sh');
+
+        // Transcoding is lower priority than operational push and broadcasts.
+        // The critical queue worker must remain restartable when media is down.
+        self::assertStringContainsString('After=network.target redis-server.service postgresql.service', $queue);
+        self::assertStringNotContainsString('dis-media.service', $queue);
+        self::assertStringNotContainsString('systemctl is-active', $queue);
+
+        foreach ([
+            'Type=exec',
+            'ExecStartPre=/usr/bin/test -x /usr/bin/ffmpeg',
+            'ExecStartPre=/usr/bin/test -x /usr/bin/ffprobe',
+            'KillSignal=SIGTERM',
+            'KillMode=control-group',
+            'TimeoutStopSec=90s',
+            'NoNewPrivileges=true',
+            'PrivateDevices=true',
+            'ProtectSystem=strict',
+            'ProtectKernelTunables=true',
+            'ProtectKernelModules=true',
+            'ProtectControlGroups=true',
+            'RestrictSUIDSGID=true',
+            'CapabilityBoundingSet=',
+            'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6',
+            'MemoryHigh=2G',
+            'MemoryMax=3G',
+            'CPUQuota=200%',
+            'TasksMax=128',
+            'OOMPolicy=stop',
+        ] as $contract) {
+            self::assertStringContainsString($contract, $media);
+        }
+        self::assertStringNotContainsString('NoNewPrivileges=false', $media);
+        self::assertStringNotContainsString('ProtectSystem=false', $media);
+
+        self::assertStringContainsString('for service in dis-media dis-queue dis-scheduler dis-websocket', $common);
+        self::assertStringContainsString('for service in dis-media dis-queue dis-scheduler dis-websocket dis-frontend', $common);
+        self::assertStringContainsString('dis-queue dis-media dis-scheduler dis-websocket dis-frontend', $deploy);
+        self::assertStringContainsString('for service in dis-media dis-queue dis-scheduler dis-websocket dis-frontend', $restore);
+        self::assertStringContainsString('dis-queue dis-media dis-scheduler dis-websocket dis-frontend', $selfHeal);
+        self::assertStringContainsString('for service in dis-media dis-queue dis-scheduler dis-websocket dis-osrm', $uninstall);
+        self::assertStringContainsString('/etc/systemd/system/dis-media.service', $uninstall);
+        self::assertStringContainsString('acl ca-certificates curl ffmpeg git', $install);
+        self::assertStringContainsString(
+            'composer ffmpeg nginx postgresql postgresql-client redis-server redis-tools cifs-utils smbclient',
+            $uninstall,
+        );
+
+        $dependencyStart = strpos($common, 'ensure_wallboard_media_runtime_dependencies()');
+        $dependencyEnd = strpos($common, 'verify_osrm_admin_runtime_library()', (int) $dependencyStart);
+        self::assertIsInt($dependencyStart);
+        self::assertIsInt($dependencyEnd);
+        $dependency = substr($common, $dependencyStart, $dependencyEnd - $dependencyStart);
+        self::assertStringContainsString('/usr/bin/dpkg-query', $dependency);
+        self::assertStringContainsString('/usr/bin/apt-get install -y --no-install-recommends', $dependency);
+        self::assertStringContainsString('DEBIAN_FRONTEND=noninteractive', $dependency);
+        self::assertStringNotContainsString('curl ', $dependency);
+        self::assertStringNotContainsString('wget ', $dependency);
+        $updateDependency = strpos($update, 'ensure_wallboard_media_runtime_dependencies');
+        $updateMaintenance = strpos($update, 'announce_wallboard_maintenance update');
+        $deployDependency = strpos($deploy, 'ensure_wallboard_media_runtime_dependencies');
+        $deployMaintenance = strpos($deploy, 'enable_frontend_maintenance');
+        self::assertIsInt($updateDependency);
+        self::assertIsInt($updateMaintenance);
+        self::assertIsInt($deployDependency);
+        self::assertIsInt($deployMaintenance);
+        self::assertTrue($updateDependency < $updateMaintenance);
+        self::assertTrue($deployDependency < $deployMaintenance);
+    }
+
     public function test_deploy_stops_runtime_before_migrations_and_only_opens_after_verification(): void
     {
         $script = $this->read('scripts/deploy.sh');
@@ -409,7 +489,7 @@ final class DeploymentMaintenanceContractTest extends TestCase
         $pathStart = strpos($startServices, 'systemctl start dis-backup-request.path');
         $timerStart = strpos($startServices, 'systemctl start dis-backup-request.timer');
         $brokerCheck = strpos($startServices, 'dis:check-backup-request-worker --timeout=30');
-        $schedulerStart = strpos($startServices, 'for service in dis-queue dis-scheduler dis-websocket');
+        $schedulerStart = strpos($startServices, 'for service in dis-media dis-queue dis-scheduler dis-websocket');
         self::assertIsInt($pathStart);
         self::assertIsInt($timerStart);
         self::assertIsInt($brokerCheck);
@@ -501,7 +581,7 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertStringNotContainsString('complete_deployment_maintenance', $failureHandler);
 
         $stop = strpos($script, 'stop_dis_deployment_services', (int) strpos($script, "trap 'update_exit_handler"));
-        $dependencies = strrpos($script, 'apt-get install -y cifs-utils');
+        $dependencies = strpos($script, 'ensure_wallboard_media_runtime_dependencies');
         $deploy = strrpos($script, 'bash "${SCRIPT_DIR}/deploy.sh"');
         $postDeployStop = strpos($script, 'stop_dis_deployment_services', (int) $deploy);
         $health = strrpos($script, 'healthcheck.sh');
@@ -515,7 +595,10 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertIsInt($health);
         self::assertIsInt($services);
         self::assertIsInt($open);
-        self::assertTrue($stop < $dependencies);
+        // The fixed-package media dependency is verified while production is
+        // still open, so package failure cannot strand an app-only update in
+        // maintenance mode.
+        self::assertTrue($dependencies < $stop);
         self::assertTrue($deploy < $postDeployStop);
         self::assertGreaterThan($health, $open);
         self::assertGreaterThan($services, $open);

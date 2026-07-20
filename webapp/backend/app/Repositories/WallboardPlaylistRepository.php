@@ -5,6 +5,7 @@ namespace App\Repositories;
 use App\Models\Wallboard;
 use App\Models\WallboardPlaylist;
 use Closure;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -20,8 +21,7 @@ final class WallboardPlaylistRepository extends BaseRepository
     /** @return Collection<int, WallboardPlaylist> */
     public function allForManagement(): Collection
     {
-        return WallboardPlaylist::query()
-            ->withCount('wallboards')
+        return $this->managementQuery()
             ->orderBy('name')
             ->orderBy('id')
             ->get();
@@ -29,8 +29,7 @@ final class WallboardPlaylistRepository extends BaseRepository
 
     public function findForManagement(string $id): WallboardPlaylist
     {
-        return WallboardPlaylist::query()
-            ->withCount('wallboards')
+        return $this->managementQuery()
             ->findOrFail($id);
     }
 
@@ -70,11 +69,34 @@ final class WallboardPlaylistRepository extends BaseRepository
 
     public function linkedWallboardsExist(string $playlistId): bool
     {
-        return Wallboard::query()->where('playlist_id', $playlistId)->exists();
+        return Wallboard::query()
+            ->where(fn (Builder $query): Builder => $query
+                ->where('playlist_id', $playlistId)
+                ->orWhere('active_incident_playlist_id', $playlistId))
+            ->exists();
     }
 
     public function linkedWallboardsCount(string $playlistId): int
     {
-        return Wallboard::query()->where('playlist_id', $playlistId)->count();
+        return Wallboard::query()
+            ->where(fn (Builder $query): Builder => $query
+                ->where('playlist_id', $playlistId)
+                ->orWhere('active_incident_playlist_id', $playlistId))
+            ->count();
+    }
+
+    /** @return Builder<WallboardPlaylist> */
+    private function managementQuery(): Builder
+    {
+        return WallboardPlaylist::query()
+            ->select('wallboard_playlists.*')
+            ->selectSub(
+                Wallboard::query()
+                    ->selectRaw('count(*)')
+                    ->where(fn (Builder $query): Builder => $query
+                        ->whereColumn('wallboards.playlist_id', 'wallboard_playlists.id')
+                        ->orWhereColumn('wallboards.active_incident_playlist_id', 'wallboard_playlists.id')),
+                'wallboards_count',
+            );
     }
 }

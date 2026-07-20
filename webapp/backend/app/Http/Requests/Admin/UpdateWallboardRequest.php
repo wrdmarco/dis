@@ -24,6 +24,7 @@ final class UpdateWallboardRequest extends FormRequest
         return [
             'expected_config_version' => ['sometimes', 'integer', 'min:1'],
             'name' => ['sometimes', 'required', 'string', 'max:120'],
+            'active_incident_playlist_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('wallboard_playlists', 'id')],
             'layout' => ['sometimes', 'required', 'string', Rule::in([Wallboard::LAYOUT_FULLSCREEN_MAP])],
             'display_profile' => ['sometimes', 'required', 'string', Rule::in(Wallboard::DISPLAY_PROFILES)],
             'is_enabled' => ['sometimes', 'boolean'],
@@ -72,7 +73,7 @@ final class UpdateWallboardRequest extends FormRequest
             'configuration.pages.*.options.custom_sources.*.url' => ['required', 'string', 'max:'.WallboardConfiguration::MAX_NEWS_CUSTOM_SOURCE_URL_LENGTH],
             'configuration.pages.*.options.max_items' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_NEWS_MAX_ITEMS.','.WallboardConfiguration::MAX_NEWS_MAX_ITEMS],
             'configuration.pages.*.options.item_duration_seconds' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_NEWS_ITEM_DURATION_SECONDS.','.WallboardConfiguration::MAX_NEWS_ITEM_DURATION_SECONDS],
-            'configuration.pages.*.options.item_transition' => ['sometimes', 'string', Rule::in(WallboardConfiguration::NEWS_ITEM_TRANSITIONS)],
+            'configuration.pages.*.options.item_transition' => ['sometimes', 'string', Rule::in(WallboardConfiguration::PAGE_TRANSITIONS)],
             'configuration.pages.*.options.item_transition_duration_ms' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_TRANSITION_DURATION_MS.','.WallboardConfiguration::MAX_TRANSITION_DURATION_MS],
             'configuration.pages.*.options.item_flip_direction' => ['sometimes', 'string', Rule::in(WallboardConfiguration::FLIP_DIRECTIONS)],
             'configuration.focus' => ['sometimes', 'array:preannouncement,real_alarm,test_alarm'],
@@ -119,7 +120,7 @@ final class UpdateWallboardRequest extends FormRequest
     public function after(): array
     {
         return [function (Validator $validator): void {
-            if (($this->has('configuration') || $this->has('layout') || $this->has('display_profile'))
+            if (($this->has('configuration') || $this->has('layout') || $this->has('display_profile') || $this->has('active_incident_playlist_id'))
                 && ! $this->has('expected_config_version')) {
                 $validator->errors()->add(
                     'expected_config_version',
@@ -149,7 +150,7 @@ final class UpdateWallboardRequest extends FormRequest
                 'calendar' => ['max_items'],
                 'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds', 'item_transition', 'item_transition_duration_ms', 'item_flip_direction'],
                 'video' => ['url', 'video_duration_seconds'],
-                'photo_carousel' => ['media_playlist_id', 'item_duration_seconds'],
+                'photo_carousel' => ['media_playlist_id', 'item_duration_seconds', 'item_transition', 'item_transition_duration_ms', 'item_flip_direction'],
                 'map' => [],
                 default => array_keys($options),
             };

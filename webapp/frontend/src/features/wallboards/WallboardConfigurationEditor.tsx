@@ -72,6 +72,8 @@ import {
   DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS,
   DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
   DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS,
+  DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION,
+  DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION_DURATION_MS,
   WALLBOARD_FLIP_DIRECTIONS,
   WALLBOARD_FORECAST_BLOCK_KEYS,
   WALLBOARD_NEWS_ITEM_TRANSITIONS,
@@ -103,7 +105,7 @@ import {
   type WallboardPhotoPlaylistSource,
 } from './WallboardPhotoPageEditor';
 import { SecondsStepper } from './SecondsStepper';
-import { WallboardVideoInspectionControl } from './WallboardVideoInspectionControl';
+import { WallboardVideoPageEditor } from './WallboardVideoPageEditor';
 import { formatWallboardVideoDuration } from './wallboardVideoInspection';
 
 const MIN_WALLBOARD_TRANSITION_DURATION_SECONDS = MIN_WALLBOARD_TRANSITION_DURATION_MS / 1000;
@@ -871,7 +873,13 @@ function WallboardPageEditor({
               ...(videoDurationSeconds === null ? {} : { video_duration_seconds: videoDurationSeconds }),
             }
             : type === 'photo_carousel'
-              ? { media_playlist_id: '', item_duration_seconds: 12 }
+              ? {
+                media_playlist_id: '',
+                item_duration_seconds: 12,
+                item_transition: DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION,
+                item_transition_duration_ms: DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION_DURATION_MS,
+                item_flip_direction: DEFAULT_WALLBOARD_FLIP_DIRECTION,
+              }
           : {},
     };
     onChange({ ...nextPage, duration_seconds: wallboardEffectivePageDuration(nextPage) });
@@ -1263,7 +1271,7 @@ function WallboardPageEditor({
                 max_items: clampWallboardCalendarMaxItems(maxItems),
               },
             })}
-            unit="items"
+            unit="st."
             unitLabel="agenda-items"
             description={`Toon minimaal ${MIN_WALLBOARD_CALENDAR_MAX_ITEMS} en maximaal ${MAX_WALLBOARD_CALENDAR_MAX_ITEMS} toekomstige items.`}
             required
@@ -1377,37 +1385,7 @@ function WallboardPageEditor({
           </p>
         </fieldset>
       ) : page.type === 'video' ? (
-        <div className="wallboard-video-editor">
-          <label>
-            <span>YouTube-, Shorts- of Vimeo-link</span>
-            <input
-              type="url"
-              value={page.options.url ?? ''}
-              onChange={(event) => onChange({ ...page, options: { url: event.target.value } })}
-              maxLength={2048}
-              pattern="https://.+"
-              placeholder="https://www.youtube.com/watch?v=..."
-              inputMode="url"
-              required
-            />
-            <small>Alleen openbare HTTPS-video&apos;s. De video start automatisch, gedempt en met bediening en branding zoveel mogelijk verborgen.</small>
-          </label>
-          <WallboardVideoInspectionControl
-            url={page.options.url ?? ''}
-            onInspectionStart={() => onChange({
-              ...page,
-              options: { url: page.options.url ?? '' },
-            })}
-            onVerified={(result) => onChange({
-              ...page,
-              duration_seconds: result.recommendedDisplayDurationSeconds,
-              options: {
-                url: page.options.url ?? '',
-                video_duration_seconds: result.durationSeconds,
-              },
-            })}
-          />
-        </div>
+        <WallboardVideoPageEditor page={page} onChange={onChange} />
       ) : page.type === 'photo_carousel' ? (
         <WallboardPhotoPageEditor
           idPrefix={`wallboard-photo-${page.id}`}
@@ -1415,6 +1393,9 @@ function WallboardPageEditor({
           value={{
             media_playlist_id: page.options.media_playlist_id,
             item_duration_seconds: page.options.item_duration_seconds,
+            item_transition: page.options.item_transition,
+            item_transition_duration_ms: page.options.item_transition_duration_ms,
+            item_flip_direction: page.options.item_flip_direction,
           }}
           onChange={(selection) => onChange({
             ...page,
@@ -1511,20 +1492,21 @@ function WallboardPageEditor({
               {totalNewsSources} {totalNewsSources === 1 ? 'bron geselecteerd' : 'bronnen geselecteerd'} · het maximum aantal berichten geldt gecombineerd.
             </small>
           </section>
-          <label className="wallboard-news-editor__count">
-            <span>Maximum aantal berichten</span>
-            <input
-              type="number"
-              min={MIN_WALLBOARD_NEWS_MAX_ITEMS}
-              max={MAX_WALLBOARD_NEWS_MAX_ITEMS}
-              value={clampWallboardNewsMaxItems(Number(page.options.max_items))}
-              onChange={(event) => updateNewsOptions({
-                max_items: clampWallboardNewsMaxItems(Number(event.target.value)),
-              })}
-              required
-            />
-            <small>Begrenst zowel de recente set als de laatste berichten wanneer de 7-dagenperiode leeg is.</small>
-          </label>
+          <SecondsStepper
+            className="wallboard-news-editor__count"
+            id={`wallboard-news-${page.id}-max-items`}
+            label="Maximum aantal berichten"
+            min={MIN_WALLBOARD_NEWS_MAX_ITEMS}
+            max={MAX_WALLBOARD_NEWS_MAX_ITEMS}
+            value={clampWallboardNewsMaxItems(Number(page.options.max_items))}
+            onChange={(maxItems) => updateNewsOptions({
+              max_items: clampWallboardNewsMaxItems(maxItems),
+            })}
+            unit="st."
+            unitLabel="berichten"
+            description="Begrenst zowel de recente set als de laatste berichten wanneer de 7-dagenperiode leeg is."
+            required
+          />
           <SecondsStepper
             className="wallboard-news-editor__count"
             id={`wallboard-news-${page.id}-item-duration`}

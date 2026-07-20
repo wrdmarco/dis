@@ -1,0 +1,46 @@
+[Unit]
+Description=DIS Wallboard Media Worker
+After=network.target redis-server.service postgresql.service
+
+[Service]
+Type=exec
+User=dis
+Group=dis
+WorkingDirectory=/opt/dis/webapp/backend
+ExecStartPre=/usr/bin/test -x /usr/bin/ffmpeg
+ExecStartPre=/usr/bin/test -x /usr/bin/ffprobe
+ExecStartPre=/usr/bin/test -r /opt/dis/webapp/backend/artisan
+ExecStart=/usr/bin/php artisan queue:work wallboard_media --queue=wallboard-media --sleep=1 --tries=2 --timeout=3660
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+KillMode=control-group
+TimeoutStopSec=90s
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+RestrictRealtime=true
+MemoryHigh=2G
+MemoryMax=3G
+CPUQuota=200%
+TasksMax=128
+Nice=5
+OOMPolicy=stop
+ReadWritePaths=/opt/dis-data /opt/dis/webapp/backend/storage /opt/dis/storage
+
+[Install]
+WantedBy=multi-user.target

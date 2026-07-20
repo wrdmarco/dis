@@ -115,6 +115,7 @@ final class WallboardMediaLibraryTest extends TestCase
         self::assertSame(12, $state['photos']['item_duration_seconds']);
         self::assertSame(12, $state['photos']['total_duration_seconds']);
         self::assertSame('/api/wallboard/media/'.$asset->id, $state['photos']['items'][0]['image_url']);
+        self::assertSame(1, $state['photos']['items'][0]['media_asset_version']);
         self::assertNotNull(app(WallboardMediaDeliveryService::class)->forWallboard($wallboard, $asset));
 
         $otherConfiguration = ['pages' => [['id' => 'map', 'type' => 'map', 'duration_seconds' => 30, 'options' => []]]];
@@ -413,34 +414,61 @@ final class WallboardMediaLibraryTest extends TestCase
         Storage::disk('local')->assertMissing($oldStaging);
     }
 
-    public function test_image_processor_outputs_verified_static_webp_when_gd_is_available(): void
+    public function test_image_processor_preserves_full_hd_and_normalizes_larger_sources_proportionally(): void
     {
         if (! function_exists('imagecreatetruecolor') || ! function_exists('imagewebp')) {
             self::markTestSkipped('De lokale test-PHP heeft geen GD/WebP; productie installeert php8.5-gd.');
         }
-        $image = imagecreatetruecolor(16, 9);
+
+        foreach ([
+            'exact Full HD' => [1920, 1080, 1920, 1080],
+            'grote 4K-foto' => [3840, 2160, 1920, 1080],
+            'grote 3:2-foto' => [3000, 2000, 1620, 1080],
+        ] as $case => [$sourceWidth, $sourceHeight, $expectedWidth, $expectedHeight]) {
+            $path = $this->solidPngPath($sourceWidth, $sourceHeight);
+            $result = null;
+            try {
+                $result = app(WallboardMediaImageProcessor::class)->process(
+                    new UploadedFile($path, 'test.png', 'image/png', null, true),
+                );
+                self::assertSame('image/webp', (new \finfo(FILEINFO_MIME_TYPE))->file($result->temporaryPath), $case);
+                self::assertSame(hash_file('sha256', $result->temporaryPath), $result->sha256, $case);
+                self::assertSame($expectedWidth, $result->width, $case);
+                self::assertSame($expectedHeight, $result->height, $case);
+                self::assertNotNull($result->thumbnailTemporaryPath, $case);
+                self::assertSame(
+                    'image/webp',
+                    (new \finfo(FILEINFO_MIME_TYPE))->file($result->thumbnailTemporaryPath),
+                    $case,
+                );
+            } finally {
+                if ($result !== null) {
+                    @unlink($result->temporaryPath);
+                    @unlink((string) $result->thumbnailTemporaryPath);
+                }
+                @unlink($path);
+            }
+        }
+    }
+
+    private function solidPngPath(int $width, int $height): string
+    {
+        $image = imagecreatetruecolor($width, $height);
         self::assertInstanceOf(\GdImage::class, $image);
-        imagefilledrectangle($image, 0, 0, 15, 8, imagecolorallocate($image, 20, 120, 220));
+        imagefilledrectangle(
+            $image,
+            0,
+            0,
+            $width - 1,
+            $height - 1,
+            imagecolorallocate($image, 20, 120, 220),
+        );
         $path = tempnam(sys_get_temp_dir(), 'wallboard-media-test-');
         self::assertIsString($path);
-        imagepng($image, $path);
+        self::assertTrue(imagepng($image, $path));
         imagedestroy($image);
 
-        try {
-            $result = app(WallboardMediaImageProcessor::class)->process(
-                new UploadedFile($path, 'test.png', 'image/png', null, true),
-            );
-            self::assertSame('image/webp', (new \finfo(FILEINFO_MIME_TYPE))->file($result->temporaryPath));
-            self::assertSame(hash_file('sha256', $result->temporaryPath), $result->sha256);
-            self::assertSame(16, $result->width);
-            self::assertSame(9, $result->height);
-            self::assertNotNull($result->thumbnailTemporaryPath);
-            self::assertSame('image/webp', (new \finfo(FILEINFO_MIME_TYPE))->file($result->thumbnailTemporaryPath));
-            @unlink($result->temporaryPath);
-            @unlink((string) $result->thumbnailTemporaryPath);
-        } finally {
-            @unlink($path);
-        }
+        return $path;
     }
 
     private function actor(): User

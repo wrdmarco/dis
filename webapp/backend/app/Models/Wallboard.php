@@ -29,6 +29,7 @@ final class Wallboard extends Model
     protected $fillable = [
         'name',
         'playlist_id',
+        'active_incident_playlist_id',
         'layout',
         'display_profile',
         'configuration',
@@ -79,6 +80,11 @@ final class Wallboard extends Model
     public function playlist(): BelongsTo
     {
         return $this->belongsTo(WallboardPlaylist::class, 'playlist_id');
+    }
+
+    public function activeIncidentPlaylist(): BelongsTo
+    {
+        return $this->belongsTo(WallboardPlaylist::class, 'active_incident_playlist_id');
     }
 
     public function creator(): BelongsTo

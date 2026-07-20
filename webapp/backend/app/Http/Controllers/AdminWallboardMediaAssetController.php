@@ -33,6 +33,8 @@ final class AdminWallboardMediaAssetController extends Controller
             $folderId,
             $request->validated('search'),
             (int) ($request->validated('per_page') ?? 25),
+            $request->validated('kind'),
+            $request->validated('status'),
         );
 
         return ApiResponse::paginated(

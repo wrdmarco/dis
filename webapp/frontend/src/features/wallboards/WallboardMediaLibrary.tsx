@@ -20,6 +20,7 @@ import {
   FileVideo2,
   Image as ImageIcon,
   Images,
+  GripVertical,
   Loader2,
   Pencil,
   Plus,
@@ -45,6 +46,8 @@ import {
   wallboardMediaFolderTree,
   wallboardMediaFormatBytes,
   wallboardMediaImageUrl,
+  moveWallboardMediaPlaylistItem,
+  reorderWallboardMediaPlaylistItem,
 } from './wallboardMedia';
 import styles from './WallboardMediaLibrary.module.css';
 
@@ -78,6 +81,8 @@ export function WallboardMediaLibrary() {
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [playlistName, setPlaylistName] = useState('');
   const [playlistAssetIds, setPlaylistAssetIds] = useState<string[]>([]);
+  const [draggedPlaylistAssetId, setDraggedPlaylistAssetId] = useState<string | null>(null);
+  const [dragOverPlaylistAssetId, setDragOverPlaylistAssetId] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState('');
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState('');
@@ -805,13 +810,60 @@ export function WallboardMediaLibrary() {
                   const asset = assetLookup.get(assetId);
                   if (asset === undefined) return null;
                   const imageUrl = wallboardMediaImageUrl(asset.content_url);
+                  const itemClassName = [
+                    draggedPlaylistAssetId === assetId ? styles.draggingPlaylistItem : '',
+                    dragOverPlaylistAssetId === assetId && draggedPlaylistAssetId !== assetId
+                      ? styles.playlistDropTarget
+                      : '',
+                  ].filter(Boolean).join(' ');
                   return (
-                    <li key={assetId}>
+                    <li
+                      key={assetId}
+                      className={itemClassName}
+                      onDragOver={(event) => {
+                        if (draggedPlaylistAssetId === null || draggedPlaylistAssetId === assetId) return;
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = 'move';
+                        setDragOverPlaylistAssetId(assetId);
+                      }}
+                      onDragLeave={(event) => {
+                        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                          setDragOverPlaylistAssetId((current) => current === assetId ? null : current);
+                        }
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const sourceId = draggedPlaylistAssetId ?? event.dataTransfer.getData('text/plain');
+                        setPlaylistAssetIds((current) => reorderWallboardMediaPlaylistItem(
+                          current,
+                          sourceId,
+                          assetId,
+                        ));
+                        setDraggedPlaylistAssetId(null);
+                        setDragOverPlaylistAssetId(null);
+                      }}
+                    >
+                      <span
+                        className={styles.dragHandle}
+                        draggable
+                        title={`${asset.display_name} verslepen`}
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = 'move';
+                          event.dataTransfer.setData('text/plain', assetId);
+                          setDraggedPlaylistAssetId(assetId);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedPlaylistAssetId(null);
+                          setDragOverPlaylistAssetId(null);
+                        }}
+                      >
+                        <GripVertical size={18} aria-hidden />
+                      </span>
                       <span className={styles.orderNumber}>{index + 1}</span>
                       {imageUrl === null ? <ImageIcon size={24} aria-hidden /> : <img src={imageUrl} alt="" />}
-                      <span><strong>{asset.display_name}</strong><small>{asset.width} x {asset.height}</small></span>
-                      <button type="button" aria-label={`${asset.display_name} omhoog`} disabled={index === 0} onClick={() => setPlaylistAssetIds((current) => movedItem(current, index, -1))}><ArrowUp size={16} aria-hidden /></button>
-                      <button type="button" aria-label={`${asset.display_name} omlaag`} disabled={index === playlistAssetIds.length - 1} onClick={() => setPlaylistAssetIds((current) => movedItem(current, index, 1))}><ArrowDown size={16} aria-hidden /></button>
+                      <span className={styles.assetIdentity}><strong>{asset.display_name}</strong><small>{asset.width} x {asset.height}</small></span>
+                      <button type="button" aria-label={`${asset.display_name} omhoog`} disabled={index === 0} onClick={() => setPlaylistAssetIds((current) => moveWallboardMediaPlaylistItem(current, index, -1))}><ArrowUp size={16} aria-hidden /></button>
+                      <button type="button" aria-label={`${asset.display_name} omlaag`} disabled={index === playlistAssetIds.length - 1} onClick={() => setPlaylistAssetIds((current) => moveWallboardMediaPlaylistItem(current, index, 1))}><ArrowDown size={16} aria-hidden /></button>
                       <button type="button" aria-label={`${asset.display_name} uit fotoplaylist verwijderen`} onClick={() => setPlaylistAssetIds((current) => current.filter((id) => id !== assetId))}><X size={16} aria-hidden /></button>
                     </li>
                   );
@@ -967,14 +1019,6 @@ function toggledSetValue(current: Set<string>, value: string): Set<string> {
 function withoutSetValue(current: Set<string>, value: string): Set<string> {
   const next = new Set(current);
   next.delete(value);
-  return next;
-}
-
-function movedItem(items: string[], index: number, direction: -1 | 1): string[] {
-  const destination = index + direction;
-  if (index < 0 || destination < 0 || destination >= items.length) return items;
-  const next = [...items];
-  [next[index], next[destination]] = [next[destination], next[index]];
   return next;
 }
 

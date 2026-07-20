@@ -193,6 +193,15 @@ restricted to public destinations. Each RSS source can show between one and eigh
 `max_items` settings default to eight. External display pages, arbitrary HTML and executable content are not
 accepted.
 
+The managed media library accepts ordered photo playlists and local MP4 videos. Administrators can reorder a
+photo playlist with pointer, keyboard or touch-friendly controls; the stored order is the presentation order.
+New raster images must have at least Full HD source detail in either landscape or portrait orientation. DIS
+decodes and re-encodes them as verified WebP, proportionally fits them inside a 1920 x 1080 box without cropping
+or upscaling, and creates a separate thumbnail. The scheduled migration applies the same bounded conversion to
+oversized existing images, leaves smaller legacy images intact and advances the affected media revisions so
+paired displays replace stale cached files. Source files, generated thumbnails and their database metadata are
+installed atomically and failed conversions retain the previous verified image.
+
 Announcement page names are management metadata for playlist and page selection; the kiosk labels the page
 as `Mededeling` and does not render that management name in the announcement body. Announcement content uses
 a versioned structured document rather than HTML. The allowlist is limited to headings, paragraphs, quotes,
@@ -222,10 +231,11 @@ Wind is reported at its source height in metres AGL. The service also derives th
 10, 80 or 120 metres AGL whose wind classification has not reached red. Visibility changes from metres to
 kilometres with two decimals at 10 km. Administrators may hide individual information cards, but the mandatory
 flight advice always evaluates the complete server-side metric set. Each full metric card is classified green,
-orange, red or unknown and exposes its source, observation time and stale state. Missing, incomplete, invalid or
-stale data is always unknown and can never become green. GNSS satellite availability remains explicitly unknown
-until a reliable location- and time-dependent source exists. Device limits, mission profile, local observations,
-airspace rules and operational authority always override this indicative forecast.
+orange, red or unknown, while the advice bar shows one stable data-refresh time in `Europe/Amsterdam`. Source,
+observation time and stale state remain available in the server contract without repeated source rows on the
+display. Missing, incomplete, invalid or stale data is always unknown and can never become green. GNSS satellite
+availability remains explicitly unknown until a reliable location- and time-dependent source exists. Device limits,
+mission profile, local observations, airspace rules and operational authority always override this indicative forecast.
 
 Each drone-news page can enable the fixed Nationaal Drone Team and Dronewatch sources, add up to eight named
 custom HTTPS RSS or Atom sources and show between one and twelve items across all enabled sources. At least one
@@ -243,18 +253,21 @@ validated canonical HTTPS article URL. When a feed provides a suitable raster im
 an authenticated, size-limited same-origin image cache with public-address DNS validation; wallboards never load
 the original remote image URL directly and SVG or executable image content is not accepted.
 
-Each playlist also owns a global page-fade switch. When enabled, every normal playlist page enters with the same
-short opacity transition; when disabled, page changes are immediate. Browser reduced-motion preferences always
-disable that page fade and reduce spatial news transitions to a brief non-spatial dissolve.
+Each playlist owns a global page transition and bounded transition duration; an individual page may inherit or
+override it. Supported transitions include fade, dissolve, directional slide, directional flip, zoom and wipe.
+News stories and photos also have their own bounded item transition, duration and flip direction, implemented as
+a two-card hand-off so the old item visibly leaves while the new item arrives. Browser reduced-motion preferences
+replace spatial transitions with a brief non-spatial dissolve.
 
 Before normal playlist playback starts, the kiosk inventories every configured page and keeps a dedicated
 preparation screen visible until all referenced, locally cacheable images and posters are completely stored and
 the matching cache version is activated. The screen reports page and asset progress,
 retries automatically without a manual button and never exposes download URLs or technical error details.
 Live API state and external YouTube/Vimeo streams are deliberately not stored as static media; supported
-external players receive only a bounded connection warm-up. MP4 files can be uploaded to managed media storage,
-but assigning them to a video page is deliberately not advertised until the playlist usage and delivery
-authorisation contract is available end to end.
+external players receive only a bounded connection warm-up. Verified local MP4 files can be assigned to video
+pages and are served through the paired wallboard session with byte-range support. Files above 1080p are queued
+for bounded H.264/AAC normalization; a 4K display still scales the resulting 1080p video to its fullscreen
+viewport without repeatedly downloading it.
 
 The precache version changes when the playlist configuration or referenced news/media content changes. DIS
 builds the replacement cache in isolation and activates it only after a complete successful pass, so a partial
@@ -301,6 +314,11 @@ playlist and the combined cycle repeats. A playlist containing only the operatio
 between alarm focus and map until the incident ends. The server supplies every phase and deadline through the
 two-second control feed, so paired displays stay synchronized and refreshes cannot restart a timer. A real alarm
 always takes precedence over a simultaneous preannouncement or test alarm.
+
+Each screen may additionally select a dedicated active-deployment playlist. It becomes the runtime playlist only
+while a real, non-test incident is in progress and returns to the normal assigned playlist afterwards. The
+selection is server-authoritative, audited and part of the wallboard cache version, so a running deployment is
+not masked by a newer dispatching record and a display prepares the replacement playlist before showing it.
 
 Administrators can send a rate-limited focus test for any of the three focus types to one selected screen. DIS
 uses fixed, clearly labelled example counts, names and ETAs from a short-lived per-screen cache; no incident,

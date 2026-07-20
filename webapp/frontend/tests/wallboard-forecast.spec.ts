@@ -6,7 +6,9 @@ import type {
   WallboardForecastStatus,
 } from '../src/types/api';
 import {
+  forecastTimeRange,
   formatForecastMetricValue,
+  formatWallboardForecastUpdateTime,
   normalizeWallboardForecastState,
   wallboardForecastDisplayBlocks,
 } from '../src/features/wallboards/WallboardDisplayPage';
@@ -67,11 +69,11 @@ function backendForecast(overrides: Record<string, unknown> = {}) {
       measured_at: '2026-07-20T12:10:00Z',
     },
     daylight: {
-      timezone: 'UTC',
-      sunrise_earliest: '2026-07-20T03:45:00Z',
-      sunrise_latest: '2026-07-20T04:05:00Z',
-      sunset_earliest: '2026-07-20T19:40:00Z',
-      sunset_latest: '2026-07-20T20:00:00Z',
+      timezone: 'Europe/Amsterdam',
+      sunrise_earliest: '2026-07-20T05:45:00+02:00',
+      sunrise_latest: '2026-07-20T06:05:00+02:00',
+      sunset_earliest: '2026-07-20T21:40:00+02:00',
+      sunset_latest: '2026-07-20T22:00:00+02:00',
       stale: false,
       source,
     },
@@ -167,6 +169,12 @@ test('stale values remain fail-closed while GNSS stays explicitly unknown', () =
   expect(forecast.metrics.find((candidate) => candidate.key === 'gnss_satellites_fix')?.status).toBe('unknown');
 });
 
+test('formats provider timestamps once in Europe/Amsterdam without a double UTC offset', () => {
+  expect(formatWallboardForecastUpdateTime('2026-07-20T12:15:00Z')).toBe('14:15');
+  expect(forecastTimeRange('2026-07-20T05:45:00+02:00', '2026-07-20T06:05:00+02:00')).toBe('05:45–06:05');
+  expect(formatWallboardForecastUpdateTime('ongeldig')).toBe('onbekend');
+});
+
 test('colors complete forecast cards and keeps reduced-motion protection', () => {
   const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
 
@@ -175,6 +183,93 @@ test('colors complete forecast cards and keeps reduced-motion protection', () =>
   expect(styles).toContain('.wallboard-display__forecast-metric--orange');
   expect(styles).toContain('.wallboard-display__forecast-metric--red');
   expect(styles).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))');
+  expect(styles).toContain('grid-auto-rows: minmax(0, 1fr)');
+  expect(styles).not.toMatch(/@media \(max-width: 1400px\)[\s\S]{0,180}repeat\(3/);
   expect(styles).toContain('@keyframes wallboard-preannouncement-ring');
   expect(styles).toContain('@media (prefers-reduced-motion: reduce)');
+});
+
+test('removes repeated source and disclaimer rows from the forecast presentation', () => {
+  const display = readFileSync(new URL('../src/features/wallboards/WallboardDisplayPage.tsx', import.meta.url), 'utf8');
+  const forecastPresentation = display.slice(
+    display.indexOf('function WallboardForecastPage'),
+    display.indexOf('function WallboardNewsPage'),
+  );
+
+  expect(forecastPresentation).toContain('wallboard-display__forecast-updated');
+  expect(forecastPresentation).not.toContain('Bron:');
+  expect(forecastPresentation).not.toContain('wallboard-display__forecast-disclaimer');
+  expect(forecastPresentation).not.toContain('wallboard-display__forecast-footer');
+});
+
+test('keeps all twelve forecast blocks in a four-by-three grid at Full HD and Ultra HD', async ({ page }) => {
+  const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
+  const screens = [
+    { profile: '1080p', width: 1920, height: 1080 },
+    { profile: '4k', width: 3840, height: 2160 },
+  ] as const;
+
+  for (const screen of screens) {
+    await page.setViewportSize({ width: screen.width, height: screen.height });
+    const cards = Array.from({ length: 12 }, (_, index) => `
+      <article class="wallboard-display__forecast-metric wallboard-display__forecast-metric--${index > 8 ? 'unknown' : 'green'}">
+        <header><span>Informatieblok ${index + 1}</span></header>
+        <strong>${index > 8 ? 'Onbekend' : `${index + 10} km/u`}</strong>
+        <ul class="wallboard-display__forecast-details"><li>120 m boven maaiveld</li><li>Operationele detailwaarde</li></ul>
+        <p>Zonder gevalideerde receiverdata blijft deze waarde fail-closed onbekend.</p>
+      </article>
+    `).join('');
+
+    await page.setContent(`
+      <style>
+        ${styles}
+        html, body { width: 100%; min-width: 0; margin: 0; overflow: hidden; }
+      </style>
+      <main class="wallboard-display wallboard-display--dark wallboard-display--profile-${screen.profile}">
+        <header class="wallboard-display__header">
+          <div><span class="wallboard-display__titles"><small>Meldkamer noord</small><h1>UAV Forecast Nederland</h1></span></div>
+          <time class="wallboard-display__clock"><span>14:15:00</span><small>maandag 20 juli 2026</small></time>
+        </header>
+        <section class="wallboard-display__page">
+          <div class="wallboard-display__forecast">
+            <section class="wallboard-display__forecast-advice wallboard-display__forecast-advice--unknown">
+              <span aria-hidden="true">☁</span>
+              <div class="wallboard-display__forecast-advice-copy">
+                <small>Vliegadvies · UAV Nederland</small><h2>Advies onvolledig</h2>
+                <p>Minimaal één noodzakelijke waarde ontbreekt of is verouderd.</p>
+                <span class="wallboard-display__forecast-scope">Gemiddelde van 12/12 provincies</span>
+              </div>
+              <time class="wallboard-display__forecast-updated"><span>Laatst bijgewerkt</span><strong>14:15</strong></time>
+            </section>
+            <div class="wallboard-display__forecast-grid">${cards}</div>
+          </div>
+        </section>
+        <footer class="wallboard-display__footer"><span>Pagina 1 van 1</span><span>Scherm blijft actief</span></footer>
+        <section class="wallboard-display__ticker"><strong class="wallboard-display__ticker-label">Actueel</strong><div class="wallboard-display__ticker-viewport"><span class="wallboard-display__ticker-item">Operationeel bericht</span></div></section>
+      </main>
+    `);
+
+    const measurement = await page.locator('.wallboard-display__forecast-grid').evaluate((grid) => {
+      const forecast = grid.parentElement as HTMLElement;
+      const cardRects = Array.from(grid.children).map((card) => card.getBoundingClientRect());
+      const distinct = (values: number[]) => new Set(values.map((value) => Math.round(value))).size;
+      return {
+        columns: getComputedStyle(grid).gridTemplateColumns.split(/\s+/).filter(Boolean).length,
+        columnPositions: distinct(cardRects.slice(0, 4).map((rect) => rect.left)),
+        forecastOverflow: forecast.scrollHeight > forecast.clientHeight + 1,
+        pageOverflow: document.documentElement.scrollHeight > document.documentElement.clientHeight + 1,
+        rowPositions: distinct(cardRects.map((rect) => rect.top)),
+        cardsInsideGrid: cardRects.every((rect) => rect.bottom <= grid.getBoundingClientRect().bottom + 1),
+      };
+    });
+
+    expect(measurement).toEqual({
+      columns: 4,
+      columnPositions: 4,
+      forecastOverflow: false,
+      pageOverflow: false,
+      rowPositions: 3,
+      cardsInsideGrid: true,
+    });
+  }
 });

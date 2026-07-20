@@ -1,6 +1,7 @@
 'use client';
 
 import { Image as ImageIcon, Loader2, RefreshCw, TimerReset } from 'lucide-react';
+import type { WallboardFlipDirection, WallboardItemTransition } from '../../types/api';
 import {
   type WallboardMediaPlaylist,
   type WallboardPhotoPageOptions,
@@ -12,11 +13,29 @@ import {
   wallboardPhotoPageIsWithinDurationLimit,
 } from './wallboardMedia';
 import { SecondsStepper } from './SecondsStepper';
-import { normalizeWallboardMediaPlaylistId } from './wallboardPresentation';
+import {
+  DEFAULT_WALLBOARD_FLIP_DIRECTION,
+  DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION_DURATION_MS,
+  MAX_WALLBOARD_TRANSITION_DURATION_MS,
+  MIN_WALLBOARD_TRANSITION_DURATION_MS,
+  WALLBOARD_FLIP_DIRECTIONS,
+  WALLBOARD_PAGE_TRANSITIONS,
+  clampWallboardTransitionDurationMs,
+  normalizeWallboardFlipDirection,
+  normalizeWallboardMediaPlaylistId,
+  normalizeWallboardNewsItemTransition,
+} from './wallboardPresentation';
 import styles from './WallboardPhotoPageEditor.module.css';
 
 export interface WallboardPhotoPageSelection {
-  options: Required<Pick<WallboardPhotoPageOptions, 'media_playlist_id' | 'item_duration_seconds'>>;
+  options: Required<Pick<
+    WallboardPhotoPageOptions,
+    | 'media_playlist_id'
+    | 'item_duration_seconds'
+    | 'item_transition'
+    | 'item_transition_duration_ms'
+    | 'item_flip_direction'
+  >>;
   itemCount: number;
   pageDurationSeconds: number;
   valid: boolean;
@@ -53,6 +72,14 @@ export function WallboardPhotoPageEditor({
     && selectedPlaylistId !== ''
     && selectedPlaylist === null;
   const itemDurationSeconds = wallboardPhotoItemDurationSeconds(value.item_duration_seconds);
+  const itemTransition = normalizeWallboardNewsItemTransition(value.item_transition);
+  const itemTransitionDurationMs = clampWallboardTransitionDurationMs(
+    value.item_transition_duration_ms,
+    DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION_DURATION_MS,
+  );
+  const itemFlipDirection = normalizeWallboardFlipDirection(
+    value.item_flip_direction ?? DEFAULT_WALLBOARD_FLIP_DIRECTION,
+  );
   const pageDurationSeconds = wallboardPhotoPageDurationSeconds(
     selectedPlaylist?.item_count ?? 0,
     itemDurationSeconds,
@@ -60,13 +87,33 @@ export function WallboardPhotoPageEditor({
   const valid = selectedPlaylist !== null
     && wallboardPhotoPageIsWithinDurationLimit(selectedPlaylist.item_count, itemDurationSeconds);
 
-  function emit(playlist: WallboardMediaPlaylist | null, duration: number) {
+  function emit(
+    playlist: WallboardMediaPlaylist | null,
+    duration: number,
+    overrides: Partial<Pick<
+      WallboardPhotoPageOptions,
+      'item_transition' | 'item_transition_duration_ms' | 'item_flip_direction'
+    >> = {},
+  ) {
     const safeDuration = wallboardPhotoItemDurationSeconds(duration);
     const itemCount = playlist?.item_count ?? 0;
+    const nextTransition = normalizeWallboardNewsItemTransition(
+      overrides.item_transition ?? itemTransition,
+    );
+    const nextTransitionDurationMs = clampWallboardTransitionDurationMs(
+      overrides.item_transition_duration_ms ?? itemTransitionDurationMs,
+      DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION_DURATION_MS,
+    );
+    const nextFlipDirection = normalizeWallboardFlipDirection(
+      overrides.item_flip_direction ?? itemFlipDirection,
+    );
     onChange({
       options: {
         media_playlist_id: normalizeWallboardMediaPlaylistId(playlist?.id),
         item_duration_seconds: safeDuration,
+        item_transition: nextTransition,
+        item_transition_duration_ms: nextTransitionDurationMs,
+        item_flip_direction: nextFlipDirection,
       },
       itemCount,
       pageDurationSeconds: wallboardPhotoPageDurationSeconds(itemCount, safeDuration),
@@ -138,6 +185,53 @@ export function WallboardPhotoPageEditor({
             disabled={disabled}
             onChange={(durationSeconds) => emit(selectedPlaylist, durationSeconds)}
           />
+
+          <label>
+            <span>Overgang per foto</span>
+            <select
+              id={`${idPrefix}-item-transition`}
+              value={itemTransition}
+              disabled={disabled}
+              onChange={(event) => emit(selectedPlaylist, itemDurationSeconds, {
+                item_transition: event.target.value as WallboardItemTransition,
+              })}
+            >
+              {WALLBOARD_PAGE_TRANSITIONS.map((transition) => (
+                <option key={transition.value} value={transition.value}>{transition.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <SecondsStepper
+            id={`${idPrefix}-item-transition-duration`}
+            label="Duur van overgang"
+            min={MIN_WALLBOARD_TRANSITION_DURATION_MS / 1000}
+            max={MAX_WALLBOARD_TRANSITION_DURATION_MS / 1000}
+            step={0.1}
+            value={itemTransitionDurationMs / 1000}
+            disabled={disabled || itemTransition === 'none'}
+            onChange={(durationSeconds) => emit(selectedPlaylist, itemDurationSeconds, {
+              item_transition_duration_ms: Math.round(durationSeconds * 1000),
+            })}
+          />
+
+          {itemTransition === 'flip' ? (
+            <label>
+              <span>Richting van flip</span>
+              <select
+                id={`${idPrefix}-item-flip-direction`}
+                value={itemFlipDirection}
+                disabled={disabled}
+                onChange={(event) => emit(selectedPlaylist, itemDurationSeconds, {
+                  item_flip_direction: event.target.value as WallboardFlipDirection,
+                })}
+              >
+                {WALLBOARD_FLIP_DIRECTIONS.map((direction) => (
+                  <option key={direction.value} value={direction.value}>{direction.label}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </div>
       )}
 

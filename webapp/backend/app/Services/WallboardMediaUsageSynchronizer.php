@@ -2,10 +2,14 @@
 
 namespace App\Services;
 
+use App\Models\WallboardMediaAsset;
+use App\Models\WallboardMediaAssetUsage;
 use App\Models\WallboardMediaPlaylist;
 use App\Models\WallboardMediaPlaylistUsage;
 use App\Models\WallboardPlaylist;
+use App\Repositories\WallboardMediaAssetRepository;
 use App\Repositories\WallboardMediaPlaylistRepository;
+use App\Support\WallboardConfiguration;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -20,7 +24,10 @@ final class WallboardMediaUsageSynchronizer
 
     public const MAX_PAGE_DURATION_SECONDS = 3600;
 
-    public function __construct(private readonly WallboardMediaPlaylistRepository $playlists) {}
+    public function __construct(
+        private readonly WallboardMediaPlaylistRepository $playlists,
+        private readonly WallboardMediaAssetRepository $assets,
+    ) {}
 
     /**
      * The caller must first hold WallboardMediaCoordinationService's shared
@@ -33,6 +40,7 @@ final class WallboardMediaUsageSynchronizer
     public function synchronize(WallboardPlaylist $wallboardPlaylist, array $configuration): array
     {
         $references = $this->references($configuration);
+        $videoReferences = $this->videoReferences($configuration);
         $locked = [];
         $playlistIds = array_values(array_unique(array_column($references, 'media_playlist_id')));
         sort($playlistIds, SORT_STRING);
@@ -68,6 +76,41 @@ final class WallboardMediaUsageSynchronizer
                 * $reference['item_duration_seconds'];
         }
 
+        $assetIds = array_values(array_unique(array_column($videoReferences, 'media_asset_id')));
+        sort($assetIds, SORT_STRING);
+        $lockedAssets = [];
+        foreach ($this->assets->lockReadyAssets($assetIds) as $asset) {
+            $lockedAssets[strtolower((string) $asset->id)] = $asset;
+        }
+        foreach ($videoReferences as $reference) {
+            $asset = $lockedAssets[$reference['media_asset_id']] ?? null;
+            if (! $asset instanceof WallboardMediaAsset) {
+                throw ValidationException::withMessages([
+                    "configuration.pages.{$reference['page_index']}.options.media_asset_id" => ['De geselecteerde MP4-video bestaat niet meer of is niet beschikbaar.'],
+                ]);
+            }
+            $duration = $asset->duration_seconds;
+            if ($asset->kind !== WallboardMediaAsset::KIND_VIDEO
+                || $asset->mime_type !== 'video/mp4'
+                || ! is_int($duration)
+                || $duration < WallboardConfiguration::MIN_VIDEO_DURATION_SECONDS
+                || $duration > WallboardConfiguration::MAX_VIDEO_DURATION_SECONDS) {
+                throw ValidationException::withMessages([
+                    "configuration.pages.{$reference['page_index']}.options.media_asset_id" => ['Selecteer een beschikbare, volledig gecontroleerde MP4-video.'],
+                ]);
+            }
+            $configuration['pages'][$reference['page_index']]['options'] = [
+                'media_asset_id' => $reference['media_asset_id'],
+                'media_asset_version' => (int) $asset->version,
+                'url' => WallboardConfiguration::localVideoUrl($reference['media_asset_id']),
+                'video_duration_seconds' => $duration,
+            ];
+            $configuration['pages'][$reference['page_index']]['duration_seconds'] = min(
+                3600,
+                $duration + WallboardConfiguration::VIDEO_STARTUP_BUFFER_SECONDS,
+            );
+        }
+
         WallboardMediaPlaylistUsage::query()
             ->where('wallboard_playlist_id', (string) $wallboardPlaylist->id)
             ->delete();
@@ -77,6 +120,18 @@ final class WallboardMediaUsageSynchronizer
                 'wallboard_playlist_id' => (string) $wallboardPlaylist->id,
                 'page_id' => $reference['page_id'],
                 'media_playlist_id' => $reference['media_playlist_id'],
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ]);
+        }
+        WallboardMediaAssetUsage::query()
+            ->where('wallboard_playlist_id', (string) $wallboardPlaylist->id)
+            ->delete();
+        foreach ($videoReferences as $reference) {
+            WallboardMediaAssetUsage::query()->create([
+                'wallboard_playlist_id' => (string) $wallboardPlaylist->id,
+                'page_id' => $reference['page_id'],
+                'media_asset_id' => $reference['media_asset_id'],
                 'created_at' => $timestamp,
                 'updated_at' => $timestamp,
             ]);
@@ -92,6 +147,9 @@ final class WallboardMediaUsageSynchronizer
     public function clear(WallboardPlaylist $wallboardPlaylist): void
     {
         WallboardMediaPlaylistUsage::query()
+            ->where('wallboard_playlist_id', (string) $wallboardPlaylist->id)
+            ->delete();
+        WallboardMediaAssetUsage::query()
             ->where('wallboard_playlist_id', (string) $wallboardPlaylist->id)
             ->delete();
     }
@@ -155,6 +213,44 @@ final class WallboardMediaUsageSynchronizer
                 'page_id' => $pageId,
                 'media_playlist_id' => $playlistId,
                 'item_duration_seconds' => $duration,
+            ];
+        }
+
+        return array_values($references);
+    }
+
+    /**
+     * @param  array<string, mixed>  $configuration
+     * @return list<array{page_index: int, page_id: string, media_asset_id: string}>
+     */
+    public function videoReferences(array $configuration): array
+    {
+        $references = [];
+        foreach ((array) ($configuration['pages'] ?? []) as $index => $page) {
+            if (! is_array($page) || ($page['type'] ?? null) !== 'video') {
+                continue;
+            }
+            $options = is_array($page['options'] ?? null) ? $page['options'] : [];
+            $assetId = strtolower(trim((string) ($options['media_asset_id'] ?? '')));
+            if ($assetId === '') {
+                continue;
+            }
+            $pageId = trim((string) ($page['id'] ?? ''));
+            if (preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/', $pageId) !== 1
+                || ! Str::isUlid($assetId)) {
+                throw ValidationException::withMessages([
+                    "configuration.pages.{$index}" => ['De lokale videoconfiguratie is ongeldig.'],
+                ]);
+            }
+            if (isset($references[$pageId])) {
+                throw ValidationException::withMessages([
+                    "configuration.pages.{$index}.id" => ["Pagina-ID's moeten uniek zijn."],
+                ]);
+            }
+            $references[$pageId] = [
+                'page_index' => (int) $index,
+                'page_id' => $pageId,
+                'media_asset_id' => $assetId,
             ];
         }
 

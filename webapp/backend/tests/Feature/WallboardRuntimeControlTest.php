@@ -8,6 +8,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\Wallboard;
+use App\Models\WallboardPlaylist;
 use App\Models\WallboardSession;
 use App\Services\WallboardDisplayService;
 use App\Services\WallboardSessionService;
@@ -311,6 +312,117 @@ final class WallboardRuntimeControlTest extends TestCase
 
         $openOnly->delete();
         $testDispatch->delete();
+    }
+
+    public function test_each_screen_uses_its_active_deployment_playlist_only_after_dispatching_finishes(): void
+    {
+        $manager = $this->user('wallboard-active-playlist@example.test', ['wallboards.manage']);
+        $baseConfiguration = WallboardConfiguration::normalize([
+            'rotation_enabled' => false,
+            'pages' => [
+                ['id' => 'base-map', 'name' => 'Normale kaart', 'type' => 'map', 'duration_seconds' => 30, 'options' => []],
+            ],
+            'ticker' => [
+                'enabled' => true,
+                'sources' => [[
+                    'id' => 'base-message',
+                    'type' => 'internal',
+                    'label' => 'Normaal',
+                    'text' => 'Normale ticker',
+                ]],
+            ],
+        ]);
+        $deploymentConfiguration = WallboardConfiguration::normalize([
+            'rotation_enabled' => false,
+            'pages' => [
+                ['id' => 'deployment-map', 'name' => 'Inzetkaart', 'type' => 'map', 'duration_seconds' => 30, 'options' => []],
+            ],
+            'ticker' => [
+                'enabled' => true,
+                'sources' => [[
+                    'id' => 'deployment-message',
+                    'type' => 'internal',
+                    'label' => 'Inzet',
+                    'text' => 'Ticker tijdens inzet',
+                ]],
+            ],
+        ]);
+        $basePlaylist = WallboardPlaylist::query()->create([
+            'name' => 'Normale playlist',
+            'configuration' => $baseConfiguration,
+            'version' => 3,
+            'created_by' => $manager->id,
+            'updated_by' => $manager->id,
+        ]);
+        $deploymentPlaylist = WallboardPlaylist::query()->create([
+            'name' => 'Actieve inzet',
+            'configuration' => $deploymentConfiguration,
+            'version' => 7,
+            'created_by' => $manager->id,
+            'updated_by' => $manager->id,
+        ]);
+        $wallboard = $this->wallboard($manager, $baseConfiguration);
+        $wallboard->forceFill([
+            'playlist_id' => $basePlaylist->id,
+            'active_incident_playlist_id' => $deploymentPlaylist->id,
+        ])->save();
+        [, $cookie] = $this->wallboardCredential($wallboard);
+
+        $incident = $this->incident($manager, 'dispatching', false);
+        $this->wallboardGet('/api/wallboard/control', $cookie)
+            ->assertOk()
+            ->assertJsonPath('data.active_incident_playlist', false)
+            ->assertJsonPath('data.runtime_playlist_id', $basePlaylist->id)
+            ->assertJsonPath('data.runtime_playlist_version', 3)
+            ->assertJsonPath('data.display.page_id', 'base-map');
+
+        $incident->forceFill(['status' => 'in_progress'])->save();
+        $this->wallboardGet('/api/wallboard/control', $cookie)
+            ->assertOk()
+            ->assertJsonPath('data.active_incident_playlist', true)
+            ->assertJsonPath('data.runtime_playlist_id', $deploymentPlaylist->id)
+            ->assertJsonPath('data.runtime_playlist_version', 7)
+            ->assertJsonPath('data.display.page_id', 'deployment-map');
+        $this->wallboardGet('/api/wallboard/state', $cookie)
+            ->assertOk()
+            ->assertJsonPath('data.wallboard.active_incident_playlist', true)
+            ->assertJsonPath('data.wallboard.runtime_playlist_id', $deploymentPlaylist->id)
+            ->assertJsonPath('data.wallboard.configuration.pages.0.id', 'deployment-map');
+        $this->wallboardGet('/api/wallboard/static', $cookie)
+            ->assertOk()
+            ->assertJsonPath('data.wallboard.active_incident_playlist', true)
+            ->assertJsonPath('data.wallboard.runtime_playlist_id', $deploymentPlaylist->id)
+            ->assertJsonPath('data.wallboard.configuration.pages.0.id', 'deployment-map');
+        $this->wallboardGet('/api/wallboard/ticker', $cookie)
+            ->assertOk()
+            ->assertJsonPath('data.items.0.text', 'Ticker tijdens inzet');
+
+        // A newer dispatching incident may coexist with an already active
+        // deployment. The selected runtime playlist must remain deployment-
+        // scoped until every real in-progress incident has ended.
+        $newerDispatching = $this->incident($manager, 'dispatching', false);
+        $newerDispatching->forceFill(['opened_at' => now()->addMinute()])->save();
+        $this->wallboardGet('/api/wallboard/control', $cookie)
+            ->assertOk()
+            ->assertJsonPath('data.active_incident_playlist', true)
+            ->assertJsonPath('data.runtime_playlist_id', $deploymentPlaylist->id)
+            ->assertJsonPath('data.display.page_id', 'deployment-map');
+
+        $incident->forceFill(['status' => 'resolved', 'closed_at' => now()])->save();
+        $this->wallboardGet('/api/wallboard/control', $cookie)
+            ->assertOk()
+            ->assertJsonPath('data.active_incident_playlist', false)
+            ->assertJsonPath('data.runtime_playlist_id', $basePlaylist->id)
+            ->assertJsonPath('data.display.page_id', 'base-map');
+        $this->wallboardGet('/api/wallboard/static', $cookie)
+            ->assertOk()
+            ->assertJsonPath('data.wallboard.active_incident_playlist', false)
+            ->assertJsonPath('data.wallboard.runtime_playlist_id', $basePlaylist->id)
+            ->assertJsonPath('data.wallboard.configuration.pages.0.id', 'base-map');
+        $this->wallboardGet('/api/wallboard/ticker', $cookie)
+            ->assertOk()
+            ->assertJsonPath('data.items.0.text', 'Normale ticker');
+        $newerDispatching->forceFill(['status' => 'cancelled', 'closed_at' => now()])->save();
     }
 
     public function test_lightweight_control_poll_is_cookie_authenticated_and_rate_limited(): void

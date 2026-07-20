@@ -227,7 +227,8 @@ export type WallboardTheme = 'dark' | 'light';
 export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'calendar' | 'message' | 'safety_notice' | 'quote' | 'uav_forecast' | 'news' | 'video' | 'photo_carousel';
 export type WallboardDisplayMode = 'rotation' | 'static' | 'manual' | 'incident_override';
 export type WallboardNewsItemTransition = 'fade' | 'dissolve' | 'slide' | 'flip' | 'zoom' | 'wipe' | 'none';
-export type WallboardPageTransition = WallboardNewsItemTransition;
+export type WallboardItemTransition = WallboardNewsItemTransition;
+export type WallboardPageTransition = WallboardItemTransition;
 export type WallboardFlipDirection = 'left_to_right' | 'top_to_bottom' | 'bottom_to_top' | 'random';
 export type WallboardForecastLocationMode = 'netherlands' | 'address';
 export type WallboardForecastBlockKey =
@@ -336,6 +337,8 @@ export interface WallboardPageOptions {
   quotes?: WallboardQuote[];
   url?: string;
   video_duration_seconds?: number;
+  media_asset_id?: string;
+  media_asset_version?: number;
   media_playlist_id?: string;
   show_test_incidents?: boolean;
   sources?: WallboardNewsSource[];
@@ -493,6 +496,8 @@ export interface Wallboard {
   configuration: WallboardConfiguration;
   playlist_id: string;
   playlist: WallboardPlaylistReference;
+  active_incident_playlist_id?: string | null;
+  active_incident_playlist?: WallboardPlaylistReference | null;
   is_enabled: boolean;
   is_online?: boolean;
   config_version: number;
@@ -682,7 +687,11 @@ export interface WallboardOperationalSummary {
 export interface WallboardState {
   generated_at: string;
   maintenance?: WallboardMaintenanceNotice | null;
-  wallboard: Pick<Wallboard, 'id' | 'name' | 'layout' | 'display_profile' | 'configuration' | 'config_version' | 'control_version' | 'refresh_version' | 'display' | 'updated_at'>;
+  wallboard: Pick<Wallboard, 'id' | 'name' | 'layout' | 'display_profile' | 'configuration' | 'config_version' | 'control_version' | 'refresh_version' | 'display' | 'updated_at'> & {
+    runtime_playlist_id?: string | null;
+    runtime_playlist_version?: number;
+    active_incident_playlist?: boolean;
+  };
   map: {
     incidents: WallboardStateIncident[];
     command_centers: WallboardStateCommandCenter[];
@@ -806,6 +815,7 @@ export interface WallboardMediaPageStateItem {
   id: string;
   name: string;
   image_url: string;
+  media_asset_version: number;
   width: number;
   height: number;
 }
@@ -824,6 +834,9 @@ export interface WallboardControlState {
   config_version: number;
   control_version: number;
   refresh_version: number;
+  runtime_playlist_id?: string | null;
+  runtime_playlist_version?: number;
+  active_incident_playlist?: boolean;
   display_profile: WallboardDisplayProfile;
   display: WallboardDisplayState;
   transient_alert: WallboardTransientAlert | null;

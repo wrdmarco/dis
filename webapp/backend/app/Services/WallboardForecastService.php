@@ -12,6 +12,8 @@ final class WallboardForecastService
 {
     private const LOCAL_TIMEZONE = 'Europe/Amsterdam';
 
+    private const CACHE_NAMESPACE = 'wallboard:uav-forecast:v2';
+
     private const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast';
 
     private const KP_CURRENT_URL = 'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json';
@@ -138,7 +140,7 @@ final class WallboardForecastService
                 ],
                 'visible_blocks' => array_values((array) ($options['visible_blocks'] ?? WallboardConfiguration::FORECAST_VISIBLE_BLOCKS)),
                 'overall_status' => $this->classifier->overall($metrics),
-                'generated_at' => now()->toIso8601String(),
+                'generated_at' => $this->forecastGeneratedAt($weather, $kp),
                 'condition' => [
                     'code' => $condition['value'],
                     'label' => $condition['display_value'],
@@ -254,7 +256,7 @@ final class WallboardForecastService
             'stale' => false,
             'source' => ['name' => 'Geen receiverdata beschikbaar', 'url' => null],
             'measured_at' => null,
-            'explanation' => 'Een betrouwbare telling vereist actuele sky-view- en fixdata van een GNSS-ontvanger op deze locatie. Openbare orbitdata bewijst niet welke satellieten een lokaal toestel werkelijk ziet of in de fix gebruikt; daarom blijft deze waarde fail-closed onbekend.',
+            'explanation' => 'Zonder gevalideerde receiverdata van een lokale GNSS-ontvanger blijft deze waarde fail-closed onbekend.',
             'altitude_m' => null,
             'source_height_label' => null,
         ];
@@ -360,7 +362,7 @@ final class WallboardForecastService
         if (! is_array($current) || ! is_string($current['time'] ?? null) || ! is_array($daily)) {
             throw new \UnexpectedValueException('Weather response invalid.');
         }
-        $measuredAt = $this->timestamp($current['time']);
+        $measuredAt = $this->weatherTimestamp($current['time']);
         $sunrise = $this->dailyTimestamp($daily['sunrise'] ?? null);
         $sunset = $this->dailyTimestamp($daily['sunset'] ?? null);
         $temperature = $this->requiredBoundedNumber($current['temperature_2m'] ?? null, -80, 60);
@@ -383,6 +385,7 @@ final class WallboardForecastService
             'sunrise' => $sunrise->toIso8601String(),
             'sunset' => $sunset->toIso8601String(),
             'measured_at' => $measuredAt->toIso8601String(),
+            'refreshed_at' => now()->toIso8601String(),
             'stale' => $this->isStale($measuredAt, $this->positiveConfig('weather_stale_seconds', 1800)),
             'source' => ['name' => 'Open-Meteo', 'url' => 'https://open-meteo.com/en/docs'],
         ];
@@ -441,9 +444,14 @@ final class WallboardForecastService
             $selected,
         ));
         $measuredTimes = array_map(fn (array $reading): CarbonImmutable => $this->timestamp($reading['measured_at']), $selected);
+        $refreshedTimes = array_map(
+            fn (array $reading): CarbonImmutable => $this->timestamp((string) ($reading['refreshed_at'] ?? $reading['measured_at'])),
+            $selected,
+        );
         $sunrises = array_map(fn (array $reading): CarbonImmutable => $this->localTimestamp($reading['sunrise']), $selected);
         $sunsets = array_map(fn (array $reading): CarbonImmutable => $this->localTimestamp($reading['sunset']), $selected);
         usort($measuredTimes, static fn (CarbonImmutable $a, CarbonImmutable $b): int => $a <=> $b);
+        usort($refreshedTimes, static fn (CarbonImmutable $a, CarbonImmutable $b): int => $a <=> $b);
         usort($sunrises, static fn (CarbonImmutable $a, CarbonImmutable $b): int => $a <=> $b);
         usort($sunsets, static fn (CarbonImmutable $a, CarbonImmutable $b): int => $a <=> $b);
 
@@ -457,6 +465,7 @@ final class WallboardForecastService
             'sunset_earliest' => $sunsets[0]->toIso8601String(),
             'sunset_latest' => $sunsets[array_key_last($sunsets)]->toIso8601String(),
             'measured_at' => $measuredTimes[0]->toIso8601String(),
+            'refreshed_at' => $refreshedTimes[array_key_last($refreshedTimes)]->toIso8601String(),
             'stale' => $stale,
             'source' => [
                 'name' => count($selected) === WallboardForecastLocationService::NETHERLANDS_PROVINCE_COUNT
@@ -476,6 +485,7 @@ final class WallboardForecastService
             'stale' => false,
             'source' => ['name' => 'Open-Meteo', 'url' => 'https://open-meteo.com/en/docs'],
             'measured_at' => null,
+            'refreshed_at' => null,
             'sample_count' => $sampleCount,
             'complete' => false,
             'availability_note' => $note,
@@ -499,7 +509,7 @@ final class WallboardForecastService
     /** @return array<string, mixed> */
     private function kpReading(): array
     {
-        return $this->cachedReading('wallboard:uav-forecast:kp', function (): array {
+        return $this->cachedReading(self::CACHE_NAMESPACE.':kp', function (): array {
             $primary = $this->fetchKpCandidate(self::KP_CURRENT_URL, ['estimated_kp', 'kp_index']);
             if ($primary !== null && ! $this->isStale($primary['time'], $this->positiveConfig('kp_stale_seconds', 14400))) {
                 return $this->kpPayload($primary, 'NOAA SWPC Kp (1 minuut)', self::KP_CURRENT_URL);
@@ -546,10 +556,16 @@ final class WallboardForecastService
                 $time = $row['time_tag'] ?? null;
                 $value = null;
                 foreach ($valueFields as $field) {
-                    if (is_numeric($row[$field] ?? null)) {
-                        $value = (float) $row[$field];
-                        break;
+                    $candidate = $row[$field] ?? null;
+                    if (! is_numeric($candidate) || ! is_finite((float) $candidate)) {
+                        continue;
                     }
+                    $number = (float) $candidate;
+                    if ($number < 0 || $number > 9) {
+                        continue;
+                    }
+                    $value = $number;
+                    break;
                 }
                 if ($time === null && array_is_list($row)) {
                     $time = $row[0] ?? null;
@@ -585,6 +601,7 @@ final class WallboardForecastService
         return [
             'value' => $candidate['value'],
             'measured_at' => $candidate['time']->toIso8601String(),
+            'refreshed_at' => now()->toIso8601String(),
             'stale' => $this->isStale($candidate['time'], $this->positiveConfig('kp_stale_seconds', 14400)),
             'source' => ['name' => $name, 'url' => $url],
         ];
@@ -753,7 +770,7 @@ final class WallboardForecastService
 
     private function weatherCacheKey(float $latitude, float $longitude): string
     {
-        return 'wallboard:uav-forecast:weather:'.sha1(sprintf('%.5F,%.5F', $latitude, $longitude));
+        return self::CACHE_NAMESPACE.':weather:'.sha1(sprintf('%.5F,%.5F', $latitude, $longitude));
     }
 
     private function dailyTimestamp(mixed $values): CarbonImmutable
@@ -771,9 +788,37 @@ final class WallboardForecastService
             ->setTimezone(self::LOCAL_TIMEZONE);
     }
 
+    private function weatherTimestamp(string $value): CarbonImmutable
+    {
+        return $this->localTimestamp($value);
+    }
+
     private function timestamp(string $value): CarbonImmutable
     {
         return CarbonImmutable::parse($value, 'UTC')->utc();
+    }
+
+    /** @param array<string, mixed> $weather
+     * @param  array<string, mixed>  $kp
+     */
+    private function forecastGeneratedAt(array $weather, array $kp): string
+    {
+        $latest = null;
+        foreach ([$weather['refreshed_at'] ?? null, $kp['refreshed_at'] ?? null] as $value) {
+            if (! is_string($value)) {
+                continue;
+            }
+            try {
+                $candidate = $this->timestamp($value);
+            } catch (Throwable) {
+                continue;
+            }
+            if ($latest === null || $candidate->greaterThan($latest)) {
+                $latest = $candidate;
+            }
+        }
+
+        return ($latest ?? CarbonImmutable::now())->toIso8601String();
     }
 
     private function isStale(CarbonImmutable $measuredAt, int $maximumAgeSeconds): bool

@@ -47,6 +47,7 @@ final class WallboardMediaPlaylistService
     public function create(array $data, User $actor, Request $request): WallboardMediaPlaylist
     {
         return DB::transaction(function () use ($data, $actor, $request): WallboardMediaPlaylist {
+            $this->coordination->lock();
             $assetIds = $this->assetIds($data['asset_ids'] ?? []);
             $this->readyAssets($assetIds);
             $created = $this->repository->create([

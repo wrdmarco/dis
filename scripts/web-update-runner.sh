@@ -6,6 +6,14 @@ UPDATE_TIMEOUT_SECONDS="${UPDATE_TIMEOUT_SECONDS:-3300}"
 LOG_DIRECTORY="/var/log/dis"
 LOG_PATH="${LOG_DIRECTORY}/system-update-runner.log"
 BACKEND_DIR="${DIS_INSTALL_PATH}/webapp/backend"
+STARTED_EPOCH="$(date +%s)"
+INCLUDES_SYSTEM_UPDATES=1
+
+for argument in "$@"; do
+  if [ "${argument}" = "--skip-system" ]; then
+    INCLUDES_SYSTEM_UPDATES=0
+  fi
+done
 
 if [ ! -d "${DIS_INSTALL_PATH}" ]; then
   printf '[dis:error] DIS install path not found: %s\n' "${DIS_INSTALL_PATH}" >&2
@@ -38,7 +46,16 @@ echo "[dis] Updatecommando afgerond met exit code ${exit_code}."
 
 if [ -f "${BACKEND_DIR}/artisan" ]; then
   cd "${BACKEND_DIR}" || true
-  runuser -u dis -- php artisan dis:finish-update "${exit_code}" || true
+  FINISHED_EPOCH="$(date +%s)"
+  DURATION_SECONDS="$((FINISHED_EPOCH - STARTED_EPOCH))"
+  if [ "${DURATION_SECONDS}" -lt 1 ]; then
+    DURATION_SECONDS=1
+  fi
+  FINISH_ARGUMENTS=(dis:finish-update "${exit_code}" "${DURATION_SECONDS}")
+  if [ "${INCLUDES_SYSTEM_UPDATES}" = "1" ]; then
+    FINISH_ARGUMENTS+=(--system)
+  fi
+  runuser -u dis -- php artisan "${FINISH_ARGUMENTS[@]}" || true
 fi
 
 exit "${exit_code}"

@@ -1,5 +1,7 @@
 import type {
   PaginationMeta,
+  WallboardFlipDirection,
+  WallboardItemTransition,
   WallboardMediaPageState,
   WallboardMediaPageStateItem,
 } from '../../types/api';
@@ -77,6 +79,9 @@ export interface WallboardMediaPlaylist {
 export interface WallboardPhotoPageOptions {
   media_playlist_id?: string;
   item_duration_seconds?: number;
+  item_transition?: WallboardItemTransition;
+  item_transition_duration_ms?: number;
+  item_flip_direction?: WallboardFlipDirection;
 }
 
 export interface WallboardMediaAssetPage {
@@ -157,6 +162,33 @@ export function wallboardMediaAssetIds(playlist: WallboardMediaPlaylist | null):
       .map((item) => item.asset.id);
 }
 
+export function moveWallboardMediaPlaylistItem(
+  items: readonly string[],
+  index: number,
+  direction: -1 | 1,
+): string[] {
+  const destination = index + direction;
+  if (index < 0 || destination < 0 || destination >= items.length) return [...items];
+  const next = [...items];
+  [next[index], next[destination]] = [next[destination], next[index]];
+  return next;
+}
+
+export function reorderWallboardMediaPlaylistItem(
+  items: readonly string[],
+  sourceId: string,
+  targetId: string,
+): string[] {
+  const sourceIndex = items.indexOf(sourceId);
+  const targetIndex = items.indexOf(targetId);
+  if (sourceId === targetId || sourceIndex < 0 || targetIndex < 0) return [...items];
+
+  const next = [...items];
+  const [moved] = next.splice(sourceIndex, 1);
+  next.splice(targetIndex, 0, moved);
+  return next;
+}
+
 export function wallboardMediaPageStateFromPlaylist(
   playlist: WallboardMediaPlaylist,
   itemDurationSeconds: unknown,
@@ -174,6 +206,7 @@ export function wallboardMediaPageStateFromPlaylist(
         id: item.asset.id,
         name: item.asset.display_name,
         image_url: imageUrl,
+        media_asset_version: item.asset.version,
         width: item.asset.width,
         height: item.asset.height,
       }];
@@ -215,12 +248,16 @@ export function normalizeWallboardMediaPageStates(value: unknown): Record<string
       const imageUrl = wallboardMediaImageUrl(item.image_url);
       const id = typeof item.id === 'string' ? item.id.trim().toUpperCase() : '';
       const name = typeof item.name === 'string' ? item.name.trim().slice(0, 120) : '';
+      const mediaAssetVersion = item.media_asset_version;
       const width = item.width;
       const height = item.height;
       if (
         imageUrl === null
         || !/^[0-9A-HJKMNP-TV-Z]{26}$/.test(id)
         || name === ''
+        || typeof mediaAssetVersion !== 'number'
+        || !Number.isInteger(mediaAssetVersion)
+        || mediaAssetVersion < 1
         || typeof width !== 'number'
         || !Number.isInteger(width)
         || width < 1
@@ -230,7 +267,14 @@ export function normalizeWallboardMediaPageStates(value: unknown): Record<string
         || height < 1
         || height > 32768
       ) return [];
-      return [{ id, name, image_url: imageUrl, width, height }];
+      return [{
+        id,
+        name,
+        image_url: imageUrl,
+        media_asset_version: mediaAssetVersion,
+        width,
+        height,
+      }];
     });
     if (items.length === 0) return pages;
 

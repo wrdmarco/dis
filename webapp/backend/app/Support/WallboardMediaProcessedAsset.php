@@ -16,5 +16,6 @@ final readonly class WallboardMediaProcessedAsset
         public ?string $thumbnailTemporaryPath,
         public ?string $thumbnailSha256,
         public ?int $thumbnailByteSize,
+        public bool $requiresVideoTranscode = false,
     ) {}
 }

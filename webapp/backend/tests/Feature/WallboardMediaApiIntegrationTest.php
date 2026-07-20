@@ -10,6 +10,7 @@ use App\Models\Wallboard;
 use App\Models\WallboardMediaAsset;
 use App\Models\WallboardPlaylist;
 use App\Models\WallboardSession;
+use App\Repositories\WallboardMediaAssetRepository;
 use App\Services\WallboardMediaPlaylistService;
 use App\Services\WallboardMediaStateService;
 use App\Services\WallboardMediaUsageSynchronizer;
@@ -80,7 +81,30 @@ final class WallboardMediaApiIntegrationTest extends TestCase
             'configuration' => $configuration,
         ], $manager, Request::create('/api/admin/wallboard-playlists', 'POST'));
         $wallboard = $this->wallboard($manager, $wallboardPlaylist, (array) $wallboardPlaylist->configuration);
+        $deploymentAsset = $this->storedAsset($manager, 'Actieve inzet');
+        $deploymentMediaPlaylist = app(WallboardMediaPlaylistService::class)->create([
+            'name' => 'Actieve inzetbeelden',
+            'asset_ids' => [(string) $deploymentAsset->id],
+        ], $manager, Request::create('/api/admin/wallboard-media/playlists', 'POST'));
+        $deploymentPlaylist = app(WallboardPlaylistService::class)->create([
+            'name' => 'Actieve inzetwallboard',
+            'configuration' => $this->photoConfiguration((string) $deploymentMediaPlaylist->id, 15),
+        ], $manager, Request::create('/api/admin/wallboard-playlists', 'POST'));
+        $wallboard->forceFill(['active_incident_playlist_id' => $deploymentPlaylist->id])->save();
+        self::assertSame(
+            (string) $deploymentPlaylist->id,
+            (string) $wallboard->fresh()?->active_incident_playlist_id,
+        );
+        $this->assertDatabaseHas('wallboard_media_playlist_usages', [
+            'wallboard_playlist_id' => (string) $deploymentPlaylist->id,
+            'media_playlist_id' => (string) $deploymentMediaPlaylist->id,
+        ]);
+        self::assertNotNull(app(WallboardMediaAssetRepository::class)->authorizedForWallboard(
+            (string) $deploymentAsset->id,
+            [(string) $deploymentPlaylist->id],
+        ));
         $uri = '/api/wallboard/media/'.$asset->id;
+        $deploymentUri = '/api/wallboard/media/'.$deploymentAsset->id;
 
         $this->get($uri)
             ->assertUnauthorized()
@@ -98,6 +122,9 @@ final class WallboardMediaApiIntegrationTest extends TestCase
             'immutable, max-age=31536000, private',
             $response->headers->get('Cache-Control'),
         );
+        $deploymentResponse = $this->wallboardGet($deploymentUri, $credential);
+        $deploymentResponse->assertOk();
+        self::assertSame($this->imageBody(), $deploymentResponse->streamedContent());
 
         foreach ([$etag, 'W/'.$etag] as $validator) {
             $notModified = $this->wallboardGet($uri, $credential, ['If-None-Match' => $validator]);
@@ -118,6 +145,9 @@ final class WallboardMediaApiIntegrationTest extends TestCase
             (array) $unassignedPlaylist->configuration,
         );
         $this->wallboardGet($uri, $this->wallboardCredential($unassignedWallboard))
+            ->assertNotFound()
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->wallboardGet($deploymentUri, $this->wallboardCredential($unassignedWallboard))
             ->assertNotFound()
             ->assertHeader('Cache-Control', 'no-store, private');
 
@@ -167,11 +197,7 @@ final class WallboardMediaApiIntegrationTest extends TestCase
             self::markTestSkipped('De lokale test-PHP heeft geen GD/WebP; productie installeert php8.5-gd.');
         }
 
-        $source = base64_decode(
-            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-            true,
-        );
-        self::assertIsString($source);
+        $source = $this->pngBody(1920, 1080);
         $manager = $this->user('media-thumbnail-upload@example.test', ['wallboards.manage']);
         $uploaded = UploadedFile::fake()->createWithContent('thumbnail-source.png', $source);
 
@@ -190,6 +216,8 @@ final class WallboardMediaApiIntegrationTest extends TestCase
             $thumbnailUrl,
         );
         $asset = WallboardMediaAsset::query()->findOrFail($assetId);
+        self::assertSame(1920, $asset->width);
+        self::assertSame(1080, $asset->height);
         self::assertNotNull($asset->thumbnail_storage_path);
         self::assertSame('image/webp', $asset->thumbnail_mime_type);
         self::assertGreaterThan(0, (int) $asset->thumbnail_byte_size);
@@ -204,6 +232,41 @@ final class WallboardMediaApiIntegrationTest extends TestCase
         $body = $thumbnail->streamedContent();
         self::assertSame((int) $asset->thumbnail_byte_size, strlen($body));
         self::assertSame((string) $asset->thumbnail_sha256, hash('sha256', $body));
+
+        $contentPath = (string) $asset->storage_path;
+        $thumbnailPath = (string) $asset->thumbnail_storage_path;
+        $this->asAdminClient($manager)
+            ->deleteJson('/api/admin/wallboard-media/assets/'.$assetId, ['expected_version' => 1])
+            ->assertNoContent();
+        Storage::disk('local')->assertMissing($contentPath);
+        Storage::disk('local')->assertMissing($thumbnailPath);
+    }
+
+    public function test_image_upload_rejects_each_source_dimension_below_full_hd(): void
+    {
+        if (! function_exists('imagecreatetruecolor') || ! function_exists('imagewebp')) {
+            self::markTestSkipped('De lokale test-PHP heeft geen GD/WebP; productie installeert php8.5-gd.');
+        }
+
+        $manager = $this->user('media-small-upload@example.test', ['wallboards.manage']);
+        foreach ([
+            'te smal' => [1919, 1080],
+            'te laag' => [1920, 1079],
+        ] as $case => [$width, $height]) {
+            $uploaded = UploadedFile::fake()->createWithContent(
+                "{$case}.png",
+                $this->pngBody($width, $height),
+            );
+            $this->asAdminClient($manager)
+                ->post('/api/admin/wallboard-media/assets', ['file' => $uploaded], ['Accept' => 'application/json'])
+                ->assertUnprocessable()
+                ->assertJsonPath('error.code', 'validation_failed')
+                ->assertJsonPath(
+                    'error.details.file.0',
+                    'De afbeelding moet minimaal 1920 bij 1080 pixels zijn, liggend of staand.',
+                );
+        }
+        self::assertSame(0, WallboardMediaAsset::query()->count());
     }
 
     public function test_media_upload_rejects_two_file_fields_without_processing_either(): void
@@ -449,6 +512,28 @@ final class WallboardMediaApiIntegrationTest extends TestCase
             'UklGRiIAAABXRUJQVlA4ICAAAADQAQCdASoBAAEAL0AcJaQAA3AA/v89WAAAAA==',
             true,
         );
+        self::assertIsString($body);
+
+        return $body;
+    }
+
+    private function pngBody(int $width, int $height): string
+    {
+        $image = imagecreatetruecolor($width, $height);
+        self::assertInstanceOf(\GdImage::class, $image);
+        imagefilledrectangle(
+            $image,
+            0,
+            0,
+            $width - 1,
+            $height - 1,
+            imagecolorallocate($image, 20, 120, 220),
+        );
+        ob_start();
+        $encoded = imagepng($image);
+        $body = ob_get_clean();
+        imagedestroy($image);
+        self::assertTrue($encoded);
         self::assertIsString($body);
 
         return $body;

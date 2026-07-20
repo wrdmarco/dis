@@ -38,11 +38,22 @@ final class WallboardStateService
     /** @return array<string, mixed> */
     public function state(Wallboard $wallboard): array
     {
-        $configuration = $this->playlistResolver->resolve($wallboard);
-        $runtime = $this->runtime($wallboard, $configuration);
-        $static = $this->staticContent($wallboard, $configuration);
-        $news = $this->contentSnapshots->news($wallboard);
-        $ticker = $this->contentSnapshots->ticker($wallboard);
+        $activeAlarm = $this->activeAlarm();
+        $resolved = $this->playlistResolver->resolveRuntime(
+            $wallboard,
+            $this->activeDeploymentExists($activeAlarm),
+        );
+        $configuration = $resolved['configuration'];
+        $runtime = $this->runtime($wallboard, $configuration, $activeAlarm);
+        $static = $this->staticContent(
+            $wallboard,
+            $configuration,
+            $resolved['playlist_id'],
+            $resolved['playlist_version'],
+            $resolved['active_incident_playlist'],
+        );
+        $news = $this->contentSnapshots->news($wallboard, $configuration, $resolved['playlist_id']);
+        $ticker = $this->contentSnapshots->ticker($wallboard, $configuration, $resolved['playlist_id']);
 
         return [
             'generated_at' => $runtime['generated_at'],
@@ -70,7 +81,12 @@ final class WallboardStateService
     /** @return array<string, mixed> */
     public function live(Wallboard $wallboard): array
     {
-        $runtime = $this->runtime($wallboard, $this->playlistResolver->resolve($wallboard));
+        $activeAlarm = $this->activeAlarm();
+        $resolved = $this->playlistResolver->resolveRuntime(
+            $wallboard,
+            $this->activeDeploymentExists($activeAlarm),
+        );
+        $runtime = $this->runtime($wallboard, $resolved['configuration'], $activeAlarm);
 
         return [
             'generated_at' => $runtime['generated_at'],
@@ -85,9 +101,24 @@ final class WallboardStateService
      * @param  array<string, mixed>|null  $configuration
      * @return array<string, mixed>
      */
-    public function staticContent(Wallboard $wallboard, ?array $configuration = null): array
-    {
-        $configuration ??= $this->playlistResolver->resolve($wallboard);
+    public function staticContent(
+        Wallboard $wallboard,
+        ?array $configuration = null,
+        ?string $playlistId = null,
+        ?int $playlistVersion = null,
+        bool $activeIncidentPlaylist = false,
+    ): array {
+        if ($configuration === null) {
+            $activeAlarm = $this->activeAlarm();
+            $resolved = $this->playlistResolver->resolveRuntime(
+                $wallboard,
+                $this->activeDeploymentExists($activeAlarm),
+            );
+            $configuration = $resolved['configuration'];
+            $playlistId = $resolved['playlist_id'];
+            $playlistVersion = $resolved['playlist_version'];
+            $activeIncidentPlaylist = $resolved['active_incident_playlist'];
+        }
 
         return [
             'wallboard' => [
@@ -97,9 +128,12 @@ final class WallboardStateService
                 'display_profile' => (string) $wallboard->display_profile,
                 'configuration' => $configuration,
                 'config_version' => (int) $wallboard->config_version,
+                'runtime_playlist_id' => $playlistId,
+                'runtime_playlist_version' => $playlistVersion ?? 0,
+                'active_incident_playlist' => $activeIncidentPlaylist,
             ],
             'media' => [
-                'photo_pages' => $this->mediaStateService->pages($wallboard, $configuration),
+                'photo_pages' => $this->mediaStateService->pagesForPlaylist($playlistId, $configuration),
             ],
         ];
     }
@@ -107,20 +141,44 @@ final class WallboardStateService
     /** @return array{revision: int, pages: array<string, mixed>, generated_at: string|null} */
     public function news(Wallboard $wallboard): array
     {
-        return $this->contentSnapshots->news($wallboard);
+        $activeAlarm = $this->activeAlarm();
+        $resolved = $this->playlistResolver->resolveRuntime(
+            $wallboard,
+            $this->activeDeploymentExists($activeAlarm),
+        );
+
+        return $this->contentSnapshots->news(
+            $wallboard,
+            $resolved['configuration'],
+            $resolved['playlist_id'],
+        );
     }
 
     /** @return array{revision: int, items: list<array<string, mixed>>} */
     public function ticker(Wallboard $wallboard): array
     {
-        return $this->contentSnapshots->ticker($wallboard);
+        $activeAlarm = $this->activeAlarm();
+        $resolved = $this->playlistResolver->resolveRuntime(
+            $wallboard,
+            $this->activeDeploymentExists($activeAlarm),
+        );
+
+        return $this->contentSnapshots->ticker(
+            $wallboard,
+            $resolved['configuration'],
+            $resolved['playlist_id'],
+        );
     }
 
     /** @return array<string, mixed> */
     public function control(Wallboard $wallboard): array
     {
-        $configuration = $this->playlistResolver->resolve($wallboard);
         $activeAlarm = $this->activeAlarm();
+        $resolved = $this->playlistResolver->resolveRuntime(
+            $wallboard,
+            $this->activeDeploymentExists($activeAlarm),
+        );
+        $configuration = $resolved['configuration'];
         $focus = $this->focusService->resolve($configuration, $wallboard);
 
         return [
@@ -130,7 +188,14 @@ final class WallboardStateService
             'config_version' => (int) $wallboard->config_version,
             'control_version' => (int) $wallboard->control_version,
             'refresh_version' => (int) $wallboard->refresh_version,
-            'content_versions' => $this->contentSnapshots->contentVersions($wallboard),
+            'runtime_playlist_id' => $resolved['playlist_id'],
+            'runtime_playlist_version' => $resolved['playlist_version'],
+            'active_incident_playlist' => $resolved['active_incident_playlist'],
+            'content_versions' => $this->contentSnapshots->contentVersions(
+                $wallboard,
+                $configuration,
+                $resolved['playlist_id'],
+            ),
             'display' => $this->displayService->display($wallboard, $configuration, $activeAlarm !== null),
             'focus' => $focus,
             'transient_alert' => $this->transientAlert(),
@@ -142,9 +207,8 @@ final class WallboardStateService
      * @param  array<string, mixed>  $configuration
      * @return array<string, mixed>
      */
-    private function runtime(Wallboard $wallboard, array $configuration): array
+    private function runtime(Wallboard $wallboard, array $configuration, ?array $activeAlarm): array
     {
-        $activeAlarm = $this->activeAlarm();
         $focus = $this->focusService->resolve($configuration, $wallboard);
         $transientAlert = $this->transientAlert();
         $display = $this->displayService->display($wallboard, $configuration, $activeAlarm !== null);
@@ -255,6 +319,22 @@ final class WallboardStateService
             'location_label' => $incident->location_label,
             'opened_at' => ApiDateTime::dateTime($incident->opened_at),
         ];
+    }
+
+    /** @param array<string, mixed>|null $activeAlarm */
+    private function activeDeploymentExists(?array $activeAlarm): bool
+    {
+        if (($activeAlarm['status'] ?? null) === 'in_progress') {
+            return true;
+        }
+        if ($activeAlarm === null) {
+            return false;
+        }
+
+        return Incident::query()
+            ->where('status', 'in_progress')
+            ->where('is_test', false)
+            ->exists();
     }
 
     /** @return list<array<string, mixed>> */

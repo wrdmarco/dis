@@ -32,6 +32,11 @@ final class WallboardPlaylist extends Model
         return $this->hasMany(Wallboard::class, 'playlist_id');
     }
 
+    public function mediaAssetUsages(): HasMany
+    {
+        return $this->hasMany(WallboardMediaAssetUsage::class, 'wallboard_playlist_id');
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');

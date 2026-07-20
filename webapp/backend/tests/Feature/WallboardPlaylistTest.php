@@ -289,6 +289,51 @@ final class WallboardPlaylistTest extends TestCase
             ->exists());
     }
 
+    public function test_active_incident_only_playlist_is_counted_protected_and_updated_without_overwriting_the_base_snapshot(): void
+    {
+        $manager = $this->user('playlist-active-only@example.test', ['wallboards.manage']);
+        $baseConfiguration = $this->configuration(['map'], 'Normale playlist');
+        $activeConfiguration = $this->configuration(['summary'], 'Actieve inzet');
+        $updatedActiveConfiguration = $this->configuration(['briefing'], 'Actieve inzet bijgewerkt');
+        $basePlaylist = $this->playlist($manager, 'Normaal', $baseConfiguration);
+        $activePlaylist = $this->playlist($manager, 'Tijdens inzet', $activeConfiguration);
+        $wallboard = $this->wallboard($manager, $basePlaylist, 'Scherm met inzetplaylist', $baseConfiguration);
+        $wallboard->forceFill(['active_incident_playlist_id' => $activePlaylist->id])->save();
+        $client = $this->asAdminClient($manager);
+
+        $playlists = $client->getJson('/api/admin/wallboard-playlists')->assertOk();
+        $activeIndex = collect($playlists->json('data'))->search(
+            fn (array $playlist): bool => $playlist['id'] === $activePlaylist->id,
+        );
+        $this->assertIsInt($activeIndex);
+        $playlists->assertJsonPath("data.$activeIndex.linked_wallboards_count", 1);
+
+        $client->patchJson('/api/admin/wallboard-playlists/'.$activePlaylist->id, [
+            'expected_version' => 1,
+            'configuration' => $updatedActiveConfiguration,
+        ])->assertOk()
+            ->assertJsonPath('data.version', 2)
+            ->assertJsonPath('data.linked_wallboards_count', 1)
+            ->assertJsonPath('data.configuration.pages.0.id', 'briefing');
+
+        $wallboard->refresh();
+        $this->assertSame($basePlaylist->id, $wallboard->playlist_id);
+        $this->assertSame($activePlaylist->id, $wallboard->active_incident_playlist_id);
+        $this->assertSame($baseConfiguration, $wallboard->configuration);
+        $this->assertSame(1, $wallboard->config_version);
+        $this->assertSame(1, $wallboard->control_version);
+        $audit = AuditLog::query()
+            ->where('action', 'wallboard_playlists.updated')
+            ->where('target_id', $activePlaylist->id)
+            ->latest('created_at')
+            ->firstOrFail();
+        $this->assertSame(1, $audit->metadata['linked_wallboards_count']);
+
+        $client->deleteJson('/api/admin/wallboard-playlists/'.$activePlaylist->id.'?expected_version=2')
+            ->assertConflict();
+        $this->assertDatabaseHas('wallboard_playlists', ['id' => $activePlaylist->id]);
+    }
+
     public function test_resolver_uses_playlist_as_source_of_truth_when_fallback_snapshot_drifted(): void
     {
         $manager = $this->user('playlist-resolver@example.test', ['wallboards.manage']);
@@ -315,6 +360,13 @@ final class WallboardPlaylistTest extends TestCase
         $manager = $this->user('playlist-migration@example.test', ['wallboards.manage']);
         $migration = require database_path('migrations/2026_07_19_000004_create_wallboard_playlists.php');
         $snapshotMigration = require database_path('migrations/2026_07_19_000010_create_wallboard_content_snapshots.php');
+        $mediaUsageMigration = require database_path('migrations/2026_07_20_000001_create_wallboard_media_asset_usages.php');
+        $activeIncidentPlaylistMigration = require database_path('migrations/2026_07_20_000002_add_active_incident_playlist_to_wallboards.php');
+        // Recreate the historical boundary in dependency order. Newer tables and
+        // columns deliberately keep their foreign keys instead of weakening the
+        // production schema solely to make this migration test possible.
+        $activeIncidentPlaylistMigration->down();
+        $mediaUsageMigration->down();
         $snapshotMigration->down();
         $migration->down();
 
@@ -342,6 +394,8 @@ final class WallboardPlaylistTest extends TestCase
 
         $migration->up();
         $snapshotMigration->up();
+        $mediaUsageMigration->up();
+        $activeIncidentPlaylistMigration->up();
 
         $wallboards = DB::table('wallboards')->orderBy('name')->get();
         $this->assertCount(2, $wallboards);

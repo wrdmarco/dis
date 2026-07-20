@@ -38,7 +38,7 @@ abstract class WallboardPlaylistRequest extends FormRequest
             'configuration.pages.*.transition' => ['sometimes', 'nullable', 'string', Rule::in(WallboardConfiguration::PAGE_TRANSITIONS)],
             'configuration.pages.*.transition_duration_ms' => ['sometimes', 'nullable', 'integer:strict', 'between:'.WallboardConfiguration::MIN_TRANSITION_DURATION_MS.','.WallboardConfiguration::MAX_TRANSITION_DURATION_MS],
             'configuration.pages.*.flip_direction' => ['sometimes', 'nullable', 'string', Rule::in(WallboardConfiguration::FLIP_DIRECTIONS)],
-            'configuration.pages.*.options' => ['sometimes', 'array:body,content,quotes,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,item_transition,item_transition_duration_ms,item_flip_direction,url,video_duration_seconds,media_playlist_id,location_mode,location_label,latitude,longitude,visible_blocks'],
+            'configuration.pages.*.options' => ['sometimes', 'array:body,content,quotes,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,item_transition,item_transition_duration_ms,item_flip_direction,url,video_duration_seconds,media_asset_id,media_playlist_id,location_mode,location_label,latitude,longitude,visible_blocks'],
             'configuration.pages.*.options.body' => ['sometimes', 'string', 'max:2000'],
             'configuration.pages.*.options.content' => ['sometimes', 'array:version,blocks'],
             'configuration.pages.*.options.content.version' => ['sometimes', 'integer:strict'],
@@ -49,6 +49,7 @@ abstract class WallboardPlaylistRequest extends FormRequest
             'configuration.pages.*.options.quotes.*.author' => ['sometimes', 'nullable', 'string', 'max:'.WallboardConfiguration::MAX_QUOTE_AUTHOR_LENGTH],
             'configuration.pages.*.options.url' => ['sometimes', 'string', 'max:'.WallboardConfiguration::MAX_VIDEO_URL_LENGTH],
             'configuration.pages.*.options.video_duration_seconds' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_VIDEO_DURATION_SECONDS.','.WallboardConfiguration::MAX_VIDEO_DURATION_SECONDS],
+            'configuration.pages.*.options.media_asset_id' => ['sometimes', 'string', 'ulid'],
             'configuration.pages.*.options.media_playlist_id' => ['sometimes', 'string', 'ulid'],
             'configuration.pages.*.options.location_mode' => ['sometimes', 'string', Rule::in(WallboardConfiguration::FORECAST_LOCATION_MODES)],
             'configuration.pages.*.options.visible_blocks' => ['sometimes', 'array'],
@@ -66,7 +67,7 @@ abstract class WallboardPlaylistRequest extends FormRequest
             'configuration.pages.*.options.custom_sources.*.url' => ['required', 'string', 'max:'.WallboardConfiguration::MAX_NEWS_CUSTOM_SOURCE_URL_LENGTH],
             'configuration.pages.*.options.max_items' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_NEWS_MAX_ITEMS.','.WallboardConfiguration::MAX_NEWS_MAX_ITEMS],
             'configuration.pages.*.options.item_duration_seconds' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_NEWS_ITEM_DURATION_SECONDS.','.WallboardConfiguration::MAX_NEWS_ITEM_DURATION_SECONDS],
-            'configuration.pages.*.options.item_transition' => ['sometimes', 'string', Rule::in(WallboardConfiguration::NEWS_ITEM_TRANSITIONS)],
+            'configuration.pages.*.options.item_transition' => ['sometimes', 'string', Rule::in(WallboardConfiguration::PAGE_TRANSITIONS)],
             'configuration.pages.*.options.item_transition_duration_ms' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_TRANSITION_DURATION_MS.','.WallboardConfiguration::MAX_TRANSITION_DURATION_MS],
             'configuration.pages.*.options.item_flip_direction' => ['sometimes', 'string', Rule::in(WallboardConfiguration::FLIP_DIRECTIONS)],
             'configuration.focus' => ['sometimes', 'array:preannouncement,real_alarm,test_alarm'],
@@ -122,7 +123,9 @@ abstract class WallboardPlaylistRequest extends FormRequest
                     continue;
                 }
                 $options = is_array($page['options'] ?? null) ? $page['options'] : [];
-                if (! is_int($options['video_duration_seconds'] ?? null)) {
+                $hasLocalAsset = is_string($options['media_asset_id'] ?? null)
+                    && trim((string) $options['media_asset_id']) !== '';
+                if (! $hasLocalAsset && ! is_int($options['video_duration_seconds'] ?? null)) {
                     $validator->errors()->add(
                         "configuration.pages.{$index}.options.video_duration_seconds",
                         'Controleer eerst de videoduur voordat u de pagina opslaat.',

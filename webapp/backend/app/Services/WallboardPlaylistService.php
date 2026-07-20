@@ -110,9 +110,7 @@ final class WallboardPlaylistService
                     'updated_by' => $actor->id,
                 ])->save();
             }
-            $linkedWallboardsCount = array_key_exists('configuration', $data)
-                ? $linkedWallboards->count()
-                : $this->repository->linkedWallboardsCount((string) $locked->id);
+            $linkedWallboardsCount = $this->repository->linkedWallboardsCount((string) $locked->id);
 
             $this->auditService->record('wallboard_playlists.updated', $locked, $actor, [
                 'changed_fields' => array_values(array_diff(array_keys($data), ['expected_version'])),

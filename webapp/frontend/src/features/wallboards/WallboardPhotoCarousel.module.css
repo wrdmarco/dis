@@ -18,6 +18,8 @@
   border-radius: 18px;
 }
 
+.stage,
+.pane,
 .backdrop,
 .photo {
   position: absolute;
@@ -25,11 +27,29 @@
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.stage {
+  overflow: hidden;
+  perspective: 1500px;
+  transform-style: preserve-3d;
+}
+
+.pane {
+  overflow: hidden;
+  background: #07111d;
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+  will-change: opacity, transform, clip-path, filter;
+}
+
+.backdrop,
+.photo {
   user-select: none;
 }
 
 .backdrop {
-  z-index: -1;
+  z-index: 0;
   object-fit: cover;
   scale: 1.08;
   filter: blur(26px) saturate(.72) brightness(.38);
@@ -38,16 +58,63 @@
 .photo {
   z-index: 1;
   object-fit: contain;
-  animation: photo-arrive 480ms cubic-bezier(.2, .7, .2, 1) both;
 }
 
-.paused .photo {
+.outgoing {
+  z-index: 1;
+}
+
+.incoming,
+.paneSettled {
+  z-index: 2;
+}
+
+.transitioning .pane {
+  animation-duration: var(--wallboard-photo-transition-duration, 720ms);
+  animation-timing-function: cubic-bezier(.22, .65, .2, 1);
+  animation-fill-mode: both;
+}
+
+.transitionFade .outgoing { animation-name: photo-fade-out; }
+.transitionFade .incoming { animation-name: photo-fade-in; }
+.transitionDissolve .outgoing { animation-name: photo-dissolve-out; }
+.transitionDissolve .incoming { animation-name: photo-dissolve-in; }
+.transitionSlide .outgoing { animation-name: photo-slide-out; }
+.transitionSlide .incoming { animation-name: photo-slide-in; }
+.transitionZoom .outgoing { animation-name: photo-zoom-out; }
+.transitionZoom .incoming { animation-name: photo-zoom-in; }
+.transitionWipe .outgoing { animation-name: photo-wipe-out; }
+.transitionWipe .incoming { animation-name: photo-wipe-in; }
+
+.transitionFlip .outgoing,
+.transitionFlip .incoming {
+  animation-timing-function: cubic-bezier(.55, .04, .38, .98);
+  transform-origin: 50% 50%;
+}
+
+.transitionFlip.flipLeftToRight .outgoing { animation-name: photo-flip-horizontal-out; }
+.transitionFlip.flipLeftToRight .incoming { animation-name: photo-flip-horizontal-in; }
+.transitionFlip.flipTopToBottom .outgoing { animation-name: photo-flip-top-out; }
+.transitionFlip.flipTopToBottom .incoming { animation-name: photo-flip-top-in; }
+.transitionFlip.flipBottomToTop .outgoing { animation-name: photo-flip-bottom-out; }
+.transitionFlip.flipBottomToTop .incoming { animation-name: photo-flip-bottom-in; }
+
+.transitionNone .pane,
+.settled .pane {
+  animation: none;
+  opacity: 1;
+  transform: none;
+  clip-path: inset(0);
+  filter: none;
+}
+
+.paused .pane {
   animation-play-state: paused;
 }
 
 .caption {
   position: absolute;
-  z-index: 2;
+  z-index: 4;
   right: clamp(16px, 2vw, 32px);
   bottom: clamp(16px, 2vw, 28px);
   left: clamp(16px, 2vw, 32px);
@@ -92,20 +159,109 @@
   max-width: 38ch;
 }
 
-@keyframes photo-arrive {
-  from {
-    opacity: 0;
-    transform: scale(1.012);
-  }
+@keyframes photo-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
 
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+@keyframes photo-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes photo-dissolve-out {
+  from { opacity: 1; filter: blur(0) saturate(1); transform: scale(1); }
+  to { opacity: 0; filter: blur(12px) saturate(.35); transform: scale(1.018); }
+}
+
+@keyframes photo-dissolve-in {
+  from { opacity: 0; filter: blur(12px) saturate(.35); transform: scale(.982); }
+  to { opacity: 1; filter: blur(0) saturate(1); transform: scale(1); }
+}
+
+@keyframes photo-slide-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
+@keyframes photo-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes photo-zoom-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(1.08); }
+}
+
+@keyframes photo-zoom-in {
+  from { opacity: 0; transform: scale(.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes photo-wipe-out {
+  from { clip-path: inset(0); }
+  to { clip-path: inset(0 100% 0 0); }
+}
+
+@keyframes photo-wipe-in {
+  from { clip-path: inset(0 0 0 100%); }
+  to { clip-path: inset(0); }
+}
+
+@keyframes photo-flip-horizontal-out {
+  0%, 44% { opacity: 1; transform: rotateY(0deg); }
+  50%, 100% { opacity: 0; transform: rotateY(90deg); }
+}
+
+@keyframes photo-flip-horizontal-in {
+  0%, 49% { opacity: 0; transform: rotateY(-90deg); }
+  56%, 100% { opacity: 1; transform: rotateY(0deg); }
+}
+
+@keyframes photo-flip-top-out {
+  0%, 44% { opacity: 1; transform: rotateX(0deg); }
+  50%, 100% { opacity: 0; transform: rotateX(-90deg); }
+}
+
+@keyframes photo-flip-top-in {
+  0%, 49% { opacity: 0; transform: rotateX(90deg); }
+  56%, 100% { opacity: 1; transform: rotateX(0deg); }
+}
+
+@keyframes photo-flip-bottom-out {
+  0%, 44% { opacity: 1; transform: rotateX(0deg); }
+  50%, 100% { opacity: 0; transform: rotateX(90deg); }
+}
+
+@keyframes photo-flip-bottom-in {
+  0%, 49% { opacity: 0; transform: rotateX(-90deg); }
+  56%, 100% { opacity: 1; transform: rotateX(0deg); }
+}
+
+/* Een foto-effect start pas nadat de globale pagina-overgang is afgerond. */
+:global(.wallboard-display__page-card-stage:not(.wallboard-display__page-card-stage--settled)) .transitioning .pane {
+  animation: none !important;
+  opacity: 1;
+  transform: none;
+  clip-path: inset(0);
+  filter: none;
+}
+
+:global(.wallboard-display__page-card-stage:not(.wallboard-display__page-card-stage--settled)) .transitioning .outgoing {
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .photo {
-    animation: none;
+  .transitioning .pane {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+    clip-path: inset(0);
+    filter: none;
+  }
+
+  .transitioning .outgoing {
+    display: none;
   }
 }

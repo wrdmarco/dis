@@ -31,6 +31,11 @@ final class WallboardMaintenanceDeploymentContractTest extends TestCase
             'announce_wallboard_maintenance update "${UPDATE_ESTIMATED_DURATION_SECONDS}"',
             $update,
         );
+        $verified = strrpos($update, 'verify_update_and_open_production');
+        $completed = strrpos($update, 'log "DIS system and application update completed."');
+        self::assertIsInt($verified);
+        self::assertIsInt($completed);
+        self::assertTrue($verified < $completed);
     }
 
     public function test_direct_deploy_announces_once_but_nested_update_deploy_does_not(): void
@@ -47,6 +52,8 @@ final class WallboardMaintenanceDeploymentContractTest extends TestCase
         self::assertSame(1, substr_count($deploy, 'announce_wallboard_maintenance maintenance'));
         self::assertStringContainsString('DIS_DEPLOYMENT_OWNER="${DIS_DEPLOYMENT_OWNER:-deploy}"', $deploy);
         self::assertStringContainsString('DIS_DEPLOYMENT_OWNER=update', $this->read('scripts/update.sh'));
+        self::assertStringContainsString('log "Nested deployment phase finished"', $deploy);
+        self::assertStringNotContainsString("trap - EXIT\nlog \"Deployment finished\"", $deploy);
     }
 
     public function test_notice_is_atomic_bounded_and_only_cleared_after_successful_recovery(): void
@@ -101,6 +108,19 @@ final class WallboardMaintenanceDeploymentContractTest extends TestCase
         self::assertIsInt($lock);
         self::assertTrue($announce < $lock);
         self::assertStringContainsString('complete_deployment_maintenance "${BACKEND_DIR}"', $maintenance);
+    }
+
+    public function test_detached_runner_forwards_end_to_end_duration_and_update_mode_after_cache_clear(): void
+    {
+        $runner = $this->read('scripts/web-update-runner.sh');
+
+        self::assertStringContainsString('STARTED_EPOCH="$(date +%s)"', $runner);
+        self::assertStringContainsString('INCLUDES_SYSTEM_UPDATES=1', $runner);
+        self::assertStringContainsString('if [ "${argument}" = "--skip-system" ]; then', $runner);
+        self::assertStringContainsString('DURATION_SECONDS="$((FINISHED_EPOCH - STARTED_EPOCH))"', $runner);
+        self::assertStringContainsString('FINISH_ARGUMENTS=(dis:finish-update "${exit_code}" "${DURATION_SECONDS}")', $runner);
+        self::assertStringContainsString('FINISH_ARGUMENTS+=(--system)', $runner);
+        self::assertStringContainsString('php artisan "${FINISH_ARGUMENTS[@]}"', $runner);
     }
 
     private function read(string $relativePath): string

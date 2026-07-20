@@ -41,14 +41,17 @@ final class WallboardMediaDeliveryService
 
     public function forWallboard(Wallboard $wallboard, WallboardMediaAsset $asset): ?WallboardMediaContent
     {
-        $playlistId = $wallboard->playlist_id;
-        if (! is_string($playlistId) || $playlistId === '') {
+        $playlistIds = array_values(array_filter([
+            $wallboard->playlist_id,
+            $wallboard->active_incident_playlist_id,
+        ], static fn (mixed $id): bool => is_string($id) && $id !== ''));
+        if ($playlistIds === []) {
             return null;
         }
 
         return $this->content($this->assets->authorizedForWallboard(
             (string) $asset->getKey(),
-            $playlistId,
+            $playlistIds,
         ));
     }
 

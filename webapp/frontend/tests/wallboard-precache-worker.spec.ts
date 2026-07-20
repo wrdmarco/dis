@@ -73,14 +73,107 @@ test('durable disable tombstone rejects a delayed activation after restart', asy
   expect(networkFetches).toBe(1);
 });
 
-function activation(commandGeneration: number, requestedCacheName: string) {
+test('uses bounded origin byte ranges while online instead of buffering the cached MP4', async () => {
+  const storage = new WorkerCacheStorage();
+  await putVideo(storage, cacheName('video'), '0123456789');
+  let networkFetches = 0;
+  const worker = new WorkerRuntime(storage, async (request) => {
+    networkFetches += 1;
+    return networkVideoRangeResponse(request, '0123456789');
+  });
+  await worker.message(activation(1, cacheName('video'), 'video'));
+
+  const cases = [
+    { range: 'bytes=2-5', body: '2345', contentRange: 'bytes 2-5/10' },
+    { range: 'bytes=6-', body: '6789', contentRange: 'bytes 6-9/10' },
+    { range: 'bytes=-3', body: '789', contentRange: 'bytes 7-9/10' },
+  ];
+  for (const candidate of cases) {
+    const response = await worker.fetch(new Request(ASSET_URL, {
+      headers: { Range: candidate.range },
+    }));
+    expect(response.status).toBe(206);
+    expect(response.headers.get('accept-ranges')).toBe('bytes');
+    expect(response.headers.get('content-range')).toBe(candidate.contentRange);
+    expect(response.headers.get('content-length')).toBe(String(candidate.body.length));
+    expect(await response.text()).toBe(candidate.body);
+  }
+  expect(networkFetches).toBe(3);
+});
+
+test('serves cached MP4 byte ranges after a network failure', async () => {
+  const storage = new WorkerCacheStorage();
+  await putVideo(storage, cacheName('video'), '0123456789');
+  let networkFetches = 0;
+  const worker = new WorkerRuntime(storage, async () => {
+    networkFetches += 1;
+    throw new TypeError('offline');
+  });
+  await worker.message(activation(1, cacheName('video'), 'video'));
+
+  const response = await worker.fetch(new Request(ASSET_URL, {
+    headers: { Range: 'bytes=2-5' },
+  }));
+  expect(response.status).toBe(206);
+  expect(response.headers.get('content-range')).toBe('bytes 2-5/10');
+  expect(await response.text()).toBe('2345');
+  expect(networkFetches).toBe(1);
+});
+
+test('rejects an unsatisfiable cached MP4 byte range after a network failure', async () => {
+  const storage = new WorkerCacheStorage();
+  await putVideo(storage, cacheName('video'), '0123456789');
+  let networkFetches = 0;
+  const worker = new WorkerRuntime(storage, async () => {
+    networkFetches += 1;
+    throw new TypeError('offline');
+  });
+  await worker.message(activation(1, cacheName('video'), 'video'));
+
+  const response = await worker.fetch(new Request(ASSET_URL, {
+    headers: { Range: 'bytes=10-' },
+  }));
+  expect(response.status).toBe(416);
+  expect(response.headers.get('content-range')).toBe('bytes */10');
+  expect(response.headers.get('content-length')).toBe('0');
+  expect(await response.text()).toBe('');
+  expect(networkFetches).toBe(1);
+});
+
+test('honors If-Range validators before serving an offline cached partial response', async () => {
+  const storage = new WorkerCacheStorage();
+  await putVideo(storage, cacheName('video'), '0123456789');
+  const worker = new WorkerRuntime(storage, async () => {
+    throw new TypeError('offline');
+  });
+  await worker.message(activation(1, cacheName('video'), 'video'));
+
+  const matched = await worker.fetch(new Request(ASSET_URL, {
+    headers: { Range: 'bytes=2-5', 'If-Range': '"video-etag"' },
+  }));
+  expect(matched.status).toBe(206);
+  expect(await matched.text()).toBe('2345');
+
+  const stale = await worker.fetch(new Request(ASSET_URL, {
+    headers: { Range: 'bytes=2-5', 'If-Range': '"stale-etag"' },
+  }));
+  expect(stale.status).toBe(200);
+  expect(stale.headers.get('content-range')).toBeNull();
+  expect(await stale.text()).toBe('0123456789');
+});
+
+function activation(
+  commandGeneration: number,
+  requestedCacheName: string,
+  kind: 'image' | 'video' = 'image',
+) {
   return {
     type: 'DIS_WALLBOARD_PRECACHE_ACTIVATE',
     wallboardKey: WALLBOARD_KEY,
     clientSessionToken: SESSION_TOKEN,
     commandGeneration,
     cacheName: requestedCacheName,
-    assets: [{ url: ASSET_URL, kind: 'image' }],
+    assets: [{ url: ASSET_URL, kind }],
   };
 }
 
@@ -103,8 +196,47 @@ async function putImage(storage: WorkerCacheStorage, name: string, body: string)
   return cache;
 }
 
+async function putVideo(storage: WorkerCacheStorage, name: string, body: string): Promise<WorkerCache> {
+  const cache = await storage.open(name);
+  await cache.put(new Request(ASSET_URL), videoResponse(body));
+  return cache;
+}
+
 function imageResponse(body: string): Response {
   return new Response(body, { status: 200, headers: { 'content-type': 'image/webp' } });
+}
+
+function videoResponse(body: string): Response {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'accept-ranges': 'bytes',
+      'content-length': String(body.length),
+      'content-type': 'video/mp4',
+      etag: '"video-etag"',
+      'last-modified': 'Mon, 20 Jul 2026 10:00:00 GMT',
+    },
+  });
+}
+
+function networkVideoRangeResponse(request: Request, body: string): Response {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(request.headers.get('Range') ?? '');
+  if (match === null || (match[1] === '' && match[2] === '')) return videoResponse(body);
+  const suffixLength = match[1] === '' ? Number(match[2]) : null;
+  const start = suffixLength === null ? Number(match[1]) : Math.max(0, body.length - suffixLength);
+  const end = suffixLength !== null || match[2] === ''
+    ? body.length - 1
+    : Math.min(Number(match[2]), body.length - 1);
+  const partial = body.slice(start, end + 1);
+  return new Response(partial, {
+    status: 206,
+    headers: {
+      'accept-ranges': 'bytes',
+      'content-length': String(partial.length),
+      'content-range': `bytes ${start}-${end}/${body.length}`,
+      'content-type': 'video/mp4',
+    },
+  });
 }
 
 class WorkerRuntime {
@@ -127,6 +259,7 @@ class WorkerRuntime {
       self: workerGlobal,
       caches: storage,
       fetch: network,
+      Headers,
       Request,
       Response,
       URL,
@@ -147,11 +280,12 @@ class WorkerRuntime {
     return acknowledgement;
   }
 
-  async fetch(url: string): Promise<Response> {
+  async fetch(input: RequestInfo | URL): Promise<Response> {
     let response: Promise<Response> | null = null;
+    const request = input instanceof Request ? input : new Request(input);
     this.listeners.get('fetch')?.({
       clientId: CLIENT_ID,
-      request: new Request(url),
+      request,
       respondWith: (value: Promise<Response>) => { response = value; },
     });
     if (response === null) throw new Error('Worker heeft het cachebare verzoek niet afgehandeld.');

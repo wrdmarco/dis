@@ -676,6 +676,9 @@ recover_stashed_backups
 drop_dis_update_stashes
 run_cmd rm -f -- "${DIS_INSTALL_PATH}/webapp/backend/storage/app/backup-config.env"
 
+log "Ensuring wallboard media runtime dependencies"
+ensure_wallboard_media_runtime_dependencies
+
 log "Preflighting the current frontend release before deployment maintenance"
 require_dis_frontend_release_artifacts
 

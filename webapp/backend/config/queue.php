@@ -14,6 +14,14 @@ return [
             'block_for' => null,
             'after_commit' => true,
         ],
+        'wallboard_media' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'queue' => 'wallboard-media',
+            'retry_after' => 3900,
+            'block_for' => 5,
+            'after_commit' => true,
+        ],
     ],
     'failed' => [
         'driver' => env('QUEUE_FAILED_DRIVER', 'database-uuids'),

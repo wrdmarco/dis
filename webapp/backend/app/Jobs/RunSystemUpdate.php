@@ -104,6 +104,10 @@ final class RunSystemUpdate implements ShouldQueue
         if ($exitCode === -1 && $closeCode !== -1) {
             $exitCode = $closeCode;
         }
-        $status->finish($exitCode);
+        $status->finish(
+            $exitCode,
+            max(1, time() - $startedAt),
+            $this->updateSystem,
+        );
     }
 }

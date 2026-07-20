@@ -4,7 +4,11 @@ import { Minus, Plus } from 'lucide-react';
 import {
   type ChangeEvent,
   type KeyboardEvent,
+  type MouseEvent,
+  type PointerEvent,
+  useCallback,
   useEffect,
+  useRef,
   useState,
 } from 'react';
 import {
@@ -13,6 +17,9 @@ import {
   normalizeSecondsStepperValue,
 } from './secondsStepperValue';
 import styles from './SecondsStepper.module.css';
+
+export const SECONDS_STEPPER_HOLD_DELAY_MS = 420;
+export const SECONDS_STEPPER_REPEAT_INTERVAL_MS = 110;
 
 export interface SecondsStepperProps {
   id: string;
@@ -59,10 +66,47 @@ export function SecondsStepper({
   const describedBy = descriptionId === undefined
     ? constraintsId
     : `${descriptionId} ${constraintsId}`;
+  const holdTimeoutRef = useRef<number | null>(null);
+  const repeatIntervalRef = useRef<number | null>(null);
+  const ignoreNextPointerClickRef = useRef(false);
+  const liveValueRef = useRef(actionableValue);
+  const onChangeRef = useRef(onChange);
+  const constraintsRef = useRef({ min, max, step, disabled });
+  onChangeRef.current = onChange;
+  constraintsRef.current = { min, max, step, disabled };
+
+  const stopRepeating = useCallback((): void => {
+    if (holdTimeoutRef.current !== null) {
+      window.clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+    }
+    if (repeatIntervalRef.current !== null) {
+      window.clearInterval(repeatIntervalRef.current);
+      repeatIntervalRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (!editing) setDraftValue(String(normalizedValue));
   }, [editing, normalizedValue]);
+
+  useEffect(() => {
+    if (holdTimeoutRef.current === null && repeatIntervalRef.current === null) {
+      liveValueRef.current = actionableValue;
+    }
+  }, [actionableValue]);
+
+  useEffect(() => {
+    if (disabled) stopRepeating();
+  }, [disabled, stopRepeating]);
+
+  useEffect(() => {
+    window.addEventListener('blur', stopRepeating);
+    return () => {
+      window.removeEventListener('blur', stopRepeating);
+      stopRepeating();
+    };
+  }, [stopRepeating]);
 
   function emit(nextValue: number): void {
     if (disabled) return;
@@ -86,6 +130,55 @@ export function SecondsStepper({
     if (event.key === 'Enter') event.currentTarget.blur();
   }
 
+  function emitRepeatedStep(direction: -1 | 1): boolean {
+    const constraints = constraintsRef.current;
+    if (constraints.disabled) {
+      stopRepeating();
+      return false;
+    }
+    const nextValue = moveSecondsStepperValue(
+      liveValueRef.current,
+      direction,
+      constraints.min,
+      constraints.max,
+      constraints.step,
+    );
+    if (nextValue === liveValueRef.current) {
+      stopRepeating();
+      return false;
+    }
+
+    liveValueRef.current = nextValue;
+    setDraftValue(String(nextValue));
+    onChangeRef.current(nextValue);
+    return true;
+  }
+
+  function startRepeating(event: PointerEvent<HTMLButtonElement>, direction: -1 | 1): void {
+    if (!event.isPrimary || event.button !== 0 || disabled) return;
+    event.preventDefault();
+    stopRepeating();
+    ignoreNextPointerClickRef.current = true;
+    liveValueRef.current = actionableValue;
+    if (!emitRepeatedStep(direction)) return;
+
+    holdTimeoutRef.current = window.setTimeout(() => {
+      holdTimeoutRef.current = null;
+      if (!emitRepeatedStep(direction)) return;
+      repeatIntervalRef.current = window.setInterval(() => {
+        emitRepeatedStep(direction);
+      }, SECONDS_STEPPER_REPEAT_INTERVAL_MS);
+    }, SECONDS_STEPPER_HOLD_DELAY_MS);
+  }
+
+  function handleStepClick(event: MouseEvent<HTMLButtonElement>, direction: -1 | 1): void {
+    if (event.detail > 0 && ignoreNextPointerClickRef.current) {
+      ignoreNextPointerClickRef.current = false;
+      return;
+    }
+    emit(moveSecondsStepperValue(actionableValue, direction, min, max, step));
+  }
+
   return (
     <div
       className={[styles.root, className].filter(Boolean).join(' ')}
@@ -100,14 +193,12 @@ export function SecondsStepper({
         <button
           className={styles.stepButton}
           type="button"
-          onPointerDown={(event) => event.preventDefault()}
-          onClick={() => emit(moveSecondsStepperValue(
-            actionableValue,
-            -1,
-            min,
-            max,
-            step,
-          ))}
+          onPointerDown={(event) => startRepeating(event, -1)}
+          onPointerUp={stopRepeating}
+          onPointerCancel={stopRepeating}
+          onPointerLeave={stopRepeating}
+          onBlur={stopRepeating}
+          onClick={(event) => handleStepClick(event, -1)}
           disabled={disabled || actionableValue <= min}
           aria-label={`${label} verlagen`}
         >
@@ -143,14 +234,12 @@ export function SecondsStepper({
         <button
           className={styles.stepButton}
           type="button"
-          onPointerDown={(event) => event.preventDefault()}
-          onClick={() => emit(moveSecondsStepperValue(
-            actionableValue,
-            1,
-            min,
-            max,
-            step,
-          ))}
+          onPointerDown={(event) => startRepeating(event, 1)}
+          onPointerUp={stopRepeating}
+          onPointerCancel={stopRepeating}
+          onPointerLeave={stopRepeating}
+          onBlur={stopRepeating}
+          onClick={(event) => handleStepClick(event, 1)}
           disabled={disabled || actionableValue >= maximumValue}
           aria-label={`${label} verhogen`}
         >

@@ -2,6 +2,7 @@ import type { WallboardPage, WallboardState } from '../../types/api';
 
 export const WALLBOARD_PRECACHE_PREFIX = 'dis-wallboard-static-v1-';
 export const WALLBOARD_PRECACHE_CONCURRENCY = 4;
+export const WALLBOARD_PRECACHE_REVISION_HEADER = 'X-DIS-Wallboard-Asset-Revision';
 
 export type WallboardPrecacheAssetKind = 'image' | 'poster' | 'video';
 export type WallboardPrecachePhase = 'preparing' | 'caching' | 'ready' | 'failed' | 'cancelled';
@@ -9,6 +10,7 @@ export type WallboardPrecachePhase = 'preparing' | 'caching' | 'ready' | 'failed
 export interface WallboardPrecacheAsset {
   url: string;
   kind: WallboardPrecacheAssetKind;
+  revision: string;
   pageIds: string[];
 }
 
@@ -69,8 +71,9 @@ const EXTERNAL_VIDEO_HOSTS = new Set(['www.youtube.com', 'player.vimeo.com']);
 
 /**
  * Builds one deterministic manifest for every configured wallboard page. The
- * version changes only when the configuration or referenced static content
- * changes; volatile state timestamps deliberately do not invalidate it.
+ * version changes only when the runtime playlist, configuration or referenced
+ * static content changes; volatile state timestamps deliberately do not
+ * invalidate it.
  */
 export function wallboardPrecacheManifest(
   state: WallboardState,
@@ -80,7 +83,16 @@ export function wallboardPrecacheManifest(
   const assets = new Map<string, WallboardPrecacheAsset>();
   const externalHints = new Map<string, WallboardExternalPreloadHint>();
   const configuredPages = state.wallboard.configuration.pages;
-  const contentParts: string[] = [`config:${state.wallboard.config_version}`];
+  const runtimePlaylistId = typeof state.wallboard.runtime_playlist_id === 'string'
+    ? state.wallboard.runtime_playlist_id.trim()
+    : '';
+  const runtimePlaylistVersion = Number.isSafeInteger(state.wallboard.runtime_playlist_version)
+    ? Math.max(0, state.wallboard.runtime_playlist_version ?? 0)
+    : 0;
+  const contentParts: string[] = [
+    `config:${state.wallboard.config_version}`,
+    `runtime-playlist:${runtimePlaylistId}:${runtimePlaylistVersion}:${state.wallboard.active_incident_playlist === true ? 1 : 0}`,
+  ];
 
   for (const page of configuredPages) {
     contentParts.push(`page:${page.id}:${page.type}`);
@@ -98,8 +110,9 @@ export function wallboardPrecacheManifest(
       const media = state.media.photo_pages[page.id];
       contentParts.push(`media:${page.id}:${media?.media_playlist_version ?? 0}`);
       for (const item of media?.items ?? []) {
-        contentParts.push(`photo:${page.id}:${item.id}:${item.image_url}`);
-        addAsset(assets, item.image_url, 'image', page.id, origin);
+        const revision = mediaAssetRevision(item.id, item.media_asset_version, item.image_url);
+        contentParts.push(`photo:${page.id}:${item.id}:${item.image_url}:${revision}`);
+        addAsset(assets, item.image_url, 'image', page.id, origin, revision);
       }
       continue;
     }
@@ -109,8 +122,9 @@ export function wallboardPrecacheManifest(
       const rawUrl = typeof options.url === 'string' ? options.url : null;
       const internalVideoUrl = sameOriginUrl(rawUrl, origin);
       if (internalVideoUrl !== null) {
-        addResolvedAsset(assets, internalVideoUrl, 'video', page.id);
-        contentParts.push(`video:${page.id}:${internalVideoUrl}`);
+        const revision = mediaAssetRevision(options.media_asset_id, options.media_asset_version, internalVideoUrl);
+        addResolvedAsset(assets, internalVideoUrl, 'video', page.id, revision);
+        contentParts.push(`video:${page.id}:${internalVideoUrl}:${revision}`);
       } else {
         const hint = externalVideoPreloadHint(rawUrl, page.id);
         if (hint !== null) externalHints.set(`${hint.pageId}:${hint.origin}`, hint);
@@ -130,10 +144,13 @@ export function wallboardPrecacheManifest(
     .sort((left, right) => left.url.localeCompare(right.url));
   const sortedHints = [...externalHints.values()]
     .sort((left, right) => `${left.pageId}:${left.origin}`.localeCompare(`${right.pageId}:${right.origin}`));
-  const contentHash = stableHash([...contentParts.sort(), ...sortedAssets.map((asset) => asset.url)].join('\n'));
+  const contentHash = stableHash([
+    ...contentParts.sort(),
+    ...sortedAssets.map((asset) => `${asset.url}:${asset.revision}`),
+  ].join('\n'));
   const wallboardKey = normalizedWallboardCacheKey(state.wallboard.id);
   const cacheNamespace = wallboardPrecacheNamespace(wallboardKey);
-  const contentVersion = `${state.wallboard.config_version}-${contentHash}`;
+  const contentVersion = `${state.wallboard.config_version}-${runtimePlaylistVersion}-${contentHash}`;
 
   return {
     wallboardKey,
@@ -236,9 +253,8 @@ export async function precacheWallboard(
     const request = new Request(asset.url, {
       method: 'GET',
       // Wallboard media is protected by the HttpOnly wallboard-session cookie.
-      // Keep the credential mode aligned with every other wallboard API call;
-      // embedded/standalone TV browsers do not consistently attach that cookie
-      // when a Request is rebuilt with the narrower `same-origin` mode.
+      // Keep the request same-origin only and explicitly include that cookie
+      // through both the window fetch and service-worker network fallback.
       credentials: 'include',
       mode: 'same-origin',
       redirect: 'error',
@@ -256,7 +272,7 @@ export async function precacheWallboard(
     try {
       const existing = await cache.match(request);
       if (existing !== undefined) {
-        if (existing.ok && contentTypeMatches(asset.kind, existing.headers.get('content-type'))) {
+        if (cachedAssetMatches(existing, asset)) {
           completed += 1;
           completedUrls.add(asset.url);
           report();
@@ -265,7 +281,7 @@ export async function precacheWallboard(
         await cache.delete(request);
       }
 
-      const copied = await copyReusableAsset(request, asset.kind, cache, reusableCaches);
+      const copied = await copyReusableAsset(request, asset, cache, reusableCaches);
       if (copied) {
         completed += 1;
         completedUrls.add(asset.url);
@@ -297,7 +313,7 @@ export async function precacheWallboard(
       }
 
       try {
-        await cache.put(request, response.clone());
+        await cache.put(request, responseWithRevision(response, asset.revision));
         completed += 1;
         completedUrls.add(asset.url);
       } catch {
@@ -393,7 +409,7 @@ export function wallboardPrecacheNamespace(wallboardKey: string): string {
 
 async function copyReusableAsset(
   request: Request,
-  kind: WallboardPrecacheAssetKind,
+  asset: WallboardPrecacheAsset,
   destination: Cache,
   sources: Cache[],
 ): Promise<boolean> {
@@ -406,9 +422,8 @@ async function copyReusableAsset(
     }
     if (
       candidate === undefined
-      || !candidate.ok
+      || !cachedAssetMatches(candidate, asset)
       || candidate.redirected
-      || !contentTypeMatches(kind, candidate.headers.get('content-type'))
     ) continue;
 
     try {
@@ -429,9 +444,10 @@ function addAsset(
   kind: WallboardPrecacheAssetKind,
   pageId: string,
   origin: string,
+  revision?: string,
 ) {
   const url = sameOriginUrl(value, origin);
-  if (url !== null) addResolvedAsset(assets, url, kind, pageId);
+  if (url !== null) addResolvedAsset(assets, url, kind, pageId, revision);
 }
 
 function addResolvedAsset(
@@ -439,13 +455,33 @@ function addResolvedAsset(
   url: string,
   kind: WallboardPrecacheAssetKind,
   pageId: string,
+  revision = `url:${url}`,
 ) {
   const existing = assets.get(url);
   if (existing === undefined) {
-    assets.set(url, { url, kind, pageIds: [pageId] });
+    assets.set(url, { url, kind, revision, pageIds: [pageId] });
     return;
   }
+  existing.revision = mergedAssetRevision(existing.revision, revision, url);
   if (!existing.pageIds.includes(pageId)) existing.pageIds.push(pageId);
+}
+
+function mediaAssetRevision(id: unknown, version: unknown, fallbackUrl: string): string {
+  if (typeof id === 'string'
+    && /^[0-9A-HJKMNP-TV-Z]{26}$/i.test(id)
+    && Number.isSafeInteger(version)
+    && Number(version) > 0) {
+    return `media:${id.toLowerCase()}:v${String(version)}`;
+  }
+  return `url:${fallbackUrl}`;
+}
+
+function mergedAssetRevision(current: string, candidate: string, url: string): string {
+  if (current === candidate) return current;
+  const fallback = `url:${url}`;
+  if (current === fallback) return candidate;
+  if (candidate === fallback) return current;
+  return `conflict:${stableHash([current, candidate].sort().join('|'))}`;
 }
 
 function externalVideoPreloadHint(value: unknown, pageId: string): WallboardExternalPreloadHint | null {
@@ -530,6 +566,24 @@ function clampConcurrency(value: number, total: number): number {
 function contentTypeMatches(kind: WallboardPrecacheAssetKind, value: string | null): boolean {
   const mimeType = value?.split(';', 1)[0]?.trim().toLowerCase() ?? '';
   return kind === 'video' ? mimeType === 'video/mp4' : CACHEABLE_IMAGE_TYPES.has(mimeType);
+}
+
+function cachedAssetMatches(response: Response, asset: WallboardPrecacheAsset): boolean {
+  return response.status === 200
+    && !response.redirected
+    && contentTypeMatches(asset.kind, response.headers.get('content-type'))
+    && response.headers.get(WALLBOARD_PRECACHE_REVISION_HEADER) === asset.revision;
+}
+
+function responseWithRevision(response: Response, revision: string): Response {
+  const clone = response.clone();
+  const headers = new Headers(clone.headers);
+  headers.set(WALLBOARD_PRECACHE_REVISION_HEADER, revision);
+  return new Response(clone.body, {
+    status: clone.status,
+    statusText: clone.statusText,
+    headers,
+  });
 }
 
 function isAbortError(error: unknown): boolean {

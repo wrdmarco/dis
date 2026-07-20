@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\TranscodeWallboardMediaVideo;
 use App\Models\User;
 use App\Models\WallboardMediaAsset;
 use App\Repositories\WallboardMediaAssetRepository;
@@ -25,12 +26,18 @@ final class WallboardMediaAssetService
         private readonly WallboardMediaImageProcessor $processor,
         private readonly WallboardMediaVideoProcessor $videoProcessor,
         private readonly WallboardMediaQuotaService $quota,
+        private readonly WallboardMediaCoordinationService $coordination,
         private readonly AuditService $auditService,
     ) {}
 
-    public function paginate(?string $folderId, ?string $search, int $perPage): LengthAwarePaginator
-    {
-        return $this->repository->paginateForManagement($folderId, $search, $perPage);
+    public function paginate(
+        ?string $folderId,
+        ?string $search,
+        int $perPage,
+        ?string $kind = null,
+        ?string $status = null,
+    ): LengthAwarePaginator {
+        return $this->repository->paginateForManagement($folderId, $search, $perPage, $kind, $status);
     }
 
     public function show(WallboardMediaAsset $asset): WallboardMediaAsset
@@ -141,7 +148,14 @@ final class WallboardMediaAssetService
                         @chmod($thumbnailDestination, 0640);
                     }
 
-                    $created->forceFill(['status' => WallboardMediaAsset::STATUS_READY])->save();
+                    $created->forceFill([
+                        'status' => $processed->requiresVideoTranscode
+                            ? WallboardMediaAsset::STATUS_PROCESSING
+                            : WallboardMediaAsset::STATUS_READY,
+                    ])->save();
+                    if ($processed->requiresVideoTranscode) {
+                        DB::afterCommit(fn () => TranscodeWallboardMediaVideo::dispatch((string) $created->id));
+                    }
                     $this->auditService->record('wallboard_media.assets.uploaded', $created, $actor, [
                         'folder_id' => $folderId,
                         'kind' => $processed->kind,
@@ -150,6 +164,8 @@ final class WallboardMediaAssetService
                         'width' => $processed->width,
                         'height' => $processed->height,
                         'duration_seconds' => $processed->durationSeconds,
+                        'video_transcode_required' => $processed->requiresVideoTranscode,
+                        'status' => $created->status,
                         'sha256_prefix' => substr($processed->sha256, 0, 12),
                         'version' => 1,
                     ], null, $request);
@@ -230,12 +246,13 @@ final class WallboardMediaAssetService
         Request $request,
     ): void {
         $deleted = DB::transaction(function () use ($asset, $expectedVersion, $actor, $request): WallboardMediaAsset {
+            $this->coordination->lock();
             $locked = $this->repository->lockAsset((string) $asset->getKey());
             if ($expectedVersion !== (int) $locked->version) {
                 throw new ConflictHttpException('Het mediabestand is gewijzigd.');
             }
             if ($this->repository->usedByPlaylist((string) $locked->id)) {
-                throw new ConflictHttpException('Dit mediabestand wordt nog door een fotoplaylist gebruikt.');
+                throw new ConflictHttpException('Dit mediabestand wordt nog door een wallboardplaylist gebruikt.');
             }
 
             $this->auditService->record('wallboard_media.assets.deleted', $locked, $actor, [

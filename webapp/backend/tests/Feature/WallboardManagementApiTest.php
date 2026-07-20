@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Models\Wallboard;
 use App\Models\WallboardPairingRequest;
+use App\Models\WallboardPlaylist;
 use App\Models\WallboardSession;
 use App\Services\WallboardService;
 use App\Support\WallboardConfiguration;
@@ -117,6 +118,107 @@ final class WallboardManagementApiTest extends TestCase
         $client->deleteJson('/api/admin/wallboards/'.$wallboard->id)->assertNoContent();
         $this->assertDatabaseMissing('wallboards', ['id' => $wallboard->id]);
         $this->assertTrue(AuditLog::query()->where('action', 'wallboards.deleted')->where('target_id', $wallboard->id)->exists());
+    }
+
+    public function test_active_incident_playlist_assignment_is_validated_versioned_and_audited_per_screen(): void
+    {
+        $manager = $this->user('wallboard-active-playlist-management@example.test', ['wallboards.manage']);
+        $configuration = WallboardConfiguration::defaults();
+        $basePlaylist = WallboardPlaylist::query()->create([
+            'name' => 'Normale playlist',
+            'configuration' => $configuration,
+            'version' => 1,
+            'created_by' => $manager->id,
+            'updated_by' => $manager->id,
+        ]);
+        $firstActivePlaylist = WallboardPlaylist::query()->create([
+            'name' => 'Eerste actieve inzet',
+            'configuration' => $configuration,
+            'version' => 1,
+            'created_by' => $manager->id,
+            'updated_by' => $manager->id,
+        ]);
+        $secondActivePlaylist = WallboardPlaylist::query()->create([
+            'name' => 'Tweede actieve inzet',
+            'configuration' => $configuration,
+            'version' => 1,
+            'created_by' => $manager->id,
+            'updated_by' => $manager->id,
+        ]);
+        $client = $this->asAdminClient($manager);
+
+        $created = $client->postJson('/api/admin/wallboards', [
+            'name' => 'Scherm met inzetregie',
+            'playlist_id' => $basePlaylist->id,
+            'active_incident_playlist_id' => $firstActivePlaylist->id,
+        ])->assertCreated()
+            ->assertJsonPath('data.active_incident_playlist_id', $firstActivePlaylist->id)
+            ->assertJsonPath('data.active_incident_playlist.id', $firstActivePlaylist->id)
+            ->assertJsonPath('data.config_version', 1)
+            ->assertJsonPath('data.control_version', 1);
+        $wallboard = Wallboard::query()->findOrFail($created->json('data.id'));
+        $createdAudit = AuditLog::query()
+            ->where('action', 'wallboards.created')
+            ->where('target_id', $wallboard->id)
+            ->firstOrFail();
+        $this->assertSame($firstActivePlaylist->id, $createdAudit->metadata['active_incident_playlist_id']);
+
+        $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
+            'active_incident_playlist_id' => $secondActivePlaylist->id,
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['expected_config_version']]]);
+        $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
+            'expected_config_version' => 1,
+            'active_incident_playlist_id' => (string) str()->ulid(),
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['active_incident_playlist_id']]]);
+
+        $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
+            'expected_config_version' => 1,
+            'active_incident_playlist_id' => $secondActivePlaylist->id,
+        ])->assertOk()
+            ->assertJsonPath('data.active_incident_playlist_id', $secondActivePlaylist->id)
+            ->assertJsonPath('data.active_incident_playlist.id', $secondActivePlaylist->id)
+            ->assertJsonPath('data.config_version', 2)
+            ->assertJsonPath('data.control_version', 2);
+        $updatedAudit = AuditLog::query()
+            ->where('action', 'wallboards.updated')
+            ->where('target_id', $wallboard->id)
+            ->latest('created_at')
+            ->firstOrFail();
+        $this->assertContains('active_incident_playlist_id', $updatedAudit->metadata['changed_fields']);
+        $this->assertSame($firstActivePlaylist->id, $updatedAudit->metadata['previous_active_incident_playlist_id']);
+        $this->assertSame($secondActivePlaylist->id, $updatedAudit->metadata['active_incident_playlist_id']);
+
+        $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
+            'expected_config_version' => 2,
+            'active_incident_playlist_id' => $secondActivePlaylist->id,
+        ])->assertOk()
+            ->assertJsonPath('data.config_version', 2)
+            ->assertJsonPath('data.control_version', 2);
+        $unchangedAudit = AuditLog::query()
+            ->where('action', 'wallboards.updated')
+            ->where('target_id', $wallboard->id)
+            ->whereKeyNot($updatedAudit->id)
+            ->firstOrFail();
+        $this->assertSame(2, AuditLog::query()
+            ->where('action', 'wallboards.updated')
+            ->where('target_id', $wallboard->id)
+            ->count());
+        $this->assertNotContains('active_incident_playlist_id', $unchangedAudit->metadata['changed_fields']);
+
+        $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
+            'expected_config_version' => 2,
+            'active_incident_playlist_id' => null,
+        ])->assertOk()
+            ->assertJsonPath('data.active_incident_playlist_id', null)
+            ->assertJsonPath('data.active_incident_playlist', null)
+            ->assertJsonPath('data.config_version', 3)
+            ->assertJsonPath('data.control_version', 3);
+        $this->assertDatabaseHas('wallboards', [
+            'id' => $wallboard->id,
+            'active_incident_playlist_id' => null,
+        ]);
     }
 
     public function test_unknown_or_internally_inconsistent_wallboard_configuration_is_rejected(): void

@@ -9,7 +9,7 @@ final class BackfillWallboardMediaThumbnails extends Command
 {
     protected $signature = 'dis:backfill-wallboard-media-thumbnails {--batch= : Maximum number of ready images to inspect}';
 
-    protected $description = 'Safely create missing thumbnails for existing wallboard images';
+    protected $description = 'Safely normalize existing wallboard images and create missing thumbnails';
 
     public function handle(WallboardMediaThumbnailBackfillService $backfill): int
     {
@@ -28,8 +28,9 @@ final class BackfillWallboardMediaThumbnails extends Command
             return self::SUCCESS;
         }
         $this->info(sprintf(
-            'Wallboard thumbnail backfill: %d scanned, %d created, %d unchanged, %d skipped, %d failed.',
+            'Wallboard image backfill: %d scanned, %d normalized, %d thumbnails created, %d unchanged, %d skipped, %d failed.',
             $result['scanned'],
+            $result['normalized'],
             $result['backfilled'],
             $result['unchanged'],
             $result['skipped'],

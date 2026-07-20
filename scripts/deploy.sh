@@ -38,6 +38,12 @@ require_file "${APP_ROOT}/.env"
 
 ENV_FILE="${APP_ROOT}/.env"
 
+# This deploy script is executed from the newly checked-out release even when
+# the parent updater still has the previous release's shell functions loaded.
+# Keep the new worker's fixed Ubuntu runtime dependency self-contained at this
+# checkout boundary so an app-only first rollout cannot publish a dead worker.
+ensure_wallboard_media_runtime_dependencies
+
 deployment_exit_handler() {
   local status="$1"
 
@@ -338,6 +344,7 @@ run_cmd install -m 0644 "${NGINX_SOURCE}" "/etc/nginx/sites-available/${NGINX_SI
 run_cmd ln -sfn "/etc/nginx/sites-available/${NGINX_SITE_NAME}" "/etc/nginx/sites-enabled/${NGINX_SITE_NAME}"
 run_cmd rm -f /etc/nginx/sites-enabled/default
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-queue.service" /etc/systemd/system/dis-queue.service
+run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-media.service" /etc/systemd/system/dis-media.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-scheduler.service" /etc/systemd/system/dis-scheduler.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-websocket.service" /etc/systemd/system/dis-websocket.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-frontend.service" /etc/systemd/system/dis-frontend.service
@@ -346,7 +353,7 @@ install_osrm_admin_layout
 install_osrm_admin_request_systemd_units "${APP_ROOT}"
 run_cmd systemctl daemon-reload
 run_cmd systemctl enable \
-  dis-queue dis-scheduler dis-websocket dis-frontend \
+  dis-queue dis-media dis-scheduler dis-websocket dis-frontend \
   dis-backup-request.path dis-backup-request.timer \
   dis-osrm-admin-request.path dis-osrm-admin-request.timer
 run_cmd nginx -t
@@ -368,9 +375,10 @@ fi
 
 if [ "${DIS_DEPLOYMENT_OWNER}" = "deploy" ]; then
   complete_deployment_maintenance "${BACKEND_DIR}"
+  log "Deployment finished"
 else
   log "Deployment verified; maintenance remains owned by ${DIS_DEPLOYMENT_OWNER}."
+  log "Nested deployment phase finished"
 fi
 
 trap - EXIT
-log "Deployment finished"

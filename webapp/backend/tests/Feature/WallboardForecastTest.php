@@ -173,6 +173,36 @@ final class WallboardForecastTest extends TestCase
             && substr_count((string) $request['longitude'], ',') === 11);
     }
 
+    public function test_open_meteo_local_times_are_not_shifted_by_two_hours(): void
+    {
+        $this->setForecastTestNow();
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://nominatim.openstreetmap.org/search*' => Http::response([['lat' => '52.0907', 'lon' => '5.1214']]),
+            'https://api.open-meteo.com/v1/forecast*' => Http::response($this->weatherPayload(
+                latitude: 52.09,
+                longitude: 5.12,
+                sunrise: '2026-07-20T05:45:00',
+                sunset: '2026-07-20T21:30:00',
+                currentTime: '2026-07-20T14:10:00',
+            )),
+            'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json' => Http::response([
+                ['time_tag' => '2026-07-20T12:10:00Z', 'estimated_kp' => 2.0],
+            ]),
+        ]);
+
+        $forecast = app(WallboardForecastService::class)->pages([
+            'pages' => [$this->addressPage()],
+        ])['forecast-utrecht'];
+        $temperature = collect($forecast['metrics'])->firstWhere('key', 'temperature_c');
+
+        $this->assertSame('2026-07-20T12:10:00+00:00', $temperature['measured_at']);
+        $this->assertSame('2026-07-20T05:45:00+02:00', $forecast['daylight']['sunrise_earliest']);
+        $this->assertSame('2026-07-20T21:30:00+02:00', $forecast['daylight']['sunset_latest']);
+        $this->assertSame('2026-07-20T12:15:00+00:00', $forecast['generated_at']);
+        $this->assertFalse($temperature['stale']);
+    }
+
     public function test_national_forecast_fails_closed_when_managed_province_set_is_incomplete(): void
     {
         $this->setForecastTestNow();
@@ -255,15 +285,43 @@ final class WallboardForecastTest extends TestCase
         $kp = collect($first['metrics'])->firstWhere('key', 'kp_index');
         $this->assertSame(4.7, $kp['value']);
         $this->assertSame('NOAA SWPC Kp (3 uur)', $kp['source']['name']);
+        $this->assertSame('2026-07-20T12:15:00+00:00', $first['generated_at']);
         $this->assertSame(['weather' => 1, 'kp_current' => 1, 'kp_fallback' => 1], $calls);
 
         CarbonImmutable::setTestNow('2026-07-20T12:29:59Z');
-        $service->pages(['pages' => [$this->addressPage()]]);
+        $cached = $service->pages(['pages' => [$this->addressPage()]])['forecast-utrecht'];
+        $this->assertSame($first['generated_at'], $cached['generated_at']);
         $this->assertSame(['weather' => 1, 'kp_current' => 1, 'kp_fallback' => 1], $calls);
 
         CarbonImmutable::setTestNow('2026-07-20T12:30:01Z');
-        $service->pages(['pages' => [$this->addressPage()]]);
+        $refreshed = $service->pages(['pages' => [$this->addressPage()]])['forecast-utrecht'];
+        $this->assertSame('2026-07-20T12:30:01+00:00', $refreshed['generated_at']);
         $this->assertSame(['weather' => 2, 'kp_current' => 2, 'kp_fallback' => 2], $calls);
+    }
+
+    public function test_kp_current_feed_skips_invalid_estimate_and_uses_valid_index_from_same_row(): void
+    {
+        $this->setForecastTestNow();
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://nominatim.openstreetmap.org/search*' => Http::response([['lat' => '52.0907', 'lon' => '5.1214']]),
+            'https://api.open-meteo.com/v1/forecast*' => Http::response($this->weatherPayload(
+                latitude: 52.09,
+                longitude: 5.12,
+            )),
+            'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json' => Http::response([
+                ['time_tag' => '2026-07-20T12:10:00Z', 'estimated_kp' => -1, 'kp_index' => 4],
+            ]),
+        ]);
+
+        $forecast = app(WallboardForecastService::class)->pages([
+            'pages' => [$this->addressPage()],
+        ])['forecast-utrecht'];
+        $kp = collect($forecast['metrics'])->firstWhere('key', 'kp_index');
+
+        $this->assertSame(4.0, $kp['value']);
+        $this->assertSame('NOAA SWPC Kp (1 minuut)', $kp['source']['name']);
+        Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json');
     }
 
     public function test_failed_kp_refresh_uses_last_good_only_as_stale_unknown(): void
@@ -414,12 +472,13 @@ final class WallboardForecastTest extends TestCase
         int $weatherCode = 2,
         string $sunrise = '2026-07-20T04:30:00Z',
         string $sunset = '2026-07-20T20:45:00Z',
+        string $currentTime = '2026-07-20T12:10:00Z',
     ): array {
         return [
             'latitude' => $latitude,
             'longitude' => $longitude,
             'current' => [
-                'time' => '2026-07-20T12:10:00Z',
+                'time' => $currentTime,
                 'temperature_2m' => $temperature,
                 'dew_point_2m' => $dewPoint,
                 'wind_speed_10m' => $wind10,

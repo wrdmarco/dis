@@ -3,6 +3,7 @@
 namespace App\Repositories;
 
 use App\Models\WallboardMediaAsset;
+use App\Support\WallboardConfiguration;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +20,8 @@ final class WallboardMediaAssetRepository extends BaseRepository
         ?string $folderId,
         ?string $search,
         int $perPage,
+        ?string $kind = null,
+        ?string $status = null,
     ): LengthAwarePaginator {
         $normalizedSearch = trim((string) $search);
 
@@ -32,6 +35,8 @@ final class WallboardMediaAssetRepository extends BaseRepository
                 'like',
                 '%'.addcslashes($normalizedSearch, '%_\\').'%',
             ))
+            ->when($kind !== null, fn ($query) => $query->where('kind', $kind))
+            ->when($status !== null, fn ($query) => $query->where('status', $status))
             ->orderByDesc('created_at')
             ->orderBy('id')
             ->paginate(min(max($perPage, 1), 100));
@@ -77,6 +82,7 @@ final class WallboardMediaAssetRepository extends BaseRepository
             ->whereIn('status', [
                 WallboardMediaAsset::STATUS_PROCESSING,
                 WallboardMediaAsset::STATUS_READY,
+                WallboardMediaAsset::STATUS_FAILED,
             ])
             ->sum(DB::raw('byte_size + COALESCE(thumbnail_byte_size, 0)'));
     }
@@ -87,6 +93,7 @@ final class WallboardMediaAssetRepository extends BaseRepository
             ->whereIn('status', [
                 WallboardMediaAsset::STATUS_PROCESSING,
                 WallboardMediaAsset::STATUS_READY,
+                WallboardMediaAsset::STATUS_FAILED,
             ])
             ->count();
     }
@@ -95,20 +102,46 @@ final class WallboardMediaAssetRepository extends BaseRepository
     {
         return WallboardMediaAsset::query()
             ->whereKey($assetId)
-            ->whereHas('playlistItems')
+            ->where(fn ($query) => $query
+                ->whereHas('playlistItems')
+                ->orWhereHas('wallboardUsages'))
             ->exists();
     }
 
-    public function authorizedForWallboard(string $assetId, string $wallboardPlaylistId): ?WallboardMediaAsset
+    /** @param list<string> $wallboardPlaylistIds */
+    public function authorizedForWallboard(string $assetId, array $wallboardPlaylistIds): ?WallboardMediaAsset
     {
+        $wallboardPlaylistIds = array_values(array_unique(array_filter(
+            $wallboardPlaylistIds,
+            static fn (mixed $id): bool => is_string($id) && $id !== '',
+        )));
+        if ($wallboardPlaylistIds === []) {
+            return null;
+        }
+
         return WallboardMediaAsset::query()
             ->whereKey($assetId)
             ->where('status', WallboardMediaAsset::STATUS_READY)
-            ->where('kind', WallboardMediaAsset::KIND_IMAGE)
-            ->whereHas('playlistItems.playlist.usages', fn ($query) => $query->where(
-                'wallboard_playlist_id',
-                $wallboardPlaylistId,
-            ))
+            ->where(function ($query) use ($wallboardPlaylistIds): void {
+                $query->where(function ($image) use ($wallboardPlaylistIds): void {
+                    $image->where('kind', WallboardMediaAsset::KIND_IMAGE)
+                        ->whereHas('playlistItems.playlist.usages', fn ($usage) => $usage->whereIn(
+                            'wallboard_playlist_id',
+                            $wallboardPlaylistIds,
+                        ));
+                })->orWhere(function ($video) use ($wallboardPlaylistIds): void {
+                    $video->where('kind', WallboardMediaAsset::KIND_VIDEO)
+                        ->where('mime_type', 'video/mp4')
+                        ->whereBetween('duration_seconds', [
+                            WallboardConfiguration::MIN_VIDEO_DURATION_SECONDS,
+                            WallboardConfiguration::MAX_VIDEO_DURATION_SECONDS,
+                        ])
+                        ->whereHas('wallboardUsages', fn ($usage) => $usage->whereIn(
+                            'wallboard_playlist_id',
+                            $wallboardPlaylistIds,
+                        ));
+                });
+            })
             ->first();
     }
 }

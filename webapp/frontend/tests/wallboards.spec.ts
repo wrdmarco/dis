@@ -10,6 +10,7 @@ import type {
   WallboardTransientAlert,
 } from '../src/types/api';
 import {
+  controlFromState,
   formatWallboardClock,
   formatWallboardDate,
   formatWallboardMaintenanceDuration,
@@ -26,6 +27,7 @@ import {
   wallboardMaintenanceNoticeIsActive,
   wallboardNewsCarouselIndex,
   wallboardRefreshDecision,
+  wallboardRuntimePlaylistSignature,
   wallboardTickerIsVisible,
 } from '../src/features/wallboards/WallboardDisplayPage';
 import {
@@ -689,10 +691,47 @@ test('hard reloads only for a higher server refresh version after the first base
   expect(wallboardRefreshDecision(null, 'invalid')).toEqual({ version: 0, reload: false });
 });
 
+test('detects runtime playlist activation and version changes independently from incident state', () => {
+  const basePlaylistId = '01KXW0QZTP0000000000000001';
+  const incidentPlaylistId = '01KXW0QZTP0000000000000002';
+  const state = stateFixture();
+  state.wallboard = {
+    ...state.wallboard,
+    runtime_playlist_id: basePlaylistId,
+    runtime_playlist_version: 3,
+    active_incident_playlist: false,
+    display: { ...state.wallboard.display, incident_active: true },
+  };
+
+  const dispatching = controlFromState(state);
+  expect(dispatching).toMatchObject({
+    runtime_playlist_id: basePlaylistId,
+    runtime_playlist_version: 3,
+    active_incident_playlist: false,
+    display: { incident_active: true },
+  });
+
+  const inProgress = {
+    ...dispatching,
+    runtime_playlist_id: incidentPlaylistId,
+    runtime_playlist_version: 7,
+    active_incident_playlist: true,
+  };
+  expect(inProgress.display.incident_active).toBe(dispatching.display.incident_active);
+  expect(wallboardRuntimePlaylistSignature(inProgress))
+    .not.toBe(wallboardRuntimePlaylistSignature(dispatching));
+  expect(wallboardRuntimePlaylistSignature({ ...inProgress, runtime_playlist_version: 8 }))
+    .not.toBe(wallboardRuntimePlaylistSignature(inProgress));
+});
+
 test('keeps offline status and automatic polling recovery without a reconnect reload path', () => {
   const kiosk = readFileSync(new URL('../src/features/wallboards/WallboardDisplayPage.tsx', import.meta.url), 'utf8');
   const statePoll = kiosk.slice(kiosk.indexOf('const poll = async () =>'), kiosk.indexOf('}, [observeRefreshVersion, pollGeneration]'));
   const controlPoll = kiosk.slice(kiosk.indexOf('const pollControl = async () =>'), kiosk.indexOf('}, [controlPollGeneration, hasPairedState, observeRefreshVersion]'));
+  const runtimePlaylistInvalidation = controlPoll.slice(
+    controlPoll.indexOf('if (configVersionChanged || runtimePlaylistChanged)'),
+    controlPoll.indexOf('if (\n          lastControlIncidentActiveRef.current'),
+  );
 
   expect(kiosk).toContain("const feedStatus = connectionError !== null ? 'offline' : stale ? 'stale' : 'live';");
   expect(kiosk).toContain("const hasLiveFeed = feedStatus === 'live';");
@@ -703,6 +742,13 @@ test('keeps offline status and automatic polling recovery without a reconnect re
   expect(controlPoll).toContain("setControlError(errorMessage(error, 'De live schermbesturing is tijdelijk niet bereikbaar.'));");
   expect(controlPoll).toContain('setControlError(null);');
   expect(controlPoll).toContain('lastControlMaintenanceActiveRef.current === true && !nextMaintenanceActive');
+  expect(statePoll).toContain('lastControlRuntimePlaylistSignatureRef.current === undefined');
+  expect(controlPoll).toContain('const runtimePlaylistChanged = lastControlRuntimePlaylistSignatureRef.current !== undefined');
+  expect(controlPoll).toContain('if (configVersionChanged || runtimePlaylistChanged)');
+  expect(controlPoll).toContain('lastControlRuntimePlaylistSignatureRef.current = nextRuntimePlaylistSignature');
+  expect(runtimePlaylistInvalidation).toContain("await wallboardApi.get<null>('/wallboard/cache');");
+  expect(runtimePlaylistInvalidation).toContain('needsStateRefresh = true;');
+  expect(kiosk.match(/lastControlRuntimePlaylistSignatureRef\.current = undefined;/g)).toHaveLength(2);
   expect(controlPoll).toContain("await wallboardApi.get<null>('/wallboard/cache');");
   expect(controlPoll.indexOf("await wallboardApi.get<null>('/wallboard/cache');"))
     .toBeLessThan(controlPoll.indexOf('pendingConfigVersionRef.current = nextControl.config_version;'));
@@ -825,23 +871,16 @@ test('scopes global page effects to playlist page changes and pauses nested news
     kiosk.indexOf('function WallboardPlaylistPageFrame('),
     kiosk.indexOf('function MaintenanceTakeover('),
   );
-  const globalTransitionBranch = pageFrame.slice(
-    pageFrame.indexOf('if (pairedTransitionActive)'),
-    pageFrame.indexOf('className="wallboard-display__page wallboard-display__page--transition-none"'),
-  );
-  const stablePageBranch = pageFrame.slice(
-    pageFrame.indexOf('className="wallboard-display__page wallboard-display__page--transition-none"'),
-  );
 
-  expect(pageFrame).toContain("const pairedTransitionActive = transition !== 'none' && visual.previous !== null;");
-  expect(pageFrame).not.toContain("pairedTransitionActive = transition !== 'none' && visual.sequence > 0");
-  expect(pageFrame).toContain('if (current.current.id === page.id)');
-  expect(pageFrame).toContain('previous: current.current');
+  expect(pageFrame).toContain('const pairedTransitionActive = active');
+  expect(pageFrame).toContain('if (current.currentPageId === page.id) return current;');
+  expect(pageFrame).toContain('previousPageId: current.currentPageId');
   expect(pageFrame).toContain('sequence: current.sequence + 1');
-  expect(globalTransitionBranch.match(/running=\{false\}/g)).toHaveLength(2);
-  expect(globalTransitionBranch).not.toContain('running={hasLiveFeed}');
-  expect(stablePageBranch).toContain('key={`${visual.current.id}:${visual.sequence}`}');
-  expect(stablePageBranch).toContain('running={hasLiveFeed}');
+  expect(pageFrame).toContain('layers.map((layer) =>');
+  expect(pageFrame).toContain('key={layer.page.id}');
+  expect(pageFrame).toContain('running={layer.running}');
+  expect(pageFrame).not.toContain('running={false}');
+  expect(pageFrame).not.toContain('key={visual.sequence}');
 });
 
 test('slides both global pages and news cards in the requested push direction', async ({ page }) => {
@@ -1414,6 +1453,8 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(apiTypes).toContain('image_url?: string | null;');
   expect(apiTypes).toContain('source_id: string;');
   expect(apiTypes).toContain('playlist: WallboardPlaylistReference;');
+  expect(apiTypes).toContain('active_incident_playlist_id?: string | null;');
+  expect(apiTypes).toContain('active_incident_playlist?: WallboardPlaylistReference | null;');
   expect(apiTypes).toContain('linked_wallboards_count: number;');
   expect(kiosk).toContain('Koppel deze tv');
   expect(kiosk).toContain('Operationeel beschikbaar');
@@ -1459,10 +1500,15 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain('remainingMillisecondsRef');
   expect(kiosk).toContain('setRuntime({ phaseKey, activeIndex: 0 });');
   expect(kiosk).not.toContain('Date.now() % safeDurationMilliseconds');
-  expect(kiosk).toContain('running={hasLiveFeed}');
+  expect(kiosk).toContain('running={layer.running}');
   expect(kiosk).toContain('wallboardEffectivePageTransition(configuration, currentPage)');
-  expect(kiosk).toContain("const pairedTransitionActive = transition !== 'none' && visual.previous !== null;");
-  expect(kiosk).toContain('running={false}');
+  expect(kiosk).toContain('const pairedTransitionActive = active');
+  expect(kiosk).toContain('pages={configuration.pages}');
+  expect(kiosk).toContain('key={layer.page.id}');
+  expect(kiosk.slice(
+    kiosk.indexOf('function WallboardPlaylistPageFrame('),
+    kiosk.indexOf('function MaintenanceTakeover('),
+  )).not.toContain('key={visual.sequence}');
   expect(kiosk).toContain("const usesPairedCards = running && transition !== 'none';");
   expect(kiosk).toContain('wallboard-display__page-card-pane--outgoing');
   expect(kiosk).toContain('wallboard-display__page-card-pane--incoming');
@@ -1621,8 +1667,12 @@ test('separates screen control from shared playlist content management', () => {
   expect(saveScreen).toContain('name,');
   expect(saveScreen).toContain('is_enabled: draftEnabled');
   expect(saveScreen).toContain('display_profile: draftDisplayProfile');
+  expect(saveScreen).toContain('active_incident_playlist_id: draftActiveIncidentPlaylistId');
   expect(saveScreen).toContain('expected_config_version: wallboard.config_version');
   expect(saveScreen).not.toContain('configuration');
+  expect(admin).toContain('Playlist tijdens actieve inzet');
+  expect(admin).toContain('Normale playlist blijven gebruiken');
+  expect(admin).toContain("wallboard.active_incident_playlist_id ?? ''");
   expect(configurationEditor).toContain('Weergave en ritme');
   expect(configurationEditor).toContain('Gegevens en kaartlagen');
   expect(configurationEditor).toContain('Pagina’s en volgorde');

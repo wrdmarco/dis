@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Support\WallboardMediaProcessedAsset;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -13,6 +14,13 @@ final class WallboardMediaVideoProcessor
 {
     /** @var list<string> */
     private const ALLOWED_BRANDS = ['avc1', 'iso2', 'iso4', 'iso5', 'iso6', 'isom', 'mp41', 'mp42'];
+
+    private const BROWSER_VIDEO_CODEC = 'h264';
+
+    private const BROWSER_AUDIO_CODEC = 'aac';
+
+    /** @var list<string> */
+    private const BROWSER_PIXEL_FORMATS = ['yuv420p', 'yuvj420p'];
 
     public function process(UploadedFile $upload, string $field = 'file'): WallboardMediaProcessedAsset
     {
@@ -39,6 +47,11 @@ final class WallboardMediaVideoProcessor
         }
 
         $durationSeconds = $this->validateContainer($sourcePath, $sourceBytes, $field);
+        $metadata = $this->inspectVideo($sourcePath, $field);
+        if (abs($metadata['duration_seconds'] - $durationSeconds) > 2) {
+            $this->invalid($field, 'De videoduur in de MP4-container is niet consistent.');
+        }
+        $requiresTranscode = $this->requiresTranscode($metadata);
         $temporaryPath = $this->temporaryPath();
         try {
             $source = @fopen($sourcePath, 'rb');
@@ -76,8 +89,120 @@ final class WallboardMediaVideoProcessor
                 sha256: $sha256,
                 mimeType: 'video/mp4',
                 byteSize: $byteSize,
-                width: null,
-                height: null,
+                width: $metadata['width'],
+                height: $metadata['height'],
+                durationSeconds: $durationSeconds,
+                thumbnailTemporaryPath: null,
+                thumbnailSha256: null,
+                thumbnailByteSize: null,
+                requiresVideoTranscode: $requiresTranscode,
+            );
+        } catch (Throwable $exception) {
+            if (is_file($temporaryPath)) {
+                @unlink($temporaryPath);
+            }
+
+            throw $exception;
+        }
+    }
+
+    public function transcode(string $sourcePath): WallboardMediaProcessedAsset
+    {
+        $sourceBytes = @filesize($sourcePath);
+        if (! is_int($sourceBytes) || $sourceBytes < 32) {
+            throw new HttpException(503, 'De opgeslagen video kon niet veilig worden gelezen.');
+        }
+        $sourceSha256 = @hash_file('sha256', $sourcePath);
+        if (! is_string($sourceSha256) || preg_match('/^[a-f0-9]{64}$/', $sourceSha256) !== 1) {
+            throw new HttpException(503, 'De opgeslagen video kon niet veilig worden geverifieerd.');
+        }
+
+        $temporaryPath = $this->temporaryPath();
+        try {
+            $maximumWidth = max(2, (int) config('wallboard_media.max_video_width_pixels', 1920));
+            $maximumHeight = max(2, (int) config('wallboard_media.max_video_height_pixels', 1080));
+            $result = Process::timeout(max(
+                120,
+                (int) config('wallboard_media.video_transcode_timeout_seconds', 3600),
+            ))->run([
+                (string) config('wallboard_media.ffmpeg_binary', '/usr/bin/ffmpeg'),
+                '-nostdin',
+                '-hide_banner',
+                '-loglevel',
+                'error',
+                '-i',
+                $sourcePath,
+                '-map',
+                '0:v:0',
+                '-map',
+                '0:a?',
+                '-sn',
+                '-dn',
+                '-vf',
+                "scale=w='min({$maximumWidth},iw)':h='min({$maximumHeight},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+                '-c:v',
+                'libx264',
+                '-preset',
+                'medium',
+                '-crf',
+                '23',
+                '-pix_fmt',
+                'yuv420p',
+                '-c:a',
+                'aac',
+                '-b:a',
+                '160k',
+                '-map_metadata',
+                '-1',
+                '-movflags',
+                '+faststart',
+                '-f',
+                'mp4',
+                '-y',
+                $temporaryPath,
+            ]);
+            if (! $result->successful()) {
+                throw new HttpException(503, 'De video kon niet veilig naar 1080p worden verwerkt.');
+            }
+
+            $byteSize = @filesize($temporaryPath);
+            if (! is_int($byteSize) || $byteSize < 32) {
+                throw new HttpException(503, 'De verwerkte video is niet volledig opgeslagen.');
+            }
+            try {
+                $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($temporaryPath);
+            } catch (Throwable) {
+                $mime = null;
+            }
+            if ($mime !== 'video/mp4') {
+                throw new HttpException(503, 'De verwerkte video heeft geen geldig MP4-formaat.');
+            }
+            $durationSeconds = $this->validateContainer($temporaryPath, $byteSize, 'file');
+            $metadata = $this->inspectVideo($temporaryPath, 'file');
+            if ($metadata['width'] > $maximumWidth
+                || $metadata['height'] > $maximumHeight
+                || $metadata['codec_name'] !== self::BROWSER_VIDEO_CODEC
+                || ! in_array($metadata['pixel_format'], self::BROWSER_PIXEL_FORMATS, true)
+                || collect($metadata['audio_codecs'])->contains(
+                    static fn (string $codec): bool => $codec !== self::BROWSER_AUDIO_CODEC,
+                )
+                || abs($metadata['duration_seconds'] - $durationSeconds) > 2) {
+                throw new HttpException(503, 'De verwerkte video voldoet niet aan het veilige 1080p-profiel.');
+            }
+            $sha256 = @hash_file('sha256', $temporaryPath);
+            if (! is_string($sha256) || preg_match('/^[a-f0-9]{64}$/', $sha256) !== 1) {
+                throw new HttpException(503, 'De verwerkte video kon niet worden geverifieerd.');
+            }
+            @chmod($temporaryPath, 0640);
+
+            return new WallboardMediaProcessedAsset(
+                kind: 'video',
+                temporaryPath: $temporaryPath,
+                sha256: $sha256,
+                mimeType: 'video/mp4',
+                byteSize: $byteSize,
+                width: $metadata['width'],
+                height: $metadata['height'],
                 durationSeconds: $durationSeconds,
                 thumbnailTemporaryPath: null,
                 thumbnailSha256: null,
@@ -90,6 +215,91 @@ final class WallboardMediaVideoProcessor
 
             throw $exception;
         }
+    }
+
+    /** @return array{width: int, height: int, duration_seconds: int, codec_name: string, pixel_format: string, audio_codecs: list<string>} */
+    private function inspectVideo(string $path, string $field): array
+    {
+        $result = Process::timeout(max(
+            10,
+            (int) config('wallboard_media.video_probe_timeout_seconds', 30),
+        ))->run([
+            (string) config('wallboard_media.ffprobe_binary', '/usr/bin/ffprobe'),
+            '-v',
+            'error',
+            '-show_entries',
+            'stream=codec_type,codec_name,pix_fmt,width,height:format=duration,format_name',
+            '-of',
+            'json',
+            $path,
+        ]);
+        $output = $result->output();
+        if (! $result->successful() || strlen($output) > 65_536) {
+            $this->invalid($field, 'De MP4-videostream kon niet veilig worden gecontroleerd.');
+        }
+        try {
+            $decoded = json_decode($output, true, 16, JSON_THROW_ON_ERROR);
+        } catch (Throwable) {
+            $decoded = null;
+        }
+        $streams = is_array($decoded['streams'] ?? null) ? array_values($decoded['streams']) : null;
+        if ($streams === null || $streams === [] || count($streams) > 32) {
+            $this->invalid($field, 'De MP4-videostream bevat ongeldige metadata.');
+        }
+        $stream = null;
+        $audioCodecs = [];
+        foreach ($streams as $candidate) {
+            if (! is_array($candidate)) {
+                $this->invalid($field, 'De MP4-videostream bevat ongeldige metadata.');
+            }
+            $codecType = strtolower(trim((string) ($candidate['codec_type'] ?? '')));
+            if ($codecType === 'video' && $stream === null) {
+                $stream = $candidate;
+            }
+            if ($codecType === 'audio') {
+                $audioCodec = strtolower(trim((string) ($candidate['codec_name'] ?? '')));
+                if (preg_match('/^[a-z0-9_]{2,32}$/D', $audioCodec) !== 1) {
+                    $this->invalid($field, 'De MP4-audiostream bevat ongeldige metadata.');
+                }
+                $audioCodecs[] = $audioCodec;
+            }
+        }
+        $format = is_array($decoded['format'] ?? null) ? $decoded['format'] : null;
+        $width = filter_var($stream['width'] ?? null, FILTER_VALIDATE_INT);
+        $height = filter_var($stream['height'] ?? null, FILTER_VALIDATE_INT);
+        $duration = filter_var($format['duration'] ?? null, FILTER_VALIDATE_FLOAT);
+        $formatNames = array_filter(explode(',', strtolower(trim((string) ($format['format_name'] ?? '')))));
+        $codecName = strtolower(trim((string) ($stream['codec_name'] ?? '')));
+        $pixelFormat = strtolower(trim((string) ($stream['pix_fmt'] ?? '')));
+        if (! is_int($width) || $width < 2 || $width > 16_384
+            || ! is_int($height) || $height < 2 || $height > 16_384
+            || ! is_float($duration) || ! is_finite($duration) || $duration < 0.1
+            || ! in_array('mp4', $formatNames, true)
+            || preg_match('/^[a-z0-9_]{2,32}$/D', $codecName) !== 1
+            || preg_match('/^[a-z0-9_]{2,32}$/D', $pixelFormat) !== 1) {
+            $this->invalid($field, 'De MP4-videostream bevat ongeldige metadata.');
+        }
+
+        return [
+            'width' => $width,
+            'height' => $height,
+            'duration_seconds' => (int) ceil($duration),
+            'codec_name' => $codecName,
+            'pixel_format' => $pixelFormat,
+            'audio_codecs' => $audioCodecs,
+        ];
+    }
+
+    /** @param array{width: int, height: int, duration_seconds: int, codec_name: string, pixel_format: string, audio_codecs: list<string>} $metadata */
+    private function requiresTranscode(array $metadata): bool
+    {
+        return $metadata['width'] > max(2, (int) config('wallboard_media.max_video_width_pixels', 1920))
+            || $metadata['height'] > max(2, (int) config('wallboard_media.max_video_height_pixels', 1080))
+            || $metadata['codec_name'] !== self::BROWSER_VIDEO_CODEC
+            || ! in_array($metadata['pixel_format'], self::BROWSER_PIXEL_FORMATS, true)
+            || collect($metadata['audio_codecs'])->contains(
+                static fn (string $codec): bool => $codec !== self::BROWSER_AUDIO_CODEC,
+            );
     }
 
     private function validateContainer(string $path, int $fileSize, string $field): int

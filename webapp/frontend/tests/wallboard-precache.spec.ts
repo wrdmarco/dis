@@ -4,6 +4,7 @@ import type { WallboardPage, WallboardState } from '../src/types/api';
 import {
   precacheWallboard,
   WALLBOARD_PRECACHE_PREFIX,
+  WALLBOARD_PRECACHE_REVISION_HEADER,
   wallboardAssetPathIsCacheable,
   wallboardPrecacheManifest,
 } from '../src/features/wallboards/wallboardPrecache';
@@ -30,26 +31,31 @@ test('builds one stable manifest across all configured cacheable wallboard pages
     {
       url: `https://dis.example.test/api/wallboard/media/${IMAGE_ONE}`,
       kind: 'image',
+      revision: `media:${IMAGE_ONE.toLowerCase()}:v1`,
       pageIds: ['news', 'photos'],
     },
     {
       url: `https://dis.example.test/api/wallboard/media/${IMAGE_TWO}`,
       kind: 'image',
+      revision: `media:${IMAGE_TWO.toLowerCase()}:v1`,
       pageIds: ['photos'],
     },
     {
       url: `https://dis.example.test/api/wallboard/media/${VIDEO}`,
       kind: 'video',
+      revision: `media:${VIDEO.toLowerCase()}:v2`,
       pageIds: ['internal-video'],
     },
     {
       url: `https://dis.example.test/api/wallboard/media/${POSTER}/poster`,
       kind: 'poster',
+      revision: `url:https://dis.example.test/api/wallboard/media/${POSTER}/poster`,
       pageIds: ['internal-video'],
     },
     {
       url: `https://dis.example.test/api/wallboard/news-images/${NEWS_HASH}`,
       kind: 'image',
+      revision: `url:https://dis.example.test/api/wallboard/news-images/${NEWS_HASH}`,
       pageIds: ['news'],
     },
   ]);
@@ -72,6 +78,21 @@ test('builds one stable manifest across all configured cacheable wallboard pages
   const changed = wallboardState();
   changed.media.photo_pages.photos.media_playlist_version = 9;
   expect(wallboardPrecacheManifest(changed, 'https://dis.example.test').cacheName).not.toBe(manifest.cacheName);
+
+  const runtimePlaylistChanged = wallboardState();
+  runtimePlaylistChanged.wallboard.runtime_playlist_id = '01KXW0QZTP0000000000000008';
+  expect(wallboardPrecacheManifest(runtimePlaylistChanged, 'https://dis.example.test').contentVersion)
+    .not.toBe(manifest.contentVersion);
+
+  const runtimeVersionChanged = wallboardState();
+  runtimeVersionChanged.wallboard.runtime_playlist_version = 8;
+  expect(wallboardPrecacheManifest(runtimeVersionChanged, 'https://dis.example.test').contentVersion)
+    .not.toBe(manifest.contentVersion);
+
+  const runtimeActivationChanged = wallboardState();
+  runtimeActivationChanged.wallboard.active_incident_playlist = true;
+  expect(wallboardPrecacheManifest(runtimeActivationChanged, 'https://dis.example.test').contentVersion)
+    .not.toBe(manifest.contentVersion);
 });
 
 test('allows only immutable wallboard media paths and never state feeds', () => {
@@ -168,10 +189,12 @@ test('copies an unchanged large MP4 atomically from the previous valid cache ver
   const previousManifest = wallboardPrecacheManifest(previousState, 'https://dis.example.test');
   const previousCache = await storage.open(previousManifest.cacheName);
   const videoUrl = `https://dis.example.test/api/wallboard/media/${VIDEO}`;
-  await previousCache.put(new Request(videoUrl), new Response('cached-100mb-video', {
+  const videoAsset = previousManifest.assets.find((asset) => asset.url === videoUrl);
+  expect(videoAsset).toBeDefined();
+  await previousCache.put(new Request(videoUrl), revisionResponse(new Response('cached-100mb-video', {
     status: 200,
     headers: { 'content-type': 'video/mp4' },
-  }));
+  }), videoAsset!.revision));
 
   const nextState = wallboardState();
   nextState.wallboard.config_version += 1;
@@ -197,6 +220,52 @@ test('copies an unchanged large MP4 atomically from the previous valid cache ver
   ].sort());
   const nextCache = await storage.open(nextManifest.cacheName);
   expect(await (await nextCache.match(new Request(videoUrl)))?.text()).toBe('cached-100mb-video');
+});
+
+test('downloads fresh bytes when a media asset revision changes at the same URL', async () => {
+  const storage = new MemoryCacheStorage();
+  const previousState = wallboardState();
+  const previousManifest = wallboardPrecacheManifest(previousState, 'https://dis.example.test');
+  const imageUrl = `https://dis.example.test/api/wallboard/media/${IMAGE_ONE}`;
+  const previousAsset = previousManifest.assets.find((asset) => asset.url === imageUrl);
+  expect(previousAsset).toBeDefined();
+  const previousCache = await storage.open(previousManifest.cacheName);
+  await previousCache.put(
+    new Request(imageUrl),
+    revisionResponse(new Response('old-image', {
+      status: 200,
+      headers: { 'content-type': 'image/webp' },
+    }), previousAsset!.revision),
+  );
+
+  const nextState = wallboardState();
+  nextState.media.photo_pages.photos.media_playlist_version += 1;
+  nextState.media.photo_pages.photos.items[0].media_asset_version += 1;
+  const nextManifest = wallboardPrecacheManifest(nextState, 'https://dis.example.test');
+  let imageFetches = 0;
+  const result = await precacheWallboard(nextManifest, {
+    cacheStorage: storage.asCacheStorage(),
+    concurrency: 1,
+    fetcher: (async (input) => {
+      const request = input instanceof Request ? input : new Request(input);
+      if (request.url === imageUrl) {
+        imageFetches += 1;
+        return new Response('fresh-image', {
+          status: 200,
+          headers: { 'content-type': 'image/webp' },
+        });
+      }
+      return request.url.endsWith(VIDEO) ? videoResponse() : imageResponse();
+    }) as typeof fetch,
+  });
+
+  expect(result.ready).toBe(true);
+  expect(imageFetches).toBe(1);
+  const nextCache = await storage.open(nextManifest.cacheName);
+  const cached = await nextCache.match(new Request(imageUrl));
+  expect(await cached?.text()).toBe('fresh-image');
+  expect(cached?.headers.get(WALLBOARD_PRECACHE_REVISION_HEADER))
+    .toBe(nextManifest.assets.find((asset) => asset.url === imageUrl)?.revision);
 });
 
 test('rejects an old cache entry with the wrong content type and downloads the valid asset', async () => {
@@ -419,6 +488,8 @@ function wallboardState(): WallboardState {
     page('photos', 'photo_carousel', { media_playlist_id: 'playlist' }),
     page('internal-video', 'video', {
       url: `/api/wallboard/media/${VIDEO}`,
+      media_asset_id: VIDEO,
+      media_asset_version: 2,
       poster_url: `/api/wallboard/media/${POSTER}/poster`,
     }),
     page('youtube', 'video', { url: 'https://www.youtube.com/embed/dQw4w9WgXcQ' }),
@@ -449,6 +520,9 @@ function wallboardState(): WallboardState {
       config_version: 7,
       control_version: 1,
       refresh_version: 1,
+      runtime_playlist_id: '01KXW0QZTP0000000000000007',
+      runtime_playlist_version: 7,
+      active_incident_playlist: false,
       display: {} as WallboardState['wallboard']['display'],
       updated_at: '2026-07-19T12:00:00Z',
     },
@@ -512,7 +586,20 @@ function newsItem(id: string, imageUrl: string) {
 }
 
 function mediaItem(id: string) {
-  return { id, name: id, image_url: `/api/wallboard/media/${id}`, width: 1920, height: 1080 };
+  return {
+    id,
+    name: id,
+    image_url: `/api/wallboard/media/${id}`,
+    media_asset_version: 1,
+    width: 1920,
+    height: 1080,
+  };
+}
+
+function revisionResponse(response: Response, revision: string): Response {
+  const headers = new Headers(response.headers);
+  headers.set(WALLBOARD_PRECACHE_REVISION_HEADER, revision);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 function imageResponse() {

@@ -11,7 +11,16 @@ final class WallboardMediaStateService
     /** @param array<string, mixed> $resolvedConfiguration */
     public function pages(Wallboard $wallboard, array $resolvedConfiguration): array
     {
-        $wallboardPlaylistId = $wallboard->playlist_id;
+        return $this->pagesForPlaylist(
+            is_string($wallboard->playlist_id) ? $wallboard->playlist_id : null,
+            $resolvedConfiguration,
+        );
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    /** @param array<string, mixed> $resolvedConfiguration */
+    public function pagesForPlaylist(?string $wallboardPlaylistId, array $resolvedConfiguration): array
+    {
         if (! is_string($wallboardPlaylistId) || $wallboardPlaylistId === '') {
             return [];
         }
@@ -42,6 +51,7 @@ final class WallboardMediaStateService
                     'id' => (string) $item->asset->id,
                     'name' => (string) $item->asset->display_name,
                     'image_url' => '/api/wallboard/media/'.(string) $item->asset->id,
+                    'media_asset_version' => (int) $item->asset->version,
                     'width' => (int) $item->asset->width,
                     'height' => (int) $item->asset->height,
                 ])

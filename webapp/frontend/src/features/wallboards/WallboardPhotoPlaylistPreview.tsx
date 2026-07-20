@@ -1,6 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
+import type { WallboardFlipDirection, WallboardItemTransition } from '../../types/api';
 import { useApiResource } from '../../lib/useApiResource';
 import { WallboardPhotoCarousel } from './WallboardPhotoCarousel';
 import {
@@ -12,6 +13,9 @@ import styles from './WallboardPhotoPlaylistPreview.module.css';
 export interface WallboardPhotoPlaylistPreviewProps {
   mediaPlaylistId: string | null | undefined;
   itemDurationSeconds: number | null | undefined;
+  transition?: WallboardItemTransition | null;
+  transitionDurationMs?: number | null;
+  flipDirection?: WallboardFlipDirection | null;
   running?: boolean;
   className?: string;
 }
@@ -19,6 +23,9 @@ export interface WallboardPhotoPlaylistPreviewProps {
 export function WallboardPhotoPlaylistPreview({
   mediaPlaylistId,
   itemDurationSeconds,
+  transition,
+  transitionDurationMs,
+  flipDirection,
   running = true,
   className,
 }: WallboardPhotoPlaylistPreviewProps) {
@@ -43,6 +50,9 @@ export function WallboardPhotoPlaylistPreview({
       media={wallboardMediaPageStateFromPlaylist(resource.data, itemDurationSeconds)}
       running={running}
       anchor={null}
+      transition={transition}
+      transitionDurationMs={transitionDurationMs}
+      flipDirection={flipDirection}
       variant="preview"
       showCaption
       className={className}

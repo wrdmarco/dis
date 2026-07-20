@@ -393,6 +393,9 @@ function ScreenEditor({
     normalizeWallboardDisplayProfile(wallboard.display_profile)
   ));
   const [draftPlaylistId, setDraftPlaylistId] = useState(wallboard.playlist_id);
+  const [draftActiveIncidentPlaylistId, setDraftActiveIncidentPlaylistId] = useState(
+    wallboard.active_incident_playlist_id ?? '',
+  );
   const [tvPairingCode, setTvPairingCode] = useState('');
   const [pairingInputInvalid, setPairingInputInvalid] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -422,7 +425,14 @@ function ScreenEditor({
     setDraftEnabled(wallboard.is_enabled);
     setDraftDisplayProfile(normalizeWallboardDisplayProfile(wallboard.display_profile));
     setDraftPlaylistId(wallboard.playlist_id);
-  }, [wallboard.display_profile, wallboard.is_enabled, wallboard.name, wallboard.playlist_id]);
+    setDraftActiveIncidentPlaylistId(wallboard.active_incident_playlist_id ?? '');
+  }, [
+    wallboard.active_incident_playlist_id,
+    wallboard.display_profile,
+    wallboard.is_enabled,
+    wallboard.name,
+    wallboard.playlist_id,
+  ]);
 
   useEffect(() => {
     if (activeFocusPreview === null) return;
@@ -447,7 +457,8 @@ function ScreenEditor({
     if (name === '' || draftPlaylistId === '') return;
     const metadataChanged = name !== wallboard.name
       || draftEnabled !== wallboard.is_enabled
-      || draftDisplayProfile !== wallboard.display_profile;
+      || draftDisplayProfile !== wallboard.display_profile
+      || draftActiveIncidentPlaylistId !== (wallboard.active_incident_playlist_id ?? '');
     const playlistChanged = draftPlaylistId !== wallboard.playlist_id;
     if (!metadataChanged && !playlistChanged) {
       setActionError(null);
@@ -465,6 +476,9 @@ function ScreenEditor({
           name,
           is_enabled: draftEnabled,
           display_profile: draftDisplayProfile,
+          active_incident_playlist_id: draftActiveIncidentPlaylistId === ''
+            ? null
+            : draftActiveIncidentPlaylistId,
           expected_config_version: wallboard.config_version,
         });
         currentWallboard = response.data;
@@ -800,6 +814,21 @@ function ScreenEditor({
               {selectedPlaylist && wallboardPlaylistUsageCount(selectedPlaylist) > 1
                 ? `Gedeeld door ${wallboardPlaylistUsageCount(selectedPlaylist)} schermen.`
                 : 'Wijzig de inhoud onder Playlists; dit scherm neemt die versie direct over.'}
+            </small>
+          </label>
+          <label>
+            <span>Playlist tijdens actieve inzet</span>
+            <select
+              value={draftActiveIncidentPlaylistId}
+              onChange={(event) => setDraftActiveIncidentPlaylistId(event.target.value)}
+            >
+              <option value="">Normale playlist blijven gebruiken</option>
+              {playlists.map((playlist) => (
+                <option key={playlist.id} value={playlist.id}>{playlist.name}</option>
+              ))}
+            </select>
+            <small>
+              Zodra de alarmering is afgerond en de inzet actief wordt, schakelt alleen dit scherm over op deze playlist. Na afsluiten van het incident keert de normale playlist automatisch terug.
             </small>
           </label>
           <label className="wallboard-switch-row">

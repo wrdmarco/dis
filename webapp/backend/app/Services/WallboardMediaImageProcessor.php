@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\WallboardMediaNormalizedImage;
 use App\Support\WallboardMediaProcessedAsset;
 use App\Support\WallboardMediaProcessedThumbnail;
 use Illuminate\Http\UploadedFile;
@@ -56,6 +57,15 @@ final class WallboardMediaImageProcessor
         if (($detectedMime === 'image/webp' && str_contains($source, 'ANIM'))
             || ($detectedMime === 'image/png' && str_contains($source, 'acTL'))) {
             $this->invalid($field, 'Geanimeerde afbeeldingen zijn niet toegestaan.');
+        }
+
+        $requiredLongEdge = max($this->normalizedWidthPixels(), $this->normalizedHeightPixels());
+        $requiredShortEdge = min($this->normalizedWidthPixels(), $this->normalizedHeightPixels());
+        if (max($width, $height) < $requiredLongEdge || min($width, $height) < $requiredShortEdge) {
+            $this->invalid(
+                $field,
+                "De afbeelding moet minimaal {$requiredLongEdge} bij {$requiredShortEdge} pixels zijn, liggend of staand.",
+            );
         }
 
         $this->assertGdAvailable();
@@ -206,6 +216,124 @@ final class WallboardMediaImageProcessor
         }
     }
 
+    public function normalizeStoredWebp(string $sourcePath): ?WallboardMediaNormalizedImage
+    {
+        $sourceBytes = @filesize($sourcePath);
+        $maximumBytes = max(
+            1024 * 1024,
+            (int) config('wallboard_media.thumbnail_backfill_max_source_bytes', 32 * 1024 * 1024),
+        );
+        if (! is_file($sourcePath)
+            || is_link($sourcePath)
+            || ! is_int($sourceBytes)
+            || $sourceBytes < 1
+            || $sourceBytes > $maximumBytes
+            || $this->detectedMime($sourcePath) !== 'image/webp') {
+            throw new \UnexpectedValueException('Stored wallboard image is missing or invalid.');
+        }
+
+        $dimensions = @getimagesize($sourcePath);
+        $width = is_array($dimensions) ? (int) ($dimensions[0] ?? 0) : 0;
+        $height = is_array($dimensions) ? (int) ($dimensions[1] ?? 0) : 0;
+        $maxPixels = max(1, (int) config('wallboard_media.max_source_pixels', 16_000_000));
+        if (! is_array($dimensions)
+            || (int) ($dimensions[2] ?? 0) !== IMAGETYPE_WEBP
+            || strtolower((string) ($dimensions['mime'] ?? '')) !== 'image/webp'
+            || $width < 1
+            || $height < 1
+            || $width > intdiv($maxPixels, $height)) {
+            throw new \UnexpectedValueException('Stored wallboard image dimensions are invalid.');
+        }
+
+        $maximumWidth = $this->normalizedWidthPixels();
+        $maximumHeight = $this->normalizedHeightPixels();
+        if ($width <= $maximumWidth && $height <= $maximumHeight) {
+            return null;
+        }
+
+        $source = @file_get_contents($sourcePath);
+        if (! is_string($source)
+            || strlen($source) !== $sourceBytes
+            || str_contains($source, 'ANIM')) {
+            throw new \UnexpectedValueException('Stored wallboard image could not be verified.');
+        }
+        $sourceSha256 = hash('sha256', $source);
+
+        $this->assertGdAvailable();
+        $image = @imagecreatefromstring($source);
+        if (! $image instanceof \GdImage) {
+            throw new \UnexpectedValueException('Stored wallboard image could not be decoded.');
+        }
+
+        $temporaryPath = null;
+        $thumbnailPath = null;
+        try {
+            $image = $this->resizeWithin($image, $maximumWidth, $maximumHeight);
+            $temporaryPath = $this->temporaryPath();
+            $quality = min(max((int) config('wallboard_media.webp_quality', 88), 60), 95);
+            if (! @imagewebp($image, $temporaryPath, $quality)) {
+                throw new \UnexpectedValueException('Normalized wallboard image could not be encoded.');
+            }
+            @chmod($temporaryPath, 0640);
+            $thumbnailPath = $this->encodeThumbnail($image);
+
+            $outputMime = $this->detectedMime($temporaryPath);
+            $outputDimensions = @getimagesize($temporaryPath);
+            $byteSize = @filesize($temporaryPath);
+            $sha256 = @hash_file('sha256', $temporaryPath);
+            $thumbnailMime = $this->detectedMime($thumbnailPath);
+            $thumbnailDimensions = @getimagesize($thumbnailPath);
+            $thumbnailBytes = @filesize($thumbnailPath);
+            $thumbnailSha256 = @hash_file('sha256', $thumbnailPath);
+            if ($outputMime !== 'image/webp'
+                || ! is_array($outputDimensions)
+                || (int) ($outputDimensions[2] ?? 0) !== IMAGETYPE_WEBP
+                || (int) ($outputDimensions[0] ?? 0) < 1
+                || (int) ($outputDimensions[1] ?? 0) < 1
+                || (int) $outputDimensions[0] > $maximumWidth
+                || (int) $outputDimensions[1] > $maximumHeight
+                || ! is_int($byteSize)
+                || $byteSize < 1
+                || ! is_string($sha256)
+                || preg_match('/^[a-f0-9]{64}$/', $sha256) !== 1
+                || $thumbnailMime !== 'image/webp'
+                || ! is_array($thumbnailDimensions)
+                || (int) ($thumbnailDimensions[2] ?? 0) !== IMAGETYPE_WEBP
+                || ! is_int($thumbnailBytes)
+                || $thumbnailBytes < 1
+                || ! is_string($thumbnailSha256)
+                || preg_match('/^[a-f0-9]{64}$/', $thumbnailSha256) !== 1) {
+                throw new \UnexpectedValueException('Normalized wallboard image could not be verified.');
+            }
+
+            return new WallboardMediaNormalizedImage(
+                temporaryPath: $temporaryPath,
+                sha256: $sha256,
+                byteSize: $byteSize,
+                width: (int) $outputDimensions[0],
+                height: (int) $outputDimensions[1],
+                thumbnailTemporaryPath: $thumbnailPath,
+                thumbnailSha256: $thumbnailSha256,
+                thumbnailByteSize: $thumbnailBytes,
+                sourceSha256: $sourceSha256,
+                sourceByteSize: $sourceBytes,
+                sourceWidth: $width,
+                sourceHeight: $height,
+            );
+        } catch (Throwable $exception) {
+            if (is_string($temporaryPath) && is_file($temporaryPath)) {
+                @unlink($temporaryPath);
+            }
+            if (is_string($thumbnailPath) && is_file($thumbnailPath)) {
+                @unlink($thumbnailPath);
+            }
+
+            throw $exception;
+        } finally {
+            imagedestroy($image);
+        }
+    }
+
     private function encodeThumbnail(\GdImage $image): string
     {
         $width = imagesx($image);
@@ -332,14 +460,21 @@ final class WallboardMediaImageProcessor
 
     private function resize(\GdImage $image): \GdImage
     {
+        $maximumWidth = $this->normalizedWidthPixels();
+        $maximumHeight = $this->normalizedHeightPixels();
+
+        return $this->resizeWithin($image, $maximumWidth, $maximumHeight);
+    }
+
+    private function resizeWithin(\GdImage $image, int $maximumWidth, int $maximumHeight): \GdImage
+    {
         $width = imagesx($image);
         $height = imagesy($image);
-        $maxEdge = max(1, (int) config('wallboard_media.max_output_edge_pixels', 3840));
-        if ($width <= $maxEdge && $height <= $maxEdge) {
+        if ($width <= $maximumWidth && $height <= $maximumHeight) {
             return $image;
         }
 
-        $scale = min($maxEdge / $width, $maxEdge / $height);
+        $scale = min(1, $maximumWidth / $width, $maximumHeight / $height);
         $targetWidth = max(1, (int) floor($width * $scale));
         $targetHeight = max(1, (int) floor($height * $scale));
         $resized = imagecreatetruecolor($targetWidth, $targetHeight);
@@ -368,6 +503,16 @@ final class WallboardMediaImageProcessor
         imagedestroy($image);
 
         return $resized;
+    }
+
+    private function normalizedWidthPixels(): int
+    {
+        return max(1, (int) config('wallboard_media.normalized_image_width_pixels', 1920));
+    }
+
+    private function normalizedHeightPixels(): int
+    {
+        return max(1, (int) config('wallboard_media.normalized_image_height_pixels', 1080));
     }
 
     private function temporaryPath(): string

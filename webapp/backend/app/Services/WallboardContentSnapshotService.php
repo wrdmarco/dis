@@ -60,9 +60,9 @@ final class WallboardContentSnapshotService
     }
 
     /** @return array{revision: int, pages: array<string, mixed>, generated_at: string|null} */
-    public function news(Wallboard $wallboard): array
+    public function news(Wallboard $wallboard, ?array $configuration = null, ?string $playlistId = null): array
     {
-        $content = $this->content($wallboard, WallboardContentSnapshot::KIND_NEWS);
+        $content = $this->content($wallboard, WallboardContentSnapshot::KIND_NEWS, $configuration, $playlistId);
 
         return [
             'revision' => $content['revision'],
@@ -72,9 +72,9 @@ final class WallboardContentSnapshotService
     }
 
     /** @return array{revision: int, items: list<array<string, mixed>>} */
-    public function ticker(Wallboard $wallboard): array
+    public function ticker(Wallboard $wallboard, ?array $configuration = null, ?string $playlistId = null): array
     {
-        $content = $this->content($wallboard, WallboardContentSnapshot::KIND_TICKER);
+        $content = $this->content($wallboard, WallboardContentSnapshot::KIND_TICKER, $configuration, $playlistId);
 
         return [
             'revision' => $content['revision'],
@@ -83,10 +83,12 @@ final class WallboardContentSnapshotService
     }
 
     /** @return array{static: string, news: string, ticker: string} */
-    public function contentVersions(Wallboard $wallboard): array
+    public function contentVersions(Wallboard $wallboard, ?array $configuration = null, ?string $playlistId = null): array
     {
-        $configuration = $this->playlistResolver->resolve($wallboard);
-        $playlistId = $this->playlistId($wallboard);
+        if ($configuration === null) {
+            $configuration = $this->playlistResolver->resolve($wallboard);
+            $playlistId = $this->playlistId($wallboard);
+        }
         $revisions = collect();
         if ($playlistId !== null) {
             $revisions = $this->snapshots->forPlaylist($playlistId)
@@ -104,11 +106,17 @@ final class WallboardContentSnapshotService
     }
 
     /** @return array{revision: int, payload: array<string, mixed>} */
-    private function content(Wallboard $wallboard, string $kind): array
-    {
-        $configuration = $this->playlistResolver->resolve($wallboard);
+    private function content(
+        Wallboard $wallboard,
+        string $kind,
+        ?array $configuration = null,
+        ?string $playlistId = null,
+    ): array {
+        if ($configuration === null) {
+            $configuration = $this->playlistResolver->resolve($wallboard);
+            $playlistId = $this->playlistId($wallboard);
+        }
         $fingerprint = $this->configFingerprint($configuration, $kind);
-        $playlistId = $this->playlistId($wallboard);
         if ($playlistId === null) {
             try {
                 return [

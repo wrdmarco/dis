@@ -168,15 +168,51 @@ test('reuses the stepper for every directly configurable wallboard duration and 
     'utf8',
   );
 
-  expect(configurationEditor.match(/<SecondsStepper/g)).toHaveLength(8);
+  expect(configurationEditor.match(/<SecondsStepper/g)).toHaveLength(9);
   expect(configurationEditor).toContain('label="Data verversen"');
   expect(configurationEditor).toContain('id={`${idPrefix}-focus-${kind}-duration`}');
   expect(configurationEditor).toContain('id={`wallboard-page-${page.id}-duration`}');
   expect(configurationEditor).toContain('label="Tijd per nieuwsbericht"');
   expect(photoPageEditor).toContain('<SecondsStepper');
   expect(photoPageEditor).toContain('label="Tijd per foto"');
-  expect(configurationEditor).toContain('<span>Maximum aantal berichten</span>');
-  expect(configurationEditor).toContain('label="Maximum aantal agenda-items"');
-  expect(configurationEditor).toContain('unit="items"');
-  expect(configurationEditor).toContain('unitLabel="agenda-items"');
+  expect(configurationEditor).toContain('id={`wallboard-news-${page.id}-max-items`}');
+  expect(configurationEditor).toMatch(
+    /label="Maximum aantal berichten"[\s\S]{0,500}unit="st\."[\s\S]{0,100}unitLabel="berichten"/,
+  );
+  expect(configurationEditor).toMatch(
+    /label="Maximum aantal agenda-items"[\s\S]{0,500}unit="st\."[\s\S]{0,100}unitLabel="agenda-items"/,
+  );
+});
+
+test('news item count stepper mutates immediately and clamps typed values to 1 through 12', () => {
+  expect(moveSecondsStepperValue(1, 1, 1, 12)).toBe(2);
+  expect(moveSecondsStepperValue(12, -1, 1, 12)).toBe(11);
+  expect(moveSecondsStepperValue(1, -1, 1, 12)).toBe(1);
+  expect(moveSecondsStepperValue(12, 1, 1, 12)).toBe(12);
+  expect(commitSecondsStepperDraft('-4', 6, 1, 12)).toBe(1);
+  expect(commitSecondsStepperDraft('19', 6, 1, 12)).toBe(12);
+
+  const stepper = readFileSync(
+    new URL('../src/features/wallboards/SecondsStepper.tsx', import.meta.url),
+    'utf8',
+  );
+  const stepperCss = readFileSync(
+    new URL('../src/features/wallboards/SecondsStepper.module.css', import.meta.url),
+    'utf8',
+  );
+  expect(stepper).toContain('export const SECONDS_STEPPER_HOLD_DELAY_MS = 420;');
+  expect(stepper).toContain('export const SECONDS_STEPPER_REPEAT_INTERVAL_MS = 110;');
+  expect(stepper).toContain('onPointerDown={(event) => startRepeating(event, -1)}');
+  expect(stepper).toContain('onPointerDown={(event) => startRepeating(event, 1)}');
+  expect(stepper.match(/onPointerUp=\{stopRepeating\}/g)).toHaveLength(2);
+  expect(stepper.match(/onPointerCancel=\{stopRepeating\}/g)).toHaveLength(2);
+  expect(stepper.match(/onPointerLeave=\{stopRepeating\}/g)).toHaveLength(2);
+  expect(stepper.match(/onBlur=\{stopRepeating\}/g)).toHaveLength(2);
+  expect(stepper).toContain("window.addEventListener('blur', stopRepeating)");
+  expect(stepper).toContain('ignoreNextPointerClickRef.current = true');
+  expect(stepper).toContain('event.detail > 0 && ignoreNextPointerClickRef.current');
+  expect(stepper).toContain('emitRepeatedStep(direction)');
+  expect(stepper).toContain('disabled={disabled || actionableValue <= min}');
+  expect(stepper).toContain('disabled={disabled || actionableValue >= maximumValue}');
+  expect(stepperCss).toContain('touch-action: manipulation');
 });

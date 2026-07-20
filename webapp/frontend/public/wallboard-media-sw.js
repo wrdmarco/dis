@@ -60,7 +60,22 @@ async function serveClientAsset(clientId, request) {
 
   const cache = await caches.open(state.cacheName);
   const cached = await cache.match(request, { ignoreVary: true });
-  if (cached !== undefined && validCachedResponse(cached, kind)) return cached;
+  if (cached !== undefined && validCachedResponse(cached, kind)) {
+    if (kind !== 'video') return cached;
+
+    // Cache API responses cannot be randomly accessed without materializing the
+    // complete body. Prefer the origin's bounded byte-range response while the
+    // wallboard is online and only slice the cached body as an offline fallback.
+    if (request.headers.get('Range') !== null) {
+      try {
+        return await fetch(request);
+      } catch {
+        return cachedVideoResponse(cached, request);
+      }
+    }
+
+    return cached;
+  }
   if (cached !== undefined) await cache.delete(request, { ignoreVary: true });
 
   const response = await fetch(request);
@@ -68,6 +83,87 @@ async function serveClientAsset(clientId, request) {
     await cache.put(request, response.clone());
   }
   return response;
+}
+
+/** @param {Response} response @param {Request} request */
+async function cachedVideoResponse(response, request) {
+  const rangeHeader = request.headers.get('Range');
+  if (rangeHeader === null) return response;
+  if (!ifRangeMatches(response.headers, request.headers.get('If-Range'))) return response;
+
+  const body = await response.blob();
+  const range = singleByteRange(rangeHeader, body.size);
+  if (range === null) return rangeNotSatisfiableResponse(response.headers, body.size);
+
+  const headers = new Headers(response.headers);
+  headers.set('Accept-Ranges', 'bytes');
+  headers.set('Content-Length', String(range.end - range.start + 1));
+  headers.set('Content-Range', `bytes ${range.start}-${range.end}/${body.size}`);
+  headers.delete('Content-Encoding');
+
+  return new Response(body.slice(range.start, range.end + 1, response.headers.get('Content-Type') || ''), {
+    status: 206,
+    statusText: 'Partial Content',
+    headers,
+  });
+}
+
+/** @param {Headers} cachedHeaders @param {string|null} ifRange */
+function ifRangeMatches(cachedHeaders, ifRange) {
+  if (ifRange === null) return true;
+  const validator = ifRange.trim();
+  if (validator === '' || validator.startsWith('W/')) return false;
+
+  const etag = cachedHeaders.get('ETag');
+  if (validator.startsWith('"')) {
+    return etag !== null && !etag.startsWith('W/') && validator === etag;
+  }
+
+  const requestedDate = Date.parse(validator);
+  const lastModified = Date.parse(cachedHeaders.get('Last-Modified') || '');
+  return Number.isFinite(requestedDate)
+    && Number.isFinite(lastModified)
+    && requestedDate === lastModified;
+}
+
+/** @param {string} value @param {number} size @returns {{start:number,end:number}|null} */
+function singleByteRange(value, size) {
+  if (!Number.isSafeInteger(size) || size <= 0) return null;
+  const match = /^bytes\s*=\s*(\d*)-(\d*)$/i.exec(value.trim());
+  if (match === null || (match[1] === '' && match[2] === '')) return null;
+
+  if (match[1] === '') {
+    const suffixLength = Number(match[2]);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return null;
+    return {
+      start: Math.max(0, size - suffixLength),
+      end: size - 1,
+    };
+  }
+
+  const start = Number(match[1]);
+  const requestedEnd = match[2] === '' ? size - 1 : Number(match[2]);
+  if (!Number.isSafeInteger(start)
+    || !Number.isSafeInteger(requestedEnd)
+    || start < 0
+    || start >= size
+    || requestedEnd < start) return null;
+
+  return { start, end: Math.min(requestedEnd, size - 1) };
+}
+
+/** @param {Headers} sourceHeaders @param {number} size */
+function rangeNotSatisfiableResponse(sourceHeaders, size) {
+  const headers = new Headers(sourceHeaders);
+  headers.set('Accept-Ranges', 'bytes');
+  headers.set('Content-Length', '0');
+  headers.set('Content-Range', `bytes */${size}`);
+  headers.delete('Content-Encoding');
+  return new Response(null, {
+    status: 416,
+    statusText: 'Range Not Satisfiable',
+    headers,
+  });
 }
 
 /** @param {string} clientId @param {ReturnType<typeof normalizedActivationCommand>} command */
@@ -424,7 +520,7 @@ function cacheablePath(pathname) {
 
 /** @param {Response} response @param {AssetKind} kind */
 function validCachedResponse(response, kind) {
-  if (!response.ok || response.redirected) return false;
+  if (response.status !== 200 || response.redirected) return false;
   const mimeType = (response.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
   return kind === 'video'
     ? mimeType === 'video/mp4'

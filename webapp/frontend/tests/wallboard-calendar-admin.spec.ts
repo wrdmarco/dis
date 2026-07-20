@@ -80,7 +80,7 @@ test('exposes agenda management with a bounded item count and a dedicated icon',
   expect(editor).toContain('Maximum aantal agenda-items');
   expect(editor).toContain('MIN_WALLBOARD_CALENDAR_MAX_ITEMS');
   expect(editor).toContain('MAX_WALLBOARD_CALENDAR_MAX_ITEMS');
-  expect(editor).toContain('unit="items"');
+  expect(editor).toContain('unit="st."');
   expect(editor).toContain("case 'calendar': return <CalendarDays");
 });
 

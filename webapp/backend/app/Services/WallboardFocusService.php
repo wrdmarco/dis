@@ -43,10 +43,20 @@ final class WallboardFocusService
             }
 
             $candidate = $this->realAlarmCandidate($realIncident);
+            if ($candidate === null || (string) $realIncident->status === 'in_progress') {
+                return null;
+            }
 
-            return $candidate === null
-                ? null
-                : $this->payload($candidate, $settings, (array) ($configuration['pages'] ?? []));
+            $payload = $this->payload($candidate, $settings, (array) ($configuration['pages'] ?? []));
+            $responseCounts = (array) (($payload['responses'] ?? [])['counts'] ?? []);
+
+            // The alarm focus is a response screen, not an incident-status
+            // screen. Once every selected recipient has reached a terminal
+            // response, keeping it in the cycle only repeats stale information.
+            return (int) ($responseCounts['targeted'] ?? 0) > 0
+                && (int) ($responseCounts['pending'] ?? 0) === 0
+                    ? null
+                    : $payload;
         }
 
         // Preview state is intentionally resolved only after the absolute real-

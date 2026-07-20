@@ -205,6 +205,40 @@ final class WallboardFocusTest extends TestCase
         $this->assertSame('2026-07-20T12:01:30+02:00', $nextFocus['next_change_at']);
     }
 
+    public function test_real_alarm_focus_stops_after_every_selected_pilot_has_responded_or_the_incident_is_in_progress(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 12:30:00', 'Europe/Amsterdam'));
+        $dispatcher = $this->user('focus-complete-dispatcher@example.test', 'Complete dispatcher');
+        $wallboard = $this->wallboard();
+        $incident = $this->incident($dispatcher, 'FOCUS-COMPLETE', 'dispatching', false);
+        $dispatch = $this->dispatch($incident, $dispatcher, 'sent', now());
+        $accepted = $this->user('focus-complete-accepted@example.test', 'Accepted pilot');
+        $pending = $this->user('focus-complete-pending@example.test', 'Pending pilot');
+        $this->recipient($dispatch, $accepted, 'accepted', now());
+        $pendingRecipient = $this->recipient($dispatch, $pending, 'pending', null);
+        $service = app(WallboardStateService::class);
+
+        $this->assertSame(
+            'real_alarm',
+            $service->control($wallboard)['focus']['kind'],
+        );
+
+        $pendingRecipient->forceFill([
+            'response_status' => 'declined',
+            'responded_at' => now()->addSecond(),
+        ])->save();
+
+        $this->assertNull($service->control($wallboard)['focus']);
+
+        $pendingRecipient->forceFill([
+            'response_status' => 'pending',
+            'responded_at' => null,
+        ])->save();
+        $incident->forceFill(['status' => 'in_progress'])->save();
+
+        $this->assertNull($service->control($wallboard)['focus']);
+    }
+
     public function test_an_active_real_alarm_is_never_covered_by_a_newer_preannouncement_or_test_alarm(): void
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 13:00:00', 'Europe/Amsterdam'));
@@ -385,6 +419,8 @@ final class WallboardFocusTest extends TestCase
             $users[] = $user;
             $this->recipient($dispatch, $user, 'accepted', now()->subSeconds($index));
         }
+        $stillPending = $this->user('focus-coming-pending@example.test', 'Nog wachtende piloot');
+        $this->recipient($dispatch, $stillPending, 'pending', null);
 
         foreach ([$users[0], $users[1]] as $index => $user) {
             LocationSharingConsent::query()->create([
@@ -409,8 +445,9 @@ final class WallboardFocusTest extends TestCase
             ->state($this->wallboard())['operational_summary']['focus'];
         $responses = $focus['responses'];
 
-        $this->assertSame(26, $responses['counts']['targeted']);
-        $this->assertSame(26, $responses['counts']['contacted']);
+        $this->assertSame(27, $responses['counts']['targeted']);
+        $this->assertSame(27, $responses['counts']['contacted']);
+        $this->assertSame(1, $responses['counts']['pending']);
         $this->assertSame(26, $responses['counts']['accepted']);
         $this->assertCount(24, $responses['items']);
         $this->assertCount(26, $responses['coming']);

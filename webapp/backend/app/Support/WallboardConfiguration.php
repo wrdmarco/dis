@@ -349,8 +349,8 @@ final class WallboardConfiguration
                 'incident_list', 'summary' => ['show_test_incidents'],
                 'calendar' => ['max_items'],
                 'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds', 'item_transition', 'item_transition_duration_ms', 'item_flip_direction'],
-                'video' => ['url', 'video_duration_seconds'],
-                'photo_carousel' => ['media_playlist_id', 'item_duration_seconds'],
+                'video' => ['url', 'video_duration_seconds', 'media_asset_id', 'media_asset_version'],
+                'photo_carousel' => ['media_playlist_id', 'item_duration_seconds', 'item_transition', 'item_transition_duration_ms', 'item_flip_direction'],
                 default => [],
             };
             if (array_diff(array_keys($options), $allowedOptionKeys) !== []) {
@@ -472,34 +472,80 @@ final class WallboardConfiguration
                     ];
                 }
             } elseif ($type === 'video') {
-                $url = is_string($options['url'] ?? null)
-                    ? self::normalizeVideoUrl($options['url'])
-                    : null;
-                if ($url === null) {
-                    throw ValidationException::withMessages([
-                        "configuration.pages.{$index}.options.url" => ['Een videopagina heeft een geldige HTTPS-URL van YouTube of Vimeo nodig.'],
-                    ]);
+                $mediaAssetId = strtolower(trim((string) ($options['media_asset_id'] ?? '')));
+                if ($mediaAssetId !== '') {
+                    if (! Str::isUlid($mediaAssetId)) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.media_asset_id" => ['Selecteer een geldige geuploade MP4-video.'],
+                        ]);
+                    }
+                    $canonicalUrl = self::localVideoUrl($mediaAssetId);
+                    $suppliedUrl = $options['url'] ?? null;
+                    if ($suppliedUrl !== null
+                        && (! is_string($suppliedUrl) || trim($suppliedUrl) !== $canonicalUrl)) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.url" => ['De lokale video-URL komt niet overeen met het geselecteerde mediabestand.'],
+                        ]);
+                    }
+                    $videoDurationSeconds = $options['video_duration_seconds'] ?? null;
+                    if ($videoDurationSeconds !== null
+                        && (! is_int($videoDurationSeconds)
+                            || $videoDurationSeconds < self::MIN_VIDEO_DURATION_SECONDS
+                            || $videoDurationSeconds > self::MAX_VIDEO_DURATION_SECONDS)) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.video_duration_seconds" => ['De gecontroleerde videoduur moet een geheel getal tussen 1 en 3595 seconden zijn.'],
+                        ]);
+                    }
+                    $mediaAssetVersion = $options['media_asset_version'] ?? null;
+                    if ($mediaAssetVersion !== null && (! is_int($mediaAssetVersion) || $mediaAssetVersion < 1)) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.media_asset_version" => ['De mediarevisie van de lokale video is ongeldig.'],
+                        ]);
+                    }
+                    $options = [
+                        'media_asset_id' => $mediaAssetId,
+                        ...(is_int($mediaAssetVersion) ? ['media_asset_version' => $mediaAssetVersion] : []),
+                        'url' => $canonicalUrl,
+                        ...(is_int($videoDurationSeconds)
+                            ? ['video_duration_seconds' => $videoDurationSeconds]
+                            : []),
+                    ];
+                    if (is_int($videoDurationSeconds)) {
+                        $durationSeconds = min(
+                            3600,
+                            $videoDurationSeconds + self::VIDEO_STARTUP_BUFFER_SECONDS,
+                        );
+                    }
+                } else {
+                    $url = is_string($options['url'] ?? null)
+                        ? self::normalizeVideoUrl($options['url'])
+                        : null;
+                    if ($url === null) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.url" => ['Een videopagina heeft een geldige HTTPS-URL van YouTube of Vimeo nodig.'],
+                        ]);
+                    }
+                    $videoDurationSeconds = $options['video_duration_seconds']
+                        ?? max(self::MIN_VIDEO_DURATION_SECONDS, min(
+                            self::MAX_VIDEO_DURATION_SECONDS,
+                            $durationSeconds - self::VIDEO_STARTUP_BUFFER_SECONDS,
+                        ));
+                    if (! is_int($videoDurationSeconds)
+                        || $videoDurationSeconds < self::MIN_VIDEO_DURATION_SECONDS
+                        || $videoDurationSeconds > self::MAX_VIDEO_DURATION_SECONDS) {
+                        throw ValidationException::withMessages([
+                            "configuration.pages.{$index}.options.video_duration_seconds" => ['De gecontroleerde videoduur moet een geheel getal tussen 1 en 3595 seconden zijn.'],
+                        ]);
+                    }
+                    $options = [
+                        'url' => $url,
+                        'video_duration_seconds' => $videoDurationSeconds,
+                    ];
+                    $durationSeconds = min(
+                        3600,
+                        $videoDurationSeconds + self::VIDEO_STARTUP_BUFFER_SECONDS,
+                    );
                 }
-                $videoDurationSeconds = $options['video_duration_seconds']
-                    ?? max(self::MIN_VIDEO_DURATION_SECONDS, min(
-                        self::MAX_VIDEO_DURATION_SECONDS,
-                        $durationSeconds - self::VIDEO_STARTUP_BUFFER_SECONDS,
-                    ));
-                if (! is_int($videoDurationSeconds)
-                    || $videoDurationSeconds < self::MIN_VIDEO_DURATION_SECONDS
-                    || $videoDurationSeconds > self::MAX_VIDEO_DURATION_SECONDS) {
-                    throw ValidationException::withMessages([
-                        "configuration.pages.{$index}.options.video_duration_seconds" => ['De gecontroleerde videoduur moet een geheel getal tussen 1 en 3595 seconden zijn.'],
-                    ]);
-                }
-                $options = [
-                    'url' => $url,
-                    'video_duration_seconds' => $videoDurationSeconds,
-                ];
-                $durationSeconds = min(
-                    3600,
-                    $videoDurationSeconds + self::VIDEO_STARTUP_BUFFER_SECONDS,
-                );
             } elseif ($type === WallboardMediaUsageSynchronizer::PAGE_TYPE) {
                 $mediaPlaylistId = strtolower(trim((string) ($options['media_playlist_id'] ?? '')));
                 $itemDurationSeconds = $options['item_duration_seconds'] ?? null;
@@ -516,9 +562,39 @@ final class WallboardConfiguration
                         "configuration.pages.{$index}.options.item_duration_seconds" => ['De zichtduur per foto moet een geheel getal tussen 5 en 300 seconden zijn.'],
                     ]);
                 }
+
+                $itemTransition = $options['item_transition'] ?? self::DEFAULT_NEWS_ITEM_TRANSITION;
+                if (! is_string($itemTransition)
+                    || ! in_array($itemTransition, self::PAGE_TRANSITIONS, true)) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.item_transition" => ['Kies een ondersteunde overgang voor foto\'s.'],
+                    ]);
+                }
+
+                $itemTransitionDuration = $options['item_transition_duration_ms']
+                    ?? self::DEFAULT_NEWS_ITEM_TRANSITION_DURATION_MS;
+                if (! is_int($itemTransitionDuration)
+                    || $itemTransitionDuration < self::MIN_TRANSITION_DURATION_MS
+                    || $itemTransitionDuration > self::MAX_TRANSITION_DURATION_MS) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.item_transition_duration_ms" => ['De foto-overgangsduur moet een geheel getal tussen 100 en 5000 milliseconden zijn.'],
+                    ]);
+                }
+
+                $itemFlipDirection = $options['item_flip_direction'] ?? self::DEFAULT_FLIP_DIRECTION;
+                if (! is_string($itemFlipDirection)
+                    || ! in_array($itemFlipDirection, self::FLIP_DIRECTIONS, true)) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.item_flip_direction" => ['Kies een ondersteunde fliprichting voor foto\'s.'],
+                    ]);
+                }
+
                 $options = [
                     'media_playlist_id' => $mediaPlaylistId,
                     'item_duration_seconds' => $itemDurationSeconds,
+                    'item_transition' => $itemTransition,
+                    'item_transition_duration_ms' => $itemTransitionDuration,
+                    'item_flip_direction' => $itemFlipDirection,
                 ];
             } elseif ($type === 'news') {
                 $sources = array_values((array) ($options['sources'] ?? self::NEWS_SOURCES));
@@ -956,6 +1032,16 @@ final class WallboardConfiguration
         return preg_match($pattern, $path, $matches) === 1
             ? 'https://player.vimeo.com/video/'.$matches[1]
             : null;
+    }
+
+    public static function localVideoUrl(string $mediaAssetId): string
+    {
+        $normalized = strtolower(trim($mediaAssetId));
+        if (! Str::isUlid($normalized)) {
+            throw new \InvalidArgumentException('A local wallboard video requires a valid media asset ULID.');
+        }
+
+        return '/api/wallboard/media/'.$normalized;
     }
 
     /**

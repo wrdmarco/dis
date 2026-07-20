@@ -159,9 +159,15 @@ final class SystemUpdateStatusService
         $this->store($status);
     }
 
-    public function finish(int $exitCode): void
-    {
+    public function finish(
+        int $exitCode,
+        ?int $measuredDurationSeconds = null,
+        ?bool $includesSystemUpdates = null,
+    ): void {
         $status = $this->current();
+        if ($includesSystemUpdates !== null) {
+            $status['includes_system_updates'] = $includesSystemUpdates;
+        }
         $status['state'] = $exitCode === 0 ? 'succeeded' : 'failed';
         $status['finished_at'] = ApiDateTime::now();
         $status['exit_code'] = $exitCode;
@@ -171,7 +177,7 @@ final class SystemUpdateStatusService
         $status['last_log_at'] = ApiDateTime::now();
         $status['reboot_required'] = $this->rebootRequired();
         if ($exitCode === 0) {
-            $status = $this->recordSuccessfulDuration($status);
+            $status = $this->recordSuccessfulDuration($status, $measuredDurationSeconds);
         }
         if ($exitCode === 0 && $status['reboot_required'] === true) {
             $status['message'] = 'Update afgerond. Serverherstart vereist.';
@@ -346,8 +352,10 @@ final class SystemUpdateStatusService
 
     private function isSuccessfulCompletionLine(string $line): bool
     {
-        return str_contains($line, 'DIS system and application update completed.')
-            || str_contains($line, 'Deployment finished');
+        // A nested deploy is only one phase of update.sh. Recording its
+        // "Deployment finished" line would poison the duration history with a
+        // partial run and can make later wallboard estimates far too short.
+        return str_contains($line, 'DIS system and application update completed.');
     }
 
     private function processIsAlive(int $pid): bool
@@ -535,10 +543,25 @@ final class SystemUpdateStatusService
      * @param  array<string, mixed>  $status
      * @return array<string, mixed>
      */
-    private function recordSuccessfulDuration(array $status): array
+    private function recordSuccessfulDuration(array $status, ?int $measuredDurationSeconds = null): array
     {
-        if (($status['duration_recorded'] ?? false) === true
-            || ! is_string($status['started_at'] ?? null)
+        if (($status['duration_recorded'] ?? false) === true) {
+            return $status;
+        }
+
+        if ($measuredDurationSeconds !== null) {
+            if ($measuredDurationSeconds > 0) {
+                $this->durationEstimator->recordSuccessfulRun(
+                    (bool) ($status['includes_system_updates'] ?? false),
+                    $measuredDurationSeconds,
+                );
+            }
+            $status['duration_recorded'] = true;
+
+            return $status;
+        }
+
+        if (! is_string($status['started_at'] ?? null)
             || ! is_string($status['finished_at'] ?? null)) {
             return $status;
         }
