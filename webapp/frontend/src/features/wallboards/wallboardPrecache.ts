@@ -243,6 +243,13 @@ export async function precacheWallboard(
       mode: 'same-origin',
       redirect: 'error',
       cache: 'no-cache',
+      headers: {
+        // The backend encrypts the HttpOnly wallboard credential. Some TV
+        // browsers omit Referer when a service-worker-controlled page builds a
+        // media Request, so explicitly mark this same-origin fetch as the
+        // first-party XHR path that decrypts that cookie before wallboard.auth.
+        'X-Requested-With': 'XMLHttpRequest',
+      },
       signal,
     });
 

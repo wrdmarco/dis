@@ -122,6 +122,7 @@ test('downloads every asset before ready but leaves obsolete cleanup to validate
   expect(requested).toHaveLength(5);
   expect(requested.every((request) => request.credentials === 'include')).toBe(true);
   expect(requested.every((request) => request.mode === 'same-origin')).toBe(true);
+  expect(requested.every((request) => request.headers.get('X-Requested-With') === 'XMLHttpRequest')).toBe(true);
   expect(requested.every((request) => request.redirect === 'error')).toBe(true);
   expect((await storage.keys()).sort()).toEqual([
     manifest.cacheName,

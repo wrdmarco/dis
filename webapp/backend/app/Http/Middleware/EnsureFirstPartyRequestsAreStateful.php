@@ -36,7 +36,26 @@ final class EnsureFirstPartyRequestsAreStateful extends EnsureFrontendRequestsAr
             return true;
         }
 
-        return hash_equals('XMLHttpRequest', (string) $request->header('X-Requested-With'))
-            && hash_equals('same-origin', (string) $request->header('Sec-Fetch-Site'));
+        if (! hash_equals('same-origin', (string) $request->header('Sec-Fetch-Site'))) {
+            return false;
+        }
+
+        if (hash_equals('XMLHttpRequest', (string) $request->header('X-Requested-With'))) {
+            return true;
+        }
+
+        if (! in_array(strtoupper((string) $request->method()), ['GET', 'HEAD'], true)) {
+            return false;
+        }
+
+        // Media elements cannot attach X-Requested-With. Treat only these exact,
+        // read-only, same-origin delivery endpoints as stateful so Sanctum can
+        // decrypt the HttpOnly web or wallboard session cookie before auth runs.
+        return $request->is(
+            'api/wallboard/media/*',
+            'api/wallboard/news-images/*',
+            'api/admin/wallboard-media/assets/*/content',
+            'api/admin/wallboard-media/assets/*/thumbnail',
+        );
     }
 }
