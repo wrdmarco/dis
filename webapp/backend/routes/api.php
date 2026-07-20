@@ -399,6 +399,8 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
             ->middleware(['permission:settings.manage', 'throttle:knmi-admin-write']);
         Route::post('/admin/knmi/refresh', [AdminKnmiController::class, 'refresh'])
             ->middleware(['permission:settings.manage', 'throttle:knmi-admin-write']);
+        Route::post('/admin/knmi/precipitation/refresh', [AdminKnmiController::class, 'refreshPrecipitation'])
+            ->middleware(['permission:settings.manage', 'throttle:knmi-admin-write']);
         Route::get('/admin/store-review/status', [AdminStoreReviewController::class, 'status'])->middleware('permission:settings.manage');
         Route::patch('/admin/store-review/accounts/{platform}', [AdminStoreReviewController::class, 'updateAccount'])->middleware(['permission:settings.manage', 'throttle:api']);
         Route::post('/admin/branding/logo', [BrandingController::class, 'uploadLogo'])->middleware('permission:settings.manage');

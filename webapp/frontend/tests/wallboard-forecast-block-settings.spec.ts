@@ -3,6 +3,7 @@ import { expect, test } from 'playwright/test';
 import type { WallboardForecastBlockKey, WallboardPage } from '../src/types/api';
 import {
   DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS,
+  MAX_WALLBOARD_FORECAST_VISIBLE_BLOCKS,
   WALLBOARD_FORECAST_BLOCK_KEYS,
   normalizeWallboardForecastPageOptions,
 } from '../src/features/wallboards/wallboardPresentation';
@@ -17,7 +18,7 @@ function forecastPage(options: WallboardPage['options']): WallboardPage {
   };
 }
 
-test('defines all twelve visible forecast blocks in stable display order', () => {
+test('defines fourteen supported forecast blocks and a stable twelve-card default', () => {
   expect(WALLBOARD_FORECAST_BLOCK_KEYS).toEqual([
     'weather',
     'daylight',
@@ -26,20 +27,33 @@ test('defines all twelve visible forecast blocks in stable display order', () =>
     'wind_gust',
     'wind_direction',
     'precipitation_probability',
+    'precipitation_outlook',
+    'thunderstorm_forecast',
     'cloud_cover',
     'visibility',
-    'gnss_visible',
     'kp_index',
+    'gnss_visible',
     'gnss_usable',
   ]);
-  expect(DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS).toEqual(WALLBOARD_FORECAST_BLOCK_KEYS);
-  expect(new Set(WALLBOARD_FORECAST_BLOCK_KEYS).size).toBe(12);
+  expect(DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS).toEqual(WALLBOARD_FORECAST_BLOCK_KEYS.slice(0, 12));
+  expect(new Set(WALLBOARD_FORECAST_BLOCK_KEYS).size).toBe(14);
+  expect(DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS).toHaveLength(MAX_WALLBOARD_FORECAST_VISIBLE_BLOCKS);
 });
 
 test('defaults missing legacy block settings to every visible block', () => {
   expect(normalizeWallboardForecastPageOptions(forecastPage({
     location_mode: 'netherlands',
-  })).visible_blocks).toEqual([...WALLBOARD_FORECAST_BLOCK_KEYS]);
+  })).visible_blocks).toEqual([...DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS]);
+});
+
+test('upgrades the exact historical default while preserving custom selections', () => {
+  expect(normalizeWallboardForecastPageOptions(forecastPage({
+    location_mode: 'netherlands',
+    visible_blocks: [
+      'weather', 'daylight', 'temperature', 'wind_speed', 'wind_gust', 'wind_direction',
+      'precipitation_probability', 'cloud_cover', 'visibility', 'gnss_visible', 'kp_index', 'gnss_usable',
+    ],
+  })).visible_blocks).toEqual([...DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS]);
 });
 
 test('keeps an explicitly empty selection and removes unknown or duplicate keys', () => {

@@ -16,6 +16,13 @@ Schedule::command('dis:refresh-knmi-forecast')
     ->cron('17 */3 * * *')
     ->onOneServer()
     ->withoutOverlapping(180);
+Schedule::command('dis:refresh-knmi-precipitation-outlook')
+    // Both KNMI products publish on a five-minute reference clock. The four-
+    // minute offset lets the larger seamless file arrive before one atomic
+    // same-run import is queued.
+    ->cron('4-59/5 * * * *')
+    ->onOneServer()
+    ->withoutOverlapping(10);
 Schedule::command('dis:backfill-incident-locations')
     ->everyFiveMinutes()
     ->onOneServer()

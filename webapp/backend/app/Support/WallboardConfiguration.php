@@ -32,11 +32,47 @@ final class WallboardConfiguration
 
     public const DEFAULT_FORECAST_LOCATION_MODE = 'netherlands';
 
+    public const MAX_FORECAST_VISIBLE_BLOCKS = 12;
+
     /** @var list<string> */
     public const FORECAST_LOCATION_MODES = ['netherlands', 'address'];
 
     /** @var list<string> */
     public const FORECAST_VISIBLE_BLOCKS = [
+        'weather',
+        'daylight',
+        'temperature',
+        'wind_speed',
+        'wind_gust',
+        'wind_direction',
+        'precipitation_probability',
+        'precipitation_outlook',
+        'thunderstorm_forecast',
+        'cloud_cover',
+        'visibility',
+        'kp_index',
+        'gnss_visible',
+        'gnss_usable',
+    ];
+
+    /** @var list<string> */
+    public const DEFAULT_FORECAST_VISIBLE_BLOCKS = [
+        'weather',
+        'daylight',
+        'temperature',
+        'wind_speed',
+        'wind_gust',
+        'wind_direction',
+        'precipitation_probability',
+        'precipitation_outlook',
+        'thunderstorm_forecast',
+        'cloud_cover',
+        'visibility',
+        'kp_index',
+    ];
+
+    /** @var list<string> */
+    private const LEGACY_DEFAULT_FORECAST_VISIBLE_BLOCKS = [
         'weather',
         'daylight',
         'temperature',
@@ -416,7 +452,7 @@ final class WallboardConfiguration
                 }
                 $options = ['quotes' => $normalizedQuotes];
             } elseif ($type === 'uav_forecast') {
-                $visibleBlocks = $options['visible_blocks'] ?? self::FORECAST_VISIBLE_BLOCKS;
+                $visibleBlocks = $options['visible_blocks'] ?? self::DEFAULT_FORECAST_VISIBLE_BLOCKS;
                 if (! is_array($visibleBlocks) || ! array_is_list($visibleBlocks)) {
                     throw ValidationException::withMessages([
                         "configuration.pages.{$index}.options.visible_blocks" => ['De zichtbare UAV-blokken moeten als lijst worden opgeslagen.'],
@@ -433,6 +469,14 @@ final class WallboardConfiguration
                     throw ValidationException::withMessages([
                         "configuration.pages.{$index}.options.visible_blocks" => ['Elk UAV-blok mag maar eenmaal voorkomen.'],
                     ]);
+                }
+                if (count($visibleBlocks) > self::MAX_FORECAST_VISIBLE_BLOCKS) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.visible_blocks" => ['Toon maximaal twaalf UAV-informatieblokken zodat de pagina op een wallboard past.'],
+                    ]);
+                }
+                if ($visibleBlocks === self::LEGACY_DEFAULT_FORECAST_VISIBLE_BLOCKS) {
+                    $visibleBlocks = self::DEFAULT_FORECAST_VISIBLE_BLOCKS;
                 }
                 $canonicalVisibleBlocks = array_values(array_filter(
                     self::FORECAST_VISIBLE_BLOCKS,

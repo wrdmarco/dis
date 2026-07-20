@@ -88,6 +88,9 @@ test('uses the dedicated KNMI endpoints and polls only while an operation is act
   expect(page).toContain("useApiResource<KnmiAdminStatus>('/admin/knmi'");
   expect(page).toContain("api.patch<KnmiAdminStatus>('/admin/knmi', payload)");
   expect(page).toContain("api.post<KnmiForecastOperationStarted>('/admin/knmi/refresh')");
+  expect(page).toContain("api.post<KnmiPrecipitationRefreshStarted>('/admin/knmi/precipitation/refresh')");
+  expect(page).toContain('Radar en onweerskans bijwerken');
+  expect(page).toContain('automatisch iedere vijf minuten gecontroleerd');
   expect(page).toContain('if (!operationActive)');
   expect(page).toContain('KNMI_ACTIVE_POLL_INTERVAL_MS');
 });

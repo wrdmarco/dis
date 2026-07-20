@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Casts\SystemSettingValueCast;
 use App\Jobs\RefreshKnmiForecastDataset;
+use App\Jobs\RefreshKnmiPrecipitationOutlookSnapshot;
 use App\Models\KnmiForecastOperation;
 use App\Models\Permission;
 use App\Models\Role;
@@ -147,6 +148,50 @@ final class AdminKnmiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.active_operation.id', $operationId)
             ->assertJsonPath('data.active_operation.downloaded_bytes', 0);
+    }
+
+    public function test_manager_can_request_a_local_precipitation_refresh_from_the_knmi_page(): void
+    {
+        Queue::fake();
+        SystemSetting::query()->create([
+            'key' => 'weather.knmi_open_data_api_key',
+            'value' => 'open-data-public-key-123456',
+            'is_sensitive' => true,
+        ]);
+        $manager = $this->user('knmi-precipitation@example.test', ['settings.manage']);
+
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/precipitation/refresh')
+            ->assertStatus(202)
+            ->assertJsonPath('data.requested', true);
+
+        Queue::assertPushed(RefreshKnmiPrecipitationOutlookSnapshot::class, function (RefreshKnmiPrecipitationOutlookSnapshot $job): bool {
+            return $job->connection === 'knmi_realtime'
+                && $job->queue === 'knmi-realtime';
+        });
+        Queue::assertNotPushed(RefreshKnmiForecastDataset::class);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'weather.knmi.precipitation_refresh_requested',
+            'target_type' => RefreshKnmiPrecipitationOutlookSnapshot::class,
+        ]);
+    }
+
+    public function test_precipitation_refresh_requires_configuration_and_permission(): void
+    {
+        Queue::fake();
+        $viewer = $this->user('knmi-precipitation-viewer@example.test', []);
+        $manager = $this->user('knmi-precipitation-unconfigured@example.test', ['settings.manage']);
+
+        $this->postJson('/api/admin/knmi/precipitation/refresh')->assertUnauthorized();
+        $this->asAdminClient($viewer)
+            ->postJson('/api/admin/knmi/precipitation/refresh')
+            ->assertForbidden();
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/precipitation/refresh')
+            ->assertStatus(409)
+            ->assertJsonPath('error.code', 'knmi_precipitation_refresh_conflict');
+
+        Queue::assertNotPushed(RefreshKnmiPrecipitationOutlookSnapshot::class);
     }
 
     public function test_knmi_queue_visibility_timeout_exceeds_the_job_timeout(): void

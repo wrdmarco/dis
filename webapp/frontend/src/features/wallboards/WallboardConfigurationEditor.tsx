@@ -49,6 +49,7 @@ import {
 } from '../../lib/locationSearch';
 import {
   MAX_WALLBOARD_FOCUS_DURATION_SECONDS,
+  MAX_WALLBOARD_FORECAST_VISIBLE_BLOCKS,
   MAX_WALLBOARD_CUSTOM_NEWS_SOURCES,
   MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_LABEL_LENGTH,
   MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_URL_LENGTH,
@@ -155,6 +156,8 @@ const FORECAST_BLOCK_OPTIONS: ReadonlyArray<{
   { key: 'wind_gust', label: 'Windstoten', help: 'Verwachte windstoten rond 120 meter.' },
   { key: 'wind_direction', label: 'Windrichting', help: 'Richting van de wind rond 120 meter.' },
   { key: 'precipitation_probability', label: 'Neerslagkans', help: 'Kans op neerslag.' },
+  { key: 'precipitation_outlook', label: 'Buien +3 uur', help: 'KNMI-radar voor de eerste twee uur en neerslagkans voor het derde uur.' },
+  { key: 'thunderstorm_forecast', label: 'Onweer +3 uur', help: 'WMO-modelverwachting in stappen; geen live bliksemdetectie.' },
   { key: 'cloud_cover', label: 'Bewolking', help: 'Totale bewolkingsgraad.' },
   { key: 'visibility', label: 'Zichtbaarheid', help: 'Horizontaal zicht.' },
   { key: 'gnss_visible', label: 'Zichtbare satellieten', help: 'Satellieten boven de lokale horizon.' },
@@ -954,7 +957,7 @@ function WallboardPageEditor({
 
   function updateForecastVisibleBlock(key: WallboardForecastBlockKey, checked: boolean) {
     const selected = new Set(forecastVisibleBlocks);
-    if (checked) selected.add(key);
+    if (checked && selected.size < MAX_WALLBOARD_FORECAST_VISIBLE_BLOCKS) selected.add(key);
     else selected.delete(key);
     onChange({
       ...page,
@@ -1530,11 +1533,16 @@ function WallboardPageEditor({
             aria-describedby={`wallboard-forecast-${page.id}-blocks-help`}
           >
             <legend>Zichtbare informatieblokken</legend>
+            <p className="wallboard-page-editor__note">
+              {forecastVisibleBlocks.length} van maximaal {MAX_WALLBOARD_FORECAST_VISIBLE_BLOCKS} zichtbaar
+            </p>
             {FORECAST_BLOCK_OPTIONS.map((option) => (
               <label key={option.key}>
                 <input
                   type="checkbox"
                   checked={forecastVisibleBlocks.includes(option.key)}
+                  disabled={!forecastVisibleBlocks.includes(option.key)
+                    && forecastVisibleBlocks.length >= MAX_WALLBOARD_FORECAST_VISIBLE_BLOCKS}
                   onChange={(event) => updateForecastVisibleBlock(option.key, event.target.checked)}
                 />
                 <span>

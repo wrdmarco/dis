@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Contracts\DispatchNotificationQueue;
 use App\Contracts\KnmiCloudForecastProvider;
+use App\Contracts\KnmiPrecipitationOutlookProvider;
 use App\Contracts\PushProvider;
 use App\Contracts\RouteGeometryProvider;
 use App\Contracts\RoutingProvider;
@@ -11,7 +12,9 @@ use App\Contracts\WallboardContentProvider;
 use App\Mail\MicrosoftGraphTransport;
 use App\Models\PersonalAccessToken;
 use App\Models\SystemSetting;
+use App\Repositories\KnmiPrecipitationSnapshotRepository;
 use App\Services\KnmiHarmonieCloudService;
+use App\Services\KnmiPrecipitationOutlookService;
 use App\Services\PushProviderClient;
 use App\Services\QueuedDispatchNotificationQueue;
 use App\Services\Routing\OsrmRoutingProvider;
@@ -38,6 +41,8 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(PushProvider::class, PushProviderClient::class);
         $this->app->bind(WallboardContentProvider::class, SecureWallboardContentProvider::class);
         $this->app->singleton(KnmiCloudForecastProvider::class, KnmiHarmonieCloudService::class);
+        $this->app->singleton(KnmiPrecipitationSnapshotRepository::class);
+        $this->app->singleton(KnmiPrecipitationOutlookProvider::class, KnmiPrecipitationOutlookService::class);
 
         $this->app->singleton(RoutingProvider::class, fn ($app): RoutingProvider => new OsrmRoutingProvider(
             http: $app->make(HttpFactory::class),

@@ -60,7 +60,7 @@ abstract class WallboardPlaylistRequest extends FormRequest
             'configuration.pages.*.options.media_asset_version' => ['sometimes', 'integer:strict', 'min:1'],
             'configuration.pages.*.options.media_playlist_id' => ['sometimes', 'string', 'ulid'],
             'configuration.pages.*.options.location_mode' => ['sometimes', 'string', Rule::in(WallboardConfiguration::FORECAST_LOCATION_MODES)],
-            'configuration.pages.*.options.visible_blocks' => ['sometimes', 'array'],
+            'configuration.pages.*.options.visible_blocks' => ['sometimes', 'array', 'max:'.WallboardConfiguration::MAX_FORECAST_VISIBLE_BLOCKS],
             'configuration.pages.*.options.visible_blocks.*' => ['required', 'string', 'distinct', Rule::in(WallboardConfiguration::FORECAST_VISIBLE_BLOCKS)],
             'configuration.pages.*.options.visible_metrics' => ['sometimes', 'array', 'max:'.count(WallboardKpiDefinition::KEYS)],
             'configuration.pages.*.options.visible_metrics.*' => ['required', 'string', 'distinct:strict', Rule::in(WallboardKpiDefinition::KEYS)],

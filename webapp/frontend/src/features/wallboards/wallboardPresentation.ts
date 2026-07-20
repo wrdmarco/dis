@@ -63,7 +63,26 @@ export const MIN_WALLBOARD_CALENDAR_MAX_ITEMS = 1;
 export const MAX_WALLBOARD_CALENDAR_MAX_ITEMS = 12;
 export const DEFAULT_WALLBOARD_CALENDAR_MAX_ITEMS = 6;
 export const DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE: WallboardForecastLocationMode = 'netherlands';
+export const MAX_WALLBOARD_FORECAST_VISIBLE_BLOCKS = 12;
 export const WALLBOARD_FORECAST_BLOCK_KEYS = [
+  'weather',
+  'daylight',
+  'temperature',
+  'wind_speed',
+  'wind_gust',
+  'wind_direction',
+  'precipitation_probability',
+  'precipitation_outlook',
+  'thunderstorm_forecast',
+  'cloud_cover',
+  'visibility',
+  'kp_index',
+  'gnss_visible',
+  'gnss_usable',
+] as const satisfies readonly WallboardForecastBlockKey[];
+export const DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS: readonly WallboardForecastBlockKey[] =
+  WALLBOARD_FORECAST_BLOCK_KEYS.filter((key) => !['gnss_visible', 'gnss_usable'].includes(key));
+const LEGACY_DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS: readonly WallboardForecastBlockKey[] = [
   'weather',
   'daylight',
   'temperature',
@@ -76,9 +95,7 @@ export const WALLBOARD_FORECAST_BLOCK_KEYS = [
   'gnss_visible',
   'kp_index',
   'gnss_usable',
-] as const satisfies readonly WallboardForecastBlockKey[];
-export const DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS: readonly WallboardForecastBlockKey[] =
-  WALLBOARD_FORECAST_BLOCK_KEYS;
+];
 export const WALLBOARD_KPI_DEFINITIONS = [
   { key: 'pilots_available', category: 'pilots', label: 'Beschikbare piloten', help: 'Piloten die nu operationeel beschikbaar zijn.' },
   { key: 'pilots_unavailable', category: 'pilots', label: 'Niet-beschikbare piloten', help: 'Piloten die nu niet inzetbaar zijn.' },
@@ -964,9 +981,14 @@ export function normalizeWallboardForecastPageOptions(page: WallboardPage): Wall
       : null;
   const locationMode: WallboardForecastLocationMode = explicitMode
     ?? (label !== '' && label !== 'UAV Nederland' ? 'address' : DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE);
-  const selectedBlocks = Array.isArray(page.options.visible_blocks)
-    ? new Set(page.options.visible_blocks)
+  const suppliedBlocks = Array.isArray(page.options.visible_blocks)
+    ? page.options.visible_blocks
     : null;
+  const selectedBlocks = suppliedBlocks === null
+    ? null
+    : new Set(arraysEqual(suppliedBlocks, LEGACY_DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS)
+      ? DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS
+      : suppliedBlocks);
   const visibleBlocks = selectedBlocks === null
     ? [...DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS]
     : WALLBOARD_FORECAST_BLOCK_KEYS.filter((key) => selectedBlocks.has(key));
@@ -977,6 +999,10 @@ export function normalizeWallboardForecastPageOptions(page: WallboardPage): Wall
       location_mode: DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE,
       visible_blocks: visibleBlocks,
     };
+}
+
+function arraysEqual<T>(first: readonly T[], second: readonly T[]): boolean {
+  return first.length === second.length && first.every((value, index) => value === second[index]);
 }
 
 export function normalizeWallboardKpiPageOptions(page: WallboardPage): WallboardPage['options'] {

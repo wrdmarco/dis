@@ -89,7 +89,7 @@ final class StoreWallboardRequest extends FormRequest
             'configuration.pages.*.options.video_duration_seconds' => ['sometimes', 'integer:strict', 'between:'.WallboardConfiguration::MIN_VIDEO_DURATION_SECONDS.','.WallboardConfiguration::MAX_VIDEO_DURATION_SECONDS],
             'configuration.pages.*.options.media_playlist_id' => ['sometimes', 'string', 'ulid'],
             'configuration.pages.*.options.location_mode' => ['sometimes', 'string', Rule::in(WallboardConfiguration::FORECAST_LOCATION_MODES)],
-            'configuration.pages.*.options.visible_blocks' => ['sometimes', 'array'],
+            'configuration.pages.*.options.visible_blocks' => ['sometimes', 'array', 'max:'.WallboardConfiguration::MAX_FORECAST_VISIBLE_BLOCKS],
             'configuration.pages.*.options.visible_blocks.*' => ['required', 'string', 'distinct', Rule::in(WallboardConfiguration::FORECAST_VISIBLE_BLOCKS)],
             'configuration.pages.*.options.visible_metrics' => ['sometimes', 'array', 'max:'.count(WallboardKpiDefinition::KEYS)],
             'configuration.pages.*.options.visible_metrics.*' => ['required', 'string', 'distinct:strict', Rule::in(WallboardKpiDefinition::KEYS)],

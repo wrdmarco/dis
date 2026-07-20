@@ -284,6 +284,8 @@ export type WallboardForecastBlockKey =
   | 'wind_gust'
   | 'wind_direction'
   | 'precipitation_probability'
+  | 'precipitation_outlook'
+  | 'thunderstorm_forecast'
   | 'cloud_cover'
   | 'visibility'
   | 'gnss_visible'
@@ -799,6 +801,8 @@ export type WallboardForecastMetricKey =
   | 'wind_direction_degrees'
   | 'precipitation_probability_pct'
   | 'precipitation_mm'
+  | 'precipitation_outlook'
+  | 'thunderstorm_forecast'
   | 'cloud_cover_pct'
   | 'low_cloud_cover_pct'
   | 'visibility_m'
@@ -856,6 +860,28 @@ export interface WallboardForecastCloudBaseForecast {
   attribution: 'KNMI_HARMONIE' | 'DIS_DEMO';
 }
 
+export interface WallboardForecastPrecipitationOutlook {
+  radar_peak_mm_h: number;
+  radar_first_precipitation_at: string | null;
+  radar_until: string;
+  third_hour_probability_pct: number;
+  third_hour_from: string;
+  forecast_until: string;
+  reference_time: string;
+  sample_count: number;
+  expected_sample_count: number;
+  attribution: 'KNMI' | 'DIS_DEMO';
+}
+
+export interface WallboardForecastThunderstormOutlook {
+  expected: boolean;
+  first_expected_at: string | null;
+  forecast_until: string;
+  sample_count: number;
+  expected_sample_count: number;
+  attribution: 'OPEN_METEO' | 'DIS_DEMO';
+}
+
 export interface WallboardForecastMetric {
   key: WallboardForecastMetricKey;
   label: string;
@@ -875,6 +901,8 @@ export interface WallboardForecastMetric {
   cloud_layers: WallboardForecastCloudLayers | null;
   cloud_base_forecast: WallboardForecastCloudBaseForecast | null;
   cloud_base_observation: WallboardForecastCloudBaseObservation | null;
+  precipitation_outlook: WallboardForecastPrecipitationOutlook | null;
+  thunderstorm_outlook: WallboardForecastThunderstormOutlook | null;
 }
 
 export interface WallboardForecastCondition {
@@ -1557,6 +1585,10 @@ export interface KnmiAdminSettingsRequest {
 
 export interface KnmiForecastOperationStarted {
   operation: KnmiForecastOperation;
+}
+
+export interface KnmiPrecipitationRefreshStarted {
+  requested: boolean;
 }
 
 export interface FormFieldOption {

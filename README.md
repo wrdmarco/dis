@@ -279,6 +279,20 @@ and high cloud cover plus the model cloud base come from the centrally installed
 planetary Kp index comes from the fixed
 [NOAA SWPC feed](https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json).
 
+The three-hour shower card keeps two different KNMI products visibly separate: the
+[radar nowcast](https://dataplatform.knmi.nl/dataset/radar-forecast-2-0) covers the first 120 minutes and the
+[seamless ensemble product](https://dataplatform.knmi.nl/dataset/seamless-precipitation-ensemble-forecast-probabilities-1-0)
+supplies only the probability of at least 0.1 mm/hour for the third hour. Both products are attributed to KNMI
+under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and publish on a five-minute reference clock.
+KNMI still labels the seamless product as a pilot, so an absent or changed schema is treated as unknown.
+Four minutes after each reference time,
+a dedicated realtime worker downloads the newest common pair as complete Open Data files with HTTP 200 (never
+byte ranges), validates their HDF5/NetCDF4 structure and forecast times, and atomically activates the local
+snapshot. Wallboard requests read only that local snapshot. A failed, incomplete or mismatched import leaves
+the previous validated pair active, and stale data fails closed. The thunderstorm card uses the Open-Meteo
+15-minute WMO forecast for the next three hours and explicitly does not claim live lightning detection. DIS
+does not embed or scrape LightningMaps/Blitzortung.
+
 The dedicated `/knmi` management page stores the Open Data and EDR keys encrypted, shows import progress and
 lets a `settings.manage` administrator request an update. The scheduler checks every three hours. An update
 downloads the complete current TAR object with HTTP 200, never byte ranges, validates and indexes all 61 GRIB1

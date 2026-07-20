@@ -60,6 +60,12 @@ final class WallboardForecastClassifier
                 $this->threshold('precipitation_mm', 'orange_max', 0.5),
                 'mm',
             ),
+            'precipitation_rate_mm_h' => $this->maximumBands(
+                (float) $value,
+                $this->threshold('precipitation_mm', 'green_max', 0),
+                $this->threshold('precipitation_mm', 'orange_max', 0.5),
+                'mm/u',
+            ),
             'precipitation_probability_pct' => $this->maximumBands(
                 (float) $value,
                 $this->threshold('precipitation_probability_pct', 'green_max', 20),

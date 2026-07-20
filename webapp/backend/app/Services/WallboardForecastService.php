@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Contracts\KnmiCloudForecastProvider;
+use App\Contracts\KnmiPrecipitationOutlookProvider;
 use App\Support\WallboardConfiguration;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
@@ -13,7 +14,7 @@ final class WallboardForecastService
 {
     private const LOCAL_TIMEZONE = 'Europe/Amsterdam';
 
-    private const CACHE_NAMESPACE = 'wallboard:uav-forecast:v3';
+    private const CACHE_NAMESPACE = 'wallboard:uav-forecast:v4';
 
     private const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast';
 
@@ -43,6 +44,7 @@ final class WallboardForecastService
         private readonly WallboardForecastLocationService $locations,
         private readonly KnmiCloudForecastProvider $cloudForecasts,
         private readonly KnmiCloudBaseObservationService $cloudBaseObservations,
+        private readonly KnmiPrecipitationOutlookProvider $precipitationOutlooks,
     ) {}
 
     /**
@@ -83,6 +85,7 @@ final class WallboardForecastService
             $options = (array) ($page['options'] ?? []);
             $weather = $this->aggregateWeather($resolution, $weatherByLocation);
             $cloudForecast = $this->cloudForecasts->forResolution($resolution);
+            $precipitationOutlook = $this->precipitationOutlooks->forResolution($resolution);
             $condition = $this->condition($weather);
             $windMetric = $this->metric('wind_speed_kmh', 'Wind op 120 m AGL', $weather['wind_speed_kmh'] ?? null, 'km/u', $weather, 1);
             $windMetric['height_samples_agl_m'] = [
@@ -141,6 +144,8 @@ final class WallboardForecastService
                     0,
                 ),
                 $this->metric('precipitation_mm', 'Neerslag', $weather['precipitation_mm'] ?? null, 'mm', $weather, 1),
+                $this->precipitationOutlookMetric($precipitationOutlook),
+                $this->thunderstormOutlookMetric($weather, (int) ($resolution['expected_locations'] ?? 0)),
                 $totalCloudMetric,
                 $lowCloudMetric,
                 $this->metric('visibility_m', 'Zicht', $weather['visibility_m'] ?? null, 'm', $weather, 0),
@@ -150,6 +155,10 @@ final class WallboardForecastService
             ];
             $adviceMetrics = array_values(array_filter(
                 $metrics,
+                // Total cloud cover is context for the separate low-cloud card.
+                // The forward-looking rain and thunder cards are operational
+                // safety inputs and therefore remain part of the advice even
+                // when an administrator hides them from the visual grid.
                 static fn (array $metric): bool => ($metric['key'] ?? null) !== 'cloud_cover_pct',
             ));
 
@@ -172,9 +181,9 @@ final class WallboardForecastService
                     'complete' => (bool) ($weather['complete'] ?? false),
                     'fresh' => (bool) ($weather['complete'] ?? false) && ! (bool) ($weather['stale'] ?? false),
                 ],
-                'visible_blocks' => array_values((array) ($options['visible_blocks'] ?? WallboardConfiguration::FORECAST_VISIBLE_BLOCKS)),
+                'visible_blocks' => array_values((array) ($options['visible_blocks'] ?? WallboardConfiguration::DEFAULT_FORECAST_VISIBLE_BLOCKS)),
                 'overall_status' => $this->classifier->overall($adviceMetrics),
-                'generated_at' => $this->forecastGeneratedAt($weather, $kp, $cloudForecast),
+                'generated_at' => $this->forecastGeneratedAt($weather, $kp, $cloudForecast, $precipitationOutlook),
                 'condition' => [
                     'code' => $condition['value'],
                     'label' => $condition['display_value'],
@@ -278,6 +287,122 @@ final class WallboardForecastService
             : $this->classifier->weatherCodeLabel($code);
 
         return $metric;
+    }
+
+    /** @param array<string, mixed> $reading
+     * @return array<string, mixed>
+     */
+    private function precipitationOutlookMetric(array $reading): array
+    {
+        $complete = ($reading['complete'] ?? false) === true
+            && is_numeric($reading['radar_peak_mm_h'] ?? null)
+            && is_numeric($reading['third_hour_probability_pct'] ?? null)
+            && is_string($reading['radar_until'] ?? null)
+            && is_string($reading['third_hour_from'] ?? null)
+            && is_string($reading['forecast_until'] ?? null)
+            && is_string($reading['reference_time'] ?? null)
+            && is_int($reading['sample_count'] ?? null)
+            && is_int($reading['expected_sample_count'] ?? null)
+            && $reading['sample_count'] === $reading['expected_sample_count'];
+        $stale = (bool) ($reading['stale'] ?? false);
+        $radarPeak = $complete ? round((float) $reading['radar_peak_mm_h'], 2) : null;
+        $thirdHourProbability = $complete ? round((float) $reading['third_hour_probability_pct'], 0) : null;
+        $rateClassification = $this->classifier->classify('precipitation_rate_mm_h', $radarPeak, $stale);
+        $probabilityClassification = $this->classifier->classify(
+            'precipitation_probability_pct',
+            $thirdHourProbability,
+            $stale,
+        );
+        $status = $complete
+            ? $this->classifier->overall([$rateClassification, $probabilityClassification])
+            : WallboardForecastClassifier::STATUS_UNKNOWN;
+        $availabilityNote = is_string($reading['availability_note'] ?? null)
+            ? ' '.$reading['availability_note']
+            : '';
+
+        return [
+            'key' => 'precipitation_outlook',
+            'label' => 'Buien +3 uur',
+            'value' => $radarPeak,
+            'unit' => 'mm/u',
+            'display_value' => null,
+            'display_unit' => null,
+            'status' => $status,
+            'stale' => $stale,
+            'source' => $reading['source'] ?? ['name' => 'KNMI', 'url' => 'https://dataplatform.knmi.nl/'],
+            'measured_at' => $complete ? $reading['reference_time'] : null,
+            'explanation' => $complete
+                ? 'De kaart combineert KNMI-radarintensiteit voor 0–2 uur met de afzonderlijke KNMI-ensemblekans voor uur 3; dit is geen homogene drie-uurs radarmeting.'
+                : 'De volledige KNMI-combinatie van radar en derde-uurkans is nog niet betrouwbaar beschikbaar.'.$availabilityNote,
+            'altitude_m' => null,
+            'source_height_label' => null,
+            'precipitation_outlook' => $complete ? [
+                'radar_peak_mm_h' => $radarPeak,
+                'radar_first_precipitation_at' => is_string($reading['radar_first_precipitation_at'] ?? null)
+                    ? $reading['radar_first_precipitation_at']
+                    : null,
+                'radar_until' => $reading['radar_until'],
+                'third_hour_probability_pct' => $thirdHourProbability,
+                'third_hour_from' => $reading['third_hour_from'],
+                'forecast_until' => $reading['forecast_until'],
+                'reference_time' => $reading['reference_time'],
+                'sample_count' => $reading['sample_count'],
+                'expected_sample_count' => $reading['expected_sample_count'],
+                'attribution' => 'KNMI',
+            ] : null,
+        ];
+    }
+
+    /** @param array<string, mixed> $weather
+     * @return array<string, mixed>
+     */
+    private function thunderstormOutlookMetric(array $weather, int $expectedSampleCount): array
+    {
+        $expected = is_bool($weather['thunderstorm_expected'] ?? null)
+            ? $weather['thunderstorm_expected']
+            : null;
+        $forecastUntil = is_string($weather['thunderstorm_forecast_until'] ?? null)
+            ? $weather['thunderstorm_forecast_until']
+            : null;
+        $sampleCount = (int) ($weather['sample_count'] ?? 0);
+        $complete = $expected !== null
+            && $forecastUntil !== null
+            && $expectedSampleCount > 0
+            && $sampleCount === $expectedSampleCount;
+        $stale = (bool) ($weather['stale'] ?? false);
+        $status = ! $complete || $stale
+            ? WallboardForecastClassifier::STATUS_UNKNOWN
+            : ($expected
+                ? WallboardForecastClassifier::STATUS_RED
+                : WallboardForecastClassifier::STATUS_GREEN);
+
+        return [
+            'key' => 'thunderstorm_forecast',
+            'label' => 'Onweer +3 uur',
+            'value' => $complete ? ($expected ? 1 : 0) : null,
+            'unit' => null,
+            'display_value' => null,
+            'display_unit' => null,
+            'status' => $status,
+            'stale' => $stale,
+            'source' => $weather['source'] ?? ['name' => 'Open-Meteo', 'url' => 'https://open-meteo.com/en/docs'],
+            'measured_at' => is_string($weather['measured_at'] ?? null) ? $weather['measured_at'] : null,
+            'explanation' => $complete
+                ? 'Modelverwachting voor drie uur op basis van WMO-weercodes 95, 96 en 99. Dit is geen live bliksemdetectie.'
+                : 'Er is geen complete, actuele onweersverwachting voor circa drie uur beschikbaar.',
+            'altitude_m' => null,
+            'source_height_label' => null,
+            'thunderstorm_outlook' => $complete ? [
+                'expected' => $expected,
+                'first_expected_at' => is_string($weather['thunderstorm_first_expected_at'] ?? null)
+                    ? $weather['thunderstorm_first_expected_at']
+                    : null,
+                'forecast_until' => $forecastUntil,
+                'sample_count' => $sampleCount,
+                'expected_sample_count' => $expectedSampleCount,
+                'attribution' => 'OPEN_METEO',
+            ] : null,
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -389,8 +514,10 @@ final class WallboardForecastService
                 'longitude' => implode(',', array_map(static fn (array $location): string => sprintf('%.7F', $location['longitude']), $locations)),
                 'current' => 'temperature_2m,dew_point_2m,precipitation,precipitation_probability,weather_code,visibility,wind_speed_10m,wind_speed_80m,wind_speed_120m,wind_direction_120m,wind_gusts_10m',
                 'daily' => 'sunrise,sunset',
+                'minutely_15' => 'weather_code',
                 'timezone' => self::LOCAL_TIMEZONE,
                 'forecast_days' => 1,
+                'forecast_minutely_15' => 13,
             ]);
         if (! $response->successful() || strlen($response->body()) > 1048576) {
             throw new \RuntimeException('Weather provider unavailable.');
@@ -432,6 +559,7 @@ final class WallboardForecastService
         $sunset = $this->dailyTimestamp($daily['sunset'] ?? null);
         $temperature = $this->requiredBoundedNumber($current['temperature_2m'] ?? null, -80, 60);
         $dewPoint = $this->requiredBoundedNumber($current['dew_point_2m'] ?? null, -100, 60);
+        $thunderstorm = $this->parseThunderstormOutlook($payload['minutely_15'] ?? null, $measuredAt);
 
         return [
             'weather_code' => $this->requiredInteger($current['weather_code'] ?? null, 0, 99),
@@ -448,10 +576,74 @@ final class WallboardForecastService
             'visibility_m' => $this->requiredBoundedNumber($current['visibility'] ?? null, 0, 100000),
             'sunrise' => $sunrise->toIso8601String(),
             'sunset' => $sunset->toIso8601String(),
+            'thunderstorm_expected' => $thunderstorm['expected'],
+            'thunderstorm_first_expected_at' => $thunderstorm['first_expected_at'],
+            'thunderstorm_forecast_until' => $thunderstorm['forecast_until'],
             'measured_at' => $measuredAt->toIso8601String(),
             'refreshed_at' => now()->toIso8601String(),
             'stale' => $this->isStale($measuredAt, $this->positiveConfig('weather_stale_seconds', 1800)),
             'source' => ['name' => 'Open-Meteo', 'url' => 'https://open-meteo.com/en/docs'],
+        ];
+    }
+
+    /**
+     * @return array{expected: bool|null, first_expected_at: string|null, forecast_until: string|null}
+     */
+    private function parseThunderstormOutlook(mixed $quarterly, CarbonImmutable $measuredAt): array
+    {
+        if (! is_array($quarterly)
+            || ! is_array($quarterly['time'] ?? null)
+            || ! array_is_list($quarterly['time'])
+            || ! is_array($quarterly['weather_code'] ?? null)
+            || ! array_is_list($quarterly['weather_code'])
+            || count($quarterly['time']) !== 13
+            || count($quarterly['weather_code']) !== 13) {
+            return ['expected' => null, 'first_expected_at' => null, 'forecast_until' => null];
+        }
+
+        $included = [];
+        $firstTime = null;
+        foreach ($quarterly['time'] as $index => $rawTime) {
+            if (! is_string($rawTime)) {
+                return ['expected' => null, 'first_expected_at' => null, 'forecast_until' => null];
+            }
+            try {
+                $time = $this->weatherTimestamp($rawTime);
+            } catch (Throwable) {
+                return ['expected' => null, 'first_expected_at' => null, 'forecast_until' => null];
+            }
+            if ($firstTime === null) {
+                if ($time->lessThan($measuredAt->subMinutes(15))
+                    || $time->greaterThan($measuredAt->addMinutes(15))) {
+                    return ['expected' => null, 'first_expected_at' => null, 'forecast_until' => null];
+                }
+                $firstTime = $time;
+            } elseif (! $time->equalTo($firstTime->addMinutes($index * 15))) {
+                return ['expected' => null, 'first_expected_at' => null, 'forecast_until' => null];
+            }
+            try {
+                $code = $this->requiredInteger($quarterly['weather_code'][$index] ?? null, 0, 99);
+            } catch (Throwable) {
+                return ['expected' => null, 'first_expected_at' => null, 'forecast_until' => null];
+            }
+            $included[] = ['time' => $time, 'code' => $code];
+        }
+        if ($firstTime === null || count($included) !== 13) {
+            return ['expected' => null, 'first_expected_at' => null, 'forecast_until' => null];
+        }
+
+        $firstExpected = null;
+        foreach ($included as $point) {
+            if (in_array($point['code'], [95, 96, 99], true)) {
+                $firstExpected = $point['time'];
+                break;
+            }
+        }
+
+        return [
+            'expected' => $firstExpected !== null,
+            'first_expected_at' => $firstExpected?->toIso8601String(),
+            'forecast_until' => $included[array_key_last($included)]['time']->toIso8601String(),
         ];
     }
 
@@ -506,6 +698,33 @@ final class WallboardForecastService
             static fn (array $reading): float => (float) $reading['wind_direction_degrees'],
             $selected,
         ));
+        $thunderstormComplete = collect($selected)->every(
+            static fn (array $reading): bool => is_bool($reading['thunderstorm_expected'] ?? null)
+                && is_string($reading['thunderstorm_forecast_until'] ?? null),
+        );
+        $result['thunderstorm_expected'] = $thunderstormComplete
+            ? collect($selected)->contains(static fn (array $reading): bool => $reading['thunderstorm_expected'] === true)
+            : null;
+        $thunderstormTimes = $thunderstormComplete
+            ? collect($selected)
+                ->pluck('thunderstorm_first_expected_at')
+                ->filter(static fn (mixed $value): bool => is_string($value))
+                ->map(fn (string $value): CarbonImmutable => $this->timestamp($value))
+                ->sort()
+                ->values()
+            : collect();
+        $result['thunderstorm_first_expected_at'] = $thunderstormTimes->isEmpty()
+            ? null
+            : $thunderstormTimes->first()->toIso8601String();
+        $thunderstormUntilTimes = $thunderstormComplete
+            ? array_map(fn (array $reading): CarbonImmutable => $this->timestamp($reading['thunderstorm_forecast_until']), $selected)
+            : [];
+        if ($thunderstormUntilTimes !== []) {
+            usort($thunderstormUntilTimes, static fn (CarbonImmutable $a, CarbonImmutable $b): int => $a <=> $b);
+        }
+        $result['thunderstorm_forecast_until'] = $thunderstormUntilTimes === []
+            ? null
+            : $thunderstormUntilTimes[0]->toIso8601String();
         $measuredTimes = array_map(fn (array $reading): CarbonImmutable => $this->timestamp($reading['measured_at']), $selected);
         $refreshedTimes = array_map(
             fn (array $reading): CarbonImmutable => $this->timestamp((string) ($reading['refreshed_at'] ?? $reading['measured_at'])),
@@ -865,10 +1084,20 @@ final class WallboardForecastService
      * @param  array<string, mixed>  $kp
      * @param  array<string, mixed>  $cloudForecast
      */
-    private function forecastGeneratedAt(array $weather, array $kp, array $cloudForecast): string
+    private function forecastGeneratedAt(
+        array $weather,
+        array $kp,
+        array $cloudForecast,
+        array $precipitationOutlook,
+    ): string
     {
         $latest = null;
-        foreach ([$weather['refreshed_at'] ?? null, $kp['refreshed_at'] ?? null, $cloudForecast['refreshed_at'] ?? null] as $value) {
+        foreach ([
+            $weather['refreshed_at'] ?? null,
+            $kp['refreshed_at'] ?? null,
+            $cloudForecast['refreshed_at'] ?? null,
+            $precipitationOutlook['refreshed_at'] ?? $precipitationOutlook['reference_time'] ?? null,
+        ] as $value) {
             if (! is_string($value)) {
                 continue;
             }

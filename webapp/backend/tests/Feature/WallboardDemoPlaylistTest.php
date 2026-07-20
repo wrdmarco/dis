@@ -173,11 +173,23 @@ final class WallboardDemoPlaylistTest extends TestCase
             ->assertJsonPath('data.map.incidents.0.reference', 'DEMO-2026-0043')
             ->assertJsonPath('data.map.live_locations.0.route.geometry.type', 'LineString')
             ->assertJsonPath('data.news.pages.news.items.0.source_label', 'DIS DEMO')
-            ->assertJsonPath('data.forecast.pages.forecast.metrics.9.cloud_base_observation.attribution', 'DIS_DEMO')
             ->assertJsonPath(
                 'data.forecast.pages.forecast.disclaimer',
                 'DEMO: deze fictieve waarden mogen nooit voor een vliegbeslissing worden gebruikt.',
             );
+        $forecastMetrics = collect($state->json('data.forecast.pages.forecast.metrics'))->keyBy('key');
+        $this->assertSame(
+            'DIS_DEMO',
+            data_get($forecastMetrics->get('low_cloud_cover_pct'), 'cloud_base_observation.attribution'),
+        );
+        $this->assertSame(
+            'DIS_DEMO',
+            data_get($forecastMetrics->get('precipitation_outlook'), 'precipitation_outlook.attribution'),
+        );
+        $this->assertSame(
+            'DIS_DEMO',
+            data_get($forecastMetrics->get('thunderstorm_forecast'), 'thunderstorm_outlook.attribution'),
+        );
         $this->assertStringNotContainsString('REAL-SECRET-SENTINEL', (string) $state->getContent());
         $this->assertStringNotContainsString('REAL-CALENDAR-SENTINEL', (string) $state->getContent());
         $this->assertCount(13, $state->json('data.kpi.pages.kpi.metrics.1.segments'));

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Contracts\KnmiCloudForecastProvider;
+use App\Contracts\KnmiPrecipitationOutlookProvider;
 use App\Http\Requests\Admin\StoreWallboardPlaylistRequest;
 use App\Http\Requests\Admin\UpdateWallboardPlaylistRequest;
 use App\Services\WallboardForecastClassifier;
@@ -21,12 +22,16 @@ final class WallboardForecastTest extends TestCase
 {
     private StubKnmiCloudForecastProvider $cloudForecasts;
 
+    private StubKnmiPrecipitationOutlookProvider $precipitationOutlooks;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->cloudForecasts = new StubKnmiCloudForecastProvider;
         $this->app->instance(KnmiCloudForecastProvider::class, $this->cloudForecasts);
+        $this->precipitationOutlooks = new StubKnmiPrecipitationOutlookProvider;
+        $this->app->instance(KnmiPrecipitationOutlookProvider::class, $this->precipitationOutlooks);
     }
 
     protected function tearDown(): void
@@ -52,6 +57,7 @@ final class WallboardForecastTest extends TestCase
         $this->assertSame('red', $classifier->classify('temperature_c', -15)['status']);
         $this->assertSame('orange', $classifier->classify('dew_point_c', 2)['status']);
         $this->assertSame('red', $classifier->classify('precipitation_probability_pct', 80)['status']);
+        $this->assertSame('red', $classifier->classify('precipitation_rate_mm_h', 0.6)['status']);
         $this->assertSame('orange', $classifier->classify('cloud_cover_pct', 75)['status']);
         $this->assertSame('green', $classifier->classify('low_cloud_cover_pct', 50)['status']);
         $this->assertSame('orange', $classifier->classify('low_cloud_cover_pct', 75)['status']);
@@ -154,12 +160,17 @@ final class WallboardForecastTest extends TestCase
         $this->assertSame('unknown', $metrics['gnss_satellites']['status']);
         $this->assertSame('unknown', $metrics['gnss_satellites_fix']['status']);
         $this->assertStringContainsString('GNSS-ontvanger', $metrics['gnss_satellites']['explanation']);
+        $this->assertSame(0.0, $metrics['precipitation_outlook']['precipitation_outlook']['radar_peak_mm_h']);
+        $this->assertSame(10.0, $metrics['precipitation_outlook']['precipitation_outlook']['third_hour_probability_pct']);
+        $this->assertFalse($metrics['thunderstorm_forecast']['thunderstorm_outlook']['expected']);
 
         Http::assertSentCount(3);
         Http::assertSent(fn (Request $request): bool => str_starts_with($request->url(), 'https://api.open-meteo.com/v1/forecast')
             && str_contains((string) $request['current'], 'wind_speed_10m')
             && str_contains((string) $request['current'], 'wind_speed_80m')
             && str_contains((string) $request['current'], 'wind_speed_120m')
+            && $request['minutely_15'] === 'weather_code'
+            && $request['forecast_minutely_15'] === 13
             && ! str_contains((string) $request['current'], 'cloud_cover')
             && $request['timezone'] === 'Europe/Amsterdam');
     }
@@ -199,6 +210,81 @@ final class WallboardForecastTest extends TestCase
         // GNSS remains deliberately unknown. If total cloud cover still counted,
         // the overall result would be red instead of fail-closed unknown.
         $this->assertSame('unknown', $forecast['overall_status']);
+    }
+
+    public function test_thunderstorm_card_uses_the_next_three_hours_without_claiming_live_detection(): void
+    {
+        $this->setForecastTestNow();
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://nominatim.openstreetmap.org/search*' => Http::response([['lat' => '52.0907', 'lon' => '5.1214']]),
+            'https://api.open-meteo.com/v1/forecast*' => Http::response($this->weatherPayload(
+                latitude: 52.09,
+                longitude: 5.12,
+                minutelyWeatherCodes: [2, 95, 95, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2],
+            )),
+            'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json' => Http::response([
+                ['time_tag' => '2026-07-20T12:10:00Z', 'estimated_kp' => 2.0],
+            ]),
+        ]);
+
+        $forecast = app(WallboardForecastService::class)->pages([
+            'pages' => [$this->addressPage()],
+        ])['forecast-utrecht'];
+        $metric = collect($forecast['metrics'])->firstWhere('key', 'thunderstorm_forecast');
+
+        $this->assertSame('red', $metric['status']);
+        $this->assertSame('red', $forecast['overall_status']);
+        $this->assertTrue($metric['thunderstorm_outlook']['expected']);
+        $this->assertSame('2026-07-20T12:30:00+00:00', $metric['thunderstorm_outlook']['first_expected_at']);
+        $this->assertStringContainsString('geen live bliksemdetectie', mb_strtolower($metric['explanation']));
+    }
+
+    public function test_thunderstorm_card_fails_closed_when_quarter_hour_timeline_contains_a_duplicate(): void
+    {
+        $this->setForecastTestNow();
+        $payload = $this->weatherPayload(latitude: 52.09, longitude: 5.12);
+        $payload['minutely_15']['time'][6] = $payload['minutely_15']['time'][5];
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://nominatim.openstreetmap.org/search*' => Http::response([['lat' => '52.0907', 'lon' => '5.1214']]),
+            'https://api.open-meteo.com/v1/forecast*' => Http::response($payload),
+            'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json' => Http::response([
+                ['time_tag' => '2026-07-20T12:10:00Z', 'estimated_kp' => 2.0],
+            ]),
+        ]);
+
+        $forecast = app(WallboardForecastService::class)->pages([
+            'pages' => [$this->addressPage()],
+        ])['forecast-utrecht'];
+        $metric = collect($forecast['metrics'])->firstWhere('key', 'thunderstorm_forecast');
+
+        $this->assertSame('unknown', $metric['status']);
+        $this->assertNull($metric['thunderstorm_outlook']);
+    }
+
+    public function test_thunderstorm_card_fails_closed_when_quarter_hour_timeline_has_a_gap(): void
+    {
+        $this->setForecastTestNow();
+        $payload = $this->weatherPayload(latitude: 52.09, longitude: 5.12);
+        array_splice($payload['minutely_15']['time'], 6, 1);
+        array_splice($payload['minutely_15']['weather_code'], 6, 1);
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://nominatim.openstreetmap.org/search*' => Http::response([['lat' => '52.0907', 'lon' => '5.1214']]),
+            'https://api.open-meteo.com/v1/forecast*' => Http::response($payload),
+            'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json' => Http::response([
+                ['time_tag' => '2026-07-20T12:10:00Z', 'estimated_kp' => 2.0],
+            ]),
+        ]);
+
+        $forecast = app(WallboardForecastService::class)->pages([
+            'pages' => [$this->addressPage()],
+        ])['forecast-utrecht'];
+        $metric = collect($forecast['metrics'])->firstWhere('key', 'thunderstorm_forecast');
+
+        $this->assertSame('unknown', $metric['status']);
+        $this->assertNull($metric['thunderstorm_outlook']);
     }
 
     public function test_uav_netherlands_averages_exactly_twelve_provinces_in_one_validated_weather_batch(): void
@@ -475,7 +561,7 @@ final class WallboardForecastTest extends TestCase
         $normalized = WallboardConfiguration::normalize(['pages' => [$default]]);
         $this->assertSame([
             'location_mode' => 'netherlands',
-            'visible_blocks' => WallboardConfiguration::FORECAST_VISIBLE_BLOCKS,
+            'visible_blocks' => WallboardConfiguration::DEFAULT_FORECAST_VISIBLE_BLOCKS,
         ], $normalized['pages'][0]['options']);
 
         $legacy = $this->addressPage();
@@ -506,6 +592,10 @@ final class WallboardForecastTest extends TestCase
         $unknown = $this->netherlandsPage();
         $unknown['options']['visible_blocks'] = ['weather', 'provider_url'];
         $this->assertConfigurationError($unknown, 'configuration.pages.0.options.visible_blocks.1');
+
+        $tooMany = $this->netherlandsPage();
+        $tooMany['options']['visible_blocks'] = WallboardConfiguration::FORECAST_VISIBLE_BLOCKS;
+        $this->assertConfigurationError($tooMany, 'configuration.pages.0.options.visible_blocks');
     }
 
     public function test_shared_playlist_requests_accept_the_complete_forecast_contract(): void
@@ -526,7 +616,7 @@ final class WallboardForecastTest extends TestCase
             $validated = $validator->validate();
             $this->assertSame('netherlands', $validated['configuration']['pages'][0]['options']['location_mode']);
             $this->assertSame(
-                WallboardConfiguration::FORECAST_VISIBLE_BLOCKS,
+                WallboardConfiguration::DEFAULT_FORECAST_VISIBLE_BLOCKS,
                 $validated['configuration']['pages'][0]['options']['visible_blocks'],
             );
         }
@@ -543,7 +633,7 @@ final class WallboardForecastTest extends TestCase
             'options' => [
                 'location_mode' => 'address',
                 'location_label' => 'Utrecht, Nederland',
-                'visible_blocks' => WallboardConfiguration::FORECAST_VISIBLE_BLOCKS,
+                'visible_blocks' => WallboardConfiguration::DEFAULT_FORECAST_VISIBLE_BLOCKS,
             ],
         ];
     }
@@ -558,7 +648,7 @@ final class WallboardForecastTest extends TestCase
             'duration_seconds' => 30,
             'options' => [
                 'location_mode' => 'netherlands',
-                'visible_blocks' => WallboardConfiguration::FORECAST_VISIBLE_BLOCKS,
+                'visible_blocks' => WallboardConfiguration::DEFAULT_FORECAST_VISIBLE_BLOCKS,
             ],
         ];
     }
@@ -587,6 +677,7 @@ final class WallboardForecastTest extends TestCase
         string $sunrise = '2026-07-20T04:30:00Z',
         string $sunset = '2026-07-20T20:45:00Z',
         string $currentTime = '2026-07-20T12:10:00Z',
+        array $minutelyWeatherCodes = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2],
     ): array {
         return [
             'latitude' => $latitude,
@@ -612,6 +703,24 @@ final class WallboardForecastTest extends TestCase
             'daily' => [
                 'sunrise' => [$sunrise],
                 'sunset' => [$sunset],
+            ],
+            'minutely_15' => [
+                'time' => [
+                    '2026-07-20T14:15:00',
+                    '2026-07-20T14:30:00',
+                    '2026-07-20T14:45:00',
+                    '2026-07-20T15:00:00',
+                    '2026-07-20T15:15:00',
+                    '2026-07-20T15:30:00',
+                    '2026-07-20T15:45:00',
+                    '2026-07-20T16:00:00',
+                    '2026-07-20T16:15:00',
+                    '2026-07-20T16:30:00',
+                    '2026-07-20T16:45:00',
+                    '2026-07-20T17:00:00',
+                    '2026-07-20T17:15:00',
+                ],
+                'weather_code' => $minutelyWeatherCodes,
             ],
         ];
     }
@@ -700,6 +809,41 @@ final class StubKnmiCloudForecastProvider implements KnmiCloudForecastProvider
             'source' => [
                 'name' => $sampleCount === 12 ? 'KNMI HARMONIE P1 (12 provincies)' : 'KNMI HARMONIE P1',
                 'url' => 'https://dataplatform.knmi.nl/dataset/harmonie-arome-cy43-p1-1-0',
+            ],
+        ];
+    }
+}
+
+final class StubKnmiPrecipitationOutlookProvider implements KnmiPrecipitationOutlookProvider
+{
+    public function forResolution(array $resolution): array
+    {
+        if (($resolution['complete'] ?? false) !== true) {
+            return [
+                'complete' => false,
+                'stale' => false,
+                'source' => ['name' => 'KNMI neerslagverwachting', 'url' => null],
+                'availability_note' => 'Testlocatie onvolledig.',
+            ];
+        }
+
+        $sampleCount = (int) ($resolution['expected_locations'] ?? 1);
+
+        return [
+            'complete' => true,
+            'stale' => false,
+            'radar_peak_mm_h' => 0.0,
+            'radar_first_precipitation_at' => null,
+            'radar_until' => '2026-07-20T14:15:00+00:00',
+            'third_hour_probability_pct' => 10.0,
+            'third_hour_from' => '2026-07-20T14:20:00+00:00',
+            'forecast_until' => '2026-07-20T15:15:00+00:00',
+            'reference_time' => '2026-07-20T12:15:00+00:00',
+            'sample_count' => $sampleCount,
+            'expected_sample_count' => $sampleCount,
+            'source' => [
+                'name' => 'KNMI radar en seamless neerslagverwachting',
+                'url' => 'https://dataplatform.knmi.nl/',
             ],
         ];
     }

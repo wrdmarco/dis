@@ -16,6 +16,7 @@ import {
   CalendarDays,
   ChartPie,
   Cloud,
+  CloudLightning,
   CloudRain,
   CloudSun,
   Clock3,
@@ -31,6 +32,7 @@ import {
   RefreshCw,
   Radio,
   Quote as QuoteIcon,
+  Radar,
   RotateCw,
   Siren,
   Satellite,
@@ -84,6 +86,7 @@ import {
   clampWallboardTransitionDurationMs,
   countActiveOperationalWallboardIncidents,
   DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
+  DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS,
   DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION_DURATION_MS,
   formatWallboardPilotAvailability,
   normalizeWallboardDisplayProfile,
@@ -94,6 +97,7 @@ import {
   selectRecentWallboardIncidents,
   selectWallboardDailyQuote,
   WALLBOARD_FORECAST_BLOCK_KEYS,
+  MAX_WALLBOARD_FORECAST_VISIBLE_BLOCKS,
   WALLBOARD_KPI_DEFINITIONS,
   WALLBOARD_KPI_KEYS,
   wallboardConfigurationCopy,
@@ -2038,6 +2042,8 @@ export function wallboardForecastDisplayBlocks(
   const dewPoint = metric('dew_point_c');
   const precipitationProbability = metric('precipitation_probability_pct');
   const precipitation = metric('precipitation_mm');
+  const precipitationOutlook = metric('precipitation_outlook');
+  const thunderstormForecast = metric('thunderstorm_forecast');
   const windSpeed = metric('wind_speed_kmh');
   const totalCloudCover = metric('cloud_cover_pct');
   const lowCloudCover = metric('low_cloud_cover_pct');
@@ -2096,6 +2102,8 @@ export function wallboardForecastDisplayBlocks(
       stale: precipitationProbability?.stale === true || precipitation?.stale === true,
       details: [`Neerslag ${formatForecastMetricValue(precipitation)}`],
     }],
+    ['precipitation_outlook', forecastPrecipitationOutlookDisplayBlock(precipitationOutlook)],
+    ['thunderstorm_forecast', forecastThunderstormDisplayBlock(thunderstormForecast)],
     ['cloud_cover', forecastCloudCoverDisplayBlock(lowCloudCover, totalCloudCover)],
     ['visibility', simple('visibility', 'visibility_m', 'Zichtbaarheid')],
     ['gnss_visible', simple('gnss_visible', 'gnss_satellites', 'Zichtbare satellieten')],
@@ -2110,6 +2118,65 @@ export function wallboardForecastDisplayBlocks(
       const block = availableBlocks.get(key);
       return block === undefined ? [] : [block];
     });
+}
+
+function forecastPrecipitationOutlookDisplayBlock(
+  metric: WallboardForecastMetric | undefined,
+): WallboardForecastDisplayBlock {
+  const base = forecastMetricDisplayBlock('precipitation_outlook', metric, 'Buien +3 uur');
+  const outlook = metric?.precipitation_outlook;
+  if (metric?.stale === true || metric?.status === 'unknown') {
+    return {
+      ...base,
+      label: 'Buien +3 uur',
+      value: metric.stale ? 'Verouderd' : 'Onbekend',
+      details: [],
+    };
+  }
+  if (outlook === null || outlook === undefined) return base;
+
+  const dryThroughRadar = outlook.radar_peak_mm_h < 0.1;
+  return {
+    ...base,
+    label: 'Buien +3 uur',
+    value: outlook.radar_first_precipitation_at !== null
+      ? `Bui vanaf ${formatWallboardForecastUpdateTime(outlook.radar_first_precipitation_at)}`
+      : dryThroughRadar
+        ? 'Droog tot +2 uur'
+        : 'Lichte neerslag',
+    details: [
+      `0–2 uur radar: piek ${formatForecastNumber(outlook.radar_peak_mm_h)} mm/u`,
+      `Uur 3 kansmodel: ${formatForecastNumber(outlook.third_hour_probability_pct)}% kans op ≥ 0,1 mm/u`,
+    ],
+  };
+}
+
+function forecastThunderstormDisplayBlock(
+  metric: WallboardForecastMetric | undefined,
+): WallboardForecastDisplayBlock {
+  const base = forecastMetricDisplayBlock('thunderstorm_forecast', metric, 'Onweer +3 uur');
+  const outlook = metric?.thunderstorm_outlook;
+  if (metric?.stale === true || metric?.status === 'unknown') {
+    return {
+      ...base,
+      label: 'Onweer +3 uur',
+      value: metric.stale ? 'Verouderd' : 'Onbekend',
+      details: ['Geen live bliksemdetectie'],
+    };
+  }
+  if (outlook === null || outlook === undefined) return base;
+
+  return {
+    ...base,
+    label: 'Onweer +3 uur',
+    value: outlook.expected
+      ? `Verwacht${outlook.first_expected_at === null ? '' : ` vanaf ${formatWallboardForecastUpdateTime(outlook.first_expected_at)}`}`
+      : 'Niet verwacht',
+    details: [
+      `WMO-modelverwachting t/m ${formatWallboardForecastUpdateTime(outlook.forecast_until)}`,
+      'Geen live bliksemdetectie',
+    ],
+  };
 }
 
 function forecastCloudCoverDisplayBlock(
@@ -2321,6 +2388,8 @@ function forecastBlockIcon(key: WallboardForecastBlockKey) {
     case 'wind_gust': return Gauge;
     case 'wind_direction': return Navigation;
     case 'precipitation_probability': return CloudRain;
+    case 'precipitation_outlook': return Radar;
+    case 'thunderstorm_forecast': return CloudLightning;
     case 'cloud_cover': return Cloud;
     case 'visibility': return Eye;
     case 'gnss_visible': return Satellite;
@@ -3417,7 +3486,11 @@ export function normalizeWallboardForecastState(value: unknown): WallboardForeca
 
       const metrics = rawPage.metrics.flatMap(normalizeWallboardForecastMetric);
       const metricKeys = new Set(metrics.map((metric) => metric.key));
-      const requiredKeys = WALLBOARD_FORECAST_METRIC_KEYS.filter((key) => key !== 'low_cloud_cover_pct');
+      const requiredKeys = WALLBOARD_FORECAST_METRIC_KEYS.filter((key) => ![
+        'low_cloud_cover_pct',
+        'precipitation_outlook',
+        'thunderstorm_forecast',
+      ].includes(key));
       if (
         metricKeys.size !== metrics.length
         || requiredKeys.some((key) => !metricKeys.has(key))
@@ -3435,7 +3508,7 @@ export function normalizeWallboardForecastState(value: unknown): WallboardForeca
             typeof candidate === 'string'
             && WALLBOARD_FORECAST_BLOCK_KEYS.includes(candidate as WallboardForecastBlockKey)
           )))
-        : new Set(WALLBOARD_FORECAST_BLOCK_KEYS);
+        : new Set(DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS);
       normalized[pageId] = {
         location: {
           mode: locationMode,
@@ -3444,7 +3517,9 @@ export function normalizeWallboardForecastState(value: unknown): WallboardForeca
           longitude: normalizeForecastCoordinate(location.longitude, -180, 180),
         },
         aggregation,
-        visible_blocks: WALLBOARD_FORECAST_BLOCK_KEYS.filter((key) => selectedBlocks.has(key)),
+        visible_blocks: WALLBOARD_FORECAST_BLOCK_KEYS
+          .filter((key) => selectedBlocks.has(key))
+          .slice(0, MAX_WALLBOARD_FORECAST_VISIBLE_BLOCKS),
         overall_status: overallStatus,
         generated_at: typeof rawPage.generated_at === 'string' && Number.isFinite(Date.parse(rawPage.generated_at))
           ? rawPage.generated_at
@@ -3480,6 +3555,8 @@ const WALLBOARD_FORECAST_METRIC_KEYS = [
   'wind_direction_degrees',
   'precipitation_probability_pct',
   'precipitation_mm',
+  'precipitation_outlook',
+  'thunderstorm_forecast',
   'cloud_cover_pct',
   'low_cloud_cover_pct',
   'visibility_m',
@@ -3499,7 +3576,12 @@ function normalizeWallboardForecastMetric(value: unknown): WallboardForecastMetr
   }
   const stale = value.stale === true;
   const suppliedStatus = normalizeForecastStatus(value.status);
-  const numericValue = typeof value.value === 'number' && Number.isFinite(value.value) ? value.value : null;
+  const suppliedNumericValue = typeof value.value === 'number' && Number.isFinite(value.value) ? value.value : null;
+  const precipitationOutlook = normalizeForecastPrecipitationOutlook(value.precipitation_outlook);
+  const thunderstormOutlook = normalizeForecastThunderstormOutlook(value.thunderstorm_outlook);
+  const structuredOutlookInvalid = (value.key === 'precipitation_outlook' && precipitationOutlook === null)
+    || (value.key === 'thunderstorm_forecast' && thunderstormOutlook === null);
+  const numericValue = structuredOutlookInvalid ? null : suppliedNumericValue;
   const measuredAt = typeof value.measured_at === 'string' && Number.isFinite(Date.parse(value.measured_at))
     ? value.measured_at
     : null;
@@ -3534,7 +3616,91 @@ function normalizeWallboardForecastMetric(value: unknown): WallboardForecastMetr
     cloud_layers: normalizeForecastCloudLayers(value.cloud_layers),
     cloud_base_forecast: normalizeForecastCloudBaseForecast(value.cloud_base_forecast),
     cloud_base_observation: normalizeForecastCloudBaseObservation(value.cloud_base_observation),
+    precipitation_outlook: precipitationOutlook,
+    thunderstorm_outlook: thunderstormOutlook,
   }];
+}
+
+function normalizeForecastPrecipitationOutlook(
+  value: unknown,
+): WallboardForecastMetric['precipitation_outlook'] {
+  if (!isRecord(value) || !['KNMI', 'DIS_DEMO'].includes(String(value.attribution))) return null;
+  const radarPeak = boundedNumber(value.radar_peak_mm_h, 0, 500);
+  const probability = boundedNumber(value.third_hour_probability_pct, 0, 100);
+  const sampleCount = normalizeBoundedInteger(value.sample_count, 1, 12);
+  const expectedSampleCount = normalizeBoundedInteger(value.expected_sample_count, 1, 12);
+  const radarFirstAt = optionalIsoTimestamp(value.radar_first_precipitation_at);
+  const radarUntil = requiredIsoTimestamp(value.radar_until);
+  const thirdHourFrom = requiredIsoTimestamp(value.third_hour_from);
+  const forecastUntil = requiredIsoTimestamp(value.forecast_until);
+  const referenceTime = requiredIsoTimestamp(value.reference_time);
+  if (
+    radarPeak === null
+    || probability === null
+    || sampleCount === null
+    || expectedSampleCount === null
+    || sampleCount !== expectedSampleCount
+    || radarUntil === null
+    || thirdHourFrom === null
+    || forecastUntil === null
+    || referenceTime === null
+    || (value.radar_first_precipitation_at !== null && radarFirstAt === null)
+  ) return null;
+
+  return {
+    radar_peak_mm_h: radarPeak,
+    radar_first_precipitation_at: radarFirstAt,
+    radar_until: radarUntil,
+    third_hour_probability_pct: probability,
+    third_hour_from: thirdHourFrom,
+    forecast_until: forecastUntil,
+    reference_time: referenceTime,
+    sample_count: sampleCount,
+    expected_sample_count: expectedSampleCount,
+    attribution: value.attribution as 'KNMI' | 'DIS_DEMO',
+  };
+}
+
+function normalizeForecastThunderstormOutlook(
+  value: unknown,
+): WallboardForecastMetric['thunderstorm_outlook'] {
+  if (!isRecord(value) || !['OPEN_METEO', 'DIS_DEMO'].includes(String(value.attribution))) return null;
+  const sampleCount = normalizeBoundedInteger(value.sample_count, 1, 12);
+  const expectedSampleCount = normalizeBoundedInteger(value.expected_sample_count, 1, 12);
+  const firstExpectedAt = optionalIsoTimestamp(value.first_expected_at);
+  const forecastUntil = requiredIsoTimestamp(value.forecast_until);
+  if (
+    typeof value.expected !== 'boolean'
+    || sampleCount === null
+    || expectedSampleCount === null
+    || sampleCount !== expectedSampleCount
+    || forecastUntil === null
+    || (value.first_expected_at !== null && firstExpectedAt === null)
+    || (value.expected && firstExpectedAt === null)
+  ) return null;
+
+  return {
+    expected: value.expected,
+    first_expected_at: firstExpectedAt,
+    forecast_until: forecastUntil,
+    sample_count: sampleCount,
+    expected_sample_count: expectedSampleCount,
+    attribution: value.attribution as 'OPEN_METEO' | 'DIS_DEMO',
+  };
+}
+
+function boundedNumber(value: unknown, minimum: number, maximum: number): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum
+    ? value
+    : null;
+}
+
+function optionalIsoTimestamp(value: unknown): string | null {
+  return value === null ? null : requiredIsoTimestamp(value);
+}
+
+function requiredIsoTimestamp(value: unknown): string | null {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : null;
 }
 
 function normalizeForecastCloudLayers(value: unknown): WallboardForecastMetric['cloud_layers'] {

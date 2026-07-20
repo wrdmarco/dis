@@ -12,7 +12,11 @@ import {
   normalizeWallboardForecastState,
   wallboardForecastDisplayBlocks,
 } from '../src/features/wallboards/WallboardDisplayPage';
-import { WALLBOARD_FORECAST_BLOCK_KEYS } from '../src/features/wallboards/wallboardPresentation';
+import {
+  DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS,
+  MAX_WALLBOARD_FORECAST_VISIBLE_BLOCKS,
+  WALLBOARD_FORECAST_BLOCK_KEYS,
+} from '../src/features/wallboards/wallboardPresentation';
 
 const source = { name: 'Gecontroleerde bron', url: 'https://example.test/source' };
 
@@ -41,6 +45,8 @@ function metric(
     cloud_layers: null,
     cloud_base_forecast: null,
     cloud_base_observation: null,
+    precipitation_outlook: null,
+    thunderstorm_outlook: null,
     ...overrides,
   };
 }
@@ -60,7 +66,7 @@ function backendForecast(overrides: Record<string, unknown> = {}) {
       complete: true,
       fresh: true,
     },
-    visible_blocks: [...WALLBOARD_FORECAST_BLOCK_KEYS],
+    visible_blocks: [...DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS],
     overall_status: 'red',
     generated_at: '2026-07-20T12:15:00Z',
     condition: {
@@ -108,6 +114,34 @@ function backendForecast(overrides: Record<string, unknown> = {}) {
       metric('wind_direction_degrees', 'green', 225, { unit: '°', altitude_m: 120 }),
       metric('precipitation_probability_pct', 'green', 10, { unit: '%' }),
       metric('precipitation_mm', 'green', 0, { unit: 'mm' }),
+      metric('precipitation_outlook', 'orange', 0.8, {
+        label: 'Buien +3 uur',
+        unit: 'mm/u',
+        precipitation_outlook: {
+          radar_peak_mm_h: 0.8,
+          radar_first_precipitation_at: '2026-07-20T12:45:00Z',
+          radar_until: '2026-07-20T14:15:00Z',
+          third_hour_probability_pct: 42,
+          third_hour_from: '2026-07-20T14:20:00Z',
+          forecast_until: '2026-07-20T15:15:00Z',
+          reference_time: '2026-07-20T12:15:00Z',
+          sample_count: 12,
+          expected_sample_count: 12,
+          attribution: 'KNMI',
+        },
+      }),
+      metric('thunderstorm_forecast', 'green', 0, {
+        label: 'Onweer +3 uur',
+        unit: null,
+        thunderstorm_outlook: {
+          expected: false,
+          first_expected_at: null,
+          forecast_until: '2026-07-20T15:15:00Z',
+          sample_count: 12,
+          expected_sample_count: 12,
+          attribution: 'OPEN_METEO',
+        },
+      }),
       metric('cloud_cover_pct', 'red', 100, {
         label: 'Totale modelbewolking',
         unit: '%',
@@ -159,11 +193,77 @@ test('preserves the authoritative backend advice and complete expanded contract'
   const forecast = state.pages.forecast;
 
   expect(forecast.overall_status).toBe('red');
-  expect(forecast.metrics).toHaveLength(14);
+  expect(forecast.metrics).toHaveLength(16);
   expect(forecast.condition).toMatchObject({ code: 95, label: 'Onweer', status: 'red' });
   expect(forecast.aggregation).toMatchObject({ sample_count: 12, expected_sample_count: 12, complete: true });
   expect(wallboardForecastDisplayBlocks(forecast).map((block) => block.key))
-    .toEqual(WALLBOARD_FORECAST_BLOCK_KEYS);
+    .toEqual(DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS);
+});
+
+test('keeps radar intensity and the third-hour probability visibly separate', () => {
+  const forecast = normalizeWallboardForecastState({ pages: { forecast: backendForecast() } }).pages.forecast;
+  const blocks = wallboardForecastDisplayBlocks(forecast);
+
+  expect(blocks.find((block) => block.key === 'precipitation_outlook')).toMatchObject({
+    label: 'Buien +3 uur',
+    value: 'Bui vanaf 14:45',
+    status: 'orange',
+    details: [
+      '0–2 uur radar: piek 0,8 mm/u',
+      'Uur 3 kansmodel: 42% kans op ≥ 0,1 mm/u',
+    ],
+  });
+  expect(blocks.find((block) => block.key === 'thunderstorm_forecast')).toMatchObject({
+    label: 'Onweer +3 uur',
+    value: 'Niet verwacht',
+    status: 'green',
+    details: [
+      'WMO-modelverwachting t/m 17:15',
+      'Geen live bliksemdetectie',
+    ],
+  });
+});
+
+test('never presents stale precipitation or thunderstorm outlooks as definitive', () => {
+  const payload = backendForecast();
+  payload.metrics = payload.metrics.map((candidate) => (
+    ['precipitation_outlook', 'thunderstorm_forecast'].includes(candidate.key)
+      ? { ...candidate, status: 'unknown' as const, stale: true }
+      : candidate
+  ));
+
+  const forecast = normalizeWallboardForecastState({ pages: { forecast: payload } }).pages.forecast;
+  const blocks = wallboardForecastDisplayBlocks(forecast);
+
+  expect(blocks.find((block) => block.key === 'precipitation_outlook')).toMatchObject({
+    value: 'Verouderd',
+    status: 'unknown',
+  });
+  expect(blocks.find((block) => block.key === 'thunderstorm_forecast')).toMatchObject({
+    value: 'Verouderd',
+    status: 'unknown',
+  });
+});
+
+test('downgrades malformed structured outlooks instead of showing green numeric fallbacks', () => {
+  const payload = backendForecast();
+  const precipitation = payload.metrics.find((candidate) => candidate.key === 'precipitation_outlook');
+  const thunder = payload.metrics.find((candidate) => candidate.key === 'thunderstorm_forecast');
+  if (precipitation === undefined || thunder === undefined) throw new Error('Missing outlook fixtures.');
+  precipitation.precipitation_outlook = null;
+  precipitation.status = 'green';
+  thunder.thunderstorm_outlook = null;
+  thunder.status = 'green';
+
+  const forecast = normalizeWallboardForecastState({ pages: { forecast: payload } }).pages.forecast;
+  const blocks = wallboardForecastDisplayBlocks(forecast);
+
+  expect(forecast.metrics.find((candidate) => candidate.key === 'precipitation_outlook'))
+    .toMatchObject({ value: null, status: 'unknown' });
+  expect(forecast.metrics.find((candidate) => candidate.key === 'thunderstorm_forecast'))
+    .toMatchObject({ value: null, status: 'unknown' });
+  expect(blocks.find((block) => block.key === 'precipitation_outlook')?.value).toBe('Onbekend');
+  expect(blocks.find((block) => block.key === 'thunderstorm_forecast')?.value).toBe('Onbekend');
 });
 
 test('shows low cloud cover as the operational card while retaining total and higher model layers', () => {
@@ -187,7 +287,7 @@ test('keeps the total-cloud fallback when an older backend has no low-cloud metr
   const forecast = normalizeWallboardForecastState({ pages: { forecast: payload } }).pages.forecast;
   const cloud = wallboardForecastDisplayBlocks(forecast).find((block) => block.key === 'cloud_cover');
 
-  expect(forecast.metrics).toHaveLength(13);
+  expect(forecast.metrics).toHaveLength(15);
   expect(cloud).toMatchObject({ label: 'Totale modelbewolking', value: '100 %', status: 'red' });
   expect(cloud?.details).toEqual(['Totale hemelkolom; geen vaste meethoogte']);
 });
@@ -302,6 +402,16 @@ test('applies visible block settings without weakening the mandatory advice', ()
   expect(state.pages.forecast.overall_status).toBe('red');
   expect(wallboardForecastDisplayBlocks(state.pages.forecast).map((block) => block.key))
     .toEqual(['visibility', 'kp_index']);
+});
+
+test('caps malformed server visibility settings at the supported card limit', () => {
+  const state = normalizeWallboardForecastState({
+    pages: {
+      forecast: backendForecast({ visible_blocks: [...WALLBOARD_FORECAST_BLOCK_KEYS] }),
+    },
+  });
+
+  expect(state.pages.forecast.visible_blocks).toHaveLength(MAX_WALLBOARD_FORECAST_VISIBLE_BLOCKS);
 });
 
 test('stale values remain fail-closed while GNSS stays explicitly unknown', () => {

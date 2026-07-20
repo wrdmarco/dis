@@ -101,7 +101,7 @@ stop_restore_runtime_services() {
   if systemd_unit_exists dis-backup-request.path; then
     run_cmd systemctl stop dis-backup-request.path
   fi
-  for service in dis-media dis-queue dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi "${PHP_FPM_SERVICE}"; do
+  for service in dis-media dis-queue dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime "${PHP_FPM_SERVICE}"; do
     if systemd_service_exists "${service}"; then
       run_cmd systemctl stop "${service}"
     fi
@@ -185,6 +185,8 @@ regenerate_backend_package_manifest "${APP_ROOT}/webapp/backend"
 run_cmd runuser -u "${DIS_USER}" -- php "${APP_ROOT}/webapp/backend/artisan" migrate --force
 run_cmd runuser -u "${DIS_USER}" -- php "${APP_ROOT}/webapp/backend/artisan" \
   dis:reconcile-knmi-after-restore
+run_cmd runuser -u "${DIS_USER}" -- php "${APP_ROOT}/webapp/backend/artisan" \
+  dis:refresh-knmi-precipitation-outlook
 log "Revoking restored authentication state"
 run_cmd runuser -u "${DIS_USER}" -- php "${APP_ROOT}/webapp/backend/artisan" \
   dis:revoke-all-authentication-state --reason=backup-restore

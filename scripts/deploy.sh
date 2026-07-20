@@ -367,6 +367,7 @@ run_cmd visudo -cf /etc/sudoers.d/dis-update
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-queue.service" /etc/systemd/system/dis-queue.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-media.service" /etc/systemd/system/dis-media.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-knmi.service" /etc/systemd/system/dis-knmi.service
+run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-knmi-realtime.service" /etc/systemd/system/dis-knmi-realtime.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-incident-enrichment.service" /etc/systemd/system/dis-incident-enrichment.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-scheduler.service" /etc/systemd/system/dis-scheduler.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-websocket.service" /etc/systemd/system/dis-websocket.service
@@ -376,7 +377,7 @@ install_osrm_admin_layout
 install_osrm_admin_request_systemd_units "${APP_ROOT}"
 run_cmd systemctl daemon-reload
 run_cmd systemctl enable \
-  dis-queue dis-media dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi \
+  dis-queue dis-media dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime \
   dis-backup-request.path dis-backup-request.timer \
   dis-osrm-admin-request.path dis-osrm-admin-request.timer
 APP_ROOT="${APP_ROOT}" bash "${APP_ROOT}/scripts/osrm.sh" reconcile

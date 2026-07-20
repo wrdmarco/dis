@@ -1,24 +1,21 @@
 [Unit]
-Description=DIS KNMI Forecast Import Worker
+Description=DIS KNMI Realtime Precipitation Import Worker
 After=network-online.target redis-server.service postgresql.service
-# Keep the five-minute worker bootstrappable during its first rollout: the
-# already-running updater still knows this established service name.
-Wants=network-online.target dis-knmi-realtime.service
+Wants=network-online.target
 
 [Service]
 Type=exec
 User=dis
 Group=dis
 WorkingDirectory=/opt/dis/webapp/backend
-ExecStartPre=/usr/bin/test -x /usr/bin/grib_count
-ExecStartPre=/usr/bin/test -x /usr/bin/grib_get
+ExecStartPre=/usr/bin/test -x /usr/bin/h5dump
 ExecStartPre=/usr/bin/test -r /opt/dis/webapp/backend/artisan
-ExecStart=/usr/bin/php -d zend.exception_ignore_args=1 artisan queue:work knmi --queue=knmi --sleep=5 --tries=1 --timeout=7200 --max-jobs=25 --max-time=86400
+ExecStart=/usr/bin/php -d zend.exception_ignore_args=1 artisan queue:work knmi_realtime --queue=knmi-realtime --sleep=2 --tries=1 --timeout=600 --max-jobs=250 --max-time=86400
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
 KillMode=control-group
-TimeoutStopSec=120s
+TimeoutStopSec=30s
 UMask=0027
 NoNewPrivileges=true
 PrivateTmp=true
@@ -37,11 +34,11 @@ AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallArchitectures=native
 RestrictRealtime=true
-MemoryHigh=768M
-MemoryMax=1G
-CPUQuota=150%
-TasksMax=64
-Nice=10
+MemoryHigh=384M
+MemoryMax=512M
+CPUQuota=100%
+TasksMax=32
+Nice=5
 OOMPolicy=stop
 ReadWritePaths=/opt/dis-data /opt/dis/webapp/backend/storage /opt/dis/storage
 

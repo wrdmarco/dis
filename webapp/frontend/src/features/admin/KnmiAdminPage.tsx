@@ -11,6 +11,7 @@ import type {
   KnmiForecastOperation,
   KnmiForecastOperationStarted,
   KnmiForecastSnapshot,
+  KnmiPrecipitationRefreshStarted,
 } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import styles from './KnmiAdminPage.module.css';
@@ -46,6 +47,9 @@ export function KnmiAdminPage() {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
+  const [startingPrecipitation, setStartingPrecipitation] = useState(false);
+  const [precipitationError, setPrecipitationError] = useState<string | null>(null);
+  const [precipitationMessage, setPrecipitationMessage] = useState<string | null>(null);
   const operation = status.data?.active_operation ?? status.data?.latest_operation ?? null;
   const operationActive = knmiOperationIsActive(operation?.state);
   const reloadStatusSilently = status.silentReload;
@@ -101,6 +105,20 @@ export function KnmiAdminPage() {
       }
     } finally {
       setStarting(false);
+    }
+  }
+
+  async function refreshPrecipitation() {
+    setStartingPrecipitation(true);
+    setPrecipitationError(null);
+    setPrecipitationMessage(null);
+    try {
+      await api.post<KnmiPrecipitationRefreshStarted>('/admin/knmi/precipitation/refresh');
+      setPrecipitationMessage('De lokale radar- en onweerskansbestanden worden op de server bijgewerkt.');
+    } catch (error) {
+      setPrecipitationError(error instanceof ApiClientError ? error.message : 'KNMI-neerslagdata bijwerken kon niet worden gestart.');
+    } finally {
+      setStartingPrecipitation(false);
     }
   }
 
@@ -163,7 +181,18 @@ export function KnmiAdminPage() {
             <div className={styles.sectionBody}>
               <ImportStatus operation={operation} snapshot={status.data.active_snapshot} />
               {operationError ? <p className="form-error" role="alert">{operationError}</p> : null}
+              {precipitationError ? <p className="form-error" role="alert">{precipitationError}</p> : null}
+              {precipitationMessage ? <p className="success-text" role="status">{precipitationMessage}</p> : null}
               <div className={styles.actionsRow}>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={!canManage || startingPrecipitation || !status.data.configuration.configured}
+                  onClick={() => void refreshPrecipitation()}
+                >
+                  <DownloadCloud aria-hidden size={18} />
+                  {startingPrecipitation ? 'Neerslagdata wordt aangevraagd...' : 'Radar en onweerskans bijwerken'}
+                </button>
                 <button
                   className="primary-button"
                   type="button"
@@ -171,12 +200,14 @@ export function KnmiAdminPage() {
                   onClick={() => void refreshForecast()}
                 >
                   <DownloadCloud aria-hidden size={18} />
-                  {starting || operationActive ? 'KNMI-gegevens worden bijgewerkt...' : 'KNMI-gegevens bijwerken'}
+                  {starting || operationActive ? 'HARMONIE wordt bijgewerkt...' : 'HARMONIE-modelset bijwerken'}
                 </button>
               </div>
               {!status.data.configuration.configured ? (
-                <p className={styles.actionHint}>Stel eerst de KNMI Open Data API-key in om een modelset te downloaden.</p>
-              ) : null}
+                <p className={styles.actionHint}>Stel eerst de KNMI Open Data API-key in om gegevens te downloaden.</p>
+              ) : (
+                <p className={styles.actionHint}>Radar en onweerskans worden daarnaast automatisch iedere vijf minuten gecontroleerd.</p>
+              )}
             </div>
           ) : null}
         </ResourceState>

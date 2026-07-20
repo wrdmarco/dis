@@ -166,17 +166,31 @@ ensure_wallboard_media_runtime_dependencies() {
   fi
 }
 
-knmi_forecast_runtime_dependencies_are_safe() {
-  local binary metadata mode owner
+knmi_forecast_runtime_package_is_safe() {
+  local package="$1"
+  local binary metadata mode owner requirement
+  local requirements=()
 
   [ -x /usr/bin/dpkg-query ] || return 1
-  [ "$(/usr/bin/dpkg-query -W -f='${db:Status-Abbrev}' libeccodes-tools 2>/dev/null || true)" = "ii " ] \
-    || return 1
+  [ "$(/usr/bin/dpkg-query -W -f='${db:Status-Abbrev}' "${package}" 2>/dev/null || true)" = "ii " ] || return 1
 
-  for binary in /usr/bin/grib_count /usr/bin/grib_get; do
+  case "${package}" in
+    libeccodes-tools)
+      requirements=(/usr/bin/grib_count:libeccodes-tools /usr/bin/grib_get:libeccodes-tools)
+      ;;
+    hdf5-tools)
+      requirements=(/usr/bin/h5dump:hdf5-tools)
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  for requirement in "${requirements[@]}"; do
+    binary="${requirement%%:*}"
     [ -f "${binary}" ] && [ -x "${binary}" ] && [ ! -L "${binary}" ] || return 1
     owner="$(/usr/bin/dpkg-query -S "${binary}" 2>/dev/null || true)"
-    [[ "${owner}" == libeccodes-tools:* ]] || return 1
+    [[ "${owner}" == "${package}":* ]] || return 1
     metadata="$(/usr/bin/stat -c '%u:%g:%a' -- "${binary}" 2>/dev/null || true)"
     [[ "${metadata}" =~ ^0:0:([0-7]+)$ ]] || return 1
     mode="${BASH_REMATCH[1]}"
@@ -184,23 +198,34 @@ knmi_forecast_runtime_dependencies_are_safe() {
   done
 }
 
+knmi_forecast_runtime_dependencies_are_safe() {
+  knmi_forecast_runtime_package_is_safe libeccodes-tools \
+    && knmi_forecast_runtime_package_is_safe hdf5-tools
+}
+
 ensure_knmi_forecast_runtime_dependencies() {
+  local package
   local reinstall=()
 
   if knmi_forecast_runtime_dependencies_are_safe; then
     return 0
   fi
 
-  [ -x /usr/bin/apt-get ] || fail "apt-get is required to install the fixed Ubuntu ecCodes runtime dependency."
-  [ -x /usr/bin/dpkg-query ] || fail "dpkg-query is required to verify the Ubuntu ecCodes runtime dependency."
-  if [ "$(/usr/bin/dpkg-query -W -f='${db:Status-Abbrev}' libeccodes-tools 2>/dev/null || true)" = "ii " ]; then
-    reinstall=(--reinstall)
-  fi
-
-  log "Installing the fixed Ubuntu ecCodes runtime dependency required by KNMI forecasts"
-  run_cmd env DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get install -y --no-install-recommends "${reinstall[@]}" libeccodes-tools
+  [ -x /usr/bin/apt-get ] || fail "apt-get is required to install the fixed Ubuntu KNMI forecast runtime dependencies."
+  [ -x /usr/bin/dpkg-query ] || fail "dpkg-query is required to verify the Ubuntu KNMI forecast runtime dependencies."
+  for package in libeccodes-tools hdf5-tools; do
+    if knmi_forecast_runtime_package_is_safe "${package}"; then
+      continue
+    fi
+    reinstall=()
+    if [ "$(/usr/bin/dpkg-query -W -f='${db:Status-Abbrev}' "${package}" 2>/dev/null || true)" = "ii " ]; then
+      reinstall=(--reinstall)
+    fi
+    log "Installing the fixed Ubuntu ${package} runtime dependency required by KNMI forecasts"
+    run_cmd env DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get install -y --no-install-recommends "${reinstall[@]}" "${package}"
+  done
   if [ "${DRY_RUN:-0}" != "1" ] && ! knmi_forecast_runtime_dependencies_are_safe; then
-    fail "The Ubuntu libeccodes-tools package did not provide safe root-controlled GRIB tools."
+    fail "The Ubuntu forecast packages did not provide safe root-controlled GRIB and HDF5 tools."
   fi
 }
 
@@ -822,7 +847,7 @@ stop_dis_deployment_services() {
   fi
   # Stop the interruptible media worker first. Its SIGTERM contract republishes
   # an in-flight transcode before the remaining deployment services go down.
-  for service in dis-media dis-queue dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi "${PHP_FPM_SERVICE}"; do
+  for service in dis-media dis-queue dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime "${PHP_FPM_SERVICE}"; do
     if systemd_service_exists "${service}"; then
       run_cmd systemctl stop "${service}"
     fi
@@ -958,7 +983,7 @@ start_dis_operational_services() {
     run_cmd runuser -u "${DIS_USER}" -- php "${DIS_INSTALL_PATH}/webapp/backend/artisan" \
       dis:check-backup-request-worker --timeout=30
   fi
-  for service in dis-media dis-queue dis-scheduler dis-websocket dis-incident-enrichment dis-knmi; do
+  for service in dis-media dis-queue dis-scheduler dis-websocket dis-incident-enrichment dis-knmi dis-knmi-realtime; do
     if systemd_service_exists "${service}"; then
       run_cmd systemctl start "${service}"
     fi
@@ -984,7 +1009,7 @@ require_dis_web_services() {
 require_dis_runtime_services() {
   local service
 
-  for service in nginx "${PHP_FPM_SERVICE}" dis-frontend dis-queue dis-media dis-scheduler dis-websocket dis-incident-enrichment dis-knmi; do
+  for service in nginx "${PHP_FPM_SERVICE}" dis-frontend dis-queue dis-media dis-scheduler dis-websocket dis-incident-enrichment dis-knmi dis-knmi-realtime; do
     if ! systemd_service_exists "${service}"; then
       fail "Required systemd service is not installed: ${service}.service"
     fi

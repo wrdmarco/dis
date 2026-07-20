@@ -194,7 +194,7 @@ acquire_dis_operation_lock uninstall
 log "Stopping and disabling DIS services"
 # Legacy backup entries remain here so uninstall also cleans hosts upgraded from
 # releases that installed the retired standalone backup helpers.
-for service in dis-media dis-queue dis-scheduler dis-websocket dis-osrm dis-incident-enrichment dis-knmi \
+for service in dis-media dis-queue dis-scheduler dis-websocket dis-osrm dis-incident-enrichment dis-knmi dis-knmi-realtime \
   dis-osrm-admin-request.timer dis-osrm-admin-request.path dis-osrm-admin-request \
   dis-backup-request.timer dis-backup-request.path dis-backup-request \
   dis-backup-mount dis-backup.timer dis-backup; do
@@ -208,6 +208,7 @@ for unit in \
   /etc/systemd/system/dis-queue.service \
   /etc/systemd/system/dis-media.service \
   /etc/systemd/system/dis-knmi.service \
+  /etc/systemd/system/dis-knmi-realtime.service \
   /etc/systemd/system/dis-incident-enrichment.service \
   /etc/systemd/system/dis-scheduler.service \
   /etc/systemd/system/dis-websocket.service \
@@ -336,7 +337,7 @@ if [ "${PURGE_PACKAGES}" = "1" ]; then
   confirm "Purge Ubuntu packages installed by DIS setup? Use only on a dedicated server."
   log "Purging DIS package dependencies"
   run_cmd apt-get purge -y \
-    composer ffmpeg nginx postgresql postgresql-client redis-server redis-tools cifs-utils smbclient libeccodes-tools \
+    composer ffmpeg nginx postgresql postgresql-client redis-server redis-tools cifs-utils smbclient hdf5-tools libeccodes-tools \
     "php${PHP_VERSION}-fpm" "php${PHP_VERSION}-cli" "php${PHP_VERSION}-pgsql" "php${PHP_VERSION}-redis" \
     "php${PHP_VERSION}-mbstring" "php${PHP_VERSION}-xml" "php${PHP_VERSION}-curl" "php${PHP_VERSION}-zip" \
     "php${PHP_VERSION}-bcmath" "php${PHP_VERSION}-intl" \

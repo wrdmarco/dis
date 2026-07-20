@@ -30,13 +30,16 @@ final class KnmiBackupRestoreContractTest extends TestCase
 
         $migration = strpos($restore, 'artisan" migrate --force');
         $reconciliation = strpos($restore, 'dis:reconcile-knmi-after-restore');
+        $precipitationRefresh = strpos($restore, 'dis:refresh-knmi-precipitation-outlook');
         $serviceRestart = strpos($restore, 'restart_dis_web_services_for_verification');
 
         $this->assertIsInt($migration);
         $this->assertIsInt($reconciliation);
+        $this->assertIsInt($precipitationRefresh);
         $this->assertIsInt($serviceRestart);
         $this->assertLessThan($reconciliation, $migration);
-        $this->assertLessThan($serviceRestart, $reconciliation);
+        $this->assertLessThan($precipitationRefresh, $reconciliation);
+        $this->assertLessThan($serviceRestart, $precipitationRefresh);
         $this->assertStringContainsString('DB::transaction(function () use ($configured): array', $service);
         $this->assertStringContainsString('->requestRefresh(scheduled: true)', $service);
     }

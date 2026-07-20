@@ -153,6 +153,8 @@ final class WallboardDemoStateService
             $this->forecastMetric('wind_direction_degrees', 'Windrichting op 120 m AGL', 245, '°', 'green', $source, $generatedAt, '245', 120),
             $this->forecastMetric('precipitation_probability_pct', 'Neerslagkans', 15, '%', 'green', $source, $generatedAt, '15'),
             $this->forecastMetric('precipitation_mm', 'Neerslag', 0.0, 'mm', 'green', $source, $generatedAt, '0,0'),
+            $this->forecastMetric('precipitation_outlook', 'Buien +3 uur', 0.8, 'mm/u', 'orange', $source, $generatedAt, null),
+            $this->forecastMetric('thunderstorm_forecast', 'Onweer +3 uur', 0, null, 'green', $source, $generatedAt, null),
             $this->forecastMetric('cloud_cover_pct', 'Totale modelbewolking', 64, '%', 'orange', $source, $generatedAt, '64'),
             $this->forecastMetric('low_cloud_cover_pct', 'Lage bewolking', 28, '%', 'green', $source, $generatedAt, '28'),
             $this->forecastMetric('visibility_m', 'Zicht', 18000, 'm', 'green', $source, $generatedAt, '18,00', null, 'km'),
@@ -166,13 +168,33 @@ final class WallboardDemoStateService
             ['height_agl_m' => 120, 'speed_kmh' => 22.5],
         ];
         $metrics[3]['max_non_red_wind_height_agl_m'] = 120;
-        $metrics[9]['cloud_layers'] = [
+        $metrics[8]['precipitation_outlook'] = [
+            'radar_peak_mm_h' => 0.8,
+            'radar_first_precipitation_at' => ApiDateTime::dateTime($anchor->addMinutes(35)),
+            'radar_until' => ApiDateTime::dateTime($anchor->addHours(2)),
+            'third_hour_probability_pct' => 42,
+            'third_hour_from' => ApiDateTime::dateTime($anchor->addHours(2)->addMinutes(5)),
+            'forecast_until' => ApiDateTime::dateTime($anchor->addHours(3)),
+            'reference_time' => $generatedAt,
+            'sample_count' => 1,
+            'expected_sample_count' => 1,
+            'attribution' => 'DIS_DEMO',
+        ];
+        $metrics[9]['thunderstorm_outlook'] = [
+            'expected' => false,
+            'first_expected_at' => null,
+            'forecast_until' => ApiDateTime::dateTime($anchor->addHours(3)),
+            'sample_count' => 1,
+            'expected_sample_count' => 1,
+            'attribution' => 'DIS_DEMO',
+        ];
+        $metrics[11]['cloud_layers'] = [
             'low_pct' => 28,
             'mid_pct' => 42,
             'high_pct' => 31,
             'total_pct' => 64,
         ];
-        $metrics[9]['cloud_base_forecast'] = [
+        $metrics[11]['cloud_base_forecast'] = [
             'status' => 'forecast',
             'base_height_m' => 760,
             'height_reference' => 'model_unspecified',
@@ -182,7 +204,7 @@ final class WallboardDemoStateService
             'valid_at' => $generatedAt,
             'attribution' => 'DIS_DEMO',
         ];
-        $metrics[9]['cloud_base_observation'] = [
+        $metrics[11]['cloud_base_observation'] = [
             'status' => 'measured',
             'base_height_m' => 820,
             'height_reference' => 'mean_sea_level',
@@ -209,10 +231,14 @@ final class WallboardDemoStateService
             $mode = ($options['location_mode'] ?? null) === 'address' ? 'address' : 'netherlands';
             $expected = $mode === 'netherlands' ? 12 : 1;
             $pageMetrics = $metrics;
-            $pageMetrics[9]['cloud_base_forecast']['aggregation'] = $mode === 'netherlands'
+            $pageMetrics[8]['precipitation_outlook']['sample_count'] = $expected;
+            $pageMetrics[8]['precipitation_outlook']['expected_sample_count'] = $expected;
+            $pageMetrics[9]['thunderstorm_outlook']['sample_count'] = $expected;
+            $pageMetrics[9]['thunderstorm_outlook']['expected_sample_count'] = $expected;
+            $pageMetrics[11]['cloud_base_forecast']['aggregation'] = $mode === 'netherlands'
                 ? 'minimum_of_province_samples'
                 : 'single_grid_point';
-            $pageMetrics[9]['cloud_base_forecast']['sample_count'] = $expected;
+            $pageMetrics[11]['cloud_base_forecast']['sample_count'] = $expected;
             $pages[(string) $page['id']] = [
                 'location' => [
                     'mode' => $mode,
@@ -227,7 +253,7 @@ final class WallboardDemoStateService
                     'complete' => true,
                     'fresh' => true,
                 ],
-                'visible_blocks' => array_values((array) ($options['visible_blocks'] ?? WallboardConfiguration::FORECAST_VISIBLE_BLOCKS)),
+                'visible_blocks' => array_values((array) ($options['visible_blocks'] ?? WallboardConfiguration::DEFAULT_FORECAST_VISIBLE_BLOCKS)),
                 'overall_status' => 'orange',
                 'generated_at' => $generatedAt,
                 'condition' => [
@@ -478,6 +504,8 @@ final class WallboardDemoStateService
             'cloud_layers' => null,
             'cloud_base_forecast' => null,
             'cloud_base_observation' => null,
+            'precipitation_outlook' => null,
+            'thunderstorm_outlook' => null,
         ];
     }
 

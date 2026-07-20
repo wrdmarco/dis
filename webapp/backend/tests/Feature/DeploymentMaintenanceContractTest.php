@@ -134,9 +134,10 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertStringContainsString('/etc/systemd/system/dis-incident-enrichment.service', $uninstall);
     }
 
-    public function test_knmi_import_has_an_independent_hardened_worker_and_fixed_grib_tools(): void
+    public function test_knmi_imports_have_independent_hardened_workers_and_fixed_data_tools(): void
     {
         $service = $this->read('infrastructure/systemd/dis-knmi.service');
+        $realtimeService = $this->read('infrastructure/systemd/dis-knmi-realtime.service');
         $queue = $this->read('infrastructure/systemd/dis-queue.service');
         $common = $this->read('scripts/lib/common.sh');
         $deploy = $this->read('scripts/deploy.sh');
@@ -156,6 +157,7 @@ final class DeploymentMaintenanceContractTest extends TestCase
             '--timeout=7200',
             'zend.exception_ignore_args=1',
             'Wants=network-online.target',
+            'dis-knmi-realtime.service',
             'After=network-online.target redis-server.service postgresql.service',
             'NoNewPrivileges=true',
             'PrivateDevices=true',
@@ -168,17 +170,44 @@ final class DeploymentMaintenanceContractTest extends TestCase
         ] as $contract) {
             self::assertStringContainsString($contract, $service);
         }
+        self::assertStringNotContainsString('ExecStartPre=/usr/bin/test -x /usr/bin/h5dump', $service);
+        foreach ([
+            'Type=exec',
+            'ExecStartPre=/usr/bin/test -x /usr/bin/h5dump',
+            'queue:work knmi_realtime --queue=knmi-realtime',
+            '--tries=1',
+            '--timeout=600',
+            'zend.exception_ignore_args=1',
+            'Wants=network-online.target',
+            'After=network-online.target redis-server.service postgresql.service',
+            'NoNewPrivileges=true',
+            'PrivateDevices=true',
+            'ProtectSystem=strict',
+            'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6',
+            'MemoryMax=512M',
+            'CPUQuota=100%',
+            'ReadWritePaths=/opt/dis-data',
+        ] as $contract) {
+            self::assertStringContainsString($contract, $realtimeService);
+        }
         self::assertStringNotContainsString('--queue=knmi', $queue);
+        self::assertStringNotContainsString('--queue=knmi-realtime', $queue);
         self::assertStringContainsString('ensure_knmi_forecast_runtime_dependencies()', $common);
         self::assertStringContainsString('libeccodes-tools', $install);
+        self::assertStringContainsString('hdf5-tools', $install);
         self::assertStringContainsString('ensure_knmi_forecast_runtime_dependencies', $deploy);
         self::assertStringContainsString('ensure_knmi_forecast_runtime_dependencies', $update);
         self::assertStringContainsString('infrastructure/systemd/dis-knmi.service', $deploy);
+        self::assertStringContainsString('infrastructure/systemd/dis-knmi-realtime.service', $deploy);
         self::assertStringContainsString('dis-knmi', $common);
+        self::assertStringContainsString('dis-knmi-realtime', $common);
         self::assertStringContainsString('dis-knmi', $restore);
+        self::assertStringContainsString('dis-knmi-realtime', $restore);
         self::assertStringContainsString('dis-knmi', $selfHeal);
+        self::assertStringContainsString('dis-knmi-realtime', $selfHeal);
         self::assertStringContainsString('/etc/systemd/system/dis-knmi.service', $uninstall);
-        self::assertStringContainsString('smbclient libeccodes-tools', $uninstall);
+        self::assertStringContainsString('/etc/systemd/system/dis-knmi-realtime.service', $uninstall);
+        self::assertStringContainsString('smbclient hdf5-tools libeccodes-tools', $uninstall);
 
         $dependencyStart = strpos($common, 'ensure_knmi_forecast_runtime_dependencies()');
         $dependencyEnd = strpos($common, 'verify_osrm_admin_runtime_library()', (int) $dependencyStart);
@@ -188,6 +217,8 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertStringContainsString('/usr/bin/dpkg-query', $dependency);
         self::assertStringContainsString('/usr/bin/apt-get install -y --no-install-recommends', $dependency);
         self::assertStringContainsString('libeccodes-tools', $dependency);
+        self::assertStringContainsString('hdf5-tools', $dependency);
+        self::assertStringContainsString('/usr/bin/h5dump:hdf5-tools', $common);
         self::assertStringNotContainsString('curl ', $dependency);
         self::assertStringNotContainsString('wget ', $dependency);
     }
