@@ -18,7 +18,7 @@ final class StoreWallboardMediaAssetRequest extends FormRequest
         $maximum = max(
             1,
             (int) config('wallboard_media.max_upload_kilobytes', 15 * 1024),
-            (int) config('wallboard_media.max_video_upload_kilobytes', 250 * 1024),
+            (int) config('wallboard_media.max_video_upload_kilobytes', 512 * 1024),
         );
 
         return [

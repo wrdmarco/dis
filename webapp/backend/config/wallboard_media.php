@@ -4,7 +4,7 @@ return [
     'disk' => env('WALLBOARD_MEDIA_DISK', 'local'),
     'root' => 'wallboard-media',
     'max_upload_kilobytes' => (int) env('WALLBOARD_MEDIA_MAX_UPLOAD_KB', 15 * 1024),
-    'max_video_upload_kilobytes' => (int) env('WALLBOARD_MEDIA_MAX_VIDEO_UPLOAD_KB', 250 * 1024),
+    'max_video_upload_kilobytes' => (int) env('WALLBOARD_MEDIA_MAX_VIDEO_UPLOAD_KB', 512 * 1024),
     'max_video_duration_seconds' => (int) env('WALLBOARD_MEDIA_MAX_VIDEO_DURATION_SECONDS', 6 * 60 * 60),
     'ffmpeg_binary' => '/usr/bin/ffmpeg',
     'ffprobe_binary' => '/usr/bin/ffprobe',

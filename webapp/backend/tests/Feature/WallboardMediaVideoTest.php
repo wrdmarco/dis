@@ -105,6 +105,11 @@ final class WallboardMediaVideoTest extends TestCase
         }
     }
 
+    public function test_default_video_upload_limit_matches_the_512_mib_server_ceiling(): void
+    {
+        self::assertSame(512 * 1024, config('wallboard_media.max_video_upload_kilobytes'));
+    }
+
     public function test_oversized_video_is_queued_and_atomically_converted_to_1080p(): void
     {
         Queue::fake();

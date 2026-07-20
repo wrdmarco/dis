@@ -142,7 +142,7 @@ test('rejects unsupported, empty and oversized uploads before sending them', () 
   expect(wallboardMediaFileValidationMessage({
     type: 'video/mp4',
     size: WALLBOARD_MEDIA_MAX_VIDEO_UPLOAD_BYTES + 1,
-  } as File)).toBe('Een MP4-video mag maximaal 250 MB groot zijn.');
+  } as File)).toBe('Een MP4-video mag maximaal 512 MB groot zijn.');
 });
 
 test('media management uses CSRF-aware ApiClient writes and no executable markup', () => {

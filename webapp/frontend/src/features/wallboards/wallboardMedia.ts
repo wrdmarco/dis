@@ -18,7 +18,7 @@ export const WALLBOARD_MEDIA_ACCEPTED_TYPES = [
   ...WALLBOARD_MEDIA_VIDEO_TYPES,
 ] as const;
 export const WALLBOARD_MEDIA_MAX_IMAGE_UPLOAD_BYTES = 15 * 1024 * 1024;
-export const WALLBOARD_MEDIA_MAX_VIDEO_UPLOAD_BYTES = 250 * 1024 * 1024;
+export const WALLBOARD_MEDIA_MAX_VIDEO_UPLOAD_BYTES = 512 * 1024 * 1024;
 /** @deprecated Gebruik de limiet per mediatype. */
 export const WALLBOARD_MEDIA_MAX_UPLOAD_BYTES = WALLBOARD_MEDIA_MAX_IMAGE_UPLOAD_BYTES;
 export const WALLBOARD_MEDIA_MAX_BATCH_FILES = 25;
@@ -332,7 +332,7 @@ export function wallboardMediaFileValidationMessage(file: File): string | null {
     return 'Een afbeelding mag maximaal 15 MB groot zijn.';
   }
   if (kind === 'video' && file.size > WALLBOARD_MEDIA_MAX_VIDEO_UPLOAD_BYTES) {
-    return 'Een MP4-video mag maximaal 250 MB groot zijn.';
+    return 'Een MP4-video mag maximaal 512 MB groot zijn.';
   }
   return null;
 }

@@ -305,9 +305,10 @@ the matching cache version is activated. The screen reports page and asset progr
 retries automatically without a manual button and never exposes download URLs or technical error details.
 Live API state and external YouTube/Vimeo streams are deliberately not stored as static media; supported
 external players receive only a bounded connection warm-up. Verified local MP4 files can be assigned to video
-pages and are served through the paired wallboard session with byte-range support. Files above 1080p are queued
-for bounded H.264/AAC normalization; a 4K display still scales the resulting 1080p video to its fullscreen
-viewport without repeatedly downloading it.
+pages and are served through the paired wallboard session with byte-range support. MP4 source uploads are
+accepted up to the configurable 512 MiB server limit. Files above 1080p or outside the browser-safe profile are
+queued for bounded H.264/AAC normalization at a maximum of 1920 x 1080 without upscaling; a 4K display still
+scales the resulting 1080p video to its fullscreen viewport without repeatedly downloading it.
 
 The precache version changes when the playlist configuration or referenced news/media content changes. DIS
 builds the replacement cache in isolation and activates it only after a complete successful pass, so a partial

@@ -625,7 +625,7 @@ export function WallboardMediaLibrary() {
               <span className={styles.uploadIcon}><Upload size={22} aria-hidden /></span>
               <div>
                 <strong>Media uploaden</strong>
-                <span>Sleep één of meer bestanden hierheen, of kies ze op je toestel. JPEG, PNG en WebP maximaal 15 MB; MP4 maximaal 250 MB.</span>
+                <span>Sleep één of meer bestanden hierheen, of kies ze op je toestel. JPEG, PNG en WebP maximaal 15 MB; MP4 maximaal 512 MB. Grote video&apos;s worden op de server naar maximaal 1080p omgezet.</span>
               </div>
               <label className={styles.fileButton}>
                 <input

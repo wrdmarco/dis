@@ -26,7 +26,7 @@ final class WallboardMediaVideoProcessor
     {
         $sourcePath = $upload->getRealPath();
         $sourceBytes = $upload->getSize();
-        $maxBytes = max(1, (int) config('wallboard_media.max_video_upload_kilobytes', 250 * 1024)) * 1024;
+        $maxBytes = max(1, (int) config('wallboard_media.max_video_upload_kilobytes', 512 * 1024)) * 1024;
         if (! $upload->isValid()
             || ! is_string($sourcePath)
             || ! is_file($sourcePath)
