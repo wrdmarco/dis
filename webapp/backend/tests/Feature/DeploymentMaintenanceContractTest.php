@@ -103,6 +103,37 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertTrue($deployDependency < $deployMaintenance);
     }
 
+    public function test_incident_location_enrichment_has_an_independent_low_priority_worker(): void
+    {
+        $service = $this->read('infrastructure/systemd/dis-incident-enrichment.service');
+        $queue = $this->read('infrastructure/systemd/dis-queue.service');
+        $common = $this->read('scripts/lib/common.sh');
+        $deploy = $this->read('scripts/deploy.sh');
+        $restore = $this->read('scripts/restore.sh');
+        $selfHeal = $this->read('scripts/self-heal-permissions.sh');
+        $uninstall = $this->read('scripts/uninstall.sh');
+
+        self::assertStringContainsString('--queue=incident-enrichment', $service);
+        self::assertStringContainsString('-d zend.exception_ignore_args=1 artisan queue:work', $service);
+        self::assertStringContainsString('--tries=1', $service);
+        self::assertStringContainsString('--timeout=30', $service);
+        self::assertStringContainsString('Wants=network-online.target', $service);
+        self::assertStringContainsString('After=network-online.target redis-server.service postgresql.service', $service);
+        self::assertStringContainsString('--max-jobs=500', $service);
+        self::assertStringContainsString('--max-time=3600', $service);
+        self::assertStringContainsString('NoNewPrivileges=true', $service);
+        self::assertStringContainsString('ProtectSystem=strict', $service);
+        self::assertStringContainsString('MemoryMax=384M', $service);
+        self::assertStringContainsString('CPUQuota=50%', $service);
+        self::assertStringContainsString('Nice=10', $service);
+        self::assertStringNotContainsString('incident-enrichment', $queue);
+        self::assertStringContainsString('dis-incident-enrichment', $common);
+        self::assertStringContainsString('infrastructure/systemd/dis-incident-enrichment.service', $deploy);
+        self::assertStringContainsString('dis-incident-enrichment', $restore);
+        self::assertStringContainsString('dis-incident-enrichment', $selfHeal);
+        self::assertStringContainsString('/etc/systemd/system/dis-incident-enrichment.service', $uninstall);
+    }
+
     public function test_deploy_stops_runtime_before_migrations_and_only_opens_after_verification(): void
     {
         $script = $this->read('scripts/deploy.sh');

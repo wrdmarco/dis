@@ -5,9 +5,11 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Incidents\UpdatePilotIncidentReportRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\Incident;
+use App\Models\SystemSetting;
 use App\Models\User;
-use App\Services\PilotIncidentReportService;
+use App\Services\IncidentAccessService;
 use App\Services\PilotIncidentReportFormService;
+use App\Services\PilotIncidentReportService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +19,7 @@ final class PilotIncidentReportController extends Controller
     public function __construct(
         private readonly PilotIncidentReportService $service,
         private readonly PilotIncidentReportFormService $formService,
+        private readonly IncidentAccessService $incidentAccessService,
     ) {}
 
     public function formConfig(Request $request): JsonResponse
@@ -27,8 +30,23 @@ final class PilotIncidentReportController extends Controller
         }
 
         $target = (string) $request->query('target', $request->is('api/admin/*') ? 'web' : 'operator');
+        $incident = null;
+        if ($request->filled('incident_id')) {
+            $actor = $request->user();
+            abort_unless($actor instanceof User, 401);
+            $incident = $this->incidentAccessService
+                ->scopeIncidents(
+                    Incident::query()->whereKey((string) $request->query('incident_id')),
+                    $actor,
+                )
+                ->firstOrFail();
+        }
 
-        return ApiResponse::success(['fields' => $this->formService->fields($targetUser, operatorOnly: $target === 'operator')]);
+        return ApiResponse::success(['fields' => $this->formService->fields(
+            $targetUser,
+            operatorOnly: $target === 'operator',
+            incident: $incident,
+        )]);
     }
 
     public function updateFormConfig(Request $request): JsonResponse
@@ -39,7 +57,7 @@ final class PilotIncidentReportController extends Controller
 
         $fields = $this->formService->validateFields($data['fields']);
 
-        \App\Models\SystemSetting::query()->updateOrCreate(
+        SystemSetting::query()->updateOrCreate(
             ['key' => PilotIncidentReportFormService::SETTING_KEY],
             ['value' => $fields, 'is_sensitive' => false, 'updated_by' => $request->user()?->id],
         );
@@ -77,7 +95,7 @@ final class PilotIncidentReportController extends Controller
 
     public function updateForUser(Request $request, Incident $incident, User $user): JsonResponse
     {
-        $data = $request->validate($this->formService->validationRules($user));
+        $data = $request->validate($this->formService->validationRules($user, $incident));
 
         return ApiResponse::success(MobileApiPayload::pilotIncidentReport(
             $this->service->submitForActor($incident, $user, $request->user(), $data),

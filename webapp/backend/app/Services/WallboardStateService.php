@@ -27,7 +27,7 @@ final class WallboardStateService
         private readonly WallboardDisplayService $displayService,
         private readonly WallboardFocusService $focusService,
         private readonly WallboardPlaylistResolver $playlistResolver,
-        private readonly AvailabilityScheduleService $availabilityScheduleService,
+        private readonly WallboardKpiService $kpiService,
         private readonly WallboardContentSnapshotService $contentSnapshots,
         private readonly WallboardMediaStateService $mediaStateService,
         private readonly WallboardMaintenanceNoticeService $maintenanceNoticeService,
@@ -66,6 +66,7 @@ final class WallboardStateService
                 'updated_at' => ApiDateTime::dateTime($wallboard->updated_at),
             ],
             'operational_summary' => $runtime['operational_summary'],
+            'kpi' => $runtime['kpi'],
             'ticker' => ['items' => $ticker['items']],
             'news' => [
                 'pages' => $news['pages'],
@@ -92,6 +93,7 @@ final class WallboardStateService
             'generated_at' => $runtime['generated_at'],
             'maintenance' => $runtime['maintenance'],
             'operational_summary' => $runtime['operational_summary'],
+            'kpi' => $runtime['kpi'],
             'calendar' => $runtime['calendar'],
             'map' => $runtime['map'],
         ];
@@ -249,6 +251,9 @@ final class WallboardStateService
             ->filter(fn (array $page): bool => (string) ($page['type'] ?? '') === 'summary');
         $showsOperationalSummary = $summaryPages->isNotEmpty()
             || ($hasMapPage && ($mapConfiguration['show_summary'] ?? false) === true);
+        $pilotMetrics = $showsOperationalSummary
+            ? $this->kpiService->pilotMetrics()
+            : null;
         $needsIncidents = $showsOperationalSummary
             || ($hasMapPage && (
                 ($mapConfiguration['show_active_incidents'] ?? false) === true
@@ -275,7 +280,10 @@ final class WallboardStateService
             'display' => $display,
             'operational_summary' => [
                 'pilot_availability' => $showsOperationalSummary
-                    ? $this->pilotAvailability()
+                    ? [
+                        'available' => $pilotMetrics['available'],
+                        'total' => $pilotMetrics['total'],
+                    ]
                     : ['available' => 0, 'total' => 0],
                 'active_alarm' => $activeAlarm,
                 'recent_incidents' => $showsOperationalSummary
@@ -284,6 +292,7 @@ final class WallboardStateService
                 'focus' => $focus,
                 'transient_alert' => $transientAlert,
             ],
+            'kpi' => $this->kpiService->pages($configuration, $pilotMetrics),
             'calendar' => $this->calendarService->pages($configuration),
             'map' => [
                 'incidents' => $incidents->map(fn (Incident $incident): array => $this->incidentPayload($incident))->values()->all(),
@@ -298,27 +307,6 @@ final class WallboardStateService
                     : [],
             ],
         ];
-    }
-
-    /** @return array{available: int, total: int} */
-    private function pilotAvailability(): array
-    {
-        $pilots = User::query()
-            ->where('account_status', 'active')
-            ->whereHas('teams', fn ($teams) => $teams->where('teams.code', 'OCP'))
-            ->whereHas('roles', fn ($roles) => $roles->where('roles.name', 'operator-pilot'))
-            ->with(['statuses' => fn ($statuses) => $statuses->latestPerUser()])
-            ->get(['id', 'push_enabled']);
-        $scheduledAvailability = $this->availabilityScheduleService->availabilityByUser($pilots);
-        $available = $pilots->filter(function (User $pilot) use ($scheduledAvailability): bool {
-            $latestStatus = $pilot->statuses->first();
-
-            return (bool) $pilot->push_enabled
-                && ($latestStatus === null || (bool) $latestStatus->is_available)
-                && ($scheduledAvailability[(string) $pilot->id] ?? true);
-        })->count();
-
-        return ['available' => $available, 'total' => $pilots->count()];
     }
 
     /**

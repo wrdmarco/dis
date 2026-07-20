@@ -8,6 +8,9 @@ import type {
   WallboardFlipDirection,
   WallboardForecastBlockKey,
   WallboardForecastLocationMode,
+  WallboardKpiCategory,
+  WallboardKpiKey,
+  WallboardKpiVisualization,
   WallboardMapConfiguration,
   WallboardNewsSource,
   WallboardNewsItemTransition,
@@ -76,6 +79,119 @@ export const WALLBOARD_FORECAST_BLOCK_KEYS = [
 ] as const satisfies readonly WallboardForecastBlockKey[];
 export const DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS: readonly WallboardForecastBlockKey[] =
   WALLBOARD_FORECAST_BLOCK_KEYS;
+export const WALLBOARD_KPI_DEFINITIONS = [
+  { key: 'pilots_available', category: 'pilots', label: 'Beschikbare piloten', help: 'Piloten die nu operationeel beschikbaar zijn.' },
+  { key: 'pilots_unavailable', category: 'pilots', label: 'Niet-beschikbare piloten', help: 'Piloten die nu niet inzetbaar zijn.' },
+  { key: 'pilots_total', category: 'pilots', label: 'Totaal piloten', help: 'Alle piloten binnen het operationele bereik.' },
+  { key: 'pilot_availability_rate', category: 'pilots', label: 'Beschikbaarheid', help: 'Het actuele percentage beschikbare piloten.' },
+  { key: 'pilots_en_route', category: 'pilots', label: 'Piloten onderweg', help: 'Piloten die momenteel onderweg zijn naar een inzet.' },
+  { key: 'pilots_on_scene', category: 'pilots', label: 'Piloten op locatie', help: 'Piloten die zich momenteel op een inzetlocatie bevinden.' },
+  { key: 'pilots_push_disabled', category: 'pilots', label: 'Push uitgeschakeld', help: 'Piloten die door uitgeschakelde push niet operationeel inzetbaar zijn.' },
+  { key: 'incidents_total', category: 'incidents', label: 'Open incidenten totaal', help: 'Alle echte open incidenten in de fasen actief, alarmering en in uitvoering.' },
+  { key: 'incidents_registered_total', category: 'incidents', label: 'Incidenten sinds registratie', help: 'Alle incidenten die sinds de ingebruikname van D.I.S. zijn geregistreerd.' },
+  { key: 'incidents_active', category: 'incidents', label: 'Status actief', help: 'Open incidenten met de status actief.' },
+  { key: 'incidents_dispatching', category: 'incidents', label: 'Wordt gealarmeerd', help: 'Incidenten waarvoor de alarmering loopt.' },
+  { key: 'incidents_in_progress', category: 'incidents', label: 'In uitvoering', help: 'Incidenten met een lopende inzet.' },
+  { key: 'incidents_low', category: 'incidents', label: 'Prioriteit laag', help: 'Incidenten met lage prioriteit.' },
+  { key: 'incidents_normal', category: 'incidents', label: 'Prioriteit normaal', help: 'Incidenten met normale prioriteit.' },
+  { key: 'incidents_high', category: 'incidents', label: 'Prioriteit hoog', help: 'Incidenten met hoge prioriteit.' },
+  { key: 'incidents_critical', category: 'incidents', label: 'Prioriteit kritiek', help: 'Incidenten met kritieke prioriteit.' },
+  { key: 'incidents_opened_today', category: 'incidents', label: 'Incidenten geopend vandaag', help: 'Incidenten die vandaag zijn geopend.' },
+  { key: 'incidents_resolved_today', category: 'incidents', label: 'Incidenten afgerond vandaag', help: 'Incidenten die vandaag zijn afgerond.' },
+  { key: 'incidents_cancelled_today', category: 'incidents', label: 'Incidenten geannuleerd vandaag', help: 'Incidenten die vandaag zijn geannuleerd.' },
+  { key: 'incidents_resolved_total', category: 'incidents', label: 'Afgerond sinds registratie', help: 'Alle afgeronde incidenten sinds de ingebruikname van D.I.S.' },
+  { key: 'incidents_cancelled_total', category: 'incidents', label: 'Geannuleerd sinds registratie', help: 'Alle geannuleerde incidenten sinds de ingebruikname van D.I.S.' },
+  { key: 'assets_total', category: 'assets', label: 'Totaal middelen', help: 'Alle geregistreerde operationele middelen.' },
+  { key: 'assets_ready', category: 'assets', label: 'Middelen gereed', help: 'Middelen die direct inzetbaar zijn.' },
+  { key: 'assets_maintenance', category: 'assets', label: 'Middelen in onderhoud', help: 'Middelen die vanwege onderhoud niet gereed zijn.' },
+  { key: 'assets_unavailable', category: 'assets', label: 'Middelen niet beschikbaar', help: 'Middelen die niet inzetbaar of buiten gebruik zijn.' },
+  { key: 'assets_issues', category: 'assets', label: 'Middelproblemen', help: 'Middelen die operationele aandacht nodig hebben.' },
+  { key: 'drones_total', category: 'assets', label: 'Drones totaal', help: 'Alle als drone geregistreerde operationele middelen.' },
+  { key: 'drones_ready', category: 'assets', label: 'Drones gereed', help: 'Drones die direct inzetbaar zijn.' },
+  { key: 'responses_targeted', category: 'responses', label: 'Doelgroep', help: 'Piloten aan wie een actuele uitvraag is gericht.' },
+  { key: 'responses_contacted', category: 'responses', label: 'Gecontacteerd', help: 'Piloten die voor de actuele uitvraag zijn bereikt.' },
+  { key: 'responses_pending', category: 'responses', label: 'Wacht op reactie', help: 'Piloten van wie nog een reactie wordt verwacht.' },
+  { key: 'responses_accepted', category: 'responses', label: 'Komt / beschikbaar', help: 'Piloten die positief hebben gereageerd.' },
+  { key: 'responses_declined', category: 'responses', label: 'Komt niet', help: 'Piloten die de actuele uitvraag hebben afgewezen.' },
+  { key: 'responses_no_response', category: 'responses', label: 'Geen reactie', help: 'Piloten van wie geen reactie is ontvangen.' },
+  { key: 'dispatches_active', category: 'responses', label: 'Actieve dispatches', help: 'Dispatches waarvoor de uitvraag of reactieperiode nog loopt.' },
+  { key: 'dispatch_acceptance_rate', category: 'responses', label: 'Acceptatiegraad', help: 'Het percentage positieve reacties op dispatches.' },
+  { key: 'flight_reports_this_month', category: 'flight', label: 'Vluchten deze maand', help: 'Inzetrapporten met een vastgelegde vlucht in de huidige maand.' },
+  { key: 'flight_minutes_this_month', category: 'flight', label: 'Vluchttijd deze maand', help: 'Totaal vastgelegde vliegminuten in de huidige maand.' },
+  { key: 'average_flight_minutes_this_month', category: 'flight', label: 'Gem. vluchttijd deze maand', help: 'Gemiddelde vastgelegde vluchttijd per inzetrapport in de huidige maand.' },
+  { key: 'drones_flown_distribution', category: 'flight', label: 'Dronetypen in inzetrapporten', help: 'Verdeling op fabrikant en model van de drones waarmee volgens inzetrapporten is gevlogen.' },
+  { key: 'incidents_by_province', category: 'incidents', label: 'Incidenten per provincie', help: 'Verdeling van geregistreerde incidenten over de provincies.' },
+  { key: 'incidents_by_country', category: 'incidents', label: 'Incidenten per land', help: 'Verdeling van geregistreerde incidenten over de herkende landen.' },
+] as const satisfies ReadonlyArray<{
+  key: WallboardKpiKey;
+  category: WallboardKpiCategory;
+  label: string;
+  help: string;
+}>;
+export const WALLBOARD_KPI_KEYS = WALLBOARD_KPI_DEFINITIONS.map((definition) => definition.key);
+export const DEFAULT_WALLBOARD_KPI_VISIBLE_METRICS = [
+  'pilots_available',
+  'pilots_unavailable',
+  'pilots_total',
+  'pilot_availability_rate',
+  'incidents_total',
+  'incidents_active',
+  'incidents_dispatching',
+  'incidents_in_progress',
+  'incidents_low',
+  'incidents_normal',
+  'incidents_high',
+  'incidents_critical',
+  'assets_total',
+  'assets_ready',
+  'assets_maintenance',
+  'assets_unavailable',
+  'assets_issues',
+  'responses_targeted',
+  'responses_contacted',
+  'responses_pending',
+  'responses_accepted',
+  'responses_declined',
+  'responses_no_response',
+] as const satisfies readonly WallboardKpiKey[];
+export const MAX_WALLBOARD_KPI_CHARTS = 6;
+export const WALLBOARD_KPI_VISUALIZATIONS = ['counter', 'bar', 'pie', 'ring'] as const satisfies readonly WallboardKpiVisualization[];
+const WALLBOARD_KPI_DISTRIBUTION_KEYS = new Set<WallboardKpiKey>([
+  'drones_flown_distribution',
+  'incidents_by_province',
+  'incidents_by_country',
+]);
+const WALLBOARD_KPI_RATIO_KEYS = new Set<WallboardKpiKey>([
+  'pilot_availability_rate',
+  'dispatch_acceptance_rate',
+  'pilots_available',
+  'pilots_unavailable',
+  'pilots_en_route',
+  'pilots_on_scene',
+  'pilots_push_disabled',
+  'incidents_active',
+  'incidents_dispatching',
+  'incidents_in_progress',
+  'incidents_low',
+  'incidents_normal',
+  'incidents_high',
+  'incidents_critical',
+  'incidents_resolved_total',
+  'incidents_cancelled_total',
+  'assets_ready',
+  'assets_maintenance',
+  'assets_unavailable',
+  'assets_issues',
+  'drones_ready',
+  'responses_contacted',
+  'responses_pending',
+  'responses_accepted',
+  'responses_declined',
+  'responses_no_response',
+]);
+export const DEFAULT_WALLBOARD_KPI_VISUALIZATIONS = Object.fromEntries(
+  WALLBOARD_KPI_KEYS.map((key) => [key, wallboardKpiDefaultVisualization(key)]),
+) as Record<WallboardKpiKey, WallboardKpiVisualization>;
 export const MIN_WALLBOARD_NEWS_MAX_ITEMS = 1;
 export const MAX_WALLBOARD_NEWS_MAX_ITEMS = 12;
 export const DEFAULT_WALLBOARD_NEWS_MAX_ITEMS = 6;
@@ -485,6 +601,11 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
         }
       : type === 'calendar'
         ? { max_items: DEFAULT_WALLBOARD_CALENDAR_MAX_ITEMS }
+      : type === 'kpi'
+        ? {
+          visible_metrics: [...DEFAULT_WALLBOARD_KPI_VISIBLE_METRICS],
+          metric_visualizations: { ...DEFAULT_WALLBOARD_KPI_VISUALIZATIONS },
+        }
       : type === 'news'
         ? {
           sources: [...DEFAULT_WALLBOARD_NEWS_SOURCES],
@@ -542,6 +663,7 @@ export function wallboardPageTypeLabel(type: WallboardPageType): string {
     case 'map': return 'Operationele kaart';
     case 'incident_list': return 'Incidentenoverzicht';
     case 'summary': return 'Operationele samenvatting';
+    case 'kpi': return 'KPI-overzicht';
     case 'calendar': return 'Agenda';
     case 'message': return 'Mededeling';
     case 'safety_notice': return 'Veiligheidsbericht';
@@ -733,7 +855,7 @@ function normalizeWallboardPage(
   page: WallboardPage,
   index: number,
 ): WallboardPage {
-  const type: WallboardPageType = ['map', 'incident_list', 'summary', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'news', 'video', 'photo_carousel'].includes(page.type)
+  const type: WallboardPageType = ['map', 'incident_list', 'summary', 'kpi', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'news', 'video', 'photo_carousel'].includes(page.type)
     ? page.type
     : 'map';
   const id = typeof page.id === 'string' && page.id.trim() !== '' ? page.id : `page-${index + 1}`;
@@ -766,6 +888,8 @@ function normalizeWallboardPage(
         ? normalizeWallboardForecastPageOptions(page)
       : type === 'calendar'
         ? { max_items: clampWallboardCalendarMaxItems(Number(page.options?.max_items)) }
+      : type === 'kpi'
+        ? normalizeWallboardKpiPageOptions(page)
       : type === 'news'
         ? normalizeWallboardNewsPageOptions(page)
         : type === 'video'
@@ -853,6 +977,58 @@ export function normalizeWallboardForecastPageOptions(page: WallboardPage): Wall
       location_mode: DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE,
       visible_blocks: visibleBlocks,
     };
+}
+
+export function normalizeWallboardKpiPageOptions(page: WallboardPage): WallboardPage['options'] {
+  const selectedMetrics = Array.isArray(page.options.visible_metrics)
+    ? new Set(page.options.visible_metrics)
+    : null;
+  const rawVisualizations = typeof page.options.metric_visualizations === 'object'
+    && page.options.metric_visualizations !== null
+    && !Array.isArray(page.options.metric_visualizations)
+    ? page.options.metric_visualizations
+    : {};
+  const metricVisualizations = Object.fromEntries(WALLBOARD_KPI_KEYS.map((key) => {
+    const candidate = rawVisualizations[key];
+    return [
+      key,
+      typeof candidate === 'string'
+        && wallboardKpiSupportedVisualizations(key).includes(candidate as WallboardKpiVisualization)
+        ? candidate
+        : wallboardKpiDefaultVisualization(key),
+    ];
+  })) as Record<WallboardKpiKey, WallboardKpiVisualization>;
+
+  return {
+    visible_metrics: selectedMetrics === null
+      ? [...WALLBOARD_KPI_KEYS]
+      : WALLBOARD_KPI_KEYS.filter((key) => selectedMetrics.has(key)),
+    metric_visualizations: metricVisualizations,
+  };
+}
+
+export function wallboardVisibleKpiKeys(page: WallboardPage): WallboardKpiKey[] {
+  return normalizeWallboardKpiPageOptions(page).visible_metrics ?? [];
+}
+
+export function wallboardKpiSupportedVisualizations(key: WallboardKpiKey): readonly WallboardKpiVisualization[] {
+  return WALLBOARD_KPI_DISTRIBUTION_KEYS.has(key) || WALLBOARD_KPI_RATIO_KEYS.has(key)
+    ? WALLBOARD_KPI_VISUALIZATIONS
+    : ['counter'];
+}
+
+export function wallboardKpiDefaultVisualization(key: WallboardKpiKey): WallboardKpiVisualization {
+  if (key === 'drones_flown_distribution') return 'pie';
+  if (key === 'incidents_by_province' || key === 'incidents_by_country') return 'bar';
+  return 'counter';
+}
+
+export function wallboardKpiVisualization(
+  page: WallboardPage,
+  key: WallboardKpiKey,
+): WallboardKpiVisualization {
+  return normalizeWallboardKpiPageOptions(page).metric_visualizations?.[key]
+    ?? wallboardKpiDefaultVisualization(key);
 }
 
 /**

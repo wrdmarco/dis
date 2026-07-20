@@ -224,13 +224,58 @@ export interface OperationalMapPilotHome {
 export type WallboardLayout = 'fullscreen_map';
 export type WallboardDisplayProfile = 'auto' | '1080p' | '4k';
 export type WallboardTheme = 'dark' | 'light';
-export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'calendar' | 'message' | 'safety_notice' | 'quote' | 'uav_forecast' | 'news' | 'video' | 'photo_carousel';
+export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'kpi' | 'calendar' | 'message' | 'safety_notice' | 'quote' | 'uav_forecast' | 'news' | 'video' | 'photo_carousel';
 export type WallboardDisplayMode = 'rotation' | 'static' | 'manual' | 'incident_override';
 export type WallboardNewsItemTransition = 'fade' | 'dissolve' | 'slide' | 'flip' | 'zoom' | 'wipe' | 'none';
 export type WallboardItemTransition = WallboardNewsItemTransition;
 export type WallboardPageTransition = WallboardItemTransition;
 export type WallboardFlipDirection = 'left_to_right' | 'top_to_bottom' | 'bottom_to_top' | 'random';
 export type WallboardForecastLocationMode = 'netherlands' | 'address';
+export type WallboardKpiCategory = 'pilots' | 'incidents' | 'assets' | 'responses' | 'flight';
+export type WallboardKpiVisualization = 'counter' | 'bar' | 'pie' | 'ring';
+export type WallboardKpiKey =
+  | 'pilots_available'
+  | 'pilots_unavailable'
+  | 'pilots_total'
+  | 'pilot_availability_rate'
+  | 'pilots_en_route'
+  | 'pilots_on_scene'
+  | 'pilots_push_disabled'
+  | 'incidents_total'
+  | 'incidents_registered_total'
+  | 'incidents_active'
+  | 'incidents_dispatching'
+  | 'incidents_in_progress'
+  | 'incidents_low'
+  | 'incidents_normal'
+  | 'incidents_high'
+  | 'incidents_critical'
+  | 'incidents_opened_today'
+  | 'incidents_resolved_today'
+  | 'incidents_cancelled_today'
+  | 'incidents_resolved_total'
+  | 'incidents_cancelled_total'
+  | 'assets_total'
+  | 'assets_ready'
+  | 'assets_maintenance'
+  | 'assets_unavailable'
+  | 'assets_issues'
+  | 'drones_total'
+  | 'drones_ready'
+  | 'responses_targeted'
+  | 'responses_contacted'
+  | 'responses_pending'
+  | 'responses_accepted'
+  | 'responses_declined'
+  | 'responses_no_response'
+  | 'dispatches_active'
+  | 'dispatch_acceptance_rate'
+  | 'flight_reports_this_month'
+  | 'flight_minutes_this_month'
+  | 'average_flight_minutes_this_month'
+  | 'drones_flown_distribution'
+  | 'incidents_by_province'
+  | 'incidents_by_country';
 export type WallboardForecastBlockKey =
   | 'weather'
   | 'daylight'
@@ -351,6 +396,8 @@ export interface WallboardPageOptions {
   location_mode?: WallboardForecastLocationMode;
   location_label?: string;
   visible_blocks?: WallboardForecastBlockKey[];
+  visible_metrics?: WallboardKpiKey[];
+  metric_visualizations?: Partial<Record<WallboardKpiKey, WallboardKpiVisualization>>;
   /** Alleen aanwezig bij oudere configuraties; nieuwe writes laten geocodering aan de server. */
   latitude?: number;
   /** Alleen aanwezig bij oudere configuraties; nieuwe writes laten geocodering aan de server. */
@@ -707,7 +754,33 @@ export interface WallboardState {
   media: {
     photo_pages: Record<string, WallboardMediaPageState>;
   };
+  kpi: WallboardKpiState;
   forecast: WallboardForecastState;
+}
+
+export interface WallboardKpiMetric {
+  key: WallboardKpiKey;
+  label: string;
+  value: number | null;
+  unit: string | null;
+  category: WallboardKpiCategory;
+  context?: string | null;
+  visualization?: WallboardKpiVisualization;
+  segments?: WallboardKpiSegment[];
+}
+
+export interface WallboardKpiSegment {
+  label: string;
+  value: number;
+}
+
+export interface WallboardKpiPageState {
+  metrics: WallboardKpiMetric[];
+}
+
+export interface WallboardKpiState {
+  generated_at: string;
+  pages: Record<string, WallboardKpiPageState>;
 }
 
 export type WallboardForecastStatus = 'green' | 'orange' | 'red' | 'unknown';

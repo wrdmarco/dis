@@ -4,6 +4,7 @@ namespace App\Http\Requests\Admin;
 
 use App\Models\WallboardPlaylist;
 use App\Support\WallboardConfiguration;
+use App\Support\WallboardKpiDefinition;
 use App\Support\WallboardRichText;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -38,7 +39,7 @@ abstract class WallboardPlaylistRequest extends FormRequest
             'configuration.pages.*.transition' => ['sometimes', 'nullable', 'string', Rule::in(WallboardConfiguration::PAGE_TRANSITIONS)],
             'configuration.pages.*.transition_duration_ms' => ['sometimes', 'nullable', 'integer:strict', 'between:'.WallboardConfiguration::MIN_TRANSITION_DURATION_MS.','.WallboardConfiguration::MAX_TRANSITION_DURATION_MS],
             'configuration.pages.*.flip_direction' => ['sometimes', 'nullable', 'string', Rule::in(WallboardConfiguration::FLIP_DIRECTIONS)],
-            'configuration.pages.*.options' => ['sometimes', 'array:body,content,quotes,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,item_transition,item_transition_duration_ms,item_flip_direction,url,video_duration_seconds,media_asset_id,media_asset_version,media_playlist_id,location_mode,location_label,latitude,longitude,visible_blocks'],
+            'configuration.pages.*.options' => ['sometimes', 'array:body,content,quotes,show_test_incidents,sources,custom_sources,max_items,item_duration_seconds,item_transition,item_transition_duration_ms,item_flip_direction,url,video_duration_seconds,media_asset_id,media_asset_version,media_playlist_id,location_mode,location_label,latitude,longitude,visible_blocks,visible_metrics,metric_visualizations'],
             'configuration.pages.*.options.body' => ['sometimes', 'string', 'max:2000'],
             'configuration.pages.*.options.content' => ['sometimes', 'array:version,blocks'],
             'configuration.pages.*.options.content.version' => ['sometimes', 'integer:strict'],
@@ -55,6 +56,10 @@ abstract class WallboardPlaylistRequest extends FormRequest
             'configuration.pages.*.options.location_mode' => ['sometimes', 'string', Rule::in(WallboardConfiguration::FORECAST_LOCATION_MODES)],
             'configuration.pages.*.options.visible_blocks' => ['sometimes', 'array'],
             'configuration.pages.*.options.visible_blocks.*' => ['required', 'string', 'distinct', Rule::in(WallboardConfiguration::FORECAST_VISIBLE_BLOCKS)],
+            'configuration.pages.*.options.visible_metrics' => ['sometimes', 'array', 'max:'.count(WallboardKpiDefinition::KEYS)],
+            'configuration.pages.*.options.visible_metrics.*' => ['required', 'string', 'distinct:strict', Rule::in(WallboardKpiDefinition::KEYS)],
+            'configuration.pages.*.options.metric_visualizations' => ['sometimes', 'array:'.implode(',', WallboardKpiDefinition::KEYS)],
+            'configuration.pages.*.options.metric_visualizations.*' => ['required', 'string', Rule::in(WallboardKpiDefinition::VISUALIZATIONS)],
             'configuration.pages.*.options.location_label' => ['sometimes', 'string', 'max:'.WallboardConfiguration::MAX_FORECAST_LOCATION_LABEL_LENGTH],
             'configuration.pages.*.options.latitude' => ['sometimes', 'numeric', 'between:-90,90'],
             'configuration.pages.*.options.longitude' => ['sometimes', 'numeric', 'between:-180,180'],

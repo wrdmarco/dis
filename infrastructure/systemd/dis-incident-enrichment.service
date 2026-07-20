@@ -1,0 +1,45 @@
+[Unit]
+Description=DIS Incident Location Enrichment Worker
+Wants=network-online.target
+After=network-online.target redis-server.service postgresql.service
+
+[Service]
+Type=exec
+User=dis
+Group=dis
+WorkingDirectory=/opt/dis/webapp/backend
+ExecStartPre=/usr/bin/test -r /opt/dis/webapp/backend/artisan
+ExecStart=/usr/bin/php -d zend.exception_ignore_args=1 artisan queue:work redis --queue=incident-enrichment --sleep=5 --tries=1 --timeout=30 --max-jobs=500 --max-time=3600
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+KillMode=control-group
+TimeoutStopSec=35s
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+RestrictRealtime=true
+MemoryHigh=256M
+MemoryMax=384M
+CPUQuota=50%
+TasksMax=64
+Nice=10
+OOMPolicy=stop
+ReadWritePaths=/opt/dis-data /opt/dis/webapp/backend/storage /opt/dis/storage
+
+[Install]
+WantedBy=multi-user.target

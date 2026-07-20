@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Incidents;
 
+use App\Models\Incident;
 use App\Services\PilotIncidentReportFormService;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -12,6 +13,11 @@ final class UpdatePilotIncidentReportRequest extends FormRequest
      */
     public function rules(): array
     {
-        return app(PilotIncidentReportFormService::class)->validationRules($this->user());
+        $incident = $this->route('incident');
+
+        return app(PilotIncidentReportFormService::class)->validationRules(
+            $this->user(),
+            $incident instanceof Incident ? $incident : null,
+        );
     }
 }

@@ -12,6 +12,15 @@ Schedule::command('dis:refresh-wallboard-content')
     ->everyFiveMinutes()
     ->onOneServer()
     ->withoutOverlapping(10);
+Schedule::command('dis:backfill-incident-locations')
+    ->everyFiveMinutes()
+    ->onOneServer()
+    ->withoutOverlapping(10)
+    ->when(static fn (): bool => (bool) config('dis.incident_location.enabled', true));
+Schedule::command('dis:backfill-pilot-report-drone-snapshots')
+    ->everyFiveMinutes()
+    ->onOneServer()
+    ->withoutOverlapping(10);
 Schedule::command('dis:prune-operational-data')->dailyAt('03:45');
 Schedule::command('dis:send-certification-expiry-mails')->dailyAt('08:00');
 Schedule::command('dis:apply-vacation-statuses')->everyFiveMinutes();

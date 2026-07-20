@@ -24,6 +24,7 @@ final class PilotIncidentReport extends Model
         'equipment_used',
         'flight_minutes',
         'custom_fields',
+        'drone_usage_snapshot',
         'prepared_at',
         'submitted_at',
         'finalized_at',
@@ -34,6 +35,7 @@ final class PilotIncidentReport extends Model
         return [
             'flight_minutes' => 'integer',
             'custom_fields' => 'array',
+            'drone_usage_snapshot' => 'array',
             'prepared_at' => 'immutable_datetime',
             'submitted_at' => 'immutable_datetime',
             'finalized_at' => 'immutable_datetime',

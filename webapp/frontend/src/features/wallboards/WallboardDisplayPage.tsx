@@ -10,8 +10,11 @@ import dynamic from 'next/dynamic.js';
 import {
   Activity,
   AlertTriangle,
+  BarChart3,
   BellRing,
+  Boxes,
   CalendarDays,
+  ChartPie,
   Cloud,
   CloudRain,
   CloudSun,
@@ -32,6 +35,7 @@ import {
   Siren,
   Satellite,
   SatelliteDish,
+  Send,
   ShieldAlert,
   Sunrise,
   Thermometer,
@@ -48,6 +52,12 @@ import type {
   WallboardFocusResponses,
   WallboardFocusState,
   WallboardMaintenanceNotice,
+  WallboardKpiCategory,
+  WallboardKpiKey,
+  WallboardKpiMetric,
+  WallboardKpiPageState,
+  WallboardKpiState,
+  WallboardKpiVisualization,
   WallboardForecastBlockKey,
   WallboardForecastMetric,
   WallboardForecastPageState,
@@ -77,14 +87,19 @@ import {
   formatWallboardPilotAvailability,
   normalizeWallboardDisplayProfile,
   normalizeWallboardFlipDirection,
+  normalizeWallboardKpiPageOptions,
   normalizeWallboardNewsItemTransition,
   resolveWallboardFlipDirection,
   selectRecentWallboardIncidents,
   selectWallboardDailyQuote,
   WALLBOARD_FORECAST_BLOCK_KEYS,
+  WALLBOARD_KPI_DEFINITIONS,
+  WALLBOARD_KPI_KEYS,
   wallboardConfigurationCopy,
   wallboardEffectivePageTransition,
   wallboardFocusKindLabel,
+  wallboardKpiDefaultVisualization,
+  wallboardKpiSupportedVisualizations,
   wallboardMessageContent,
   wallboardPageMapConfiguration,
   wallboardStateIsStale,
@@ -175,6 +190,34 @@ const WALLBOARD_CALENDAR_TIME_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
   hour12: false,
   timeZone: WALLBOARD_TIME_ZONE,
 });
+const WALLBOARD_KPI_NUMBER_FORMATTER = new Intl.NumberFormat('nl-NL', {
+  maximumFractionDigits: 1,
+});
+const WALLBOARD_KPI_DEFINITION_BY_KEY = new Map(
+  WALLBOARD_KPI_DEFINITIONS.map((definition) => [definition.key, definition]),
+);
+const WALLBOARD_KPI_CATEGORY_LABELS: Record<WallboardKpiCategory, string> = {
+  pilots: 'Piloten',
+  incidents: 'Incidenten',
+  assets: 'Middelen',
+  responses: 'Reacties',
+  flight: 'Vluchtgegevens',
+};
+const WALLBOARD_KPI_PIE_COLORS = [
+  '#38bdf8',
+  '#a78bfa',
+  '#34d399',
+  '#fbbf24',
+  '#fb7185',
+  '#22d3ee',
+  '#c084fc',
+  '#f97316',
+  '#60a5fa',
+  '#a3e635',
+  '#f472b6',
+  '#2dd4bf',
+  '#facc15',
+] as const;
 const WALLBOARD_CALENDAR_DATE_PARTS_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   year: 'numeric',
   month: '2-digit',
@@ -1329,6 +1372,16 @@ function WallboardPageContent({
     return <WallboardForecastPage page={page} forecast={state.forecast.pages[page.id]} />;
   }
 
+  if (page.type === 'kpi') {
+    return (
+      <WallboardKpiPage
+        page={page}
+        kpi={state.kpi.pages[page.id]}
+        generatedAt={state.kpi.generated_at}
+      />
+    );
+  }
+
   if (page.type === 'summary') {
     return (
       <div className="wallboard-display__overview">
@@ -1587,6 +1640,273 @@ function wallboardCalendarTypeLabel(value: string): string {
     case 'meeting': return 'Overleg';
     default: return 'Agenda';
   }
+}
+
+function WallboardKpiPage({
+  page,
+  kpi,
+  generatedAt,
+}: {
+  page: WallboardPage;
+  kpi: WallboardKpiPageState | undefined;
+  generatedAt: string;
+}) {
+  const kpiOptions = normalizeWallboardKpiPageOptions(page);
+  const visibleKeys = kpiOptions.visible_metrics ?? [];
+  if (visibleKeys.length === 0) {
+    return (
+      <section className="wallboard-display__kpi-page wallboard-display__kpi-page--empty" aria-label="KPI-overzicht">
+        <div role="status">
+          <Gauge size={58} strokeWidth={1.45} aria-hidden />
+          <strong>Geen KPI&apos;s geselecteerd</strong>
+          <p>Alle KPI&apos;s zijn voor deze pagina uitgeschakeld.</p>
+        </div>
+      </section>
+    );
+  }
+
+  const suppliedMetrics = new Map(kpi?.metrics.map((metric) => [metric.key, metric]) ?? []);
+  const metrics = visibleKeys.map((key): WallboardKpiMetric => {
+    const supplied = suppliedMetrics.get(key);
+    if (supplied !== undefined) return supplied;
+    const definition = WALLBOARD_KPI_DEFINITION_BY_KEY.get(key)!;
+    return {
+      key,
+      label: definition.label,
+      value: null,
+      unit: null,
+      category: definition.category,
+      context: null,
+      visualization: kpiOptions.metric_visualizations?.[key] ?? wallboardKpiDefaultVisualization(key),
+    };
+  });
+  const gridColumns = wallboardKpiGridColumns(metrics);
+  const generatedAtTimestamp = Date.parse(generatedAt);
+
+  return (
+    <section className="wallboard-display__kpi-page" aria-label="KPI-overzicht">
+      <header className="wallboard-display__kpi-heading">
+        <span><Activity size={20} aria-hidden /> Live operationele kengetallen</span>
+        {Number.isFinite(generatedAtTimestamp) ? (
+          <time dateTime={generatedAt}>
+            Bijgewerkt {WALLBOARD_CALENDAR_TIME_FORMATTER.format(new Date(generatedAtTimestamp))}
+          </time>
+        ) : <span>Actuele waarden worden opgehaald</span>}
+      </header>
+      <div
+        className={gridColumns >= 6
+          ? 'wallboard-display__kpi-grid wallboard-display__kpi-grid--dense'
+          : 'wallboard-display__kpi-grid'}
+        style={{ '--wallboard-kpi-columns': gridColumns } as CSSProperties}
+      >
+        {metrics.map((metric) => <WallboardKpiCard metric={metric} key={metric.key} />)}
+      </div>
+    </section>
+  );
+}
+
+function WallboardKpiCard({ metric }: { metric: WallboardKpiMetric }) {
+  const Icon = wallboardKpiCategoryIcon(metric.category);
+  const isCircularVisualization = metric.visualization === 'pie' || metric.visualization === 'ring';
+  const segments = isCircularVisualization || metric.visualization === 'bar'
+    ? metric.segments ?? []
+    : [];
+  const hasDistribution = wallboardKpiHasDistribution(segments);
+  const pieGradient = wallboardKpiPieGradient(segments);
+  const pieMarkers = wallboardKpiPieMarkerPositions(segments);
+  const largestSegment = segments.reduce((largest, segment) => Math.max(largest, segment.value), 0);
+  const visualizationClass = isCircularVisualization || metric.visualization === 'bar'
+    ? ` wallboard-display__kpi-card--${metric.visualization}`
+    : '';
+
+  return (
+    <article className={`wallboard-display__kpi-card wallboard-display__kpi-card--${metric.category}${visualizationClass}`}>
+      <header>
+        <span aria-hidden><Icon size={24} strokeWidth={1.8} /></span>
+        <div>
+          <small>{WALLBOARD_KPI_CATEGORY_LABELS[metric.category]}</small>
+          <strong>{metric.label}</strong>
+        </div>
+      </header>
+      {isCircularVisualization ? (
+        pieGradient === null ? (
+          <div className="wallboard-display__kpi-pie-empty" role="status">
+            <ChartPie size={38} aria-hidden />
+            <span>Geen verdeling beschikbaar</span>
+          </div>
+        ) : (
+          <div className="wallboard-display__kpi-pie-layout">
+            <div
+              className={metric.visualization === 'ring'
+                ? 'wallboard-display__kpi-pie wallboard-display__kpi-pie--ring'
+                : 'wallboard-display__kpi-pie'}
+              style={{ background: pieGradient }}
+              role="img"
+              aria-label={wallboardKpiPieAriaLabel(metric)}
+            >
+              {metric.visualization === 'ring' ? (
+                <span>
+                  <strong>{WALLBOARD_KPI_NUMBER_FORMATTER.format(metric.value ?? wallboardKpiPieTotal(segments))}</strong>
+                  {metric.unit ? <small>{metric.unit}</small> : null}
+                </span>
+              ) : null}
+              {pieMarkers.map((position, index) => position === null ? null : (
+                <i
+                  className="wallboard-display__kpi-pie-marker"
+                  style={{
+                    borderColor: WALLBOARD_KPI_PIE_COLORS[index % WALLBOARD_KPI_PIE_COLORS.length],
+                    left: `${position.left}%`,
+                    top: `${position.top}%`,
+                  }}
+                  aria-hidden
+                  key={`${segments[index].label}-${index}`}
+                >
+                  {index + 1}
+                </i>
+              ))}
+            </div>
+            <ul className={segments.length > 5
+              ? 'wallboard-display__kpi-pie-legend wallboard-display__kpi-pie-legend--multicolumn'
+              : 'wallboard-display__kpi-pie-legend'}>
+              {segments.map((segment, index) => (
+                <li key={`${segment.label}-${index}`}>
+                  <i
+                    style={{ borderColor: WALLBOARD_KPI_PIE_COLORS[index % WALLBOARD_KPI_PIE_COLORS.length] }}
+                    aria-hidden
+                  >
+                    {index + 1}
+                  </i>
+                  <span>{segment.label}</span>
+                  <strong>{WALLBOARD_KPI_NUMBER_FORMATTER.format(segment.value)}</strong>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      ) : metric.visualization === 'bar' ? (
+        !hasDistribution ? (
+          <div className="wallboard-display__kpi-pie-empty" role="status">
+            <BarChart3 size={38} aria-hidden />
+            <span>Geen verdeling beschikbaar</span>
+          </div>
+        ) : (
+          <ul
+            className="wallboard-display__kpi-bar-list"
+            aria-label={wallboardKpiDistributionAriaLabel(metric)}
+            style={{ '--wallboard-kpi-segments': segments.length } as CSSProperties}
+          >
+            {segments.map((segment, index) => (
+              <li key={`${segment.label}-${index}`}>
+                <span title={segment.label}>{segment.label}</span>
+                <i aria-hidden>
+                  <b
+                    style={{
+                      background: WALLBOARD_KPI_PIE_COLORS[index % WALLBOARD_KPI_PIE_COLORS.length],
+                      width: largestSegment > 0 ? `${(segment.value / largestSegment) * 100}%` : '0%',
+                    }}
+                  />
+                </i>
+                <strong>{WALLBOARD_KPI_NUMBER_FORMATTER.format(segment.value)}</strong>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : (
+        <p
+          className={metric.value === null ? 'wallboard-display__kpi-value wallboard-display__kpi-value--unknown' : 'wallboard-display__kpi-value'}
+          aria-label={`${metric.label}: ${wallboardKpiMetricValue(metric)}`}
+        >
+          <strong>{metric.value === null ? '—' : WALLBOARD_KPI_NUMBER_FORMATTER.format(metric.value)}</strong>
+          {metric.value !== null && metric.unit ? <span>{metric.unit}</span> : null}
+        </p>
+      )}
+      {metric.context ? <p className="wallboard-display__kpi-context">{metric.context}</p> : null}
+    </article>
+  );
+}
+
+export function wallboardKpiGridColumns(
+  metrics: ReadonlyArray<Pick<WallboardKpiMetric, 'visualization'>>,
+): number {
+  const visualWeight = metrics.reduce(
+    (total, metric) => total + (['pie', 'ring', 'bar'].includes(metric.visualization ?? 'counter') ? 4 : 1),
+    0,
+  );
+  if (visualWeight > 32) return 8;
+  if (visualWeight > 16) return 6;
+  if (visualWeight > 4) return 4;
+  if (visualWeight > 1) return 2;
+  return 1;
+}
+
+function wallboardKpiMetricValue(metric: WallboardKpiMetric): string {
+  if (metric.value === null) return 'onbekend';
+  const value = WALLBOARD_KPI_NUMBER_FORMATTER.format(metric.value);
+  return metric.unit ? `${value} ${metric.unit}` : value;
+}
+
+function wallboardKpiCategoryIcon(category: WallboardKpiCategory) {
+  switch (category) {
+    case 'pilots': return UsersRound;
+    case 'incidents': return Radio;
+    case 'assets': return Boxes;
+    case 'responses': return Send;
+    case 'flight': return Navigation;
+  }
+}
+
+function wallboardKpiPieTotal(segments: NonNullable<WallboardKpiMetric['segments']>): number {
+  return segments.reduce((total, segment) => total + segment.value, 0);
+}
+
+export function wallboardKpiHasDistribution(
+  segments: NonNullable<WallboardKpiMetric['segments']>,
+): boolean {
+  return segments.length > 0 && wallboardKpiPieTotal(segments) > 0;
+}
+
+function wallboardKpiPieGradient(segments: NonNullable<WallboardKpiMetric['segments']>): string | null {
+  const total = wallboardKpiPieTotal(segments);
+  if (!wallboardKpiHasDistribution(segments)) return null;
+
+  let cursor = 0;
+  return `conic-gradient(${segments.map((segment, index) => {
+    const start = cursor;
+    cursor += (segment.value / total) * 100;
+    return `${WALLBOARD_KPI_PIE_COLORS[index % WALLBOARD_KPI_PIE_COLORS.length]} ${start}% ${cursor}%`;
+  }).join(', ')})`;
+}
+
+function wallboardKpiPieMarkerPositions(
+  segments: NonNullable<WallboardKpiMetric['segments']>,
+): Array<{ left: number; top: number } | null> {
+  const total = wallboardKpiPieTotal(segments);
+  if (total <= 0) return segments.map(() => null);
+
+  let cursor = 0;
+  return segments.map((segment) => {
+    if (segment.value <= 0) return null;
+    const midpoint = cursor + (segment.value / total) / 2;
+    cursor += segment.value / total;
+    const angle = midpoint * Math.PI * 2 - Math.PI / 2;
+    return {
+      left: 50 + Math.cos(angle) * 35,
+      top: 50 + Math.sin(angle) * 35,
+    };
+  });
+}
+
+function wallboardKpiPieAriaLabel(metric: WallboardKpiMetric): string {
+  return wallboardKpiDistributionAriaLabel(metric);
+}
+
+function wallboardKpiDistributionAriaLabel(metric: WallboardKpiMetric): string {
+  const segments = metric.segments ?? [];
+  if (!wallboardKpiHasDistribution(segments)) return `${metric.label}: geen verdeling beschikbaar`;
+  const context = metric.context ? `; ${metric.context}` : '';
+  return `${metric.label}: ${segments.map((segment) => (
+    `${segment.label} ${WALLBOARD_KPI_NUMBER_FORMATTER.format(segment.value)}`
+  )).join(', ')}${context}`;
 }
 
 function WallboardForecastPage({
@@ -2803,6 +3123,7 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
     ticker?: WallboardState['ticker'];
     news?: unknown;
     media?: unknown;
+    kpi?: unknown;
     forecast?: unknown;
   };
   const operationalSummary = rawState.operational_summary;
@@ -2846,6 +3167,7 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
         isRecord(rawState.media) ? rawState.media.photo_pages : undefined,
       ),
     },
+    kpi: normalizeWallboardKpiState(rawState.kpi),
     forecast: normalizeWallboardForecastState(rawState.forecast),
     wallboard: {
       ...state.wallboard,
@@ -2902,6 +3224,75 @@ export function normalizeWallboardMaintenanceNotice(value: unknown): WallboardMa
     estimated_duration_seconds: estimatedDurationSeconds,
     estimated_completion_at: estimatedCompletionAt,
     remaining_seconds: remainingSeconds,
+  };
+}
+
+export function normalizeWallboardKpiState(value: unknown): WallboardKpiState {
+  if (!isRecord(value) || !isRecord(value.pages)) return { generated_at: '', pages: {} };
+
+  const generatedAt = typeof value.generated_at === 'string' && Number.isFinite(Date.parse(value.generated_at))
+    ? value.generated_at
+    : '';
+  const pages = Object.entries(value.pages).slice(0, 20).reduce<Record<string, WallboardKpiPageState>>(
+    (normalized, [pageId, rawPage]) => {
+      if (
+        !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(pageId)
+        || !isRecord(rawPage)
+        || !Array.isArray(rawPage.metrics)
+      ) return normalized;
+
+      const seenKeys = new Set<WallboardKpiKey>();
+      const metrics = rawPage.metrics.flatMap((rawMetric) => {
+        const metric = normalizeWallboardKpiMetric(rawMetric);
+        if (metric === null || seenKeys.has(metric.key)) return [];
+        seenKeys.add(metric.key);
+        return [metric];
+      });
+      normalized[pageId] = { metrics };
+      return normalized;
+    },
+    {},
+  );
+
+  return { generated_at: generatedAt, pages };
+}
+
+function normalizeWallboardKpiMetric(value: unknown): WallboardKpiMetric | null {
+  if (!isRecord(value) || typeof value.key !== 'string' || typeof value.label !== 'string') return null;
+  if (!WALLBOARD_KPI_KEYS.includes(value.key as WallboardKpiKey)) return null;
+
+  const key = value.key as WallboardKpiKey;
+  const definition = WALLBOARD_KPI_DEFINITION_BY_KEY.get(key);
+  const label = value.label.trim();
+  if (definition === undefined || value.category !== definition.category || label === '') return null;
+
+  const candidateVisualization = value.visualization === 'number' ? 'counter' : value.visualization;
+  const visualization = typeof candidateVisualization === 'string'
+    && wallboardKpiSupportedVisualizations(key).includes(candidateVisualization as WallboardKpiVisualization)
+    ? candidateVisualization as WallboardKpiVisualization
+    : wallboardKpiDefaultVisualization(key);
+  const segments = visualization !== 'counter' && Array.isArray(value.segments)
+    ? value.segments.flatMap((segment) => {
+      if (!isRecord(segment) || typeof segment.label !== 'string') return [];
+      const segmentLabel = segment.label.trim();
+      if (segmentLabel === '' || typeof segment.value !== 'number' || !Number.isFinite(segment.value) || segment.value < 0) {
+        return [];
+      }
+      return [{ label: segmentLabel.slice(0, 80), value: segment.value }];
+    }).slice(0, 13)
+    : undefined;
+
+  return {
+    key,
+    label: label.slice(0, 80),
+    value: typeof value.value === 'number' && Number.isFinite(value.value) ? value.value : null,
+    unit: typeof value.unit === 'string' && value.unit.trim() !== '' ? value.unit.trim().slice(0, 16) : null,
+    category: definition.category,
+    context: typeof value.context === 'string' && value.context.trim() !== ''
+      ? value.context.trim().slice(0, 160)
+      : null,
+    visualization,
+    ...(segments === undefined ? {} : { segments }),
   };
 }
 

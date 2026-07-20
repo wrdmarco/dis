@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\Asset;
+use App\Models\Incident;
+use App\Models\PilotIncidentReport;
 use App\Models\SystemSetting;
 use App\Models\User;
 use Illuminate\Validation\Rule;
@@ -11,26 +13,38 @@ use Illuminate\Validation\ValidationException;
 final class PilotIncidentReportFormService
 {
     public const SETTING_KEY = 'pilot_report.form_fields';
+
     private const FIELD_KEY_PATTERN = '/^[a-z][a-z0-9_]{1,60}$/';
+
     private const FIELD_TYPES = ['section', 'text', 'textarea', 'number', 'phone', 'flight_time', 'select', 'checkbox', 'radio'];
+
     private const OPTION_SOURCES = ['manual', 'user_drones'];
+
     private const DEFAULT_PHONE_COUNTRIES = ['31', '32'];
+
     private const SUPPORTED_PHONE_COUNTRIES = ['31', '32'];
 
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function fields(?User $user = null, bool $operatorOnly = false): array
+    public function fields(?User $user = null, bool $operatorOnly = false, ?Incident $incident = null): array
     {
         $setting = SystemSetting::query()->where('key', self::SETTING_KEY)->first();
         $fields = $setting === null || ! is_array($setting->value)
             ? $this->defaultFields()
             : $setting->value;
 
+        $currentReport = $user !== null && $incident !== null
+            ? PilotIncidentReport::query()
+                ->where('incident_id', $incident->id)
+                ->where('user_id', $user->id)
+                ->first(['custom_fields', 'drone_usage_snapshot'])
+            : null;
+
         $fields = collect($fields)
             ->filter(fn (mixed $field): bool => is_array($field))
             ->map(fn (array $field): array => $this->normalizeField($field))
-            ->map(fn (array $field): array => $this->withResolvedOptions($field, $user))
+            ->map(fn (array $field): array => $this->withResolvedOptions($field, $user, $currentReport))
             ->values();
 
         if ($operatorOnly) {
@@ -41,7 +55,7 @@ final class PilotIncidentReportFormService
     }
 
     /**
-     * @param array<int, mixed> $fields
+     * @param  array<int, mixed>  $fields
      * @return array<int, array<string, mixed>>
      */
     public function validateFields(array $fields): array
@@ -73,11 +87,12 @@ final class PilotIncidentReportFormService
     /**
      * @return array<string, list<mixed>>
      */
-    public function validationRules(?User $user = null): array
+    public function validationRules(?User $user = null, ?Incident $incident = null): array
     {
         $rules = [
             'custom_fields' => ['nullable', 'array'],
         ];
+        $currentDroneSelections = $this->currentDroneSelections($user, $incident);
 
         foreach ($this->fields($user) as $field) {
             if (($field['visible'] ?? true) !== true) {
@@ -106,7 +121,14 @@ final class PilotIncidentReportFormService
                 $fieldRules[] = 'boolean';
             } elseif (in_array($field['type'], ['select', 'radio'], true)) {
                 $fieldRules[] = 'string';
-                $fieldRules[] = Rule::in(array_column($this->resolvedOptions($field, $user), 'value'));
+                $allowedValues = array_column($this->resolvedOptions($field, $user), 'value');
+                if (($field['option_source'] ?? 'manual') === 'user_drones') {
+                    $currentValue = $currentDroneSelections[$field['key']] ?? null;
+                    if ($currentValue !== null) {
+                        $allowedValues[] = $currentValue;
+                    }
+                }
+                $fieldRules[] = Rule::in(array_values(array_unique($allowedValues)));
             } else {
                 $fieldRules[] = 'string';
                 $fieldRules[] = 'max:'.(int) ($field['max_length'] ?? 5000);
@@ -119,7 +141,7 @@ final class PilotIncidentReportFormService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     public function normalizeCustomValues(array $data): array
@@ -173,13 +195,42 @@ final class PilotIncidentReportFormService
             ['key' => 'actions_taken', 'label' => 'Uitgevoerde acties', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
             ['key' => 'result', 'label' => 'Resultaat', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
             ['key' => 'equipment_used', 'label' => 'Gebruikte middelen', 'type' => 'text', 'visible' => true, 'required' => false, 'max_length' => 5000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
+            ['key' => 'drone_used', 'label' => 'Gebruikte drone', 'type' => 'select', 'visible' => true, 'required' => false, 'max_length' => 1000, 'max' => 1440, 'option_source' => 'user_drones', 'options' => [], 'is_custom' => true],
             ['key' => 'flight_time', 'label' => 'Vluchttijd', 'type' => 'flight_time', 'visible' => true, 'required' => false, 'max_length' => 1000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
             ['key' => 'issues', 'label' => 'Bijzonderheden of problemen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000, 'max' => 1440, 'option_source' => 'manual', 'options' => [], 'is_custom' => true],
         ];
     }
 
     /**
-     * @param array<string, mixed> $field
+     * A valid reserved key remains first so one report contributes one stable
+     * selection. A pre-existing non-drone key collision is never reinterpreted.
+     *
+     * @return list<string>
+     */
+    public function droneFieldKeys(): array
+    {
+        $fields = $this->fields();
+        $keys = [];
+        $reserved = collect($fields)->firstWhere('key', 'drone_used');
+        if (is_array($reserved)
+            && ($reserved['option_source'] ?? null) === 'user_drones'
+            && in_array($reserved['type'] ?? null, ['select', 'radio'], true)) {
+            $keys[] = 'drone_used';
+        }
+        foreach ($fields as $field) {
+            if (($field['option_source'] ?? null) !== 'user_drones'
+                || ! in_array($field['type'] ?? null, ['select', 'radio'], true)
+                || ($field['key'] ?? null) === 'drone_used') {
+                continue;
+            }
+            $keys[] = (string) $field['key'];
+        }
+
+        return array_values(array_unique($keys));
+    }
+
+    /**
+     * @param  array<string, mixed>  $field
      * @return array<string, mixed>
      */
     private function normalizeField(array $field, ?int $index = null): array
@@ -316,22 +367,32 @@ final class PilotIncidentReportFormService
     }
 
     /**
-     * @param array<string, mixed> $field
+     * @param  array<string, mixed>  $field
      * @return array<string, mixed>
      */
-    private function withResolvedOptions(array $field, ?User $user): array
-    {
+    private function withResolvedOptions(
+        array $field,
+        ?User $user,
+        ?PilotIncidentReport $currentReport = null,
+    ): array {
         if (! in_array($field['type'] ?? null, ['select', 'radio'], true)) {
             return $field + ['option_source' => 'manual', 'options' => []];
         }
 
         $field['options'] = $this->resolvedOptions($field, $user);
+        $currentOption = $this->currentDroneOption($field, $currentReport);
+        if ($currentOption !== null
+            && ! collect($field['options'])->contains(
+                static fn (array $option): bool => $option['value'] === $currentOption['value'],
+            )) {
+            $field['options'][] = $currentOption;
+        }
 
         return $field;
     }
 
     /**
-     * @param array<string, mixed> $field
+     * @param  array<string, mixed>  $field
      * @return array<int, array{label: string, value: string}>
      */
     private function resolvedOptions(array $field, ?User $user): array
@@ -372,6 +433,82 @@ final class PilotIncidentReportFormService
         return trim(($name !== '' ? $name : 'Drone').' ('.$type.')');
     }
 
+    /**
+     * @param  array<string, mixed>  $field
+     * @return array{label: string, value: string}|null
+     */
+    private function currentDroneOption(array $field, ?PilotIncidentReport $report): ?array
+    {
+        if ($report === null || ($field['option_source'] ?? null) !== 'user_drones') {
+            return null;
+        }
+
+        $customFields = is_array($report->custom_fields) ? $report->custom_fields : [];
+        $value = $customFields[$field['key']] ?? null;
+        if (! is_scalar($value) || trim((string) $value) === '') {
+            return null;
+        }
+        $assetId = trim((string) $value);
+        $snapshots = is_array($report->drone_usage_snapshot) ? $report->drone_usage_snapshot : [];
+        $snapshot = is_array($snapshots[$field['key']] ?? null) ? $snapshots[$field['key']] : [];
+        $manufacturer = ($snapshot['asset_id'] ?? null) === $assetId
+            ? trim((string) ($snapshot['manufacturer'] ?? ''))
+            : '';
+        $model = ($snapshot['asset_id'] ?? null) === $assetId
+            ? trim((string) ($snapshot['model'] ?? ''))
+            : '';
+        $label = $manufacturer !== '' && $model !== ''
+            ? $manufacturer.' '.$model
+            : $this->legacyDroneLabel($assetId);
+
+        return [
+            'label' => ($label ?? 'Eerder geselecteerde drone').' (historische selectie)',
+            'value' => $assetId,
+        ];
+    }
+
+    private function legacyDroneLabel(string $assetId): ?string
+    {
+        $asset = Asset::query()
+            ->withTrashed()
+            ->with(['droneType' => static fn ($types) => $types->withTrashed()])
+            ->find($assetId);
+        if (! $asset instanceof Asset || $asset->type !== 'drone') {
+            return null;
+        }
+
+        $manufacturer = trim((string) $asset->droneType?->manufacturer);
+        $model = trim((string) $asset->droneType?->model);
+
+        return $manufacturer !== '' && $model !== '' ? $manufacturer.' '.$model : $this->assetOptionLabel($asset);
+    }
+
+    /** @return array<string, string> */
+    private function currentDroneSelections(?User $user, ?Incident $incident): array
+    {
+        if ($user === null || $incident === null) {
+            return [];
+        }
+
+        $report = PilotIncidentReport::query()
+            ->where('incident_id', $incident->id)
+            ->where('user_id', $user->id)
+            ->first(['custom_fields']);
+        $customFields = is_array($report?->custom_fields) ? $report->custom_fields : [];
+        $selections = [];
+        foreach ($customFields as $fieldKey => $value) {
+            if (! is_string($fieldKey) || ! is_scalar($value)) {
+                continue;
+            }
+            $value = trim((string) $value);
+            if ($value !== '') {
+                $selections[$fieldKey] = $value;
+            }
+        }
+
+        return $selections;
+    }
+
     private function cleanLabel(mixed $label): string
     {
         $value = trim(is_string($label) ? $label : '');
@@ -409,6 +546,7 @@ final class PilotIncidentReportFormService
     private function cleanTimeValue(?string $value): ?string
     {
         $time = trim((string) $value);
+
         return preg_match('/^([01]\d|2[0-4]):[0-5]\d$/', $time) === 1 ? $time : null;
     }
 

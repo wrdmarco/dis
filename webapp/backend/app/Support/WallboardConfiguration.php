@@ -11,7 +11,10 @@ final class WallboardConfiguration
     public const DEFAULT_PAGE_ID = 'map';
 
     /** @var list<string> */
-    public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'news', 'video', 'photo_carousel'];
+    public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'kpi', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'news', 'video', 'photo_carousel'];
+
+    /** @var list<string> */
+    public const KPI_VISIBLE_METRICS = WallboardKpiDefinition::KEYS;
 
     public const DEFAULT_CALENDAR_MAX_ITEMS = 6;
 
@@ -347,6 +350,7 @@ final class WallboardConfiguration
                 // client-supplied coordinates.
                 'uav_forecast' => ['location_mode', 'location_label', 'latitude', 'longitude', 'visible_blocks'],
                 'incident_list', 'summary' => ['show_test_incidents'],
+                'kpi' => ['visible_metrics', 'metric_visualizations'],
                 'calendar' => ['max_items'],
                 'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds', 'item_transition', 'item_transition_duration_ms', 'item_flip_direction'],
                 'video' => ['url', 'video_duration_seconds', 'media_asset_id', 'media_asset_version'],
@@ -358,7 +362,12 @@ final class WallboardConfiguration
                     "configuration.pages.{$index}.options" => ['Deze pagina bevat opties die niet bij het gekozen paginatype horen.'],
                 ]);
             }
-            if ($type === 'calendar') {
+            if ($type === 'kpi') {
+                $options = self::normalizeKpiOptions(
+                    $options,
+                    "configuration.pages.{$index}.options",
+                );
+            } elseif ($type === 'calendar') {
                 $maxItems = $options['max_items'] ?? self::DEFAULT_CALENDAR_MAX_ITEMS;
                 if (! is_int($maxItems)
                     || $maxItems < self::MIN_CALENDAR_MAX_ITEMS
@@ -782,6 +791,75 @@ final class WallboardConfiguration
         }
 
         return $normalized;
+    }
+
+    /**
+     * @param  array<string, mixed>  $options
+     * @return array{visible_metrics: list<string>, metric_visualizations: array<string, string>}
+     */
+    public static function normalizeKpiOptions(array $options, string $field): array
+    {
+        $visibleMetrics = $options['visible_metrics'] ?? WallboardKpiDefinition::KEYS;
+        if (! is_array($visibleMetrics) || ! array_is_list($visibleMetrics)) {
+            throw ValidationException::withMessages([
+                "{$field}.visible_metrics" => ['De zichtbare KPI\'s moeten als lijst worden opgeslagen.'],
+            ]);
+        }
+        foreach ($visibleMetrics as $metricIndex => $metric) {
+            if (! is_string($metric) || ! in_array($metric, WallboardKpiDefinition::KEYS, true)) {
+                throw ValidationException::withMessages([
+                    "{$field}.visible_metrics.{$metricIndex}" => ['Kies uitsluitend ondersteunde KPI\'s.'],
+                ]);
+            }
+        }
+        if (count(array_unique($visibleMetrics)) !== count($visibleMetrics)) {
+            throw ValidationException::withMessages([
+                "{$field}.visible_metrics" => ['Elke KPI mag maar eenmaal voorkomen.'],
+            ]);
+        }
+
+        $rawVisualizations = $options['metric_visualizations'] ?? [];
+        if (! is_array($rawVisualizations)
+            || ($rawVisualizations !== [] && array_is_list($rawVisualizations))) {
+            throw ValidationException::withMessages([
+                "{$field}.metric_visualizations" => ['De KPI-weergaven moeten per KPI-sleutel worden opgeslagen.'],
+            ]);
+        }
+
+        $visualizations = WallboardKpiDefinition::defaultVisualizations();
+        foreach ($rawVisualizations as $key => $visualization) {
+            if (! is_string($key) || ! in_array($key, WallboardKpiDefinition::KEYS, true)) {
+                throw ValidationException::withMessages([
+                    "{$field}.metric_visualizations" => ['De KPI-weergaven bevatten een onbekende KPI.'],
+                ]);
+            }
+            if (! is_string($visualization)
+                || ! in_array($visualization, WallboardKpiDefinition::supportedVisualizations($key), true)) {
+                throw ValidationException::withMessages([
+                    "{$field}.metric_visualizations.{$key}" => ['Kies een ondersteunde weergave voor deze KPI.'],
+                ]);
+            }
+            $visualizations[$key] = $visualization;
+        }
+
+        $visibleMetrics = array_values(array_filter(
+            WallboardKpiDefinition::KEYS,
+            static fn (string $metric): bool => in_array($metric, $visibleMetrics, true),
+        ));
+        $chartCount = count(array_filter(
+            $visibleMetrics,
+            static fn (string $metric): bool => $visualizations[$metric] !== 'counter',
+        ));
+        if ($chartCount > WallboardKpiDefinition::MAX_CHARTS) {
+            throw ValidationException::withMessages([
+                "{$field}.metric_visualizations" => ['Kies per KPI-pagina maximaal zes zichtbare diagrammen.'],
+            ]);
+        }
+
+        return [
+            'visible_metrics' => $visibleMetrics,
+            'metric_visualizations' => $visualizations,
+        ];
     }
 
     /**

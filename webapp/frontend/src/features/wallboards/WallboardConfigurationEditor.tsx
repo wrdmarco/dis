@@ -10,6 +10,7 @@ import {
   MapPin,
   Clapperboard,
   CloudSun,
+  Gauge,
   Images,
   MessageSquareText,
   Newspaper,
@@ -29,6 +30,9 @@ import type {
   WallboardFlipDirection,
   WallboardForecastBlockKey,
   WallboardFocusKind,
+  WallboardKpiCategory,
+  WallboardKpiKey,
+  WallboardKpiVisualization,
   WallboardMapConfiguration,
   WallboardNewsSource,
   WallboardPage,
@@ -51,6 +55,7 @@ import {
   MAX_WALLBOARD_CALENDAR_MAX_ITEMS,
   MAX_WALLBOARD_NEWS_MAX_ITEMS,
   MAX_WALLBOARD_NEWS_ITEM_DURATION_SECONDS,
+  MAX_WALLBOARD_KPI_CHARTS,
   MAX_WALLBOARD_QUOTES,
   MAX_WALLBOARD_QUOTE_AUTHOR_LENGTH,
   MAX_WALLBOARD_QUOTE_TEXT_LENGTH,
@@ -70,12 +75,16 @@ import {
   DEFAULT_WALLBOARD_FLIP_DIRECTION,
   DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE,
   DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS,
+  DEFAULT_WALLBOARD_KPI_VISUALIZATIONS,
+  DEFAULT_WALLBOARD_KPI_VISIBLE_METRICS,
   DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
   DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS,
   DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION,
   DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION_DURATION_MS,
   WALLBOARD_FLIP_DIRECTIONS,
   WALLBOARD_FORECAST_BLOCK_KEYS,
+  WALLBOARD_KPI_DEFINITIONS,
+  WALLBOARD_KPI_KEYS,
   WALLBOARD_NEWS_ITEM_TRANSITIONS,
   WALLBOARD_PAGE_TRANSITIONS,
   clampWallboardFocusDuration,
@@ -93,10 +102,13 @@ import {
   normalizeWallboardNewsItemTransition,
   normalizeWallboardFlipDirection,
   normalizeWallboardForecastPageOptions,
+  normalizeWallboardKpiPageOptions,
   normalizeWallboardPageTransition,
   wallboardEffectivePageDuration,
+  wallboardKpiSupportedVisualizations,
   wallboardMessageContent,
   wallboardPageTypeLabel,
+  wallboardVisibleKpiKeys,
   wallboardVideoDurationFromOptions,
 } from './wallboardPresentation';
 import { WallboardRichTextEditor } from './WallboardRichTextEditor';
@@ -150,10 +162,30 @@ const FORECAST_BLOCK_OPTIONS: ReadonlyArray<{
   { key: 'gnss_usable', label: 'Bruikbare satellieten', help: 'Satellieten bruikbaar voor navigatie.' },
 ];
 
+const KPI_CATEGORIES: ReadonlyArray<{
+  key: WallboardKpiCategory;
+  label: string;
+  description: string;
+}> = [
+  { key: 'pilots', label: 'Piloten', description: 'Actuele inzetbaarheid van piloten.' },
+  { key: 'incidents', label: 'Incidenten', description: 'Aantallen, fasen en prioriteiten van incidenten.' },
+  { key: 'assets', label: 'Middelen', description: 'Operationele gereedheid van drones en andere middelen.' },
+  { key: 'responses', label: 'Reacties', description: 'Stand van de actuele uitvraag of alarmering.' },
+  { key: 'flight', label: 'Vluchtgegevens', description: 'Vliegduur en gebruikte drones uit inzetrapporten.' },
+];
+
+const KPI_VISUALIZATION_LABELS: Record<WallboardKpiVisualization, string> = {
+  counter: 'Teller',
+  bar: 'Staafdiagram',
+  pie: 'Taartdiagram',
+  ring: 'Ringdiagram',
+};
+
 const PAGE_TYPE_OPTIONS: Array<{ value: WallboardPageType; label: string }> = [
   { value: 'map', label: 'Kaart' },
   { value: 'incident_list', label: 'Incidentenlijst' },
   { value: 'summary', label: 'Samenvatting' },
+  { value: 'kpi', label: 'KPI-overzicht' },
   { value: 'calendar', label: 'Agenda' },
   { value: 'message', label: 'Mededeling' },
   { value: 'safety_notice', label: 'Veiligheidsbericht' },
@@ -806,6 +838,18 @@ function WallboardPageEditor({
     ?? DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE;
   const forecastVisibleBlocks = normalizedForecastOptions.visible_blocks
     ?? [...DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS];
+  const normalizedKpiOptions = page.type === 'kpi'
+    ? normalizeWallboardKpiPageOptions(page)
+    : {
+      visible_metrics: [...DEFAULT_WALLBOARD_KPI_VISIBLE_METRICS],
+      metric_visualizations: { ...DEFAULT_WALLBOARD_KPI_VISUALIZATIONS },
+    };
+  const kpiVisibleMetrics = page.type === 'kpi'
+    ? wallboardVisibleKpiKeys(page)
+    : [...DEFAULT_WALLBOARD_KPI_VISIBLE_METRICS];
+  const kpiChartCount = kpiVisibleMetrics.filter(
+    (key) => normalizedKpiOptions.metric_visualizations?.[key] !== 'counter',
+  ).length;
   const forecastLocationQuery = page.type === 'uav_forecast' && forecastLocationMode === 'address'
     ? page.options.location_label ?? ''
     : '';
@@ -857,6 +901,11 @@ function WallboardPageEditor({
           }
         : type === 'calendar'
           ? { max_items: clampWallboardCalendarMaxItems(Number(page.options.max_items)) }
+        : type === 'kpi'
+          ? {
+            visible_metrics: [...DEFAULT_WALLBOARD_KPI_VISIBLE_METRICS],
+            metric_visualizations: { ...DEFAULT_WALLBOARD_KPI_VISUALIZATIONS },
+          }
         : type === 'news'
           ? {
             sources: ['ndt', 'dronewatch'],
@@ -912,6 +961,50 @@ function WallboardPageEditor({
       options: {
         ...normalizedForecastOptions,
         visible_blocks: WALLBOARD_FORECAST_BLOCK_KEYS.filter((candidate) => selected.has(candidate)),
+      },
+    });
+  }
+
+  function updateKpiVisibleMetric(key: WallboardKpiKey, checked: boolean) {
+    const selected = new Set(kpiVisibleMetrics);
+    if (checked) selected.add(key);
+    else selected.delete(key);
+    const metricVisualizations = { ...normalizedKpiOptions.metric_visualizations };
+    if (
+      checked
+      && metricVisualizations[key] !== 'counter'
+      && kpiChartCount >= MAX_WALLBOARD_KPI_CHARTS
+    ) {
+      metricVisualizations[key] = 'counter';
+    }
+    onChange({
+      ...page,
+      options: {
+        ...page.options,
+        visible_metrics: WALLBOARD_KPI_KEYS.filter((candidate) => selected.has(candidate)),
+        metric_visualizations: metricVisualizations,
+      },
+    });
+  }
+
+  function updateKpiVisualization(key: WallboardKpiKey, visualization: WallboardKpiVisualization) {
+    if (!wallboardKpiSupportedVisualizations(key).includes(visualization)) return;
+    const currentVisualization = normalizedKpiOptions.metric_visualizations?.[key] ?? 'counter';
+    if (
+      visualization !== 'counter'
+      && currentVisualization === 'counter'
+      && kpiVisibleMetrics.includes(key)
+      && kpiChartCount >= MAX_WALLBOARD_KPI_CHARTS
+    ) return;
+    onChange({
+      ...page,
+      options: {
+        ...page.options,
+        visible_metrics: [...kpiVisibleMetrics],
+        metric_visualizations: {
+          ...normalizedKpiOptions.metric_visualizations,
+          [key]: visualization,
+        },
       },
     });
   }
@@ -1277,6 +1370,81 @@ function WallboardPageEditor({
             required
           />
         </fieldset>
+      ) : page.type === 'kpi' ? (
+        <fieldset className="wallboard-page-editor__page-options wallboard-kpi-editor">
+          <legend>KPI-inhoud</legend>
+          <p id={`wallboard-kpi-${page.id}-help`}>
+            Zet iedere KPI onafhankelijk aan of uit en kies de gewenste weergave. Diagrammen zijn alleen beschikbaar als de gegevens een echte verdeling of verhouding bevatten.
+          </p>
+          <div className="wallboard-kpi-editor__categories">
+            {KPI_CATEGORIES.map((category) => (
+              <fieldset
+                className="wallboard-option-grid wallboard-kpi-editor__category"
+                aria-describedby={`wallboard-kpi-${page.id}-help`}
+                key={category.key}
+              >
+                <legend>
+                  <strong>{category.label}</strong>
+                  <small>{category.description}</small>
+                </legend>
+                {WALLBOARD_KPI_DEFINITIONS.filter((metric) => metric.category === category.key).map((metric) => {
+                  const visualizationId = `wallboard-kpi-${page.id}-${metric.key}-visualization`;
+                  const enabled = kpiVisibleMetrics.includes(metric.key);
+                  const selectedVisualization = normalizedKpiOptions.metric_visualizations?.[metric.key] ?? 'counter';
+                  return (
+                    <div className="wallboard-kpi-editor__metric" key={metric.key}>
+                      <label className="wallboard-kpi-editor__metric-toggle">
+                        <input
+                          type="checkbox"
+                          checked={enabled}
+                          onChange={(event) => updateKpiVisibleMetric(metric.key, event.target.checked)}
+                        />
+                        <span>
+                          <strong>{metric.label}</strong>
+                          <small>{metric.help}</small>
+                        </span>
+                      </label>
+                      <label className="wallboard-kpi-editor__visualization" htmlFor={visualizationId}>
+                        <span>Weergave</span>
+                        <select
+                          id={visualizationId}
+                          value={selectedVisualization}
+                          disabled={!enabled}
+                          onChange={(event) => updateKpiVisualization(
+                            metric.key,
+                            event.target.value as WallboardKpiVisualization,
+                          )}
+                        >
+                          {wallboardKpiSupportedVisualizations(metric.key).map((visualization) => (
+                            <option
+                              value={visualization}
+                              disabled={visualization !== 'counter'
+                                && selectedVisualization === 'counter'
+                                && kpiChartCount >= MAX_WALLBOARD_KPI_CHARTS}
+                              key={visualization}
+                            >
+                              {KPI_VISUALIZATION_LABELS[visualization]}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  );
+                })}
+              </fieldset>
+            ))}
+          </div>
+          {kpiVisibleMetrics.length === 0 ? (
+            <p className="wallboard-page-editor__note" role="status">
+              Alle KPI&apos;s staan uit. Het wallboard toont voor deze pagina een lege staat.
+            </p>
+          ) : (
+            <p className="wallboard-page-editor__note" role="status">
+              {kpiVisibleMetrics.length} van {WALLBOARD_KPI_KEYS.length} KPI&apos;s zichtbaar;{' '}
+              {kpiChartCount} van maximaal {MAX_WALLBOARD_KPI_CHARTS} diagrammen gebruikt.
+            </p>
+          )}
+        </fieldset>
       ) : page.type === 'uav_forecast' ? (
         <fieldset className="wallboard-page-editor__page-options">
           <legend id={`wallboard-forecast-editor-${page.id}-label`}>Locatiegebonden vliegweer</legend>
@@ -1592,6 +1760,7 @@ export function WallboardPageTypeIcon({ type }: { type: WallboardPageType }) {
     case 'map': return <Map size={18} aria-hidden />;
     case 'incident_list': return <List size={18} aria-hidden />;
     case 'summary': return <BarChart3 size={18} aria-hidden />;
+    case 'kpi': return <Gauge size={18} aria-hidden />;
     case 'calendar': return <CalendarDays size={18} aria-hidden />;
     case 'message': return <MessageSquareText size={18} aria-hidden />;
     case 'safety_notice': return <ShieldAlert size={18} aria-hidden />;

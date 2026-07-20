@@ -15,7 +15,7 @@ export function PilotReportEditorPage({ incidentId, userId }: { incidentId: stri
   const { api } = useAuth();
   const incident = useApiResource<Incident>(`/incidents/${incidentId}`);
   const report = useApiResource<PilotIncidentReport>(`/incidents/${incidentId}/pilot-reports/${userId}`);
-  const config = useApiResource<PilotReportFormConfig>(`/pilot-report/form-config?target=web&user_id=${encodeURIComponent(userId)}`);
+  const config = useApiResource<PilotReportFormConfig>(`/pilot-report/form-config?target=web&user_id=${encodeURIComponent(userId)}&incident_id=${encodeURIComponent(incidentId)}`);
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

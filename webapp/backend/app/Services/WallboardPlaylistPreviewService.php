@@ -52,6 +52,7 @@ final class WallboardPlaylistPreviewService
                 'updated_at' => ApiDateTime::dateTime($playlist->updated_at),
             ],
             'operational_summary' => $runtime['operational_summary'],
+            'kpi' => $runtime['kpi'],
             'ticker' => ['items' => $ticker['items']],
             'news' => [
                 'pages' => $this->adminNewsImagePages($news['pages']),

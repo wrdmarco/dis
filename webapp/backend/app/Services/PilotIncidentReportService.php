@@ -14,6 +14,7 @@ final class PilotIncidentReportService
     public function __construct(
         private readonly AuditService $auditService,
         private readonly PilotIncidentReportFormService $formService,
+        private readonly PilotIncidentReportDroneSnapshotService $droneSnapshotService,
         private readonly IncidentReportService $incidentReportService,
     ) {}
 
@@ -57,7 +58,7 @@ final class PilotIncidentReportService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function submit(Incident $incident, User $user, array $data): PilotIncidentReport
     {
@@ -68,7 +69,7 @@ final class PilotIncidentReportService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function submitForActor(Incident $incident, User $user, User $actor, array $data): PilotIncidentReport
     {
@@ -78,7 +79,7 @@ final class PilotIncidentReportService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     private function storeSubmission(Incident $incident, User $user, User $actor, array $data, string $auditAction): PilotIncidentReport
     {
@@ -89,6 +90,20 @@ final class PilotIncidentReportService
             $submittedAt = $report->submitted_at ?? now();
             $customFields = $this->formService->normalizeCustomValues($data);
             $standardValues = $this->standardValuesFromCustomFields($customFields);
+            $fieldKeys = $this->formService->droneFieldKeys();
+            $existingCustomFields = is_array($report->custom_fields) ? $report->custom_fields : [];
+            $existingSnapshots = is_array($report->drone_usage_snapshot) ? $report->drone_usage_snapshot : [];
+            $customFields = $this->droneSnapshotService->preserveHistoricalSelections(
+                $customFields,
+                $existingCustomFields,
+                $existingSnapshots,
+                $fieldKeys,
+            );
+            $droneUsageSnapshot = $this->droneSnapshotService->capture(
+                $customFields,
+                $existingSnapshots,
+                $fieldKeys,
+            );
             $report->fill([
                 'summary' => $data['summary'] ?? $standardValues['summary'],
                 'observations' => $data['observations'] ?? $standardValues['observations'],
@@ -98,6 +113,7 @@ final class PilotIncidentReportService
                 'equipment_used' => $data['equipment_used'] ?? $standardValues['equipment_used'],
                 'flight_minutes' => $data['flight_minutes'] ?? $standardValues['flight_minutes'],
                 'custom_fields' => $customFields,
+                'drone_usage_snapshot' => $droneUsageSnapshot,
                 'status' => 'submitted',
                 'submitted_at' => $submittedAt,
             ])->save();
@@ -144,7 +160,7 @@ final class PilotIncidentReportService
     }
 
     /**
-     * @param array<string, mixed> $customFields
+     * @param  array<string, mixed>  $customFields
      * @return array{summary: ?string, observations: ?string, actions_taken: ?string, result: ?string, issues: ?string, equipment_used: ?string, flight_minutes: ?int}
      */
     private function standardValuesFromCustomFields(array $customFields): array
@@ -156,7 +172,7 @@ final class PilotIncidentReportService
             'result' => $this->stringValue($customFields['result'] ?? null),
             'issues' => $this->stringValue($customFields['issues'] ?? null),
             'equipment_used' => $this->stringValue($customFields['equipment_used'] ?? null),
-            'flight_minutes' => $this->flightMinutesFromValue($customFields['flight_time'] ?? null),
+            'flight_minutes' => $this->flightMinutesFromCustomFields($customFields),
         ];
     }
 
@@ -178,6 +194,22 @@ final class PilotIncidentReportService
         }
 
         return null;
+    }
+
+    /** @param  array<string, mixed>  $customFields */
+    private function flightMinutesFromCustomFields(array $customFields): ?int
+    {
+        $minutes = $this->flightMinutesFromValue($customFields['flight_time'] ?? null);
+        if ($minutes !== null) {
+            return $minutes;
+        }
+
+        $legacyMinutes = $customFields['flight_minutes'] ?? null;
+        if (! is_int($legacyMinutes) || $legacyMinutes < 0 || $legacyMinutes > 1440) {
+            return null;
+        }
+
+        return $legacyMinutes;
     }
 
     private function ensureReport(Incident $incident, User $user): PilotIncidentReport

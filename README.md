@@ -78,6 +78,24 @@ for address lookup, ArcGIS for map imagery, OpenStreetMap for the embedded locat
 built-in Aeret map origins, and the configured same-service websocket host. Adding a new external
 frontend dependency requires updating and testing `webapp/frontend/src/lib/securityPolicy.ts`.
 
+### Incident location enrichment
+
+For non-test incidents, the isolated `incident-enrichment` queue classifies an already stored incident
+coordinate through the official PDOK province WFS and, when needed, the Eurostat GISCO country lookup.
+Provider URLs are restricted to their exact HTTPS hosts and port 443; redirects, credentials, configured
+query strings and fragments are rejected. Exact coordinates are sent only as lookup parameters. DIS stores
+the canonical province/country code and name, the provider identifier and the resolution timestamp alongside
+the incident; it does not retain provider response bodies. These fields follow the incident's normal retention
+and deletion lifecycle. Wallboard KPI output contains aggregate counts only, never coordinates or incident
+identifiers. Test incidents are not sent to either provider.
+
+`INCIDENT_LOCATION_ENRICHMENT_ENABLED` is the operational kill switch and is enabled in the supplied deployment
+configuration; set it to `false` before deployment to prevent all outbound lookups and scheduled backfill. The
+incident write path never contacts Redis for this enrichment. Every five minutes the scheduler admits a bounded
+batch of two or three rows: one lane selects the newest never-attempted incident and at least one lane preserves
+oldest-due backfill fairness. An unresolved row waits at least six hours before another provider attempt, so a
+provider or queue outage cannot obstruct push or the normal application queue.
+
 HSTS is owned by the public TLS edge. The inner Nginx configuration removes duplicate upstream
 security headers and supplies the remaining common headers exactly once. Every setup, update and
 direct deployment regenerates and validates the first Nginx `server_name` from the HTTPS `APP_URL`;
@@ -184,9 +202,9 @@ density. It does not change the television, HDMI input, operating-system or brow
 shared playlist can therefore be shown on screens with different display profiles.
 
 A playlist contains an ordered set of allowlisted DIS pages: an operational map, incident list, operational
-summary, calendar, safely formatted announcement or safety notice, an administrator-managed daily quote, a
-UAV Forecast, curated drone-news page, photo carousel or allowlisted YouTube/Vimeo video. Every page has its
-own bounded display duration. The playlist also owns
+summary, live KPI overview, calendar, safely formatted announcement or safety notice, an administrator-managed
+daily quote, a UAV Forecast, curated drone-news page, photo carousel or allowlisted YouTube/Vimeo video. Every
+page has its own bounded display duration. The playlist also owns
 map layers, rotation, the incident override and an optional bottom ticker. The ticker accepts bounded
 plain-text internal messages and multiple HTTPS RSS or Atom feeds; feed retrieval is cached, size-limited and
 restricted to public destinations. Each RSS source can show between one and eight items; legacy and omitted
@@ -221,6 +239,28 @@ The calendar page reuses organisation-wide current and upcoming events already m
 Administrators choose a bounded number of entries per page; the kiosk presents their date, time, relative day
 and location. Team-scoped events are excluded because an anonymous wallboard has no team authorisation context.
 Calendar data remains server-authoritative live state and is not stored as static media.
+
+The KPI page exposes a fixed, server-owned catalogue of 42 aggregate metrics for pilot availability, real
+incidents, managed assets, live dispatch responses and submitted flight reports. Administrators can enable or
+disable every KPI separately. They can choose a counter, bar, pie or ring wherever the metric has a real
+distribution or denominator; standalone totals remain counters, and one page accepts at most six visible charts.
+An omitted legacy selection enables the complete catalogue while an explicitly empty selection remains empty.
+The paired display and the administrator playlist preview receive the same live aggregate payload and use the
+same renderer.
+
+Pilot availability follows the same OCP operator-pilot, push, latest-status and schedule rules as the operational
+summary. Daily lifecycle counts use `Europe/Amsterdam`; completed and cancelled totals are also available since
+registration. Monthly flight metrics count submitted non-test reports with a positive flight duration. A validated
+assigned-drone selection is snapshotted as manufacturer and model so later asset changes do not rewrite existing
+report history. Its distribution shows up to eight drone types plus `Overig` and `Onbekend`. Reports and clients that do
+not submit a supported drone selection remain honestly `Onbekend`; in particular, the current fixed iOS pilot-
+report form does not yet offer the dynamic drone selector and is not included as a known drone type.
+
+Province and country charts use only the stored canonical classifications described under incident location
+enrichment. Incident and response totals exclude test incidents, and repeated recipient rows are deduplicated per
+incident and user. Names, e-mail addresses, notes, exact locations, incident identifiers and other recipient
+details are never included in the KPI payload. A percentage without a valid denominator is shown as unknown
+rather than zero.
 
 The UAV Forecast page uses either an administrator-selected address, resolved server-side through the existing
 DIS address search, or the exact average of one reference point in each of the twelve Dutch provinces. Current

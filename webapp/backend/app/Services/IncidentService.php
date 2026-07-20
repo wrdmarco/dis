@@ -115,7 +115,21 @@ final class IncidentService
                 $data['coordinator_email'] = $this->snapshotUserEmail($data['coordinator_id']);
             }
 
-            $incident->update($data);
+            $coordinatesChanged = $this->coordinatesChanged($incident, $data);
+            if ($coordinatesChanged) {
+                $incident->forceFill([
+                    'province_code' => null,
+                    'province_name' => null,
+                    'province_source' => null,
+                    'province_resolved_at' => null,
+                    'country_code' => null,
+                    'country_name' => null,
+                    'country_source' => null,
+                    'country_resolved_at' => null,
+                    'location_enrichment_attempted_at' => null,
+                ]);
+            }
+            $incident->fill($data)->save();
             if (is_array($teamIds)) {
                 $incident->teams()->sync($teamIds);
             }
@@ -378,6 +392,27 @@ final class IncidentService
     private function hasCoordinatePair(mixed $latitude, mixed $longitude): bool
     {
         return $this->validCoordinate($latitude, -90, 90) && $this->validCoordinate($longitude, -180, 180);
+    }
+
+    /** @param array<string, mixed> $data */
+    private function coordinatesChanged(Incident $incident, array $data): bool
+    {
+        $latitude = array_key_exists('latitude', $data) ? $data['latitude'] : $incident->latitude;
+        $longitude = array_key_exists('longitude', $data) ? $data['longitude'] : $incident->longitude;
+
+        return $this->coordinateForComparison($incident->latitude) !== $this->coordinateForComparison($latitude)
+            || $this->coordinateForComparison($incident->longitude) !== $this->coordinateForComparison($longitude);
+    }
+
+    private function coordinateForComparison(mixed $value): ?string
+    {
+        if ($value === null || $value === '' || ! is_numeric($value)) {
+            return null;
+        }
+
+        $coordinate = (float) $value;
+
+        return is_finite($coordinate) ? number_format($coordinate, 7, '.', '') : null;
     }
 
     /**

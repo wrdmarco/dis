@@ -110,6 +110,7 @@ final class SystemSettingSeeder extends Seeder
             ['key' => 'actions_taken', 'label' => 'Uitgevoerde acties', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000],
             ['key' => 'result', 'label' => 'Resultaat', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000],
             ['key' => 'equipment_used', 'label' => 'Gebruikte middelen', 'type' => 'text', 'visible' => true, 'required' => false, 'max_length' => 5000],
+            ['key' => 'drone_used', 'label' => 'Gebruikte drone', 'type' => 'select', 'visible' => true, 'required' => false, 'max_length' => 1000, 'max' => 1440, 'option_source' => 'user_drones', 'options' => [], 'is_custom' => true],
             ['key' => 'flight_minutes', 'label' => 'Vluchtduur in minuten', 'type' => 'number', 'visible' => true, 'required' => false, 'max' => 1440],
             ['key' => 'issues', 'label' => 'Bijzonderheden of problemen', 'type' => 'textarea', 'visible' => true, 'required' => false, 'max_length' => 5000],
         ], 'is_sensitive' => false],

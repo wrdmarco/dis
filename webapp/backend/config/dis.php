@@ -24,6 +24,14 @@ return [
         'user_agent' => env('GEOCODING_USER_AGENT'),
         'country_codes' => env('GEOCODING_COUNTRY_CODES', 'nl,be,de'),
     ],
+    'incident_location' => [
+        'enabled' => filter_var(env('INCIDENT_LOCATION_ENRICHMENT_ENABLED', true), FILTER_VALIDATE_BOOL),
+        'wfs_url' => env('INCIDENT_PROVINCE_WFS_URL', 'https://service.pdok.nl/kadaster/brk-bestuurlijke-gebieden/wfs/v1_0'),
+        'country_url' => env('INCIDENT_COUNTRY_GISCO_URL', 'https://gisco-services.ec.europa.eu/id/country'),
+        'connect_timeout_seconds' => (int) env('INCIDENT_LOCATION_CONNECT_TIMEOUT_SECONDS', 2),
+        'timeout_seconds' => (int) env('INCIDENT_LOCATION_TIMEOUT_SECONDS', 5),
+        'backfill_batch' => max(2, min(3, (int) env('INCIDENT_LOCATION_BACKFILL_BATCH', 3))),
+    ],
     'dispatch' => [
         'eta_ring_minutes' => (int) env('DISPATCH_ETA_RING_MINUTES', 15),
         'estimated_eta_speed_kmh' => (float) env('DISPATCH_ESTIMATED_ETA_SPEED_KMH', 60),
