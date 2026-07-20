@@ -125,7 +125,9 @@ final class GeneralMaintenancePageRendererTest extends TestCase
         self::assertStringContainsString('<meta http-equiv="refresh" content="20">', $template);
         self::assertStringContainsString('class="maintenance-shell"', $template);
         self::assertStringContainsString('class="update-icon"', $template);
-        self::assertStringContainsString('Drone Inzet Systeem', $template);
+        self::assertStringNotContainsString('class="brand"', $template);
+        self::assertStringNotContainsString('<strong>D.I.S.</strong>', $template);
+        self::assertStringNotContainsString('Drone Inzet Systeem', $template);
         self::assertStringContainsString('Automatisch herstel is actief', $template);
         self::assertStringContainsString('@media (max-width: 620px)', $template);
         self::assertStringContainsString('@media (prefers-reduced-motion: reduce)', $template);

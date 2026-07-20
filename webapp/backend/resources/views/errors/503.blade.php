@@ -74,32 +74,8 @@
       margin: 0 auto;
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-end;
       gap: 18px;
-    }
-
-    .brand {
-      display: flex;
-      align-items: baseline;
-      gap: 12px;
-      min-width: 0;
-    }
-
-    .brand strong {
-      font-size: clamp(18px, 1.6vw, 28px);
-      letter-spacing: .14em;
-      white-space: nowrap;
-    }
-
-    .brand span {
-      overflow: hidden;
-      color: #7f91a6;
-      font-size: clamp(10px, .85vw, 13px);
-      font-weight: 700;
-      letter-spacing: .08em;
-      text-overflow: ellipsis;
-      text-transform: uppercase;
-      white-space: nowrap;
     }
 
     .state-pill {
@@ -267,7 +243,6 @@
 
     @media (max-width: 620px) {
       .maintenance-shell { gap: 20px; padding: 20px 18px 18px; }
-      .brand span { display: none; }
       .state-pill { padding: 8px 11px; font-size: 10px; }
       .takeover { padding: 12px 0; }
       .update-icon { margin-bottom: 20px; }
@@ -293,10 +268,6 @@
 <body data-maintenance-kind="maintenance" data-started-epoch-seconds="0" data-estimated-duration-seconds="0" data-estimated-completion-epoch-seconds="0">
   <div class="maintenance-shell">
     <header class="topbar">
-      <div class="brand">
-        <strong>D.I.S.</strong>
-        <span>Drone Inzet Systeem</span>
-      </div>
       <div class="state-pill">Onderhoud</div>
     </header>
 
