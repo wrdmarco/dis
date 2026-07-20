@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, DatabaseBackup, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, MonitorCog, Moon, Network, Palette, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, CloudSun, DatabaseBackup, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, MonitorCog, Moon, Network, Palette, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -76,6 +76,7 @@ const navGroups: NavGroup[] = [
     items: [
       { to: '/forms', label: 'Formulieren', icon: FileText, permissions: ['settings.manage'] },
       { to: '/admin', label: 'Admin', icon: Shield, permissions: ['settings.manage', 'settings.push.tokens.manage', 'system.health.view', 'system.developer-access.manage'], anyPermission: true },
+      { to: '/knmi', label: 'KNMI', icon: CloudSun, permissions: ['settings.manage'] },
       { to: '/branding', label: 'Branding', icon: Palette, permissions: ['settings.manage'] },
       { to: '/audit', label: 'Audit', icon: ScrollText, permissions: ['audit.view', 'status.audit.view'], anyPermission: true },
       { to: '/backups', label: 'Backups', icon: DatabaseBackup, permissions: ['backups.manage'] },
@@ -114,6 +115,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/forms': () => import('../features/admin/AdminPage'),
   '/calendar': () => import('../features/calendar/CalendarPage'),
   '/admin': () => import('../features/admin/AdminPage'),
+  '/knmi': () => import('../features/admin/KnmiAdminPage'),
   '/branding': () => import('../features/branding/BrandingPage'),
   '/audit': () => import('../features/audit/AuditLogPage'),
   '/backups': () => import('../features/backups/BackupPage'),

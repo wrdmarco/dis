@@ -22,6 +22,14 @@ return [
             'block_for' => 5,
             'after_commit' => true,
         ],
+        'knmi' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'queue' => 'knmi',
+            'retry_after' => max(7500, (int) env('KNMI_QUEUE_RETRY_AFTER', 7500)),
+            'block_for' => 5,
+            'after_commit' => true,
+        ],
     ],
     'failed' => [
         'driver' => env('QUEUE_FAILED_DRIVER', 'database-uuids'),

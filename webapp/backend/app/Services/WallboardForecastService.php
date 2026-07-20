@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Contracts\KnmiCloudForecastProvider;
 use App\Support\WallboardConfiguration;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
@@ -32,10 +33,6 @@ final class WallboardForecastService
         'wind_direction_degrees',
         'precipitation_probability_pct',
         'precipitation_mm',
-        'cloud_cover_pct',
-        'cloud_cover_low_pct',
-        'cloud_cover_mid_pct',
-        'cloud_cover_high_pct',
         'visibility_m',
         'sunrise',
         'sunset',
@@ -44,6 +41,7 @@ final class WallboardForecastService
     public function __construct(
         private readonly WallboardForecastClassifier $classifier,
         private readonly WallboardForecastLocationService $locations,
+        private readonly KnmiCloudForecastProvider $cloudForecasts,
         private readonly KnmiCloudBaseObservationService $cloudBaseObservations,
     ) {}
 
@@ -84,6 +82,7 @@ final class WallboardForecastService
         foreach ($resolvedPages as $pageId => ['page' => $page, 'resolution' => $resolution]) {
             $options = (array) ($page['options'] ?? []);
             $weather = $this->aggregateWeather($resolution, $weatherByLocation);
+            $cloudForecast = $this->cloudForecasts->forResolution($resolution);
             $condition = $this->condition($weather);
             $windMetric = $this->metric('wind_speed_kmh', 'Wind op 120 m AGL', $weather['wind_speed_kmh'] ?? null, 'km/u', $weather, 1);
             $windMetric['height_samples_agl_m'] = [
@@ -95,25 +94,28 @@ final class WallboardForecastService
             $totalCloudMetric = $this->metric(
                 'cloud_cover_pct',
                 'Totale modelbewolking',
-                $weather['cloud_cover_pct'] ?? null,
+                $cloudForecast['cloud_cover_pct'] ?? null,
                 '%',
-                $weather,
+                $cloudForecast,
                 0,
             );
             $lowCloudMetric = $this->metric(
                 'low_cloud_cover_pct',
                 'Lage bewolking',
-                $weather['cloud_cover_low_pct'] ?? null,
+                $cloudForecast['cloud_cover_low_pct'] ?? null,
                 '%',
-                $weather,
+                $cloudForecast,
                 0,
             );
-            $lowCloudMetric['cloud_layers'] = [
-                'low_pct' => $this->roundedOrNull($weather['cloud_cover_low_pct'] ?? null, 0),
-                'mid_pct' => $this->roundedOrNull($weather['cloud_cover_mid_pct'] ?? null, 0),
-                'high_pct' => $this->roundedOrNull($weather['cloud_cover_high_pct'] ?? null, 0),
-                'total_pct' => $this->roundedOrNull($weather['cloud_cover_pct'] ?? null, 0),
-            ];
+            $lowCloudMetric['cloud_layers'] = ($cloudForecast['complete'] ?? false) === true
+                ? [
+                    'low_pct' => $this->roundedOrNull($cloudForecast['cloud_cover_low_pct'] ?? null, 0),
+                    'mid_pct' => $this->roundedOrNull($cloudForecast['cloud_cover_mid_pct'] ?? null, 0),
+                    'high_pct' => $this->roundedOrNull($cloudForecast['cloud_cover_high_pct'] ?? null, 0),
+                    'total_pct' => $this->roundedOrNull($cloudForecast['cloud_cover_pct'] ?? null, 0),
+                ]
+                : null;
+            $lowCloudMetric['cloud_base_forecast'] = $this->cloudBaseForecast($cloudForecast);
             $lowCloudMetric['cloud_base_observation'] = $this->cloudBaseObservations->forResolution($resolution);
             $metrics = [
                 $condition,
@@ -172,7 +174,7 @@ final class WallboardForecastService
                 ],
                 'visible_blocks' => array_values((array) ($options['visible_blocks'] ?? WallboardConfiguration::FORECAST_VISIBLE_BLOCKS)),
                 'overall_status' => $this->classifier->overall($adviceMetrics),
-                'generated_at' => $this->forecastGeneratedAt($weather, $kp),
+                'generated_at' => $this->forecastGeneratedAt($weather, $kp, $cloudForecast),
                 'condition' => [
                     'code' => $condition['value'],
                     'label' => $condition['display_value'],
@@ -189,8 +191,8 @@ final class WallboardForecastService
                 ],
                 'metrics' => $metrics,
                 'scope_note' => $resolution['mode'] === WallboardForecastLocationService::MODE_NETHERLANDS
-                    ? 'Rekenkundig gemiddelde van actuele waarden voor exact alle 12 Nederlandse provincies; windrichting is een circulair gemiddelde en zonopkomst/-ondergang worden als landelijke tijdsrange getoond.'
-                    : 'Actuele modelwaarden voor het server-side opgeloste adres.',
+                    ? 'Rekenkundig gemiddelde van actuele waarden voor exact alle 12 Nederlandse provincies; windrichting is een circulair gemiddelde, de KNMI-modelwolkenbasis is het laagste geldige provinciepunt en zonopkomst/-ondergang worden als landelijke tijdsrange getoond.'
+                    : 'Actuele modelwaarden voor het server-side opgeloste adres; KNMI-stationsmetingen blijven afzonderlijke puntmetingen.',
                 'disclaimer' => 'Indicatief vliegadvies. Wind is modelwind op circa 120 m boven maaiveld; windstoten zijn alleen als 10 m-grondwaarde beschikbaar. Toestellimieten, missieprofiel, lokale weerswaarneming, luchtruimregels en gezaghebbende operationele beoordeling gaan altijd voor.',
             ];
         }
@@ -230,8 +232,8 @@ final class WallboardForecastService
             'wind_speed_kmh', 'wind_direction_degrees' => ['altitude_m' => 120, 'source_height_label' => '120 m boven maaiveld'],
             'wind_gust_kmh' => ['altitude_m' => 10, 'source_height_label' => '10 m boven maaiveld (grondwaarde)'],
             'temperature_c', 'dew_point_c' => ['altitude_m' => 2, 'source_height_label' => '2 m boven maaiveld (grondwaarde)'],
-            'cloud_cover_pct' => ['altitude_m' => null, 'source_height_label' => 'Totale hemelkolom; geen meting op vaste hoogte'],
-            'low_cloud_cover_pct' => ['altitude_m' => null, 'source_height_label' => 'Lage bewolking en mist tot 3 km; geen meting op vaste hoogte'],
+            'cloud_cover_pct' => ['altitude_m' => null, 'source_height_label' => 'Volledige hemelkolom volgens KNMI HARMONIE'],
+            'low_cloud_cover_pct' => ['altitude_m' => null, 'source_height_label' => 'KNMI HARMONIE-categorie lage bewolking; KNMI publiceert hiervoor geen vaste hoogteband'],
             default => ['altitude_m' => null, 'source_height_label' => 'oppervlaktewaarde'],
         };
 
@@ -297,6 +299,35 @@ final class WallboardForecastService
     }
 
     /**
+     * Keep the model ceiling separate from the measured EDR station layers.
+     * KNMI does not document an MSL/AGL reference for the Cy43 P1 ICNG field,
+     * so the API deliberately does not imply one.
+     *
+     * @param  array<string, mixed>  $reading
+     * @return array<string, mixed>
+     */
+    private function cloudBaseForecast(array $reading): array
+    {
+        $complete = ($reading['complete'] ?? false) === true;
+        $height = $this->roundedOrNull($reading['cloud_base_m'] ?? null, 0);
+
+        return [
+            'status' => ! $complete ? 'unknown' : ($height === null ? 'not_calculated' : 'forecast'),
+            'base_height_m' => $height,
+            'height_reference' => 'model_unspecified',
+            'aggregation' => is_string($reading['cloud_base_aggregation'] ?? null)
+                ? $reading['cloud_base_aggregation']
+                : null,
+            'sample_count' => is_int($reading['cloud_base_sample_count'] ?? null)
+                ? $reading['cloud_base_sample_count']
+                : 0,
+            'model_run_at' => is_string($reading['model_run_at'] ?? null) ? $reading['model_run_at'] : null,
+            'valid_at' => is_string($reading['valid_at'] ?? null) ? $reading['valid_at'] : null,
+            'attribution' => 'KNMI_HARMONIE',
+        ];
+    }
+
+    /**
      * @param  list<array{label: string, latitude: float, longitude: float}>  $locations
      * @return array<string, array<string, mixed>>
      */
@@ -356,7 +387,7 @@ final class WallboardForecastService
             ->get(self::WEATHER_URL, [
                 'latitude' => implode(',', array_map(static fn (array $location): string => sprintf('%.7F', $location['latitude']), $locations)),
                 'longitude' => implode(',', array_map(static fn (array $location): string => sprintf('%.7F', $location['longitude']), $locations)),
-                'current' => 'temperature_2m,dew_point_2m,precipitation,precipitation_probability,weather_code,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,wind_speed_10m,wind_speed_80m,wind_speed_120m,wind_direction_120m,wind_gusts_10m',
+                'current' => 'temperature_2m,dew_point_2m,precipitation,precipitation_probability,weather_code,visibility,wind_speed_10m,wind_speed_80m,wind_speed_120m,wind_direction_120m,wind_gusts_10m',
                 'daily' => 'sunrise,sunset',
                 'timezone' => self::LOCAL_TIMEZONE,
                 'forecast_days' => 1,
@@ -414,10 +445,6 @@ final class WallboardForecastService
             'wind_direction_degrees' => $this->requiredBoundedNumber($current['wind_direction_120m'] ?? null, 0, 360),
             'precipitation_probability_pct' => $this->requiredBoundedNumber($current['precipitation_probability'] ?? null, 0, 100),
             'precipitation_mm' => $this->requiredBoundedNumber($current['precipitation'] ?? null, 0, 500),
-            'cloud_cover_pct' => $this->requiredBoundedNumber($current['cloud_cover'] ?? null, 0, 100),
-            'cloud_cover_low_pct' => $this->requiredBoundedNumber($current['cloud_cover_low'] ?? null, 0, 100),
-            'cloud_cover_mid_pct' => $this->requiredBoundedNumber($current['cloud_cover_mid'] ?? null, 0, 100),
-            'cloud_cover_high_pct' => $this->requiredBoundedNumber($current['cloud_cover_high'] ?? null, 0, 100),
             'visibility_m' => $this->requiredBoundedNumber($current['visibility'] ?? null, 0, 100000),
             'sunrise' => $sunrise->toIso8601String(),
             'sunset' => $sunset->toIso8601String(),
@@ -465,10 +492,6 @@ final class WallboardForecastService
             'wind_gust_kmh',
             'precipitation_probability_pct',
             'precipitation_mm',
-            'cloud_cover_pct',
-            'cloud_cover_low_pct',
-            'cloud_cover_mid_pct',
-            'cloud_cover_high_pct',
             'visibility_m',
         ];
         $result = [];
@@ -840,11 +863,12 @@ final class WallboardForecastService
 
     /** @param array<string, mixed> $weather
      * @param  array<string, mixed>  $kp
+     * @param  array<string, mixed>  $cloudForecast
      */
-    private function forecastGeneratedAt(array $weather, array $kp): string
+    private function forecastGeneratedAt(array $weather, array $kp, array $cloudForecast): string
     {
         $latest = null;
-        foreach ([$weather['refreshed_at'] ?? null, $kp['refreshed_at'] ?? null] as $value) {
+        foreach ([$weather['refreshed_at'] ?? null, $kp['refreshed_at'] ?? null, $cloudForecast['refreshed_at'] ?? null] as $value) {
             if (! is_string($value)) {
                 continue;
             }

@@ -845,6 +845,17 @@ export interface WallboardForecastCloudBaseObservation {
   attribution: 'KNMI' | 'DIS_DEMO';
 }
 
+export interface WallboardForecastCloudBaseForecast {
+  status: 'forecast' | 'not_calculated' | 'unknown';
+  base_height_m: number | null;
+  height_reference: 'model_unspecified';
+  aggregation: 'single_grid_point' | 'minimum_of_province_samples' | null;
+  sample_count: number;
+  model_run_at: string | null;
+  valid_at: string | null;
+  attribution: 'KNMI_HARMONIE' | 'DIS_DEMO';
+}
+
 export interface WallboardForecastMetric {
   key: WallboardForecastMetricKey;
   label: string;
@@ -862,6 +873,7 @@ export interface WallboardForecastMetric {
   height_samples_agl_m: WallboardForecastWindSample[];
   max_non_red_wind_height_agl_m: number | null;
   cloud_layers: WallboardForecastCloudLayers | null;
+  cloud_base_forecast: WallboardForecastCloudBaseForecast | null;
   cloud_base_observation: WallboardForecastCloudBaseObservation | null;
 }
 
@@ -1485,6 +1497,66 @@ export interface OsrmOperationStarted {
 
 export interface OsrmOperationRequest {
   action: OsrmManagementAction;
+}
+
+export type KnmiForecastOperationState = 'queued' | 'running' | 'succeeded' | 'failed';
+
+export interface KnmiForecastOperation {
+  id: string;
+  state: KnmiForecastOperationState;
+  stage: string;
+  message: string;
+  progress_percent: number | null;
+  downloaded_bytes: number | null;
+  total_bytes: number | null;
+  source_filename: string | null;
+  unchanged: boolean;
+  snapshot_id: string | null;
+  error_code: string | null;
+  requested_by: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+}
+
+export interface KnmiForecastSnapshot {
+  id: string;
+  source_filename: string;
+  source_size_bytes: number;
+  model_run_at: string;
+  forecast_start_at: string;
+  forecast_end_at: string;
+  member_count: number;
+  activated_at: string;
+}
+
+export interface KnmiAdminConfiguration {
+  configured: boolean;
+  open_data_api_key_configured: boolean;
+  open_data_api_key_source: string | null;
+  open_data_endpoint: string;
+  edr_api_key_configured: boolean;
+  edr_api_key_source: string | null;
+  edr_collection_endpoint: string;
+  dataset: string;
+  dataset_version: string;
+  automatic_interval_hours: number;
+}
+
+export interface KnmiAdminStatus {
+  configuration: KnmiAdminConfiguration;
+  active_snapshot: KnmiForecastSnapshot | null;
+  active_operation: KnmiForecastOperation | null;
+  latest_operation: KnmiForecastOperation | null;
+}
+
+export interface KnmiAdminSettingsRequest {
+  open_data_api_key?: string;
+  edr_api_key?: string;
+}
+
+export interface KnmiForecastOperationStarted {
+  operation: KnmiForecastOperation;
 }
 
 export interface FormFieldOption {

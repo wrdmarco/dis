@@ -119,6 +119,60 @@ final class WallboardPlaylistPreviewApiTest extends TestCase
             ]]]);
     }
 
+    public function test_demo_preview_fills_empty_dynamic_inputs_before_shared_configuration_validation(): void
+    {
+        $manager = $this->user('playlist-preview-demo@example.test', ['wallboards.manage']);
+        $playlist = $this->playlist($manager);
+        $configuration = [
+            'pages' => [
+                $this->page('summary', 'Operationeel overzicht', 'summary'),
+                $this->page('incidents', 'Incidenten', 'incident_list'),
+                $this->page('map', 'Operationele kaart', 'map'),
+                $this->page('kpi', 'KPI', 'kpi'),
+                $this->page('calendar', 'Kalender', 'calendar'),
+                $this->page('quote', 'Quote van de dag', 'quote', ['quotes' => []]),
+                $this->page('forecast', 'UAV Forecast', 'uav_forecast', [
+                    'location_mode' => 'address',
+                    'location_label' => '',
+                ]),
+                $this->page('news', 'Drone-nieuws', 'news', [
+                    'sources' => [],
+                    'custom_sources' => [],
+                ]),
+            ],
+            'ticker' => [
+                'enabled' => true,
+                'sources' => [[
+                    'id' => 'unfinished-demo-ticker',
+                    'type' => 'internal',
+                    'label' => 'Intern bericht',
+                    'text' => '',
+                ]],
+            ],
+        ];
+
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/wallboard-playlists/'.$playlist->id.'/preview-state', [
+                'data_mode' => WallboardPlaylist::DATA_MODE_DEMO,
+                'configuration' => $configuration,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.wallboard.data_mode', WallboardPlaylist::DATA_MODE_DEMO)
+            ->assertJsonPath(
+                'data.wallboard.configuration.pages.5.options.quotes.0.text',
+                'Goede voorbereiding geeft elke vlucht een veilige start.',
+            )
+            ->assertJsonPath('data.wallboard.configuration.pages.5.options.quotes.0.author', 'DIS DEMO')
+            ->assertJsonPath('data.wallboard.configuration.pages.7.options.sources.0', 'ndt')
+            ->assertJsonPath('data.operational_summary.pilot_availability.available', 12)
+            ->assertJsonPath('data.map.incidents.0.reference', 'DEMO-2026-0043')
+            ->assertJsonPath('data.news.pages.news.items.0.source_label', 'DIS DEMO')
+            ->assertJsonPath('data.ticker.items.0.source_label', 'DIS DEMO')
+            ->assertJsonPath('data.forecast.pages.forecast.location.label', 'Demolocatie (fictief)')
+            ->assertJsonPath('data.calendar.pages.calendar.items.0.title', 'Demo: operationele briefing')
+            ->assertJsonStructure(['data' => ['kpi' => ['pages' => ['kpi' => ['metrics']]]]]);
+    }
+
     public function test_preview_returns_live_concept_state_with_admin_media_urls_without_persisting_or_auditing(): void
     {
         $manager = $this->user('playlist-preview-live@example.test', ['wallboards.manage']);

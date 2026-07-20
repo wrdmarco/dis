@@ -678,6 +678,8 @@ run_cmd rm -f -- "${DIS_INSTALL_PATH}/webapp/backend/storage/app/backup-config.e
 
 log "Ensuring wallboard media runtime dependencies"
 ensure_wallboard_media_runtime_dependencies
+log "Ensuring KNMI forecast runtime dependencies"
+ensure_knmi_forecast_runtime_dependencies
 
 log "Preflighting the current frontend release before deployment maintenance"
 require_dis_frontend_release_artifacts

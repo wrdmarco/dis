@@ -134,6 +134,64 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertStringContainsString('/etc/systemd/system/dis-incident-enrichment.service', $uninstall);
     }
 
+    public function test_knmi_import_has_an_independent_hardened_worker_and_fixed_grib_tools(): void
+    {
+        $service = $this->read('infrastructure/systemd/dis-knmi.service');
+        $queue = $this->read('infrastructure/systemd/dis-queue.service');
+        $common = $this->read('scripts/lib/common.sh');
+        $deploy = $this->read('scripts/deploy.sh');
+        $install = $this->read('scripts/install.sh');
+        $update = $this->read('scripts/update.sh');
+        $restore = $this->read('scripts/restore.sh');
+        $selfHeal = $this->read('scripts/self-heal-permissions.sh');
+        $uninstall = $this->read('scripts/uninstall.sh');
+
+        foreach ([
+            'Type=exec',
+            'ExecStartPre=/usr/bin/test -x /usr/bin/grib_count',
+            'ExecStartPre=/usr/bin/test -x /usr/bin/grib_get',
+            'queue:work knmi --queue=knmi',
+            '--queue=knmi',
+            '--tries=1',
+            '--timeout=7200',
+            'zend.exception_ignore_args=1',
+            'Wants=network-online.target',
+            'After=network-online.target redis-server.service postgresql.service',
+            'NoNewPrivileges=true',
+            'PrivateDevices=true',
+            'ProtectSystem=strict',
+            'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6',
+            'MemoryMax=1G',
+            'CPUQuota=150%',
+            'Nice=10',
+            'ReadWritePaths=/opt/dis-data',
+        ] as $contract) {
+            self::assertStringContainsString($contract, $service);
+        }
+        self::assertStringNotContainsString('--queue=knmi', $queue);
+        self::assertStringContainsString('ensure_knmi_forecast_runtime_dependencies()', $common);
+        self::assertStringContainsString('libeccodes-tools', $install);
+        self::assertStringContainsString('ensure_knmi_forecast_runtime_dependencies', $deploy);
+        self::assertStringContainsString('ensure_knmi_forecast_runtime_dependencies', $update);
+        self::assertStringContainsString('infrastructure/systemd/dis-knmi.service', $deploy);
+        self::assertStringContainsString('dis-knmi', $common);
+        self::assertStringContainsString('dis-knmi', $restore);
+        self::assertStringContainsString('dis-knmi', $selfHeal);
+        self::assertStringContainsString('/etc/systemd/system/dis-knmi.service', $uninstall);
+        self::assertStringContainsString('smbclient libeccodes-tools', $uninstall);
+
+        $dependencyStart = strpos($common, 'ensure_knmi_forecast_runtime_dependencies()');
+        $dependencyEnd = strpos($common, 'verify_osrm_admin_runtime_library()', (int) $dependencyStart);
+        self::assertIsInt($dependencyStart);
+        self::assertIsInt($dependencyEnd);
+        $dependency = substr($common, $dependencyStart, $dependencyEnd - $dependencyStart);
+        self::assertStringContainsString('/usr/bin/dpkg-query', $dependency);
+        self::assertStringContainsString('/usr/bin/apt-get install -y --no-install-recommends', $dependency);
+        self::assertStringContainsString('libeccodes-tools', $dependency);
+        self::assertStringNotContainsString('curl ', $dependency);
+        self::assertStringNotContainsString('wget ', $dependency);
+    }
+
     public function test_deploy_stops_runtime_before_migrations_and_only_opens_after_verification(): void
     {
         $script = $this->read('scripts/deploy.sh');

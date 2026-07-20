@@ -14,7 +14,6 @@ import { ApiClientError } from '../../lib/apiClient';
 import { MapPin } from 'lucide-react';
 import {
   buildAdminApiSettingsPayload,
-  KNMI_EDR_COLLECTION_ENDPOINT,
   mapAdminApiSettings,
   preserveAdminApiSecrets,
   type AdminApiSettingsForm,
@@ -483,7 +482,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
 
     try {
       await api.patch('/admin/settings', { settings: buildAdminApiSettingsPayload(adminApiForm) });
-      setAdminApiForm((current) => ({ ...current, aeretApiKey: '', knmiEdrApiKey: '' }));
+      setAdminApiForm((current) => ({ ...current, aeretApiKey: '' }));
       await settings.reload();
       setAdminApiMessage('API-instellingen opgeslagen.');
     } catch (error) {
@@ -1161,31 +1160,6 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
 
       {activeTab === 'api' ? (
         <Panel title="Externe API's">
-          <div className="settings-group">
-            <h3>KNMI Data Platform (EDR)</h3>
-            <p className="muted-text">D.I.S gebruikt deze KNMI-collectie voor actuele wolkenbasismetingen in de UAV Forecast.</p>
-            <dl className="definition-grid">
-              <dt>API-key</dt>
-              <dd>{adminApiSettings.knmiEdrApiKeyConfigured ? 'Ingesteld' : 'Niet ingesteld'}</dd>
-            </dl>
-            <div className="form-grid">
-              <label className="form-grid__wide">
-                KNMI EDR collection endpoint
-                <input className="mono" readOnly value={KNMI_EDR_COLLECTION_ENDPOINT} />
-                <small>Dit vaste endpoint wordt door D.I.S beheerd en kan hier niet worden gewijzigd.</small>
-              </label>
-              <label className="form-grid__wide">
-                KNMI EDR API-key
-                <input
-                  type="password"
-                  value={adminApiForm.knmiEdrApiKey}
-                  placeholder="Ongewijzigd laten"
-                  onChange={(event) => setAdminApiForm((current) => ({ ...current, knmiEdrApiKey: event.target.value }))}
-                />
-              </label>
-            </div>
-          </div>
-
           <div className="settings-group">
             <h3>Aeret</h3>
             <dl className="definition-grid">

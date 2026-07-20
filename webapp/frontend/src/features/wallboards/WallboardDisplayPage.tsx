@@ -2125,20 +2125,64 @@ function forecastCloudCoverDisplayBlock(
   if (lowCloudCover === undefined) return block;
 
   const layers = lowCloudCover.cloud_layers;
+  const forecast = lowCloudCover.cloud_base_forecast;
   const observation = lowCloudCover.cloud_base_observation;
   return {
     ...block,
     details: [
+      ...forecastCloudBaseForecastDetails(forecast),
       ...forecastCloudBaseObservationDetails(observation),
-      ...(observation !== null && observation.status !== 'unknown' ? [] : [
+      ...(forecast !== null && forecast.status !== 'unknown' ? [] : [
         lowCloudCover.source_height_label
-          ?? 'Lage bewolking en mist tot circa 3 km; geen meting op vaste hoogte',
+          ?? 'KNMI HARMONIE-categorie lage bewolking; KNMI publiceert hiervoor geen vaste hoogteband',
       ]),
       ...(layers === null ? [] : [
-        `Model: 0-3 km ${formatForecastNumber(layers.low_pct)}%; 3-8 km ${formatForecastNumber(layers.mid_pct)}%; >8 km ${formatForecastNumber(layers.high_pct)}%; totaal ${formatForecastNumber(layers.total_pct)}%`,
+        `Modelbewolking: laag ${formatForecastNumber(layers.low_pct)}%; middelbaar ${formatForecastNumber(layers.mid_pct)}%; hoog ${formatForecastNumber(layers.high_pct)}%; totaal ${formatForecastNumber(layers.total_pct)}%`,
       ]),
     ],
   };
+}
+
+function forecastCloudBaseForecastDetails(
+  forecast: WallboardForecastMetric['cloud_base_forecast'],
+): string[] {
+  const isDemo = forecast?.attribution === 'DIS_DEMO';
+  if (forecast === null || forecast.status === 'unknown') {
+    return [isDemo
+      ? 'Demo-modelverwachting wolkenbasis niet beschikbaar'
+      : 'Modelverwachting wolkenbasis niet beschikbaar'];
+  }
+
+  const timing = forecast.model_run_at === null || forecast.valid_at === null
+    ? null
+    : `Geldig ${formatWallboardForecastUpdateTime(forecast.valid_at)}; modelrun ${formatWallboardForecastUpdateTime(forecast.model_run_at)}${forecastCloudBaseAggregationLabel(forecast)}`;
+  if (forecast.status === 'not_calculated') {
+    return [
+      `${isDemo ? 'Demo-modelverwachting' : 'Modelverwachting'}: geen wolkenbasis berekend voor dit forecastuur`,
+      ...(timing === null ? [] : [timing]),
+    ];
+  }
+
+  return [
+    `${isDemo ? 'Demo-modelverwachting wolkenbasis' : 'Modelverwachting wolkenbasis'}: ${formatForecastNumber(forecast.base_height_m ?? 0)} m (hoogtereferentie niet gespecificeerd)`,
+    ...(timing === null ? [] : [timing]),
+  ];
+}
+
+function forecastCloudBaseAggregationLabel(
+  forecast: NonNullable<WallboardForecastMetric['cloud_base_forecast']>,
+): string {
+  if (forecast.sample_count < 1) {
+    return '';
+  }
+  if (forecast.aggregation === 'minimum_of_province_samples') {
+    return `; minimum van ${forecast.sample_count} provinciepunten`;
+  }
+  if (forecast.aggregation === 'single_grid_point') {
+    return '; één modelrasterpunt';
+  }
+
+  return '';
 }
 
 function forecastCloudBaseObservationDetails(
@@ -2146,18 +2190,18 @@ function forecastCloudBaseObservationDetails(
 ): string[] {
   if (observation === null || observation.status === 'unknown') {
     return [observation?.attribution === 'DIS_DEMO'
-      ? 'Demo-wolkenbasis niet beschikbaar'
-      : 'Actuele KNMI-wolkenbasis niet beschikbaar'];
+      ? 'Demo-meting wolkenbasis niet beschikbaar'
+      : 'Gemeten wolkenbasis niet beschikbaar'];
   }
 
   const isDemo = observation.attribution === 'DIS_DEMO';
   const station = observation.station;
   const stationDetail = station === null || observation.observed_at === null
     ? null
-    : `${isDemo ? 'Demopunt' : 'Puntmeting'} ${station.name} (${formatForecastNumber(station.distance_km)} km), ${formatWallboardForecastUpdateTime(observation.observed_at)}; kaartkleur volgt model`;
+    : `${isDemo ? 'Demo-meetpunt' : 'Meetstation'} ${station.name} (${formatForecastNumber(station.distance_km)} km), ${formatWallboardForecastUpdateTime(observation.observed_at)}; kaartkleur volgt model`;
   if (observation.status === 'no_cloud_detected') {
     return [
-      `${isDemo ? 'Demo' : 'KNMI'} heeft in ${observation.period_minutes} min geen wolkenbasis gedetecteerd`,
+      `${isDemo ? 'Demo-meting' : 'Gemeten'}: in ${observation.period_minutes} min geen wolkenbasis gedetecteerd`,
       ...(stationDetail === null ? [] : [stationDetail]),
     ];
   }
@@ -2167,7 +2211,7 @@ function forecastCloudBaseObservationDetails(
     ? ''
     : ` (${baseLayer.cover_okta}/8 bewolkt)`;
   return [
-    `${isDemo ? 'Demo-wolkenbasis' : 'Laagste KNMI-wolkenbasis'} in ${observation.period_minutes} min: ${formatForecastNumber(observation.base_height_m ?? 0)} m boven zeeniveau${cover}`,
+    `${isDemo ? 'Demo-meting wolkenbasis' : 'Gemeten wolkenbasis'}: ${formatForecastNumber(observation.base_height_m ?? 0)} m boven zeeniveau${cover} (laagste in ${observation.period_minutes} min)`,
     ...(stationDetail === null ? [] : [stationDetail]),
   ];
 }
@@ -3488,6 +3532,7 @@ function normalizeWallboardForecastMetric(value: unknown): WallboardForecastMetr
     height_samples_agl_m: normalizeForecastWindSamples(value.height_samples_agl_m),
     max_non_red_wind_height_agl_m: maximumWindHeight,
     cloud_layers: normalizeForecastCloudLayers(value.cloud_layers),
+    cloud_base_forecast: normalizeForecastCloudBaseForecast(value.cloud_base_forecast),
     cloud_base_observation: normalizeForecastCloudBaseObservation(value.cloud_base_observation),
   }];
 }
@@ -3506,6 +3551,62 @@ function normalizeForecastCloudLayers(value: unknown): WallboardForecastMetric['
   if (low === null || mid === null || high === null || total === null) return null;
 
   return { low_pct: low, mid_pct: mid, high_pct: high, total_pct: total };
+}
+
+function normalizeForecastCloudBaseForecast(
+  value: unknown,
+): WallboardForecastMetric['cloud_base_forecast'] {
+  if (!isRecord(value)) return null;
+  if (
+    !['forecast', 'not_calculated', 'unknown'].includes(String(value.status))
+    || value.height_reference !== 'model_unspecified'
+    || (value.aggregation !== null && !['single_grid_point', 'minimum_of_province_samples'].includes(String(value.aggregation)))
+    || !['KNMI_HARMONIE', 'DIS_DEMO'].includes(String(value.attribution))
+  ) {
+    return null;
+  }
+
+  const status = value.status as NonNullable<WallboardForecastMetric['cloud_base_forecast']>['status'];
+  const aggregation = value.aggregation as NonNullable<WallboardForecastMetric['cloud_base_forecast']>['aggregation'];
+  const attribution = value.attribution as NonNullable<WallboardForecastMetric['cloud_base_forecast']>['attribution'];
+  const baseHeight = normalizeBoundedInteger(value.base_height_m, 0, 20_000);
+  const sampleCount = normalizeBoundedInteger(value.sample_count, 0, 100);
+  const modelRunAt = typeof value.model_run_at === 'string' && Number.isFinite(Date.parse(value.model_run_at))
+    ? value.model_run_at
+    : null;
+  const validAt = typeof value.valid_at === 'string' && Number.isFinite(Date.parse(value.valid_at))
+    ? value.valid_at
+    : null;
+
+  if (sampleCount === null) return null;
+  if (status === 'unknown') {
+    return baseHeight === null && sampleCount === 0 && modelRunAt === null && validAt === null
+      ? {
+          status,
+          base_height_m: null,
+          height_reference: 'model_unspecified',
+          aggregation,
+          sample_count: 0,
+          model_run_at: null,
+          valid_at: null,
+          attribution,
+        }
+      : null;
+  }
+  if (aggregation === null || modelRunAt === null || validAt === null) return null;
+  if (status === 'forecast' && (baseHeight === null || sampleCount < 1)) return null;
+  if (status === 'not_calculated' && (baseHeight !== null || sampleCount !== 0)) return null;
+
+  return {
+    status,
+    base_height_m: baseHeight,
+    height_reference: 'model_unspecified',
+    aggregation,
+    sample_count: sampleCount,
+    model_run_at: modelRunAt,
+    valid_at: validAt,
+    attribution,
+  };
 }
 
 function normalizeForecastCloudBaseObservation(

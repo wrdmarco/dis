@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\KnmiCloudForecastProvider;
 use App\Http\Requests\Admin\StoreWallboardPlaylistRequest;
 use App\Http\Requests\Admin\UpdateWallboardPlaylistRequest;
 use App\Services\WallboardForecastClassifier;
@@ -18,6 +19,16 @@ use Tests\TestCase;
 
 final class WallboardForecastTest extends TestCase
 {
+    private StubKnmiCloudForecastProvider $cloudForecasts;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->cloudForecasts = new StubKnmiCloudForecastProvider;
+        $this->app->instance(KnmiCloudForecastProvider::class, $this->cloudForecasts);
+    }
+
     protected function tearDown(): void
     {
         CarbonImmutable::setTestNow();
@@ -103,12 +114,12 @@ final class WallboardForecastTest extends TestCase
         $this->assertSame(100.0, $metrics['cloud_cover_pct']['value']);
         $this->assertSame('Totale modelbewolking', $metrics['cloud_cover_pct']['label']);
         $this->assertNull($metrics['cloud_cover_pct']['altitude_m']);
-        $this->assertSame('Totale hemelkolom; geen meting op vaste hoogte', $metrics['cloud_cover_pct']['source_height_label']);
+        $this->assertSame('Volledige hemelkolom volgens KNMI HARMONIE', $metrics['cloud_cover_pct']['source_height_label']);
         $this->assertSame(20.0, $metrics['low_cloud_cover_pct']['value']);
         $this->assertSame('green', $metrics['low_cloud_cover_pct']['status']);
         $this->assertNull($metrics['low_cloud_cover_pct']['altitude_m']);
         $this->assertSame(
-            'Lage bewolking en mist tot 3 km; geen meting op vaste hoogte',
+            'KNMI HARMONIE-categorie lage bewolking; KNMI publiceert hiervoor geen vaste hoogteband',
             $metrics['low_cloud_cover_pct']['source_height_label'],
         );
         $this->assertSame([
@@ -117,6 +128,16 @@ final class WallboardForecastTest extends TestCase
             'high_pct' => 80.0,
             'total_pct' => 100.0,
         ], $metrics['low_cloud_cover_pct']['cloud_layers']);
+        $this->assertSame([
+            'status' => 'forecast',
+            'base_height_m' => 850.0,
+            'height_reference' => 'model_unspecified',
+            'aggregation' => 'single_grid_point',
+            'sample_count' => 1,
+            'model_run_at' => '2026-07-20T09:00:00+00:00',
+            'valid_at' => '2026-07-20T12:00:00+00:00',
+            'attribution' => 'KNMI_HARMONIE',
+        ], $metrics['low_cloud_cover_pct']['cloud_base_forecast']);
         $this->assertSame([
             'status' => 'unknown',
             'base_height_m' => null,
@@ -139,9 +160,7 @@ final class WallboardForecastTest extends TestCase
             && str_contains((string) $request['current'], 'wind_speed_10m')
             && str_contains((string) $request['current'], 'wind_speed_80m')
             && str_contains((string) $request['current'], 'wind_speed_120m')
-            && str_contains((string) $request['current'], 'cloud_cover_low')
-            && str_contains((string) $request['current'], 'cloud_cover_mid')
-            && str_contains((string) $request['current'], 'cloud_cover_high')
+            && ! str_contains((string) $request['current'], 'cloud_cover')
             && $request['timezone'] === 'Europe/Amsterdam');
     }
 
@@ -185,6 +204,13 @@ final class WallboardForecastTest extends TestCase
     public function test_uav_netherlands_averages_exactly_twelve_provinces_in_one_validated_weather_batch(): void
     {
         $this->setForecastTestNow();
+        $this->cloudForecasts->reading = [
+            'cloud_cover_pct' => 31.0,
+            'cloud_cover_low_pct' => 16.0,
+            'cloud_cover_mid_pct' => 26.0,
+            'cloud_cover_high_pct' => 36.0,
+            'cloud_base_m' => 640.0,
+        ];
         $provinceCoordinates = $this->provinceCoordinates();
         $weatherResponses = [];
         foreach (array_values($provinceCoordinates) as $index => $coordinates) {
@@ -632,5 +658,49 @@ final class WallboardForecastTest extends TestCase
         } catch (ValidationException $exception) {
             $this->assertArrayHasKey($field, $exception->errors());
         }
+    }
+}
+
+final class StubKnmiCloudForecastProvider implements KnmiCloudForecastProvider
+{
+    /** @var array<string, float|null> */
+    public array $reading = [
+        'cloud_cover_pct' => 100.0,
+        'cloud_cover_low_pct' => 20.0,
+        'cloud_cover_mid_pct' => 60.0,
+        'cloud_cover_high_pct' => 80.0,
+        'cloud_base_m' => 850.0,
+    ];
+
+    public function forResolution(array $resolution): array
+    {
+        if (($resolution['complete'] ?? false) !== true) {
+            return [
+                'complete' => false,
+                'stale' => false,
+                'source' => ['name' => 'KNMI HARMONIE P1', 'url' => null],
+                'availability_note' => 'Testlocatie onvolledig.',
+            ];
+        }
+
+        $sampleCount = (int) ($resolution['expected_locations'] ?? 1);
+
+        return [
+            ...$this->reading,
+            'cloud_base_sample_count' => $this->reading['cloud_base_m'] === null ? 0 : $sampleCount,
+            'cloud_base_aggregation' => $sampleCount === 12 ? 'minimum_of_province_samples' : 'single_grid_point',
+            'sample_count' => $sampleCount,
+            'expected_sample_count' => $sampleCount,
+            'complete' => true,
+            'stale' => false,
+            'model_run_at' => '2026-07-20T09:00:00+00:00',
+            'valid_at' => '2026-07-20T12:00:00+00:00',
+            'measured_at' => '2026-07-20T12:00:00+00:00',
+            'refreshed_at' => '2026-07-20T12:14:00+00:00',
+            'source' => [
+                'name' => $sampleCount === 12 ? 'KNMI HARMONIE P1 (12 provincies)' : 'KNMI HARMONIE P1',
+                'url' => 'https://dataplatform.knmi.nl/dataset/harmonie-arome-cy43-p1-1-0',
+            ],
+        ];
     }
 }

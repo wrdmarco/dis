@@ -1,0 +1,369 @@
+.page {
+  --knmi-line: rgba(128, 199, 255, 0.36);
+  --knmi-measured: var(--dis-positive);
+}
+
+.sectionBody,
+.settingsForm {
+  display: grid;
+  gap: 18px;
+  padding: clamp(14px, 2vw, 20px);
+}
+
+.modelIntro,
+.sourceComparison article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.modelIntro strong,
+.sourceComparison strong,
+.operation strong,
+.operationEmpty strong {
+  color: var(--dis-text-strong);
+}
+
+.modelIntro p,
+.sourceComparison p,
+.operation p,
+.settingsGroup > p {
+  margin: 4px 0 0;
+  color: var(--dis-muted-strong);
+}
+
+.sourceIcon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(128, 199, 255, 0.24);
+  border-radius: 8px;
+  background: var(--dis-blue-soft);
+  color: var(--dis-blue);
+}
+
+.sourceIconMeasured {
+  border-color: rgba(110, 231, 183, 0.24);
+  background: var(--dis-positive-soft);
+  color: var(--knmi-measured);
+}
+
+.forecastWindow {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(128, 199, 255, 0.07), transparent 62%),
+    var(--dis-field);
+  padding: 16px;
+}
+
+.windowHeading,
+.operationHeader,
+.progressMeta,
+.actionsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.windowHeading span,
+.progressMeta,
+.actionHint,
+.windowLabels small {
+  color: var(--dis-muted);
+  font-size: 0.82rem;
+}
+
+.windowTrack {
+  position: relative;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 4px 4px 0;
+}
+
+.windowTrack::before {
+  content: "";
+  position: absolute;
+  inset: 6px 0 auto;
+  height: 2px;
+  background: linear-gradient(90deg, var(--dis-blue), var(--knmi-line));
+}
+
+.windowTrack i {
+  position: relative;
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--dis-blue);
+  border-radius: 50%;
+  background: var(--dis-field);
+  box-shadow: 0 0 0 4px rgba(128, 199, 255, 0.08);
+}
+
+.windowLabels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.windowLabels span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.windowLabels span:nth-child(2) {
+  text-align: center;
+}
+
+.windowLabels span:last-child {
+  text-align: right;
+}
+
+.windowLabels b {
+  color: var(--dis-text-strong);
+  font-size: 0.82rem;
+}
+
+.windowLabels time {
+  color: var(--dis-muted-strong);
+  font-size: 0.76rem;
+}
+
+.windowEmpty,
+.operationEmpty,
+.staleWarning {
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background: var(--dis-field);
+  color: var(--dis-muted-strong);
+  padding: 14px;
+}
+
+.staleWarning {
+  margin: 0;
+  border-color: rgba(251, 191, 36, 0.28);
+  background: var(--dis-warning-soft);
+}
+
+.snapshotGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.snapshotGrid > div {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background: var(--dis-surface-2);
+  padding: 12px;
+}
+
+.snapshotGrid dt,
+.configurationFacts dt,
+.operationFacts dt {
+  color: var(--dis-muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.snapshotGrid dd,
+.configurationFacts dd,
+.operationFacts dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--dis-text-strong);
+  overflow-wrap: anywhere;
+}
+
+.snapshotGrid dd {
+  font-size: 0.88rem;
+  font-weight: 720;
+}
+
+.sourceComparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sourceComparison article {
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background: var(--dis-surface-2);
+  padding: 14px;
+}
+
+.operation,
+.operationEmpty {
+  display: grid;
+  gap: 12px;
+}
+
+.operationHeader > div {
+  display: grid;
+  gap: 2px;
+}
+
+.operationHeader > div > span {
+  color: var(--dis-muted);
+  font-size: 0.78rem;
+}
+
+.operation progress {
+  width: 100%;
+  height: 10px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: var(--dis-field);
+  color: var(--dis-blue);
+}
+
+.operation progress::-webkit-progress-bar {
+  background: var(--dis-field);
+}
+
+.operation progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--dis-blue), #58aeea);
+}
+
+.operation progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--dis-blue), #58aeea);
+}
+
+.operation p {
+  margin: 0;
+}
+
+.operationFacts,
+.configurationFacts {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.35fr) minmax(0, 1fr);
+  gap: 8px 14px;
+  margin: 0;
+}
+
+.actionsRow {
+  justify-content: flex-end;
+}
+
+.actionsRow button {
+  gap: 8px;
+}
+
+.actionHint {
+  margin: -8px 0 0;
+  text-align: right;
+}
+
+.settingsForm {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settingsGroup {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  margin: 0;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background: var(--dis-surface-2);
+  padding: 16px;
+}
+
+.settingsGroup legend {
+  padding: 0 7px;
+  color: var(--dis-text-strong);
+  font-weight: 800;
+}
+
+.settingsGroup label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--dis-text);
+  font-weight: 650;
+}
+
+.settingsGroup small {
+  color: var(--dis-muted);
+  font-weight: 450;
+}
+
+.settingsForm > :global(.form-error),
+.settingsForm > :global(.success-text),
+.settingsForm > .actionsRow {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 980px) {
+  .snapshotGrid,
+  .settingsForm {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settingsGroup,
+  .settingsForm > :global(.form-error),
+  .settingsForm > :global(.success-text),
+  .settingsForm > .actionsRow {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 640px) {
+  .snapshotGrid,
+  .sourceComparison,
+  .settingsForm {
+    grid-template-columns: 1fr;
+  }
+
+  .windowLabels time {
+    font-size: 0.7rem;
+  }
+
+  .operationHeader {
+    align-items: flex-start;
+  }
+
+  .operationFacts,
+  .configurationFacts {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .operationFacts dd + dt,
+  .configurationFacts dd + dt {
+    margin-top: 8px;
+  }
+
+  .actionsRow button {
+    width: 100%;
+  }
+
+  .actionHint {
+    text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .operation progress::-webkit-progress-value,
+  .operation progress::-moz-progress-bar {
+    transition: none;
+  }
+}

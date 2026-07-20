@@ -12,6 +12,10 @@ Schedule::command('dis:refresh-wallboard-content')
     ->everyFiveMinutes()
     ->onOneServer()
     ->withoutOverlapping(10);
+Schedule::command('dis:refresh-knmi-forecast')
+    ->cron('17 */3 * * *')
+    ->onOneServer()
+    ->withoutOverlapping(180);
 Schedule::command('dis:backfill-incident-locations')
     ->everyFiveMinutes()
     ->onOneServer()

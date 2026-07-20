@@ -272,9 +272,28 @@ rather than zero.
 
 The UAV Forecast page uses either an administrator-selected address, resolved server-side through the existing
 DIS address search, or the exact average of one reference point in each of the twelve Dutch provinces. Current
-weather, daylight, temperature, dew point, precipitation, cloud cover, visibility and wind come from
-[Open-Meteo](https://open-meteo.com/en/docs) and refresh at most once every fifteen minutes; the planetary Kp
-index comes from the fixed [NOAA SWPC feed](https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json).
+weather, daylight, temperature, dew point, precipitation, visibility and wind come from
+[Open-Meteo](https://open-meteo.com/en/docs) and refresh at most once every fifteen minutes. Total, low, middle
+and high cloud cover plus the model cloud base come from the centrally installed
+[KNMI HARMONIE-AROME Cy43 P1 dataset](https://dataplatform.knmi.nl/dataset/harmonie-arome-cy43-p1-1-0); the
+planetary Kp index comes from the fixed
+[NOAA SWPC feed](https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json).
+
+The dedicated `/knmi` management page stores the Open Data and EDR keys encrypted, shows import progress and
+lets a `settings.manage` administrator request an update. The scheduler checks every three hours. An update
+downloads the complete current TAR object with HTTP 200, never byte ranges, validates and indexes all 61 GRIB1
+members from forecast hour +00 through +60, then atomically switches the shared active snapshot. A failed or
+incomplete update leaves the preceding snapshot active. The raw archive is removed after extraction and only a
+bounded number of immutable releases is retained under persistent application storage.
+On a multi-server installation `KNMI_FORECAST_STORAGE_ROOT` must resolve to the same shared POSIX filesystem on
+every web and KNMI-worker node and that filesystem must provide atomic rename; node-local roots are supported
+only for the default single-server topology.
+
+HARMONIE values are model expectations, not measurements. The model cloud-base field is displayed without
+claiming an AGL or MSL reference because that reference is not specified by this dataset contract. Recent KNMI
+EDR station cloud layers remain a separate measured value in metres above mean sea level, with station distance
+and observation time. Model percentages and station observations are never blended.
+
 Wind is reported at its source height in metres AGL. The service also derives the highest sampled height at
 10, 80 or 120 metres AGL whose wind classification has not reached red. Visibility changes from metres to
 kilometres with two decimals at 10 km. Administrators may hide individual information cards, but the mandatory

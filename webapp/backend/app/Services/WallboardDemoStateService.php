@@ -172,6 +172,16 @@ final class WallboardDemoStateService
             'high_pct' => 31,
             'total_pct' => 64,
         ];
+        $metrics[9]['cloud_base_forecast'] = [
+            'status' => 'forecast',
+            'base_height_m' => 760,
+            'height_reference' => 'model_unspecified',
+            'aggregation' => 'single_grid_point',
+            'sample_count' => 1,
+            'model_run_at' => ApiDateTime::dateTime($anchor->subHours(3)),
+            'valid_at' => $generatedAt,
+            'attribution' => 'DIS_DEMO',
+        ];
         $metrics[9]['cloud_base_observation'] = [
             'status' => 'measured',
             'base_height_m' => 820,
@@ -198,6 +208,11 @@ final class WallboardDemoStateService
             $options = (array) ($page['options'] ?? []);
             $mode = ($options['location_mode'] ?? null) === 'address' ? 'address' : 'netherlands';
             $expected = $mode === 'netherlands' ? 12 : 1;
+            $pageMetrics = $metrics;
+            $pageMetrics[9]['cloud_base_forecast']['aggregation'] = $mode === 'netherlands'
+                ? 'minimum_of_province_samples'
+                : 'single_grid_point';
+            $pageMetrics[9]['cloud_base_forecast']['sample_count'] = $expected;
             $pages[(string) $page['id']] = [
                 'location' => [
                     'mode' => $mode,
@@ -237,7 +252,7 @@ final class WallboardDemoStateService
                     'max_non_red_wind_height_agl_m' => 120,
                     'stale' => false,
                 ],
-                'metrics' => $metrics,
+                'metrics' => $pageMetrics,
                 'scope_note' => 'Vaste fictieve waarden om de UAV Forecast-weergave te demonstreren.',
                 'disclaimer' => 'DEMO: deze fictieve waarden mogen nooit voor een vliegbeslissing worden gebruikt.',
             ];
@@ -461,6 +476,7 @@ final class WallboardDemoStateService
             'height_samples_agl_m' => [],
             'max_non_red_wind_height_agl_m' => null,
             'cloud_layers' => null,
+            'cloud_base_forecast' => null,
             'cloud_base_observation' => null,
         ];
     }

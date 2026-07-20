@@ -39,6 +39,7 @@ function metric(
     height_samples_agl_m: [],
     max_non_red_wind_height_agl_m: null,
     cloud_layers: null,
+    cloud_base_forecast: null,
     cloud_base_observation: null,
     ...overrides,
   };
@@ -115,8 +116,18 @@ function backendForecast(overrides: Record<string, unknown> = {}) {
       metric('low_cloud_cover_pct', 'green', 20, {
         label: 'Lage bewolking',
         unit: '%',
-        source_height_label: 'Lage bewolking en mist tot circa 3 km; geen meting op vaste hoogte',
+        source_height_label: 'KNMI HARMONIE-categorie lage bewolking; KNMI publiceert hiervoor geen vaste hoogteband',
         cloud_layers: { low_pct: 20, mid_pct: 40, high_pct: 60, total_pct: 100 },
+        cloud_base_forecast: {
+          status: 'forecast',
+          base_height_m: 850,
+          height_reference: 'model_unspecified',
+          aggregation: 'minimum_of_province_samples',
+          sample_count: 12,
+          model_run_at: '2026-07-20T09:00:00Z',
+          valid_at: '2026-07-20T12:00:00Z',
+          attribution: 'KNMI_HARMONIE',
+        },
         cloud_base_observation: {
           status: 'measured',
           base_height_m: 640,
@@ -161,9 +172,11 @@ test('shows low cloud cover as the operational card while retaining total and hi
 
   expect(cloud).toMatchObject({ label: 'Lage bewolking', value: '20 %', status: 'green' });
   expect(cloud?.details).toEqual([
-    'Laagste KNMI-wolkenbasis in 30 min: 640 m boven zeeniveau (6/8 bewolkt)',
-    'Puntmeting De Bilt (5,2 km), 14:10; kaartkleur volgt model',
-    'Model: 0-3 km 20%; 3-8 km 40%; >8 km 60%; totaal 100%',
+    'Modelverwachting wolkenbasis: 850 m (hoogtereferentie niet gespecificeerd)',
+    'Geldig 14:00; modelrun 11:00; minimum van 12 provinciepunten',
+    'Gemeten wolkenbasis: 640 m boven zeeniveau (6/8 bewolkt) (laagste in 30 min)',
+    'Meetstation De Bilt (5,2 km), 14:10; kaartkleur volgt model',
+    'Modelbewolking: laag 20%; middelbaar 40%; hoog 60%; totaal 100%',
   ]);
 });
 
@@ -190,7 +203,7 @@ test('keeps an invalid KNMI station observation fail-closed', () => {
   const cloud = wallboardForecastDisplayBlocks(forecast).find((block) => block.key === 'cloud_cover');
 
   expect(normalizedLowCloud?.cloud_base_observation).toBeNull();
-  expect(cloud?.details[0]).toBe('Actuele KNMI-wolkenbasis niet beschikbaar');
+  expect(cloud?.details).toContain('Gemeten wolkenbasis niet beschikbaar');
 });
 
 test('shows an explicit no-cloud detection without overriding the authoritative model status', () => {
@@ -215,24 +228,58 @@ test('shows an explicit no-cloud detection without overriding the authoritative 
   const cloud = wallboardForecastDisplayBlocks(forecast).find((block) => block.key === 'cloud_cover');
 
   expect(cloud).toMatchObject({ status: 'red', value: '90 %' });
-  expect(cloud?.details[0]).toBe('KNMI heeft in 30 min geen wolkenbasis gedetecteerd');
+  expect(cloud?.details).toContain('Gemeten: in 30 min geen wolkenbasis gedetecteerd');
 });
 
 test('labels fictitious cloud-base observations as demo data without a KNMI claim', () => {
   const payload = backendForecast();
   const lowCloud = payload.metrics.find((candidate) => candidate.key === 'low_cloud_cover_pct');
   if (lowCloud === undefined || lowCloud.cloud_base_observation === null) throw new Error('Missing cloud fixture.');
+  if (lowCloud.cloud_base_forecast === null) throw new Error('Missing model fixture.');
+  lowCloud.cloud_base_forecast.attribution = 'DIS_DEMO';
   lowCloud.cloud_base_observation.attribution = 'DIS_DEMO';
 
   const forecast = normalizeWallboardForecastState({ pages: { forecast: payload } }).pages.forecast;
   const cloud = wallboardForecastDisplayBlocks(forecast).find((block) => block.key === 'cloud_cover');
 
   expect(cloud?.details).toEqual([
-    'Demo-wolkenbasis in 30 min: 640 m boven zeeniveau (6/8 bewolkt)',
-    'Demopunt De Bilt (5,2 km), 14:10; kaartkleur volgt model',
-    'Model: 0-3 km 20%; 3-8 km 40%; >8 km 60%; totaal 100%',
+    'Demo-modelverwachting wolkenbasis: 850 m (hoogtereferentie niet gespecificeerd)',
+    'Geldig 14:00; modelrun 11:00; minimum van 12 provinciepunten',
+    'Demo-meting wolkenbasis: 640 m boven zeeniveau (6/8 bewolkt) (laagste in 30 min)',
+    'Demo-meetpunt De Bilt (5,2 km), 14:10; kaartkleur volgt model',
+    'Modelbewolking: laag 20%; middelbaar 40%; hoog 60%; totaal 100%',
   ]);
   expect(cloud?.details.join(' ')).not.toContain('KNMI');
+});
+
+test('keeps an invalid model cloud base fail-closed while retaining measured station data', () => {
+  const payload = backendForecast();
+  const lowCloud = payload.metrics.find((candidate) => candidate.key === 'low_cloud_cover_pct');
+  if (lowCloud === undefined || lowCloud.cloud_base_forecast === null) throw new Error('Missing model fixture.');
+  lowCloud.cloud_base_forecast.base_height_m = -50;
+
+  const forecast = normalizeWallboardForecastState({ pages: { forecast: payload } }).pages.forecast;
+  const normalizedLowCloud = forecast.metrics.find((candidate) => candidate.key === 'low_cloud_cover_pct');
+  const cloud = wallboardForecastDisplayBlocks(forecast).find((block) => block.key === 'cloud_cover');
+
+  expect(normalizedLowCloud?.cloud_base_forecast).toBeNull();
+  expect(cloud?.details[0]).toBe('Modelverwachting wolkenbasis niet beschikbaar');
+  expect(cloud?.details).toContain('Gemeten wolkenbasis: 640 m boven zeeniveau (6/8 bewolkt) (laagste in 30 min)');
+});
+
+test('shows when the model has no cloud base for the selected forecast hour', () => {
+  const payload = backendForecast();
+  const lowCloud = payload.metrics.find((candidate) => candidate.key === 'low_cloud_cover_pct');
+  if (lowCloud === undefined || lowCloud.cloud_base_forecast === null) throw new Error('Missing model fixture.');
+  lowCloud.cloud_base_forecast.status = 'not_calculated';
+  lowCloud.cloud_base_forecast.base_height_m = null;
+  lowCloud.cloud_base_forecast.sample_count = 0;
+
+  const forecast = normalizeWallboardForecastState({ pages: { forecast: payload } }).pages.forecast;
+  const cloud = wallboardForecastDisplayBlocks(forecast).find((block) => block.key === 'cloud_cover');
+
+  expect(cloud?.details[0]).toBe('Modelverwachting: geen wolkenbasis berekend voor dit forecastuur');
+  expect(cloud?.details[1]).toBe('Geldig 14:00; modelrun 11:00');
 });
 
 test('uses server visibility formatting and exposes the AGL wind profile', () => {

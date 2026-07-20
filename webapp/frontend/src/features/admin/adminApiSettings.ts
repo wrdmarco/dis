@@ -1,26 +1,22 @@
 import type { SystemSetting } from '../../types/api';
 
-export const KNMI_EDR_COLLECTION_ENDPOINT = 'https://api.dataplatform.knmi.nl/edr/v1/collections/10-minute-in-situ-meteorological-observations';
 export const DEFAULT_AERET_MAP_URL = 'https://aeret.kaartviewer.nl/?@dpf_basic';
 
 export interface AdminApiSettingsForm {
   aeretMapUrl: string;
   aeretApiUrl: string;
   aeretApiKey: string;
-  knmiEdrApiKey: string;
 }
 
 export interface AdminApiSettingsConfiguration {
   form: AdminApiSettingsForm;
   aeretApiKeyConfigured: boolean;
-  knmiEdrApiKeyConfigured: boolean;
 }
 
 export interface AdminApiSettingsPayload {
   'drone.aeret_map_url': string | null;
   'drone.aeret_api_url': string | null;
   'drone.aeret_api_key'?: string;
-  'weather.knmi_edr_api_key'?: string;
 }
 
 export function mapAdminApiSettings(settings: SystemSetting[]): AdminApiSettingsConfiguration {
@@ -31,10 +27,8 @@ export function mapAdminApiSettings(settings: SystemSetting[]): AdminApiSettings
       aeretMapUrl: asString(byKey.get('drone.aeret_map_url')) || DEFAULT_AERET_MAP_URL,
       aeretApiUrl: asString(byKey.get('drone.aeret_api_url')),
       aeretApiKey: '',
-      knmiEdrApiKey: '',
     },
     aeretApiKeyConfigured: isConfiguredSecret(byKey.get('drone.aeret_api_key')),
-    knmiEdrApiKeyConfigured: isConfiguredSecret(byKey.get('weather.knmi_edr_api_key')),
   };
 }
 
@@ -45,7 +39,6 @@ export function preserveAdminApiSecrets(
   return {
     ...incoming,
     aeretApiKey: current.aeretApiKey,
-    knmiEdrApiKey: current.knmiEdrApiKey,
   };
 }
 
@@ -53,7 +46,6 @@ export function buildAdminApiSettingsPayload(form: AdminApiSettingsForm): AdminA
   const aeretMapUrl = form.aeretMapUrl.trim();
   const aeretApiUrl = form.aeretApiUrl.trim();
   const aeretApiKey = form.aeretApiKey.trim();
-  const knmiEdrApiKey = form.knmiEdrApiKey.trim();
   const payload: AdminApiSettingsPayload = {
     'drone.aeret_map_url': aeretMapUrl === '' ? null : aeretMapUrl,
     'drone.aeret_api_url': aeretApiUrl === '' ? null : aeretApiUrl,
@@ -61,10 +53,6 @@ export function buildAdminApiSettingsPayload(form: AdminApiSettingsForm): AdminA
 
   if (aeretApiKey !== '') {
     payload['drone.aeret_api_key'] = aeretApiKey;
-  }
-
-  if (knmiEdrApiKey !== '') {
-    payload['weather.knmi_edr_api_key'] = knmiEdrApiKey;
   }
 
   return payload;

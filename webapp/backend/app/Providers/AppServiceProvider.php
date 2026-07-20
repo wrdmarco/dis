@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Contracts\DispatchNotificationQueue;
+use App\Contracts\KnmiCloudForecastProvider;
 use App\Contracts\PushProvider;
 use App\Contracts\RouteGeometryProvider;
 use App\Contracts\RoutingProvider;
@@ -10,6 +11,7 @@ use App\Contracts\WallboardContentProvider;
 use App\Mail\MicrosoftGraphTransport;
 use App\Models\PersonalAccessToken;
 use App\Models\SystemSetting;
+use App\Services\KnmiHarmonieCloudService;
 use App\Services\PushProviderClient;
 use App\Services\QueuedDispatchNotificationQueue;
 use App\Services\Routing\OsrmRoutingProvider;
@@ -35,6 +37,7 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(DispatchNotificationQueue::class, QueuedDispatchNotificationQueue::class);
         $this->app->bind(PushProvider::class, PushProviderClient::class);
         $this->app->bind(WallboardContentProvider::class, SecureWallboardContentProvider::class);
+        $this->app->singleton(KnmiCloudForecastProvider::class, KnmiHarmonieCloudService::class);
 
         $this->app->singleton(RoutingProvider::class, fn ($app): RoutingProvider => new OsrmRoutingProvider(
             http: $app->make(HttpFactory::class),
@@ -257,6 +260,16 @@ final class AppServiceProvider extends ServiceProvider
         RateLimiter::for('osrm-admin-write', fn (Request $request): array => [
             Limit::perMinute(2)->by('osrm-admin-write:client:'.$this->rateLimitClientKey($request)),
             Limit::perHour(4)->by('osrm-admin-write:user:'.hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'))),
+        ]);
+        RateLimiter::for('knmi-admin-read', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'knmi-admin-read',
+            perClient: 120,
+            perUser: 240,
+        ));
+        RateLimiter::for('knmi-admin-write', fn (Request $request): array => [
+            Limit::perMinute(4)->by('knmi-admin-write:client:'.$this->rateLimitClientKey($request)),
+            Limit::perHour(12)->by('knmi-admin-write:user:'.hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'))),
         ]);
     }
 
