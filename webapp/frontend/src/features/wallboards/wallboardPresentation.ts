@@ -978,7 +978,10 @@ export function normalizeWallboardMediaPlaylistId(value: unknown): string {
 }
 
 export function normalizeWallboardMediaAssetId(value: unknown): string {
-  return normalizeWallboardMediaPlaylistId(value);
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+
+  return /^[0-9A-HJKMNP-TV-Z]{26}$/i.test(trimmed) ? trimmed.toUpperCase() : '';
 }
 
 export function wallboardLocalVideoUrl(value: unknown): string | null {

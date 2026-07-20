@@ -44,14 +44,19 @@ final class WallboardLocalVideoPlaylistTest extends TestCase
         ], $actor, Request::create('/api/admin/wallboard-playlists', 'POST'));
 
         $canonicalUrl = WallboardConfiguration::localVideoUrl((string) $asset->id);
+        self::assertSame((string) $asset->id, $playlist->configuration['pages'][0]['options']['media_asset_id']);
         self::assertSame($canonicalUrl, $playlist->configuration['pages'][0]['options']['url']);
         self::assertSame(1, $playlist->configuration['pages'][0]['options']['media_asset_version']);
         self::assertSame(42, $playlist->configuration['pages'][0]['options']['video_duration_seconds']);
         self::assertSame(47, $playlist->configuration['pages'][0]['duration_seconds']);
+        self::assertSame(
+            (string) $asset->id,
+            WallboardConfiguration::normalize($playlist->configuration)['pages'][0]['options']['media_asset_id'],
+        );
         $this->assertDatabaseHas('wallboard_media_asset_usages', [
             'wallboard_playlist_id' => (string) $playlist->id,
             'page_id' => 'lokale-video',
-            'media_asset_id' => strtolower((string) $asset->id),
+            'media_asset_id' => (string) $asset->id,
         ]);
 
         $assigned = $this->wallboard($actor, $playlist);
@@ -189,7 +194,7 @@ final class WallboardLocalVideoPlaylistTest extends TestCase
         string $mimeType = 'video/mp4',
         ?int $duration = 24,
     ): WallboardMediaAsset {
-        $id = strtolower((string) Str::ulid());
+        $id = (string) Str::ulid();
         $body = $this->mp4();
         $suffix = $kind === WallboardMediaAsset::KIND_VIDEO ? '.mp4' : '.webp';
         $path = 'wallboard-media/objects/'.$id.$suffix;

@@ -472,7 +472,7 @@ final class WallboardConfiguration
                     ];
                 }
             } elseif ($type === 'video') {
-                $mediaAssetId = strtolower(trim((string) ($options['media_asset_id'] ?? '')));
+                $mediaAssetId = strtoupper(trim((string) ($options['media_asset_id'] ?? '')));
                 if ($mediaAssetId !== '') {
                     if (! Str::isUlid($mediaAssetId)) {
                         throw ValidationException::withMessages([
@@ -1036,7 +1036,7 @@ final class WallboardConfiguration
 
     public static function localVideoUrl(string $mediaAssetId): string
     {
-        $normalized = strtolower(trim($mediaAssetId));
+        $normalized = strtoupper(trim($mediaAssetId));
         if (! Str::isUlid($normalized)) {
             throw new \InvalidArgumentException('A local wallboard video requires a valid media asset ULID.');
         }

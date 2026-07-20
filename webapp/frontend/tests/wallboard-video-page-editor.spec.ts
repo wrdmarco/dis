@@ -16,11 +16,13 @@ test('projects a ready MP4 selection into canonical local-video page options', (
     id: 'video',
     duration_seconds: 47,
     options: {
-      media_asset_id: ASSET_ID.toLowerCase(),
-      url: `/api/wallboard/media/${ASSET_ID.toLowerCase()}`,
+      media_asset_id: ASSET_ID,
+      url: `/api/wallboard/media/${ASSET_ID}`,
       video_duration_seconds: 42,
     },
   });
+  expect(wallboardVideoPageForAsset(videoPage(), videoAsset({ id: ASSET_ID.toLowerCase() })).options)
+    .toMatchObject({ media_asset_id: ASSET_ID, url: `/api/wallboard/media/${ASSET_ID}` });
   expect(isSelectableMp4(videoAsset({ duration_seconds: 3_595 }))).toBe(true);
   expect(wallboardVideoPageForAsset(videoPage(), videoAsset({ duration_seconds: 3_595 })).duration_seconds)
     .toBe(3_600);

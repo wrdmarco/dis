@@ -80,7 +80,7 @@ final class WallboardMediaUsageSynchronizer
         sort($assetIds, SORT_STRING);
         $lockedAssets = [];
         foreach ($this->assets->lockReadyAssets($assetIds) as $asset) {
-            $lockedAssets[strtolower((string) $asset->id)] = $asset;
+            $lockedAssets[strtoupper((string) $asset->id)] = $asset;
         }
         foreach ($videoReferences as $reference) {
             $asset = $lockedAssets[$reference['media_asset_id']] ?? null;
@@ -231,7 +231,7 @@ final class WallboardMediaUsageSynchronizer
                 continue;
             }
             $options = is_array($page['options'] ?? null) ? $page['options'] : [];
-            $assetId = strtolower(trim((string) ($options['media_asset_id'] ?? '')));
+            $assetId = strtoupper(trim((string) ($options['media_asset_id'] ?? '')));
             if ($assetId === '') {
                 continue;
             }
