@@ -33,12 +33,26 @@ require_text "${COMMON}" 'clear_wallboard_maintenance_notice'
 require_text "${UPDATE}" 'announce_wallboard_maintenance update'
 require_text "${DEPLOY}" 'if [ "${DIS_DEPLOYMENT_OWNER}" = "deploy" ]; then'
 require_text "${DEPLOY}" 'announce_wallboard_maintenance maintenance'
+require_text "${DEPLOY}" 'enable_frontend_maintenance bootstrap'
+require_text "${DEPLOY}" 'run_cmd systemctl restart nginx'
+require_text "${DEPLOY}" 'write_maintenance_page'
 
 update_announce="$(line_of "${UPDATE}" 'announce_wallboard_maintenance update')"
 update_lock="$(line_of_after "${UPDATE}" 'enable_frontend_maintenance' "${update_announce}")"
 update_stop="$(line_of_after "${UPDATE}" 'stop_dis_deployment_services' "${update_lock}")"
 [[ "${update_announce}" -lt "${update_lock}" && "${update_lock}" -lt "${update_stop}" ]] || {
   printf 'Update maintenance order is unsafe.\n' >&2
+  exit 1
+}
+
+deploy_bootstrap="$(line_of "${DEPLOY}" 'enable_frontend_maintenance bootstrap')"
+deploy_nginx_test="$(line_of "${DEPLOY}" 'run_cmd nginx -t')"
+deploy_nginx_restart="$(line_of "${DEPLOY}" 'run_cmd systemctl restart nginx')"
+deploy_rich_page="$(line_of_after "${DEPLOY}" 'write_maintenance_page' "${deploy_nginx_restart}")"
+[[ "${deploy_bootstrap}" -lt "${deploy_nginx_test}" \
+  && "${deploy_nginx_test}" -lt "${deploy_nginx_restart}" \
+  && "${deploy_nginx_restart}" -lt "${deploy_rich_page}" ]] || {
+  printf 'Maintenance page CSP cutover order is unsafe.\n' >&2
   exit 1
 }
 

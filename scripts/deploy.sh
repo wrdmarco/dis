@@ -63,8 +63,16 @@ trap 'deployment_exit_handler "$?"' EXIT
 # Laravel maintenance is enabled after dependencies and manifests are ready.
 if [ "${DIS_DEPLOYMENT_OWNER}" = "deploy" ]; then
   announce_wallboard_maintenance maintenance
+  # The checked-out release can contain new inline CSP hashes that the active
+  # Nginx configuration does not know yet. Publish a CSP-neutral page until
+  # the matching configuration has been validated and activated below.
+  enable_frontend_maintenance bootstrap
+else
+  [ -f "${DIS_INSTALL_PATH}/maintenance/frontend.lock" ] \
+    && [ ! -L "${DIS_INSTALL_PATH}/maintenance/frontend.lock" ] \
+    || fail "Nested deployment requires maintenance to be owned by its parent operation."
+  log "Preserving the parent operation's compatible maintenance page during release cutover"
 fi
-enable_frontend_maintenance
 stop_dis_deployment_services
 DIS_BACKUP_KEY_CUTOVER_ALLOWED=1 ensure_backup_encryption_key >/dev/null
 
@@ -216,6 +224,21 @@ prepare_canonical_nginx_source() {
 harden_web_session_environment
 write_frontend_security_environment
 prepare_canonical_nginx_source
+
+# Cut the standalone page and its exact CSP policy over as one early release
+# boundary. This keeps the bootstrap page brief while the slower dependency,
+# build and migration work continues behind the rich maintenance screen.
+run_cmd install -m 0644 "${NGINX_SOURCE}" "/etc/nginx/sites-available/${NGINX_SITE_NAME}"
+run_cmd ln -sfn "/etc/nginx/sites-available/${NGINX_SITE_NAME}" "/etc/nginx/sites-enabled/${NGINX_SITE_NAME}"
+run_cmd rm -f /etc/nginx/sites-enabled/default
+run_cmd nginx -t
+if systemd_service_exists nginx; then
+  # A restart waits for the old worker generation to leave; a graceful reload
+  # could let a keep-alive client receive new HTML with the previous CSP.
+  run_cmd systemctl restart nginx
+fi
+write_maintenance_page
+
 run_cmd rm -f -- "${BACKEND_DIR}/storage/app/backup-config.env"
 
 log "Deploying DIS from ${APP_ROOT}"
@@ -340,9 +363,6 @@ run_cmd install -m 0644 "${APP_ROOT}/infrastructure/php/opcache.ini" "/etc/php/$
 install_php_fpm_privileged_helpers_override
 run_cmd install -m 0440 "${APP_ROOT}/infrastructure/sudoers/dis-update" /etc/sudoers.d/dis-update
 run_cmd visudo -cf /etc/sudoers.d/dis-update
-run_cmd install -m 0644 "${NGINX_SOURCE}" "/etc/nginx/sites-available/${NGINX_SITE_NAME}"
-run_cmd ln -sfn "/etc/nginx/sites-available/${NGINX_SITE_NAME}" "/etc/nginx/sites-enabled/${NGINX_SITE_NAME}"
-run_cmd rm -f /etc/nginx/sites-enabled/default
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-queue.service" /etc/systemd/system/dis-queue.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-media.service" /etc/systemd/system/dis-media.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-scheduler.service" /etc/systemd/system/dis-scheduler.service
@@ -356,7 +376,6 @@ run_cmd systemctl enable \
   dis-queue dis-media dis-scheduler dis-websocket dis-frontend \
   dis-backup-request.path dis-backup-request.timer \
   dis-osrm-admin-request.path dis-osrm-admin-request.timer
-run_cmd nginx -t
 APP_ROOT="${APP_ROOT}" bash "${APP_ROOT}/scripts/osrm.sh" reconcile
 APP_ROOT="${APP_ROOT}" bash "${APP_ROOT}/scripts/osrm.sh" publish-status
 

@@ -3,277 +3,452 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090d12">
   <meta http-equiv="refresh" content="20">
-  <title>D.I.S onderhoud</title>
+  <title>D.I.S. onderhoud</title>
   <style>
     :root {
       color-scheme: dark;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      --bg: #070d16;
-      --surface: rgba(13, 20, 31, .9);
-      --border: #223349;
-      --blue: #80c7ff;
-      --green: #7dd3a7;
-      --text: #f8fbff;
-      --muted: #aebdd0;
+      --dis-bg: #090d12;
+      --dis-surface: rgba(15, 23, 34, .76);
+      --dis-border: rgba(148, 173, 201, .18);
+      --dis-text: #f5f9ff;
+      --dis-muted: #aab9ca;
+      --dis-blue: #38bdf8;
+      --dis-blue-soft: rgba(14, 165, 233, .16);
+      --dis-green: #7dd3a7;
     }
 
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+
+    html, body { min-height: 100%; }
 
     body {
       margin: 0;
+      min-width: 280px;
       min-height: 100vh;
-      overflow: hidden;
-      display: grid;
-      place-items: center;
+      min-height: 100svh;
+      overflow-x: hidden;
       background:
-        radial-gradient(circle at 18% 18%, rgba(128, 199, 255, .16), transparent 30%),
-        radial-gradient(circle at 84% 74%, rgba(125, 211, 167, .1), transparent 32%),
-        linear-gradient(145deg, #060a10 0%, var(--bg) 46%, #0d1724 100%);
-      color: var(--text);
+        radial-gradient(circle at 50% 42%, rgba(56, 189, 248, .13), transparent 29rem),
+        radial-gradient(circle at 12% 90%, rgba(125, 211, 167, .055), transparent 26rem),
+        linear-gradient(145deg, #070a0e 0%, var(--dis-bg) 48%, #0c141d 100%);
+      color: var(--dis-text);
     }
 
     body::before {
       content: "";
       position: fixed;
-      inset: 0;
+      z-index: 3;
+      inset: 0 0 auto;
+      height: 5px;
+      background: linear-gradient(90deg, transparent, var(--dis-blue) 22%, #80c7ff 50%, var(--dis-blue) 78%, transparent);
+      box-shadow: 0 0 30px rgba(56, 189, 248, .36);
       pointer-events: none;
-      background:
-        linear-gradient(90deg, rgba(128, 199, 255, .045) 1px, transparent 1px),
-        linear-gradient(180deg, rgba(128, 199, 255, .035) 1px, transparent 1px);
-      background-size: 64px 64px;
-      mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent);
     }
 
-    .sky {
+    body::after {
+      content: "";
       position: fixed;
       inset: 0;
+      background-image:
+        linear-gradient(rgba(128, 199, 255, .025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(128, 199, 255, .025) 1px, transparent 1px);
+      background-size: 72px 72px;
+      mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
       pointer-events: none;
-      overflow: hidden;
     }
 
-    .drone-lane {
-      position: absolute;
-      left: 0;
-      top: 18%;
-      width: 300px;
-      height: 150px;
-      --drone-scale: 1;
-      --drone-bank: -2deg;
-      animation: fly 13s linear infinite;
-      opacity: .92;
-      filter: drop-shadow(0 18px 28px rgba(0, 0, 0, .48));
-      transform-origin: center;
-      will-change: transform;
-    }
-
-    .drone-lane:nth-child(2) { top: 42%; animation-duration: 17s; animation-delay: -7s; --drone-scale: .78; --drone-bank: 3deg; opacity: .7; }
-    .drone-lane:nth-child(3) { top: 70%; animation-duration: 19s; animation-delay: -12s; --drone-scale: .92; --drone-bank: -4deg; opacity: .74; }
-
-    .rotor-blur {
-      transform-origin: center;
-      transform-box: fill-box;
-      animation: rotor .22s linear infinite;
-      opacity: .76;
-    }
-
-    .rotor-blade {
-      transform-origin: center;
-      transform-box: fill-box;
-      animation: rotor .16s linear infinite;
-    }
-
-    main {
+    .maintenance-shell {
       position: relative;
       z-index: 1;
-      width: min(760px, calc(100vw - 40px));
-      border: 1px solid rgba(128, 199, 255, .24);
-      border-radius: 8px;
-      background:
-        linear-gradient(180deg, rgba(17, 29, 43, .94), rgba(9, 13, 18, .96)),
-        var(--surface);
-      box-shadow:
-        0 28px 96px rgba(0, 0, 0, .52),
-        inset 0 1px 0 rgba(255, 255, 255, .04);
-      overflow: hidden;
-      padding: clamp(24px, 5vw, 44px);
+      min-height: 100vh;
+      min-height: 100svh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: clamp(22px, 4vh, 48px);
+      padding: clamp(22px, 3.4vw, 58px);
     }
 
-    main::before {
-      content: "";
-      position: absolute;
-      inset: 0 0 auto;
-      height: 3px;
-      background: linear-gradient(90deg, var(--blue), var(--green), transparent);
-    }
-
-    .status {
-      display: inline-flex;
+    .topbar {
+      width: min(100%, 1600px);
+      margin: 0 auto;
+      display: flex;
       align-items: center;
-      gap: 10px;
-      color: var(--blue);
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand strong {
+      font-size: clamp(18px, 1.6vw, 28px);
+      letter-spacing: .14em;
+      white-space: nowrap;
+    }
+
+    .brand span {
+      overflow: hidden;
+      color: #7f91a6;
+      font-size: clamp(10px, .85vw, 13px);
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-overflow: ellipsis;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .state-pill {
+      display: inline-flex;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: 9px;
+      border: 1px solid rgba(56, 189, 248, .3);
+      border-radius: 999px;
+      background: rgba(8, 20, 30, .72);
+      padding: 9px 14px;
+      color: #bce9ff;
       font-size: 12px;
       font-weight: 800;
+      letter-spacing: .08em;
       text-transform: uppercase;
     }
 
-    .status::before {
+    .state-pill::before {
       content: "";
-      width: 9px;
-      height: 9px;
-      border-radius: 999px;
-      background: var(--green);
-      box-shadow: 0 0 0 6px rgba(125, 211, 167, .12);
-      animation: pulse 1.6s ease-in-out infinite;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--dis-blue);
+      box-shadow: 0 0 0 5px rgba(56, 189, 248, .12);
+    }
+
+    .takeover {
+      width: min(100%, 920px);
+      margin: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .update-icon {
+      width: clamp(68px, 6vw, 90px);
+      height: clamp(68px, 6vw, 90px);
+      display: grid;
+      place-items: center;
+      margin-bottom: clamp(22px, 3vh, 36px);
+      border: 1px solid rgba(56, 189, 248, .34);
+      border-radius: 50%;
+      background: var(--dis-blue-soft);
+      color: #8cdbff;
+      box-shadow: 0 0 54px rgba(56, 189, 248, .12), inset 0 1px 0 rgba(255, 255, 255, .05);
+    }
+
+    .update-icon svg {
+      width: 45%;
+      height: 45%;
+      animation: rotate-update 2.8s linear infinite;
+    }
+
+    .eyebrow {
+      margin: 0 0 12px;
+      color: var(--dis-blue);
+      font-size: clamp(11px, .9vw, 14px);
+      font-weight: 850;
+      letter-spacing: .16em;
+      text-transform: uppercase;
     }
 
     h1 {
-      max-width: 12ch;
-      margin: 22px 0 12px;
-      font-size: clamp(38px, 7vw, 72px);
-      line-height: .94;
-    }
-
-    p {
-      max-width: 58ch;
+      max-width: 16ch;
       margin: 0;
-      color: var(--muted);
-      font-size: clamp(16px, 2vw, 18px);
+      font-size: clamp(36px, 5.7vw, 84px);
+      font-weight: 760;
+      letter-spacing: -.045em;
+      line-height: .98;
+      text-wrap: balance;
+    }
+
+    .lead {
+      max-width: 54ch;
+      margin: clamp(18px, 2.4vh, 28px) 0 0;
+      color: var(--dis-muted);
+      font-size: clamp(16px, 1.35vw, 22px);
       line-height: 1.55;
+      text-wrap: balance;
     }
 
-    @keyframes fly {
-      from { transform: translate3d(-340px, 0, 0) scale(var(--drone-scale)) rotate(var(--drone-bank)); }
-      to { transform: translate3d(calc(100vw + 340px), 0, 0) scale(var(--drone-scale)) rotate(var(--drone-bank)); }
+    .countdown {
+      position: relative;
+      width: clamp(152px, 12vw, 190px);
+      aspect-ratio: 1;
+      display: grid;
+      place-items: center;
+      margin-top: clamp(26px, 3.6vh, 44px);
     }
 
-    @keyframes rotor {
-      to { rotate: 360deg; }
+    .countdown svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      filter: drop-shadow(0 0 11px rgba(56, 189, 248, .13));
     }
 
-    @keyframes pulse {
-      0%, 100% { transform: scale(1); opacity: .95; }
-      50% { transform: scale(1.28); opacity: .62; }
+    .countdown-track,
+    .countdown-progress {
+      fill: none;
+      stroke-width: 2.2;
     }
 
-    @media (max-width: 680px) {
-      body {
-        min-height: 100svh;
-        overflow-y: auto;
-        place-items: center;
-        padding: 18px;
-      }
+    .countdown-track { stroke: rgba(148, 173, 201, .14); }
 
-      body::before {
-        background-size: 44px 44px;
-        mask-image: linear-gradient(180deg, #000, transparent 82%);
-      }
+    .countdown-progress {
+      stroke: var(--dis-blue);
+      stroke-linecap: round;
+      transition: stroke-dashoffset .45s linear, stroke .2s ease;
+    }
 
-      main {
-        width: min(100%, 420px);
-        padding: 22px 20px 24px;
-      }
+    .countdown[data-state="waiting"] .countdown-progress { stroke: #80c7ff; }
 
-      .status {
-        font-size: 11px;
-        gap: 8px;
-      }
+    .countdown-copy {
+      position: relative;
+      z-index: 1;
+      width: 74%;
+      display: grid;
+      gap: 6px;
+      place-items: center;
+    }
 
-      h1 {
-        max-width: 100%;
-        margin: 18px 0 12px;
-        font-size: clamp(30px, 10vw, 42px);
-        line-height: 1.02;
-      }
+    .countdown-copy strong {
+      font-size: clamp(29px, 3vw, 43px);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -.04em;
+      line-height: 1;
+    }
 
-      p {
-        font-size: 15px;
-        line-height: 1.5;
-      }
+    .countdown[data-state="waiting"] .countdown-copy strong {
+      font-size: clamp(16px, 1.35vw, 20px);
+      letter-spacing: 0;
+      line-height: 1.16;
+    }
 
-      .drone-lane {
-        width: 230px;
-        height: 115px;
-        top: 12%;
-        opacity: .46;
-        filter: drop-shadow(0 12px 18px rgba(0, 0, 0, .42));
-      }
+    .countdown-copy span {
+      color: #8fa2b7;
+      font-size: clamp(10px, .72vw, 12px);
+      font-weight: 750;
+      letter-spacing: .07em;
+      line-height: 1.25;
+      text-transform: uppercase;
+    }
 
-      .drone-lane:nth-child(2) { top: 76%; opacity: .28; }
-      .drone-lane:nth-child(3) { display: none; }
+    .recovery {
+      max-width: 560px;
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      margin-top: clamp(26px, 3.6vh, 44px);
+      border-top: 1px solid var(--dis-border);
+      padding: 18px 4px 0;
+      text-align: left;
+    }
+
+    .recovery-icon {
+      position: relative;
+      width: 31px;
+      height: 31px;
+      flex: 0 0 31px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: rgba(125, 211, 167, .11);
+    }
+
+    .recovery-icon::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--dis-green);
+      box-shadow: 0 0 14px rgba(125, 211, 167, .55);
+    }
+
+    .recovery-copy { display: grid; gap: 3px; }
+    .recovery-copy strong { font-size: 13px; }
+    .recovery-copy span { color: #899caf; font-size: 12px; line-height: 1.4; }
+
+    .footer {
+      width: min(100%, 1600px);
+      margin: 0 auto;
+      display: flex;
+      justify-content: center;
+      color: #66788b;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    @keyframes rotate-update { to { transform: rotate(360deg); } }
+
+    @media (max-width: 620px) {
+      .maintenance-shell { gap: 20px; padding: 20px 18px 18px; }
+      .brand span { display: none; }
+      .state-pill { padding: 8px 11px; font-size: 10px; }
+      .takeover { padding: 12px 0; }
+      .update-icon { margin-bottom: 20px; }
+      h1 { max-width: 13ch; font-size: clamp(34px, 11vw, 52px); }
+      .lead { max-width: 34ch; margin-top: 16px; font-size: 15px; }
+      .countdown { width: 146px; margin-top: 24px; }
+      .recovery { margin-top: 24px; padding-top: 16px; }
+    }
+
+    @media (max-height: 700px) and (min-width: 621px) {
+      .maintenance-shell { gap: 16px; padding-top: 20px; padding-bottom: 18px; }
+      .update-icon { width: 58px; height: 58px; margin-bottom: 14px; }
+      .eyebrow { margin-bottom: 8px; }
+      h1 { font-size: clamp(34px, 5.4vw, 58px); }
+      .lead { margin-top: 12px; font-size: 15px; }
+      .countdown { width: 128px; margin-top: 18px; }
+      .recovery { margin-top: 18px; padding-top: 12px; }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .drone-lane, .rotor-blur, .rotor-blade, .status::before { animation: none; }
-      .drone-lane { transform: translate3d(18vw, 0, 0) scale(var(--drone-scale)) rotate(var(--drone-bank)); }
-      .drone-lane:nth-child(2), .drone-lane:nth-child(3) { display: none; }
+      .update-icon svg { animation: none; }
+      .countdown-progress { transition: none; }
     }
   </style>
 </head>
-<body>
-  <div class="sky" aria-hidden="true">
-    @for ($i = 0; $i < 3; $i++)
-      <svg class="drone-lane" viewBox="0 0 300 150" role="img" aria-label="">
-        <defs>
-          <linearGradient id="drone-body-{{ $i }}" x1="95" x2="205" y1="44" y2="102" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#f4f7f9"/>
-            <stop offset=".46" stop-color="#9eaab4"/>
-            <stop offset="1" stop-color="#2b333b"/>
-          </linearGradient>
-          <radialGradient id="rotor-wash-{{ $i }}" cx="50%" cy="50%" r="50%">
-            <stop stop-color="#f4fbff" stop-opacity=".58"/>
-            <stop offset=".56" stop-color="#a9dfff" stop-opacity=".18"/>
-            <stop offset="1" stop-color="#a9dfff" stop-opacity="0"/>
-          </radialGradient>
-        </defs>
-        <path d="M148 84 L82 144 H218 L153 84Z" fill="#80c7ff" opacity=".1"/>
-        <g fill="none" stroke="#5f7485" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M126 64 L69 31"/>
-          <path d="M174 64 L231 31"/>
-          <path d="M122 83 L62 113"/>
-          <path d="M178 83 L238 113"/>
-          <path d="M113 107 C132 119 168 119 187 107"/>
-        </g>
-        <g fill="none" stroke="#dfe8ee" stroke-width="2.5" stroke-linecap="round" opacity=".72">
-          <path d="M85 41 L116 58"/>
-          <path d="M215 41 L184 58"/>
-          <path d="M82 103 L116 86"/>
-          <path d="M218 103 L184 86"/>
-        </g>
-        <g>
-          <ellipse class="rotor-blur" cx="54" cy="28" rx="49" ry="11" fill="url(#rotor-wash-{{ $i }})"/>
-          <ellipse class="rotor-blur" cx="246" cy="28" rx="49" ry="11" fill="url(#rotor-wash-{{ $i }})"/>
-          <ellipse class="rotor-blur" cx="54" cy="118" rx="49" ry="11" fill="url(#rotor-wash-{{ $i }})"/>
-          <ellipse class="rotor-blur" cx="246" cy="118" rx="49" ry="11" fill="url(#rotor-wash-{{ $i }})"/>
-          <g class="rotor-blade" fill="#eef8ff" opacity=".8">
-            <rect x="14" y="25" width="80" height="6" rx="3"/>
-            <rect x="206" y="25" width="80" height="6" rx="3"/>
-            <rect x="14" y="115" width="80" height="6" rx="3"/>
-            <rect x="206" y="115" width="80" height="6" rx="3"/>
-          </g>
-        </g>
-        <g fill="#18212b" stroke="#dce8ef" stroke-width="3">
-          <circle cx="54" cy="28" r="12"/>
-          <circle cx="246" cy="28" r="12"/>
-          <circle cx="54" cy="118" r="12"/>
-          <circle cx="246" cy="118" r="12"/>
-        </g>
-        <path d="M116 58 C119 39 132 29 150 29 C168 29 181 39 184 58 L193 86 C182 101 166 109 150 109 C134 109 118 101 107 86Z" fill="url(#drone-body-{{ $i }})" stroke="#f5f8fa" stroke-width="3"/>
-        <path d="M129 57 C135 51 165 51 171 57" fill="none" stroke="#3e4b55" stroke-width="4" stroke-linecap="round" opacity=".75"/>
-        <path d="M121 76 H179" stroke="#202a34" stroke-width="3" stroke-linecap="round" opacity=".62"/>
-        <rect x="132" y="94" width="36" height="22" rx="8" fill="#101820" stroke="#e8f4ff" stroke-width="2.5"/>
-        <circle cx="150" cy="105" r="7" fill="#080d12" stroke="#80c7ff" stroke-width="2.5"/>
-        <text x="150" y="72" text-anchor="middle" font-size="12" font-weight="800" fill="#25313b" opacity=".82" font-family="Arial, sans-serif">DJI</text>
-        <circle cx="117" cy="82" r="3.5" fill="#ef4444"/>
-        <circle cx="183" cy="82" r="3.5" fill="#7dd3a7"/>
-        <path d="M137 120 H163" stroke="#cbd7df" stroke-width="3" stroke-linecap="round"/>
-      </svg>
-    @endfor
+<body data-maintenance-kind="maintenance" data-started-epoch-seconds="0" data-estimated-duration-seconds="0" data-estimated-completion-epoch-seconds="0">
+  <div class="maintenance-shell">
+    <header class="topbar">
+      <div class="brand">
+        <strong>D.I.S.</strong>
+        <span>Drone Incident Support</span>
+      </div>
+      <div class="state-pill">Onderhoud</div>
+    </header>
+
+    <main class="takeover" aria-labelledby="maintenance-title">
+      <div class="update-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"/>
+          <path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/>
+        </svg>
+      </div>
+      <p class="eyebrow" id="maintenance-eyebrow">Gepland onderhoud</p>
+      <h1 id="maintenance-title">D.I.S. is tijdelijk in onderhoud</h1>
+      <p class="lead" id="maintenance-message">De operationele omgeving komt automatisch terug zodra het onderhoud veilig is afgerond.</p>
+
+      <section class="countdown" id="maintenance-countdown" role="timer" aria-atomic="true" aria-label="Geschatte resterende duur" hidden>
+        <svg viewBox="0 0 52 52" aria-hidden="true">
+          <circle class="countdown-track" cx="26" cy="26" r="22"/>
+          <circle class="countdown-progress" id="countdown-progress" cx="26" cy="26" r="22" pathLength="100" stroke-dasharray="100" stroke-dashoffset="0" transform="rotate(-90 26 26)"/>
+        </svg>
+        <div class="countdown-copy">
+          <strong id="countdown-value">--:--</strong>
+          <span id="countdown-label">Geschat resterend</span>
+        </div>
+      </section>
+
+      <div class="recovery">
+        <span class="recovery-icon" aria-hidden="true"></span>
+        <div class="recovery-copy">
+          <strong>Automatisch herstel is actief</strong>
+          <span id="recovery-detail">Deze pagina controleert iedere 20 seconden of D.I.S. weer beschikbaar is.</span>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">Drone Incident Support · beveiligde onderhoudsmodus</footer>
   </div>
-  <main>
-    <span class="status">Onderhoud actief</span>
-    <h1>Systeem wordt bijgewerkt</h1>
-    <p>De operationele omgeving staat tijdelijk in onderhoud. Deze pagina ververst automatisch zodra de controle is afgerond.</p>
-  </main>
+  <script>
+    (() => {
+      'use strict';
+
+      const body = document.body;
+      const kind = body.dataset.maintenanceKind;
+      const startedAt = Number(body.dataset.startedEpochSeconds);
+      const duration = Number(body.dataset.estimatedDurationSeconds);
+      const completion = Number(body.dataset.estimatedCompletionEpochSeconds);
+      const eyebrow = document.getElementById('maintenance-eyebrow');
+      const title = document.getElementById('maintenance-title');
+      const message = document.getElementById('maintenance-message');
+      const detail = document.getElementById('recovery-detail');
+      const countdown = document.getElementById('maintenance-countdown');
+      const value = document.getElementById('countdown-value');
+      const label = document.getElementById('countdown-label');
+      const progress = document.getElementById('countdown-progress');
+
+      if (kind === 'update') {
+        eyebrow.textContent = 'Systeemupdate';
+        title.textContent = 'Systeem wordt bijgewerkt';
+        message.textContent = 'De operationele omgeving blijft beschermd en komt automatisch terug zodra de update veilig is afgerond.';
+      }
+
+      if (Number.isInteger(startedAt) && startedAt > 0) {
+        const time = new Intl.DateTimeFormat('nl-NL', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        }).format(new Date(startedAt * 1000));
+        detail.textContent = `Gestart om ${time}. Deze pagina controleert iedere 20 seconden of D.I.S. weer beschikbaar is.`;
+      }
+
+      const hasEstimate = kind === 'update'
+        && Number.isInteger(startedAt)
+        && Number.isInteger(duration)
+        && Number.isInteger(completion)
+        && startedAt > 0
+        && duration >= 180
+        && duration <= 2700
+        && completion === startedAt + duration;
+
+      if (!hasEstimate) {
+        return;
+      }
+
+      const formatDuration = (seconds) => {
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const remainder = seconds % 60;
+        if (hours > 0) {
+          return `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
+        }
+        return `${minutes}:${String(remainder).padStart(2, '0')}`;
+      };
+
+      const updateCountdown = () => {
+        const remaining = Math.max(0, Math.ceil(completion - Date.now() / 1000));
+        const percentage = Math.max(0, Math.min(100, remaining / duration * 100));
+        progress.setAttribute('stroke-dashoffset', String(100 - percentage));
+
+        if (remaining === 0) {
+          countdown.dataset.state = 'waiting';
+          value.textContent = 'Nog even geduld';
+          label.textContent = 'Serverstatus controleren';
+          return;
+        }
+
+        countdown.dataset.state = 'counting';
+        value.textContent = formatDuration(remaining);
+        label.textContent = 'Geschat resterend';
+      };
+
+      countdown.hidden = false;
+      updateCountdown();
+      window.setInterval(updateCountdown, 1000);
+    })();
+  </script>
 </body>
 </html>
