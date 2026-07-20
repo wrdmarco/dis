@@ -46,12 +46,13 @@ final class WallboardMediaVideoProcessor
             $this->invalid($field, 'Alleen een daadwerkelijk MP4-videobestand is toegestaan.');
         }
 
-        $durationSeconds = $this->validateContainer($sourcePath, $sourceBytes, $field);
+        $container = $this->validateContainer($sourcePath, $sourceBytes, $field);
+        $durationSeconds = $container['duration_seconds'];
         $metadata = $this->inspectVideo($sourcePath, $field);
         if (abs($metadata['duration_seconds'] - $durationSeconds) > 2) {
             $this->invalid($field, 'De videoduur in de MP4-container is niet consistent.');
         }
-        $requiresTranscode = $this->requiresTranscode($metadata);
+        $requiresTranscode = ! $container['browser_streamable'] || $this->requiresTranscode($metadata);
         $temporaryPath = $this->temporaryPath();
         try {
             $source = @fopen($sourcePath, 'rb');
@@ -177,9 +178,11 @@ final class WallboardMediaVideoProcessor
             if ($mime !== 'video/mp4') {
                 throw new HttpException(503, 'De verwerkte video heeft geen geldig MP4-formaat.');
             }
-            $durationSeconds = $this->validateContainer($temporaryPath, $byteSize, 'file');
+            $container = $this->validateContainer($temporaryPath, $byteSize, 'file');
+            $durationSeconds = $container['duration_seconds'];
             $metadata = $this->inspectVideo($temporaryPath, 'file');
-            if ($metadata['width'] > $maximumWidth
+            if (! $container['browser_streamable']
+                || $metadata['width'] > $maximumWidth
                 || $metadata['height'] > $maximumHeight
                 || $metadata['codec_name'] !== self::BROWSER_VIDEO_CODEC
                 || ! in_array($metadata['pixel_format'], self::BROWSER_PIXEL_FORMATS, true)
@@ -302,7 +305,8 @@ final class WallboardMediaVideoProcessor
             );
     }
 
-    private function validateContainer(string $path, int $fileSize, string $field): int
+    /** @return array{duration_seconds: int, browser_streamable: bool} */
+    private function validateContainer(string $path, int $fileSize, string $field): array
     {
         $stream = @fopen($path, 'rb');
         if (! is_resource($stream)) {
@@ -322,7 +326,10 @@ final class WallboardMediaVideoProcessor
                     $this->invalid($field, 'De MP4-container is beschadigd.');
                 }
                 if ($box['type'] === 'ftyp') {
-                    if ($ftypFound || $box['payload_size'] < 8 || $box['payload_size'] > 256) {
+                    if ($ftypFound
+                        || $box['payload_size'] < 8
+                        || $box['payload_size'] > 256
+                        || $box['payload_size'] % 4 !== 0) {
                         $this->invalid($field, 'De MP4-container heeft ongeldige typegegevens.');
                     }
                     $ftypFound = true;
@@ -331,10 +338,12 @@ final class WallboardMediaVideoProcessor
                     if (! is_string($payload) || strlen($payload) !== $box['payload_size']) {
                         $this->invalid($field, 'De MP4-typegegevens konden niet worden gelezen.');
                     }
-                    for ($brandOffset = 0; $brandOffset + 4 <= strlen($payload); $brandOffset += 4) {
+                    $allowedBrandFound = in_array(substr($payload, 0, 4), self::ALLOWED_BRANDS, true);
+                    for ($brandOffset = 8;
+                        ! $allowedBrandFound && $brandOffset + 4 <= strlen($payload);
+                        $brandOffset += 4) {
                         if (in_array(substr($payload, $brandOffset, 4), self::ALLOWED_BRANDS, true)) {
                             $allowedBrandFound = true;
-                            break;
                         }
                     }
                 } elseif ($box['type'] === 'moov') {
@@ -347,12 +356,9 @@ final class WallboardMediaVideoProcessor
                 $offset = $box['end'];
             }
 
-            if (! $ftypFound || ! $allowedBrandFound || $moovOffset === null || $mdatOffset === null
-                || $moovStart === null || $moovEnd === null || $moovOffset > $mdatOffset) {
-                $this->invalid(
-                    $field,
-                    'De MP4 moet browsergeschikt zijn en de afspeelindex vóór de videodata bevatten.',
-                );
+            if (! $ftypFound || $moovOffset === null || $mdatOffset === null
+                || $moovStart === null || $moovEnd === null) {
+                $this->invalid($field, 'De MP4-container mist geldige type-, index- of videodata.');
             }
             $duration = $this->movieDuration($stream, $moovStart, $moovEnd);
             $maximum = max(1, (int) config('wallboard_media.max_video_duration_seconds', 6 * 60 * 60));
@@ -360,7 +366,10 @@ final class WallboardMediaVideoProcessor
                 $this->invalid($field, 'De videoduur valt buiten de toegestane grenzen.');
             }
 
-            return $duration;
+            return [
+                'duration_seconds' => $duration,
+                'browser_streamable' => $allowedBrandFound && $moovOffset < $mdatOffset,
+            ];
         } finally {
             fclose($stream);
         }

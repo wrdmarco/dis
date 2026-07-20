@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 final class WallboardMediaVideoTest extends TestCase
@@ -73,20 +74,69 @@ final class WallboardMediaVideoTest extends TestCase
         }
     }
 
-    public function test_spoofed_or_non_streamable_mp4_is_rejected(): void
+    public function test_spoofed_mp4_is_rejected(): void
+    {
+        $upload = $this->upload('spoof.mp4', '<html>not video</html>');
+        try {
+            app(WallboardMediaVideoProcessor::class)->process($upload);
+            self::fail('Een ongeldige MP4 moet worden geweigerd.');
+        } catch (ValidationException $exception) {
+            self::assertArrayHasKey('file', $exception->errors());
+        } finally {
+            @unlink((string) $upload->getRealPath());
+        }
+    }
+
+    public function test_mp4_missing_required_index_or_media_data_is_rejected(): void
     {
         foreach ([
-            ['spoof.mp4', '<html>not video</html>'],
-            ['late-index.mp4', $this->mp4(10, false)],
+            ['zonder-index.mp4', $this->mp4(10, includeMovieIndex: false)],
+            ['zonder-videodata.mp4', $this->mp4(10, includeMediaData: false)],
         ] as [$name, $bytes]) {
             $upload = $this->upload($name, $bytes);
             try {
                 app(WallboardMediaVideoProcessor::class)->process($upload);
-                self::fail('Een ongeldige of niet-streambare MP4 moet worden geweigerd.');
+                self::fail('Een structureel onvolledige MP4 moet worden geweigerd.');
             } catch (ValidationException $exception) {
                 self::assertArrayHasKey('file', $exception->errors());
             } finally {
                 @unlink((string) $upload->getRealPath());
+            }
+        }
+    }
+
+    public function test_mp4_with_late_playback_index_is_queued_for_fast_start_transcoding(): void
+    {
+        $upload = $this->upload('late-index.mp4', $this->mp4(10, false));
+        try {
+            $processed = app(WallboardMediaVideoProcessor::class)->process($upload);
+
+            self::assertTrue($processed->requiresVideoTranscode);
+        } finally {
+            @unlink((string) $upload->getRealPath());
+            if (isset($processed) && is_file($processed->temporaryPath)) {
+                @unlink($processed->temporaryPath);
+            }
+        }
+    }
+
+    public function test_ftyp_minor_version_is_not_treated_as_a_browser_compatible_brand(): void
+    {
+        $upload = $this->upload('iso8.mp4', $this->mp4(
+            12,
+            majorBrand: 'iso8',
+            minorVersion: 'isom',
+            compatibleBrands: ['iso8'],
+        ));
+
+        try {
+            $processed = app(WallboardMediaVideoProcessor::class)->process($upload);
+
+            self::assertTrue($processed->requiresVideoTranscode);
+        } finally {
+            @unlink((string) $upload->getRealPath());
+            if (isset($processed) && is_file($processed->temporaryPath)) {
+                @unlink($processed->temporaryPath);
             }
         }
     }
@@ -156,7 +206,93 @@ final class WallboardMediaVideoTest extends TestCase
             Process::assertRan(fn (PendingProcess $process) => is_array($process->command)
                 && ($process->command[0] ?? null) === '/usr/bin/ffmpeg'
                 && in_array('+faststart', $process->command, true)
-                && in_array('yuv420p', $process->command, true));
+                && in_array('yuv420p', $process->command, true)
+                && in_array('libx264', $process->command, true)
+                && in_array('aac', $process->command, true));
+        } finally {
+            @unlink((string) $upload->getRealPath());
+        }
+    }
+
+    public function test_h265_video_is_queued_and_converted_to_browser_safe_h264(): void
+    {
+        Queue::fake();
+        $probeCount = 0;
+        Process::fake(function (PendingProcess $process) use (&$probeCount): FakeProcessResult {
+            $command = is_array($process->command) ? $process->command : [];
+            if (($command[0] ?? null) === '/usr/bin/ffprobe') {
+                $probeCount++;
+
+                return $this->probeResult(
+                    $process,
+                    1920,
+                    1080,
+                    'aac',
+                    $probeCount === 1 ? 'hevc' : 'h264',
+                );
+            }
+            if (($command[0] ?? null) === '/usr/bin/ffmpeg') {
+                $outputPath = end($command);
+                self::assertIsString($outputPath);
+                self::assertSame(strlen($this->mp4(12)), file_put_contents($outputPath, $this->mp4(12)));
+
+                return new FakeProcessResult(exitCode: 0);
+            }
+
+            return new FakeProcessResult(exitCode: 1);
+        });
+        $upload = $this->upload('h265-bron.mp4', $this->mp4(12, false));
+
+        try {
+            $asset = app(WallboardMediaAssetService::class)->upload(
+                ['file' => $upload, 'display_name' => 'H.265 bron'],
+                $this->actor(),
+                Request::create('/api/admin/wallboard-media/assets', 'POST'),
+            );
+
+            self::assertSame(WallboardMediaAsset::STATUS_PROCESSING, $asset->status);
+            self::assertSame(1920, $asset->width);
+            self::assertSame(1080, $asset->height);
+            Queue::assertPushed(TranscodeWallboardMediaVideo::class, fn ($job) => $job->assetId === $asset->id);
+
+            (new TranscodeWallboardMediaVideo((string) $asset->id))->handle(
+                app(WallboardMediaVideoTranscodeService::class),
+            );
+            $asset->refresh();
+
+            self::assertSame(WallboardMediaAsset::STATUS_READY, $asset->status);
+            self::assertSame(2, $asset->version);
+            Process::assertRan(fn (PendingProcess $process) => is_array($process->command)
+                && ($process->command[0] ?? null) === '/usr/bin/ffmpeg'
+                && in_array('libx264', $process->command, true)
+                && in_array('aac', $process->command, true)
+                && in_array('+faststart', $process->command, true));
+        } finally {
+            @unlink((string) $upload->getRealPath());
+        }
+    }
+
+    public function test_transcode_rejects_output_without_a_fast_start_index(): void
+    {
+        Process::fake(function (PendingProcess $process): FakeProcessResult {
+            $command = is_array($process->command) ? $process->command : [];
+            if (($command[0] ?? null) === '/usr/bin/ffmpeg') {
+                $outputPath = end($command);
+                self::assertIsString($outputPath);
+                self::assertSame(strlen($this->mp4(12, false)), file_put_contents($outputPath, $this->mp4(12, false)));
+
+                return new FakeProcessResult(exitCode: 0);
+            }
+
+            return $this->probeResult($process, 1920, 1080);
+        });
+        $upload = $this->upload('bron.mp4', $this->mp4(12));
+
+        try {
+            app(WallboardMediaVideoProcessor::class)->transcode((string) $upload->getRealPath());
+            self::fail('Niet-streambare transcode-uitvoer mag niet worden geactiveerd.');
+        } catch (HttpException $exception) {
+            self::assertSame(503, $exception->getStatusCode());
         } finally {
             @unlink((string) $upload->getRealPath());
         }
@@ -354,13 +490,21 @@ final class WallboardMediaVideoTest extends TestCase
         return new UploadedFile($path, $name, null, null, true);
     }
 
-    private function mp4(int $seconds, bool $fastStart = true): string
-    {
+    /** @param list<string> $compatibleBrands */
+    private function mp4(
+        int $seconds,
+        bool $fastStart = true,
+        bool $includeMovieIndex = true,
+        bool $includeMediaData = true,
+        string $majorBrand = 'isom',
+        string $minorVersion = "\x00\x00\x00\x00",
+        array $compatibleBrands = ['isom', 'mp42'],
+    ): string {
         $box = static fn (string $type, string $payload): string => pack('N', strlen($payload) + 8).$type.$payload;
-        $ftyp = $box('ftyp', 'isom'.pack('N', 0).'isommp42');
+        $ftyp = $box('ftyp', $majorBrand.$minorVersion.implode('', $compatibleBrands));
         $mvhd = $box('mvhd', "\x00\x00\x00\x00".pack('N4', 0, 0, 1000, $seconds * 1000));
-        $moov = $box('moov', $mvhd);
-        $mdat = $box('mdat', str_repeat("\x00", 32));
+        $moov = $includeMovieIndex ? $box('moov', $mvhd) : '';
+        $mdat = $includeMediaData ? $box('mdat', str_repeat("\x00", 32)) : '';
 
         return $fastStart ? $ftyp.$moov.$mdat : $ftyp.$mdat.$moov;
     }
@@ -370,6 +514,7 @@ final class WallboardMediaVideoTest extends TestCase
         int $width,
         int $height,
         ?string $audioCodec = 'aac',
+        string $videoCodec = 'h264',
     ): FakeProcessResult {
         $command = is_array($process->command) ? $process->command : [];
         if (($command[0] ?? null) !== '/usr/bin/ffprobe') {
@@ -378,7 +523,7 @@ final class WallboardMediaVideoTest extends TestCase
 
         $streams = [[
             'codec_type' => 'video',
-            'codec_name' => 'h264',
+            'codec_name' => $videoCodec,
             'pix_fmt' => 'yuv420p',
             'width' => $width,
             'height' => $height,
