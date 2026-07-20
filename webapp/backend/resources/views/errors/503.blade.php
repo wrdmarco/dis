@@ -11,10 +11,7 @@
       color-scheme: dark;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       --dis-bg: #090d12;
-      --dis-surface: rgba(15, 23, 34, .76);
-      --dis-border: rgba(148, 173, 201, .18);
       --dis-text: #f5f9ff;
-      --dis-muted: #aab9ca;
       --dis-blue: #38bdf8;
       --dis-blue-soft: rgba(14, 165, 233, .16);
       --dis-green: #7dd3a7;
@@ -67,7 +64,7 @@
       min-height: 100vh;
       min-height: 100svh;
       display: grid;
-      grid-template-rows: auto 1fr auto;
+      grid-template-rows: auto 1fr;
       gap: clamp(22px, 4vh, 48px);
       padding: clamp(22px, 3.4vw, 58px);
     }
@@ -158,15 +155,6 @@
       animation: rotate-update 2.8s linear infinite;
     }
 
-    .eyebrow {
-      margin: 0 0 12px;
-      color: var(--dis-blue);
-      font-size: clamp(11px, .9vw, 14px);
-      font-weight: 850;
-      letter-spacing: .16em;
-      text-transform: uppercase;
-    }
-
     h1 {
       max-width: 16ch;
       margin: 0;
@@ -177,22 +165,13 @@
       text-wrap: balance;
     }
 
-    .lead {
-      max-width: 54ch;
-      margin: clamp(18px, 2.4vh, 28px) 0 0;
-      color: var(--dis-muted);
-      font-size: clamp(16px, 1.35vw, 22px);
-      line-height: 1.55;
-      text-wrap: balance;
-    }
-
     .countdown {
       position: relative;
       width: clamp(152px, 12vw, 190px);
       aspect-ratio: 1;
       display: grid;
       place-items: center;
-      margin-top: clamp(26px, 3.6vh, 44px);
+      margin-top: clamp(30px, 4vh, 48px);
     }
 
     .countdown svg {
@@ -251,21 +230,22 @@
     }
 
     .recovery {
-      max-width: 560px;
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      gap: 13px;
-      margin-top: clamp(26px, 3.6vh, 44px);
-      border-top: 1px solid var(--dis-border);
-      padding: 18px 4px 0;
-      text-align: left;
+      gap: 9px;
+      margin-top: clamp(24px, 3.2vh, 38px);
+      border: 1px solid rgba(125, 211, 167, .2);
+      border-radius: 999px;
+      background: rgba(125, 211, 167, .06);
+      padding: 8px 13px 8px 9px;
+      color: #b9d8ca;
     }
 
     .recovery-icon {
       position: relative;
-      width: 31px;
-      height: 31px;
-      flex: 0 0 31px;
+      width: 24px;
+      height: 24px;
+      flex: 0 0 24px;
       display: grid;
       place-items: center;
       border-radius: 50%;
@@ -274,29 +254,14 @@
 
     .recovery-icon::before {
       content: "";
-      width: 8px;
-      height: 8px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: var(--dis-green);
       box-shadow: 0 0 14px rgba(125, 211, 167, .55);
     }
 
-    .recovery-copy { display: grid; gap: 3px; }
-    .recovery-copy strong { font-size: 13px; }
-    .recovery-copy span { color: #899caf; font-size: 12px; line-height: 1.4; }
-
-    .footer {
-      width: min(100%, 1600px);
-      margin: 0 auto;
-      display: flex;
-      justify-content: center;
-      color: #66788b;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: .06em;
-      text-align: center;
-      text-transform: uppercase;
-    }
+    .recovery strong { font-size: 12px; line-height: 1.2; }
 
     @keyframes rotate-update { to { transform: rotate(360deg); } }
 
@@ -307,19 +272,16 @@
       .takeover { padding: 12px 0; }
       .update-icon { margin-bottom: 20px; }
       h1 { max-width: 13ch; font-size: clamp(34px, 11vw, 52px); }
-      .lead { max-width: 34ch; margin-top: 16px; font-size: 15px; }
-      .countdown { width: 146px; margin-top: 24px; }
-      .recovery { margin-top: 24px; padding-top: 16px; }
+      .countdown { width: 146px; margin-top: 28px; }
+      .recovery { margin-top: 20px; }
     }
 
     @media (max-height: 700px) and (min-width: 621px) {
       .maintenance-shell { gap: 16px; padding-top: 20px; padding-bottom: 18px; }
       .update-icon { width: 58px; height: 58px; margin-bottom: 14px; }
-      .eyebrow { margin-bottom: 8px; }
       h1 { font-size: clamp(34px, 5.4vw, 58px); }
-      .lead { margin-top: 12px; font-size: 15px; }
-      .countdown { width: 128px; margin-top: 18px; }
-      .recovery { margin-top: 18px; padding-top: 12px; }
+      .countdown { width: 128px; margin-top: 22px; }
+      .recovery { margin-top: 16px; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -333,7 +295,7 @@
     <header class="topbar">
       <div class="brand">
         <strong>D.I.S.</strong>
-        <span>Drone Incident Support</span>
+        <span>Drone Inzet Systeem</span>
       </div>
       <div class="state-pill">Onderhoud</div>
     </header>
@@ -345,9 +307,7 @@
           <path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/>
         </svg>
       </div>
-      <p class="eyebrow" id="maintenance-eyebrow">Gepland onderhoud</p>
       <h1 id="maintenance-title">D.I.S. is tijdelijk in onderhoud</h1>
-      <p class="lead" id="maintenance-message">De operationele omgeving komt automatisch terug zodra het onderhoud veilig is afgerond.</p>
 
       <section class="countdown" id="maintenance-countdown" role="timer" aria-atomic="true" aria-label="Geschatte resterende duur" hidden>
         <svg viewBox="0 0 52 52" aria-hidden="true">
@@ -362,14 +322,9 @@
 
       <div class="recovery">
         <span class="recovery-icon" aria-hidden="true"></span>
-        <div class="recovery-copy">
-          <strong>Automatisch herstel is actief</strong>
-          <span id="recovery-detail">Deze pagina controleert iedere 20 seconden of D.I.S. weer beschikbaar is.</span>
-        </div>
+        <strong>Automatisch herstel is actief</strong>
       </div>
     </main>
-
-    <footer class="footer">Drone Incident Support · beveiligde onderhoudsmodus</footer>
   </div>
   <script>
     (() => {
@@ -380,29 +335,14 @@
       const startedAt = Number(body.dataset.startedEpochSeconds);
       const duration = Number(body.dataset.estimatedDurationSeconds);
       const completion = Number(body.dataset.estimatedCompletionEpochSeconds);
-      const eyebrow = document.getElementById('maintenance-eyebrow');
       const title = document.getElementById('maintenance-title');
-      const message = document.getElementById('maintenance-message');
-      const detail = document.getElementById('recovery-detail');
       const countdown = document.getElementById('maintenance-countdown');
       const value = document.getElementById('countdown-value');
       const label = document.getElementById('countdown-label');
       const progress = document.getElementById('countdown-progress');
 
       if (kind === 'update') {
-        eyebrow.textContent = 'Systeemupdate';
         title.textContent = 'Systeem wordt bijgewerkt';
-        message.textContent = 'De operationele omgeving blijft beschermd en komt automatisch terug zodra de update veilig is afgerond.';
-      }
-
-      if (Number.isInteger(startedAt) && startedAt > 0) {
-        const time = new Intl.DateTimeFormat('nl-NL', {
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: false
-        }).format(new Date(startedAt * 1000));
-        detail.textContent = `Gestart om ${time}. Deze pagina controleert iedere 20 seconden of D.I.S. weer beschikbaar is.`;
       }
 
       const hasEstimate = kind === 'update'

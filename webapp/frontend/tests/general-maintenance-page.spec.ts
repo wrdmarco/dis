@@ -34,6 +34,11 @@ test('shows the live update countdown without viewport overflow', async ({ page 
     await expect(page.getByRole('timer')).toBeVisible();
     await expect(page.locator('#countdown-value')).toHaveText(/^(?:9:\d{2}|10:00)$/);
     await expect(page.getByText('Automatisch herstel is actief')).toBeVisible();
+    await expect(page.getByText('Drone Incident Support')).toHaveCount(0);
+    await expect(page.locator('#maintenance-eyebrow')).toHaveCount(0);
+    await expect(page.locator('#maintenance-message')).toHaveCount(0);
+    await expect(page.locator('#recovery-detail')).toHaveCount(0);
+    await expect(page.locator('footer')).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
     expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(viewport.height);
   }

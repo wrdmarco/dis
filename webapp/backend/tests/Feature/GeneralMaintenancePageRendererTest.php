@@ -125,9 +125,18 @@ final class GeneralMaintenancePageRendererTest extends TestCase
         self::assertStringContainsString('<meta http-equiv="refresh" content="20">', $template);
         self::assertStringContainsString('class="maintenance-shell"', $template);
         self::assertStringContainsString('class="update-icon"', $template);
+        self::assertStringContainsString('Drone Inzet Systeem', $template);
         self::assertStringContainsString('Automatisch herstel is actief', $template);
         self::assertStringContainsString('@media (max-width: 620px)', $template);
         self::assertStringContainsString('@media (prefers-reduced-motion: reduce)', $template);
+        self::assertStringNotContainsString('Drone Incident Support', $template);
+        self::assertStringNotContainsString('id="maintenance-eyebrow"', $template);
+        self::assertStringNotContainsString('id="maintenance-message"', $template);
+        self::assertStringNotContainsString('id="recovery-detail"', $template);
+        self::assertStringNotContainsString('<footer', $template);
+        self::assertStringNotContainsString('De operationele omgeving', $template);
+        self::assertStringNotContainsString('Deze pagina controleert iedere 20 seconden', $template);
+        self::assertStringNotContainsString('beveiligde onderhoudsmodus', $template);
         self::assertStringNotContainsString('src="http', $template);
         self::assertStringNotContainsString('href="http', $template);
         self::assertStringNotContainsString('@for', $template);
@@ -145,6 +154,8 @@ final class GeneralMaintenancePageRendererTest extends TestCase
         $scriptHash = 'sha256-'.base64_encode(hash('sha256', $scriptMatch[1], true));
         self::assertStringContainsString("style-src '{$styleHash}'", $nginx);
         self::assertStringContainsString("script-src '{$scriptHash}'", $nginx);
+        self::assertStringContainsString("'sha256-6XTQwzWGCrUvkI0wvKTuAvxg1RMwC4yOG1B12KTV1+w='", $nginx);
+        self::assertStringContainsString("'sha256-Mk+erW/IoixIJ8bdII+/0Apsb6fm38g1LoFmabwHkKI='", $nginx);
         self::assertStringContainsString("'sha256-FEXUkgpC3PlmFkN2GgDFJMfTYEYQZzQC97pDyLAblN0='", $nginx);
         self::assertStringContainsString("'sha256-2I5+J0GujPJSvg9ZbrNoDTD/XBnTyZqqWgKAz06SGAI='", $nginx);
         self::assertStringNotContainsString("script-src 'unsafe-inline'", $nginx);
@@ -199,6 +210,9 @@ final class GeneralMaintenancePageRendererTest extends TestCase
             'enable_frontend_maintenance() {',
         );
         self::assertStringContainsString('<meta http-equiv="refresh" content="20">', $bootstrapWriter);
+        self::assertStringContainsString('Drone Inzet Systeem', $bootstrapWriter);
+        self::assertStringNotContainsString('Drone Incident Support', $bootstrapWriter);
+        self::assertStringNotContainsString('De operationele omgeving', $bootstrapWriter);
         self::assertStringNotContainsString('<style>', $bootstrapWriter);
         self::assertStringNotContainsString('<script>', $bootstrapWriter);
     }

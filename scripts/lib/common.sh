@@ -560,9 +560,8 @@ write_bootstrap_maintenance_page() (
 </head>
 <body>
   <main>
-    <p>D.I.S. · Drone Incident Support</p>
+    <p>D.I.S. · Drone Inzet Systeem</p>
     <h1>Systeemonderhoud wordt voorbereid</h1>
-    <p>De operationele omgeving komt automatisch terug zodra de controle is afgerond.</p>
   </main>
 </body>
 </html>
