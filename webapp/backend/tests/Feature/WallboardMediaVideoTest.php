@@ -20,7 +20,10 @@ use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Process\FakeProcessResult;
 use Illuminate\Process\PendingProcess;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -237,6 +240,195 @@ final class WallboardMediaVideoTest extends TestCase
         } finally {
             @unlink((string) $upload->getRealPath());
         }
+    }
+
+    public function test_progress_persistence_failure_is_reported_once_without_aborting_transcode(): void
+    {
+        Exceptions::fake([\RuntimeException::class]);
+        $sourceBytes = $this->mp4(12, false);
+        $transcodedBytes = $this->mp4(12);
+        $asset = $this->storedVideo($this->actor(), $sourceBytes);
+        $asset->forceFill([
+            'width' => 3840,
+            'height' => 2160,
+            'duration_seconds' => 12,
+            'status' => WallboardMediaAsset::STATUS_PROCESSING,
+            'processing_progress' => 0,
+        ])->save();
+
+        Process::fake(function (PendingProcess $process) use ($transcodedBytes) {
+            $command = is_array($process->command) ? $process->command : [];
+            if (($command[0] ?? null) === '/usr/bin/ffprobe') {
+                return $this->probeResult($process, 1920, 1080);
+            }
+            if (($command[0] ?? null) === '/usr/bin/ffmpeg') {
+                $outputPath = end($command);
+                self::assertIsString($outputPath);
+                self::assertSame(strlen($transcodedBytes), file_put_contents($outputPath, $transcodedBytes));
+
+                return Process::describe()->output([
+                    'out_time_us=1200000',
+                    'progress=continue',
+                    'out_time_us=6000000',
+                    'progress=continue',
+                    'progress=end',
+                ]);
+            }
+
+            return new FakeProcessResult(exitCode: 1);
+        });
+        $progressFailureInjected = false;
+        DB::listen(function (QueryExecuted $query) use (&$progressFailureInjected): void {
+            if (! $progressFailureInjected
+                && str_starts_with(strtolower(ltrim($query->sql)), 'update')
+                && str_contains(strtolower($query->sql), 'processing_progress')) {
+                $progressFailureInjected = true;
+
+                throw new \RuntimeException('Simulated progress persistence failure.');
+            }
+        });
+
+        app(WallboardMediaVideoTranscodeService::class)->transcode((string) $asset->id);
+
+        $asset->refresh();
+        self::assertTrue($progressFailureInjected);
+        self::assertSame(WallboardMediaAsset::STATUS_READY, $asset->status);
+        self::assertSame(100, $asset->processing_progress);
+        Exceptions::assertReported(
+            fn (\RuntimeException $exception): bool => $exception->getMessage() === 'Simulated progress persistence failure.',
+        );
+        Exceptions::assertReportedCount(1);
+    }
+
+    public function test_maintenance_interruption_from_progress_callback_is_not_swallowed(): void
+    {
+        $sourceBytes = $this->mp4(12, false);
+        $transcodedBytes = $this->mp4(12);
+        $asset = $this->storedVideo($this->actor(), $sourceBytes);
+        $asset->forceFill([
+            'duration_seconds' => 12,
+            'status' => WallboardMediaAsset::STATUS_PROCESSING,
+            'processing_progress' => 0,
+        ])->save();
+        Process::fake(function (PendingProcess $process) use ($transcodedBytes) {
+            $command = is_array($process->command) ? $process->command : [];
+            if (($command[0] ?? null) === '/usr/bin/ffmpeg') {
+                $outputPath = end($command);
+                self::assertIsString($outputPath);
+                self::assertSame(strlen($transcodedBytes), file_put_contents($outputPath, $transcodedBytes));
+
+                return Process::describe()->output([
+                    'out_time_us=1200000',
+                    'progress=continue',
+                ]);
+            }
+
+            return $this->probeResult($process, 1920, 1080);
+        });
+        $interruptChecks = 0;
+
+        try {
+            app(WallboardMediaVideoTranscodeService::class)->transcode(
+                (string) $asset->id,
+                static function () use (&$interruptChecks): bool {
+                    $interruptChecks++;
+
+                    return $interruptChecks >= 2;
+                },
+            );
+            self::fail('Een onderhoudsinterruptie tijdens FFmpeg moet de transcode afbreken.');
+        } catch (HttpException $exception) {
+            self::assertSame(503, $exception->getStatusCode());
+            self::assertStringContainsString('onderbroken', $exception->getMessage());
+        }
+
+        $asset->refresh();
+        self::assertSame(WallboardMediaAsset::STATUS_PROCESSING, $asset->status);
+        self::assertSame(0, $asset->processing_progress);
+        Process::assertRan(fn (PendingProcess $process): bool => is_array($process->command)
+            && ($process->command[0] ?? null) === '/usr/bin/ffmpeg');
+    }
+
+    public function test_duplicate_job_lock_contention_is_a_non_terminal_noop(): void
+    {
+        $asset = $this->storedVideo($this->actor(), $this->mp4(12, false));
+        $asset->forceFill([
+            'status' => WallboardMediaAsset::STATUS_PROCESSING,
+            'processing_progress' => 35,
+        ])->save();
+        $originalVersion = (int) $asset->version;
+        $lock = Cache::lock('wallboard-media:video-transcode:'.$asset->id, 30);
+        self::assertTrue($lock->get());
+        Process::fake();
+
+        try {
+            (new TranscodeWallboardMediaVideo((string) $asset->id))->handle(
+                app(WallboardMediaVideoTranscodeService::class),
+            );
+        } finally {
+            $lock->release();
+        }
+
+        $asset->refresh();
+        self::assertSame(WallboardMediaAsset::STATUS_PROCESSING, $asset->status);
+        self::assertSame(35, $asset->processing_progress);
+        self::assertSame($originalVersion, $asset->version);
+        self::assertFalse(AuditLog::query()
+            ->where('action', 'wallboard_media.assets.video_transcode_failed')
+            ->exists());
+        Process::assertNothingRan();
+    }
+
+    public function test_ffmpeg_failure_logs_only_bounded_sanitized_diagnostics(): void
+    {
+        Log::spy();
+        $sourcePath = $this->upload('diagnostic-source.mp4', $this->mp4(12))->getRealPath();
+        self::assertIsString($sourcePath);
+        $outputPath = null;
+        Process::fake(function (PendingProcess $process) use ($sourcePath, &$outputPath): FakeProcessResult {
+            $command = is_array($process->command) ? $process->command : [];
+            if (($command[0] ?? null) !== '/usr/bin/ffmpeg') {
+                return new FakeProcessResult(exitCode: 1);
+            }
+
+            $outputPath = end($command);
+            self::assertIsString($outputPath);
+
+            return new FakeProcessResult(
+                exitCode: 23,
+                errorOutput: "Failed to open {$sourcePath} and {$outputPath}; "
+                    .'C:\\private\\encoder.conf Authorization: Bearer ffmpeg-log-secret '
+                    .str_repeat('x', 4_096),
+            );
+        });
+
+        try {
+            app(WallboardMediaVideoProcessor::class)->transcode($sourcePath);
+            self::fail('Een mislukte FFmpeg-uitvoering moet een generieke fout retourneren.');
+        } catch (HttpException $exception) {
+            self::assertSame('De video kon niet veilig naar 1080p worden verwerkt.', $exception->getMessage());
+            self::assertStringNotContainsString('ffmpeg-log-secret', $exception->getMessage());
+        } finally {
+            @unlink($sourcePath);
+        }
+
+        self::assertIsString($outputPath);
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->withArgs(function (string $message, array $context) use ($sourcePath, $outputPath): bool {
+                $diagnostic = (string) ($context['diagnostic'] ?? '');
+
+                return $message === 'Wallboard video transcoding process failed.'
+                    && ($context['exit_code'] ?? null) === 23
+                    && strlen($diagnostic) <= 2_048
+                    && str_contains($diagnostic, '[MEDIA_PATH]')
+                    && str_contains($diagnostic, '[PATH]')
+                    && str_contains($diagnostic, '[REDACTED]')
+                    && ! str_contains($diagnostic, $sourcePath)
+                    && ! str_contains($diagnostic, $outputPath)
+                    && ! str_contains($diagnostic, 'ffmpeg-log-secret')
+                    && ! str_contains($diagnostic, 'encoder.conf');
+            });
     }
 
     public function test_audit_failure_after_video_replacement_restores_original_file_and_database_state(): void

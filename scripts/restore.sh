@@ -78,6 +78,9 @@ repair_restored_data_permissions() {
   repair_managed_tree "${DIS_DATA_PATH}/storage/releases" root root 0750 0640
   repair_managed_tree "${DIS_DATA_PATH}/secrets" root root 0750 0600
   if id www-data >/dev/null 2>&1; then
+    # Restored uploads must retain the same PHP-FPM-to-worker boundary as a
+    # normal deployment: dis gets access only to its worker-owned app storage.
+    secure_path_operation acl-tree "${DIS_DATA_PATH}/webapp/backend/storage/app" "${DIS_USER}" rwx rw-
     run_cmd setfacl -m "u:www-data:--x" \
       "${DIS_DATA_PATH}" \
       "${DIS_DATA_PATH}/webapp" \

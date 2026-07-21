@@ -814,6 +814,7 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertGreaterThanOrEqual(5, substr_count($config, 'if (-f /opt/dis/maintenance/frontend.lock)'));
         self::assertStringContainsString('location @dis_api_maintenance', $config);
         self::assertStringContainsString('"code":"maintenance"', $config);
+        self::assertStringContainsString('add_header Retry-After "30" always;', $config);
         self::assertStringContainsString("'api/developer/system/maintenance'", $bootstrap);
     }
 

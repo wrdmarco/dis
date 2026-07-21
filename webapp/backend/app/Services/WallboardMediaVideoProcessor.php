@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Support\SensitiveDataRedactor;
 use App\Support\WallboardMediaProcessedAsset;
 use App\Support\WallboardMediaVideoProgressParser;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -13,6 +15,10 @@ use Throwable;
 
 final class WallboardMediaVideoProcessor
 {
+    private const MAX_RAW_FFMPEG_DIAGNOSTIC_BYTES = 16_384;
+
+    private const MAX_FFMPEG_DIAGNOSTIC_BYTES = 2_048;
+
     /** @var list<string> */
     private const ALLOWED_BRANDS = ['avc1', 'iso2', 'iso4', 'iso5', 'iso6', 'isom', 'mp41', 'mp42'];
 
@@ -22,6 +28,8 @@ final class WallboardMediaVideoProcessor
 
     /** @var list<string> */
     private const BROWSER_PIXEL_FORMATS = ['yuv420p', 'yuvj420p'];
+
+    public function __construct(private readonly SensitiveDataRedactor $redactor) {}
 
     public function process(UploadedFile $upload, string $field = 'file'): WallboardMediaProcessedAsset
     {
@@ -187,6 +195,13 @@ final class WallboardMediaVideoProcessor
             ], $outputHandler);
             $result = $process->wait();
             if (! $result->successful()) {
+                Log::warning('Wallboard video transcoding process failed.', [
+                    'exit_code' => (int) $result->exitCode(),
+                    'diagnostic' => $this->sanitizeFfmpegDiagnostic(
+                        $result->errorOutput(),
+                        [$sourcePath, $temporaryPath],
+                    ),
+                ]);
                 throw new HttpException(503, 'De video kon niet veilig naar 1080p worden verwerkt.');
             }
 
@@ -500,6 +515,55 @@ final class WallboardMediaVideoProcessor
         }
 
         return $path;
+    }
+
+    /** @param list<string> $mediaPaths */
+    private function sanitizeFfmpegDiagnostic(string $diagnostic, array $mediaPaths): string
+    {
+        $diagnostic = substr($diagnostic, 0, self::MAX_RAW_FFMPEG_DIAGNOSTIC_BYTES);
+        $diagnostic = mb_convert_encoding($diagnostic, 'UTF-8', 'UTF-8');
+        $pathVariants = [];
+        foreach ($mediaPaths as $path) {
+            $path = trim($path);
+            if ($path === '') {
+                continue;
+            }
+
+            $pathVariants[] = $path;
+            $pathVariants[] = str_replace('\\', '/', $path);
+            $pathVariants[] = str_replace('/', '\\', $path);
+            $pathVariants[] = dirname($path);
+            $pathVariants[] = basename($path);
+        }
+        $pathVariants = array_values(array_unique(array_filter(
+            $pathVariants,
+            static fn (string $path): bool => $path !== '' && $path !== '.',
+        )));
+        usort($pathVariants, static fn (string $left, string $right): int => strlen($right) <=> strlen($left));
+        if ($pathVariants !== []) {
+            $diagnostic = str_replace($pathVariants, '[MEDIA_PATH]', $diagnostic);
+        }
+
+        $diagnostic = $this->redactor->redactString($diagnostic);
+        $diagnostic = preg_replace([
+            '~(?<![A-Za-z0-9])[A-Za-z]:[\\\\/][^\s"\'<>|]+~u',
+            '~(?<![A-Za-z0-9:])/(?:[^/\s"\']+/)*[^/\s"\':;,]+~u',
+            '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u',
+        ], ['[PATH]', '[PATH]', ' '], $diagnostic) ?? '';
+        $diagnostic = preg_replace('/\s+/u', ' ', trim($diagnostic)) ?? '';
+        if ($diagnostic === '') {
+            return 'Geen FFmpeg-diagnostiek ontvangen.';
+        }
+        if (strlen($diagnostic) <= self::MAX_FFMPEG_DIAGNOSTIC_BYTES) {
+            return $diagnostic;
+        }
+
+        return mb_strcut(
+            $diagnostic,
+            0,
+            self::MAX_FFMPEG_DIAGNOSTIC_BYTES - 3,
+            'UTF-8',
+        ).'...';
     }
 
     /** @return never */

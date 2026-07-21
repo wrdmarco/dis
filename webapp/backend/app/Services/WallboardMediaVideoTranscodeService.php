@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\WallboardMediaAsset;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -23,10 +24,21 @@ final class WallboardMediaVideoTranscodeService
     /** @param null|callable(): bool $interrupted */
     public function transcode(string $assetId, ?callable $interrupted = null): void
     {
-        Cache::lock(
+        $lock = Cache::lock(
             'wallboard-media:video-transcode:'.$assetId,
             max(300, (int) config('wallboard_media.video_transcode_timeout_seconds', 3600) + 120),
-        )->block(1, function () use ($assetId, $interrupted): void {
+        );
+        try {
+            $lock->block(1);
+        } catch (LockTimeoutException) {
+            // A second delivery for the same asset is an idempotent duplicate.
+            // The lock owner (or its queue retry after the lock expires) remains
+            // responsible for the processing asset, so this delivery succeeds
+            // without being allowed to mark that shared asset as failed.
+            return;
+        }
+
+        try {
             $asset = WallboardMediaAsset::query()
                 ->whereKey($assetId)
                 ->where('kind', WallboardMediaAsset::KIND_VIDEO)
@@ -47,14 +59,50 @@ final class WallboardMediaVideoTranscodeService
                 throw new HttpException(503, 'De videoverwerking is veilig onderbroken voor systeemonderhoud.');
             }
 
+            $progressPersistenceAvailable = true;
+            $progressFailureReported = false;
+            $disableProgressPersistence = static function (Throwable $exception) use (
+                &$progressPersistenceAvailable,
+                &$progressFailureReported,
+            ): void {
+                $progressPersistenceAvailable = false;
+                if ($progressFailureReported) {
+                    return;
+                }
+
+                $progressFailureReported = true;
+                try {
+                    report($exception);
+                } catch (Throwable) {
+                    // Progress is telemetry. A reporting failure must not turn
+                    // it into a second reason to abort the media transcode.
+                }
+            };
+            $persistProgressBestEffort = static function (callable $operation) use (
+                &$progressPersistenceAvailable,
+                $disableProgressPersistence,
+            ): void {
+                if (! $progressPersistenceAvailable) {
+                    return;
+                }
+
+                try {
+                    $operation();
+                } catch (Throwable $exception) {
+                    $disableProgressPersistence($exception);
+                }
+            };
             if ($asset->processing_progress !== 0) {
-                $this->resetProgress($assetId, $sourceSha256);
+                $persistProgressBestEffort(
+                    fn () => $this->resetProgress($assetId, $sourceSha256),
+                );
             }
             $lastPersistedProgress = 0;
             $reportProgress = function (int $percentage) use (
                 $assetId,
                 $sourceSha256,
                 $interrupted,
+                $persistProgressBestEffort,
                 &$lastPersistedProgress,
             ): void {
                 if ($interrupted !== null && $interrupted()) {
@@ -69,8 +117,10 @@ final class WallboardMediaVideoTranscodeService
                     return;
                 }
 
-                $this->persistProgress($assetId, $sourceSha256, $persisted);
                 $lastPersistedProgress = $persisted;
+                $persistProgressBestEffort(
+                    fn () => $this->persistProgress($assetId, $sourceSha256, $persisted),
+                );
             };
             $processed = $this->processor->transcode(
                 $destination,
@@ -187,7 +237,9 @@ final class WallboardMediaVideoTranscodeService
                     @unlink($backup);
                 }
             }
-        });
+        } finally {
+            $lock->release();
+        }
     }
 
     private function resetProgress(string $assetId, string $sourceSha256): void

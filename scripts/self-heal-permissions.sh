@@ -162,6 +162,10 @@ if id www-data >/dev/null 2>&1; then
   for runtime_leaf in "${backend_runtime_leaves[@]}"; do
     secure_path_operation acl-tree "${runtime_leaf}" www-data rwx rw-
   done
+  # PHP-FPM uploads as www-data while isolated workers run as dis. Preserve a
+  # named/default dis ACL on worker-owned app storage so newly created media can
+  # cross that identity boundary without putting www-data in the dis group.
+  secure_path_operation acl-tree "${DIS_DATA_PATH}/webapp/backend/storage/app" "${DIS_USER}" rwx rw-
   secure_path_operation acl-tree "${BACKEND_DIR}/bootstrap/cache" www-data r-x r--
 
   if [ -f "${DIS_DATA_PATH}/.env" ]; then
