@@ -31,6 +31,7 @@ use App\Http\Controllers\IncidentFormController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MobileConfigController;
 use App\Http\Controllers\MobilePairingController;
+use App\Http\Controllers\OperationalForecastController;
 use App\Http\Controllers\OperationalMapController;
 use App\Http\Controllers\PasswordController;
 use App\Http\Controllers\PilotIncidentReportController;
@@ -237,6 +238,12 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/reports/dispatch-statistics', [ReportingController::class, 'dispatchStatistics'])->middleware('permission:incidents.dispatch.view');
         Route::get('/expiry-overview', [ExpiryOverviewController::class, 'index']);
         Route::get('/calendar-events', [CalendarEventController::class, 'index']);
+        Route::get('/operational-weather', [OperationalForecastController::class, 'weather'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware('throttle:operational-forecast-read');
+        Route::get('/uav-forecast', [OperationalForecastController::class, 'uav'])
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware('throttle:operational-forecast-read');
         Route::post('/calendar-events', [CalendarEventController::class, 'store'])->middleware('permission:settings.manage');
         Route::delete('/calendar-events/{calendarEvent}', [CalendarEventController::class, 'destroy'])->middleware('permission:settings.manage');
 

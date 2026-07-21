@@ -275,6 +275,40 @@ export const operationManualGuides = {
       warning: 'Een woonplaats is geen live locatie en de werkelijke reistijd kan afwijken.',
     },
   ],
+  weather: [
+    {
+      id: 'weather-read-local-knmi',
+      title: 'Het lokale KNMI-weerbeeld controleren',
+      intro: 'Controleer bewolking en neerslag voor een landelijk gebied of één gezocht adres.',
+      steps: [
+        { label: 'Open Weer', description: 'Kies Weer in het menu onder Operatie.' },
+        { label: 'Kies het gebied', description: 'Laat UAV Nederland staan of kies Adres, vul een adres of plaatsnaam in en kies Toepassen.' },
+        { label: 'Controleer Datastatus', description: 'Actueel betekent dat beide lokale datasets bruikbaar zijn. Gedeeltelijk of niet beschikbaar vraagt om controle via een andere goedgekeurde bron.' },
+        { label: 'Lees de wolkenlagen', description: 'Vergelijk hoge, middelbare en lage modelbewolking, totale bedekking en de modelwolkenbasis. De hoogtereferentie van die modelwolkenbasis is niet gespecificeerd.' },
+        { label: 'Lees het neerslagvenster', description: 'Bekijk de lokale KNMI-radarrasterreeks voor uur 0–2 en daarna afzonderlijk de ensemblekans voor uur 3.' },
+        { label: 'Controleer bron en tijd', description: 'Lees per dataset de bron, geldige of gemeten tijd, lokale verversing en eventuele beschikbaarheidsmelding.' },
+      ],
+      result: 'Je hebt een transparant weerbeeld op basis van de lokaal opgeslagen KNMI-datasets.',
+      warning: 'De pagina Weer geeft geen vliegadvies. Onbekende of verouderde data mag niet als gunstige situatie worden geïnterpreteerd.',
+    },
+  ],
+  'uav-forecast': [
+    {
+      id: 'uav-forecast-assess',
+      title: 'Een UAV Forecast beoordelen',
+      intro: 'Begin bij het serveradvies en controleer daarna alle onderliggende waarden en bronnen.',
+      steps: [
+        { label: 'Open UAV Forecast', description: 'Kies UAV Forecast in het menu onder Operatie.' },
+        { label: 'Kies het gebied', description: 'Gebruik UAV Nederland of kies Adres en laat de server het ingevoerde adres of de plaatsnaam vinden.' },
+        { label: 'Lees het vliegadvies', description: 'Binnen standaarddrempels, Extra beoordeling vereist, Niet vliegen of Advies onvolledig is door de server bepaald.' },
+        { label: 'Controleer iedere waarde', description: 'Lees status, waarde, toelichting, bron en meet- of modeltijd. Baseer een vluchtbesluit nooit alleen op de hoofdkleur.' },
+        { label: 'Controleer reikwijdte en disclaimer', description: 'Lees welke gegevens wel en niet in de forecast zitten en betrek de actuele lokale omstandigheden.' },
+        { label: 'Ververs indien nodig', description: 'De pagina controleert bij zichtbaarheid ongeveer iedere vijftien minuten. Kies Verversen voor een directe nieuwe berekening.' },
+      ],
+      result: 'Je hebt het centrale advies en alle zichtbare standaardwaarden met hun herkomst beoordeeld.',
+      warning: 'Ontbrekende, ongeldige of verouderde noodzakelijke data is nooit groen. De forecast ondersteunt de operationele afweging maar vervangt die niet.',
+    },
+  ],
   status: [
     {
       id: 'status-read-overview',

@@ -60,15 +60,41 @@ final class WallboardForecastService
             return [];
         }
 
-        $resolvedPages = [];
-        $requestedLocations = [];
+        $optionsByPageId = [];
         foreach ($pages as $page) {
             $pageId = (string) ($page['id'] ?? '');
-            if ($pageId === '') {
-                continue;
+            if ($pageId !== '') {
+                $optionsByPageId[$pageId] = (array) ($page['options'] ?? []);
             }
-            $resolution = $this->locations->resolve((array) ($page['options'] ?? []));
-            $resolvedPages[$pageId] = ['page' => $page, 'resolution' => $resolution];
+        }
+
+        return $this->forecastsForOptions($optionsByPageId);
+    }
+
+    /**
+     * @param  array<string, mixed>  $options
+     * @return array<string, mixed>
+     */
+    public function forecastForOptions(array $options): array
+    {
+        return $this->forecastsForOptions(['forecast' => $options])['forecast'];
+    }
+
+    /**
+     * @param  array<string, array<string, mixed>>  $optionsByPageId
+     * @return array<string, array<string, mixed>>
+     */
+    private function forecastsForOptions(array $optionsByPageId): array
+    {
+        if ($optionsByPageId === []) {
+            return [];
+        }
+
+        $resolvedPages = [];
+        $requestedLocations = [];
+        foreach ($optionsByPageId as $pageId => $options) {
+            $resolution = $this->locations->resolve($options);
+            $resolvedPages[$pageId] = ['options' => $options, 'resolution' => $resolution];
             if (! $resolution['complete']) {
                 continue;
             }
@@ -81,8 +107,7 @@ final class WallboardForecastService
         $kp = $this->kpReading();
         $result = [];
 
-        foreach ($resolvedPages as $pageId => ['page' => $page, 'resolution' => $resolution]) {
-            $options = (array) ($page['options'] ?? []);
+        foreach ($resolvedPages as $pageId => ['options' => $options, 'resolution' => $resolution]) {
             $weather = $this->aggregateWeather($resolution, $weatherByLocation);
             $cloudForecast = $this->cloudForecasts->forResolution($resolution);
             $precipitationOutlook = $this->precipitationOutlooks->forResolution($resolution);

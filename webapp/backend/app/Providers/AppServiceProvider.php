@@ -241,6 +241,12 @@ final class AppServiceProvider extends ServiceProvider
             perClient: 180,
             perUser: 540,
         ));
+        RateLimiter::for('operational-forecast-read', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'operational-forecast-read',
+            perClient: 30,
+            perUser: 60,
+        ));
         RateLimiter::for('operational-telemetry', fn (Request $request): array => $this->authenticatedClientLimits(
             request: $request,
             scope: 'operational-telemetry',

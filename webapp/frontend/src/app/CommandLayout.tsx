@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, CloudSun, DatabaseBackup, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, MonitorCog, Moon, Network, Palette, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, CloudRain, CloudSun, DatabaseBackup, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, MonitorCog, Moon, Network, Palette, Plane, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -46,6 +46,8 @@ const navGroups: NavGroup[] = [
     items: [
       { to: '/incidents', label: 'Actieve meldingen', icon: RadioTower, end: true, permissions: ['incidents.view'] },
       { to: '/operational-map', label: 'Kaart', icon: MapIcon, permissions: ['operational-map.view', 'incidents.view'] },
+      { to: '/weather', label: 'Weer', icon: CloudRain },
+      { to: '/uav-forecast', label: 'UAV Forecast', icon: Plane },
       { to: '/incidents/archive', label: 'Archief', icon: Archive, permissions: ['incidents.view'] },
       { to: '/operational-status', label: 'Status', icon: Workflow, permissions: ['status.view'] },
       { to: '/calendar', label: 'Agenda', icon: CalendarDays },
@@ -100,6 +102,8 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/dashboard': () => import('../features/dashboard/DashboardPage'),
   '/incidents': () => import('../features/incidents/IncidentsPage'),
   '/operational-map': () => import('../features/incidents/IncidentMapPage'),
+  '/weather': () => import('../features/weather/WeatherPage'),
+  '/uav-forecast': () => import('../features/weather/UavForecastPage'),
   '/incidents/archive': () => import('../features/incidents/IncidentsPage'),
   '/operational-status': () => import('../features/status/StatusPage'),
   '/test-alert': () => import('../features/test-alerts/TestAlertPage'),

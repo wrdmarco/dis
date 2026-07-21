@@ -12,9 +12,9 @@ final class KnmiPrecipitationOutlookService implements KnmiPrecipitationOutlookP
 {
     private const CACHE_NAMESPACE = 'wallboard:uav-forecast:knmi-precipitation-local:v1';
 
-    private const RADAR_SAMPLE_COUNT = 25;
+    public const RADAR_SAMPLE_COUNT = 25;
 
-    private const THIRD_HOUR_SAMPLE_COUNT = 13;
+    public const THIRD_HOUR_SAMPLE_COUNT = 13;
 
     public function __construct(
         private readonly KnmiPrecipitationSnapshotRepository $snapshots,

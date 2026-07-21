@@ -961,6 +961,60 @@ export interface WallboardForecastState {
   pages: Record<string, WallboardForecastPageState>;
 }
 
+export type OperationalWeatherDataStatus = 'current' | 'partial' | 'unavailable';
+
+export interface OperationalWeatherCloudState {
+  complete: boolean;
+  stale: boolean;
+  cloud_cover_pct: number | null;
+  cloud_cover_low_pct: number | null;
+  cloud_cover_mid_pct: number | null;
+  cloud_cover_high_pct: number | null;
+  cloud_base_m: number | null;
+  model_run_at: string | null;
+  valid_at: string | null;
+  measured_at: string | null;
+  refreshed_at: string | null;
+  sample_count: number | null;
+  expected_sample_count: number | null;
+  source: WallboardForecastSource;
+  availability_note: string | null;
+}
+
+export interface OperationalWeatherPrecipitationState {
+  complete: boolean;
+  stale: boolean;
+  radar_peak_mm_h: number | null;
+  radar_first_precipitation_at: string | null;
+  radar_until: string | null;
+  third_hour_probability_pct: number | null;
+  third_hour_from: string | null;
+  forecast_until: string | null;
+  reference_time: string | null;
+  measured_at: string | null;
+  refreshed_at: string | null;
+  sample_count: number | null;
+  expected_sample_count: number | null;
+  source: WallboardForecastSource;
+  availability_note: string | null;
+}
+
+export interface OperationalWeatherPageState {
+  location: {
+    mode: WallboardForecastLocationMode;
+    label: string;
+    latitude: number | null;
+    longitude: number | null;
+  };
+  aggregation: WallboardForecastAggregation;
+  generated_at: string;
+  data_status: OperationalWeatherDataStatus;
+  cloud: OperationalWeatherCloudState;
+  precipitation: OperationalWeatherPrecipitationState;
+  scope_note: string;
+  disclaimer: string;
+}
+
 export interface WallboardMediaPageStateItem {
   id: string;
   name: string;

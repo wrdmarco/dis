@@ -6,12 +6,19 @@ import type {
   WallboardForecastStatus,
 } from '../src/types/api';
 import {
+  normalizeWallboardForecastState,
+} from '../src/features/wallboards/WallboardDisplayPage';
+import {
   forecastTimeRange,
   formatForecastMetricValue,
   formatWallboardForecastUpdateTime,
-  normalizeWallboardForecastState,
+  wallboardForecastAllDisplayBlocks,
   wallboardForecastDisplayBlocks,
-} from '../src/features/wallboards/WallboardDisplayPage';
+} from '../src/features/weather/forecastPresentation';
+import {
+  markWallboardForecastStale,
+  normalizeUavForecastPage,
+} from '../src/features/weather/forecastNormalization';
 import {
   DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS,
   MAX_WALLBOARD_FORECAST_VISIBLE_BLOCKS,
@@ -187,6 +194,79 @@ function backendForecast(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+function greenBackendForecast() {
+  const payload = backendForecast({ overall_status: 'green' });
+  payload.condition = { ...payload.condition, status: 'green' };
+  payload.metrics = payload.metrics.map((candidate) => ({
+    ...candidate,
+    status: 'green',
+    value: candidate.value ?? (candidate.key === 'gnss_satellites_fix' ? 8 : 12),
+    measured_at: '2026-07-20T12:10:00Z',
+  }));
+  return payload;
+}
+
+test('downgrades contradictory or incomplete green advice to unknown', () => {
+  const orangePayload = greenBackendForecast();
+  orangePayload.metrics = orangePayload.metrics.map((candidate) => candidate.key === 'wind_gust_kmh'
+    ? { ...candidate, status: 'orange' }
+    : candidate);
+
+  expect(normalizeUavForecastPage(orangePayload)?.overall_status).toBe('unknown');
+
+  const missingProvenance = greenBackendForecast();
+  missingProvenance.metrics = missingProvenance.metrics.map((candidate) => candidate.key === 'visibility_m'
+    ? { ...candidate, measured_at: null }
+    : candidate);
+  const normalized = normalizeUavForecastPage(missingProvenance);
+
+  expect(normalized?.overall_status).toBe('unknown');
+  expect(normalized?.metrics.find((candidate) => candidate.key === 'visibility_m')?.status).toBe('unknown');
+});
+
+test('enforces the canonical location aggregation before allowing green advice', () => {
+  const payload = greenBackendForecast();
+  payload.aggregation = {
+    type: 'single_location',
+    sample_count: 1,
+    expected_sample_count: 1,
+    complete: true,
+    fresh: true,
+  };
+
+  const forecast = normalizeUavForecastPage(payload);
+  expect(forecast?.aggregation).toMatchObject({
+    type: 'province_average',
+    expected_sample_count: 12,
+    complete: false,
+    fresh: false,
+  });
+  expect(forecast?.overall_status).toBe('unknown');
+
+  const invalidLocation = greenBackendForecast();
+  invalidLocation.location = { ...invalidLocation.location, mode: 'province' };
+  expect(normalizeUavForecastPage(invalidLocation)?.overall_status).toBe('unknown');
+
+  const missingCoordinate = greenBackendForecast();
+  missingCoordinate.location = { ...missingCoordinate.location, latitude: null };
+  expect(normalizeUavForecastPage(missingCoordinate)?.overall_status).toBe('unknown');
+});
+
+test('marks expired data fail-closed and shows every advice input on the standalone page', () => {
+  const payload = greenBackendForecast();
+  payload.visible_blocks = ['weather'];
+  const forecast = normalizeUavForecastPage(payload);
+  expect(forecast).not.toBeNull();
+  if (forecast === null) return;
+
+  const expired = markWallboardForecastStale(forecast);
+  expect(expired.overall_status).toBe('unknown');
+  expect(expired.metrics.every((metric) => metric.status === 'unknown' && metric.stale)).toBe(true);
+  expect(wallboardForecastDisplayBlocks(forecast)).toHaveLength(1);
+  expect(wallboardForecastAllDisplayBlocks(forecast).map((block) => block.key))
+    .toEqual(WALLBOARD_FORECAST_BLOCK_KEYS);
+});
 
 test('preserves the authoritative backend advice and complete expanded contract', () => {
   const state = normalizeWallboardForecastState({ pages: { forecast: backendForecast() } });
