@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\WallboardMediaAsset;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -11,6 +12,8 @@ use Throwable;
 
 final class WallboardMediaVideoTranscodeService
 {
+    private const PROGRESS_STEP = 5;
+
     public function __construct(
         private readonly WallboardMediaVideoProcessor $processor,
         private readonly WallboardMediaQuotaService $quota,
@@ -44,9 +47,39 @@ final class WallboardMediaVideoTranscodeService
                 throw new HttpException(503, 'De videoverwerking is veilig onderbroken voor systeemonderhoud.');
             }
 
-            $processed = $this->processor->transcode($destination);
+            if ($asset->processing_progress !== 0) {
+                $this->resetProgress($assetId, $sourceSha256);
+            }
+            $lastPersistedProgress = 0;
+            $reportProgress = function (int $percentage) use (
+                $assetId,
+                $sourceSha256,
+                $interrupted,
+                &$lastPersistedProgress,
+            ): void {
+                if ($interrupted !== null && $interrupted()) {
+                    throw new HttpException(503, 'De videoverwerking is veilig onderbroken voor systeemonderhoud.');
+                }
+
+                $bounded = min(99, max(0, $percentage));
+                $persisted = $bounded === 99
+                    ? 99
+                    : intdiv($bounded, self::PROGRESS_STEP) * self::PROGRESS_STEP;
+                if ($persisted <= $lastPersistedProgress) {
+                    return;
+                }
+
+                $this->persistProgress($assetId, $sourceSha256, $persisted);
+                $lastPersistedProgress = $persisted;
+            };
+            $processed = $this->processor->transcode(
+                $destination,
+                max(1, (int) $asset->duration_seconds),
+                $reportProgress,
+            );
             $backup = $processed->temporaryPath.'.source';
             $replaced = false;
+            $preserveBackup = false;
             try {
                 $additionalBytes = max(0, $processed->byteSize - (int) $asset->byte_size);
                 $this->quota->reserveAdditionalBytes($additionalBytes, function () use (
@@ -80,18 +113,30 @@ final class WallboardMediaVideoTranscodeService
                         if (! @link($destination, $backup) && ! @copy($destination, $backup)) {
                             throw new HttpException(503, 'De verwerkte video kon niet atomair worden geactiveerd.');
                         }
+                        $backupSha256 = @hash_file('sha256', $backup);
+                        if (! is_string($backupSha256) || ! hash_equals($sourceSha256, $backupSha256)) {
+                            throw new HttpException(503, 'De bronvideo kon niet veilig worden geback-upt.');
+                        }
                         if (! @rename($processed->temporaryPath, $destination)) {
                             // Windows test hosts cannot replace an existing file
                             // with rename(). The verified backup keeps this
                             // fallback recoverable; production Ubuntu uses the
                             // atomic replace path above.
-                            if (! @unlink($destination) || ! @rename($processed->temporaryPath, $destination)) {
-                                @rename($backup, $destination);
+                            if (! @unlink($destination)) {
+                                throw new HttpException(503, 'De verwerkte video kon niet atomair worden geactiveerd.');
+                            }
+                            $replaced = true;
+                            if (! @rename($processed->temporaryPath, $destination)) {
                                 throw new HttpException(503, 'De verwerkte video kon niet atomair worden geactiveerd.');
                             }
                         }
                         $replaced = true;
                         @chmod($destination, 0640);
+                        $activatedSha256 = @hash_file('sha256', $destination);
+                        if (! is_string($activatedSha256)
+                            || ! hash_equals($processed->sha256, $activatedSha256)) {
+                            throw new HttpException(503, 'De geactiveerde video kon niet veilig worden geverifieerd.');
+                        }
                         $locked->forceFill([
                             'sha256' => $processed->sha256,
                             'mime_type' => $processed->mimeType,
@@ -100,6 +145,7 @@ final class WallboardMediaVideoTranscodeService
                             'height' => $processed->height,
                             'duration_seconds' => $processed->durationSeconds,
                             'status' => WallboardMediaAsset::STATUS_READY,
+                            'processing_progress' => 100,
                             'version' => (int) $locked->version + 1,
                         ])->save();
                         $this->auditService->record('wallboard_media.assets.video_transcoded', $locked, null, [
@@ -116,7 +162,20 @@ final class WallboardMediaVideoTranscodeService
                 @unlink($backup);
             } catch (Throwable $exception) {
                 if ($replaced && is_file($backup)) {
-                    @rename($backup, $destination);
+                    $restored = @rename($backup, $destination);
+                    if (! $restored) {
+                        @unlink($destination);
+                        $restored = @rename($backup, $destination);
+                    }
+                    if (! $restored && @copy($backup, $destination)) {
+                        $restoredSha256 = @hash_file('sha256', $destination);
+                        $restored = is_string($restoredSha256)
+                            && hash_equals($sourceSha256, $restoredSha256);
+                        if (! $restored) {
+                            @unlink($destination);
+                        }
+                    }
+                    $preserveBackup = ! $restored && is_file($backup);
                 }
 
                 throw $exception;
@@ -124,10 +183,40 @@ final class WallboardMediaVideoTranscodeService
                 if (is_file($processed->temporaryPath)) {
                     @unlink($processed->temporaryPath);
                 }
-                if (is_file($backup)) {
+                if (! $preserveBackup && is_file($backup)) {
                     @unlink($backup);
                 }
             }
         });
+    }
+
+    private function resetProgress(string $assetId, string $sourceSha256): void
+    {
+        DB::table('wallboard_media_assets')
+            ->where('id', $assetId)
+            ->where('kind', WallboardMediaAsset::KIND_VIDEO)
+            ->where('status', WallboardMediaAsset::STATUS_PROCESSING)
+            ->where('sha256', $sourceSha256)
+            ->whereNull('deleted_at')
+            ->where(function (QueryBuilder $query): void {
+                $query->whereNull('processing_progress')
+                    ->orWhere('processing_progress', '!=', 0);
+            })
+            ->update(['processing_progress' => 0]);
+    }
+
+    private function persistProgress(string $assetId, string $sourceSha256, int $progress): void
+    {
+        DB::table('wallboard_media_assets')
+            ->where('id', $assetId)
+            ->where('kind', WallboardMediaAsset::KIND_VIDEO)
+            ->where('status', WallboardMediaAsset::STATUS_PROCESSING)
+            ->where('sha256', $sourceSha256)
+            ->whereNull('deleted_at')
+            ->where(function (QueryBuilder $query) use ($progress): void {
+                $query->whereNull('processing_progress')
+                    ->orWhere('processing_progress', '<', $progress);
+            })
+            ->update(['processing_progress' => $progress]);
     }
 }

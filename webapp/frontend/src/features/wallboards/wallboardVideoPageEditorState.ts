@@ -7,6 +7,9 @@ import {
 
 export type WallboardVideoSource = 'upload' | 'external';
 
+export const WALLBOARD_VIDEO_PROCESSING_POLL_INTERVAL_MILLISECONDS = 5_000;
+export const WALLBOARD_VIDEO_PROCESSING_POLL_MAX_ATTEMPTS = 720;
+
 export function wallboardVideoPageForSource(
   page: WallboardPage,
   source: WallboardVideoSource,
@@ -44,4 +47,38 @@ export function isSelectableMp4(asset: WallboardMediaAsset): boolean {
     && Number.isInteger(asset.duration_seconds)
     && asset.duration_seconds >= 1
     && asset.duration_seconds <= 3595;
+}
+
+export function wallboardVideoProcessingProgress(asset: WallboardMediaAsset): number | null {
+  if (
+    asset.status !== 'processing'
+    || typeof asset.processing_progress !== 'number'
+    || !Number.isFinite(asset.processing_progress)
+  ) return null;
+
+  return Math.min(99, Math.max(0, Math.round(asset.processing_progress)));
+}
+
+export function shouldPollWallboardVideoAssets(
+  hasProcessingAsset: boolean,
+  completedAttempts: number,
+): boolean {
+  return Number.isInteger(completedAttempts)
+    && completedAttempts >= 0
+    && completedAttempts < WALLBOARD_VIDEO_PROCESSING_POLL_MAX_ATTEMPTS
+    && hasProcessingAsset;
+}
+
+export function shouldRunWallboardVideoProcessingPoll(
+  hasProcessingAsset: boolean,
+  completedAttempts: number,
+  documentVisible: boolean,
+  foregroundRequestCount: number,
+  pollInFlight: boolean,
+): boolean {
+  return shouldPollWallboardVideoAssets(hasProcessingAsset, completedAttempts)
+    && documentVisible
+    && Number.isInteger(foregroundRequestCount)
+    && foregroundRequestCount === 0
+    && !pollInFlight;
 }

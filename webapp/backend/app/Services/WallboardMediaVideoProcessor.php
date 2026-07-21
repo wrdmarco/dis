@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Support\WallboardMediaProcessedAsset;
+use App\Support\WallboardMediaVideoProgressParser;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
@@ -107,8 +108,12 @@ final class WallboardMediaVideoProcessor
         }
     }
 
-    public function transcode(string $sourcePath): WallboardMediaProcessedAsset
-    {
+    /** @param null|callable(int): void $progress */
+    public function transcode(
+        string $sourcePath,
+        ?int $durationSeconds = null,
+        ?callable $progress = null,
+    ): WallboardMediaProcessedAsset {
         $sourceBytes = @filesize($sourcePath);
         if (! is_int($sourceBytes) || $sourceBytes < 32) {
             throw new HttpException(503, 'De opgeslagen video kon niet veilig worden gelezen.');
@@ -122,15 +127,33 @@ final class WallboardMediaVideoProcessor
         try {
             $maximumWidth = max(2, (int) config('wallboard_media.max_video_width_pixels', 1920));
             $maximumHeight = max(2, (int) config('wallboard_media.max_video_height_pixels', 1080));
-            $result = Process::timeout(max(
+            $progressParser = $progress === null
+                ? null
+                : new WallboardMediaVideoProgressParser(max(1, (int) $durationSeconds));
+            $outputHandler = $progressParser === null
+                ? null
+                : static function (string $type, string $output) use ($progressParser, $progress): void {
+                    if ($type !== 'out') {
+                        return;
+                    }
+                    foreach ($progressParser->consume($output) as $percentage) {
+                        $progress($percentage);
+                    }
+                };
+            $process = Process::timeout(max(
                 120,
                 (int) config('wallboard_media.video_transcode_timeout_seconds', 3600),
-            ))->run([
+            ))->start([
                 (string) config('wallboard_media.ffmpeg_binary', '/usr/bin/ffmpeg'),
                 '-nostdin',
                 '-hide_banner',
                 '-loglevel',
                 'error',
+                '-stats_period',
+                '1',
+                '-progress',
+                'pipe:1',
+                '-nostats',
                 '-i',
                 $sourcePath,
                 '-map',
@@ -161,7 +184,8 @@ final class WallboardMediaVideoProcessor
                 'mp4',
                 '-y',
                 $temporaryPath,
-            ]);
+            ], $outputHandler);
+            $result = $process->wait();
             if (! $result->successful()) {
                 throw new HttpException(503, 'De video kon niet veilig naar 1080p worden verwerkt.');
             }
@@ -197,6 +221,9 @@ final class WallboardMediaVideoProcessor
                 throw new HttpException(503, 'De verwerkte video kon niet worden geverifieerd.');
             }
             @chmod($temporaryPath, 0640);
+            if ($progress !== null) {
+                $progress(99);
+            }
 
             return new WallboardMediaProcessedAsset(
                 kind: 'video',

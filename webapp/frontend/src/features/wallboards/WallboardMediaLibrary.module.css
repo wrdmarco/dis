@@ -256,6 +256,58 @@
   padding: 20px;
 }
 
+.mediaKindSwitcher {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  padding: 5px;
+  border: 1px solid rgb(113 168 200 / 20%);
+  border-radius: 14px;
+  background: rgb(3 13 22 / 58%);
+}
+
+.mediaKindSwitcher button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 52px;
+  padding: 8px 12px;
+  color: #809cae;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.mediaKindSwitcher button > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mediaKindSwitcher strong {
+  color: #c9dce8;
+  font-size: .86rem;
+}
+
+.mediaKindSwitcher small {
+  color: #708da0;
+  font-size: .68rem;
+}
+
+.mediaKindSwitcher .activeMediaKind {
+  color: #75d3fa;
+  border-color: rgb(94 197 239 / 30%);
+  background: linear-gradient(120deg, rgb(43 145 194 / 22%), rgb(19 72 105 / 18%));
+  box-shadow: 0 5px 18px rgb(0 8 15 / 20%);
+}
+
+.mediaKindSwitcher .activeMediaKind strong {
+  color: #f1faff;
+}
+
 .assetToolbar {
   display: flex;
   align-items: center;
@@ -468,11 +520,48 @@
 }
 
 .uploadQueueStatus {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.uploadQueueStatus > span:first-child {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
   gap: 5px;
-  white-space: nowrap;
+  min-width: 0;
+  color: #b8cfdd;
+  font-variant-numeric: tabular-nums;
+}
+
+.uploadQueueStatusCompleted {
+  color: #9fe6c5 !important;
+}
+
+.progressTrack {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(110 158 186 / 18%);
+}
+
+.progressFill,
+.indeterminateProgress {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #45aedf, #79d7fa);
+  transition: width 180ms ease;
+}
+
+.indeterminateProgress {
+  width: 34%;
+  animation: progressSweep 1.2s ease-in-out infinite;
 }
 
 .spinning {
@@ -610,6 +699,48 @@
 .assetDetails span {
   color: #7f9caf;
   font-size: .72rem;
+}
+
+.assetDetails .assetStatus {
+  margin-top: 5px;
+  padding: 7px 8px;
+  border: 1px solid rgb(112 167 197 / 17%);
+  border-radius: 9px;
+  font-weight: 700;
+}
+
+.assetDetails .assetStatusReady,
+.assetDetails .assetStatusFailed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.assetDetails .assetStatusReady {
+  color: #9fe6c5;
+  border-color: rgb(76 190 137 / 23%);
+  background: rgb(30 104 75 / 14%);
+}
+
+.assetDetails .assetStatusFailed {
+  color: #ffb9b9;
+  border-color: rgb(221 94 94 / 28%);
+  background: rgb(105 29 35 / 17%);
+}
+
+.assetDetails .assetStatusProcessing {
+  display: grid;
+  gap: 7px;
+  color: #bceaff;
+  border-color: rgb(87 185 227 / 26%);
+  background: rgb(39 129 173 / 13%);
+}
+
+.assetStatusLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
 }
 
 .assetControls {
@@ -907,6 +1038,11 @@
   to { transform: rotate(360deg); }
 }
 
+@keyframes progressSweep {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(300%); }
+}
+
 @media (max-width: 980px) {
   .libraryGrid,
   .playlistGrid {
@@ -1053,6 +1189,15 @@
   .assetCard,
   .selectedAsset,
   .orderedAssets li {
+    transition: none;
+  }
+
+  .indeterminateProgress {
+    width: 100%;
+    animation: none;
+  }
+
+  .progressFill {
     transition: none;
   }
 }

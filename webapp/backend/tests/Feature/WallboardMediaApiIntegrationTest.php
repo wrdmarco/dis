@@ -207,7 +207,8 @@ final class WallboardMediaApiIntegrationTest extends TestCase
                 'display_name' => 'Thumbnail regressietest',
             ], ['Accept' => 'application/json'])
             ->assertCreated()
-            ->assertJsonPath('data.status', WallboardMediaAsset::STATUS_READY);
+            ->assertJsonPath('data.status', WallboardMediaAsset::STATUS_READY)
+            ->assertJsonPath('data.processing_progress', 100);
 
         $assetId = (string) $created->json('data.id');
         $thumbnailUrl = $created->json('data.thumbnail_url');

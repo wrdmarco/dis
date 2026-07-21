@@ -16,6 +16,14 @@ export interface ApiClientOptions {
   onUnauthenticated: () => void;
 }
 
+export interface ApiUploadProgress {
+  loaded: number;
+  total: number | null;
+  percentage: number | null;
+}
+
+export type ApiUploadProgressHandler = (progress: ApiUploadProgress) => void;
+
 export class ApiClient {
   private csrfRequest: Promise<void> | null = null;
 
@@ -29,8 +37,16 @@ export class ApiClient {
     return this.request<T>('POST', path, body);
   }
 
-  async postForm<T>(path: string, body: FormData): Promise<ApiResponse<T>> {
-    return this.request<T>('POST', path, body);
+  async postForm<T>(
+    path: string,
+    body: FormData,
+    onUploadProgress?: ApiUploadProgressHandler,
+  ): Promise<ApiResponse<T>> {
+    if (onUploadProgress === undefined) {
+      return this.request<T>('POST', path, body);
+    }
+
+    return this.uploadForm<T>(path, body, onUploadProgress);
   }
 
   async patch<T>(path: string, body?: unknown): Promise<ApiResponse<T>> {
@@ -97,6 +113,69 @@ export class ApiClient {
     }
 
     return payload as ApiResponse<T>;
+  }
+
+  private async uploadForm<T>(
+    path: string,
+    body: FormData,
+    onUploadProgress: ApiUploadProgressHandler,
+    retriedAfterCsrf = false,
+  ): Promise<ApiResponse<T>> {
+    await this.ensureCsrfCookie();
+    const csrfToken = csrfTokenFromCookie();
+    const result = await new Promise<{ status: number; payload: unknown }>((resolve, reject) => {
+      const request = new XMLHttpRequest();
+      request.open('POST', `${this.options.baseUrl}${path}`);
+      request.withCredentials = true;
+      request.setRequestHeader('Accept', 'application/json');
+      request.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+      if (csrfToken !== null) request.setRequestHeader('X-XSRF-TOKEN', csrfToken);
+
+      request.upload.addEventListener('progress', (event) => {
+        const total = event.lengthComputable && event.total > 0 ? event.total : null;
+        onUploadProgress({
+          loaded: event.loaded,
+          total,
+          percentage: total === null
+            ? null
+            : event.loaded >= total
+              ? 100
+              : Math.min(99, Math.floor((event.loaded / total) * 100)),
+        });
+      });
+      request.addEventListener('load', () => resolve({
+        status: request.status,
+        payload: parseJsonPayload(request.responseText),
+      }));
+      request.addEventListener('error', () => reject(new ApiClientError(
+        'Upload failed because the server could not be reached.',
+        0,
+        'network_error',
+      )));
+      request.addEventListener('abort', () => reject(new ApiClientError(
+        'Upload was cancelled.',
+        0,
+        'request_aborted',
+      )));
+      request.send(body);
+    });
+
+    if (result.status === 419 && !retriedAfterCsrf) {
+      await this.ensureCsrfCookie(true);
+      onUploadProgress({ loaded: 0, total: null, percentage: 0 });
+
+      return this.uploadForm<T>(path, body, onUploadProgress, true);
+    }
+
+    if (result.status === 204) {
+      return { data: null as T };
+    }
+
+    if (result.status < 200 || result.status >= 300) {
+      throw this.errorFromPayload(result.status, result.payload, 'API request failed.');
+    }
+
+    return result.payload as ApiResponse<T>;
   }
 
   private async ensureCsrfCookie(force = false): Promise<void> {
@@ -219,4 +298,13 @@ function filenameFromDisposition(disposition: string | null): string | undefined
 
   const match = /filename="?([^"]+)"?/i.exec(disposition);
   return match?.[1];
+}
+
+function parseJsonPayload(value: string): unknown {
+  if (value.trim() === '') return null;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
 }

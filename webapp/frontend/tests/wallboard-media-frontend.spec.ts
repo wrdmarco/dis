@@ -152,7 +152,21 @@ test('media management uses CSRF-aware ApiClient writes and no executable markup
   );
 
   expect(source).toContain("payload.set('file', item.file)");
-  expect(source).toContain("api.postForm('/admin/wallboard-media/assets', payload)");
+  expect(source).toContain('api.postForm<WallboardMediaAsset>(');
+  expect(source).toContain("'/admin/wallboard-media/assets',");
+  expect(source).toContain('({ percentage }) => setUploadItems');
+  expect(source).toContain('candidate.uploadProgress === percentage');
+  expect(source).toContain("status: 'completed', uploadProgress: 100");
+  expect(source).toContain("if (item.status === 'completed') return 'Geüpload'");
+  expect(source).toContain('showMediaKind(nextKind)');
+  expect(source).toContain("onClick={() => showMediaKind('video')}");
+  expect(source).toContain('setAssetsPage({ items: [], pagination: EMPTY_PAGINATION })');
+  expect(source).not.toContain('className={styles.uploadQueueStatus} aria-live="polite"');
+  expect(source).toContain("parameters.set('kind', kind)");
+  expect(source).toContain("asset.status === 'processing'");
+  expect(source).toContain('PROCESSING_POLL_MAX_ATTEMPTS');
+  expect(source).toContain('asset.processing_progress');
+  expect(source).toContain('wallboardMediaAssetPageMatches(current, next)');
   expect(source).toContain('expected_version: asset.version');
   expect(source).toContain('expected_version: selectedPlaylist.version');
   expect(source).toContain('accept="image/jpeg,image/png,image/webp,video/mp4"');
@@ -163,6 +177,7 @@ test('media management uses CSRF-aware ApiClient writes and no executable markup
   expect(source).toContain('fallbackPreviewUrl');
   expect(source).toContain('activePreviewUrl !== fallbackPreviewUrl');
   expect(source).toContain('!isImage');
+  expect(source).toContain("mediaKindFilter === 'video'");
   expect(WALLBOARD_MEDIA_MAX_BATCH_FILES).toBe(25);
   expect(source).not.toContain('dangerouslySetInnerHTML');
   expect(source).not.toContain('innerHTML');

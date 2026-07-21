@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Http\Responses\WallboardMediaResponse;
 use App\Jobs\TranscodeWallboardMediaVideo;
+use App\Models\AuditLog;
 use App\Models\User;
 use App\Models\WallboardMediaAsset;
 use App\Repositories\WallboardMediaAssetRepository;
@@ -13,11 +14,13 @@ use App\Services\WallboardMediaPlaylistService;
 use App\Services\WallboardMediaVideoProcessor;
 use App\Services\WallboardMediaVideoTranscodeService;
 use App\Support\WallboardMediaContent;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Process\FakeProcessResult;
 use Illuminate\Process\PendingProcess;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -64,6 +67,7 @@ final class WallboardMediaVideoTest extends TestCase
             self::assertSame(12, $asset->duration_seconds);
             self::assertSame(1280, $asset->width);
             self::assertSame(720, $asset->height);
+            self::assertSame(100, $asset->processing_progress);
             self::assertNull($asset->thumbnail_storage_path);
             Storage::disk('local')->assertExists((string) $asset->storage_path);
         } finally {
@@ -164,7 +168,7 @@ final class WallboardMediaVideoTest extends TestCase
     {
         Queue::fake();
         $probeCount = 0;
-        Process::fake(function (PendingProcess $process) use (&$probeCount): FakeProcessResult {
+        Process::fake(function (PendingProcess $process) use (&$probeCount) {
             $command = is_array($process->command) ? $process->command : [];
             if (($command[0] ?? null) === '/usr/bin/ffprobe') {
                 $probeCount++;
@@ -176,7 +180,14 @@ final class WallboardMediaVideoTest extends TestCase
                 self::assertIsString($outputPath);
                 self::assertSame(strlen($this->mp4(12)), file_put_contents($outputPath, $this->mp4(12)));
 
-                return new FakeProcessResult(exitCode: 0);
+                $progress = [];
+                foreach (range(1, 98) as $percentage) {
+                    $progress[] = 'out_time_us='.(int) (12_000_000 * ($percentage / 100));
+                    $progress[] = 'progress=continue';
+                }
+                $progress[] = 'progress=end';
+
+                return Process::describe()->output($progress);
             }
 
             return new FakeProcessResult(exitCode: 1);
@@ -190,21 +201,35 @@ final class WallboardMediaVideoTest extends TestCase
                 Request::create('/api/admin/wallboard-media/assets', 'POST'),
             );
             self::assertSame(WallboardMediaAsset::STATUS_PROCESSING, $asset->status);
+            self::assertSame(0, $asset->processing_progress);
             self::assertSame(3840, $asset->width);
             self::assertSame(2160, $asset->height);
             Queue::assertPushed(TranscodeWallboardMediaVideo::class, fn ($job) => $job->assetId === $asset->id);
+
+            $progressUpdateQueries = 0;
+            DB::listen(function (QueryExecuted $query) use (&$progressUpdateQueries): void {
+                if (str_starts_with(strtolower(ltrim($query->sql)), 'update')
+                    && str_contains(strtolower($query->sql), 'processing_progress')) {
+                    $progressUpdateQueries++;
+                }
+            });
 
             (new TranscodeWallboardMediaVideo((string) $asset->id))->handle(
                 app(WallboardMediaVideoTranscodeService::class),
             );
             $asset->refresh();
             self::assertSame(WallboardMediaAsset::STATUS_READY, $asset->status);
+            self::assertSame(100, $asset->processing_progress);
             self::assertSame(1920, $asset->width);
             self::assertSame(1080, $asset->height);
             self::assertSame(12, $asset->duration_seconds);
             self::assertSame(2, $asset->version);
+            self::assertLessThanOrEqual(22, $progressUpdateQueries);
             Process::assertRan(fn (PendingProcess $process) => is_array($process->command)
                 && ($process->command[0] ?? null) === '/usr/bin/ffmpeg'
+                && in_array('-progress', $process->command, true)
+                && in_array('pipe:1', $process->command, true)
+                && in_array('-nostats', $process->command, true)
                 && in_array('+faststart', $process->command, true)
                 && in_array('yuv420p', $process->command, true)
                 && in_array('libx264', $process->command, true)
@@ -212,6 +237,74 @@ final class WallboardMediaVideoTest extends TestCase
         } finally {
             @unlink((string) $upload->getRealPath());
         }
+    }
+
+    public function test_audit_failure_after_video_replacement_restores_original_file_and_database_state(): void
+    {
+        $originalBytes = $this->mp4(12, false);
+        $transcodedBytes = $this->mp4(12);
+        self::assertNotSame(hash('sha256', $originalBytes), hash('sha256', $transcodedBytes));
+
+        $asset = $this->storedVideo($this->actor(), $originalBytes);
+        $asset->forceFill([
+            'width' => 3840,
+            'height' => 2160,
+            'duration_seconds' => 12,
+            'status' => WallboardMediaAsset::STATUS_PROCESSING,
+            'processing_progress' => 0,
+        ])->save();
+        $originalSha256 = (string) $asset->sha256;
+        $originalByteSize = (int) $asset->byte_size;
+        $originalVersion = (int) $asset->version;
+        $storagePath = (string) $asset->storage_path;
+
+        Process::fake(function (PendingProcess $process) use ($transcodedBytes) {
+            $command = is_array($process->command) ? $process->command : [];
+            if (($command[0] ?? null) === '/usr/bin/ffprobe') {
+                return $this->probeResult($process, 1920, 1080);
+            }
+            if (($command[0] ?? null) === '/usr/bin/ffmpeg') {
+                $outputPath = end($command);
+                self::assertIsString($outputPath);
+                self::assertSame(strlen($transcodedBytes), file_put_contents($outputPath, $transcodedBytes));
+
+                return new FakeProcessResult(exitCode: 0);
+            }
+
+            return new FakeProcessResult(exitCode: 1);
+        });
+        AuditLog::creating(function (AuditLog $auditLog) use ($storagePath, $transcodedBytes): void {
+            if ($auditLog->action !== 'wallboard_media.assets.video_transcoded') {
+                return;
+            }
+
+            self::assertSame($transcodedBytes, Storage::disk('local')->get($storagePath));
+
+            throw new \RuntimeException('Simulated required audit failure after video replacement.');
+        });
+
+        try {
+            app(WallboardMediaVideoTranscodeService::class)->transcode((string) $asset->id);
+            self::fail('The required audit failure must roll back the video replacement.');
+        } catch (HttpException $exception) {
+            self::assertInstanceOf(\RuntimeException::class, $exception->getPrevious());
+            self::assertSame(
+                'Simulated required audit failure after video replacement.',
+                $exception->getPrevious()?->getMessage(),
+            );
+        } finally {
+            AuditLog::flushEventListeners();
+        }
+
+        $asset->refresh();
+        self::assertSame(WallboardMediaAsset::STATUS_PROCESSING, $asset->status);
+        self::assertSame($originalSha256, $asset->sha256);
+        self::assertSame($originalByteSize, $asset->byte_size);
+        self::assertSame(3840, $asset->width);
+        self::assertSame(2160, $asset->height);
+        self::assertSame($originalVersion, $asset->version);
+        self::assertSame($originalBytes, Storage::disk('local')->get($storagePath));
+        self::assertSame($originalSha256, hash('sha256', Storage::disk('local')->get($storagePath)));
     }
 
     public function test_h265_video_is_queued_and_converted_to_browser_safe_h264(): void
@@ -251,6 +344,7 @@ final class WallboardMediaVideoTest extends TestCase
             );
 
             self::assertSame(WallboardMediaAsset::STATUS_PROCESSING, $asset->status);
+            self::assertSame(0, $asset->processing_progress);
             self::assertSame(1920, $asset->width);
             self::assertSame(1080, $asset->height);
             Queue::assertPushed(TranscodeWallboardMediaVideo::class, fn ($job) => $job->assetId === $asset->id);
@@ -261,6 +355,7 @@ final class WallboardMediaVideoTest extends TestCase
             $asset->refresh();
 
             self::assertSame(WallboardMediaAsset::STATUS_READY, $asset->status);
+            self::assertSame(100, $asset->processing_progress);
             self::assertSame(2, $asset->version);
             Process::assertRan(fn (PendingProcess $process) => is_array($process->command)
                 && ($process->command[0] ?? null) === '/usr/bin/ffmpeg'
@@ -324,6 +419,22 @@ final class WallboardMediaVideoTest extends TestCase
         $repository = app(WallboardMediaAssetRepository::class);
         self::assertSame(strlen($bytes), $repository->activeByteSize());
         self::assertSame(1, $repository->activeCount());
+    }
+
+    public function test_failed_job_clears_processing_progress(): void
+    {
+        $asset = $this->storedVideo($this->actor(), $this->mp4(8));
+        $asset->forceFill([
+            'status' => WallboardMediaAsset::STATUS_PROCESSING,
+            'processing_progress' => 55,
+        ])->save();
+
+        (new TranscodeWallboardMediaVideo((string) $asset->id))->failed(null);
+
+        $asset->refresh();
+        self::assertSame(WallboardMediaAsset::STATUS_FAILED, $asset->status);
+        self::assertNull($asset->processing_progress);
+        self::assertSame(2, $asset->version);
     }
 
     public function test_interrupted_transcode_is_republished_before_reserved_job_is_deleted(): void

@@ -51,6 +51,7 @@ export interface WallboardMediaAsset {
   height: number | null;
   duration_seconds: number | null;
   status: 'processing' | 'ready' | 'failed';
+  processing_progress: number | null;
   version: number;
   playlist_references_count: number;
   thumbnail_url: string | null;

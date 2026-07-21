@@ -1516,6 +1516,17 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain("? 'Mededeling'");
   expect(kiosk).not.toContain('<span className="eyebrow">Mededeling</span>');
   expect(kiosk).toContain('content={wallboardMessageContent(page.options)}');
+  expect(kiosk).toContain('wallboard-display__safety-notice-card');
+  expect(kiosk).toContain('wallboard-display__safety-notice-rail');
+  expect(kiosk).toContain('wallboardSafetyNoticeDensity(safetyContent)');
+  expect(styles).toContain('.wallboard-display__safety-notice-content h2');
+  expect(styles).toContain('.wallboard-display__safety-notice--compact');
+  expect(styles).toContain('.wallboard-display--profile-4k .wallboard-display__safety-notice-card');
+  const safetyPageRender = kiosk.slice(
+    kiosk.indexOf("if (page.type === 'safety_notice')"),
+    kiosk.indexOf("if (page.type === 'quote')"),
+  );
+  expect(safetyPageRender).not.toContain('<h2>Veiligheidsbericht</h2>');
   const messagePageRender = kiosk.slice(
     kiosk.indexOf("if (page.type === 'message')"),
     kiosk.indexOf("if (page.type === 'summary')"),
@@ -1837,6 +1848,152 @@ test('keeps explicit screen profiles fluid at Full HD and Ultra HD viewports', a
   expect(measurements[1].dateFontSize).toBeGreaterThanOrEqual(14);
   expect(measurements[2].dateFontSize).toBeGreaterThan(measurements[1].dateFontSize);
   expect(measurements[2].titleFontSize).toBeGreaterThan(measurements[1].titleFontSize);
+});
+
+test('keeps the safety notice calm, wide and readable at Full HD and Ultra HD', async ({ page }) => {
+  const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
+  const longSafetyParagraphs = [
+    'Controleer voor vertrek of alle accu\'s onbeschadigd, correct gelabeld en voldoende geladen zijn. Leg afwijkende accu\'s direct apart en gebruik ze niet tijdens de inzet.',
+    'Plaats een beschadigde of warme accu buiten in de aangewezen veiligheidsbak. Houd afstand tot brandbare materialen en laat de bak altijd vrij bereikbaar voor hulpverleners.',
+    'Meld rook, vervorming, lekkage of een ongebruikelijke geur onmiddellijk bij de ploegcoördinator. Noteer om welke accu en vluchtset het gaat en wacht op verdere instructies.',
+    'Draag hittebestendige handschoenen en oogbescherming wanneer een accu veilig moet worden gesteld. Werk nooit alleen en zorg dat een tweede teamlid de omgeving bewaakt.',
+    'Blokkeer geen vluchtweg, nooduitgang of toegang voor hulpdiensten. Houd omstanders op afstand en verplaats andere accu\'s alleen wanneer dat zonder extra risico mogelijk is.',
+    'Controleer na iedere vlucht de temperatuur en behuizing voordat de accu teruggaat in de transportkist. Laat warme accu\'s eerst op een veilige, geventileerde plaats afkoelen.',
+    'Gebruik uitsluitend goedgekeurde laders op de aangewezen laadplaats. Stop het laden direct bij een storing en koppel de voeding alleen los wanneer dit veilig kan.',
+    'Draag de situatie bij een ploegwissel mondeling over. Benoem welke maatregelen al zijn genomen, wie verantwoordelijk blijft en welk materiaal niet meer gebruikt mag worden.',
+    'Na het incident blijft de veiligheidsbak buiten staan totdat de ploegcoördinator vrijgave geeft. Registreer de afwijking volgens de vaste procedure voordat de inzet wordt hervat.',
+    'Bewaar transportkisten gesloten buiten de laadmomenten en controleer of iedere kist op de afgesproken plaats staat. Losliggende materialen mogen geen doorgang blokkeren.',
+    'Hervat de inzet pas nadat de ploegcoördinator de situatie heeft beoordeeld, het defecte materiaal is gemarkeerd en het team de werkwijze kent.',
+  ];
+  const longSafetyListItems = [
+    'Waarschuw de ploegcoördinator.',
+    'Houd de vluchtweg volledig vrij.',
+    'Raak beschadigd materiaal niet zonder bescherming aan.',
+  ];
+  const longSafetyCharacterCount = 'Accuveiligheid tijdens een inzet'.length
+    + longSafetyParagraphs.join('').length
+    + longSafetyListItems.join('').length;
+  expect(longSafetyCharacterCount).toBeGreaterThan(1_900);
+  expect(longSafetyCharacterCount).toBeLessThanOrEqual(2_000);
+
+  const contentCases = [
+    {
+      density: 'comfortable',
+      markup: `
+        <h2>Accu veiligstellen</h2>
+        <p>Leg beschadigde accu's buiten in de aangewezen veiligheidsbak en meld dit direct bij de ploegcoördinator.</p>
+        <ul><li>Draag hittebestendige handschoenen.</li><li>Houd de vluchtweg volledig vrij.</li></ul>
+      `,
+    },
+    {
+      density: 'compact',
+      markup: `
+        <h2>Accuveiligheid tijdens een inzet</h2>
+        ${longSafetyParagraphs.map((paragraph) => `<p>${paragraph}</p>`).join('')}
+        <ul>${longSafetyListItems.map((item) => `<li>${item}</li>`).join('')}</ul>
+      `,
+    },
+  ] as const;
+  const measurements: Array<{
+    bodyFontSize: number;
+    cardInsidePage: boolean;
+    cardOverflow: boolean;
+    contentColumnCount: string;
+    contentInsideCard: boolean;
+    contentOverflow: boolean;
+    contentOverflowMode: string;
+    density: 'comfortable' | 'compact';
+    duplicateTitleCount: number;
+    pageOverflow: boolean;
+    profile: '1080p' | '4k';
+    titleFontSize: number;
+  }> = [];
+
+  for (const screen of [
+    { profile: '1080p', width: 1920, height: 1080 },
+    { profile: '4k', width: 3840, height: 2160 },
+  ] as const) {
+    for (const contentCase of contentCases) {
+    await page.setViewportSize({ width: screen.width, height: screen.height });
+    await page.setContent(`
+      <style>${styles} html, body { width: 100%; min-width: 0; margin: 0; overflow: hidden; }</style>
+      <main class="wallboard-display wallboard-display--dark wallboard-display--profile-${screen.profile}">
+        <header class="wallboard-display__header">
+          <div><span class="wallboard-display__titles"><h1>Veiligheidsbericht</h1></span></div>
+          <time class="wallboard-display__clock"><span>12:34:56</span><small>dinsdag 21 juli 2026</small></time>
+        </header>
+        <section class="wallboard-display__page">
+          <div class="wallboard-display__safety-notice wallboard-display__safety-notice--${contentCase.density}">
+            <section class="wallboard-display__safety-notice-card">
+              <div class="wallboard-display__safety-notice-rail" aria-hidden="true">
+                <span class="wallboard-display__safety-notice-icon"><svg viewBox="0 0 24 24"><path d="M12 3 4 7v5c0 5 3 8 8 9 5-1 8-4 8-9V7z"></path></svg></span>
+              </div>
+              <div class="wallboard-display__message-content wallboard-display__safety-notice-content" aria-label="Veiligheidsbericht">
+                ${contentCase.markup}
+              </div>
+            </section>
+          </div>
+        </section>
+        <footer class="wallboard-display__footer"><span>Pagina 1 van 1</span></footer>
+      </main>
+    `);
+
+    measurements.push(await page.locator('.wallboard-display__safety-notice').evaluate((notice, context) => {
+      const pageElement = notice.parentElement as HTMLElement;
+      const card = notice.querySelector<HTMLElement>('.wallboard-display__safety-notice-card')!;
+      const content = notice.querySelector<HTMLElement>('.wallboard-display__safety-notice-content')!;
+      const title = content.querySelector<HTMLElement>('h2')!;
+      const body = content.querySelector<HTMLElement>('p')!;
+      const cardBox = card.getBoundingClientRect();
+      const pageBox = pageElement.getBoundingClientRect();
+      const contentStyle = getComputedStyle(content);
+      const contentInsideCard = [...content.querySelectorAll<HTMLElement>('h2, p, li, blockquote')]
+        .flatMap((element) => [...element.getClientRects()])
+        .every((box) => box.left >= cardBox.left - 1 && box.right <= cardBox.right + 1
+          && box.top >= cardBox.top - 1 && box.bottom <= cardBox.bottom + 1);
+      return {
+        bodyFontSize: Number.parseFloat(getComputedStyle(body).fontSize),
+        cardInsidePage: cardBox.left >= pageBox.left && cardBox.right <= pageBox.right
+          && cardBox.top >= pageBox.top && cardBox.bottom <= pageBox.bottom,
+        cardOverflow: card.scrollWidth > card.clientWidth || card.scrollHeight > card.clientHeight,
+        contentColumnCount: contentStyle.columnCount,
+        contentInsideCard,
+        contentOverflow: content.scrollWidth > content.clientWidth + 1 || content.scrollHeight > content.clientHeight + 1,
+        contentOverflowMode: `${contentStyle.overflowX}/${contentStyle.overflowY}`,
+        density: context.density,
+        duplicateTitleCount: [...document.querySelectorAll('h1, h2')]
+          .filter((element) => element.textContent === 'Veiligheidsbericht').length,
+        pageOverflow: notice.scrollWidth > notice.clientWidth || notice.scrollHeight > notice.clientHeight,
+        profile: context.profile,
+        titleFontSize: Number.parseFloat(getComputedStyle(title).fontSize),
+      };
+    }, { density: contentCase.density, profile: screen.profile }));
+    }
+  }
+
+  for (const measurement of measurements) {
+    expect(measurement).toMatchObject({
+      cardInsidePage: true,
+      cardOverflow: false,
+      contentInsideCard: true,
+      contentOverflow: false,
+      contentOverflowMode: 'visible/visible',
+      duplicateTitleCount: 1,
+      pageOverflow: false,
+    });
+  }
+
+  const fullHdComfortable = measurements.find(({ density, profile }) => density === 'comfortable' && profile === '1080p')!;
+  const fullHdCompact = measurements.find(({ density, profile }) => density === 'compact' && profile === '1080p')!;
+  const ultraHdComfortable = measurements.find(({ density, profile }) => density === 'comfortable' && profile === '4k')!;
+  const ultraHdCompact = measurements.find(({ density, profile }) => density === 'compact' && profile === '4k')!;
+  expect(fullHdComfortable.titleFontSize).toBeGreaterThanOrEqual(64);
+  expect(ultraHdComfortable.titleFontSize).toBeGreaterThan(fullHdComfortable.titleFontSize);
+  expect(ultraHdComfortable.bodyFontSize).toBeGreaterThan(fullHdComfortable.bodyFontSize);
+  expect(fullHdCompact.contentColumnCount).toBe('2');
+  expect(ultraHdCompact.contentColumnCount).toBe('2');
+  expect(fullHdCompact.bodyFontSize).toBeGreaterThanOrEqual(18);
+  expect(ultraHdCompact.bodyFontSize).toBeGreaterThan(fullHdCompact.bodyFontSize);
 });
 
 test('keeps the maintenance icon and countdown fully visible at compact, Full HD and Ultra HD sizes', async ({ page }) => {

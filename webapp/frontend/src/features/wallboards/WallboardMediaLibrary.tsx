@@ -53,10 +53,13 @@ import styles from './WallboardMediaLibrary.module.css';
 
 type LibraryView = 'assets' | 'playlists';
 type FolderFilter = 'all' | 'unfiled' | string;
+type MediaKindFilter = WallboardMediaAsset['kind'];
 
 const EMPTY_PAGINATION = { current_page: 1, last_page: 1, per_page: 25, total: 0 };
+const PROCESSING_POLL_INTERVAL_MS = 4_000;
+const PROCESSING_POLL_MAX_ATTEMPTS = Math.ceil((60 * 60 * 1_000) / PROCESSING_POLL_INTERVAL_MS);
 
-type UploadStatus = 'pending' | 'uploading' | 'failed';
+type UploadStatus = 'pending' | 'uploading' | 'completed' | 'failed';
 
 interface UploadQueueItem {
   id: string;
@@ -64,6 +67,7 @@ interface UploadQueueItem {
   displayName: string;
   validationMessage: string | null;
   status: UploadStatus;
+  uploadProgress: number | null;
   uploadError: string | null;
 }
 
@@ -74,6 +78,7 @@ export function WallboardMediaLibrary() {
   const [assetsPage, setAssetsPage] = useState<WallboardMediaAssetPage>({ items: [], pagination: EMPTY_PAGINATION });
   const [playlists, setPlaylists] = useState<WallboardMediaPlaylist[]>([]);
   const [folderFilter, setFolderFilter] = useState<FolderFilter>('all');
+  const [mediaKindFilter, setMediaKindFilter] = useState<MediaKindFilter>('image');
   const [search, setSearch] = useState('');
   const [assetPageNumber, setAssetPageNumber] = useState(1);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(() => new Set());
@@ -97,6 +102,9 @@ export function WallboardMediaLibrary() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const uploadSequenceRef = useRef(0);
   const dragDepthRef = useRef(0);
+  const processingPollAttemptsRef = useRef(0);
+  const processingPollInFlightRef = useRef(false);
+  const foregroundAssetRequestsRef = useRef(0);
 
   const folderTree = useMemo(() => wallboardMediaFolderTree(folders), [folders]);
   const selectedPlaylist = playlists.find((playlist) => playlist.id === selectedPlaylistId) ?? null;
@@ -131,12 +139,22 @@ export function WallboardMediaLibrary() {
     }
   }, [api]);
 
-  const loadAssets = useCallback(async (filter: FolderFilter, query: string, page: number) => {
+  const loadAssets = useCallback(async (
+    filter: FolderFilter,
+    query: string,
+    page: number,
+    kind: MediaKindFilter,
+    silent = false,
+  ) => {
     const requestId = assetRequestRef.current + 1;
     assetRequestRef.current = requestId;
-    setLoadingAssets(true);
-    setError(null);
+    if (!silent) {
+      foregroundAssetRequestsRef.current += 1;
+      setLoadingAssets(true);
+      setError(null);
+    }
     const parameters = new URLSearchParams({ per_page: '25', page: String(page) });
+    parameters.set('kind', kind);
     if (filter === 'unfiled') parameters.set('unfiled', '1');
     else if (filter !== 'all') parameters.set('folder_id', filter);
     if (query.trim() !== '') parameters.set('search', query.trim());
@@ -157,18 +175,30 @@ export function WallboardMediaLibrary() {
           total: Number(meta.total),
         }
         : EMPTY_PAGINATION;
-      setAssetsPage({ items: response.data, pagination });
+      setAssetsPage((current) => {
+        const next = { items: response.data, pagination };
+        return silent && wallboardMediaAssetPageMatches(current, next) ? current : next;
+      });
       setKnownAssets((current) => {
         const next = new Map(current);
-        for (const asset of response.data) next.set(asset.id, asset);
-        return next;
+        let changed = false;
+        for (const asset of response.data) {
+          const known = current.get(asset.id);
+          if (known !== undefined && wallboardMediaAssetMatches(known, asset)) continue;
+          next.set(asset.id, asset);
+          changed = true;
+        }
+        return changed ? next : current;
       });
     } catch (loadError) {
-      if (requestId === assetRequestRef.current) {
-        setError(errorMessage(loadError, 'Afbeeldingen konden niet worden geladen.'));
+      if (!silent && requestId === assetRequestRef.current) {
+        setError(errorMessage(loadError, `${kind === 'video' ? "Video's" : "Foto's"} konden niet worden geladen.`));
       }
     } finally {
-      if (requestId === assetRequestRef.current) setLoadingAssets(false);
+      if (!silent) {
+        foregroundAssetRequestsRef.current = Math.max(0, foregroundAssetRequestsRef.current - 1);
+        if (requestId === assetRequestRef.current) setLoadingAssets(false);
+      }
     }
   }, [api]);
 
@@ -178,10 +208,50 @@ export function WallboardMediaLibrary() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void loadAssets(folderFilter, search, assetPageNumber);
+      void loadAssets(folderFilter, search, assetPageNumber, mediaKindFilter);
     }, search.trim() === '' ? 0 : 250);
     return () => window.clearTimeout(timer);
-  }, [assetPageNumber, folderFilter, loadAssets, search]);
+  }, [assetPageNumber, folderFilter, loadAssets, mediaKindFilter, search]);
+
+  useEffect(() => {
+    processingPollAttemptsRef.current = 0;
+  }, [assetPageNumber, folderFilter, mediaKindFilter, search]);
+
+  const hasProcessingAssets = assetsPage.items.some((asset) => asset.status === 'processing');
+  useEffect(() => {
+    if (view !== 'assets' || mediaKindFilter !== 'video' || !hasProcessingAssets) {
+      if (!hasProcessingAssets) processingPollAttemptsRef.current = 0;
+      return;
+    }
+
+    let interval: number | null = null;
+    const poll = async () => {
+      if (
+        document.visibilityState !== 'visible'
+        || processingPollInFlightRef.current
+        || foregroundAssetRequestsRef.current > 0
+        || processingPollAttemptsRef.current >= PROCESSING_POLL_MAX_ATTEMPTS
+      ) return;
+
+      processingPollAttemptsRef.current += 1;
+      processingPollInFlightRef.current = true;
+      try {
+        await loadAssets(folderFilter, search, assetPageNumber, mediaKindFilter, true);
+      } finally {
+        processingPollInFlightRef.current = false;
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void poll();
+    };
+
+    interval = window.setInterval(() => void poll(), PROCESSING_POLL_INTERVAL_MS);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      if (interval !== null) window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [assetPageNumber, folderFilter, hasProcessingAssets, loadAssets, mediaKindFilter, search, view]);
 
   useEffect(() => {
     if (selectedPlaylist === null) return;
@@ -192,7 +262,7 @@ export function WallboardMediaLibrary() {
   async function refreshAll() {
     await Promise.all([
       loadLibrary(true),
-      loadAssets(folderFilter, search, assetPageNumber),
+      loadAssets(folderFilter, search, assetPageNumber, mediaKindFilter),
     ]);
   }
 
@@ -273,6 +343,7 @@ export function WallboardMediaLibrary() {
           displayName: file.name.replace(/\.[^.]+$/, ''),
           validationMessage: wallboardMediaFileValidationMessage(file),
           status: 'pending',
+          uploadProgress: null,
           uploadError: null,
         };
       });
@@ -323,19 +394,34 @@ export function WallboardMediaLibrary() {
     setBusy('upload');
     clearFeedback();
     const completedIds = new Set<string>();
+    const uploadedKinds = new Set<MediaKindFilter>();
     let failedCount = 0;
 
     for (const item of pendingItems) {
       setUploadItems((current) => current.map((candidate) => candidate.id === item.id
-        ? { ...candidate, status: 'uploading', uploadError: null }
+        ? { ...candidate, status: 'uploading', uploadProgress: 0, uploadError: null }
         : candidate));
       const payload = new FormData();
       payload.set('file', item.file);
       if (isFolderId(folderFilter)) payload.set('folder_id', folderFilter);
       if (item.displayName.trim() !== '') payload.set('display_name', item.displayName.trim());
       try {
-        await api.postForm('/admin/wallboard-media/assets', payload);
+        const response = await api.postForm<WallboardMediaAsset>(
+          '/admin/wallboard-media/assets',
+          payload,
+          ({ percentage }) => setUploadItems((current) => {
+            const candidate = current.find((entry) => entry.id === item.id);
+            if (candidate === undefined || candidate.uploadProgress === percentage) return current;
+            return current.map((entry) => entry.id === item.id
+              ? { ...entry, uploadProgress: percentage }
+              : entry);
+          }),
+        );
         completedIds.add(item.id);
+        uploadedKinds.add(response.data.kind);
+        setUploadItems((current) => current.map((candidate) => candidate.id === item.id
+          ? { ...candidate, status: 'completed', uploadProgress: 100, uploadError: null }
+          : candidate));
       } catch (mutationError) {
         failedCount += 1;
         const message = errorMessage(mutationError, `${item.file.name} kon niet worden verwerkt.`);
@@ -348,9 +434,13 @@ export function WallboardMediaLibrary() {
     setUploadItems((current) => current.filter((item) => !completedIds.has(item.id)));
     if (uploadInputRef.current !== null) uploadInputRef.current.value = '';
     if (completedIds.size > 0) {
-      setNotice(`${completedIds.size} mediabestand${completedIds.size === 1 ? '' : 'en'} veilig verwerkt en toegevoegd.`);
-      await Promise.all([loadLibrary(true), loadAssets(folderFilter, search, 1)]);
-      setAssetPageNumber(1);
+      const includesVideo = uploadedKinds.has('video');
+      const nextKind = includesVideo ? 'video' : mediaKindFilter;
+      showMediaKind(nextKind);
+      setNotice(includesVideo
+        ? `${completedIds.size} bestand${completedIds.size === 1 ? '' : 'en'} geüpload. Video's worden nu gecontroleerd en zo nodig omgezet.`
+        : `${completedIds.size} foto${completedIds.size === 1 ? '' : "'s"} geüpload en toegevoegd.`);
+      await Promise.all([loadLibrary(true), loadAssets(folderFilter, search, 1, nextKind)]);
     }
     if (failedCount > 0) setError(`${failedCount} bestand${failedCount === 1 ? '' : 'en'} kon niet worden geüpload. Controleer de melding per bestand.`);
     setBusy(null);
@@ -364,17 +454,17 @@ export function WallboardMediaLibrary() {
         expected_version: asset.version,
         folder_id: folderId,
       });
-      setNotice('Afbeelding verplaatst.');
-      await Promise.all([loadLibrary(true), loadAssets(folderFilter, search, assetPageNumber)]);
+      setNotice(`${asset.kind === 'video' ? 'Video' : 'Foto'} verplaatst.`);
+      await Promise.all([loadLibrary(true), loadAssets(folderFilter, search, assetPageNumber, mediaKindFilter)]);
     } catch (mutationError) {
-      setError(errorMessage(mutationError, 'Afbeelding kon niet worden verplaatst.'));
+      setError(errorMessage(mutationError, 'Het mediabestand kon niet worden verplaatst.'));
     } finally {
       setBusy(null);
     }
   }
 
   async function deleteAsset(asset: WallboardMediaAsset) {
-    if (!window.confirm(`Afbeelding "${asset.display_name}" verwijderen?`)) return;
+    if (!window.confirm(`${asset.kind === 'video' ? 'Video' : 'Foto'} "${asset.display_name}" verwijderen?`)) return;
     setBusy(`asset-${asset.id}`);
     clearFeedback();
     try {
@@ -385,10 +475,10 @@ export function WallboardMediaLibrary() {
         next.delete(asset.id);
         return next;
       });
-      setNotice('Afbeelding verwijderd.');
-      await Promise.all([loadLibrary(true), loadAssets(folderFilter, search, assetPageNumber)]);
+      setNotice(`${asset.kind === 'video' ? 'Video' : 'Foto'} verwijderd.`);
+      await Promise.all([loadLibrary(true), loadAssets(folderFilter, search, assetPageNumber, mediaKindFilter)]);
     } catch (mutationError) {
-      setError(errorMessage(mutationError, 'Deze afbeelding wordt nog gebruikt of is intussen gewijzigd.'));
+      setError(errorMessage(mutationError, 'Dit mediabestand wordt nog gebruikt of is intussen gewijzigd.'));
     } finally {
       setBusy(null);
     }
@@ -475,13 +565,23 @@ export function WallboardMediaLibrary() {
     setNotice(null);
   }
 
+  function showMediaKind(nextKind: MediaKindFilter) {
+    if (nextKind !== mediaKindFilter) {
+      assetRequestRef.current += 1;
+      setAssetsPage({ items: [], pagination: EMPTY_PAGINATION });
+      setLoadingAssets(true);
+      setMediaKindFilter(nextKind);
+    }
+    setAssetPageNumber(1);
+  }
+
   return (
     <section className={styles.root} aria-labelledby="wallboard-media-title">
       <header className={styles.heading}>
         <div>
           <span className={styles.eyebrow}>Wallboardinhoud</span>
           <h2 id="wallboard-media-title">Media</h2>
-          <p>Orden beelden in mappen en stel herbruikbare fotoplaylists samen voor gekoppelde schermen.</p>
+          <p>Beheer foto&apos;s en video&apos;s afzonderlijk en volg de verwerking van geüploade video&apos;s.</p>
         </div>
         <button
           type="button"
@@ -525,12 +625,12 @@ export function WallboardMediaLibrary() {
             <div className={styles.columnTitle}><FolderOpen size={18} aria-hidden /><strong>Mappen</strong></div>
             <div className={styles.folderList}>
               <FolderButton
-                label="Alle afbeeldingen"
+                label={mediaKindFilter === 'video' ? "Alle video's" : "Alle foto's"}
                 active={folderFilter === 'all'}
                 onClick={() => { setFolderFilter('all'); setAssetPageNumber(1); }}
               />
               <FolderButton
-                label="Zonder map"
+                label={mediaKindFilter === 'video' ? "Video's zonder map" : "Foto's zonder map"}
                 active={folderFilter === 'unfiled'}
                 onClick={() => { setFolderFilter('unfiled'); setAssetPageNumber(1); }}
               />
@@ -557,7 +657,6 @@ export function WallboardMediaLibrary() {
                       >
                         <Folder size={16} aria-hidden />
                         <span>{folder.name}</span>
-                        <small>{folder.assets_count}</small>
                       </button>
                       <button
                         type="button"
@@ -595,22 +694,47 @@ export function WallboardMediaLibrary() {
           </aside>
 
           <main className={styles.assetColumn}>
+            <div className={styles.mediaKindSwitcher} role="group" aria-label="Mediatype tonen">
+              <button
+                type="button"
+                className={mediaKindFilter === 'image' ? styles.activeMediaKind : undefined}
+                aria-pressed={mediaKindFilter === 'image'}
+                onClick={() => showMediaKind('image')}
+              >
+                <ImageIcon size={20} aria-hidden />
+                <span><strong>Foto&apos;s</strong><small>Voor fotoplaylists</small></span>
+              </button>
+              <button
+                type="button"
+                className={mediaKindFilter === 'video' ? styles.activeMediaKind : undefined}
+                aria-pressed={mediaKindFilter === 'video'}
+                onClick={() => showMediaKind('video')}
+              >
+                <FileVideo2 size={20} aria-hidden />
+                <span><strong>Video&apos;s</strong><small>Voor videokaarten</small></span>
+              </button>
+            </div>
+
             <div className={styles.assetToolbar}>
               <label className={styles.searchField}>
                 <Search size={17} aria-hidden />
-                <span className={styles.srOnly}>Afbeeldingen zoeken</span>
+                <span className={styles.srOnly}>{mediaKindFilter === 'video' ? "Video's zoeken" : "Foto's zoeken"}</span>
                 <input
                   type="search"
                   value={search}
                   maxLength={100}
-                  placeholder="Zoek op naam..."
+                  placeholder={mediaKindFilter === 'video' ? "Zoek video's op naam..." : "Zoek foto's op naam..."}
                   onChange={(event) => { setSearch(event.target.value); setAssetPageNumber(1); }}
                 />
               </label>
-              <span>{selectedAssetIds.size} geselecteerd</span>
-              <button type="button" className={styles.secondaryButton} disabled={selectedAssetIds.size === 0} onClick={addSelectedAssetsToPlaylist}>
-                <Plus size={16} aria-hidden /> Aan fotoplaylist toevoegen
-              </button>
+              {mediaKindFilter === 'image' ? (
+                <>
+                  <span>{selectedAssetIds.size} geselecteerd</span>
+                  <button type="button" className={styles.secondaryButton} disabled={selectedAssetIds.size === 0} onClick={addSelectedAssetsToPlaylist}>
+                    <Plus size={16} aria-hidden /> Aan fotoplaylist toevoegen
+                  </button>
+                </>
+              ) : <span>Video&apos;s zijn beschikbaar zodra de verwerking klaar is.</span>}
             </div>
 
             <form
@@ -625,7 +749,7 @@ export function WallboardMediaLibrary() {
               <span className={styles.uploadIcon}><Upload size={22} aria-hidden /></span>
               <div>
                 <strong>Media uploaden</strong>
-                <span>Sleep één of meer bestanden hierheen, of kies ze op je toestel. JPEG, PNG en WebP maximaal 15 MB; MP4 maximaal 512 MB. Grote video&apos;s worden op de server naar maximaal 1080p omgezet.</span>
+                <span>JPEG, PNG en WebP tot 15 MB; MP4 tot 512 MB. Eerst zie je de echte uploadvoortgang. Een video wordt daarna gecontroleerd en zo nodig omgezet naar H.264 op maximaal 1080p.</span>
               </div>
               <label className={styles.fileButton}>
                 <input
@@ -644,6 +768,7 @@ export function WallboardMediaLibrary() {
                     {uploadItems.map((item) => {
                       const kind = wallboardMediaFileKind(item.file);
                       const itemError = item.validationMessage ?? item.uploadError;
+                      const uploadProgress = normalizedPercentage(item.uploadProgress);
                       return (
                         <li key={item.id} className={itemError === null ? undefined : styles.uploadQueueError}>
                           <span className={styles.uploadQueueIcon}>
@@ -664,8 +789,28 @@ export function WallboardMediaLibrary() {
                               ? { ...candidate, displayName: event.target.value }
                               : candidate))}
                           />
-                          <span className={styles.uploadQueueStatus} aria-live="polite">
-                            {item.status === 'uploading' ? <><Loader2 className={styles.spinning} size={15} aria-hidden /> Bezig</> : item.status === 'failed' ? 'Mislukt' : 'Klaar' }
+                          <span className={styles.uploadQueueStatus}>
+                            <span className={item.status === 'completed' ? styles.uploadQueueStatusCompleted : undefined}>
+                              {item.status === 'uploading' ? <Loader2 className={styles.spinning} size={15} aria-hidden /> : null}
+                              {item.status === 'completed' ? <Check size={15} aria-hidden /> : null}
+                              {uploadQueueStatusLabel(item, itemError)}
+                            </span>
+                            {item.status === 'uploading' ? (
+                              <span
+                                className={styles.progressTrack}
+                                role="progressbar"
+                                aria-label={`Uploadvoortgang van ${item.file.name}`}
+                                aria-valuemin={0}
+                                aria-valuemax={100}
+                                aria-valuenow={uploadProgress ?? undefined}
+                                aria-valuetext={uploadProgress === null ? 'Uploadvoortgang wordt bepaald' : `${uploadProgress} procent geüpload`}
+                              >
+                                <span
+                                  className={uploadProgress === null ? styles.indeterminateProgress : styles.progressFill}
+                                  style={uploadProgress === null ? undefined : { width: `${uploadProgress}%` }}
+                                />
+                              </span>
+                            ) : null}
                           </span>
                           <button
                             type="button"
@@ -703,15 +848,15 @@ export function WallboardMediaLibrary() {
             </form>
 
             {loadingAssets ? (
-              <div className={styles.loading} role="status"><Loader2 size={20} aria-hidden /> Media laden...</div>
+              <div className={styles.loading} role="status"><Loader2 size={20} aria-hidden /> {mediaKindFilter === 'video' ? "Video's" : "Foto's"} laden...</div>
             ) : assetsPage.items.length === 0 ? (
               <div className={styles.emptyState}>
-                <ImageIcon size={34} aria-hidden />
-                <strong>Geen media gevonden</strong>
-                <span>Upload een eerste afbeelding of video, of kies een andere map.</span>
+                {mediaKindFilter === 'video' ? <FileVideo2 size={34} aria-hidden /> : <ImageIcon size={34} aria-hidden />}
+                <strong>{mediaKindFilter === 'video' ? "Geen video's gevonden" : "Geen foto's gevonden"}</strong>
+                <span>Upload een eerste {mediaKindFilter === 'video' ? 'MP4-video' : 'foto'}, of kies een andere map.</span>
               </div>
             ) : (
-              <ul className={styles.assetGrid} aria-label="Media">
+              <ul className={styles.assetGrid} aria-label={mediaKindFilter === 'video' ? "Video's" : "Foto's"}>
                 {assetsPage.items.map((asset) => (
                   <AssetCard
                     key={asset.id}
@@ -731,6 +876,7 @@ export function WallboardMediaLibrary() {
               currentPage={assetsPage.pagination.current_page}
               lastPage={assetsPage.pagination.last_page}
               total={assetsPage.pagination.total}
+              kind={mediaKindFilter}
               onPage={setAssetPageNumber}
             />
           </main>
@@ -962,6 +1108,7 @@ function AssetCard({ asset, folders, selected, busy, onSelect, onMove, onDelete 
       <div className={styles.assetDetails}>
         <strong title={asset.display_name}>{asset.display_name}</strong>
         <span>{wallboardMediaAssetMetadata(asset)} · {wallboardMediaFormatBytes(asset.byte_size)}</span>
+        {isImage ? null : <MediaAssetStatus asset={asset} />}
       </div>
       <div className={styles.assetControls}>
         <label>
@@ -971,11 +1118,44 @@ function AssetCard({ asset, folders, selected, busy, onSelect, onMove, onDelete 
             {folders.map((folder) => <option key={folder.id} value={folder.id}>{'- '.repeat(folder.depth)}{folder.name}</option>)}
           </select>
         </label>
-        <button type="button" aria-label={`${asset.display_name} verwijderen`} onClick={onDelete} disabled={busy || asset.playlist_references_count > 0} title={asset.playlist_references_count > 0 ? 'Deze afbeelding staat nog in een fotoplaylist.' : undefined}>
+        <button type="button" aria-label={`${asset.display_name} verwijderen`} onClick={onDelete} disabled={busy || asset.playlist_references_count > 0} title={asset.playlist_references_count > 0 ? 'Dit mediabestand wordt nog gebruikt.' : undefined}>
           <Trash2 size={15} aria-hidden />
         </button>
       </div>
     </li>
+  );
+}
+
+function MediaAssetStatus({ asset }: { asset: WallboardMediaAsset }) {
+  const progress = normalizedPercentage(asset.processing_progress);
+  if (asset.status === 'ready') {
+    return <span className={`${styles.assetStatus} ${styles.assetStatusReady}`}><Check size={14} aria-hidden /> Beschikbaar</span>;
+  }
+  if (asset.status === 'failed') {
+    return <span className={`${styles.assetStatus} ${styles.assetStatusFailed}`}><X size={14} aria-hidden /> Verwerking mislukt</span>;
+  }
+
+  return (
+    <span className={`${styles.assetStatus} ${styles.assetStatusProcessing}`} role="status">
+      <span className={styles.assetStatusLabel}>
+        <Loader2 className={styles.spinning} size={14} aria-hidden />
+        {progress === null ? 'Wacht op verwerking' : `Video verwerken · ${progress}%`}
+      </span>
+      <span
+        className={styles.progressTrack}
+        role="progressbar"
+        aria-label={`Verwerkingsvoortgang van ${asset.display_name}`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={progress ?? undefined}
+        aria-valuetext={progress === null ? 'Wacht op verwerking' : `${progress} procent verwerkt`}
+      >
+        <span
+          className={progress === null ? styles.indeterminateProgress : styles.progressFill}
+          style={progress === null ? undefined : { width: `${progress}%` }}
+        />
+      </span>
+    </span>
   );
 }
 
@@ -995,18 +1175,60 @@ interface PaginationProps {
   currentPage: number;
   lastPage: number;
   total: number;
+  kind: MediaKindFilter;
   onPage: (page: number) => void;
 }
 
-function Pagination({ currentPage, lastPage, total, onPage }: PaginationProps) {
-  if (lastPage <= 1) return <p className={styles.resultCount}>{total} afbeelding{total === 1 ? '' : 'en'}</p>;
+function Pagination({ currentPage, lastPage, total, kind, onPage }: PaginationProps) {
+  const singular = kind === 'video' ? 'video' : 'foto';
+  const plural = kind === 'video' ? "video's" : "foto's";
+  const totalLabel = total === 1 ? singular : plural;
+  if (lastPage <= 1) return <p className={styles.resultCount}>{total} {totalLabel}</p>;
   return (
-    <nav className={styles.pagination} aria-label="Afbeeldingenpagina's">
+    <nav className={styles.pagination} aria-label={`${plural} pagina's`}>
       <button type="button" disabled={currentPage <= 1} onClick={() => onPage(currentPage - 1)}>Vorige</button>
-      <span>Pagina {currentPage} van {lastPage} - {total} afbeeldingen</span>
+      <span>Pagina {currentPage} van {lastPage} · {total} {totalLabel}</span>
       <button type="button" disabled={currentPage >= lastPage} onClick={() => onPage(currentPage + 1)}>Volgende</button>
     </nav>
   );
+}
+
+function uploadQueueStatusLabel(item: UploadQueueItem, itemError: string | null): string {
+  if (item.status === 'failed') return 'Mislukt';
+  if (item.status === 'completed') return 'Geüpload';
+  if (item.status === 'uploading') {
+    const progress = normalizedPercentage(item.uploadProgress);
+    return progress === null ? 'Uploaden…' : progress >= 100 ? '100% · opslaan…' : `${progress}% uploaden`;
+  }
+  return itemError === null ? 'Wacht op upload' : 'Controleer bestand';
+}
+
+function wallboardMediaAssetPageMatches(
+  current: WallboardMediaAssetPage,
+  next: WallboardMediaAssetPage,
+): boolean {
+  return current.pagination.current_page === next.pagination.current_page
+    && current.pagination.last_page === next.pagination.last_page
+    && current.pagination.per_page === next.pagination.per_page
+    && current.pagination.total === next.pagination.total
+    && current.items.length === next.items.length
+    && current.items.every((asset, index) => {
+      const candidate = next.items[index];
+      return candidate !== undefined && wallboardMediaAssetMatches(asset, candidate);
+    });
+}
+
+function wallboardMediaAssetMatches(left: WallboardMediaAsset, right: WallboardMediaAsset): boolean {
+  return left.id === right.id
+    && left.version === right.version
+    && left.status === right.status
+    && left.processing_progress === right.processing_progress;
+}
+
+function normalizedPercentage(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(100, Math.max(0, Math.round(value)))
+    : null;
 }
 
 function toggledSetValue(current: Set<string>, value: string): Set<string> {

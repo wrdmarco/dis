@@ -68,6 +68,7 @@ final class TranscodeWallboardMediaVideo implements Interruptible, ShouldBeEncry
         }
         $asset->forceFill([
             'status' => WallboardMediaAsset::STATUS_FAILED,
+            'processing_progress' => null,
             'version' => (int) $asset->version + 1,
         ])->save();
         app(AuditService::class)->record('wallboard_media.assets.video_transcode_failed', $asset, null, [

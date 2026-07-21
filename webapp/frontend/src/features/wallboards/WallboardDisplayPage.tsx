@@ -117,7 +117,7 @@ import {
   normalizeWallboardPlaylistDataMode,
   wallboardPlaylistDataModeNeedsRefresh,
 } from './wallboardPlaylistDataMode';
-import { WallboardRichText } from './WallboardRichText';
+import { WallboardRichText, wallboardRichTextCharacterCount } from './WallboardRichText';
 import { normalizeWallboardMediaPageStates } from './wallboardMedia';
 import { wallboardPhotoCarouselAnchorFromDeadline } from './wallboardPhotoRotation';
 import {
@@ -1329,6 +1329,20 @@ interface WallboardPageContentProps {
   adminPreview?: boolean;
 }
 
+function wallboardSafetyNoticeDensity(
+  content: ReturnType<typeof wallboardMessageContent>,
+): 'comfortable' | 'dense' | 'compact' {
+  const listItemCount = content.blocks.reduce((total, block) => (
+    total + (block.type === 'bullet_list' || block.type === 'numbered_list' ? block.items.length : 0)
+  ), 0);
+  const structureWeight = Math.max(0, content.blocks.length - 2) * 80 + listItemCount * 42;
+  const densityScore = wallboardRichTextCharacterCount(content) + structureWeight;
+
+  if (densityScore > 1_300) return 'compact';
+  if (densityScore > 650) return 'dense';
+  return 'comfortable';
+}
+
 function WallboardPageContent({
   page,
   state,
@@ -1396,14 +1410,21 @@ function WallboardPageContent({
   }
 
   if (page.type === 'safety_notice') {
+    const safetyContent = wallboardMessageContent(page.options);
+    const safetyDensity = wallboardSafetyNoticeDensity(safetyContent);
+
     return (
-      <div className="wallboard-display__safety-notice">
-        <span className="wallboard-display__safety-notice-icon" aria-hidden><ShieldAlert size={52} strokeWidth={1.7} /></span>
-        <WallboardRichText
-          content={wallboardMessageContent(page.options)}
-          className="wallboard-display__message-content wallboard-display__safety-notice-content"
-          ariaLabel="Veiligheidsbericht"
-        />
+      <div className={`wallboard-display__safety-notice wallboard-display__safety-notice--${safetyDensity}`}>
+        <section className="wallboard-display__safety-notice-card">
+          <div className="wallboard-display__safety-notice-rail" aria-hidden>
+            <span className="wallboard-display__safety-notice-icon"><ShieldAlert size={58} strokeWidth={1.65} /></span>
+          </div>
+          <WallboardRichText
+            content={safetyContent}
+            className="wallboard-display__message-content wallboard-display__safety-notice-content"
+            ariaLabel="Veiligheidsbericht"
+          />
+        </section>
       </div>
     );
   }

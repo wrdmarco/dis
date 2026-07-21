@@ -7483,9 +7483,21 @@ textarea:focus {
   gap: 10px;
 }
 
-.wallboard-video-editor__upload > label {
+.wallboard-video-editor__picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.wallboard-video-editor__picker > label {
   display: grid;
   gap: 6px;
+}
+
+.wallboard-video-editor__refresh {
+  min-height: 42px;
+  white-space: nowrap;
 }
 
 .wallboard-video-editor__upload > p {
@@ -7513,6 +7525,139 @@ textarea:focus {
 
 .wallboard-video-editor__selection strong {
   color: var(--dis-text-strong);
+}
+
+.wallboard-video-editor__statuses {
+  display: grid;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--dis-blue) 24%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dis-blue) 6%, transparent);
+  padding: 11px;
+}
+
+.wallboard-video-editor__statuses > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--dis-blue);
+}
+
+.wallboard-video-editor__statuses > header > span,
+.wallboard-video-editor__statuses > header strong,
+.wallboard-video-editor__statuses > header small {
+  display: block;
+}
+
+.wallboard-video-editor__statuses > header > span {
+  min-width: 0;
+}
+
+.wallboard-video-editor__statuses > header strong {
+  color: var(--dis-text-strong);
+  font-size: 0.8rem;
+}
+
+.wallboard-video-editor__statuses > header small {
+  margin-top: 2px;
+  color: var(--dis-muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.wallboard-video-editor__statuses ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wallboard-video-editor__statuses li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.7fr) auto;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--dis-blue) 16%, transparent);
+  padding-top: 7px;
+}
+
+.wallboard-video-editor__statuses li > span,
+.wallboard-video-editor__statuses li strong,
+.wallboard-video-editor__statuses li small {
+  min-width: 0;
+  display: block;
+}
+
+.wallboard-video-editor__statuses li strong {
+  overflow: hidden;
+  color: var(--dis-text-strong);
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallboard-video-editor__statuses li small {
+  color: var(--dis-muted);
+  font-size: 0.68rem;
+}
+
+.wallboard-video-editor__statuses li b {
+  color: var(--dis-blue);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.wallboard-video-editor__statuses progress {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  accent-color: var(--dis-blue);
+}
+
+.wallboard-video-editor__statuses progress::-webkit-progress-bar {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dis-blue) 13%, var(--dis-field));
+}
+
+.wallboard-video-editor__statuses progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: var(--dis-blue);
+}
+
+.wallboard-video-editor__statuses progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: var(--dis-blue);
+}
+
+.wallboard-video-editor__statuses--failed {
+  border-color: color-mix(in srgb, var(--dis-critical) 34%, transparent);
+  background: var(--dis-critical-soft);
+}
+
+.wallboard-video-editor__statuses--failed > header,
+.wallboard-video-editor__statuses--failed li b {
+  color: var(--dis-critical);
+}
+
+.wallboard-video-editor__statuses--failed li {
+  grid-template-columns: minmax(0, 1fr) auto;
+  border-color: color-mix(in srgb, var(--dis-critical) 22%, transparent);
+}
+
+@media (max-width: 680px) {
+  .wallboard-video-editor__picker,
+  .wallboard-video-editor__statuses li {
+    grid-template-columns: 1fr;
+  }
+
+  .wallboard-video-editor__refresh {
+    justify-content: center;
+  }
 }
 
 .wallboard-page-editor__derived-duration {
@@ -9114,29 +9259,390 @@ textarea:focus {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: clamp(20px, 3vw, 38px);
-  overflow: auto;
-  padding: clamp(28px, 6vw, 88px);
+  place-items: center;
+  overflow: hidden;
+  padding: clamp(28px, 4.5vw, 82px);
   background:
-    radial-gradient(circle at 50% 20%, color-mix(in srgb, var(--dis-warning) 13%, transparent), transparent 42%),
-    var(--dis-bg);
+    radial-gradient(circle at 12% 50%, color-mix(in srgb, var(--dis-warning) 12%, transparent), transparent 34%),
+    linear-gradient(145deg, #080d13 0%, #0b1118 52%, #080c11 100%);
+}
+
+.wallboard-display__safety-notice-card {
+  width: min(100%, 92rem);
+  max-height: 100%;
+  min-height: clamp(320px, 54vh, 560px);
+  display: grid;
+  grid-template-columns: clamp(150px, 12vw, 205px) minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--dis-warning) 34%, transparent);
+  border-left: clamp(7px, 0.7vw, 12px) solid var(--dis-warning);
+  border-radius: clamp(16px, 1.4vw, 24px);
+  background:
+    linear-gradient(105deg, color-mix(in srgb, var(--dis-warning) 7%, transparent), transparent 38%),
+    rgba(15, 23, 34, 0.96);
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.28);
+}
+
+.wallboard-display__safety-notice-rail {
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  border-right: 1px solid color-mix(in srgb, var(--dis-warning) 24%, transparent);
+  background: color-mix(in srgb, var(--dis-warning) 5%, transparent);
 }
 
 .wallboard-display__safety-notice-icon {
-  width: clamp(82px, 9vw, 118px);
-  height: clamp(82px, 9vw, 118px);
+  width: clamp(92px, 8vw, 124px);
+  height: clamp(92px, 8vw, 124px);
   display: grid;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--dis-warning) 60%, transparent);
-  border-radius: 28px;
-  background: var(--dis-warning-soft);
+  border: 1px solid color-mix(in srgb, var(--dis-warning) 55%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--dis-warning) 11%, transparent);
+  box-shadow: 0 0 0 12px color-mix(in srgb, var(--dis-warning) 4%, transparent);
   color: var(--dis-warning);
 }
 
 .wallboard-display__safety-notice-content {
-  max-width: 70rem;
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  align-content: safe center;
+  justify-items: stretch;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  padding: clamp(34px, 4.4vw, 74px);
+}
+
+.wallboard-display__safety-notice-content h2,
+.wallboard-display__safety-notice-content p,
+.wallboard-display__safety-notice-content blockquote,
+.wallboard-display__safety-notice-content ul,
+.wallboard-display__safety-notice-content ol {
+  width: 100%;
+  margin: 0;
+}
+
+.wallboard-display__safety-notice-content h2 {
+  max-width: 22ch;
+  color: #f8fbff;
+  font-size: clamp(2.5rem, 4.4vw, 5.1rem);
+  font-weight: 780;
+  letter-spacing: -0.025em;
+  line-height: 1.04;
+  text-wrap: balance;
+}
+
+.wallboard-display__safety-notice-content p,
+.wallboard-display__safety-notice-content ul,
+.wallboard-display__safety-notice-content ol {
+  max-width: 58ch;
+  color: #c7d2df;
+  font-size: clamp(1.25rem, 2.05vw, 2.15rem);
+  line-height: 1.45;
+}
+
+.wallboard-display__safety-notice-content ul,
+.wallboard-display__safety-notice-content ol {
+  display: grid;
+  gap: clamp(8px, 0.8vw, 14px);
+  padding-left: clamp(32px, 3.2vw, 54px);
+}
+
+.wallboard-display__safety-notice-content li::marker {
+  color: var(--dis-warning);
+}
+
+.wallboard-display__safety-notice-content blockquote {
+  max-width: 52ch;
+  border-left: clamp(4px, 0.35vw, 7px) solid var(--dis-warning);
+  color: #dce5ef;
+  padding: clamp(8px, 0.8vw, 16px) 0 clamp(8px, 0.8vw, 16px) clamp(20px, 2vw, 34px);
+  font-size: clamp(1.35rem, 2.25vw, 2.35rem);
+  font-style: italic;
+  line-height: 1.4;
+}
+
+.wallboard-display__safety-notice--dense,
+.wallboard-display__safety-notice--compact {
+  padding: clamp(22px, 2.7vw, 48px);
+}
+
+.wallboard-display__safety-notice--dense .wallboard-display__safety-notice-card,
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-card {
+  width: min(100%, 108rem);
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: clamp(112px, 8vw, 148px) minmax(0, 1fr);
+}
+
+.wallboard-display__safety-notice--dense .wallboard-display__safety-notice-icon,
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-icon {
+  width: clamp(72px, 5.5vw, 96px);
+  height: clamp(72px, 5.5vw, 96px);
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--dis-warning) 4%, transparent);
+}
+
+.wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content,
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content {
+  display: block;
+  align-content: normal;
+  columns: 2;
+  column-gap: clamp(34px, 3vw, 58px);
+  column-fill: auto;
+  column-rule: 1px solid color-mix(in srgb, var(--dis-warning) 18%, transparent);
+  padding: clamp(28px, 2.8vw, 48px);
+}
+
+.wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content h2,
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content h2 {
+  max-width: none;
+  column-span: all;
+  margin-bottom: clamp(18px, 1.8vw, 30px);
+}
+
+.wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content p,
+.wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content ul,
+.wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content ol,
+.wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content blockquote,
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content p,
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content ul,
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content ol,
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content blockquote {
+  max-width: none;
+  margin-bottom: 0.65em;
+}
+
+.wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content > :last-child,
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content > :last-child {
+  margin-bottom: 0;
+}
+
+.wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content h2 {
+  font-size: clamp(2.25rem, 3.2vw, 3.8rem);
+}
+
+.wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content p,
+.wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content ul,
+.wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content ol {
+  font-size: clamp(1.08rem, 1.45vw, 1.65rem);
+  line-height: 1.36;
+}
+
+.wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content blockquote {
+  font-size: clamp(1.15rem, 1.55vw, 1.75rem);
+  line-height: 1.34;
+}
+
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-card {
+  grid-template-columns: clamp(96px, 7vw, 128px) minmax(0, 1fr);
+}
+
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content {
+  column-gap: clamp(28px, 2.5vw, 46px);
+  padding: clamp(24px, 2.4vw, 42px);
+}
+
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content h2 {
+  font-size: clamp(2rem, 2.65vw, 3.25rem);
+}
+
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content p,
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content ul,
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content ol {
+  font-size: clamp(1rem, 1.14vw, 1.35rem);
+  line-height: 1.32;
+}
+
+.wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content blockquote {
+  font-size: clamp(1.05rem, 1.24vw, 1.45rem);
+  line-height: 1.3;
+}
+
+.wallboard-display--light .wallboard-display__safety-notice {
+  background:
+    radial-gradient(circle at 12% 50%, rgba(138, 90, 0, 0.1), transparent 34%),
+    linear-gradient(145deg, #f3f6f9 0%, #e9eff5 100%);
+}
+
+.wallboard-display--light .wallboard-display__safety-notice-card {
+  background:
+    linear-gradient(105deg, rgba(138, 90, 0, 0.07), transparent 38%),
+    rgba(255, 255, 255, 0.97);
+  box-shadow: 0 24px 72px rgba(36, 52, 71, 0.12);
+}
+
+.wallboard-display--light .wallboard-display__safety-notice-content h2 {
+  color: #07111e;
+}
+
+.wallboard-display--light .wallboard-display__safety-notice-content p,
+.wallboard-display--light .wallboard-display__safety-notice-content ul,
+.wallboard-display--light .wallboard-display__safety-notice-content ol,
+.wallboard-display--light .wallboard-display__safety-notice-content blockquote {
+  color: #33465d;
+}
+
+@media (min-width: 1600px) and (min-height: 800px) {
+  .wallboard-display--profile-4k .wallboard-display__safety-notice-card {
+    width: min(100%, 104rem);
+    min-height: clamp(380px, 58vh, 650px);
+    grid-template-columns: clamp(190px, 13vw, 230px) minmax(0, 1fr);
+  }
+
+  .wallboard-display--profile-4k .wallboard-display__safety-notice-icon {
+    width: 138px;
+    height: 138px;
+  }
+
+  .wallboard-display--profile-4k .wallboard-display__safety-notice-content h2 {
+    font-size: clamp(3.2rem, 4.8vw, 6.2rem);
+  }
+
+  .wallboard-display--profile-4k .wallboard-display__safety-notice-content p,
+  .wallboard-display--profile-4k .wallboard-display__safety-notice-content ul,
+  .wallboard-display--profile-4k .wallboard-display__safety-notice-content ol {
+    font-size: clamp(1.55rem, 2.2vw, 2.55rem);
+  }
+
+  .wallboard-display--profile-4k .wallboard-display__safety-notice--dense .wallboard-display__safety-notice-card,
+  .wallboard-display--profile-4k .wallboard-display__safety-notice--compact .wallboard-display__safety-notice-card {
+    width: min(100%, 128rem);
+    height: 100%;
+    min-height: 0;
+    grid-template-columns: clamp(112px, 7vw, 180px) minmax(0, 1fr);
+  }
+
+  .wallboard-display--profile-4k .wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content h2 {
+    font-size: clamp(3rem, 2.45vw, 5.75rem);
+  }
+
+  .wallboard-display--profile-4k .wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content p,
+  .wallboard-display--profile-4k .wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content ul,
+  .wallboard-display--profile-4k .wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content ol {
+    font-size: clamp(1.35rem, 1.15vw, 2.65rem);
+  }
+
+  .wallboard-display--profile-4k .wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content blockquote {
+    font-size: clamp(1.45rem, 1.25vw, 2.8rem);
+  }
+
+  .wallboard-display--profile-4k .wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content h2 {
+    font-size: clamp(2.8rem, 2.2vw, 5.25rem);
+  }
+
+  .wallboard-display--profile-4k .wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content p,
+  .wallboard-display--profile-4k .wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content ul,
+  .wallboard-display--profile-4k .wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content ol {
+    font-size: clamp(1.15rem, 1vw, 2.35rem);
+  }
+
+  .wallboard-display--profile-4k .wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content blockquote {
+    font-size: clamp(1.25rem, 1.08vw, 2.5rem);
+  }
+}
+
+@media (min-width: 2560px) and (min-height: 1200px) {
+  .wallboard-display--profile-auto .wallboard-display__safety-notice-card {
+    width: min(100%, 112rem);
+    min-height: 680px;
+    grid-template-columns: 250px minmax(0, 1fr);
+  }
+
+  .wallboard-display--profile-auto .wallboard-display__safety-notice-icon {
+    width: 150px;
+    height: 150px;
+  }
+
+  .wallboard-display--profile-auto .wallboard-display__safety-notice-content h2 {
+    font-size: clamp(4.5rem, 4.5vw, 7rem);
+  }
+
+  .wallboard-display--profile-auto .wallboard-display__safety-notice-content p,
+  .wallboard-display--profile-auto .wallboard-display__safety-notice-content ul,
+  .wallboard-display--profile-auto .wallboard-display__safety-notice-content ol {
+    font-size: clamp(2rem, 1.8vw, 2.8rem);
+  }
+
+  .wallboard-display--profile-auto .wallboard-display__safety-notice--dense .wallboard-display__safety-notice-card,
+  .wallboard-display--profile-auto .wallboard-display__safety-notice--compact .wallboard-display__safety-notice-card {
+    width: min(100%, 128rem);
+    height: 100%;
+    min-height: 0;
+    grid-template-columns: 180px minmax(0, 1fr);
+  }
+
+  .wallboard-display--profile-auto .wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content h2 {
+    font-size: clamp(3rem, 2.45vw, 5.75rem);
+  }
+
+  .wallboard-display--profile-auto .wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content p,
+  .wallboard-display--profile-auto .wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content ul,
+  .wallboard-display--profile-auto .wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content ol {
+    font-size: clamp(1.35rem, 1.15vw, 2.65rem);
+  }
+
+  .wallboard-display--profile-auto .wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content blockquote {
+    font-size: clamp(1.45rem, 1.25vw, 2.8rem);
+  }
+
+  .wallboard-display--profile-auto .wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content h2 {
+    font-size: clamp(2.8rem, 2.2vw, 5.25rem);
+  }
+
+  .wallboard-display--profile-auto .wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content p,
+  .wallboard-display--profile-auto .wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content ul,
+  .wallboard-display--profile-auto .wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content ol {
+    font-size: clamp(1.15rem, 1vw, 2.35rem);
+  }
+
+  .wallboard-display--profile-auto .wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content blockquote {
+    font-size: clamp(1.25rem, 1.08vw, 2.5rem);
+  }
+}
+
+@media (max-width: 900px), (max-height: 650px) {
+  .wallboard-display__safety-notice {
+    overflow: auto;
+    padding: clamp(18px, 3vw, 30px);
+  }
+
+  .wallboard-display__safety-notice-card {
+    min-height: 0;
+    grid-template-columns: 1fr;
+  }
+
+  .wallboard-display__safety-notice-rail {
+    min-height: 92px;
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--dis-warning) 24%, transparent);
+  }
+
+  .wallboard-display__safety-notice-icon {
+    width: 64px;
+    height: 64px;
+    box-shadow: none;
+  }
+
+  .wallboard-display__safety-notice-icon svg {
+    width: 38px;
+    height: 38px;
+  }
+
+  .wallboard-display__safety-notice-content {
+    overflow: visible;
+    padding: clamp(24px, 5vw, 40px);
+  }
+
+  .wallboard-display__safety-notice--dense .wallboard-display__safety-notice-card,
+  .wallboard-display__safety-notice--compact .wallboard-display__safety-notice-card {
+    height: auto;
+  }
+
+  .wallboard-display__safety-notice--dense .wallboard-display__safety-notice-content,
+  .wallboard-display__safety-notice--compact .wallboard-display__safety-notice-content {
+    columns: 1;
+  }
 }
 
 .wallboard-display__quote-page {

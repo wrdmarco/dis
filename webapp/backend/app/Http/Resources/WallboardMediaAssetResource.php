@@ -26,6 +26,9 @@ final class WallboardMediaAssetResource extends JsonResource
                 ? null
                 : (int) $this->resource->duration_seconds,
             'status' => (string) $this->resource->status,
+            'processing_progress' => $this->resource->processing_progress === null
+                ? null
+                : (int) $this->resource->processing_progress,
             'version' => (int) $this->resource->version,
             'playlist_references_count' => (int) ($this->resource->playlist_items_count ?? 0),
             'content_url' => $this->resource->status === 'ready'

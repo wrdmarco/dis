@@ -121,6 +121,7 @@ final class WallboardMediaAssetService
                         'height' => $processed->height,
                         'duration_seconds' => $processed->durationSeconds,
                         'status' => WallboardMediaAsset::STATUS_PROCESSING,
+                        'processing_progress' => 0,
                         'version' => 1,
                         'created_by' => $actor->id,
                         'updated_by' => $actor->id,
@@ -152,6 +153,7 @@ final class WallboardMediaAssetService
                         'status' => $processed->requiresVideoTranscode
                             ? WallboardMediaAsset::STATUS_PROCESSING
                             : WallboardMediaAsset::STATUS_READY,
+                        'processing_progress' => $processed->requiresVideoTranscode ? 0 : 100,
                     ])->save();
                     if ($processed->requiresVideoTranscode) {
                         DB::afterCommit(fn () => TranscodeWallboardMediaVideo::dispatch((string) $created->id));
