@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\SpeechEngineException;
 use App\Models\SpeechManifest;
 use App\Models\SpeechManifestBuild;
 use App\Repositories\SpeechManifestRepository;
@@ -20,6 +21,15 @@ final class SpeechManifestGenerationService
         $existing = $this->manifests->manifestForBuild((string) $build->id);
         if ($existing !== null) {
             return $existing;
+        }
+        $audioRecipeRevision = trim((string) $build->audio_recipe_revision);
+        $configuredAudioRecipeRevision = trim((string) config('dis.speech.audio_recipe_revision'));
+        if ($audioRecipeRevision === '' || $configuredAudioRecipeRevision === ''
+            || ! hash_equals($configuredAudioRecipeRevision, $audioRecipeRevision)) {
+            throw new SpeechEngineException(
+                'speech_audio_recipe_changed',
+                'The speech audio recipe changed before this build could be generated.',
+            );
         }
         $build->loadMissing(['modelInstallation', 'voiceProfile']);
         $voiceDesignRevision = trim((string) $build->voice_design_revision);
@@ -91,10 +101,14 @@ final class SpeechManifestGenerationService
             'voice_profile_id' => $build->voiceProfile?->id,
             'voice_consent_version' => $build->voiceProfile?->consent_version,
             'voice_design_revision' => $build->voice_profile_id === null ? $voiceDesignRevision : null,
+            'audio_recipe_revision' => $audioRecipeRevision,
             'speed' => $build->speed,
             'template_checksum' => $build->template_checksum,
             'context_hmac' => $build->context_hmac,
-            'manifest_sha256' => hash('sha256', $build->id.'|'.$composite->content_sha256),
+            'manifest_sha256' => hash(
+                'sha256',
+                $build->id.'|'.$audioRecipeRevision.'|'.$composite->content_sha256,
+            ),
             'audio_asset_id' => $composite->id,
             'segment_count' => count($segmentRows),
             'duration_ms' => $composite->duration_ms,

@@ -29,6 +29,7 @@ def main() -> None:
     engine = SpeechEngine(
         staging_root,
         installer,
+        state_root / "voices",
         synthesis_deadline_seconds=_integer("DIS_TTS_SYNTHESIS_DEADLINE_SECONDS", 14_300, 30, 14_300),
     )
     server = SpeechUnixServer(socket_path, engine)

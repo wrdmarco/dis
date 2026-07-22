@@ -64,6 +64,7 @@ final class SpeechAudioPipeline
                     'text' => trim($text),
                     'locale' => 'nl-NL',
                     'model_id' => (string) $model->catalog_key,
+                    'audio_recipe_revision' => (string) config('dis.speech.audio_recipe_revision'),
                     'voice_reference_basename' => $referenceBasename,
                     'voice_transcript' => $voice?->transcript,
                 ];
@@ -106,14 +107,16 @@ final class SpeechAudioPipeline
             'revision' => $model->revision,
             'weights_sha256' => $model->weights_sha256,
             'voice_sha256' => $voice?->sample_sha256,
+            'voice_profile_id' => $voice?->id,
             'voice_consent_version' => $voice?->consent_version,
             'voice_mode' => $voice === null ? 'built_in_design' : 'profile_clone',
             'voice_design_revision' => $voice === null
                 ? config('dis.speech.models.'.$model->catalog_key.'.built_in_voice_design_revision')
                 : null,
             'speed' => number_format($speed, 2, '.', ''),
-            'codec' => 'aac-lc-m4a-v1',
-            'engine_protocol' => (int) config('dis.speech.protocol_version', 1),
+            'audio_recipe_revision' => (string) config('dis.speech.audio_recipe_revision'),
+            'codec' => 'aac-lc-m4a-v2',
+            'engine_protocol' => (int) config('dis.speech.protocol_version', 2),
         ]);
     }
 
@@ -126,7 +129,8 @@ final class SpeechAudioPipeline
         $cacheKey = $this->keys->key('composite', [
             'phase' => $phase,
             'segments' => array_map(static fn (SpeechAudioAsset $asset): string => $asset->content_sha256, $segments),
-            'codec' => 'aac-lc-m4a-v1',
+            'audio_recipe_revision' => (string) config('dis.speech.audio_recipe_revision'),
+            'codec' => 'aac-lc-m4a-v2',
         ]);
 
         return Cache::lock('speech-audio:'.$cacheKey, 300)->block(5, function () use ($cacheKey, $segments, $voice): SpeechAudioAsset {
@@ -155,6 +159,7 @@ final class SpeechAudioPipeline
             }
 
             $root = $this->stagingRoot();
+            $waveOutput = $root.DIRECTORY_SEPARATOR.(string) Str::ulid().'.wav';
             $output = $root.DIRECTORY_SEPARATOR.(string) Str::ulid().'.m4a';
             $command = [(string) config('dis.speech.ffmpeg_binary', '/usr/bin/ffmpeg'), '-nostdin', '-hide_banner', '-loglevel', 'error'];
             foreach ($segments as $segment) {
@@ -165,14 +170,15 @@ final class SpeechAudioPipeline
             array_push(
                 $command,
                 '-filter_complex', $inputs.'concat=n='.count($segments).':v=0:a=1[out]',
-                '-map', '[out]', '-c:a', 'aac', '-profile:a', 'aac_low', '-b:a', '128k',
-                '-movflags', '+faststart', '-f', 'mp4', '-n', $output,
+                '-map', '[out]', '-ac', '1', '-ar', '48000', '-c:a', 'pcm_s16le',
+                '-f', 'wav', '-n', $waveOutput,
             );
             try {
                 $result = Process::timeout(120)->run($command);
                 if (! $result->successful()) {
                     throw new \RuntimeException('Speech composite could not be generated.');
                 }
+                $this->encodeM4a($waveOutput, $output, 1.0);
                 $metadata = $this->inspectM4a($output);
 
                 return $this->publish(
@@ -184,6 +190,7 @@ final class SpeechAudioPipeline
                     $metadata,
                 );
             } finally {
+                @unlink($waveOutput);
                 @unlink($output);
             }
         });
@@ -228,14 +235,63 @@ final class SpeechAudioPipeline
 
     private function encodeM4a(string $input, string $output, float $speed): void
     {
+        $speedFilter = 'atempo='.number_format($speed, 2, '.', '');
+        $measurement = Process::timeout(120)->run([
+            (string) config('dis.speech.ffmpeg_binary', '/usr/bin/ffmpeg'), '-nostdin', '-hide_banner', '-nostats',
+            '-i', $input, '-vn', '-af', $speedFilter.',loudnorm=I=-18:TP=-1.5:LRA=7:print_format=json',
+            '-f', 'null', '-',
+        ]);
+        if (! $measurement->successful()) {
+            throw new \RuntimeException('Speech loudness could not be measured.');
+        }
+        $measured = $this->loudnessMeasurement($measurement->errorOutput()."\n".$measurement->output());
+        $normalization = implode(':', [
+            'loudnorm=I=-18',
+            'TP=-1.5',
+            'LRA=7',
+            'measured_I='.$measured['input_i'],
+            'measured_TP='.$measured['input_tp'],
+            'measured_LRA='.$measured['input_lra'],
+            'measured_thresh='.$measured['input_thresh'],
+            'offset='.$measured['target_offset'],
+            'linear=true',
+            'print_format=summary',
+        ]);
         $result = Process::timeout(120)->run([
             (string) config('dis.speech.ffmpeg_binary', '/usr/bin/ffmpeg'), '-nostdin', '-hide_banner', '-loglevel', 'error',
-            '-i', $input, '-vn', '-af', 'atempo='.number_format($speed, 2, '.', ''),
-            '-c:a', 'aac', '-profile:a', 'aac_low', '-b:a', '128k', '-movflags', '+faststart', '-f', 'mp4', '-n', $output,
+            '-i', $input, '-vn', '-af', $speedFilter.','.$normalization,
+            '-ac', '1', '-ar', '48000', '-c:a', 'aac', '-profile:a', 'aac_low', '-b:a', '128k',
+            '-movflags', '+faststart', '-f', 'mp4', '-n', $output,
         ]);
         if (! $result->successful()) {
             throw new \RuntimeException('Speech WAV could not be encoded as AAC/M4A.');
         }
+    }
+
+    /** @return array{input_i:string,input_tp:string,input_lra:string,input_thresh:string,target_offset:string} */
+    private function loudnessMeasurement(string $output): array
+    {
+        if (preg_match_all('/\{\s*"input_i"\s*:.*?\}/s', $output, $matches) < 1) {
+            throw new \RuntimeException('Speech loudness measurement returned invalid output.');
+        }
+        $jsonMatches = $matches[0];
+        $json = end($jsonMatches);
+        $decoded = is_string($json) ? json_decode($json, true) : null;
+        if (! is_array($decoded)) {
+            throw new \RuntimeException('Speech loudness measurement returned invalid output.');
+        }
+        $result = [];
+        foreach (['input_i', 'input_tp', 'input_lra', 'input_thresh', 'target_offset'] as $key) {
+            $value = $decoded[$key] ?? null;
+            if ((! is_string($value) && ! is_int($value) && ! is_float($value))
+                || ! is_numeric($value) || ! is_finite((float) $value)) {
+                throw new \RuntimeException('Speech loudness measurement returned invalid output.');
+            }
+            $result[$key] = number_format((float) $value, 2, '.', '');
+        }
+
+        /** @var array{input_i:string,input_tp:string,input_lra:string,input_thresh:string,target_offset:string} $result */
+        return $result;
     }
 
     /** @param array{byte_size:int,duration_ms:int,sha256:string} $metadata */

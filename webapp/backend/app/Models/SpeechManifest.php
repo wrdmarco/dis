@@ -16,7 +16,8 @@ final class SpeechManifest extends Model
     protected $fillable = [
         'speech_manifest_build_id', 'dispatch_request_id', 'dispatch_recipient_id', 'phase', 'locale',
         'model_catalog_key', 'model_revision', 'model_weights_sha256', 'voice_profile_id',
-        'voice_consent_version', 'voice_design_revision', 'speed', 'template_checksum', 'context_hmac', 'manifest_sha256',
+        'voice_consent_version', 'voice_design_revision', 'audio_recipe_revision', 'speed', 'template_checksum',
+        'context_hmac', 'manifest_sha256',
         'audio_asset_id', 'segment_count', 'duration_ms', 'expires_at', 'sealed_at', 'created_at',
     ];
 

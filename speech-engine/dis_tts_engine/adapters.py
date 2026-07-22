@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import gc
 import hashlib
+import os
 import random
+import stat
+import tempfile
 import time
+import wave
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -85,7 +89,11 @@ class ChatterboxV3Adapter:
 
 
 class VoxCpm2Adapter:
-    def __init__(self, model_path: Path) -> None:
+    def __init__(self, model_path: Path, voice_state_root: Path) -> None:
+        self._voice_state_root = _validated_voice_state_root(voice_state_root)
+        self._built_in_reference_path = (
+            self._voice_state_root / f"{VOXCPM2_BUILT_IN_VOICE_DESIGN_REVISION}.wav"
+        )
         try:
             _configure_torch_threads()
             from voxcpm import VoxCPM
@@ -110,10 +118,25 @@ class VoxCpm2Adapter:
     ) -> SynthesizedWaveform:
         if locale != "nl-NL":
             raise AdapterError("unsupported_locale")
-        effective_text = text
-        if reference_path is None:
-            effective_text = f"({DEFAULT_VOXCPM2_VOICE_DESIGN}){text}"
-        options: dict[str, Any] = {
+        try:
+            effective_reference_path = reference_path
+            effective_reference_transcript = reference_transcript
+            if reference_path is None:
+                effective_reference_path = self._built_in_reference(deadline_monotonic)
+                effective_reference_transcript = VOXCPM2_BUILT_IN_REFERENCE_TRANSCRIPT
+            options = self._generation_options()
+            options["reference_wav_path"] = str(effective_reference_path)
+            if effective_reference_transcript:
+                options["prompt_wav_path"] = str(effective_reference_path)
+                options["prompt_text"] = effective_reference_transcript
+            return self._generate_waveform(text, options, deadline_monotonic)
+        except AdapterError:
+            raise
+        except Exception as exception:
+            raise AdapterError("synthesis_failed") from exception
+
+    def _generation_options(self) -> dict[str, Any]:
+        return {
             "cfg_value": 2.0,
             "inference_timesteps": 10,
             "max_len": 512,
@@ -121,59 +144,170 @@ class VoxCpm2Adapter:
             "denoise": False,
             "retry_badcase": False,
         }
-        if reference_path is not None:
-            if not reference_transcript:
-                options["reference_wav_path"] = str(reference_path)
-            else:
-                options["prompt_wav_path"] = str(reference_path)
-                options["prompt_text"] = reference_transcript
-        try:
-            import numpy
 
-            chunks: list[Any] = []
-            stream = self._model.generate_streaming(effective_text, **options)
-            try:
-                for chunk in stream:
-                    if time.monotonic() > deadline_monotonic:
-                        raise AdapterError("synthesis_deadline_exceeded")
-                    chunks.append(chunk)
-            finally:
-                stream.close()
-            if not chunks:
-                raise AdapterError("synthesis_failed")
-            samples = numpy.concatenate(chunks)
-            sample_rate = int(self._model.tts_model.sample_rate)
-            return SynthesizedWaveform(samples=samples, sample_rate=sample_rate)
+    def _generate_waveform(
+        self,
+        text: str,
+        options: dict[str, Any],
+        deadline_monotonic: float,
+    ) -> SynthesizedWaveform:
+        import numpy
+
+        chunks: list[Any] = []
+        stream = self._model.generate_streaming(text, **options)
+        try:
+            for chunk in stream:
+                if time.monotonic() > deadline_monotonic:
+                    raise AdapterError("synthesis_deadline_exceeded")
+                chunks.append(chunk)
+        finally:
+            stream.close()
+        if not chunks:
+            raise AdapterError("synthesis_failed")
+        samples = numpy.concatenate(chunks)
+        sample_rate = int(self._model.tts_model.sample_rate)
+        return SynthesizedWaveform(samples=samples, sample_rate=sample_rate)
+
+    def _built_in_reference(self, deadline_monotonic: float) -> Path:
+        if _valid_voice_anchor(self._built_in_reference_path):
+            return self._built_in_reference_path
+
+        anchor_text = f"({DEFAULT_VOXCPM2_VOICE_DESIGN}){VOXCPM2_BUILT_IN_REFERENCE_TRANSCRIPT}"
+        with deterministic_inference_seed(
+            VOXCPM2_BUILT_IN_VOICE_DESIGN_REVISION,
+            "voxcpm2",
+        ):
+            waveform = self._generate_waveform(
+                anchor_text,
+                self._generation_options(),
+                deadline_monotonic,
+            )
+
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{VOXCPM2_BUILT_IN_VOICE_DESIGN_REVISION}.",
+            suffix=".part",
+            dir=self._voice_state_root,
+        )
+        temporary_path = Path(temporary_name)
+        try:
+            if hasattr(os, "fchmod"):
+                os.fchmod(descriptor, 0o600)
+            else:
+                os.chmod(temporary_path, 0o600)
+            from .audio import write_pcm16_mono_wav
+
+            write_pcm16_mono_wav(descriptor, waveform.samples, waveform.sample_rate)
+            os.close(descriptor)
+            descriptor = -1
+            if not _valid_voice_anchor(temporary_path):
+                raise AdapterError("built_in_voice_anchor_failed")
+            os.replace(temporary_path, self._built_in_reference_path)
+            _sync_directory(self._voice_state_root)
         except AdapterError:
             raise
         except Exception as exception:
-            raise AdapterError("synthesis_failed") from exception
+            raise AdapterError("built_in_voice_anchor_failed") from exception
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
+
+        if not _valid_voice_anchor(self._built_in_reference_path):
+            raise AdapterError("built_in_voice_anchor_failed")
+        return self._built_in_reference_path
 
     def close(self) -> None:
         self._model = None
         gc.collect()
 
 
-def create_adapter(adapter: str, model_path: Path) -> SpeechModelAdapter:
+def create_adapter(
+    adapter: str,
+    model_path: Path,
+    voice_state_root: Path | None = None,
+) -> SpeechModelAdapter:
     if adapter == "chatterbox_v3":
         return ChatterboxV3Adapter(model_path)
     if adapter == "voxcpm2":
-        return VoxCpm2Adapter(model_path)
+        if voice_state_root is None:
+            raise AdapterError("invalid_voice_state_root")
+        return VoxCpm2Adapter(model_path, voice_state_root)
     raise AdapterError("unsupported_model_adapter")
 
 
-VOXCPM2_BUILT_IN_VOICE_DESIGN_REVISION = "voxcpm2-nl-nl-female-pa-v1"
+VOXCPM2_BUILT_IN_VOICE_DESIGN_REVISION = "voxcpm2-nl-nl-female-pa-v2"
 DEFAULT_VOXCPM2_VOICE_DESIGN = (
-    "A clear, natural adult Dutch female public-address voice, calm and professional, "
-    "speaking at a measured but not slow pace"
+    "A clear, natural adult Dutch female public-address announcer, warm, calm and professional, "
+    "with crisp articulation and an even medium pace"
 )
+VOXCPM2_BUILT_IN_REFERENCE_TRANSCRIPT = (
+    "Dames en heren, let u alstublieft op. "
+    "Dit is een belangrijke operationele mededeling."
+)
+
+
+def _validated_voice_state_root(path: Path) -> Path:
+    if not path.is_absolute():
+        raise AdapterError("invalid_voice_state_root")
+    try:
+        path.mkdir(mode=0o750, parents=True, exist_ok=True)
+        metadata = path.lstat()
+    except OSError as exception:
+        raise AdapterError("invalid_voice_state_root") from exception
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or path.is_symlink()
+        or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+    ):
+        raise AdapterError("invalid_voice_state_root")
+    return path
+
+
+def _valid_voice_anchor(path: Path) -> bool:
+    try:
+        metadata = path.lstat()
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or path.is_symlink()
+            or metadata.st_nlink != 1
+            or metadata.st_size < 44
+            or metadata.st_size > 8_388_608
+        ):
+            return False
+        if os.name == "posix":
+            if metadata.st_mode & 0o022 or metadata.st_uid != os.geteuid():
+                return False
+        with wave.open(str(path), "rb") as source:
+            frame_rate = source.getframerate()
+            frames = source.getnframes()
+            return (
+                source.getnchannels() == 1
+                and source.getsampwidth() == 2
+                and source.getcomptype() == "NONE"
+                and 16_000 <= frame_rate <= 96_000
+                and frame_rate * 2 <= frames <= frame_rate * 20
+            )
+    except (OSError, EOFError, wave.Error):
+        return False
+
+
+def _sync_directory(path: Path) -> None:
+    if os.name != "posix" or not hasattr(os, "O_DIRECTORY"):
+        return
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _configure_torch_threads() -> None:
     global _TORCH_CONFIGURED
     if _TORCH_CONFIGURED:
         return
-    import os
     import torch
 
     raw = os.getenv("DIS_TTS_TORCH_THREADS", "16")
@@ -189,9 +323,9 @@ def _configure_torch_threads() -> None:
 
 
 @contextmanager
-def deterministic_inference_seed(text: str, model_id: str) -> Iterator[None]:
+def deterministic_inference_seed(seed_material: str, model_id: str) -> Iterator[None]:
     seed = int.from_bytes(
-        hashlib.sha256(f"{model_id}\0{text}".encode("utf-8")).digest()[:8],
+        hashlib.sha256(f"{model_id}\0{seed_material}".encode("utf-8")).digest()[:8],
         byteorder="big",
         signed=False,
     ) % (2**32)

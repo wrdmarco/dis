@@ -236,7 +236,9 @@ return [
     'speech' => [
         'locale' => 'nl-NL',
         'socket_path' => env('SPEECH_ENGINE_SOCKET', '/run/dis-tts/engine.sock'),
-        'protocol_version' => 1,
+        'protocol_version' => 2,
+        // Bump for every conditioning, seed, codec, loudness or composition change.
+        'audio_recipe_revision' => 'consistent-speaker-loudness-v2',
         'connect_timeout_seconds' => (float) env('SPEECH_ENGINE_CONNECT_TIMEOUT_SECONDS', 1),
         'synthesis_timeout_seconds' => max(300, (int) env('SPEECH_ENGINE_SYNTHESIS_TIMEOUT_SECONDS', 14_400)),
         'install_timeout_seconds' => max(300, (int) env('SPEECH_ENGINE_INSTALL_TIMEOUT_SECONDS', 14_400)),
@@ -248,7 +250,7 @@ return [
         'staging_root' => env('SPEECH_STAGING_ROOT', '/opt/dis-data/tts/staging'),
         'voice_root' => storage_path('app/speech/voices'),
         'cache_hmac_key' => env('SPEECH_CACHE_HMAC_KEY'),
-        'cache_key_version' => 1,
+        'cache_key_version' => 2,
         'cache_quota_bytes' => max(268_435_456, (int) env('SPEECH_CACHE_QUOTA_BYTES', 5_368_709_120)),
         'segment_retention_days' => max(1, (int) env('SPEECH_SEGMENT_RETENTION_DAYS', 30)),
         'composite_retention_days' => max(1, (int) env('SPEECH_COMPOSITE_RETENTION_DAYS', 7)),
@@ -284,7 +286,7 @@ return [
                 'commercial_use' => true,
                 'supported_languages' => ['nl-NL'],
                 'capabilities' => ['voice_clone' => true, 'voice_design' => true, 'speed_control' => false],
-                'built_in_voice_design_revision' => 'voxcpm2-nl-nl-female-pa-v1',
+                'built_in_voice_design_revision' => 'voxcpm2-nl-nl-female-pa-v2',
                 'cpu' => [
                     'supported' => true,
                     'recommended_ram_bytes' => 34_359_738_368,

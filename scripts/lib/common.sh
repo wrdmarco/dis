@@ -1168,12 +1168,16 @@ wait_for_systemd_service_stable() {
 wait_for_dis_speech_engine_readiness() {
   local timeout_seconds="${1:-30}" required_samples="${2:-2}"
   local deadline socket_path="/run/dis-tts/engine.sock"
+  local engine_python="${DIS_DATA_PATH}/tts/runtime/bin/python"
+  local engine_root="${APP_ROOT}/speech-engine"
 
   wait_for_systemd_service_stable dis-tts-engine "${timeout_seconds}" "${required_samples}" \
     || return 1
   deadline=$((SECONDS + timeout_seconds))
   while [ "${SECONDS}" -lt "${deadline}" ]; do
-    if [ -S "${socket_path}" ]; then
+    if [ -S "${socket_path}" ] \
+      && PYTHONPATH="${engine_root}" DIS_TTS_SOCKET_PATH="${socket_path}" \
+        "${engine_python}" -m dis_tts_engine.healthcheck >/dev/null 2>&1; then
       return 0
     fi
     if ! systemctl is-active --quiet dis-tts-engine.service; then

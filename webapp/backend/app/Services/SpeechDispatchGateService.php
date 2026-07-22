@@ -44,8 +44,10 @@ final class SpeechDispatchGateService
             && config('dis.speech.models.'.$modelId.'.capabilities.voice_design') === true;
         $supportsVoiceProfile = $modelId !== null
             && config('dis.speech.models.'.$modelId.'.capabilities.voice_clone') === true;
+        $audioRecipeRevision = trim((string) config('dis.speech.audio_recipe_revision'));
         if ($model === null || ($voiceId !== null && ($voice === null || ! $supportsVoiceProfile))
-            || ($voiceId === null && ($voiceDesignRevision === '' || ! $supportsVoiceDesign))) {
+            || ($voiceId === null && ($voiceDesignRevision === '' || ! $supportsVoiceDesign))
+            || $audioRecipeRevision === '') {
             $this->markImmediate($dispatch, $queuedAt);
 
             return ['delayed' => false, 'deadline' => null, 'build_id' => null];
@@ -63,6 +65,7 @@ final class SpeechDispatchGateService
             'model_installation_id' => $model->id,
             'voice_profile_id' => $voice?->id,
             'voice_design_revision' => $voice === null ? $voiceDesignRevision : null,
+            'audio_recipe_revision' => $audioRecipeRevision,
             'speed' => round((float) SystemSetting::value('speech.speed', 1.0), 2),
             'template_checksum' => $this->templates->checksum($phase, $template),
             'context_hmac' => $this->keys->key('dispatch-context', $context),
@@ -74,6 +77,7 @@ final class SpeechDispatchGateService
                 'voice_profile_id' => $voice?->id,
                 'voice_consent_version' => $voice?->consent_version,
                 'voice_design_revision' => $voice === null ? $voiceDesignRevision : null,
+                'audio_recipe_revision' => $audioRecipeRevision,
             ]),
             'rendered_lines' => $lines,
             'status' => 'queued',

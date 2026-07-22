@@ -7,6 +7,8 @@ import stat
 from pathlib import Path
 from typing import Any
 
+from . import AUDIO_RECIPE_REVISION
+
 _ULID = r"[0-9A-HJKMNP-TV-Z]{26}"
 JOB_BASENAME = re.compile(rf"^{_ULID}\.job\.json$", re.IGNORECASE)
 REFERENCE_BASENAME = re.compile(rf"^{_ULID}\.reference$", re.IGNORECASE)
@@ -150,8 +152,15 @@ class StagingDirectory:
         return self._directory_fd
 
 
-def validate_job(job: dict[str, Any]) -> tuple[str, str, str, str | None, str | None]:
-    allowed = {"text", "locale", "model_id", "voice_reference_basename", "voice_transcript"}
+def validate_job(job: dict[str, Any]) -> tuple[str, str, str, str, str | None, str | None]:
+    allowed = {
+        "text",
+        "locale",
+        "model_id",
+        "audio_recipe_revision",
+        "voice_reference_basename",
+        "voice_transcript",
+    }
     if set(job) - allowed:
         raise SecureFileError("unsupported_job_field")
 
@@ -170,6 +179,10 @@ def validate_job(job: dict[str, Any]) -> tuple[str, str, str, str | None, str | 
     if not isinstance(model_id, str):
         raise SecureFileError("invalid_model_id")
 
+    audio_recipe_revision = job.get("audio_recipe_revision")
+    if audio_recipe_revision != AUDIO_RECIPE_REVISION:
+        raise SecureFileError("audio_recipe_mismatch")
+
     reference = job.get("voice_reference_basename")
     if reference is not None:
         reference = _validated_basename(reference, REFERENCE_BASENAME, "invalid_reference_basename")
@@ -182,7 +195,7 @@ def validate_job(job: dict[str, Any]) -> tuple[str, str, str, str | None, str | 
         if reference is None and transcript is not None:
             raise SecureFileError("voice_transcript_without_reference")
 
-    return text, locale, model_id, reference, transcript
+    return text, locale, model_id, audio_recipe_revision, reference, transcript
 
 
 def _validated_basename(value: object, pattern: re.Pattern[str], error_code: str) -> str:

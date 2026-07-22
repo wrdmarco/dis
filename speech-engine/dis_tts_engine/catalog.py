@@ -94,7 +94,7 @@ VOXCPM2 = ModelSpec(
         "tokenizer.json",
         "tokenizer_config.json",
     ),
-    built_in_voice_design_revision="voxcpm2-nl-nl-female-pa-v1",
+    built_in_voice_design_revision="voxcpm2-nl-nl-female-pa-v2",
 )
 
 

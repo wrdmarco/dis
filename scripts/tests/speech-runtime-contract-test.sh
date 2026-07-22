@@ -16,8 +16,11 @@ QUEUE_CONFIG="${APP_ROOT}/webapp/backend/config/queue.php"
 INSTALLER_SOURCE="${APP_ROOT}/speech-engine/dis_tts_engine/installer.py"
 DOWNLOAD_SOURCE="${APP_ROOT}/speech-engine/dis_tts_engine/download_worker.py"
 ENGINE_SOURCE="${APP_ROOT}/speech-engine/dis_tts_engine/engine.py"
+ENGINE_INIT_SOURCE="${APP_ROOT}/speech-engine/dis_tts_engine/__init__.py"
+ADAPTER_SOURCE="${APP_ROOT}/speech-engine/dis_tts_engine/adapters.py"
 SECURE_FILES_SOURCE="${APP_ROOT}/speech-engine/dis_tts_engine/secure_files.py"
 SPEECH_PIPELINE_SOURCE="${APP_ROOT}/webapp/backend/app/Services/SpeechAudioPipeline.php"
+SPEECH_CONFIG="${APP_ROOT}/webapp/backend/config/dis.php"
 EXCLUSIVE_WRITER_SOURCE="${APP_ROOT}/webapp/backend/app/Services/SpeechExclusiveFileWriter.php"
 ROOT_ENV_EXAMPLE="${APP_ROOT}/.env.example"
 MODEL_PACKAGES="${APP_ROOT}/speech-engine/model-packages.requirements.txt"
@@ -86,6 +89,13 @@ require_text "${COMMON}" 'Speech runtime phase 2/3: installing locked CPU-only s
 require_text "${COMMON}" 'Speech runtime phase 3/3: installing the pinned VoxCPM package'
 require_text "${MODEL_PACKAGES}" 'voxcpm @ https://files.pythonhosted.org/'
 require_text "${MODEL_PACKAGES}" '#sha256='
+require_text "${ENGINE_INIT_SOURCE}" 'PROTOCOL_VERSION = 2'
+require_text "${ENGINE_INIT_SOURCE}" 'AUDIO_RECIPE_REVISION = "consistent-speaker-loudness-v2"'
+require_text "${SPEECH_CONFIG}" "'audio_recipe_revision' => 'consistent-speaker-loudness-v2'"
+require_text "${SPEECH_CONFIG}" "'protocol_version' => 2"
+require_text "${ADAPTER_SOURCE}" 'options["reference_wav_path"] = str(effective_reference_path)'
+require_text "${ADAPTER_SOURCE}" 'options["prompt_wav_path"] = str(effective_reference_path)'
+require_text "${SPEECH_PIPELINE_SOURCE}" 'loudnorm=I=-18:TP=-1.5:LRA=7:print_format=json'
 require_text "${ROOT_ENV_EXAMPLE}" 'SPEECH_CACHE_HMAC_KEY='
 require_text "${SETUP}" 'if [ -z "$(env_value SPEECH_CACHE_HMAC_KEY)" ]; then'
 require_text "${SETUP}" 'set_managed_env_secret "${ENV_FILE}" SPEECH_CACHE_HMAC_KEY "base64:$(random_base64 48)"'
@@ -173,6 +183,7 @@ require_text "${INSTALLER_SOURCE}" 'for model_id in MODEL_SPECS:'
 require_text "${INSTALLER_SOURCE}" 'if not stat.S_ISDIR(metadata.st_mode) or entry.is_symlink():'
 require_text "${INSTALLER_SOURCE}" '_remove_install_staging(model_parent / entry.name, model_parent)'
 require_text "${ENGINE_SOURCE}" 'self.installer.cancel_all_and_wait(timeout_seconds=10)'
+require_text "${COMMON}" '"${engine_python}" -m dis_tts_engine.healthcheck >/dev/null 2>&1'
 require_text "${DOWNLOAD_SOURCE}" 'from huggingface_hub import snapshot_download'
 reject_text "${INSTALLER_SOURCE}" 'from huggingface_hub import snapshot_download'
 reject_text "${ENGINE_SOURCE}" 'from huggingface_hub import snapshot_download'

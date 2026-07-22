@@ -17,7 +17,7 @@ class CatalogTest(unittest.TestCase):
     def test_voxcpm2_manifest_digest_is_stable(self) -> None:
         self.assertEqual(4_960_722_408, VOXCPM2.download_bytes)
         self.assertEqual("acee75a3e2125be4089f81fa8259372a797e87c799ab13dad27ce38fd385e126", VOXCPM2.weights_sha256)
-        self.assertEqual("voxcpm2-nl-nl-female-pa-v1", VOXCPM2.built_in_voice_design_revision)
+        self.assertEqual("voxcpm2-nl-nl-female-pa-v2", VOXCPM2.built_in_voice_design_revision)
         self.assertEqual(VOXCPM2_BUILT_IN_VOICE_DESIGN_REVISION, VOXCPM2.built_in_voice_design_revision)
         self.assertEqual(VOXCPM2, model_spec("voxcpm2"))
 

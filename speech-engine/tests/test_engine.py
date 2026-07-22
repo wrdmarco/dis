@@ -11,8 +11,10 @@ from unittest.mock import patch
 
 import numpy
 
+from dis_tts_engine import AUDIO_RECIPE_REVISION
 from dis_tts_engine.adapters import SynthesizedWaveform
-from dis_tts_engine.engine import SpeechEngine
+from dis_tts_engine.catalog import CHATTERBOX_MULTILINGUAL_V3, VOXCPM2
+from dis_tts_engine.engine import SpeechEngine, _speaker_seed_material
 
 
 class _FakeInstaller:
@@ -71,8 +73,10 @@ class EngineIntegrationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             staging = Path(directory) / "staging"
             model_path = Path(directory) / "model"
+            voice_state_path = Path(directory) / "state" / "voices"
             staging.mkdir(mode=0o750)
             model_path.mkdir(mode=0o750)
+            voice_state_path.parent.mkdir(mode=0o750)
             job_id = "01KXT7Z2P01H86GCGV1ZK3D5QD"
             reference_id = "01KXT7Z2P01H86GCGV1ZK3D5QE"
             job_path = staging / f"{job_id}.job.json"
@@ -81,6 +85,7 @@ class EngineIntegrationTest(unittest.TestCase):
                 "text": "Oproep. Kerkstraat twaalf.",
                 "locale": "nl-NL",
                 "model_id": "chatterbox_multilingual_v3",
+                "audio_recipe_revision": AUDIO_RECIPE_REVISION,
                 "voice_reference_basename": reference_path.name,
                 "voice_transcript": "Mijn eigen stemfragment.",
             }), encoding="utf-8")
@@ -91,7 +96,8 @@ class EngineIntegrationTest(unittest.TestCase):
             engine = SpeechEngine(
                 staging,
                 _FakeInstaller(model_path),  # type: ignore[arg-type]
-                adapter_factory=lambda _name, _path: adapter,
+                voice_state_path,
+                adapter_factory=lambda _name, _path, _voice_state_path: adapter,
             )
 
             with patch("dis_tts_engine.engine.deterministic_inference_seed", return_value=nullcontext()):
@@ -113,3 +119,19 @@ class EngineIntegrationTest(unittest.TestCase):
             self.assertEqual([], list(staging.glob(".engine-reference-*")))
             engine.close()
             self.assertTrue(adapter.closed)
+
+
+class SpeakerSeedTest(unittest.TestCase):
+    def test_built_in_seed_is_voice_scoped_and_not_text_scoped(self) -> None:
+        self.assertEqual(
+            "built-in:voxcpm2-nl-nl-female-pa-v2",
+            _speaker_seed_material(VOXCPM2, None),
+        )
+
+    def test_profile_seed_is_stable_for_the_reference_and_changes_with_it(self) -> None:
+        first = _speaker_seed_material(CHATTERBOX_MULTILINGUAL_V3, b"voice one")
+        repeated = _speaker_seed_material(CHATTERBOX_MULTILINGUAL_V3, b"voice one")
+        second = _speaker_seed_material(CHATTERBOX_MULTILINGUAL_V3, b"voice two")
+
+        self.assertEqual(first, repeated)
+        self.assertNotEqual(first, second)

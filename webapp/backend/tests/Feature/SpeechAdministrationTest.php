@@ -65,6 +65,7 @@ final class SpeechAdministrationTest extends TestCase
             'dis.speech.models.chatterbox_multilingual_v3.revision' => 'fixed-revision-v3',
             'dis.speech.models.chatterbox_multilingual_v3.weights_sha256' => str_repeat('a', 64),
             'dis.speech.models.chatterbox_multilingual_v3.download_bytes' => 123456,
+            'dis.speech.audio_recipe_revision' => 'consistent-speaker-loudness-v2',
             'dis.speech.cache_hmac_key' => str_repeat('test-speech-key-', 3),
             'dis.speech.staging_root' => $runtimeRoot.DIRECTORY_SEPARATOR.'staging',
             'dis.speech.cache_root' => $runtimeRoot.DIRECTORY_SEPARATOR.'cache',
@@ -276,7 +277,87 @@ final class SpeechAdministrationTest extends TestCase
         $this->assertDatabaseHas('speech_manifest_builds', [
             'model_installation_id' => $installation->id,
             'voice_profile_id' => $profile->id,
+            'audio_recipe_revision' => 'consistent-speaker-loudness-v2',
             'status' => 'queued',
+        ]);
+    }
+
+    public function test_manifest_generation_seals_the_current_audio_recipe_and_rejects_legacy_queued_builds(): void
+    {
+        $manager = $this->user('speech-recipe@example.test', ['settings.manage']);
+        $installation = SpeechModelInstallation::query()->create([
+            'catalog_key' => 'voxcpm2',
+            'revision' => config('dis.speech.models.voxcpm2.revision'),
+            'weights_sha256' => config('dis.speech.models.voxcpm2.weights_sha256'),
+            'status' => 'installed', 'progress_percent' => 100,
+            'requested_by' => $manager->id, 'license_confirmed_at' => now(), 'installed_at' => now(),
+        ]);
+        $engine = new SpeechEngineClientFake;
+        $engine->writeSyntheticWave = true;
+        app()->instance(SpeechEngineClient::class, $engine);
+        Process::fake(function (PendingProcess $process) {
+            $command = is_array($process->command) ? $process->command : [];
+            if (($command[0] ?? null) === config('dis.speech.ffmpeg_binary')) {
+                if (in_array('null', $command, true)) {
+                    return Process::result(errorOutput: json_encode([
+                        'input_i' => '-24.00',
+                        'input_tp' => '-4.00',
+                        'input_lra' => '2.00',
+                        'input_thresh' => '-34.00',
+                        'target_offset' => '0.00',
+                    ], JSON_THROW_ON_ERROR));
+                }
+                $output = end($command);
+                $this->assertIsString($output);
+                File::put($output, str_repeat('RECIPE-M4A-CONTENT-', 20));
+
+                return Process::result();
+            }
+
+            return Process::result(output: json_encode([
+                'streams' => [['codec_type' => 'audio', 'codec_name' => 'aac']],
+                'format' => ['duration' => '1.25', 'format_name' => 'mov,mp4,m4a,3gp,3g2,mj2'],
+            ], JSON_THROW_ON_ERROR));
+        });
+        $buildAttributes = [
+            'phase' => 'test_ack', 'locale' => 'nl-NL',
+            'model_installation_id' => $installation->id, 'voice_profile_id' => null,
+            'voice_design_revision' => config('dis.speech.models.voxcpm2.built_in_voice_design_revision'),
+            'speed' => 1.0, 'template_checksum' => str_repeat('1', 64),
+            'context_hmac' => str_repeat('2', 64), 'rendered_lines' => ['Dit is een proefalarm.'],
+            'status' => 'queued', 'progress_percent' => 0, 'expires_at' => now()->addHour(),
+        ];
+        $legacy = SpeechManifestBuild::query()->create($buildAttributes + [
+            'audio_recipe_revision' => 'legacy-segmented-v1',
+            'source_fingerprint_hmac' => str_repeat('3', 64),
+        ]);
+
+        try {
+            app(SpeechManifestGenerationService::class)->generate($legacy);
+            $this->fail('Een queued build uit een oud audiorecept mag niet worden gegenereerd.');
+        } catch (SpeechEngineException $exception) {
+            $this->assertSame('speech_audio_recipe_changed', $exception->errorCode);
+        }
+        $this->assertSame(0, $engine->synthesizeCalls);
+        $this->assertSame('queued', $legacy->refresh()->status);
+        $this->assertDatabaseMissing('speech_manifests', ['speech_manifest_build_id' => $legacy->id]);
+
+        $current = SpeechManifestBuild::query()->create($buildAttributes + [
+            'audio_recipe_revision' => 'consistent-speaker-loudness-v2',
+            'source_fingerprint_hmac' => str_repeat('4', 64),
+        ]);
+        $manifest = app(SpeechManifestGenerationService::class)->generate($current);
+
+        $this->assertSame(1, $engine->synthesizeCalls);
+        $this->assertSame('ready', $current->refresh()->status);
+        $this->assertSame('consistent-speaker-loudness-v2', $manifest->audio_recipe_revision);
+        $this->assertSame(
+            hash('sha256', $current->id.'|consistent-speaker-loudness-v2|'.$manifest->audioAsset->content_sha256),
+            $manifest->manifest_sha256,
+        );
+        $this->assertDatabaseHas('speech_manifests', [
+            'id' => $manifest->id,
+            'audio_recipe_revision' => 'consistent-speaker-loudness-v2',
         ]);
     }
 
@@ -411,7 +492,8 @@ final class SpeechAdministrationTest extends TestCase
         $this->assertDatabaseHas('speech_manifest_builds', [
             'id' => $previewModel->speech_manifest_build_id,
             'voice_profile_id' => null,
-            'voice_design_revision' => 'voxcpm2-nl-nl-female-pa-v1',
+            'voice_design_revision' => config('dis.speech.models.voxcpm2.built_in_voice_design_revision'),
+            'audio_recipe_revision' => 'consistent-speaker-loudness-v2',
         ]);
     }
 
@@ -485,6 +567,7 @@ final class SpeechAdministrationTest extends TestCase
         $build = SpeechManifestBuild::query()->create([
             'phase' => 'test_ack', 'locale' => 'nl-NL',
             'model_installation_id' => $installation->id, 'voice_profile_id' => $profile->id,
+            'audio_recipe_revision' => 'consistent-speaker-loudness-v2',
             'speed' => 1.0, 'template_checksum' => str_repeat('1', 64),
             'context_hmac' => str_repeat('2', 64), 'source_fingerprint_hmac' => str_repeat('3', 64),
             'rendered_lines' => ['Veilige proefmelding.'], 'status' => 'queued',
@@ -561,6 +644,7 @@ final class SpeechAdministrationTest extends TestCase
         $this->assertSame('preparing_speech', $dispatch->refresh()->send_status);
         $this->assertDatabaseHas('speech_manifest_builds', [
             'dispatch_request_id' => $dispatch->id,
+            'audio_recipe_revision' => 'consistent-speaker-loudness-v2',
             'status' => 'queued',
         ]);
         $encryptedLines = (string) DB::table('speech_manifest_builds')
@@ -609,7 +693,8 @@ final class SpeechAdministrationTest extends TestCase
         ]);
         $build = SpeechManifestBuild::query()->create([
             'phase' => 'test_ack', 'locale' => 'nl-NL', 'model_installation_id' => $installation->id,
-            'voice_profile_id' => $profile->id, 'speed' => 1.0,
+            'voice_profile_id' => $profile->id,
+            'audio_recipe_revision' => 'consistent-speaker-loudness-v2', 'speed' => 1.0,
             'template_checksum' => str_repeat('1', 64), 'context_hmac' => str_repeat('2', 64),
             'source_fingerprint_hmac' => str_repeat('4', 64), 'rendered_lines' => ['Proefalarm.'],
             'status' => 'ready', 'progress_percent' => 100, 'finished_at' => now(), 'expires_at' => now()->addHour(),
@@ -618,8 +703,10 @@ final class SpeechAdministrationTest extends TestCase
             'speech_manifest_build_id' => $build->id, 'phase' => 'test_ack', 'locale' => 'nl-NL',
             'model_catalog_key' => $installation->catalog_key, 'model_revision' => $installation->revision,
             'model_weights_sha256' => $installation->weights_sha256, 'voice_profile_id' => $profile->id,
-            'voice_consent_version' => 1, 'speed' => 1.0, 'template_checksum' => str_repeat('1', 64),
-            'context_hmac' => str_repeat('2', 64), 'manifest_sha256' => hash('sha256', 'revoke-'.$build->id),
+            'voice_consent_version' => 1,
+            'audio_recipe_revision' => 'consistent-speaker-loudness-v2', 'speed' => 1.0,
+            'template_checksum' => str_repeat('1', 64), 'context_hmac' => str_repeat('2', 64),
+            'manifest_sha256' => hash('sha256', 'revoke-'.$build->id),
             'audio_asset_id' => $asset->id, 'segment_count' => 1, 'duration_ms' => 1200,
             'expires_at' => now()->addHour(), 'sealed_at' => now(), 'created_at' => now(),
         ]);
@@ -850,7 +937,8 @@ final class SpeechAdministrationTest extends TestCase
         $build = SpeechManifestBuild::query()->create([
             'dispatch_request_id' => $dispatch->id, 'phase' => 'attendance', 'locale' => 'nl-NL',
             'model_installation_id' => $installation->id, 'voice_profile_id' => null,
-            'voice_design_revision' => 'voxcpm2-nl-nl-female-pa-v1', 'speed' => 1.0,
+            'voice_design_revision' => config('dis.speech.models.voxcpm2.built_in_voice_design_revision'),
+            'audio_recipe_revision' => 'consistent-speaker-loudness-v2', 'speed' => 1.0,
             'template_checksum' => str_repeat('1', 64), 'context_hmac' => str_repeat('2', 64),
             'source_fingerprint_hmac' => str_repeat('3', 64),
             'rendered_lines' => ['Versleutelde alarmering.'], 'status' => 'ready',
@@ -863,7 +951,8 @@ final class SpeechAdministrationTest extends TestCase
             'model_catalog_key' => 'voxcpm2', 'model_revision' => $installation->revision,
             'model_weights_sha256' => $installation->weights_sha256,
             'voice_profile_id' => null, 'voice_consent_version' => null,
-            'voice_design_revision' => 'voxcpm2-nl-nl-female-pa-v1', 'speed' => 1.0,
+            'voice_design_revision' => config('dis.speech.models.voxcpm2.built_in_voice_design_revision'),
+            'audio_recipe_revision' => 'consistent-speaker-loudness-v2', 'speed' => 1.0,
             'template_checksum' => str_repeat('1', 64), 'context_hmac' => str_repeat('2', 64),
             'manifest_sha256' => hash('sha256', 'manifest-'.$build->id),
             'audio_asset_id' => $asset->id, 'segment_count' => 1, 'duration_ms' => 1500,
@@ -1030,7 +1119,11 @@ final class SpeechEngineClientFake implements SpeechEngineClient
 
     public int $cancelCalls = 0;
 
+    public int $synthesizeCalls = 0;
+
     public bool $cancelThrows = false;
+
+    public bool $writeSyntheticWave = false;
 
     public function health(): array
     {
@@ -1068,6 +1161,13 @@ final class SpeechEngineClientFake implements SpeechEngineClient
 
     public function synthesize(string $modelId, string $jobBasename, string $outputBasename): array
     {
+        $this->synthesizeCalls++;
+        if ($this->writeSyntheticWave) {
+            $root = (string) config('dis.speech.staging_root');
+            File::ensureDirectoryExists($root);
+            File::put($root.DIRECTORY_SEPARATOR.$outputBasename, 'RIFF'.pack('V', 132).'WAVE'.str_repeat("\0", 128));
+        }
+
         return ['duration_ms' => 1000];
     }
 }

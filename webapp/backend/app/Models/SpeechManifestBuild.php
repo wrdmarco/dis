@@ -20,7 +20,8 @@ final class SpeechManifestBuild extends Model
 
     protected $fillable = [
         'dispatch_request_id', 'dispatch_recipient_id', 'phase', 'locale', 'model_installation_id',
-        'voice_profile_id', 'voice_design_revision', 'speed', 'template_checksum', 'context_hmac', 'source_fingerprint_hmac',
+        'voice_profile_id', 'voice_design_revision', 'audio_recipe_revision', 'speed', 'template_checksum', 'context_hmac',
+        'source_fingerprint_hmac',
         'rendered_lines', 'status', 'error_code', 'progress_percent', 'release_deadline',
         'finished_at', 'failed_at', 'expires_at',
     ];

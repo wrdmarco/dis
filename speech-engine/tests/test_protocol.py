@@ -5,6 +5,7 @@ import socket
 import struct
 import unittest
 
+from dis_tts_engine import PROTOCOL_VERSION
 from dis_tts_engine.protocol import ProtocolError, receive_request, request_identity
 
 
@@ -15,7 +16,7 @@ class ProtocolTest(unittest.TestCase):
         self.assertEqual(
             (request_id, "cancel_install"),
             request_identity({
-                "protocol_version": 1,
+                "protocol_version": PROTOCOL_VERSION,
                 "request_id": request_id,
                 "action": "cancel_install",
                 "payload": {"model_id": "voxcpm2"},
@@ -27,7 +28,7 @@ class ProtocolTest(unittest.TestCase):
         self.addCleanup(left.close)
         self.addCleanup(right.close)
         request = {
-            "protocol_version": 1,
+            "protocol_version": PROTOCOL_VERSION,
             "request_id": "01KXT7Z2P01H86GCGV1ZK3D5QD",
             "action": "health",
             "payload": [],
@@ -41,7 +42,7 @@ class ProtocolTest(unittest.TestCase):
     def test_rejects_extra_envelope_fields(self) -> None:
         with self.assertRaisesRegex(ProtocolError, "invalid_request_envelope"):
             request_identity({
-                "protocol_version": 1,
+                "protocol_version": PROTOCOL_VERSION,
                 "request_id": "01KXT7Z2P01H86GCGV1ZK3D5QD",
                 "action": "health",
                 "payload": [],

@@ -22,20 +22,23 @@ final class SpeechPreviewService
         $runtime = $this->settings->selectedRuntime();
         $template = $this->templates->template($phase);
         $lines = $this->templates->render($phase, $template, $this->templates->exampleContext($phase));
+        $audioRecipeRevision = trim((string) config('dis.speech.audio_recipe_revision'));
 
-        return DB::transaction(function () use ($phase, $actor, $runtime, $template, $lines): SpeechPreview {
+        return DB::transaction(function () use ($phase, $actor, $runtime, $template, $lines, $audioRecipeRevision): SpeechPreview {
             $build = SpeechManifestBuild::query()->create([
                 'phase' => $phase,
                 'locale' => 'nl-NL',
                 'model_installation_id' => $runtime['model']->id,
                 'voice_profile_id' => $runtime['voice']?->id,
                 'voice_design_revision' => $runtime['voice_design_revision'],
+                'audio_recipe_revision' => $audioRecipeRevision,
                 'speed' => $runtime['speed'],
                 'template_checksum' => $this->templates->checksum($phase, $template),
                 'context_hmac' => $this->keys->key('preview-context', ['phase' => $phase, 'lines' => $lines]),
                 'source_fingerprint_hmac' => $this->keys->key('preview-build', [
                     'request' => (string) Str::ulid(),
                     'phase' => $phase,
+                    'audio_recipe_revision' => $audioRecipeRevision,
                 ]),
                 'rendered_lines' => $lines,
                 'status' => 'queued',

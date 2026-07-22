@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import stat
 import tempfile
@@ -27,7 +28,7 @@ class EngineError(Exception):
         self.code = code
 
 
-AdapterFactory = Callable[[str, Path], SpeechModelAdapter]
+AdapterFactory = Callable[[str, Path, Path], SpeechModelAdapter]
 
 
 class SpeechEngine:
@@ -35,10 +36,16 @@ class SpeechEngine:
         self,
         staging_root: Path,
         installer: ModelInstaller,
+        voice_state_root: Path,
         adapter_factory: AdapterFactory = create_adapter,
         synthesis_deadline_seconds: int = 14_300,
     ) -> None:
         self.staging_root = _validated_private_directory(staging_root, "invalid_staging_root")
+        self.voice_state_root = _validated_private_directory(
+            voice_state_root,
+            "invalid_voice_state_root",
+            create=True,
+        )
         self.installer = installer
         self.adapter_factory = adapter_factory
         if not 30 <= synthesis_deadline_seconds <= 14_300:
@@ -108,21 +115,32 @@ class SpeechEngine:
         with StagingDirectory(self.staging_root) as staging:
             deadline_monotonic = time.monotonic() + self.synthesis_deadline_seconds
             job = staging.consume_job(values["job_basename"])
-            text, locale, job_model_id, reference_basename, reference_transcript = validate_job(job)
+            (
+                text,
+                locale,
+                job_model_id,
+                _audio_recipe_revision,
+                reference_basename,
+                reference_transcript,
+            ) = validate_job(job)
             if job_model_id != requested_spec.model_id:
                 raise EngineError("job_model_mismatch")
 
             descriptor: int | None = None
             part_path: Path | None = None
             reference_path: Path | None = None
+            reference_bytes: bytes | None = None
             try:
                 descriptor, part_path, final_path = staging.create_output_part(values["output_basename"])
                 if reference_basename is not None:
-                    reference = staging.consume_reference(reference_basename)
-                    reference_path = _write_private_reference(self.staging_root, reference)
+                    reference_bytes = staging.consume_reference(reference_basename)
+                    reference_path = _write_private_reference(self.staging_root, reference_bytes)
 
                 adapter = self._adapter(requested_spec)
-                with deterministic_inference_seed(text, requested_spec.model_id):
+                with deterministic_inference_seed(
+                    _speaker_seed_material(requested_spec, reference_bytes),
+                    requested_spec.model_id,
+                ):
                     waveform = adapter.synthesize(
                         text=text,
                         locale=locale,
@@ -170,7 +188,7 @@ class SpeechEngine:
             self._loaded_adapter = None
             self._loaded_model_key = None
         try:
-            adapter = self.adapter_factory(spec.adapter, model_path)
+            adapter = self.adapter_factory(spec.adapter, model_path, self.voice_state_root)
         except AdapterError:
             raise
         except Exception as exception:
@@ -219,9 +237,22 @@ def _spec(model_id: object) -> ModelSpec:
         raise EngineError("model_not_allowlisted") from exception
 
 
-def _validated_private_directory(path: Path, error_code: str) -> Path:
+def _speaker_seed_material(spec: ModelSpec, reference: bytes | None) -> str:
+    if reference is not None:
+        return "reference:" + hashlib.sha256(reference).hexdigest()
+    if spec.built_in_voice_design_revision:
+        return "built-in:" + spec.built_in_voice_design_revision
+    return "model-default:" + spec.revision
+
+
+def _validated_private_directory(path: Path, error_code: str, create: bool = False) -> Path:
     if not path.is_absolute():
         raise EngineError(error_code)
+    if create:
+        try:
+            path.mkdir(mode=0o750, exist_ok=True)
+        except OSError as exception:
+            raise EngineError(error_code) from exception
     try:
         metadata = path.lstat()
     except OSError as exception:

@@ -64,7 +64,7 @@ final class SelfHostedSpeechEngineClient implements SpeechEngineClient
         }
         $requestId = (string) Str::ulid();
         $json = json_encode([
-            'protocol_version' => (int) config('dis.speech.protocol_version', 1),
+            'protocol_version' => (int) config('dis.speech.protocol_version', 2),
             'request_id' => $requestId,
             'action' => $action,
             'payload' => $payload,
@@ -99,7 +99,7 @@ final class SelfHostedSpeechEngineClient implements SpeechEngineClient
         }
 
         if (! is_array($decoded)
-            || ($decoded['protocol_version'] ?? null) !== (int) config('dis.speech.protocol_version', 1)
+            || ($decoded['protocol_version'] ?? null) !== (int) config('dis.speech.protocol_version', 2)
             || ! is_string($decoded['request_id'] ?? null)
             || ! hash_equals($requestId, $decoded['request_id'])) {
             throw new SpeechEngineException('engine_response_mismatch');
