@@ -59,6 +59,10 @@ require_text "${COMMON}" 'uv-x86_64-unknown-linux-gnu.tar.gz'
 require_text "${COMMON}" "--proto '=https'"
 require_text "${COMMON}" '--max-filesize 67108864'
 require_text "${COMMON}" '[ "${checksum}" = "${SPEECH_UV_ARCHIVE_SHA256}" ]'
+require_text "${COMMON}" 'version_output="$("${uv_binary}" self version --short)" || return 1'
+require_text "${COMMON}" '[ "${version_output}" = "${SPEECH_UV_VERSION}" ]'
+reject_text "${COMMON}" '"${uv_binary}" --version'
+reject_text "${COMMON}" '"${uv_binary}" -V'
 require_text "${COMMON}" 'The speech engine source tree may not contain symbolic links.'
 require_text "${COMMON}" '"${uv_binary}" python install 3.11'
 require_text "${COMMON}" '"${uv_binary}" sync \'
@@ -96,6 +100,37 @@ require_text "${COMMON}" 'log "Would set managed environment secret ${key}."'
 require_text "${COMMON}" 'mv -fT -- "${temporary}" "${resolved_env}"'
 require_text "${COMMON}" '"${COMMON_LIB_DIR}/secure-path.py" "${operation}" -- "$@"'
 reject_text "${ROOT_ENV_EXAMPLE}" 'SPEECH_CACHE_HMAC_KEY=change-this'
+
+# Exercise the exact uv version probe with a controlled executable. A valid
+# version printed alongside a failed exit status must never pass verification.
+# shellcheck disable=SC1090
+source "${COMMON}"
+speech_uv_version_test_dir="$(mktemp -d)"
+speech_uv_version_test_binary="${speech_uv_version_test_dir}/uv"
+trap 'rm -rf -- "${speech_uv_version_test_dir}"' EXIT
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  '[ "$*" = "self version --short" ] || exit 64' \
+  'printf "%s\n" "${FAKE_UV_OUTPUT:-}"' \
+  'exit "${FAKE_UV_EXIT_CODE:-0}"' \
+  > "${speech_uv_version_test_binary}"
+chmod 0755 "${speech_uv_version_test_binary}"
+
+FAKE_UV_OUTPUT="${SPEECH_UV_VERSION}" FAKE_UV_EXIT_CODE=0 \
+  speech_uv_executable_version_is_expected "${speech_uv_version_test_binary}" \
+  || { printf 'The pinned uv short version should pass verification.\n' >&2; exit 1; }
+for rejected_uv_version in '' '0.11.29' '0.11.30 (build metadata)'; do
+  if FAKE_UV_OUTPUT="${rejected_uv_version}" FAKE_UV_EXIT_CODE=0 \
+    speech_uv_executable_version_is_expected "${speech_uv_version_test_binary}"; then
+    printf 'Unexpected uv version output passed verification: %s\n' "${rejected_uv_version}" >&2
+    exit 1
+  fi
+done
+if FAKE_UV_OUTPUT="${SPEECH_UV_VERSION}" FAKE_UV_EXIT_CODE=1 \
+  speech_uv_executable_version_is_expected "${speech_uv_version_test_binary}"; then
+  printf 'A failed uv version command passed verification.\n' >&2
+  exit 1
+fi
 
 for leaf in models cache runtime staging state uv-cache python; do
   require_text "${COMMON}" 'ensure_managed_directory "${DIS_DATA_PATH}/tts/'"${leaf}"'"'

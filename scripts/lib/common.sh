@@ -19,6 +19,15 @@ SPEECH_UV_VERSION=0.11.30
 SPEECH_UV_ARCHIVE_SHA256=04bc7d180d6138bf6dc08387acf507a823f397a98fea55da36b0ccc7fbce3b68
 SPEECH_UV_ARCHIVE_URL="https://github.com/astral-sh/uv/releases/download/${SPEECH_UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz"
 
+speech_uv_executable_version_is_expected() {
+  local uv_binary="$1"
+  local version_output=""
+
+  [ -x "${uv_binary}" ] || return 1
+  version_output="$("${uv_binary}" self version --short)" || return 1
+  [ "${version_output}" = "${SPEECH_UV_VERSION}" ]
+}
+
 log() {
   printf '[dis] %s\n' "$*"
 }
@@ -402,7 +411,7 @@ install_speech_engine_runtime() (
   [ -f "${uv_binary}" ] && [ ! -L "${uv_binary}" ] \
     || fail "The verified uv archive did not contain the expected executable."
   chmod 0755 "${uv_binary}"
-  [ "$("${uv_binary}" --version)" = "uv ${SPEECH_UV_VERSION}" ] \
+  speech_uv_executable_version_is_expected "${uv_binary}" \
     || fail "The verified uv executable reported an unexpected version."
 
   uv_environment=(
