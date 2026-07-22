@@ -94,6 +94,7 @@ require_text "${DEPLOY}" 'ensure_speech_cache_hmac_key'
 require_text "${COMMON}" 'set_managed_env_secret() ('
 require_text "${COMMON}" 'log "Would set managed environment secret ${key}."'
 require_text "${COMMON}" 'mv -fT -- "${temporary}" "${resolved_env}"'
+require_text "${COMMON}" '"${COMMON_LIB_DIR}/secure-path.py" "${operation}" -- "$@"'
 reject_text "${ROOT_ENV_EXAMPLE}" 'SPEECH_CACHE_HMAC_KEY=change-this'
 
 for leaf in models cache runtime staging state uv-cache python; do

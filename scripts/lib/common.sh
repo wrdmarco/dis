@@ -150,10 +150,15 @@ ensure_managed_directory() {
 }
 
 secure_path_operation() {
+  local operation="$1"
+
+  shift
   [ -x /usr/bin/python3 ] || fail "python3 is required for secure descriptor-based path operations."
   root_controlled_bundle_source_is_safe "${COMMON_LIB_DIR}/secure-path.py" \
     || fail "The secure path helper is not root-controlled."
-  run_cmd /usr/bin/python3 -I -S "${COMMON_LIB_DIR}/secure-path.py" "$@"
+  # Permission values such as "---" and "--x" are positional arguments.
+  # Keep argparse from interpreting them as command-line options.
+  run_cmd /usr/bin/python3 -I -S "${COMMON_LIB_DIR}/secure-path.py" "${operation}" -- "$@"
 }
 
 root_owned_runtime_directory_is_safe() {
