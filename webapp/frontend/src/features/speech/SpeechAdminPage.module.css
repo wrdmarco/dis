@@ -283,10 +283,35 @@
   color: var(--dis-muted);
 }
 
-.audioPlayer {
+.audioPreview {
+  display: grid;
+  flex: 1 1 320px;
+  gap: 7px;
   min-width: 250px;
   max-width: min(100%, 520px);
+}
+
+.audioPlayer {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
   height: 42px;
+}
+
+.audioError {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  color: #fecdd3;
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.audioError svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
 }
 
 .actionsRow > .primary-button,
@@ -929,12 +954,14 @@
   .actionsRow > .primary-button,
   .saveFooter > .primary-button,
   .cacheActions > .primary-button,
+  .audioPreview,
   .audioPlayer,
   .selectedAudio audio,
   .filePicker,
   .recordButton,
   .recordButtonActive {
     width: 100%;
+    min-width: 0;
     max-width: none;
   }
 

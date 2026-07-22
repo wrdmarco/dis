@@ -49,7 +49,7 @@ export function buildContentSecurityPolicy(options: ContentSecurityPolicyOptions
     `frame-src ${frameSources.join(' ')}`,
     "worker-src 'self'",
     "manifest-src 'self'",
-    "media-src 'none'",
+    "media-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

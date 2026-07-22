@@ -56,6 +56,7 @@ final class EnsureFirstPartyRequestsAreStateful extends EnsureFrontendRequestsAr
             'api/wallboard/news-images/*',
             'api/admin/wallboard-media/assets/*/content',
             'api/admin/wallboard-media/assets/*/thumbnail',
+            'api/admin/speech/previews/*/audio',
         );
     }
 }

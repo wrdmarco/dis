@@ -19,6 +19,7 @@ final class FirstPartyMediaRequestTest extends TestCase
             'wallboard news image' => ['/api/wallboard/news-images/'.str_repeat('a', 64)],
             'admin asset' => ['/api/admin/wallboard-media/assets/'.$ulid.'/content'],
             'admin thumbnail' => ['/api/admin/wallboard-media/assets/'.$ulid.'/thumbnail'],
+            'admin speech preview' => ['/api/admin/speech/previews/'.$ulid.'/audio'],
         ];
     }
 

@@ -75,8 +75,10 @@ Set these production values in `/opt/dis-data/.env` before deployment:
 
 The enforced CSP permits only DIS itself plus the sources used by the current code: PDOK and Photon
 for address lookup, ArcGIS for map imagery, OpenStreetMap for the embedded location picker, the two
-built-in Aeret map origins, and the configured same-service websocket host. Adding a new external
-frontend dependency requires updating and testing `webapp/frontend/src/lib/securityPolicy.ts`.
+built-in Aeret map origins, and the configured same-service websocket host. Media is restricted to
+authenticated same-origin delivery and browser-local `blob:` previews; no external media origin is
+allowed. Adding a new external frontend dependency requires updating and testing
+`webapp/frontend/src/lib/securityPolicy.ts`.
 
 ### Incident location enrichment
 

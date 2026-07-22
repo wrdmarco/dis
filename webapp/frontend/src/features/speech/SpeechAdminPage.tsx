@@ -429,9 +429,7 @@ function PreviewPanel({
 
         <div className={styles.actionsRow}>
           {audioSource ? (
-            <audio key={audioSource} className={styles.audioPlayer} controls preload="none" src={audioSource}>
-              Uw browser ondersteunt geen audio-afspelen.
-            </audio>
+            <SpeechPreviewAudioPlayer key={audioSource} source={audioSource} />
           ) : <span className={styles.actionHint}>Audio verschijnt hier zodra de server klaar is.</span>}
           <button
             className="primary-button"
@@ -445,6 +443,32 @@ function PreviewPanel({
         </div>
       </div>
     </Panel>
+  );
+}
+
+function SpeechPreviewAudioPlayer({ source }: { source: string }) {
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  return (
+    <div className={styles.audioPreview}>
+      <audio
+        aria-label="Proefmelding afspelen"
+        className={styles.audioPlayer}
+        controls
+        preload="metadata"
+        src={source}
+        onCanPlay={() => setLoadFailed(false)}
+        onError={() => setLoadFailed(true)}
+      >
+        Uw browser ondersteunt geen audio-afspelen.
+      </audio>
+      {loadFailed ? (
+        <p className={styles.audioError} role="alert">
+          <AlertTriangle aria-hidden size={17} />
+          De audio kon niet worden geladen. Genereer de proefmelding opnieuw of vernieuw deze pagina.
+        </p>
+      ) : null}
+    </div>
   );
 }
 

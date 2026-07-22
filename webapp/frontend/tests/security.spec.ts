@@ -20,15 +20,19 @@ test('only a definitive authenticated-session 401 clears the active web login', 
   expect(isAuthenticatedSessionFailure(403, 'unauthenticated')).toBe(false);
 });
 
-test('CSP allows only the exact supported wallboard video origins', () => {
+test('CSP allows only supported frames plus same-origin and local-blob media', () => {
   const policy = buildContentSecurityPolicy({ nonce: 'test-nonce', development: false });
   const frameDirective = policy.split(';').map((part) => part.trim()).find((part) => part.startsWith('frame-src '));
+  const mediaDirective = policy.split(';').map((part) => part.trim()).find((part) => part.startsWith('media-src '));
 
   expect(frameDirective).toContain('https://www.youtube.com');
   expect(frameDirective).toContain('https://player.vimeo.com');
   expect(frameDirective).not.toContain('*.youtube.com');
   expect(frameDirective).not.toContain('*.vimeo.com');
-  expect(policy).toContain("media-src 'none'");
+  expect(mediaDirective).toBe("media-src 'self' blob:");
+  expect(mediaDirective).not.toContain('data:');
+  expect(mediaDirective).not.toContain('https:');
+  expect(mediaDirective).not.toContain('*');
 });
 
 test.describe('public security contract', () => {

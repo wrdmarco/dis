@@ -649,6 +649,48 @@ final class SpeechAdministrationTest extends TestCase
             ->assertJsonPath('error.code', 'speech_voice_consent_revoked');
     }
 
+    public function test_ready_preview_audio_supports_browser_metadata_and_range_reads(): void
+    {
+        $manager = $this->user('speech-preview-audio@example.test', ['settings.manage']);
+        $bytes = str_repeat('PREVIEW-M4A-CONTENT-', 100);
+        $sha256 = hash('sha256', $bytes);
+        $root = (string) config('dis.speech.cache_root');
+        $relative = 'objects/'.substr($sha256, 0, 2).'/'.$sha256.'.m4a';
+        $path = $root.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
+        File::ensureDirectoryExists(dirname($path));
+        File::put($path, $bytes);
+        $asset = SpeechAudioAsset::query()->create([
+            'content_sha256' => $sha256,
+            'storage_path' => $relative,
+            'mime_type' => 'audio/mp4',
+            'byte_size' => strlen($bytes),
+            'duration_ms' => 1500,
+        ]);
+        $preview = SpeechPreview::query()->create([
+            'requested_by' => $manager->id,
+            'phase' => 'availability',
+            'status' => 'ready',
+            'progress_percent' => 100,
+            'rendered_lines' => ['Voorwaarschuwing voor Utrecht.'],
+            'audio_asset_id' => $asset->id,
+            'expires_at' => now()->addHour(),
+            'ready_at' => now(),
+        ]);
+        $url = '/api/admin/speech/previews/'.$preview->id.'/audio';
+
+        $this->asAdminClient($manager)->get($url, ['Accept' => 'audio/mp4'])
+            ->assertOk()
+            ->assertHeader('Content-Type', 'audio/mp4')
+            ->assertHeader('Accept-Ranges', 'bytes')
+            ->assertHeader('ETag', '"'.$sha256.'"')
+            ->assertHeader('X-Content-SHA256', $sha256);
+        $this->asAdminClient($manager)
+            ->withHeaders(['If-None-Match' => '', 'Range' => 'bytes=0-9'])
+            ->get($url, ['Accept' => 'audio/mp4'])
+            ->assertStatus(206)
+            ->assertHeader('Content-Range', 'bytes 0-9/'.strlen($bytes));
+    }
+
     public function test_restore_reconciliation_fails_closed_for_unverified_models_and_missing_audio(): void
     {
         Queue::fake();

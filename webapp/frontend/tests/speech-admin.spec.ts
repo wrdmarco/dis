@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from 'playwright/test';
+import type { SpeechPreview } from '../src/types/api';
 import {
   fixedSpeechPreviewAudioPath,
   formatSpeechBytes,
@@ -251,6 +252,58 @@ test('lets an administrator clear a disappeared profile while server speech is o
   await expect(page.getByRole('button', { name: 'Spraakinstellingen opslaan' }).first()).toBeEnabled();
 });
 
+test('loads ready preview audio through the protected same-origin media endpoint', async ({ page }) => {
+  const preview = readySpeechPreview();
+  let audioRequests = 0;
+  const cspViolations: string[] = [];
+  page.on('console', (message) => {
+    if (/content security policy|violat(?:e|ion).*csp/i.test(message.text())) {
+      cspViolations.push(message.text());
+    }
+  });
+  await mockSpeechAdminApi(page, speechAdminStatus(), {
+    preview,
+    audio: {
+      body: silentWav(),
+      contentType: 'audio/wav',
+      onRequest: () => { audioRequests += 1; },
+    },
+  });
+  await page.goto('/speech');
+
+  await page.getByRole('button', { name: 'Proefmelding genereren' }).click();
+  const player = page.getByLabel('Proefmelding afspelen');
+  await expect(player).toBeVisible();
+  await expect.poll(() => audioRequests).toBeGreaterThan(0);
+  await expect.poll(() => player.evaluate((element) => {
+    const audio = element as HTMLAudioElement;
+    return Number.isFinite(audio.duration) ? audio.duration : 0;
+  })).toBeGreaterThan(0);
+  expect(cspViolations).toEqual([]);
+  await expect(page.getByText('De audio kon niet worden geladen.')).toHaveCount(0);
+});
+
+test('shows an actionable error when ready preview audio cannot be loaded', async ({ page }) => {
+  await mockSpeechAdminApi(page, speechAdminStatus(), {
+    preview: readySpeechPreview(),
+    audio: {
+      status: 410,
+      contentType: 'application/json',
+      body: Buffer.from(JSON.stringify({
+        error: { code: 'speech_preview_expired', message: 'Preview verlopen.', details: {} },
+      })),
+    },
+  });
+  await page.goto('/speech');
+
+  await page.getByRole('button', { name: 'Proefmelding genereren' }).click();
+
+  await expect(page.getByText(
+    'De audio kon niet worden geladen. Genereer de proefmelding opnieuw of vernieuw deze pagina.',
+    { exact: true },
+  )).toBeVisible();
+});
+
 test('uses fixed speech endpoints and a backend-driven model catalog', () => {
   const page = readFileSync(new URL('../src/features/speech/SpeechAdminPage.tsx', import.meta.url), 'utf8');
 
@@ -277,7 +330,21 @@ test('makes the fixed nl-NL emergency voice distinction explicit without a devic
   expect(page).not.toContain('device_voice_id');
 });
 
-async function mockSpeechAdminApi(page: Page, status: unknown = speechAdminStatus()): Promise<void> {
+interface SpeechAdminMockOptions {
+  preview?: SpeechPreview;
+  audio?: {
+    status?: number;
+    contentType: string;
+    body: Buffer;
+    onRequest?: () => void;
+  };
+}
+
+async function mockSpeechAdminApi(
+  page: Page,
+  status: unknown = speechAdminStatus(),
+  options: SpeechAdminMockOptions = {},
+): Promise<void> {
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === '/api/auth/me') {
@@ -298,11 +365,41 @@ async function mockSpeechAdminApi(page: Page, status: unknown = speechAdminStatu
       });
       return;
     }
+    if (path === '/api/auth/csrf-cookie') {
+      await route.fulfill({ status: 204, body: '' });
+      return;
+    }
     if (path === '/api/admin/speech') {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ data: status }),
+      });
+      return;
+    }
+    if (path === '/api/admin/speech/previews' && route.request().method() === 'POST' && options.preview) {
+      await route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: options.preview }),
+      });
+      return;
+    }
+    if (options.preview && path === `/api/admin/speech/previews/${options.preview.id}`) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: options.preview }),
+      });
+      return;
+    }
+    if (options.preview && options.audio
+      && path === `/api/admin/speech/previews/${options.preview.id}/audio`) {
+      options.audio.onRequest?.();
+      await route.fulfill({
+        status: options.audio.status ?? 200,
+        contentType: options.audio.contentType,
+        body: options.audio.body,
       });
       return;
     }
@@ -313,6 +410,44 @@ async function mockSpeechAdminApi(page: Page, status: unknown = speechAdminStatu
       body: JSON.stringify({ error: { code: 'not_found', message: 'Testroute niet gemockt.', details: {} } }),
     });
   });
+}
+
+function readySpeechPreview(): SpeechPreview {
+  return {
+    id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    phase: 'availability',
+    status: 'ready',
+    progress_percent: 100,
+    rendered_lines: [
+      'Voorwaarschuwing voor een mogelijke inzet in Utrecht.',
+      'Open de app en geef je beschikbaarheid door.',
+    ],
+    error_code: null,
+    created_at: '2026-07-22T12:00:00Z',
+    expires_at: '2026-07-23T12:00:00Z',
+  };
+}
+
+function silentWav(): Buffer {
+  const sampleRate = 8_000;
+  const sampleCount = 2_000;
+  const dataBytes = sampleCount * 2;
+  const wav = Buffer.alloc(44 + dataBytes);
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(36 + dataBytes, 4);
+  wav.write('WAVE', 8);
+  wav.write('fmt ', 12);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(sampleRate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write('data', 36);
+  wav.writeUInt32LE(dataBytes, 40);
+
+  return wav;
 }
 
 function speechAdminUser() {
