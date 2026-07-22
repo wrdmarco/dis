@@ -376,6 +376,10 @@ final class SpeechAudioPipeline
     private function assertVoiceMode(SpeechModelInstallation $model, ?SpeechVoiceProfile $voice): void
     {
         if ($voice !== null) {
+            if (config('dis.speech.models.'.$model->catalog_key.'.capabilities.voice_clone') !== true) {
+                throw new \RuntimeException('speech_voice_profile_unsupported');
+            }
+
             return;
         }
         $revision = trim((string) config(

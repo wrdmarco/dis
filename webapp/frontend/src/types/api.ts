@@ -1895,6 +1895,7 @@ export interface SpeechModel {
   commercial_use: boolean;
   quality_tier: string;
   supported_languages: string[];
+  built_in_voice_available: boolean;
   capabilities: {
     voice_clone: boolean;
     voice_design: boolean;

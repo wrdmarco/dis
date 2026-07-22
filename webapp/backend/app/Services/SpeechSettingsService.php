@@ -67,6 +67,9 @@ final class SpeechSettingsService
         if ($settings['voice_profile_id'] !== null && $voice === null) {
             throw ValidationException::withMessages(['voice_profile_id' => ['Het gekozen stemprofiel is niet meer gereed.']]);
         }
+        if ($voice !== null && ! $this->catalog->acceptsVoiceProfile((string) $settings['model_id'])) {
+            throw ValidationException::withMessages(['voice_profile_id' => ['Het gekozen model ondersteunt geen eigen stemprofiel.']]);
+        }
         $designRevision = $settings['voice_profile_id'] === null
             ? $this->catalog->builtInVoiceDesignRevision((string) $settings['model_id'])
             : null;
@@ -110,6 +113,10 @@ final class SpeechSettingsService
             ->whereKey($next['voice_profile_id'])->where('status', 'ready')->first();
         if ($next['voice_profile_id'] !== null && $voice === null) {
             throw ValidationException::withMessages(['voice_profile_id' => ['Het gekozen stemprofiel is niet gereed.']]);
+        }
+        if ($next['model_id'] !== null && $voice !== null
+            && ! $this->catalog->acceptsVoiceProfile((string) $next['model_id'])) {
+            throw ValidationException::withMessages(['voice_profile_id' => ['Het gekozen model ondersteunt geen eigen stemprofiel.']]);
         }
         if ($next['enabled']) {
             if ($next['model_id'] === null || $this->installations->installedForCatalog((string) $next['model_id']) === null) {

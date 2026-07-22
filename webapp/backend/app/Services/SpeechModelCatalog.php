@@ -47,6 +47,7 @@ final class SpeechModelCatalog
                 'quality_tier' => 'high_end',
                 'supported_languages' => array_values((array) $catalog['supported_languages']),
                 'capabilities' => (array) $catalog['capabilities'],
+                'built_in_voice_available' => $this->builtInVoiceDesignRevision($id) !== null,
                 'cpu' => (array) $catalog['cpu'],
                 'status' => match ($installation?->status) {
                     'queued', 'downloading', 'processing', 'installing' => 'installing',
@@ -129,5 +130,12 @@ final class SpeechModelCatalog
         $revision = trim((string) ($model['built_in_voice_design_revision'] ?? ''));
 
         return ($model['capabilities']['voice_design'] ?? false) === true && $revision !== '' ? $revision : null;
+    }
+
+    public function acceptsVoiceProfile(string $id): bool
+    {
+        $model = $this->model($id);
+
+        return ($model['capabilities']['voice_clone'] ?? false) === true;
     }
 }

@@ -46,10 +46,12 @@ import {
   SPEECH_POLL_INTERVAL_MS,
   speechCacheHitRate,
   speechCacheUsagePercentage,
+  speechConfigurationIssue,
   speechStatusLabel,
   speechStatusTone,
   speechTemplateTokens,
   speechTokenLabel,
+  speechVoiceProfileIsReadyForModel,
   speechWorkIsActive,
 } from './speechPresentation';
 
@@ -153,6 +155,14 @@ function SpeechWorkspace({
   const previousServerSettingsRef = useRef(data.settings);
   const settingsPayload = speechDraftToSettings(draft);
   const settingsDirty = !speechSettingsEqual(settingsPayload, data.settings);
+  const selectedModel = data.models.find((model) => model.id === draft.model_id) ?? null;
+  const selectedVoiceProfile = data.voice_profiles.find((profile) => profile.id === draft.voice_profile_id) ?? null;
+  const configurationIssue = speechConfigurationIssue({
+    enabled: draft.enabled,
+    model: selectedModel,
+    voiceProfileId: draft.voice_profile_id,
+    voiceProfile: selectedVoiceProfile,
+  });
   const previewActive = speechWorkIsActive(preview?.status);
   const previewId = preview?.id ?? null;
 
@@ -192,7 +202,19 @@ function SpeechWorkspace({
     };
   }, [api, previewActive, previewId]);
 
+  function updateDraft(next: SpeechSettingsDraft) {
+    setDraft(next);
+    setSaveError(null);
+    setSaveMessage(null);
+  }
+
   async function saveSettings() {
+    if (configurationIssue !== null) {
+      setSaveError(configurationIssue.message);
+      setSaveMessage(null);
+      return;
+    }
+
     setSaving(true);
     setSaveError(null);
     setSaveMessage(null);
@@ -244,8 +266,9 @@ function SpeechWorkspace({
         saveError={saveError}
         saveMessage={saveMessage}
         settingsDirty={settingsDirty}
+        blockedReason={configurationIssue?.message ?? null}
         canManage={canManage}
-        onDraftChange={setDraft}
+        onDraftChange={updateDraft}
         onSave={() => void saveSettings()}
       />
 
@@ -266,8 +289,9 @@ function SpeechWorkspace({
         saveError={saveError}
         saveMessage={saveMessage}
         settingsDirty={settingsDirty}
+        blockedReason={configurationIssue?.message ?? null}
         canManage={canManage}
-        onDraftChange={setDraft}
+        onDraftChange={updateDraft}
         onSave={() => void saveSettings()}
       />
 
@@ -431,6 +455,7 @@ function ServerVoicePanel({
   saveError,
   saveMessage,
   settingsDirty,
+  blockedReason,
   canManage,
   onDraftChange,
   onSave,
@@ -441,10 +466,73 @@ function ServerVoicePanel({
   saveError: string | null;
   saveMessage: string | null;
   settingsDirty: boolean;
+  blockedReason: string | null;
   canManage: boolean;
   onDraftChange: (next: SpeechSettingsDraft) => void;
   onSave: () => void;
 }) {
+  const selectedModel = data.models.find((model) => model.id === draft.model_id) ?? null;
+  const selectedProfile = data.voice_profiles.find((profile) => profile.id === draft.voice_profile_id) ?? null;
+  const selectedProfileReady = selectedModel !== null
+    && selectedProfile !== null
+    && speechVoiceProfileIsReadyForModel(selectedProfile, selectedModel.id);
+  const readyCompatibleProfiles = selectedModel === null ? [] : data.voice_profiles.filter(
+    (profile) => speechVoiceProfileIsReadyForModel(profile, selectedModel.id),
+  );
+  const builtInVoiceModel = data.models.find(
+    (model) => model.built_in_voice_available && model.status === 'installed',
+  ) ?? data.models.find((model) => model.built_in_voice_available) ?? null;
+  const profileRequired = selectedModel !== null && !selectedModel.built_in_voice_available;
+  const modelSelectionInvalid = draft.enabled
+    && (selectedModel === null || selectedModel.status !== 'installed');
+  const selectedProfileInvalid = draft.voice_profile_id !== null
+    && (selectedProfile === null
+      || selectedProfile.status !== 'ready'
+      || (selectedModel !== null && !selectedProfile.compatible_model_ids.includes(selectedModel.id)));
+  const voiceSelectionInvalid = selectedProfileInvalid
+    || (draft.enabled && selectedModel?.status === 'installed'
+      && draft.voice_profile_id === null && profileRequired);
+  const voiceHelpId = 'speech-active-voice-help';
+  const voiceHelpText = (() => {
+    if (selectedModel === null) return 'Kies eerst een geïnstalleerd servermodel.';
+    if (draft.voice_profile_id !== null && selectedProfile === null) {
+      return 'Het gekozen stemprofiel is niet meer beschikbaar. Kies een ander gereed stemprofiel.';
+    }
+    if (selectedProfile !== null && selectedProfile.status !== 'ready') {
+      return `${selectedProfile.name} is nog niet gereed. Kies een gereed stemprofiel of wacht tot de verwerking klaar is.`;
+    }
+    if (selectedProfile !== null && !selectedProfile.compatible_model_ids.includes(selectedModel.id)) {
+      return `${selectedProfile.name} is niet geschikt voor ${selectedModel.name}. Kies een compatibel stemprofiel.`;
+    }
+    if (selectedProfileReady) return `${selectedProfile.name} is gereed en geschikt voor ${selectedModel.name}.`;
+    if (selectedModel.built_in_voice_available) {
+      return 'Zonder eigen profiel gebruikt dit model zijn ingebouwde serverstem.';
+    }
+    if (readyCompatibleProfiles.length > 0) {
+      return `${selectedModel.name} heeft geen ingebouwde stem. Kies een stemprofiel met status Gereed.`;
+    }
+    if (builtInVoiceModel?.status === 'installed') {
+      return `${selectedModel.name} heeft geen ingebouwde stem. Kies ${builtInVoiceModel.name} als servermodel, of maak onder ‘Eigen serverstemmen’ een profiel aan.`;
+    }
+    if (builtInVoiceModel !== null) {
+      return `${selectedModel.name} heeft geen ingebouwde stem. Installeer ${builtInVoiceModel.name} onder ‘Servermodellen’ en selecteer het daarna, of maak een eigen stemprofiel aan.`;
+    }
+
+    return `${selectedModel.name} heeft geen ingebouwde stem. Maak onder ‘Eigen serverstemmen’ eerst een profiel aan en wacht op Gereed.`;
+  })();
+
+  function changeModel(modelId: string | null) {
+    const currentProfile = data.voice_profiles.find((profile) => profile.id === draft.voice_profile_id) ?? null;
+    const keepCurrentProfile = modelId !== null
+      && currentProfile !== null
+      && speechVoiceProfileIsReadyForModel(currentProfile, modelId);
+    onDraftChange({
+      ...draft,
+      model_id: modelId,
+      voice_profile_id: keepCurrentProfile ? currentProfile.id : null,
+    });
+  }
+
   return (
     <Panel title="Centrale serverstem" action={<StatusPill value={draft.enabled ? 'Ingeschakeld' : 'Uitgeschakeld'} tone={draft.enabled ? 'good' : 'neutral'} />}>
       <div className={styles.sectionBody}>
@@ -461,6 +549,7 @@ function ServerVoicePanel({
             <input
               type="checkbox"
               checked={draft.enabled}
+              disabled={saving}
               onChange={(event) => onDraftChange({ ...draft, enabled: event.target.checked })}
             />
             <span>
@@ -473,9 +562,14 @@ function ServerVoicePanel({
             Actief servermodel
             <select
               value={draft.model_id ?? ''}
-              onChange={(event) => onDraftChange({ ...draft, model_id: event.target.value || null })}
+              disabled={saving}
+              aria-invalid={modelSelectionInvalid || undefined}
+              onChange={(event) => changeModel(event.target.value || null)}
             >
               <option value="">Geen servermodel actief</option>
+              {draft.model_id !== null && selectedModel === null ? (
+                <option value={draft.model_id} disabled>Niet meer beschikbaar model</option>
+              ) : null}
               {data.models.map((model) => (
                 <option
                   key={model.id}
@@ -492,19 +586,43 @@ function ServerVoicePanel({
             Actief stemprofiel
             <select
               value={draft.voice_profile_id ?? ''}
+              disabled={saving || selectedModel === null}
+              aria-invalid={voiceSelectionInvalid || undefined}
+              aria-describedby={voiceHelpId}
               onChange={(event) => onDraftChange({ ...draft, voice_profile_id: event.target.value || null })}
             >
-              <option value="">Standaardstem van het servermodel</option>
-              {data.voice_profiles.map((profile) => (
-                <option
-                  key={profile.id}
-                  value={profile.id}
-                  disabled={profile.status !== 'ready' && profile.id !== draft.voice_profile_id}
-                >
-                  {profile.name} · {profile.locale} · {speechStatusLabel(profile.status)}
-                </option>
-              ))}
+              <option value="">
+                {selectedModel === null
+                  ? 'Kies eerst een servermodel'
+                  : profileRequired
+                    ? 'Kies een gereed stemprofiel'
+                    : 'Ingebouwde stem van dit servermodel'}
+              </option>
+              {draft.voice_profile_id !== null && selectedProfile === null ? (
+                <option value={draft.voice_profile_id} disabled>Niet meer beschikbaar stemprofiel</option>
+              ) : null}
+              {data.voice_profiles.map((profile) => {
+                const compatible = selectedModel !== null
+                  && profile.compatible_model_ids.includes(selectedModel.id);
+                const available = compatible && profile.status === 'ready';
+                const availabilityLabel = !compatible && selectedModel !== null
+                  ? 'Niet compatibel'
+                  : speechStatusLabel(profile.status);
+                return (
+                  <option key={profile.id} value={profile.id} disabled={!available}>
+                    {profile.name} · {profile.locale} · {availabilityLabel}
+                  </option>
+                );
+              })}
             </select>
+            <small
+              id={voiceHelpId}
+              className={voiceSelectionInvalid ? styles.fieldWarning : styles.fieldHelp}
+              role={voiceSelectionInvalid ? 'status' : undefined}
+              aria-live={voiceSelectionInvalid ? 'polite' : undefined}
+            >
+              {voiceHelpText}
+            </small>
           </label>
 
           <label className={styles.speedControl}>
@@ -515,6 +633,7 @@ function ServerVoicePanel({
               max="1.15"
               step="0.01"
               value={draft.speed}
+              disabled={saving}
               onChange={(event) => onDraftChange({ ...draft, speed: Number(event.target.value) })}
             />
             <span className={styles.rangeLabels}><small>Rustiger · 0,85×</small><small>Sneller · 1,15×</small></span>
@@ -524,6 +643,7 @@ function ServerVoicePanel({
             <input
               type="checkbox"
               checked={draft.pre_generate_on_save}
+              disabled={saving}
               onChange={(event) => onDraftChange({ ...draft, pre_generate_on_save: event.target.checked })}
             />
             <span>
@@ -538,6 +658,7 @@ function ServerVoicePanel({
           saving={saving}
           error={saveError}
           message={saveMessage}
+          blockedReason={blockedReason}
           canManage={canManage}
           onSave={onSave}
         />
@@ -855,7 +976,11 @@ function VoiceProfilesPanel({
               );
             })}
           </div>
-        ) : <p className={styles.emptyState}>Nog geen eigen stemprofielen. De standaardstem van een geïnstalleerd model blijft beschikbaar.</p>}
+        ) : (
+          <p className={styles.emptyState}>
+            Nog geen eigen stemprofielen. Alleen een model met een ingebouwde serverstem kan zonder gereed profiel worden gebruikt.
+          </p>
+        )}
 
         <div className={styles.uploadStudio}>
           <div className={styles.uploadHeading}>
@@ -941,6 +1066,7 @@ function TemplatePanel({
   saveError,
   saveMessage,
   settingsDirty,
+  blockedReason,
   canManage,
   onDraftChange,
   onSave,
@@ -951,6 +1077,7 @@ function TemplatePanel({
   saveError: string | null;
   saveMessage: string | null;
   settingsDirty: boolean;
+  blockedReason: string | null;
   canManage: boolean;
   onDraftChange: (next: SpeechSettingsDraft) => void;
   onSave: () => void;
@@ -958,10 +1085,12 @@ function TemplatePanel({
   const textareas = useRef<Partial<Record<SpeechPhase, HTMLTextAreaElement | null>>>({});
 
   function updateTemplate(phase: SpeechPhase, value: string) {
+    if (saving) return;
     onDraftChange({ ...draft, templates: { ...draft.templates, [phase]: value } });
   }
 
   function insertToken(definition: SpeechTemplateDefinition, rawToken: string) {
+    if (saving) return;
     const token = normalizeSpeechToken(rawToken);
     const textarea = textareas.current[definition.phase] ?? null;
     const result = insertSpeechToken(
@@ -1008,6 +1137,7 @@ function TemplatePanel({
                     ref={(node) => { textareas.current[definition.phase] = node; }}
                     value={value}
                     rows={Math.max(5, Math.min(9, segments.length + 2))}
+                    disabled={saving}
                     onChange={(event) => updateTemplate(definition.phase, event.target.value)}
                     spellCheck
                   />
@@ -1019,7 +1149,7 @@ function TemplatePanel({
                     {definition.allowed_tokens.map((token) => {
                       const normalized = normalizeSpeechToken(token);
                       return (
-                        <button key={token} type="button" onClick={() => insertToken(definition, token)}>
+                        <button key={token} type="button" disabled={saving} onClick={() => insertToken(definition, token)}>
                           <span>{speechTokenLabel(normalized)}</span>
                           <code>{`{${normalized}}`}</code>
                         </button>
@@ -1052,6 +1182,7 @@ function TemplatePanel({
           saving={saving}
           error={saveError}
           message={saveMessage}
+          blockedReason={blockedReason}
           canManage={canManage}
           onSave={onSave}
         />
@@ -1156,6 +1287,7 @@ function SettingsSaveFooter({
   saving,
   error,
   message,
+  blockedReason,
   canManage,
   onSave,
 }: {
@@ -1163,17 +1295,28 @@ function SettingsSaveFooter({
   saving: boolean;
   error: string | null;
   message: string | null;
+  blockedReason: string | null;
   canManage: boolean;
   onSave: () => void;
 }) {
   return (
     <div className={styles.saveFooter}>
       <div>
-        {error ? <p className="form-error" role="alert">{error}</p> : null}
-        {message && !dirty ? <p className="success-text" role="status">{message}</p> : null}
-        {!error && (dirty || !message) ? <span>{dirty ? 'Er zijn niet-opgeslagen wijzigingen.' : 'Alle instellingen zijn opgeslagen.'}</span> : null}
+        {blockedReason ? (
+          <p className={styles.saveBlocked} role="status">
+            <AlertTriangle aria-hidden size={17} />
+            {blockedReason}
+          </p>
+        ) : error ? <p className="form-error" role="alert">{error}</p> : null}
+        {!blockedReason && message && !dirty ? <p className="success-text" role="status">{message}</p> : null}
+        {!blockedReason && !error && (dirty || !message) ? <span>{dirty ? 'Er zijn niet-opgeslagen wijzigingen.' : 'Alle instellingen zijn opgeslagen.'}</span> : null}
       </div>
-      <button className="primary-button" type="button" disabled={!canManage || saving || !dirty} onClick={onSave}>
+      <button
+        className="primary-button"
+        type="button"
+        disabled={!canManage || saving || !dirty || blockedReason !== null}
+        onClick={onSave}
+      >
         {saving ? 'Opslaan...' : 'Spraakinstellingen opslaan'}
       </button>
     </div>

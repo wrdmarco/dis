@@ -314,6 +314,32 @@
   font-weight: 740;
 }
 
+.settingsGrid select {
+  min-height: 44px;
+}
+
+.settingsGrid select[aria-invalid="true"] {
+  border-color: var(--dis-warning);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.18);
+}
+
+.fieldHelp,
+.fieldWarning {
+  color: var(--dis-muted);
+  font-size: 0.76rem;
+  font-weight: 560;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.fieldWarning {
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 7px;
+  background: var(--dis-warning-soft);
+  color: var(--dis-warning);
+  padding: 8px 10px;
+}
+
 .checkboxCard,
 .consentCard,
 .licenseCheck {
@@ -404,6 +430,25 @@
 .saveFooter span {
   color: var(--dis-muted);
   font-size: 0.82rem;
+}
+
+.saveFooter .saveBlocked {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 8px;
+  background: var(--dis-warning-soft);
+  color: var(--dis-warning);
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.saveBlocked svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
 }
 
 .sectionLead {

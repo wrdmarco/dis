@@ -24,7 +24,8 @@ final class SpeechManifestGenerationService
         $build->loadMissing(['modelInstallation', 'voiceProfile']);
         $voiceDesignRevision = trim((string) $build->voice_design_revision);
         $profileInvalid = $build->voice_profile_id !== null
-            && ($build->voiceProfile === null || $build->voiceProfile->status !== 'ready');
+            && ($build->voiceProfile === null || $build->voiceProfile->status !== 'ready'
+                || config('dis.speech.models.'.$build->modelInstallation?->catalog_key.'.capabilities.voice_clone') !== true);
         $designInvalid = $build->voice_profile_id === null
             && ($voiceDesignRevision === ''
                 || config('dis.speech.models.'.$build->modelInstallation?->catalog_key.'.capabilities.voice_design') !== true

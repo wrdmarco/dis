@@ -42,7 +42,9 @@ final class SpeechDispatchGateService
             : trim((string) config('dis.speech.models.'.$modelId.'.built_in_voice_design_revision'));
         $supportsVoiceDesign = $modelId !== null
             && config('dis.speech.models.'.$modelId.'.capabilities.voice_design') === true;
-        if ($model === null || ($voiceId !== null && $voice === null)
+        $supportsVoiceProfile = $modelId !== null
+            && config('dis.speech.models.'.$modelId.'.capabilities.voice_clone') === true;
+        if ($model === null || ($voiceId !== null && ($voice === null || ! $supportsVoiceProfile))
             || ($voiceId === null && ($voiceDesignRevision === '' || ! $supportsVoiceDesign))) {
             $this->markImmediate($dispatch, $queuedAt);
 

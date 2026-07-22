@@ -14,6 +14,40 @@ export interface RenderedSpeechTemplate {
   missingTokens: string[];
 }
 
+export interface SpeechConfigurationModel {
+  id: string;
+  name: string;
+  status: string;
+  built_in_voice_available: boolean;
+}
+
+export interface SpeechConfigurationVoiceProfile {
+  id: string;
+  name: string;
+  status: string;
+  compatible_model_ids: readonly string[];
+}
+
+export type SpeechConfigurationIssueCode =
+  | 'model_missing'
+  | 'model_not_installed'
+  | 'voice_profile_missing'
+  | 'voice_profile_not_ready'
+  | 'voice_profile_incompatible'
+  | 'voice_profile_required';
+
+export interface SpeechConfigurationIssue {
+  code: SpeechConfigurationIssueCode;
+  message: string;
+}
+
+interface SpeechConfigurationInput {
+  enabled: boolean;
+  model: SpeechConfigurationModel | null;
+  voiceProfileId: string | null;
+  voiceProfile: SpeechConfigurationVoiceProfile | null;
+}
+
 export function semanticSpeechLines(value: string): string[] {
   return value.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '');
 }
@@ -99,6 +133,60 @@ export function normalizeSpeechProgress(progress: number | null | undefined): nu
 
 export function speechWorkIsActive(status: string | null | undefined): boolean {
   return ['uploaded', 'queued', 'running', 'downloading', 'installing', 'processing', 'regenerating'].includes(status ?? '');
+}
+
+export function speechVoiceProfileIsReadyForModel(
+  profile: SpeechConfigurationVoiceProfile,
+  modelId: string,
+): boolean {
+  return profile.status === 'ready' && profile.compatible_model_ids.includes(modelId);
+}
+
+export function speechConfigurationIssue({
+  enabled,
+  model,
+  voiceProfileId,
+  voiceProfile,
+}: SpeechConfigurationInput): SpeechConfigurationIssue | null {
+  if (voiceProfileId !== null && voiceProfile === null) {
+    return {
+      code: 'voice_profile_missing',
+      message: 'Het gekozen stemprofiel is niet meer beschikbaar. Kies een ander gereed stemprofiel.',
+    };
+  }
+  if (voiceProfile !== null && voiceProfile.status !== 'ready') {
+    return {
+      code: 'voice_profile_not_ready',
+      message: `${voiceProfile.name} is nog niet gereed. Kies een gereed stemprofiel of wacht tot de verwerking klaar is.`,
+    };
+  }
+  if (model !== null && voiceProfile !== null && !voiceProfile.compatible_model_ids.includes(model.id)) {
+    return {
+      code: 'voice_profile_incompatible',
+      message: `${voiceProfile.name} is niet geschikt voor ${model.name}. Kies een compatibel stemprofiel.`,
+    };
+  }
+  if (!enabled) return null;
+  if (model === null) {
+    return {
+      code: 'model_missing',
+      message: 'Kies en installeer eerst een servermodel.',
+    };
+  }
+  if (model.status !== 'installed') {
+    return {
+      code: 'model_not_installed',
+      message: `${model.name} is niet gereed. Installeer het model voordat de centrale serverstem wordt ingeschakeld.`,
+    };
+  }
+  if (voiceProfile === null && !model.built_in_voice_available) {
+    return {
+      code: 'voice_profile_required',
+      message: `${model.name} heeft geen ingebouwde stem. Kies een stemprofiel met status Gereed.`,
+    };
+  }
+
+  return null;
 }
 
 export function speechStatusLabel(status: string | null | undefined): string {

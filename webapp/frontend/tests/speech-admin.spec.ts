@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, test } from 'playwright/test';
+import { expect, test, type Page } from 'playwright/test';
 import {
   fixedSpeechPreviewAudioPath,
   formatSpeechBytes,
@@ -12,10 +12,12 @@ import {
   SPEECH_POLL_INTERVAL_MS,
   speechCacheHitRate,
   speechCacheUsagePercentage,
+  speechConfigurationIssue,
   speechStatusLabel,
   speechStatusTone,
   speechTemplateTokens,
   speechTokenLabel,
+  speechVoiceProfileIsReadyForModel,
   speechWorkIsActive,
 } from '../src/features/speech/speechPresentation';
 
@@ -81,6 +83,174 @@ test('bounds work progress and formats cache/model facts for Dutch admins', () =
   expect(speechCacheUsagePercentage(120, 100)).toBe(100);
 });
 
+test('derives server voice validity from installed models, built-in voices and ready compatible profiles', () => {
+  const profileRequiredModel = {
+    id: 'profile-required',
+    name: 'Profielmodel',
+    status: 'installed',
+    built_in_voice_available: false,
+  };
+  const builtInVoiceModel = {
+    id: 'built-in',
+    name: 'Model met ingebouwde stem',
+    status: 'installed',
+    built_in_voice_available: true,
+  };
+  const readyProfile = {
+    id: 'ready-profile',
+    name: 'Gereed profiel',
+    status: 'ready',
+    compatible_model_ids: ['profile-required'],
+  };
+  const processingProfile = {
+    ...readyProfile,
+    id: 'processing-profile',
+    name: 'Profiel in verwerking',
+    status: 'processing',
+  };
+  const incompatibleProfile = {
+    ...readyProfile,
+    id: 'incompatible-profile',
+    name: 'Ander profiel',
+    compatible_model_ids: ['another-model'],
+  };
+
+  expect(speechConfigurationIssue({
+    enabled: true,
+    model: null,
+    voiceProfileId: null,
+    voiceProfile: null,
+  })?.code).toBe('model_missing');
+  expect(speechConfigurationIssue({
+    enabled: true,
+    model: { ...profileRequiredModel, status: 'installing' },
+    voiceProfileId: null,
+    voiceProfile: null,
+  })?.code).toBe('model_not_installed');
+  expect(speechConfigurationIssue({
+    enabled: true,
+    model: profileRequiredModel,
+    voiceProfileId: null,
+    voiceProfile: null,
+  })?.code).toBe('voice_profile_required');
+  expect(speechConfigurationIssue({
+    enabled: true,
+    model: profileRequiredModel,
+    voiceProfileId: readyProfile.id,
+    voiceProfile: readyProfile,
+  })).toBeNull();
+  expect(speechConfigurationIssue({
+    enabled: true,
+    model: builtInVoiceModel,
+    voiceProfileId: null,
+    voiceProfile: null,
+  })).toBeNull();
+  expect(speechVoiceProfileIsReadyForModel(readyProfile, profileRequiredModel.id)).toBe(true);
+  expect(speechVoiceProfileIsReadyForModel(processingProfile, profileRequiredModel.id)).toBe(false);
+  expect(speechVoiceProfileIsReadyForModel(incompatibleProfile, profileRequiredModel.id)).toBe(false);
+});
+
+test('always rejects an explicitly selected unavailable voice profile, even while server speech is off', () => {
+  const model = {
+    id: 'model-a',
+    name: 'Model A',
+    status: 'installed',
+    built_in_voice_available: true,
+  };
+  const processingProfile = {
+    id: 'processing-profile',
+    name: 'Profiel in verwerking',
+    status: 'processing',
+    compatible_model_ids: [model.id],
+  };
+  const incompatibleProfile = {
+    ...processingProfile,
+    id: 'incompatible-profile',
+    name: 'Incompatibel profiel',
+    status: 'ready',
+    compatible_model_ids: ['model-b'],
+  };
+
+  expect(speechConfigurationIssue({
+    enabled: false,
+    model,
+    voiceProfileId: 'missing-profile',
+    voiceProfile: null,
+  })?.code).toBe('voice_profile_missing');
+  expect(speechConfigurationIssue({
+    enabled: false,
+    model,
+    voiceProfileId: processingProfile.id,
+    voiceProfile: processingProfile,
+  })?.code).toBe('voice_profile_not_ready');
+  expect(speechConfigurationIssue({
+    enabled: false,
+    model,
+    voiceProfileId: incompatibleProfile.id,
+    voiceProfile: incompatibleProfile,
+  })?.code).toBe('voice_profile_incompatible');
+  expect(speechConfigurationIssue({
+    enabled: false,
+    model: null,
+    voiceProfileId: null,
+    voiceProfile: null,
+  })).toBeNull();
+  expect(speechConfigurationIssue({
+    enabled: false,
+    model: { ...model, status: 'not_installed', built_in_voice_available: false },
+    voiceProfileId: null,
+    voiceProfile: null,
+  })).toBeNull();
+  expect(speechConfigurationIssue({
+    enabled: false,
+    model: { ...model, built_in_voice_available: false },
+    voiceProfileId: null,
+    voiceProfile: null,
+  })).toBeNull();
+});
+
+test('explains the required voice profile without overflowing a phone viewport', async ({ page }) => {
+  await mockSpeechAdminApi(page);
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.goto('/speech');
+
+  const profileSelect = page.getByLabel('Actief stemprofiel');
+  await expect(page.getByRole('heading', { name: 'Spraakregie' })).toBeVisible();
+  await expect(profileSelect).toHaveValue('');
+  await expect(profileSelect.locator('option:checked')).toHaveText('Kies een gereed stemprofiel');
+  await expect(page.getByText(/Chatterbox Multilingual V3 heeft geen ingebouwde stem/).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Spraakinstellingen opslaan' }).first()).toBeDisabled();
+
+  const widths = await page.evaluate(() => ({
+    viewport: window.innerWidth,
+    document: document.documentElement.scrollWidth,
+    body: document.body.scrollWidth,
+  }));
+  expect(Math.max(widths.document, widths.body)).toBeLessThanOrEqual(widths.viewport);
+
+  await page.getByLabel('Actief servermodel').selectOption('voxcpm2');
+  await expect(profileSelect.locator('option:checked')).toHaveText('Ingebouwde stem van dit servermodel');
+  await expect(page.getByText('Zonder eigen profiel gebruikt dit model zijn ingebouwde serverstem.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Spraakinstellingen opslaan' }).first()).toBeEnabled();
+});
+
+test('lets an administrator clear a disappeared profile while server speech is off', async ({ page }) => {
+  const status = speechAdminStatus();
+  await mockSpeechAdminApi(page, {
+    ...status,
+    settings: { ...status.settings, enabled: false, voice_profile_id: 'removed-profile' },
+  });
+  await page.goto('/speech');
+
+  const profileSelect = page.getByLabel('Actief stemprofiel');
+  await expect(profileSelect).toHaveValue('removed-profile');
+  await expect(profileSelect.locator('option:checked')).toHaveText('Niet meer beschikbaar stemprofiel');
+  await profileSelect.selectOption('');
+
+  await expect(profileSelect).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Spraakinstellingen opslaan' }).first()).toBeEnabled();
+});
+
 test('uses fixed speech endpoints and a backend-driven model catalog', () => {
   const page = readFileSync(new URL('../src/features/speech/SpeechAdminPage.tsx', import.meta.url), 'utf8');
 
@@ -93,6 +263,8 @@ test('uses fixed speech endpoints and a backend-driven model catalog', () => {
   expect(fixedSpeechPreviewAudioPath('preview/a')).toBe('/admin/speech/previews/preview%2Fa/audio');
   expect(page).not.toContain('VoxCPM2');
   expect(page).toContain('data.models.map');
+  expect(page).not.toContain('Standaardstem van het servermodel');
+  expect(page).not.toContain('De standaardstem van een geïnstalleerd model blijft beschikbaar');
 });
 
 test('makes the fixed nl-NL emergency voice distinction explicit without a device voice selector', () => {
@@ -104,3 +276,144 @@ test('makes the fixed nl-NL emergency voice distinction explicit without a devic
   expect(page).not.toContain('fallback_voice_id');
   expect(page).not.toContain('device_voice_id');
 });
+
+async function mockSpeechAdminApi(page: Page, status: unknown = speechAdminStatus()): Promise<void> {
+  await page.route('**/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/auth/me') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: speechAdminUser() }),
+      });
+      return;
+    }
+    if (path === '/api/branding') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: { name: 'DIS', short_name: 'DIS', tenant_name: 'Testorganisatie', logo_data_url: '' },
+        }),
+      });
+      return;
+    }
+    if (path === '/api/admin/speech') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: status }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'not_found', message: 'Testroute niet gemockt.', details: {} } }),
+    });
+  });
+}
+
+function speechAdminUser() {
+  return {
+    id: 'speech-admin',
+    name: 'Spraakbeheerder',
+    email: 'speech@example.test',
+    account_status: 'active',
+    push_enabled: true,
+    max_operator_devices: 3,
+    two_factor_enabled: true,
+    profile_completion_required: false,
+    roles: [{
+      id: 'speech-admin-role',
+      name: 'speech_admin',
+      display_name: 'Spraakbeheerder',
+      can_use_operator_app: false,
+      can_use_admin_app: true,
+      permissions: [{
+        id: 'settings-manage',
+        name: 'settings.manage',
+        category: 'settings',
+        display_name: 'Instellingen beheren',
+      }],
+    }],
+  };
+}
+
+function speechAdminStatus() {
+  const chatterbox = {
+    id: 'chatterbox_multilingual_v3',
+    name: 'Chatterbox Multilingual V3',
+    description: 'Meertalig model voor eigen stemprofielen.',
+    parameter_count: 500_000_000,
+    download_bytes: 1_600_000_000,
+    license_spdx: 'MIT',
+    commercial_use: true,
+    quality_tier: 'high_end',
+    supported_languages: ['nl-NL'],
+    built_in_voice_available: false,
+    capabilities: { voice_clone: true, voice_design: false, speed_control: false },
+    cpu: { supported: true, recommended_ram_bytes: 16_000_000_000, note: 'CPU-only ondersteund.' },
+    status: 'installed',
+    progress_percent: 100,
+    error_code: null,
+    installed_revision: 'test-revision',
+  };
+  const voxcpm = {
+    ...chatterbox,
+    id: 'voxcpm2',
+    name: 'VoxCPM2',
+    description: 'Model met vaste Nederlandse serverstem.',
+    built_in_voice_available: true,
+    capabilities: { voice_clone: true, voice_design: true, speed_control: false },
+    status: 'installed',
+    progress_percent: 100,
+    installed_revision: 'test-voxcpm-revision',
+  };
+
+  return {
+    settings: {
+      enabled: true,
+      model_id: chatterbox.id,
+      voice_profile_id: null,
+      speed: 1.1,
+      pre_generate_on_save: true,
+      templates: {
+        availability: ['Beschikbaarheidsverzoek voor {place}.'],
+        attendance: ['Alarm voor {street} {house_number} in {place}.'],
+        test_ack: ['Dit is een proefalarm.'],
+      },
+    },
+    template_definitions: [{
+      phase: 'availability',
+      label: 'Beschikbaarheid',
+      allowed_tokens: ['place'],
+      example_rendered_lines: ['Beschikbaarheidsverzoek voor Utrecht.'],
+    }, {
+      phase: 'attendance',
+      label: 'Opkomst',
+      allowed_tokens: ['street', 'house_number', 'place'],
+      example_rendered_lines: ['Alarm voor Dorpsstraat 1 in Utrecht.'],
+    }, {
+      phase: 'test_ack',
+      label: 'Proefalarm',
+      allowed_tokens: [],
+      example_rendered_lines: ['Dit is een proefalarm.'],
+    }],
+    models: [chatterbox, voxcpm],
+    voice_profiles: [],
+    cache: {
+      segment_count: 0,
+      composite_count: 0,
+      hit_count: 0,
+      miss_count: 0,
+      disk_bytes: 0,
+      quota_bytes: 5_000_000_000,
+      pending_count: 0,
+      failed_count: 0,
+      last_pruned_at: null,
+      active_job: null,
+    },
+  };
+}

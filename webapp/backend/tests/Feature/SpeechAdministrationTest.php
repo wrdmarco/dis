@@ -27,13 +27,16 @@ use App\Models\SpeechVoiceProfile;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\DispatchPushOutboxService;
+use App\Services\SpeechAudioPipeline;
 use App\Services\SpeechCachePruner;
 use App\Services\SpeechDispatchGateService;
 use App\Services\SpeechExclusiveFileWriter;
+use App\Services\SpeechManifestGenerationService;
 use App\Services\SpeechModelCatalog;
 use App\Services\SpeechModelInstallationService;
 use App\Services\SpeechRuntimeActivityGate;
 use App\Services\SpeechRuntimeReconciliationService;
+use App\Services\SpeechSettingsService;
 use App\Services\SpeechTemplateService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -82,7 +85,9 @@ final class SpeechAdministrationTest extends TestCase
             ->assertJsonPath('data.settings.speed', 1)
             ->assertJsonPath('data.models.0.quality_tier', 'high_end')
             ->assertJsonPath('data.models.0.status', 'not_installed')
+            ->assertJsonPath('data.models.0.built_in_voice_available', false)
             ->assertJsonPath('data.models.1.id', 'voxcpm2')
+            ->assertJsonPath('data.models.1.built_in_voice_available', true)
             ->assertJsonPath('data.voice_profiles', [])
             ->assertJsonStructure(['data' => [
                 'settings' => ['enabled', 'model_id', 'voice_profile_id', 'speed', 'pre_generate_on_save', 'templates'],
@@ -408,6 +413,106 @@ final class SpeechAdministrationTest extends TestCase
             'voice_profile_id' => null,
             'voice_design_revision' => 'voxcpm2-nl-nl-female-pa-v1',
         ]);
+    }
+
+    public function test_voice_profile_compatibility_remains_server_authoritative(): void
+    {
+        Queue::fake();
+        $manager = $this->user('speech-profile-capability@example.test', ['settings.manage']);
+        [, $profile] = $this->runtime($manager);
+        SpeechModelInstallation::query()->create([
+            'catalog_key' => 'voxcpm2',
+            'revision' => config('dis.speech.models.voxcpm2.revision'),
+            'weights_sha256' => config('dis.speech.models.voxcpm2.weights_sha256'),
+            'status' => 'installed', 'progress_percent' => 100,
+            'requested_by' => $manager->id, 'license_confirmed_at' => now(), 'installed_at' => now(),
+        ]);
+        config()->set('dis.speech.models.voxcpm2.capabilities.voice_clone', false);
+
+        $this->asAdminClient($manager)->patchJson('/api/admin/speech/settings', [
+            'enabled' => true,
+            'model_id' => 'voxcpm2',
+            'voice_profile_id' => $profile->id,
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['voice_profile_id']]]);
+
+        $this->asAdminClient($manager)->patchJson('/api/admin/speech/settings', [
+            'enabled' => true,
+            'model_id' => 'voxcpm2',
+            'voice_profile_id' => null,
+        ])->assertOk()
+            ->assertJsonPath('data.settings.voice_profile_id', null);
+    }
+
+    public function test_persisted_incompatible_profile_fails_closed_across_runtime_generation_and_dispatch(): void
+    {
+        Queue::fake();
+        $manager = $this->user('speech-profile-fail-closed@example.test', ['settings.manage']);
+        [, $profile] = $this->runtime($manager);
+        $installation = SpeechModelInstallation::query()->create([
+            'catalog_key' => 'voxcpm2',
+            'revision' => config('dis.speech.models.voxcpm2.revision'),
+            'weights_sha256' => config('dis.speech.models.voxcpm2.weights_sha256'),
+            'status' => 'installed', 'progress_percent' => 100,
+            'requested_by' => $manager->id, 'license_confirmed_at' => now(), 'installed_at' => now(),
+        ]);
+        foreach ([
+            'speech.enabled' => true,
+            'speech.model_id' => 'voxcpm2',
+            'speech.voice_profile_id' => $profile->id,
+            'speech.speed' => 1.0,
+        ] as $key => $value) {
+            SystemSetting::query()->updateOrCreate(['key' => $key], [
+                'value' => $value, 'is_sensitive' => false, 'updated_by' => $manager->id,
+            ]);
+        }
+        config()->set('dis.speech.models.voxcpm2.capabilities.voice_clone', false);
+
+        try {
+            app(SpeechSettingsService::class)->selectedRuntime();
+            $this->fail('Een opgeslagen incompatibel stemprofiel mag geen geldige runtime opleveren.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('voice_profile_id', $exception->errors());
+        }
+
+        try {
+            app(SpeechAudioPipeline::class)->segmentCacheKey('Veilige proefmelding.', $installation, $profile, 1.0);
+            $this->fail('De audiopipeline mag een incompatibel stemprofiel niet accepteren.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('speech_voice_profile_unsupported', $exception->getMessage());
+        }
+
+        $build = SpeechManifestBuild::query()->create([
+            'phase' => 'test_ack', 'locale' => 'nl-NL',
+            'model_installation_id' => $installation->id, 'voice_profile_id' => $profile->id,
+            'speed' => 1.0, 'template_checksum' => str_repeat('1', 64),
+            'context_hmac' => str_repeat('2', 64), 'source_fingerprint_hmac' => str_repeat('3', 64),
+            'rendered_lines' => ['Veilige proefmelding.'], 'status' => 'queued',
+            'progress_percent' => 0, 'expires_at' => now()->addHour(),
+        ]);
+        try {
+            app(SpeechManifestGenerationService::class)->generate($build);
+            $this->fail('Manifestgeneratie mag een incompatibel stemprofiel niet gebruiken.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('speech_configuration_missing', $exception->getMessage());
+        }
+
+        $incident = Incident::query()->create([
+            'reference' => 'INC-SPEECH-INVALID-PROFILE', 'title' => 'Veilige fallback',
+            'priority' => 'high', 'status' => 'active', 'is_test' => false,
+            'created_by' => $manager->id, 'opened_at' => now(),
+        ]);
+        $dispatch = DispatchRequest::query()->create([
+            'incident_id' => $incident->id, 'requested_by' => $manager->id,
+            'status' => 'sent', 'priority' => 'high', 'message' => 'Open de app.',
+        ]);
+
+        $plan = app(SpeechDispatchGateService::class)->prepare($dispatch, $incident, now());
+
+        $this->assertFalse($plan['delayed']);
+        $this->assertNull($plan['build_id']);
+        $this->assertSame('queued_for_push', $dispatch->refresh()->send_status);
+        $this->assertDatabaseMissing('speech_manifest_builds', ['dispatch_request_id' => $dispatch->id]);
     }
 
     public function test_real_dispatch_gets_an_atomic_ten_second_speech_gate_but_disabled_speech_is_immediate(): void
