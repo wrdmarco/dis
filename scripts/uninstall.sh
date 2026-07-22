@@ -194,7 +194,7 @@ acquire_dis_operation_lock uninstall
 log "Stopping and disabling DIS services"
 # Legacy backup entries remain here so uninstall also cleans hosts upgraded from
 # releases that installed the retired standalone backup helpers.
-for service in dis-media dis-queue dis-scheduler dis-websocket dis-osrm dis-incident-enrichment dis-knmi dis-knmi-realtime \
+for service in dis-speech dis-tts-engine dis-media dis-queue dis-scheduler dis-websocket dis-osrm dis-incident-enrichment dis-knmi dis-knmi-realtime \
   dis-osrm-admin-request.timer dis-osrm-admin-request.path dis-osrm-admin-request \
   dis-backup-request.timer dis-backup-request.path dis-backup-request \
   dis-backup-mount dis-backup.timer dis-backup; do
@@ -207,6 +207,8 @@ log "Removing DIS systemd units"
 for unit in \
   /etc/systemd/system/dis-queue.service \
   /etc/systemd/system/dis-media.service \
+  /etc/systemd/system/dis-speech.service \
+  /etc/systemd/system/dis-tts-engine.service \
   /etc/systemd/system/dis-knmi.service \
   /etc/systemd/system/dis-knmi-realtime.service \
   /etc/systemd/system/dis-incident-enrichment.service \
@@ -287,6 +289,14 @@ elif [ -e /usr/local/bin/update ]; then
   log "/usr/local/bin/update exists but is not managed by DIS; leaving it in place."
 fi
 safe_remove_recursive "${DIS_INSTALL_PATH}/storage/generated"
+if [ -d "${DIS_DATA_PATH}/tts" ] && [ ! -L "${DIS_DATA_PATH}/tts" ]; then
+  log "Removing reproducible speech models, cache and managed runtime data"
+  secure_path_operation remove-tree "${DIS_DATA_PATH}/tts"
+elif [ -L "${DIS_DATA_PATH}/tts" ]; then
+  run_cmd rm -f -- "${DIS_DATA_PATH}/tts"
+elif [ -e "${DIS_DATA_PATH}/tts" ]; then
+  fail "Refusing to remove an unexpected speech runtime object at ${DIS_DATA_PATH}/tts."
+fi
 run_cmd rm -f -- "${DIS_INSTALL_PATH}/webapp/frontend/.env.production" 2>/dev/null || true
 run_cmd rm -f -- "${DIS_INSTALL_PATH}/webapp/backend/.env" 2>/dev/null || true
 

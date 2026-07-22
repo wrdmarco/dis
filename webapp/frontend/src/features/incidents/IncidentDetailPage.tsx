@@ -11,8 +11,9 @@ import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { DispatchPreview, DispatchRequest, DroneFlightContext, Incident, IncidentInternalNotes, IncidentLiveLocation, IncidentTimelineItem, ReportIncident, Team } from '../../types/api';
+import type { DispatchDeliveryStatus, DispatchPreview, DispatchRequest, DroneFlightContext, Incident, IncidentInternalNotes, IncidentLiveLocation, IncidentTimelineItem, ReportIncident, Team } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
+import { dispatchDeliveryNotice } from './dispatchDeliveryPresentation';
 import { currentLiveLocations, dispatchEtaLabel, isCurrentLiveLocation, liveLocationEtaLabel } from './etaPresentation';
 
 export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
@@ -24,6 +25,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const incident = useApiResource<Incident>(`/incidents/${incidentId}`, Boolean(incidentId));
   const preview = useApiResource<DispatchPreview>(dispatchPreviewUrl, Boolean(incidentId));
   const dispatches = useApiResource<DispatchRequest[]>(`/incidents/${incidentId}/dispatches`, Boolean(incidentId));
+  const reloadDispatchesSilently = dispatches.silentReload;
   const liveLocations = useApiResource<IncidentLiveLocation[]>(`/incidents/${incidentId}/live-locations`, Boolean(incidentId));
   const reloadLiveLocationsSilently = liveLocations.silentReload;
   const timeline = useApiResource<IncidentTimelineItem[]>(`/incidents/${incidentId}/timeline`, Boolean(incidentId));
@@ -34,6 +36,8 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const [dispatching, setDispatching] = useState(false);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
   const [dispatchNotice, setDispatchNotice] = useState<string | null>(null);
+  const [dispatchWarning, setDispatchWarning] = useState<string | null>(null);
+  const [deliveryTrackingDispatchId, setDeliveryTrackingDispatchId] = useState<string | null>(null);
   const [additionalInfo, setAdditionalInfo] = useState('');
   const [additionalInfoSending, setAdditionalInfoSending] = useState(false);
   const [additionalInfoMessage, setAdditionalInfoMessage] = useState<string | null>(null);
@@ -95,6 +99,73 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
     setInternalNotesText(internalNotes.data?.internal_notes ?? '');
   }, [internalNotes.data?.internal_notes]);
 
+  useEffect(() => {
+    if (deliveryTrackingDispatchId === null) return undefined;
+
+    let disposed = false;
+    let timeoutId: number | null = null;
+    let consecutiveFailures = 0;
+
+    const schedule = (delayMs: number) => {
+      timeoutId = window.setTimeout(() => void poll(), delayMs);
+    };
+    const poll = async () => {
+      try {
+        const response = await api.get<DispatchDeliveryStatus>(
+          `/dispatches/${encodeURIComponent(deliveryTrackingDispatchId)}/delivery`,
+        );
+        if (disposed) return;
+        consecutiveFailures = 0;
+        const status = response.data;
+        const notice = dispatchDeliveryNotice(status.state);
+        if (notice !== null) {
+          setDispatchNotice(joinDispatchNotice(notice, dispatchWarning));
+        }
+
+        if (status.state === 'sent') {
+          setDispatchError(null);
+          setDeliveryTrackingDispatchId(null);
+          void reloadDispatchesSilently();
+          return;
+        }
+        if (status.state === 'partial') {
+          setDispatchError(dispatchPartialDeliveryMessage(status));
+          if (status.device_counts.pending > 0) {
+            schedule(1_000);
+          } else {
+            setDeliveryTrackingDispatchId(null);
+            void reloadDispatchesSilently();
+          }
+          return;
+        }
+        if (status.state === 'failed') {
+          setDispatchNotice(dispatchWarning);
+          setDispatchError('Het alarm kon niet bij de pushprovider worden afgeleverd. Controleer de apparaten en probeer opnieuw te alarmeren.');
+          setDeliveryTrackingDispatchId(null);
+          void reloadDispatchesSilently();
+          return;
+        }
+        schedule(status.state === 'preparing_speech' ? 500 : 1_000);
+      } catch {
+        if (disposed) return;
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= 3) {
+          setDispatchNotice(joinDispatchNotice(
+            'Alarm staat in de verzendwachtrij; de afleverbevestiging is tijdelijk niet bereikbaar.',
+            dispatchWarning,
+          ));
+        }
+        schedule(Math.min(5_000, 1_000 * consecutiveFailures));
+      }
+    };
+
+    void poll();
+    return () => {
+      disposed = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
+  }, [api, deliveryTrackingDispatchId, dispatchWarning, reloadDispatchesSilently]);
+
   const activateIncident = async () => {
     if (!incidentId) {
       return;
@@ -102,6 +173,8 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
 
     setDispatchError(null);
     setDispatchNotice(null);
+    setDispatchWarning(null);
+    setDeliveryTrackingDispatchId(null);
     setDispatching(true);
     try {
       const response = await api.patch<Incident>(`/incidents/${incidentId}`, {
@@ -128,6 +201,8 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
 
     setDispatchError(null);
     setDispatchNotice(null);
+    setDispatchWarning(null);
+    setDeliveryTrackingDispatchId(null);
     setDispatching(true);
     try {
       const response = await api.patch<Incident>(`/incidents/${incidentId}`, {
@@ -136,7 +211,11 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
         direct_dispatch: incident.data?.status === 'draft',
         ...dispatchRecipientCountPayload(dispatchRecipientCount),
       });
-      setDispatchNotice(warningsMessage(response.meta));
+      const warning = warningsMessage(response.meta);
+      const dispatchId = response.data.active_dispatch?.id ?? null;
+      setDispatchWarning(warning);
+      setDispatchNotice(joinDispatchNotice('Alarm in wachtrij geplaatst.', warning));
+      setDeliveryTrackingDispatchId(dispatchId);
       await incident.reload();
       await preview.reload();
       await dispatches.reload();
@@ -1520,4 +1599,17 @@ function warningsMessage(meta: unknown): string | null {
   }
 
   return `Let op: ${messages.join(' ')}`;
+}
+
+function joinDispatchNotice(message: string, warning: string | null): string {
+  return warning === null ? message : `${message} ${warning}`;
+}
+
+function dispatchPartialDeliveryMessage(status: DispatchDeliveryStatus): string {
+  const accepted = Math.max(0, status.device_counts.provider_accepted);
+  const total = Math.max(0, status.device_counts.total);
+  const failed = Math.max(0, status.device_counts.failed);
+  const pending = Math.max(0, status.device_counts.pending);
+
+  return `Alarm door de pushprovider geaccepteerd voor ${accepted} van ${total} apparaten; ${pending} nog in wachtrij en ${failed} mislukt.`;
 }

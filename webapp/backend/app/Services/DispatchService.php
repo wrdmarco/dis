@@ -31,6 +31,7 @@ final class DispatchService
         private readonly AuditService $auditService,
         private readonly AvailabilityScheduleService $availabilityScheduleService,
         private readonly DispatchPushOutboxService $dispatchPushOutboxService,
+        private readonly SpeechDispatchGateService $speechDispatchGateService,
         private readonly IncidentFormService $incidentFormService,
         private readonly LocationService $locationService,
         private readonly RoutingService $routingService,
@@ -598,6 +599,7 @@ final class DispatchService
                     $updates['message'] = $this->defaultDispatchMessage($incident);
                 }
                 $currentDispatch->update($updates);
+                $speechGate = $this->speechDispatchGateService->prepare($currentDispatch, $incident, $alarmNotifiedAt);
                 DispatchPushOutbox::query()
                     ->where('dispatch_request_id', $currentDispatch->id)
                     ->where('message_type', 'incident_preannouncement')
@@ -642,6 +644,8 @@ final class DispatchService
                             title: $notificationTitle,
                             body: $notificationBody,
                             data: $notificationData,
+                            availableAt: $speechGate['deadline'],
+                            releaseReason: $speechGate['delayed'] ? 'speech_deadline' : 'immediate',
                         );
                         $notificationCount++;
                     }
@@ -663,6 +667,7 @@ final class DispatchService
 
                 return [
                     'dispatch' => $currentDispatch->refresh()->load(['incident', 'targetTeam', 'recipients']),
+                    'speech_build_id' => $speechGate['build_id'],
                 ];
             });
 
@@ -672,6 +677,9 @@ final class DispatchService
                 continue;
             }
 
+            if (is_string($result['speech_build_id'] ?? null)) {
+                $this->speechDispatchGateService->queueAfterCommit($result['speech_build_id']);
+            }
             $this->flushDispatchPushOutboxAfterCommit((string) $result['dispatch']->id);
 
             return $result['dispatch'];

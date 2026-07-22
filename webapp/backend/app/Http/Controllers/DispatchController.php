@@ -8,6 +8,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
+use App\Services\DispatchDeliveryStatusService;
 use App\Services\DispatchService;
 use App\Services\IncidentAccessService;
 use App\Support\MobileApiPayload;
@@ -20,6 +21,7 @@ final class DispatchController extends Controller
     public function __construct(
         private readonly DispatchService $service,
         private readonly IncidentAccessService $access,
+        private readonly DispatchDeliveryStatusService $deliveryStatus,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -60,6 +62,13 @@ final class DispatchController extends Controller
     public function send(Request $request, DispatchRequest $dispatch): JsonResponse
     {
         return ApiResponse::success(MobileApiPayload::dispatch($this->service->markSent($dispatch, $request->user())->load(['incident', 'targetTeam', 'recipients.user'])));
+    }
+
+    public function delivery(Request $request, DispatchRequest $dispatch): JsonResponse
+    {
+        $this->access->assertCanViewDispatch($request->user(), $dispatch);
+
+        return ApiResponse::success($this->deliveryStatus->payload($dispatch->refresh()));
     }
 
     public function message(Request $request, DispatchRequest $dispatch): JsonResponse

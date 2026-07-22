@@ -27,6 +27,8 @@ final class IncidentService
         private readonly IncidentFormService $incidentFormService,
         private readonly LocationService $locationService,
         private readonly StatusService $statusService,
+        private readonly SpeechPrewarmService $speechPrewarmService,
+        private readonly SpeechRuntimeActivityGate $speechRuntime,
     ) {}
 
     /**
@@ -54,6 +56,7 @@ final class IncidentService
                 'opened_at' => now(),
             ]);
             $incident->teams()->sync($teamIds);
+            $this->speechRuntime->preemptForOperationalIncident($incident);
             $this->refreshDroneFlightContextWhenLocated($incident);
 
             $incident->statusHistory()->create([
@@ -68,6 +71,7 @@ final class IncidentService
 
             $this->auditService->record('incidents.created', $incident, $actor);
             $this->broadcastIncidentChange($incident, 'created');
+            $this->speechPrewarmService->queueAfterCommit((string) $incident->id);
 
             return $incident->load(['coordinator', 'team', 'teams', 'statusHistory']);
         });
@@ -130,6 +134,7 @@ final class IncidentService
                 ]);
             }
             $incident->fill($data)->save();
+            $this->speechRuntime->preemptForOperationalIncident($incident);
             if (is_array($teamIds)) {
                 $incident->teams()->sync($teamIds);
             }
@@ -169,6 +174,7 @@ final class IncidentService
 
             $this->auditService->record('incidents.updated', $incident, $actor);
             $this->broadcastIncidentChange($incident->refresh(), 'updated');
+            $this->speechPrewarmService->queueAfterCommit((string) $incident->id);
 
             return $incident->load(['coordinator', 'team', 'teams', 'statusHistory']);
         });

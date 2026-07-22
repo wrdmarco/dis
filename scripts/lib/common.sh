@@ -15,6 +15,9 @@ OSRM_ADMIN_WORKER_PATH="/usr/local/bin/dis-osrm-admin-request-worker"
 WALLBOARD_MAINTENANCE_NOTICE_PATH="${DIS_INSTALL_PATH}/maintenance/wallboard-status.json"
 WALLBOARD_MAINTENANCE_NOTICE_SECONDS=6
 WALLBOARD_MAINTENANCE_NOTICE_TTL_SECONDS=21600
+SPEECH_UV_VERSION=0.11.30
+SPEECH_UV_ARCHIVE_SHA256=04bc7d180d6138bf6dc08387acf507a823f397a98fea55da36b0ccc7fbce3b68
+SPEECH_UV_ARCHIVE_URL="https://github.com/astral-sh/uv/releases/download/${SPEECH_UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz"
 
 log() {
   printf '[dis] %s\n' "$*"
@@ -51,6 +54,70 @@ run_cmd() {
     "$@"
   fi
 }
+
+set_managed_env_secret() (
+  set -euo pipefail
+
+  local env_file="$1" key="$2" value="$3"
+  local resolved_env temporary="" line found=0
+
+  require_root
+  [[ "${key}" =~ ^[A-Z][A-Z0-9_]*$ ]] \
+    || fail "Invalid managed environment secret name."
+  [ -n "${value}" ] && [[ "${value}" != *$'\n'* ]] && [[ "${value}" != *$'\r'* ]] \
+    || fail "Invalid managed environment secret value."
+  resolved_env="$(readlink -f -- "${env_file}" 2>/dev/null || true)"
+  [ "${resolved_env}" = "${DIS_DATA_PATH}/.env" ] \
+    || fail "The managed environment secret target does not resolve to ${DIS_DATA_PATH}/.env."
+  [ -f "${resolved_env}" ] && [ ! -L "${resolved_env}" ] \
+    && [ "$(stat -c '%h' -- "${resolved_env}" 2>/dev/null || true)" = "1" ] \
+    || fail "The managed environment file is not a safe regular file."
+  require_root_controlled_parent "${resolved_env}"
+
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "Would set managed environment secret ${key}."
+    return 0
+  fi
+
+  temporary="$(mktemp "${resolved_env}.secret.XXXXXX")"
+  cleanup_managed_env_secret() {
+    local exit_code="$?"
+    trap - EXIT INT TERM
+    rm -f -- "${temporary:-}" 2>/dev/null || true
+    exit "${exit_code}"
+  }
+  trap cleanup_managed_env_secret EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  chmod 0600 "${temporary}"
+
+  while IFS= read -r line || [ -n "${line}" ]; do
+    case "${line}" in
+      "${key}="*)
+        printf '%s=%s\n' "${key}" "${value}" >> "${temporary}"
+        found=1
+        ;;
+      *)
+        printf '%s\n' "${line}" >> "${temporary}"
+        ;;
+    esac
+  done < "${resolved_env}"
+  if [ "${found}" = "0" ]; then
+    printf '%s=%s\n' "${key}" "${value}" >> "${temporary}"
+  fi
+
+  chown root:"${DIS_GROUP}" "${temporary}"
+  chmod 0640 "${temporary}"
+  sync -f "${temporary}"
+  mv -fT -- "${temporary}" "${resolved_env}"
+  temporary=""
+  sync -f "${resolved_env}"
+  sync -f "$(dirname "${resolved_env}")"
+  if id www-data >/dev/null 2>&1; then
+    setfacl -m "u:www-data:r--" "${resolved_env}"
+  fi
+  trap - EXIT INT TERM
+)
 
 require_file() {
   local path="$1"
@@ -228,6 +295,146 @@ ensure_knmi_forecast_runtime_dependencies() {
     fail "The Ubuntu forecast packages did not provide safe root-controlled GRIB and HDF5 tools."
   fi
 }
+
+install_speech_engine_runtime() (
+  set -euo pipefail
+
+  local app_root="$1"
+  local engine_root="${app_root}/speech-engine"
+  local archive=""
+  local source_path=""
+  local temporary=""
+  local uv_binary=""
+  local checksum=""
+  local python_source_count=0
+  local -a uv_environment
+
+  require_root
+  [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ] \
+    || fail "The managed speech runtime currently supports Linux x86_64 only."
+  id "${DIS_USER}" >/dev/null 2>&1 \
+    || fail "The DIS service account must exist before installing the speech runtime."
+
+  for source_path in \
+    "${engine_root}/pyproject.toml" \
+    "${engine_root}/uv.lock" \
+    "${engine_root}/model-packages.requirements.txt" \
+    "${engine_root}/dis_tts_engine/__main__.py"; do
+    root_controlled_bundle_source_is_safe "${source_path}" \
+      || fail "Unsafe speech runtime source: ${source_path}"
+  done
+  [ -z "$(/usr/bin/find -P "${engine_root}/dis_tts_engine" -type l -print -quit)" ] \
+    || fail "The speech engine source tree may not contain symbolic links."
+  while IFS= read -r -d '' source_path; do
+    root_controlled_bundle_source_is_safe "${source_path}" \
+      || fail "Unsafe speech engine Python source: ${source_path}"
+    python_source_count=$((python_source_count + 1))
+  done < <(/usr/bin/find -P "${engine_root}/dis_tts_engine" -type f -name '*.py' -print0)
+  [ "${python_source_count}" -gt 0 ] || fail "The speech engine contains no Python source files."
+
+  ensure_data_layout
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "Would install the checksum-pinned uv ${SPEECH_UV_VERSION} runtime and locked speech dependencies."
+    return 0
+  fi
+
+  for source_path in /usr/bin/curl /usr/bin/tar /usr/bin/sha256sum; do
+    [ -x "${source_path}" ] || fail "Required speech runtime installer is missing: ${source_path}"
+  done
+
+  temporary="$(mktemp -d /tmp/dis-speech-runtime.XXXXXX)"
+  case "${temporary}" in
+    /tmp/dis-speech-runtime.*) ;;
+    *) fail "Could not create a safely scoped speech runtime staging directory." ;;
+  esac
+  chmod 0755 "${temporary}"
+  cleanup_speech_runtime_install() {
+    local exit_code="$?"
+    trap - EXIT INT TERM
+    case "${temporary:-}" in
+      /tmp/dis-speech-runtime.*)
+        [ ! -L "${temporary}" ] && rm -rf -- "${temporary}" 2>/dev/null || true
+        ;;
+    esac
+    exit "${exit_code}"
+  }
+  trap cleanup_speech_runtime_install EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  archive="${temporary}/uv.tar.gz"
+  /usr/bin/curl \
+    --proto '=https' \
+    --tlsv1.2 \
+    --fail \
+    --location \
+    --silent \
+    --show-error \
+    --connect-timeout 30 \
+    --max-time 600 \
+    --max-filesize 67108864 \
+    --output "${archive}" \
+    "${SPEECH_UV_ARCHIVE_URL}"
+  checksum="$(/usr/bin/sha256sum "${archive}" | awk '{print $1}')"
+  [ "${checksum}" = "${SPEECH_UV_ARCHIVE_SHA256}" ] \
+    || fail "The downloaded uv archive failed its pinned SHA-256 verification."
+
+  /usr/bin/tar \
+    --extract \
+    --gzip \
+    --file "${archive}" \
+    --directory "${temporary}" \
+    --strip-components=1 \
+    --no-same-owner \
+    --no-same-permissions \
+    uv-x86_64-unknown-linux-gnu/uv
+  uv_binary="${temporary}/uv"
+  [ -f "${uv_binary}" ] && [ ! -L "${uv_binary}" ] \
+    || fail "The verified uv archive did not contain the expected executable."
+  chmod 0755 "${uv_binary}"
+  [ "$("${uv_binary}" --version)" = "uv ${SPEECH_UV_VERSION}" ] \
+    || fail "The verified uv executable reported an unexpected version."
+
+  uv_environment=(
+    "XDG_CACHE_HOME=${DIS_DATA_PATH}/tts/uv-cache/xdg"
+    "UV_CACHE_DIR=${DIS_DATA_PATH}/tts/uv-cache"
+    "UV_PYTHON_INSTALL_DIR=${DIS_DATA_PATH}/tts/python"
+    "UV_PROJECT_ENVIRONMENT=${DIS_DATA_PATH}/tts/runtime"
+    "UV_LINK_MODE=copy"
+    "UV_MANAGED_PYTHON=1"
+    "UV_NO_MODIFY_PATH=1"
+    "UV_NO_PROGRESS=1"
+  )
+
+  log "Installing the managed Python 3.11 speech runtime"
+  runuser -u "${DIS_USER}" -- env "${uv_environment[@]}" \
+    "${uv_binary}" python install 3.11
+  runuser -u "${DIS_USER}" -- env "${uv_environment[@]}" \
+    "${uv_binary}" sync \
+      --project "${engine_root}" \
+      --locked \
+      --no-dev \
+      --python 3.11
+  runuser -u "${DIS_USER}" -- env "${uv_environment[@]}" \
+    "${uv_binary}" pip install \
+      --python "${DIS_DATA_PATH}/tts/runtime/bin/python" \
+      --no-deps \
+      -r "${engine_root}/model-packages.requirements.txt"
+
+  [ -x "${DIS_DATA_PATH}/tts/runtime/bin/python" ] \
+    || fail "The managed speech Python runtime was not installed."
+  [ "$(runuser -u "${DIS_USER}" -- "${DIS_DATA_PATH}/tts/runtime/bin/python" \
+      -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = "3.11" ] \
+    || fail "The managed speech runtime is not Python 3.11."
+  runuser -u "${DIS_USER}" -- env \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH="${engine_root}" \
+    "${DIS_DATA_PATH}/tts/runtime/bin/python" -c \
+      'import importlib.util; import dis_tts_engine; assert all(importlib.util.find_spec(name) for name in ("torch", "torchaudio", "chatterbox", "voxcpm"))'
+
+  trap - EXIT INT TERM
+  rm -rf -- "${temporary}"
+)
 
 verify_osrm_admin_runtime_library() {
   local path
@@ -845,7 +1052,16 @@ stop_dis_deployment_services() {
       esac
     done
   fi
-  # Stop the interruptible media worker first. Its SIGTERM contract republishes
+  # Give the dedicated speech worker its bounded cleanup window before stopping
+  # its local engine. Systemd then kills the isolated cgroup; atomic staging and
+  # the long Redis lease make interrupted reproducible work safely retryable.
+  if systemd_service_exists dis-speech; then
+    run_cmd systemctl stop dis-speech
+  fi
+  if systemd_service_exists dis-tts-engine; then
+    run_cmd systemctl stop dis-tts-engine
+  fi
+  # Stop the interruptible media worker next. Its SIGTERM contract republishes
   # an in-flight transcode before the remaining deployment services go down.
   for service in dis-media dis-queue dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime "${PHP_FPM_SERVICE}"; do
     if systemd_service_exists "${service}"; then
@@ -983,7 +1199,7 @@ start_dis_operational_services() {
     run_cmd runuser -u "${DIS_USER}" -- php "${DIS_INSTALL_PATH}/webapp/backend/artisan" \
       dis:check-backup-request-worker --timeout=30
   fi
-  for service in dis-media dis-queue dis-scheduler dis-websocket dis-incident-enrichment dis-knmi dis-knmi-realtime; do
+  for service in dis-tts-engine dis-speech dis-media dis-queue dis-scheduler dis-websocket dis-incident-enrichment dis-knmi dis-knmi-realtime; do
     if systemd_service_exists "${service}"; then
       run_cmd systemctl start "${service}"
     fi
@@ -1009,7 +1225,7 @@ require_dis_web_services() {
 require_dis_runtime_services() {
   local service
 
-  for service in nginx "${PHP_FPM_SERVICE}" dis-frontend dis-queue dis-media dis-scheduler dis-websocket dis-incident-enrichment dis-knmi dis-knmi-realtime; do
+  for service in nginx "${PHP_FPM_SERVICE}" dis-frontend dis-tts-engine dis-speech dis-queue dis-media dis-scheduler dis-websocket dis-incident-enrichment dis-knmi dis-knmi-realtime; do
     if ! systemd_service_exists "${service}"; then
       fail "Required systemd service is not installed: ${service}.service"
     fi
@@ -1533,6 +1749,19 @@ ensure_data_layout() {
   ensure_managed_directory "${DIS_DATA_PATH}/playwright-browsers" "${DIS_USER}" "${DIS_GROUP}" 0770
   ensure_managed_directory "${DIS_DATA_PATH}/secrets" root "${DIS_GROUP}" 0750
 
+  # Speech models and the Python environment are reproducible runtime data and
+  # deliberately live outside the encrypted application-storage backup. The
+  # root-owned parent prevents the service account from replacing managed
+  # leaves with links before a privileged deployment or permission repair.
+  ensure_managed_directory "${DIS_DATA_PATH}/tts" root "${DIS_GROUP}" 0750
+  ensure_managed_directory "${DIS_DATA_PATH}/tts/models" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_managed_directory "${DIS_DATA_PATH}/tts/cache" "${DIS_USER}" "${DIS_GROUP}" 0770
+  ensure_managed_directory "${DIS_DATA_PATH}/tts/runtime" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_managed_directory "${DIS_DATA_PATH}/tts/staging" "${DIS_USER}" "${DIS_GROUP}" 0770
+  ensure_managed_directory "${DIS_DATA_PATH}/tts/state" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_managed_directory "${DIS_DATA_PATH}/tts/uv-cache" "${DIS_USER}" "${DIS_GROUP}" 0750
+  ensure_managed_directory "${DIS_DATA_PATH}/tts/python" "${DIS_USER}" "${DIS_GROUP}" 0750
+
   # Runtime users may write only explicit leaves. Every parent stays root-owned
   # and non-writable so a leaf cannot be replaced with a symlink before a root
   # deployment, backup, or restore operation.
@@ -1554,6 +1783,44 @@ ensure_data_layout() {
   ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage/logs" "${DIS_USER}" "${DIS_GROUP}" 0770
   ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage/tmp" "${DIS_USER}" "${DIS_GROUP}" 0770
   ensure_managed_directory "${DIS_DATA_PATH}/webapp/backend/storage/composer" "${DIS_USER}" "${DIS_GROUP}" 0770
+}
+
+repair_speech_data_permissions() {
+  local speech_service
+
+  for speech_service in dis-speech dis-tts-engine; do
+    if systemd_service_exists "${speech_service}" \
+      && systemctl is-active --quiet "${speech_service}"; then
+      fail "Speech staging recovery requires ${speech_service} to be stopped."
+    fi
+  done
+  ensure_data_layout
+
+  # Do not recursively rewrite the model, Python or virtual-environment trees:
+  # those package-manager-owned trees legitimately contain links and are never
+  # read by PHP. Queue inputs remain private to the dis worker and engine.
+  repair_managed_tree "${DIS_DATA_PATH}/tts/cache" "${DIS_USER}" "${DIS_GROUP}" 0770 0640
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    log "Would remove interrupted speech cache part files."
+  else
+    /usr/bin/find -P "${DIS_DATA_PATH}/tts/cache" -xdev -type f -name '*.part' -delete
+  fi
+  # Staging is entirely reproducible. A cgroup kill may bypass PHP/Python
+  # finally blocks, so clear private jobs, references and partial output while
+  # both speech services are stopped instead of carrying ambiguous bytes into
+  # the next queue attempt.
+  secure_path_operation remove-tree "${DIS_DATA_PATH}/tts/staging"
+  ensure_managed_directory "${DIS_DATA_PATH}/tts/staging" "${DIS_USER}" "${DIS_GROUP}" 0770
+  repair_managed_tree "${DIS_DATA_PATH}/tts/state" "${DIS_USER}" "${DIS_GROUP}" 0750 0640
+
+  if id www-data >/dev/null 2>&1; then
+    run_cmd setfacl -m "u:www-data:--x" "${DIS_DATA_PATH}/tts"
+    run_cmd setfacl -x "d:u:www-data" "${DIS_DATA_PATH}/tts" 2>/dev/null || true
+    # PHP can read published cache output. It receives socket access separately
+    # and deliberately has no access to private queue/engine staging inputs.
+    secure_path_operation acl-tree "${DIS_DATA_PATH}/tts/cache" www-data r-x r--
+    secure_path_operation acl-tree "${DIS_DATA_PATH}/tts/staging" www-data --- ---
+  fi
 }
 
 migrate_path_to_data() {

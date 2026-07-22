@@ -5,9 +5,11 @@ namespace App\Providers;
 use App\Contracts\DispatchNotificationQueue;
 use App\Contracts\KnmiCloudForecastProvider;
 use App\Contracts\KnmiPrecipitationOutlookProvider;
+use App\Contracts\OperationalRadarProvider;
 use App\Contracts\PushProvider;
 use App\Contracts\RouteGeometryProvider;
 use App\Contracts\RoutingProvider;
+use App\Contracts\SpeechEngineClient;
 use App\Contracts\WallboardContentProvider;
 use App\Mail\MicrosoftGraphTransport;
 use App\Models\PersonalAccessToken;
@@ -15,12 +17,14 @@ use App\Models\SystemSetting;
 use App\Repositories\KnmiPrecipitationSnapshotRepository;
 use App\Services\KnmiHarmonieCloudService;
 use App\Services\KnmiPrecipitationOutlookService;
+use App\Services\OperationalRadarService;
 use App\Services\PushProviderClient;
 use App\Services\QueuedDispatchNotificationQueue;
 use App\Services\Routing\OsrmRoutingProvider;
 use App\Services\Routing\RouteGeometryService;
 use App\Services\Routing\RoutingService;
 use App\Services\SecureWallboardContentProvider;
+use App\Services\SelfHostedSpeechEngineClient;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Http\Client\Factory as HttpFactory;
@@ -39,10 +43,12 @@ final class AppServiceProvider extends ServiceProvider
     {
         $this->app->bind(DispatchNotificationQueue::class, QueuedDispatchNotificationQueue::class);
         $this->app->bind(PushProvider::class, PushProviderClient::class);
+        $this->app->singleton(SpeechEngineClient::class, SelfHostedSpeechEngineClient::class);
         $this->app->bind(WallboardContentProvider::class, SecureWallboardContentProvider::class);
         $this->app->singleton(KnmiCloudForecastProvider::class, KnmiHarmonieCloudService::class);
         $this->app->singleton(KnmiPrecipitationSnapshotRepository::class);
         $this->app->singleton(KnmiPrecipitationOutlookProvider::class, KnmiPrecipitationOutlookService::class);
+        $this->app->singleton(OperationalRadarProvider::class, OperationalRadarService::class);
 
         $this->app->singleton(RoutingProvider::class, fn ($app): RoutingProvider => new OsrmRoutingProvider(
             http: $app->make(HttpFactory::class),
@@ -247,6 +253,12 @@ final class AppServiceProvider extends ServiceProvider
             perClient: 30,
             perUser: 60,
         ));
+        RateLimiter::for('operational-radar-read', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'operational-radar-read',
+            perClient: 120,
+            perUser: 240,
+        ));
         RateLimiter::for('operational-telemetry', fn (Request $request): array => $this->authenticatedClientLimits(
             request: $request,
             scope: 'operational-telemetry',
@@ -281,6 +293,28 @@ final class AppServiceProvider extends ServiceProvider
         RateLimiter::for('knmi-admin-write', fn (Request $request): array => [
             Limit::perMinute(4)->by('knmi-admin-write:client:'.$this->rateLimitClientKey($request)),
             Limit::perHour(12)->by('knmi-admin-write:user:'.hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'))),
+        ]);
+        RateLimiter::for('speech-admin-read', fn (Request $request): array => $this->authenticatedClientLimits(
+            request: $request,
+            scope: 'speech-admin-read',
+            perClient: 120,
+            perUser: 240,
+        ));
+        RateLimiter::for('speech-admin-write', fn (Request $request): array => [
+            Limit::perMinute(12)->by('speech-admin-write:client:'.$this->rateLimitClientKey($request)),
+            Limit::perHour(60)->by('speech-admin-write:user:'.hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'))),
+        ]);
+        RateLimiter::for('speech-admin-install', fn (Request $request): array => [
+            Limit::perHour(4)->by('speech-admin-install:client:'.$this->rateLimitClientKey($request)),
+            Limit::perDay(8)->by('speech-admin-install:user:'.hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'))),
+        ]);
+        RateLimiter::for('speech-admin-upload', fn (Request $request): array => [
+            Limit::perMinute(4)->by('speech-admin-upload:client:'.$this->rateLimitClientKey($request)),
+            Limit::perHour(12)->by('speech-admin-upload:user:'.hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'))),
+        ]);
+        RateLimiter::for('speech-admin-preview', fn (Request $request): array => [
+            Limit::perMinute(10)->by('speech-admin-preview:client:'.$this->rateLimitClientKey($request)),
+            Limit::perHour(60)->by('speech-admin-preview:user:'.hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?: 'anonymous'))),
         ]);
     }
 

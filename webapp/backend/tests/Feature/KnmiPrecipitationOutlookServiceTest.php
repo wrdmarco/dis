@@ -15,6 +15,7 @@ use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory as HttpClientFactory;
 use Illuminate\Http\Client\Request;
+use Illuminate\Process\Factory as ProcessFactory;
 use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
@@ -34,6 +35,8 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
     private string $storageRoot;
 
     private int $processCallCount = 0;
+
+    private ?string $atlasFrameOutput = null;
 
     protected function setUp(): void
     {
@@ -71,6 +74,8 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
     {
         CarbonImmutable::setTestNow();
         File::deleteDirectory($this->storageRoot);
+        Process::swap(new ProcessFactory);
+        gc_collect_cycles();
         parent::tearDown();
     }
 
@@ -135,6 +140,9 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
         $this->assertFileExists($this->storageRoot.'/active.json');
         $this->assertFileExists($snapshot['paths']['radar']);
         $this->assertFileExists($snapshot['paths']['probability']);
+        $this->assertFileExists($snapshot['paths']['atlas']);
+        $this->assertSame(25, $snapshot['atlas']['frame_count']);
+        $this->assertCount(25, $snapshot['atlas']['frames']);
         $this->assertSame([], glob($this->storageRoot.'/staging/*') ?: []);
         Http::assertSent(function (Request $request) use ($pair): bool {
             if (! in_array($request->url(), [$pair['radar_url'], $pair['probability_url']], true)) {
@@ -400,6 +408,18 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
             ));
         }
         $datasetIndices = array_keys($command, '-d', true);
+        if (count($datasetIndices) === 1) {
+            $dataset = (string) ($command[$datasetIndices[0] + 1] ?? '');
+            if (preg_match('/\A\/image([1-9]|1\d|2[0-5])\/image_data\z/D', $dataset) === 1) {
+                if (in_array('-S', $command, true) || ! in_array('765,700', $command, true)) {
+                    return Process::result(exitCode: 1, errorOutput: 'unexpected radar atlas dataset');
+                }
+                $this->atlasFrameOutput ??= 'DATASET "image_data" { DATA { (0,0): 20, '
+                    .str_repeat('0, ', (765 * 700) - 1).'} }';
+
+                return Process::result(output: $this->atlasFrameOutput);
+            }
+        }
         if (count($datasetIndices) === 25) {
             $blocks = [];
             for ($index = 0; $index < 25; $index++) {

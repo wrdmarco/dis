@@ -34,6 +34,9 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withCommands()
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->redirectGuestsTo(static fn (Request $request): ?string => $request->is('api/*')
+            ? null
+            : route('login'));
         $middleware->trustProxies(
             headers: SymfonyRequest::HEADER_X_FORWARDED_FOR
                 | SymfonyRequest::HEADER_X_FORWARDED_HOST

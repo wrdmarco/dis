@@ -450,7 +450,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         );
     }
 
-    public function test_dispatch_push_outbox_flush_runs_every_ten_seconds_without_overlap(): void
+    public function test_dispatch_push_outbox_flush_runs_every_second_without_overlap(): void
     {
         $event = collect($this->app->make(Schedule::class)->events())
             ->first(fn (Event $candidate): bool => str_contains(
@@ -459,7 +459,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
             ));
 
         $this->assertInstanceOf(Event::class, $event);
-        $this->assertSame(10, $event->repeatSeconds);
+        $this->assertSame(1, $event->repeatSeconds);
         $this->assertTrue($event->withoutOverlapping);
     }
 

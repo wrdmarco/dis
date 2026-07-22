@@ -24,6 +24,10 @@ final class DispatchRequest extends Model
         'preannounced_at',
         'sent_at',
         'cancelled_at',
+        'send_status',
+        'send_queued_at',
+        'send_release_deadline',
+        'send_released_at',
     ];
 
     protected function casts(): array
@@ -33,6 +37,9 @@ final class DispatchRequest extends Model
             'preannounced_at' => 'immutable_datetime',
             'sent_at' => 'immutable_datetime',
             'cancelled_at' => 'immutable_datetime',
+            'send_queued_at' => 'immutable_datetime',
+            'send_release_deadline' => 'immutable_datetime',
+            'send_released_at' => 'immutable_datetime',
         ];
     }
 

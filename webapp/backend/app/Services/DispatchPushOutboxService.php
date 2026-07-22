@@ -34,6 +34,8 @@ final class DispatchPushOutboxService
         string $title,
         string $body,
         array $data,
+        ?\DateTimeInterface $availableAt = null,
+        ?string $releaseReason = null,
     ): DispatchPushOutbox {
         $deduplicationKey = hash('sha256', implode('|', [
             $dispatchRequestId,
@@ -50,7 +52,8 @@ final class DispatchPushOutboxService
                 'title' => $title,
                 'body' => $body,
                 'data' => $data,
-                'available_at' => now(),
+                'available_at' => $availableAt ?? now(),
+                'release_reason' => $releaseReason ?? 'immediate',
             ],
         );
     }
@@ -132,6 +135,12 @@ final class DispatchPushOutboxService
                 'last_attempted_at' => $claimedAt,
                 'last_error_code' => null,
             ])->save();
+            if ((string) $notification->message_type === 'dispatch_request') {
+                $dispatch->forceFill([
+                    'send_status' => 'queued_for_push',
+                    'send_released_at' => $dispatch->send_released_at ?? $claimedAt,
+                ])->save();
+            }
 
             return [
                 'outcome' => 'claimed',
@@ -224,7 +233,7 @@ final class DispatchPushOutboxService
 
     public function markDelivered(string $id, string $fcmTokenId): void
     {
-        $this->withLockedHierarchy($id, function (DispatchPushOutbox $notification) use ($fcmTokenId): void {
+        $this->withLockedHierarchy($id, function (DispatchPushOutbox $notification, DispatchRequest $dispatch) use ($fcmTokenId): void {
             if ((string) $notification->fcm_token_id !== $fcmTokenId
                 || $notification->delivered_at !== null
                 || $notification->cancelled_at !== null) {
@@ -236,12 +245,13 @@ final class DispatchPushOutboxService
                 'last_attempted_at' => now(),
                 'last_error_code' => null,
             ])->save();
+            $this->refreshDispatchDeliveryStatus($dispatch);
         });
     }
 
     public function markTerminal(string $id, string $fcmTokenId, string $errorCode): void
     {
-        $this->withLockedHierarchy($id, function (DispatchPushOutbox $notification) use ($fcmTokenId, $errorCode): void {
+        $this->withLockedHierarchy($id, function (DispatchPushOutbox $notification, DispatchRequest $dispatch) use ($fcmTokenId, $errorCode): void {
             if ((string) $notification->fcm_token_id !== $fcmTokenId
                 || $notification->delivered_at !== null
                 || $notification->cancelled_at !== null) {
@@ -253,6 +263,7 @@ final class DispatchPushOutboxService
                 'last_attempted_at' => now(),
                 'last_error_code' => $errorCode,
             ])->save();
+            $this->refreshDispatchDeliveryStatus($dispatch);
         });
     }
 
@@ -318,5 +329,26 @@ final class DispatchPushOutboxService
 
             return $callback($notification, $dispatch, $incident);
         });
+    }
+
+    private function refreshDispatchDeliveryStatus(DispatchRequest $dispatch): void
+    {
+        $rows = DispatchPushOutbox::query()
+            ->where('dispatch_request_id', $dispatch->id)
+            ->where('message_type', 'dispatch_request')
+            ->get(['delivered_at', 'cancelled_at']);
+        if ($rows->isEmpty()) {
+            return;
+        }
+        $delivered = $rows->whereNotNull('delivered_at')->count();
+        $cancelled = $rows->whereNotNull('cancelled_at')->count();
+        $pending = $rows->count() - $delivered - $cancelled;
+        $status = match (true) {
+            $delivered > 0 && $pending === 0 && $cancelled === 0 => 'sent',
+            $delivered > 0 => 'partial',
+            $pending > 0 => 'queued_for_push',
+            default => 'failed',
+        };
+        $dispatch->forceFill(['send_status' => $status])->save();
     }
 }

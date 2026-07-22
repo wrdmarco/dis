@@ -999,6 +999,38 @@ export interface OperationalWeatherPrecipitationState {
   availability_note: string | null;
 }
 
+export type OperationalWeatherRadarLayerStatus = 'available' | 'stale' | 'unavailable';
+
+export interface OperationalWeatherRadarFrame {
+  index: number;
+  valid_at: string;
+  lead_minutes: number;
+}
+
+export interface OperationalWeatherRadarSource {
+  name: string;
+  url: string | null;
+  license: string;
+}
+
+export interface OperationalWeatherRadarLayer {
+  status: OperationalWeatherRadarLayerStatus;
+  reference_time: string | null;
+  atlas_url: string | null;
+  atlas_columns: number;
+  atlas_rows: number;
+  frame_width: number;
+  frame_height: number;
+  frames: OperationalWeatherRadarFrame[];
+  source: OperationalWeatherRadarSource;
+  availability_note: string | null;
+}
+
+export interface OperationalWeatherRadarState {
+  precipitation: OperationalWeatherRadarLayer | null;
+  lightning: OperationalWeatherRadarLayer | null;
+}
+
 export interface OperationalWeatherPageState {
   location: {
     mode: WallboardForecastLocationMode;
@@ -1011,6 +1043,7 @@ export interface OperationalWeatherPageState {
   data_status: OperationalWeatherDataStatus;
   cloud: OperationalWeatherCloudState;
   precipitation: OperationalWeatherPrecipitationState;
+  radar: OperationalWeatherRadarState;
   scope_note: string;
   disclaimer: string;
 }
@@ -1105,10 +1138,28 @@ export interface DispatchRequest {
   priority: string;
   message: string;
   sent_at?: string | null;
+  send_status?: 'preparing_speech' | 'queued_for_push' | null;
+  send_queued_at?: string | null;
+  send_release_deadline?: string | null;
+  send_released_at?: string | null;
   created_at?: string | null;
   incident?: Incident;
   target_team?: Team | null;
   recipients?: DispatchRecipient[];
+}
+
+export interface DispatchDeliveryStatus {
+  dispatch_id: string;
+  state: 'preparing_speech' | 'queued_for_push' | 'sent' | 'partial' | 'failed';
+  queued_at?: string | null;
+  release_deadline?: string | null;
+  released_at?: string | null;
+  device_counts: {
+    total: number;
+    provider_accepted: number;
+    pending: number;
+    failed: number;
+  };
 }
 
 export interface DispatchRecipient {
@@ -1814,4 +1865,106 @@ export interface TwoFactorEnableResult {
   authenticated: boolean;
   user: User;
   recovery_codes: string[];
+}
+
+export type SpeechPhase = 'availability' | 'attendance' | 'test_ack';
+
+export interface SpeechSettings {
+  enabled: boolean;
+  model_id: string | null;
+  voice_profile_id: string | null;
+  speed: number;
+  pre_generate_on_save: boolean;
+  templates: Record<SpeechPhase, string[]>;
+}
+
+export interface SpeechTemplateDefinition {
+  phase: SpeechPhase;
+  label: string;
+  allowed_tokens: string[];
+  example_rendered_lines: string[];
+}
+
+export interface SpeechModel {
+  id: string;
+  name: string;
+  description: string;
+  parameter_count: number;
+  download_bytes: number;
+  license_spdx: string;
+  commercial_use: boolean;
+  quality_tier: string;
+  supported_languages: string[];
+  capabilities: {
+    voice_clone: boolean;
+    voice_design: boolean;
+    speed_control: boolean;
+  };
+  cpu: {
+    supported: boolean;
+    recommended_ram_bytes: number;
+    note: string;
+  };
+  status: 'not_installed' | 'installing' | 'installed' | 'failed';
+  progress_percent: number;
+  error_code?: string | null;
+  installed_revision?: string | null;
+}
+
+export interface SpeechVoiceProfile {
+  id: string;
+  name: string;
+  locale: string;
+  status: 'processing' | 'ready' | 'failed';
+  reference_duration_seconds: number;
+  compatible_model_ids: string[];
+  created_at: string;
+}
+
+export type SpeechCacheRegenerationScope = 'all' | 'segments' | 'composites' | 'failed';
+
+export interface SpeechCacheJob {
+  id: string;
+  scope: SpeechCacheRegenerationScope;
+  status: 'queued' | 'processing' | 'ready' | 'failed';
+  progress_percent: number;
+  error_code?: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface SpeechCacheStatus {
+  segment_count: number;
+  composite_count: number;
+  hit_count: number;
+  miss_count: number;
+  disk_bytes: number;
+  quota_bytes: number;
+  pending_count: number;
+  failed_count: number;
+  last_pruned_at: string | null;
+  active_job?: SpeechCacheJob | null;
+}
+
+export interface SpeechAdminStatus {
+  settings: SpeechSettings;
+  template_definitions: SpeechTemplateDefinition[];
+  models: SpeechModel[];
+  voice_profiles: SpeechVoiceProfile[];
+  cache: SpeechCacheStatus;
+}
+
+export interface SpeechPreview {
+  id: string;
+  phase: SpeechPhase;
+  status: 'queued' | 'processing' | 'ready' | 'failed';
+  progress_percent: number;
+  rendered_lines: string[];
+  error_code?: string | null;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface SpeechModelInstallStarted {
+  model: SpeechModel;
 }

@@ -22,7 +22,10 @@ final class FlushDispatchPushOutbox extends Command
             return self::INVALID;
         }
 
-        $this->info(json_encode($outbox->flushPending($limit), JSON_THROW_ON_ERROR));
+        $result = $outbox->flushPending($limit);
+        if (array_sum($result) > 0) {
+            $this->info(json_encode($result, JSON_THROW_ON_ERROR));
+        }
 
         return self::SUCCESS;
     }

@@ -4,6 +4,7 @@ import type { WallboardForecastLocationMode } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 
 export const FORECAST_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+export const WEATHER_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 export const FORECAST_RETRY_INTERVAL_MS = 60 * 1000;
 
 export interface ForecastLocationQuery {
@@ -46,18 +47,20 @@ export function forecastRefreshDeadline(
   lastSuccessfulAt: number,
   lastAttemptAt: number,
   lastAttemptFailed: boolean,
+  refreshIntervalMs = FORECAST_REFRESH_INTERVAL_MS,
 ): number {
   if (lastAttemptFailed || lastSuccessfulAt === 0) {
     return lastAttemptAt === 0 ? 0 : lastAttemptAt + FORECAST_RETRY_INTERVAL_MS;
   }
 
-  return lastSuccessfulAt + FORECAST_REFRESH_INTERVAL_MS;
+  return lastSuccessfulAt + refreshIntervalMs;
 }
 
 export function useForecastResource<T>(
   endpoint: '/operational-weather' | '/uav-forecast',
   location: ForecastLocationQuery,
   normalize?: ForecastResourceNormalizer<T>,
+  refreshIntervalMs = FORECAST_REFRESH_INTERVAL_MS,
 ): ForecastResourceState<T> {
   const { api } = useAuth();
   const path = buildForecastResourcePath(endpoint, location);
@@ -152,6 +155,7 @@ export function useForecastResource<T>(
         lastSuccessfulAt.current,
         lastAttemptAt.current,
         lastAttemptFailed.current,
+        refreshIntervalMs,
       );
       const remaining = deadline - Date.now();
       if (remaining <= 0) {
@@ -169,7 +173,7 @@ export function useForecastResource<T>(
       if (timeout !== null) window.clearTimeout(timeout);
       document.removeEventListener('visibilitychange', scheduleRefresh);
     };
-  }, [load, schedulerRevision]);
+  }, [load, refreshIntervalMs, schedulerRevision]);
 
   const refresh = useCallback(() => load(data === null), [data, load]);
   const busy = loading || refreshing;

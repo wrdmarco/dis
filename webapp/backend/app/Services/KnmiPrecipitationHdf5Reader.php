@@ -31,6 +31,46 @@ final class KnmiPrecipitationHdf5Reader
 
     private const RADAR_IMAGES = 25;
 
+    public const RADAR_ATLAS_FILENAME = 'radar-atlas.png';
+
+    public const RADAR_ATLAS_COLUMNS = 5;
+
+    public const RADAR_ATLAS_ROWS = 5;
+
+    public const RADAR_ATLAS_FRAME_WIDTH = 700;
+
+    public const RADAR_ATLAS_FRAME_HEIGHT = 765;
+
+    public const RADAR_ATLAS_WIDTH = 3500;
+
+    public const RADAR_ATLAS_HEIGHT = 3825;
+
+    private const MAX_RADAR_RATE_MM_H = 500.0;
+
+    private const MAX_ATLAS_FRAME_OUTPUT_BYTES = 8_388_608;
+
+    private const MAX_ATLAS_PNG_BYTES = 16_777_216;
+
+    /**
+     * Fixed precipitation palette. Alpha uses GD's 0 (opaque) through 127
+     * (transparent) scale. Index zero deliberately makes both no-rain and the
+     * two KNMI missing-value sentinels transparent over the base map.
+     *
+     * @var list<array{int, int, int, int}>
+     */
+    private const RADAR_PALETTE = [
+        [0, 0, 0, 127],
+        [83, 211, 255, 18],
+        [47, 139, 255, 14],
+        [38, 80, 214, 10],
+        [42, 190, 92, 8],
+        [235, 218, 52, 6],
+        [255, 154, 43, 4],
+        [231, 62, 55, 2],
+        [170, 49, 174, 0],
+        [93, 28, 128, 0],
+    ];
+
     private const THIRD_HOUR_SAMPLES = 13;
 
     private const MAX_HEADER_BYTES = 524_288;
@@ -150,6 +190,345 @@ final class KnmiPrecipitationHdf5Reader
             'radar_sample_count' => self::RADAR_IMAGES,
             'third_hour_sample_count' => self::THIRD_HOUR_SAMPLES,
         ];
+    }
+
+    /**
+     * Render all 25 five-minute radar frames into one validated 5x5 PNG atlas.
+     * Every 765x700 source pixel is preserved in a 765x700 tile. No stride,
+     * interpolation, nearest-neighbour sampling or upscaling is applied.
+     *
+     * @return array{
+     *   filename: string,
+     *   width: int,
+     *   height: int,
+     *   columns: int,
+     *   rows: int,
+     *   frame_width: int,
+     *   frame_height: int,
+     *   frame_count: int,
+     *   size_bytes: int,
+     *   sha256: string,
+     *   frames: list<array{index: int, valid_at: string, lead_minutes: int}>
+     * }
+     */
+    public function renderRadarAtlas(
+        string $radarPath,
+        CarbonImmutable $reference,
+        string $destinationPath,
+    ): array {
+        $source = $this->safePath($radarPath);
+        $destinationDirectory = realpath(dirname($destinationPath));
+        if ($destinationDirectory === false
+            || is_link(dirname($destinationPath))
+            || ! is_dir($destinationDirectory)
+            || ! is_writable($destinationDirectory)
+            || basename($destinationPath) !== self::RADAR_ATLAS_FILENAME
+            || file_exists($destinationPath)
+            || is_link($destinationPath)) {
+            throw new KnmiPrecipitationImportException(
+                'storage_unavailable',
+                'KNMI radar atlas destination is unsafe.',
+            );
+        }
+
+        $atlasPixels = str_repeat("\0", self::RADAR_ATLAS_WIDTH * self::RADAR_ATLAS_HEIGHT);
+        $frames = [];
+        for ($frameIndex = 0; $frameIndex < self::RADAR_IMAGES; $frameIndex++) {
+            $image = $frameIndex + 1;
+            $output = $this->run([
+                self::H5DUMP,
+                '-A',
+                '0',
+                '-w',
+                '0',
+                '-d',
+                '/image'.$image.'/image_data',
+                '-s',
+                '0,0',
+                '-c',
+                self::RADAR_ATLAS_FRAME_HEIGHT.','.self::RADAR_ATLAS_FRAME_WIDTH,
+                $source,
+            ], self::MAX_ATLAS_FRAME_OUTPUT_BYTES);
+            $this->writeRadarAtlasFrame($output, $frameIndex, $atlasPixels);
+
+            $frames[] = [
+                'index' => $frameIndex,
+                'valid_at' => $reference->addMinutes($frameIndex * 5)->toIso8601String(),
+                'lead_minutes' => $frameIndex * 5,
+            ];
+        }
+
+        $temporaryPath = $destinationPath.'.part-'.bin2hex(random_bytes(8));
+        try {
+            $this->writeRadarAtlasPng($temporaryPath, $atlasPixels);
+            $this->validateRadarAtlasPng($temporaryPath);
+            if (! @rename($temporaryPath, $destinationPath)) {
+                throw new KnmiPrecipitationImportException(
+                    'storage_unavailable',
+                    'KNMI radar atlas could not be staged atomically.',
+                );
+            }
+        } finally {
+            if (is_file($temporaryPath) && ! is_link($temporaryPath)) {
+                @unlink($temporaryPath);
+            }
+        }
+        @chmod($destinationPath, 0640);
+        clearstatcache(true, $destinationPath);
+        $size = filesize($destinationPath);
+        $sha256 = @hash_file('sha256', $destinationPath);
+        if (! is_int($size)
+            || $size < 64
+            || $size > self::MAX_ATLAS_PNG_BYTES
+            || ! is_string($sha256)
+            || preg_match('/\A[a-f0-9]{64}\z/D', $sha256) !== 1) {
+            @unlink($destinationPath);
+            throw new KnmiPrecipitationImportException(
+                'local_data_invalid',
+                'KNMI radar atlas integrity metadata is invalid.',
+            );
+        }
+
+        return [
+            'filename' => self::RADAR_ATLAS_FILENAME,
+            'width' => self::RADAR_ATLAS_WIDTH,
+            'height' => self::RADAR_ATLAS_HEIGHT,
+            'columns' => self::RADAR_ATLAS_COLUMNS,
+            'rows' => self::RADAR_ATLAS_ROWS,
+            'frame_width' => self::RADAR_ATLAS_FRAME_WIDTH,
+            'frame_height' => self::RADAR_ATLAS_FRAME_HEIGHT,
+            'frame_count' => self::RADAR_IMAGES,
+            'size_bytes' => $size,
+            'sha256' => $sha256,
+            'frames' => $frames,
+        ];
+    }
+
+    private function writeRadarAtlasFrame(string $output, int $frameIndex, string &$atlasPixels): void
+    {
+        if (preg_match('/\bDATA\s*\{/', $output, $matches, PREG_OFFSET_CAPTURE) !== 1) {
+            throw new KnmiPrecipitationImportException(
+                'local_data_invalid',
+                'KNMI radar atlas frame returned an invalid data block count.',
+            );
+        }
+        $matchOffset = $matches[0][1];
+        $bodyStart = strpos($output, '{', $matchOffset);
+        $bodyEnd = $bodyStart === false ? false : strpos($output, '}', $bodyStart + 1);
+        if ($bodyStart === false
+            || $bodyEnd === false
+            || preg_match('/\bDATA\s*\{/', $output, $duplicate, PREG_OFFSET_CAPTURE, $bodyEnd + 1) === 1) {
+            throw new KnmiPrecipitationImportException(
+                'local_data_invalid',
+                'KNMI radar atlas frame returned an invalid data block count.',
+            );
+        }
+        $body = preg_replace(
+            '/\(\s*\d+(?:\s*,\s*\d+)*\s*\)\s*:/',
+            ' ',
+            substr($output, $bodyStart + 1, $bodyEnd - $bodyStart - 1),
+        );
+        if (! is_string($body)) {
+            throw new KnmiPrecipitationImportException(
+                'local_data_invalid',
+                'KNMI radar atlas frame could not be parsed.',
+            );
+        }
+
+        $expectedPixels = self::RADAR_ATLAS_FRAME_WIDTH * self::RADAR_ATLAS_FRAME_HEIGHT;
+        $tileX = ($frameIndex % self::RADAR_ATLAS_COLUMNS) * self::RADAR_ATLAS_FRAME_WIDTH;
+        $tileY = intdiv($frameIndex, self::RADAR_ATLAS_COLUMNS) * self::RADAR_ATLAS_FRAME_HEIGHT;
+        $atlasRowOffset = ($tileY * self::RADAR_ATLAS_WIDTH) + $tileX;
+        $sourceColumn = 0;
+        $pixelCount = 0;
+        $offset = 0;
+        $length = strlen($body);
+        while ($offset < $length) {
+            $character = ord($body[$offset]);
+            if ($character === 44
+                || $character === 9
+                || $character === 10
+                || $character === 13
+                || $character === 32) {
+                $offset++;
+
+                continue;
+            }
+            if ($character < 48 || $character > 57 || $pixelCount >= $expectedPixels) {
+                throw new KnmiPrecipitationImportException(
+                    'local_data_invalid',
+                    'KNMI radar atlas pixel stream is invalid or oversized.',
+                );
+            }
+
+            $raw = 0;
+            do {
+                $raw = ($raw * 10) + ($character - 48);
+                if ($raw > 65_535) {
+                    throw new KnmiPrecipitationImportException(
+                        'local_data_invalid',
+                        'KNMI radar atlas pixel value is out of bounds.',
+                    );
+                }
+                $offset++;
+                if ($offset >= $length) {
+                    break;
+                }
+                $character = ord($body[$offset]);
+            } while ($character >= 48 && $character <= 57);
+
+            $atlasPixels[$atlasRowOffset + $sourceColumn] = chr($this->radarPaletteIndex($raw));
+            $pixelCount++;
+            $sourceColumn++;
+            if ($sourceColumn === self::RADAR_ATLAS_FRAME_WIDTH) {
+                $sourceColumn = 0;
+                $atlasRowOffset += self::RADAR_ATLAS_WIDTH;
+            }
+        }
+        if ($pixelCount !== $expectedPixels || $sourceColumn !== 0) {
+            throw new KnmiPrecipitationImportException(
+                'local_data_invalid',
+                'KNMI radar atlas frame has invalid dimensions.',
+            );
+        }
+    }
+
+    private function radarPaletteIndex(int $raw): int
+    {
+        if ($raw === 65_534 || $raw === 65_535 || $raw === 0) {
+            return 0;
+        }
+        $rate = $raw * 0.01 * 12.0;
+        if (! is_finite($rate) || $rate > self::MAX_RADAR_RATE_MM_H) {
+            throw new KnmiPrecipitationImportException(
+                'local_data_invalid',
+                'KNMI radar atlas intensity is out of bounds.',
+            );
+        }
+
+        return match (true) {
+            $rate < 0.5 => 1,
+            $rate < 1.0 => 2,
+            $rate < 2.0 => 3,
+            $rate < 5.0 => 4,
+            $rate < 10.0 => 5,
+            $rate < 20.0 => 6,
+            $rate < 40.0 => 7,
+            $rate < 80.0 => 8,
+            default => 9,
+        };
+    }
+
+    private function writeRadarAtlasPng(string $path, string $pixels): void
+    {
+        if (strlen($pixels) !== self::RADAR_ATLAS_WIDTH * self::RADAR_ATLAS_HEIGHT) {
+            throw new KnmiPrecipitationImportException(
+                'local_data_invalid',
+                'KNMI radar atlas pixel buffer is incomplete.',
+            );
+        }
+        if (function_exists('imagecreate')
+            && function_exists('imagecolorallocatealpha')
+            && function_exists('imagesetpixel')
+            && function_exists('imagepng')
+            && function_exists('imagedestroy')) {
+            $image = imagecreate(self::RADAR_ATLAS_WIDTH, self::RADAR_ATLAS_HEIGHT);
+            if ($image === false) {
+                throw new KnmiPrecipitationImportException('storage_unavailable', 'PHP GD could not create the KNMI radar atlas.');
+            }
+            try {
+                foreach (self::RADAR_PALETTE as [$red, $green, $blue, $alpha]) {
+                    if (imagecolorallocatealpha($image, $red, $green, $blue, $alpha) === false) {
+                        throw new KnmiPrecipitationImportException(
+                            'storage_unavailable',
+                            'PHP GD could not allocate the KNMI radar palette.',
+                        );
+                    }
+                }
+                imagealphablending($image, false);
+                imagesavealpha($image, true);
+                for ($y = 0; $y < self::RADAR_ATLAS_HEIGHT; $y++) {
+                    $offset = $y * self::RADAR_ATLAS_WIDTH;
+                    for ($x = 0; $x < self::RADAR_ATLAS_WIDTH; $x++) {
+                        imagesetpixel($image, $x, $y, ord($pixels[$offset + $x]));
+                    }
+                }
+                if (! imagepng($image, $path, 6)) {
+                    throw new KnmiPrecipitationImportException(
+                        'storage_unavailable',
+                        'PHP GD could not encode the KNMI radar atlas.',
+                    );
+                }
+            } finally {
+                imagedestroy($image);
+            }
+
+            return;
+        }
+
+        // Production installs PHP GD. This bounded encoder preserves the same
+        // indexed palette for constrained CLI verification environments where
+        // the optional extension is absent.
+        $scanlines = '';
+        for ($row = 0; $row < self::RADAR_ATLAS_HEIGHT; $row++) {
+            $scanlines .= "\0".substr($pixels, $row * self::RADAR_ATLAS_WIDTH, self::RADAR_ATLAS_WIDTH);
+        }
+        $compressed = gzcompress($scanlines, 6);
+        if (! is_string($compressed)) {
+            throw new KnmiPrecipitationImportException('storage_unavailable', 'KNMI radar atlas compression failed.');
+        }
+        $palette = '';
+        $transparency = '';
+        foreach (self::RADAR_PALETTE as [$red, $green, $blue, $alpha]) {
+            $palette .= pack('C3', $red, $green, $blue);
+            $transparency .= pack('C', 255 - (int) round(($alpha / 127) * 255));
+        }
+        $png = "\x89PNG\r\n\x1a\n"
+            .$this->pngChunk('IHDR', pack(
+                'NNCCCCC',
+                self::RADAR_ATLAS_WIDTH,
+                self::RADAR_ATLAS_HEIGHT,
+                8,
+                3,
+                0,
+                0,
+                0,
+            ))
+            .$this->pngChunk('PLTE', $palette)
+            .$this->pngChunk('tRNS', $transparency)
+            .$this->pngChunk('IDAT', $compressed)
+            .$this->pngChunk('IEND', '');
+        if (@file_put_contents($path, $png, LOCK_EX) !== strlen($png)) {
+            throw new KnmiPrecipitationImportException('storage_unavailable', 'KNMI radar atlas could not be written.');
+        }
+    }
+
+    private function pngChunk(string $type, string $data): string
+    {
+        $body = $type.$data;
+
+        return pack('N', strlen($data)).$body.pack('N', crc32($body));
+    }
+
+    private function validateRadarAtlasPng(string $path): void
+    {
+        clearstatcache(true, $path);
+        $size = filesize($path);
+        $dimensions = @getimagesize($path);
+        if (! is_int($size)
+            || $size < 64
+            || $size > self::MAX_ATLAS_PNG_BYTES
+            || ! is_array($dimensions)
+            || ($dimensions[0] ?? null) !== self::RADAR_ATLAS_WIDTH
+            || ($dimensions[1] ?? null) !== self::RADAR_ATLAS_HEIGHT
+            || ($dimensions[2] ?? null) !== IMAGETYPE_PNG
+            || ! is_file($path)
+            || is_link($path)) {
+            throw new KnmiPrecipitationImportException(
+                'local_data_invalid',
+                'KNMI radar atlas PNG is invalid or exceeds its boundary.',
+            );
+        }
     }
 
     private function validateRadar(string $path, CarbonImmutable $reference): void

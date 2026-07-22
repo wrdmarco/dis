@@ -101,6 +101,36 @@ set_env_value() {
   fi
 }
 
+ensure_speech_cache_hmac_key() {
+  local configured generated decoded_bytes
+
+  configured="$(env_value SPEECH_CACHE_HMAC_KEY)"
+  if [ -z "${configured}" ]; then
+    [ -x /usr/bin/openssl ] || fail "openssl is required to create the speech cache HMAC key."
+    generated="$(/usr/bin/openssl rand -base64 48 | /usr/bin/tr -d '\n')"
+    [ -n "${generated}" ] || fail "The speech cache HMAC key could not be generated."
+    set_managed_env_secret "${ENV_FILE}" SPEECH_CACHE_HMAC_KEY "base64:${generated}"
+    unset generated
+    log "Generated the initial speech cache HMAC key."
+    return 0
+  fi
+
+  if [[ "${configured}" == base64:* ]]; then
+    if ! decoded_bytes="$(printf '%s' "${configured#base64:}" \
+      | /usr/bin/base64 --decode 2>/dev/null \
+      | /usr/bin/wc -c)"; then
+      fail "The existing SPEECH_CACHE_HMAC_KEY is not valid base64; it was left unchanged."
+    fi
+  else
+    decoded_bytes="$(LC_ALL=C printf '%s' "${configured}" | /usr/bin/wc -c)"
+  fi
+  [[ "${decoded_bytes}" =~ ^[[:space:]]*[0-9]+[[:space:]]*$ ]] \
+    || fail "The existing SPEECH_CACHE_HMAC_KEY could not be validated; it was left unchanged."
+  decoded_bytes="${decoded_bytes//[[:space:]]/}"
+  [ "${decoded_bytes}" -ge 32 ] \
+    || fail "The existing SPEECH_CACHE_HMAC_KEY is shorter than 32 bytes; it was left unchanged."
+}
+
 harden_web_session_environment() {
   local app_url authority trusted_proxies
   app_url="$(env_value APP_URL)"
@@ -222,6 +252,7 @@ prepare_canonical_nginx_source() {
   NGINX_SOURCE="${generated_conf}"
 }
 
+ensure_speech_cache_hmac_key
 harden_web_session_environment
 write_frontend_security_environment
 prepare_canonical_nginx_source
@@ -259,6 +290,7 @@ ensure_directory "${BACKEND_DIR}/storage/logs" "${DIS_USER}" "${DIS_GROUP}" 0750
 ensure_directory "${BACKEND_DIR}/bootstrap/cache" "${DIS_USER}" "${DIS_GROUP}" 0750
 ensure_directory "${BACKEND_DIR}/storage/composer" "${DIS_USER}" "${DIS_GROUP}" 0750
 APP_ROOT="${APP_ROOT}" bash "${SCRIPT_DIR}/self-heal-permissions.sh"
+install_speech_engine_runtime "${APP_ROOT}"
 run_cmd ln -sfn "${APP_ROOT}/.env" "${BACKEND_DIR}/.env"
 run_cmd chown -h root:root "${BACKEND_DIR}/.env"
 if id www-data >/dev/null 2>&1; then
@@ -366,6 +398,8 @@ run_cmd install -m 0440 "${APP_ROOT}/infrastructure/sudoers/dis-update" /etc/sud
 run_cmd visudo -cf /etc/sudoers.d/dis-update
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-queue.service" /etc/systemd/system/dis-queue.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-media.service" /etc/systemd/system/dis-media.service
+run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-tts-engine.service" /etc/systemd/system/dis-tts-engine.service
+run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-speech.service" /etc/systemd/system/dis-speech.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-knmi.service" /etc/systemd/system/dis-knmi.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-knmi-realtime.service" /etc/systemd/system/dis-knmi-realtime.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-incident-enrichment.service" /etc/systemd/system/dis-incident-enrichment.service
@@ -377,7 +411,7 @@ install_osrm_admin_layout
 install_osrm_admin_request_systemd_units "${APP_ROOT}"
 run_cmd systemctl daemon-reload
 run_cmd systemctl enable \
-  dis-queue dis-media dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime \
+  dis-queue dis-media dis-tts-engine dis-speech dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime \
   dis-backup-request.path dis-backup-request.timer \
   dis-osrm-admin-request.path dis-osrm-admin-request.timer
 APP_ROOT="${APP_ROOT}" bash "${APP_ROOT}/scripts/osrm.sh" reconcile

@@ -56,7 +56,13 @@ final class SecurityHeaders
                 && str_contains((string) $response->headers->get('Cache-Control'), 'private')
                 && str_contains((string) $response->headers->get('Cache-Control'), 'no-cache')
                 && str_contains(strtolower((string) $response->headers->get('Vary')), 'cookie');
-            if (! $cacheableWallboardMedia && ! $revalidatableWallboardContent) {
+            $cacheableOperationalRadar = $request->routeIs('operational-weather.radar-atlas')
+                && in_array($responseStatus, [200, 304], true)
+                && $response->headers->has('ETag')
+                && str_contains($mediaCacheControl, 'private')
+                && str_contains($mediaCacheControl, 'max-age=')
+                && str_contains($mediaCacheControl, 'immutable');
+            if (! $cacheableWallboardMedia && ! $revalidatableWallboardContent && ! $cacheableOperationalRadar) {
                 $response->headers->set('Cache-Control', 'no-store, private');
                 $response->headers->set('Pragma', 'no-cache');
                 $response->headers->set('Expires', '0');

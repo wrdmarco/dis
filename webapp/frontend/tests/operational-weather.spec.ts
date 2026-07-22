@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { Buffer } from 'node:buffer';
 import { expect, test, type Page, type Route } from 'playwright/test';
 import {
   buildForecastResourcePath,
@@ -6,6 +7,7 @@ import {
   FORECAST_RETRY_INTERVAL_MS,
   forecastRefreshDeadline,
   normalizeForecastAddress,
+  WEATHER_REFRESH_INTERVAL_MS,
 } from '../src/features/weather/useForecastResource';
 import {
   normalizeOperationalWeatherPage,
@@ -19,10 +21,16 @@ const weatherPage = readFileSync(new URL('../src/features/weather/WeatherPage.ts
 const uavPage = readFileSync(new URL('../src/features/weather/UavForecastPage.tsx', import.meta.url), 'utf8');
 const locationControl = readFileSync(new URL('../src/features/weather/ForecastLocationControl.tsx', import.meta.url), 'utf8');
 const resourceHook = readFileSync(new URL('../src/features/weather/useForecastResource.ts', import.meta.url), 'utf8');
+const radarSection = readFileSync(new URL('../src/features/weather/WeatherRadarSection.tsx', import.meta.url), 'utf8');
+const radarPlayback = readFileSync(new URL('../src/features/weather/useWeatherRadarPlayback.ts', import.meta.url), 'utf8');
 const apiTypes = readFileSync(new URL('../src/types/api.ts', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../src/features/weather/OperationalForecast.module.css', import.meta.url), 'utf8');
 const help = readFileSync(new URL('../src/features/help/HelpPage.tsx', import.meta.url), 'utf8');
 const operationManual = readFileSync(new URL('../src/features/help/manuals/operationManual.ts', import.meta.url), 'utf8');
+const RADAR_TEST_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=',
+  'base64',
+);
 
 test('weather and UAV Forecast are authenticated operation routes and preload from the menu', () => {
   expect(navigation).toContain("{ to: '/weather', label: 'Weer', icon: CloudRain }");
@@ -49,19 +57,23 @@ test('forecast queries use only a national scope or a normalized server-side add
   expect(resourceHook).not.toContain("parameters.set('longitude'");
 });
 
-test('weather is based on local KNMI cloud and precipitation products without a flight advice', () => {
+test('weather uses locally stored KNMI and EUMETSAT products without an embedded external map or flight advice', () => {
   expect(weatherPage).toContain('useForecastResource<OperationalWeatherPageState>(');
   expect(weatherPage).toContain("'/operational-weather'");
   expect(weatherPage).toContain('normalizeOperationalWeatherPage');
   expect(weatherPage).toContain('markOperationalWeatherStale(resource.data)');
-  expect(weatherPage).toContain('Lokale KNMI-data');
-  expect(weatherPage).toContain('De browser vraagt hiervoor geen externe weerdienst aan.');
+  expect(weatherPage).toContain('Lokaal opgeslagen brondata');
+  expect(weatherPage).toContain('De browser laadt geen externe weer- of radarkaart.');
   expect(weatherPage).toContain('cloud_cover_high_pct');
   expect(weatherPage).toContain('cloud_base_m');
   expect(weatherPage).toContain('radar_peak_mm_h');
   expect(weatherPage).toContain('third_hour_probability_pct');
   expect(weatherPage).toContain('Lokale radarrasterreeks tot +2 uur');
   expect(weatherPage).toContain('Hoogtereferentie niet door het modelproduct gespecificeerd');
+  expect(weatherPage).toContain('<WeatherRadarSection radar={weather.radar} />');
+  expect(radarSection).toContain('Buien- en bliksemradar');
+  expect(radarSection).toContain('EUMETSAT LI total lightning; geen onderscheid tussen wolk-grond en wolk-wolk');
+  expect(radarSection).toContain('Er wordt geen externe kaart ingebed.');
   expect(weatherPage).not.toContain('forecastAdvice(');
 });
 
@@ -87,6 +99,9 @@ test('API types mirror nullable local KNMI provider fields', () => {
   expect(apiTypes).toContain('export interface OperationalWeatherPrecipitationState');
   expect(apiTypes).toContain('radar_peak_mm_h: number | null;');
   expect(apiTypes).toContain('third_hour_probability_pct: number | null;');
+  expect(apiTypes).toContain("export type OperationalWeatherRadarLayerStatus = 'available' | 'stale' | 'unavailable'");
+  expect(apiTypes).toContain('export interface OperationalWeatherRadarLayer');
+  expect(apiTypes).toContain('radar: OperationalWeatherRadarState;');
   expect(apiTypes).toContain('export interface OperationalWeatherPageState');
 });
 
@@ -125,8 +140,64 @@ test('weather normalization never accepts malformed current data as current', ()
   });
 });
 
+test('radar normalization accepts only the bounded same-origin atlas contract and preserves stale placeholders', () => {
+  const weather = currentWeather();
+  const normalized = normalizeOperationalWeatherPage(weather);
+  expect(normalized?.data_status).toBe('current');
+  expect(normalized?.radar.precipitation).toMatchObject({
+    status: 'available',
+    atlas_columns: 5,
+    atlas_rows: 5,
+  });
+  expect(normalized?.radar.lightning).toMatchObject({
+    status: 'available',
+    atlas_columns: 4,
+    atlas_rows: 2,
+  });
+
+  const externalAtlas = currentWeather();
+  const radar = externalAtlas.radar as Record<string, unknown>;
+  radar.precipitation = {
+    ...(radar.precipitation as Record<string, unknown>),
+    atlas_url: 'https://gratis-radar.example/atlas.png',
+  };
+  const rejected = normalizeOperationalWeatherPage(externalAtlas);
+  expect(rejected?.data_status).toBe('partial');
+  expect(rejected?.radar.precipitation).toMatchObject({
+    status: 'unavailable',
+    atlas_url: null,
+    frames: [],
+  });
+
+  const stalePlaceholder = currentWeather();
+  const staleRadar = stalePlaceholder.radar as Record<string, unknown>;
+  staleRadar.lightning = {
+    status: 'stale',
+    reference_time: '2026-07-21T12:00:00Z',
+    atlas_url: null,
+    atlas_columns: 0,
+    atlas_rows: 0,
+    frame_width: 0,
+    frame_height: 0,
+    frames: [],
+    source: {
+      name: 'EUMETSAT MTG Lightning Imager',
+      url: 'https://view.eumetsat.int/',
+      license: 'EUMETSAT Data Policy',
+    },
+  };
+  const preserved = normalizeOperationalWeatherPage(stalePlaceholder);
+  expect(preserved?.data_status).toBe('partial');
+  expect(preserved?.radar.lightning).toMatchObject({
+    status: 'stale',
+    atlas_url: null,
+    frames: [],
+  });
+});
+
 test('forecast refresh pauses while hidden and remains manually retryable', () => {
   expect(FORECAST_REFRESH_INTERVAL_MS).toBe(15 * 60 * 1000);
+  expect(WEATHER_REFRESH_INTERVAL_MS).toBe(5 * 60 * 1000);
   expect(FORECAST_RETRY_INTERVAL_MS).toBe(60 * 1000);
   expect(resourceHook).toContain("document.visibilityState !== 'visible'");
   expect(resourceHook).toContain("document.addEventListener('visibilitychange', scheduleRefresh)");
@@ -141,6 +212,8 @@ test('forecast deadlines expire at exactly fifteen minutes and retry failures af
 
   expect(forecastRefreshDeadline(successfulAt, successfulAt, false))
     .toBe(successfulAt + 15 * 60 * 1000);
+  expect(forecastRefreshDeadline(successfulAt, successfulAt, false, WEATHER_REFRESH_INTERVAL_MS))
+    .toBe(successfulAt + 5 * 60 * 1000);
   expect(forecastRefreshDeadline(successfulAt, failedAttemptAt, true))
     .toBe(failedAttemptAt + 60 * 1000);
   expect(forecastRefreshDeadline(0, failedAttemptAt, false))
@@ -154,6 +227,10 @@ test('forecast layout is responsive, keyboard visible and reduced-motion safe', 
   expect(styles).toContain('.locationModes label:has(input:focus-visible)');
   expect(styles).toContain('@media (prefers-reduced-motion: reduce)');
   expect(styles).toContain('color: var(--dis-blue);');
+  expect(styles).toContain('grid-template-columns: minmax(0, 1fr) minmax(300px, 350px);');
+  expect(styles).toContain('.radarTabs button:focus-visible');
+  expect(radarPlayback).toContain("document.addEventListener('visibilitychange', handleVisibility)");
+  expect(radarPlayback).toContain("window.matchMedia('(prefers-reduced-motion: reduce)')");
 });
 
 test('help index and operation manual explain both operational weather pages', () => {
@@ -164,6 +241,7 @@ test('help index and operation manual explain both operational weather pages', (
   expect(operationManual).toContain("id: 'weather-read-local-knmi'");
   expect(operationManual).toContain("id: 'uav-forecast-assess'");
   expect(operationManual).toContain('De pagina Weer geeft geen vliegadvies.');
+  expect(operationManual).toContain('EUMETSAT LI-product toont total lightning');
 });
 
 test('a failed UAV refresh immediately fails closed and stays closed during retry', async ({ page }) => {
@@ -231,6 +309,43 @@ test('the initial forecast request disables controls and cannot be duplicated', 
   await expect(page.getByRole('button', { name: 'Verversen' })).toBeEnabled();
 });
 
+test('weather radar starts on the newest still, exposes explicit controls and switches to total lightning', async ({ page }) => {
+  await mockForecastApi(page, 'dark', async (path) => {
+    if (path !== '/api/operational-weather') return notFoundResponse();
+    return successResponse(currentWeather());
+  });
+
+  await page.goto('/weather');
+  await expect(page.getByRole('heading', { name: 'Buien- en bliksemradar' })).toBeVisible();
+  const precipitationPanel = page.getByRole('tabpanel');
+  await expect(precipitationPanel.getByText('+120 minuten', { exact: true })).toBeVisible();
+  await expect(precipitationPanel.getByLabel('Tijdstap')).toHaveValue('24');
+  await expect(precipitationPanel.getByRole('button', { name: 'Radaranimatie afspelen' })).toBeEnabled();
+
+  await page.getByRole('tab', { name: 'Bliksem' }).click();
+  await expect(page.getByRole('tab', { name: 'Bliksem' })).toHaveAttribute('aria-selected', 'true');
+  await expect(precipitationPanel.getByText('EUMETSAT LI total lightning; geen onderscheid tussen wolk-grond en wolk-wolk')).toBeVisible();
+  await expect(precipitationPanel.getByLabel('Tijdstap')).toHaveValue('6');
+  await precipitationPanel.getByLabel('Tijdstap').fill('0');
+  await expect(precipitationPanel.getByRole('button', { name: 'Naar nieuwste' })).toBeEnabled();
+  await precipitationPanel.getByRole('button', { name: 'Naar nieuwste' }).click();
+  await expect(precipitationPanel.getByLabel('Tijdstap')).toHaveValue('6');
+});
+
+test('reduced motion keeps radar animation off while manual time steps remain available', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await mockForecastApi(page, 'light', async (path) => {
+    if (path !== '/api/operational-weather') return notFoundResponse();
+    return successResponse(currentWeather());
+  });
+
+  await page.goto('/weather');
+  const radarPanel = page.getByRole('tabpanel');
+  await expect(radarPanel.getByText('Automatisch afspelen is uitgeschakeld vanwege de instelling voor minder beweging.')).toBeVisible();
+  await expect(radarPanel.getByRole('button', { name: 'Radaranimatie afspelen' })).toBeDisabled();
+  await expect(radarPanel.getByRole('button', { name: 'Vorige' })).toBeEnabled();
+});
+
 for (const scenario of [
   { path: '/weather', theme: 'light', heading: 'Lokale datasets actueel' },
   { path: '/uav-forecast', theme: 'dark', heading: 'Advies onvolledig' },
@@ -295,6 +410,10 @@ async function mockForecastApi(
 ): Promise<void> {
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (/^\/api\/operational-weather\/radar\/(precipitation|lightning)\/\d{8}T\d{6}Z-[a-f0-9]{16}\.png$/.test(path)) {
+      await route.fulfill({ status: 200, contentType: 'image/png', body: RADAR_TEST_PNG });
+      return;
+    }
     if (path === '/api/auth/me') {
       await fulfillJson(route, successResponse(currentUser(theme)));
       return;
@@ -398,6 +517,48 @@ function currentWeather(): Record<string, unknown> {
       expected_sample_count: 12,
       source,
       availability_note: null,
+    },
+    radar: {
+      precipitation: {
+        status: 'available',
+        reference_time: '2026-07-21T12:00:00Z',
+        atlas_url: '/api/operational-weather/radar/precipitation/20260721T120000Z-0123456789abcdef.png',
+        atlas_columns: 5,
+        atlas_rows: 5,
+        frame_width: 140,
+        frame_height: 153,
+        frames: Array.from({ length: 25 }, (_, index) => ({
+          index,
+          valid_at: new Date(Date.parse('2026-07-21T12:00:00Z') + index * 5 * 60_000).toISOString(),
+          lead_minutes: index * 5,
+        })),
+        source: {
+          name: 'KNMI Precipitation Radar',
+          url: 'https://dataplatform.knmi.nl/',
+          license: 'CC BY 4.0',
+        },
+        availability_note: null,
+      },
+      lightning: {
+        status: 'available',
+        reference_time: '2026-07-21T12:00:00Z',
+        atlas_url: '/api/operational-weather/radar/lightning/20260721T120000Z-fedcba9876543210.png',
+        atlas_columns: 4,
+        atlas_rows: 2,
+        frame_width: 640,
+        frame_height: 384,
+        frames: Array.from({ length: 7 }, (_, index) => ({
+          index,
+          valid_at: new Date(Date.parse('2026-07-21T11:30:00Z') + index * 5 * 60_000).toISOString(),
+          lead_minutes: 0,
+        })),
+        source: {
+          name: 'EUMETSAT MTG Lightning Imager',
+          url: 'https://view.eumetsat.int/',
+          license: 'EUMETSAT Data Policy',
+        },
+        availability_note: null,
+      },
     },
     scope_note: 'Landelijk overzicht uit lokaal opgeslagen KNMI-producten.',
     disclaimer: 'Dit weerbeeld is geen vliegadvies.',

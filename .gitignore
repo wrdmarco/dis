@@ -26,6 +26,8 @@ secrets/*
 /app/android/.gradle/
 
 # Build artifacts
+__pycache__/
+*.py[cod]
 /webapp/frontend/dist/
 /webapp/frontend/build/
 /webapp/frontend/*.tsbuildinfo

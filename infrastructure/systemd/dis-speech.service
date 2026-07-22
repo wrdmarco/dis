@@ -1,0 +1,51 @@
+[Unit]
+Description=DIS Laravel Speech Queue Worker
+Requires=dis-tts-engine.service
+After=network.target redis-server.service postgresql.service dis-tts-engine.service
+
+[Service]
+Type=exec
+User=dis
+Group=dis
+WorkingDirectory=/opt/dis/webapp/backend
+UMask=0027
+ExecStartPre=/usr/bin/test -S /run/dis-tts/engine.sock
+ExecStartPre=/usr/bin/test -x /usr/bin/ffmpeg
+ExecStartPre=/usr/bin/test -x /usr/bin/ffprobe
+ExecStart=/usr/bin/php -d zend.exception_ignore_args=1 artisan queue:work speech --queue=speech --sleep=2 --tries=1 --timeout=68400 --max-jobs=25 --max-time=86400
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+KillMode=control-group
+TimeoutStopSec=60s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+RestrictRealtime=true
+ReadWritePaths=/opt/dis-data/tts/cache /opt/dis-data/tts/staging /opt/dis/webapp/backend/storage /opt/dis/storage
+InaccessiblePaths=-/opt/dis-data/tts/models -/opt/dis-data/tts/runtime -/opt/dis-data/tts/python -/opt/dis-data/tts/uv-cache -/opt/dis-data/tts/state
+MemoryHigh=2G
+MemoryMax=3G
+CPUQuota=200%
+TasksMax=128
+Nice=5
+OOMPolicy=stop
+
+[Install]
+WantedBy=multi-user.target

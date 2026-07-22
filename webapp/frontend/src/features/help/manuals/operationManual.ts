@@ -278,17 +278,20 @@ export const operationManualGuides = {
   weather: [
     {
       id: 'weather-read-local-knmi',
-      title: 'Het lokale KNMI-weerbeeld controleren',
-      intro: 'Controleer bewolking en neerslag voor een landelijk gebied of één gezocht adres.',
+      title: 'Het lokale weer- en radarbeeld controleren',
+      intro: 'Controleer bewolking, neerslag en lokaal opgeslagen bliksemdetectie voor een landelijk gebied of één gezocht adres.',
       steps: [
         { label: 'Open Weer', description: 'Kies Weer in het menu onder Operatie.' },
         { label: 'Kies het gebied', description: 'Laat UAV Nederland staan of kies Adres, vul een adres of plaatsnaam in en kies Toepassen.' },
         { label: 'Controleer Datastatus', description: 'Actueel betekent dat beide lokale datasets bruikbaar zijn. Gedeeltelijk of niet beschikbaar vraagt om controle via een andere goedgekeurde bron.' },
         { label: 'Lees de wolkenlagen', description: 'Vergelijk hoge, middelbare en lage modelbewolking, totale bedekking en de modelwolkenbasis. De hoogtereferentie van die modelwolkenbasis is niet gespecificeerd.' },
         { label: 'Lees het neerslagvenster', description: 'Bekijk de lokale KNMI-radarrasterreeks voor uur 0–2 en daarna afzonderlijk de ensemblekans voor uur 3.' },
+        { label: 'Bekijk de buienradar', description: 'Kies Buien. Gebruik de schuifregelaar, Vorige en Volgende voor één tijdstap of start de reeks bewust met Afspelen. Naar nieuwste toont het laatste frame.' },
+        { label: 'Bekijk de bliksemradar', description: 'Kies Bliksem. Dit lokale EUMETSAT LI-product toont total lightning als geaccumuleerd bliksemflitsgebied en onderscheidt wolk-grond en wolk-wolk niet.' },
         { label: 'Controleer bron en tijd', description: 'Lees per dataset de bron, geldige of gemeten tijd, lokale verversing en eventuele beschikbaarheidsmelding.' },
+        { label: 'Laat de actualiteit bewaken', description: 'De zichtbare pagina controleert iedere vijf minuten op nieuwe weer- en radardata. Kies Verversen voor een directe controle.' },
       ],
-      result: 'Je hebt een transparant weerbeeld op basis van de lokaal opgeslagen KNMI-datasets.',
+      result: 'Je hebt een transparant weerbeeld op basis van lokaal opgeslagen KNMI- en EUMETSAT-brondata.',
       warning: 'De pagina Weer geeft geen vliegadvies. Onbekende of verouderde data mag niet als gunstige situatie worden geïnterpreteerd.',
     },
   ],

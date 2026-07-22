@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Schedule;
 
 Schedule::command('queue:prune-failed --hours=168')->dailyAt('03:30');
 Schedule::command('dis:cleanup-wallboard-media')->dailyAt('03:20')->withoutOverlapping();
+Schedule::command('dis:prune-speech-cache')->everyFifteenMinutes()->onOneServer()->withoutOverlapping(10);
 Schedule::command('dis:backfill-wallboard-media-thumbnails')
     ->everyMinute()
     ->onOneServer()
@@ -23,6 +24,10 @@ Schedule::command('dis:refresh-knmi-precipitation-outlook')
     ->cron('4-59/5 * * * *')
     ->onOneServer()
     ->withoutOverlapping(10);
+Schedule::command('dis:refresh-eumetsat-lightning')
+    ->everyFiveMinutes()
+    ->onOneServer()
+    ->withoutOverlapping(10);
 Schedule::command('dis:backfill-incident-locations')
     ->everyFiveMinutes()
     ->onOneServer()
@@ -39,7 +44,7 @@ Schedule::command('dis:apply-availability-schedule-statuses')->everyMinute();
 Schedule::command('dis:send-device-presence-ping')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('dis:send-scheduled-test-alert')->everyMinute();
 Schedule::command('dis:flush-dispatch-push-outbox')
-    ->everyTenSeconds()
+    ->everySecond()
     ->withoutOverlapping(1);
 Schedule::command('dis:run-scheduled-backup')
     ->everyMinute()

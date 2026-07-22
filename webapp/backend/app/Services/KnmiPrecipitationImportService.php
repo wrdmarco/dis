@@ -22,6 +22,8 @@ final class KnmiPrecipitationImportService
         $active = $this->snapshots->activeSnapshot();
         $reference = $files['radar']->referenceTime->toIso8601String();
         if (is_array($active)
+            && ($active['version'] ?? null) === 2
+            && is_array($active['atlas'] ?? null)
             && is_string($active['reference_time'] ?? null)
             && hash_equals($reference, $active['reference_time'])
             && ($active['files']['radar']['filename'] ?? null) === $files['radar']->filename
@@ -49,7 +51,12 @@ final class KnmiPrecipitationImportService
                 $probabilityPath,
                 $files['radar']->referenceTime,
             );
-            $manifest = $this->snapshots->activate($staging, $files, $sha256);
+            $atlas = $this->reader->renderRadarAtlas(
+                $radarPath,
+                $files['radar']->referenceTime,
+                $staging.DIRECTORY_SEPARATOR.KnmiPrecipitationHdf5Reader::RADAR_ATLAS_FILENAME,
+            );
+            $manifest = $this->snapshots->activate($staging, $files, $sha256, $atlas);
 
             return [
                 'changed' => true,

@@ -114,7 +114,7 @@ export function KnmiAdminPage() {
     setPrecipitationMessage(null);
     try {
       await api.post<KnmiPrecipitationRefreshStarted>('/admin/knmi/precipitation/refresh');
-      setPrecipitationMessage('De lokale radar- en onweerskansbestanden worden op de server bijgewerkt.');
+      setPrecipitationMessage('De lokale radar- en neerslagkansbestanden worden op de server bijgewerkt.');
     } catch (error) {
       setPrecipitationError(error instanceof ApiClientError ? error.message : 'KNMI-neerslagdata bijwerken kon niet worden gestart.');
     } finally {
@@ -191,7 +191,7 @@ export function KnmiAdminPage() {
                   onClick={() => void refreshPrecipitation()}
                 >
                   <DownloadCloud aria-hidden size={18} />
-                  {startingPrecipitation ? 'Neerslagdata wordt aangevraagd...' : 'Radar en onweerskans bijwerken'}
+                  {startingPrecipitation ? 'Neerslagdata wordt aangevraagd...' : 'Radar en neerslagkans bijwerken'}
                 </button>
                 <button
                   className="primary-button"
@@ -206,7 +206,7 @@ export function KnmiAdminPage() {
               {!status.data.configuration.configured ? (
                 <p className={styles.actionHint}>Stel eerst de KNMI Open Data API-key in om gegevens te downloaden.</p>
               ) : (
-                <p className={styles.actionHint}>Radar en onweerskans worden daarnaast automatisch iedere vijf minuten gecontroleerd.</p>
+                <p className={styles.actionHint}>Radar en neerslagkans worden daarnaast automatisch iedere vijf minuten gecontroleerd.</p>
               )}
             </div>
           ) : null}

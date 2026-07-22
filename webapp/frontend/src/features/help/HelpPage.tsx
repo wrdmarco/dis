@@ -261,14 +261,16 @@ const helpTopics: readonly HelpTopic[] = [
     id: 'weather',
     group: 'operation',
     title: 'Weer',
-    summary: 'Bekijk lokale KNMI-bewolking, wolkenbasis en neerslag zonder vliegadvies.',
+    summary: 'Bekijk lokaal opgeslagen KNMI-weerdata en EUMETSAT-bliksemdetectie zonder vliegadvies.',
     icon: CloudRain,
     href: '/weather',
     actions: [
       { title: 'Gebied kiezen', description: 'Gebruik UAV Nederland of vul een adres of plaatsnaam in. De server zoekt de locatie; je hoeft geen coördinaten in te voeren.' },
       { title: 'Bewolking lezen', description: 'Vergelijk hoge, middelbare en lage modelbewolking met de totale bedekking en modelwolkenbasis.' },
       { title: 'Neerslagvenster lezen', description: 'Bekijk de lokale radarrasterreeks voor uur 0–2 en de ensemblekans voor uur 3 als afzonderlijke bronproducten.' },
-      { title: 'Actualiteit controleren', description: 'Controleer altijd datastatus, geldigheid, lokale verversing en eventuele beschikbaarheidsmelding.' },
+      { title: 'Radar bedienen', description: 'Wissel tussen Buien en Bliksem, kies een tijdstap met de schuifregelaar of gebruik Afspelen. Naar nieuwste zet de reeks terug op het laatste beeld.' },
+      { title: 'Bliksembeeld duiden', description: 'EUMETSAT LI toont total lightning als geaccumuleerd bliksemflitsgebied en maakt geen onderscheid tussen wolk-grond en wolk-wolk.' },
+      { title: 'Actualiteit controleren', description: 'De pagina controleert iedere vijf minuten op nieuwe data. Controleer altijd datastatus, geldigheid, lokale verversing en eventuele beschikbaarheidsmelding.' },
     ],
   },
   {

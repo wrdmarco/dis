@@ -4,12 +4,15 @@ namespace Tests\Feature;
 
 use App\Contracts\KnmiCloudForecastProvider;
 use App\Contracts\KnmiPrecipitationOutlookProvider;
+use App\Contracts\OperationalRadarProvider;
 use App\Models\User;
 use App\Services\WallboardForecastService;
+use App\Support\OperationalRadarContent;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -22,6 +25,10 @@ final class OperationalForecastApiTest extends TestCase
 
     private OperationalWeatherPrecipitationProviderStub $precipitation;
 
+    private OperationalRadarProviderStub $radar;
+
+    private ?string $radarFixturePath = null;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -30,14 +37,19 @@ final class OperationalForecastApiTest extends TestCase
         Cache::flush();
         $this->cloud = new OperationalWeatherCloudProviderStub;
         $this->precipitation = new OperationalWeatherPrecipitationProviderStub;
+        $this->radar = new OperationalRadarProviderStub;
         $this->app->instance(KnmiCloudForecastProvider::class, $this->cloud);
         $this->app->instance(KnmiPrecipitationOutlookProvider::class, $this->precipitation);
+        $this->app->instance(OperationalRadarProvider::class, $this->radar);
     }
 
     protected function tearDown(): void
     {
         CarbonImmutable::setTestNow();
         Cache::flush();
+        if ($this->radarFixturePath !== null) {
+            File::delete($this->radarFixturePath);
+        }
 
         parent::tearDown();
     }
@@ -90,6 +102,8 @@ final class OperationalForecastApiTest extends TestCase
             ->assertJsonPath('data.precipitation.radar_peak_mm_h', 0.4)
             ->assertJsonPath('data.precipitation.third_hour_probability_pct', 35)
             ->assertJsonPath('data.precipitation.source.name', 'KNMI lokale radar + ensemblekans (12 locaties)')
+            ->assertJsonPath('data.radar.precipitation.status', 'unavailable')
+            ->assertJsonPath('data.radar.lightning.status', 'unavailable')
             ->assertJsonStructure(['data' => [
                 'location' => ['mode', 'label', 'latitude', 'longitude'],
                 'aggregation' => ['type', 'sample_count', 'expected_sample_count', 'complete', 'fresh'],
@@ -107,6 +121,18 @@ final class OperationalForecastApiTest extends TestCase
                     'forecast_until', 'reference_time', 'measured_at', 'refreshed_at',
                     'sample_count', 'expected_sample_count', 'source', 'availability_note',
                 ],
+                'radar' => [
+                    'precipitation' => [
+                        'status', 'reference_time', 'refreshed_at', 'atlas_url',
+                        'atlas_columns', 'atlas_rows', 'frame_width', 'frame_height',
+                        'frames', 'source', 'availability_note',
+                    ],
+                    'lightning' => [
+                        'status', 'reference_time', 'refreshed_at', 'atlas_url',
+                        'atlas_columns', 'atlas_rows', 'frame_width', 'frame_height',
+                        'frames', 'source', 'availability_note',
+                    ],
+                ],
                 'scope_note',
                 'disclaimer',
             ]]);
@@ -114,6 +140,100 @@ final class OperationalForecastApiTest extends TestCase
         $this->assertStringNotContainsString('path', $response->getContent());
         $this->assertStringNotContainsString('sha256', $response->getContent());
         Http::assertNothingSent();
+    }
+
+    public function test_weather_exposes_same_origin_radar_metadata_and_atlas_is_immutable_and_conditional(): void
+    {
+        Http::preventStrayRequests();
+        $snapshot = '20260721T103000Z-0123456789abcdef';
+        $png = "\x89PNG\r\n\x1a\nradar-fixture";
+        $this->radarFixturePath = storage_path('framework/testing/operational-radar-fixture.png');
+        File::ensureDirectoryExists(dirname($this->radarFixturePath));
+        File::put($this->radarFixturePath, $png);
+        $sha256 = hash('sha256', $png);
+        $frames = [];
+        for ($index = 0; $index < 25; $index++) {
+            $frames[] = [
+                'index' => $index,
+                'valid_at' => CarbonImmutable::parse('2026-07-21T10:30:00Z')
+                    ->addMinutes($index * 5)
+                    ->toIso8601String(),
+                'lead_minutes' => $index * 5,
+            ];
+        }
+        $this->radar->metadata = [
+            'precipitation' => [
+                ...$this->radar->metadata['precipitation'],
+                'status' => 'available',
+                'reference_time' => '2026-07-21T10:30:00+00:00',
+                'atlas_url' => '/api/operational-weather/radar/precipitation/'.$snapshot.'.png',
+                'frame_width' => 700,
+                'frame_height' => 765,
+                'frames' => $frames,
+            ],
+            'lightning' => $this->radar->metadata['lightning'],
+        ];
+        $this->radar->files['precipitation|'.$snapshot] = new OperationalRadarContent(
+            $this->radarFixturePath,
+            strlen($png),
+            $sha256,
+        );
+        $client = $this->asWebClient($this->user('radar-content@example.test'));
+
+        $client->getJson('/api/operational-weather')
+            ->assertOk()
+            ->assertJsonPath('data.radar.precipitation.status', 'available')
+            ->assertJsonPath(
+                'data.radar.precipitation.atlas_url',
+                '/api/operational-weather/radar/precipitation/'.$snapshot.'.png',
+            );
+
+        $url = '/api/operational-weather/radar/precipitation/'.$snapshot.'.png';
+        $response = $client->get($url)
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/png')
+            ->assertHeader('Content-Length', (string) strlen($png))
+            ->assertHeader('ETag', '"'.$sha256.'"')
+            ->assertHeader('Cache-Control', 'immutable, max-age=31536000, private')
+            ->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertSame($png, $response->streamedContent());
+
+        $client->withHeader('If-None-Match', 'W/"'.$sha256.'"')
+            ->get($url)
+            ->assertNotModified()
+            ->assertHeader('ETag', '"'.$sha256.'"')
+            ->assertHeader('Cache-Control', 'immutable, max-age=31536000, private');
+        Http::assertNothingSent();
+    }
+
+    public function test_radar_atlas_requires_authentication_completed_two_factor_and_valid_identifiers(): void
+    {
+        $snapshot = '20260721T103000Z-0123456789abcdef';
+        $url = '/api/operational-weather/radar/precipitation/'.$snapshot.'.png';
+
+        $this->get($url)->assertUnauthorized();
+
+        $user = $this->user('radar-auth@example.test');
+        $pending = $user->createToken(
+            'Operational radar pending 2FA',
+            ['2fa:pending', 'client:web'],
+            now()->addHour(),
+        )->plainTextToken;
+        Auth::forgetGuards();
+        $this->withToken($pending)
+            ->get($url)
+            ->assertForbidden();
+
+        $this->asWebClient($user)
+            ->get('/api/operational-weather/radar/unknown/'.$snapshot.'.png')
+            ->assertNotFound();
+        $this->asWebClient($user)
+            ->get('/api/operational-weather/radar/lightning/not-a-snapshot.png')
+            ->assertNotFound();
+        $this->asWebClient($user)
+            ->get($url)
+            ->assertNotFound()
+            ->assertHeader('Cache-Control', 'no-store, private');
     }
 
     public function test_address_is_resolved_server_side_before_local_knmi_providers_are_called(): void
@@ -457,5 +577,59 @@ final class OperationalWeatherPrecipitationProviderStub implements KnmiPrecipita
             'availability_note' => null,
             ...$this->overrides,
         ];
+    }
+}
+
+final class OperationalRadarProviderStub implements OperationalRadarProvider
+{
+    /** @var array<string, mixed> */
+    public array $metadata = [
+        'precipitation' => [
+            'status' => 'unavailable',
+            'reference_time' => null,
+            'refreshed_at' => null,
+            'atlas_url' => null,
+            'atlas_columns' => 5,
+            'atlas_rows' => 5,
+            'frame_width' => 0,
+            'frame_height' => 0,
+            'frames' => [],
+            'source' => [
+                'name' => 'KNMI radar_forecast 2.0',
+                'url' => 'https://dataplatform.knmi.nl/dataset/radar-forecast-2-0',
+                'license' => 'CC BY 4.0',
+            ],
+            'availability_note' => 'Geen actuele lokale KNMI-radaratlas beschikbaar.',
+        ],
+        'lightning' => [
+            'status' => 'unavailable',
+            'reference_time' => null,
+            'refreshed_at' => null,
+            'atlas_url' => null,
+            'atlas_columns' => 4,
+            'atlas_rows' => 2,
+            'frame_width' => 0,
+            'frame_height' => 0,
+            'frames' => [],
+            'source' => [
+                'name' => 'EUMETSAT MTG Lightning Imager',
+                'url' => 'https://view.eumetsat.int/',
+                'license' => 'EUMETSAT Data Policy - vrije EUMETView-toegang',
+            ],
+            'availability_note' => 'Geen actuele bliksemradar beschikbaar.',
+        ],
+    ];
+
+    /** @var array<string, OperationalRadarContent> */
+    public array $files = [];
+
+    public function metadata(): array
+    {
+        return $this->metadata;
+    }
+
+    public function file(string $kind, string $snapshotId): ?OperationalRadarContent
+    {
+        return $this->files[$kind.'|'.$snapshotId] ?? null;
     }
 }

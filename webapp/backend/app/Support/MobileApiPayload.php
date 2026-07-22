@@ -5,8 +5,8 @@ namespace App\Support;
 use App\Models\AppVersion;
 use App\Models\Asset;
 use App\Models\AssetAssignment;
-use App\Models\AvailabilityStatus;
 use App\Models\AuditLog;
+use App\Models\AvailabilityStatus;
 use App\Models\Certification;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
@@ -17,7 +17,6 @@ use App\Models\PilotIncidentReport;
 use App\Models\User;
 use App\Models\UserCertification;
 use App\Services\TwoFactorService;
-use App\Support\ProfileLocation;
 use DateTimeInterface;
 
 final class MobileApiPayload
@@ -369,6 +368,15 @@ final class MobileApiPayload
             'priority' => $dispatch->priority,
             'message' => $dispatch->message,
             'sent_at' => self::dateTime($dispatch->sent_at),
+            'send_status' => $dispatch->send_status === 'preparing_speech'
+                && $dispatch->send_release_deadline !== null
+                && ApiDateTime::comparableWallClock($dispatch->send_release_deadline)
+                    ->lessThanOrEqualTo(ApiDateTime::comparableWallClock(now()))
+                    ? 'queued_for_push'
+                    : $dispatch->send_status,
+            'send_queued_at' => self::dateTime($dispatch->send_queued_at),
+            'send_release_deadline' => self::dateTime($dispatch->send_release_deadline),
+            'send_released_at' => self::dateTime($dispatch->send_released_at),
             'created_at' => self::dateTime($dispatch->created_at),
             'incident' => $dispatch->relationLoaded('incident') && $dispatch->incident !== null ? self::incident($dispatch->incident) : null,
             'target_team' => $dispatch->relationLoaded('targetTeam') && $dispatch->targetTeam !== null ? [

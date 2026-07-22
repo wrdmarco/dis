@@ -17,7 +17,9 @@ import {
   DEFAULT_FORECAST_LOCATION,
   type ForecastLocationQuery,
   useForecastResource,
+  WEATHER_REFRESH_INTERVAL_MS,
 } from './useForecastResource';
+import { WeatherRadarSection } from './WeatherRadarSection';
 
 const NUMBER_FORMATTER = new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 1 });
 
@@ -27,6 +29,7 @@ export function WeatherPage() {
     '/operational-weather',
     location,
     normalizeOperationalWeatherPage,
+    WEATHER_REFRESH_INTERVAL_MS,
   );
   const weather = resource.data === null
     ? null
@@ -45,15 +48,15 @@ export function WeatherPage() {
   return (
     <div className={`page-stack ${styles.page}`}>
       <header className={styles.pageHero}>
-        <span className={styles.eyebrow}><Database aria-hidden size={15} /> Lokale KNMI-data</span>
+        <span className={styles.eyebrow}><Database aria-hidden size={15} /> Lokaal opgeslagen brondata</span>
         <div className={styles.heroTitleRow}>
           <div>
             <h1>Weer</h1>
-            <p>Bewolking, wolkenbasis en neerslag uit de lokaal opgeslagen KNMI-datasets.</p>
+            <p>KNMI-bewolking en neerslag, aangevuld met lokaal opgeslagen EUMETSAT-bliksemdetectie.</p>
           </div>
           <span className={styles.heroIcon} aria-hidden><CloudRain size={31} /></span>
         </div>
-        <p className={styles.heroNote}>Dit weerbeeld is geen vliegadvies. De browser vraagt hiervoor geen externe weerdienst aan.</p>
+        <p className={styles.heroNote}>Dit weerbeeld is geen vliegadvies. De browser laadt geen externe weer- of radarkaart.</p>
       </header>
 
       <ForecastLocationControl
@@ -67,7 +70,7 @@ export function WeatherPage() {
         <div className={styles.inlineWarning} role="alert">
           <AlertTriangle aria-hidden size={18} />
           <span>
-            De laatst opgehaalde KNMI-gegevens zijn verlopen en daarom als niet beschikbaar gemarkeerd.
+            De laatst opgehaalde weer- en radargegevens zijn verlopen en daarom als niet beschikbaar gemarkeerd.
             {resource.refreshing ? ' Er worden nieuwe gegevens opgehaald.' : ''}
             {resource.error ? ` ${resource.error}` : ''}
           </span>
@@ -107,6 +110,8 @@ function WeatherOverview({ weather }: { weather: OperationalWeatherPageState }) 
         </dl>
       </section>
 
+      <WeatherRadarSection radar={weather.radar} />
+
       <div className={styles.weatherLayout}>
         <CloudSpine cloud={weather.cloud} />
         <PrecipitationTimeline precipitation={weather.precipitation} />
@@ -137,7 +142,7 @@ function WeatherOverview({ weather }: { weather: OperationalWeatherPageState }) 
             refreshedAt={weather.precipitation.refreshed_at}
             sourceName={weather.precipitation.source.name}
             stale={weather.precipitation.stale}
-            title="Radar en uur 3"
+            title="Radar en ensemble uur 3"
           />
         </div>
         <p className={styles.scopeNote}>{weather.scope_note}</p>
