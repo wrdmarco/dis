@@ -6,6 +6,8 @@ requires-python = ">=3.11,<3.12"
 dependencies = [
     "chatterbox-tts",
     "setuptools==78.1.0",
+    "torch==2.6.0+cpu",
+    "torchaudio==2.6.0+cpu",
 ]
 
 [[tool.uv.index]]

@@ -21,6 +21,9 @@ SPEECH_PIPELINE_SOURCE="${APP_ROOT}/webapp/backend/app/Services/SpeechAudioPipel
 EXCLUSIVE_WRITER_SOURCE="${APP_ROOT}/webapp/backend/app/Services/SpeechExclusiveFileWriter.php"
 ROOT_ENV_EXAMPLE="${APP_ROOT}/.env.example"
 MODEL_PACKAGES="${APP_ROOT}/speech-engine/model-packages.requirements.txt"
+PYPROJECT="${APP_ROOT}/speech-engine/pyproject.toml"
+UV_LOCK="${APP_ROOT}/speech-engine/uv.lock"
+UPDATE_RUNNER="${APP_ROOT}/scripts/web-update-runner.sh"
 RECONCILE_COMMAND="${APP_ROOT}/webapp/backend/app/Console/Commands/ReconcileSpeechRuntime.php"
 RECONCILE_SERVICE="${APP_ROOT}/webapp/backend/app/Services/SpeechRuntimeReconciliationService.php"
 
@@ -67,6 +70,16 @@ require_text "${COMMON}" 'UV_PROJECT_ENVIRONMENT=${DIS_DATA_PATH}/tts/runtime'
 require_text "${COMMON}" 'UV_PYTHON_INSTALL_DIR=${DIS_DATA_PATH}/tts/python'
 require_text "${COMMON}" 'PYTHONDONTWRITEBYTECODE=1'
 require_text "${COMMON}" 'PYTHONPATH="${engine_root}"'
+require_text "${PYPROJECT}" '"torch==2.6.0+cpu"'
+require_text "${PYPROJECT}" '"torchaudio==2.6.0+cpu"'
+require_text "${UV_LOCK}" 'source = { registry = "https://download.pytorch.org/whl/cpu" }'
+reject_text "${UV_LOCK}" 'name = "nvidia-'
+reject_text "${UV_LOCK}" 'name = "triton"'
+require_text "${COMMON}" 'The speech runtime lock does not pin the CPU-only PyTorch index.'
+require_text "${COMMON}" 'The speech runtime lock unexpectedly contains GPU runtime packages.'
+require_text "${COMMON}" 'Speech runtime phase 1/3: installing the pinned Python interpreter'
+require_text "${COMMON}" 'Speech runtime phase 2/3: installing locked CPU-only speech dependencies'
+require_text "${COMMON}" 'Speech runtime phase 3/3: installing the pinned VoxCPM package'
 require_text "${MODEL_PACKAGES}" 'voxcpm @ https://files.pythonhosted.org/'
 require_text "${MODEL_PACKAGES}" '#sha256='
 require_text "${ROOT_ENV_EXAMPLE}" 'SPEECH_CACHE_HMAC_KEY='
@@ -103,6 +116,7 @@ require_text "${ENGINE_UNIT}" 'RuntimeDirectory=dis-tts'
 require_text "${ENGINE_UNIT}" 'RuntimeDirectoryMode=0750'
 require_text "${ENGINE_UNIT}" 'ExecStartPre=/usr/bin/setfacl -m u:www-data:--x,d:u:www-data:rw- /run/dis-tts'
 require_text "${ENGINE_UNIT}" 'ExecStart=/opt/dis-data/tts/runtime/bin/python -m dis_tts_engine'
+require_text "${ENGINE_UNIT}" "ExecStartPost=/usr/bin/timeout --kill-after=2s 30s /bin/sh -c 'until [ -S /run/dis-tts/engine.sock ]; do sleep 1; done'"
 require_text "${ENGINE_UNIT}" 'Environment=DIS_TTS_SOCKET_PATH=/run/dis-tts/engine.sock'
 require_text "${ENGINE_UNIT}" 'Environment=DIS_TTS_TORCH_THREADS=16'
 require_text "${ENGINE_UNIT}" 'Environment=OMP_NUM_THREADS=16'
@@ -169,8 +183,23 @@ require_text "${DEPLOY}" 'install_speech_engine_runtime "${APP_ROOT}"'
 require_text "${DEPLOY}" 'infrastructure/systemd/dis-tts-engine.service'
 require_text "${DEPLOY}" 'infrastructure/systemd/dis-speech.service'
 require_text "${DEPLOY}" 'dis-queue dis-media dis-tts-engine dis-speech'
-require_text "${COMMON}" 'for service in dis-tts-engine dis-speech dis-media'
+require_text "${COMMON}" 'wait_for_dis_speech_engine_readiness() {'
+require_text "${COMMON}" 'for service in dis-media dis-queue'
 require_text "${COMMON}" 'dis-frontend dis-tts-engine dis-speech dis-queue'
+require_text "${UPDATE_RUNNER}" 'timeout --kill-after=30s "${UPDATE_TIMEOUT_SECONDS}s" /usr/local/bin/update "$@"'
+require_text "${DEPLOY}" 'PGOPTIONS="-c lock_timeout=60s -c statement_timeout=15min"'
+require_text "${RESTORE}" 'PGOPTIONS="-c lock_timeout=60s -c statement_timeout=15min"'
+
+operational_start="$(line_of "${COMMON}" 'start_dis_operational_services()')"
+engine_start="$(line_of_after "${COMMON}" 'run_cmd systemctl start dis-tts-engine' "${operational_start}")"
+engine_ready="$(line_of_after "${COMMON}" 'wait_for_dis_speech_engine_readiness 30 2' "${engine_start}")"
+speech_start="$(line_of_after "${COMMON}" 'run_cmd systemctl start dis-speech' "${engine_ready}")"
+[[ "${operational_start}" -lt "${engine_start}" \
+  && "${engine_start}" -lt "${engine_ready}" \
+  && "${engine_ready}" -lt "${speech_start}" ]] || {
+  printf 'Deployment must wait for the engine socket before starting the speech worker.\n' >&2
+  exit 1
+}
 
 speech_stop="$(line_of "${COMMON}" 'run_cmd systemctl stop dis-speech')"
 engine_stop="$(line_of "${COMMON}" 'run_cmd systemctl stop dis-tts-engine')"

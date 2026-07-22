@@ -331,6 +331,11 @@ install_speech_engine_runtime() (
     python_source_count=$((python_source_count + 1))
   done < <(/usr/bin/find -P "${engine_root}/dis_tts_engine" -type f -name '*.py' -print0)
   [ "${python_source_count}" -gt 0 ] || fail "The speech engine contains no Python source files."
+  grep -Fq 'source = { registry = "https://download.pytorch.org/whl/cpu" }' "${engine_root}/uv.lock" \
+    || fail "The speech runtime lock does not pin the CPU-only PyTorch index."
+  if grep -Eq '^name = "(nvidia-[^"]+|triton)"$' "${engine_root}/uv.lock"; then
+    fail "The speech runtime lock unexpectedly contains GPU runtime packages."
+  fi
 
   ensure_data_layout
   if [ "${DRY_RUN:-0}" = "1" ]; then
@@ -407,14 +412,17 @@ install_speech_engine_runtime() (
   )
 
   log "Installing the managed Python 3.11 speech runtime"
+  log "Speech runtime phase 1/3: installing the pinned Python interpreter"
   runuser -u "${DIS_USER}" -- env "${uv_environment[@]}" \
     "${uv_binary}" python install 3.11
+  log "Speech runtime phase 2/3: installing locked CPU-only speech dependencies"
   runuser -u "${DIS_USER}" -- env "${uv_environment[@]}" \
     "${uv_binary}" sync \
       --project "${engine_root}" \
       --locked \
       --no-dev \
       --python 3.11
+  log "Speech runtime phase 3/3: installing the pinned VoxCPM package"
   runuser -u "${DIS_USER}" -- env "${uv_environment[@]}" \
     "${uv_binary}" pip install \
       --python "${DIS_DATA_PATH}/tts/runtime/bin/python" \
@@ -1143,6 +1151,27 @@ wait_for_systemd_service_stable() {
   return 1
 }
 
+wait_for_dis_speech_engine_readiness() {
+  local timeout_seconds="${1:-30}" required_samples="${2:-2}"
+  local deadline socket_path="/run/dis-tts/engine.sock"
+
+  wait_for_systemd_service_stable dis-tts-engine "${timeout_seconds}" "${required_samples}" \
+    || return 1
+  deadline=$((SECONDS + timeout_seconds))
+  while [ "${SECONDS}" -lt "${deadline}" ]; do
+    if [ -S "${socket_path}" ]; then
+      return 0
+    fi
+    if ! systemctl is-active --quiet dis-tts-engine.service; then
+      break
+    fi
+    sleep 1
+  done
+
+  report_systemd_service_failure dis-tts-engine
+  return 1
+}
+
 wait_for_dis_frontend_http_readiness() {
   local timeout_seconds="${1:-30}" required_samples="${2:-2}"
   local deadline stable_samples=0 status_code
@@ -1199,7 +1228,15 @@ start_dis_operational_services() {
     run_cmd runuser -u "${DIS_USER}" -- php "${DIS_INSTALL_PATH}/webapp/backend/artisan" \
       dis:check-backup-request-worker --timeout=30
   fi
-  for service in dis-tts-engine dis-speech dis-media dis-queue dis-scheduler dis-websocket dis-incident-enrichment dis-knmi dis-knmi-realtime; do
+  if systemd_service_exists dis-tts-engine; then
+    run_cmd systemctl start dis-tts-engine
+    wait_for_dis_speech_engine_readiness 30 2 \
+      || fail "The speech engine did not expose its socket before the speech worker start."
+  fi
+  if systemd_service_exists dis-speech; then
+    run_cmd systemctl start dis-speech
+  fi
+  for service in dis-media dis-queue dis-scheduler dis-websocket dis-incident-enrichment dis-knmi dis-knmi-realtime; do
     if systemd_service_exists "${service}"; then
       run_cmd systemctl start "${service}"
     fi

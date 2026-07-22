@@ -35,7 +35,7 @@ cd "${DIS_INSTALL_PATH}" || exit 1
 echo "[dis] Updatecommando gestart via systemd runner."
 
 set +e
-timeout "${UPDATE_TIMEOUT_SECONDS}s" /usr/local/bin/update "$@"
+timeout --kill-after=30s "${UPDATE_TIMEOUT_SECONDS}s" /usr/local/bin/update "$@"
 exit_code=$?
 set -e
 

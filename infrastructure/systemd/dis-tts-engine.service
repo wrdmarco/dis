@@ -18,6 +18,7 @@ ExecStartPre=/usr/bin/test -d /opt/dis-data/tts/staging
 ExecStartPre=/usr/bin/test -d /opt/dis-data/tts/state
 ExecStartPre=/usr/bin/setfacl -m u:www-data:--x,d:u:www-data:rw- /run/dis-tts
 ExecStart=/opt/dis-data/tts/runtime/bin/python -m dis_tts_engine
+ExecStartPost=/usr/bin/timeout --kill-after=2s 30s /bin/sh -c 'until [ -S /run/dis-tts/engine.sock ]; do sleep 1; done'
 Restart=on-failure
 RestartSec=5
 KillSignal=SIGTERM

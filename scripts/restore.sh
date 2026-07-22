@@ -223,7 +223,9 @@ require_backup_encryption_key >/dev/null
 
 log "Applying current database migrations and reconciling reproducible cache state"
 regenerate_backend_package_manifest "${APP_ROOT}/webapp/backend"
-run_cmd runuser -u "${DIS_USER}" -- php "${APP_ROOT}/webapp/backend/artisan" migrate --force
+run_cmd runuser -u "${DIS_USER}" -- env \
+  PGOPTIONS="-c lock_timeout=60s -c statement_timeout=15min" \
+  php "${APP_ROOT}/webapp/backend/artisan" migrate --force
 reconcile_speech_runtime_after_restore
 run_cmd runuser -u "${DIS_USER}" -- php "${APP_ROOT}/webapp/backend/artisan" \
   dis:reconcile-knmi-after-restore

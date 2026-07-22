@@ -331,7 +331,9 @@ if [ -f "${BACKEND_DIR}/composer.json" ]; then
   fi
   regenerate_backend_package_manifest "${BACKEND_DIR}"
   enable_backend_deployment_maintenance "${BACKEND_DIR}"
-  run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" migrate --force
+  run_cmd runuser -u "${DIS_USER}" -- env \
+    PGOPTIONS="-c lock_timeout=60s -c statement_timeout=15min" \
+    php "${BACKEND_DIR}/artisan" migrate --force
   if [ "${RUN_SEEDERS}" = "1" ]; then
     run_cmd runuser -u "${DIS_USER}" -- php "${BACKEND_DIR}/artisan" db:seed --force
   else
