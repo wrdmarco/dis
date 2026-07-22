@@ -654,6 +654,14 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertTrue($preflight < $maintenance);
         self::assertStringContainsString('Update failed during phase', $update);
         self::assertStringContainsString('Permission self-heal failed during update phase', $update);
+        self::assertStringContainsString(
+            'root_controlled_bundle_source_is_safe "${DIS_INSTALL_PATH}/maintenance/frontend.lock"',
+            $update,
+        );
+        self::assertStringContainsString(
+            'allowing recovery without previous frontend artifacts.',
+            $update,
+        );
 
         $artifactCheck = substr(
             $common,

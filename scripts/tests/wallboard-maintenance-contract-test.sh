@@ -31,6 +31,8 @@ require_text "${COMMON}" 'run_cmd mv -fT -- "${temporary}" "${WALLBOARD_MAINTENA
 require_text "${COMMON}" '[ "${metadata}" = "0:0:644:1" ]'
 require_text "${COMMON}" 'clear_wallboard_maintenance_notice'
 require_text "${UPDATE}" 'announce_wallboard_maintenance update'
+require_text "${UPDATE}" 'root_controlled_bundle_source_is_safe "${DIS_INSTALL_PATH}/maintenance/frontend.lock"'
+require_text "${UPDATE}" 'allowing recovery without previous frontend artifacts.'
 require_text "${DEPLOY}" 'if [ "${DIS_DEPLOYMENT_OWNER}" = "deploy" ]; then'
 require_text "${DEPLOY}" 'announce_wallboard_maintenance maintenance'
 require_text "${DEPLOY}" 'enable_frontend_maintenance bootstrap'

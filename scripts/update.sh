@@ -682,7 +682,11 @@ log "Ensuring KNMI forecast runtime dependencies"
 ensure_knmi_forecast_runtime_dependencies
 
 log "Preflighting the current frontend release before deployment maintenance"
-require_dis_frontend_release_artifacts
+if root_controlled_bundle_source_is_safe "${DIS_INSTALL_PATH}/maintenance/frontend.lock"; then
+  log "A trusted deployment maintenance lock is already active; allowing recovery without previous frontend artifacts."
+else
+  require_dis_frontend_release_artifacts
+fi
 
 trap 'update_exit_handler "$?"' EXIT
 UPDATE_PHASE="notifying wallboards before update maintenance"
