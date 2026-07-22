@@ -267,7 +267,7 @@ final class SpeechAudioPipeline
         array $metadata,
     ): SpeechAudioAsset {
         $relative = 'objects/'.substr($metadata['sha256'], 0, 2).'/'.$metadata['sha256'].'.m4a';
-        $destination = $this->cacheRoot().DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
+        $destination = $this->writableCacheRoot().DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
         $directory = dirname($destination);
         if ((! is_dir($directory) && ! @mkdir($directory, 0770, true)) || is_link($directory)) {
             throw new \RuntimeException('Speech cache directory is unavailable.');
@@ -326,7 +326,7 @@ final class SpeechAudioPipeline
         if (preg_match('#^objects/[a-f0-9]{2}/[a-f0-9]{64}\.m4a$#D', $relative) !== 1) {
             throw new \RuntimeException('Invalid speech cache path.');
         }
-        $path = $this->cacheRoot().DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
+        $path = $this->readableCacheRoot().DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
         if (! is_file($path) || is_link($path) || @filesize($path) !== (int) $asset->byte_size) {
             throw new \RuntimeException('Speech cache asset is missing.');
         }
@@ -340,15 +340,25 @@ final class SpeechAudioPipeline
 
     private function stagingRoot(): string
     {
-        return $this->root((string) config('dis.speech.staging_root', '/opt/dis-data/tts/staging'));
+        return $this->writableRoot((string) config('dis.speech.staging_root', '/opt/dis-data/tts/staging'));
     }
 
-    private function cacheRoot(): string
+    private function writableCacheRoot(): string
     {
-        return $this->root((string) config('dis.speech.cache_root', '/opt/dis-data/tts/cache'));
+        return $this->writableRoot((string) config('dis.speech.cache_root', '/opt/dis-data/tts/cache'));
     }
 
-    private function root(string $root): string
+    private function readableCacheRoot(): string
+    {
+        $root = (string) config('dis.speech.cache_root', '/opt/dis-data/tts/cache');
+        if (! $this->isAbsoluteRoot($root) || is_link($root) || ! is_dir($root) || ! is_readable($root)) {
+            throw new \RuntimeException('Speech storage root is unavailable.');
+        }
+
+        return rtrim($root, '/\\');
+    }
+
+    private function writableRoot(string $root): string
     {
         if (! $this->isAbsoluteRoot($root) || is_link($root)
             || ((! is_dir($root) && ! @mkdir($root, 0770, true)) || ! is_writable($root))) {
