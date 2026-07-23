@@ -11,6 +11,13 @@ final class KnmiPrecipitationHdf5Reader
 {
     private const H5DUMP = '/usr/bin/h5dump';
 
+    /**
+     * h5dump defaults to roughly six significant digits for floating-point
+     * datasets. That rounds KNMI's kilometre grid coordinates by several
+     * metres and can make a valid axis fail the strict geometry check.
+     */
+    private const H5DUMP_FLOAT_FORMAT = '%.17g';
+
     private const ROWS = 765;
 
     private const COLUMNS = 700;
@@ -116,7 +123,7 @@ final class KnmiPrecipitationHdf5Reader
         float $longitude,
     ): array {
         [$row, $column] = $this->gridIndex($latitude, $longitude);
-        $radarCommand = [self::H5DUMP, '-A', '0', '-w', '0'];
+        $radarCommand = $this->h5DumpCommand('-A', '0', '-w', '0');
         for ($image = 1; $image <= self::RADAR_IMAGES; $image++) {
             array_push(
                 $radarCommand,
@@ -160,8 +167,7 @@ final class KnmiPrecipitationHdf5Reader
 
         $probability = null;
         if ($probabilityPath !== null) {
-            $probabilityCommand = [
-                self::H5DUMP,
+            $probabilityCommand = $this->h5DumpCommand(
                 '-A',
                 '0',
                 '-w',
@@ -173,7 +179,7 @@ final class KnmiPrecipitationHdf5Reader
                 '-c',
                 '1,'.self::THIRD_HOUR_SAMPLES.',1,1',
                 $this->safePath($probabilityPath),
-            ];
+            );
             $probabilityBlocks = $this->numericBlocks($this->run($probabilityCommand, self::MAX_DATA_BYTES));
             $probabilityValues = $probabilityBlocks[0] ?? [];
             if (count($probabilityBlocks) !== 1 || count($probabilityValues) !== self::THIRD_HOUR_SAMPLES) {
@@ -253,8 +259,7 @@ final class KnmiPrecipitationHdf5Reader
         $frames = [];
         for ($frameIndex = 0; $frameIndex < self::RADAR_IMAGES; $frameIndex++) {
             $image = $frameIndex + 1;
-            $output = $this->run([
-                self::H5DUMP,
+            $output = $this->run($this->h5DumpCommand(
                 '-A',
                 '0',
                 '-w',
@@ -266,7 +271,7 @@ final class KnmiPrecipitationHdf5Reader
                 '-c',
                 self::RADAR_ATLAS_FRAME_HEIGHT.','.self::RADAR_ATLAS_FRAME_WIDTH,
                 $source,
-            ], self::MAX_ATLAS_FRAME_OUTPUT_BYTES);
+            ), self::MAX_ATLAS_FRAME_OUTPUT_BYTES);
             $this->writeRadarAtlasFrame($output, $frameIndex, $atlasPixels);
 
             $frames[] = [
@@ -551,7 +556,7 @@ final class KnmiPrecipitationHdf5Reader
 
     private function validateRadar(string $path, CarbonImmutable $reference): void
     {
-        $header = $this->run([self::H5DUMP, '-H', $path], self::MAX_HEADER_BYTES);
+        $header = $this->run($this->h5DumpCommand('-H', $path), self::MAX_HEADER_BYTES);
         if (substr_count($header, 'DATASET "image_data"') !== self::RADAR_IMAGES) {
             throw new KnmiPrecipitationImportException('schema_invalid', 'KNMI radar image dataset count is invalid.');
         }
@@ -594,7 +599,7 @@ final class KnmiPrecipitationHdf5Reader
 
     private function validateProbability(string $path, CarbonImmutable $reference): void
     {
-        $header = $this->run([self::H5DUMP, '-H', $path], self::MAX_HEADER_BYTES);
+        $header = $this->run($this->h5DumpCommand('-H', $path), self::MAX_HEADER_BYTES);
         $schemas = [
             'exceedance_probability' => ['H5T_STD_U8(?:LE|BE)', '6\s*,\s*72\s*,\s*765\s*,\s*700'],
             'forecast_reference_time' => ['H5T_STD_I64(?:LE|BE)', ''],
@@ -718,8 +723,7 @@ final class KnmiPrecipitationHdf5Reader
     /** @return list<float> */
     private function datasetNumbers(string $path, string $dataset): array
     {
-        $output = $this->run([
-            self::H5DUMP,
+        $output = $this->run($this->h5DumpCommand(
             '-A',
             '0',
             '-w',
@@ -727,7 +731,7 @@ final class KnmiPrecipitationHdf5Reader
             '-d',
             $dataset,
             $path,
-        ], self::MAX_DATA_BYTES);
+        ), self::MAX_DATA_BYTES);
         $blocks = $this->numericBlocks($output);
         if (count($blocks) !== 1) {
             throw new KnmiPrecipitationImportException('hdf5_invalid', 'KNMI numeric dataset output is invalid.');
@@ -738,7 +742,10 @@ final class KnmiPrecipitationHdf5Reader
 
     private function attributeString(string $path, string $attribute): string
     {
-        $output = $this->run([self::H5DUMP, '-a', $attribute, '-w', '0', $path], self::MAX_DATA_BYTES);
+        $output = $this->run(
+            $this->h5DumpCommand('-a', $attribute, '-w', '0', $path),
+            self::MAX_DATA_BYTES,
+        );
         $data = $this->dataBody($output);
         if (preg_match('/"([^"\r\n]*)"/', $data, $matches) !== 1) {
             throw new KnmiPrecipitationImportException('hdf5_invalid', 'KNMI string attribute output is invalid.');
@@ -754,7 +761,10 @@ final class KnmiPrecipitationHdf5Reader
     /** @return list<float> */
     private function attributeNumbers(string $path, string $attribute): array
     {
-        $output = $this->run([self::H5DUMP, '-a', $attribute, '-w', '0', $path], self::MAX_DATA_BYTES);
+        $output = $this->run(
+            $this->h5DumpCommand('-a', $attribute, '-w', '0', $path),
+            self::MAX_DATA_BYTES,
+        );
 
         return $this->numbers($this->dataBody($output));
     }
@@ -846,5 +856,11 @@ final class KnmiPrecipitationHdf5Reader
     private function approximately(float $actual, float $expected, float $tolerance): bool
     {
         return is_finite($actual) && abs($actual - $expected) <= $tolerance;
+    }
+
+    /** @return list<string> */
+    private function h5DumpCommand(string ...$arguments): array
+    {
+        return [self::H5DUMP, '-m', self::H5DUMP_FLOAT_FORMAT, ...$arguments];
     }
 }

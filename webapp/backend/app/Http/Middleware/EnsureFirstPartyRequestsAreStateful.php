@@ -51,12 +51,23 @@ final class EnsureFirstPartyRequestsAreStateful extends EnsureFrontendRequestsAr
         // Media elements cannot attach X-Requested-With. Treat only these exact,
         // read-only, same-origin delivery endpoints as stateful so Sanctum can
         // decrypt the HttpOnly web or wallboard session cookie before auth runs.
-        return $request->is(
+        if ($request->is(
             'api/wallboard/media/*',
             'api/wallboard/news-images/*',
             'api/admin/wallboard-media/assets/*/content',
             'api/admin/wallboard-media/assets/*/thumbnail',
             'api/admin/speech/previews/*/audio',
-        );
+        )) {
+            return true;
+        }
+
+        return preg_match(
+            '#\Aapi/(?:'
+                .'admin/speech/cache/entries/(?i:[0-9a-hjkmnp-tv-z]{26})/audio'
+                .'|(?:operational-weather/radar|wallboard/weather-radar)'
+                .'/(?:precipitation|lightning)/\d{8}T\d{6}Z-[a-f0-9]{16}\.png'
+                .')\z#D',
+            $request->path(),
+        ) === 1;
     }
 }

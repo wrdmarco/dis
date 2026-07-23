@@ -2065,6 +2065,38 @@ export interface SpeechCacheStatus {
   active_job?: SpeechCacheJob | null;
 }
 
+export type SpeechCacheEntryCategory = 'segment' | 'composite';
+
+export type SpeechCacheEntryStatus = 'queued' | 'processing' | 'ready' | 'failed' | 'expired';
+
+export interface SpeechCacheEntrySummary {
+  id: string;
+  text: string | null;
+  text_available: boolean;
+  text_source: 'cache' | 'manifest' | 'preview' | null;
+  category: SpeechCacheEntryCategory;
+  status: SpeechCacheEntryStatus;
+  error_code: string | null;
+  model_id: string | null;
+  model_name: string | null;
+  model_revision: string | null;
+  voice_type: 'profile' | 'built_in' | null;
+  voice_name: string | null;
+  voice_revision: string | null;
+  locale: string | null;
+  speed: number | null;
+  audio_recipe_revision: string | null;
+  duration_ms: number | null;
+  byte_size: number | null;
+  hit_count: number;
+  audio_available: boolean;
+  audio_url: string | null;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+}
+
 export interface SpeechAdminStatus {
   settings: SpeechSettings;
   template_definitions: SpeechTemplateDefinition[];

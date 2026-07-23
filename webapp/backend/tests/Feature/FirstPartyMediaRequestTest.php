@@ -20,6 +20,19 @@ final class FirstPartyMediaRequestTest extends TestCase
             'admin asset' => ['/api/admin/wallboard-media/assets/'.$ulid.'/content'],
             'admin thumbnail' => ['/api/admin/wallboard-media/assets/'.$ulid.'/thumbnail'],
             'admin speech preview' => ['/api/admin/speech/previews/'.$ulid.'/audio'],
+            'admin speech cache audio' => ['/api/admin/speech/cache/entries/'.$ulid.'/audio'],
+            'operational precipitation radar atlas' => [
+                '/api/operational-weather/radar/precipitation/20260724T120000Z-0123456789abcdef.png',
+            ],
+            'operational lightning radar atlas' => [
+                '/api/operational-weather/radar/lightning/20260724T120000Z-fedcba9876543210.png',
+            ],
+            'wallboard precipitation radar atlas' => [
+                '/api/wallboard/weather-radar/precipitation/20260724T120000Z-0123456789abcdef.png',
+            ],
+            'wallboard lightning radar atlas' => [
+                '/api/wallboard/weather-radar/lightning/20260724T120000Z-fedcba9876543210.png',
+            ],
         ];
     }
 
@@ -52,6 +65,61 @@ final class FirstPartyMediaRequestTest extends TestCase
     public function test_non_media_element_read_is_not_promoted_without_ajax_header(): void
     {
         $request = Request::create('/api/wallboard/state', 'GET', server: [
+            'HTTP_SEC_FETCH_SITE' => 'same-origin',
+        ]);
+
+        self::assertFalse(EnsureFirstPartyRequestsAreStateful::fromFrontend($request));
+    }
+
+    /** @return array<string, array{string}> */
+    public static function invalidRadarPaths(): array
+    {
+        return [
+            'unknown radar kind' => [
+                '/api/operational-weather/radar/unknown/20260724T120000Z-0123456789abcdef.png',
+            ],
+            'invalid snapshot' => [
+                '/api/operational-weather/radar/precipitation/latest.png',
+            ],
+            'nested suffix' => [
+                '/api/wallboard/weather-radar/lightning/20260724T120000Z-fedcba9876543210/atlas.png',
+            ],
+            'unrelated png route' => [
+                '/api/admin/weather-radar/precipitation/20260724T120000Z-0123456789abcdef.png',
+            ],
+        ];
+    }
+
+    #[DataProvider('invalidRadarPaths')]
+    public function test_radar_media_exception_is_limited_to_valid_atlas_routes(string $uri): void
+    {
+        $request = Request::create($uri, 'GET', server: [
+            'HTTP_SEC_FETCH_SITE' => 'same-origin',
+        ]);
+
+        self::assertFalse(EnsureFirstPartyRequestsAreStateful::fromFrontend($request));
+    }
+
+    /** @return array<string, array{string}> */
+    public static function invalidSpeechCachePaths(): array
+    {
+        return [
+            'invalid cache entry identifier' => [
+                '/api/admin/speech/cache/entries/not-a-ulid/audio',
+            ],
+            'nested cache audio suffix' => [
+                '/api/admin/speech/cache/entries/01ARZ3NDEKTSV4RRFFQ69G5FAV/nested/audio',
+            ],
+            'unrelated speech cache route' => [
+                '/api/admin/speech/cache/regenerate',
+            ],
+        ];
+    }
+
+    #[DataProvider('invalidSpeechCachePaths')]
+    public function test_speech_cache_media_exception_is_limited_to_exact_audio_routes(string $uri): void
+    {
+        $request = Request::create($uri, 'GET', server: [
             'HTTP_SEC_FETCH_SITE' => 'same-origin',
         ]);
 

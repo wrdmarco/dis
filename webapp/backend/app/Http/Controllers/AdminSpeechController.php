@@ -3,16 +3,19 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\Speech\CreateSpeechPreviewRequest;
+use App\Http\Requests\Speech\IndexSpeechCacheEntriesRequest;
 use App\Http\Requests\Speech\InstallSpeechModelRequest;
 use App\Http\Requests\Speech\RegenerateSpeechCacheRequest;
 use App\Http\Requests\Speech\StoreSpeechVoiceProfileRequest;
 use App\Http\Requests\Speech\UpdateSpeechSettingsRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\DispatchPushOutbox;
+use App\Models\SpeechCacheEntry;
 use App\Models\SpeechManifest;
 use App\Models\SpeechPreview;
 use App\Models\SpeechVoiceProfile;
 use App\Services\SpeechAudioPipeline;
+use App\Services\SpeechCacheContentService;
 use App\Services\SpeechCacheMaintenanceService;
 use App\Services\SpeechModelCatalog;
 use App\Services\SpeechModelInstallationService;
@@ -32,6 +35,7 @@ final class AdminSpeechController extends Controller
         private readonly SpeechVoiceProfileService $voices,
         private readonly SpeechPreviewService $previews,
         private readonly SpeechCacheMaintenanceService $cache,
+        private readonly SpeechCacheContentService $cacheContent,
         private readonly SpeechAudioPipeline $audio,
     ) {}
 
@@ -113,7 +117,26 @@ final class AdminSpeechController extends Controller
             return ApiResponse::error('speech_preview_expired', 'Deze spraakpreview is niet meer beschikbaar.', 410);
         }
 
-        return $this->audioResponse($request, $path, (string) $preview->audioAsset->content_sha256);
+        $sha256 = (string) $preview->audioAsset->content_sha256;
+
+        return $this->audioResponse($request, $path, '"'.$sha256.'"', $sha256);
+    }
+
+    public function cacheEntries(IndexSpeechCacheEntriesRequest $request): JsonResponse
+    {
+        return ApiResponse::paginated($this->cacheContent->paginate($request->validated()));
+    }
+
+    public function cacheEntryAudio(Request $request, SpeechCacheEntry $speechCacheEntry): Response
+    {
+        $audio = $this->cacheContent->audio($speechCacheEntry);
+
+        return $this->audioResponse(
+            $request,
+            $audio['path'],
+            $audio['etag'],
+            immutable: false,
+        );
     }
 
     public function regenerateCache(RegenerateSpeechCacheRequest $request): JsonResponse
@@ -163,14 +186,20 @@ final class AdminSpeechController extends Controller
             return ApiResponse::error('speech_manifest_expired', 'Dit spraakbericht is niet meer beschikbaar.', 410);
         }
 
-        return $this->audioResponse($request, $path, (string) $manifest->audioAsset->content_sha256);
+        $sha256 = (string) $manifest->audioAsset->content_sha256;
+
+        return $this->audioResponse($request, $path, '"'.$sha256.'"', $sha256);
     }
 
-    private function audioResponse(Request $request, string $path, string $etag): Response
-    {
-        $digestBytes = preg_match('/^[a-f0-9]{64}$/D', $etag) === 1 ? hex2bin($etag) : false;
-        if (! is_string($digestBytes)) {
-            throw new \RuntimeException('Speech audio digest is invalid.');
+    private function audioResponse(
+        Request $request,
+        string $path,
+        string $etag,
+        ?string $contentSha256 = null,
+        bool $immutable = true,
+    ): Response {
+        if (preg_match('/^"[A-Za-z0-9._-]{1,180}"$/D', $etag) !== 1) {
+            throw new \RuntimeException('Speech audio entity tag is invalid.');
         }
 
         $size = @filesize($path);
@@ -180,13 +209,23 @@ final class AdminSpeechController extends Controller
         $headers = [
             'Content-Type' => 'audio/mp4',
             'Accept-Ranges' => 'bytes',
-            'Cache-Control' => 'private, max-age=3600, immutable',
-            'ETag' => '"'.$etag.'"',
-            'X-Content-SHA256' => $etag,
-            'Digest' => 'sha-256='.base64_encode($digestBytes),
+            'Cache-Control' => $immutable
+                ? 'private, max-age=3600, immutable'
+                : 'no-store, private',
+            'ETag' => $etag,
             'X-Content-Type-Options' => 'nosniff',
             'Content-Disposition' => 'inline; filename="speech.m4a"',
         ];
+        if ($contentSha256 !== null) {
+            $digestBytes = preg_match('/^[a-f0-9]{64}$/D', $contentSha256) === 1
+                ? hex2bin($contentSha256)
+                : false;
+            if (! is_string($digestBytes)) {
+                throw new \RuntimeException('Speech audio digest is invalid.');
+            }
+            $headers['X-Content-SHA256'] = $contentSha256;
+            $headers['Digest'] = 'sha-256='.base64_encode($digestBytes);
+        }
         $range = trim((string) $request->header('Range', ''));
         if ($range !== '' && ! $this->rangeIsSatisfiable($range, $size)) {
             return response('', 416, $headers + ['Content-Range' => 'bytes */'.$size]);

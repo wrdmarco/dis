@@ -202,6 +202,7 @@ export function speechStatusLabel(status: string | null | undefined): string {
     installed: 'Geïnstalleerd',
     ready: 'Gereed',
     failed: 'Mislukt',
+    expired: 'Verlopen',
   };
 
   return status === null || status === undefined ? 'Niet gestart' : labels[status] ?? status.replaceAll('_', ' ');
@@ -256,6 +257,24 @@ export function speechCacheUsagePercentage(totalBytes: number, quotaBytes: numbe
 
 export function fixedSpeechPreviewAudioPath(previewId: string): string {
   return `/admin/speech/previews/${encodeURIComponent(previewId)}/audio`;
+}
+
+export function fixedSpeechCacheAudioPath(entryId: string): string {
+  return `/admin/speech/cache/entries/${encodeURIComponent(entryId)}/audio`;
+}
+
+export function formatSpeechDuration(durationMs: number | null | undefined): string {
+  if (durationMs === null || durationMs === undefined || !Number.isFinite(durationMs) || durationMs < 0) {
+    return '-';
+  }
+
+  const totalSeconds = Math.round(durationMs / 1_000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return minutes > 0
+    ? `${minutes}:${String(seconds).padStart(2, '0')} min`
+    : `${totalSeconds} sec.`;
 }
 
 export function microphoneRecordingError(error: unknown, secureContext: boolean): string {

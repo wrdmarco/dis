@@ -205,9 +205,31 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
             $command = is_array($process->command) ? $process->command : [];
 
             return ($command[0] ?? null) === '/usr/bin/h5dump'
+                && $this->usesRoundTripFloatFormat($command)
                 && count(array_keys($command, '-d', true)) === 25
                 && $this->validRadarHyperslabArgumentOrder($command);
         });
+    }
+
+    public function test_probability_grid_queries_force_round_trip_float_precision(): void
+    {
+        $this->fakeRemotePair('202607202110');
+
+        $result = app(KnmiPrecipitationImportService::class)->refresh();
+
+        $this->assertSame(
+            'succeeded',
+            $result['datasets']['seamless_precipitation_ensemble_forecast_probabilities']['status'],
+        );
+        foreach (['/x', '/y'] as $dataset) {
+            Process::assertRan(function (PendingProcess $process) use ($dataset): bool {
+                $command = is_array($process->command) ? $process->command : [];
+                $datasetIndex = array_search('-d', $command, true);
+
+                return ($command[$datasetIndex + 1] ?? null) === $dataset
+                    && $this->usesRoundTripFloatFormat($command);
+            });
+        }
     }
 
     public function test_reader_is_local_cached_and_recomputes_staleness_after_cache_hit(): void
@@ -726,7 +748,7 @@ HDF;
     /** @param list<string> $command */
     private function validRadarHyperslabArgumentOrder(array $command): bool
     {
-        $cursor = 5;
+        $cursor = 7;
         for ($image = 1; $image <= 25; $image++) {
             if (($command[$cursor] ?? null) !== '-d'
                 || ($command[$cursor + 1] ?? null) !== '/image'.$image.'/image_data'
@@ -740,6 +762,14 @@ HDF;
         }
 
         return true;
+    }
+
+    /** @param list<string> $command */
+    private function usesRoundTripFloatFormat(array $command): bool
+    {
+        $formatIndex = array_search('-m', $command, true);
+
+        return $formatIndex !== false && ($command[$formatIndex + 1] ?? null) === '%.17g';
     }
 
     private function hdfBody(string $fill, int $size): string

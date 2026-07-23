@@ -1,9 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from 'playwright/test';
-import type { SpeechPreview } from '../src/types/api';
+import type {
+  PaginationMeta,
+  SpeechCacheEntrySummary,
+  SpeechPreview,
+} from '../src/types/api';
 import {
+  fixedSpeechCacheAudioPath,
   fixedSpeechPreviewAudioPath,
   formatSpeechBytes,
+  formatSpeechDuration,
   formatSpeechParameterCount,
   insertSpeechToken,
   microphoneRecordingError,
@@ -84,6 +90,11 @@ test('bounds work progress and formats cache/model facts for Dutch admins', () =
   expect(speechCacheHitRate(9, 1)).toBe('90%');
   expect(speechCacheUsagePercentage(90, 100)).toBe(90);
   expect(speechCacheUsagePercentage(120, 100)).toBe(100);
+  expect(formatSpeechDuration(8_400)).toBe('8 sec.');
+  expect(formatSpeechDuration(83_000)).toBe('1:23 min');
+  expect(formatSpeechDuration(null)).toBe('-');
+  expect(speechStatusLabel('expired')).toBe('Verlopen');
+  expect(fixedSpeechCacheAudioPath('cache/entry')).toBe('/admin/speech/cache/entries/cache%2Fentry/audio');
 });
 
 test('explains microphone failures in actionable Dutch without exposing browser errors', () => {
@@ -272,6 +283,159 @@ test('lets an administrator clear a disappeared profile while server speech is o
   await expect(page.getByRole('button', { name: 'Spraakinstellingen opslaan' }).first()).toBeEnabled();
 });
 
+test('hides incident text cache contents without incident access while retaining cache maintenance', async ({ page }) => {
+  await mockSpeechAdminApi(page, speechAdminStatus(), {
+    canViewCacheContent: false,
+  });
+  await page.goto('/speech');
+
+  await expect(page.getByRole('button', { name: 'Cache-inhoud bekijken' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Regenereren en voorverwarmen' })).toBeVisible();
+});
+
+test('loads cache contents only after opening and closes accessibly without exposing internal identifiers', async ({ page }) => {
+  const entry = speechCacheEntry();
+  const cacheRequests: URL[] = [];
+  await mockSpeechAdminApi(page, speechAdminStatus(), {
+    cacheEntries: {
+      response: () => ({
+        items: [entry],
+        meta: { current_page: 1, last_page: 1, per_page: 20, total: 1 },
+      }),
+      onRequest: (url) => cacheRequests.push(url),
+    },
+  });
+  await page.goto('/speech');
+
+  const opener = page.getByRole('button', { name: 'Cache-inhoud bekijken' });
+  await expect(opener).toBeVisible();
+  expect(cacheRequests).toHaveLength(0);
+
+  await opener.click();
+  const dialog = page.getByRole('dialog', { name: 'Inhoud van de audiocache' });
+  await expect(dialog).toBeVisible();
+  await expect.poll(() => cacheRequests.length).toBe(1);
+  await expect(dialog.getByText(entry.text ?? '')).toBeVisible();
+  await expect(dialog.getByText('Chatterbox Multilingual V3')).toBeVisible();
+  await expect(dialog.getByText('Rustige centralistenstem')).toBeVisible();
+  await expect(dialog.getByText('1,10×')).toBeVisible();
+  await expect(dialog.getByText('1:23 min')).toBeVisible();
+  await expect(dialog.getByText('12 KiB')).toBeVisible();
+
+  const player = dialog.getByLabel(`Cachefragment afspelen: ${entry.text}`);
+  await expect(player).toHaveAttribute('preload', 'none');
+  await expect(player).toHaveAttribute(
+    'src',
+    `/api${fixedSpeechCacheAudioPath(entry.id)}`,
+  );
+  const visibleText = await dialog.textContent();
+  expect(visibleText).not.toContain(entry.id);
+  expect(visibleText).not.toContain('cache-key');
+  expect(visibleText).not.toContain('objects/');
+
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(opener).toBeFocused();
+
+  await opener.click();
+  await page.getByRole('button', { name: 'Cache-inhoud sluiten' }).click();
+  await expect(page.getByRole('dialog', { name: 'Inhoud van de audiocache' })).toHaveCount(0);
+
+  await opener.click();
+  const reopenedDialog = page.getByRole('dialog', { name: 'Inhoud van de audiocache' });
+  await reopenedDialog.locator('..').click({ position: { x: 2, y: 2 } });
+  await expect(reopenedDialog).toHaveCount(0);
+});
+
+test('sends search, category, status and pagination to the cache endpoint', async ({ page }) => {
+  const cacheRequests: URL[] = [];
+  await mockSpeechAdminApi(page, speechAdminStatus(), {
+    cacheEntries: {
+      response: (url) => {
+        const currentPage = Number(url.searchParams.get('page') ?? 1);
+        return {
+          items: [{ ...speechCacheEntry(), id: `cache-entry-page-${currentPage}` }],
+          meta: { current_page: currentPage, last_page: 2, per_page: 20, total: 40 },
+        };
+      },
+      onRequest: (url) => cacheRequests.push(url),
+    },
+  });
+  await page.goto('/speech');
+  await page.getByRole('button', { name: 'Cache-inhoud bekijken' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Inhoud van de audiocache' });
+  await expect(dialog.getByText('Pagina 1 van 2')).toBeVisible();
+
+  await dialog.getByLabel('Zoeken in tekst').fill('Utrecht');
+  await dialog.getByLabel('Categorie').selectOption('composite');
+  await dialog.getByLabel('Status').selectOption('ready');
+  await expect.poll(() => cacheRequests.some((request) => (
+    request.searchParams.get('search') === 'Utrecht'
+      && request.searchParams.get('category') === 'composite'
+      && request.searchParams.get('status') === 'ready'
+      && request.searchParams.get('page') === '1'
+      && request.searchParams.get('per_page') === '20'
+  ))).toBe(true);
+
+  await dialog.getByRole('button', { name: 'Volgende' }).click();
+  await expect(dialog.getByText('Pagina 2 van 2')).toBeVisible();
+  await expect.poll(() => cacheRequests.some((request) => (
+    request.searchParams.get('search') === 'Utrecht'
+      && request.searchParams.get('category') === 'composite'
+      && request.searchParams.get('status') === 'ready'
+      && request.searchParams.get('page') === '2'
+  ))).toBe(true);
+});
+
+test('shows clear empty, error and phone-sized cache states', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await mockSpeechAdminApi(page, speechAdminStatus(), {
+    cacheEntries: {
+      response: () => ({
+        items: [],
+        meta: { current_page: 1, last_page: 1, per_page: 20, total: 0 },
+      }),
+    },
+  });
+  await page.goto('/speech');
+  await page.getByRole('button', { name: 'Cache-inhoud bekijken' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Inhoud van de audiocache' });
+  await expect(dialog.getByText('De audiocache is nog leeg')).toBeVisible();
+
+  const box = await dialog.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box?.x).toBe(0);
+  expect(box?.y).toBe(0);
+  expect(box?.width).toBe(360);
+  expect(box?.height).toBe(800);
+  const widths = await page.evaluate(() => ({
+    viewport: window.innerWidth,
+    document: document.documentElement.scrollWidth,
+  }));
+  expect(widths.document).toBeLessThanOrEqual(widths.viewport);
+});
+
+test('offers a retry when cache contents cannot be loaded', async ({ page }) => {
+  let cacheRequests = 0;
+  await mockSpeechAdminApi(page, speechAdminStatus(), {
+    cacheEntries: {
+      status: 503,
+      response: () => ({
+        items: [],
+        meta: { current_page: 1, last_page: 1, per_page: 20, total: 0 },
+      }),
+      onRequest: () => { cacheRequests += 1; },
+    },
+  });
+  await page.goto('/speech');
+  await page.getByRole('button', { name: 'Cache-inhoud bekijken' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Inhoud van de audiocache' });
+  await expect(dialog.getByText('Laden mislukt')).toBeVisible();
+  await expect(dialog.getByText('Cache niet beschikbaar.')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Opnieuw proberen' }).click();
+  await expect.poll(() => cacheRequests).toBe(2);
+});
+
 test('loads ready preview audio through the protected same-origin media endpoint', async ({ page }) => {
   const preview = readySpeechPreview();
   let audioRequests = 0;
@@ -351,7 +515,13 @@ test('makes the fixed nl-NL emergency voice distinction explicit without a devic
 });
 
 interface SpeechAdminMockOptions {
+  canViewCacheContent?: boolean;
   preview?: SpeechPreview;
+  cacheEntries?: {
+    status?: number;
+    response: (url: URL) => { items: SpeechCacheEntrySummary[]; meta: PaginationMeta };
+    onRequest?: (url: URL) => void;
+  };
   audio?: {
     status?: number;
     contentType: string;
@@ -371,7 +541,7 @@ async function mockSpeechAdminApi(
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: speechAdminUser() }),
+        body: JSON.stringify({ data: speechAdminUser(options.canViewCacheContent ?? true) }),
       });
       return;
     }
@@ -394,6 +564,19 @@ async function mockSpeechAdminApi(
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ data: status }),
+      });
+      return;
+    }
+    if (path === '/api/admin/speech/cache/entries' && options.cacheEntries) {
+      const url = new URL(route.request().url());
+      options.cacheEntries.onRequest?.(url);
+      const response = options.cacheEntries.response(url);
+      await route.fulfill({
+        status: options.cacheEntries.status ?? 200,
+        contentType: 'application/json',
+        body: JSON.stringify(options.cacheEntries.status && options.cacheEntries.status >= 400
+          ? { error: { code: 'speech_cache_unavailable', message: 'Cache niet beschikbaar.', details: {} } }
+          : { data: response.items, meta: response.meta }),
       });
       return;
     }
@@ -448,6 +631,36 @@ function readySpeechPreview(): SpeechPreview {
   };
 }
 
+function speechCacheEntry(): SpeechCacheEntrySummary {
+  return {
+    id: '01CACHEENTRYINTERNAL00000001',
+    text: 'Voorwaarschuwing voor een mogelijke inzet in Utrecht.',
+    text_available: true,
+    text_source: 'cache',
+    category: 'segment',
+    status: 'ready',
+    error_code: null,
+    model_id: 'internal-model-id',
+    model_name: 'Chatterbox Multilingual V3',
+    model_revision: 'internal-model-revision',
+    voice_type: 'profile',
+    voice_name: 'Rustige centralistenstem',
+    voice_revision: 'internal-voice-revision',
+    locale: 'nl-NL',
+    speed: 1.1,
+    audio_recipe_revision: 'internal-audio-recipe',
+    duration_ms: 83_000,
+    byte_size: 12_345,
+    hit_count: 17,
+    audio_available: true,
+    audio_url: '/admin/speech/cache/entries/01CACHEENTRYINTERNAL00000001/audio',
+    created_at: '2026-07-23T12:00:00Z',
+    updated_at: '2026-07-23T12:05:00Z',
+    last_used_at: '2026-07-23T14:30:00Z',
+    expires_at: '2026-08-22T12:00:00Z',
+  };
+}
+
 function silentWav(): Buffer {
   const sampleRate = 8_000;
   const sampleCount = 2_000;
@@ -470,7 +683,7 @@ function silentWav(): Buffer {
   return wav;
 }
 
-function speechAdminUser() {
+function speechAdminUser(canViewCacheContent = true) {
   return {
     id: 'speech-admin',
     name: 'Spraakbeheerder',
@@ -491,7 +704,12 @@ function speechAdminUser() {
         name: 'settings.manage',
         category: 'settings',
         display_name: 'Instellingen beheren',
-      }],
+      }, ...(canViewCacheContent ? [{
+        id: 'incidents-view',
+        name: 'incidents.view',
+        category: 'incidents',
+        display_name: 'Incidenten bekijken',
+      }] : [])],
     }],
   };
 }

@@ -439,6 +439,19 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/admin/speech/previews/{preview}/audio', [AdminSpeechController::class, 'previewAudio'])
             ->whereUlid('preview')
             ->middleware(['permission:settings.manage', 'throttle:speech-admin-read']);
+        Route::get('/admin/speech/cache/entries', [AdminSpeechController::class, 'cacheEntries'])
+            ->middleware([
+                'permission:settings.manage',
+                'permission:incidents.view',
+                'throttle:speech-admin-read',
+            ]);
+        Route::get('/admin/speech/cache/entries/{speechCacheEntry}/audio', [AdminSpeechController::class, 'cacheEntryAudio'])
+            ->whereUlid('speechCacheEntry')
+            ->middleware([
+                'permission:settings.manage',
+                'permission:incidents.view',
+                'throttle:speech-admin-read',
+            ]);
         Route::post('/admin/speech/cache/regenerate', [AdminSpeechController::class, 'regenerateCache'])
             ->middleware(['permission:settings.manage', 'throttle:speech-admin-write']);
         Route::get('/admin/knmi', [AdminKnmiController::class, 'show'])

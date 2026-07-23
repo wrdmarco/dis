@@ -157,7 +157,19 @@ LOUDNESS);
             return Process::result();
         });
 
-        $composite = app(SpeechAudioPipeline::class)->composite($assets, 'attendance', null);
+        $model = new SpeechModelInstallation([
+            'catalog_key' => 'voxcpm2',
+            'revision' => 'pinned-model-revision',
+            'weights_sha256' => str_repeat('a', 64),
+        ]);
+        $composite = app(SpeechAudioPipeline::class)->composite(
+            $assets,
+            'attendance',
+            null,
+            ['Eerste regel.', 'Tweede regel.'],
+            $model,
+            1.0,
+        );
 
         $this->assertSame(2500, $composite->duration_ms);
         $this->assertCount(4, $commands);
@@ -165,6 +177,10 @@ LOUDNESS);
             'category' => 'composite',
             'audio_asset_id' => $composite->id,
         ]);
+        $entry = SpeechCacheEntry::query()->where('audio_asset_id', $composite->id)->sole();
+        $this->assertSame("Eerste regel.\nTweede regel.", $entry->display_text);
+        $this->assertSame('voxcpm2', $entry->model_catalog_key);
+        $this->assertSame('pinned-model-revision', $entry->model_revision);
     }
 
     private function cachedAsset(string $bytes): SpeechAudioAsset

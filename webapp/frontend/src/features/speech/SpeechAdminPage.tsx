@@ -1,20 +1,31 @@
 import {
   AlertTriangle,
   AudioLines,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   Cpu,
   Database,
   Download,
   HardDrive,
+  ListMusic,
   Mic,
   RefreshCw,
+  Search,
   ShieldCheck,
   Square,
   Trash2,
   Upload,
   Volume2,
+  X,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
@@ -22,7 +33,11 @@ import { ApiClientError, apiBaseUrl } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import type {
+  PaginationMeta,
   SpeechAdminStatus,
+  SpeechCacheEntryCategory,
+  SpeechCacheEntryStatus,
+  SpeechCacheEntrySummary,
   SpeechCacheRegenerationScope,
   SpeechModel,
   SpeechModelInstallStarted,
@@ -35,8 +50,10 @@ import type {
 import { useAuth } from '../auth/AuthContext';
 import styles from './SpeechAdminPage.module.css';
 import {
+  fixedSpeechCacheAudioPath,
   fixedSpeechPreviewAudioPath,
   formatSpeechBytes,
+  formatSpeechDuration,
   formatSpeechParameterCount,
   insertSpeechToken,
   microphoneRecordingError,
@@ -73,6 +90,7 @@ interface SpeechSettingsDraft {
 export function SpeechAdminPage() {
   const { hasPermission } = useAuth();
   const canManage = hasPermission('settings.manage');
+  const canViewCacheContent = hasPermission('incidents.view');
   const resource = useApiResource<SpeechAdminStatus>('/admin/speech', canManage);
   const reloadSilently = resource.silentReload;
   const activeWork = resource.data !== null && hasActiveSpeechWork(resource.data);
@@ -123,6 +141,7 @@ export function SpeechAdminPage() {
           <SpeechWorkspace
             data={resource.data}
             canManage={canManage}
+            canViewCacheContent={canViewCacheContent}
             mutateData={resource.mutate}
             reloadData={resource.reload}
           />
@@ -135,11 +154,13 @@ export function SpeechAdminPage() {
 function SpeechWorkspace({
   data,
   canManage,
+  canViewCacheContent,
   mutateData,
   reloadData,
 }: {
   data: SpeechAdminStatus;
   canManage: boolean;
+  canViewCacheContent: boolean;
   mutateData: SpeechDataMutator;
   reloadData: () => Promise<void>;
 }) {
@@ -297,7 +318,12 @@ function SpeechWorkspace({
         onSave={() => void saveSettings()}
       />
 
-      <CachePanel data={data} canManage={canManage} reloadData={reloadData} />
+      <CachePanel
+        data={data}
+        canManage={canManage}
+        canViewContent={canViewCacheContent}
+        reloadData={reloadData}
+      />
     </>
   );
 }
@@ -1260,10 +1286,12 @@ function TemplatePanel({
 function CachePanel({
   data,
   canManage,
+  canViewContent,
   reloadData,
 }: {
   data: SpeechAdminStatus;
   canManage: boolean;
+  canViewContent: boolean;
   reloadData: () => Promise<void>;
 }) {
   const { api } = useAuth();
@@ -1271,6 +1299,7 @@ function CachePanel({
   const [starting, setStarting] = useState(false);
   const [cacheError, setCacheError] = useState<string | null>(null);
   const [cacheMessage, setCacheMessage] = useState<string | null>(null);
+  const [cacheBrowserOpen, setCacheBrowserOpen] = useState(false);
   const cache = data.cache;
   const job = cache.active_job ?? null;
   const jobActive = speechWorkIsActive(job?.status);
@@ -1292,60 +1321,466 @@ function CachePanel({
   }
 
   return (
-    <Panel title="Audiocache" action={<StatusPill value={jobActive ? speechStatusLabel(job?.status) : 'Beschikbaar'} tone={jobActive ? 'warn' : 'good'} />}>
-      <div className={styles.sectionBody}>
-        <div className={styles.cacheIntro}>
-          <HardDrive aria-hidden size={24} />
+    <>
+      <Panel title="Audiocache" action={<StatusPill value={jobActive ? speechStatusLabel(job?.status) : 'Beschikbaar'} tone={jobActive ? 'warn' : 'good'} />}>
+        <div className={styles.sectionBody}>
+          <div className={styles.cacheIntro}>
+            <HardDrive aria-hidden size={24} />
+            <div>
+              <strong>Audio op schijf, alleen metadata in de database</strong>
+              <p>De cache kan snel groeien. De quota-indicator maakt zichtbaar hoeveel lokale schijfruimte de unieke segmenten en samengestelde meldingen gebruiken.</p>
+            </div>
+          </div>
+
+          <div className={styles.diskUsage}>
+            <div><span>Schijfgebruik</span><strong>{formatSpeechBytes(cache.disk_bytes)} van {formatSpeechBytes(cache.quota_bytes)}</strong></div>
+            <progress max={100} value={usage} aria-label={`Audiocache gebruikt ${usage} procent`} />
+            <small>{usage}% van het ingestelde quotum</small>
+          </div>
+
+          <dl className={styles.cacheFacts}>
+            <div><dt>Unieke fragmenten</dt><dd>{cache.segment_count.toLocaleString('nl-NL')}</dd></div>
+            <div><dt>Samengestelde meldingen</dt><dd>{cache.composite_count.toLocaleString('nl-NL')}</dd></div>
+            <div><dt>Cachetreffers</dt><dd>{cache.hit_count.toLocaleString('nl-NL')} · {speechCacheHitRate(cache.hit_count, cache.miss_count)}</dd></div>
+            <div><dt>Gemist</dt><dd>{cache.miss_count.toLocaleString('nl-NL')}</dd></div>
+            <div><dt>In wachtrij</dt><dd>{cache.pending_count.toLocaleString('nl-NL')}</dd></div>
+            <div><dt>Mislukt</dt><dd>{cache.failed_count.toLocaleString('nl-NL')}</dd></div>
+            <div><dt>Laatste opschoning</dt><dd>{formatDateTime(cache.last_pruned_at)}</dd></div>
+          </dl>
+
+          {job ? (
+            <div className={styles.cacheJob}>
+              <div><strong>Cachetaak · {cacheScopeLabel(job.scope)}</strong><StatusPill value={speechStatusLabel(job.status)} tone={speechStatusTone(job.status)} /></div>
+              <ProgressBlock label="Regenereren en voorverwarmen" value={normalizeSpeechProgress(job.progress_percent)} />
+              {job.status === 'failed' ? <p className="form-error" role="alert">Cachetaak mislukt{job.error_code ? ` (${job.error_code})` : ''}.</p> : null}
+            </div>
+          ) : null}
+
+          {cacheError ? <p className="form-error" role="alert">{cacheError}</p> : null}
+          {cacheMessage ? <p className="success-text" role="status">{cacheMessage}</p> : null}
+          <div className={styles.cacheActions}>
+            <label>
+              Bereik
+              <select value={scope} onChange={(event) => setScope(event.target.value as SpeechCacheRegenerationScope)}>
+                <option value="all">Alles</option>
+                <option value="segments">Alleen unieke segmenten</option>
+                <option value="composites">Alleen samengestelde meldingen</option>
+                <option value="failed">Alleen mislukte items</option>
+              </select>
+            </label>
+            <div className={styles.cacheActionButtons}>
+              {canViewContent ? (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={!canManage}
+                  aria-haspopup="dialog"
+                  onClick={() => setCacheBrowserOpen(true)}
+                >
+                  <ListMusic aria-hidden size={18} />
+                  Cache-inhoud bekijken
+                </button>
+              ) : null}
+              <button className="primary-button" type="button" disabled={!canManage || starting || jobActive} onClick={() => void regenerateCache()}>
+                <RefreshCw aria-hidden size={18} />
+                {starting || jobActive ? 'Cachetaak actief...' : 'Regenereren en voorverwarmen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Panel>
+      {cacheBrowserOpen ? <SpeechCacheEntriesModal onClose={() => setCacheBrowserOpen(false)} /> : null}
+    </>
+  );
+}
+
+type SpeechCacheCategoryFilter = 'all' | SpeechCacheEntryCategory;
+type SpeechCacheStatusFilter = 'all' | SpeechCacheEntryStatus;
+
+const EMPTY_SPEECH_CACHE_PAGINATION: PaginationMeta = {
+  current_page: 1,
+  last_page: 1,
+  per_page: 20,
+  total: 0,
+};
+
+const MODAL_FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'audio[controls]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+function SpeechCacheEntriesModal({ onClose }: { onClose: () => void }) {
+  const { api } = useAuth();
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const requestGenerationRef = useRef(0);
+  const [search, setSearch] = useState('');
+  const [deferredSearch, setDeferredSearch] = useState('');
+  const [category, setCategory] = useState<SpeechCacheCategoryFilter>('all');
+  const [status, setStatus] = useState<SpeechCacheStatusFilter>('all');
+  const [page, setPage] = useState(1);
+  const [entries, setEntries] = useState<SpeechCacheEntrySummary[]>([]);
+  const [pagination, setPagination] = useState<PaginationMeta>(EMPTY_SPEECH_CACHE_PAGINATION);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadGeneration, setReloadGeneration] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setPage(1);
+      setDeferredSearch(search.trim());
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    const requestGeneration = requestGenerationRef.current + 1;
+    requestGenerationRef.current = requestGeneration;
+    const parameters = new URLSearchParams({
+      page: String(page),
+      per_page: String(EMPTY_SPEECH_CACHE_PAGINATION.per_page),
+    });
+    if (deferredSearch !== '') parameters.set('search', deferredSearch);
+    if (category !== 'all') parameters.set('category', category);
+    if (status !== 'all') parameters.set('status', status);
+
+    setLoading(true);
+    setLoadError(null);
+    const requestTimer = window.setTimeout(() => {
+      void api.get<SpeechCacheEntrySummary[]>(`/admin/speech/cache/entries?${parameters.toString()}`)
+        .then((response) => {
+          if (requestGeneration !== requestGenerationRef.current) return;
+          setEntries(response.data);
+          setPagination(speechCachePagination(response.meta));
+        })
+        .catch((error) => {
+          if (requestGeneration !== requestGenerationRef.current) return;
+          setEntries([]);
+          setPagination(EMPTY_SPEECH_CACHE_PAGINATION);
+          setLoadError(apiErrorMessage(error, 'De cache-inhoud kon niet worden geladen.'));
+        })
+        .finally(() => {
+          if (requestGeneration === requestGenerationRef.current) setLoading(false);
+        });
+    }, 0);
+
+    return () => {
+      window.clearTimeout(requestTimer);
+      if (requestGenerationRef.current === requestGeneration) {
+        requestGenerationRef.current += 1;
+      }
+    };
+  }, [api, category, deferredSearch, page, reloadGeneration, status]);
+
+  useEffect(() => {
+    previousFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const bodyWasLocked = document.body.classList.contains(styles.cacheModalBodyLock);
+    document.body.classList.add(styles.cacheModalBodyLock);
+    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (!bodyWasLocked) document.body.classList.remove(styles.cacheModalBodyLock);
+      previousFocusRef.current?.focus();
+    };
+  }, []);
+
+  function handleDialogKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+
+    const focusable = Array.from(
+      dialogRef.current?.querySelectorAll<HTMLElement>(MODAL_FOCUSABLE_SELECTOR) ?? [],
+    ).filter((element) => !element.hasAttribute('hidden'));
+    if (focusable.length === 0) {
+      event.preventDefault();
+      dialogRef.current?.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (first === undefined || last === undefined) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  function handleBackdropMouseDown(event: ReactMouseEvent<HTMLDivElement>) {
+    if (event.target === event.currentTarget) onClose();
+  }
+
+  const hasFilters = deferredSearch !== '' || category !== 'all' || status !== 'all';
+  const firstResult = pagination.total === 0
+    ? 0
+    : ((pagination.current_page - 1) * pagination.per_page) + 1;
+  const lastResult = Math.min(pagination.total, pagination.current_page * pagination.per_page);
+
+  return (
+    <div
+      className={styles.cacheModalBackdrop}
+      role="presentation"
+      onMouseDown={handleBackdropMouseDown}
+    >
+      <section
+        ref={dialogRef}
+        className={styles.cacheModal}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="speech-cache-modal-title"
+        aria-describedby="speech-cache-modal-description"
+        tabIndex={-1}
+        onKeyDown={handleDialogKeyDown}
+      >
+        <header className={styles.cacheModalHeader}>
           <div>
-            <strong>Audio op schijf, alleen metadata in de database</strong>
-            <p>De cache kan snel groeien. De quota-indicator maakt zichtbaar hoeveel lokale schijfruimte de unieke segmenten en samengestelde meldingen gebruiken.</p>
+            <span><Database aria-hidden size={16} /> Lokale audiobibliotheek</span>
+            <h2 id="speech-cache-modal-title">Inhoud van de audiocache</h2>
+            <p id="speech-cache-modal-description">
+              Bekijk en beluister de opgeslagen tekstfragmenten. Technische sleutels en opslagpaden blijven verborgen.
+            </p>
           </div>
-        </div>
+          <button
+            ref={closeButtonRef}
+            className={styles.cacheModalClose}
+            type="button"
+            aria-label="Cache-inhoud sluiten"
+            onClick={onClose}
+          >
+            <X aria-hidden size={21} />
+          </button>
+        </header>
 
-        <div className={styles.diskUsage}>
-          <div><span>Schijfgebruik</span><strong>{formatSpeechBytes(cache.disk_bytes)} van {formatSpeechBytes(cache.quota_bytes)}</strong></div>
-          <progress max={100} value={usage} aria-label={`Audiocache gebruikt ${usage} procent`} />
-          <small>{usage}% van het ingestelde quotum</small>
-        </div>
-
-        <dl className={styles.cacheFacts}>
-          <div><dt>Unieke fragmenten</dt><dd>{cache.segment_count.toLocaleString('nl-NL')}</dd></div>
-          <div><dt>Samengestelde meldingen</dt><dd>{cache.composite_count.toLocaleString('nl-NL')}</dd></div>
-          <div><dt>Cachetreffers</dt><dd>{cache.hit_count.toLocaleString('nl-NL')} · {speechCacheHitRate(cache.hit_count, cache.miss_count)}</dd></div>
-          <div><dt>Gemist</dt><dd>{cache.miss_count.toLocaleString('nl-NL')}</dd></div>
-          <div><dt>In wachtrij</dt><dd>{cache.pending_count.toLocaleString('nl-NL')}</dd></div>
-          <div><dt>Mislukt</dt><dd>{cache.failed_count.toLocaleString('nl-NL')}</dd></div>
-          <div><dt>Laatste opschoning</dt><dd>{formatDateTime(cache.last_pruned_at)}</dd></div>
-        </dl>
-
-        {job ? (
-          <div className={styles.cacheJob}>
-            <div><strong>Cachetaak · {cacheScopeLabel(job.scope)}</strong><StatusPill value={speechStatusLabel(job.status)} tone={speechStatusTone(job.status)} /></div>
-            <ProgressBlock label="Regenereren en voorverwarmen" value={normalizeSpeechProgress(job.progress_percent)} />
-            {job.status === 'failed' ? <p className="form-error" role="alert">Cachetaak mislukt{job.error_code ? ` (${job.error_code})` : ''}.</p> : null}
+        <div className={styles.cacheModalBody}>
+          <div className={styles.cacheFilters} aria-label="Cache-inhoud filteren">
+            <label className={styles.cacheSearch}>
+              Zoeken in tekst
+              <span>
+                <Search aria-hidden size={17} />
+                <input
+                  type="search"
+                  value={search}
+                  placeholder="Bijvoorbeeld straat, plaats of melding"
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </span>
+            </label>
+            <label>
+              Categorie
+              <select
+                value={category}
+                onChange={(event) => {
+                  setPage(1);
+                  setCategory(event.target.value as SpeechCacheCategoryFilter);
+                }}
+              >
+                <option value="all">Alle categorieën</option>
+                <option value="segment">Tekstfragmenten</option>
+                <option value="composite">Samengestelde meldingen</option>
+              </select>
+            </label>
+            <label>
+              Status
+              <select
+                value={status}
+                onChange={(event) => {
+                  setPage(1);
+                  setStatus(event.target.value as SpeechCacheStatusFilter);
+                }}
+              >
+                <option value="all">Alle statussen</option>
+                <option value="ready">Gereed</option>
+                <option value="queued">In wachtrij</option>
+                <option value="processing">In verwerking</option>
+                <option value="failed">Mislukt</option>
+                <option value="expired">Verlopen</option>
+              </select>
+            </label>
           </div>
+
+          {loading ? (
+            <div className={styles.cacheModalState} role="status">
+              <RefreshCw className={styles.cacheLoadingIcon} aria-hidden size={22} />
+              <strong>Cache-inhoud laden</strong>
+              <span>De opgeslagen fragmenten worden veilig opgehaald.</span>
+            </div>
+          ) : loadError ? (
+            <div className={styles.cacheModalState} role="alert">
+              <AlertTriangle aria-hidden size={22} />
+              <strong>Laden mislukt</strong>
+              <span>{loadError}</span>
+              <button className="secondary-button" type="button" onClick={() => setReloadGeneration((value) => value + 1)}>
+                Opnieuw proberen
+              </button>
+            </div>
+          ) : entries.length === 0 ? (
+            <div className={styles.cacheModalState} role="status">
+              <ListMusic aria-hidden size={23} />
+              <strong>{hasFilters ? 'Geen overeenkomende fragmenten' : 'De audiocache is nog leeg'}</strong>
+              <span>
+                {hasFilters
+                  ? 'Pas de zoekterm of filters aan.'
+                  : 'Gegenereerde tekstfragmenten en meldingen verschijnen hier zodra ze zijn opgeslagen.'}
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className={styles.cacheResultSummary} role="status" aria-live="polite">
+                <strong>{firstResult}–{lastResult}</strong> van {pagination.total.toLocaleString('nl-NL')} cache-items
+              </div>
+              <ol className={styles.cacheEntryList}>
+                {entries.map((entry) => <SpeechCacheEntryCard key={entry.id} entry={entry} />)}
+              </ol>
+              <nav className={styles.cachePagination} aria-label="Pagina's met cache-inhoud">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={pagination.current_page <= 1}
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                >
+                  <ChevronLeft aria-hidden size={17} /> Vorige
+                </button>
+                <span>Pagina <strong>{pagination.current_page}</strong> van <strong>{Math.max(1, pagination.last_page)}</strong></span>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={pagination.current_page >= pagination.last_page}
+                  onClick={() => setPage((current) => Math.min(pagination.last_page, current + 1))}
+                >
+                  Volgende <ChevronRight aria-hidden size={17} />
+                </button>
+              </nav>
+            </>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SpeechCacheEntryCard({ entry }: { entry: SpeechCacheEntrySummary }) {
+  const displayText = entry.text_available && entry.text?.trim()
+    ? entry.text.trim()
+    : 'Tekst niet beschikbaar voor dit oudere cache-item.';
+  const audioSource = entry.audio_available && entry.status === 'ready'
+    ? `${apiBaseUrl.replace(/\/$/, '')}${fixedSpeechCacheAudioPath(entry.id)}`
+    : null;
+  const optionalFacts = [
+    entry.model_name ? { label: 'Model', value: entry.model_name } : null,
+    entry.voice_name
+      ? { label: 'Stem', value: entry.voice_name }
+      : entry.voice_type === 'built_in'
+        ? { label: 'Stem', value: 'Ingebouwde serverstem' }
+        : null,
+    entry.locale ? { label: 'Taal', value: entry.locale } : null,
+    typeof entry.speed === 'number' && Number.isFinite(entry.speed)
+      ? { label: 'Snelheid', value: `${entry.speed.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}×` }
+      : null,
+  ].filter((fact): fact is { label: string; value: string } => fact !== null);
+
+  return (
+    <li>
+      <article className={`${styles.cacheEntry} ${styles[`cacheEntry_${entry.status}`]}`}>
+        <header>
+          <span className={styles.cacheEntryCategory}>{speechCacheCategoryLabel(entry.category)}</span>
+          <StatusPill value={speechStatusLabel(entry.status)} tone={speechStatusTone(entry.status)} />
+        </header>
+        <p className={entry.text_available ? styles.cacheEntryText : styles.cacheEntryTextUnavailable}>
+          {displayText}
+        </p>
+
+        {optionalFacts.length > 0 ? (
+          <dl className={styles.cacheEntryIdentity}>
+            {optionalFacts.map((fact) => <div key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>)}
+          </dl>
         ) : null}
 
-        {cacheError ? <p className="form-error" role="alert">{cacheError}</p> : null}
-        {cacheMessage ? <p className="success-text" role="status">{cacheMessage}</p> : null}
-        <div className={styles.cacheActions}>
-          <label>
-            Bereik
-            <select value={scope} onChange={(event) => setScope(event.target.value as SpeechCacheRegenerationScope)}>
-              <option value="all">Alles</option>
-              <option value="segments">Alleen unieke segmenten</option>
-              <option value="composites">Alleen samengestelde meldingen</option>
-              <option value="failed">Alleen mislukte items</option>
-            </select>
-          </label>
-          <button className="primary-button" type="button" disabled={!canManage || starting || jobActive} onClick={() => void regenerateCache()}>
-            <RefreshCw aria-hidden size={18} />
-            {starting || jobActive ? 'Cachetaak actief...' : 'Regenereren en voorverwarmen'}
-          </button>
-        </div>
-      </div>
-    </Panel>
+        <dl className={styles.cacheEntryFacts}>
+          <div><dt>Duur</dt><dd>{formatSpeechDuration(entry.duration_ms)}</dd></div>
+          <div><dt>Grootte</dt><dd>{formatSpeechBytes(entry.byte_size)}</dd></div>
+          <div><dt>Gebruikt</dt><dd>{entry.hit_count.toLocaleString('nl-NL')} keer</dd></div>
+          <div><dt>Aangemaakt</dt><dd>{formatDateTime(entry.created_at)}</dd></div>
+          <div><dt>Laatst gebruikt</dt><dd>{formatDateTime(entry.last_used_at ?? null)}</dd></div>
+        </dl>
+
+        {audioSource ? (
+          <SpeechCacheAudioPlayer source={audioSource} text={displayText} />
+        ) : (
+          <p className={styles.cacheAudioUnavailable}>
+            {entry.status === 'ready'
+              ? 'Voor dit item is geen afspeelbaar audiobestand beschikbaar.'
+              : 'Audio wordt beschikbaar zodra dit item gereed is.'}
+          </p>
+        )}
+      </article>
+    </li>
   );
+}
+
+function SpeechCacheAudioPlayer({ source, text }: { source: string; text: string }) {
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  return (
+    <div className={styles.cacheAudio}>
+      <audio
+        controls
+        preload="none"
+        src={source}
+        aria-label={`Cachefragment afspelen: ${text}`}
+        onCanPlay={() => setLoadFailed(false)}
+        onError={() => setLoadFailed(true)}
+      >
+        Uw browser ondersteunt geen audio-afspelen.
+      </audio>
+      {loadFailed ? (
+        <p role="alert">
+          <AlertTriangle aria-hidden size={16} />
+          Dit fragment kon niet worden afgespeeld. Vernieuw de lijst en probeer opnieuw.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function speechCachePagination(meta: unknown): PaginationMeta {
+  if (meta === null || typeof meta !== 'object') return EMPTY_SPEECH_CACHE_PAGINATION;
+  const candidate = meta as Partial<PaginationMeta>;
+  const currentPage = Number(candidate.current_page);
+  const lastPage = Number(candidate.last_page);
+  const perPage = Number(candidate.per_page);
+  const total = Number(candidate.total);
+  if (!Number.isInteger(currentPage) || currentPage < 1
+    || !Number.isInteger(lastPage) || lastPage < 1
+    || !Number.isInteger(perPage) || perPage < 1
+    || !Number.isInteger(total) || total < 0) {
+    return EMPTY_SPEECH_CACHE_PAGINATION;
+  }
+
+  return {
+    current_page: Math.min(currentPage, lastPage),
+    last_page: lastPage,
+    per_page: perPage,
+    total,
+  };
+}
+
+function speechCacheCategoryLabel(category: SpeechCacheEntryCategory): string {
+  return category === 'composite' ? 'Samengestelde melding' : 'Tekstfragment';
 }
 
 function SettingsSaveFooter({

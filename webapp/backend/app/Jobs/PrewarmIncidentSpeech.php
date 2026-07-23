@@ -48,7 +48,14 @@ final class PrewarmIncidentSpeech implements ShouldQueue
             foreach ($lines as $line) {
                 $assets[] = $audio->segment($line, $runtime['model'], $runtime['voice'], $runtime['speed']);
             }
-            $audio->composite($assets, $phase, $runtime['voice']);
+            $audio->composite(
+                $assets,
+                $phase,
+                $runtime['voice'],
+                $lines,
+                $runtime['model'],
+                $runtime['speed'],
+            );
         }
     }
 }

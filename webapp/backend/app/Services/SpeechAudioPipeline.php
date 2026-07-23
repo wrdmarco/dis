@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Contracts\SpeechEngineClient;
+use App\DTO\SpeechCacheEntryMetadata;
 use App\Models\SpeechAudioAsset;
 use App\Models\SpeechCacheEntry;
 use App\Models\SpeechModelInstallation;
@@ -33,15 +34,16 @@ final class SpeechAudioPipeline
         $this->assertVoiceMode($model, $voice);
         $speed = $this->speed($speed);
         $cacheKey = $this->segmentCacheKey($text, $model, $voice, $speed, $category);
+        $entryMetadata = $this->entryMetadata($text, $model, $voice, $speed);
 
         $lockSeconds = max(900, (int) config('dis.speech.synthesis_timeout_seconds', 14_400) + 600);
 
         return Cache::lock('speech-audio:'.$cacheKey, $lockSeconds)->block(5, function () use (
-            $cacheKey, $category, $text, $model, $voice, $speed,
+            $cacheKey, $category, $text, $model, $voice, $speed, $entryMetadata,
         ): SpeechAudioAsset {
             $ready = $this->verifiedReady($cacheKey);
             if ($ready !== null) {
-                $this->cache->recordHit($ready);
+                $this->cache->recordHit($ready, $entryMetadata);
 
                 return $ready->audioAsset;
             }
@@ -78,7 +80,15 @@ final class SpeechAudioPipeline
                 $this->encodeM4a($wavPath, $m4aPath, $speed);
                 $metadata = $this->inspectM4a($m4aPath);
 
-                return $this->publish($cacheKey, $category, $voice?->id, $text, $m4aPath, $metadata);
+                return $this->publish(
+                    $cacheKey,
+                    $category,
+                    $voice?->id,
+                    $text,
+                    $entryMetadata,
+                    $m4aPath,
+                    $metadata,
+                );
             } finally {
                 @unlink($jobPath);
                 @unlink($wavPath);
@@ -120,12 +130,37 @@ final class SpeechAudioPipeline
         ]);
     }
 
-    /** @param list<SpeechAudioAsset> $segments */
-    public function composite(array $segments, string $phase, ?SpeechVoiceProfile $voice): SpeechAudioAsset
-    {
+    /**
+     * @param  list<SpeechAudioAsset>  $segments
+     * @param  list<string>  $lines
+     */
+    public function composite(
+        array $segments,
+        string $phase,
+        ?SpeechVoiceProfile $voice,
+        array $lines,
+        SpeechModelInstallation $model,
+        float $speed,
+    ): SpeechAudioAsset {
         if ($segments === [] || count($segments) > 8) {
             throw new \RuntimeException('Speech composite requires 1 to 8 semantic line segments.');
         }
+        if (count($segments) !== count($lines)) {
+            throw new \RuntimeException('Speech composite text does not match its semantic line segments.');
+        }
+        $normalizedLines = array_map(static function (mixed $line): string {
+            if (! is_string($line) || trim($line) === '') {
+                throw new \RuntimeException('Speech composite requires non-empty semantic text.');
+            }
+
+            return trim($line);
+        }, $lines);
+        $entryMetadata = $this->entryMetadata(
+            implode("\n", $normalizedLines),
+            $model,
+            $voice,
+            $this->speed($speed),
+        );
         $cacheKey = $this->keys->key('composite', [
             'phase' => $phase,
             'segments' => array_map(static fn (SpeechAudioAsset $asset): string => $asset->content_sha256, $segments),
@@ -133,10 +168,12 @@ final class SpeechAudioPipeline
             'codec' => 'aac-lc-m4a-v2',
         ]);
 
-        return Cache::lock('speech-audio:'.$cacheKey, 300)->block(5, function () use ($cacheKey, $segments, $voice): SpeechAudioAsset {
+        return Cache::lock('speech-audio:'.$cacheKey, 300)->block(5, function () use (
+            $cacheKey, $segments, $voice, $entryMetadata,
+        ): SpeechAudioAsset {
             $ready = $this->verifiedReady($cacheKey);
             if ($ready !== null) {
-                $this->cache->recordHit($ready);
+                $this->cache->recordHit($ready, $entryMetadata);
 
                 return $ready->audioAsset;
             }
@@ -153,6 +190,7 @@ final class SpeechAudioPipeline
                     (int) $asset->byte_size,
                     (int) $asset->duration_ms,
                     now()->addDays((int) config('dis.speech.composite_retention_days', 7)),
+                    $entryMetadata,
                 );
 
                 return $entry->audioAsset;
@@ -186,6 +224,7 @@ final class SpeechAudioPipeline
                     'composite',
                     $voice?->id,
                     implode('|', array_map(static fn (SpeechAudioAsset $asset): string => (string) $asset->content_sha256, $segments)),
+                    $entryMetadata,
                     $output,
                     $metadata,
                 );
@@ -300,6 +339,7 @@ final class SpeechAudioPipeline
         string $category,
         ?string $voiceProfileId,
         string $semantic,
+        SpeechCacheEntryMetadata $entryMetadata,
         string $source,
         array $metadata,
     ): SpeechAudioAsset {
@@ -308,6 +348,7 @@ final class SpeechAudioPipeline
             $category,
             $voiceProfileId,
             $semantic,
+            $entryMetadata,
             $source,
             $metadata,
         ));
@@ -319,6 +360,7 @@ final class SpeechAudioPipeline
         string $category,
         ?string $voiceProfileId,
         string $semantic,
+        SpeechCacheEntryMetadata $entryMetadata,
         string $source,
         array $metadata,
     ): SpeechAudioAsset {
@@ -355,7 +397,7 @@ final class SpeechAudioPipeline
             : (int) config('dis.speech.segment_retention_days', 30);
         $entry = $this->cache->publish(
             $cacheKey, $category, $voiceProfileId, $this->keys->semantic($semantic), $metadata['sha256'], $relative,
-            $metadata['byte_size'], $metadata['duration_ms'], now()->addDays($days),
+            $metadata['byte_size'], $metadata['duration_ms'], now()->addDays($days), $entryMetadata,
         );
 
         return $entry->audioAsset;
@@ -456,5 +498,24 @@ final class SpeechAudioPipeline
             || config('dis.speech.models.'.$model->catalog_key.'.capabilities.voice_design') !== true) {
             throw new \RuntimeException('speech_voice_profile_required');
         }
+    }
+
+    private function entryMetadata(
+        string $text,
+        SpeechModelInstallation $model,
+        ?SpeechVoiceProfile $voice,
+        float $speed,
+    ): SpeechCacheEntryMetadata {
+        return new SpeechCacheEntryMetadata(
+            text: trim($text),
+            locale: 'nl-NL',
+            modelCatalogKey: (string) $model->catalog_key,
+            modelRevision: (string) $model->revision,
+            voiceDesignRevision: $voice === null
+                ? (string) config('dis.speech.models.'.$model->catalog_key.'.built_in_voice_design_revision')
+                : null,
+            audioRecipeRevision: (string) config('dis.speech.audio_recipe_revision'),
+            speed: $speed,
+        );
     }
 }

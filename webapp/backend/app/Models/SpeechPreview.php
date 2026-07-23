@@ -32,6 +32,11 @@ final class SpeechPreview extends Model
         return $this->belongsTo(SpeechManifest::class, 'speech_manifest_id');
     }
 
+    public function build(): BelongsTo
+    {
+        return $this->belongsTo(SpeechManifestBuild::class, 'speech_manifest_build_id');
+    }
+
     public function audioAsset(): BelongsTo
     {
         return $this->belongsTo(SpeechAudioAsset::class);

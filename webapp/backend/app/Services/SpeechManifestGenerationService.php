@@ -88,7 +88,14 @@ final class SpeechManifestGenerationService
                 $progress($percent);
             }
         }
-        $composite = $this->audio->composite($assets, (string) $build->phase, $build->voiceProfile);
+        $composite = $this->audio->composite(
+            $assets,
+            (string) $build->phase,
+            $build->voiceProfile,
+            $lines,
+            $build->modelInstallation,
+            (float) $build->speed,
+        );
         $manifest = $this->manifests->seal([
             'speech_manifest_build_id' => $build->id,
             'dispatch_request_id' => $build->dispatch_request_id,

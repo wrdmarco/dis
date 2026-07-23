@@ -68,7 +68,14 @@ final class SpeechCacheMaintenanceService
             foreach ($lines as $line) {
                 $assets[] = $this->audio->segment($line, $runtime['model'], $runtime['voice'], $runtime['speed']);
             }
-            $this->audio->composite($assets, $phase, $runtime['voice']);
+            $this->audio->composite(
+                $assets,
+                $phase,
+                $runtime['voice'],
+                $lines,
+                $runtime['model'],
+                $runtime['speed'],
+            );
             $job->forceFill([
                 'progress_percent' => max(
                     (int) $job->progress_percent,
