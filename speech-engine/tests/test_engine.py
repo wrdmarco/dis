@@ -124,7 +124,7 @@ class EngineIntegrationTest(unittest.TestCase):
 class SpeakerSeedTest(unittest.TestCase):
     def test_built_in_seed_is_voice_scoped_and_not_text_scoped(self) -> None:
         self.assertEqual(
-            "built-in:voxcpm2-nl-nl-female-pa-v2",
+            "built-in:voxcpm2-nl-nl-female-journalistic-v4",
             _speaker_seed_material(VOXCPM2, None),
         )
 

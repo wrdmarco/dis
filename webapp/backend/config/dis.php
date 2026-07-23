@@ -238,7 +238,7 @@ return [
         'socket_path' => env('SPEECH_ENGINE_SOCKET', '/run/dis-tts/engine.sock'),
         'protocol_version' => 2,
         // Bump for every conditioning, seed, codec, loudness or composition change.
-        'audio_recipe_revision' => 'consistent-speaker-loudness-v2',
+        'audio_recipe_revision' => 'consistent-speaker-loudness-v3',
         'connect_timeout_seconds' => (float) env('SPEECH_ENGINE_CONNECT_TIMEOUT_SECONDS', 1),
         'synthesis_timeout_seconds' => max(300, (int) env('SPEECH_ENGINE_SYNTHESIS_TIMEOUT_SECONDS', 14_400)),
         'install_timeout_seconds' => max(300, (int) env('SPEECH_ENGINE_INSTALL_TIMEOUT_SECONDS', 14_400)),
@@ -286,7 +286,7 @@ return [
                 'commercial_use' => true,
                 'supported_languages' => ['nl-NL'],
                 'capabilities' => ['voice_clone' => true, 'voice_design' => true, 'speed_control' => false],
-                'built_in_voice_design_revision' => 'voxcpm2-nl-nl-female-pa-v2',
+                'built_in_voice_design_revision' => 'voxcpm2-nl-nl-female-journalistic-v4',
                 'cpu' => [
                     'supported' => true,
                     'recommended_ram_bytes' => 34_359_738_368,

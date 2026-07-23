@@ -1009,6 +1009,18 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertTrue($prepare < $install);
     }
 
+    public function test_browser_microphone_is_same_origin_and_still_user_permission_gated(): void
+    {
+        $nginxHeaders = $this->read('infrastructure/nginx/security-headers.conf');
+        $frontendMiddleware = $this->read('webapp/frontend/middleware.ts');
+        $policy = 'geolocation=(), microphone=(self), camera=()';
+
+        self::assertStringContainsString($policy, $nginxHeaders);
+        self::assertStringContainsString($policy, $frontendMiddleware);
+        self::assertStringNotContainsString('microphone=()', $nginxHeaders);
+        self::assertStringNotContainsString('microphone=()', $frontendMiddleware);
+    }
+
     public function test_healthcheck_requires_an_exact_healthy_json_response_with_bounded_timeouts(): void
     {
         $script = $this->read('scripts/healthcheck.sh');

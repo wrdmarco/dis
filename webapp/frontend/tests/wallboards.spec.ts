@@ -10,6 +10,7 @@ import type {
   WallboardTransientAlert,
 } from '../src/types/api';
 import {
+  advanceWallboardRotationAtDeadline,
   controlFromState,
   formatWallboardClock,
   formatWallboardDate,
@@ -18,7 +19,9 @@ import {
   normalizeWallboardNewsState,
   normalizeWallboardState,
   stabilizeWallboardRotationDeadline,
+  wallboardAlignedTickDelayMilliseconds,
   wallboardCarouselRemainingMilliseconds,
+  wallboardClockTickDelayMilliseconds,
   wallboardDeadlineDurationMilliseconds,
   wallboardDeadlineRemainingSeconds,
   wallboardDeadlineTickDelayMilliseconds,
@@ -29,6 +32,8 @@ import {
   wallboardRefreshDecision,
   wallboardRuntimePlaylistSignature,
   wallboardTickerIsVisible,
+  wallboardTransitionRemainingDurationMilliseconds,
+  wallboardTransitionStartDelayMilliseconds,
 } from '../src/features/wallboards/WallboardDisplayPage';
 import {
   DEFAULT_WALLBOARD_CONFIGURATION,
@@ -66,6 +71,7 @@ import {
   wallboardFocusKindLabel,
   wallboardIsOnline,
   wallboardMessageContent,
+  wallboardOperationalIncidentConfiguration,
   wallboardPageMapConfiguration,
   wallboardPlaylistUsageCount,
   wallboardStateIsStale,
@@ -775,6 +781,7 @@ test('keeps offline status and automatic polling recovery without a reconnect re
   expect(statePoll).toContain("setStateError(errorMessage(error, 'De wallboardfeed is tijdelijk niet bereikbaar.'));");
   expect(statePoll).toContain('setStateError(null);');
   expect(statePoll).toContain('timer = setTimeout(() => void poll(), refreshSecondsRef.current * 1000);');
+  expect(statePoll).not.toContain('setClock(');
   expect(controlPoll).toContain("setControlError(errorMessage(error, 'De live schermbesturing is tijdelijk niet bereikbaar.'));");
   expect(controlPoll).toContain('setControlError(null);');
   expect(controlPoll).toContain('lastControlMaintenanceActiveRef.current === true && !nextMaintenanceActive');
@@ -790,6 +797,11 @@ test('keeps offline status and automatic polling recovery without a reconnect re
     .toBeLessThan(controlPoll.indexOf('pendingConfigVersionRef.current = nextControl.config_version;'));
   expect(controlPoll).toContain('setPollGeneration((current) => current + 1)');
   expect(controlPoll).toContain('timer = setTimeout(() => void pollControl(), CONTROL_POLL_MILLISECONDS);');
+  expect(controlPoll).not.toContain('setClock(');
+  expect(kiosk).toContain('wallboardClockTickDelayMilliseconds(current)');
+  expect(kiosk).toContain("document.addEventListener('visibilitychange', synchronizeVisibleClock)");
+  expect(kiosk).toContain("window.addEventListener('pageshow', synchronizeClock)");
+  expect(kiosk).toContain('<WallboardRuntimePlaylistPageFrame');
   expect(statePoll).not.toContain('window.location.reload()');
   expect(controlPoll).not.toContain('window.location.reload()');
 });
@@ -1106,6 +1118,110 @@ test('does not postpone a rotation deadline within the same active server phase'
   ).display.next_change_at).toBe('2026-07-19T10:00:07Z');
 });
 
+test('aligns wallboard clock ticks without accumulating interval drift', () => {
+  expect(wallboardAlignedTickDelayMilliseconds(1_250, 1000)).toBe(750);
+  expect(wallboardAlignedTickDelayMilliseconds(2_000, 1000)).toBe(1000);
+  expect(wallboardAlignedTickDelayMilliseconds(Number.NaN, 60_000)).toBe(60_000);
+  expect(wallboardClockTickDelayMilliseconds(10_001)).toBe(999);
+});
+
+test('starts a page transition before the deadline so the configured duration includes it', () => {
+  const deadline = '2026-07-19T10:00:10Z';
+  expect(wallboardTransitionStartDelayMilliseconds(
+    deadline,
+    3000,
+    Date.parse('2026-07-19T10:00:00Z'),
+  )).toBe(7000);
+  expect(wallboardTransitionRemainingDurationMilliseconds(
+    deadline,
+    3000,
+    Date.parse('2026-07-19T10:00:07Z'),
+  )).toBe(3000);
+  expect(wallboardTransitionStartDelayMilliseconds(
+    deadline,
+    3000,
+    Date.parse('2026-07-19T10:00:08.500Z'),
+  )).toBe(0);
+  expect(wallboardTransitionRemainingDurationMilliseconds(
+    deadline,
+    3000,
+    Date.parse('2026-07-19T10:00:08.500Z'),
+  )).toBe(1500);
+  expect(wallboardTransitionRemainingDurationMilliseconds(
+    deadline,
+    3000,
+    Date.parse('2026-07-19T10:00:11Z'),
+  )).toBe(1);
+});
+
+test('advances an expired rotation locally while the server confirmation is in flight', () => {
+  const pages: WallboardPage[] = [
+    { id: 'first', type: 'message', name: 'Eerste', duration_seconds: 5, options: {} },
+    { id: 'second', type: 'message', name: 'Tweede', duration_seconds: 10, options: {} },
+    { id: 'third', type: 'message', name: 'Derde', duration_seconds: 15, options: {} },
+  ];
+  const control: WallboardControlState = {
+    config_version: 4,
+    control_version: 7,
+    refresh_version: 2,
+    display_profile: 'auto',
+    transient_alert: null,
+    display: {
+      mode: 'rotation',
+      page_id: 'first',
+      incident_active: false,
+      next_change_at: '2026-07-19T10:00:05Z',
+    },
+  };
+
+  expect(advanceWallboardRotationAtDeadline(
+    control,
+    pages,
+    Date.parse('2026-07-19T10:00:05Z'),
+  ).display).toMatchObject({
+    page_id: 'second',
+    next_change_at: '2026-07-19T10:00:15.000Z',
+  });
+  expect(advanceWallboardRotationAtDeadline(
+    control,
+    pages,
+    Date.parse('2026-07-19T10:00:16Z'),
+  ).display).toMatchObject({
+    page_id: 'third',
+    next_change_at: '2026-07-19T10:00:30.000Z',
+  });
+  expect(advanceWallboardRotationAtDeadline(
+    control,
+    pages,
+    Date.parse('2026-07-19T10:00:35Z'),
+  ).display).toMatchObject({
+    page_id: 'second',
+    next_change_at: '2026-07-19T10:00:45.000Z',
+  });
+
+  const locallyAdvanced = advanceWallboardRotationAtDeadline(
+    control,
+    pages,
+    Date.parse('2026-07-19T10:00:05Z'),
+  );
+  const staleConfirmation: WallboardControlState = {
+    ...control,
+    display: {
+      ...control.display,
+      incident_active: true,
+    },
+  };
+  expect(stabilizeWallboardRotationDeadline(
+    locallyAdvanced,
+    staleConfirmation,
+    Date.parse('2026-07-19T10:00:05.050Z'),
+  ).display).toMatchObject({
+    page_id: 'second',
+    incident_active: true,
+    next_change_at: '2026-07-19T10:00:15.000Z',
+  });
+});
+
 test('accepts only bounded active wallboard maintenance notices and expires them locally', () => {
   const notice = {
     active: true,
@@ -1400,6 +1516,28 @@ test('dedicated incident pages remain operational when the global map layer is h
   expect(buildWallboardMapPresentation(state, true, summaryConfiguration).models.map((model) => model.incident.id)).toEqual(['incident-1']);
 });
 
+test('keeps the map incident sidebar independent from the active-incident map layer', () => {
+  const state = stateFixture();
+  state.wallboard.configuration.map.show_active_incidents = false;
+  state.wallboard.configuration.map.show_incident_list = true;
+
+  expect(buildWallboardMapPresentation(state).models).toEqual([]);
+
+  const listConfiguration = wallboardOperationalIncidentConfiguration(
+    state.wallboard.configuration.map,
+  );
+  expect(listConfiguration).toMatchObject({
+    show_active_incidents: true,
+    show_incident_list: true,
+    show_test_incidents: false,
+  });
+  expect(
+    buildWallboardMapPresentation(state, true, listConfiguration).models.map(
+      (model) => model.incident.id,
+    ),
+  ).toEqual(['incident-1']);
+});
+
 test('exposes admin and kiosk routes with separate trust boundaries', () => {
   const adminRoute = readFileSync(new URL('../app/wallboards/page.tsx', import.meta.url), 'utf8');
   const createRoute = readFileSync(new URL('../app/wallboards/new/page.tsx', import.meta.url), 'utf8');
@@ -1548,7 +1686,8 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain('setRuntime({ phaseKey, activeIndex: 0 });');
   expect(kiosk).not.toContain('Date.now() % safeDurationMilliseconds');
   expect(kiosk).toContain('running={layer.running}');
-  expect(kiosk).toContain('wallboardEffectivePageTransition(configuration, currentPage)');
+  expect(kiosk).toContain('wallboardEffectivePageTransition(configuration, transitionPage)');
+  expect(kiosk).toContain('configuration.pages[(Math.max(0, currentPageIndex) + 1) % configuration.pages.length]');
   expect(kiosk).toContain('const pairedTransitionActive = active');
   expect(kiosk).toContain('pages={configuration.pages}');
   expect(kiosk).toContain('key={layer.page.id}');

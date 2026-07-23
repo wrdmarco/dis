@@ -257,3 +257,36 @@ export function speechCacheUsagePercentage(totalBytes: number, quotaBytes: numbe
 export function fixedSpeechPreviewAudioPath(previewId: string): string {
   return `/admin/speech/previews/${encodeURIComponent(previewId)}/audio`;
 }
+
+export function microphoneRecordingError(error: unknown, secureContext: boolean): string {
+  if (!secureContext) {
+    return 'Microfoonopname werkt alleen via een beveiligde HTTPS-verbinding.';
+  }
+
+  const name = typeof error === 'object'
+    && error !== null
+    && 'name' in error
+    && typeof error.name === 'string'
+    ? error.name
+    : '';
+
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return 'Microfoontoegang is geweigerd. Sta de microfoon voor deze website toe in de browser- en toestelinstellingen en probeer opnieuw, of upload een audiobestand.';
+  }
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError') {
+    return 'Er is geen geschikte microfoon gevonden. Sluit een microfoon aan of upload een audiobestand.';
+  }
+  if (name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError') {
+    return 'De microfoon is bezet of tijdelijk niet beschikbaar. Sluit andere opname-apps en probeer opnieuw.';
+  }
+
+  return 'Microfoonopname kon niet worden gestart. Probeer opnieuw of upload een audiobestand.';
+}
+
+export function microphoneRequestIsCurrent(
+  mounted: boolean,
+  currentGeneration: number,
+  requestGeneration: number,
+): boolean {
+  return mounted && currentGeneration === requestGeneration;
+}

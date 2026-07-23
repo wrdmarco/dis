@@ -326,6 +326,7 @@ final class WallboardStateService
             || ($hasMapPage && (
                 ($mapConfiguration['show_active_incidents'] ?? false) === true
                 || ($mapConfiguration['show_live_locations'] ?? false) === true
+                || ($mapConfiguration['show_incident_list'] ?? false) === true
             ))
             || $incidentPages->isNotEmpty();
         $incidents = $needsIncidents

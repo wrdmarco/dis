@@ -15,7 +15,9 @@ starts an installation; weights are never committed to this repository.
 
 - Chatterbox Multilingual V3 — MIT, roughly 3.2 GB, voice profile required.
 - VoxCPM2 — Apache-2.0, roughly 5.0 GB, fixed Dutch female speaker anchor or a
-  consented voice profile. The built-in anchor is generated once with the pinned
+  consented voice profile. The built-in anchor is a calm female newsreader from
+  the Netherlands with neutral Standard Dutch pronunciation, a restrained lower
+  pitch and objective journalistic delivery. It is generated once with the pinned
   voice recipe, retained under the private engine state root and reused as both
   the timbre reference and prompt for every utterance.
 

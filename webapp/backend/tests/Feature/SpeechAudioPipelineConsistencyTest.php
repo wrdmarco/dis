@@ -39,12 +39,21 @@ final class SpeechAudioPipelineConsistencyTest extends TestCase
         $pipeline = app(SpeechAudioPipeline::class);
 
         $current = $pipeline->segmentCacheKey('Dit is een melding.', $model, null, 1.0);
-        config()->set('dis.speech.audio_recipe_revision', 'consistent-speaker-loudness-v3');
+        $currentVoiceDesign = config('dis.speech.models.voxcpm2.built_in_voice_design_revision');
+        config()->set(
+            'dis.speech.models.voxcpm2.built_in_voice_design_revision',
+            'voxcpm2-nl-nl-female-neutral-pa-v4',
+        );
+        $changedVoiceDesign = $pipeline->segmentCacheKey('Dit is een melding.', $model, null, 1.0);
+        $this->assertNotSame($current, $changedVoiceDesign);
+        config()->set('dis.speech.models.voxcpm2.built_in_voice_design_revision', $currentVoiceDesign);
+
+        config()->set('dis.speech.audio_recipe_revision', 'consistent-speaker-loudness-v4');
         $changedRecipe = $pipeline->segmentCacheKey('Dit is een melding.', $model, null, 1.0);
 
         $this->assertNotSame($current, $changedRecipe);
 
-        config()->set('dis.speech.audio_recipe_revision', 'consistent-speaker-loudness-v2');
+        config()->set('dis.speech.audio_recipe_revision', 'consistent-speaker-loudness-v3');
         $firstProfile = new SpeechVoiceProfile([
             'sample_sha256' => str_repeat('b', 64),
             'consent_version' => 1,

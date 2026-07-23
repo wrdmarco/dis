@@ -238,14 +238,17 @@ def create_adapter(
     raise AdapterError("unsupported_model_adapter")
 
 
-VOXCPM2_BUILT_IN_VOICE_DESIGN_REVISION = "voxcpm2-nl-nl-female-pa-v2"
+VOXCPM2_BUILT_IN_VOICE_DESIGN_REVISION = "voxcpm2-nl-nl-female-journalistic-v4"
 DEFAULT_VOXCPM2_VOICE_DESIGN = (
-    "A clear, natural adult Dutch female public-address announcer, warm, calm and professional, "
-    "with crisp articulation and an even medium pace"
+    "A calm adult female native speaker from the Netherlands, speaking neutral Standard Netherlands "
+    "Dutch (Algemeen Nederlands) in an understated studio-newsreader style. Her voice has a natural "
+    "lower mid-range pitch, restrained melodic variation, steady moderate pacing, crisp but natural "
+    "diction, neutral authority, and an objective matter-of-fact delivery, with no smile in the voice "
+    "and no theatrical emphasis"
 )
 VOXCPM2_BUILT_IN_REFERENCE_TRANSCRIPT = (
-    "Dames en heren, let u alstublieft op. "
-    "Dit is een belangrijke operationele mededeling."
+    "Dit is de actuele informatie. De inzet vindt plaats aan de Stationsweg tweeënveertig in "
+    "Amersfoort. Meer bijzonderheden volgen zodra deze bekend zijn."
 )
 
 

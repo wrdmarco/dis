@@ -14,8 +14,8 @@ test('pauses the internal news-card transition while the playlist page transitio
   expect(displaySource).toContain("const usesPairedCards = running && transition !== 'none';");
   expect(displaySource).toContain('if (!running || visual.previous === null) return undefined;');
   expect(displaySource).toContain('previous: running ? current.current : null');
-  expect(displaySource).toContain("const pageFlipSceneClass = transition === 'flip'");
-  expect(displaySource).toContain("const pageFlipStageClass = transition === 'flip'");
+  expect(displaySource).toContain("const pageFlipSceneClass = visual.transition === 'flip'");
+  expect(displaySource).toContain("const pageFlipStageClass = visual.transition === 'flip'");
   expect(displaySource).toContain("const newsFlipSceneClass = transition === 'flip'");
   expect(displaySource).toContain("const newsFlipStageClass = transition === 'flip'");
 });

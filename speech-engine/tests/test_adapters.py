@@ -11,6 +11,7 @@ from unittest.mock import patch
 import numpy
 
 from dis_tts_engine.adapters import (
+    DEFAULT_VOXCPM2_VOICE_DESIGN,
     VOXCPM2_BUILT_IN_REFERENCE_TRANSCRIPT,
     VOXCPM2_BUILT_IN_VOICE_DESIGN_REVISION,
     VoxCpm2Adapter,
@@ -80,8 +81,20 @@ class VoxCpm2AdapterTest(unittest.TestCase):
 
             self.assertEqual(3, len(model.calls))
             anchor_text, anchor_options = model.calls[0]
-            self.assertIn(VOXCPM2_BUILT_IN_REFERENCE_TRANSCRIPT, anchor_text)
+            self.assertEqual(
+                f"({DEFAULT_VOXCPM2_VOICE_DESIGN}){VOXCPM2_BUILT_IN_REFERENCE_TRANSCRIPT}",
+                anchor_text,
+            )
+            self.assertIn("neutral Standard Netherlands Dutch", DEFAULT_VOXCPM2_VOICE_DESIGN)
+            self.assertIn("understated studio-newsreader style", DEFAULT_VOXCPM2_VOICE_DESIGN)
+            self.assertIn("lower mid-range pitch", DEFAULT_VOXCPM2_VOICE_DESIGN)
+            self.assertIn("no smile in the voice", DEFAULT_VOXCPM2_VOICE_DESIGN)
+            self.assertIn("no theatrical emphasis", DEFAULT_VOXCPM2_VOICE_DESIGN)
             self.assertNotIn("reference_wav_path", anchor_options)
+            self.assertEqual(
+                f"{VOXCPM2_BUILT_IN_VOICE_DESIGN_REVISION}.wav",
+                adapter._built_in_reference_path.name,
+            )
 
             first_text, first_options = model.calls[1]
             second_text, second_options = model.calls[2]

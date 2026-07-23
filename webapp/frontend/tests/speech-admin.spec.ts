@@ -6,6 +6,8 @@ import {
   formatSpeechBytes,
   formatSpeechParameterCount,
   insertSpeechToken,
+  microphoneRecordingError,
+  microphoneRequestIsCurrent,
   normalizeSpeechProgress,
   normalizeSpeechToken,
   renderSpeechTemplate,
@@ -82,6 +84,24 @@ test('bounds work progress and formats cache/model facts for Dutch admins', () =
   expect(speechCacheHitRate(9, 1)).toBe('90%');
   expect(speechCacheUsagePercentage(90, 100)).toBe(90);
   expect(speechCacheUsagePercentage(120, 100)).toBe(100);
+});
+
+test('explains microphone failures in actionable Dutch without exposing browser errors', () => {
+  const namedError = (name: string) => Object.assign(new Error('Permission denied'), { name });
+
+  expect(microphoneRecordingError(null, false)).toContain('HTTPS');
+  expect(microphoneRecordingError(namedError('NotAllowedError'), true)).toContain('browser- en toestelinstellingen');
+  expect(microphoneRecordingError(namedError('NotFoundError'), true)).toContain('geen geschikte microfoon');
+  expect(microphoneRecordingError(namedError('NotReadableError'), true)).toContain('bezet of tijdelijk niet beschikbaar');
+  expect(microphoneRecordingError(new Error('raw browser failure'), true)).toBe(
+    'Microfoonopname kon niet worden gestart. Probeer opnieuw of upload een audiobestand.',
+  );
+});
+
+test('rejects a microphone stream that resolves after navigation or a newer request', () => {
+  expect(microphoneRequestIsCurrent(true, 4, 4)).toBe(true);
+  expect(microphoneRequestIsCurrent(false, 4, 4)).toBe(false);
+  expect(microphoneRequestIsCurrent(true, 5, 4)).toBe(false);
 });
 
 test('derives server voice validity from installed models, built-in voices and ready compatible profiles', () => {

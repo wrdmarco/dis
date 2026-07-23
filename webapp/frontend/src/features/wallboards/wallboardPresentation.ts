@@ -700,8 +700,14 @@ export function wallboardPageMapConfiguration(
     return { ...configuration.map };
   }
 
+  return wallboardOperationalIncidentConfiguration(configuration.map);
+}
+
+export function wallboardOperationalIncidentConfiguration(
+  configuration: WallboardMapConfiguration,
+): WallboardMapConfiguration {
   return {
-    ...configuration.map,
+    ...configuration,
     show_active_incidents: true,
     show_test_incidents: false,
   };

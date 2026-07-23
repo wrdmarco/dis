@@ -6,7 +6,7 @@ const PRIVATE_HTML_CACHE_CONTROL = 'private, no-store, max-age=0, must-revalidat
 const APPLICATION_SECURITY_HEADERS = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Resource-Policy': 'same-origin',
-  'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
+  'Permissions-Policy': 'geolocation=(), microphone=(self), camera=()',
   'Referrer-Policy': 'no-referrer',
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',

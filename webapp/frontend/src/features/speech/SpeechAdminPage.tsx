@@ -39,6 +39,8 @@ import {
   formatSpeechBytes,
   formatSpeechParameterCount,
   insertSpeechToken,
+  microphoneRecordingError,
+  microphoneRequestIsCurrent,
   normalizeSpeechProgress,
   normalizeSpeechToken,
   renderSpeechTemplate,
@@ -826,11 +828,15 @@ function VoiceProfilesPanel({
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
+  const [requestingMicrophone, setRequestingMicrophone] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<number | null>(null);
+  const microphoneRequestGenerationRef = useRef(0);
+  const microphoneRequestPendingRef = useRef(false);
+  const mountedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -844,26 +850,49 @@ function VoiceProfilesPanel({
     return () => URL.revokeObjectURL(nextUrl);
   }, [audioFile]);
 
-  useEffect(() => () => {
-    if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
-    const recorder = recorderRef.current;
-    if (recorder !== null && recorder.state !== 'inactive') {
-      recorder.ondataavailable = null;
-      recorder.onstop = null;
-      recorder.stop();
-    }
-    stopMediaStream(streamRef.current);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      microphoneRequestGenerationRef.current += 1;
+      microphoneRequestPendingRef.current = false;
+      if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
+      const recorder = recorderRef.current;
+      if (recorder !== null && recorder.state !== 'inactive') {
+        recorder.ondataavailable = null;
+        recorder.onstop = null;
+        recorder.stop();
+      }
+      stopMediaStream(streamRef.current);
+    };
   }, []);
 
   async function startRecording() {
     setProfileError(null);
+    if (microphoneRequestPendingRef.current) return;
+    if (!window.isSecureContext) {
+      setProfileError(microphoneRecordingError(null, false));
+      return;
+    }
     if (typeof MediaRecorder === 'undefined' || navigator.mediaDevices?.getUserMedia === undefined) {
       setProfileError('Deze browser ondersteunt geen microfoonopname. Upload in plaats daarvan een audiobestand.');
       return;
     }
 
+    microphoneRequestPendingRef.current = true;
+    const requestGeneration = microphoneRequestGenerationRef.current + 1;
+    microphoneRequestGenerationRef.current = requestGeneration;
+    setRequestingMicrophone(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!microphoneRequestIsCurrent(
+        mountedRef.current,
+        microphoneRequestGenerationRef.current,
+        requestGeneration,
+      )) {
+        stopMediaStream(stream);
+        return;
+      }
       streamRef.current = stream;
       const mimeType = preferredRecordingMimeType();
       const recorder = mimeType === null ? new MediaRecorder(stream) : new MediaRecorder(stream, { mimeType });
@@ -896,7 +925,18 @@ function VoiceProfilesPanel({
     } catch (error) {
       stopMediaStream(streamRef.current);
       streamRef.current = null;
-      setProfileError(error instanceof Error ? error.message : 'Microfoontoegang kon niet worden gestart.');
+      if (microphoneRequestIsCurrent(
+        mountedRef.current,
+        microphoneRequestGenerationRef.current,
+        requestGeneration,
+      )) {
+        setProfileError(microphoneRecordingError(error, window.isSecureContext));
+      }
+    } finally {
+      if (microphoneRequestGenerationRef.current === requestGeneration) {
+        microphoneRequestPendingRef.current = false;
+        if (mountedRef.current) setRequestingMicrophone(false);
+      }
     }
   }
 
@@ -1042,11 +1082,13 @@ function VoiceProfilesPanel({
             <button
               className={recording ? styles.recordButtonActive : styles.recordButton}
               type="button"
-              disabled={!canManage || uploading}
+              disabled={!canManage || uploading || requestingMicrophone}
               onClick={() => recording ? stopRecording() : void startRecording()}
             >
               {recording ? <Square aria-hidden size={16} /> : <Mic aria-hidden size={18} />}
-              {recording ? `Stop opname · ${recordingSeconds} sec.` : 'Opname starten'}
+              {recording
+                ? `Stop opname · ${recordingSeconds} sec.`
+                : requestingMicrophone ? 'Toestemming aanvragen…' : 'Opname starten'}
             </button>
           </div>
 

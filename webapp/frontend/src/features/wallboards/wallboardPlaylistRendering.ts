@@ -14,6 +14,7 @@ export function wallboardPlaylistPageLayers<TPage extends { id: string }>(
   transitionActive: boolean,
   playlistActive: boolean,
   hasLiveFeed: boolean,
+  runningPageId: string = currentPageId,
 ): WallboardPlaylistPageLayer<TPage>[] {
   return pages.map((page) => {
     const role: WallboardPlaylistPageLayerRole = page.id === currentPageId
@@ -26,7 +27,7 @@ export function wallboardPlaylistPageLayers<TPage extends { id: string }>(
       page,
       role,
       visible: playlistActive && role !== 'preloaded',
-      running: playlistActive && hasLiveFeed && role === 'current',
+      running: playlistActive && hasLiveFeed && page.id === runningPageId,
     };
   });
 }

@@ -24,6 +24,12 @@ test('keeps every playlist page mounted while only the transition pair is visibl
     { page: PAGES[1], role: 'current', visible: true, running: true },
     { page: PAGES[2], role: 'preloaded', visible: false, running: false },
   ]);
+
+  expect(wallboardPlaylistPageLayers(PAGES, 'photos', 'news', true, true, true, 'news')).toEqual([
+    { page: PAGES[0], role: 'outgoing', visible: true, running: true },
+    { page: PAGES[1], role: 'current', visible: true, running: false },
+    { page: PAGES[2], role: 'preloaded', visible: false, running: false },
+  ]);
 });
 
 test('pauses every internal page runtime while a takeover is visible or the feed is stale', () => {
@@ -47,6 +53,11 @@ test('renders stable keyed page layers and gates news, photo and video runtimes'
   expect(DISPLAY_SOURCE).toContain('key={layer.page.id}');
   expect(PLAYLIST_FRAME_SOURCE).not.toContain('key={visual.sequence}');
   expect(DISPLAY_SOURCE).toContain('running={layer.running}');
+  expect(DISPLAY_SOURCE).toContain("const prearmRotationTransition = focus === null && display.mode === 'rotation';");
+  expect(DISPLAY_SOURCE).toContain('prearmTransition={prearmRotationTransition}');
+  expect(PLAYLIST_FRAME_SOURCE).toContain('wallboardTransitionStartDelayMilliseconds(');
+  expect(PLAYLIST_FRAME_SOURCE).toContain('wallboardTransitionRemainingDurationMilliseconds(');
+  expect(PLAYLIST_FRAME_SOURCE).toContain('hasLiveFeed && running,\n    page.id,');
   expect(DISPLAY_SOURCE).toContain('<WallboardVideoPage page={page} running={running} adminPreview={adminPreview} />');
   expect(DISPLAY_SOURCE).toContain('autoPlay={running}');
   expect(DISPLAY_SOURCE).toContain('wallboardVideoEmbedUrl(page.options.url, running)');

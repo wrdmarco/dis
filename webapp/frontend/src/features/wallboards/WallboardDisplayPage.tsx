@@ -1,5 +1,6 @@
 import {
   type CSSProperties,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -88,6 +89,7 @@ import {
   buildWallboardMapPresentation,
   clampRefreshSeconds,
   clampWallboardNewsItemDuration,
+  clampWallboardPageDuration,
   clampWallboardTransitionDurationMs,
   countActiveOperationalWallboardIncidents,
   DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
@@ -108,6 +110,7 @@ import {
   wallboardKpiDefaultVisualization,
   wallboardKpiSupportedVisualizations,
   wallboardMessageContent,
+  wallboardOperationalIncidentConfiguration,
   wallboardPageMapConfiguration,
   wallboardStateIsStale,
   wallboardTickerDurationSeconds,
@@ -433,7 +436,6 @@ export function WallboardDisplayPage() {
         const request = await requestWallboardPairing();
         if (cancelled) return;
         setPairingRequest(request);
-        setClock(Date.now());
       } catch (error) {
         if (cancelled) return;
         setPairingError(errorMessage(error, 'Er kon geen koppelcode worden gemaakt. De tv probeert het zo opnieuw.'));
@@ -496,11 +498,31 @@ export function WallboardDisplayPage() {
     };
   }, [pairingRequest, sessionStatus]);
 
+  const clockActive = (sessionStatus === 'unpaired' && pairingRequest !== null) || hasPairedState;
+
   useEffect(() => {
-    if (sessionStatus !== 'unpaired' || pairingRequest === null) return undefined;
-    const timer = window.setInterval(() => setClock(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [pairingRequest, sessionStatus]);
+    if (!clockActive) return undefined;
+    let timer: number | null = null;
+
+    const synchronizeClock = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      const current = Date.now();
+      setClock(current);
+      timer = window.setTimeout(synchronizeClock, wallboardClockTickDelayMilliseconds(current));
+    };
+    const synchronizeVisibleClock = () => {
+      if (!document.hidden) synchronizeClock();
+    };
+
+    synchronizeClock();
+    document.addEventListener('visibilitychange', synchronizeVisibleClock);
+    window.addEventListener('pageshow', synchronizeClock);
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', synchronizeVisibleClock);
+      window.removeEventListener('pageshow', synchronizeClock);
+    };
+  }, [clockActive]);
 
   useEffect(() => {
     let cancelled = false;
@@ -532,7 +554,6 @@ export function WallboardDisplayPage() {
         configVersionRef.current = nextState.wallboard.config_version;
         if (pendingConfigVersionRef.current === nextState.wallboard.config_version) pendingConfigVersionRef.current = null;
         refreshSecondsRef.current = clampRefreshSeconds(nextState.wallboard.configuration.refresh_seconds);
-        setClock(Date.now());
         setSessionStatus('paired');
         setStateError(null);
         timer = setTimeout(() => void poll(), refreshSecondsRef.current * 1000);
@@ -577,7 +598,6 @@ export function WallboardDisplayPage() {
         const nextControl = normalizeWallboardControlState(response.data);
         if (observeRefreshVersion(nextControl.refresh_version)) return;
         setControl((current) => stabilizeWallboardRotationDeadline(current, nextControl));
-        setClock(Date.now());
         setControlError(null);
         let needsStateRefresh = false;
         const configVersionChanged = (
@@ -643,13 +663,6 @@ export function WallboardDisplayPage() {
       if (timer !== null) clearTimeout(timer);
     };
   }, [controlPollGeneration, hasPairedState, observeRefreshVersion]);
-
-  useEffect(() => {
-    if (!hasPairedState) return undefined;
-    setClock(Date.now());
-    const timer = window.setInterval(() => setClock(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [hasPairedState]);
 
   const precacheContentVersion = precacheManifest?.contentVersion ?? null;
 
@@ -885,9 +898,15 @@ export function WallboardDisplayPage() {
     () => wallboardDeadlineDurationMilliseconds(deadlinePhase?.deadlineAt ?? null),
     [deadlinePhase?.deadlineAt],
   );
+  const rotationPages = state?.wallboard.configuration.pages ?? null;
   const refreshExpiredDeadline = useCallback(() => {
+    if (rotationPages !== null) {
+      setControl((current) => current === null
+        ? current
+        : advanceWallboardRotationAtDeadline(current, rotationPages));
+    }
     setControlPollGeneration((current) => current + 1);
-  }, []);
+  }, [rotationPages]);
   const deadlineCountdown = usePausableWallboardDeadline(
     deadlinePhase?.key ?? null,
     deadlineDurationMilliseconds,
@@ -986,7 +1005,11 @@ export function WallboardDisplayPage() {
     ?? configuration.pages.find((page) => page.id === display.page_id)
     ?? configuration.pages[0];
   const currentPageIndex = configuration.pages.findIndex((page) => page.id === currentPage.id);
-  const pageTransition = wallboardEffectivePageTransition(configuration, currentPage);
+  const prearmRotationTransition = focus === null && display.mode === 'rotation';
+  const transitionPage = prearmRotationTransition
+    ? configuration.pages[(Math.max(0, currentPageIndex) + 1) % configuration.pages.length]
+    : currentPage;
+  const pageTransition = wallboardEffectivePageTransition(configuration, transitionPage);
   const nextSwitchLabel = wallboardNextSwitchLabel(focus, display, clock, deadlineCountdown);
   const transientAlert = hasLiveFeed && effectiveControl.focus === undefined
     ? effectiveControl.transient_alert
@@ -1092,7 +1115,7 @@ export function WallboardDisplayPage() {
       ) : null}
 
       {precacheReady ? (
-        <WallboardPlaylistPageFrame
+        <WallboardRuntimePlaylistPageFrame
           active={playlistActive}
           page={currentPage}
           pages={configuration.pages}
@@ -1101,6 +1124,7 @@ export function WallboardDisplayPage() {
           hasLiveFeed={hasLiveFeed}
           now={clock}
           pageDeadlineAt={focus?.next_change_at ?? display.next_change_at ?? null}
+          prearmTransition={prearmRotationTransition}
           transition={pageTransition.transition}
           transitionDurationMs={pageTransition.durationMs}
           flipDirection={pageTransition.flipDirection}
@@ -1154,6 +1178,8 @@ interface WallboardPlaylistPageFrameProps extends WallboardPageContentProps {
   active: boolean;
   running?: boolean;
   pages: readonly WallboardPage[];
+  now: number;
+  prearmTransition?: boolean;
   transition: ReturnType<typeof wallboardEffectivePageTransition>['transition'];
   transitionDurationMs: number;
   flipDirection: ReturnType<typeof wallboardEffectivePageTransition>['flipDirection'];
@@ -1167,8 +1193,8 @@ export function WallboardPlaylistPageFrame({
   state,
   presentation,
   hasLiveFeed,
-  now,
   pageDeadlineAt,
+  prearmTransition = false,
   transition,
   transitionDurationMs,
   flipDirection,
@@ -1178,7 +1204,17 @@ export function WallboardPlaylistPageFrame({
     currentPageId: string;
     previousPageId: string | null;
     sequence: number;
-  }>(() => ({ currentPageId: page.id, previousPageId: null, sequence: 0 }));
+    transitionDurationMs: number;
+    transition: ReturnType<typeof wallboardEffectivePageTransition>['transition'];
+    flipDirection: ReturnType<typeof wallboardEffectivePageTransition>['flipDirection'];
+  }>(() => ({
+    currentPageId: page.id,
+    previousPageId: null,
+    sequence: 0,
+    transitionDurationMs,
+    transition,
+    flipDirection,
+  }));
 
   useEffect(() => {
     setVisual((current) => {
@@ -1188,9 +1224,65 @@ export function WallboardPlaylistPageFrame({
         currentPageId: page.id,
         previousPageId: current.currentPageId,
         sequence: current.sequence + 1,
+        transitionDurationMs,
+        transition,
+        flipDirection,
       };
     });
-  }, [page.id]);
+  }, [flipDirection, page.id, transition, transitionDurationMs]);
+
+  useEffect(() => {
+    if (
+      !active
+      || !running
+      || !hasLiveFeed
+      || !prearmTransition
+      || transition === 'none'
+      || pageDeadlineAt === null
+      || pages.length <= 1
+    ) return undefined;
+
+    const deadline = Date.parse(pageDeadlineAt);
+    const currentPageIndex = pages.findIndex((candidate) => candidate.id === page.id);
+    if (!Number.isFinite(deadline) || currentPageIndex < 0) return undefined;
+    const nextPageId = pages[(currentPageIndex + 1) % pages.length].id;
+    if (nextPageId === page.id) return undefined;
+
+    const beginTransition = () => {
+      const remainingDuration = wallboardTransitionRemainingDurationMilliseconds(
+        pageDeadlineAt,
+        transitionDurationMs,
+      ) ?? 1;
+      setVisual((current) => {
+        if (current.currentPageId !== page.id || current.previousPageId !== null) return current;
+        return {
+          currentPageId: nextPageId,
+          previousPageId: page.id,
+          sequence: current.sequence + 1,
+          transitionDurationMs: remainingDuration,
+          transition,
+          flipDirection,
+        };
+      });
+    };
+    const delay = wallboardTransitionStartDelayMilliseconds(
+      pageDeadlineAt,
+      transitionDurationMs,
+    ) ?? 0;
+    const timeoutId = window.setTimeout(beginTransition, delay);
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    active,
+    flipDirection,
+    hasLiveFeed,
+    page.id,
+    pageDeadlineAt,
+    pages,
+    prearmTransition,
+    running,
+    transition,
+    transitionDurationMs,
+  ]);
 
   useEffect(() => {
     if (visual.previousPageId === null) return undefined;
@@ -1199,17 +1291,17 @@ export function WallboardPlaylistPageFrame({
       setVisual((current) => current.sequence === visual.sequence
         ? { ...current, previousPageId: null }
         : current);
-    }, transitionDurationMs + 50);
+    }, visual.transitionDurationMs);
 
     return () => window.clearTimeout(timeoutId);
-  }, [transitionDurationMs, visual.previousPageId, visual.sequence]);
+  }, [visual.previousPageId, visual.sequence, visual.transitionDurationMs]);
 
   const style = {
-    '--wallboard-page-transition-duration': `${transitionDurationMs}ms`,
+    '--wallboard-page-transition-duration': `${visual.transitionDurationMs}ms`,
   } as CSSProperties;
   const pairedTransitionActive = active
     && running
-    && transition !== 'none'
+    && visual.transition !== 'none'
     && visual.previousPageId !== null
     && pages.some((candidate) => candidate.id === visual.previousPageId);
   const layers = wallboardPlaylistPageLayers(
@@ -1219,21 +1311,22 @@ export function WallboardPlaylistPageFrame({
     pairedTransitionActive,
     active,
     hasLiveFeed && running,
+    page.id,
   );
   const resolvedFlipDirection = resolveWallboardFlipDirection(
-    flipDirection,
+    visual.flipDirection,
     `${visual.currentPageId}:${visual.sequence}`,
   );
-  const pageFlipSceneClass = transition === 'flip'
+  const pageFlipSceneClass = visual.transition === 'flip'
     ? ` wallboard-display__page--flip-${resolvedFlipDirection}`
     : '';
-  const pageFlipStageClass = transition === 'flip'
+  const pageFlipStageClass = visual.transition === 'flip'
     ? ` wallboard-display__page-card-stage--${resolvedFlipDirection}`
     : '';
 
   return (
     <section
-      className={`wallboard-display__page wallboard-display__page--card-scene wallboard-display__page--card-${transition}${pageFlipSceneClass}`}
+      className={`wallboard-display__page wallboard-display__page--card-scene wallboard-display__page--card-${visual.transition}${pageFlipSceneClass}`}
       style={active ? style : { ...style, display: 'none' }}
       hidden={!active}
       aria-hidden={!active ? 'true' : undefined}
@@ -1242,8 +1335,8 @@ export function WallboardPlaylistPageFrame({
     >
       <div
         className={pairedTransitionActive
-          ? `wallboard-display__page-card-stage wallboard-display__page-card-stage--${transition}${pageFlipStageClass}`
-          : `wallboard-display__page-card-stage wallboard-display__page-card-stage--${transition}${pageFlipStageClass} wallboard-display__page-card-stage--settled`}
+          ? `wallboard-display__page-card-stage wallboard-display__page-card-stage--${visual.transition}${pageFlipStageClass}`
+          : `wallboard-display__page-card-stage wallboard-display__page-card-stage--${visual.transition}${pageFlipStageClass} wallboard-display__page-card-stage--settled`}
       >
         {layers.map((layer) => (
           <div
@@ -1264,8 +1357,7 @@ export function WallboardPlaylistPageFrame({
               state={state}
               presentation={presentation}
               hasLiveFeed={hasLiveFeed}
-              now={now}
-              pageDeadlineAt={layer.role === 'current' ? pageDeadlineAt : null}
+              pageDeadlineAt={layer.page.id === page.id ? pageDeadlineAt : null}
               running={layer.running}
               adminPreview={adminPreview}
             />
@@ -1275,6 +1367,30 @@ export function WallboardPlaylistPageFrame({
     </section>
   );
 }
+
+function wallboardPlaylistPageFramePropsAreEqual(
+  previous: WallboardPlaylistPageFrameProps,
+  next: WallboardPlaylistPageFrameProps,
+): boolean {
+  return previous.active === next.active
+    && previous.running === next.running
+    && previous.page === next.page
+    && previous.pages === next.pages
+    && previous.state === next.state
+    && previous.presentation === next.presentation
+    && previous.hasLiveFeed === next.hasLiveFeed
+    && previous.pageDeadlineAt === next.pageDeadlineAt
+    && previous.prearmTransition === next.prearmTransition
+    && previous.transition === next.transition
+    && previous.transitionDurationMs === next.transitionDurationMs
+    && previous.flipDirection === next.flipDirection
+    && previous.adminPreview === next.adminPreview;
+}
+
+const WallboardRuntimePlaylistPageFrame = memo(
+  WallboardPlaylistPageFrame,
+  wallboardPlaylistPageFramePropsAreEqual,
+);
 
 function MaintenanceTakeover({
   notice,
@@ -1337,7 +1453,6 @@ interface WallboardPageContentProps {
   state: WallboardState;
   presentation: ReturnType<typeof buildWallboardMapPresentation>;
   hasLiveFeed: boolean;
-  now: number;
   pageDeadlineAt: string | null;
   running?: boolean;
   adminPreview?: boolean;
@@ -1362,7 +1477,6 @@ function WallboardPageContent({
   state,
   presentation,
   hasLiveFeed,
-  now,
   pageDeadlineAt,
   running = hasLiveFeed,
   adminPreview = false,
@@ -1494,7 +1608,6 @@ function WallboardPageContent({
     return (
       <WallboardCalendarPage
         items={normalizeWallboardCalendarItems(calendarState?.pages?.[page.id]?.items)}
-        now={now}
       />
     );
   }
@@ -1507,6 +1620,14 @@ function WallboardPageContent({
       </div>
     );
   }
+
+  const incidentListPresentation = configuration.show_incident_list
+    ? buildWallboardMapPresentation(
+      state,
+      hasLiveFeed,
+      wallboardOperationalIncidentConfiguration(configuration),
+    )
+    : null;
 
   return (
     <>
@@ -1535,10 +1656,10 @@ function WallboardPageContent({
           />
         </section>
 
-        {configuration.show_incident_list ? (
+        {incidentListPresentation !== null ? (
           <aside className="wallboard-display__incidents" aria-label="Actieve incidenten">
-            <header><span>Actieve meldingen</span><strong>{presentation.models.length}</strong></header>
-            <IncidentCards state={state} presentation={presentation} hasLiveFeed={hasLiveFeed} />
+            <header><span>Actieve meldingen</span><strong>{incidentListPresentation.models.length}</strong></header>
+            <IncidentCards state={state} presentation={incidentListPresentation} hasLiveFeed={hasLiveFeed} />
           </aside>
         ) : null}
       </div>
@@ -1633,11 +1754,27 @@ function wallboardAdminPreviewVideoUrl(value: unknown, version: unknown): string
 
 function WallboardCalendarPage({
   items,
-  now,
 }: {
   items: WallboardCalendarDisplayItem[];
-  now: number;
 }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    let timer: number | null = null;
+    const updateCalendarClock = () => {
+      const current = Date.now();
+      setNow(current);
+      timer = window.setTimeout(
+        updateCalendarClock,
+        wallboardAlignedTickDelayMilliseconds(current, 60_000),
+      );
+    };
+
+    updateCalendarClock();
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, []);
+
   const nextItem = items[0] ?? null;
   if (nextItem === null) {
     return (
@@ -2452,6 +2589,48 @@ export function wallboardCarouselRemainingMilliseconds(remainingMilliseconds: nu
   const remaining = Number.isFinite(remainingMilliseconds) ? Math.max(1, remainingMilliseconds) : 1;
   const elapsed = Number.isFinite(elapsedMilliseconds) ? Math.max(0, elapsedMilliseconds) : 0;
   return Math.max(1, Math.ceil(remaining - elapsed));
+}
+
+export function wallboardAlignedTickDelayMilliseconds(
+  now: number,
+  intervalMilliseconds: number,
+): number {
+  const interval = Number.isFinite(intervalMilliseconds)
+    ? Math.max(1, Math.round(intervalMilliseconds))
+    : 1;
+  if (!Number.isFinite(now)) return interval;
+  const remainder = ((Math.trunc(now) % interval) + interval) % interval;
+  return remainder === 0 ? interval : interval - remainder;
+}
+
+export function wallboardClockTickDelayMilliseconds(now: number = Date.now()): number {
+  return wallboardAlignedTickDelayMilliseconds(now, 1000);
+}
+
+export function wallboardTransitionStartDelayMilliseconds(
+  deadlineAt: string | null,
+  transitionDurationMilliseconds: number,
+  now: number = Date.now(),
+): number | null {
+  const deadline = deadlineAt === null ? Number.NaN : Date.parse(deadlineAt);
+  if (!Number.isFinite(deadline) || !Number.isFinite(now)) return null;
+  const duration = Number.isFinite(transitionDurationMilliseconds)
+    ? Math.max(1, Math.round(transitionDurationMilliseconds))
+    : 1;
+  return Math.max(0, deadline - now - duration);
+}
+
+export function wallboardTransitionRemainingDurationMilliseconds(
+  deadlineAt: string | null,
+  transitionDurationMilliseconds: number,
+  now: number = Date.now(),
+): number | null {
+  const deadline = deadlineAt === null ? Number.NaN : Date.parse(deadlineAt);
+  if (!Number.isFinite(deadline) || !Number.isFinite(now)) return null;
+  const duration = Number.isFinite(transitionDurationMilliseconds)
+    ? Math.max(1, Math.round(transitionDurationMilliseconds))
+    : 1;
+  return Math.max(1, Math.min(duration, deadline - now));
 }
 
 export function wallboardDeadlineDurationMilliseconds(
@@ -3362,6 +3541,33 @@ export function stabilizeWallboardRotationDeadline(
   next: WallboardControlState,
   now: number = Date.now(),
 ): WallboardControlState {
+  if (
+    current !== null
+    && current.config_version === next.config_version
+    && current.control_version === next.control_version
+    && current.display.mode === 'rotation'
+    && next.display.mode === 'rotation'
+    && current.display.page_id !== next.display.page_id
+  ) {
+    const currentDeadline = Date.parse(current.display.next_change_at ?? '');
+    const nextDeadline = Date.parse(next.display.next_change_at ?? '');
+    if (
+      Number.isFinite(currentDeadline)
+      && Number.isFinite(nextDeadline)
+      && currentDeadline > now
+      && nextDeadline <= now
+    ) {
+      return stabilizeWallboardControlState(current, {
+        ...next,
+        display: {
+          ...next.display,
+          page_id: current.display.page_id,
+          next_change_at: current.display.next_change_at,
+        },
+      }, now);
+    }
+  }
+
   // A control/config version identifies one server-controlled rotation phase.
   // Polling that phase may never postpone its still-pending page deadline.
   if (
@@ -3399,6 +3605,51 @@ export function stabilizeWallboardRotationDeadline(
       next_change_at: currentDeadline,
     },
   }, now);
+}
+
+export function advanceWallboardRotationAtDeadline(
+  control: WallboardControlState,
+  pages: readonly WallboardPage[],
+  now: number = Date.now(),
+): WallboardControlState {
+  if (
+    !Number.isFinite(now)
+    || pages.length <= 1
+    || control.display.mode !== 'rotation'
+    || (control.focus !== null && control.focus !== undefined)
+  ) return control;
+
+  const currentPageIndex = pages.findIndex((page) => page.id === control.display.page_id);
+  const currentDeadline = Date.parse(control.display.next_change_at ?? '');
+  if (currentPageIndex < 0 || !Number.isFinite(currentDeadline) || currentDeadline > now) return control;
+
+  const durations = pages.map((page) => clampWallboardPageDuration(page.duration_seconds) * 1000);
+  const cycleDuration = durations.reduce((total, duration) => total + duration, 0);
+  if (cycleDuration <= 0) return control;
+
+  let phaseStartedAt = currentDeadline;
+  let elapsed = Math.max(0, now - currentDeadline);
+  if (elapsed >= cycleDuration) {
+    const completedCycles = Math.floor(elapsed / cycleDuration);
+    phaseStartedAt += completedCycles * cycleDuration;
+    elapsed -= completedCycles * cycleDuration;
+  }
+
+  let nextPageIndex = (currentPageIndex + 1) % pages.length;
+  for (let traversed = 0; traversed < pages.length && elapsed >= durations[nextPageIndex]; traversed += 1) {
+    elapsed -= durations[nextPageIndex];
+    phaseStartedAt += durations[nextPageIndex];
+    nextPageIndex = (nextPageIndex + 1) % pages.length;
+  }
+
+  return {
+    ...control,
+    display: {
+      ...control.display,
+      page_id: pages[nextPageIndex].id,
+      next_change_at: new Date(phaseStartedAt + durations[nextPageIndex]).toISOString(),
+    },
+  };
 }
 
 function stabilizeWallboardControlState(

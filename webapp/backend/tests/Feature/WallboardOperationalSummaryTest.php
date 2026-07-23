@@ -238,6 +238,32 @@ final class WallboardOperationalSummaryTest extends TestCase
         $this->assertFalse($state['wallboard']['configuration']['map']['show_test_incidents']);
     }
 
+    public function test_map_incident_list_fetches_active_incidents_independently_of_map_markers_and_summary(): void
+    {
+        $creator = $this->user('map-incident-list@example.test');
+        $configuration = WallboardConfiguration::defaults();
+        $configuration['map']['show_active_incidents'] = false;
+        $configuration['map']['show_live_locations'] = false;
+        $configuration['map']['show_routes'] = false;
+        $configuration['map']['show_summary'] = false;
+        $configuration['map']['show_incident_list'] = true;
+        $wallboard = Wallboard::query()->create([
+            'name' => 'Kaart met losse incidentenlijst',
+            'layout' => Wallboard::LAYOUT_FULLSCREEN_MAP,
+            'configuration' => $configuration,
+            'is_enabled' => true,
+            'rotation_started_at' => now(),
+        ]);
+        $real = $this->incident($creator, 'LIST-REAL', 'active', false);
+        $this->incident($creator, 'LIST-TEST', 'active', true);
+
+        $state = app(WallboardStateService::class)->state($wallboard);
+
+        $this->assertSame([$real->id], collect($state['map']['incidents'])->pluck('id')->all());
+        $this->assertSame([], $state['map']['live_locations']);
+        $this->assertSame([], $state['operational_summary']['recent_incidents']);
+    }
+
     public function test_wallboard_historical_layer_excludes_test_incidents(): void
     {
         $creator = $this->user('historical-summary@example.test');

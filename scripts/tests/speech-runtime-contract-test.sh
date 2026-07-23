@@ -18,6 +18,7 @@ DOWNLOAD_SOURCE="${APP_ROOT}/speech-engine/dis_tts_engine/download_worker.py"
 ENGINE_SOURCE="${APP_ROOT}/speech-engine/dis_tts_engine/engine.py"
 ENGINE_INIT_SOURCE="${APP_ROOT}/speech-engine/dis_tts_engine/__init__.py"
 ADAPTER_SOURCE="${APP_ROOT}/speech-engine/dis_tts_engine/adapters.py"
+CATALOG_SOURCE="${APP_ROOT}/speech-engine/dis_tts_engine/catalog.py"
 SECURE_FILES_SOURCE="${APP_ROOT}/speech-engine/dis_tts_engine/secure_files.py"
 SPEECH_PIPELINE_SOURCE="${APP_ROOT}/webapp/backend/app/Services/SpeechAudioPipeline.php"
 SPEECH_CONFIG="${APP_ROOT}/webapp/backend/config/dis.php"
@@ -90,9 +91,12 @@ require_text "${COMMON}" 'Speech runtime phase 3/3: installing the pinned VoxCPM
 require_text "${MODEL_PACKAGES}" 'voxcpm @ https://files.pythonhosted.org/'
 require_text "${MODEL_PACKAGES}" '#sha256='
 require_text "${ENGINE_INIT_SOURCE}" 'PROTOCOL_VERSION = 2'
-require_text "${ENGINE_INIT_SOURCE}" 'AUDIO_RECIPE_REVISION = "consistent-speaker-loudness-v2"'
-require_text "${SPEECH_CONFIG}" "'audio_recipe_revision' => 'consistent-speaker-loudness-v2'"
+require_text "${ENGINE_INIT_SOURCE}" 'AUDIO_RECIPE_REVISION = "consistent-speaker-loudness-v3"'
+require_text "${SPEECH_CONFIG}" "'audio_recipe_revision' => 'consistent-speaker-loudness-v3'"
 require_text "${SPEECH_CONFIG}" "'protocol_version' => 2"
+require_text "${ADAPTER_SOURCE}" 'VOXCPM2_BUILT_IN_VOICE_DESIGN_REVISION = "voxcpm2-nl-nl-female-journalistic-v4"'
+require_text "${CATALOG_SOURCE}" 'built_in_voice_design_revision="voxcpm2-nl-nl-female-journalistic-v4"'
+require_text "${SPEECH_CONFIG}" "'built_in_voice_design_revision' => 'voxcpm2-nl-nl-female-journalistic-v4'"
 require_text "${ADAPTER_SOURCE}" 'options["reference_wav_path"] = str(effective_reference_path)'
 require_text "${ADAPTER_SOURCE}" 'options["prompt_wav_path"] = str(effective_reference_path)'
 require_text "${SPEECH_PIPELINE_SOURCE}" 'loudnorm=I=-18:TP=-1.5:LRA=7:print_format=json'
