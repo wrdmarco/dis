@@ -153,7 +153,7 @@ final class WallboardDemoStateService
             $this->forecastMetric('wind_direction_degrees', 'Windrichting op 120 m AGL', 245, '°', 'green', $source, $generatedAt, '245', 120),
             $this->forecastMetric('precipitation_probability_pct', 'Neerslagkans', 15, '%', 'green', $source, $generatedAt, '15'),
             $this->forecastMetric('precipitation_mm', 'Neerslag', 0.0, 'mm', 'green', $source, $generatedAt, '0,0'),
-            $this->forecastMetric('precipitation_outlook', 'Buien +3 uur', 0.8, 'mm/u', 'orange', $source, $generatedAt, null),
+            $this->forecastMetric('precipitation_outlook', 'Buien +3 uur', 0.4, 'mm/u', 'orange', $source, $generatedAt, null),
             $this->forecastMetric('thunderstorm_forecast', 'Onweer +3 uur', 0, null, 'green', $source, $generatedAt, null),
             $this->forecastMetric('cloud_cover_pct', 'Totale modelbewolking', 64, '%', 'orange', $source, $generatedAt, '64'),
             $this->forecastMetric('low_cloud_cover_pct', 'Lage bewolking', 28, '%', 'green', $source, $generatedAt, '28'),
@@ -169,10 +169,12 @@ final class WallboardDemoStateService
         ];
         $metrics[3]['max_non_red_wind_height_agl_m'] = 120;
         $metrics[8]['precipitation_outlook'] = [
-            'radar_peak_mm_h' => 0.8,
+            'radar_peak_mm_h' => 0.4,
+            'radar_status' => 'orange',
             'radar_first_precipitation_at' => ApiDateTime::dateTime($anchor->addMinutes(35)),
             'radar_until' => ApiDateTime::dateTime($anchor->addHours(2)),
             'third_hour_probability_pct' => 42,
+            'third_hour_probability_status' => 'orange',
             'third_hour_from' => ApiDateTime::dateTime($anchor->addHours(2)->addMinutes(5)),
             'forecast_until' => ApiDateTime::dateTime($anchor->addHours(3)),
             'reference_time' => $generatedAt,

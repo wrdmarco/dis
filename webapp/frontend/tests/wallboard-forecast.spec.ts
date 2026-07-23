@@ -126,9 +126,11 @@ function backendForecast(overrides: Record<string, unknown> = {}) {
         unit: 'mm/u',
         precipitation_outlook: {
           radar_peak_mm_h: 0.8,
+          radar_status: 'orange',
           radar_first_precipitation_at: '2026-07-20T12:45:00Z',
           radar_until: '2026-07-20T14:15:00Z',
           third_hour_probability_pct: 42,
+          third_hour_probability_status: 'orange',
           third_hour_from: '2026-07-20T14:20:00Z',
           forecast_until: '2026-07-20T15:15:00Z',
           reference_time: '2026-07-20T12:15:00Z',
@@ -300,6 +302,50 @@ test('keeps radar intensity and the third-hour probability visibly separate', ()
     details: [
       'WMO-modelverwachting t/m 17:15',
       'Geen live bliksemdetectie',
+    ],
+  });
+});
+
+test('keeps radar-only precipitation visible but never presents the missing third hour as green', () => {
+  const payload = backendForecast();
+  const precipitation = payload.metrics.find((candidate) => candidate.key === 'precipitation_outlook');
+  if (precipitation?.precipitation_outlook === null || precipitation?.precipitation_outlook === undefined) {
+    throw new Error('Missing precipitation outlook fixture.');
+  }
+  precipitation.status = 'unknown';
+  precipitation.value = 0;
+  precipitation.precipitation_outlook = {
+    ...precipitation.precipitation_outlook,
+    radar_peak_mm_h: 0,
+    radar_status: 'green',
+    radar_first_precipitation_at: null,
+    third_hour_probability_pct: null,
+    third_hour_probability_status: 'unknown',
+    third_hour_from: null,
+    forecast_until: null,
+  };
+
+  const forecast = normalizeWallboardForecastState({ pages: { forecast: payload } }).pages.forecast;
+  const metricState = forecast.metrics.find((candidate) => candidate.key === 'precipitation_outlook');
+  const block = wallboardForecastDisplayBlocks(forecast)
+    .find((candidate) => candidate.key === 'precipitation_outlook');
+
+  expect(metricState).toMatchObject({
+    status: 'unknown',
+    value: 0,
+    precipitation_outlook: {
+      radar_peak_mm_h: 0,
+      radar_status: 'green',
+      third_hour_probability_pct: null,
+      third_hour_probability_status: 'unknown',
+    },
+  });
+  expect(block).toMatchObject({
+    status: 'unknown',
+    value: 'Droog tot +2 uur',
+    details: [
+      '0–2 uur radar: piek 0 mm/u',
+      'Uur 3 kansmodel: niet beschikbaar',
     ],
   });
 });

@@ -10,6 +10,7 @@ final class StoreWallboardPlaylistRequest extends WallboardPlaylistRequest
         return [
             'name' => ['required', 'string', 'max:120'],
             'data_mode' => $this->dataModeRules(),
+            'purpose' => $this->purposeRules(),
             ...$this->configurationRules('required'),
         ];
     }

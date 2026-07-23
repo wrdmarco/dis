@@ -2,11 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\OperationalRadarProvider;
 use App\DTO\KnmiPrecipitationRemoteFile;
 use App\Exceptions\KnmiPrecipitationImportException;
 use App\Repositories\KnmiPrecipitationSnapshotRepository;
 use App\Services\KnmiPrecipitationHdf5Reader;
 use App\Services\KnmiPrecipitationRadarService;
+use App\Support\OperationalRadarContent;
 use Carbon\CarbonImmutable;
 use Illuminate\Process\Factory as ProcessFactory;
 use Illuminate\Process\PendingProcess;
@@ -64,6 +66,7 @@ final class KnmiPrecipitationRadarServiceTest extends TestCase
 
         $metadata = app(KnmiPrecipitationRadarService::class)->metadata();
         $file = app(KnmiPrecipitationRadarService::class)->file($manifest['snapshot_id']);
+        $public = app(OperationalRadarProvider::class)->metadata()['precipitation'];
 
         $this->assertTrue($metadata['available']);
         $this->assertFalse($metadata['stale']);
@@ -92,6 +95,12 @@ final class KnmiPrecipitationRadarServiceTest extends TestCase
         $this->assertSame('KNMI radar_forecast 2.0', $metadata['source']['name']);
         $this->assertSame('CC BY 4.0', $metadata['source']['license']);
         $this->assertStringNotContainsString($this->storageRoot, json_encode($metadata, JSON_THROW_ON_ERROR));
+        $this->assertSame('available', $public['status']);
+        $this->assertNull($public['observed_period_end']);
+        $this->assertSame(600, $public['age_seconds']);
+        $this->assertSame(600, $public['lag_seconds']);
+        $this->assertCount(25, $public['frames']);
+        $this->assertStringContainsString($manifest['snapshot_id'], $public['atlas_url']);
         $this->assertIsArray($file);
         $this->assertSame('image/png', $file['media_type']);
         $this->assertSame($manifest['atlas']['sha256'], $file['sha256']);
@@ -107,10 +116,42 @@ final class KnmiPrecipitationRadarServiceTest extends TestCase
         $this->activateSnapshot(CarbonImmutable::parse('2026-07-20T21:35:00Z'));
 
         $metadata = app(KnmiPrecipitationRadarService::class)->metadata();
+        $public = app(OperationalRadarProvider::class)->metadata()['precipitation'];
 
         $this->assertTrue($metadata['available']);
         $this->assertTrue($metadata['stale']);
         $this->assertStringContainsString('toekomst', $metadata['availability_note']);
+        $this->assertSame('stale', $public['status']);
+        $this->assertNull($public['atlas_url']);
+        $this->assertSame([], $public['frames']);
+        $this->assertSame(0, $public['age_seconds']);
+    }
+
+    public function test_stale_but_still_valid_forecast_remains_visible_until_its_timeline_expires(): void
+    {
+        $manifest = $this->activateSnapshot(CarbonImmutable::parse('2026-07-20T21:10:00Z'));
+        CarbonImmutable::setTestNow('2026-07-20T21:45:01Z');
+
+        $fallback = app(OperationalRadarProvider::class)->metadata()['precipitation'];
+
+        $this->assertSame('stale', $fallback['status']);
+        $this->assertSame(2101, $fallback['age_seconds']);
+        $this->assertNull($fallback['observed_period_end']);
+        $this->assertCount(25, $fallback['frames']);
+        $this->assertStringContainsString($manifest['snapshot_id'], $fallback['atlas_url']);
+        $this->assertInstanceOf(OperationalRadarContent::class, app(OperationalRadarProvider::class)->file(
+            'precipitation',
+            $manifest['snapshot_id'],
+        ));
+
+        CarbonImmutable::setTestNow('2026-07-20T23:10:01Z');
+        $expired = app(OperationalRadarProvider::class)->metadata()['precipitation'];
+
+        $this->assertSame('stale', $expired['status']);
+        $this->assertSame(7201, $expired['age_seconds']);
+        $this->assertNull($expired['atlas_url']);
+        $this->assertSame([], $expired['frames']);
+        $this->assertStringContainsString('tijdstappen', $expired['availability_note']);
     }
 
     public function test_repository_and_cache_failures_are_caught_fail_closed(): void
@@ -158,6 +199,52 @@ final class KnmiPrecipitationRadarServiceTest extends TestCase
         $this->assertFalse($metadata['available']);
         $this->assertNull($metadata['snapshot_id']);
         $this->assertNull(app(KnmiPrecipitationRadarService::class)->file($manifest['snapshot_id']));
+    }
+
+    public function test_unchanged_atlas_integrity_is_cached_and_a_stat_change_forces_revalidation(): void
+    {
+        $manifest = $this->activateSnapshot(CarbonImmutable::parse('2026-07-20T21:10:00Z'));
+        $snapshot = app(KnmiPrecipitationSnapshotRepository::class)->activeSnapshot();
+        $this->assertIsArray($snapshot);
+        $atlasPath = $snapshot['paths']['atlas'];
+        $cachedValues = [];
+        $atlasValidationRuns = 0;
+        Cache::shouldReceive('remember')
+            ->atLeast()
+            ->once()
+            ->andReturnUsing(static function (
+                string $key,
+                mixed $ttl,
+                callable $resolver,
+            ) use (&$cachedValues, &$atlasValidationRuns): mixed {
+                unset($ttl);
+                if (! array_key_exists($key, $cachedValues)) {
+                    if (str_contains($key, ':atlas:')) {
+                        $atlasValidationRuns++;
+                    }
+                    $cachedValues[$key] = $resolver();
+                }
+
+                return $cachedValues[$key];
+            });
+
+        $service = app(KnmiPrecipitationRadarService::class);
+        $this->assertTrue($service->metadata()['available']);
+        $this->assertIsArray($service->file($manifest['snapshot_id']));
+        $this->assertSame(1, $atlasValidationRuns);
+
+        $originalMtime = filemtime($atlasPath);
+        $contents = file_get_contents($atlasPath);
+        $this->assertIsInt($originalMtime);
+        $this->assertIsString($contents);
+        $contents[strlen($contents) - 12] = $contents[strlen($contents) - 12] === 'x' ? 'y' : 'x';
+        $this->assertSame(strlen($contents), file_put_contents($atlasPath, $contents, LOCK_EX));
+        $this->assertTrue(touch($atlasPath, $originalMtime + 2));
+        clearstatcache(true, $atlasPath);
+
+        $this->assertFalse($service->metadata()['available']);
+        $this->assertNull($service->file($manifest['snapshot_id']));
+        $this->assertSame(2, $atlasValidationRuns);
     }
 
     public function test_invalid_frame_index_is_rejected_before_activation(): void
@@ -267,6 +354,84 @@ final class KnmiPrecipitationRadarServiceTest extends TestCase
         $this->assertArrayNotHasKey('atlas', $legacy);
         $this->assertFalse(app(KnmiPrecipitationRadarService::class)->metadata()['available']);
         $this->assertNull(app(KnmiPrecipitationRadarService::class)->file($snapshotId));
+    }
+
+    public function test_paired_v2_manifest_remains_readable_with_its_radar_atlas(): void
+    {
+        $manifest = $this->activateSnapshot(CarbonImmutable::parse('2026-07-20T21:10:00Z'));
+        $activePath = $this->storageRoot.DIRECTORY_SEPARATOR.'active.json';
+        $v2 = json_decode((string) file_get_contents($activePath), true, 32, JSON_THROW_ON_ERROR);
+        $v2['version'] = 2;
+        file_put_contents(
+            $activePath,
+            json_encode($v2, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)."\n",
+            LOCK_EX,
+        );
+        Cache::flush();
+
+        $snapshot = app(KnmiPrecipitationSnapshotRepository::class)->activeSnapshot();
+        $metadata = app(KnmiPrecipitationRadarService::class)->metadata();
+
+        $this->assertIsArray($snapshot);
+        $this->assertSame(2, $snapshot['version']);
+        $this->assertArrayHasKey('probability', $snapshot['paths']);
+        $this->assertTrue($metadata['available']);
+        $this->assertSame($manifest['snapshot_id'], $metadata['snapshot_id']);
+        $this->assertIsArray(app(KnmiPrecipitationRadarService::class)->file($manifest['snapshot_id']));
+    }
+
+    public function test_v3_radar_only_manifest_exposes_the_atlas_without_a_probability_file(): void
+    {
+        [$staging, $files, $sha256, $atlas] = $this->stagedSnapshot(
+            CarbonImmutable::parse('2026-07-20T21:10:00Z'),
+        );
+        $probabilityPath = $staging.DIRECTORY_SEPARATOR.$files['probability']->filename;
+        unset($files['probability'], $sha256['probability']);
+        unlink($probabilityPath);
+
+        $manifest = app(KnmiPrecipitationSnapshotRepository::class)->activate(
+            $staging,
+            $files,
+            $sha256,
+            $atlas,
+        );
+        $snapshot = app(KnmiPrecipitationSnapshotRepository::class)->activeSnapshot();
+        $metadata = app(KnmiPrecipitationRadarService::class)->metadata();
+
+        $this->assertSame(3, $manifest['version']);
+        $this->assertIsArray($snapshot);
+        $this->assertArrayNotHasKey('probability', $snapshot['files']);
+        $this->assertArrayNotHasKey('probability', $snapshot['paths']);
+        $this->assertTrue($metadata['available']);
+        $this->assertSame('2026-07-20T21:10:00+00:00', $metadata['reference_time']);
+        $this->assertNotNull($metadata['refreshed_at']);
+        $this->assertIsArray(app(KnmiPrecipitationRadarService::class)->file($manifest['snapshot_id']));
+    }
+
+    public function test_corrupt_optional_probability_file_does_not_hide_valid_radar_and_atlas(): void
+    {
+        $manifest = $this->activateSnapshot(CarbonImmutable::parse('2026-07-20T21:10:00Z'));
+        $snapshot = app(KnmiPrecipitationSnapshotRepository::class)->activeSnapshot();
+        $probabilityPath = $snapshot['paths']['probability'];
+        $contents = file_get_contents($probabilityPath);
+        $contents[20] = $contents[20] === 'x' ? 'y' : 'x';
+        file_put_contents($probabilityPath, $contents, LOCK_EX);
+        clearstatcache(true, $probabilityPath);
+        Cache::flush();
+
+        $degraded = app(KnmiPrecipitationSnapshotRepository::class)->activeSnapshot();
+        $metadata = app(KnmiPrecipitationRadarService::class)->metadata();
+        $file = app(KnmiPrecipitationRadarService::class)->file($manifest['snapshot_id']);
+
+        $this->assertIsArray($degraded);
+        $this->assertArrayNotHasKey('probability', $degraded['files']);
+        $this->assertArrayNotHasKey('probability', $degraded['paths']);
+        $this->assertFileExists($degraded['paths']['radar']);
+        $this->assertFileExists($degraded['paths']['atlas']);
+        $this->assertTrue($metadata['available']);
+        $this->assertSame($manifest['snapshot_id'], $metadata['snapshot_id']);
+        $this->assertIsArray($file);
+        $this->assertSame($degraded['paths']['atlas'], $file['path']);
     }
 
     /** @return array<string, mixed> */

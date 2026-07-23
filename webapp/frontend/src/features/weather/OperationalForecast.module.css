@@ -212,6 +212,7 @@
 }
 
 .inlineWarning,
+.inlineRefresh,
 .stateCard {
   display: flex;
   align-items: center;
@@ -227,6 +228,16 @@
 .stateCardError > svg {
   flex: 0 0 auto;
   color: var(--dis-warning);
+}
+
+.inlineRefresh {
+  border-color: color-mix(in srgb, var(--dis-blue) 32%, var(--dis-border));
+  background: color-mix(in srgb, var(--dis-blue) 10%, var(--dis-surface));
+}
+
+.inlineRefresh svg {
+  flex: 0 0 auto;
+  color: var(--dis-blue);
 }
 
 .stateCard {
@@ -680,6 +691,11 @@
 }
 
 .radarWorkbench {
+  --weather-cyan: #55d6e8;
+  --weather-blue: #4ea8ff;
+  --weather-blue-soft: rgba(78, 168, 255, 0.12);
+  --weather-slate: var(--dis-muted-strong);
+  --weather-line: color-mix(in srgb, var(--weather-cyan) 34%, var(--dis-border));
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--weather-line);
@@ -867,10 +883,18 @@
 .radarFrame {
   z-index: 1;
   background-repeat: no-repeat;
+  image-rendering: auto;
 }
 
 .radarSea {
   fill: color-mix(in srgb, var(--dis-field) 76%, var(--weather-blue-soft));
+}
+
+.radarLand {
+  fill: color-mix(in srgb, var(--dis-surface) 78%, var(--weather-blue-soft));
+  stroke: color-mix(in srgb, var(--weather-cyan) 60%, var(--dis-text-strong));
+  stroke-width: 2.2;
+  vector-effect: non-scaling-stroke;
 }
 
 .radarGridLine {
@@ -923,6 +947,7 @@
   padding: 4px 7px;
   font-size: 0.66rem;
   font-weight: 720;
+  line-height: 1.35;
 }
 
 .radarOverlay {
@@ -930,7 +955,8 @@
   inset: auto 24px 24px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  gap: 10px;
   min-height: 42px;
   border: 1px solid color-mix(in srgb, var(--dis-warning) 30%, var(--dis-border));
   border-radius: 7px;
@@ -941,6 +967,63 @@
   text-align: center;
   font-size: 0.78rem;
   font-weight: 760;
+}
+
+.radarOverlay > svg {
+  flex: 0 0 auto;
+}
+
+.radarOverlay > span:not(.stateSpinner) {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.radarOverlay strong {
+  color: var(--dis-text-strong);
+  font-size: 0.76rem;
+}
+
+.radarOverlay small {
+  color: var(--dis-muted-strong);
+  font-size: 0.68rem;
+  font-weight: 620;
+  line-height: 1.35;
+}
+
+.radarOverlay button,
+.radarRetryButton {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--dis-blue) 34%, var(--dis-border));
+  border-radius: 6px;
+  background: var(--weather-blue-soft);
+  color: var(--dis-blue);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 780;
+}
+
+.radarOverlay button {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 7px 10px;
+}
+
+.radarOverlayError {
+  border-color: color-mix(in srgb, var(--dis-critical) 46%, var(--dis-border));
+}
+
+.radarOverlayError > svg {
+  color: var(--dis-critical);
+}
+
+.radarOverlayWarning > svg {
+  color: var(--dis-warning);
 }
 
 .radarEmpty {
@@ -965,6 +1048,17 @@
   max-width: 48ch;
   font-size: 0.8rem;
   line-height: 1.5;
+}
+
+.radarRetryButton {
+  margin-top: 7px;
+  padding: 8px 13px;
+}
+
+.radarRetryButton:focus-visible,
+.radarOverlay button:focus-visible {
+  outline: 2px solid var(--dis-blue);
+  outline-offset: 2px;
 }
 
 .radarControls {
@@ -1024,6 +1118,47 @@
 
 .radarTransport button:first-child {
   grid-column: 1 / -1;
+}
+
+.radarAutoplayStatus {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid color-mix(in srgb, var(--weather-blue) 28%, var(--dis-border));
+  border-radius: 8px;
+  background: var(--weather-blue-soft);
+  color: var(--dis-blue);
+  padding: 11px 13px;
+}
+
+.radarAutoplayStatus > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.radarAutoplayStatus strong {
+  color: var(--dis-text-strong);
+  font-size: 0.78rem;
+}
+
+.radarAutoplayStatus small {
+  color: var(--dis-muted-strong);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.radarPlayback_stale {
+  border-color: color-mix(in srgb, var(--dis-warning) 38%, var(--dis-border));
+  background: var(--dis-warning-soft);
+  color: var(--dis-warning);
+}
+
+.radarPlayback_unavailable {
+  border-color: color-mix(in srgb, var(--dis-critical) 38%, var(--dis-border));
+  background: var(--dis-critical-soft);
+  color: var(--dis-critical);
 }
 
 .radarRangeLabel {
@@ -1519,6 +1654,12 @@
 
   .radarOverlay {
     inset: auto 14px 14px;
+    flex-wrap: wrap;
+  }
+
+  .radarOverlay button {
+    width: 100%;
+    margin-left: 0;
   }
 
   .radarEmpty {
@@ -1548,4 +1689,102 @@
   .radarTabs button {
     transition: none;
   }
+}
+
+/*
+ * A wallboard page owns a fixed presentation viewport, including inside the
+ * scaled admin preview. Keep these rules after the responsive editor rules so
+ * browser width never collapses the TV composition to the mobile layout.
+ */
+.radarWorkbenchWallboard {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  border-radius: 12px;
+}
+
+.radarWorkbenchWallboard .radarHeader {
+  flex: 0 0 auto;
+  align-items: center;
+  flex-direction: row;
+  padding: clamp(18px, 1.35vw, 40px) clamp(22px, 1.7vw, 52px);
+}
+
+.radarWorkbenchWallboard .radarHeading h2 {
+  font-size: clamp(1.25rem, 1.25vw, 2.6rem);
+}
+
+.radarWorkbenchWallboard .radarHeading p {
+  font-size: clamp(0.78rem, 0.67vw, 1.28rem);
+}
+
+.radarWorkbenchWallboard .radarPanel {
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr) minmax(310px, 22vw);
+  overflow: hidden;
+}
+
+.radarWorkbenchWallboard .radarVisualColumn {
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-content: stretch;
+  padding: clamp(16px, 1.2vw, 36px);
+}
+
+.radarWorkbenchWallboard .radarStatusRow {
+  align-items: center;
+  flex-direction: row;
+}
+
+.radarWorkbenchWallboard .radarStatusRow strong {
+  font-size: clamp(0.88rem, 0.78vw, 1.45rem);
+}
+
+.radarWorkbenchWallboard .radarStatusRow span:not(.radarStatusBadge) {
+  font-size: clamp(0.74rem, 0.63vw, 1.15rem);
+}
+
+.radarWorkbenchWallboard .radarStage {
+  min-height: 0;
+  padding: clamp(8px, 0.8vw, 22px);
+}
+
+.radarWorkbenchWallboard .radarCanvas {
+  width: auto;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.radarWorkbenchWallboard .radarEmpty {
+  min-height: 0;
+  height: 100%;
+}
+
+.radarWorkbenchWallboard .radarControls {
+  min-height: 0;
+  border-top: 0;
+  border-left: 1px solid var(--dis-border);
+  padding: clamp(18px, 1.3vw, 40px);
+}
+
+.radarWorkbenchWallboard .radarTimeReadout strong {
+  font-size: clamp(2.25rem, 3.2vw, 5rem);
+}
+
+.radarWorkbenchWallboard .radarTimeReadout span,
+.radarWorkbenchWallboard .radarTimeReadout small,
+.radarWorkbenchWallboard .radarFacts dd,
+.radarWorkbenchWallboard .radarAutoplayStatus strong {
+  font-size: clamp(0.76rem, 0.68vw, 1.25rem);
+}
+
+.radarWorkbenchWallboard .radarFacts dt,
+.radarWorkbenchWallboard .radarAutoplayStatus small,
+.radarWorkbenchWallboard .radarLegend li,
+.radarWorkbenchWallboard .radarLegend small {
+  font-size: clamp(0.68rem, 0.58vw, 1.05rem);
 }

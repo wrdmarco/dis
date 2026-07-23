@@ -23,6 +23,14 @@ final class MobilePairingController extends Controller
         }
 
         $clientType = (string) $data['client_type'];
+        if ($this->isRetiredAdminClient($clientType)) {
+            return ApiResponse::error(
+                'mobile_admin_retired',
+                'Beheer is alleen beschikbaar via de beveiligde webapp.',
+                422,
+            );
+        }
+
         if (! $this->pairingService->canUseClient($user, $clientType)) {
             return ApiResponse::error('app_access_denied', 'Deze gebruiker heeft geen toegang tot deze mobiele app.', 403);
         }
@@ -38,11 +46,25 @@ final class MobilePairingController extends Controller
             'device_name' => ['nullable', 'string', 'max:120'],
         ]);
 
+        $clientType = (string) $data['client_type'];
+        if ($this->isRetiredAdminClient($clientType)) {
+            return ApiResponse::error(
+                'mobile_admin_retired',
+                'Beheer is alleen beschikbaar via de beveiligde webapp.',
+                422,
+            );
+        }
+
         return ApiResponse::success($this->pairingService->consume(
             code: (string) $data['code'],
-            clientType: (string) $data['client_type'],
+            clientType: $clientType,
             deviceName: (string) ($data['device_name'] ?? 'DIS mobiele app'),
             request: $request,
         ));
+    }
+
+    private function isRetiredAdminClient(string $clientType): bool
+    {
+        return in_array($clientType, ['admin', 'admin_android', 'admin_ios'], true);
     }
 }

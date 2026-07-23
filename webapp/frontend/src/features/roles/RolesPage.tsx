@@ -59,12 +59,12 @@ export function RolesPage() {
         <div className="metadata-example">
           <strong>Standaard voor iedere ingelogde gebruiker</strong>
           <p>Iedere gebruiker kan altijd het eigen profiel bekijken en de eigen profielgegevens beheren waar dat is toegestaan. Dat is basisfunctionaliteit en staat daarom niet als aparte permissie in rollen.</p>
-          <p>MFA wordt systeemwijd ingesteld bij Admin onder MFA en wachtwoordeisen. Rollen bepalen alleen toegang tot apps en functies.</p>
+          <p>MFA wordt systeemwijd ingesteld bij Admin onder MFA en wachtwoordeisen. Rollen bepalen toegang tot de Operator-app, webbeheer en afzonderlijke functies.</p>
           <p>Rond incidenten zijn rechten bewust gescheiden: incidentregistratie gaat over gegevens en status, incidentalarmering gaat over vooraankondigen, alarmeren, opkomst en opschalen.</p>
         </div>
         <ResourceState loading={roles.loading} error={roles.error} empty={(roles.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th scope="col">Naam</th><th scope="col">Apps</th><th scope="col">Permissies</th><th scope="col">Gebruikers</th><th scope="col">Actie</th></tr></thead>
+            <thead><tr><th scope="col">Naam</th><th scope="col">Toegang</th><th scope="col">Permissies</th><th scope="col">Gebruikers</th><th scope="col">Actie</th></tr></thead>
             <tbody>
               {roles.data?.map((role) => {
                 const userCount = role.users_count ?? 0;
@@ -87,7 +87,10 @@ export function RolesPage() {
                 return (
                   <tr key={role.id}>
                     <td><strong>{role.display_name}</strong><br /><span className="mono">{role.name}</span></td>
-                    <td>{role.can_use_operator_app ? 'Operator' : '-'} / {role.can_use_admin_app ? 'Admin' : '-'}</td>
+                    <td>{[
+                      role.can_use_operator_app ? 'Operator-app' : null,
+                      role.can_use_admin_app ? 'Webbeheer' : null,
+                    ].filter(Boolean).join(' / ') || '-'}</td>
                     <td>
                       <div className="role-permission-summary">
                         {(role.permissions ?? []).slice(0, 4).map((permission) => <span key={permission.id}>{permission.display_name}</span>)}

@@ -90,7 +90,7 @@ export function useForecastResource<T>(
     if (initial) setLoading(true);
     else {
       setRefreshing(true);
-      setStale(true);
+      if (endpoint !== '/operational-weather') setStale(true);
     }
 
     try {
@@ -111,7 +111,9 @@ export function useForecastResource<T>(
     } catch (reason) {
       if (requestSequence.current === sequence && currentPath.current === path) {
         lastAttemptFailed.current = true;
-        setStale(true);
+        const successfulDataExpired = lastSuccessfulAt.current === 0
+          || Date.now() >= lastSuccessfulAt.current + refreshIntervalMs;
+        setStale(endpoint !== '/operational-weather' || successfulDataExpired);
         setError(reason instanceof ApiClientError
           ? reason.message
           : reason instanceof Error
@@ -126,7 +128,7 @@ export function useForecastResource<T>(
         setSchedulerRevision((revision) => revision + 1);
       }
     }
-  }, [api, normalize, path]);
+  }, [api, endpoint, normalize, path, refreshIntervalMs]);
 
   useEffect(() => {
     if (initializedPath.current !== path) {

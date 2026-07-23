@@ -271,6 +271,710 @@
   text-align: right;
 }
 
+.datasetInventory {
+  display: grid;
+  gap: 24px;
+  padding: clamp(14px, 2vw, 20px);
+}
+
+.datasetInventoryIntro {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 13px;
+  align-items: start;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--dis-border);
+}
+
+.datasetInventoryIntro strong {
+  color: var(--dis-text-strong);
+  font-size: 1rem;
+}
+
+.datasetInventoryIntro p {
+  max-width: 760px;
+  margin: 4px 0 0;
+  color: var(--dis-muted-strong);
+}
+
+.dataRailMark {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(128, 199, 255, 0.28);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(128, 199, 255, 0.15), transparent 72%),
+    var(--dis-field);
+  color: var(--dis-blue);
+}
+
+.catalogWorkbench {
+  display: grid;
+  gap: 18px;
+  padding: clamp(14px, 2vw, 20px);
+}
+
+.catalogIntro {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 13px;
+  align-items: start;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--dis-border);
+}
+
+.catalogIntro strong {
+  color: var(--dis-text-strong);
+  font-size: 1rem;
+}
+
+.catalogIntro p {
+  max-width: 820px;
+  margin: 4px 0 0;
+  color: var(--dis-muted-strong);
+}
+
+.catalogIntro button {
+  gap: 7px;
+}
+
+.catalogMark {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(128, 199, 255, 0.3);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(128, 199, 255, 0.18), transparent 70%),
+    var(--dis-field);
+  color: var(--dis-blue);
+}
+
+.catalogToolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.6fr) minmax(150px, 0.7fr) minmax(180px, 0.9fr);
+  gap: 12px;
+  align-items: end;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background: var(--dis-surface-2);
+  padding: 13px;
+}
+
+.catalogToolbar label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.catalogToolbar label > span:first-child {
+  color: var(--dis-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.catalogToolbar input,
+.catalogToolbar select {
+  width: 100%;
+}
+
+.catalogSearchField {
+  min-width: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.catalogSearchField svg {
+  position: absolute;
+  left: 12px;
+  color: var(--dis-muted);
+  pointer-events: none;
+}
+
+.catalogSearchField input {
+  padding-left: 38px;
+}
+
+.catalogMeta {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.catalogMeta p {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.catalogMeta strong {
+  color: var(--dis-text-strong);
+}
+
+.catalogMeta span {
+  color: var(--dis-muted);
+  font-size: 0.78rem;
+}
+
+.catalogMeta a,
+.catalogItem header a {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--dis-blue);
+  font-size: 0.8rem;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.catalogMeta a:hover,
+.catalogItem header a:hover {
+  text-decoration: underline;
+}
+
+.catalogMeta a:focus-visible,
+.catalogItem header a:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--dis-blue);
+  outline-offset: 3px;
+}
+
+.catalogWarning {
+  margin: 0;
+  border-left: 3px solid var(--dis-warning);
+  background: var(--dis-warning-soft);
+  color: var(--dis-muted-strong);
+  padding: 10px 12px;
+  font-size: 0.84rem;
+}
+
+.catalogResults {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 1px;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--dis-border);
+  list-style: none;
+}
+
+.catalogResults > li {
+  min-width: 0;
+  background: var(--dis-surface);
+}
+
+.catalogItem {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  border-left: 3px solid rgba(128, 199, 255, 0.46);
+  background:
+    linear-gradient(105deg, rgba(128, 199, 255, 0.055), transparent 44%),
+    var(--dis-surface);
+  padding: 16px 17px 15px;
+}
+
+.catalogItem header {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.catalogItem header > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.catalogItem h3 {
+  margin: 0;
+  color: var(--dis-text-strong);
+  font-size: clamp(0.96rem, 1.3vw, 1.06rem);
+  line-height: 1.35;
+}
+
+.catalogItem code {
+  min-width: 0;
+  color: var(--dis-muted);
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.catalogItemKicker {
+  color: var(--dis-blue);
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.catalogDescription {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--dis-muted-strong);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.catalogTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.catalogTags span {
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--dis-border);
+  border-radius: 999px;
+  background: var(--dis-field);
+  color: var(--dis-muted-strong);
+  padding: 3px 8px;
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.catalogFacts {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.2fr) repeat(2, minmax(130px, 0.8fr));
+  gap: 12px;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--dis-border);
+}
+
+.catalogFacts > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.catalogFacts dt {
+  color: var(--dis-muted);
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.catalogFacts dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--dis-text);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.catalogEmpty {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  border: 1px dashed var(--dis-border-strong);
+  border-radius: 8px;
+  background: var(--dis-field);
+  color: var(--dis-muted);
+  padding: 30px 18px;
+  text-align: center;
+}
+
+.catalogEmpty strong {
+  color: var(--dis-text-strong);
+}
+
+.catalogEmpty span {
+  font-size: 0.82rem;
+}
+
+.catalogPagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.catalogPagination button {
+  gap: 6px;
+}
+
+.catalogPagination > span {
+  color: var(--dis-muted-strong);
+  font-size: 0.82rem;
+}
+
+.catalogPagination strong {
+  color: var(--dis-text-strong);
+}
+
+.legacyInventoryNote,
+.datasetEmpty {
+  margin: 0;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background: var(--dis-field);
+  color: var(--dis-muted-strong);
+  padding: 13px 14px;
+}
+
+.legacyInventoryNote {
+  border-color: rgba(251, 191, 36, 0.28);
+  background: var(--dis-warning-soft);
+}
+
+.datasetGroup {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.datasetGroupHeading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding-left: 34px;
+}
+
+.datasetGroupHeading h3 {
+  margin: 0;
+  color: var(--dis-text-strong);
+  font-size: 0.92rem;
+  letter-spacing: 0.01em;
+}
+
+.datasetGroupHeading span {
+  color: var(--dis-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.datasetRail {
+  position: relative;
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.datasetRail::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: 17px;
+  bottom: 17px;
+  left: 9px;
+  width: 2px;
+  background: linear-gradient(180deg, var(--dis-blue), var(--knmi-line));
+}
+
+.datasetRailCandidates::before {
+  background: repeating-linear-gradient(
+    180deg,
+    var(--dis-border-strong) 0,
+    var(--dis-border-strong) 5px,
+    transparent 5px,
+    transparent 10px
+  );
+}
+
+.datasetRailItem {
+  position: relative;
+  min-width: 0;
+  padding-left: 34px;
+}
+
+.datasetRailNode {
+  position: absolute;
+  z-index: 1;
+  top: 23px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border: 3px solid var(--dis-surface);
+  border-radius: 50%;
+  background: var(--dis-muted);
+  box-shadow: 0 0 0 1px var(--dis-border-strong);
+}
+
+.datasetRailItem_current .datasetRailNode {
+  background: var(--dis-positive);
+  box-shadow: 0 0 0 1px var(--dis-positive);
+}
+
+.datasetRailItem_stale .datasetRailNode {
+  background: var(--dis-warning);
+  box-shadow: 0 0 0 1px var(--dis-warning);
+}
+
+.datasetRailItem_unavailable .datasetRailNode {
+  background: var(--dis-critical);
+  box-shadow: 0 0 0 1px var(--dis-critical);
+}
+
+.datasetRailItem_on_demand .datasetRailNode,
+.datasetRailItem_available .datasetRailNode {
+  background: var(--dis-blue);
+  box-shadow: 0 0 0 1px var(--dis-blue);
+}
+
+.datasetRailItemRunning .datasetRailNode {
+  background: var(--dis-blue);
+  box-shadow:
+    0 0 0 1px var(--dis-blue),
+    0 0 0 6px rgba(128, 199, 255, 0.13);
+  animation: datasetRailPulse 1.8s ease-in-out infinite;
+}
+
+.datasetRow {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid var(--dis-border);
+  background: linear-gradient(90deg, rgba(128, 199, 255, 0.035), transparent 46%);
+  padding: 18px 4px 18px 16px;
+}
+
+.datasetRailItem:last-child .datasetRow {
+  border-bottom: 1px solid var(--dis-border);
+}
+
+.datasetRowHeader {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.datasetIdentity {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.datasetIdentity > span {
+  color: var(--dis-blue);
+  font-size: 0.73rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.datasetIdentity strong {
+  color: var(--dis-text-strong);
+  font-size: clamp(0.98rem, 1.4vw, 1.08rem);
+}
+
+.datasetIdentity code {
+  min-width: 0;
+  color: var(--dis-muted);
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.73rem;
+  overflow-wrap: anywhere;
+}
+
+.datasetUsage {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.datasetUsage > span {
+  flex: 0 0 auto;
+  color: var(--dis-muted);
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.datasetUsage p {
+  margin: 0;
+  color: var(--dis-text);
+  font-size: 0.86rem;
+}
+
+.datasetFacts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--dis-border);
+  border-radius: 7px;
+  background: var(--dis-border);
+}
+
+.datasetFacts > div {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  background: var(--dis-field);
+  padding: 10px 11px;
+}
+
+.datasetFacts dt {
+  color: var(--dis-muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.datasetFacts dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--dis-text-strong);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.datasetCandidate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-left: 2px solid var(--dis-border-strong);
+  padding-left: 12px;
+}
+
+.datasetCandidate p {
+  margin: 0;
+  color: var(--dis-muted-strong);
+  font-size: 0.84rem;
+}
+
+.datasetCandidate a,
+.datasetRowFooter a {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--dis-blue);
+  font-size: 0.8rem;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.datasetCandidate a:hover,
+.datasetRowFooter a:hover {
+  text-decoration: underline;
+}
+
+.datasetCandidate a:focus-visible,
+.datasetRowFooter a:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--dis-blue);
+  outline-offset: 3px;
+}
+
+.datasetProgress {
+  display: grid;
+  gap: 7px;
+  border-left: 3px solid var(--dis-blue);
+  background: var(--dis-blue-soft);
+  padding: 11px 12px;
+}
+
+.datasetProgress > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.datasetProgress span,
+.datasetProgress p {
+  color: var(--dis-muted-strong);
+  font-size: 0.78rem;
+}
+
+.datasetProgress strong {
+  color: var(--dis-text-strong);
+  font-size: 0.8rem;
+}
+
+.datasetProgress p {
+  margin: 0;
+}
+
+.datasetProgress progress {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 999px;
+  background: var(--dis-field);
+  color: var(--dis-blue);
+}
+
+.datasetProgress progress::-webkit-progress-bar {
+  background: var(--dis-field);
+}
+
+.datasetProgress progress::-webkit-progress-value,
+.datasetProgress progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--dis-blue), #58aeea);
+}
+
+.datasetAvailability {
+  margin: -2px 0 0;
+  color: var(--dis-muted-strong);
+  font-size: 0.82rem;
+}
+
+.datasetError {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 5px 9px;
+  margin: 0;
+  border-left: 3px solid var(--dis-critical);
+  background: var(--dis-critical-soft);
+  color: var(--dis-critical);
+  padding: 9px 11px;
+  font-size: 0.82rem;
+}
+
+.datasetError time {
+  color: var(--dis-muted-strong);
+  font-size: 0.74rem;
+}
+
+.datasetRowFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.datasetRowFooter button {
+  gap: 7px;
+}
+
+@keyframes datasetRailPulse {
+  50% {
+    box-shadow:
+      0 0 0 1px var(--dis-blue),
+      0 0 0 9px rgba(128, 199, 255, 0.03);
+  }
+}
+
 .settingsForm {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -318,6 +1022,18 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .catalogToolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .catalogSearch {
+    grid-column: 1 / -1;
+  }
+
+  .datasetFacts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .settingsGroup,
   .settingsForm > :global(.form-error),
   .settingsForm > :global(.success-text),
@@ -328,7 +1044,6 @@
 
 @media (max-width: 640px) {
   .snapshotGrid,
-  .sourceComparison,
   .settingsForm {
     grid-template-columns: 1fr;
   }
@@ -356,12 +1071,80 @@
     width: 100%;
   }
 
+  .catalogIntro {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .catalogIntro button {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .catalogToolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .catalogSearch {
+    grid-column: auto;
+  }
+
+  .catalogMeta,
+  .catalogItem header,
+  .catalogPagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .catalogFacts {
+    grid-template-columns: 1fr;
+  }
+
+  .catalogItem header a,
+  .catalogPagination button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .catalogPagination > span {
+    align-self: center;
+    order: -1;
+  }
+
+  .datasetRowHeader,
+  .datasetCandidate,
+  .datasetRowFooter {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .datasetFacts {
+    grid-template-columns: 1fr;
+  }
+
+  .datasetUsage {
+    display: grid;
+    gap: 3px;
+  }
+
+  .datasetCandidate a,
+  .datasetRowFooter button {
+    width: 100%;
+    justify-content: center;
+  }
+
   .actionHint {
     text-align: left;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .datasetRailItemRunning .datasetRailNode {
+    animation: none;
+  }
+
+  .datasetProgress progress::-webkit-progress-value,
+  .datasetProgress progress::-moz-progress-bar,
   .operation progress::-webkit-progress-value,
   .operation progress::-moz-progress-bar {
     transition: none;

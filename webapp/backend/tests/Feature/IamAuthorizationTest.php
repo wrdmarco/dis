@@ -49,15 +49,13 @@ final class IamAuthorizationTest extends TestCase
         $incident = $this->incident($creator, 'WEB-ASSIGNED-001');
         $this->dispatch($incident, $creator, $actor, 'sent');
 
-        foreach (['client:web', 'client:admin'] as $clientAbility) {
-            $this->asClient($actor, $clientAbility)
-                ->getJson('/api/incidents')
-                ->assertForbidden();
+        $this->asClient($actor, 'client:web')
+            ->getJson('/api/incidents')
+            ->assertForbidden();
 
-            $this->asClient($actor, $clientAbility)
-                ->getJson('/api/dispatches')
-                ->assertForbidden();
-        }
+        $this->asClient($actor, 'client:web')
+            ->getJson('/api/dispatches')
+            ->assertForbidden();
     }
 
     public function test_dual_client_assigned_only_permission_remains_scoped_for_operator_client(): void

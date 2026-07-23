@@ -207,7 +207,7 @@ A playlist contains an ordered set of allowlisted DIS pages: an operational map,
 summary, live KPI overview, calendar, safely formatted announcement or safety notice, an administrator-managed
 daily quote, a UAV Forecast, curated drone-news page, photo carousel or allowlisted YouTube/Vimeo video. Every
 page has its own bounded display duration. The playlist also owns
-map layers, rotation, the incident override and an optional bottom ticker. The ticker accepts bounded
+map layers, rotation, focus settings and an optional bottom ticker. The ticker accepts bounded
 plain-text internal messages and multiple HTTPS RSS or Atom feeds; feed retrieval is cached, size-limited and
 restricted to public destinations. Each RSS source can show between one and eight items; legacy and omitted
 `max_items` settings default to eight. External display pages, arbitrary HTML and executable content are not
@@ -281,6 +281,14 @@ and high cloud cover plus the model cloud base come from the centrally installed
 planetary Kp index comes from the fixed
 [NOAA SWPC feed](https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json).
 
+The `/weather` page and wallboard weather-radar pages render only locally validated, same-origin image
+atlases. The KNMI `radar_forecast` atlas contains 25 five-minute frames from the model reference time through
++120 minutes. The EUMETSAT MTG Lightning Imager atlas contains the latest seven five-minute Accumulated Flash
+Area frames. Browsers never contact either provider directly; the server preloads new source data and atomically
+switches snapshots, while displays continue to use the preceding validated image during a bounded failure.
+The map includes a local simplified Netherlands outline derived from PDOK/Kadaster Bestuurlijke Gebieden 2026
+under CC BY 4.0, so wallboards do not depend on a remote basemap.
+
 The three-hour shower card keeps two different KNMI products visibly separate: the
 [radar nowcast](https://dataplatform.knmi.nl/dataset/radar-forecast-2-0) covers the first 120 minutes and the
 [seamless ensemble product](https://dataplatform.knmi.nl/dataset/seamless-precipitation-ensemble-forecast-probabilities-1-0)
@@ -288,15 +296,26 @@ supplies only the probability of at least 0.1 mm/hour for the third hour. Both p
 under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and publish on a five-minute reference clock.
 KNMI still labels the seamless product as a pilot, so an absent or changed schema is treated as unknown.
 Four minutes after each reference time,
-a dedicated realtime worker downloads the newest common pair as complete Open Data files with HTTP 200 (never
-byte ranges), validates their HDF5/NetCDF4 structure and forecast times, and atomically activates the local
-snapshot. Wallboard requests read only that local snapshot. A failed, incomplete or mismatched import leaves
-the previous validated pair active, and stale data fails closed. The thunderstorm card uses the Open-Meteo
+a dedicated realtime worker downloads the newest radar file and, when available, its matching probability file
+as complete Open Data files with HTTP 200 (never byte ranges), validates their HDF5/NetCDF4 structure and
+forecast times, and atomically activates the local snapshot. A missing or invalid optional probability product
+therefore remains unknown without hiding a valid radar atlas. A failed, incomplete or mismatched radar import
+leaves the previous validated snapshot active. Normal KNMI source latency is accepted for 30 minutes; an older
+radar atlas is clearly marked stale and remains displayable only while its +120-minute timeline is still useful.
+
+The realtime worker also downloads the fixed EUMETSAT `mtg_fd:li_afa` WMS layer every five minutes. Its
+five-minute observation end, source age and import lag are exposed separately. Normal source latency is accepted
+for 30 minutes. After that, the last validated atlas may remain visible for at most two hours and is always marked
+stale; beyond that bound no lightning image is served. The thunderstorm card uses the Open-Meteo
 15-minute WMO forecast for the next three hours and explicitly does not claim live lightning detection. DIS
 does not embed or scrape LightningMaps/Blitzortung.
 
 The dedicated `/knmi` management page stores the Open Data and EDR keys encrypted, shows import progress and
-lets a `settings.manage` administrator request an update. The scheduler checks every three hours. An update
+lets a `settings.manage` administrator request an update. Its operational inventory lists only the seven sources
+that DIS actually consumes. A separate searchable, paginated catalogue reads the official KNMI catalogue through
+a fixed server-side endpoint, caches responses for fifteen minutes and can use an explicitly labelled
+seven-day stale cache if the catalogue is unavailable; browsing that catalogue never downloads dataset files.
+The scheduler checks HARMONIE every three hours. An update
 downloads the complete current TAR object with HTTP 200, never byte ranges, validates and indexes all 61 GRIB1
 members from forecast hour +00 through +60, then atomically switches the shared active snapshot. A failed or
 incomplete update leaves the preceding snapshot active. The raw archive is removed after extraction and only a
@@ -410,12 +429,13 @@ dispatch or recipient is created. The preview is audited, respects optimistic co
 thirty seconds, after which the screen automatically resumes its existing manual page or playlist rotation. A
 real operational alarm blocks a new preview and immediately takes priority if it starts during one.
 
-Per playlist, the legacy optional incident override can still pin a preselected page while at least one non-test
-incident is actually being dispatched or is in progress. It remains the fallback when real-alarm focus is
-disabled. Test alerts never count as active incidents and are omitted from every persistent operational summary,
-map, incident list and historical wallboard layer; they can only appear in their bounded focus screen. After the
-final matching real incident closes or is cancelled, the previous manual pin or the current rotation becomes
-effective again.
+Legacy `incident_override` values remain accepted for stored-configuration compatibility, but never pin or replace
+the configured normal or active-deployment playlist. Operational-map pages in either playlist receive the same
+live incident, responder, route and focus data, so they can centre and zoom on the active deployment without a
+hard-coded incident page. Test alerts never count as active incidents and are omitted from every persistent
+operational summary, map, incident list and historical wallboard layer; they can only appear in their bounded
+focus screen. After the final matching real incident closes or is cancelled, the normal playlist or current
+manual selection becomes effective again.
 Playlist configuration, screen assignment and live-control changes require `wallboards.manage`, use
 optimistic versions to prevent stale administrators overwriting each other, and are audit logged. Updating a
 shared playlist atomically advances every linked screen to the same configuration while preserving each

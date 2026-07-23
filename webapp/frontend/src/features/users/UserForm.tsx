@@ -218,7 +218,7 @@ export function UserForm({
           value={form.maxOperatorDevices}
           onChange={(event) => updateField('maxOperatorDevices', event.target.value)}
         />
-        <small>Standaard 1. Admin-apps tellen niet mee.</small>
+        <small>Standaard 1. Dit maximum geldt alleen voor Operator-toestellen.</small>
       </label>
       {mode === 'create' ? (
         <p className="form-note form-grid__wide">De gebruiker ontvangt automatisch een eenmalige activatielink en stelt het wachtwoord zelf in.</p>

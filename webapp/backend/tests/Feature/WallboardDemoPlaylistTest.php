@@ -94,6 +94,58 @@ final class WallboardDemoPlaylistTest extends TestCase
         $this->assertSame(WallboardPlaylist::DATA_MODE_DEMO, $audit->metadata['data_mode']);
     }
 
+    public function test_demo_rotation_uses_each_ordinary_page_duration_once(): void
+    {
+        $configuration = WallboardConfiguration::normalize([
+            'rotation_enabled' => true,
+            'pages' => [
+                [
+                    'id' => 'demo-one',
+                    'name' => 'Demo een',
+                    'type' => 'message',
+                    'duration_seconds' => 10,
+                    'options' => ['body' => 'Eerste gewone demopagina.'],
+                ],
+                [
+                    'id' => 'demo-two',
+                    'name' => 'Demo twee',
+                    'type' => 'safety_notice',
+                    'duration_seconds' => 10,
+                    'options' => ['body' => 'Tweede gewone demopagina.'],
+                ],
+            ],
+        ]);
+        $playlist = $this->playlist(
+            'Demo rotatietiming',
+            WallboardPlaylist::DATA_MODE_DEMO,
+            $configuration,
+        );
+        $wallboard = $this->wallboard($playlist, $configuration, [
+            'rotation_started_at' => CarbonImmutable::parse(
+                '2026-07-20 14:25:00',
+                'Europe/Amsterdam',
+            ),
+        ]);
+        $credential = $this->wallboardCredential($wallboard);
+
+        $this->wallboardGet('/api/wallboard/control', $credential)
+            ->assertOk()
+            ->assertJsonPath('data.display.page_id', 'demo-one')
+            ->assertJsonPath('data.display.next_change_at', '2026-07-20T14:25:10+02:00');
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 14:25:09', 'Europe/Amsterdam'));
+        $this->wallboardGet('/api/wallboard/control', $credential)
+            ->assertOk()
+            ->assertJsonPath('data.display.page_id', 'demo-one')
+            ->assertJsonPath('data.display.next_change_at', '2026-07-20T14:25:10+02:00');
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 14:25:10', 'Europe/Amsterdam'));
+        $this->wallboardGet('/api/wallboard/control', $credential)
+            ->assertOk()
+            ->assertJsonPath('data.display.page_id', 'demo-two')
+            ->assertJsonPath('data.display.next_change_at', '2026-07-20T14:25:20+02:00');
+    }
+
     public function test_demo_playlist_cannot_be_or_become_an_active_incident_playlist(): void
     {
         $manager = $this->user('demo-active@example.test', ['wallboards.manage']);
@@ -101,7 +153,12 @@ final class WallboardDemoPlaylistTest extends TestCase
             'pages' => [$this->page('summary', 'Overzicht', 'summary')],
         ]);
         $base = $this->playlist('Basis', WallboardPlaylist::DATA_MODE_LIVE, $configuration);
-        $demo = $this->playlist('Demo', WallboardPlaylist::DATA_MODE_DEMO, $configuration);
+        $demo = $this->playlist(
+            'Demo',
+            WallboardPlaylist::DATA_MODE_DEMO,
+            $configuration,
+            WallboardPlaylist::PURPOSE_ALARM,
+        );
 
         $this->asAdminClient($manager)->postJson('/api/admin/wallboards', [
             'name' => 'Ongeldig actief scherm',
@@ -110,7 +167,12 @@ final class WallboardDemoPlaylistTest extends TestCase
         ])->assertUnprocessable()
             ->assertJsonStructure(['error' => ['details' => ['active_incident_playlist_id']]]);
 
-        $active = $this->playlist('Actieve inzet', WallboardPlaylist::DATA_MODE_LIVE, $configuration);
+        $active = $this->playlist(
+            'Actieve inzet',
+            WallboardPlaylist::DATA_MODE_LIVE,
+            $configuration,
+            WallboardPlaylist::PURPOSE_ALARM,
+        );
         $wallboard = $this->wallboard($base, $configuration, [
             'active_incident_playlist_id' => $active->id,
         ]);
@@ -135,7 +197,12 @@ final class WallboardDemoPlaylistTest extends TestCase
 
         $configuration = $this->completeDemoConfiguration();
         $demo = $this->playlist('Volledige demo', WallboardPlaylist::DATA_MODE_DEMO, $configuration);
-        $activeLive = $this->playlist('Echte actieve inzet', WallboardPlaylist::DATA_MODE_LIVE, $configuration);
+        $activeLive = $this->playlist(
+            'Echte actieve inzet',
+            WallboardPlaylist::DATA_MODE_LIVE,
+            $configuration,
+            WallboardPlaylist::PURPOSE_ALARM,
+        );
         $wallboard = $this->wallboard($demo, $configuration, [
             'active_incident_playlist_id' => $activeLive->id,
         ]);
@@ -185,6 +252,17 @@ final class WallboardDemoPlaylistTest extends TestCase
         $this->assertSame(
             'DIS_DEMO',
             data_get($forecastMetrics->get('precipitation_outlook'), 'precipitation_outlook.attribution'),
+        );
+        $this->assertSame(
+            'orange',
+            data_get($forecastMetrics->get('precipitation_outlook'), 'precipitation_outlook.radar_status'),
+        );
+        $this->assertSame(
+            'orange',
+            data_get(
+                $forecastMetrics->get('precipitation_outlook'),
+                'precipitation_outlook.third_hour_probability_status',
+            ),
         );
         $this->assertSame(
             'DIS_DEMO',
@@ -470,11 +548,16 @@ final class WallboardDemoPlaylistTest extends TestCase
     }
 
     /** @param array<string, mixed> $configuration */
-    private function playlist(string $name, string $dataMode, array $configuration): WallboardPlaylist
-    {
+    private function playlist(
+        string $name,
+        string $dataMode,
+        array $configuration,
+        string $purpose = WallboardPlaylist::PURPOSE_NORMAL,
+    ): WallboardPlaylist {
         return WallboardPlaylist::query()->create([
             'name' => $name,
             'data_mode' => $dataMode,
+            'purpose' => $purpose,
             'configuration' => $configuration,
             'version' => 1,
         ]);
@@ -566,7 +649,7 @@ final class WallboardDemoPlaylistTest extends TestCase
 
     private function asAdminClient(User $user): static
     {
-        $token = $user->createToken('Wallboard demo admin test', ['*', 'client:admin'], now()->addHour())->plainTextToken;
+        $token = $user->createToken('Wallboard demo admin test', ['*', 'client:web'], now()->addHour())->plainTextToken;
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);

@@ -117,7 +117,7 @@ final class CertificationAccessCompatibilityTest extends TestCase
         $admin = $this->user('certification-admin@example.test');
         $this->grant($admin, ['certifications.view'], operator: false, admin: true);
 
-        $this->asMobileClient($admin, 'client:admin')
+        $this->asMobileClient($admin, 'client:web')
             ->getJson('/api/certifications')
             ->assertOk()
             ->assertJsonPath('data.0.id', $certification->id)
@@ -132,7 +132,7 @@ final class CertificationAccessCompatibilityTest extends TestCase
         $admin = $this->user('unprivileged-admin@example.test');
         $this->grant($admin, [], operator: false, admin: true);
 
-        $response = $this->asMobileClient($admin, 'client:admin')
+        $response = $this->asMobileClient($admin, 'client:web')
             ->getJson('/api/certifications')
             ->assertOk()
             ->assertJsonPath('data.0.id', $certification->id)

@@ -84,6 +84,13 @@ final class WallboardPlaylistRepository extends BaseRepository
             ->exists();
     }
 
+    public function normalLinkedWallboardsExist(string $playlistId): bool
+    {
+        return Wallboard::query()
+            ->where('playlist_id', $playlistId)
+            ->exists();
+    }
+
     public function linkedWallboardsCount(string $playlistId): int
     {
         return Wallboard::query()

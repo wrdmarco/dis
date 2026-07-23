@@ -89,7 +89,7 @@ export function RoleForm({
           checked={form.canUseOperatorApp}
           onChange={(event) => onChange((current) => ({ ...current, canUseOperatorApp: event.target.checked }))}
         />
-        Operator app toestaan
+        Operator-app toestaan
       </label>
       <label className="check-label">
         <input
@@ -97,7 +97,7 @@ export function RoleForm({
           checked={form.canUseAdminApp}
           onChange={(event) => onChange((current) => ({ ...current, canUseAdminApp: event.target.checked }))}
         />
-        Admin app toestaan
+        Webbeheer toestaan
       </label>
 
       <div className="form-grid__wide">

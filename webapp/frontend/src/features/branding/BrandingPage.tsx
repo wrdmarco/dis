@@ -54,7 +54,7 @@ Er is een account voor je aangemaakt in {{app_name}}. Rond je registratie af via
 
 Je stelt zelf je wachtwoord in en doorloopt direct de MFA-setup wanneer dit systeemwijd verplicht is.
 
-{{admin_app_note}}
+{{web_admin_note}}
 
 Deze link is tijdelijk geldig. Vraag een beheerder om een nieuwe uitnodiging als de link verlopen is.`;
 const DEFAULT_CERTIFICATION_EXPIRY_SUBJECT = '{{certification_name}} - {{status_text}}';
@@ -299,7 +299,7 @@ export function BrandingPage() {
               </div>
               <div className="metadata-example">
                 <strong>Beschikbare tokens</strong>
-                <pre>{'{{app_name}}, {{tenant_name}}, {{name}}, {{email}}, {{registration_url}}, {{admin_app_note}}, {{download_url}}'}</pre>
+                <pre>{'{{app_name}}, {{tenant_name}}, {{name}}, {{email}}, {{registration_url}}, {{web_admin_note}}, {{admin_app_note}} (legacy), {{download_url}}'}</pre>
               </div>
             </div>
           ) : null}

@@ -341,7 +341,7 @@ final class DeploymentMaintenanceContractTest extends TestCase
             'ExecStartPre=/usr/bin/test -x /usr/bin/h5dump',
             'queue:work knmi_realtime --queue=knmi-realtime',
             '--tries=1',
-            '--timeout=600',
+            '--timeout=1200',
             'zend.exception_ignore_args=1',
             'Wants=network-online.target',
             'After=network-online.target redis-server.service postgresql.service',

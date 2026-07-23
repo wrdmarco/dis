@@ -28,6 +28,7 @@ import type {
   WallboardTickerSource,
   WallboardTickerSourceType,
   WallboardTransientAlert,
+  WallboardWeatherRadarKind,
 } from '../../types/api';
 import {
   WALLBOARD_PHOTO_MAX_ITEM_DURATION_SECONDS,
@@ -63,6 +64,7 @@ export const MIN_WALLBOARD_CALENDAR_MAX_ITEMS = 1;
 export const MAX_WALLBOARD_CALENDAR_MAX_ITEMS = 12;
 export const DEFAULT_WALLBOARD_CALENDAR_MAX_ITEMS = 6;
 export const DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE: WallboardForecastLocationMode = 'netherlands';
+export const DEFAULT_WALLBOARD_WEATHER_RADAR_KIND: WallboardWeatherRadarKind = 'precipitation';
 export const MAX_WALLBOARD_FORECAST_VISIBLE_BLOCKS = 12;
 export const WALLBOARD_FORECAST_BLOCK_KEYS = [
   'weather',
@@ -616,6 +618,8 @@ export function createWallboardPage(type: WallboardPageType, sequence: number): 
           location_mode: DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE,
           visible_blocks: [...DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS],
         }
+      : type === 'weather_radar'
+        ? { radar_kind: DEFAULT_WALLBOARD_WEATHER_RADAR_KIND }
       : type === 'calendar'
         ? { max_items: DEFAULT_WALLBOARD_CALENDAR_MAX_ITEMS }
       : type === 'kpi'
@@ -686,6 +690,7 @@ export function wallboardPageTypeLabel(type: WallboardPageType): string {
     case 'safety_notice': return 'Veiligheidsbericht';
     case 'quote': return 'Quote van de dag';
     case 'uav_forecast': return 'UAV Forecast';
+    case 'weather_radar': return 'Weerradar';
     case 'news': return 'Dronenieuws';
     case 'video': return 'Video';
     case 'photo_carousel': return 'Fotocarrousel';
@@ -878,7 +883,7 @@ function normalizeWallboardPage(
   page: WallboardPage,
   index: number,
 ): WallboardPage {
-  const type: WallboardPageType = ['map', 'incident_list', 'summary', 'kpi', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'news', 'video', 'photo_carousel'].includes(page.type)
+  const type: WallboardPageType = ['map', 'incident_list', 'summary', 'kpi', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'weather_radar', 'news', 'video', 'photo_carousel'].includes(page.type)
     ? page.type
     : 'map';
   const id = typeof page.id === 'string' && page.id.trim() !== '' ? page.id : `page-${index + 1}`;
@@ -909,6 +914,8 @@ function normalizeWallboardPage(
         ? { quotes: normalizeWallboardQuotes(page.options?.quotes) }
       : type === 'uav_forecast'
         ? normalizeWallboardForecastPageOptions(page)
+      : type === 'weather_radar'
+        ? { radar_kind: normalizeWallboardWeatherRadarKind(page.options?.radar_kind) }
       : type === 'calendar'
         ? { max_items: clampWallboardCalendarMaxItems(Number(page.options?.max_items)) }
       : type === 'kpi'
@@ -926,6 +933,10 @@ function normalizeWallboardPage(
     ...normalizedPage,
     duration_seconds: wallboardEffectivePageDuration(normalizedPage),
   };
+}
+
+export function normalizeWallboardWeatherRadarKind(value: unknown): WallboardWeatherRadarKind {
+  return value === 'lightning' ? 'lightning' : DEFAULT_WALLBOARD_WEATHER_RADAR_KIND;
 }
 
 export const MAX_WALLBOARD_QUOTES = 50;

@@ -20,6 +20,7 @@ final class WallboardPlaylistSynchronizer
         array $configuration,
         User $actor,
         ?string $dataMode = null,
+        ?string $purpose = null,
     ): void {
         $changes = [
             'configuration' => $configuration,
@@ -28,6 +29,9 @@ final class WallboardPlaylistSynchronizer
         ];
         if ($dataMode !== null) {
             $changes['data_mode'] = $dataMode;
+        }
+        if ($purpose !== null) {
+            $changes['purpose'] = $purpose;
         }
         $playlist->forceFill($changes)->save();
 

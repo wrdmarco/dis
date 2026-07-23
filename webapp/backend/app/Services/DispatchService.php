@@ -757,6 +757,8 @@ final class DispatchService
         ]);
         $this->revokeLocationConsentAfterNonAttendance($dispatch, $actor, $actor, $response);
         $this->auditService->record('dispatch.responded', $dispatch, $actor, [
+            'recipient_id' => $recipient->id,
+            'user_id' => $actor->id,
             'response' => $response,
             'action_mode' => $isTestAlert ? 'test_ack' : ($isPreannouncement ? 'availability' : 'attendance'),
         ]);
@@ -1537,39 +1539,48 @@ final class DispatchService
 
     private function transitionIncidentStatus(Incident $incident, User $actor, string $status, string $reason): void
     {
-        $incident->refresh();
-        if (in_array($incident->status, ['resolved', 'cancelled', $status], true)) {
-            return;
-        }
+        DB::transaction(function () use ($incident, $actor, $status, $reason): void {
+            $incident = Incident::query()
+                ->lockForUpdate()
+                ->find($incident->getKey());
+            if ($incident === null || in_array($incident->status, ['resolved', 'cancelled', $status], true)) {
+                return;
+            }
 
-        if ($status === 'dispatching' && ! in_array($incident->status, ['draft', 'active'], true)) {
-            return;
-        }
+            $transitionAllowed = match ($status) {
+                'dispatching' => in_array($incident->status, ['draft', 'active'], true),
+                'in_progress' => $incident->status === 'dispatching',
+                default => false,
+            };
+            if (! $transitionAllowed) {
+                return;
+            }
 
-        $previousStatus = $incident->status;
-        $incident->forceFill(['status' => $status])->save();
-        $incident->statusHistory()->create([
-            'from_status' => $previousStatus,
-            'to_status' => $status,
-            'changed_by' => $actor->id,
-            'changed_by_name' => $actor->name,
-            'changed_by_email' => $actor->email,
-            'reason' => $reason,
-            'created_at' => now(),
-        ]);
+            $previousStatus = $incident->status;
+            $incident->forceFill(['status' => $status])->save();
+            $incident->statusHistory()->create([
+                'from_status' => $previousStatus,
+                'to_status' => $status,
+                'changed_by' => $actor->id,
+                'changed_by_name' => $actor->name,
+                'changed_by_email' => $actor->email,
+                'reason' => $reason,
+                'created_at' => now(),
+            ]);
 
-        $this->auditService->record('incidents.status_auto_updated', $incident, $actor, [
-            'from_status' => $previousStatus,
-            'to_status' => $status,
-        ], $reason);
-        $this->broadcastIncidentChange($incident->refresh(), 'status_auto_updated');
+            $this->auditService->record('incidents.status_auto_updated', $incident, $actor, [
+                'from_status' => $previousStatus,
+                'to_status' => $status,
+            ], $reason);
+            $this->broadcastIncidentChange($incident->refresh(), 'status_auto_updated');
+        });
     }
 
     private function transitionIncidentToInProgressWhenEveryoneOnScene(DispatchRequest $dispatch, User $actor): void
     {
         $dispatch->loadMissing(['incident.dispatchRequests.recipients']);
         $incident = $dispatch->incident;
-        if ($incident === null || $incident->is_test || ! in_array($incident->status, ['active', 'dispatching'], true)) {
+        if ($incident === null || $incident->is_test || $incident->status !== 'dispatching') {
             return;
         }
 

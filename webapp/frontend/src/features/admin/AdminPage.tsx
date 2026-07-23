@@ -1252,7 +1252,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               />
               MFA verplichten voor alle gebruikers
             </label>
-            <p className="form-note form-grid__wide">Beheerders en coordinatoren met toegang tot de admin-app gebruiken altijd MFA, ook als deze algemene instelling uit staat.</p>
+            <p className="form-note form-grid__wide">Beheerders en coördinatoren met toegang tot webbeheer gebruiken altijd MFA, ook als deze algemene instelling uit staat.</p>
             <label>
               Authenticator naam
               <input
@@ -1723,10 +1723,10 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
             />
             <ConfigurableFormEditor
               fields={incidentFormFields}
-              description="Beheer extra variabele velden. De webapp en admin-app gebruiken deze velden; de operator-app krijgt het incidentformulier niet."
+              description="Beheer extra variabele velden voor de webapp. De Operator-app krijgt het incidentformulier niet."
               showPushExposure
               showOperatorAvailability={false}
-              availabilityHint="Incidentvelden zijn beschikbaar in webapp en admin-app. Ze worden niet naar de operator-app gestuurd."
+              availabilityHint="Incidentvelden zijn beschikbaar in de webapp. Ze worden niet naar de Operator-app gestuurd."
               onAdd={addIncidentFormField}
               onAddSection={addIncidentFormSection}
               onMove={moveIncidentFormField}

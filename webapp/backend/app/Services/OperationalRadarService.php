@@ -84,22 +84,40 @@ final class OperationalRadarService implements OperationalRadarProvider
     private function precipitationMetadata(array $metadata): array
     {
         $referenceTime = $this->timestamp($metadata['reference_time'] ?? null);
+        $refreshedAt = $this->timestamp($metadata['refreshed_at'] ?? null);
         $frames = $this->precipitationFrames($metadata['frames'] ?? null, $referenceTime);
         $atlas = $this->atlas($metadata['atlas'] ?? null, 5, 5, 25);
         $snapshotId = $this->snapshotId($metadata['snapshot_id'] ?? null);
-        $available = ($metadata['available'] ?? false) === true
-            && ($metadata['stale'] ?? true) === false
+        $stale = ($metadata['stale'] ?? false) === true;
+        $integral = (($metadata['available'] ?? false) === true || $stale)
             && $snapshotId !== null
             && $atlas !== null
             && count($frames) === 25;
+        $now = CarbonImmutable::now()->utc();
+        $reference = $referenceTime === null ? null : CarbonImmutable::parse($referenceTime)->utc();
+        $lastFrame = $frames === []
+            ? null
+            : CarbonImmutable::parse($frames[array_key_last($frames)]['valid_at'])->utc();
+        $future = $reference?->greaterThan($now->addMinutes(10)) ?? false;
+        $displayable = $integral
+            && ! $future
+            && (! $stale || ($lastFrame?->greaterThanOrEqualTo($now) ?? false));
+        $availabilityNote = $this->note($metadata['availability_note'] ?? null);
+        if ($integral && $stale && ! $displayable && ! $future) {
+            $availabilityNote = 'Alle tijdstappen van de laatst gevalideerde KNMI-radarverwachting zijn verstreken; de kaart wordt daarom niet meer getoond.';
+        }
 
         return $this->publicLayer(
             kind: 'precipitation',
-            available: $available,
-            stale: ($metadata['stale'] ?? false) === true,
+            available: $integral && ! $stale,
+            stale: $stale,
+            displayable: $displayable,
             snapshotId: $snapshotId,
             referenceTime: $referenceTime,
-            refreshedAt: $this->timestamp($metadata['refreshed_at'] ?? null),
+            observedPeriodEnd: null,
+            ageSeconds: $this->ageSeconds($referenceTime),
+            lagSeconds: $this->lagSeconds($referenceTime, $refreshedAt),
+            refreshedAt: $refreshedAt,
             atlas: $atlas,
             frames: $frames,
             fixedColumns: 5,
@@ -109,7 +127,7 @@ final class OperationalRadarService implements OperationalRadarProvider
                 'url' => 'https://dataplatform.knmi.nl/dataset/radar-forecast-2-0',
                 'license' => 'CC BY 4.0',
             ],
-            availabilityNote: $this->note($metadata['availability_note'] ?? null),
+            availabilityNote: $availabilityNote,
         );
     }
 
@@ -120,22 +138,34 @@ final class OperationalRadarService implements OperationalRadarProvider
     private function lightningMetadata(array $metadata): array
     {
         $referenceTime = $this->timestamp($metadata['latest_frame_at'] ?? null);
+        $refreshedAt = $this->timestamp($metadata['refreshed_at'] ?? null);
+        $observedPeriodEnd = $this->timestamp($metadata['observed_period_end'] ?? null);
+        if ($observedPeriodEnd === null && $referenceTime !== null) {
+            $observedPeriodEnd = CarbonImmutable::parse($referenceTime)
+                ->utc()
+                ->addMinutes(5)
+                ->toIso8601String();
+        }
         $frames = $this->lightningFrames($metadata['frames'] ?? null, $referenceTime);
         $atlas = $this->atlas($metadata['atlas'] ?? null, 4, 2, 7);
         $snapshotId = $this->snapshotId($metadata['snapshot_id'] ?? null);
-        $available = ($metadata['available'] ?? false) === true
-            && ($metadata['stale'] ?? true) === false
+        $stale = ($metadata['stale'] ?? false) === true;
+        $integral = (($metadata['available'] ?? false) === true || $stale)
             && $snapshotId !== null
             && $atlas !== null
             && count($frames) === 7;
 
         return $this->publicLayer(
             kind: 'lightning',
-            available: $available,
-            stale: ($metadata['stale'] ?? false) === true,
+            available: $integral && ! $stale,
+            stale: $stale,
+            displayable: $integral,
             snapshotId: $snapshotId,
             referenceTime: $referenceTime,
-            refreshedAt: $this->timestamp($metadata['refreshed_at'] ?? null),
+            observedPeriodEnd: $observedPeriodEnd,
+            ageSeconds: $this->ageSeconds($observedPeriodEnd),
+            lagSeconds: $this->lagSeconds($observedPeriodEnd, $refreshedAt),
+            refreshedAt: $refreshedAt,
             atlas: $atlas,
             frames: $frames,
             fixedColumns: 4,
@@ -159,8 +189,12 @@ final class OperationalRadarService implements OperationalRadarProvider
         string $kind,
         bool $available,
         bool $stale,
+        bool $displayable,
         ?string $snapshotId,
         ?string $referenceTime,
+        ?string $observedPeriodEnd,
+        ?int $ageSeconds,
+        ?int $lagSeconds,
         ?string $refreshedAt,
         ?array $atlas,
         array $frames,
@@ -169,11 +203,14 @@ final class OperationalRadarService implements OperationalRadarProvider
         array $source,
         ?string $availabilityNote,
     ): array {
-        $usable = $available && $snapshotId !== null && $atlas !== null;
+        $usable = $displayable && $snapshotId !== null && $atlas !== null;
 
         return [
-            'status' => $usable ? 'available' : ($stale ? 'stale' : 'unavailable'),
+            'status' => $available ? 'available' : ($stale ? 'stale' : 'unavailable'),
             'reference_time' => $referenceTime,
+            'observed_period_end' => $observedPeriodEnd,
+            'age_seconds' => $ageSeconds,
+            'lag_seconds' => $lagSeconds,
             'refreshed_at' => $refreshedAt,
             'atlas_url' => $usable
                 ? route('operational-weather.radar-atlas', [
@@ -278,7 +315,11 @@ final class OperationalRadarService implements OperationalRadarProvider
             if ($previous !== null && $current->getTimestamp() - $previous->getTimestamp() !== 300) {
                 return [];
             }
-            $frames[] = ['index' => $index, 'valid_at' => $validAt, 'lead_minutes' => 0];
+            $frames[] = [
+                'index' => $index,
+                'valid_at' => $validAt,
+                'lead_minutes' => ($index - 6) * 5,
+            ];
             $previous = $current;
         }
 
@@ -314,5 +355,33 @@ final class OperationalRadarService implements OperationalRadarProvider
     private function note(mixed $value): ?string
     {
         return is_string($value) && trim($value) !== '' ? trim($value) : null;
+    }
+
+    private function ageSeconds(?string $anchor): ?int
+    {
+        if ($anchor === null) {
+            return null;
+        }
+
+        return max(
+            0,
+            (int) CarbonImmutable::parse($anchor)
+                ->utc()
+                ->diffInSeconds(CarbonImmutable::now()->utc(), false),
+        );
+    }
+
+    private function lagSeconds(?string $anchor, ?string $refreshedAt): ?int
+    {
+        if ($anchor === null || $refreshedAt === null) {
+            return null;
+        }
+
+        return max(
+            0,
+            (int) CarbonImmutable::parse($anchor)
+                ->utc()
+                ->diffInSeconds(CarbonImmutable::parse($refreshedAt)->utc(), false),
+        );
     }
 }

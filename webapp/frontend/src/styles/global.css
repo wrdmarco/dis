@@ -4967,16 +4967,38 @@ select[multiple] {
   font-size: 0.78rem;
 }
 
-.incident-timeline__item div {
+.incident-timeline__content {
   display: grid;
   gap: 5px;
+  min-width: 0;
 }
 
-.incident-timeline__item span {
+.incident-timeline__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.incident-timeline__type {
   color: #7dd3fc;
   font-size: 0.78rem;
   font-weight: 700;
   text-transform: uppercase;
+}
+
+.incident-timeline__actor {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #aebdd0;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.incident-timeline__actor svg {
+  flex: 0 0 auto;
+  color: #8ea0b5;
 }
 
 .incident-timeline__item strong {
@@ -5223,7 +5245,7 @@ a,
 .recipient-chip strong,
 .push-summary strong,
 .drone-flight-links a,
-.incident-timeline__item span,
+.incident-timeline__type,
 .public-link {
   color: var(--dis-blue);
 }
@@ -6488,11 +6510,22 @@ textarea:focus {
   display: flex !important;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .wallboard-playlist-selector-label > span:first-child {
   min-width: 0;
+}
+
+.wallboard-playlist-selector-label__pills {
+  min-width: 0;
+  display: inline-flex !important;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
 }
 
 .wallboard-playlist-selector-warning {
@@ -9222,6 +9255,18 @@ textarea:focus {
 
 .wallboard-display__content--with-list {
   grid-template-columns: minmax(0, 1fr) minmax(280px, 24vw);
+}
+
+.wallboard-display__weather-radar {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 78% 18%, rgba(56, 189, 248, 0.08), transparent 34%),
+    var(--dis-bg);
+  padding: clamp(12px, 1.35vw, 34px);
 }
 
 .wallboard-display__message {
@@ -14144,9 +14189,17 @@ pre {
 :root[data-theme="light"] .recipient-chip strong,
 :root[data-theme="light"] .push-summary strong,
 :root[data-theme="light"] .drone-flight-links a,
-:root[data-theme="light"] .incident-timeline__item span,
+:root[data-theme="light"] .incident-timeline__type,
 :root[data-theme="light"] .public-link {
   color: var(--dis-blue);
+}
+
+:root[data-theme="light"] .incident-timeline__actor {
+  color: #43576e;
+}
+
+:root[data-theme="light"] .incident-timeline__actor svg {
+  color: #6a7f98;
 }
 
 :root[data-theme="light"] .incident-card:hover {

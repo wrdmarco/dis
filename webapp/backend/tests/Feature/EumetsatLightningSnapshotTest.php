@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
-use App\Jobs\RefreshEumetsatLightningSnapshot;
+use App\Contracts\OperationalRadarProvider;
+use App\Jobs\RefreshWeatherDatasetOperation;
 use App\Repositories\EumetsatLightningSnapshotRepository;
+use App\Services\AdminKnmiDatasetService;
 use App\Services\EumetsatLightningImportException;
 use App\Services\EumetsatLightningImportService;
 use App\Services\EumetsatLightningRadarService;
@@ -13,8 +15,10 @@ use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory as HttpClientFactory;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -22,6 +26,8 @@ use Tests\TestCase;
 
 final class EumetsatLightningSnapshotTest extends TestCase
 {
+    use RefreshDatabase;
+
     private const ENDPOINT = 'https://view.eumetsat.int/geoserver/wms';
 
     private string $storageRoot;
@@ -30,6 +36,7 @@ final class EumetsatLightningSnapshotTest extends TestCase
     {
         parent::setUp();
         CarbonImmutable::setTestNow('2026-07-21T12:18:00Z');
+        Cache::flush();
         $this->storageRoot = storage_path('framework/testing/eumetsat-lightning-'.str()->lower((string) str()->ulid()));
         File::makeDirectory($this->storageRoot, 0770, true);
         config()->set([
@@ -51,7 +58,7 @@ final class EumetsatLightningSnapshotTest extends TestCase
             'dis.eumetsat_lightning.maximum_capabilities_bytes' => 1_048_576,
             'dis.eumetsat_lightning.maximum_frame_bytes' => 4_194_304,
             'dis.eumetsat_lightning.maximum_atlas_bytes' => 33_554_432,
-            'dis.eumetsat_lightning.maximum_age_seconds' => 900,
+            'dis.eumetsat_lightning.maximum_age_seconds' => 1800,
             'dis.eumetsat_lightning.retain_releases' => 2,
             'dis.eumetsat_lightning.source_name' => 'EUMETSAT MTG Lightning Imager',
             'dis.eumetsat_lightning.source_url' => 'https://view.eumetsat.int/',
@@ -73,14 +80,15 @@ final class EumetsatLightningSnapshotTest extends TestCase
 
         $this->artisan('dis:refresh-eumetsat-lightning')->assertSuccessful();
 
-        Queue::assertPushed(RefreshEumetsatLightningSnapshot::class, function ($job): bool {
+        Queue::assertPushed(RefreshWeatherDatasetOperation::class, function ($job): bool {
             $this->assertInstanceOf(ShouldBeEncrypted::class, $job);
             $this->assertInstanceOf(ShouldBeUnique::class, $job);
             $this->assertSame('knmi_realtime', $job->connection);
             $this->assertSame('knmi-realtime', $job->queue);
-            $this->assertSame(120, $job->timeout);
-            $this->assertSame(600, $job->uniqueFor);
-            $this->assertSame('eumetsat-lightning-radar', $job->uniqueId());
+            $this->assertSame(1200, $job->timeout);
+            $this->assertSame(1800, $job->uniqueFor);
+            $this->assertGreaterThan($job->timeout, (int) config('queue.connections.knmi_realtime.retry_after'));
+            $this->assertStringStartsWith('weather-dataset:', $job->uniqueId());
 
             return true;
         });
@@ -110,6 +118,8 @@ final class EumetsatLightningSnapshotTest extends TestCase
         $this->assertSame('2026-07-21T12:15:00+00:00', $result['reference_time']);
         $this->assertMatchesRegularExpression('/\A20260721T121500Z-[a-f0-9]{16}\z/D', $result['snapshot_id']);
         $snapshot = app(EumetsatLightningSnapshotRepository::class)->activeSnapshot();
+        $metadata = app(EumetsatLightningRadarService::class)->metadata();
+        $public = app(OperationalRadarProvider::class)->metadata()['lightning'];
         $this->assertIsArray($snapshot);
         $this->assertCount(7, $snapshot['frames']);
         $this->assertSame('2026-07-21T11:45:00+00:00', $snapshot['frames'][0]);
@@ -120,6 +130,15 @@ final class EumetsatLightningSnapshotTest extends TestCase
         $this->assertSame(768, $snapshot['atlas']['height']);
         $this->assertSame('EUMETSAT MTG Lightning Imager', $snapshot['source']['name']);
         $this->assertStringContainsString('vrije EUMETView-toegang', $snapshot['license']['name']);
+        $this->assertTrue($metadata['available']);
+        $this->assertFalse($metadata['stale']);
+        $this->assertSame('2026-07-21T12:20:00+00:00', $metadata['observed_period_end']);
+        $this->assertSame(0, $metadata['age_seconds']);
+        $this->assertSame(0, $metadata['lag_seconds']);
+        $this->assertSame('available', $public['status']);
+        $this->assertSame('2026-07-21T12:20:00+00:00', $public['observed_period_end']);
+        $this->assertSame(-30, $public['frames'][0]['lead_minutes']);
+        $this->assertSame(0, $public['frames'][6]['lead_minutes']);
         $this->assertFileExists($this->storageRoot.'/active.json');
         $this->assertSame([], glob($this->storageRoot.'/staging/*') ?: []);
         $atlas = imagecreatefrompng($snapshot['path']);
@@ -234,8 +253,9 @@ final class EumetsatLightningSnapshotTest extends TestCase
         $this->assertSame([], glob($this->storageRoot.'/staging/*') ?: []);
     }
 
-    public function test_remote_failure_rolls_back_and_stale_or_tampered_snapshot_fails_closed(): void
+    public function test_remote_failure_rolls_back_and_stale_snapshot_has_a_bounded_last_known_good_fallback(): void
     {
+        CarbonImmutable::setTestNow('2026-07-21T12:06:00Z');
         $previous = $this->seedSnapshot(CarbonImmutable::parse('2026-07-21T12:00:00Z'));
         CarbonImmutable::setTestNow('2026-07-21T12:08:00Z');
         $capabilities = $this->capabilities('2026-07-21T12:05:00.000Z');
@@ -255,26 +275,49 @@ final class EumetsatLightningSnapshotTest extends TestCase
         $this->assertSame($previous['snapshot_id'], $active['snapshot_id']);
         $this->assertSame([], glob($this->storageRoot.'/staging/*') ?: []);
 
-        CarbonImmutable::setTestNow('2026-07-21T12:15:01Z');
+        CarbonImmutable::setTestNow('2026-07-21T12:35:01Z');
         $service = app(EumetsatLightningRadarService::class);
         $stale = $service->metadata();
         $this->assertFalse($stale['available']);
         $this->assertTrue($stale['stale']);
-        $this->assertNull($stale['snapshot_id']);
+        $this->assertSame($previous['snapshot_id'], $stale['snapshot_id']);
         $this->assertSame($previous['latest_frame_at'], $stale['latest_frame_at']);
+        $this->assertSame('2026-07-21T12:05:00+00:00', $stale['observed_period_end']);
+        $this->assertSame(1801, $stale['age_seconds']);
         $this->assertSame($previous['activated_at'], $stale['refreshed_at']);
-        $this->assertSame([], $stale['frames']);
-        $this->assertNull($stale['atlas']);
-        $this->assertStringContainsString('onbekend', $stale['availability_note']);
-        $this->assertStringContainsString('ouder dan 15 minuten', $stale['availability_note']);
+        $this->assertCount(7, $stale['frames']);
+        $this->assertIsArray($stale['atlas']);
+        $this->assertStringContainsString('terugval', $stale['availability_note']);
+        $this->assertStringContainsString('ouder dan 30 minuten', $stale['availability_note']);
+        $this->assertIsArray($service->file($previous['snapshot_id']));
+        $publicStale = app(OperationalRadarProvider::class)->metadata()['lightning'];
+        $this->assertSame('stale', $publicStale['status']);
+        $this->assertStringContainsString($previous['snapshot_id'], $publicStale['atlas_url']);
+        $this->assertSame(-30, $publicStale['frames'][0]['lead_minutes']);
+        $inventory = collect(app(AdminKnmiDatasetService::class)->datasets())
+            ->firstWhere('key', 'eumetsat_mtg_li');
+        $this->assertIsArray($inventory);
+        $this->assertSame('stale', $inventory['status']);
+
+        CarbonImmutable::setTestNow('2026-07-21T14:05:01Z');
+        $expired = $service->metadata();
+        $this->assertFalse($expired['available']);
+        $this->assertTrue($expired['stale']);
+        $this->assertNull($expired['snapshot_id']);
+        $this->assertNull($expired['atlas']);
+        $this->assertSame([], $expired['frames']);
+        $this->assertStringContainsString('ouder dan twee uur', $expired['availability_note']);
         $this->assertNull($service->file($previous['snapshot_id']));
 
-        CarbonImmutable::setTestNow('2026-07-21T12:01:00Z');
+        CarbonImmutable::setTestNow('2026-07-21T12:07:00Z');
         $path = $previous['path'];
+        $mtime = filemtime($path);
         $body = file_get_contents($path);
+        $this->assertIsInt($mtime);
         $offset = strlen($body) - 20;
         $body[$offset] = $body[$offset] === 'x' ? 'y' : 'x';
         file_put_contents($path, $body, LOCK_EX);
+        $this->assertTrue(touch($path, $mtime + 2));
         clearstatcache(true, $path);
         $tampered = $service->metadata();
         $this->assertFalse($tampered['available']);
@@ -329,18 +372,64 @@ final class EumetsatLightningSnapshotTest extends TestCase
         $this->assertNull($service->file($first['snapshot_id']));
         $this->assertIsArray($service->file($second['snapshot_id']));
 
-        CarbonImmutable::setTestNow('2026-07-21T12:21:00Z');
+        CarbonImmutable::setTestNow('2026-07-21T14:10:01Z');
         $this->assertNull($service->file($second['snapshot_id']));
         $this->assertIsArray($service->file($third['snapshot_id']));
 
         CarbonImmutable::setTestNow('2026-07-21T12:11:00Z');
+        $previousMtime = filemtime($second['path']);
         $previousBody = file_get_contents($second['path']);
+        $this->assertIsInt($previousMtime);
         $previousOffset = strlen($previousBody) - 20;
         $previousBody[$previousOffset] = $previousBody[$previousOffset] === 'x' ? 'y' : 'x';
         file_put_contents($second['path'], $previousBody, LOCK_EX);
+        $this->assertTrue(touch($second['path'], $previousMtime + 2));
         clearstatcache(true, $second['path']);
         $this->assertNull($service->file($second['snapshot_id']));
         $this->assertIsArray($service->file($third['snapshot_id']));
+    }
+
+    public function test_unchanged_atlas_integrity_is_cached_and_a_stat_change_forces_revalidation(): void
+    {
+        CarbonImmutable::setTestNow('2026-07-21T12:06:00Z');
+        $snapshot = $this->seedSnapshot(CarbonImmutable::parse('2026-07-21T12:00:00Z'));
+        $atlasPath = $snapshot['path'];
+        $cachedValues = [];
+        $atlasValidationRuns = 0;
+        Cache::shouldReceive('remember')
+            ->atLeast()
+            ->once()
+            ->andReturnUsing(static function (
+                string $key,
+                mixed $ttl,
+                callable $resolver,
+            ) use (&$cachedValues, &$atlasValidationRuns): mixed {
+                unset($ttl);
+                if (! array_key_exists($key, $cachedValues)) {
+                    $atlasValidationRuns++;
+                    $cachedValues[$key] = $resolver();
+                }
+
+                return $cachedValues[$key];
+            });
+
+        $service = app(EumetsatLightningRadarService::class);
+        $this->assertTrue($service->metadata()['available']);
+        $this->assertIsArray($service->file($snapshot['snapshot_id']));
+        $this->assertSame(1, $atlasValidationRuns);
+
+        $originalMtime = filemtime($atlasPath);
+        $contents = file_get_contents($atlasPath);
+        $this->assertIsInt($originalMtime);
+        $this->assertIsString($contents);
+        $contents[strlen($contents) - 20] = $contents[strlen($contents) - 20] === 'x' ? 'y' : 'x';
+        $this->assertSame(strlen($contents), file_put_contents($atlasPath, $contents, LOCK_EX));
+        $this->assertTrue(touch($atlasPath, $originalMtime + 2));
+        clearstatcache(true, $atlasPath);
+
+        $this->assertFalse($service->metadata()['available']);
+        $this->assertNull($service->file($snapshot['snapshot_id']));
+        $this->assertSame(2, $atlasValidationRuns);
     }
 
     public function test_future_metadata_preserves_timestamps_but_remains_unusable_with_distinct_note(): void
@@ -360,7 +449,7 @@ final class EumetsatLightningSnapshotTest extends TestCase
         $this->assertSame([], $metadata['frames']);
         $this->assertNull($metadata['atlas']);
         $this->assertStringContainsString('toekomst', $metadata['availability_note']);
-        $this->assertStringNotContainsString('ouder dan 15 minuten', $metadata['availability_note']);
+        $this->assertStringNotContainsString('ouder dan 30 minuten', $metadata['availability_note']);
         $this->assertNull($service->file($future['snapshot_id']));
     }
 
@@ -379,7 +468,7 @@ final class EumetsatLightningSnapshotTest extends TestCase
         $this->assertSame('EUMETSAT MTG Lightning Imager', $invalidFreshnessConfig['source']['name']);
         $this->assertNull($service->file($snapshot['snapshot_id']));
 
-        config()->set('dis.eumetsat_lightning.maximum_age_seconds', 900);
+        config()->set('dis.eumetsat_lightning.maximum_age_seconds', 1800);
         config()->set('dis.eumetsat_lightning.atlas_columns', 3);
         config()->set('dis.eumetsat_lightning.source_name', 'Onbetrouwbare bron');
         $this->assertNull($repository->activeSnapshot());

@@ -80,6 +80,11 @@ Route::get('/wallboard/media/{asset}', [WallboardMediaController::class, 'conten
     ->whereUlid('asset')
     ->middleware(['wallboard.auth', 'throttle:wallboard-media-read'])
     ->name('wallboard-media.content');
+Route::get('/wallboard/weather-radar/{kind}/{snapshot}.png', [WallboardController::class, 'weatherRadarAtlas'])
+    ->where('kind', 'precipitation|lightning')
+    ->where('snapshot', '\\d{8}T\\d{6}Z-[a-f0-9]{16}')
+    ->middleware(['wallboard.auth', 'throttle:wallboard-media-read'])
+    ->name('wallboard.weather-radar-atlas');
 Route::post('/auth/mobile-pairing/consume', [MobilePairingController::class, 'consume'])->middleware('throttle:mobile-pairing');
 Route::post('/auth/password/forgot', [PasswordController::class, 'forgot'])->middleware('throttle:password-reset');
 Route::post('/auth/password/reset', [PasswordController::class, 'reset'])->middleware('throttle:password-reset');
@@ -438,11 +443,24 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
             ->middleware(['permission:settings.manage', 'throttle:speech-admin-write']);
         Route::get('/admin/knmi', [AdminKnmiController::class, 'show'])
             ->middleware(['permission:settings.manage', 'throttle:knmi-admin-read']);
+        Route::get('/admin/knmi/catalog', [AdminKnmiController::class, 'catalog'])
+            ->middleware(['permission:settings.manage', 'throttle:knmi-admin-read']);
         Route::patch('/admin/knmi', [AdminKnmiController::class, 'update'])
             ->middleware(['permission:settings.manage', 'throttle:knmi-admin-write']);
         Route::post('/admin/knmi/refresh', [AdminKnmiController::class, 'refresh'])
             ->middleware(['permission:settings.manage', 'throttle:knmi-admin-write']);
         Route::post('/admin/knmi/precipitation/refresh', [AdminKnmiController::class, 'refreshPrecipitation'])
+            ->middleware(['permission:settings.manage', 'throttle:knmi-admin-write']);
+        Route::post('/admin/knmi/datasets/{dataset}/refresh', [AdminKnmiController::class, 'refreshDataset'])
+            ->where('dataset', implode('|', [
+                'harmonie_arome_cy43_p1',
+                'radar_forecast',
+                'seamless_precipitation_ensemble_forecast_probabilities',
+                'knmi_edr_observations',
+                'eumetsat_mtg_li',
+                'open_meteo',
+                'noaa_swpc_kp',
+            ]))
             ->middleware(['permission:settings.manage', 'throttle:knmi-admin-write']);
         Route::get('/admin/store-review/status', [AdminStoreReviewController::class, 'status'])->middleware('permission:settings.manage');
         Route::patch('/admin/store-review/accounts/{platform}', [AdminStoreReviewController::class, 'updateAccount'])->middleware(['permission:settings.manage', 'throttle:api']);

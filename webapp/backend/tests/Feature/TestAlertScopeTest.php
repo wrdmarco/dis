@@ -263,7 +263,7 @@ final class TestAlertScopeTest extends TestCase
         $this->grant($actor, ['incidents.dispatch.manage'], operator: false, admin: true);
         $pendingToken = $actor->createToken(
             'Pending test alert client',
-            ['2fa:pending', 'client:admin'],
+            ['2fa:pending', 'client:web'],
             now()->addMinutes(5),
         )->plainTextToken;
 

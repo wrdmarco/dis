@@ -105,10 +105,10 @@ final class WebSessionSecurityTest extends TestCase
             ->assertJsonPath('error.code', 'stateful_web_session_required');
     }
 
-    public function test_pending_mobile_two_factor_token_cannot_authorize_broadcast_channels(): void
+    public function test_pending_bearer_two_factor_token_cannot_authorize_broadcast_channels(): void
     {
         $user = $this->user('pending-broadcast@example.test', mfaEnabled: true);
-        $token = $user->createToken('DIS Admin Android', ['2fa:pending', 'client:admin'])->plainTextToken;
+        $token = $user->createToken('DIS Web Pending', ['2fa:pending', 'client:web'])->plainTextToken;
 
         $this->withToken($token)
             ->postJson('/api/broadcasting/auth', [

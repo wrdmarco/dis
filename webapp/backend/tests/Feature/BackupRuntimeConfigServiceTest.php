@@ -302,7 +302,7 @@ final class BackupRuntimeConfigServiceTest extends TestCase
 
     private function asAdminClient(User $user): static
     {
-        $token = $user->createToken('Backup configuration test', ['*', 'client:admin'], now()->addHour())->plainTextToken;
+        $token = $user->createToken('Backup configuration test', ['*', 'client:web'], now()->addHour())->plainTextToken;
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);

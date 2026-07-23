@@ -632,9 +632,11 @@ export function ProfilePage() {
             <strong>Gekoppelde toestellen</strong>
             <p>Beheer de mobiele toestellen die pushmeldingen voor jouw account mogen ontvangen.</p>
           </div>
-          <button className="primary-button" type="button" onClick={openAddDeviceModal}>
-            <Plus size={16} /> Toestel toevoegen
-          </button>
+          {pairingOptions.length > 0 ? (
+            <button className="primary-button" type="button" onClick={openAddDeviceModal}>
+              <Plus size={16} /> Operator-toestel toevoegen
+            </button>
+          ) : null}
         </div>
         {deviceError ? <p className="form-error">{deviceError}</p> : null}
         {deviceMessage ? <p className="form-note">{deviceMessage}</p> : null}
@@ -661,7 +663,7 @@ export function ProfilePage() {
             </header>
             <div className="device-pairing-body">
               {pairingOptions.length === 0 ? (
-                <p className="form-error">Je account heeft geen toegang tot de mobiele operator- of admin app.</p>
+                <p className="form-error">Je account heeft geen toegang tot de mobiele Operator-app.</p>
               ) : (
                 <>
                   <div className="device-pairing-intro">
@@ -1157,15 +1159,10 @@ function DeviceCards({
 function pairingClientOptions(user?: User | null): PairingClientOption[] {
   const roles = user?.roles ?? [];
   const canUseOperatorApp = roles.some((role) => role.can_use_operator_app);
-  const canUseAdminApp = roles.some((role) => role.can_use_admin_app);
   const options: PairingClientOption[] = [];
 
   if (canUseOperatorApp) {
-    options.push({ value: 'operator', label: 'Operator app', description: 'Voor de operationele app op Android en iPhone.' });
-  }
-
-  if (canUseAdminApp) {
-    options.push({ value: 'admin', label: 'Admin app', description: 'Voor de mobiele admin app op Android en iPhone.' });
+    options.push({ value: 'operator', label: 'Operator-app', description: 'Voor de operationele app op Android en iPhone.' });
   }
 
   return options;
@@ -1195,9 +1192,9 @@ function deviceTypeLabel(type?: string | null): string {
 function deviceClientLabel(clientType?: string | null): string {
   switch (clientType) {
     case 'admin':
-      return 'Admin app';
+      return 'Admin-app (verouderd)';
     case 'operator':
-      return 'Operator app';
+      return 'Operator-app';
     default:
       return clientType ?? 'App';
   }

@@ -169,7 +169,12 @@ final class EumetsatLightningConfiguration
 
     public function maximumAgeSeconds(): int
     {
-        return $this->fixedInt('maximum_age_seconds', 900);
+        return $this->fixedInt('maximum_age_seconds', 1800);
+    }
+
+    public function maximumFallbackAgeSeconds(): int
+    {
+        return $this->maximumAgeSeconds() * 4;
     }
 
     public function retainReleases(): int

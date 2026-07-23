@@ -84,7 +84,7 @@ final class ExternalApiSettingsTest extends TestCase
     {
         $token = $user->createToken(
             'External API settings test',
-            ['*', 'client:admin'],
+            ['*', 'client:web'],
             now()->addHour(),
         )->plainTextToken;
         Auth::forgetGuards();

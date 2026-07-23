@@ -5,6 +5,7 @@ namespace App\Repositories;
 use App\Services\EumetsatLightningConfiguration;
 use App\Services\EumetsatLightningImportException;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use JsonException;
 use Throwable;
@@ -14,6 +15,8 @@ final class EumetsatLightningSnapshotRepository
     private const MANIFEST_VERSION = 1;
 
     private const MAX_MANIFEST_BYTES = 32_768;
+
+    private const INTEGRITY_CACHE_SECONDS = 300;
 
     public function __construct(private readonly EumetsatLightningConfiguration $configuration) {}
 
@@ -156,20 +159,45 @@ final class EumetsatLightningSnapshotRepository
             || is_link($candidate)
             || ! is_file($realAtlas)
             || ! is_readable($realAtlas)
-            || ! hash_equals($this->normalize($releaseRoot), $this->normalize(dirname($realAtlas)))
-            || filesize($realAtlas) !== $manifest['atlas']['size_bytes']) {
+            || ! hash_equals($this->normalize($releaseRoot), $this->normalize(dirname($realAtlas)))) {
             return null;
         }
-        $signature = @file_get_contents($realAtlas, false, null, 0, 8);
-        $dimensions = @getimagesize($realAtlas);
-        $sha256 = @hash_file('sha256', $realAtlas);
-        if ($signature !== "\x89PNG\r\n\x1a\n"
-            || ! is_array($dimensions)
-            || ($dimensions[0] ?? null) !== $this->configuration->atlasWidth()
-            || ($dimensions[1] ?? null) !== $this->configuration->atlasHeight()
-            || ($dimensions[2] ?? null) !== IMAGETYPE_PNG
-            || ! is_string($sha256)
-            || ! hash_equals($manifest['atlas']['sha256'], $sha256)) {
+        $atlasStat = @stat($realAtlas);
+        if (! is_array($atlasStat)
+            || ! is_int($atlasStat['dev'] ?? null)
+            || ! is_int($atlasStat['ino'] ?? null)
+            || ! is_int($atlasStat['mtime'] ?? null)
+            || ! is_int($atlasStat['ctime'] ?? null)
+            || ! is_int($atlasStat['size'] ?? null)
+            || $atlasStat['size'] !== $manifest['atlas']['size_bytes']) {
+            return null;
+        }
+        $integrityKey = 'eumetsat:lightning:integrity:'
+            .$manifest['snapshot_id'].':atlas:'.implode(':', [
+                $atlasStat['dev'],
+                $atlasStat['ino'],
+                $atlasStat['mtime'],
+                $atlasStat['ctime'],
+                $atlasStat['size'],
+            ]);
+        $validAtlas = Cache::remember(
+            $integrityKey,
+            self::INTEGRITY_CACHE_SECONDS,
+            function () use ($realAtlas, $manifest): bool {
+                $signature = @file_get_contents($realAtlas, false, null, 0, 8);
+                $dimensions = @getimagesize($realAtlas);
+                $sha256 = @hash_file('sha256', $realAtlas);
+
+                return $signature === "\x89PNG\r\n\x1a\n"
+                    && is_array($dimensions)
+                    && ($dimensions[0] ?? null) === $this->configuration->atlasWidth()
+                    && ($dimensions[1] ?? null) === $this->configuration->atlasHeight()
+                    && ($dimensions[2] ?? null) === IMAGETYPE_PNG
+                    && is_string($sha256)
+                    && hash_equals($manifest['atlas']['sha256'], $sha256);
+            },
+        );
+        if ($validAtlas !== true) {
             return null;
         }
 

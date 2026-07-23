@@ -76,7 +76,10 @@ import type {
   WallboardTickerItem,
   WallboardTransientAlert,
 } from '../../types/api';
-import { normalizeWallboardForecastState } from '../weather/forecastNormalization';
+import {
+  normalizeOperationalWeatherRadarState,
+  normalizeWallboardForecastState,
+} from '../weather/forecastNormalization';
 import {
   forecastAdvice,
   forecastAggregationLabel,
@@ -99,6 +102,7 @@ import {
   normalizeWallboardFlipDirection,
   normalizeWallboardKpiPageOptions,
   normalizeWallboardNewsItemTransition,
+  normalizeWallboardWeatherRadarKind,
   resolveWallboardFlipDirection,
   selectRecentWallboardIncidents,
   selectWallboardDailyQuote,
@@ -122,6 +126,7 @@ import {
   normalizeWallboardPlaylistDataMode,
   wallboardPlaylistDataModeNeedsRefresh,
 } from './wallboardPlaylistDataMode';
+import { normalizeWallboardPlaylistPurpose } from './wallboardPlaylistPurpose';
 import { WallboardRichText, wallboardRichTextCharacterCount } from './WallboardRichText';
 import { normalizeWallboardMediaPageStates } from './wallboardMedia';
 import { wallboardPhotoCarouselAnchorFromDeadline } from './wallboardPhotoRotation';
@@ -159,6 +164,10 @@ export { normalizeWallboardForecastState } from '../weather/forecastNormalizatio
 const wallboardApi = new ApiClient({ baseUrl: apiBaseUrl, onUnauthenticated: () => undefined });
 const WallboardPhotoCarousel = dynamic(
   () => import('./WallboardPhotoCarousel').then((module) => module.WallboardPhotoCarousel),
+  { ssr: false },
+);
+const WeatherRadarSection = dynamic(
+  () => import('../weather/WeatherRadarSection').then((module) => module.WeatherRadarSection),
   { ssr: false },
 );
 const WallboardPreloadScreen = dynamic(
@@ -380,6 +389,7 @@ export function WallboardDisplayPage() {
   const precacheManifestRef = useRef<ReturnType<typeof wallboardPrecacheManifest> | null>(null);
   const precachePagesRef = useRef<WallboardPage[]>([]);
   const lastPrecacheWallboardKeyRef = useRef<string | null>(null);
+  const lastReadyBlockingPrecacheVersionRef = useRef<string | null>(null);
   const precacheClientSessionTokenRef = useRef(createWallboardPrecacheClientSessionToken());
   const precacheCommandGenerationRef = useRef(Date.now());
   const [sessionStatus, setSessionStatus] = useState<'checking' | 'unpaired' | 'paired'>('checking');
@@ -726,6 +736,7 @@ export function WallboardDisplayPage() {
           precacheCommandGenerationRef.current,
         );
         if (cancelled || controller.signal.aborted) return;
+        lastReadyBlockingPrecacheVersionRef.current = manifest.blockingContentVersion;
         setPreload(wallboardPreloadRuntimeState(result, manifest, pages, 'ready'));
       } catch {
         if (cancelled || controller.signal.aborted) return;
@@ -752,6 +763,7 @@ export function WallboardDisplayPage() {
     const previousClientSessionToken = precacheClientSessionTokenRef.current;
     precacheClientSessionTokenRef.current = createWallboardPrecacheClientSessionToken();
     setPreload(initialWallboardPreloadRuntimeState());
+    lastReadyBlockingPrecacheVersionRef.current = null;
     precacheAttemptCountsRef.current.clear();
     precacheCommandGenerationRef.current += 1;
     void disableWallboardPrecache({
@@ -1018,9 +1030,13 @@ export function WallboardDisplayPage() {
     && !(transientAlert?.is_test === true && state.operational_summary.active_alarm !== null);
   const showFocus = focus?.visible === true;
   const playlistActive = maintenance === null && !showFocus && !showTransientAlert;
-  const precacheReady = precacheManifest !== null
+  const precacheCurrentVersionReady = precacheManifest !== null
     && preload.status === 'ready'
     && preload.contentVersion === precacheManifest.contentVersion;
+  const precacheReady = precacheCurrentVersionReady || (
+    precacheManifest !== null
+    && lastReadyBlockingPrecacheVersionRef.current === precacheManifest.blockingContentVersion
+  );
   const precacheBlocksPlaylist = wallboardPrecacheBlocksPlaylist({
     maintenanceActive: maintenance !== null,
     focusVisible: showFocus,
@@ -1579,6 +1595,19 @@ function WallboardPageContent({
 
   if (page.type === 'uav_forecast') {
     return <WallboardForecastPage page={page} forecast={state.forecast.pages[page.id]} />;
+  }
+
+  if (page.type === 'weather_radar') {
+    return (
+      <div className="wallboard-display__weather-radar">
+        <WeatherRadarSection
+          radar={state.weather_radar ?? { precipitation: null, lightning: null }}
+          lockedKind={normalizeWallboardWeatherRadarKind(page.options.radar_kind)}
+          active={running}
+          wallboard
+        />
+      </div>
+    );
   }
 
   if (page.type === 'kpi') {
@@ -3142,6 +3171,7 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
     media?: unknown;
     kpi?: unknown;
     forecast?: unknown;
+    weather_radar?: unknown;
   };
   const operationalSummary = rawState.operational_summary;
   const hasFocusContract = operationalSummary !== undefined
@@ -3154,6 +3184,7 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
     data_mode?: unknown;
     runtime_playlist_id?: unknown;
     runtime_playlist_version?: unknown;
+    runtime_playlist_purpose?: unknown;
     active_incident_playlist?: unknown;
   };
   const fallbackMode: WallboardDisplayMode = !configuration.rotation_enabled || configuration.pages.length <= 1 ? 'static' : 'rotation';
@@ -3187,6 +3218,7 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
     },
     kpi: normalizeWallboardKpiState(rawState.kpi),
     forecast: normalizeWallboardForecastState(rawState.forecast),
+    weather_radar: normalizeOperationalWeatherRadarState(rawState.weather_radar),
     wallboard: {
       ...state.wallboard,
       data_mode: normalizeWallboardPlaylistDataMode(rawWallboard.data_mode),
@@ -3196,6 +3228,7 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
       refresh_version: nonNegativeRefreshVersion(rawWallboard.refresh_version),
       runtime_playlist_id: normalizeRuntimePlaylistId(rawWallboard.runtime_playlist_id),
       runtime_playlist_version: nonNegativeRefreshVersion(rawWallboard.runtime_playlist_version),
+      runtime_playlist_purpose: normalizeWallboardPlaylistPurpose(rawWallboard.runtime_playlist_purpose),
       active_incident_playlist: rawWallboard.active_incident_playlist === true,
       display: { ...display, page_id: pageId },
     },
@@ -3474,6 +3507,7 @@ export function controlFromState(state: WallboardState): WallboardControlState {
     refresh_version: state.wallboard.refresh_version,
     runtime_playlist_id: normalizeRuntimePlaylistId(state.wallboard.runtime_playlist_id),
     runtime_playlist_version: nonNegativeRefreshVersion(state.wallboard.runtime_playlist_version),
+    runtime_playlist_purpose: normalizeWallboardPlaylistPurpose(state.wallboard.runtime_playlist_purpose),
     active_incident_playlist: state.wallboard.active_incident_playlist === true,
     display_profile: normalizeWallboardDisplayProfile(state.wallboard.display_profile),
     transient_alert: state.operational_summary.transient_alert,
@@ -3499,6 +3533,7 @@ function normalizeWallboardControlState(state: WallboardControlState): Wallboard
     focus?: WallboardFocusState | null;
     runtime_playlist_id?: unknown;
     runtime_playlist_version?: unknown;
+    runtime_playlist_purpose?: unknown;
     active_incident_playlist?: unknown;
   };
   const hasFocusContract = Object.prototype.hasOwnProperty.call(legacyState, 'focus');
@@ -3510,6 +3545,7 @@ function normalizeWallboardControlState(state: WallboardControlState): Wallboard
     refresh_version: nonNegativeRefreshVersion(legacyState.refresh_version),
     runtime_playlist_id: normalizeRuntimePlaylistId(legacyState.runtime_playlist_id),
     runtime_playlist_version: nonNegativeRefreshVersion(legacyState.runtime_playlist_version),
+    runtime_playlist_purpose: normalizeWallboardPlaylistPurpose(legacyState.runtime_playlist_purpose),
     active_incident_playlist: legacyState.active_incident_playlist === true,
     transient_alert: legacyState.transient_alert ?? null,
     ...(hasFocusContract ? { focus: normalizeWallboardFocusState(legacyState.focus) } : {}),
@@ -3519,12 +3555,13 @@ function normalizeWallboardControlState(state: WallboardControlState): Wallboard
 export function wallboardRuntimePlaylistSignature(
   control: Pick<
     WallboardControlState,
-    'data_mode' | 'runtime_playlist_id' | 'runtime_playlist_version' | 'active_incident_playlist'
+    'data_mode' | 'runtime_playlist_id' | 'runtime_playlist_version' | 'runtime_playlist_purpose' | 'active_incident_playlist'
   >,
 ): string {
   return [
     control.active_incident_playlist === true ? 'incident' : 'base',
     normalizeWallboardPlaylistDataMode(control.data_mode),
+    normalizeWallboardPlaylistPurpose(control.runtime_playlist_purpose),
     normalizeRuntimePlaylistId(control.runtime_playlist_id) ?? 'none',
     nonNegativeRefreshVersion(control.runtime_playlist_version),
   ].join(':');

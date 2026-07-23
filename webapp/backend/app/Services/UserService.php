@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Mail\UserWelcomeMail;
+use App\Models\AuditLog;
 use App\Models\FcmToken;
 use App\Models\Role;
 use App\Models\SystemSetting;
@@ -211,8 +212,21 @@ final class UserService
                 'email' => $user->email,
             ]);
 
+            $this->preserveAuditActorName($user);
             $user->forceDelete();
         });
+    }
+
+    private function preserveAuditActorName(User $user): void
+    {
+        AuditLog::query()
+            ->where('actor_id', $user->id)
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('actor_name')
+                    ->orWhere('actor_name', '');
+            })
+            ->update(['actor_name' => $user->name]);
     }
 
     private function deleteUserOwnedOperationalData(User $user): void

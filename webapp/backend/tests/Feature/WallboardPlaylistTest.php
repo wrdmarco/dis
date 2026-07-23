@@ -37,6 +37,108 @@ final class WallboardPlaylistTest extends TestCase
             ->assertExactJson(['data' => []]);
     }
 
+    public function test_playlist_purpose_is_explicit_orthogonal_to_data_mode_and_assignment_specific(): void
+    {
+        $manager = $this->user('playlist-purpose@example.test', ['wallboards.manage']);
+        $client = $this->asAdminClient($manager);
+        $configuration = WallboardConfiguration::defaults();
+
+        $normalResponse = $client->postJson('/api/admin/wallboard-playlists', [
+            'name' => 'Normale rotatie',
+            'configuration' => $configuration,
+        ])->assertCreated()
+            ->assertJsonPath('data.purpose', WallboardPlaylist::PURPOSE_NORMAL)
+            ->assertJsonPath('data.data_mode', WallboardPlaylist::DATA_MODE_LIVE);
+        $normal = WallboardPlaylist::query()->findOrFail($normalResponse->json('data.id'));
+
+        $alarmResponse = $client->postJson('/api/admin/wallboard-playlists', [
+            'name' => 'Alarmrotatie',
+            'purpose' => WallboardPlaylist::PURPOSE_ALARM,
+            'configuration' => $configuration,
+        ])->assertCreated()
+            ->assertJsonPath('data.purpose', WallboardPlaylist::PURPOSE_ALARM)
+            ->assertJsonPath('data.data_mode', WallboardPlaylist::DATA_MODE_LIVE);
+        $alarm = WallboardPlaylist::query()->findOrFail($alarmResponse->json('data.id'));
+
+        $demoAlarmResponse = $client->postJson('/api/admin/wallboard-playlists', [
+            'name' => 'Demo alarmontwerp',
+            'purpose' => WallboardPlaylist::PURPOSE_ALARM,
+            'data_mode' => WallboardPlaylist::DATA_MODE_DEMO,
+            'configuration' => $configuration,
+        ])->assertCreated()
+            ->assertJsonPath('data.purpose', WallboardPlaylist::PURPOSE_ALARM)
+            ->assertJsonPath('data.data_mode', WallboardPlaylist::DATA_MODE_DEMO);
+        $demoAlarm = WallboardPlaylist::query()->findOrFail($demoAlarmResponse->json('data.id'));
+
+        $client->postJson('/api/admin/wallboard-playlists', [
+            'name' => 'Ongeldig doel',
+            'purpose' => 'deployment',
+            'configuration' => $configuration,
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['purpose']]]);
+
+        $client->postJson('/api/admin/wallboards', [
+            'name' => 'Alarm als normaal',
+            'playlist_id' => $alarm->id,
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['playlist_id']]]);
+
+        $wallboardResponse = $client->postJson('/api/admin/wallboards', [
+            'name' => 'Doelbewust scherm',
+            'playlist_id' => $normal->id,
+        ])->assertCreated()
+            ->assertJsonPath('data.playlist.purpose', WallboardPlaylist::PURPOSE_NORMAL);
+        $wallboard = Wallboard::query()->findOrFail($wallboardResponse->json('data.id'));
+
+        $client->patchJson('/api/admin/wallboards/'.$wallboard->id.'/playlist', [
+            'playlist_id' => $alarm->id,
+            'expected_config_version' => 1,
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['playlist_id']]]);
+
+        $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
+            'expected_config_version' => 1,
+            'active_incident_playlist_id' => $normal->id,
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['active_incident_playlist_id']]]);
+
+        $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
+            'expected_config_version' => 1,
+            'active_incident_playlist_id' => $demoAlarm->id,
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['active_incident_playlist_id']]]);
+
+        $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
+            'expected_config_version' => 1,
+            'active_incident_playlist_id' => $alarm->id,
+        ])->assertOk()
+            ->assertJsonPath('data.active_incident_playlist.purpose', WallboardPlaylist::PURPOSE_ALARM);
+
+        $client->patchJson('/api/admin/wallboard-playlists/'.$normal->id, [
+            'expected_version' => 1,
+            'purpose' => WallboardPlaylist::PURPOSE_ALARM,
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['purpose']]]);
+        $client->patchJson('/api/admin/wallboard-playlists/'.$alarm->id, [
+            'expected_version' => 1,
+            'purpose' => WallboardPlaylist::PURPOSE_NORMAL,
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['purpose']]]);
+        $client->patchJson('/api/admin/wallboard-playlists/'.$demoAlarm->id, [
+            'expected_version' => 1,
+            'purpose' => WallboardPlaylist::PURPOSE_NORMAL,
+        ])->assertOk()
+            ->assertJsonPath('data.purpose', WallboardPlaylist::PURPOSE_NORMAL)
+            ->assertJsonPath('data.data_mode', WallboardPlaylist::DATA_MODE_DEMO)
+            ->assertJsonPath('data.version', 2);
+
+        $audit = AuditLog::query()
+            ->where('action', 'wallboard_playlists.created')
+            ->where('target_id', $alarm->id)
+            ->firstOrFail();
+        $this->assertSame(WallboardPlaylist::PURPOSE_ALARM, $audit->metadata['purpose']);
+    }
+
     public function test_legacy_rss_playlist_payload_exposes_the_backward_compatible_default_item_limit(): void
     {
         $manager = $this->user('playlist-legacy-rss@example.test', ['wallboards.manage']);
@@ -62,6 +164,7 @@ final class WallboardPlaylistTest extends TestCase
             ->getJson('/api/admin/wallboard-playlists')
             ->assertOk()
             ->assertJsonPath('data.0.id', $playlist->id)
+            ->assertJsonPath('data.0.purpose', WallboardPlaylist::PURPOSE_NORMAL)
             ->assertJsonPath(
                 'data.0.configuration.ticker.sources.0.max_items',
                 WallboardConfiguration::DEFAULT_TICKER_RSS_MAX_ITEMS,
@@ -296,7 +399,12 @@ final class WallboardPlaylistTest extends TestCase
         $activeConfiguration = $this->configuration(['summary'], 'Actieve inzet');
         $updatedActiveConfiguration = $this->configuration(['briefing'], 'Actieve inzet bijgewerkt');
         $basePlaylist = $this->playlist($manager, 'Normaal', $baseConfiguration);
-        $activePlaylist = $this->playlist($manager, 'Tijdens inzet', $activeConfiguration);
+        $activePlaylist = $this->playlist(
+            $manager,
+            'Tijdens inzet',
+            $activeConfiguration,
+            WallboardPlaylist::PURPOSE_ALARM,
+        );
         $wallboard = $this->wallboard($manager, $basePlaylist, 'Scherm met inzetplaylist', $baseConfiguration);
         $wallboard->forceFill(['active_incident_playlist_id' => $activePlaylist->id])->save();
         $client = $this->asAdminClient($manager);
@@ -363,9 +471,11 @@ final class WallboardPlaylistTest extends TestCase
         $mediaUsageMigration = require database_path('migrations/2026_07_20_000001_create_wallboard_media_asset_usages.php');
         $activeIncidentPlaylistMigration = require database_path('migrations/2026_07_20_000002_add_active_incident_playlist_to_wallboards.php');
         $dataModeMigration = require database_path('migrations/2026_07_20_000006_add_data_mode_to_wallboard_playlists.php');
+        $purposeMigration = require database_path('migrations/2026_07_23_000001_add_purpose_to_wallboard_playlists.php');
         // Recreate the historical boundary in dependency order. Newer tables and
         // columns deliberately keep their foreign keys instead of weakening the
         // production schema solely to make this migration test possible.
+        $purposeMigration->down();
         $dataModeMigration->down();
         $activeIncidentPlaylistMigration->down();
         $mediaUsageMigration->down();
@@ -399,6 +509,7 @@ final class WallboardPlaylistTest extends TestCase
         $mediaUsageMigration->up();
         $activeIncidentPlaylistMigration->up();
         $dataModeMigration->up();
+        $purposeMigration->up();
 
         $wallboards = DB::table('wallboards')->orderBy('name')->get();
         $this->assertCount(2, $wallboards);
@@ -414,7 +525,127 @@ final class WallboardPlaylistTest extends TestCase
             );
             $this->assertSame(1, (int) $playlist->version);
             $this->assertSame(WallboardPlaylist::DATA_MODE_LIVE, $playlist->data_mode);
+            $this->assertSame(WallboardPlaylist::PURPOSE_NORMAL, $playlist->purpose);
         }
+    }
+
+    public function test_purpose_migration_clones_a_dual_use_playlist_without_reclassifying_normal_data(): void
+    {
+        $manager = $this->user('playlist-purpose-migration@example.test', ['wallboards.manage']);
+        $sharedConfiguration = $this->configuration(['map'], 'Gedeeld oud gebruik');
+        $activeOnlyConfiguration = $this->configuration(['summary'], 'Alleen actieve inzet');
+        $baseConfiguration = $this->configuration(['briefing'], 'Tweede normale rotatie');
+        $shared = $this->playlist($manager, 'Historisch gedeeld', $sharedConfiguration);
+        $activeOnly = $this->playlist($manager, 'Historisch alleen actief', $activeOnlyConfiguration);
+        $base = $this->playlist($manager, 'Historische basis', $baseConfiguration);
+
+        $sharedWallboard = $this->wallboard(
+            $manager,
+            $shared,
+            'Gedeeld historisch scherm',
+            $sharedConfiguration,
+        );
+        $sharedWallboard->forceFill(['active_incident_playlist_id' => $shared->id])->save();
+        $activeOnlyWallboard = $this->wallboard(
+            $manager,
+            $base,
+            'Actief historisch scherm',
+            $baseConfiguration,
+        );
+        $activeOnlyWallboard->forceFill(['active_incident_playlist_id' => $activeOnly->id])->save();
+
+        $mediaAssetId = (string) Str::ulid();
+        DB::table('wallboard_media_assets')->insert([
+            'id' => $mediaAssetId,
+            'folder_id' => null,
+            'display_name' => 'Historisch beeld',
+            'original_name' => 'historisch.webp',
+            'storage_path' => 'wallboard-media/objects/'.$mediaAssetId.'.webp',
+            'sha256' => str_repeat('b', 64),
+            'mime_type' => 'image/webp',
+            'byte_size' => 16,
+            'width' => 1920,
+            'height' => 1080,
+            'status' => 'ready',
+            'version' => 1,
+            'kind' => 'image',
+            'processing_progress' => 100,
+            'created_by' => $manager->id,
+            'updated_by' => $manager->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $mediaPlaylistId = (string) Str::ulid();
+        DB::table('wallboard_media_playlists')->insert([
+            'id' => $mediaPlaylistId,
+            'name' => 'Historische fotoreeks',
+            'version' => 1,
+            'created_by' => $manager->id,
+            'updated_by' => $manager->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('wallboard_media_playlist_usages')->insert([
+            'wallboard_playlist_id' => $shared->id,
+            'page_id' => 'historische-fotos',
+            'media_playlist_id' => $mediaPlaylistId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('wallboard_media_asset_usages')->insert([
+            'wallboard_playlist_id' => $shared->id,
+            'page_id' => 'historische-video',
+            'media_asset_id' => $mediaAssetId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('wallboard_content_snapshots')->insert([
+            'playlist_id' => $shared->id,
+            'kind' => 'ticker',
+            'config_fingerprint' => str_repeat('a', 64),
+            'revision' => 4,
+            'payload' => json_encode(['items' => [['text' => 'Bewaarde snapshot']]], JSON_THROW_ON_ERROR),
+            'checked_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $migration = require database_path('migrations/2026_07_23_000001_add_purpose_to_wallboard_playlists.php');
+        $migration->down();
+        $migration->up();
+
+        $sharedWallboard->refresh();
+        $activeOnlyWallboard->refresh();
+        $shared->refresh();
+        $activeOnly->refresh();
+
+        $this->assertSame(WallboardPlaylist::PURPOSE_NORMAL, $shared->purpose);
+        $this->assertSame($shared->id, $sharedWallboard->playlist_id);
+        $this->assertNotSame($shared->id, $sharedWallboard->active_incident_playlist_id);
+        $this->assertSame(WallboardPlaylist::PURPOSE_ALARM, $activeOnly->purpose);
+        $this->assertSame($activeOnly->id, $activeOnlyWallboard->active_incident_playlist_id);
+        $this->assertDatabaseCount('wallboard_playlists', 4);
+
+        $alarmClone = WallboardPlaylist::query()->findOrFail($sharedWallboard->active_incident_playlist_id);
+        $this->assertSame(WallboardPlaylist::PURPOSE_ALARM, $alarmClone->purpose);
+        $this->assertSame($shared->name.' - Alarm', $alarmClone->name);
+        $this->assertSame($shared->data_mode, $alarmClone->data_mode);
+        $this->assertSame($shared->configuration, $alarmClone->configuration);
+        $this->assertSame($shared->version, $alarmClone->version);
+        $this->assertDatabaseHas('wallboard_content_snapshots', [
+            'playlist_id' => $alarmClone->id,
+            'kind' => 'ticker',
+            'revision' => 4,
+        ]);
+        $this->assertDatabaseHas('wallboard_media_playlist_usages', [
+            'wallboard_playlist_id' => $alarmClone->id,
+            'page_id' => 'historische-fotos',
+            'media_playlist_id' => $mediaPlaylistId,
+        ]);
+        $this->assertDatabaseHas('wallboard_media_asset_usages', [
+            'wallboard_playlist_id' => $alarmClone->id,
+            'page_id' => 'historische-video',
+            'media_asset_id' => $mediaAssetId,
+        ]);
     }
 
     /**
@@ -458,9 +689,11 @@ final class WallboardPlaylistTest extends TestCase
         User $actor,
         string $name,
         array $configuration,
+        string $purpose = WallboardPlaylist::PURPOSE_NORMAL,
     ): WallboardPlaylist {
         return WallboardPlaylist::query()->create([
             'name' => $name,
+            'purpose' => $purpose,
             'configuration' => $configuration,
             'version' => 1,
             'created_by' => $actor->id,
@@ -525,7 +758,7 @@ final class WallboardPlaylistTest extends TestCase
 
     private function asAdminClient(User $user): static
     {
-        $token = $user->createToken('Wallboard playlist admin test', ['*', 'client:admin'], now()->addHour())->plainTextToken;
+        $token = $user->createToken('Wallboard playlist admin test', ['*', 'client:web'], now()->addHour())->plainTextToken;
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);

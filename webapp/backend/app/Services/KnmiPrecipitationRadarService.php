@@ -31,7 +31,7 @@ final class KnmiPrecipitationRadarService
         try {
             $snapshot = $this->snapshots->activeSnapshot();
             if (! is_array($snapshot)
-                || ($snapshot['version'] ?? null) !== 2
+                || ! in_array($snapshot['version'] ?? null, [2, 3], true)
                 || ! is_array($snapshot['atlas'] ?? null)
                 || ! is_string($snapshot['paths']['atlas'] ?? null)) {
                 return $this->unavailable();
@@ -74,7 +74,7 @@ final class KnmiPrecipitationRadarService
     }
 
     /**
-     * Resolve only the exact active snapshot or its single retained v2
+     * Resolve only the exact active snapshot or its single retained v2/v3
      * predecessor. This is an internal file handoff; controllers must never
      * serialize the path into an API response.
      *
@@ -88,7 +88,7 @@ final class KnmiPrecipitationRadarService
         try {
             $snapshot = $this->snapshots->retainedRadarSnapshot($snapshotId);
             if (! is_array($snapshot)
-                || ($snapshot['version'] ?? null) !== 2
+                || ! in_array($snapshot['version'] ?? null, [2, 3], true)
                 || ! is_array($snapshot['atlas'] ?? null)
                 || ! is_string($snapshot['paths']['atlas'] ?? null)
                 || ! is_string($snapshot['snapshot_id'] ?? null)

@@ -34,7 +34,9 @@ final class OperationalWeatherService
         );
         $cloudCurrent = $cloud['complete'] && ! $cloud['stale'];
         $precipitationCurrent = $precipitation['complete'] && ! $precipitation['stale'];
-        $dataStatus = $cloudCurrent && $precipitationCurrent
+        $precipitationFullyCurrent = $precipitationCurrent
+            && ($precipitation['probability_complete'] ?? false) === true;
+        $dataStatus = $cloudCurrent && $precipitationFullyCurrent
             ? 'current'
             : ($cloudCurrent || $precipitationCurrent ? 'partial' : 'unavailable');
         $centre = $this->centre(($resolution['complete'] ?? false) === true
@@ -57,7 +59,9 @@ final class OperationalWeatherService
                     $precipitation['complete'] ? $precipitation['sample_count'] : 0,
                 ),
                 'expected_sample_count' => max(0, $expectedSampleCount),
-                'complete' => $cloud['complete'] && $precipitation['complete'],
+                'complete' => $cloud['complete']
+                    && $precipitation['complete']
+                    && ($precipitation['probability_complete'] ?? false) === true,
                 'fresh' => $dataStatus === 'current',
             ],
             'generated_at' => $this->generatedAt($cloud, $precipitation),
@@ -65,7 +69,9 @@ final class OperationalWeatherService
             'cloud' => $cloud,
             'precipitation' => $precipitation,
             'scope_note' => ($resolution['mode'] ?? null) === WallboardForecastLocationService::MODE_NETHERLANDS
-                ? 'Landelijk beeld op basis van exact twaalf beheerde provinciepunten; bewolking is gemiddeld, de modelwolkenbasis is het laagste geldige punt en neerslagpiek en -kans zijn de hoogste provinciewaarden.'
+                ? (($precipitation['probability_complete'] ?? false) === true
+                    ? 'Landelijk beeld op basis van exact twaalf beheerde provinciepunten; bewolking is gemiddeld, de modelwolkenbasis is het laagste geldige punt en neerslagpiek en -kans zijn de hoogste provinciewaarden.'
+                    : 'Landelijk beeld op basis van exact twaalf beheerde provinciepunten; bewolking is gemiddeld, de modelwolkenbasis is het laagste geldige punt en de radarpiek is de hoogste provinciewaarde. De kans voor uur 3 is onbekend.')
                 : 'Lokale KNMI-model- en neerslagwaarden voor het server-side opgeloste adres.',
             'disclaimer' => 'Uitsluitend indicatieve lokale KNMI-model- en neerslagdata. Controleer altijd actuele lokale waarnemingen, waarschuwingen, toestellimieten en operationele omstandigheden voordat u vliegt.',
         ];
@@ -156,53 +162,66 @@ final class OperationalWeatherService
                 && $referenceTime !== null
                 && $radarUntil !== null
                 && $firstPrecipitationAt->betweenIncluded($referenceTime, $radarUntil));
-        $timestampsComplete = $referenceTime !== null
+        $radarTimestampsComplete = $referenceTime !== null
             && $radarUntil !== null
-            && $thirdHourFrom !== null
-            && $forecastUntil !== null
             && $measuredAt !== null
             && $refreshedAt !== null
             && $measuredAt->equalTo($referenceTime)
             && $radarUntil->equalTo($referenceTime->addMinutes(120))
-            && $thirdHourFrom->equalTo($radarUntil)
-            && $forecastUntil->equalTo($referenceTime->addMinutes(180))
             && $firstPrecipitationValid;
-        $timestampsFresh = $timestampsComplete && $this->precipitationTimestampsAreFresh(
+        $timestampsFresh = $radarTimestampsComplete && $this->precipitationTimestampsAreFresh(
             $referenceTime,
             $refreshedAt,
         );
-        $stale = (bool) ($reading['stale'] ?? false) || ($timestampsComplete && ! $timestampsFresh);
+        $stale = (bool) ($reading['stale'] ?? false) || ($radarTimestampsComplete && ! $timestampsFresh);
         $complete = ($reading['complete'] ?? false) === true
             && $expected > 0
             && $reportedExpected === $expected
             && $sampleCount === $expected
             && $peak !== null
-            && $probability !== null
             && $this->count($reading['radar_sample_count'] ?? null) === KnmiPrecipitationOutlookService::RADAR_SAMPLE_COUNT * $expected
-            && $this->count($reading['third_hour_sample_count'] ?? null) === KnmiPrecipitationOutlookService::THIRD_HOUR_SAMPLE_COUNT * $expected
             && $timestampsFresh
             && ! $stale;
+        $probabilityComplete = $complete
+            && $probability !== null
+            && $thirdHourFrom !== null
+            && $forecastUntil !== null
+            && $thirdHourFrom->equalTo($radarUntil)
+            && $forecastUntil->equalTo($referenceTime->addMinutes(180))
+            && $this->count($reading['third_hour_sample_count'] ?? null) === KnmiPrecipitationOutlookService::THIRD_HOUR_SAMPLE_COUNT * $expected;
+        $availabilityNote = $this->availabilityNote(
+            $reading,
+            $complete,
+            'De lokale KNMI-neerslagdata is niet compleet beschikbaar.',
+        );
+        if ($complete && ! $probabilityComplete && $availabilityNote === null) {
+            $availabilityNote = 'De lokale KNMI-radar is beschikbaar; de afzonderlijke ensemblekans voor uur 3 ontbreekt.';
+        }
 
         return [
             'complete' => $complete,
+            'probability_complete' => $probabilityComplete,
             'stale' => $stale,
             'radar_peak_mm_h' => $peak,
             'radar_first_precipitation_at' => $this->timestampString($firstPrecipitationValue, $firstPrecipitationAt),
             'radar_until' => $this->timestampString($reading['radar_until'] ?? null, $radarUntil),
-            'third_hour_probability_pct' => $probability,
-            'third_hour_from' => $this->timestampString($reading['third_hour_from'] ?? null, $thirdHourFrom),
-            'forecast_until' => $this->timestampString($reading['forecast_until'] ?? null, $forecastUntil),
+            'third_hour_probability_pct' => $probabilityComplete ? $probability : null,
+            'third_hour_from' => $probabilityComplete
+                ? $this->timestampString($reading['third_hour_from'] ?? null, $thirdHourFrom)
+                : null,
+            'forecast_until' => $probabilityComplete
+                ? $this->timestampString($reading['forecast_until'] ?? null, $forecastUntil)
+                : null,
             'reference_time' => $this->timestampString($reading['reference_time'] ?? null, $referenceTime),
             'measured_at' => $this->timestampString($reading['measured_at'] ?? null, $measuredAt),
             'refreshed_at' => $this->timestampString($reading['refreshed_at'] ?? null, $refreshedAt),
             'sample_count' => $sampleCount,
             'expected_sample_count' => $expected,
-            'source' => $this->source($reading['source'] ?? null, 'KNMI lokale radar + ensemblekans'),
-            'availability_note' => $this->availabilityNote(
-                $reading,
-                $complete,
-                'De lokale KNMI-neerslagdata is niet compleet beschikbaar.',
+            'source' => $this->source(
+                $reading['source'] ?? null,
+                $probabilityComplete ? 'KNMI lokale radar + ensemblekans' : 'KNMI lokale radar',
             ),
+            'availability_note' => $availabilityNote,
         ];
     }
 

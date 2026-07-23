@@ -7,8 +7,8 @@ use App\Http\Responses\ApiResponse;
 use App\Models\PersonalAccessToken;
 use App\Models\User;
 use App\Services\AuditService;
-use App\Services\TwoFactorService;
 use App\Services\StoreReviewAccountService;
+use App\Services\TwoFactorService;
 use App\Services\UserService;
 use App\Services\WebSessionService;
 use App\Support\ApiDateTime;
@@ -67,6 +67,19 @@ final class AuthController extends Controller
         }
 
         RateLimiter::hit($this->loginIpKey($request), 60);
+        if (in_array($clientType, ['admin_android', 'admin_ios'], true)) {
+            $this->auditService->record('auth.mobile_admin_retired', User::class, null, [
+                'email_hash' => hash('sha256', $email),
+                'client_type' => $clientType,
+            ], null, $request);
+
+            return ApiResponse::error(
+                'mobile_admin_retired',
+                'Beheer is alleen beschikbaar via de beveiligde webapp.',
+                403,
+            );
+        }
+
         $user = User::query()
             ->with(['roles.permissions', 'teams'])
             ->whereRaw('LOWER(email) = ?', [$email])
@@ -611,7 +624,7 @@ final class AuthController extends Controller
     {
         return match ($clientType) {
             'operator_android', 'operator_ios' => $user->canUseOperatorApp(),
-            'admin_android', 'admin_ios' => $user->canUseAdminApp(),
+            'admin_android', 'admin_ios' => false,
             'web' => ! $user->isStoreReviewAccount(),
             default => false,
         };

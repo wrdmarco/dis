@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Models\WallboardPlaylist;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -19,7 +20,8 @@ final class AssignWallboardPlaylistRequest extends FormRequest
             'playlist_id' => [
                 'required',
                 'ulid',
-                Rule::exists('wallboard_playlists', 'id'),
+                Rule::exists('wallboard_playlists', 'id')
+                    ->where('purpose', WallboardPlaylist::PURPOSE_NORMAL),
             ],
             'expected_config_version' => ['required', 'integer', 'min:1'],
         ];

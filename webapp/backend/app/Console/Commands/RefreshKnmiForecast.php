@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Exceptions\KnmiForecastOperationConflictException;
+use App\Exceptions\KnmiForecastOperationStartException;
 use App\Services\KnmiForecastOperationService;
 use Illuminate\Console\Command;
 
@@ -16,6 +17,10 @@ final class RefreshKnmiForecast extends Command
     {
         try {
             $operation = $operations->requestRefresh(scheduled: true);
+        } catch (KnmiForecastOperationStartException $exception) {
+            $this->components->error($exception->getMessage());
+
+            return self::FAILURE;
         } catch (KnmiForecastOperationConflictException $exception) {
             $this->components->info($exception->getMessage());
 

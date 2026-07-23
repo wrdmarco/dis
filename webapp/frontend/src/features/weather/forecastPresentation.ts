@@ -133,17 +133,25 @@ function forecastPrecipitationOutlookDisplayBlock(
 ): WallboardForecastDisplayBlock {
   const base = forecastMetricDisplayBlock('precipitation_outlook', metric, 'Buien +3 uur');
   const outlook = metric?.precipitation_outlook;
-  if (metric?.stale === true || metric?.status === 'unknown') {
+  if (metric?.stale === true) {
     return {
       ...base,
       label: 'Buien +3 uur',
-      value: metric.stale ? 'Verouderd' : 'Onbekend',
+      value: 'Verouderd',
       details: [],
     };
   }
-  if (outlook === null || outlook === undefined) return base;
+  if (outlook === null || outlook === undefined) {
+    return metric?.status === 'unknown'
+      ? { ...base, label: 'Buien +3 uur', value: 'Onbekend', details: [] }
+      : base;
+  }
 
   const dryThroughRadar = outlook.radar_peak_mm_h < 0.1;
+  const probabilityDetail = outlook.third_hour_probability_pct !== null
+      && outlook.third_hour_probability_status !== 'unknown'
+    ? `Uur 3 kansmodel: ${formatForecastNumber(outlook.third_hour_probability_pct)}% kans op ≥ 0,1 mm/u`
+    : 'Uur 3 kansmodel: niet beschikbaar';
   return {
     ...base,
     label: 'Buien +3 uur',
@@ -154,7 +162,7 @@ function forecastPrecipitationOutlookDisplayBlock(
         : 'Lichte neerslag',
     details: [
       `0–2 uur radar: piek ${formatForecastNumber(outlook.radar_peak_mm_h)} mm/u`,
-      `Uur 3 kansmodel: ${formatForecastNumber(outlook.third_hour_probability_pct)}% kans op ≥ 0,1 mm/u`,
+      probabilityDetail,
     ],
   };
 }

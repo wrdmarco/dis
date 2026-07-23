@@ -175,6 +175,46 @@ final class WallboardForecastTest extends TestCase
             && $request['timezone'] === 'Europe/Amsterdam');
     }
 
+    public function test_radar_outlook_remains_usable_when_only_the_third_hour_probability_is_unknown(): void
+    {
+        $this->setForecastTestNow();
+        $this->precipitationOutlooks->overrides = [
+            'third_hour_probability_pct' => null,
+            'third_hour_from' => null,
+            'forecast_until' => null,
+            'third_hour_sample_count' => 0,
+            'availability_note' => 'De ensemblekans voor uur 3 ontbreekt.',
+        ];
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://nominatim.openstreetmap.org/search*' => Http::response([['lat' => '52.0907', 'lon' => '5.1214']]),
+            'https://api.open-meteo.com/v1/forecast*' => Http::response($this->weatherPayload(
+                latitude: 52.09,
+                longitude: 5.12,
+            )),
+            'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json' => Http::response([
+                ['time_tag' => '2026-07-20T12:10:00', 'kp_index' => 3, 'estimated_kp' => 3.0, 'kp' => '3'],
+            ]),
+        ]);
+
+        $forecast = app(WallboardForecastService::class)->pages([
+            'pages' => [$this->addressPage()],
+        ])['forecast-utrecht'];
+        $metric = collect($forecast['metrics'])->firstWhere('key', 'precipitation_outlook');
+        $outlook = $metric['precipitation_outlook'];
+
+        $this->assertSame(0.0, $metric['value']);
+        $this->assertSame('unknown', $metric['status']);
+        $this->assertIsArray($outlook);
+        $this->assertSame('green', $outlook['radar_status']);
+        $this->assertSame('unknown', $outlook['third_hour_probability_status']);
+        $this->assertSame('2026-07-20T14:15:00+00:00', $outlook['radar_until']);
+        $this->assertNull($outlook['third_hour_probability_pct']);
+        $this->assertNull($outlook['third_hour_from']);
+        $this->assertNull($outlook['forecast_until']);
+        $this->assertStringContainsString('uur 3 is onbekend', $metric['explanation']);
+    }
+
     public function test_overall_advice_uses_low_instead_of_total_cloud_cover(): void
     {
         $this->setForecastTestNow();
@@ -816,6 +856,9 @@ final class StubKnmiCloudForecastProvider implements KnmiCloudForecastProvider
 
 final class StubKnmiPrecipitationOutlookProvider implements KnmiPrecipitationOutlookProvider
 {
+    /** @var array<string, mixed> */
+    public array $overrides = [];
+
     public function forResolution(array $resolution): array
     {
         if (($resolution['complete'] ?? false) !== true) {
@@ -845,6 +888,7 @@ final class StubKnmiPrecipitationOutlookProvider implements KnmiPrecipitationOut
                 'name' => 'KNMI radar en seamless neerslagverwachting',
                 'url' => 'https://dataplatform.knmi.nl/',
             ],
+            ...$this->overrides,
         ];
     }
 }

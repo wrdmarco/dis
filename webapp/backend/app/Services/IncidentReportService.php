@@ -8,6 +8,8 @@ use App\Models\DispatchRequest;
 use App\Models\Incident;
 use App\Models\PilotIncidentReport;
 use App\Models\SystemSetting;
+use App\Support\IncidentTimelineAttribution;
+use App\Support\IncidentTimelineResponsePresentation;
 use Dompdf\Dompdf;
 use Dompdf\Options;
 use Illuminate\Support\Collection;
@@ -594,20 +596,30 @@ final class IncidentReportService
 
     /**
      * @param  Collection<int, DispatchRequest>  $dispatches
-     * @return Collection<int, array{id: string, type: string, label: string, message: string|null, created_at: mixed}>
+     * @return Collection<int, array<string, mixed>>
      */
     private function timeline(Incident $incident, Collection $dispatches): Collection
     {
         $statusItems = $incident->statusHistory()
             ->oldest('created_at')
             ->get()
-            ->map(fn ($item): array => [
-                'id' => $item->id,
-                'type' => 'Incidentstatus',
-                'label' => trim(($item->from_status ?? 'nieuw').' -> '.$item->to_status),
-                'message' => $item->reason,
-                'created_at' => $item->created_at,
-            ]);
+            ->map(function ($item): array {
+                $statusChange = trim(($item->from_status ?? 'nieuw').' -> '.$item->to_status);
+
+                return [
+                    'id' => $item->id,
+                    'type' => 'Incidentstatus',
+                    'label' => $statusChange,
+                    'message' => $item->reason,
+                    'created_at' => $item->created_at,
+                    ...IncidentTimelineAttribution::make(
+                        $item->changed_by,
+                        $item->changed_by_name,
+                        'Incidentstatus gewijzigd: '.$statusChange,
+                        'Niet vastgelegd',
+                    ),
+                ];
+            });
 
         $dispatchItems = $dispatches->flatMap(function (DispatchRequest $dispatch): array {
             $items = [[
@@ -616,25 +628,43 @@ final class IncidentReportService
                 'label' => 'Dispatch '.$dispatch->status,
                 'message' => $dispatch->message,
                 'created_at' => $dispatch->created_at,
+                ...IncidentTimelineAttribution::make(
+                    $dispatch->requested_by,
+                    $dispatch->requested_by_name,
+                    'Alarmering aangemaakt',
+                    'Niet vastgelegd',
+                ),
             ]];
 
             foreach ($dispatch->recipients as $recipient) {
+                $recipientName = $this->recipientName($recipient);
+                $responseState = IncidentTimelineResponsePresentation::currentState($recipient, $dispatch);
                 $items[] = [
                     'id' => $recipient->id,
                     'type' => 'Opkomst',
-                    'label' => $this->recipientName($recipient).' - '.$this->responseLabel($recipient->response_status),
+                    'label' => $recipientName.' - '.$responseState['response_label'],
                     'message' => $recipient->response_note,
-                    'created_at' => $recipient->responded_at ?? $recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at,
+                    'created_at' => $responseState['occurred_at'],
+                    'actor' => $responseState['actor'],
+                    'actor_name' => $responseState['actor_name'],
+                    'description' => $responseState['description'],
                 ];
             }
 
             foreach ($dispatch->messages as $message) {
+                $senderName = $this->messageSenderName($message);
                 $items[] = [
                     'id' => $message->id,
                     'type' => 'Nadere info',
-                    'label' => 'Nadere info'.($this->messageSenderName($message) ? ' - '.$this->messageSenderName($message) : ''),
+                    'label' => 'Nadere info'.($senderName ? ' - '.$senderName : ''),
                     'message' => $message->body,
                     'created_at' => $message->created_at,
+                    ...IncidentTimelineAttribution::make(
+                        $message->sent_by,
+                        $senderName,
+                        'Nadere informatie toegevoegd',
+                        'Niet vastgelegd',
+                    ),
                 ];
             }
 
@@ -659,13 +689,24 @@ final class IncidentReportService
                 ->oldest('effective_at')
                 ->get()
                 ->filter(fn (AvailabilityStatus $status): bool => $status->effective_at?->greaterThanOrEqualTo($recipientStartsByUser->get($status->user_id)) === true)
-                ->map(fn (AvailabilityStatus $status): array => [
-                    'id' => $status->id,
-                    'type' => 'Operationele status',
-                    'label' => $this->statusUserName($status).' - '.$this->operatorStatusLabel($status->status),
-                    'message' => $status->reason,
-                    'created_at' => $status->effective_at,
-                ]);
+                ->map(function (AvailabilityStatus $status): array {
+                    $userName = $this->statusUserName($status);
+                    $statusLabel = $this->operatorStatusLabel($status->status);
+
+                    return [
+                        'id' => $status->id,
+                        'type' => 'Operationele status',
+                        'label' => $userName.' - '.$statusLabel,
+                        'message' => $status->reason,
+                        'created_at' => $status->effective_at,
+                        ...IncidentTimelineAttribution::make(
+                            $status->changed_by,
+                            $status->changed_by_name,
+                            'Operationele status van '.$userName.' gewijzigd naar '.$statusLabel,
+                            $status->is_system_applied ? 'Systeem' : 'Niet vastgelegd',
+                        ),
+                    ];
+                });
         }
 
         return $statusItems
@@ -1088,16 +1129,6 @@ final class IncidentReportService
         } catch (Throwable) {
             // A logging backend failure must not block incident report generation.
         }
-    }
-
-    private function responseLabel(string $status): string
-    {
-        return match ($status) {
-            'accepted' => 'komt',
-            'declined' => 'komt niet',
-            'no_response' => 'geen reactie',
-            default => 'wacht op reactie',
-        };
     }
 
     private function recipientName(mixed $recipient): string

@@ -116,19 +116,21 @@ final class OperationalForecastApiTest extends TestCase
                     'sample_count', 'expected_sample_count', 'source', 'availability_note',
                 ],
                 'precipitation' => [
-                    'complete', 'stale', 'radar_peak_mm_h', 'radar_first_precipitation_at',
+                    'complete', 'probability_complete', 'stale', 'radar_peak_mm_h', 'radar_first_precipitation_at',
                     'radar_until', 'third_hour_probability_pct', 'third_hour_from',
                     'forecast_until', 'reference_time', 'measured_at', 'refreshed_at',
                     'sample_count', 'expected_sample_count', 'source', 'availability_note',
                 ],
                 'radar' => [
                     'precipitation' => [
-                        'status', 'reference_time', 'refreshed_at', 'atlas_url',
+                        'status', 'reference_time', 'observed_period_end',
+                        'age_seconds', 'lag_seconds', 'refreshed_at', 'atlas_url',
                         'atlas_columns', 'atlas_rows', 'frame_width', 'frame_height',
                         'frames', 'source', 'availability_note',
                     ],
                     'lightning' => [
-                        'status', 'reference_time', 'refreshed_at', 'atlas_url',
+                        'status', 'reference_time', 'observed_period_end',
+                        'age_seconds', 'lag_seconds', 'refreshed_at', 'atlas_url',
                         'atlas_columns', 'atlas_rows', 'frame_width', 'frame_height',
                         'frames', 'source', 'availability_note',
                     ],
@@ -139,6 +141,39 @@ final class OperationalForecastApiTest extends TestCase
 
         $this->assertStringNotContainsString('path', $response->getContent());
         $this->assertStringNotContainsString('sha256', $response->getContent());
+        Http::assertNothingSent();
+    }
+
+    public function test_operational_weather_keeps_radar_current_when_third_hour_probability_is_unavailable(): void
+    {
+        $this->precipitation->overrides = [
+            'third_hour_probability_pct' => null,
+            'third_hour_from' => null,
+            'forecast_until' => null,
+            'third_hour_sample_count' => 0,
+            'source' => [
+                'name' => 'KNMI lokale radar (12 locaties)',
+                'url' => 'https://dataplatform.knmi.nl/',
+            ],
+            'availability_note' => 'De lokale KNMI-radar is beschikbaar; de ensemblekans voor uur 3 ontbreekt.',
+        ];
+        Http::preventStrayRequests();
+
+        $this->asWebClient($this->user('radar-only-weather@example.test'))
+            ->getJson('/api/operational-weather')
+            ->assertOk()
+            ->assertJsonPath('data.data_status', 'partial')
+            ->assertJsonPath('data.aggregation.complete', false)
+            ->assertJsonPath('data.aggregation.fresh', false)
+            ->assertJsonPath('data.precipitation.complete', true)
+            ->assertJsonPath('data.precipitation.probability_complete', false)
+            ->assertJsonPath('data.precipitation.radar_peak_mm_h', 0.4)
+            ->assertJsonPath('data.precipitation.radar_until', '2026-07-21T12:30:00+00:00')
+            ->assertJsonPath('data.precipitation.third_hour_probability_pct', null)
+            ->assertJsonPath('data.precipitation.third_hour_from', null)
+            ->assertJsonPath('data.precipitation.forecast_until', null)
+            ->assertJsonPath('data.precipitation.source.name', 'KNMI lokale radar (12 locaties)');
+
         Http::assertNothingSent();
     }
 
@@ -587,6 +622,9 @@ final class OperationalRadarProviderStub implements OperationalRadarProvider
         'precipitation' => [
             'status' => 'unavailable',
             'reference_time' => null,
+            'observed_period_end' => null,
+            'age_seconds' => null,
+            'lag_seconds' => null,
             'refreshed_at' => null,
             'atlas_url' => null,
             'atlas_columns' => 5,
@@ -604,6 +642,9 @@ final class OperationalRadarProviderStub implements OperationalRadarProvider
         'lightning' => [
             'status' => 'unavailable',
             'reference_time' => null,
+            'observed_period_end' => null,
+            'age_seconds' => null,
+            'lag_seconds' => null,
             'refreshed_at' => null,
             'atlas_url' => null,
             'atlas_columns' => 4,

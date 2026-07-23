@@ -660,7 +660,7 @@ final class OsrmAdminApiTest extends TestCase
 
     private function asAdminClient(User $user): static
     {
-        $token = $user->createToken('OSRM admin test', ['*', 'client:admin'], now()->addHour())->plainTextToken;
+        $token = $user->createToken('OSRM webbeheer test', ['*', 'client:web'], now()->addHour())->plainTextToken;
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);

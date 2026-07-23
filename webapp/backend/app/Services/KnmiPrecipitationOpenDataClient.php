@@ -22,43 +22,48 @@ final class KnmiPrecipitationOpenDataClient
         private readonly KnmiPrecipitationConfiguration $configuration,
     ) {}
 
-    /**
-     * @return array{radar: KnmiPrecipitationRemoteFile, probability: KnmiPrecipitationRemoteFile}
-     */
-    public function latestMatchingFiles(): array
+    public function latestRadarFile(): KnmiPrecipitationRemoteFile
     {
         $radar = $this->listFiles(
             $this->configuration->radarDataset(),
             $this->configuration->radarVersion(),
             '/\ARAD_NL25_RAC_FM_(\d{12})\.h5\z/D',
         );
+        krsort($radar, SORT_STRING);
+        $latest = reset($radar);
+        if (! $latest instanceof KnmiPrecipitationRemoteFile) {
+            throw new KnmiPrecipitationImportException(
+                'metadata_invalid',
+                'KNMI did not publish a valid radar forecast file.',
+            );
+        }
+        $this->validateCurrentRadarReference($latest->referenceTime);
+
+        return $latest;
+    }
+
+    public function matchingProbabilityFile(CarbonImmutable $reference): ?KnmiPrecipitationRemoteFile
+    {
         $probability = $this->listFiles(
             $this->configuration->probabilityDataset(),
             $this->configuration->probabilityVersion(),
             '/\AKNMI_PYSTEPS_BLEND_PROB_(\d{12})\.nc\z/D',
         );
+        $referenceKey = 't'.$reference->format('YmdHi');
 
-        $common = array_values(array_intersect(array_keys($radar), array_keys($probability)));
-        rsort($common, SORT_STRING);
-        $referenceKey = $common[0] ?? null;
-        if (! is_string($referenceKey)) {
-            throw new KnmiPrecipitationImportException(
-                'matching_run_unavailable',
-                'KNMI did not publish a radar and probability file with the same reference timestamp.',
-            );
-        }
+        return $probability[$referenceKey] ?? null;
+    }
 
-        $reference = $radar[$referenceKey]->referenceTime;
+    private function validateCurrentRadarReference(CarbonImmutable $reference): void
+    {
         $now = CarbonImmutable::now()->utc();
         if ($reference->greaterThan($now->addMinutes(10))
             || $reference->lessThan($now->subSeconds($this->configuration->maximumReferenceAgeSeconds()))) {
             throw new KnmiPrecipitationImportException(
-                'matching_run_stale',
-                'The newest complete KNMI precipitation file pair is outside the permitted age window.',
+                'radar_run_stale',
+                'The newest KNMI radar forecast file is outside the permitted age window.',
             );
         }
-
-        return ['radar' => $radar[$referenceKey], 'probability' => $probability[$referenceKey]];
     }
 
     public function download(KnmiPrecipitationRemoteFile $file, string $destination): string

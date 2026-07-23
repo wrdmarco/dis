@@ -21,6 +21,14 @@ final class EnsureOperationalAccess
             return ApiResponse::error('forbidden', 'The account is not active.', 403);
         }
 
+        if ($user !== null && $this->clientType($user->currentAccessToken()) === 'admin') {
+            return ApiResponse::error(
+                'mobile_admin_retired',
+                'Beheer is alleen beschikbaar via de beveiligde webapp.',
+                403,
+            );
+        }
+
         if ($user !== null && $user->account_status !== 'active') {
             return ApiResponse::error('forbidden', 'The account is not active.', 403);
         }
@@ -40,7 +48,7 @@ final class EnsureOperationalAccess
 
         return match ($clientType) {
             'operator' => $user?->canUseOperatorApp() === true,
-            'admin' => $user?->canUseAdminApp() === true,
+            'admin' => false,
             default => true,
         };
     }

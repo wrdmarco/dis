@@ -11,7 +11,12 @@ final class WallboardConfiguration
     public const DEFAULT_PAGE_ID = 'map';
 
     /** @var list<string> */
-    public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'kpi', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'news', 'video', 'photo_carousel'];
+    public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'kpi', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'weather_radar', 'news', 'video', 'photo_carousel'];
+
+    /** @var list<string> */
+    public const WEATHER_RADAR_KINDS = ['precipitation', 'lightning'];
+
+    public const DEFAULT_WEATHER_RADAR_KIND = 'precipitation';
 
     /** @var list<string> */
     public const KPI_VISIBLE_METRICS = WallboardKpiDefinition::KEYS;
@@ -385,6 +390,7 @@ final class WallboardConfiguration
                 // configurations. New canonical configuration never stores
                 // client-supplied coordinates.
                 'uav_forecast' => ['location_mode', 'location_label', 'latitude', 'longitude', 'visible_blocks'],
+                'weather_radar' => ['radar_kind'],
                 'incident_list', 'summary' => ['show_test_incidents'],
                 'kpi' => ['visible_metrics', 'metric_visualizations'],
                 'calendar' => ['max_items'],
@@ -524,6 +530,14 @@ final class WallboardConfiguration
                         'visible_blocks' => $canonicalVisibleBlocks,
                     ];
                 }
+            } elseif ($type === 'weather_radar') {
+                $radarKind = $options['radar_kind'] ?? self::DEFAULT_WEATHER_RADAR_KIND;
+                if (! is_string($radarKind) || ! in_array($radarKind, self::WEATHER_RADAR_KINDS, true)) {
+                    throw ValidationException::withMessages([
+                        "configuration.pages.{$index}.options.radar_kind" => ['Kies de neerslag- of bliksemradar.'],
+                    ]);
+                }
+                $options = ['radar_kind' => $radarKind];
             } elseif ($type === 'video') {
                 $mediaAssetId = strtoupper(trim((string) ($options['media_asset_id'] ?? '')));
                 if ($mediaAssetId !== '') {

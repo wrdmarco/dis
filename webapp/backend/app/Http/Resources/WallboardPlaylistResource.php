@@ -19,6 +19,7 @@ final class WallboardPlaylistResource extends JsonResource
             'data_mode' => in_array($this->resource->data_mode, WallboardPlaylist::DATA_MODES, true)
                 ? (string) $this->resource->data_mode
                 : WallboardPlaylist::DATA_MODE_LIVE,
+            'purpose' => $this->resource->normalizedPurpose(),
             'configuration' => WallboardConfiguration::normalize((array) $this->resource->configuration),
             'version' => (int) $this->resource->version,
             'linked_wallboards_count' => (int) ($this->resource->wallboards_count ?? 0),

@@ -52,7 +52,7 @@ final class WallboardMediaApiIntegrationTest extends TestCase
         $manager = $this->user('media-pending@example.test', ['wallboards.manage']);
         $pendingToken = $manager->createToken(
             'Pending wallboard media 2FA',
-            ['2fa:pending', 'client:admin'],
+            ['2fa:pending', 'client:web'],
             now()->addMinutes(5),
         )->plainTextToken;
         Auth::forgetGuards();
@@ -88,6 +88,7 @@ final class WallboardMediaApiIntegrationTest extends TestCase
         ], $manager, Request::create('/api/admin/wallboard-media/playlists', 'POST'));
         $deploymentPlaylist = app(WallboardPlaylistService::class)->create([
             'name' => 'Actieve inzetwallboard',
+            'purpose' => WallboardPlaylist::PURPOSE_ALARM,
             'configuration' => $this->photoConfiguration((string) $deploymentMediaPlaylist->id, 15),
         ], $manager, Request::create('/api/admin/wallboard-playlists', 'POST'));
         $wallboard->forceFill(['active_incident_playlist_id' => $deploymentPlaylist->id])->save();
@@ -447,7 +448,7 @@ final class WallboardMediaApiIntegrationTest extends TestCase
     {
         $token = $user->createToken(
             'Wallboard media admin test',
-            ['*', 'client:admin'],
+            ['*', 'client:web'],
             now()->addHour(),
         )->plainTextToken;
         Auth::forgetGuards();

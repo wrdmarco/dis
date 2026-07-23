@@ -28,6 +28,7 @@
         .timeline__time { color: #64748b; font-size: 9px; }
         .timeline__label { margin-top: 2px; font-weight: bold; }
         .timeline__type { color: #0369a1; font-size: 9px; text-transform: uppercase; }
+        .timeline__actor { margin-top: 2px; color: #475569; font-size: 9px; }
         .muted { color: #64748b; }
         .map-layout { width: 100%; }
         .map-card { position: relative; width: 100%; height: 260px; overflow: hidden; border: 1px solid #cbd5e1; border-radius: 9px; background: #e8f3f8; }
@@ -344,13 +345,14 @@
 </section>
 
 <section class="section">
-    <h2>Volledige log</h2>
+    <h2>Operationeel verloop</h2>
     <div class="timeline">
         @forelse ($timeline as $item)
             <div class="timeline__item">
                 <div class="timeline__time">{{ $formatDate($item['created_at']) }}</div>
                 <div class="timeline__type">{{ $item['type'] }}</div>
                 <div class="timeline__label">{{ $item['label'] }}</div>
+                <div class="timeline__actor">{{ $item['description'] }}</div>
                 @if (! empty($item['message']))
                     <div>{{ $item['message'] }}</div>
                 @endif

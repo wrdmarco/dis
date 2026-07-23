@@ -63,6 +63,7 @@ final class WallboardService
             $playlist = null;
             if (array_key_exists('playlist_id', $data)) {
                 $playlist = $this->playlistRepository->lockPlaylist((string) $data['playlist_id']);
+                $this->assertNormalPlaylist($playlist);
                 $configuration = WallboardConfiguration::normalize((array) $playlist->configuration);
             } else {
                 $this->mediaCoordination->lock();
@@ -70,6 +71,7 @@ final class WallboardService
                 $createdPlaylist = $this->playlistRepository->create([
                     'name' => trim((string) $data['name']),
                     'data_mode' => WallboardPlaylist::DATA_MODE_LIVE,
+                    'purpose' => WallboardPlaylist::PURPOSE_NORMAL,
                     'configuration' => $configuration,
                     'version' => 1,
                     'created_by' => $actor->id,
@@ -84,13 +86,14 @@ final class WallboardService
                 $this->auditService->record('wallboard_playlists.created', $playlist, $actor, [
                     'name' => $playlist->name,
                     'data_mode' => WallboardPlaylist::DATA_MODE_LIVE,
+                    'purpose' => WallboardPlaylist::PURPOSE_NORMAL,
                     'version' => 1,
                     'created_for_wallboard' => true,
                 ], null, $request);
             }
 
             if (isset($data['active_incident_playlist_id'])) {
-                $this->assertLiveActiveIncidentPlaylist(
+                $this->assertActiveIncidentPlaylist(
                     $this->playlistRepository->lockPlaylist((string) $data['active_incident_playlist_id']),
                 );
             }
@@ -129,6 +132,7 @@ final class WallboardService
                     'playlist_id' => (string) $playlist->id,
                     'playlist_version' => (int) $playlist->version,
                     'data_mode' => $this->playlistDataMode($playlist),
+                    'purpose' => $playlist->normalizedPurpose(),
                     'config_version' => (int) $wallboard->config_version,
                     'control_version' => (int) $wallboard->control_version,
                     'during_creation' => true,
@@ -174,6 +178,7 @@ final class WallboardService
                 $candidatePlaylistId = $this->repository->playlistId((string) $wallboard->getKey());
                 if ($candidatePlaylistId !== null) {
                     $playlist = $this->playlistRepository->lockPlaylist($candidatePlaylistId);
+                    $this->assertNormalPlaylist($playlist);
                     if ($this->playlistDataMode($playlist) === WallboardPlaylist::DATA_MODE_LIVE
                         && ! $configurationValidatedForLive) {
                         throw new ConflictHttpException(
@@ -184,7 +189,7 @@ final class WallboardService
                         $activePlaylist = $requestedActivePlaylistId === $candidatePlaylistId
                             ? $playlist
                             : $this->playlistRepository->lockPlaylist($requestedActivePlaylistId);
-                        $this->assertLiveActiveIncidentPlaylist($activePlaylist);
+                        $this->assertActiveIncidentPlaylist($activePlaylist);
                     }
                     $preparedConfiguration = WallboardConfiguration::normalize(
                         (array) $data['configuration'],
@@ -216,6 +221,7 @@ final class WallboardService
                     $createdPlaylist = $this->playlistRepository->create([
                         'name' => (string) $wallboard->name,
                         'data_mode' => WallboardPlaylist::DATA_MODE_LIVE,
+                        'purpose' => WallboardPlaylist::PURPOSE_NORMAL,
                         'configuration' => $preparedConfiguration,
                         'version' => 1,
                         'created_by' => $actor->id,
@@ -231,7 +237,7 @@ final class WallboardService
                     );
                     $playlist->forceFill(['configuration' => $preparedConfiguration])->save();
                     if ($requestedActivePlaylistId !== null) {
-                        $this->assertLiveActiveIncidentPlaylist(
+                        $this->assertActiveIncidentPlaylist(
                             $this->playlistRepository->lockPlaylist($requestedActivePlaylistId),
                         );
                     }
@@ -243,7 +249,7 @@ final class WallboardService
                 }
             } else {
                 if ($requestedActivePlaylistId !== null) {
-                    $this->assertLiveActiveIncidentPlaylist(
+                    $this->assertActiveIncidentPlaylist(
                         $this->playlistRepository->lockPlaylist($requestedActivePlaylistId),
                     );
                 }
@@ -314,6 +320,7 @@ final class WallboardService
                     $this->auditService->record('wallboard_playlists.created', $playlist, $actor, [
                         'name' => $playlist->name,
                         'data_mode' => WallboardPlaylist::DATA_MODE_LIVE,
+                        'purpose' => WallboardPlaylist::PURPOSE_NORMAL,
                         'version' => 1,
                         'created_for_legacy_wallboard' => (string) $locked->id,
                     ], null, $request);
@@ -502,8 +509,8 @@ final class WallboardService
         $resolved = $this->playlistResolver->resolveRuntime($wallboard, false);
         $configuration = $resolved['configuration'];
         $wallboard->loadMissing([
-            'playlist:id,name,data_mode,configuration,version',
-            'activeIncidentPlaylist:id,name,data_mode,configuration,version',
+            'playlist:id,name,data_mode,purpose,configuration,version',
+            'activeIncidentPlaylist:id,name,data_mode,purpose,configuration,version',
             'nonRevokedSessions:id,wallboard_id,last_seen_at,expires_at',
         ]);
         $activeSessions = $this->activeSessions($wallboard);
@@ -518,6 +525,7 @@ final class WallboardService
                 'id' => (string) $playlist->id,
                 'name' => (string) $playlist->name,
                 'data_mode' => $this->playlistDataMode($playlist),
+                'purpose' => $playlist->normalizedPurpose(),
                 'version' => (int) $playlist->version,
             ] : null,
             'active_incident_playlist_id' => $wallboard->active_incident_playlist_id === null
@@ -527,6 +535,7 @@ final class WallboardService
                 'id' => (string) $activeIncidentPlaylist->id,
                 'name' => (string) $activeIncidentPlaylist->name,
                 'data_mode' => $this->playlistDataMode($activeIncidentPlaylist),
+                'purpose' => $activeIncidentPlaylist->normalizedPurpose(),
                 'version' => (int) $activeIncidentPlaylist->version,
             ] : null,
             'layout' => (string) $wallboard->layout,
@@ -550,8 +559,22 @@ final class WallboardService
         ];
     }
 
-    private function assertLiveActiveIncidentPlaylist(WallboardPlaylist $playlist): void
+    private function assertNormalPlaylist(WallboardPlaylist $playlist): void
     {
+        if ($playlist->normalizedPurpose() !== WallboardPlaylist::PURPOSE_NORMAL) {
+            throw ValidationException::withMessages([
+                'playlist_id' => ['Een wallboard kan alleen een normale playlist als standaardrotatie gebruiken.'],
+            ]);
+        }
+    }
+
+    private function assertActiveIncidentPlaylist(WallboardPlaylist $playlist): void
+    {
+        if ($playlist->normalizedPurpose() !== WallboardPlaylist::PURPOSE_ALARM) {
+            throw ValidationException::withMessages([
+                'active_incident_playlist_id' => ['Selecteer een playlist met het doel alarm.'],
+            ]);
+        }
         if ($this->playlistDataMode($playlist) !== WallboardPlaylist::DATA_MODE_LIVE) {
             throw ValidationException::withMessages([
                 'active_incident_playlist_id' => ['Een actieve-inzetplaylist moet live gegevens gebruiken.'],

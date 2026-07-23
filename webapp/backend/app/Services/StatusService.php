@@ -105,7 +105,7 @@ final class StatusService
     private function transitionAcceptedIncidentsToInProgressWhenEveryoneOnScene(User $user, User $actor): void
     {
         $incidents = Incident::query()
-            ->whereIn('status', ['active', 'dispatching'])
+            ->where('status', 'dispatching')
             ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
                 ->whereIn('status', ['sent', 'escalated'])
                 ->whereHas('recipients', fn ($recipients) => $recipients
@@ -150,8 +150,13 @@ final class StatusService
     private function transitionIncidentStatus(Incident $incident, User $actor, string $status, string $reason): void
     {
         DB::transaction(function () use ($incident, $actor, $status, $reason): void {
-            $incident->refresh();
-            if (! in_array($incident->status, ['active', 'dispatching'], true) || $incident->status === $status) {
+            $incident = Incident::query()
+                ->lockForUpdate()
+                ->find($incident->getKey());
+            if ($incident === null) {
+                return;
+            }
+            if ($incident->status !== 'dispatching' || $status !== 'in_progress') {
                 return;
             }
 

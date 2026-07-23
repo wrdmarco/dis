@@ -11,11 +11,10 @@ final class AuditLog extends Model
 
     public $timestamps = false;
 
-    protected $fillable = ['actor_id', 'action', 'target_type', 'target_id', 'ip_address', 'user_agent', 'metadata', 'reason', 'created_at'];
+    protected $fillable = ['actor_id', 'actor_name', 'action', 'target_type', 'target_id', 'ip_address', 'user_agent', 'metadata', 'reason', 'created_at'];
 
     protected function casts(): array
     {
         return ['metadata' => 'array', 'created_at' => 'immutable_datetime'];
     }
 }
-

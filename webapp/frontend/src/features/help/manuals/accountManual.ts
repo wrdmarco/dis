@@ -118,13 +118,13 @@ export const accountManualGuides = {
   'mobile-app': [
     {
       id: 'mobile-pair-qr',
-      title: 'Een mobiele app koppelen met QR-code',
-      intro: 'Koppel de operator- of admin-app zonder gebruikersnaam en wachtwoord.',
-      mobileApp: 'any',
-      prerequisites: ['Installeer de juiste mobiele app.', 'Sta cameragebruik toe wanneer de app daarom vraagt.'],
+      title: 'De Operator-app koppelen met QR-code',
+      intro: 'Koppel de Operator-app zonder gebruikersnaam en wachtwoord.',
+      mobileApp: 'operator',
+      prerequisites: ['Installeer de Operator-app.', 'Sta cameragebruik toe wanneer de app daarom vraagt.'],
       steps: [
         { label: 'Open Mijn toestellen', description: 'Ga in de webapp naar Profiel en kies bij Mijn toestellen de knop Toestel toevoegen.' },
-        { label: 'Kies de app', description: 'Selecteer Operator-app of Admin-app. Je ziet alleen de apps waarvoor je rol toegang heeft.' },
+        { label: 'Open de Operator-app', description: 'Gebruik de scanfunctie in de Operator-app op Android of iPhone.' },
         { label: 'Open de scanner', description: 'Open in de mobiele app de functie om een QR-koppelcode te scannen.' },
         { label: 'Scan de zichtbare code', description: 'Richt de camera op de QR-code in de webapp. Iedere code is 30 seconden geldig en het webvenster maakt automatisch een nieuwe.' },
         { label: 'Geef het toestel een naam', description: 'Vul in de mobiele app een herkenbare naam in, bijvoorbeeld Prive telefoon of Meldkamertablet.' },
@@ -137,7 +137,7 @@ export const accountManualGuides = {
       id: 'mobile-pair-same-device',
       title: 'Koppelen op dezelfde telefoon',
       intro: 'Gebruik de knop of de handmatige gegevens wanneer je de QR-code niet kunt scannen.',
-      mobileApp: 'any',
+      mobileApp: 'operator',
       steps: [
         { label: 'Open Toestel toevoegen', description: 'Open Profiel in de browser op je telefoon en kies Toestel toevoegen.' },
         { label: 'Kies Open app en koppel dit toestel', description: 'De mobiele app wordt geopend met server en koppelcode.' },

@@ -81,7 +81,17 @@ final class KnmiPrecipitationHdf5Reader
 
     public function validatePair(string $radarPath, string $probabilityPath, CarbonImmutable $reference): void
     {
+        $this->validateRadarFile($radarPath, $reference);
+        $this->validateProbabilityFile($probabilityPath, $reference);
+    }
+
+    public function validateRadarFile(string $radarPath, CarbonImmutable $reference): void
+    {
         $this->validateRadar($this->safePath($radarPath), $reference);
+    }
+
+    public function validateProbabilityFile(string $probabilityPath, CarbonImmutable $reference): void
+    {
         $this->validateProbability($this->safePath($probabilityPath), $reference);
     }
 
@@ -91,16 +101,16 @@ final class KnmiPrecipitationHdf5Reader
      *   radar_peak_mm_h: float,
      *   radar_first_precipitation_at: string|null,
      *   radar_until: string,
-     *   third_hour_probability_pct: float,
-     *   third_hour_from: string,
-     *   forecast_until: string,
+     *   third_hour_probability_pct: float|null,
+     *   third_hour_from: string|null,
+     *   forecast_until: string|null,
      *   radar_sample_count: int,
      *   third_hour_sample_count: int
      * }
      */
     public function readPoint(
         string $radarPath,
-        string $probabilityPath,
+        ?string $probabilityPath,
         CarbonImmutable $reference,
         float $latitude,
         float $longitude,
@@ -148,35 +158,39 @@ final class KnmiPrecipitationHdf5Reader
             }
         }
 
-        $probabilityCommand = [
-            self::H5DUMP,
-            '-A',
-            '0',
-            '-w',
-            '0',
-            '-d',
-            '/exceedance_probability',
-            '-s',
-            '0,23,'.$row.','.$column,
-            '-c',
-            '1,'.self::THIRD_HOUR_SAMPLES.',1,1',
-            $this->safePath($probabilityPath),
-        ];
-        $probabilityBlocks = $this->numericBlocks($this->run($probabilityCommand, self::MAX_DATA_BYTES));
-        $probabilityValues = $probabilityBlocks[0] ?? [];
-        if (count($probabilityBlocks) !== 1 || count($probabilityValues) !== self::THIRD_HOUR_SAMPLES) {
-            throw new KnmiPrecipitationImportException(
-                'local_data_invalid',
-                'KNMI third-hour probability query returned an incomplete series.',
-            );
-        }
-        foreach ($probabilityValues as $value) {
-            if (! $this->wholeNumber($value) || $value < 0 || $value > 100) {
+        $probability = null;
+        if ($probabilityPath !== null) {
+            $probabilityCommand = [
+                self::H5DUMP,
+                '-A',
+                '0',
+                '-w',
+                '0',
+                '-d',
+                '/exceedance_probability',
+                '-s',
+                '0,23,'.$row.','.$column,
+                '-c',
+                '1,'.self::THIRD_HOUR_SAMPLES.',1,1',
+                $this->safePath($probabilityPath),
+            ];
+            $probabilityBlocks = $this->numericBlocks($this->run($probabilityCommand, self::MAX_DATA_BYTES));
+            $probabilityValues = $probabilityBlocks[0] ?? [];
+            if (count($probabilityBlocks) !== 1 || count($probabilityValues) !== self::THIRD_HOUR_SAMPLES) {
                 throw new KnmiPrecipitationImportException(
                     'local_data_invalid',
-                    'KNMI precipitation probability is missing or out of bounds.',
+                    'KNMI third-hour probability query returned an incomplete series.',
                 );
             }
+            foreach ($probabilityValues as $value) {
+                if (! $this->wholeNumber($value) || $value < 0 || $value > 100) {
+                    throw new KnmiPrecipitationImportException(
+                        'local_data_invalid',
+                        'KNMI precipitation probability is missing or out of bounds.',
+                    );
+                }
+            }
+            $probability = (float) max($probabilityValues);
         }
 
         return [
@@ -184,11 +198,15 @@ final class KnmiPrecipitationHdf5Reader
             'radar_peak_mm_h' => $peak,
             'radar_first_precipitation_at' => $firstPrecipitation?->toIso8601String(),
             'radar_until' => $reference->addMinutes(120)->toIso8601String(),
-            'third_hour_probability_pct' => (float) max($probabilityValues),
-            'third_hour_from' => $reference->addMinutes(120)->toIso8601String(),
-            'forecast_until' => $reference->addMinutes(180)->toIso8601String(),
+            'third_hour_probability_pct' => $probability,
+            'third_hour_from' => $probability !== null
+                ? $reference->addMinutes(120)->toIso8601String()
+                : null,
+            'forecast_until' => $probability !== null
+                ? $reference->addMinutes(180)->toIso8601String()
+                : null,
             'radar_sample_count' => self::RADAR_IMAGES,
-            'third_hour_sample_count' => self::THIRD_HOUR_SAMPLES,
+            'third_hour_sample_count' => $probability !== null ? self::THIRD_HOUR_SAMPLES : 0,
         ];
     }
 

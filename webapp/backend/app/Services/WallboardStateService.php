@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Contracts\OperationalRadarProvider;
 use App\DTO\Routing\RouteGeometry;
 use App\DTO\Routing\RoutePoint;
 use App\Models\AvailabilityStatus;
@@ -16,7 +17,10 @@ use App\Models\Wallboard;
 use App\Models\WallboardPlaylist;
 use App\Services\Routing\RouteGeometryService;
 use App\Support\ApiDateTime;
+use App\Support\OperationalRadarContent;
+use App\Support\WallboardConfiguration;
 use Illuminate\Support\Collection;
+use Throwable;
 
 final class WallboardStateService
 {
@@ -35,6 +39,7 @@ final class WallboardStateService
         private readonly WallboardForecastService $forecastService,
         private readonly WallboardCalendarService $calendarService,
         private readonly WallboardDemoStateService $demoStateService,
+        private readonly OperationalRadarProvider $radar,
     ) {}
 
     /** @return array<string, mixed> */
@@ -59,6 +64,7 @@ final class WallboardStateService
             $resolved['playlist_version'],
             $resolved['active_incident_playlist'],
             $resolved['data_mode'],
+            $resolved['purpose'],
         );
         $news = $this->contentSnapshots->news($wallboard, $configuration, $resolved['playlist_id']);
         $ticker = $this->contentSnapshots->ticker($wallboard, $configuration, $resolved['playlist_id']);
@@ -82,6 +88,7 @@ final class WallboardStateService
             ],
             'media' => $static['media'],
             'forecast' => ['pages' => $this->forecastService->pages($configuration)],
+            'weather_radar' => $runtime['weather_radar'],
             'calendar' => $runtime['calendar'],
             'map' => $runtime['map'],
         ];
@@ -99,6 +106,7 @@ final class WallboardStateService
                 'maintenance' => $runtime['maintenance'],
                 'operational_summary' => $runtime['operational_summary'],
                 'kpi' => $runtime['kpi'],
+                'weather_radar' => null,
                 'calendar' => $runtime['calendar'],
                 'map' => $runtime['map'],
             ];
@@ -116,6 +124,7 @@ final class WallboardStateService
             'maintenance' => $runtime['maintenance'],
             'operational_summary' => $runtime['operational_summary'],
             'kpi' => $runtime['kpi'],
+            'weather_radar' => $runtime['weather_radar'],
             'calendar' => $runtime['calendar'],
             'map' => $runtime['map'],
         ];
@@ -136,7 +145,40 @@ final class WallboardStateService
             $configuration,
             $this->activeAlarm(),
             suppressTakeovers: true,
+            wallboardAtlasUrls: false,
         );
+    }
+
+    public function weatherRadarAtlas(
+        Wallboard $wallboard,
+        string $kind,
+        string $snapshot,
+    ): ?OperationalRadarContent {
+        if (! in_array($kind, WallboardConfiguration::WEATHER_RADAR_KINDS, true)) {
+            return null;
+        }
+
+        $base = $this->playlistResolver->resolveRuntime($wallboard, false);
+        if ($base['data_mode'] === WallboardPlaylist::DATA_MODE_DEMO) {
+            return null;
+        }
+
+        $authorized = $this->hasWeatherRadarKind($base['configuration'], $kind);
+        if (! $authorized && $wallboard->active_incident_playlist_id !== null) {
+            // An immutable URL may be requested just after an alarm starts or
+            // ends. Authorize the one assigned live alarm playlist as well as
+            // the normal playlist, without widening access to any other
+            // playlist or making authorization depend on incident timing.
+            $alarm = $this->playlistResolver->resolveRuntime($wallboard, true);
+            $authorized = $alarm['active_incident_playlist'] === true
+                && $alarm['data_mode'] === WallboardPlaylist::DATA_MODE_LIVE
+                && $this->hasWeatherRadarKind($alarm['configuration'], $kind);
+        }
+        if (! $authorized) {
+            return null;
+        }
+
+        return $this->radar->file($kind, $snapshot);
     }
 
     /**
@@ -150,6 +192,7 @@ final class WallboardStateService
         ?int $playlistVersion = null,
         bool $activeIncidentPlaylist = false,
         string $dataMode = WallboardPlaylist::DATA_MODE_LIVE,
+        string $purpose = WallboardPlaylist::PURPOSE_NORMAL,
     ): array {
         if ($configuration === null) {
             $base = $this->playlistResolver->resolveRuntime($wallboard, false);
@@ -167,6 +210,7 @@ final class WallboardStateService
             $playlistVersion = $resolved['playlist_version'];
             $activeIncidentPlaylist = $resolved['active_incident_playlist'];
             $dataMode = $resolved['data_mode'];
+            $purpose = $resolved['purpose'];
         }
 
         return [
@@ -181,6 +225,7 @@ final class WallboardStateService
                 'runtime_playlist_version' => $playlistVersion ?? 0,
                 'active_incident_playlist' => $activeIncidentPlaylist,
                 'data_mode' => $dataMode,
+                'runtime_playlist_purpose' => $purpose,
             ],
             'media' => [
                 'photo_pages' => $this->mediaStateService->pagesForPlaylist($playlistId, $configuration),
@@ -248,6 +293,7 @@ final class WallboardStateService
                 'runtime_playlist_id' => $base['playlist_id'],
                 'runtime_playlist_version' => $base['playlist_version'],
                 'active_incident_playlist' => false,
+                'runtime_playlist_purpose' => $base['purpose'],
                 'content_versions' => $this->demoStateService->contentVersions(
                     $wallboard,
                     $configuration,
@@ -279,6 +325,7 @@ final class WallboardStateService
             'runtime_playlist_id' => $resolved['playlist_id'],
             'runtime_playlist_version' => $resolved['playlist_version'],
             'active_incident_playlist' => $resolved['active_incident_playlist'],
+            'runtime_playlist_purpose' => $resolved['purpose'],
             'content_versions' => $this->contentSnapshots->contentVersions(
                 $wallboard,
                 $configuration,
@@ -300,6 +347,7 @@ final class WallboardStateService
         array $configuration,
         ?array $activeAlarm,
         bool $suppressTakeovers = false,
+        bool $wallboardAtlasUrls = true,
     ): array {
         $focus = $suppressTakeovers ? null : $this->focusService->resolve($configuration, $wallboard);
         $transientAlert = $suppressTakeovers ? null : $this->transientAlert();
@@ -312,6 +360,8 @@ final class WallboardStateService
         $pages = collect((array) $configuration['pages']);
         $hasMapPage = $pages->contains(fn (mixed $page): bool => is_array($page)
             && (string) ($page['type'] ?? '') === 'map');
+        $hasWeatherRadarPage = $pages->contains(fn (mixed $page): bool => is_array($page)
+            && (string) ($page['type'] ?? '') === 'weather_radar');
         $incidentPages = $pages
             ->filter(fn (mixed $page): bool => is_array($page)
                 && in_array((string) ($page['type'] ?? ''), ['incident_list', 'summary'], true));
@@ -362,6 +412,9 @@ final class WallboardStateService
                 'transient_alert' => $transientAlert,
             ],
             'kpi' => $this->kpiService->pages($configuration, $pilotMetrics),
+            'weather_radar' => $hasWeatherRadarPage
+                ? $this->weatherRadar($wallboardAtlasUrls)
+                : null,
             'calendar' => $this->calendarService->pages($configuration),
             'map' => [
                 'incidents' => $incidents->map(fn (Incident $incident): array => $this->incidentPayload($incident))->values()->all(),
@@ -379,7 +432,7 @@ final class WallboardStateService
     }
 
     /**
-     * @param  array{configuration: array<string, mixed>, playlist_id: string|null, playlist_version: int, active_incident_playlist: bool, data_mode: string}  $resolved
+     * @param  array{configuration: array<string, mixed>, playlist_id: string|null, playlist_version: int, active_incident_playlist: bool, data_mode: string, purpose: string}  $resolved
      * @return array<string, mixed>
      */
     private function demoState(Wallboard $wallboard, array $resolved): array
@@ -393,6 +446,7 @@ final class WallboardStateService
             $resolved['playlist_version'],
             false,
             WallboardPlaylist::DATA_MODE_DEMO,
+            $resolved['purpose'],
         );
         $news = $this->demoStateService->news($configuration, $resolved['playlist_version']);
         $ticker = $this->demoStateService->ticker($configuration, $resolved['playlist_version']);
@@ -413,9 +467,92 @@ final class WallboardStateService
             'news' => ['pages' => $news['pages'], 'generated_at' => $news['generated_at']],
             'media' => $static['media'],
             'forecast' => ['pages' => $this->demoStateService->forecast($configuration)],
+            'weather_radar' => null,
             'calendar' => $runtime['calendar'],
             'map' => $runtime['map'],
         ];
+    }
+
+    /**
+     * @return array{precipitation: array<string, mixed>|null, lightning: array<string, mixed>|null}|null
+     */
+    private function weatherRadar(bool $wallboardAtlasUrls): ?array
+    {
+        try {
+            $metadata = $this->radar->metadata();
+        } catch (Throwable) {
+            return null;
+        }
+
+        return [
+            'precipitation' => $this->weatherRadarLayer(
+                $metadata['precipitation'] ?? null,
+                'precipitation',
+                $wallboardAtlasUrls,
+            ),
+            'lightning' => $this->weatherRadarLayer(
+                $metadata['lightning'] ?? null,
+                'lightning',
+                $wallboardAtlasUrls,
+            ),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function weatherRadarLayer(mixed $value, string $kind, bool $wallboardAtlasUrls): ?array
+    {
+        if (! is_array($value)) {
+            return null;
+        }
+        if (! $wallboardAtlasUrls) {
+            return $value;
+        }
+
+        $atlasUrl = $value['atlas_url'] ?? null;
+        if ($atlasUrl === null) {
+            return $value;
+        }
+        if (! is_string($atlasUrl)
+            || preg_match(
+                '#\A/api/operational-weather/radar/(precipitation|lightning)/(\d{8}T\d{6}Z-[a-f0-9]{16})\.png\z#D',
+                $atlasUrl,
+                $matches,
+            ) !== 1
+            || $matches[1] !== $kind) {
+            $value['atlas_url'] = null;
+
+            return $value;
+        }
+
+        $value['atlas_url'] = route('wallboard.weather-radar-atlas', [
+            'kind' => $kind,
+            'snapshot' => $matches[2],
+        ], false);
+
+        return $value;
+    }
+
+    /**
+     * @param  array<string, mixed>  $configuration
+     */
+    private function hasWeatherRadarKind(array $configuration, string $kind): bool
+    {
+        foreach ((array) ($configuration['pages'] ?? []) as $page) {
+            if (! is_array($page) || ($page['type'] ?? null) !== 'weather_radar') {
+                continue;
+            }
+
+            $options = is_array($page['options'] ?? null) ? $page['options'] : [];
+            $configuredKind = $options['radar_kind']
+                ?? WallboardConfiguration::DEFAULT_WEATHER_RADAR_KIND;
+            if ($configuredKind === $kind) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

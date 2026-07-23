@@ -29,7 +29,7 @@ final class SystemMetricsApiTest extends TestCase
         $viewer = $this->user('metrics-pending-2fa@example.test', ['system.health.view']);
         $token = $viewer->createToken(
             'Pending metrics admin test',
-            ['2fa:pending', 'client:admin'],
+            ['2fa:pending', 'client:web'],
             now()->addMinutes(10),
         )->plainTextToken;
         Auth::forgetGuards();
@@ -120,7 +120,7 @@ final class SystemMetricsApiTest extends TestCase
 
     private function asAdminClient(User $user): static
     {
-        $token = $user->createToken('Metrics admin test', ['*', 'client:admin'], now()->addHour())->plainTextToken;
+        $token = $user->createToken('Metrics webbeheer test', ['*', 'client:web'], now()->addHour())->plainTextToken;
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);

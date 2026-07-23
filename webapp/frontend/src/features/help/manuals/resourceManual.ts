@@ -190,7 +190,7 @@ export const resourceManualGuides = {
       steps: [
         { label: 'Open Rollen', description: 'Kies Rol toevoegen, of kies Bewerken bij een bestaande rol.' },
         { label: 'Vul Rolcode en Weergavenaam in', description: 'De rolcode wordt een unieke code met kleine letters en streepjes. De weergavenaam beschrijft het werk voor beheerders.' },
-        { label: 'Kies app-toegang', description: 'Operator-app geeft toegang tot de operationele mobiele app. Admin-app bepaalt of de rolrechten in de webconsole en mobiele beheerapp gelden.' },
+        { label: 'Kies toegang', description: 'Operator-app geeft toegang tot de operationele mobiele app. Webbeheer bepaalt of de rolrechten in de webapp gebruikt mogen worden.' },
         { label: 'Kies rechten per onderdeel', description: 'Vink bekijken, beheren, verwijderen en gevoelige beheeracties afzonderlijk aan.' },
         { label: 'Controleer de samenvatting', description: 'Loop alle gekozen rechten nog één keer langs en verwijder wat niet nodig is.' },
         { label: 'Kies Rol toevoegen of Rol opslaan', description: 'Koppel de rol daarna via Gebruikers > Aanpassen aan de juiste personen.' },

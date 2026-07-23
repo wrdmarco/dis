@@ -11,6 +11,7 @@ import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
 import type { ConfigurableFormField, DroneFlightContext, Incident, IncidentFormLayoutItem, Team, User } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
+import { incidentStatusPayload } from './incidentStatusFlow';
 
 export interface IncidentFormState {
   title: string;
@@ -240,13 +241,14 @@ export function IncidentForm(props: {
   error?: string | null;
   extraFields?: ReactNode;
   enforceConfiguredRequiredFixedInputs?: boolean;
+  showStatus?: boolean;
   submitLabel: string;
   onCancel: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
 }) {
   const { api } = useAuth();
-  const { form, users, teams, customFields = [], layout = [], usersError, teamsError, saving, error, extraFields, enforceConfiguredRequiredFixedInputs = true, submitLabel, onCancel, onSubmit, onChange } = props;
+  const { form, users, teams, customFields = [], layout = [], usersError, teamsError, saving, error, extraFields, enforceConfiguredRequiredFixedInputs = true, showStatus = false, submitLabel, onCancel, onSubmit, onChange } = props;
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
   const [flightContext, setFlightContext] = useState<DroneFlightContext | null>(null);
   const [flightContextLoading, setFlightContextLoading] = useState(false);
@@ -310,7 +312,14 @@ export function IncidentForm(props: {
     };
   }, [api, form.latitude, form.longitude, form.locationLabel]);
 
-  const activeLayout = incidentFormLayout(layout, customFields);
+  const activeLayout = incidentFormLayout(layout, customFields)
+    .flatMap((item) => {
+      if (item.key !== 'status') {
+        return [item];
+      }
+
+      return showStatus ? [{ ...item, visible: true }] : [];
+    });
 
   return (
     <form className="form-grid" onSubmit={onSubmit}>
@@ -1340,7 +1349,10 @@ function airspaceStatusLabel(status?: string | null): string {
   }
 }
 
-export function incidentPayload(form: IncidentFormState): Record<string, unknown> {
+export function incidentPayload(
+  form: IncidentFormState,
+  options: { includeStatus?: boolean } = {},
+): Record<string, unknown> {
   const customFields = omitFixedIncidentFields(form.customFields);
   const legacyValue = (key: string, fallback: string): string | null => {
     const value = customFields[key];
@@ -1363,7 +1375,7 @@ export function incidentPayload(form: IncidentFormState): Record<string, unknown
     on_scene_contact_role: legacyValue('on_scene_contact_role', form.onSceneContactRole),
     required_resources: legacyValue('required_resources', form.requiredResources),
     priority: form.priority,
-    status: form.status,
+    ...incidentStatusPayload(form.status, options.includeStatus === true),
     location_label: form.locationLabel.trim() === '' ? null : form.locationLabel,
     latitude: coordinatePayload(form.latitude),
     longitude: coordinatePayload(form.longitude),

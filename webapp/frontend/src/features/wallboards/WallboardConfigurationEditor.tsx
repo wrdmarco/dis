@@ -9,12 +9,12 @@ import {
   Map,
   MapPin,
   Clapperboard,
+  CloudLightning,
   CloudSun,
   Gauge,
   Images,
   MessageSquareText,
   Newspaper,
-  PauseCircle,
   Plus,
   Radio,
   Rss,
@@ -76,6 +76,7 @@ import {
   DEFAULT_WALLBOARD_FLIP_DIRECTION,
   DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE,
   DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS,
+  DEFAULT_WALLBOARD_WEATHER_RADAR_KIND,
   DEFAULT_WALLBOARD_KPI_VISUALIZATIONS,
   DEFAULT_WALLBOARD_KPI_VISIBLE_METRICS,
   DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
@@ -105,6 +106,7 @@ import {
   normalizeWallboardForecastPageOptions,
   normalizeWallboardKpiPageOptions,
   normalizeWallboardPageTransition,
+  normalizeWallboardWeatherRadarKind,
   wallboardEffectivePageDuration,
   wallboardKpiSupportedVisualizations,
   wallboardMessageContent,
@@ -141,7 +143,7 @@ const MAP_OPTION_LABELS: Array<{ key: keyof WallboardMapConfiguration; label: st
   { key: 'show_summary', label: 'Samenvattingsbalk', help: 'Toon aantallen boven een kaartpagina.' },
   { key: 'show_incident_list', label: 'Incidentenlijst naast kaart', help: 'Toon een compacte lijst naast een kaartpagina.' },
   { key: 'show_route_legend', label: 'Routelabels', help: 'Toon pilootnaam en route-informatie.' },
-  { key: 'auto_fit', label: 'Automatisch kaderen', help: 'Houd alle zichtbare kaartpunten binnen beeld.' },
+  { key: 'auto_fit', label: 'Referentielagen kaderen', help: 'Kader zonder actieve inzet de zichtbare meldkamers en historie. Een actieve inzet wordt altijd automatisch gevolgd.' },
 ];
 
 const FORECAST_BLOCK_OPTIONS: ReadonlyArray<{
@@ -194,6 +196,7 @@ const PAGE_TYPE_OPTIONS: Array<{ value: WallboardPageType; label: string }> = [
   { value: 'safety_notice', label: 'Veiligheidsbericht' },
   { value: 'quote', label: 'Quote van de dag' },
   { value: 'uav_forecast', label: 'UAV Forecast' },
+  { value: 'weather_radar', label: 'Weerradar' },
   { value: 'news', label: 'Nieuws' },
   { value: 'video', label: 'Video' },
   { value: 'photo_carousel', label: 'Fotocarrousel' },
@@ -695,41 +698,9 @@ export function WallboardConfigurationEditor({
         </div>
         <p className="wallboard-focus-editor__note">
           <Siren size={17} aria-hidden />
-          Een echte alarmering heeft altijd voorrang. De server wisselt het focusscherm af met de toegewezen playlist; met alleen een kaartpagina ontstaat focus&nbsp;↔&nbsp;kaart.
+          Een echte alarmering heeft altijd voorrang. De server wisselt het focusscherm af met de actieve playlist; een ingestelde alarmplaylist draait daarbij volledig en mag iedere beschikbare paginacombinatie bevatten.
         </p>
       </section>
-
-      <fieldset className="wallboard-incident-override">
-        <legend>Vaste incidentpagina als fallback</legend>
-        <label className="wallboard-switch-row">
-          <input
-            type="checkbox"
-            checked={configuration.incident_override.enabled}
-            onChange={(event) => setConfiguration((current) => ({
-              ...current,
-              incident_override: {
-                enabled: event.target.checked,
-                page_id: current.incident_override.page_id ?? current.pages[0].id,
-              },
-            }))}
-          />
-          <span><strong>Incidentpagina vastzetten</strong><small>Alleen gebruikt wanneer het focusscherm voor echte alarmeringen uitstaat.</small></span>
-        </label>
-        <label>
-          <span>Pagina tijdens incident</span>
-          <select
-            value={configuration.incident_override.page_id ?? ''}
-            disabled={!configuration.incident_override.enabled}
-            onChange={(event) => setConfiguration((current) => ({
-              ...current,
-              incident_override: { ...current.incident_override, page_id: event.target.value },
-            }))}
-          >
-            {configuration.pages.map((page) => <option key={page.id} value={page.id}>{page.name}</option>)}
-          </select>
-        </label>
-        <p><PauseCircle size={16} aria-hidden /> Na het incident keert het scherm terug naar de handmatige pagina of normale rotatie.</p>
-      </fieldset>
     </div>
   );
 }
@@ -902,6 +873,8 @@ function WallboardPageEditor({
             location_mode: DEFAULT_WALLBOARD_FORECAST_LOCATION_MODE,
             visible_blocks: [...DEFAULT_WALLBOARD_FORECAST_VISIBLE_BLOCKS],
           }
+        : type === 'weather_radar'
+          ? { radar_kind: DEFAULT_WALLBOARD_WEATHER_RADAR_KIND }
         : type === 'calendar'
           ? { max_items: clampWallboardCalendarMaxItems(Number(page.options.max_items)) }
         : type === 'kpi'
@@ -1560,6 +1533,32 @@ function WallboardPageEditor({
             </span>
           </p>
         </fieldset>
+      ) : page.type === 'weather_radar' ? (
+        <fieldset className="wallboard-page-editor__page-options">
+          <legend>Geanimeerde weerradar</legend>
+          <p>
+            Kies één vaste laag voor deze playlistpagina. Voeg desgewenst een tweede weerradarpagina toe
+            om buien en bliksem afzonderlijk in de rotatie te tonen.
+          </p>
+          <label>
+            <span>Radarlaag</span>
+            <select
+              value={normalizeWallboardWeatherRadarKind(page.options.radar_kind)}
+              onChange={(event) => onChange({
+                ...page,
+                options: {
+                  radar_kind: normalizeWallboardWeatherRadarKind(event.target.value),
+                },
+              })}
+            >
+              <option value="precipitation">Buien · KNMI-neerslagverwachting</option>
+              <option value="lightning">Bliksem · EUMETSAT-detecties</option>
+            </select>
+            <small>
+              De tv speelt de gekozen lokaal opgeslagen beeldreeks automatisch af. Er wordt geen externe kaart ingebed.
+            </small>
+          </label>
+        </fieldset>
       ) : page.type === 'video' ? (
         <WallboardVideoPageEditor page={page} onChange={onChange} />
       ) : page.type === 'photo_carousel' ? (
@@ -1774,6 +1773,7 @@ export function WallboardPageTypeIcon({ type }: { type: WallboardPageType }) {
     case 'safety_notice': return <ShieldAlert size={18} aria-hidden />;
     case 'quote': return <QuoteIcon size={18} aria-hidden />;
     case 'uav_forecast': return <CloudSun size={18} aria-hidden />;
+    case 'weather_radar': return <CloudLightning size={18} aria-hidden />;
     case 'news': return <Newspaper size={18} aria-hidden />;
     case 'video': return <Clapperboard size={18} aria-hidden />;
     case 'photo_carousel': return <Images size={18} aria-hidden />;

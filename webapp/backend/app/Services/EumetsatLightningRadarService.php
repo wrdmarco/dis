@@ -37,6 +37,7 @@ final class EumetsatLightningRadarService
                     'Er is nog geen geldige lokale EUMETSAT-bliksemsnapshot beschikbaar.',
                 );
             }
+
             $latest = CarbonImmutable::parse($snapshot['latest_frame_at'])->utc();
             $now = CarbonImmutable::now()->utc();
             if ($latest->greaterThan($now->addMinute())) {
@@ -47,36 +48,30 @@ final class EumetsatLightningRadarService
                     $snapshot['activated_at'],
                 );
             }
-            if ($latest->lessThan($now->subSeconds($this->configuration->maximumAgeSeconds()))) {
+
+            $periodEnd = $latest->addMinutes($this->configuration->intervalMinutes());
+            $ageSeconds = max(0, (int) $periodEnd->diffInSeconds($now, false));
+            if ($ageSeconds > $this->configuration->maximumFallbackAgeSeconds()) {
                 return $this->unavailable(
                     true,
-                    'De lokale EUMETSAT-bliksemsnapshot is ouder dan 15 minuten en telt daarom als onbekend.',
+                    'De laatste EUMETSAT-waarnemingsperiode is ouder dan twee uur en wordt niet meer als kaartbeeld getoond.',
                     $snapshot['latest_frame_at'],
                     $snapshot['activated_at'],
                 );
             }
 
-            return [
-                'available' => true,
-                'stale' => false,
-                'snapshot_id' => $snapshot['snapshot_id'],
-                'latest_frame_at' => $snapshot['latest_frame_at'],
-                'refreshed_at' => $snapshot['activated_at'],
-                'frame_count' => count($snapshot['frames']),
-                'interval_minutes' => $this->configuration->intervalMinutes(),
-                'frames' => $snapshot['frames'],
-                'atlas' => [
-                    'columns' => $snapshot['atlas']['columns'],
-                    'rows' => $snapshot['atlas']['rows'],
-                    'frame_width' => $snapshot['atlas']['frame_width'],
-                    'frame_height' => $snapshot['atlas']['frame_height'],
-                    'width' => $snapshot['atlas']['width'],
-                    'height' => $snapshot['atlas']['height'],
-                ],
-                'source' => $snapshot['source'],
-                'license' => $snapshot['license'],
-                'availability_note' => null,
-            ];
+            $stale = $ageSeconds > $this->configuration->maximumAgeSeconds();
+            $maximumAgeMinutes = intdiv($this->configuration->maximumAgeSeconds(), 60);
+
+            return $this->snapshotMetadata(
+                $snapshot,
+                ! $stale,
+                $stale,
+                $stale
+                    ? "De laatste EUMETSAT-waarnemingsperiode is ouder dan {$maximumAgeMinutes} minuten. Het laatst gevalideerde beeld blijft tijdelijk als verouderde terugval zichtbaar."
+                    : null,
+                $now,
+            );
         } catch (Throwable) {
             return $this->unavailable(
                 false,
@@ -93,9 +88,10 @@ final class EumetsatLightningRadarService
         if (preg_match('/\A\d{8}T\d{6}Z-[a-f0-9]{16}\z/D', $snapshotId) !== 1) {
             return null;
         }
+
         try {
             $snapshot = $this->snapshots->retainedSnapshot($snapshotId);
-            if ($snapshot === null || $this->stale($snapshot['latest_frame_at'])) {
+            if ($snapshot === null || ! $this->withinFallbackWindow($snapshot['latest_frame_at'])) {
                 return null;
             }
 
@@ -111,13 +107,57 @@ final class EumetsatLightningRadarService
         }
     }
 
-    private function stale(string $latestFrameAt): bool
+    private function withinFallbackWindow(string $latestFrameAt): bool
     {
         $latest = CarbonImmutable::parse($latestFrameAt)->utc();
         $now = CarbonImmutable::now()->utc();
+        $periodEnd = $latest->addMinutes($this->configuration->intervalMinutes());
 
-        return $latest->lessThan($now->subSeconds($this->configuration->maximumAgeSeconds()))
-            || $latest->greaterThan($now->addMinute());
+        return ! $latest->greaterThan($now->addMinute())
+            && $periodEnd->diffInSeconds($now, false)
+                <= $this->configuration->maximumFallbackAgeSeconds();
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @return array<string, mixed>
+     */
+    private function snapshotMetadata(
+        array $snapshot,
+        bool $available,
+        bool $stale,
+        ?string $note,
+        CarbonImmutable $now,
+    ): array {
+        $latest = CarbonImmutable::parse($snapshot['latest_frame_at'])->utc();
+        $periodEnd = $latest->addMinutes($this->configuration->intervalMinutes());
+        $refreshed = CarbonImmutable::parse($snapshot['activated_at'])->utc();
+
+        return [
+            'available' => $available,
+            'stale' => $stale,
+            'snapshot_id' => $snapshot['snapshot_id'],
+            'latest_frame_at' => $snapshot['latest_frame_at'],
+            'observed_period_end' => $periodEnd->toIso8601String(),
+            'age_seconds' => max(0, (int) $periodEnd->diffInSeconds($now, false)),
+            'lag_seconds' => max(0, (int) $periodEnd->diffInSeconds($refreshed, false)),
+            'refreshed_at' => $snapshot['activated_at'],
+            'frame_count' => count($snapshot['frames']),
+            'interval_minutes' => $this->configuration->intervalMinutes(),
+            'frames' => $snapshot['frames'],
+            'atlas' => [
+                'columns' => $snapshot['atlas']['columns'],
+                'rows' => $snapshot['atlas']['rows'],
+                'frame_width' => $snapshot['atlas']['frame_width'],
+                'frame_height' => $snapshot['atlas']['frame_height'],
+                'width' => $snapshot['atlas']['width'],
+                'height' => $snapshot['atlas']['height'],
+                'frame_count' => count($snapshot['frames']),
+            ],
+            'source' => $snapshot['source'],
+            'license' => $snapshot['license'],
+            'availability_note' => $note,
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -127,11 +167,44 @@ final class EumetsatLightningRadarService
         ?string $latestFrameAt = null,
         ?string $refreshedAt = null,
     ): array {
+        $periodEnd = null;
+        $ageSeconds = null;
+        $lagSeconds = null;
+
+        try {
+            if ($latestFrameAt !== null) {
+                $period = CarbonImmutable::parse($latestFrameAt)
+                    ->utc()
+                    ->addMinutes($this->configuration->intervalMinutes());
+                $periodEnd = $period->toIso8601String();
+                $ageSeconds = max(
+                    0,
+                    (int) $period->diffInSeconds(CarbonImmutable::now()->utc(), false),
+                );
+                if ($refreshedAt !== null) {
+                    $lagSeconds = max(
+                        0,
+                        (int) $period->diffInSeconds(
+                            CarbonImmutable::parse($refreshedAt)->utc(),
+                            false,
+                        ),
+                    );
+                }
+            }
+        } catch (Throwable) {
+            $periodEnd = null;
+            $ageSeconds = null;
+            $lagSeconds = null;
+        }
+
         return [
             'available' => false,
             'stale' => $stale,
             'snapshot_id' => null,
             'latest_frame_at' => $latestFrameAt,
+            'observed_period_end' => $periodEnd,
+            'age_seconds' => $ageSeconds,
+            'lag_seconds' => $lagSeconds,
             'refreshed_at' => $refreshedAt,
             'frame_count' => 0,
             'interval_minutes' => self::INTERVAL_MINUTES,

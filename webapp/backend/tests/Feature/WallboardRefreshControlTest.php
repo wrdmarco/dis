@@ -87,7 +87,7 @@ final class WallboardRefreshControlTest extends TestCase
 
         $pendingToken = $manager->createToken(
             'Pending wallboard refresh',
-            ['2fa:pending', 'client:admin'],
+            ['2fa:pending', 'client:web'],
             now()->addHour(),
         )->plainTextToken;
         Auth::forgetGuards();
@@ -221,7 +221,7 @@ final class WallboardRefreshControlTest extends TestCase
 
     private function asAdminClient(User $user): static
     {
-        $token = $user->createToken('Wallboard refresh test', ['*', 'client:admin'], now()->addHour())->plainTextToken;
+        $token = $user->createToken('Wallboard refresh test', ['*', 'client:web'], now()->addHour())->plainTextToken;
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);

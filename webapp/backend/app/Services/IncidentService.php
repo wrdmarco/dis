@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Events\IncidentChanged;
 use App\Jobs\GenerateIncidentReport;
 use App\Models\Incident;
+use App\Models\Role;
 use App\Models\User;
 use App\Support\ApiDateTime;
 use App\Support\PhoneNumber;
@@ -16,6 +17,19 @@ use Throwable;
 
 final class IncidentService
 {
+    /** @var list<string> */
+    private const STATUSES = ['draft', 'active', 'dispatching', 'in_progress', 'resolved', 'cancelled'];
+
+    /** @var array<string, list<string>> */
+    private const NORMAL_STATUS_TRANSITIONS = [
+        'draft' => ['active', 'cancelled'],
+        'active' => ['dispatching', 'cancelled'],
+        'dispatching' => ['in_progress'],
+        'in_progress' => ['resolved'],
+        'resolved' => [],
+        'cancelled' => [],
+    ];
+
     /** @var list<string> */
     private array $lastDispatchWarnings = [];
 
@@ -44,6 +58,8 @@ final class IncidentService
             $teamIds = $this->teamIdsFromPayload($data);
             unset($data['team_ids']);
             $data['team_id'] = $teamIds[0] ?? null;
+            $data['status'] = 'draft';
+            $data['closed_at'] = null;
 
             $incident = Incident::query()->create($data + [
                 'reference' => $this->nextReference(),
@@ -52,7 +68,6 @@ final class IncidentService
                 'created_by_email' => $actor->email,
                 'coordinator_name' => $this->snapshotUserName($data['coordinator_id'] ?? null),
                 'coordinator_email' => $this->snapshotUserEmail($data['coordinator_id'] ?? null),
-                'status' => $data['status'] ?? 'draft',
                 'opened_at' => now(),
             ]);
             $incident->teams()->sync($teamIds);
@@ -83,13 +98,27 @@ final class IncidentService
     public function update(Incident $incident, array $data, User $actor): Incident
     {
         $this->lastDispatchWarnings = [];
-        $originalStatus = (string) $incident->status;
         $requestedStatus = isset($data['status']) ? (string) $data['status'] : null;
+        $manualStatusOverride = filter_var(
+            $data['manual_status_override'] ?? false,
+            FILTER_VALIDATE_BOOLEAN,
+        );
 
-        $updatedIncident = DB::transaction(function () use ($incident, $data, $actor): Incident {
+        [$updatedIncident, $statusChanged] = DB::transaction(function () use ($incident, $data, $actor, $manualStatusOverride): array {
+            $incident = Incident::query()
+                ->lockForUpdate()
+                ->findOrFail($incident->getKey());
             $beforeStatus = $incident->status;
             $statusReason = $data['status_reason'] ?? null;
             $directDispatch = (bool) ($data['direct_dispatch'] ?? false);
+            $this->validateStatusTransition(
+                $incident,
+                isset($data['status']) ? (string) $data['status'] : null,
+                $directDispatch,
+                $manualStatusOverride,
+                $actor,
+                $statusReason,
+            );
             $dispatchOptions = $this->dispatchOptionsFromPayload($data);
             $data = $this->resolveLocationCoordinates($data, $incident);
             $phoneCountry = $this->phoneCountryFromIncidentData($data, $incident);
@@ -100,6 +129,7 @@ final class IncidentService
             $teamIds = array_key_exists('team_ids', $data) ? $this->teamIdsFromPayload($data) : null;
             unset($data['status_reason']);
             unset($data['direct_dispatch']);
+            unset($data['manual_status_override']);
             unset($data['dispatch_recipient_count']);
             unset($data['team_ids']);
             if (is_array($teamIds)) {
@@ -107,11 +137,13 @@ final class IncidentService
             }
 
             if (array_key_exists('status', $data)) {
-                if ($incident->status === 'draft' && $data['status'] === 'dispatching' && ! $directDispatch) {
-                    throw ValidationException::withMessages(['status' => ['Activeer het concept voordat de alarmering wordt verstuurd.']]);
-                }
-
                 $data = $this->applyStatusTimestamps($incident, $data);
+            }
+            if ($manualStatusOverride && array_key_exists('status', $data) && $data['status'] !== $beforeStatus) {
+                $data['report_pdf_path'] = null;
+                $data['report_generated_at'] = null;
+                $data['report_finalized_at'] = null;
+                $data['report_generation_error'] = null;
             }
 
             if (array_key_exists('coordinator_id', $data)) {
@@ -152,17 +184,17 @@ final class IncidentService
                 ]);
             }
 
-            if ($beforeStatus !== 'active' && ($data['status'] ?? null) === 'active') {
+            if (! $manualStatusOverride && $beforeStatus !== 'active' && ($data['status'] ?? null) === 'active') {
                 $result = $this->dispatchService->sendPreannouncementForIncidentActivation($incident->refresh(), $actor, $statusReason, $dispatchOptions);
                 $this->lastDispatchWarnings = $result['warnings'];
             }
 
-            if (($beforeStatus === 'active' || ($beforeStatus === 'draft' && $directDispatch)) && ($data['status'] ?? null) === 'dispatching') {
+            if (! $manualStatusOverride && ($beforeStatus === 'active' || ($beforeStatus === 'draft' && $directDispatch)) && ($data['status'] ?? null) === 'dispatching') {
                 $result = $this->dispatchService->createAndSendForIncidentActivation($incident->refresh(), $actor, $statusReason, $dispatchOptions);
                 $this->lastDispatchWarnings = $result['warnings'];
             }
 
-            if ($beforeStatus === 'active' && ($data['status'] ?? null) === 'cancelled') {
+            if (! $manualStatusOverride && $beforeStatus === 'active' && ($data['status'] ?? null) === 'cancelled') {
                 $this->dispatchService->sendCancellationForActiveIncident($incident->refresh(), $actor);
             }
 
@@ -176,10 +208,13 @@ final class IncidentService
             $this->broadcastIncidentChange($incident->refresh(), 'updated');
             $this->speechPrewarmService->queueAfterCommit((string) $incident->id);
 
-            return $incident->load(['coordinator', 'team', 'teams', 'statusHistory']);
+            return [
+                $incident->load(['coordinator', 'team', 'teams', 'statusHistory']),
+                (string) $beforeStatus !== (string) $incident->status,
+            ];
         });
 
-        if ($requestedStatus !== $originalStatus && in_array($requestedStatus, ['active', 'dispatching'], true)) {
+        if (! $manualStatusOverride && $statusChanged && in_array($requestedStatus, ['active', 'dispatching'], true)) {
             // This call is intentionally outside the outer incident
             // transaction. It is an idempotent safety net for runtimes where a
             // nested after-commit callback or scheduler is delayed: the first
@@ -188,6 +223,73 @@ final class IncidentService
         }
 
         return $updatedIncident;
+    }
+
+    private function validateStatusTransition(
+        Incident $incident,
+        ?string $nextStatus,
+        bool $directDispatch,
+        bool $manualStatusOverride,
+        User $actor,
+        mixed $statusReason,
+    ): void {
+        if ($manualStatusOverride && ! $actor->hasRole(Role::SYSTEM_ADMINISTRATOR)) {
+            throw ValidationException::withMessages([
+                'manual_status_override' => ['Alleen een systeembeheerder mag de incidentstatus handmatig corrigeren.'],
+            ]);
+        }
+
+        if ($nextStatus === null) {
+            if ($manualStatusOverride) {
+                throw ValidationException::withMessages([
+                    'status' => ['Kies een status voor de handmatige correctie.'],
+                ]);
+            }
+
+            return;
+        }
+
+        if (! in_array($nextStatus, self::STATUSES, true)) {
+            throw ValidationException::withMessages([
+                'status' => ['De gekozen incidentstatus is ongeldig.'],
+            ]);
+        }
+
+        if ($nextStatus === (string) $incident->status) {
+            return;
+        }
+
+        if ($manualStatusOverride) {
+            if (trim((string) $statusReason) === '') {
+                throw ValidationException::withMessages([
+                    'status_reason' => ['Leg de reden van de handmatige statuscorrectie vast.'],
+                ]);
+            }
+
+            return;
+        }
+
+        // Test alerts retain their isolated lifecycle. Operational incident
+        // transitions are constrained by the matrix below.
+        if ($incident->is_test) {
+            return;
+        }
+
+        if ((string) $incident->status === 'draft' && $nextStatus === 'dispatching') {
+            if ($directDispatch) {
+                return;
+            }
+
+            throw ValidationException::withMessages([
+                'status' => ['Activeer het concept voordat de alarmering wordt verstuurd, of gebruik Direct alarmeren.'],
+            ]);
+        }
+
+        if (! in_array($nextStatus, self::NORMAL_STATUS_TRANSITIONS[(string) $incident->status] ?? [], true)) {
+            throw ValidationException::withMessages([
+                'status' => ['Deze overgang van incidentstatus is niet toegestaan.'],
+            ]);
+        }
     }
 
     /**

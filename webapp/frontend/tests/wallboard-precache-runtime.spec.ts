@@ -19,6 +19,7 @@ const manifest: WallboardPrecacheManifest = {
   cacheNamespace: 'dis-wallboard-static-v1-test-',
   cacheName: 'dis-wallboard-static-v1-test',
   contentVersion: '7-test',
+  blockingContentVersion: '7-test',
   assets: [
     { url: 'https://dis.test/news.webp', kind: 'image', pageIds: ['news'] },
     { url: 'https://dis.test/shared.webp', kind: 'image', pageIds: ['news', 'photos'] },

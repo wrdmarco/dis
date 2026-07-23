@@ -44,15 +44,24 @@ final class WallboardPlaylistService
     {
         $configuration = WallboardConfiguration::normalize((array) $data['configuration']);
         $dataMode = (string) ($data['data_mode'] ?? WallboardPlaylist::DATA_MODE_LIVE);
+        $purpose = (string) ($data['purpose'] ?? WallboardPlaylist::PURPOSE_NORMAL);
         if ($dataMode === WallboardPlaylist::DATA_MODE_LIVE) {
             $this->forecastLocations->assertResolvableAddresses($configuration);
         }
 
-        return DB::transaction(function () use ($data, $configuration, $dataMode, $actor, $request): WallboardPlaylist {
+        return DB::transaction(function () use (
+            $data,
+            $configuration,
+            $dataMode,
+            $purpose,
+            $actor,
+            $request,
+        ): WallboardPlaylist {
             $this->mediaCoordination->lock();
             $playlist = $this->repository->create([
                 'name' => trim((string) $data['name']),
                 'data_mode' => $dataMode,
+                'purpose' => $purpose,
                 'configuration' => $configuration,
                 'version' => 1,
                 'created_by' => $actor->id,
@@ -67,6 +76,7 @@ final class WallboardPlaylistService
             $this->auditService->record('wallboard_playlists.created', $playlist, $actor, [
                 'name' => $playlist->name,
                 'data_mode' => $playlist->data_mode,
+                'purpose' => $playlist->normalizedPurpose(),
                 'version' => 1,
             ], null, $request);
 
@@ -106,6 +116,9 @@ final class WallboardPlaylistService
                 : WallboardPlaylist::DATA_MODE_LIVE;
             $nextDataMode = (string) ($data['data_mode'] ?? $currentDataMode);
             $dataModeChanged = $nextDataMode !== $currentDataMode;
+            $currentPurpose = $locked->normalizedPurpose();
+            $nextPurpose = (string) ($data['purpose'] ?? $currentPurpose);
+            $purposeChanged = $nextPurpose !== $currentPurpose;
             if ($dataModeChanged
                 && $nextDataMode === WallboardPlaylist::DATA_MODE_DEMO
                 && $this->repository->activeIncidentLinkedWallboardsExist((string) $locked->id)) {
@@ -113,9 +126,23 @@ final class WallboardPlaylistService
                     'data_mode' => ['Een actieve-inzetplaylist moet live gegevens blijven gebruiken.'],
                 ]);
             }
+            if ($purposeChanged
+                && $nextPurpose === WallboardPlaylist::PURPOSE_ALARM
+                && $this->repository->normalLinkedWallboardsExist((string) $locked->id)) {
+                throw ValidationException::withMessages([
+                    'purpose' => ['Een normaal toegewezen playlist kan niet als alarmplaylist worden geclassificeerd.'],
+                ]);
+            }
+            if ($purposeChanged
+                && $nextPurpose === WallboardPlaylist::PURPOSE_NORMAL
+                && $this->repository->activeIncidentLinkedWallboardsExist((string) $locked->id)) {
+                throw ValidationException::withMessages([
+                    'purpose' => ['Een geselecteerde alarmplaylist kan niet als normale playlist worden geclassificeerd.'],
+                ]);
+            }
 
             $linkedWallboards = new Collection;
-            if (array_key_exists('configuration', $data) || $dataModeChanged) {
+            if (array_key_exists('configuration', $data) || $dataModeChanged || $purposeChanged) {
                 $configuration = WallboardConfiguration::normalize(
                     (array) ($data['configuration'] ?? $locked->configuration),
                     (array) $locked->configuration,
@@ -133,6 +160,7 @@ final class WallboardPlaylistService
                     $configuration,
                     $actor,
                     $nextDataMode,
+                    $nextPurpose,
                 );
                 if ($dataModeChanged) {
                     $this->contentSnapshots->deleteForPlaylist((string) $locked->id);
@@ -157,6 +185,10 @@ final class WallboardPlaylistService
                     'previous_data_mode' => $currentDataMode,
                     'data_mode' => $nextDataMode,
                 ] : []),
+                ...($purposeChanged ? [
+                    'previous_purpose' => $currentPurpose,
+                    'purpose' => $nextPurpose,
+                ] : []),
             ], null, $request);
 
             return $this->repository->findForManagement((string) $locked->id);
@@ -180,6 +212,7 @@ final class WallboardPlaylistService
             // Every write that needs both rows locks the playlist first. Playlist
             // updates use the same order before locking linked wallboards.
             $playlist = $this->repository->lockPlaylist($playlistId);
+            $this->assertNormalPlaylist($playlist);
             $lockedWallboard = $this->wallboards->lockWallboard((string) $wallboard->getKey());
             if ($expectedConfigVersion !== (int) $lockedWallboard->config_version) {
                 throw new ConflictHttpException('Wallboard configuration changed.');
@@ -202,12 +235,22 @@ final class WallboardPlaylistService
                 'data_mode' => in_array($playlist->data_mode, WallboardPlaylist::DATA_MODES, true)
                     ? (string) $playlist->data_mode
                     : WallboardPlaylist::DATA_MODE_LIVE,
+                'purpose' => $playlist->normalizedPurpose(),
                 'config_version' => (int) $lockedWallboard->config_version,
                 'control_version' => (int) $lockedWallboard->control_version,
             ], null, $request);
 
             return $lockedWallboard->refresh()->load('playlist');
         }, 3);
+    }
+
+    private function assertNormalPlaylist(WallboardPlaylist $playlist): void
+    {
+        if ($playlist->normalizedPurpose() !== WallboardPlaylist::PURPOSE_NORMAL) {
+            throw ValidationException::withMessages([
+                'playlist_id' => ['Een wallboard kan alleen een normale playlist als standaardrotatie gebruiken.'],
+            ]);
+        }
     }
 
     public function delete(

@@ -170,7 +170,7 @@ export const managementManualGuides = {
       steps: [
         { label: 'Open het juiste instellingenblok', description: 'Zoek Heartbeat en daarna MFA en wachtwoordeisen.' },
         { label: 'Kies het heartbeat-interval', description: 'Dit bepaalt hoe vaak operator-toestellen zich horen te melden. Offline volgt na de ingestelde gemiste periode.' },
-        { label: 'Kies de algemene MFA-regel', description: 'Zet MFA voor alle gebruikers aan wanneer dit organisatiebeleid is. Rollen met admin-app-toegang gebruiken altijd MFA.' },
+        { label: 'Kies de algemene MFA-regel', description: 'Zet MFA voor alle gebruikers aan wanneer dit organisatiebeleid is. Rollen met toegang tot webbeheer gebruiken altijd MFA.' },
         { label: 'Stel de wachtwoordeisen in', description: 'Kies een minimumlengte en de vereiste tekenklassen volgens het beveiligingsbeleid.' },
         { label: 'Sla ieder blok op', description: 'Controleer de bevestiging en informeer gebruikers over aangescherpte eisen.' },
       ],

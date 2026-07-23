@@ -36,7 +36,7 @@ final class WallboardManagementApiTest extends TestCase
         $manager = $this->user('wallboard-manager@example.test', ['wallboards.manage']);
         $pendingToken = $manager->createToken(
             'Wallboard pending 2FA test',
-            ['2fa:pending', 'client:admin'],
+            ['2fa:pending', 'client:web'],
             now()->addMinutes(5),
         )->plainTextToken;
         Auth::forgetGuards();
@@ -133,6 +133,7 @@ final class WallboardManagementApiTest extends TestCase
         ]);
         $firstActivePlaylist = WallboardPlaylist::query()->create([
             'name' => 'Eerste actieve inzet',
+            'purpose' => WallboardPlaylist::PURPOSE_ALARM,
             'configuration' => $configuration,
             'version' => 1,
             'created_by' => $manager->id,
@@ -140,6 +141,7 @@ final class WallboardManagementApiTest extends TestCase
         ]);
         $secondActivePlaylist = WallboardPlaylist::query()->create([
             'name' => 'Tweede actieve inzet',
+            'purpose' => WallboardPlaylist::PURPOSE_ALARM,
             'configuration' => $configuration,
             'version' => 1,
             'created_by' => $manager->id,
@@ -154,6 +156,7 @@ final class WallboardManagementApiTest extends TestCase
         ])->assertCreated()
             ->assertJsonPath('data.active_incident_playlist_id', $firstActivePlaylist->id)
             ->assertJsonPath('data.active_incident_playlist.id', $firstActivePlaylist->id)
+            ->assertJsonPath('data.active_incident_playlist.purpose', WallboardPlaylist::PURPOSE_ALARM)
             ->assertJsonPath('data.config_version', 1)
             ->assertJsonPath('data.control_version', 1);
         $wallboard = Wallboard::query()->findOrFail($created->json('data.id'));
@@ -549,7 +552,7 @@ final class WallboardManagementApiTest extends TestCase
 
     private function asAdminClient(User $user): static
     {
-        $token = $user->createToken('Wallboard admin test', ['*', 'client:admin'], now()->addHour())->plainTextToken;
+        $token = $user->createToken('Wallboard admin test', ['*', 'client:web'], now()->addHour())->plainTextToken;
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);

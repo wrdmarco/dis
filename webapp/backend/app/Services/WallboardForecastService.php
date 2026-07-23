@@ -319,28 +319,33 @@ final class WallboardForecastService
      */
     private function precipitationOutlookMetric(array $reading): array
     {
-        $complete = ($reading['complete'] ?? false) === true
+        $radarComplete = ($reading['complete'] ?? false) === true
             && is_numeric($reading['radar_peak_mm_h'] ?? null)
-            && is_numeric($reading['third_hour_probability_pct'] ?? null)
             && is_string($reading['radar_until'] ?? null)
-            && is_string($reading['third_hour_from'] ?? null)
-            && is_string($reading['forecast_until'] ?? null)
             && is_string($reading['reference_time'] ?? null)
             && is_int($reading['sample_count'] ?? null)
             && is_int($reading['expected_sample_count'] ?? null)
             && $reading['sample_count'] === $reading['expected_sample_count'];
+        $probabilityComplete = $radarComplete
+            && is_numeric($reading['third_hour_probability_pct'] ?? null)
+            && is_string($reading['third_hour_from'] ?? null)
+            && is_string($reading['forecast_until'] ?? null);
         $stale = (bool) ($reading['stale'] ?? false);
-        $radarPeak = $complete ? round((float) $reading['radar_peak_mm_h'], 2) : null;
-        $thirdHourProbability = $complete ? round((float) $reading['third_hour_probability_pct'], 0) : null;
+        $radarPeak = $radarComplete ? round((float) $reading['radar_peak_mm_h'], 2) : null;
+        $thirdHourProbability = $probabilityComplete
+            ? round((float) $reading['third_hour_probability_pct'], 0)
+            : null;
         $rateClassification = $this->classifier->classify('precipitation_rate_mm_h', $radarPeak, $stale);
         $probabilityClassification = $this->classifier->classify(
             'precipitation_probability_pct',
             $thirdHourProbability,
             $stale,
         );
-        $status = $complete
-            ? $this->classifier->overall([$rateClassification, $probabilityClassification])
-            : WallboardForecastClassifier::STATUS_UNKNOWN;
+        $status = match (true) {
+            ! $radarComplete => WallboardForecastClassifier::STATUS_UNKNOWN,
+            $probabilityComplete => $this->classifier->overall([$rateClassification, $probabilityClassification]),
+            default => WallboardForecastClassifier::STATUS_UNKNOWN,
+        };
         $availabilityNote = is_string($reading['availability_note'] ?? null)
             ? ' '.$reading['availability_note']
             : '';
@@ -355,21 +360,25 @@ final class WallboardForecastService
             'status' => $status,
             'stale' => $stale,
             'source' => $reading['source'] ?? ['name' => 'KNMI', 'url' => 'https://dataplatform.knmi.nl/'],
-            'measured_at' => $complete ? $reading['reference_time'] : null,
-            'explanation' => $complete
-                ? 'De kaart combineert KNMI-radarintensiteit voor 0–2 uur met de afzonderlijke KNMI-ensemblekans voor uur 3; dit is geen homogene drie-uurs radarmeting.'
-                : 'De volledige KNMI-combinatie van radar en derde-uurkans is nog niet betrouwbaar beschikbaar.'.$availabilityNote,
+            'measured_at' => $radarComplete ? $reading['reference_time'] : null,
+            'explanation' => match (true) {
+                ! $radarComplete => 'De KNMI-radar voor de eerste twee uur is nog niet betrouwbaar beschikbaar.'.$availabilityNote,
+                $probabilityComplete => 'De kaart combineert KNMI-radarintensiteit voor 0–2 uur met de afzonderlijke KNMI-ensemblekans voor uur 3; dit is geen homogene drie-uurs radarmeting.',
+                default => 'De KNMI-radar voor 0–2 uur is beschikbaar; de afzonderlijke ensemblekans voor uur 3 is onbekend.'.$availabilityNote,
+            },
             'altitude_m' => null,
             'source_height_label' => null,
-            'precipitation_outlook' => $complete ? [
+            'precipitation_outlook' => $radarComplete ? [
                 'radar_peak_mm_h' => $radarPeak,
+                'radar_status' => $rateClassification['status'],
                 'radar_first_precipitation_at' => is_string($reading['radar_first_precipitation_at'] ?? null)
                     ? $reading['radar_first_precipitation_at']
                     : null,
                 'radar_until' => $reading['radar_until'],
                 'third_hour_probability_pct' => $thirdHourProbability,
-                'third_hour_from' => $reading['third_hour_from'],
-                'forecast_until' => $reading['forecast_until'],
+                'third_hour_probability_status' => $probabilityClassification['status'],
+                'third_hour_from' => $probabilityComplete ? $reading['third_hour_from'] : null,
+                'forecast_until' => $probabilityComplete ? $reading['forecast_until'] : null,
                 'reference_time' => $reading['reference_time'],
                 'sample_count' => $reading['sample_count'],
                 'expected_sample_count' => $reading['expected_sample_count'],
@@ -1114,8 +1123,7 @@ final class WallboardForecastService
         array $kp,
         array $cloudForecast,
         array $precipitationOutlook,
-    ): string
-    {
+    ): string {
         $latest = null;
         foreach ([
             $weather['refreshed_at'] ?? null,

@@ -4,18 +4,23 @@ namespace Tests\Feature;
 
 use App\Casts\SystemSettingValueCast;
 use App\Jobs\RefreshKnmiForecastDataset;
-use App\Jobs\RefreshKnmiPrecipitationOutlookSnapshot;
+use App\Jobs\RefreshWeatherDatasetOperation;
 use App\Models\KnmiForecastOperation;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\User;
+use App\Models\WeatherDatasetOperation;
 use App\Services\KnmiForecastOperationService;
+use App\Services\WeatherDatasetOperationService;
+use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -47,7 +52,7 @@ final class AdminKnmiTest extends TestCase
         $response = $this->asAdminClient($manager)
             ->getJson('/api/admin/knmi')
             ->assertOk()
-            ->assertJsonPath('data.configuration.configured', true)
+            ->assertJsonPath('data.configuration.configured', false)
             ->assertJsonPath('data.configuration.open_data_api_key_configured', false)
             ->assertJsonPath('data.configuration.open_data_api_key_source', null)
             ->assertJsonPath('data.configuration.edr_api_key_configured', true)
@@ -56,9 +61,40 @@ final class AdminKnmiTest extends TestCase
             ->assertJsonPath('data.configuration.dataset_version', '1.0')
             ->assertJsonPath('data.configuration.automatic_interval_hours', 3)
             ->assertJsonPath('data.active_snapshot', null)
-            ->assertJsonPath('data.active_operation', null);
+            ->assertJsonPath('data.active_operation', null)
+            ->assertJsonPath('data.datasets.0.key', 'harmonie_arome_cy43_p1')
+            ->assertJsonPath('data.datasets.0.status', 'not_configured')
+            ->assertJsonPath('data.datasets.1.key', 'radar_forecast')
+            ->assertJsonPath('data.datasets.3.key', 'knmi_edr_observations')
+            ->assertJsonPath('data.datasets.3.status', 'on_demand')
+            ->assertJsonCount(7, 'data.datasets');
 
         $this->assertStringNotContainsString('legacy-edr-key-123456', $response->getContent());
+        $datasets = collect($response->json('data.datasets'));
+        $this->assertSame(7, $datasets->whereIn('category', ['active', 'on_demand'])->count());
+        foreach ($datasets as $dataset) {
+            $this->assertSame([
+                'key',
+                'provider',
+                'dataset',
+                'version',
+                'consumers',
+                'category',
+                'storage_mode',
+                'status',
+                'configured',
+                'reference_at',
+                'refreshed_at',
+                'next_update_at',
+                'source_url',
+                'availability_note',
+                'latest_error',
+                'refreshable',
+                'operation',
+            ], array_keys($dataset));
+        }
+        $this->assertNull($datasets->firstWhere('key', 'open_meteo')['next_update_at']);
+        $this->assertNotNull($datasets->firstWhere('key', 'radar_forecast')['next_update_at']);
     }
 
     public function test_manager_can_update_both_encrypted_keys_on_the_dedicated_page(): void
@@ -112,6 +148,56 @@ final class AdminKnmiTest extends TestCase
         ])->assertUnprocessable();
     }
 
+    public function test_dataset_inventory_reports_honest_next_scheduler_times(): void
+    {
+        CarbonImmutable::setTestNow('2026-07-23T14:01:30Z');
+        try {
+            $manager = $this->user('knmi-schedule@example.test', ['settings.manage']);
+            $datasets = collect(
+                $this->asAdminClient($manager)
+                    ->getJson('/api/admin/knmi')
+                    ->assertOk()
+                    ->json('data.datasets'),
+            );
+
+            $this->assertSame(
+                '2026-07-23T16:17:00+00:00',
+                $datasets->firstWhere('key', 'harmonie_arome_cy43_p1')['next_update_at'],
+            );
+            $this->assertSame(
+                '2026-07-23T14:04:00+00:00',
+                $datasets->firstWhere('key', 'radar_forecast')['next_update_at'],
+            );
+            $this->assertSame(
+                '2026-07-23T14:05:00+00:00',
+                $datasets->firstWhere('key', 'eumetsat_mtg_li')['next_update_at'],
+            );
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+    public function test_harmonie_next_update_uses_scheduler_timezone_in_winter(): void
+    {
+        CarbonImmutable::setTestNow('2026-01-23T14:01:30Z');
+        try {
+            $manager = $this->user('knmi-winter-schedule@example.test', ['settings.manage']);
+            $datasets = collect(
+                $this->asAdminClient($manager)
+                    ->getJson('/api/admin/knmi')
+                    ->assertOk()
+                    ->json('data.datasets'),
+            );
+
+            $this->assertSame(
+                '2026-01-23T14:17:00+00:00',
+                $datasets->firstWhere('key', 'harmonie_arome_cy43_p1')['next_update_at'],
+            );
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
     public function test_refresh_is_queued_once_on_the_dedicated_queue_and_audited(): void
     {
         Queue::fake();
@@ -160,19 +246,31 @@ final class AdminKnmiTest extends TestCase
         ]);
         $manager = $this->user('knmi-precipitation@example.test', ['settings.manage']);
 
-        $this->asAdminClient($manager)
+        $response = $this->asAdminClient($manager)
             ->postJson('/api/admin/knmi/precipitation/refresh')
             ->assertStatus(202)
-            ->assertJsonPath('data.requested', true);
+            ->assertJsonPath('data.requested', true)
+            ->assertJsonPath('data.operation.dataset_keys.0', 'radar_forecast')
+            ->assertJsonPath('data.operation.dataset_keys.1', 'seamless_precipitation_ensemble_forecast_probabilities')
+            ->assertJsonPath('data.operation.state', 'queued')
+            ->assertJsonPath('data.operation.progress_percent', 0);
+        $operationId = $response->json('data.operation.id');
 
-        Queue::assertPushed(RefreshKnmiPrecipitationOutlookSnapshot::class, function (RefreshKnmiPrecipitationOutlookSnapshot $job): bool {
-            return $job->connection === 'knmi_realtime'
+        Queue::assertPushed(RefreshWeatherDatasetOperation::class, function (RefreshWeatherDatasetOperation $job) use ($operationId): bool {
+            return $job->operationId === $operationId
+                && $job->connection === 'knmi_realtime'
                 && $job->queue === 'knmi-realtime';
         });
         Queue::assertNotPushed(RefreshKnmiForecastDataset::class);
         $this->assertDatabaseHas('audit_logs', [
-            'action' => 'weather.knmi.precipitation_refresh_requested',
-            'target_type' => RefreshKnmiPrecipitationOutlookSnapshot::class,
+            'action' => 'weather.dataset.refresh_requested',
+            'target_type' => WeatherDatasetOperation::class,
+            'target_id' => $operationId,
+        ]);
+        $this->assertDatabaseHas('weather_dataset_operations', [
+            'id' => $operationId,
+            'dataset_key' => 'radar_forecast',
+            'state' => WeatherDatasetOperation::STATE_QUEUED,
         ]);
     }
 
@@ -191,7 +289,451 @@ final class AdminKnmiTest extends TestCase
             ->assertStatus(409)
             ->assertJsonPath('error.code', 'knmi_precipitation_refresh_conflict');
 
-        Queue::assertNotPushed(RefreshKnmiPrecipitationOutlookSnapshot::class);
+        Queue::assertNotPushed(RefreshWeatherDatasetOperation::class);
+    }
+
+    public function test_each_refreshable_dataset_has_a_traceable_allowlisted_update_endpoint(): void
+    {
+        Queue::fake();
+        SystemSetting::query()->create([
+            'key' => 'weather.knmi_open_data_api_key',
+            'value' => 'open-data-public-key-123456',
+            'is_sensitive' => true,
+        ]);
+        $viewer = $this->user('knmi-dataset-viewer@example.test', []);
+        $manager = $this->user('knmi-dataset-refresh@example.test', ['settings.manage']);
+
+        $this->postJson('/api/admin/knmi/datasets/radar_forecast/refresh')->assertUnauthorized();
+        $this->asAdminClient($viewer)
+            ->postJson('/api/admin/knmi/datasets/radar_forecast/refresh')
+            ->assertForbidden();
+        $response = $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/datasets/radar_forecast/refresh')
+            ->assertStatus(202)
+            ->assertJsonPath('data.dataset_key', 'radar_forecast')
+            ->assertJsonPath('data.operation.state', 'queued')
+            ->assertJsonPath('data.operation.stage', 'queued');
+        $operationId = $response->json('data.operation.id');
+        Queue::assertPushed(
+            RefreshWeatherDatasetOperation::class,
+            fn (RefreshWeatherDatasetOperation $job): bool => $job->operationId === $operationId,
+        );
+        $poll = $this->asAdminClient($manager)->getJson('/api/admin/knmi')->assertOk();
+        $radar = collect($poll->json('data.datasets'))->firstWhere('key', 'radar_forecast');
+        $this->assertSame($operationId, $radar['operation']['id']);
+        $this->assertSame('queued', $radar['operation']['state']);
+        $this->assertSame(0, $radar['operation']['progress_percent']);
+
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/datasets/seamless_precipitation_ensemble_forecast_probabilities/refresh')
+            ->assertStatus(409)
+            ->assertJsonPath('error.code', 'knmi_dataset_refresh_conflict');
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/datasets/open_meteo/refresh')
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'knmi_dataset_not_refreshable');
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/datasets/not_a_dataset/refresh')
+            ->assertMethodNotAllowed();
+    }
+
+    public function test_generic_dataset_endpoint_queues_harmonie_and_eumetsat_on_their_real_workers(): void
+    {
+        Queue::fake();
+        SystemSetting::query()->create([
+            'key' => 'weather.knmi_open_data_api_key',
+            'value' => 'open-data-public-key-123456',
+            'is_sensitive' => true,
+        ]);
+        $manager = $this->user('knmi-other-dataset-refresh@example.test', ['settings.manage']);
+
+        $harmonie = $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/datasets/harmonie_arome_cy43_p1/refresh')
+            ->assertStatus(202)
+            ->assertJsonPath('data.dataset_key', 'harmonie_arome_cy43_p1')
+            ->assertJsonPath('data.operation.state', 'queued');
+        $harmonieOperationId = $harmonie->json('data.operation.id');
+        Queue::assertPushed(
+            RefreshKnmiForecastDataset::class,
+            fn (RefreshKnmiForecastDataset $job): bool => $job->operationId === $harmonieOperationId,
+        );
+
+        $lightning = $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/datasets/eumetsat_mtg_li/refresh')
+            ->assertStatus(202)
+            ->assertJsonPath('data.dataset_key', 'eumetsat_mtg_li')
+            ->assertJsonPath('data.operation.dataset_keys.0', 'eumetsat_mtg_li')
+            ->assertJsonPath('data.operation.state', 'queued');
+        $lightningOperationId = $lightning->json('data.operation.id');
+        Queue::assertPushed(
+            RefreshWeatherDatasetOperation::class,
+            fn (RefreshWeatherDatasetOperation $job): bool => $job->operationId === $lightningOperationId,
+        );
+        $this->assertDatabaseHas('weather_dataset_operations', [
+            'id' => $lightningOperationId,
+            'dataset_key' => 'eumetsat_mtg_li',
+            'state' => WeatherDatasetOperation::STATE_QUEUED,
+        ]);
+    }
+
+    public function test_realtime_knmi_refresh_is_rejected_before_queueing_without_open_data_configuration(): void
+    {
+        Queue::fake();
+        $manager = $this->user('knmi-dataset-unconfigured@example.test', ['settings.manage']);
+
+        foreach ([
+            'radar_forecast',
+            'seamless_precipitation_ensemble_forecast_probabilities',
+        ] as $dataset) {
+            $this->asAdminClient($manager)
+                ->postJson("/api/admin/knmi/datasets/{$dataset}/refresh")
+                ->assertStatus(422)
+                ->assertJsonPath('error.code', 'knmi_dataset_not_refreshable')
+                ->assertJsonPath('error.message', 'Een aparte KNMI Open Data API-sleutel is vereist.');
+        }
+
+        Queue::assertNotPushed(RefreshWeatherDatasetOperation::class);
+        $this->assertDatabaseCount('weather_dataset_operations', 0);
+    }
+
+    public function test_queue_outage_returns_service_unavailable_and_persists_auditable_failure(): void
+    {
+        SystemSetting::query()->create([
+            'key' => 'weather.knmi_open_data_api_key',
+            'value' => 'open-data-public-key-123456',
+            'is_sensitive' => true,
+        ]);
+        $manager = $this->user('knmi-queue-outage@example.test', ['settings.manage']);
+        $dispatcher = \Mockery::mock(Dispatcher::class);
+        $dispatcher->shouldReceive('dispatch')
+            ->twice()
+            ->andThrow(new \RuntimeException('redis-host-secret.example:6379'));
+        $this->app->instance(Dispatcher::class, $dispatcher);
+        Log::spy();
+
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/datasets/radar_forecast/refresh')
+            ->assertStatus(503)
+            ->assertJsonPath('error.code', 'knmi_dataset_queue_unavailable');
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/precipitation/refresh')
+            ->assertStatus(503)
+            ->assertJsonPath('error.code', 'knmi_dataset_queue_unavailable');
+
+        $this->assertDatabaseCount('weather_dataset_operations', 2);
+        $this->assertSame(
+            2,
+            WeatherDatasetOperation::query()
+                ->where('state', WeatherDatasetOperation::STATE_FAILED)
+                ->where('error_code', 'queue_unavailable')
+                ->whereNull('active_key')
+                ->count(),
+        );
+        $this->assertSame(
+            2,
+            DB::table('audit_logs')
+                ->where('action', 'weather.dataset.refresh_failed')
+                ->count(),
+        );
+        Log::shouldHaveReceived('error')
+            ->twice()
+            ->withArgs(fn (string $message, array $context): bool => $message === 'Weather dataset refresh failed.'
+                && $context['dataset_key'] === 'radar_forecast'
+                && $context['error_code'] === 'queue_unavailable'
+                && $context['exception_class'] === \RuntimeException::class
+                && is_string($context['operation_id'] ?? null)
+                && ! in_array('redis-host-secret.example:6379', $context, true));
+    }
+
+    public function test_scheduled_queue_outage_fails_the_commands_instead_of_reporting_an_active_conflict(): void
+    {
+        SystemSetting::query()->create([
+            'key' => 'weather.knmi_open_data_api_key',
+            'value' => 'open-data-public-key-123456',
+            'is_sensitive' => true,
+        ]);
+        $dispatcher = \Mockery::mock(Dispatcher::class);
+        $dispatcher->shouldReceive('dispatch')
+            ->twice()
+            ->andThrow(new \RuntimeException('simulated queue outage'));
+        $this->app->instance(Dispatcher::class, $dispatcher);
+        Log::spy();
+
+        $this->artisan('dis:refresh-knmi-precipitation-outlook')
+            ->expectsOutputToContain('queue is unavailable')
+            ->assertFailed();
+        $this->artisan('dis:refresh-eumetsat-lightning')
+            ->expectsOutputToContain('queue is unavailable')
+            ->assertFailed();
+
+        $this->assertSame(
+            2,
+            WeatherDatasetOperation::query()
+                ->where('scheduled', true)
+                ->where('state', WeatherDatasetOperation::STATE_FAILED)
+                ->where('error_code', 'queue_unavailable')
+                ->count(),
+        );
+        $this->assertSame(
+            2,
+            DB::table('audit_logs')
+                ->where('action', 'weather.dataset.refresh_failed')
+                ->count(),
+        );
+    }
+
+    public function test_harmonie_queue_outage_is_not_masked_as_a_conflict_for_http_or_scheduler(): void
+    {
+        SystemSetting::query()->create([
+            'key' => 'weather.knmi_open_data_api_key',
+            'value' => 'open-data-public-key-123456',
+            'is_sensitive' => true,
+        ]);
+        $manager = $this->user('knmi-harmonie-queue-outage@example.test', ['settings.manage']);
+        $dispatcher = \Mockery::mock(Dispatcher::class);
+        $dispatcher->shouldReceive('dispatch')
+            ->times(3)
+            ->andThrow(new \RuntimeException('redis-credential-or-host-detail'));
+        $this->app->instance(Dispatcher::class, $dispatcher);
+        Log::spy();
+
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/refresh')
+            ->assertStatus(503)
+            ->assertJsonPath('error.code', 'knmi_dataset_queue_unavailable');
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/datasets/harmonie_arome_cy43_p1/refresh')
+            ->assertStatus(503)
+            ->assertJsonPath('error.code', 'knmi_dataset_queue_unavailable');
+        $this->artisan('dis:refresh-knmi-forecast')
+            ->expectsOutputToContain('kon niet worden gestart')
+            ->assertFailed();
+
+        $this->assertSame(
+            3,
+            KnmiForecastOperation::query()
+                ->where('state', KnmiForecastOperation::STATE_FAILED)
+                ->where('error_code', 'queue_unavailable')
+                ->whereNull('active_key')
+                ->count(),
+        );
+        $this->assertSame(
+            3,
+            DB::table('audit_logs')
+                ->where('action', 'weather.knmi.refresh_failed')
+                ->count(),
+        );
+        Log::shouldHaveReceived('error')
+            ->times(3)
+            ->withArgs(fn (string $message, array $context): bool => $message === 'KNMI forecast refresh could not be queued.'
+                && $context['error_code'] === 'queue_unavailable'
+                && $context['exception_class'] === \RuntimeException::class
+                && is_string($context['operation_id'] ?? null)
+                && ! in_array('redis-credential-or-host-detail', $context, true));
+    }
+
+    public function test_scheduled_dataset_refreshes_are_traced_without_success_path_audit_spam(): void
+    {
+        Queue::fake();
+        Log::spy();
+
+        $operation = app(WeatherDatasetOperationService::class)->request(
+            WeatherDatasetOperationService::EUMETSAT_LIGHTNING,
+            scheduled: true,
+        );
+
+        $this->assertTrue($operation->scheduled);
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => 'weather.dataset.refresh_scheduled',
+            'target_id' => $operation->id,
+        ]);
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => 'weather.dataset.refresh_requested',
+            'target_id' => $operation->id,
+        ]);
+
+        (new RefreshWeatherDatasetOperation($operation->id))->failed(new \RuntimeException('scheduler-failure-detail'));
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'weather.dataset.refresh_failed',
+            'target_id' => $operation->id,
+        ]);
+        $this->assertSame(WeatherDatasetOperation::STATE_FAILED, $operation->refresh()->state);
+    }
+
+    public function test_failed_realtime_worker_is_persisted_and_exposed_without_hiding_catalog_status(): void
+    {
+        Queue::fake();
+        Log::spy();
+        SystemSetting::query()->create([
+            'key' => 'weather.knmi_open_data_api_key',
+            'value' => 'open-data-public-key-123456',
+            'is_sensitive' => true,
+        ]);
+        $manager = $this->user('knmi-worker-failure@example.test', ['settings.manage']);
+        $response = $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/datasets/radar_forecast/refresh')
+            ->assertStatus(202);
+        $operationId = $response->json('data.operation.id');
+
+        (new RefreshWeatherDatasetOperation($operationId))->failed(new \RuntimeException('secret-internal-detail'));
+
+        $operation = WeatherDatasetOperation::query()->findOrFail($operationId);
+        $this->assertSame(WeatherDatasetOperation::STATE_FAILED, $operation->state);
+        $this->assertSame('worker_failed', $operation->error_code);
+        $this->assertStringNotContainsString('secret-internal-detail', (string) $operation->error_message);
+        Log::shouldHaveReceived('error')
+            ->once()
+            ->withArgs(fn (string $message, array $context): bool => $message === 'Weather dataset refresh failed.'
+                && $context === [
+                    'operation_id' => $operationId,
+                    'dataset_key' => 'radar_forecast',
+                    'error_code' => 'worker_failed',
+                    'exception_class' => \RuntimeException::class,
+                ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'weather.dataset.refresh_failed',
+            'target_id' => $operationId,
+        ]);
+
+        $status = $this->asAdminClient($manager)->getJson('/api/admin/knmi')->assertOk();
+        $radar = collect($status->json('data.datasets'))->firstWhere('key', 'radar_forecast');
+        $this->assertSame('worker_failed', $radar['latest_error']['code']);
+        $this->assertSame('failed', $radar['operation']['state']);
+        $this->assertCount(7, $status->json('data.datasets'));
+    }
+
+    public function test_operational_pruning_bounds_terminal_weather_dataset_operations_only(): void
+    {
+        config()->set('dis.retention.weather_dataset_operations_days', 14);
+        $oldTerminal = WeatherDatasetOperation::query()->create([
+            'dataset_key' => 'eumetsat_mtg_li',
+            'dataset_keys' => ['eumetsat_mtg_li'],
+            'active_key' => null,
+            'scheduled' => true,
+            'state' => WeatherDatasetOperation::STATE_SUCCEEDED,
+            'stage' => 'completed',
+            'message' => 'Completed.',
+            'progress_percent' => 100,
+            'finished_at' => now()->subDays(20),
+        ]);
+        $recentTerminal = WeatherDatasetOperation::query()->create([
+            'dataset_key' => 'eumetsat_mtg_li',
+            'dataset_keys' => ['eumetsat_mtg_li'],
+            'active_key' => null,
+            'scheduled' => true,
+            'state' => WeatherDatasetOperation::STATE_FAILED,
+            'stage' => 'failed',
+            'message' => 'Failed.',
+            'progress_percent' => 25,
+            'finished_at' => now()->subDays(5),
+        ]);
+        $activeOld = WeatherDatasetOperation::query()->create([
+            'dataset_key' => 'radar_forecast',
+            'dataset_keys' => [
+                'radar_forecast',
+                'seamless_precipitation_ensemble_forecast_probabilities',
+            ],
+            'active_key' => 'knmi-precipitation',
+            'scheduled' => true,
+            'state' => WeatherDatasetOperation::STATE_RUNNING,
+            'stage' => 'importing',
+            'message' => 'Running.',
+            'progress_percent' => 25,
+            'started_at' => now()->subDays(20),
+        ]);
+        foreach ([$oldTerminal, $activeOld] as $operation) {
+            $operation->forceFill([
+                'created_at' => now()->subDays(20),
+                'updated_at' => now()->subDays(20),
+            ])->save();
+        }
+        $recentTerminal->forceFill([
+            'created_at' => now()->subDays(5),
+            'updated_at' => now()->subDays(5),
+        ])->save();
+
+        $this->artisan('dis:prune-operational-data')->assertSuccessful();
+
+        $this->assertDatabaseMissing('weather_dataset_operations', ['id' => $oldTerminal->id]);
+        $this->assertDatabaseHas('weather_dataset_operations', ['id' => $recentTerminal->id]);
+        $this->assertDatabaseHas('weather_dataset_operations', [
+            'id' => $activeOld->id,
+            'active_key' => 'knmi-precipitation',
+        ]);
+    }
+
+    public function test_stale_recovery_respects_worker_and_single_queue_timing_budgets(): void
+    {
+        Queue::fake();
+        SystemSetting::query()->create([
+            'key' => 'weather.knmi_open_data_api_key',
+            'value' => 'open-data-public-key-123456',
+            'is_sensitive' => true,
+        ]);
+        $manager = $this->user('knmi-stale-budget@example.test', ['settings.manage']);
+        $queued = WeatherDatasetOperation::query()->create([
+            'dataset_key' => 'radar_forecast',
+            'dataset_keys' => [
+                'radar_forecast',
+                'seamless_precipitation_ensemble_forecast_probabilities',
+            ],
+            'active_key' => 'knmi-precipitation',
+            'scheduled' => true,
+            'state' => WeatherDatasetOperation::STATE_QUEUED,
+            'stage' => 'queued',
+            'message' => 'Queued.',
+            'progress_percent' => 0,
+        ]);
+        $queued->forceFill([
+            'created_at' => now()->subMinutes(30),
+            'updated_at' => now()->subMinutes(30),
+        ])->save();
+        $running = WeatherDatasetOperation::query()->create([
+            'dataset_key' => 'eumetsat_mtg_li',
+            'dataset_keys' => ['eumetsat_mtg_li'],
+            'active_key' => 'eumetsat-lightning',
+            'scheduled' => true,
+            'state' => WeatherDatasetOperation::STATE_RUNNING,
+            'stage' => 'importing',
+            'message' => 'Running.',
+            'progress_percent' => 25,
+            'started_at' => now()->subMinutes(22),
+        ]);
+        $running->forceFill([
+            'created_at' => now()->subMinutes(23),
+            'updated_at' => now()->subMinutes(22),
+        ])->save();
+
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/datasets/radar_forecast/refresh')
+            ->assertStatus(409);
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/datasets/eumetsat_mtg_li/refresh')
+            ->assertStatus(409);
+        $this->assertSame(WeatherDatasetOperation::STATE_QUEUED, $queued->refresh()->state);
+        $this->assertSame(WeatherDatasetOperation::STATE_RUNNING, $running->refresh()->state);
+
+        $queued->forceFill([
+            'created_at' => now()->subMinutes(46),
+            'updated_at' => now()->subMinutes(46),
+        ])->save();
+        $running->forceFill([
+            'started_at' => now()->subMinutes(26),
+            'updated_at' => now()->subMinutes(26),
+        ])->save();
+
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/datasets/radar_forecast/refresh')
+            ->assertStatus(202);
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/knmi/datasets/eumetsat_mtg_li/refresh')
+            ->assertStatus(202);
+        $this->assertSame(WeatherDatasetOperation::STATE_FAILED, $queued->refresh()->state);
+        $this->assertSame('operation_stale', $queued->error_code);
+        $this->assertSame(WeatherDatasetOperation::STATE_FAILED, $running->refresh()->state);
+        $this->assertSame('operation_stale', $running->error_code);
+        $this->assertSame(2, WeatherDatasetOperation::query()->where('state', 'queued')->count());
     }
 
     public function test_knmi_queue_visibility_timeout_exceeds_the_job_timeout(): void
@@ -301,7 +843,7 @@ final class AdminKnmiTest extends TestCase
 
     private function asAdminClient(User $user): static
     {
-        $token = $user->createToken('KNMI test', ['*', 'client:admin'], now()->addHour())->plainTextToken;
+        $token = $user->createToken('KNMI test', ['*', 'client:web'], now()->addHour())->plainTextToken;
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);

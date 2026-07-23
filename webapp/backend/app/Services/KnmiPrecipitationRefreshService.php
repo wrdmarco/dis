@@ -3,8 +3,9 @@
 namespace App\Services;
 
 use App\Exceptions\KnmiPrecipitationRefreshException;
-use App\Jobs\RefreshKnmiPrecipitationOutlookSnapshot;
+use App\Exceptions\WeatherDatasetOperationStartException;
 use App\Models\User;
+use App\Models\WeatherDatasetOperation;
 use Illuminate\Http\Request;
 use Throwable;
 
@@ -12,31 +13,23 @@ final class KnmiPrecipitationRefreshService
 {
     public function __construct(
         private readonly KnmiPrecipitationConfiguration $configuration,
-        private readonly AuditService $audit,
+        private readonly WeatherDatasetOperationService $operations,
     ) {}
 
-    public function request(User $actor, ?Request $request = null): void
+    public function request(User $actor, ?Request $request = null): WeatherDatasetOperation
     {
         if ($this->configuration->apiKey() === null) {
             throw new KnmiPrecipitationRefreshException('De KNMI Open Data API-sleutel is niet geconfigureerd.');
         }
 
-        $this->audit->record(
-            action: 'weather.knmi.precipitation_refresh_requested',
-            target: RefreshKnmiPrecipitationOutlookSnapshot::class,
-            actor: $actor,
-            metadata: [
-                'source' => 'admin',
-                'datasets' => [
-                    'radar_forecast/2.0',
-                    'seamless_precipitation_ensemble_forecast_probabilities/1.0',
-                ],
-            ],
-            request: $request,
-        );
-
         try {
-            RefreshKnmiPrecipitationOutlookSnapshot::dispatch();
+            return $this->operations->request(
+                WeatherDatasetOperationService::RADAR,
+                $actor,
+                $request,
+            );
+        } catch (WeatherDatasetOperationStartException $exception) {
+            throw $exception;
         } catch (Throwable $exception) {
             throw new KnmiPrecipitationRefreshException(
                 'De KNMI-neerslagupdate kon niet worden gestart.',

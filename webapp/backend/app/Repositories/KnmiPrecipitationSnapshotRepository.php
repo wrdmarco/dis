@@ -14,9 +14,11 @@ use Throwable;
 
 final class KnmiPrecipitationSnapshotRepository
 {
-    private const MANIFEST_VERSION = 2;
+    private const MANIFEST_VERSION = 3;
 
     private const LEGACY_MANIFEST_VERSION = 1;
+
+    private const PAIRED_MANIFEST_VERSION = 2;
 
     private const MAX_MANIFEST_BYTES = 65_536;
 
@@ -32,7 +34,7 @@ final class KnmiPrecipitationSnapshotRepository
      *   activated_at: string,
      *   files: array{
      *     radar: array{dataset: string, dataset_version: string, filename: string, relative_path: string, size_bytes: int, sha256: string},
-     *     probability: array{dataset: string, dataset_version: string, filename: string, relative_path: string, size_bytes: int, sha256: string}
+     *     probability?: array{dataset: string, dataset_version: string, filename: string, relative_path: string, size_bytes: int, sha256: string}
      *   },
      *   atlas?: array{
      *     filename: string,
@@ -48,7 +50,7 @@ final class KnmiPrecipitationSnapshotRepository
      *     sha256: string,
      *     frames: list<array{index: int, valid_at: string, lead_minutes: int}>
      *   },
-     *   paths: array{radar: string, probability: string, atlas?: string}
+     *   paths: array{radar: string, probability?: string, atlas?: string}
      * }|null
      */
     public function activeSnapshot(): ?array
@@ -63,7 +65,7 @@ final class KnmiPrecipitationSnapshotRepository
     }
 
     /**
-     * Resolve the active v2 snapshot or the one retained predecessor. This
+     * Resolve the active v2/v3 snapshot or the one retained predecessor. This
      * bounded grace lookup prevents a metadata-to-image activation race from
      * turning an otherwise valid immutable URL into a transient 404.
      *
@@ -75,7 +77,7 @@ final class KnmiPrecipitationSnapshotRepository
             return null;
         }
         $active = $this->activeSnapshot();
-        if (! is_array($active) || ($active['version'] ?? null) !== self::MANIFEST_VERSION) {
+        if (! is_array($active) || ! $this->hasRadarAtlasVersion($active['version'] ?? null)) {
             return null;
         }
         if (hash_equals($active['snapshot_id'], $snapshotId)) {
@@ -91,7 +93,7 @@ final class KnmiPrecipitationSnapshotRepository
             .DIRECTORY_SEPARATOR.'manifest.json';
         $manifest = $this->readManifest($manifestPath);
         if (! is_array($manifest)
-            || ($manifest['version'] ?? null) !== self::MANIFEST_VERSION
+            || ! $this->hasRadarAtlasVersion($manifest['version'] ?? null)
             || ! hash_equals($snapshotId, (string) ($manifest['snapshot_id'] ?? ''))) {
             return null;
         }
@@ -119,8 +121,8 @@ final class KnmiPrecipitationSnapshotRepository
     }
 
     /**
-     * @param  array{radar: KnmiPrecipitationRemoteFile, probability: KnmiPrecipitationRemoteFile}  $files
-     * @param  array{radar: string, probability: string}  $sha256
+     * @param  array{radar: KnmiPrecipitationRemoteFile, probability?: KnmiPrecipitationRemoteFile}  $files
+     * @param  array{radar: string, probability?: string}  $sha256
      * @param  array{
      *   filename: string,
      *   width: int,
@@ -146,14 +148,29 @@ final class KnmiPrecipitationSnapshotRepository
             || ! $this->inside($root.DIRECTORY_SEPARATOR.'staging', $realStage)) {
             throw new KnmiPrecipitationImportException('storage_unavailable', 'KNMI precipitation staging path is unsafe.');
         }
+        $fileKinds = array_keys($files);
+        $hashKinds = array_keys($sha256);
+        sort($fileKinds);
+        sort($hashKinds);
+        if (! in_array($fileKinds, [['radar'], ['probability', 'radar']], true)
+            || ! (($files['radar'] ?? null) instanceof KnmiPrecipitationRemoteFile)
+            || (isset($files['probability'])
+                && ! ($files['probability'] instanceof KnmiPrecipitationRemoteFile))
+            || $hashKinds !== $fileKinds) {
+            throw new KnmiPrecipitationImportException(
+                'local_data_invalid',
+                'KNMI precipitation activation files are invalid.',
+            );
+        }
         $reference = $files['radar']->referenceTime;
-        if (! $reference->equalTo($files['probability']->referenceTime)) {
+        if (isset($files['probability']) && ! $reference->equalTo($files['probability']->referenceTime)) {
             throw new KnmiPrecipitationImportException('matching_run_unavailable', 'KNMI precipitation files do not share one run.');
         }
         $validatedAtlas = $this->validatedStagedAtlas($realStage, $reference, $atlas);
+        $probabilityHash = isset($sha256['probability']) ? $sha256['probability'] : 'unavailable';
         $snapshotId = $reference->format('Ymd\THis\Z').'-'.substr(hash(
             'sha256',
-            $sha256['radar'].'|'.$sha256['probability'].'|'.$validatedAtlas['sha256'],
+            $sha256['radar'].'|'.$probabilityHash.'|'.$validatedAtlas['sha256'],
         ), 0, 16);
         $releaseRelative = 'releases/'.$snapshotId;
         $releaseDirectory = $root.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $releaseRelative);
@@ -162,7 +179,7 @@ final class KnmiPrecipitationSnapshotRepository
         }
 
         $manifestFiles = [];
-        foreach (['radar', 'probability'] as $kind) {
+        foreach (array_keys($files) as $kind) {
             $file = $files[$kind];
             $path = $realStage.DIRECTORY_SEPARATOR.$file->filename;
             clearstatcache(true, $path);
@@ -241,7 +258,11 @@ final class KnmiPrecipitationSnapshotRepository
         $expectedKeys = $version === self::LEGACY_MANIFEST_VERSION
             ? ['version', 'snapshot_id', 'reference_time', 'activated_at', 'files']
             : ['version', 'snapshot_id', 'reference_time', 'activated_at', 'files', 'atlas'];
-        if (! in_array($version, [self::LEGACY_MANIFEST_VERSION, self::MANIFEST_VERSION], true)
+        if (! in_array($version, [
+            self::LEGACY_MANIFEST_VERSION,
+            self::PAIRED_MANIFEST_VERSION,
+            self::MANIFEST_VERSION,
+        ], true)
             || ! $this->hasExactKeys($manifest, $expectedKeys)
             || ! is_string($manifest['snapshot_id'] ?? null)
             || preg_match('/\A\d{8}T\d{6}Z-[a-f0-9]{16}\z/D', $manifest['snapshot_id']) !== 1
@@ -249,8 +270,15 @@ final class KnmiPrecipitationSnapshotRepository
             || ! is_string($manifest['activated_at'] ?? null)
             || ! $this->validTimestamp($manifest['reference_time'])
             || ! $this->validTimestamp($manifest['activated_at'])
-            || ! is_array($manifest['files'] ?? null)
-            || ! $this->hasExactKeys($manifest['files'], ['radar', 'probability'])) {
+            || ! is_array($manifest['files'] ?? null)) {
+            return false;
+        }
+        $fileKinds = array_keys($manifest['files']);
+        sort($fileKinds);
+        $allowedFileKinds = $version === self::MANIFEST_VERSION
+            ? [['radar'], ['probability', 'radar']]
+            : [['probability', 'radar']];
+        if (! in_array($fileKinds, $allowedFileKinds, true)) {
             return false;
         }
 
@@ -273,9 +301,10 @@ final class KnmiPrecipitationSnapshotRepository
                 'pattern' => '/\AKNMI_PYSTEPS_BLEND_PROB_'.$referenceKey.'\.nc\z/D',
             ],
         ];
-        foreach ($definitions as $kind => $definition) {
-            $file = $manifest['files'][$kind] ?? null;
+        foreach ($manifest['files'] as $kind => $file) {
+            $definition = $definitions[$kind] ?? null;
             if (! is_array($file)
+                || ! is_array($definition)
                 || ! $this->hasExactKeys($file, [
                     'dataset',
                     'dataset_version',
@@ -478,8 +507,10 @@ final class KnmiPrecipitationSnapshotRepository
             return null;
         }
         $paths = [];
-        foreach (['radar', 'probability'] as $kind) {
+        $resolvedFiles = $manifest['files'];
+        foreach (array_keys($manifest['files']) as $kind) {
             $file = $manifest['files'][$kind];
+            $optional = $kind === 'probability';
             $candidate = $root.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $file['relative_path']);
             $real = realpath($candidate);
             clearstatcache(true, $candidate);
@@ -489,6 +520,12 @@ final class KnmiPrecipitationSnapshotRepository
                 || ! is_readable($real)
                 || ! hash_equals($this->normalize($releaseRoot), $this->normalize(dirname($real)))
                 || filesize($real) !== $file['size_bytes']) {
+                if ($optional) {
+                    unset($resolvedFiles[$kind]);
+
+                    continue;
+                }
+
                 return null;
             }
             $stat = @stat($real);
@@ -498,6 +535,12 @@ final class KnmiPrecipitationSnapshotRepository
                 || ! is_int($stat['mtime'] ?? null)
                 || ! is_int($stat['ctime'] ?? null)
                 || ! is_int($stat['size'] ?? null)) {
+                if ($optional) {
+                    unset($resolvedFiles[$kind]);
+
+                    continue;
+                }
+
                 return null;
             }
             $integrityKey = 'knmi:precipitation:integrity:'
@@ -518,12 +561,18 @@ final class KnmiPrecipitationSnapshotRepository
                 },
             );
             if ($validHash !== true) {
+                if ($optional) {
+                    unset($resolvedFiles[$kind]);
+
+                    continue;
+                }
+
                 return null;
             }
             $paths[$kind] = $real;
         }
 
-        if (($manifest['version'] ?? null) === self::MANIFEST_VERSION) {
+        if ($this->hasRadarAtlasVersion($manifest['version'] ?? null)) {
             $atlas = $manifest['atlas'];
             $atlasCandidate = $root.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $atlas['relative_path']);
             $atlasReal = realpath($atlasCandidate);
@@ -532,24 +581,49 @@ final class KnmiPrecipitationSnapshotRepository
                 || is_link($atlasCandidate)
                 || ! is_file($atlasReal)
                 || ! is_readable($atlasReal)
-                || ! hash_equals($this->normalize($releaseRoot), $this->normalize(dirname($atlasReal)))
-                || filesize($atlasReal) !== $atlas['size_bytes']) {
+                || ! hash_equals($this->normalize($releaseRoot), $this->normalize(dirname($atlasReal)))) {
                 return null;
             }
-            $atlasHash = @hash_file('sha256', $atlasReal);
-            $atlasDimensions = @getimagesize($atlasReal);
-            if (! is_string($atlasHash)
-                || ! hash_equals($atlas['sha256'], $atlasHash)
-                || ! is_array($atlasDimensions)
-                || ($atlasDimensions[0] ?? null) !== $atlas['width']
-                || ($atlasDimensions[1] ?? null) !== $atlas['height']
-                || ($atlasDimensions[2] ?? null) !== IMAGETYPE_PNG) {
+            $atlasStat = @stat($atlasReal);
+            if (! is_array($atlasStat)
+                || ! is_int($atlasStat['dev'] ?? null)
+                || ! is_int($atlasStat['ino'] ?? null)
+                || ! is_int($atlasStat['mtime'] ?? null)
+                || ! is_int($atlasStat['ctime'] ?? null)
+                || ! is_int($atlasStat['size'] ?? null)
+                || $atlasStat['size'] !== $atlas['size_bytes']) {
+                return null;
+            }
+            $atlasIntegrityKey = 'knmi:precipitation:integrity:'
+                .$manifest['snapshot_id'].':atlas:'.implode(':', [
+                    $atlasStat['dev'],
+                    $atlasStat['ino'],
+                    $atlasStat['mtime'],
+                    $atlasStat['ctime'],
+                    $atlasStat['size'],
+                ]);
+            $validAtlas = Cache::remember(
+                $atlasIntegrityKey,
+                $this->configuration->integrityCacheSeconds(),
+                static function () use ($atlasReal, $atlas): bool {
+                    $actualHash = @hash_file('sha256', $atlasReal);
+                    $dimensions = @getimagesize($atlasReal);
+
+                    return is_string($actualHash)
+                        && hash_equals($atlas['sha256'], $actualHash)
+                        && is_array($dimensions)
+                        && ($dimensions[0] ?? null) === $atlas['width']
+                        && ($dimensions[1] ?? null) === $atlas['height']
+                        && ($dimensions[2] ?? null) === IMAGETYPE_PNG;
+                },
+            );
+            if ($validAtlas !== true) {
                 return null;
             }
             $paths['atlas'] = $atlasReal;
         }
 
-        return [...$manifest, 'paths' => $paths];
+        return [...$manifest, 'files' => $resolvedFiles, 'paths' => $paths];
     }
 
     private function retainedPredecessorId(string $root, string $activeSnapshotId): ?string
@@ -682,6 +756,11 @@ final class KnmiPrecipitationSnapshotRepository
         sort($keys);
 
         return $actual === $keys;
+    }
+
+    private function hasRadarAtlasVersion(mixed $version): bool
+    {
+        return in_array($version, [self::PAIRED_MANIFEST_VERSION, self::MANIFEST_VERSION], true);
     }
 
     private function inside(string $root, string $path): bool

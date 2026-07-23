@@ -115,7 +115,7 @@ return [
         'connect_timeout_seconds' => (int) env('KNMI_PRECIPITATION_CONNECT_TIMEOUT_SECONDS', 10),
         'download_timeout_seconds' => (int) env('KNMI_PRECIPITATION_DOWNLOAD_TIMEOUT_SECONDS', 180),
         'retain_releases' => (int) env('KNMI_PRECIPITATION_RETAIN_RELEASES', 2),
-        'maximum_reference_age_seconds' => (int) env('KNMI_PRECIPITATION_MAXIMUM_REFERENCE_AGE_SECONDS', 1200),
+        'maximum_reference_age_seconds' => (int) env('KNMI_PRECIPITATION_MAXIMUM_REFERENCE_AGE_SECONDS', 1800),
         'integrity_cache_seconds' => (int) env('KNMI_PRECIPITATION_INTEGRITY_CACHE_SECONDS', 300),
         'point_cache_seconds' => (int) env('KNMI_PRECIPITATION_POINT_CACHE_SECONDS', 600),
         'query_timeout_seconds' => (int) env('KNMI_PRECIPITATION_QUERY_TIMEOUT_SECONDS', 10),
@@ -145,7 +145,11 @@ return [
         'maximum_capabilities_bytes' => 1_048_576,
         'maximum_frame_bytes' => 4_194_304,
         'maximum_atlas_bytes' => 33_554_432,
-        'maximum_age_seconds' => 900,
+        // LI AFA is published with normal source latency. Thirty minutes keeps
+        // current frames usable without presenting a prolonged outage as live;
+        // older validated snapshots are exposed only as an explicitly stale,
+        // time-bounded fallback.
+        'maximum_age_seconds' => 1800,
         'retain_releases' => 2,
         'source_name' => 'EUMETSAT MTG Lightning Imager',
         'source_url' => 'https://view.eumetsat.int/',
@@ -300,5 +304,6 @@ return [
     'retention' => [
         'push_logs_days' => (int) env('PUSH_LOG_RETENTION_DAYS', 90),
         'audit_logs_days' => (int) env('AUDIT_LOG_RETENTION_DAYS', 3650),
+        'weather_dataset_operations_days' => max(1, (int) env('WEATHER_DATASET_OPERATION_RETENTION_DAYS', 14)),
     ],
 ];

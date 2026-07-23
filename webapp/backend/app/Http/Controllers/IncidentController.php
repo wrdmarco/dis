@@ -17,6 +17,9 @@ use App\Services\DroneFlightContextService;
 use App\Services\IncidentAccessService;
 use App\Services\IncidentService;
 use App\Support\ApiDateTime;
+use App\Support\IncidentTimelineAttribution;
+use App\Support\IncidentTimelineResponsePresentation;
+use App\Support\IncidentTimelineVisibility;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -290,13 +293,24 @@ final class IncidentController extends Controller
             ->with('incident')
             ->latest('created_at')
             ->get()
-            ->map(fn ($item): array => [
-                'id' => $item->id,
-                'type' => 'status',
-                'label' => trim(($item->from_status ?? 'nieuw').' -> '.$item->to_status),
-                'message' => $item->reason,
-                'created_at' => MobileApiPayload::dateTime($item->created_at),
-            ]);
+            ->map(function ($item): array {
+                $statusChange = trim(($item->from_status ?? 'nieuw').' -> '.$item->to_status);
+
+                return [
+                    'id' => $item->id,
+                    'type' => 'status',
+                    'label' => $statusChange,
+                    'message' => $item->reason,
+                    'created_at' => MobileApiPayload::dateTime($item->created_at),
+                    ...IncidentTimelineAttribution::make(
+                        $item->changed_by,
+                        $item->changed_by_name,
+                        'Incidentstatus gewijzigd: '.$statusChange,
+                        'Niet vastgelegd',
+                    ),
+                    ...IncidentTimelineVisibility::everyone(),
+                ];
+            });
 
         $dispatchItems = $dispatches
             ->flatMap(function ($dispatch): array {
@@ -306,15 +320,28 @@ final class IncidentController extends Controller
                     'label' => 'Dispatch '.$dispatch->status,
                     'message' => $dispatch->message,
                     'created_at' => MobileApiPayload::dateTime($dispatch->created_at),
+                    ...IncidentTimelineAttribution::make(
+                        $dispatch->requested_by,
+                        $dispatch->requested_by_name,
+                        'Alarmering aangemaakt',
+                        'Niet vastgelegd',
+                    ),
+                    ...IncidentTimelineVisibility::everyone(),
                 ]];
 
                 foreach ($dispatch->recipients as $recipient) {
+                    $recipientName = $recipient->user?->name ?? $recipient->user_name ?? 'Verwijderde gebruiker';
+                    $responseState = IncidentTimelineResponsePresentation::currentState($recipient, $dispatch);
                     $items[] = [
                         'id' => $recipient->id,
                         'type' => 'dispatch_response',
-                        'label' => ($recipient->user?->name ?? $recipient->user_name ?? 'Verwijderde gebruiker').' - '.$recipient->response_status,
+                        'label' => $recipientName.' - '.$responseState['response_label'],
                         'message' => $recipient->response_note,
-                        'created_at' => MobileApiPayload::dateTime($recipient->responded_at ?? $recipient->notified_at ?? $dispatch->sent_at ?? $dispatch->created_at),
+                        'created_at' => MobileApiPayload::dateTime($responseState['occurred_at']),
+                        'actor' => $responseState['actor'],
+                        'actor_name' => $responseState['actor_name'],
+                        'description' => $responseState['description'],
+                        ...IncidentTimelineVisibility::user($recipient->user_id),
                     ];
                 }
 
@@ -326,6 +353,13 @@ final class IncidentController extends Controller
                         'label' => 'Nadere info'.($senderName ? ' - '.$senderName : ''),
                         'message' => $message->body,
                         'created_at' => MobileApiPayload::dateTime($message->created_at),
+                        ...IncidentTimelineAttribution::make(
+                            $message->sent_by,
+                            $senderName,
+                            'Nadere informatie toegevoegd',
+                            'Niet vastgelegd',
+                        ),
+                        ...IncidentTimelineVisibility::everyone(),
                     ];
                 }
 
@@ -352,29 +386,82 @@ final class IncidentController extends Controller
                 ->latest('effective_at')
                 ->get()
                 ->filter(fn (AvailabilityStatus $status): bool => $status->effective_at?->greaterThanOrEqualTo($recipientStartsByUser->get($status->user_id)) === true)
-                ->map(fn (AvailabilityStatus $status): array => [
-                    'id' => $status->id,
-                    'type' => 'operator_status',
-                    'label' => ($status->user?->name ?? $status->user_name ?? 'Verwijderde gebruiker').' - '.$this->operatorStatusLabel($status->status),
-                    'message' => $status->reason,
-                    'created_at' => MobileApiPayload::dateTime($status->effective_at),
-                ]);
+                ->map(function (AvailabilityStatus $status): array {
+                    $userName = $status->user?->name ?? $status->user_name ?? 'Verwijderde gebruiker';
+                    $statusLabel = $this->operatorStatusLabel($status->status);
+
+                    return [
+                        'id' => $status->id,
+                        'type' => 'operator_status',
+                        'label' => $userName.' - '.$statusLabel,
+                        'message' => $status->reason,
+                        'created_at' => MobileApiPayload::dateTime($status->effective_at),
+                        ...IncidentTimelineAttribution::make(
+                            $status->changed_by,
+                            $status->changed_by_name,
+                            'Operationele status van '.$userName.' gewijzigd naar '.$statusLabel,
+                            $status->is_system_applied ? 'Systeem' : 'Niet vastgelegd',
+                        ),
+                        ...IncidentTimelineVisibility::user($status->user_id),
+                    ];
+                });
         }
 
-        $internalNoteItems = AuditLog::query()
+        $internalNoteLogs = AuditLog::query()
             ->where('target_type', Incident::class)
             ->where('target_id', (string) $incident->id)
             ->where('action', 'incidents.internal_note_added')
             ->latest('created_at')
             ->limit(200)
-            ->get()
-            ->map(fn (AuditLog $log): array => [
-                'id' => $log->id,
-                'type' => 'internal_notes',
-                'label' => 'Meldkamer kladblok',
-                'message' => $log->reason,
-                'created_at' => MobileApiPayload::dateTime($log->created_at),
-            ]);
+            ->get();
+        $operator = $request->user()->isOperatorClient() ? $request->user() : null;
+        $operatorRecipientIds = $operator === null
+            ? []
+            : $dispatches
+                ->flatMap(fn ($dispatch) => $dispatch->recipients->pluck('id'))
+                ->filter(fn (mixed $recipientId): bool => is_string($recipientId) && $recipientId !== '')
+                ->unique()
+                ->values()
+                ->all();
+        $incidentAuditLogs = $this->incidentAuditTimelineLogs(
+            $incident,
+            $dispatches->pluck('id')->values()->all(),
+            $operator,
+            $operatorRecipientIds,
+        );
+        $auditActors = User::query()
+            ->withTrashed()
+            ->whereIn(
+                'id',
+                $internalNoteLogs
+                    ->concat($incidentAuditLogs)
+                    ->pluck('actor_id')
+                    ->filter(fn (mixed $actorId): bool => is_string($actorId) && $actorId !== '')
+                    ->unique()
+                    ->values(),
+            )
+            ->get(['id', 'name'])
+            ->keyBy('id');
+
+        $internalNoteItems = $internalNoteLogs
+            ->map(function (AuditLog $log) use ($auditActors): array {
+                $actorName = $this->auditActorName($log, $auditActors);
+
+                return [
+                    'id' => $log->id,
+                    'type' => 'internal_notes',
+                    'label' => 'Meldkamer kladblok',
+                    'message' => $log->reason,
+                    'created_at' => MobileApiPayload::dateTime($log->created_at),
+                    ...IncidentTimelineAttribution::make(
+                        $log->actor_id,
+                        $actorName,
+                        'Kladblokregel toegevoegd',
+                        'Niet vastgelegd',
+                    ),
+                    ...IncidentTimelineVisibility::staff(),
+                ];
+            });
 
         $legacyInternalNoteItem = collect($incident->internal_notes === null || trim((string) $incident->internal_notes) === '' ? [] : [[
             'id' => $incident->id.'-internal-notes',
@@ -382,9 +469,35 @@ final class IncidentController extends Controller
             'label' => 'Meldkamer kladblok',
             'message' => $incident->internal_notes,
             'created_at' => MobileApiPayload::dateTime($incident->updated_at),
+            ...IncidentTimelineAttribution::make(
+                null,
+                null,
+                'Historische kladblokregel',
+                'Niet vastgelegd',
+            ),
+            ...IncidentTimelineVisibility::staff(),
         ]]);
 
-        $auditItems = $this->incidentAuditTimelineItems($incident, $dispatches->pluck('id')->values()->all());
+        $auditItems = $incidentAuditLogs
+            ->map(function (AuditLog $log) use ($auditActors, $dispatches): array {
+                $label = $this->auditActionLabel($log->action);
+                $description = IncidentTimelineResponsePresentation::auditDescription($log, $dispatches) ?? $label;
+
+                return [
+                    'id' => $log->id,
+                    'type' => 'audit',
+                    'label' => $label,
+                    'message' => $log->reason,
+                    'created_at' => MobileApiPayload::dateTime($log->created_at),
+                    ...IncidentTimelineAttribution::make(
+                        $log->actor_id,
+                        $this->auditActorName($log, $auditActors),
+                        $description,
+                        $this->auditActorFallback($log),
+                    ),
+                    ...IncidentTimelineVisibility::audit($log, $dispatches),
+                ];
+            });
 
         $items = $statusItems
             ->concat($dispatchItems)
@@ -395,14 +508,25 @@ final class IncidentController extends Controller
             ->sortByDesc('created_at')
             ->values();
 
-        if ($request->user()?->hasPermission('incidents.manage') !== true) {
+        $actor = $request->user();
+        if ($actor->isOperatorClient()) {
+            $visibleTypes = $this->appVisibleTimelineTypes();
+            $items = $items
+                ->filter(fn (array $item): bool => in_array((string) $item['type'], $visibleTypes, true)
+                    && IncidentTimelineVisibility::visibleToOperator($item, (string) $actor->id))
+                ->values();
+        } elseif ($actor->hasPermission('incidents.manage') !== true) {
             $visibleTypes = $this->appVisibleTimelineTypes();
             $items = $items
                 ->filter(fn (array $item): bool => in_array((string) $item['type'], $visibleTypes, true))
                 ->values();
         }
 
-        return ApiResponse::success($items);
+        return ApiResponse::success(
+            $items
+                ->map(fn (array $item): array => IncidentTimelineVisibility::withoutInternalMetadata($item))
+                ->values(),
+        );
     }
 
     /**
@@ -420,12 +544,17 @@ final class IncidentController extends Controller
 
     /**
      * @param  list<string>  $dispatchIds
+     * @param  list<string>  $operatorRecipientIds
      */
-    private function incidentAuditTimelineItems(Incident $incident, array $dispatchIds): Collection
-    {
+    private function incidentAuditTimelineLogs(
+        Incident $incident,
+        array $dispatchIds,
+        ?User $operator = null,
+        array $operatorRecipientIds = [],
+    ): Collection {
         $incidentId = (string) $incident->id;
 
-        return AuditLog::query()
+        $query = AuditLog::query()
             ->where(function ($query) use ($incidentId, $dispatchIds): void {
                 $query
                     ->where(function ($target) use ($incidentId): void {
@@ -441,17 +570,46 @@ final class IncidentController extends Controller
                     });
                 }
             })
-            ->whereNotIn('action', ['incidents.created', 'incidents.internal_note_added'])
+            ->whereNotIn('action', [
+                'incidents.created',
+                'incidents.internal_note_added',
+                'incidents.status_auto_updated',
+                'dispatch.created',
+                'dispatch.additional_info_sent',
+                'incidents.internal_notes_updated',
+            ]);
+
+        if ($operator !== null) {
+            IncidentTimelineVisibility::scopeAuditQueryForOperator(
+                $query,
+                (string) $operator->id,
+                $operatorRecipientIds,
+            );
+        }
+
+        return $query
             ->latest('created_at')
             ->limit(200)
-            ->get()
-            ->map(fn (AuditLog $log): array => [
-                'id' => $log->id,
-                'type' => 'audit',
-                'label' => $this->auditActionLabel($log->action),
-                'message' => $log->reason,
-                'created_at' => MobileApiPayload::dateTime($log->created_at),
-            ]);
+            ->get();
+    }
+
+    /**
+     * @param  Collection<string, User>  $actors
+     */
+    private function auditActorName(AuditLog $log, Collection $actors): ?string
+    {
+        $snapshotName = trim((string) $log->actor_name);
+        if ($snapshotName !== '') {
+            return $snapshotName;
+        }
+
+        if (! is_string($log->actor_id) || $log->actor_id === '') {
+            return null;
+        }
+
+        $actor = $actors->get($log->actor_id);
+
+        return $actor instanceof User ? $actor->name : null;
     }
 
     private function auditActionLabel(string $action): string
@@ -503,6 +661,13 @@ final class IncidentController extends Controller
             'on_scene' => 'Op locatie',
             default => $status,
         };
+    }
+
+    private function auditActorFallback(AuditLog $log): string
+    {
+        return in_array($log->action, ['incidents.status_auto_updated'], true)
+            ? 'Systeem'
+            : 'Niet vastgelegd';
     }
 
     /**

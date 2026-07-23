@@ -285,7 +285,7 @@ final class WallboardReversePairingSecurityTest extends TestCase
         $manager = $this->user('pairing-authorized@example.test', ['wallboards.manage']);
         $pendingToken = $manager->createToken(
             'Pending wallboard pairing 2FA',
-            ['2fa:pending', 'client:admin'],
+            ['2fa:pending', 'client:web'],
             now()->addMinutes(5),
         )->plainTextToken;
         Auth::forgetGuards();
@@ -485,7 +485,7 @@ final class WallboardReversePairingSecurityTest extends TestCase
 
     private function asAdminClient(User $user): static
     {
-        $token = $user->createToken('Wallboard pairing admin test', ['*', 'client:admin'], now()->addHour())->plainTextToken;
+        $token = $user->createToken('Wallboard pairing admin test', ['*', 'client:web'], now()->addHour())->plainTextToken;
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);

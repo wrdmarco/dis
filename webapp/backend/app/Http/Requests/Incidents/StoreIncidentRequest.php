@@ -15,8 +15,10 @@ final class StoreIncidentRequest extends FormRequest
     public function rules(): array
     {
         $incidentForm = app(IncidentFormService::class);
+        $rules = $incidentForm->fixedInputValidationRules();
+        $rules['status'] = ['sometimes', 'string', 'in:draft'];
 
-        return $incidentForm->fixedInputValidationRules() + [
+        return $rules + [
             'requesting_organization' => ['nullable', 'string', 'max:180'],
             'requesting_unit' => ['nullable', 'string', 'max:180'],
             'on_scene_contact_name' => ['nullable', 'string', 'max:180'],

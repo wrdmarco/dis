@@ -58,7 +58,7 @@ final class WallboardFocusPreviewApiTest extends TestCase
 
         $pendingToken = $manager->createToken(
             'Focus preview pending 2FA',
-            ['2fa:pending', 'client:admin'],
+            ['2fa:pending', 'client:web'],
             now()->addHour(),
         )->plainTextToken;
         Auth::forgetGuards();
@@ -330,7 +330,7 @@ final class WallboardFocusPreviewApiTest extends TestCase
 
     private function asAdminClient(User $user): static
     {
-        $token = $user->createToken('Wallboard focus preview test', ['*', 'client:admin'], now()->addHour())->plainTextToken;
+        $token = $user->createToken('Wallboard focus preview test', ['*', 'client:web'], now()->addHour())->plainTextToken;
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\KnmiForecastOperationConflictException;
+use App\Exceptions\KnmiForecastOperationStartException;
 use App\Jobs\RefreshKnmiForecastDataset;
 use App\Models\KnmiForecastOperation;
 use App\Models\KnmiForecastSnapshot;
@@ -12,6 +13,7 @@ use App\Support\ApiDateTime;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 final class KnmiForecastOperationService
@@ -134,7 +136,30 @@ final class KnmiForecastOperationService
                 'error_code' => 'queue_unavailable',
                 'finished_at' => now(),
             ])->save();
-            throw new KnmiForecastOperationConflictException('KNMI-update kon niet worden gestart.', previous: $exception);
+            try {
+                Log::error('KNMI forecast refresh could not be queued.', [
+                    'operation_id' => (string) $operation->id,
+                    'error_code' => 'queue_unavailable',
+                    'exception_class' => $exception::class,
+                ]);
+            } catch (Throwable) {
+                // Persisted operation state remains authoritative when logging is unavailable.
+            }
+            try {
+                $this->audit->record(
+                    action: 'weather.knmi.refresh_failed',
+                    target: $operation,
+                    actor: $actor,
+                    metadata: [
+                        'source' => $scheduled ? 'scheduler' : 'admin',
+                        'error_code' => 'queue_unavailable',
+                    ],
+                    request: $request,
+                );
+            } catch (Throwable) {
+                // Queue failure remains persisted when audit storage is temporarily unavailable.
+            }
+            throw new KnmiForecastOperationStartException('KNMI-update kon niet worden gestart.', previous: $exception);
         }
 
         return $operation->refresh();

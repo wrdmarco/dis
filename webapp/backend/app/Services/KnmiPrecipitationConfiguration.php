@@ -16,6 +16,10 @@ final class KnmiPrecipitationConfiguration
 
     private const PROBABILITY_VERSION = '1.0';
 
+    private const RADAR_HARD_MAXIMUM_BYTES = 16_777_216;
+
+    private const PROBABILITY_HARD_MAXIMUM_BYTES = 134_217_728;
+
     public function __construct(private readonly KnmiOpenDataConfiguration $openData) {}
 
     public function apiKey(): ?string
@@ -91,14 +95,20 @@ final class KnmiPrecipitationConfiguration
 
     public function maximumBytes(string $dataset): int
     {
-        $minimum = $this->minimumBytes($dataset);
-        $configured = match ($dataset) {
-            self::RADAR_DATASET => $this->positiveInt('radar_maximum_bytes', 4_194_304),
-            self::PROBABILITY_DATASET => $this->positiveInt('probability_maximum_bytes', 67_108_864),
+        [$configured, $hardMaximum] = match ($dataset) {
+            self::RADAR_DATASET => [
+                $this->positiveInt('radar_maximum_bytes', self::RADAR_HARD_MAXIMUM_BYTES),
+                self::RADAR_HARD_MAXIMUM_BYTES,
+            ],
+            self::PROBABILITY_DATASET => [
+                $this->positiveInt('probability_maximum_bytes', self::PROBABILITY_HARD_MAXIMUM_BYTES),
+                self::PROBABILITY_HARD_MAXIMUM_BYTES,
+            ],
             default => throw new \InvalidArgumentException('Unsupported KNMI precipitation dataset.'),
         };
+        $minimum = min($this->minimumBytes($dataset), $hardMaximum);
 
-        return max($minimum, min($configured, 67_108_864));
+        return max($minimum, min($configured, $hardMaximum));
     }
 
     public function connectTimeoutSeconds(): int
@@ -118,7 +128,7 @@ final class KnmiPrecipitationConfiguration
 
     public function maximumReferenceAgeSeconds(): int
     {
-        return min(3600, max(600, $this->positiveInt('maximum_reference_age_seconds', 1800)));
+        return min(3600, max(1800, $this->positiveInt('maximum_reference_age_seconds', 1800)));
     }
 
     public function integrityCacheSeconds(): int

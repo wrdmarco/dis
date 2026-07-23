@@ -134,7 +134,7 @@ final class WallboardOperationalSummaryTest extends TestCase
         );
     }
 
-    public function test_test_dispatch_is_transient_only_while_real_alarm_also_keeps_the_persistent_override(): void
+    public function test_test_dispatch_is_transient_only_while_real_alarm_keeps_the_playlist_page(): void
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 10:00:00', 'Europe/Amsterdam'));
         SystemSetting::query()->create([
@@ -170,7 +170,7 @@ final class WallboardOperationalSummaryTest extends TestCase
         $realState = app(WallboardStateService::class)->state($wallboard);
 
         $this->assertTrue($realState['wallboard']['display']['incident_active']);
-        $this->assertSame('incident_override', $realState['wallboard']['display']['mode']);
+        $this->assertSame('static', $realState['wallboard']['display']['mode']);
         $this->assertSame($realIncident->id, $realState['operational_summary']['active_alarm']['id']);
         $this->assertSame($realDispatch->id, $realState['operational_summary']['transient_alert']['dispatch_id']);
         $this->assertFalse($realState['operational_summary']['transient_alert']['is_test']);

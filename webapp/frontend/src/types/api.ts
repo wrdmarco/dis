@@ -224,13 +224,15 @@ export interface OperationalMapPilotHome {
 export type WallboardLayout = 'fullscreen_map';
 export type WallboardDisplayProfile = 'auto' | '1080p' | '4k';
 export type WallboardTheme = 'dark' | 'light';
-export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'kpi' | 'calendar' | 'message' | 'safety_notice' | 'quote' | 'uav_forecast' | 'news' | 'video' | 'photo_carousel';
+export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'kpi' | 'calendar' | 'message' | 'safety_notice' | 'quote' | 'uav_forecast' | 'weather_radar' | 'news' | 'video' | 'photo_carousel';
 export type WallboardDisplayMode = 'rotation' | 'static' | 'manual' | 'incident_override';
 export type WallboardNewsItemTransition = 'fade' | 'dissolve' | 'slide' | 'flip' | 'zoom' | 'wipe' | 'none';
 export type WallboardItemTransition = WallboardNewsItemTransition;
 export type WallboardPageTransition = WallboardItemTransition;
 export type WallboardFlipDirection = 'left_to_right' | 'top_to_bottom' | 'bottom_to_top' | 'random';
 export type WallboardForecastLocationMode = 'netherlands' | 'address';
+export type OperationalWeatherRadarKind = 'precipitation' | 'lightning';
+export type WallboardWeatherRadarKind = OperationalWeatherRadarKind;
 export type WallboardKpiCategory = 'pilots' | 'incidents' | 'assets' | 'responses' | 'flight';
 export type WallboardKpiVisualization = 'counter' | 'bar' | 'pie' | 'ring';
 export type WallboardKpiKey =
@@ -397,6 +399,7 @@ export interface WallboardPageOptions {
   item_flip_direction?: WallboardFlipDirection;
   location_mode?: WallboardForecastLocationMode;
   location_label?: string;
+  radar_kind?: WallboardWeatherRadarKind;
   visible_blocks?: WallboardForecastBlockKey[];
   visible_metrics?: WallboardKpiKey[];
   metric_visualizations?: Partial<Record<WallboardKpiKey, WallboardKpiVisualization>>;
@@ -515,12 +518,14 @@ export interface WallboardDisplayState {
 }
 
 export type WallboardPlaylistDataMode = 'live' | 'demo';
+export type WallboardPlaylistPurpose = 'normal' | 'alarm';
 
 export interface WallboardPlaylistReference {
   id: string;
   name: string;
   version: number;
   data_mode?: WallboardPlaylistDataMode;
+  purpose?: WallboardPlaylistPurpose;
 }
 
 export interface WallboardPlaylist extends WallboardPlaylistReference {
@@ -536,6 +541,7 @@ export interface WallboardPlaylistAssignment {
   wallboard_id: string;
   playlist_id: string;
   data_mode?: WallboardPlaylistDataMode;
+  purpose?: WallboardPlaylistPurpose;
   configuration: WallboardConfiguration;
   config_version: number;
   control_version: number;
@@ -744,6 +750,7 @@ export interface WallboardState {
     data_mode?: WallboardPlaylistDataMode;
     runtime_playlist_id?: string | null;
     runtime_playlist_version?: number;
+    runtime_playlist_purpose?: WallboardPlaylistPurpose;
     active_incident_playlist?: boolean;
   };
   map: {
@@ -763,6 +770,7 @@ export interface WallboardState {
   };
   kpi: WallboardKpiState;
   forecast: WallboardForecastState;
+  weather_radar?: OperationalWeatherRadarState | null;
 }
 
 export interface WallboardKpiMetric {
@@ -862,11 +870,13 @@ export interface WallboardForecastCloudBaseForecast {
 
 export interface WallboardForecastPrecipitationOutlook {
   radar_peak_mm_h: number;
+  radar_status: WallboardForecastStatus;
   radar_first_precipitation_at: string | null;
   radar_until: string;
-  third_hour_probability_pct: number;
-  third_hour_from: string;
-  forecast_until: string;
+  third_hour_probability_pct: number | null;
+  third_hour_probability_status: WallboardForecastStatus;
+  third_hour_from: string | null;
+  forecast_until: string | null;
   reference_time: string;
   sample_count: number;
   expected_sample_count: number;
@@ -983,6 +993,7 @@ export interface OperationalWeatherCloudState {
 
 export interface OperationalWeatherPrecipitationState {
   complete: boolean;
+  probability_complete: boolean;
   stale: boolean;
   radar_peak_mm_h: number | null;
   radar_first_precipitation_at: string | null;
@@ -1016,6 +1027,10 @@ export interface OperationalWeatherRadarSource {
 export interface OperationalWeatherRadarLayer {
   status: OperationalWeatherRadarLayerStatus;
   reference_time: string | null;
+  observed_period_end: string | null;
+  age_seconds: number | null;
+  lag_seconds: number | null;
+  refreshed_at: string | null;
   atlas_url: string | null;
   atlas_columns: number;
   atlas_rows: number;
@@ -1074,6 +1089,7 @@ export interface WallboardControlState {
   refresh_version: number;
   runtime_playlist_id?: string | null;
   runtime_playlist_version?: number;
+  runtime_playlist_purpose?: WallboardPlaylistPurpose;
   active_incident_playlist?: boolean;
   display_profile: WallboardDisplayProfile;
   display: WallboardDisplayState;
@@ -1188,6 +1204,12 @@ export interface IncidentTimelineItem {
   id: string;
   type: 'status' | 'dispatch' | 'dispatch_response' | 'dispatch_message' | 'operator_status' | 'internal_notes' | 'audit';
   label: string;
+  description?: string | null;
+  actor?: {
+    id: string;
+    name: string;
+  } | null;
+  actor_name?: string | null;
   message?: string | null;
   created_at?: string | null;
 }
@@ -1663,6 +1685,47 @@ export interface KnmiForecastSnapshot {
   activated_at: string;
 }
 
+export type KnmiDatasetCategory = 'active' | 'on_demand' | 'available';
+export type KnmiDatasetStatus = 'current' | 'stale' | 'unavailable' | 'not_configured' | 'on_demand' | 'available';
+export type KnmiDatasetStorageMode = 'local_snapshot' | 'local_cache' | 'remote_on_demand' | 'catalog_only';
+
+export interface KnmiDatasetOperation {
+  id: string;
+  dataset_keys: string[];
+  state: KnmiForecastOperationState;
+  stage: string;
+  message: string;
+  progress_percent: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface KnmiDatasetError {
+  code: string;
+  message: string;
+  at: string | null;
+}
+
+export interface KnmiAdminDatasetStatus {
+  key: string;
+  provider: string;
+  dataset: string | null;
+  version: string | null;
+  category: KnmiDatasetCategory;
+  consumers: string[];
+  storage_mode: KnmiDatasetStorageMode;
+  status: KnmiDatasetStatus;
+  configured: boolean;
+  source_url: string;
+  reference_at: string | null;
+  refreshed_at: string | null;
+  next_update_at: string | null;
+  availability_note: string | null;
+  latest_error: KnmiDatasetError | null;
+  refreshable: boolean;
+  operation: KnmiDatasetOperation | null;
+}
+
 export interface KnmiAdminConfiguration {
   configured: boolean;
   open_data_api_key_configured: boolean;
@@ -1681,6 +1744,56 @@ export interface KnmiAdminStatus {
   active_snapshot: KnmiForecastSnapshot | null;
   active_operation: KnmiForecastOperation | null;
   latest_operation: KnmiForecastOperation | null;
+  datasets?: KnmiAdminDatasetStatus[];
+}
+
+export interface KnmiCatalogItem {
+  key: string;
+  title: string;
+  dataset: string;
+  version: string | null;
+  description: string | null;
+  status: string | null;
+  license_id: string | null;
+  license_title: string | null;
+  is_open: boolean;
+  formats: string[];
+  topics: string[];
+  publication_at: string | null;
+  metadata_updated_at: string | null;
+  source_url: string;
+}
+
+export interface KnmiCatalogFilterOption {
+  value: string;
+  label: string;
+}
+
+export interface KnmiCatalogLicenseOption extends KnmiCatalogFilterOption {
+  count: number;
+}
+
+export interface KnmiCatalogResponse {
+  items: KnmiCatalogItem[];
+  pagination: {
+    page: number;
+    per_page: number;
+    total: number;
+    last_page: number;
+    from: number | null;
+    to: number | null;
+  };
+  filters: {
+    statuses: KnmiCatalogFilterOption[];
+    licenses: KnmiCatalogLicenseOption[];
+  };
+  catalog: {
+    available: boolean;
+    cache_state: 'fresh' | 'stale' | 'unavailable';
+    fetched_at: string | null;
+    source_url: string;
+    warning: string | null;
+  };
 }
 
 export interface KnmiAdminSettingsRequest {
@@ -1694,6 +1807,11 @@ export interface KnmiForecastOperationStarted {
 
 export interface KnmiPrecipitationRefreshStarted {
   requested: boolean;
+}
+
+export interface KnmiDatasetRefreshStarted {
+  dataset_key: string;
+  operation: KnmiDatasetOperation;
 }
 
 export interface FormFieldOption {

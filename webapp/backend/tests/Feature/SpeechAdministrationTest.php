@@ -1090,7 +1090,7 @@ final class SpeechAdministrationTest extends TestCase
 
     private function asAdminClient(User $user): static
     {
-        $token = $user->createToken('Speech test', ['*', 'client:admin'], now()->addHour())->plainTextToken;
+        $token = $user->createToken('Speech test', ['*', 'client:web'], now()->addHour())->plainTextToken;
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);

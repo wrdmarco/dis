@@ -17,6 +17,7 @@ import {
   WallboardPlaylistDataModePill,
 } from './WallboardPlaylistDataModePill';
 import { wallboardPlaylistOptionLabel } from './wallboardPlaylistDataMode';
+import { wallboardPlaylistIsNormal } from './wallboardPlaylistPurpose';
 import { wallboardPlaylistUsageCount } from './wallboardPresentation';
 
 export interface WallboardScreenCreateValues {
@@ -39,13 +40,16 @@ export function WallboardCreatePage() {
   const { api } = useAuth();
   const router = useRouter();
   const playlistsResource = useApiResource<WallboardPlaylist[]>('/admin/wallboard-playlists');
-  const playlists = useMemo(() => playlistsResource.data ?? [], [playlistsResource.data]);
+  const normalPlaylists = useMemo(
+    () => (playlistsResource.data ?? []).filter(wallboardPlaylistIsNormal),
+    [playlistsResource.data],
+  );
   const [name, setName] = useState('');
   const [displayProfile, setDisplayProfile] = useState<WallboardDisplayProfile>('auto');
   const [playlistId, setPlaylistId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const selectedPlaylist = playlists.find((playlist) => playlist.id === playlistId) ?? null;
+  const selectedPlaylist = normalPlaylists.find((playlist) => playlist.id === playlistId) ?? null;
 
   async function createScreen(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -118,7 +122,7 @@ export function WallboardCreatePage() {
                 disabled={playlistsResource.loading}
               >
                 <option value="">Nieuwe eigen playlist · LIVE DATA</option>
-                {playlists.map((playlist) => {
+                {normalPlaylists.map((playlist) => {
                   const count = wallboardPlaylistUsageCount(playlist);
                   return <option key={playlist.id} value={playlist.id}>{wallboardPlaylistOptionLabel(playlist)} · {count} {count === 1 ? 'scherm' : 'schermen'}</option>;
                 })}

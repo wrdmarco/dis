@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiResponse;
+use App\Http\Responses\OperationalRadarResponse;
 use App\Http\Responses\WallboardContentResponse;
 use App\Models\Wallboard;
 use App\Models\WallboardPlaylist;
@@ -13,6 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 final class WallboardController extends Controller
 {
@@ -94,5 +96,18 @@ final class WallboardController extends Controller
             'Content-Type' => $result['content_type'],
             'X-Content-Type-Options' => 'nosniff',
         ]);
+    }
+
+    public function weatherRadarAtlas(
+        Request $request,
+        string $kind,
+        string $snapshot,
+    ): SymfonyResponse|StreamedResponse {
+        $wallboard = $request->attributes->get('wallboard');
+        abort_unless($wallboard instanceof Wallboard, 401);
+        $content = $this->state->weatherRadarAtlas($wallboard, $kind, $snapshot);
+        abort_if($content === null, 404);
+
+        return OperationalRadarResponse::make($request, $content);
     }
 }

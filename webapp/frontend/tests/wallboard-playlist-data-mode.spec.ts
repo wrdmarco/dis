@@ -78,8 +78,8 @@ test('sends the selected mode through create, update and the server-rendered con
   expect(updateRequest).toContain('data_mode: draftDataMode');
   expect(previewRequest).toContain('data_mode: draftDataMode');
   expect(previewRequest).toContain('return response.data;');
-  expect(admin).toContain('disabled={playlist.data_mode === \'demo\'}');
-  expect(admin).toContain('niet beschikbaar voor actieve inzet');
+  expect(admin).toContain('playlists.filter(wallboardPlaylistIsSelectableAlarm)');
+  expect(admin).toContain('geen geldige LIVE DATA-alarmplaylist');
   expect(preview).toContain("previewDataMode === 'demo' ? 'Demo-conceptpreview' : 'Live conceptpreview'");
   expect(preview).toContain('normalizeWallboardPlaylistDataMode(state?.wallboard.data_mode ?? dataMode)');
   expect(preview).toContain('<WallboardDemoDataIndicator dataMode={stageDataMode} />');

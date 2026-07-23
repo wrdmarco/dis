@@ -1,4 +1,10 @@
-import type { KnmiAdminSettingsRequest, KnmiForecastOperationState } from '../../types/api';
+import type {
+  KnmiAdminSettingsRequest,
+  KnmiDatasetCategory,
+  KnmiDatasetStatus,
+  KnmiDatasetStorageMode,
+  KnmiForecastOperationState,
+} from '../../types/api';
 
 export const KNMI_ACTIVE_POLL_INTERVAL_MS = 5_000;
 
@@ -19,6 +25,65 @@ export function buildKnmiKeyPayload(form: { openDataApiKey: string; edrApiKey: s
 
 export function knmiOperationIsActive(state?: KnmiForecastOperationState | null): boolean {
   return state === 'queued' || state === 'running';
+}
+
+export function knmiDatasetStatusLabel(status: KnmiDatasetStatus): string {
+  const labels: Record<KnmiDatasetStatus, string> = {
+    current: 'Actueel',
+    stale: 'Verouderd',
+    unavailable: 'Niet beschikbaar',
+    not_configured: 'Niet geconfigureerd',
+    on_demand: 'Op aanvraag',
+    available: 'Nog niet gekoppeld',
+  };
+
+  return labels[status];
+}
+
+export function knmiDatasetStatusTone(status: KnmiDatasetStatus): 'neutral' | 'good' | 'warn' | 'bad' {
+  if (status === 'current') return 'good';
+  if (status === 'stale') return 'warn';
+  if (status === 'unavailable') return 'bad';
+  return 'neutral';
+}
+
+export function knmiDatasetCategoryLabel(category: KnmiDatasetCategory): string {
+  if (category === 'active') return 'Automatisch actief';
+  if (category === 'on_demand') return 'Op aanvraag';
+  return 'Broncatalogus';
+}
+
+export function knmiDatasetStorageModeLabel(storageMode: KnmiDatasetStorageMode): string {
+  const labels: Record<KnmiDatasetStorageMode, string> = {
+    local_snapshot: 'Lokale momentopname',
+    local_cache: 'Lokale cache',
+    remote_on_demand: 'Extern op aanvraag',
+    catalog_only: 'Nog niet lokaal verwerkt',
+  };
+
+  return labels[storageMode];
+}
+
+export function knmiDatasetConsumerLabel(consumer: string): string {
+  const labels: Record<string, string> = {
+    operational_weather: 'Weer',
+    weather: 'Weer',
+    uav_forecast: 'UAV Forecast',
+    wallboard_weather: 'Wallboard weer',
+    wallboard_radar: 'Wallboardradar',
+    weather_radar: 'Buien- en bliksemradar',
+  };
+
+  return labels[consumer] ?? consumer.replaceAll('_', ' ');
+}
+
+export function safeKnmiSourceUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 export function knmiOperationStateLabel(state: KnmiForecastOperationState, unchanged = false): string {
@@ -50,6 +115,8 @@ export function knmiOperationStageLabel(stage?: string | null): string {
   const labels: Record<string, string> = {
     queued: 'Wachten op uitvoering',
     starting: 'Import voorbereiden',
+    refreshing: 'Bronbestanden controleren',
+    importing: 'Bronbestanden verwerken',
     metadata: 'Actuele modelset controleren',
     discovering: 'Actuele modelrun zoeken',
     downloading: 'Volledig archief downloaden',

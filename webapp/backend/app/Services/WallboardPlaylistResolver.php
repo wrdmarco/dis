@@ -15,7 +15,7 @@ final class WallboardPlaylistResolver
     }
 
     /**
-     * @return array{configuration: array<string, mixed>, playlist_id: string|null, playlist_version: int, active_incident_playlist: bool, data_mode: string}
+     * @return array{configuration: array<string, mixed>, playlist_id: string|null, playlist_version: int, active_incident_playlist: bool, data_mode: string, purpose: string}
      */
     public function resolveRuntime(Wallboard $wallboard, bool $deploymentActive): array
     {
@@ -23,7 +23,8 @@ final class WallboardPlaylistResolver
         if ($wallboard->playlist_id !== null) {
             $wallboard->loadMissing('playlist');
             $candidate = $wallboard->getRelation('playlist');
-            if ($candidate instanceof WallboardPlaylist) {
+            if ($candidate instanceof WallboardPlaylist
+                && $candidate->normalizedPurpose() === WallboardPlaylist::PURPOSE_NORMAL) {
                 $basePlaylist = $candidate;
                 if ($this->dataMode($basePlaylist) === WallboardPlaylist::DATA_MODE_DEMO) {
                     return $this->result($basePlaylist, false);
@@ -35,6 +36,7 @@ final class WallboardPlaylistResolver
             $wallboard->loadMissing('activeIncidentPlaylist');
             $playlist = $wallboard->getRelation('activeIncidentPlaylist');
             if ($playlist instanceof WallboardPlaylist
+                && $playlist->normalizedPurpose() === WallboardPlaylist::PURPOSE_ALARM
                 && $this->dataMode($playlist) === WallboardPlaylist::DATA_MODE_LIVE) {
                 return $this->result($playlist, true);
             }
@@ -50,10 +52,11 @@ final class WallboardPlaylistResolver
             'playlist_version' => 0,
             'active_incident_playlist' => false,
             'data_mode' => WallboardPlaylist::DATA_MODE_LIVE,
+            'purpose' => WallboardPlaylist::PURPOSE_NORMAL,
         ];
     }
 
-    /** @return array{configuration: array<string, mixed>, playlist_id: string, playlist_version: int, active_incident_playlist: bool, data_mode: string} */
+    /** @return array{configuration: array<string, mixed>, playlist_id: string, playlist_version: int, active_incident_playlist: bool, data_mode: string, purpose: string} */
     private function result(WallboardPlaylist $playlist, bool $activeIncidentPlaylist): array
     {
         return [
@@ -62,6 +65,7 @@ final class WallboardPlaylistResolver
             'playlist_version' => (int) $playlist->version,
             'active_incident_playlist' => $activeIncidentPlaylist,
             'data_mode' => $this->dataMode($playlist),
+            'purpose' => $playlist->normalizedPurpose(),
         ];
     }
 

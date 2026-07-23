@@ -19,6 +19,9 @@ const IMAGE_TWO = '01KXW0QZTP0000000000000001';
 const VIDEO = '01KXW0QZTP0000000000000002';
 const POSTER = '01KXW0QZTP0000000000000003';
 const NEWS_HASH = 'a'.repeat(64);
+const PRECIPITATION_ATLAS = '/api/wallboard/weather-radar/precipitation/20260723T120000Z-0123456789abcdef.png';
+const NEXT_PRECIPITATION_ATLAS = '/api/wallboard/weather-radar/precipitation/20260723T121500Z-fedcba9876543210.png';
+const LIGHTNING_ATLAS = '/api/wallboard/weather-radar/lightning/20260723T120000Z-abcdef0123456789.png';
 
 test('builds one stable manifest across all configured cacheable wallboard pages', () => {
   const state = wallboardState();
@@ -94,6 +97,11 @@ test('builds one stable manifest across all configured cacheable wallboard pages
   expect(wallboardPrecacheManifest(runtimeActivationChanged, 'https://dis.example.test').contentVersion)
     .not.toBe(manifest.contentVersion);
 
+  const runtimePurposeChanged = wallboardState();
+  runtimePurposeChanged.wallboard.runtime_playlist_purpose = 'alarm';
+  expect(wallboardPrecacheManifest(runtimePurposeChanged, 'https://dis.example.test').contentVersion)
+    .not.toBe(manifest.contentVersion);
+
   const demoMode = wallboardState();
   demoMode.wallboard.data_mode = 'demo';
   demoMode.news.pages.news.items = [];
@@ -111,10 +119,68 @@ test('allows only immutable wallboard media paths and never state feeds', () => 
   expect(wallboardAssetPathIsCacheable(`/api/wallboard/media/${VIDEO}`)).toBe(true);
   expect(wallboardAssetPathIsCacheable(`/api/wallboard/media/${POSTER}/poster`)).toBe(true);
   expect(wallboardAssetPathIsCacheable(`/api/wallboard/news-images/${NEWS_HASH}`)).toBe(true);
+  expect(wallboardAssetPathIsCacheable(PRECIPITATION_ATLAS)).toBe(true);
+  expect(wallboardAssetPathIsCacheable(LIGHTNING_ATLAS)).toBe(true);
+  expect(wallboardAssetPathIsCacheable(
+    '/api/operational-weather/radar/lightning/20260723T120000Z-abcdef0123456789.png',
+  )).toBe(false);
+  expect(wallboardAssetPathIsCacheable(
+    '/api/wallboard/weather-radar/precipitation/latest.png',
+  )).toBe(false);
   expect(wallboardAssetPathIsCacheable('/api/wallboard/state')).toBe(false);
   expect(wallboardAssetPathIsCacheable('/api/wallboard/control')).toBe(false);
   expect(wallboardAssetPathIsCacheable('/api/wallboard/live')).toBe(false);
   expect(wallboardAssetPathIsCacheable('/api/auth/session')).toBe(false);
+});
+
+test('precaches only radar layers selected by configured pages and refreshes snapshots incrementally', async () => {
+  const initial = wallboardState();
+  initial.wallboard.configuration.pages.push(
+    page('rain-radar', 'weather_radar', { radar_kind: 'precipitation' }),
+    page('rain-radar-copy', 'weather_radar', { radar_kind: 'precipitation' }),
+  );
+  initial.weather_radar = {
+    precipitation: radarLayer('precipitation', PRECIPITATION_ATLAS),
+    lightning: radarLayer('lightning', LIGHTNING_ATLAS),
+  };
+
+  const initialManifest = wallboardPrecacheManifest(initial, 'https://dis.example.test');
+  const precipitationAsset = initialManifest.assets.find((asset) => asset.url.endsWith(PRECIPITATION_ATLAS));
+  expect(precipitationAsset).toMatchObject({
+    kind: 'image',
+    pageIds: ['rain-radar', 'rain-radar-copy'],
+  });
+  expect(initialManifest.assets.some((asset) => asset.url.endsWith(LIGHTNING_ATLAS))).toBe(false);
+
+  const next = structuredClone(initial);
+  next.weather_radar = {
+    ...next.weather_radar,
+    precipitation: radarLayer('precipitation', NEXT_PRECIPITATION_ATLAS),
+  };
+  const nextManifest = wallboardPrecacheManifest(next, 'https://dis.example.test');
+  expect(nextManifest.contentVersion).not.toBe(initialManifest.contentVersion);
+  expect(nextManifest.blockingContentVersion).toBe(initialManifest.blockingContentVersion);
+
+  const storage = new MemoryCacheStorage();
+  await precacheWallboard(initialManifest, {
+    cacheStorage: storage.asCacheStorage(),
+    fetcher: (async (input) => {
+      const request = input instanceof Request ? input : new Request(input);
+      return request.url.endsWith(VIDEO) ? videoResponse() : imageResponse();
+    }) as typeof fetch,
+  });
+  const requested: string[] = [];
+  const result = await precacheWallboard(nextManifest, {
+    cacheStorage: storage.asCacheStorage(),
+    fetcher: (async (input) => {
+      const request = input instanceof Request ? input : new Request(input);
+      requested.push(request.url);
+      return imageResponse();
+    }) as typeof fetch,
+  });
+
+  expect(result.ready).toBe(true);
+  expect(requested).toEqual([`https://dis.example.test${NEXT_PRECIPITATION_ATLAS}`]);
 });
 
 test('downloads every asset before ready but leaves obsolete cleanup to validated worker activation', async () => {
@@ -460,6 +526,8 @@ test('the service worker serves only the activated client manifest and supports 
   expect(worker).toContain('!protectedCacheNames.has(cacheName)');
   expect(worker).toContain('/api\\/wallboard\\/media');
   expect(worker).toContain('/api\\/wallboard\\/news-images');
+  expect(worker).toContain('/api\\/wallboard\\/weather-radar');
+  expect(worker).not.toContain('operational-weather');
   expect(worker).not.toContain('/api/wallboard/state');
   expect(worker).not.toContain('/api/wallboard/control');
   expect(registration).toContain('if (!result.ready');
@@ -582,6 +650,24 @@ function wallboardState(): WallboardState {
 
 function page(id: string, type: WallboardPage['type'], options: Record<string, unknown> = {}): WallboardPage {
   return { id, name: id, type, enabled: true, duration_seconds: 20, options } as WallboardPage;
+}
+
+function radarLayer(
+  kind: 'precipitation' | 'lightning',
+  atlasUrl: string,
+): NonNullable<NonNullable<WallboardState['weather_radar']>['precipitation']> {
+  return {
+    status: 'available',
+    reference_time: '2026-07-23T12:00:00Z',
+    atlas_url: atlasUrl,
+    atlas_columns: kind === 'precipitation' ? 5 : 4,
+    atlas_rows: kind === 'precipitation' ? 5 : 2,
+    frame_width: kind === 'precipitation' ? 140 : 640,
+    frame_height: kind === 'precipitation' ? 153 : 384,
+    frames: [{ index: 0, valid_at: '2026-07-23T12:00:00Z', lead_minutes: 0 }],
+    source: { name: kind === 'precipitation' ? 'KNMI' : 'EUMETSAT', url: null, license: 'Open data' },
+    availability_note: null,
+  };
 }
 
 function newsItem(id: string, imageUrl: string) {

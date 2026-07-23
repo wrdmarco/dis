@@ -79,20 +79,16 @@ export function OperationalMapCanvas({
   showRouteLegend?: boolean;
   autoFit?: boolean;
 }) {
-  const points = models.flatMap((model) => [
-    ...(model.incidentPoint ? [model.incidentPoint] : []),
-    ...model.liveLocations,
-    ...(showRoutes ? model.liveLocations.flatMap((location) => location.route?.points ?? []) : []),
-  ]);
-  const visibleLayerPoints = [
-    ...(layerVisibility.commandCenters ? layers.commandCenters : []),
-    ...(layerVisibility.historicalIncidents ? layers.historicalIncidents : []),
-    ...(layerVisibility.pilotHomes ? layers.pilotHomes : []),
-  ];
-  const allPoints = [...points, ...visibleLayerPoints];
-  const hasOperationalPoints = autoFit && allPoints.length > 0;
-  const viewport = hasOperationalPoints ? mapViewport(allPoints) : NETHERLANDS_OVERVIEW_VIEWPORT;
-  const center = hasOperationalPoints ? centerFor(allPoints) : NETHERLANDS_OVERVIEW_CENTER;
+  const focusPoints = operationalMapAutoFitPoints({
+    models,
+    layers,
+    layerVisibility,
+    showRoutes,
+    allowReferenceLayerFallback: autoFit,
+  });
+  const hasFocusPoints = focusPoints.length > 0;
+  const viewport = hasFocusPoints ? mapViewport(focusPoints) : NETHERLANDS_OVERVIEW_VIEWPORT;
+  const center = hasFocusPoints ? centerFor(focusPoints) : NETHERLANDS_OVERVIEW_CENTER;
   const centerWorld = latLonToWorld(center.latitude, center.longitude, viewport.zoom);
   const tiles = visibleTiles(centerWorld, viewport);
   const livePilotCount = models.reduce((total, model) => total + model.liveLocations.length, 0);
@@ -184,6 +180,38 @@ export function OperationalMapCanvas({
       {showRoutes && showRouteLegend ? <PilotRouteLegend models={models} /> : null}
     </div>
   );
+}
+
+export function operationalMapAutoFitPoints({
+  models,
+  layers,
+  layerVisibility,
+  showRoutes = true,
+  allowReferenceLayerFallback = true,
+}: {
+  models: OperationalMapIncidentModel[];
+  layers: OperationalMapLayerModels;
+  layerVisibility: OperationalMapLayerVisibility;
+  showRoutes?: boolean;
+  allowReferenceLayerFallback?: boolean;
+}): MapPoint[] {
+  const operationalPoints = models.flatMap((model) => [
+    ...(model.incidentPoint ? [model.incidentPoint] : []),
+    ...model.liveLocations,
+    ...(showRoutes ? model.liveLocations.flatMap((location) => location.route?.points ?? []) : []),
+  ]);
+  if (operationalPoints.length > 0) {
+    return operationalPoints;
+  }
+  if (!allowReferenceLayerFallback) {
+    return [];
+  }
+
+  return [
+    ...(layerVisibility.commandCenters ? layers.commandCenters : []),
+    ...(layerVisibility.historicalIncidents ? layers.historicalIncidents : []),
+    ...(layerVisibility.pilotHomes ? layers.pilotHomes : []),
+  ];
 }
 
 function PilotRoutePath({

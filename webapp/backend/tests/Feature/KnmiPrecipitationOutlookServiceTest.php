@@ -3,10 +3,14 @@
 namespace Tests\Feature;
 
 use App\Exceptions\KnmiPrecipitationImportException;
-use App\Jobs\RefreshKnmiPrecipitationOutlookSnapshot;
+use App\Jobs\RefreshWeatherDatasetOperation;
+use App\Models\WeatherDatasetOperation;
 use App\Repositories\KnmiPrecipitationSnapshotRepository;
+use App\Services\KnmiPrecipitationConfiguration;
 use App\Services\KnmiPrecipitationImportService;
 use App\Services\KnmiPrecipitationOutlookService;
+use App\Services\WallboardForecastLocationService;
+use App\Services\WeatherDatasetOperationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
@@ -84,15 +88,26 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
         Queue::fake();
 
         $this->artisan('dis:refresh-knmi-precipitation-outlook')->assertSuccessful();
+        $operation = WeatherDatasetOperation::query()->sole();
 
-        Queue::assertPushed(RefreshKnmiPrecipitationOutlookSnapshot::class, function ($job): bool {
+        $this->assertSame(WeatherDatasetOperationService::RADAR, $operation->dataset_key);
+        $this->assertSame([
+            WeatherDatasetOperationService::RADAR,
+            WeatherDatasetOperationService::PRECIPITATION_PROBABILITY,
+        ], $operation->dataset_keys);
+        $this->assertSame(WeatherDatasetOperation::STATE_QUEUED, $operation->state);
+        $this->assertSame('knmi-precipitation', $operation->active_key);
+
+        Queue::assertPushed(RefreshWeatherDatasetOperation::class, function ($job) use ($operation): bool {
             $this->assertInstanceOf(ShouldBeEncrypted::class, $job);
             $this->assertInstanceOf(ShouldBeUnique::class, $job);
+            $this->assertSame($operation->id, $job->operationId);
             $this->assertSame('knmi_realtime', $job->connection);
             $this->assertSame('knmi-realtime', $job->queue);
-            $this->assertSame(540, $job->timeout);
-            $this->assertSame(600, $job->uniqueFor);
-            $this->assertSame('knmi-precipitation-outlook', $job->uniqueId());
+            $this->assertSame(1200, $job->timeout);
+            $this->assertSame(1800, $job->uniqueFor);
+            $this->assertGreaterThan($job->timeout, (int) config('queue.connections.knmi_realtime.retry_after'));
+            $this->assertSame('weather-dataset:'.$operation->id, $job->uniqueId());
 
             return true;
         });
@@ -113,6 +128,27 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
         $this->assertSame(10, $event->expiresAt);
     }
 
+    public function test_tracked_precipitation_operation_prewarms_the_national_outlook_cache(): void
+    {
+        Queue::fake();
+        $this->fakeRemotePair('202607202110');
+        $this->artisan('dis:refresh-knmi-precipitation-outlook')->assertSuccessful();
+        $operation = WeatherDatasetOperation::query()->sole();
+
+        app(WeatherDatasetOperationService::class)->run($operation->id);
+
+        $this->assertSame(WeatherDatasetOperation::STATE_SUCCEEDED, $operation->refresh()->state);
+        $processCalls = $this->processCallCount;
+        $resolution = app(WallboardForecastLocationService::class)->resolve([
+            'location_mode' => WallboardForecastLocationService::MODE_NETHERLANDS,
+        ]);
+        $outlook = app(KnmiPrecipitationOutlookService::class)->forResolution($resolution);
+
+        $this->assertTrue($outlook['complete']);
+        $this->assertSame(12, $outlook['sample_count']);
+        $this->assertSame($processCalls, $this->processCallCount);
+    }
+
     public function test_command_is_a_controlled_noop_when_open_data_key_is_not_configured(): void
     {
         config()->set('dis.knmi_forecast.api_key');
@@ -125,33 +161,46 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
         Queue::assertNothingPushed();
     }
 
-    public function test_import_selects_newest_common_run_downloads_full_files_and_activates_atomically(): void
+    public function test_import_activates_newest_radar_without_waiting_for_a_matching_probability_run(): void
     {
         $pair = $this->fakeRemotePair('202607202110', radarNewerReference: '202607202115');
 
         $result = app(KnmiPrecipitationImportService::class)->refresh();
 
         $this->assertTrue($result['changed']);
-        $this->assertSame('2026-07-20T21:10:00+00:00', $result['reference_time']);
+        $this->assertSame('2026-07-20T21:15:00+00:00', $result['reference_time']);
+        $this->assertSame([
+            'status' => 'succeeded',
+            'changed' => true,
+            'reference_time' => '2026-07-20T21:15:00+00:00',
+            'error_code' => null,
+            'error_message' => null,
+        ], $result['datasets']['radar_forecast']);
+        $this->assertSame('unavailable', $result['datasets']['seamless_precipitation_ensemble_forecast_probabilities']['status']);
+        $this->assertSame(
+            'matching_run_unavailable',
+            $result['datasets']['seamless_precipitation_ensemble_forecast_probabilities']['error_code'],
+        );
         $snapshot = app(KnmiPrecipitationSnapshotRepository::class)->activeSnapshot();
         $this->assertIsArray($snapshot);
-        $this->assertSame($pair['radar_filename'], $snapshot['files']['radar']['filename']);
-        $this->assertSame($pair['probability_filename'], $snapshot['files']['probability']['filename']);
+        $this->assertSame(3, $snapshot['version']);
+        $this->assertSame($pair['latest_radar_filename'], $snapshot['files']['radar']['filename']);
+        $this->assertArrayNotHasKey('probability', $snapshot['files']);
         $this->assertFileExists($this->storageRoot.'/active.json');
         $this->assertFileExists($snapshot['paths']['radar']);
-        $this->assertFileExists($snapshot['paths']['probability']);
+        $this->assertArrayNotHasKey('probability', $snapshot['paths']);
         $this->assertFileExists($snapshot['paths']['atlas']);
         $this->assertSame(25, $snapshot['atlas']['frame_count']);
         $this->assertCount(25, $snapshot['atlas']['frames']);
         $this->assertSame([], glob($this->storageRoot.'/staging/*') ?: []);
         Http::assertSent(function (Request $request) use ($pair): bool {
-            if (! in_array($request->url(), [$pair['radar_url'], $pair['probability_url']], true)) {
+            if ($request->url() !== $pair['latest_radar_url']) {
                 return true;
             }
 
             return ! $request->hasHeader('Range') && ! $request->hasHeader('Authorization');
         });
-        Http::assertSentCount(6);
+        Http::assertSentCount(4);
         Process::assertRan(function (PendingProcess $process): bool {
             $command = is_array($process->command) ? $process->command : [];
 
@@ -195,7 +244,7 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
         $this->assertSame($afterFirst, $this->processCallCount);
     }
 
-    public function test_partial_successor_keeps_previous_active_snapshot_and_cleans_staging(): void
+    public function test_probability_download_failure_still_activates_the_new_radar_atomically(): void
     {
         $this->fakeRemotePair('202607202110');
         app(KnmiPrecipitationImportService::class)->refresh();
@@ -204,20 +253,178 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
         Http::swap(new HttpClientFactory);
         $this->fakeRemotePair('202607202115', partialProbability: true);
 
-        try {
-            app(KnmiPrecipitationImportService::class)->refresh();
-            $this->fail('HTTP 206 probability file was accepted.');
-        } catch (KnmiPrecipitationImportException $exception) {
-            $this->assertSame('download_failed', $exception->publicCode);
-        }
+        $result = app(KnmiPrecipitationImportService::class)->refresh();
 
         $active = app(KnmiPrecipitationSnapshotRepository::class)->activeSnapshot();
-        $this->assertSame($previous['snapshot_id'], $active['snapshot_id']);
+        $this->assertTrue($result['changed']);
+        $this->assertNotSame($previous['snapshot_id'], $active['snapshot_id']);
+        $this->assertSame('2026-07-20T21:15:00+00:00', $active['reference_time']);
+        $this->assertArrayNotHasKey('probability', $active['files']);
+        $this->assertSame(
+            'failed',
+            $result['datasets']['seamless_precipitation_ensemble_forecast_probabilities']['status'],
+        );
+        $this->assertSame(
+            'download_failed',
+            $result['datasets']['seamless_precipitation_ensemble_forecast_probabilities']['error_code'],
+        );
+        $outlook = app(KnmiPrecipitationOutlookService::class)->forResolution(
+            $this->resolution([[51.955, 5.227]]),
+        );
+        $this->assertTrue($outlook['complete']);
+        $this->assertFalse($outlook['probability_complete']);
+        $this->assertEqualsWithDelta(2.4, $outlook['radar_peak_mm_h'], 0.000001);
+        $this->assertNull($outlook['third_hour_probability_pct']);
+        $this->assertNull($outlook['third_hour_from']);
+        $this->assertNull($outlook['forecast_until']);
+        $this->assertSame(25, $outlook['radar_sample_count']);
+        $this->assertSame(0, $outlook['third_hour_sample_count']);
         $this->assertSame([], glob($this->storageRoot.'/staging/*') ?: []);
-        $this->assertCount(1, glob($this->storageRoot.'/releases/*', GLOB_ONLYDIR) ?: []);
+        $this->assertCount(2, glob($this->storageRoot.'/releases/*', GLOB_ONLYDIR) ?: []);
     }
 
-    public function test_schema_failure_keeps_previous_snapshot_and_mismatched_runs_never_download(): void
+    public function test_probability_point_read_failure_falls_back_to_the_valid_radar_outlook(): void
+    {
+        $this->fakeRemotePair('202607202110');
+        app(KnmiPrecipitationImportService::class)->refresh();
+        Cache::flush();
+        Process::fake(function (PendingProcess $process) {
+            $this->processCallCount++;
+            $command = is_array($process->command) ? $process->command : [];
+            $datasetIndex = array_search('-d', $command, true);
+            if ($datasetIndex !== false
+                && ($command[$datasetIndex + 1] ?? null) === '/exceedance_probability'
+                && in_array('-s', $command, true)) {
+                return Process::result(exitCode: 1, errorOutput: 'probability read failed');
+            }
+
+            return $this->h5DumpResult($command);
+        });
+
+        $outlook = app(KnmiPrecipitationOutlookService::class)->forResolution(
+            $this->resolution([[51.955, 5.227]]),
+        );
+
+        $this->assertTrue($outlook['complete']);
+        $this->assertFalse($outlook['probability_complete']);
+        $this->assertEqualsWithDelta(2.4, $outlook['radar_peak_mm_h'], 0.000001);
+        $this->assertNull($outlook['third_hour_probability_pct']);
+        $this->assertNull($outlook['third_hour_from']);
+        $this->assertNull($outlook['forecast_until']);
+        $this->assertSame(25, $outlook['radar_sample_count']);
+        $this->assertSame(0, $outlook['third_hour_sample_count']);
+        $this->assertStringContainsString('ensemblekans', $outlook['availability_note']);
+    }
+
+    public function test_probability_listing_failure_is_reported_without_blocking_radar_activation(): void
+    {
+        $this->fakeRemotePair('202607202115', probabilityListingFailure: true);
+
+        $result = app(KnmiPrecipitationImportService::class)->refresh();
+        $active = app(KnmiPrecipitationSnapshotRepository::class)->activeSnapshot();
+        $probability = $result['datasets']['seamless_precipitation_ensemble_forecast_probabilities'];
+
+        $this->assertTrue($result['changed']);
+        $this->assertSame('succeeded', $result['datasets']['radar_forecast']['status']);
+        $this->assertSame('failed', $probability['status']);
+        $this->assertSame('metadata_unavailable', $probability['error_code']);
+        $this->assertStringNotContainsString('503', $probability['error_message']);
+        $this->assertSame(3, $active['version']);
+        $this->assertArrayNotHasKey('probability', $active['files']);
+        $this->assertFileExists($active['paths']['atlas']);
+    }
+
+    public function test_probability_schema_failure_is_contained_and_a_second_refresh_is_unchanged(): void
+    {
+        $this->fakeRemotePair('202607202115');
+        Process::fake(function (PendingProcess $process) {
+            $command = is_array($process->command) ? $process->command : [];
+            $path = is_string(end($command)) ? end($command) : '';
+            if (in_array('-H', $command, true) && str_ends_with($path, '.nc')) {
+                return Process::result(exitCode: 1, errorOutput: 'invalid probability schema');
+            }
+
+            return $this->h5DumpResult($command);
+        });
+
+        $first = app(KnmiPrecipitationImportService::class)->refresh();
+        $firstActive = app(KnmiPrecipitationSnapshotRepository::class)->activeSnapshot();
+        $second = app(KnmiPrecipitationImportService::class)->refresh();
+        $secondActive = app(KnmiPrecipitationSnapshotRepository::class)->activeSnapshot();
+
+        $this->assertTrue($first['changed']);
+        $this->assertSame(
+            'hdf5_invalid',
+            $first['datasets']['seamless_precipitation_ensemble_forecast_probabilities']['error_code'],
+        );
+        $this->assertFalse($second['changed']);
+        $this->assertSame('unchanged', $second['datasets']['radar_forecast']['status']);
+        $this->assertSame($firstActive['snapshot_id'], $secondActive['snapshot_id']);
+        $this->assertArrayNotHasKey('probability', $secondActive['files']);
+    }
+
+    public function test_unchanged_paired_snapshot_returns_stable_per_dataset_results(): void
+    {
+        $this->fakeRemotePair('202607202110');
+        app(KnmiPrecipitationImportService::class)->refresh();
+
+        $result = app(KnmiPrecipitationImportService::class)->refresh();
+
+        $this->assertFalse($result['changed']);
+        $this->assertNotSame('', $result['snapshot_id']);
+        $this->assertSame('unchanged', $result['datasets']['radar_forecast']['status']);
+        $this->assertFalse($result['datasets']['radar_forecast']['changed']);
+        $this->assertSame(
+            'unchanged',
+            $result['datasets']['seamless_precipitation_ensemble_forecast_probabilities']['status'],
+        );
+        $this->assertFalse(
+            $result['datasets']['seamless_precipitation_ensemble_forecast_probabilities']['changed'],
+        );
+    }
+
+    public function test_dataset_specific_maximum_size_clamps_preserve_the_128_mib_probability_boundary(): void
+    {
+        config()->set([
+            'dis.knmi_precipitation.radar_maximum_bytes' => 999_999_999,
+            'dis.knmi_precipitation.probability_maximum_bytes' => 999_999_999,
+        ]);
+        $configuration = app(KnmiPrecipitationConfiguration::class);
+
+        $this->assertSame(16_777_216, $configuration->maximumBytes('radar_forecast'));
+        $this->assertSame(
+            134_217_728,
+            $configuration->maximumBytes('seamless_precipitation_ensemble_forecast_probabilities'),
+        );
+
+        config()->set([
+            'dis.knmi_precipitation.radar_maximum_bytes' => 12_345_678,
+            'dis.knmi_precipitation.probability_maximum_bytes' => 134_217_728,
+        ]);
+
+        $this->assertSame(12_345_678, $configuration->maximumBytes('radar_forecast'));
+        $this->assertSame(
+            134_217_728,
+            $configuration->maximumBytes('seamless_precipitation_ensemble_forecast_probabilities'),
+        );
+    }
+
+    public function test_stale_latest_radar_uses_the_public_radar_error_code_before_any_download(): void
+    {
+        $this->fakeRemotePair('202607202030');
+
+        try {
+            app(KnmiPrecipitationImportService::class)->refresh();
+            $this->fail('A stale radar run was accepted.');
+        } catch (KnmiPrecipitationImportException $exception) {
+            $this->assertSame('radar_run_stale', $exception->publicCode);
+        }
+
+        $this->assertNull(app(KnmiPrecipitationSnapshotRepository::class)->activeSnapshot());
+        Http::assertSentCount(1);
+    }
+
+    public function test_radar_schema_failure_keeps_previous_snapshot_active(): void
     {
         $this->fakeRemotePair('202607202110');
         app(KnmiPrecipitationImportService::class)->refresh();
@@ -244,31 +451,6 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
             $previous['snapshot_id'],
             app(KnmiPrecipitationSnapshotRepository::class)->activeSnapshot()['snapshot_id'],
         );
-
-        Http::swap(new HttpClientFactory);
-        Http::fake(function (Request $request) {
-            if (str_contains($request->url(), '/radar_forecast/versions/2.0/files')) {
-                return Http::response(['files' => [[
-                    'filename' => 'RAD_NL25_RAC_FM_202607202120.h5',
-                    'size' => 256,
-                ]]]);
-            }
-            if (str_contains($request->url(), '/seamless_precipitation_ensemble_forecast_probabilities/versions/1.0/files')) {
-                return Http::response(['files' => [[
-                    'filename' => 'KNMI_PYSTEPS_BLEND_PROB_202607202115.nc',
-                    'size' => 320,
-                ]]]);
-            }
-
-            return Http::response([], 500);
-        });
-        try {
-            app(KnmiPrecipitationImportService::class)->refresh();
-            $this->fail('Mismatched KNMI reference times were accepted.');
-        } catch (KnmiPrecipitationImportException $exception) {
-            $this->assertSame('matching_run_unavailable', $exception->publicCode);
-        }
-        Http::assertSentCount(2);
     }
 
     public function test_tampered_local_file_and_oversized_resolution_fail_closed_without_process_or_network(): void
@@ -298,18 +480,28 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
     }
 
     /**
-     * @return array{radar_filename: string, probability_filename: string, radar_url: string, probability_url: string}
+     * @return array{
+     *   radar_filename: string,
+     *   latest_radar_filename: string,
+     *   probability_filename: string,
+     *   radar_url: string,
+     *   latest_radar_url: string,
+     *   probability_url: string
+     * }
      */
     private function fakeRemotePair(
         string $reference,
         ?string $radarNewerReference = null,
         bool $partialProbability = false,
+        bool $probabilityListingFailure = false,
     ): array {
         $radarFilename = 'RAD_NL25_RAC_FM_'.$reference.'.h5';
         $probabilityFilename = 'KNMI_PYSTEPS_BLEND_PROB_'.$reference.'.nc';
+        $latestRadarFilename = 'RAD_NL25_RAC_FM_'.($radarNewerReference ?? $reference).'.h5';
         $radarBody = $this->hdfBody('r', 256);
         $probabilityBody = $this->hdfBody('p', 320);
         $radarUrl = $this->downloadUrl('radar_forecast', '2.0', $radarFilename);
+        $latestRadarUrl = $this->downloadUrl('radar_forecast', '2.0', $latestRadarFilename);
         $probabilityUrl = $this->downloadUrl(
             'seamless_precipitation_ensemble_forecast_probabilities',
             '1.0',
@@ -319,12 +511,15 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
 
             $radarNewerReference,
             $radarFilename,
+            $latestRadarFilename,
             $probabilityFilename,
             $radarBody,
             $probabilityBody,
             $radarUrl,
+            $latestRadarUrl,
             $probabilityUrl,
             $partialProbability,
+            $probabilityListingFailure,
         ) {
             $url = $request->url();
             if (str_contains($url, '/radar_forecast/versions/2.0/files?')) {
@@ -344,6 +539,10 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
                 return Http::response(['files' => $files]);
             }
             if (str_contains($url, '/seamless_precipitation_ensemble_forecast_probabilities/versions/1.0/files?')) {
+                if ($probabilityListingFailure) {
+                    return Http::response([], 503);
+                }
+
                 return Http::response(['files' => [[
                     'filename' => $probabilityFilename,
                     'size' => strlen($probabilityBody),
@@ -353,10 +552,16 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
             if (str_ends_with($url, '/'.$radarFilename.'/url')) {
                 return Http::response(['temporaryDownloadUrl' => $radarUrl]);
             }
+            if (str_ends_with($url, '/'.$latestRadarFilename.'/url')) {
+                return Http::response(['temporaryDownloadUrl' => $latestRadarUrl]);
+            }
             if (str_ends_with($url, '/'.$probabilityFilename.'/url')) {
                 return Http::response(['temporaryDownloadUrl' => $probabilityUrl]);
             }
             if ($url === $radarUrl) {
+                return Http::response($radarBody, 200, ['Content-Length' => (string) strlen($radarBody)]);
+            }
+            if ($url === $latestRadarUrl) {
                 return Http::response($radarBody, 200, ['Content-Length' => (string) strlen($radarBody)]);
             }
             if ($url === $probabilityUrl) {
@@ -371,8 +576,10 @@ final class KnmiPrecipitationOutlookServiceTest extends TestCase
 
         return compact('radarFilename', 'probabilityFilename', 'radarUrl', 'probabilityUrl') + [
             'radar_filename' => $radarFilename,
+            'latest_radar_filename' => $latestRadarFilename,
             'probability_filename' => $probabilityFilename,
             'radar_url' => $radarUrl,
+            'latest_radar_url' => $latestRadarUrl,
             'probability_url' => $probabilityUrl,
         ];
     }

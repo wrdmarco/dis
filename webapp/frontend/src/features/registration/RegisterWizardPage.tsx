@@ -33,7 +33,7 @@ interface RegistrationCompleteResult extends RegistrationInvite {
 }
 
 interface Step {
-  key: 'account' | 'mfa' | 'install' | 'admin';
+  key: 'account' | 'mfa' | 'install' | 'web_admin';
   title: string;
   icon: typeof UserRound;
 }
@@ -64,7 +64,7 @@ export function RegisterWizardPage() {
     { key: 'account', title: 'Account', icon: UserRound },
     ...(requiresMfa ? [{ key: 'mfa' as const, title: 'MFA', icon: ShieldCheck }] : []),
     { key: 'install', title: 'App installeren', icon: Smartphone },
-    ...(adminAllowed ? [{ key: 'admin' as const, title: 'Admin app', icon: KeyRound }] : []),
+    ...(adminAllowed ? [{ key: 'web_admin' as const, title: 'Webbeheer', icon: KeyRound }] : []),
   ], [adminAllowed, requiresMfa]);
 
   const currentStep = steps[Math.min(stepIndex, steps.length - 1)];
@@ -225,7 +225,7 @@ export function RegisterWizardPage() {
       return step.key === 'mfa';
     }
 
-    return step.key === 'install' || step.key === 'admin';
+    return step.key === 'install' || step.key === 'web_admin';
   }
 
   return (
@@ -405,12 +405,12 @@ export function RegisterWizardPage() {
     return (
       <>
         <div className="setup-copy">
-          <strong>Admin app beschikbaar.</strong>
-          <p>Je account heeft beheerrechten. Installeer naast de operator app ook de admin app via de appstore zodra deze daar beschikbaar is.</p>
+          <strong>Webbeheer is beschikbaar.</strong>
+          <p>Je account heeft beheerrechten. Beheer D.I.S. rechtstreeks in deze beveiligde webapp; een aparte Admin-app is niet nodig.</p>
         </div>
         <div className="setup-review">
           <div><span>Account</span><strong>{completed?.user.email ?? invite?.user.email}</strong></div>
-          <div><span>Toegang</span><strong>Admin app toegestaan</strong></div>
+          <div><span>Toegang</span><strong>Webbeheer toegestaan</strong></div>
         </div>
       </>
     );

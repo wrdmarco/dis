@@ -440,6 +440,7 @@ test('bounds page timing and builds typed pages without executable message marku
       blocks: [{ type: 'paragraph', align: 'left', runs: [{ text: '' }] }],
     },
   });
+  expect(wallboardEffectivePageDuration({ ...page, duration_seconds: 10 })).toBe(10);
 
   const summary = createWallboardPage('summary', 3);
   expect(summary.options).toEqual({});
@@ -712,6 +713,10 @@ test('normalizes page-scoped news content and rejects unsafe article links', () 
     .toBe('/api/admin/wallboard-news-images/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
   expect(normalizeWallboardState({ ...stateFixture(), news: undefined as never }).news).toEqual({ pages: {}, generated_at: '' });
   expect(normalizeWallboardState({ ...stateFixture(), media: undefined as never }).media).toEqual({ photo_pages: {} });
+  expect(normalizeWallboardState({ ...stateFixture(), weather_radar: undefined }).weather_radar).toEqual({
+    precipitation: null,
+    lightning: null,
+  });
 });
 
 test('hard reloads only for a higher server refresh version after the first baseline', () => {
@@ -733,6 +738,7 @@ test('detects runtime playlist activation and version changes independently from
     ...state.wallboard,
     runtime_playlist_id: basePlaylistId,
     runtime_playlist_version: 3,
+    runtime_playlist_purpose: 'normal',
     active_incident_playlist: false,
     display: { ...state.wallboard.display, incident_active: true },
   };
@@ -742,6 +748,7 @@ test('detects runtime playlist activation and version changes independently from
     data_mode: 'live',
     runtime_playlist_id: basePlaylistId,
     runtime_playlist_version: 3,
+    runtime_playlist_purpose: 'normal',
     active_incident_playlist: false,
     display: { incident_active: true },
   });
@@ -750,6 +757,7 @@ test('detects runtime playlist activation and version changes independently from
     ...dispatching,
     runtime_playlist_id: incidentPlaylistId,
     runtime_playlist_version: 7,
+    runtime_playlist_purpose: 'alarm' as const,
     active_incident_playlist: true,
   };
   expect(inProgress.display.incident_active).toBe(dispatching.display.incident_active);
@@ -758,6 +766,8 @@ test('detects runtime playlist activation and version changes independently from
   expect(wallboardRuntimePlaylistSignature({ ...inProgress, runtime_playlist_version: 8 }))
     .not.toBe(wallboardRuntimePlaylistSignature(inProgress));
   expect(wallboardRuntimePlaylistSignature({ ...dispatching, data_mode: 'demo' }))
+    .not.toBe(wallboardRuntimePlaylistSignature(dispatching));
+  expect(wallboardRuntimePlaylistSignature({ ...dispatching, runtime_playlist_purpose: 'alarm' }))
     .not.toBe(wallboardRuntimePlaylistSignature(dispatching));
   expect(wallboardRuntimePlaylistSignature({
     runtime_playlist_id: dispatching.runtime_playlist_id,
@@ -1627,6 +1637,8 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(apiTypes).toContain('image_url?: string | null;');
   expect(apiTypes).toContain('source_id: string;');
   expect(apiTypes).toContain('playlist: WallboardPlaylistReference;');
+  expect(apiTypes).toContain("export type WallboardPlaylistPurpose = 'normal' | 'alarm';");
+  expect(apiTypes).toContain('purpose?: WallboardPlaylistPurpose;');
   expect(apiTypes).toContain('active_incident_playlist_id?: string | null;');
   expect(apiTypes).toContain('active_incident_playlist?: WallboardPlaylistReference | null;');
   expect(apiTypes).toContain('linked_wallboards_count: number;');
@@ -1790,7 +1802,7 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(configurationEditor).toContain('max={MAX_WALLBOARD_RSS_MAX_ITEMS}');
   expect(configurationEditor).toContain("addTickerSource('internal')");
   expect(configurationEditor).toContain('Focusschermen');
-  expect(configurationEditor).toContain('focus&nbsp;↔&nbsp;kaart');
+  expect(configurationEditor).toContain('een ingestelde alarmplaylist draait daarbij volledig');
   expect(configurationEditor).toContain('Reactiefeed tonen');
   expect(configurationEditor).toContain('Nationaal Droneteam');
   expect(configurationEditor).toContain('Dronewatch');
@@ -1860,14 +1872,14 @@ test('separates screen control from shared playlist content management', () => {
   expect(saveScreen).toContain('active_incident_playlist_id: draftActiveIncidentPlaylistId');
   expect(saveScreen).toContain('expected_config_version: wallboard.config_version');
   expect(saveScreen).not.toContain('configuration');
-  expect(admin).toContain('Playlist tijdens actieve inzet');
-  expect(admin).toContain('Normale playlist blijven gebruiken');
+  expect(admin).toContain('Alarmplaylist gebruiken');
+  expect(admin).toContain('Kies een alarmplaylist');
   expect(admin).toContain("wallboard.active_incident_playlist_id ?? ''");
   expect(configurationEditor).toContain('Weergave en ritme');
   expect(configurationEditor).toContain('Gegevens en kaartlagen');
   expect(configurationEditor).toContain('Pagina’s en volgorde');
   expect(configurationEditor).toContain('Focusschermen');
-  expect(configurationEditor).toContain('Vaste incidentpagina als fallback');
+  expect(configurationEditor).not.toContain('Vaste incidentpagina als fallback');
   expect(configurationEditor).toContain('Onderticker');
 });
 

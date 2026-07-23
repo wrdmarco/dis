@@ -18,9 +18,17 @@ final class WallboardPlaylist extends Model
     /** @var list<string> */
     public const DATA_MODES = [self::DATA_MODE_LIVE, self::DATA_MODE_DEMO];
 
+    public const PURPOSE_NORMAL = 'normal';
+
+    public const PURPOSE_ALARM = 'alarm';
+
+    /** @var list<string> */
+    public const PURPOSES = [self::PURPOSE_NORMAL, self::PURPOSE_ALARM];
+
     protected $fillable = [
         'name',
         'data_mode',
+        'purpose',
         'configuration',
         'version',
         'created_by',
@@ -31,6 +39,7 @@ final class WallboardPlaylist extends Model
     {
         return [
             'data_mode' => 'string',
+            'purpose' => 'string',
             'configuration' => 'array',
             'version' => 'integer',
         ];
@@ -39,6 +48,18 @@ final class WallboardPlaylist extends Model
     public function isDemo(): bool
     {
         return $this->data_mode === self::DATA_MODE_DEMO;
+    }
+
+    public function normalizedPurpose(): string
+    {
+        return in_array($this->purpose, self::PURPOSES, true)
+            ? (string) $this->purpose
+            : self::PURPOSE_NORMAL;
+    }
+
+    public function isAlarmPurpose(): bool
+    {
+        return $this->normalizedPurpose() === self::PURPOSE_ALARM;
     }
 
     public function wallboards(): HasMany

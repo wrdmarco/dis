@@ -97,10 +97,17 @@ test('API types mirror nullable local KNMI provider fields', () => {
   expect(apiTypes).toContain('cloud_base_m: number | null;');
   expect(apiTypes).toContain('model_run_at: string | null;');
   expect(apiTypes).toContain('export interface OperationalWeatherPrecipitationState');
+  expect(apiTypes).toContain('probability_complete: boolean;');
   expect(apiTypes).toContain('radar_peak_mm_h: number | null;');
   expect(apiTypes).toContain('third_hour_probability_pct: number | null;');
+  expect(apiTypes).toContain('radar_status: WallboardForecastStatus;');
+  expect(apiTypes).toContain('third_hour_probability_status: WallboardForecastStatus;');
   expect(apiTypes).toContain("export type OperationalWeatherRadarLayerStatus = 'available' | 'stale' | 'unavailable'");
   expect(apiTypes).toContain('export interface OperationalWeatherRadarLayer');
+  expect(apiTypes).toContain('observed_period_end: string | null;');
+  expect(apiTypes).toContain('age_seconds: number | null;');
+  expect(apiTypes).toContain('lag_seconds: number | null;');
+  expect(apiTypes).toContain('refreshed_at: string | null;');
   expect(apiTypes).toContain('radar: OperationalWeatherRadarState;');
   expect(apiTypes).toContain('export interface OperationalWeatherPageState');
 });
@@ -140,20 +147,62 @@ test('weather normalization never accepts malformed current data as current', ()
   });
 });
 
+test('weather keeps the local radar usable while a missing third-hour probability stays unknown', () => {
+  const radarOnly = currentWeather();
+  radarOnly.data_status = 'partial';
+  radarOnly.aggregation = {
+    ...(radarOnly.aggregation as Record<string, unknown>),
+    complete: false,
+    fresh: false,
+  };
+  radarOnly.precipitation = {
+    ...(radarOnly.precipitation as Record<string, unknown>),
+    probability_complete: false,
+    third_hour_probability_pct: null,
+    third_hour_from: null,
+    forecast_until: null,
+    availability_note: 'De lokale KNMI-radar is beschikbaar; de kans voor uur 3 ontbreekt.',
+  };
+
+  const normalized = normalizeOperationalWeatherPage(radarOnly);
+
+  expect(normalized?.data_status).toBe('partial');
+  expect(normalized?.aggregation).toMatchObject({ complete: false, fresh: false });
+  expect(normalized?.precipitation).toMatchObject({
+    complete: true,
+    probability_complete: false,
+    stale: false,
+    radar_peak_mm_h: 0,
+    third_hour_probability_pct: null,
+    third_hour_from: null,
+    forecast_until: null,
+  });
+});
+
 test('radar normalization accepts only the bounded same-origin atlas contract and preserves stale placeholders', () => {
   const weather = currentWeather();
   const normalized = normalizeOperationalWeatherPage(weather);
   expect(normalized?.data_status).toBe('current');
   expect(normalized?.radar.precipitation).toMatchObject({
     status: 'available',
+    observed_period_end: null,
+    age_seconds: 90,
+    lag_seconds: 20,
+    refreshed_at: '2026-07-21T12:05:00Z',
     atlas_columns: 5,
     atlas_rows: 5,
   });
   expect(normalized?.radar.lightning).toMatchObject({
     status: 'available',
+    observed_period_end: '2026-07-21T12:05:00Z',
+    age_seconds: 30,
+    lag_seconds: 15,
+    refreshed_at: '2026-07-21T12:05:00Z',
     atlas_columns: 4,
     atlas_rows: 2,
   });
+  expect(normalized?.radar.lightning?.frames.map((frame) => frame.lead_minutes))
+    .toEqual([-30, -25, -20, -15, -10, -5, 0]);
 
   const externalAtlas = currentWeather();
   const radar = externalAtlas.radar as Record<string, unknown>;
@@ -165,6 +214,19 @@ test('radar normalization accepts only the bounded same-origin atlas contract an
   expect(rejected?.data_status).toBe('partial');
   expect(rejected?.radar.precipitation).toMatchObject({
     status: 'unavailable',
+    atlas_url: null,
+    frames: [],
+  });
+
+  const malformedRefreshTimestamp = currentWeather();
+  const malformedRadar = malformedRefreshTimestamp.radar as Record<string, unknown>;
+  malformedRadar.precipitation = {
+    ...(malformedRadar.precipitation as Record<string, unknown>),
+    refreshed_at: 'geen-tijdstip',
+  };
+  expect(normalizeOperationalWeatherPage(malformedRefreshTimestamp)?.radar.precipitation).toMatchObject({
+    status: 'unavailable',
+    refreshed_at: null,
     atlas_url: null,
     frames: [],
   });
@@ -309,7 +371,38 @@ test('the initial forecast request disables controls and cannot be duplicated', 
   await expect(page.getByRole('button', { name: 'Verversen' })).toBeEnabled();
 });
 
-test('weather radar starts on the newest still, exposes explicit controls and switches to total lightning', async ({ page }) => {
+test('weather keeps the validated live map active during refresh and an early retry failure', async ({ page }) => {
+  let requestCount = 0;
+  let releaseRefresh: (() => void) | null = null;
+  const refreshGate = new Promise<void>((resolve) => {
+    releaseRefresh = resolve;
+  });
+  await mockForecastApi(page, 'dark', async (path) => {
+    if (path !== '/api/operational-weather') return notFoundResponse();
+    requestCount += 1;
+    if (requestCount === 2) await refreshGate;
+    if (requestCount === 3) return errorResponse(503, 'De weerbron is tijdelijk niet bereikbaar.');
+    return successResponse(currentWeather());
+  });
+
+  await page.goto('/weather');
+  const radar = page.locator('[data-radar-kind="precipitation"]');
+  await expect(radar.getByText('Actueel', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Verversen' }).click();
+  await expect(page.getByText('Nieuwe weer- en radargegevens worden gecontroleerd.')).toBeVisible();
+  await expect(radar.getByText('Actueel', { exact: true })).toBeVisible();
+  releaseRefresh?.();
+  await expect(page.getByText('Nieuwe weer- en radargegevens worden gecontroleerd.')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Verversen' }).click();
+  await expect.poll(() => requestCount).toBe(3);
+  await expect(page.getByText('Bijwerken is niet gelukt.')).toBeVisible();
+  await expect(radar.getByText('Actueel', { exact: true })).toBeVisible();
+  await expect(radar.getByText('Verouderd', { exact: true })).toHaveCount(0);
+});
+
+test('weather radar starts at now, exposes explicit controls and switches to total lightning by keyboard', async ({ page }) => {
   await mockForecastApi(page, 'dark', async (path) => {
     if (path !== '/api/operational-weather') return notFoundResponse();
     return successResponse(currentWeather());
@@ -318,18 +411,100 @@ test('weather radar starts on the newest still, exposes explicit controls and sw
   await page.goto('/weather');
   await expect(page.getByRole('heading', { name: 'Buien- en bliksemradar' })).toBeVisible();
   const precipitationPanel = page.getByRole('tabpanel');
-  await expect(precipitationPanel.getByText('+120 minuten', { exact: true })).toBeVisible();
-  await expect(precipitationPanel.getByLabel('Tijdstap')).toHaveValue('24');
+  await expect(precipitationPanel.getByText('Nu', { exact: true })).toBeVisible();
+  await expect(precipitationPanel.getByRole('slider')).toHaveValue('0');
   await expect(precipitationPanel.getByRole('button', { name: 'Radaranimatie afspelen' })).toBeEnabled();
 
-  await page.getByRole('tab', { name: 'Bliksem' }).click();
+  await page.getByRole('tab', { name: 'Buien' }).focus();
+  await page.getByRole('tab', { name: 'Buien' }).press('ArrowRight');
   await expect(page.getByRole('tab', { name: 'Bliksem' })).toHaveAttribute('aria-selected', 'true');
   await expect(precipitationPanel.getByText('EUMETSAT LI total lightning; geen onderscheid tussen wolk-grond en wolk-wolk')).toBeVisible();
-  await expect(precipitationPanel.getByLabel('Tijdstap')).toHaveValue('6');
-  await precipitationPanel.getByLabel('Tijdstap').fill('0');
-  await expect(precipitationPanel.getByRole('button', { name: 'Naar nieuwste' })).toBeEnabled();
-  await precipitationPanel.getByRole('button', { name: 'Naar nieuwste' }).click();
-  await expect(precipitationPanel.getByLabel('Tijdstap')).toHaveValue('6');
+  await expect(precipitationPanel.getByRole('slider')).toHaveValue('6');
+  await precipitationPanel.getByRole('slider').fill('0');
+  await expect(precipitationPanel.getByText('−30 min · waarneming')).toBeVisible();
+  await expect(precipitationPanel.getByRole('button', { name: 'Naar nu' })).toBeEnabled();
+  await precipitationPanel.getByRole('button', { name: 'Naar nu' }).click();
+  await expect(precipitationPanel.getByRole('slider')).toHaveValue('6');
+});
+
+test('weather radar keeps its loading state honest until the atlas has decoded', async ({ page }) => {
+  let releaseAtlas: (() => void) | null = null;
+  const atlasGate = new Promise<void>((resolve) => {
+    releaseAtlas = resolve;
+  });
+  await mockForecastApi(
+    page,
+    'dark',
+    async (path) => path === '/api/operational-weather'
+      ? successResponse(currentWeather())
+      : notFoundResponse(),
+    async (route) => {
+      await atlasGate;
+      await route.fulfill({ status: 200, contentType: 'image/png', body: RADAR_TEST_PNG });
+    },
+  );
+
+  await page.goto('/weather', { waitUntil: 'domcontentloaded' });
+  const radar = page.locator('[data-radar-kind="precipitation"]');
+  await expect(radar.getByText('Radarbeeld laden')).toBeVisible();
+
+  releaseAtlas?.();
+  await expect(radar.getByRole('img', { name: /KNMI-neerslagradar/ })).toBeVisible();
+  await expect(radar.getByText('Actueel', { exact: true })).toBeVisible();
+});
+
+test('weather radar retries a failed atlas without discarding the page data', async ({ page }) => {
+  let atlasRequests = 0;
+  await mockForecastApi(
+    page,
+    'light',
+    async (path) => path === '/api/operational-weather'
+      ? successResponse(currentWeather())
+      : notFoundResponse(),
+    async (route) => {
+      atlasRequests += 1;
+      if (atlasRequests === 1) {
+        await route.fulfill({ status: 503, contentType: 'text/plain', body: 'tijdelijk niet beschikbaar' });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'image/png', body: RADAR_TEST_PNG });
+    },
+  );
+
+  await page.goto('/weather');
+  const radar = page.locator('[data-radar-kind="precipitation"]');
+  await expect(radar.getByText('Radarafbeelding niet geladen')).toBeVisible();
+  await radar.getByRole('button', { name: 'Opnieuw laden' }).click();
+  await expect(radar.getByRole('img', { name: /KNMI-neerslagradar/ })).toBeVisible();
+  expect(atlasRequests).toBeGreaterThanOrEqual(2);
+  expect(atlasRequests).toBeLessThanOrEqual(3);
+});
+
+test('a stale radar atlas stays inspectable and never presents itself as live', async ({ page }) => {
+  const staleWeather = currentWeather();
+  staleWeather.data_status = 'partial';
+  const radarState = staleWeather.radar as Record<string, unknown>;
+  radarState.precipitation = {
+    ...(radarState.precipitation as Record<string, unknown>),
+    status: 'stale',
+    age_seconds: 3_600,
+    lag_seconds: 420,
+    availability_note: 'De laatst gevalideerde KNMI-reeks is ouder dan toegestaan.',
+  };
+
+  await mockForecastApi(page, 'dark', async (path) => path === '/api/operational-weather'
+    ? successResponse(staleWeather)
+    : notFoundResponse());
+
+  await page.goto('/weather');
+  const radar = page.locator('[data-radar-kind="precipitation"]');
+  await expect(radar.getByText('Verouderd', { exact: true })).toBeVisible();
+  await expect(radar.getByText('Verouderde bronreeks')).toBeVisible();
+  await expect(radar.getByText('1 uur oud', { exact: true })).toBeVisible();
+  const play = radar.getByRole('button', { name: 'Radaranimatie afspelen' });
+  await expect(play).toBeEnabled();
+  await play.click();
+  await expect(radar.getByRole('button', { name: 'Radaranimatie pauzeren' })).toBeEnabled();
 });
 
 test('reduced motion keeps radar animation off while manual time steps remain available', async ({ page }) => {
@@ -343,7 +518,7 @@ test('reduced motion keeps radar animation off while manual time steps remain av
   const radarPanel = page.getByRole('tabpanel');
   await expect(radarPanel.getByText('Automatisch afspelen is uitgeschakeld vanwege de instelling voor minder beweging.')).toBeVisible();
   await expect(radarPanel.getByRole('button', { name: 'Radaranimatie afspelen' })).toBeDisabled();
-  await expect(radarPanel.getByRole('button', { name: 'Vorige' })).toBeEnabled();
+  await expect(radarPanel.getByRole('button', { name: 'Volgende' })).toBeEnabled();
 });
 
 for (const scenario of [
@@ -407,10 +582,16 @@ async function mockForecastApi(
   page: Page,
   theme: 'dark' | 'light',
   forecastResponse: (path: string) => Promise<MockApiResponse>,
+  radarResponse?: (route: Route, kind: 'precipitation' | 'lightning') => Promise<void>,
 ): Promise<void> {
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (/^\/api\/operational-weather\/radar\/(precipitation|lightning)\/\d{8}T\d{6}Z-[a-f0-9]{16}\.png$/.test(path)) {
+    const radarMatch = /^\/api\/operational-weather\/radar\/(precipitation|lightning)\/\d{8}T\d{6}Z-[a-f0-9]{16}\.png$/.exec(path);
+    if (radarMatch !== null) {
+      if (radarResponse !== undefined) {
+        await radarResponse(route, radarMatch[1] as 'precipitation' | 'lightning');
+        return;
+      }
       await route.fulfill({ status: 200, contentType: 'image/png', body: RADAR_TEST_PNG });
       return;
     }
@@ -503,6 +684,7 @@ function currentWeather(): Record<string, unknown> {
     },
     precipitation: {
       complete: true,
+      probability_complete: true,
       stale: false,
       radar_peak_mm_h: 0,
       radar_first_precipitation_at: null,
@@ -522,6 +704,10 @@ function currentWeather(): Record<string, unknown> {
       precipitation: {
         status: 'available',
         reference_time: '2026-07-21T12:00:00Z',
+        observed_period_end: null,
+        age_seconds: 90,
+        lag_seconds: 20,
+        refreshed_at: '2026-07-21T12:05:00Z',
         atlas_url: '/api/operational-weather/radar/precipitation/20260721T120000Z-0123456789abcdef.png',
         atlas_columns: 5,
         atlas_rows: 5,
@@ -542,6 +728,10 @@ function currentWeather(): Record<string, unknown> {
       lightning: {
         status: 'available',
         reference_time: '2026-07-21T12:00:00Z',
+        observed_period_end: '2026-07-21T12:05:00Z',
+        age_seconds: 30,
+        lag_seconds: 15,
+        refreshed_at: '2026-07-21T12:05:00Z',
         atlas_url: '/api/operational-weather/radar/lightning/20260721T120000Z-fedcba9876543210.png',
         atlas_columns: 4,
         atlas_rows: 2,
@@ -550,7 +740,7 @@ function currentWeather(): Record<string, unknown> {
         frames: Array.from({ length: 7 }, (_, index) => ({
           index,
           valid_at: new Date(Date.parse('2026-07-21T11:30:00Z') + index * 5 * 60_000).toISOString(),
-          lead_minutes: 0,
+          lead_minutes: (index - 6) * 5,
         })),
         source: {
           name: 'EUMETSAT MTG Lightning Imager',

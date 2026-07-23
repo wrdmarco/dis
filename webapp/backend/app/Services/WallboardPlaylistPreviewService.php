@@ -64,6 +64,7 @@ final class WallboardPlaylistPreviewService
                 'refresh_version' => 0,
                 'runtime_playlist_id' => (string) $playlist->id,
                 'runtime_playlist_version' => (int) $playlist->version,
+                'runtime_playlist_purpose' => $playlist->normalizedPurpose(),
                 'active_incident_playlist' => false,
                 'display' => $runtime['display'],
                 'updated_at' => ApiDateTime::dateTime($playlist->updated_at),
@@ -79,6 +80,7 @@ final class WallboardPlaylistPreviewService
             'forecast' => ['pages' => $isDemo
                 ? $this->demoStateService->forecast($configuration)
                 : $this->forecastService->pages($configuration)],
+            'weather_radar' => $isDemo ? null : $runtime['weather_radar'],
             'calendar' => $runtime['calendar'],
             'map' => $runtime['map'],
         ];

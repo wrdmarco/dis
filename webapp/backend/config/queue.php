@@ -42,7 +42,7 @@ return [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => 'knmi-realtime',
-            'retry_after' => max(900, (int) env('KNMI_REALTIME_QUEUE_RETRY_AFTER', 900)),
+            'retry_after' => max(1500, (int) env('KNMI_REALTIME_QUEUE_RETRY_AFTER', 1500)),
             'block_for' => 5,
             'after_commit' => true,
         ],

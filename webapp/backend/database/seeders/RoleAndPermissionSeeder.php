@@ -21,7 +21,7 @@ final class RoleAndPermissionSeeder extends Seeder
         'users.sessions.revoke' => ['display_name' => 'Gebruikerssessies intrekken', 'category' => 'user_management', 'description' => 'Trek web-, mobiele en device-sessies van een gebruiker direct in.'],
         'users.login-lock.reset' => ['display_name' => 'Inlogblokkade opheffen', 'category' => 'user_management', 'description' => 'Hef een tijdelijke accountblokkade na mislukte inlogpogingen op.'],
         'address-book.view' => ['display_name' => 'Adresboek bekijken', 'category' => 'address_book', 'description' => 'Bekijk en doorzoek adresboekcontacten op naam, telefoonnummer en woonplaats.'],
-        'roles.manage' => ['display_name' => 'Rollen en rechten beheren', 'category' => 'role_management', 'description' => 'Maak rollen aan, wijzig rolrechten en bepaal toegang tot operator- en admin-app.'],
+        'roles.manage' => ['display_name' => 'Rollen en rechten beheren', 'category' => 'role_management', 'description' => 'Maak rollen aan, wijzig rolrechten en bepaal toegang tot de Operator-app en webbeheer.'],
         'roles.delete' => ['display_name' => 'Rollen verwijderen', 'category' => 'role_management', 'description' => 'Verwijder ongebruikte rollen permanent. Dit recht is standaard alleen voor systeembeheerders.'],
         'teams.manage' => ['display_name' => 'Teams beheren', 'category' => 'team_management', 'description' => 'Beheer OCP, TUI, alarmeerteams en teamkoppelingen. TUI blijft een subset van OCP.'],
         'incidents.view' => ['display_name' => 'Incidenten bekijken', 'category' => 'incident_management', 'description' => 'Bekijk incidenten, details, tijdlijn en rapportstatus. Dit geeft geen recht om mensen te alarmeren of opkomst te bedienen.'],

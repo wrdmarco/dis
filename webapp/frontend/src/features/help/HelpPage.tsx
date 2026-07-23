@@ -142,15 +142,14 @@ const helpTopics: readonly HelpTopic[] = [
   {
     id: 'mobile-app',
     group: 'account',
-    title: 'Mobiele app koppelen',
-    summary: 'Koppel de operator- of admin-app zonder gebruikersnaam en wachtwoord.',
+    title: 'Operator-app koppelen',
+    summary: 'Koppel de Operator-app zonder gebruikersnaam en wachtwoord.',
     icon: Smartphone,
     href: '/profile',
-    mobileApp: 'any',
+    mobileApp: 'operator',
     pairingGuide: true,
     actions: [
       { title: 'Operator-app koppelen', description: 'Koppel een Android-telefoon, iPhone of tablet waarmee je meldingen ontvangt en op inzetten reageert.', mobileApp: 'operator' },
-      { title: 'Admin-app koppelen', description: 'Koppel de mobiele beheerapp wanneer jouw rol daar toegang toe heeft.', mobileApp: 'admin' },
       { title: 'Tijdelijke code gebruiken', description: 'De koppelcode is 30 seconden geldig en wordt op het scherm automatisch vernieuwd. Scan daarom altijd de code die nu zichtbaar is.' },
       { title: 'Toestellen beheren', description: 'Bekijk app, platform, laatste contact en status. Verwijder een oud toestel om toegang en meldingen direct in te trekken.' },
       { title: 'Laatste actieve toestel verwijderen', description: 'Wanneer er geen enkel actief app-toestel meer over is, schakelt DIS push uit en word je niet beschikbaar gezet.', mobileApp: 'operator' },
@@ -363,14 +362,14 @@ const helpTopics: readonly HelpTopic[] = [
     id: 'roles',
     group: 'resources',
     title: 'Rollen en rechten',
-    summary: 'Bepaal welke onderdelen en mobiele apps iemand mag gebruiken.',
+    summary: 'Bepaal wie webbeheer, de Operator-app en afzonderlijke functies mag gebruiken.',
     icon: KeyRound,
     href: '/roles',
     permissions: ['roles.manage'],
     actions: [
       { title: 'Rol maken of aanpassen', description: 'Geef de rol een duidelijke naam en vink alleen de rechten aan die bij het werk horen.' },
       { title: 'Rechten per taak kiezen', description: 'Geef bekijken, beheren, verwijderen en gevoelige acties alleen aan rollen die deze taken echt uitvoeren. Je kunt geen rechten doorgeven die je zelf niet hebt.' },
-      { title: 'App-toegang instellen', description: 'Operator-app bepaalt operationeel gebruik. Admin-app bepaalt ook welke rolrechten in web en beheerapp gelden.' },
+      { title: 'Toegang instellen', description: 'Operator-app bepaalt mobiel operationeel gebruik. Webbeheer bepaalt of iemand de toegekende beheerrechten in deze webapp kan gebruiken.' },
       { title: 'Systeembeheerder beschermen', description: 'De vaste rol Systeembeheerder kan niet worden aangepast of verwijderd.' },
       { title: 'Rol verwijderen', description: 'Verwijder alleen een rol waar geen gebruikers meer aan gekoppeld zijn.', permissions: ['roles.delete'] },
     ],
@@ -841,14 +840,13 @@ function manualGuideSearchText(guide: ManualGuide): string {
 function PairingGuide({ access }: { access: AccessContext }) {
   const availableApps = [
     access.operatorApp ? 'Operator-app' : null,
-    access.adminApp ? 'Admin-app' : null,
   ].filter((value): value is string => value !== null);
 
   return (
     <div className="pairing-help">
       <ol className="pairing-steps">
         <li><strong>Open Profiel.</strong><span>Ga naar <b>Mijn toestellen</b> en kies <b>Toestel toevoegen</b>.</span></li>
-        <li><strong>Kies de app.</strong><span>Selecteer {availableApps.join(' of ')}. Je ziet alleen apps waarvoor je toegang hebt.</span></li>
+        <li><strong>Open de Operator-app.</strong><span>Gebruik {availableApps.join(' of ')} op het toestel dat je wilt koppelen.</span></li>
         <li><strong>Scan of open.</strong><span>Scan de QR-code vanuit de mobiele app. Zit je op dezelfde telefoon, kies dan <b>Open app en koppel dit toestel</b>.</span></li>
         <li><strong>Controleer de koppeling.</strong><span>Na het koppelen staat het toestel bij <b>Mijn toestellen</b>. Geef het toestel een herkenbare naam wanneer de app daarom vraagt.</span></li>
       </ol>

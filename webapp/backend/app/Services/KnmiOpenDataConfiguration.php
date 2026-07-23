@@ -8,8 +8,6 @@ final class KnmiOpenDataConfiguration
 {
     public const API_KEY_SETTING = 'weather.knmi_open_data_api_key';
 
-    private const LEGACY_API_KEY_SETTING = 'weather.knmi_edr_api_key';
-
     private const API_BASE_URL = 'https://api.dataplatform.knmi.nl/open-data/v1';
 
     private const DOWNLOAD_HOST = 'knmi-kdp-datasets-eu-west-1.s3.eu-west-1.amazonaws.com';
@@ -19,8 +17,6 @@ final class KnmiOpenDataConfiguration
         foreach ([
             SystemSetting::string(self::API_KEY_SETTING),
             $this->configString('dis.knmi_forecast.api_key'),
-            SystemSetting::string(self::LEGACY_API_KEY_SETTING),
-            $this->configString('dis.wallboards.uav_forecast.knmi_edr_api_key'),
         ] as $candidate) {
             if (is_string($candidate) && $this->validApiKey($candidate)) {
                 return trim($candidate);
@@ -35,8 +31,6 @@ final class KnmiOpenDataConfiguration
         $candidates = [
             'open_data_setting' => SystemSetting::string(self::API_KEY_SETTING),
             'open_data_environment' => $this->configString('dis.knmi_forecast.api_key'),
-            'legacy_edr_setting' => SystemSetting::string(self::LEGACY_API_KEY_SETTING),
-            'legacy_edr_environment' => $this->configString('dis.wallboards.uav_forecast.knmi_edr_api_key'),
         ];
         foreach ($candidates as $source => $candidate) {
             if (is_string($candidate) && $this->validApiKey($candidate)) {

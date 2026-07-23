@@ -515,7 +515,8 @@ function normalizedCacheableUrl(value) {
 /** @param {string} pathname */
 function cacheablePath(pathname) {
   return /^\/api\/wallboard\/media\/[0-9A-HJKMNP-TV-Z]{26}(?:\/(?:poster|thumbnail))?$/i.test(pathname)
-    || /^\/api\/wallboard\/news-images\/[a-f0-9]{64}$/.test(pathname);
+    || /^\/api\/wallboard\/news-images\/[a-f0-9]{64}$/.test(pathname)
+    || /^\/api\/wallboard\/weather-radar\/(?:precipitation|lightning)\/\d{8}T\d{6}Z-[a-f0-9]{16}\.png$/.test(pathname);
 }
 
 /** @param {Response} response @param {AssetKind} kind */

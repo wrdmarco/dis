@@ -93,7 +93,7 @@ final class WallboardPlaylistPreviewApiTest extends TestCase
 
         $pendingToken = $manager->createToken(
             'Playlist preview pending 2FA',
-            ['2fa:pending', 'client:admin'],
+            ['2fa:pending', 'client:web'],
             now()->addHour(),
         )->plainTextToken;
         Auth::forgetGuards();
@@ -427,7 +427,7 @@ final class WallboardPlaylistPreviewApiTest extends TestCase
 
     private function asAdminClient(User $user): static
     {
-        $token = $user->createToken('Wallboard playlist preview test', ['*', 'client:admin'], now()->addHour())->plainTextToken;
+        $token = $user->createToken('Wallboard playlist preview test', ['*', 'client:web'], now()->addHour())->plainTextToken;
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);

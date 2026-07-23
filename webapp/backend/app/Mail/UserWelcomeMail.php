@@ -32,8 +32,8 @@ final class UserWelcomeMail extends Mailable
             'mail.template.welcome_body',
             "Beste {{name}},\n\nEr is een account voor je aangemaakt in {{app_name}}. Rond je registratie af via onderstaande link:\n\n{{registration_url}}",
         ) ?? '';
-        $adminAppNote = $this->adminAppAllowed
-            ? 'Omdat je adminrechten hebt, toont de wizard ook de installatie-informatie voor de admin app.'
+        $webAdminNote = $this->adminAppAllowed
+            ? 'Omdat je beheerrechten hebt, kun je D.I.S. na registratie rechtstreeks in de beveiligde webapp beheren.'
             : '';
         $tokens = [
             'name' => $this->user->name,
@@ -41,7 +41,9 @@ final class UserWelcomeMail extends Mailable
             'registration_url' => $this->registrationUrl,
             'app_name' => $appName,
             'tenant_name' => $tenantName,
-            'admin_app_note' => $adminAppNote,
+            'web_admin_note' => $webAdminNote,
+            // Backwards-compatible alias for existing customized templates.
+            'admin_app_note' => $webAdminNote,
         ];
 
         $subject = $renderer->render($subjectTemplate, $tokens);

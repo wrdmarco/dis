@@ -56,7 +56,10 @@ final class SecurityHeaders
                 && str_contains((string) $response->headers->get('Cache-Control'), 'private')
                 && str_contains((string) $response->headers->get('Cache-Control'), 'no-cache')
                 && str_contains(strtolower((string) $response->headers->get('Vary')), 'cookie');
-            $cacheableOperationalRadar = $request->routeIs('operational-weather.radar-atlas')
+            $cacheableOperationalRadar = $request->routeIs(
+                'operational-weather.radar-atlas',
+                'wallboard.weather-radar-atlas',
+            )
                 && in_array($responseStatus, [200, 304], true)
                 && $response->headers->has('ETag')
                 && str_contains($mediaCacheControl, 'private')

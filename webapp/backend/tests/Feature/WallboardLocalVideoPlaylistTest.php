@@ -65,6 +65,7 @@ final class WallboardLocalVideoPlaylistTest extends TestCase
         $deploymentAsset = $this->asset($actor, duration: 21);
         $deploymentPlaylist = app(WallboardPlaylistService::class)->create([
             'name' => 'Lokale video actieve inzet',
+            'purpose' => WallboardPlaylist::PURPOSE_ALARM,
             'configuration' => $this->localVideoConfiguration((string) $deploymentAsset->id),
         ], $actor, Request::create('/api/admin/wallboard-playlists', 'POST'));
         $assigned->active_incident_playlist_id = $deploymentPlaylist->id;

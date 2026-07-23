@@ -1,5 +1,7 @@
 import type { WallboardPage, WallboardState } from '../../types/api';
 import { normalizeWallboardPlaylistDataMode } from './wallboardPlaylistDataMode';
+import { normalizeWallboardPlaylistPurpose } from './wallboardPlaylistPurpose';
+import { normalizeWallboardWeatherRadarKind } from './wallboardPresentation';
 
 export const WALLBOARD_PRECACHE_PREFIX = 'dis-wallboard-static-v1-';
 export const WALLBOARD_PRECACHE_CONCURRENCY = 4;
@@ -27,6 +29,8 @@ export interface WallboardPrecacheManifest {
   cacheNamespace: string;
   cacheName: string;
   contentVersion: string;
+  /** Stable across immutable radar snapshot refreshes; used only for the rotation readiness gate. */
+  blockingContentVersion: string;
   assets: WallboardPrecacheAsset[];
   externalPreloadHints: WallboardExternalPreloadHint[];
 }
@@ -69,12 +73,15 @@ type ExtendedWallboardPageOptions = WallboardPage['options'] & {
 const CACHE_NAME_SAFE_CHARACTERS = /[^a-zA-Z0-9_-]/g;
 const CACHEABLE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif']);
 const EXTERNAL_VIDEO_HOSTS = new Set(['www.youtube.com', 'player.vimeo.com']);
+const WALLBOARD_RADAR_ATLAS_PATH = /^\/api\/wallboard\/weather-radar\/(precipitation|lightning)\/\d{8}T\d{6}Z-[a-f0-9]{16}\.png$/;
 
 /**
  * Builds one deterministic manifest for every configured wallboard page. The
  * version changes only when the runtime playlist, configuration or referenced
  * static content changes; volatile state timestamps deliberately do not
- * invalidate it.
+ * invalidate it. A fresh immutable radar atlas gets a new cache version, while
+ * the blocking version stays stable so the valid playlist keeps rotating as
+ * the replacement snapshot is staged atomically.
  */
 export function wallboardPrecacheManifest(
   state: WallboardState,
@@ -93,7 +100,7 @@ export function wallboardPrecacheManifest(
   const contentParts: string[] = [
     `config:${state.wallboard.config_version}`,
     `data-mode:${normalizeWallboardPlaylistDataMode(state.wallboard.data_mode)}`,
-    `runtime-playlist:${runtimePlaylistId}:${runtimePlaylistVersion}:${state.wallboard.active_incident_playlist === true ? 1 : 0}`,
+    `runtime-playlist:${runtimePlaylistId}:${runtimePlaylistVersion}:${normalizeWallboardPlaylistPurpose(state.wallboard.runtime_playlist_purpose)}:${state.wallboard.active_incident_playlist === true ? 1 : 0}`,
   ];
 
   for (const page of configuredPages) {
@@ -115,6 +122,16 @@ export function wallboardPrecacheManifest(
         const revision = mediaAssetRevision(item.id, item.media_asset_version, item.image_url);
         contentParts.push(`photo:${page.id}:${item.id}:${item.image_url}:${revision}`);
         addAsset(assets, item.image_url, 'image', page.id, origin, revision);
+      }
+      continue;
+    }
+
+    if (page.type === 'weather_radar') {
+      const kind = normalizeWallboardWeatherRadarKind(page.options.radar_kind);
+      const atlasUrl = wallboardRadarAtlasUrl(state.weather_radar?.[kind]?.atlas_url, origin, kind);
+      contentParts.push(`weather-radar:${page.id}:${kind}`);
+      if (atlasUrl !== null) {
+        addResolvedAsset(assets, atlasUrl, 'image', page.id, `radar:${atlasUrl}`);
       }
       continue;
     }
@@ -150,15 +167,23 @@ export function wallboardPrecacheManifest(
     ...contentParts.sort(),
     ...sortedAssets.map((asset) => `${asset.url}:${asset.revision}`),
   ].join('\n'));
+  const blockingContentHash = stableHash([
+    ...contentParts,
+    ...sortedAssets
+      .filter((asset) => !asset.revision.startsWith('radar:'))
+      .map((asset) => `${asset.url}:${asset.revision}`),
+  ].join('\n'));
   const wallboardKey = normalizedWallboardCacheKey(state.wallboard.id);
   const cacheNamespace = wallboardPrecacheNamespace(wallboardKey);
   const contentVersion = `${state.wallboard.config_version}-${runtimePlaylistVersion}-${contentHash}`;
+  const blockingContentVersion = `${state.wallboard.config_version}-${runtimePlaylistVersion}-${blockingContentHash}`;
 
   return {
     wallboardKey,
     cacheNamespace,
     cacheName: `${cacheNamespace}${contentVersion}`,
     contentVersion,
+    blockingContentVersion,
     assets: sortedAssets,
     externalPreloadHints: sortedHints,
   };
@@ -525,7 +550,8 @@ function sameOriginUrl(value: unknown, origin: string): string | null {
 /** Keep state, control, authentication and HTML routes outside CacheStorage. */
 export function wallboardAssetPathIsCacheable(pathname: string): boolean {
   return /^\/api\/wallboard\/media\/[0-9A-HJKMNP-TV-Z]{26}(?:\/(?:poster|thumbnail))?$/i.test(pathname)
-    || /^\/api\/wallboard\/news-images\/[a-f0-9]{64}$/.test(pathname);
+    || /^\/api\/wallboard\/news-images\/[a-f0-9]{64}$/.test(pathname)
+    || WALLBOARD_RADAR_ATLAS_PATH.test(pathname);
 }
 
 export function wallboardCacheableAssetUrl(
@@ -533,6 +559,17 @@ export function wallboardCacheableAssetUrl(
   baseUrl = browserOrigin(),
 ): string | null {
   return sameOriginUrl(value, normalizedOrigin(baseUrl));
+}
+
+function wallboardRadarAtlasUrl(
+  value: unknown,
+  origin: string,
+  kind: 'precipitation' | 'lightning',
+): string | null {
+  const url = sameOriginUrl(value, origin);
+  if (url === null) return null;
+  const match = WALLBOARD_RADAR_ATLAS_PATH.exec(new URL(url).pathname);
+  return match?.[1] === kind ? url : null;
 }
 
 function normalizedOrigin(baseUrl: string): string {

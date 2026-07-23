@@ -1,22 +1,32 @@
 import {
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
   CloudRain,
   Pause,
   Play,
   RadioTower,
+  RefreshCw,
   Zap,
 } from 'lucide-react';
-import { useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useId, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { formatDateTime } from '../../lib/dateTime';
 import type {
   OperationalWeatherRadarLayer,
+  OperationalWeatherRadarKind,
   OperationalWeatherRadarState,
 } from '../../types/api';
 import styles from './OperationalForecast.module.css';
 import { useWeatherRadarPlayback, type WeatherRadarPlayback } from './useWeatherRadarPlayback';
 
-type RadarKind = 'precipitation' | 'lightning';
+export type RadarKind = OperationalWeatherRadarKind;
+
+export interface WeatherRadarSectionProps {
+  radar: OperationalWeatherRadarState;
+  lockedKind?: RadarKind;
+  active?: boolean;
+  wallboard?: boolean;
+}
 
 interface GeographicPoint {
   longitude: number;
@@ -40,6 +50,33 @@ const RADAR_REFERENCE_POINTS = [
   { name: 'Zuid-Holland', shortName: 'ZH', latitude: 52.0705, longitude: 4.3007 },
 ] as const;
 
+// Simplified from PDOK/Kadaster Bestuurlijke Gebieden 2026, collection
+// `landgebied` (CC BY 4.0). Kept local so a wallboard never depends on a live
+// third-party basemap request.
+const NETHERLANDS_OUTLINE: readonly (readonly [longitude: number, latitude: number])[] = [
+  [5.9533, 51.748], [5.9921, 51.7702], [5.963, 51.8369], [6.1666, 51.8407],
+  [6.1179, 51.9017], [6.4018, 51.8273], [6.3906, 51.874], [6.7325, 51.8987],
+  [6.8304, 51.9862], [6.6947, 52.0698], [7.0613, 52.2347], [7.0265, 52.292],
+  [7.0722, 52.3736], [6.9919, 52.4673], [6.7527, 52.4641], [6.6809, 52.5533],
+  [6.7667, 52.5616], [6.71, 52.6275], [6.7526, 52.6481], [7.0557, 52.6434],
+  [7.0873, 52.8499], [7.2174, 53.007], [7.1876, 53.3322], [7.0059, 53.3265],
+  [6.9159, 53.4574], [6.6371, 53.5764], [5.1767, 53.4086], [4.8406, 53.2323],
+  [4.6871, 53.0024], [4.613, 52.9795], [4.6295, 52.8897], [4.6938, 52.8834],
+  [4.54, 52.4279], [4.391, 52.2252], [4.1102, 52.0044], [3.9531, 51.9891],
+  [3.9531, 51.85], [3.6854, 51.7336], [3.5709, 51.6047], [3.3873, 51.5925],
+  [3.3079, 51.4334], [3.4275, 51.2447], [3.59, 51.306], [3.8863, 51.2002],
+  [4.1661, 51.2929], [4.2176, 51.3739], [4.4314, 51.3639], [4.3793, 51.4468],
+  [4.476, 51.4781], [4.6413, 51.422], [4.7788, 51.5045], [4.8419, 51.4807],
+  [4.8415, 51.4224], [4.7712, 51.4149], [4.921, 51.3937], [5.0388, 51.487],
+  [5.1344, 51.3155], [5.2422, 51.3052], [5.2379, 51.2614], [5.5158, 51.2952],
+  [5.5605, 51.2223], [5.8327, 51.1624], [5.7198, 50.9615], [5.7588, 50.9517],
+  [5.6392, 50.8463], [5.6885, 50.7557], [6.021, 50.7543], [5.9757, 50.8024],
+  [6.0742, 50.8465], [6.0941, 50.9207], [6.0182, 50.9347], [6.0265, 50.9833],
+  [5.8971, 50.9749], [5.8663, 51.0511], [5.9578, 51.0347], [6.1754, 51.1585],
+  [6.0822, 51.1716], [6.068, 51.2206], [6.2264, 51.3603], [6.2236, 51.475],
+  [6.0914, 51.6058], [6.1181, 51.656], [5.9533, 51.7479], [5.9533, 51.748],
+];
+
 const RADAR_BASEMAP_GEOMETRY = {
   precipitation: createRadarBasemapGeometry('precipitation'),
   lightning: createRadarBasemapGeometry('lightning'),
@@ -57,77 +94,146 @@ const PRECIPITATION_LEGEND = [
   { label: '≥ 80', color: '#5d1c80' },
 ] as const;
 
-export function WeatherRadarSection({ radar }: { radar: OperationalWeatherRadarState }) {
-  const [activeKind, setActiveKind] = useState<RadarKind>('precipitation');
-  const precipitation = useWeatherRadarPlayback(radar.precipitation, activeKind === 'precipitation');
-  const lightning = useWeatherRadarPlayback(radar.lightning, activeKind === 'lightning');
+export function WeatherRadarSection({
+  radar,
+  lockedKind,
+  active = true,
+  wallboard = false,
+}: WeatherRadarSectionProps) {
+  const [selectedKind, setSelectedKind] = useState<RadarKind>('precipitation');
+  const activeKind = lockedKind ?? selectedKind;
+  const readOnly = lockedKind !== undefined;
+  const instanceId = useId().replace(/:/g, '');
+  const titleId = `weather-radar-title-${instanceId}`;
+  const panelId = `weather-radar-panel-${instanceId}`;
+  const tabId = (kind: RadarKind) => `weather-radar-tab-${kind}-${instanceId}`;
   const layer = activeKind === 'precipitation' ? radar.precipitation : radar.lightning;
-  const playback = activeKind === 'precipitation' ? precipitation : lightning;
 
   function switchTab(kind: RadarKind) {
-    setActiveKind(kind);
+    if (!readOnly) setSelectedKind(kind);
   }
 
   function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    if (readOnly || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
     event.preventDefault();
     const nextKind = activeKind === 'precipitation' ? 'lightning' : 'precipitation';
-    setActiveKind(nextKind);
-    document.getElementById(`weather-radar-tab-${nextKind}`)?.focus();
+    setSelectedKind(nextKind);
+    document.getElementById(tabId(nextKind))?.focus();
   }
 
   return (
-    <section className={styles.radarWorkbench} aria-labelledby="weather-radar-title">
+    <section
+      className={`${styles.radarWorkbench}${wallboard ? ` ${styles.radarWorkbenchWallboard}` : ''}`}
+      aria-labelledby={titleId}
+      data-radar-kind={activeKind}
+      data-radar-read-only={readOnly ? 'true' : 'false'}
+    >
       <header className={styles.radarHeader}>
         <div className={styles.radarHeading}>
           <span className={styles.sectionIcon} aria-hidden><RadioTower size={21} /></span>
           <div>
-            <span className={styles.sectionKicker}>Beeldreeks uit lokaal opgeslagen brondata</span>
-            <h2 id="weather-radar-title">Buien- en bliksemradar</h2>
-            <p>Bekijk één tijdstap of speel de reeks gecontroleerd af. Er wordt geen externe kaart ingebed.</p>
+            <span className={styles.sectionKicker}>
+              {readOnly
+                ? 'Automatische beeldreeks uit lokaal opgeslagen brondata'
+                : 'Beeldreeks uit lokaal opgeslagen brondata'}
+            </span>
+            <h2 id={titleId}>
+              {readOnly
+                ? activeKind === 'precipitation' ? 'Buienradar' : 'Bliksemradar'
+                : 'Buien- en bliksemradar'}
+            </h2>
+            <p>
+              {readOnly
+                ? 'De gekozen laag speelt zonder bediening af. Er wordt geen externe kaart ingebed.'
+                : 'Bekijk één tijdstap of speel de reeks gecontroleerd af. Er wordt geen externe kaart ingebed.'}
+            </p>
           </div>
         </div>
 
-        <div className={styles.radarTabs} role="tablist" aria-label="Radarlaag kiezen">
-          <button
-            id="weather-radar-tab-precipitation"
-            type="button"
-            role="tab"
-            aria-controls="weather-radar-panel"
-            aria-selected={activeKind === 'precipitation'}
-            tabIndex={activeKind === 'precipitation' ? 0 : -1}
-            className={activeKind === 'precipitation' ? styles.radarTabActive : undefined}
-            onClick={() => switchTab('precipitation')}
-            onKeyDown={handleTabKeyDown}
-          >
-            <CloudRain aria-hidden size={18} /> Buien
-          </button>
-          <button
-            id="weather-radar-tab-lightning"
-            type="button"
-            role="tab"
-            aria-controls="weather-radar-panel"
-            aria-selected={activeKind === 'lightning'}
-            tabIndex={activeKind === 'lightning' ? 0 : -1}
-            className={activeKind === 'lightning' ? styles.radarTabActive : undefined}
-            onClick={() => switchTab('lightning')}
-            onKeyDown={handleTabKeyDown}
-          >
-            <Zap aria-hidden size={18} /> Bliksem
-          </button>
-        </div>
+        {readOnly ? null : (
+          <div className={styles.radarTabs} role="tablist" aria-label="Radarlaag kiezen">
+            <button
+              id={tabId('precipitation')}
+              type="button"
+              role="tab"
+              aria-controls={panelId}
+              aria-selected={activeKind === 'precipitation'}
+              tabIndex={activeKind === 'precipitation' ? 0 : -1}
+              className={activeKind === 'precipitation' ? styles.radarTabActive : undefined}
+              onClick={() => switchTab('precipitation')}
+              onKeyDown={handleTabKeyDown}
+            >
+              <CloudRain aria-hidden size={18} /> Buien
+            </button>
+            <button
+              id={tabId('lightning')}
+              type="button"
+              role="tab"
+              aria-controls={panelId}
+              aria-selected={activeKind === 'lightning'}
+              tabIndex={activeKind === 'lightning' ? 0 : -1}
+              className={activeKind === 'lightning' ? styles.radarTabActive : undefined}
+              onClick={() => switchTab('lightning')}
+              onKeyDown={handleTabKeyDown}
+            >
+              <Zap aria-hidden size={18} /> Bliksem
+            </button>
+          </div>
+        )}
       </header>
 
-      <div
-        id="weather-radar-panel"
-        role="tabpanel"
-        aria-labelledby={`weather-radar-tab-${activeKind}`}
-        className={styles.radarPanel}
-      >
-        <RadarViewport kind={activeKind} layer={layer} playback={playback} />
-        <RadarTimeline kind={activeKind} layer={layer} playback={playback} />
-      </div>
+      <RadarLayerPanel
+        key={activeKind}
+        id={panelId}
+        labelledBy={readOnly ? titleId : tabId(activeKind)}
+        kind={activeKind}
+        layer={layer}
+        active={active}
+        autoPlay={readOnly}
+        readOnly={readOnly}
+        rangeId={`weather-radar-range-${activeKind}-${instanceId}`}
+      />
     </section>
+  );
+}
+
+function RadarLayerPanel({
+  id,
+  labelledBy,
+  kind,
+  layer,
+  active,
+  autoPlay,
+  readOnly,
+  rangeId,
+}: {
+  id: string;
+  labelledBy: string;
+  kind: RadarKind;
+  layer: OperationalWeatherRadarLayer | null;
+  active: boolean;
+  autoPlay: boolean;
+  readOnly: boolean;
+  rangeId: string;
+}) {
+  const playback = useWeatherRadarPlayback(layer, active, autoPlay);
+
+  return (
+    <div
+      id={id}
+      role={readOnly ? 'region' : 'tabpanel'}
+      aria-labelledby={labelledBy}
+      className={styles.radarPanel}
+    >
+      <RadarViewport kind={kind} layer={layer} playback={playback} readOnly={readOnly} />
+      <RadarTimeline
+        kind={kind}
+        layer={layer}
+        playback={playback}
+        readOnly={readOnly}
+        rangeId={rangeId}
+      />
+    </div>
   );
 }
 
@@ -135,18 +241,20 @@ function RadarViewport({
   kind,
   layer,
   playback,
+  readOnly,
 }: {
   kind: RadarKind;
   layer: OperationalWeatherRadarLayer | null;
   playback: WeatherRadarPlayback;
+  readOnly: boolean;
 }) {
   const { displayLayer, frame } = playback;
-  const frameStyle = displayLayer === null || frame === null || displayLayer.atlas_url === null
+  const frameStyle = displayLayer === null || frame === null || playback.atlasRenderUrl === null
     ? undefined
-    : radarFrameStyle(displayLayer, frame.index);
+    : radarFrameStyle(displayLayer, playback.atlasRenderUrl, frame.index);
   const frameLabel = kind === 'precipitation'
     ? `KNMI-neerslagradar, geldig ${formatDateTime(frame?.valid_at ?? null)}`
-    : `EUMETSAT total-lightningbeeld, geldig ${formatDateTime(frame?.valid_at ?? null)}`;
+    : `EUMETSAT total-lightningbeeld, detectievenster ${formatRadarFrameClock(kind, frame?.valid_at ?? null)}`;
   const status = radarLayerStatus(layer, playback);
 
   return (
@@ -171,14 +279,41 @@ function RadarViewport({
           >
             <RadarBasemap kind={kind} />
             <div className={styles.radarFrame} role="img" aria-label={frameLabel} style={frameStyle} />
-            <span className={styles.radarBasemapNote}>Oriëntatie · 12 beheerde provinciepunten</span>
+            <span className={styles.radarBasemapNote}>Grenzen · PDOK/Kadaster 2026 · CC BY 4.0</span>
           </div>
           {playback.loadingAtlas ? (
-            <div className={styles.radarOverlay} role="status">Nieuwe radarreeks laden…</div>
+            <div className={styles.radarOverlay} role="status">
+              <span className={styles.stateSpinner} aria-hidden />
+              <span>
+                <strong>Nieuwe beeldreeks laden</strong>
+                <small>Het laatst gevalideerde beeld blijft zichtbaar.</small>
+              </span>
+            </div>
           ) : playback.atlasFailed ? (
-            <div className={styles.radarOverlay} role="alert">De nieuwe radarafbeelding kon niet worden geladen.</div>
+            <div className={`${styles.radarOverlay} ${styles.radarOverlayError}`} role="alert">
+              <AlertTriangle aria-hidden size={19} />
+              <span>
+                <strong>Nieuwe beeldreeks niet geladen</strong>
+                <small>
+                  {playback.showingPreviousAtlas
+                    ? 'Het vorige gevalideerde beeld blijft beschikbaar.'
+                    : 'De kaartafbeelding is tijdelijk niet beschikbaar.'}
+                </small>
+              </span>
+              {readOnly ? null : (
+                <button type="button" onClick={playback.retryAtlas}>
+                  <RefreshCw aria-hidden size={16} /> Opnieuw laden
+                </button>
+              )}
+            </div>
           ) : layer?.status === 'stale' ? (
-            <div className={styles.radarOverlay} role="status">Verouderd beeld — niet als actuele situatie gebruiken</div>
+            <div className={`${styles.radarOverlay} ${styles.radarOverlayWarning}`} role="status">
+              <AlertTriangle aria-hidden size={19} />
+              <span>
+                <strong>Verouderde bronreeks</strong>
+                <small>{radarActualityLabel(layer)} · niet als actuele situatie gebruiken</small>
+              </span>
+            </div>
           ) : null}
         </div>
       ) : (
@@ -190,8 +325,13 @@ function RadarViewport({
               {kind === 'precipitation' ? <CloudRain aria-hidden size={28} /> : <Zap aria-hidden size={28} />}
               <strong>{playback.atlasFailed ? 'Radarafbeelding niet geladen' : 'Geen bruikbare radarreeks'}</strong>
               <span>{playback.atlasFailed
-                ? 'Ververs de pagina of probeer het later opnieuw.'
+                ? 'Probeer de kaartafbeelding opnieuw te laden.'
                 : layer?.availability_note ?? 'Er is geen actuele, gevalideerde atlas voor deze laag beschikbaar.'}</span>
+              {playback.atlasFailed && !readOnly ? (
+                <button type="button" className={styles.radarRetryButton} onClick={playback.retryAtlas}>
+                  <RefreshCw aria-hidden size={16} /> Opnieuw laden
+                </button>
+              ) : null}
             </>
           )}
         </div>
@@ -206,85 +346,115 @@ function RadarTimeline({
   kind,
   layer,
   playback,
+  readOnly,
+  rangeId,
 }: {
   kind: RadarKind;
   layer: OperationalWeatherRadarLayer | null;
   playback: WeatherRadarPlayback;
+  readOnly: boolean;
+  rangeId: string;
 }) {
   const displayLayer = playback.displayLayer;
   const frameCount = displayLayer?.frames.length ?? 0;
-  const controlsDisabled = frameCount === 0 || playback.loadingAtlas || playback.atlasFailed;
-  const atNewest = frameCount === 0 || playback.framePosition === frameCount - 1;
+  const controlsDisabled = frameCount === 0 || playback.atlasRenderUrl === null;
+  const atReference = frameCount === 0 || playback.framePosition === playback.referenceFramePosition;
+  const playbackStatus = radarPlaybackStatus(layer, playback);
 
   return (
     <aside className={styles.radarControls} aria-label="Radartijdlijn">
-      <div className={styles.radarTimeReadout} aria-live="polite">
-        <span>{kind === 'precipitation' ? radarLeadLabel(playback.frame?.lead_minutes ?? null) : 'Detectievenster'}</span>
-        <strong>{formatRadarClock(playback.frame?.valid_at ?? null)}</strong>
-        <small>{formatDateTime(playback.frame?.valid_at ?? null)}</small>
+      <div className={styles.radarTimeReadout} aria-live={readOnly ? 'off' : 'polite'}>
+        <span>{radarFrameMomentLabel(kind, playback.frame?.lead_minutes ?? null)}</span>
+        <strong>{formatRadarFrameClock(kind, playback.frame?.valid_at ?? null)}</strong>
+        <small>
+          {kind === 'precipitation' ? 'Geldig' : 'Detectievenster'} · {formatDateTime(playback.frame?.valid_at ?? null)}
+        </small>
       </div>
 
-      <div className={styles.radarTransport}>
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={!playback.playing && !playback.canPlay}
-          aria-label={playback.playing ? 'Radaranimatie pauzeren' : 'Radaranimatie afspelen'}
-          aria-pressed={playback.playing}
-          onClick={playback.playing ? playback.pause : playback.play}
-        >
-          {playback.playing ? <Pause aria-hidden size={17} /> : <Play aria-hidden size={17} />}
-          {playback.playing ? 'Pauzeren' : 'Afspelen'}
-        </button>
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={controlsDisabled || playback.framePosition === 0}
-          onClick={playback.previous}
-        >
-          <ChevronLeft aria-hidden size={18} /> Vorige
-        </button>
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={controlsDisabled || atNewest}
-          onClick={playback.next}
-        >
-          Volgende <ChevronRight aria-hidden size={18} />
-        </button>
-      </div>
+      {readOnly ? (
+        <div className={`${styles.radarAutoplayStatus} ${styles[`radarPlayback_${playbackStatus.tone}`]}`}>
+          {playback.playing ? <Play aria-hidden size={18} /> : <Pause aria-hidden size={18} />}
+          <span>
+            <strong>{playbackStatus.label}</strong>
+            <small>
+              {frameCount === 0
+                ? 'Geen tijdstappen beschikbaar'
+                : `Tijdstap ${playback.framePosition + 1} van ${frameCount}`}
+            </small>
+          </span>
+        </div>
+      ) : (
+        <>
+          <div className={styles.radarTransport}>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={!playback.playing && !playback.canPlay}
+              aria-label={playback.playing ? 'Radaranimatie pauzeren' : 'Radaranimatie afspelen'}
+              aria-pressed={playback.playing}
+              onClick={playback.playing ? playback.pause : playback.play}
+            >
+              {playback.playing ? <Pause aria-hidden size={17} /> : <Play aria-hidden size={17} />}
+              {playback.playing ? 'Pauzeren' : 'Afspelen'}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={controlsDisabled || playback.framePosition === 0}
+              aria-label="Vorige radartijdstap"
+              onClick={playback.previous}
+            >
+              <ChevronLeft aria-hidden size={18} /> Vorige
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={controlsDisabled || playback.framePosition === frameCount - 1}
+              aria-label="Volgende radartijdstap"
+              onClick={playback.next}
+            >
+              Volgende <ChevronRight aria-hidden size={18} />
+            </button>
+          </div>
 
-      <label className={styles.radarRangeLabel} htmlFor={`weather-radar-range-${kind}`}>
-        <span>Tijdstap</span>
-        <strong>{frameCount === 0 ? '0 / 0' : `${playback.framePosition + 1} / ${frameCount}`}</strong>
-      </label>
-      <input
-        id={`weather-radar-range-${kind}`}
-        className={styles.radarRange}
-        type="range"
-        min={0}
-        max={Math.max(0, frameCount - 1)}
-        step={1}
-        value={Math.min(playback.framePosition, Math.max(0, frameCount - 1))}
-        disabled={controlsDisabled}
-        aria-valuetext={playback.frame === null ? 'Geen tijdstap beschikbaar' : formatDateTime(playback.frame.valid_at)}
-        onChange={(event) => playback.seek(Number(event.currentTarget.value))}
-      />
-      <button
-        type="button"
-        className={styles.latestButton}
-        disabled={controlsDisabled || atNewest}
-        onClick={playback.goToNewest}
-      >
-        Naar nieuwste
-      </button>
+          <label className={styles.radarRangeLabel} htmlFor={rangeId}>
+            <span>Tijdstap</span>
+            <strong>{frameCount === 0 ? '0 / 0' : `${playback.framePosition + 1} / ${frameCount}`}</strong>
+          </label>
+          <input
+            id={rangeId}
+            className={styles.radarRange}
+            type="range"
+            min={0}
+            max={Math.max(0, frameCount - 1)}
+            step={1}
+            value={Math.min(playback.framePosition, Math.max(0, frameCount - 1))}
+            disabled={controlsDisabled}
+            aria-valuetext={playback.frame === null ? 'Geen tijdstap beschikbaar' : formatDateTime(playback.frame.valid_at)}
+            onChange={(event) => playback.seek(Number(event.currentTarget.value))}
+          />
+          <button
+            type="button"
+            className={styles.latestButton}
+            disabled={controlsDisabled || atReference}
+            onClick={playback.goToReference}
+          >
+            Naar nu
+          </button>
+        </>
+      )}
 
       {playback.reducedMotion ? (
         <p className={styles.radarMotionNote}>Automatisch afspelen is uitgeschakeld vanwege de instelling voor minder beweging.</p>
       ) : null}
 
       <dl className={styles.radarFacts}>
-        <div><dt>Referentietijd</dt><dd>{formatDateTime(displayLayer?.reference_time ?? layer?.reference_time ?? null)}</dd></div>
+        <div><dt>Actualiteit</dt><dd>{radarActualityLabel(displayLayer ?? layer)}</dd></div>
+        <div>
+          <dt>{kind === 'precipitation' ? 'Modelreferentie' : 'Laatste detectievenster'}</dt>
+          <dd>{formatRadarReferencePeriod(kind, displayLayer ?? layer)}</dd>
+        </div>
+        <div><dt>Bronvertraging</dt><dd>{radarLagLabel(displayLayer ?? layer)}</dd></div>
         <div><dt>Bron</dt><dd>{displayLayer?.source.name ?? layer?.source.name ?? 'Onbekend'}</dd></div>
         <div><dt>Licentie</dt><dd>{displayLayer?.source.license ?? layer?.source.license ?? 'Onbekend'}</dd></div>
       </dl>
@@ -334,6 +504,7 @@ function RadarBasemap({ kind }: { kind: RadarKind }) {
       focusable="false"
     >
       <rect className={styles.radarSea} width="1000" height="1000" />
+      <polygon className={styles.radarLand} points={geometry.landOutline} />
       {geometry.latitudeLines.map((points, index) => (
         <polyline key={`latitude-${index}`} className={styles.radarGridLine} points={points} />
       ))}
@@ -351,13 +522,17 @@ function RadarBasemap({ kind }: { kind: RadarKind }) {
   );
 }
 
-function radarFrameStyle(layer: OperationalWeatherRadarLayer, frameIndex: number): CSSProperties {
+function radarFrameStyle(
+  layer: OperationalWeatherRadarLayer,
+  atlasRenderUrl: string,
+  frameIndex: number,
+): CSSProperties {
   const column = frameIndex % layer.atlas_columns;
   const row = Math.floor(frameIndex / layer.atlas_columns);
   const x = layer.atlas_columns === 1 ? 0 : (column / (layer.atlas_columns - 1)) * 100;
   const y = layer.atlas_rows === 1 ? 0 : (row / (layer.atlas_rows - 1)) * 100;
   return {
-    backgroundImage: `url("${layer.atlas_url}")`,
+    backgroundImage: `url("${atlasRenderUrl}")`,
     backgroundPosition: `${x}% ${y}%`,
     backgroundSize: `${layer.atlas_columns * 100}% ${layer.atlas_rows * 100}%`,
   };
@@ -373,6 +548,10 @@ function createRadarBasemapGeometry(kind: RadarKind) {
     kind,
   ));
   return {
+    landOutline: radarLinePoints(
+      NETHERLANDS_OUTLINE.map(([longitude, latitude]) => ({ longitude, latitude })),
+      kind,
+    ),
     latitudeLines,
     longitudeLines,
     referencePoints: RADAR_REFERENCE_POINTS.map((point) => ({
@@ -382,7 +561,7 @@ function createRadarBasemapGeometry(kind: RadarKind) {
   };
 }
 
-function radarLinePoints(points: GeographicPoint[], kind: RadarKind): string {
+function radarLinePoints(points: readonly GeographicPoint[], kind: RadarKind): string {
   return points.map((point) => {
     const projected = projectRadarPoint(point, kind);
     return `${projected.x.toFixed(2)},${projected.y.toFixed(2)}`;
@@ -397,8 +576,8 @@ function projectRadarPoint(point: GeographicPoint, kind: RadarKind): { x: number
     };
   }
 
-  const semiMajorAxis = 6_378_140;
-  const semiMinorAxis = 6_356_750;
+  const semiMajorAxis = 6_378_137;
+  const semiMinorAxis = 6_356_752;
   const eccentricity = Math.sqrt(1 - (semiMinorAxis * semiMinorAxis) / (semiMajorAxis * semiMajorAxis));
   const latitude = degreesToRadians(point.latitude);
   const longitude = degreesToRadians(point.longitude);
@@ -434,16 +613,84 @@ function radarLayerStatus(
   layer: OperationalWeatherRadarLayer | null,
   playback: WeatherRadarPlayback,
 ): { label: string; tone: 'available' | 'stale' | 'unavailable' } {
+  if (playback.atlasFailed && playback.showingPreviousAtlas) {
+    return { label: 'Vorige reeks', tone: 'stale' };
+  }
   if (playback.atlasFailed) return { label: 'Afbeelding mislukt', tone: 'unavailable' };
-  if (playback.loadingAtlas) return { label: 'Nieuwe reeks laden', tone: 'stale' };
+  if (playback.loadingAtlas && playback.displayLayer !== null) {
+    return { label: 'Reeks vernieuwen', tone: 'stale' };
+  }
+  if (playback.loadingAtlas) return { label: 'Beeld laden', tone: 'stale' };
   if (layer?.status === 'available') return { label: 'Actueel', tone: 'available' };
   if (layer?.status === 'stale') return { label: 'Verouderd', tone: 'stale' };
   return { label: 'Niet beschikbaar', tone: 'unavailable' };
 }
 
-function radarLeadLabel(leadMinutes: number | null): string {
+function radarPlaybackStatus(
+  layer: OperationalWeatherRadarLayer | null,
+  playback: WeatherRadarPlayback,
+): { label: string; tone: 'available' | 'stale' | 'unavailable' } {
+  if (playback.atlasFailed && playback.showingPreviousAtlas) {
+    return { label: 'Vorige gevalideerde reeks', tone: 'stale' };
+  }
+  if (playback.atlasFailed) return { label: 'Kaartbeeld niet geladen', tone: 'unavailable' };
+  if (playback.loadingAtlas) return { label: 'Nieuwe beeldreeks laden', tone: 'stale' };
+  if (layer?.status === 'stale') return { label: 'Verouderde reeks staat stil', tone: 'stale' };
+  if (playback.reducedMotion) return { label: 'Stilstaand actueel beeld', tone: 'available' };
+  if (playback.playing) return { label: 'Beeldreeks speelt automatisch', tone: 'available' };
+  if (playback.displayLayer !== null) return { label: 'Stilstaand radarbeeld', tone: 'available' };
+  return { label: 'Geen beeldreeks beschikbaar', tone: 'unavailable' };
+}
+
+function radarFrameMomentLabel(kind: RadarKind, leadMinutes: number | null): string {
   if (leadMinutes === null) return 'Tijdstap onbekend';
-  return leadMinutes === 0 ? 'Nu' : `+${leadMinutes} minuten`;
+  if (leadMinutes === 0) return kind === 'precipitation' ? 'Nu' : 'Nu · waarneming';
+  if (leadMinutes < 0) return `−${Math.abs(leadMinutes)} min · waarneming`;
+  return `+${leadMinutes} min · verwachting`;
+}
+
+function radarActualityLabel(layer: OperationalWeatherRadarLayer | null): string {
+  if (layer?.age_seconds === null || layer?.age_seconds === undefined) return 'Actualiteit onbekend';
+  return `${formatRadarDuration(layer.age_seconds)} oud`;
+}
+
+function radarLagLabel(layer: OperationalWeatherRadarLayer | null): string {
+  if (layer?.lag_seconds === null || layer?.lag_seconds === undefined) return 'Niet gerapporteerd';
+  return formatRadarDuration(layer.lag_seconds);
+}
+
+function formatRadarDuration(seconds: number): string {
+  if (seconds < 60) return 'minder dan 1 minuut';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? 'minuut' : 'minuten'}`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours < 24) {
+    return remainingMinutes === 0
+      ? `${hours} uur`
+      : `${hours}u ${remainingMinutes}m`;
+  }
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? 'dag' : 'dagen'}`;
+}
+
+function formatRadarFrameClock(kind: RadarKind, value: string | null): string {
+  const from = formatRadarClock(value);
+  if (kind === 'precipitation' || value === null || from === '--:--') return from;
+  const timestamp = new Date(value);
+  const until = new Date(timestamp.getTime() + 5 * 60_000).toISOString();
+  return `${from}–${formatRadarClock(until)}`;
+}
+
+function formatRadarReferencePeriod(
+  kind: RadarKind,
+  layer: OperationalWeatherRadarLayer | null,
+): string {
+  if (layer === null) return 'Onbekend';
+  if (kind === 'precipitation' || layer.observed_period_end === null) {
+    return formatDateTime(layer.reference_time);
+  }
+  return `${formatDateTime(layer.reference_time)} – ${formatRadarClock(layer.observed_period_end)}`;
 }
 
 function formatRadarClock(value: string | null): string {

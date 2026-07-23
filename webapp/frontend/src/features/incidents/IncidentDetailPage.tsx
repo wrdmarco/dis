@@ -2,7 +2,7 @@
 
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { BellRing, Clock, CloudSun, Download, MapPin, MessageSquare, Pencil, Plane, RadioTower, RefreshCw, Send, Trash2, TrendingUp, Users, X } from 'lucide-react';
+import { Ban, BellRing, CheckCircle2, Clock, CloudSun, Download, MapPin, MessageSquare, Pencil, Plane, RadioTower, RefreshCw, Send, Trash2, TrendingUp, UserRound, Users, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -15,6 +15,8 @@ import type { DispatchDeliveryStatus, DispatchPreview, DispatchRequest, DroneFli
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 import { dispatchDeliveryNotice } from './dispatchDeliveryPresentation';
 import { currentLiveLocations, dispatchEtaLabel, isCurrentLiveLocation, liveLocationEtaLabel } from './etaPresentation';
+import { presentIncidentTimelineItem } from './incidentTimelinePresentation';
+import { incidentLifecycleActionForStatus, type IncidentLifecycleAction } from './incidentStatusFlow';
 
 export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const router = useRouter();
@@ -59,6 +61,10 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const [flightRefreshLoading, setFlightRefreshLoading] = useState(false);
   const [flightRefreshMessage, setFlightRefreshMessage] = useState<string | null>(null);
   const [deletingIncident, setDeletingIncident] = useState(false);
+  const [incidentLifecycleAction, setIncidentLifecycleAction] = useState<IncidentLifecycleAction | null>(null);
+  const [incidentLifecycleReason, setIncidentLifecycleReason] = useState('');
+  const [incidentLifecycleLoading, setIncidentLifecycleLoading] = useState(false);
+  const [incidentLifecycleError, setIncidentLifecycleError] = useState<string | null>(null);
 
   const latestDispatch = dispatches.data?.[0] ?? null;
   const latestDispatchIsPreannouncement = latestDispatch?.status === 'draft';
@@ -71,6 +77,9 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const canDeleteIncidents = hasPermission('incidents.delete');
   const canManageDispatches = hasPermission('incidents.dispatch.manage');
   const canOverrideStatus = hasPermission('status.override');
+  const availableLifecycleAction = incident.data
+    ? incidentLifecycleActionForStatus(incident.data.status)
+    : null;
   const dispatchedTeamIds = dispatchTargetTeamIds(dispatches.data ?? []);
   const escalationTeams = (teams.data ?? []).filter((team) => team.is_operational && !dispatchedTeamIds.includes(team.id));
   const canEscalateUnavailable = incident.data?.priority === 'high' || incident.data?.priority === 'critical';
@@ -460,6 +469,62 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
     }
   };
 
+  const openIncidentLifecycleDialog = (action: IncidentLifecycleAction) => {
+    setIncidentLifecycleAction(action);
+    setIncidentLifecycleReason('');
+    setIncidentLifecycleError(null);
+  };
+
+  const closeIncidentLifecycleDialog = () => {
+    if (incidentLifecycleLoading) {
+      return;
+    }
+
+    setIncidentLifecycleAction(null);
+    setIncidentLifecycleReason('');
+    setIncidentLifecycleError(null);
+  };
+
+  const submitIncidentLifecycleAction = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!incidentId || !incident.data || incidentLifecycleAction === null) {
+      return;
+    }
+
+    if (availableLifecycleAction !== incidentLifecycleAction) {
+      setIncidentLifecycleError('De incidentstatus is gewijzigd. Sluit dit venster en controleer de actuele status.');
+      return;
+    }
+
+    setIncidentLifecycleLoading(true);
+    setIncidentLifecycleError(null);
+    try {
+      const endpoint = incidentLifecycleAction === 'cancel' ? 'cancel' : 'close';
+      const response = await api.post<Incident>(`/incidents/${incidentId}/${endpoint}`, {
+        reason: incidentLifecycleReason.trim() === '' ? null : incidentLifecycleReason.trim(),
+      });
+      incident.mutate(response.data);
+      await Promise.all([
+        incident.reload(),
+        preview.reload(),
+        dispatches.reload(),
+        liveLocations.reload(),
+        timeline.reload(),
+        reportIncidents.reload(),
+      ]);
+      setIncidentLifecycleAction(null);
+      setIncidentLifecycleReason('');
+    } catch (err) {
+      setIncidentLifecycleError(err instanceof ApiClientError
+        ? err.message
+        : incidentLifecycleAction === 'cancel'
+          ? 'Incident kon niet worden geannuleerd.'
+          : 'Incident kon niet worden afgerond.');
+    } finally {
+      setIncidentLifecycleLoading(false);
+    }
+  };
+
   return (
     <div className="page-stack incident-detail-page">
       <RealtimeBridge onOperationalEvent={() => {
@@ -476,6 +541,16 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
             {reportAvailable ? (
               <button className="primary-button" type="button" onClick={() => void downloadReport()} disabled={reportDownloading}>
                 <Download size={16} /> {reportDownloading ? 'Rapport...' : 'Rapport PDF'}
+              </button>
+            ) : null}
+            {canManageIncidents && availableLifecycleAction === 'cancel' ? (
+              <button className="danger-button" type="button" onClick={() => openIncidentLifecycleDialog('cancel')}>
+                <Ban size={16} /> Incident annuleren
+              </button>
+            ) : null}
+            {canManageIncidents && availableLifecycleAction === 'close' ? (
+              <button className="primary-button" type="button" onClick={() => openIncidentLifecycleDialog('close')}>
+                <CheckCircle2 size={16} /> Incident afronden
               </button>
             ) : null}
             {canManageIncidents ? (
@@ -780,19 +855,31 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
         </ResourceState>
       </Panel>
 
-      <Panel title="Tijdlijn">
+      <Panel title="Incidentlogboek">
         <ResourceState loading={timeline.loading} error={timeline.error} empty={(timeline.data?.length ?? 0) === 0}>
           <div className="incident-timeline">
-            {timeline.data?.map((item) => (
-              <article className={`incident-timeline__item incident-timeline__item--${item.type}`} key={`${item.type}-${item.id}`}>
-                <time>{formatDate(item.created_at)}</time>
-                <div>
-                  <span>{timelineTypeLabel(item.type)}</span>
-                  <strong>{item.label}</strong>
-                  {item.message ? <p>{item.message}</p> : null}
-                </div>
-              </article>
-            ))}
+            {timeline.data?.map((item) => {
+              const presentation = presentIncidentTimelineItem(item);
+
+              return (
+                <article className={`incident-timeline__item incident-timeline__item--${item.type}`} key={`${item.type}-${item.id}`}>
+                  <time dateTime={item.created_at ?? undefined}>{formatDate(item.created_at)}</time>
+                  <div className="incident-timeline__content">
+                    <div className="incident-timeline__meta">
+                      <span className="incident-timeline__type">{timelineTypeLabel(item.type)}</span>
+                      {presentation.actorLabel ? (
+                        <span className="incident-timeline__actor">
+                          <UserRound aria-hidden="true" size={14} />
+                          {presentation.actorLabel}
+                        </span>
+                      ) : null}
+                    </div>
+                    <strong>{presentation.action}</strong>
+                    {presentation.detail ? <p>{presentation.detail}</p> : null}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </ResourceState>
       </Panel>
@@ -860,6 +947,67 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                 </button>
               </div>
             </div>
+          </section>
+        </div>
+      ) : null}
+
+      {incidentLifecycleAction !== null && incident.data && canManageIncidents ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="modal modal--incident-action"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="incident-lifecycle-title"
+          >
+            <header className="modal__header">
+              <h2 id="incident-lifecycle-title">
+                {incidentLifecycleAction === 'cancel' ? 'Incident annuleren' : 'Incident afronden'}
+              </h2>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={closeIncidentLifecycleDialog}
+                disabled={incidentLifecycleLoading}
+                aria-label="Sluiten"
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <form className="form-grid panel-body" onSubmit={submitIncidentLifecycleAction}>
+              <p className="form-note form-grid__wide">
+                {incidentLifecycleAction === 'cancel'
+                  ? `Bevestig dat ${incident.data.reference} niet doorgaat. Het incident verhuist daarna naar het archief.`
+                  : `Bevestig dat de inzet voor ${incident.data.reference} is voltooid. Het incident verhuist daarna naar het archief.`}
+              </p>
+              <label className="form-grid__wide">
+                Reden
+                <textarea
+                  value={incidentLifecycleReason}
+                  rows={4}
+                  maxLength={1000}
+                  onChange={(event) => setIncidentLifecycleReason(event.target.value)}
+                  placeholder={incidentLifecycleAction === 'cancel'
+                    ? 'Waarom wordt dit incident geannuleerd?'
+                    : 'Eventuele toelichting op het afronden.'}
+                />
+              </label>
+              {incidentLifecycleError ? <p className="form-error form-grid__wide">{incidentLifecycleError}</p> : null}
+              <div className="actions-row form-grid__wide">
+                <button className="secondary-button" type="button" onClick={closeIncidentLifecycleDialog} disabled={incidentLifecycleLoading}>
+                  Terug
+                </button>
+                <button
+                  className={incidentLifecycleAction === 'cancel' ? 'danger-button' : 'primary-button'}
+                  type="submit"
+                  disabled={incidentLifecycleLoading}
+                >
+                  {incidentLifecycleAction === 'cancel' ? <Ban size={16} /> : <CheckCircle2 size={16} />}
+                  {incidentLifecycleLoading
+                    ? incidentLifecycleAction === 'cancel' ? 'Annuleren...' : 'Afronden...'
+                    : incidentLifecycleAction === 'cancel' ? 'Incident annuleren' : 'Incident afronden'}
+                </button>
+              </div>
+            </form>
           </section>
         </div>
       ) : null}
@@ -1278,7 +1426,7 @@ function incidentStatusLabel(status: string): string {
     case 'dispatching':
       return 'Alarmeren';
     case 'in_progress':
-      return 'In behandeling';
+      return 'In uitvoering';
     case 'resolved':
       return 'Afgerond';
     case 'cancelled':

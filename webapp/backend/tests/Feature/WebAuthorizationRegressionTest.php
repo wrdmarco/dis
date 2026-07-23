@@ -25,13 +25,13 @@ final class WebAuthorizationRegressionTest extends TestCase
 
         $unprivileged = $this->user('unprivileged@example.test');
         $this->grant($unprivileged, [], operator: false, admin: true);
-        $this->asMobileClient($unprivileged, 'client:admin')
+        $this->asClient($unprivileged, 'client:web')
             ->getJson('/api/admin/settings')
             ->assertForbidden();
 
         $privileged = $this->user('settings-manager@example.test');
         $this->grant($privileged, ['settings.manage'], operator: false, admin: true);
-        $response = $this->asMobileClient($privileged, 'client:admin')
+        $response = $this->asClient($privileged, 'client:web')
             ->getJson('/api/admin/settings');
 
         $this->assertSame(200, $response->status(), $response->getContent());
@@ -58,7 +58,7 @@ final class WebAuthorizationRegressionTest extends TestCase
             'status' => 'active',
         ]);
 
-        $this->asMobileClient($actor, 'client:admin')
+        $this->asClient($actor, 'client:web')
             ->patchJson('/api/users/'.$victim->id.'/certifications/'.$otherCertification->id, [
                 'status' => 'revoked',
             ])
@@ -86,7 +86,7 @@ final class WebAuthorizationRegressionTest extends TestCase
             'assigned_at' => now(),
         ]);
 
-        $this->asMobileClient($operator, 'client:operator')
+        $this->asClient($operator, 'client:operator')
             ->patchJson('/api/assets/'.$asset->id.'/mine', [
                 'status' => 'maintenance',
             ])
@@ -112,7 +112,7 @@ final class WebAuthorizationRegressionTest extends TestCase
             'opened_at' => now(),
         ]);
 
-        $response = $this->asMobileClient($operator, 'client:operator')
+        $response = $this->asClient($operator, 'client:operator')
             ->getJson('/api/incidents/'.$incident->id.'/report.pdf');
 
         $response->assertForbidden();
@@ -137,7 +137,7 @@ final class WebAuthorizationRegressionTest extends TestCase
             'closed_at' => now(),
         ]);
 
-        $response = $this->asMobileClient($operator, 'client:operator')
+        $response = $this->asClient($operator, 'client:operator')
             ->getJson('/api/reports/incidents')
             ->assertOk();
 
@@ -184,9 +184,9 @@ final class WebAuthorizationRegressionTest extends TestCase
         $user->roles()->attach($role->id, ['created_at' => now()]);
     }
 
-    private function asMobileClient(User $user, string $clientAbility): static
+    private function asClient(User $user, string $clientAbility): static
     {
-        $token = $user->createToken('Security regression mobile client', ['*', $clientAbility], now()->addHour())->plainTextToken;
+        $token = $user->createToken('Security regression client', ['*', $clientAbility], now()->addHour())->plainTextToken;
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);

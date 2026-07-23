@@ -19,6 +19,9 @@ final class WallboardPlaylistAssignmentResource extends JsonResource
                 && in_array($this->resource->playlist->data_mode, WallboardPlaylist::DATA_MODES, true)
                     ? (string) $this->resource->playlist->data_mode
                     : WallboardPlaylist::DATA_MODE_LIVE,
+            'purpose' => $this->resource->playlist instanceof WallboardPlaylist
+                ? $this->resource->playlist->normalizedPurpose()
+                : WallboardPlaylist::PURPOSE_NORMAL,
             'display_profile' => (string) $this->resource->display_profile,
             'configuration' => WallboardConfiguration::normalize((array) $this->resource->configuration),
             'config_version' => (int) $this->resource->config_version,

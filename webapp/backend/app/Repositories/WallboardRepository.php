@@ -21,8 +21,8 @@ final class WallboardRepository extends BaseRepository
     {
         return Wallboard::query()
             ->with([
-                'playlist:id,name,data_mode,configuration,version',
-                'activeIncidentPlaylist:id,name,data_mode,configuration,version',
+                'playlist:id,name,data_mode,purpose,configuration,version',
+                'activeIncidentPlaylist:id,name,data_mode,purpose,configuration,version',
                 'nonRevokedSessions:id,wallboard_id,last_seen_at,expires_at',
             ])
             ->orderBy('name')
@@ -33,8 +33,8 @@ final class WallboardRepository extends BaseRepository
     {
         return Wallboard::query()
             ->with([
-                'playlist:id,name,data_mode,configuration,version',
-                'activeIncidentPlaylist:id,name,data_mode,configuration,version',
+                'playlist:id,name,data_mode,purpose,configuration,version',
+                'activeIncidentPlaylist:id,name,data_mode,purpose,configuration,version',
                 'nonRevokedSessions:id,wallboard_id,last_seen_at,expires_at',
             ])
             ->findOrFail($id);

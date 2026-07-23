@@ -14,8 +14,9 @@ final class WallboardDisplayService
 
     /**
      * Resolve the page server-side so an administrator and the kiosk always see
-     * the same rotation position. Incident override deliberately takes priority
-     * over a manual command, which in turn takes priority over normal rotation.
+     * the same rotation position. Operational focus is resolved separately and
+     * may temporarily cover this result, but an incident never rewrites a
+     * playlist rotation to one legacy incident_override page.
      *
      * @param  array<string, mixed>|null  $configuration
      * @return array{mode: string, page_id: string, incident_active: bool, next_change_at: string|null}
@@ -26,11 +27,6 @@ final class WallboardDisplayService
         $pages = array_values((array) $configuration['pages']);
         $firstPageId = (string) $pages[0]['id'];
         $incidentActive ??= $this->hasActiveAlarmIncident();
-
-        $override = (array) $configuration['incident_override'];
-        if ($incidentActive && ($override['enabled'] ?? false) === true) {
-            return $this->result('incident_override', (string) $override['page_id'], true);
-        }
 
         $manualPageId = (string) ($wallboard->manual_page_id ?? '');
         if ($manualPageId !== '' && WallboardConfiguration::hasPage($configuration, $manualPageId)) {

@@ -10,7 +10,7 @@ Group=dis
 WorkingDirectory=/opt/dis/webapp/backend
 ExecStartPre=/usr/bin/test -x /usr/bin/h5dump
 ExecStartPre=/usr/bin/test -r /opt/dis/webapp/backend/artisan
-ExecStart=/usr/bin/php -d zend.exception_ignore_args=1 artisan queue:work knmi_realtime --queue=knmi-realtime --sleep=2 --tries=1 --timeout=600 --max-jobs=250 --max-time=86400
+ExecStart=/usr/bin/php -d zend.exception_ignore_args=1 artisan queue:work knmi_realtime --queue=knmi-realtime --sleep=2 --tries=1 --timeout=1200 --max-jobs=250 --max-time=86400
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM

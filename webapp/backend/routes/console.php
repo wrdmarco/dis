@@ -18,9 +18,9 @@ Schedule::command('dis:refresh-knmi-forecast')
     ->onOneServer()
     ->withoutOverlapping(180);
 Schedule::command('dis:refresh-knmi-precipitation-outlook')
-    // Both KNMI products publish on a five-minute reference clock. The four-
-    // minute offset lets the larger seamless file arrive before one atomic
-    // same-run import is queued.
+    // The four-minute offset lets the current five-minute radar release arrive.
+    // The separate seamless probability feed is refreshed when available, but
+    // can no longer block activation of a valid radar release.
     ->cron('4-59/5 * * * *')
     ->onOneServer()
     ->withoutOverlapping(10);

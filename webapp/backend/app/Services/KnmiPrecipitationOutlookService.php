@@ -10,7 +10,7 @@ use Throwable;
 
 final class KnmiPrecipitationOutlookService implements KnmiPrecipitationOutlookProvider
 {
-    private const CACHE_NAMESPACE = 'wallboard:uav-forecast:knmi-precipitation-local:v1';
+    private const CACHE_NAMESPACE = 'wallboard:uav-forecast:knmi-precipitation-local:v3';
 
     public const RADAR_SAMPLE_COUNT = 25;
 
@@ -101,20 +101,26 @@ final class KnmiPrecipitationOutlookService implements KnmiPrecipitationOutlookP
         array $locations,
         int $expectedLocationCount,
     ): array {
-        $readings = [];
-        foreach ($locations as $location) {
-            $pointKey = self::CACHE_NAMESPACE.':point:'.$snapshot['snapshot_id'].':'
-                .sha1(sprintf('%.5F,%.5F', $location['latitude'], $location['longitude']));
-            $readings[] = Cache::remember(
-                $pointKey,
-                $this->configuration->pointCacheSeconds(),
-                fn (): array => $this->reader->readPoint(
-                    $snapshot['paths']['radar'],
-                    $snapshot['paths']['probability'],
-                    $reference,
-                    $location['latitude'],
-                    $location['longitude'],
-                ),
+        $probabilityPath = is_string($snapshot['paths']['probability'] ?? null)
+            ? $snapshot['paths']['probability']
+            : null;
+        try {
+            $readings = $this->readings(
+                $snapshot,
+                $reference,
+                $locations,
+                $probabilityPath,
+            );
+        } catch (Throwable $exception) {
+            if ($probabilityPath === null) {
+                throw $exception;
+            }
+            $probabilityPath = null;
+            $readings = $this->readings(
+                $snapshot,
+                $reference,
+                $locations,
+                null,
             );
         }
         if (count($readings) !== $expectedLocationCount || $readings === []) {
@@ -129,9 +135,13 @@ final class KnmiPrecipitationOutlookService implements KnmiPrecipitationOutlookP
         foreach ($readings as $reading) {
             if (($reading['reference_time'] ?? null) !== $reference->toIso8601String()
                 || ($reading['radar_sample_count'] ?? null) !== self::RADAR_SAMPLE_COUNT
-                || ($reading['third_hour_sample_count'] ?? null) !== self::THIRD_HOUR_SAMPLE_COUNT
                 || ! is_numeric($reading['radar_peak_mm_h'] ?? null)
-                || ! is_numeric($reading['third_hour_probability_pct'] ?? null)) {
+                || ($probabilityPath !== null
+                    && (($reading['third_hour_sample_count'] ?? null) !== self::THIRD_HOUR_SAMPLE_COUNT
+                        || ! is_numeric($reading['third_hour_probability_pct'] ?? null)))
+                || ($probabilityPath === null
+                    && (($reading['third_hour_sample_count'] ?? null) !== 0
+                        || ($reading['third_hour_probability_pct'] ?? null) !== null))) {
                 return $this->unavailable(
                     'De lokale KNMI-neerslagreeks is niet voor alle locaties compleet.',
                     count($readings),
@@ -149,6 +159,7 @@ final class KnmiPrecipitationOutlookService implements KnmiPrecipitationOutlookP
 
         return [
             'complete' => true,
+            'probability_complete' => $probabilityPath !== null,
             'stale' => false,
             'radar_peak_mm_h' => max(array_map(
                 static fn (array $reading): float => (float) $reading['radar_peak_mm_h'],
@@ -156,22 +167,64 @@ final class KnmiPrecipitationOutlookService implements KnmiPrecipitationOutlookP
             )),
             'radar_first_precipitation_at' => $firstPrecipitation?->toIso8601String(),
             'radar_until' => $reference->addMinutes(120)->toIso8601String(),
-            'third_hour_probability_pct' => max(array_map(
-                static fn (array $reading): float => (float) $reading['third_hour_probability_pct'],
-                $readings,
-            )),
-            'third_hour_from' => $reference->addMinutes(120)->toIso8601String(),
-            'forecast_until' => $reference->addMinutes(180)->toIso8601String(),
+            'third_hour_probability_pct' => $probabilityPath !== null
+                ? max(array_map(
+                    static fn (array $reading): float => (float) $reading['third_hour_probability_pct'],
+                    $readings,
+                ))
+                : null,
+            'third_hour_from' => $probabilityPath !== null
+                ? $reference->addMinutes(120)->toIso8601String()
+                : null,
+            'forecast_until' => $probabilityPath !== null
+                ? $reference->addMinutes(180)->toIso8601String()
+                : null,
             'reference_time' => $reference->toIso8601String(),
             'radar_sample_count' => self::RADAR_SAMPLE_COUNT * count($readings),
-            'third_hour_sample_count' => self::THIRD_HOUR_SAMPLE_COUNT * count($readings),
+            'third_hour_sample_count' => $probabilityPath !== null
+                ? self::THIRD_HOUR_SAMPLE_COUNT * count($readings)
+                : 0,
             'sample_count' => count($readings),
             'expected_sample_count' => $expectedLocationCount,
-            'source' => $this->source(count($readings)),
-            'availability_note' => null,
+            'source' => $this->source(count($readings), $probabilityPath !== null),
+            'availability_note' => $probabilityPath === null
+                ? 'De lokale KNMI-radar is beschikbaar; de afzonderlijke ensemblekans voor uur 3 ontbreekt.'
+                : null,
             'measured_at' => $reference->toIso8601String(),
             'refreshed_at' => $activatedAt->toIso8601String(),
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @param  list<array{latitude: float, longitude: float}>  $locations
+     * @return list<array<string, mixed>>
+     */
+    private function readings(
+        array $snapshot,
+        CarbonImmutable $reference,
+        array $locations,
+        ?string $probabilityPath,
+    ): array {
+        $readings = [];
+        $mode = $probabilityPath === null ? 'radar' : 'paired';
+        foreach ($locations as $location) {
+            $pointKey = self::CACHE_NAMESPACE.':point:'.$snapshot['snapshot_id'].':'.$mode.':'
+                .sha1(sprintf('%.5F,%.5F', $location['latitude'], $location['longitude']));
+            $readings[] = Cache::remember(
+                $pointKey,
+                $this->configuration->pointCacheSeconds(),
+                fn (): array => $this->reader->readPoint(
+                    $snapshot['paths']['radar'],
+                    $probabilityPath,
+                    $reference,
+                    $location['latitude'],
+                    $location['longitude'],
+                ),
+            );
+        }
+
+        return $readings;
     }
 
     /**
@@ -233,6 +286,7 @@ final class KnmiPrecipitationOutlookService implements KnmiPrecipitationOutlookP
     {
         return [
             'complete' => false,
+            'probability_complete' => false,
             'stale' => false,
             'radar_peak_mm_h' => null,
             'radar_first_precipitation_at' => null,
@@ -245,7 +299,7 @@ final class KnmiPrecipitationOutlookService implements KnmiPrecipitationOutlookP
             'third_hour_sample_count' => 0,
             'sample_count' => $sampleCount,
             'expected_sample_count' => max(0, $expectedSampleCount),
-            'source' => $this->source(max(1, $expectedSampleCount)),
+            'source' => $this->source(max(1, $expectedSampleCount), false),
             'availability_note' => $note,
             'measured_at' => null,
             'refreshed_at' => null,
@@ -253,12 +307,12 @@ final class KnmiPrecipitationOutlookService implements KnmiPrecipitationOutlookP
     }
 
     /** @return array{name: string, url: string} */
-    private function source(int $sampleCount): array
+    private function source(int $sampleCount, bool $hasProbability): array
     {
+        $base = $hasProbability ? 'KNMI lokale radar + ensemblekans' : 'KNMI lokale radar';
+
         return [
-            'name' => $sampleCount > 1
-                ? "KNMI lokale radar + ensemblekans ({$sampleCount} locaties)"
-                : 'KNMI lokale radar + ensemblekans',
+            'name' => $sampleCount > 1 ? "{$base} ({$sampleCount} locaties)" : $base,
             'url' => 'https://dataplatform.knmi.nl/',
         ];
     }
@@ -285,9 +339,9 @@ final class KnmiPrecipitationOutlookService implements KnmiPrecipitationOutlookP
             CarbonImmutable::now()->utc()->subSeconds($this->configuration->maximumReferenceAgeSeconds()),
         );
         $reading['stale'] = $stale;
-        $reading['availability_note'] = $stale
-            ? 'De actieve lokale KNMI-snapshot is verouderd; de kaart telt daarom fail-closed als onbekend.'
-            : null;
+        if ($stale) {
+            $reading['availability_note'] = 'De actieve lokale KNMI-snapshot is verouderd; de kaart telt daarom fail-closed als onbekend.';
+        }
 
         return $reading;
     }

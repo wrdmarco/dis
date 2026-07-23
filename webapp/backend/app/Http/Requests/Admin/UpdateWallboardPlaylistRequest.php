@@ -13,6 +13,7 @@ final class UpdateWallboardPlaylistRequest extends WallboardPlaylistRequest
             'expected_version' => ['required', 'integer', 'min:1'],
             'name' => ['sometimes', 'required', 'string', 'max:120'],
             'data_mode' => $this->dataModeRules(),
+            'purpose' => $this->purposeRules(),
             ...$this->configurationRules('sometimes'),
         ];
     }
@@ -23,7 +24,10 @@ final class UpdateWallboardPlaylistRequest extends WallboardPlaylistRequest
         return [
             ...parent::after(),
             function (Validator $validator): void {
-                if (! $this->has('name') && ! $this->has('data_mode') && ! $this->has('configuration')) {
+                if (! $this->has('name')
+                    && ! $this->has('data_mode')
+                    && ! $this->has('purpose')
+                    && ! $this->has('configuration')) {
                     $validator->errors()->add('playlist', 'Geef een naam of configuratiewijziging op.');
                 }
             },

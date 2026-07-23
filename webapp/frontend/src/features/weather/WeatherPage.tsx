@@ -1,4 +1,4 @@
-import { AlertTriangle, Cloud, CloudRain, Database, RadioTower } from 'lucide-react';
+import { AlertTriangle, Cloud, CloudRain, Database, RadioTower, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { formatDateTime } from '../../lib/dateTime';
 import type {
@@ -74,6 +74,20 @@ export function WeatherPage() {
             {resource.refreshing ? ' Er worden nieuwe gegevens opgehaald.' : ''}
             {resource.error ? ` ${resource.error}` : ''}
           </span>
+        </div>
+      ) : null}
+
+      {!resource.stale && weather && resource.refreshing ? (
+        <div className={styles.inlineRefresh} role="status">
+          <RefreshCw aria-hidden size={18} />
+          <span>Nieuwe weer- en radargegevens worden gecontroleerd. Het huidige gevalideerde beeld blijft zichtbaar.</span>
+        </div>
+      ) : null}
+
+      {!resource.stale && weather && !resource.refreshing && resource.error ? (
+        <div className={styles.inlineWarning} role="status">
+          <AlertTriangle aria-hidden size={18} />
+          <span>Bijwerken is niet gelukt. Het huidige gevalideerde beeld blijft zichtbaar; een nieuwe poging volgt automatisch.</span>
         </div>
       ) : null}
 
@@ -216,7 +230,11 @@ function PrecipitationTimeline({ precipitation }: { precipitation: OperationalWe
           <h2 id="precipitation-title">Neerslagvenster</h2>
         </div>
         <span className={precipitation.complete && !precipitation.stale ? styles.freshBadge : styles.unknownBadge}>
-          {precipitation.stale ? 'Verouderd' : precipitation.complete ? 'Compleet' : 'Onvolledig'}
+          {precipitation.stale
+            ? 'Verouderd'
+            : precipitation.complete
+              ? precipitation.probability_complete ? 'Compleet' : 'Radar actueel'
+              : 'Onvolledig'}
         </span>
       </header>
 
@@ -237,9 +255,13 @@ function PrecipitationTimeline({ precipitation }: { precipitation: OperationalWe
         </li>
         <li className={styles.ensembleWindow}>
           <span className={styles.timelineDot} aria-hidden />
-          <small>{formatClock(precipitation.third_hour_from)} → {formatClock(precipitation.forecast_until)}</small>
+          <small>{precipitation.probability_complete
+            ? `${formatClock(precipitation.third_hour_from)} → ${formatClock(precipitation.forecast_until)}`
+            : '+2 → +3 uur'}</small>
           <strong>Uur 3 · ensemble</strong>
-          <span>{formatNumber(precipitation.third_hour_probability_pct, '%')} kans op ≥ 0,1 mm/u</span>
+          <span>{precipitation.probability_complete
+            ? `${formatNumber(precipitation.third_hour_probability_pct, '%')} kans op ≥ 0,1 mm/u`
+            : 'Kansmodel niet beschikbaar'}</span>
         </li>
       </ol>
 
