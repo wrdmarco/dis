@@ -10,6 +10,13 @@ source "${SCRIPT_DIR}/lib/common.sh"
 APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
 
 require_root
+for runtime_file in \
+  "${SCRIPT_DIR}/prune-backups.sh" \
+  "${SCRIPT_DIR}/lib/backup-retention.sh"; do
+  require_file "${runtime_file}"
+  root_controlled_bundle_source_is_safe "${runtime_file}" \
+    || fail "A backup retention runtime dependency is not root-controlled: ${runtime_file}"
+done
 load_data_path_from_env "${APP_ROOT}/.env"
 REQUEST_DIR="${DIS_DATA_PATH}/backup-requests"
 WORK_DIR="${DIS_DATA_PATH}/backup-request-work"
@@ -158,7 +165,7 @@ recover_abandoned_request() {
 }
 
 process_request() {
-  local request_file="$1" request_id request_owner running_file result_file operation target backup_path actor_id created_at created_epoch request_age output exit_code state safe_local_backup
+  local request_file="$1" request_id request_owner running_file result_file operation target backup_path actor_id runtime_config_sha256 created_at created_epoch request_age output exit_code state safe_local_backup
   local import_root original_backup_path original_backup_id claimed_backup_path snapshot_payload_limit
   local restore_block_file restore_receipt restore_receipt_time restore_key restore_snapshot_path restore_mutation_marker restore_attempt_started
 
@@ -192,10 +199,10 @@ process_request() {
 
   if ! jq -e '
     type == "object"
-    and (.operation | type == "string" and test("^(create|verify|restore|probe)$"))
+    and (.operation | type == "string" and test("^(create|prune|verify|restore|probe)$"))
     and (.target | type == "string" and test("^(local|samba)$"))
     and (
-      (.operation == "create" and .backup_path == null)
+      ((.operation == "create" or .operation == "prune") and .backup_path == null)
       or (
         .operation == "probe"
         and .target == "local"
@@ -212,7 +219,17 @@ process_request() {
       .actor_id == null
       or (.actor_id | type == "string" and test("^[0-9A-HJKMNP-TV-Z]{26}$"; "i"))
     )
-    and ((keys_unsorted - ["operation", "target", "backup_path", "actor_id", "created_at"]) | length == 0)
+    and (
+      (
+        .operation == "prune"
+        and (.runtime_config_sha256 | type == "string" and test("^[a-f0-9]{64}$"))
+      )
+      or (
+        .operation != "prune"
+        and (has("runtime_config_sha256") | not)
+      )
+    )
+    and ((keys_unsorted - ["operation", "target", "backup_path", "actor_id", "created_at", "runtime_config_sha256"]) | length == 0)
   ' "${running_file}" >/dev/null; then
     write_result "${result_file}" "failed" 2 "Invalid backup request." "${request_owner}"
     rm -f -- "${running_file}"
@@ -223,6 +240,7 @@ process_request() {
   target="$(jq -r '.target // "local"' "${running_file}")"
   backup_path="$(jq -r '.backup_path // ""' "${running_file}")"
   actor_id="$(jq -r '.actor_id // ""' "${running_file}")"
+  runtime_config_sha256="$(jq -r '.runtime_config_sha256 // ""' "${running_file}")"
   created_at="$(jq -r '.created_at' "${running_file}")"
   if ! created_epoch="$(date -u -d "${created_at}" +%s 2>/dev/null)"; then
     write_result "${result_file}" "failed" 2 "Backup request timestamp is invalid." "${request_owner}"
@@ -257,6 +275,12 @@ process_request() {
     write_result "${result_file}" "succeeded" 0 "Backup request worker is healthy." "${request_owner}"
     rm -f -- "${running_file}"
     return
+  fi
+
+  if [ "${operation}" = "prune" ]; then
+    logger -p authpriv.notice -t dis-security \
+      "backup_retention_requested request_id=${request_id} claimed_actor_id=${actor_id} target=${target} request_owner=${request_owner}" \
+      2>/dev/null || true
   fi
 
   original_backup_path=""
@@ -344,6 +368,15 @@ process_request() {
         bash "${SCRIPT_DIR}/backup.sh" 2>&1)"
       exit_code=$?
       ;;
+    prune)
+      output="$(timeout --signal=TERM --kill-after=30s 840s \
+        env DIS_SAFE_LOCAL_BACKUP="${safe_local_backup}" \
+        DIS_SAFE_LOCAL_PREUPDATE_BACKUP=0 \
+        EXPECTED_BACKUP_RUNTIME_CONFIG_SHA256="${runtime_config_sha256}" \
+        BACKUP_TARGET="${target}" APP_ROOT="${APP_ROOT}" \
+        bash "${SCRIPT_DIR}/prune-backups.sh" 2>&1)"
+      exit_code=$?
+      ;;
     verify)
       output="$(timeout --signal=TERM --kill-after=30s 540s \
         env DIS_SAFE_LOCAL_BACKUP="${safe_local_backup}" \
@@ -412,6 +445,18 @@ process_request() {
       ;;
   esac
   set -e
+
+  if [ "${operation}" = "prune" ]; then
+    if [ "${exit_code}" -eq 0 ]; then
+      logger -p authpriv.notice -t dis-security \
+        "backup_retention_completed request_id=${request_id} claimed_actor_id=${actor_id} target=${target} state=succeeded exit_code=0" \
+        2>/dev/null || true
+    else
+      logger -p authpriv.err -t dis-security \
+        "backup_retention_completed request_id=${request_id} claimed_actor_id=${actor_id} target=${target} state=failed exit_code=${exit_code}" \
+        2>/dev/null || true
+    fi
+  fi
 
   if [ -n "${claimed_backup_path}" ]; then
     if [ "${operation}" = "verify" ] && [ "${exit_code}" -eq 0 ]; then

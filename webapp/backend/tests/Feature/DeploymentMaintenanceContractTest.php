@@ -956,8 +956,8 @@ final class DeploymentMaintenanceContractTest extends TestCase
 
         self::assertStringContainsString('if [ "${target}" = "local" ]', $worker);
         self::assertStringContainsString('safe_local_backup=1', $worker);
-        self::assertSame(4, substr_count($worker, 'DIS_SAFE_LOCAL_BACKUP="${safe_local_backup}"'));
-        self::assertSame(4, substr_count($worker, 'DIS_SAFE_LOCAL_PREUPDATE_BACKUP=0'));
+        self::assertSame(5, substr_count($worker, 'DIS_SAFE_LOCAL_BACKUP="${safe_local_backup}"'));
+        self::assertSame(5, substr_count($worker, 'DIS_SAFE_LOCAL_PREUPDATE_BACKUP=0'));
         $requestValidation = strpos($worker, "if ! jq -e '");
         $targetExtraction = strpos($worker, 'target="$(jq -r');
         $safeMode = strpos($worker, 'safe_local_backup=0');

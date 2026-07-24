@@ -106,6 +106,72 @@ final class BackupRequestServiceTest extends TestCase
         $this->assertFileDoesNotExist($this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.tmp');
     }
 
+    public function test_prune_publishes_an_explicit_target_request_and_returns_the_worker_result(): void
+    {
+        $requestId = str_repeat('e', 32);
+        $pending = $this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.pending';
+        $resultPath = $this->requestRoot.DIRECTORY_SEPARATOR.$requestId.'.result';
+        $requestPayload = null;
+        $actorId = '01J00000000000000000000000';
+        $runtimeConfigSha256 = str_repeat('f', 64);
+
+        $service = new BackupRequestService(
+            requestRootOverride: $this->requestRoot,
+            requestIdGenerator: static fn (): string => $requestId,
+            monotonicClock: static fn (): float => 0.0,
+            sleeper: function (int $microseconds) use ($pending, $resultPath, &$requestPayload): void {
+                $this->assertSame(500_000, $microseconds);
+                $contents = file_get_contents($pending);
+                $this->assertIsString($contents);
+                $requestPayload = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
+                $this->assertTrue(unlink($pending));
+                $this->assertNotFalse(file_put_contents($resultPath, json_encode([
+                    'state' => 'succeeded',
+                    'exit_code' => 0,
+                    'output' => 'Backup retention applied.',
+                    'finished_at' => '2026-07-24T12:00:00Z',
+                ], JSON_THROW_ON_ERROR)));
+            },
+        );
+
+        $result = $service->prune('samba', $actorId, $runtimeConfigSha256, 5);
+
+        $this->assertSame(0, $result['exit_code']);
+        $this->assertSame($requestId, $result['request_id']);
+        $this->assertStringContainsString('Backup retention applied.', $result['output']);
+        $this->assertSame('prune', $requestPayload['operation'] ?? null);
+        $this->assertSame('samba', $requestPayload['target'] ?? null);
+        $this->assertNull($requestPayload['backup_path'] ?? null);
+        $this->assertSame($actorId, $requestPayload['actor_id'] ?? null);
+        $this->assertSame($runtimeConfigSha256, $requestPayload['runtime_config_sha256'] ?? null);
+        $this->assertSame([
+            'operation',
+            'target',
+            'backup_path',
+            'actor_id',
+            'created_at',
+            'runtime_config_sha256',
+        ], array_keys($requestPayload));
+        $this->assertArrayNotHasKey('BACKUP_SAMBA_PASSWORD', $requestPayload);
+    }
+
+    public function test_prune_rejects_an_invalid_runtime_configuration_fingerprint_before_publication(): void
+    {
+        $service = new BackupRequestService(
+            requestRootOverride: $this->requestRoot,
+            requestIdGenerator: static fn (): string => str_repeat('f', 32),
+        );
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Backup prune runtime configuration fingerprint is invalid.');
+
+        try {
+            $service->prune('local', null, 'not-a-sha256', 5);
+        } finally {
+            $this->assertSame([], glob($this->requestRoot.DIRECTORY_SEPARATOR.'*') ?: []);
+        }
+    }
+
     public function test_timeout_before_claim_reports_that_the_path_service_did_not_claim_the_request(): void
     {
         $requestId = str_repeat('c', 32);
@@ -160,6 +226,7 @@ final class BackupRequestServiceTest extends TestCase
     {
         $this->assertInstanceOf(BackupRequestService::class, app(BackupRequestService::class));
         $this->assertSame(1020, BackupRequestService::CREATE_TIMEOUT_SECONDS);
+        $this->assertSame(1020, BackupRequestService::PRUNE_TIMEOUT_SECONDS);
         $this->assertSame(720, BackupRequestService::VERIFY_TIMEOUT_SECONDS);
         $this->assertSame(30, BackupRequestService::PROBE_TIMEOUT_SECONDS);
     }

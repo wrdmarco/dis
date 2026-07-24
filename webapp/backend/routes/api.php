@@ -564,6 +564,7 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::patch('/admin/backups/settings', [BackupController::class, 'updateSettings'])->middleware('permission:backups.manage');
         Route::post('/admin/backups/samba-shares', [BackupController::class, 'sambaShares'])->middleware('permission:backups.manage');
         Route::post('/admin/backups', [BackupController::class, 'create'])->middleware('permission:backups.manage');
+        Route::post('/admin/backups/prune', [BackupController::class, 'prune'])->middleware('permission:backups.manage');
         Route::post('/admin/backups/upload-restore', [BackupController::class, 'uploadRestore'])->middleware('permission:backups.manage');
         Route::get('/admin/backups/operations/{requestId}', [BackupController::class, 'operationStatus'])->middleware('permission:backups.manage');
         Route::post('/admin/backups/{backup}/verify', [BackupController::class, 'verify'])->middleware('permission:backups.manage');

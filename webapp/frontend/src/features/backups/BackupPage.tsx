@@ -86,6 +86,8 @@ interface BackupActionResult {
   request_id?: string;
 }
 
+type BackupActionLabel = 'settings' | 'create' | 'verify' | 'restore' | 'uploadRestore' | 'prune' | 'refresh';
+
 interface SambaShareOption {
   name: string;
   path: string;
@@ -121,16 +123,28 @@ export function BackupPage() {
   const backups = useApiResource<BackupIndex>('/admin/backups');
   const backupList = useMemo(() => Array.isArray(backups.data?.backups) ? backups.data.backups : [], [backups.data]);
   const recipients = useMemo(() => Array.isArray(backups.data?.report_recipients) ? backups.data.report_recipients : [], [backups.data]);
-  const roots = useMemo(() => ({
-    ...DEFAULT_BACKUP_ROOTS,
-    ...(backups.data?.roots ?? {}),
+  const roots = useMemo<Record<BackupTarget, string>>(() => ({
+    local: backups.data?.roots?.local ?? DEFAULT_BACKUP_ROOTS.local,
+    samba: backups.data?.roots?.samba ?? DEFAULT_BACKUP_ROOTS.samba,
   }), [backups.data?.roots]);
+  const backupCounts = useMemo<Record<BackupTarget, number>>(() => backupList.reduce<Record<BackupTarget, number>>(
+    (counts, backup) => {
+      counts[backup.target] += 1;
+      return counts;
+    },
+    { local: 0, samba: 0 },
+  ), [backupList]);
   const confirmationText = backups.data?.confirmation_text ?? RESTORE_CONFIRMATION_TEXT;
   const currentSettings = backups.data?.settings ?? null;
   const initialSettings = useMemo(() => toSettingsForm(currentSettings, recipients), [currentSettings, recipients]);
+  const automaticTarget = currentSettings?.target ?? initialSettings.target;
+  const otherTarget: BackupTarget = automaticTarget === 'local' ? 'samba' : 'local';
+  const retentionLimit = currentSettings?.retention_count ?? null;
   const [settingsForm, setSettingsForm] = useState<BackupSettingsForm>(initialSettings);
+  const settingsDirty = !backupSettingsFormsEqual(settingsForm, initialSettings);
   const [createTarget, setCreateTarget] = useState<BackupTarget>(initialSettings.target);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState<BackupActionLabel | null>(null);
+  const [pruningTarget, setPruningTarget] = useState<BackupTarget | null>(null);
   const [restoreBackup, setRestoreBackup] = useState<BackupSummary | null>(null);
   const [confirmation, setConfirmation] = useState('');
   const [uploadConfirmation, setUploadConfirmation] = useState('');
@@ -143,6 +157,11 @@ export function BackupPage() {
   const [sharesError, setSharesError] = useState<string | null>(null);
   const [successRecipientSearch, setSuccessRecipientSearch] = useState('');
   const [failedRecipientSearch, setFailedRecipientSearch] = useState('');
+  const sambaConfigured = currentSettings !== null
+    && currentSettings.samba_server.trim() !== ''
+    && currentSettings.samba_share_name.trim() !== ''
+    && currentSettings.samba_username.trim() !== ''
+    && currentSettings.samba_password_configured;
 
   useEffect(() => {
     setSettingsForm(initialSettings);
@@ -202,7 +221,7 @@ export function BackupPage() {
     }
   }
 
-  async function runAction(label: string, action: () => Promise<BackupActionResult>) {
+  async function runAction(label: BackupActionLabel, action: () => Promise<BackupActionResult>, target?: BackupTarget) {
     setBusy(label);
     setMessage(null);
     setOutput(null);
@@ -219,7 +238,7 @@ export function BackupPage() {
         setUploadFile(null);
         return;
       }
-      setMessage(label === 'create' ? 'Backup is gemaakt.' : label === 'verify' ? 'Backup is geverifieerd.' : label === 'settings' ? 'Backupinstellingen zijn opgeslagen.' : label === 'uploadRestore' ? 'Upload backup is teruggezet.' : 'Backup is teruggezet.');
+      setMessage(actionSuccessMessage(label, target));
       setOutput(result.output ?? null);
       await backups.reload();
       if (label === 'restore') {
@@ -251,25 +270,78 @@ export function BackupPage() {
     await runAction('uploadRestore', async () => (await api.postForm<BackupActionResult>('/admin/backups/upload-restore', form)).data);
   }
 
+  async function pruneBackups(target: BackupTarget) {
+    if (settingsDirty || retentionLimit === null || retentionLimit === 0) {
+      return;
+    }
+
+    const configured = target === 'local' || sambaConfigured;
+    if (!configured) {
+      return;
+    }
+
+    const inventoryAvailable = target === 'local' || currentSettings?.samba_mounted === true;
+    const backupCount = backupCounts[target];
+    const excess = inventoryAvailable ? Math.max(0, backupCount - retentionLimit) : null;
+    if (excess === 0) {
+      return;
+    }
+
+    const inventoryText = inventoryAvailable
+      ? `De huidige telling voor ${targetLabel(target)} is ${backupCount} ${backupCount === 1 ? 'backup' : 'backups'} bij een bewaarlimiet van ${retentionLimit}.`
+      : `De huidige telling voor ${targetLabel(target)} is onbekend omdat de Samba-share niet is gekoppeld. De server probeert de share eerst te koppelen.`;
+    const confirmed = window.confirm(
+      `${inventoryText} De server controleert de actuele inhoud en bepaalt daarna hoeveel oudste backups boven de bewaarlimiet worden verwijderd uit ${roots[target]}. Dit kan niet ongedaan worden gemaakt. Doorgaan?`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setPruningTarget(target);
+    try {
+      await runAction('prune', async () => (await api.post<BackupActionResult>('/admin/backups/prune', { target })).data, target);
+    } finally {
+      setPruningTarget(null);
+    }
+  }
+
+  async function refreshOverview() {
+    if (settingsDirty && !window.confirm('Je hebt onopgeslagen backupinstellingen. Bij vernieuwen vervallen deze wijzigingen. Wil je het overzicht toch vernieuwen?')) {
+      return;
+    }
+
+    setBusy('refresh');
+    setMessage(null);
+    setOutput(null);
+    setError(null);
+
+    try {
+      const response = await api.get<BackupIndex>('/admin/backups');
+      backups.mutate(response.data);
+      setMessage('Backupoverzicht is vernieuwd.');
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Backupoverzicht vernieuwen mislukt.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div className="page-stack">
-      <Panel title="Backup doel">
+      <Panel title="Backupinstellingen">
         <ResourceState loading={backups.loading} error={backups.error} empty={!backups.data}>
           <form className="form-grid" onSubmit={saveSettings}>
             <label>
-              Doel
+              Standaard voor automatische backups
               <select value={settingsForm.target} onChange={(event) => setSettingsForm((current) => ({ ...current, target: event.target.value as BackupSettingsForm['target'] }))}>
                 <option value="local">Lokaal</option>
                 <option value="samba">Samba share</option>
               </select>
             </label>
             <div className="field-display">
-              <span>Lokale map</span>
-              <strong className="mono">{settingsForm.localPath}</strong>
-            </div>
-            <div className="form-grid__wide metadata-example">
-              <strong>Status</strong>
-              <pre>{`Actief doel: ${targetLabel(settingsForm.target)}\nLokale map: ${roots.local}\nAutomatisch: ${settingsForm.autoEnabled ? 'Aan' : 'Uit'}\nAantal bewaren: ${settingsForm.retentionCount === 0 ? 'Onbeperkt' : settingsForm.retentionCount}`}</pre>
+              <span>{settingsForm.target === 'local' ? 'Lokale opslagmap' : 'Samba mountpoint'}</span>
+              <strong className="mono">{settingsForm.target === 'local' ? settingsForm.localPath : settingsForm.sambaMount}</strong>
             </div>
             {settingsForm.target === 'samba' ? (
               <>
@@ -364,10 +436,12 @@ export function BackupPage() {
               <input type="time" value={settingsForm.autoTime} onChange={(event) => setSettingsForm((current) => ({ ...current, autoTime: event.target.value }))} />
             </label>
             <label>
-              Aantal bewaren
+              Bewaarlimiet per opslagdoel
               <input type="number" min="0" max="365" value={settingsForm.retentionCount} onChange={(event) => setSettingsForm((current) => ({ ...current, retentionCount: Number(event.target.value) }))} />
             </label>
-            <p className="form-note form-grid__wide">Gebruik 0 om backups onbeperkt te bewaren.</p>
+            <p className="form-note form-grid__wide">
+              De bewaarlimiet wordt afzonderlijk toegepast op lokaal en Samba. Gebruik 0 om backups onbeperkt te bewaren.
+            </p>
             <div className="form-grid__wide section-heading">
               <h3>Rapport ontvangers</h3>
             </div>
@@ -395,7 +469,7 @@ export function BackupPage() {
             />
             <div className="actions-row form-grid__wide">
               <button className="primary-button" type="submit" disabled={busy !== null}>
-                {busy === 'settings' ? 'Opslaan...' : 'Backup doel opslaan'}
+                {busy === 'settings' ? 'Opslaan...' : 'Backupinstellingen opslaan'}
               </button>
             </div>
           </form>
@@ -417,21 +491,65 @@ export function BackupPage() {
         )}
       >
         <ResourceState loading={backups.loading} error={backups.error} empty={!backups.data}>
-          <dl className="definition-grid">
-            <dt>Standaardlocatie</dt><dd className="mono">{backups.data?.root ?? '-'}</dd>
-            <dt>Lokale map</dt><dd className="mono">{roots.local}</dd>
-            {currentSettings?.target === 'samba' ? (
-              <>
-                <dt>Samba map</dt><dd className="mono">{roots.samba}</dd>
-              </>
-            ) : null}
-            <dt>Automatische backup</dt><dd>{currentSettings?.auto_enabled ? autoBackupLabel(currentSettings) : 'Uit'}</dd>
-            <dt>Aantal bewaren</dt><dd>{currentSettings?.retention_count === 0 ? 'Onbeperkt' : currentSettings?.retention_count ?? '-'}</dd>
-            <dt>Laatst automatisch</dt><dd>{currentSettings?.auto_last_run_at ?? '-'}</dd>
-            <dt>Aantal backups</dt><dd>{backupList.length}</dd>
-          </dl>
-          {message ? <p className="form-note">{message}</p> : null}
-          {error ? <p className="form-error">{error}</p> : null}
+          <div className="backup-management-overview" aria-busy={busy === 'refresh' || busy === 'prune'}>
+            <section className="backup-schedule-summary" aria-labelledby="backup-schedule-title">
+              <header className="backup-schedule-summary__header">
+                <div>
+                  <span className="backup-schedule-summary__eyebrow">Automatische backups</span>
+                  <h3 id="backup-schedule-title">{currentSettings?.auto_enabled ? autoBackupLabel(currentSettings) : 'Uitgeschakeld'}</h3>
+                </div>
+                <button className="secondary-button" type="button" onClick={() => void refreshOverview()} disabled={busy !== null}>
+                  {busy === 'refresh' ? 'Vernieuwen...' : 'Overzicht vernieuwen'}
+                </button>
+              </header>
+              <dl className="backup-schedule-summary__details">
+                <dt>Standaard voor automatische backups</dt>
+                <dd>{targetLabel(automaticTarget)}</dd>
+                <dt>Laatste automatische uitvoering</dt>
+                <dd>{formatDateTime(currentSettings?.auto_last_run_at)}</dd>
+                <dt>Bewaarlimiet per opslagdoel</dt>
+                <dd>{retentionLimit === null ? '-' : retentionLimit === 0 ? 'Onbeperkt' : `${retentionLimit} backups`}</dd>
+              </dl>
+              <p>
+                Het laatste uitvoeringstijdstip is algemeen; het toen gebruikte opslagdoel wordt niet afzonderlijk vastgelegd.
+              </p>
+            </section>
+
+            <div className="backup-target-overview">
+              <BackupTargetCard
+                target={automaticTarget}
+                root={roots[automaticTarget]}
+                backupCount={backupCounts[automaticTarget]}
+                retentionLimit={retentionLimit}
+                automaticDefault
+                configured={automaticTarget === 'local' || sambaConfigured}
+                inventoryAvailable={automaticTarget === 'local' || (sambaConfigured && currentSettings?.samba_mounted === true)}
+                busy={busy !== null}
+                settingsDirty={settingsDirty}
+                pruning={busy === 'prune' && pruningTarget === automaticTarget}
+                onPrune={() => void pruneBackups(automaticTarget)}
+              />
+              <BackupTargetCard
+                target={otherTarget}
+                root={roots[otherTarget]}
+                backupCount={backupCounts[otherTarget]}
+                retentionLimit={retentionLimit}
+                automaticDefault={false}
+                configured={otherTarget === 'local' || sambaConfigured}
+                inventoryAvailable={otherTarget === 'local' || (sambaConfigured && currentSettings?.samba_mounted === true)}
+                busy={busy !== null}
+                settingsDirty={settingsDirty}
+                pruning={busy === 'prune' && pruningTarget === otherTarget}
+                onPrune={() => void pruneBackups(otherTarget)}
+              />
+            </div>
+
+            <div className="backup-management-overview__feedback" aria-live="polite" aria-atomic="true">
+              {busy === 'refresh' ? <p className="form-note" role="status">Backupoverzicht wordt vernieuwd.</p> : null}
+              {message ? <p className="form-note" role="status">{message}</p> : null}
+              {error ? <p className="form-error" role="alert">{error}</p> : null}
+            </div>
+          </div>
           <form className="form-grid restore-upload" onSubmit={uploadRestore}>
             <div className="form-grid__wide section-heading">
               <h3>Backup uploaden en terugzetten</h3>
@@ -475,7 +593,7 @@ export function BackupPage() {
               </thead>
               <tbody>
                 {backupList.map((backup) => (
-                  <tr key={backup.id}>
+                  <tr key={`${backup.target}:${backup.id}`}>
                     <td>
                       <strong>{backup.id}</strong>
                       <span className="muted-text">{formatDateTime(backup.created_at)}</span>
@@ -547,6 +665,125 @@ export function BackupPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+interface BackupTargetCardProps {
+  target: BackupTarget;
+  root: string;
+  backupCount: number;
+  retentionLimit: number | null;
+  automaticDefault: boolean;
+  configured: boolean;
+  inventoryAvailable: boolean;
+  busy: boolean;
+  settingsDirty: boolean;
+  pruning: boolean;
+  onPrune: () => void;
+}
+
+function BackupTargetCard({
+  target,
+  root,
+  backupCount,
+  retentionLimit,
+  automaticDefault,
+  configured,
+  inventoryAvailable,
+  busy,
+  settingsDirty,
+  pruning,
+  onPrune,
+}: BackupTargetCardProps) {
+  const retentionExcess = inventoryAvailable && retentionLimit !== null && retentionLimit > 0
+    ? Math.max(0, backupCount - retentionLimit)
+    : null;
+  const canPrune = configured
+    && retentionLimit !== null
+    && retentionLimit > 0
+    && (!inventoryAvailable || (retentionExcess !== null && retentionExcess > 0));
+  const displayedCount = inventoryAvailable ? String(backupCount) : '-';
+  const displayedCountLabel = inventoryAvailable ? (backupCount === 1 ? 'backup' : 'backups') : 'telling onbekend';
+  const actionText = inventoryAvailable
+    ? `Volgens het huidige overzicht ${retentionExcess === 1 ? 'staat' : 'staan'} ${retentionExcess ?? 0} ${retentionExcess === 1 ? 'backup' : 'backups'} boven de bewaarlimiet.`
+    : 'De Samba-share is niet gekoppeld. De telling en retentiestatus zijn onbekend. De server probeert de share eerst te koppelen en past daarna de bewaarlimiet toe.';
+
+  return (
+    <article className={`backup-target-card ${automaticDefault ? 'backup-target-card--automatic' : 'backup-target-card--secondary'}`}>
+      <header className="backup-target-card__header">
+        <div>
+          <span className={`status-pill ${automaticDefault ? 'status-pill--info' : 'status-pill--neutral'}`}>
+            {automaticDefault ? 'Standaard voor automatische backups' : 'Ander opslagdoel'}
+          </span>
+          <h3>{targetLabel(target)}</h3>
+        </div>
+        <div
+          className="backup-target-card__count"
+          aria-label={inventoryAvailable ? `${backupCount} ${backupCount === 1 ? 'backup' : 'backups'}` : 'Aantal backups onbekend'}
+        >
+          <strong>{displayedCount}</strong>
+          <span>{displayedCountLabel}</span>
+        </div>
+      </header>
+      <dl className="backup-target-card__details">
+        <dt>Opslaglocatie</dt>
+        <dd className="mono">{root}</dd>
+        <dt>Beschikbaarheid</dt>
+        <dd>
+          {!configured ? (
+            <span className="status-pill status-pill--neutral">Niet ingesteld</span>
+          ) : inventoryAvailable ? (
+            <span className="status-pill status-pill--good">Beschikbaar</span>
+          ) : (
+            <span className="status-pill status-pill--warn">Samba niet gekoppeld</span>
+          )}
+        </dd>
+        <dt>Bewaarlimiet</dt>
+        <dd>{retentionLimit === null ? '-' : retentionLimit === 0 ? 'Onbeperkt' : `${retentionLimit} backups`}</dd>
+        <dt>Retentiestatus</dt>
+        <dd>
+          {!configured ? (
+            <span className="status-pill status-pill--neutral">Niet beschikbaar</span>
+          ) : !inventoryAvailable ? (
+            <span className="status-pill status-pill--warn">Onbekend</span>
+          ) : retentionLimit === null ? (
+            <span className="status-pill status-pill--neutral">Nog niet geladen</span>
+          ) : retentionLimit === 0 ? (
+            <span className="status-pill status-pill--info">Onbeperkt bewaren</span>
+          ) : retentionExcess !== null && retentionExcess > 0 ? (
+            <span className="status-pill status-pill--warn">
+              Volgens overzicht: {retentionExcess} boven limiet
+            </span>
+          ) : (
+            <span className="status-pill status-pill--good">Binnen limiet</span>
+          )}
+        </dd>
+      </dl>
+      {canPrune ? (
+        <div className="backup-target-card__action">
+          <p>{settingsDirty ? 'Sla de gewijzigde backupinstellingen eerst op voordat je de retentie toepast.' : actionText}</p>
+          <button
+            className="danger-button"
+            type="button"
+            onClick={onPrune}
+            disabled={busy || settingsDirty}
+            title={settingsDirty ? 'Sla de backupinstellingen eerst op.' : undefined}
+          >
+            {pruning ? 'Retentie toepassen...' : inventoryAvailable ? 'Retentie nu toepassen' : 'Retentie controleren en toepassen'}
+          </button>
+        </div>
+      ) : (
+        <p className="backup-target-card__note">
+          {!configured
+            ? 'Stel eerst de Samba-server, share, gebruikersnaam en het wachtwoord in om backups en retentie voor dit doel te gebruiken.'
+            : !inventoryAvailable
+              ? 'De Samba-share is niet gekoppeld. De telling en retentiestatus blijven onbekend tot de share beschikbaar is.'
+            : automaticDefault
+              ? 'Dit doel ontvangt standaard de automatische backups.'
+              : 'Dit doel ontvangt niet standaard automatische backups; de bewaarlimiet wordt hier wel afzonderlijk beoordeeld.'}
+        </p>
+      )}
+    </article>
   );
 }
 
@@ -657,6 +894,25 @@ function autoBackupLabel(settings: BackupSettings): string {
   return `Dagelijks om ${settings.auto_time}`;
 }
 
+function actionSuccessMessage(label: BackupActionLabel, target?: BackupTarget): string {
+  switch (label) {
+    case 'create':
+      return 'Backup is gemaakt.';
+    case 'verify':
+      return 'Backup is geverifieerd.';
+    case 'settings':
+      return 'Backupinstellingen zijn opgeslagen.';
+    case 'prune':
+      return target === undefined ? 'Retentie is toegepast.' : `Retentie is toegepast op ${targetLabel(target)}.`;
+    case 'refresh':
+      return 'Backupoverzicht is vernieuwd.';
+    case 'uploadRestore':
+      return 'Upload backup is teruggezet.';
+    case 'restore':
+      return 'Backup is teruggezet.';
+  }
+}
+
 function toSettingsForm(settings?: BackupSettings | null, recipients: BackupReportRecipient[] = []): BackupSettingsForm {
   return {
     target: settings?.target ?? 'local',
@@ -681,6 +937,35 @@ function toSettingsForm(settings?: BackupSettings | null, recipients: BackupRepo
 
 function addId(values: string[], id: string): string[] {
   return values.includes(id) ? values : [...values, id];
+}
+
+function backupSettingsFormsEqual(left: BackupSettingsForm, right: BackupSettingsForm): boolean {
+  return left.target === right.target
+    && left.localPath === right.localPath
+    && left.sambaServer === right.sambaServer
+    && left.sambaShareName === right.sambaShareName
+    && left.sambaShare === right.sambaShare
+    && left.sambaMount === right.sambaMount
+    && left.sambaUsername === right.sambaUsername
+    && left.sambaPassword === right.sambaPassword
+    && left.sambaDomain === right.sambaDomain
+    && left.sambaVersion === right.sambaVersion
+    && left.autoEnabled === right.autoEnabled
+    && left.autoFrequency === right.autoFrequency
+    && left.autoDayOfWeek === right.autoDayOfWeek
+    && left.autoTime === right.autoTime
+    && left.retentionCount === right.retentionCount
+    && sameIds(left.backupReportSuccessUserIds, right.backupReportSuccessUserIds)
+    && sameIds(left.backupReportFailedUserIds, right.backupReportFailedUserIds);
+}
+
+function sameIds(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const leftIds = new Set(left);
+  return right.every((id) => leftIds.has(id));
 }
 
 function recipientLabel(recipient: BackupReportRecipient): string {

@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
+source "${SCRIPT_DIR}/lib/backup-retention.sh"
 
 APP_ROOT="${APP_ROOT:-${DIS_INSTALL_PATH}}"
 ENV_FILE="${APP_ROOT}/.env"
@@ -93,25 +94,6 @@ publish_backup() {
     || fail "Samba backup publication lost an atomic no-clobber race."
   durably_sync_backup_tree "${TARGET}"
   PENDING_TARGET=""
-}
-
-prune_old_backups() {
-  local root="$1"
-  local keep="${BACKUP_RETENTION_COUNT:-0}"
-
-  if ! [[ "${keep}" =~ ^[0-9]+$ ]] || [ "${keep}" -lt 1 ]; then
-    return 0
-  fi
-
-  log "Pruning old backups, keeping latest ${keep}"
-  find "${root}" -mindepth 1 -maxdepth 1 -type d -regextype posix-extended -regex '.*/[0-9]{8}T[0-9]{6}Z$' -printf '%f\n' \
-    | sort -r \
-    | awk -v keep="${keep}" 'NR > keep { print }' \
-    | while IFS= read -r backup_id; do
-        if [[ "${backup_id}" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]; then
-          secure_path_operation remove-tree "${root}/${backup_id}"
-        fi
-      done
 }
 
 log "Creating PostgreSQL backup"

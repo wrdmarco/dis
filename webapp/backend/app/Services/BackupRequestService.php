@@ -11,6 +11,8 @@ final class BackupRequestService
 {
     public const CREATE_TIMEOUT_SECONDS = 1020;
 
+    public const PRUNE_TIMEOUT_SECONDS = 1020;
+
     public const VERIFY_TIMEOUT_SECONDS = 720;
 
     public const PROBE_TIMEOUT_SECONDS = 30;
@@ -64,6 +66,25 @@ final class BackupRequestService
     /**
      * @return array{exit_code: int, output: string, request_id: string}
      */
+    public function prune(
+        string $target,
+        ?string $actorId,
+        string $runtimeConfigSha256,
+        int $timeoutSeconds = self::PRUNE_TIMEOUT_SECONDS,
+    ): array {
+        return $this->run(
+            BackupRequestOperation::Prune,
+            $target,
+            null,
+            $actorId,
+            $timeoutSeconds,
+            $runtimeConfigSha256,
+        );
+    }
+
+    /**
+     * @return array{exit_code: int, output: string, request_id: string}
+     */
     public function probe(int $timeoutSeconds = self::PROBE_TIMEOUT_SECONDS): array
     {
         return $this->run(
@@ -84,12 +105,21 @@ final class BackupRequestService
         ?string $backupPath,
         ?string $actorId,
         int $timeoutSeconds,
+        ?string $runtimeConfigSha256 = null,
     ): array {
         if ($timeoutSeconds < 1) {
             throw new \InvalidArgumentException('Backup request timeout must be at least one second.');
         }
         if (! in_array($target, ['local', 'samba'], true)) {
             throw new \InvalidArgumentException('Unsupported backup target.');
+        }
+        if ($operation === BackupRequestOperation::Prune) {
+            if ($runtimeConfigSha256 === null
+                || preg_match('/^[a-f0-9]{64}$/', $runtimeConfigSha256) !== 1) {
+                throw new \InvalidArgumentException('Backup prune runtime configuration fingerprint is invalid.');
+            }
+        } elseif ($runtimeConfigSha256 !== null) {
+            throw new \InvalidArgumentException('Runtime configuration fingerprints are only valid for backup pruning.');
         }
 
         $requestId = $this->newRequestId();
@@ -105,13 +135,17 @@ final class BackupRequestService
         $temporary = $root.'/'.$requestId.'.tmp';
         $pending = $root.'/'.$requestId.'.pending';
         $result = $root.'/'.$requestId.'.result';
-        $payload = json_encode([
+        $request = [
             'operation' => $operation->value,
             'target' => $target,
             'backup_path' => $backupPath,
             'actor_id' => $actorId,
             'created_at' => gmdate('Y-m-d\\TH:i:s\\Z'),
-        ], JSON_THROW_ON_ERROR)."\n";
+        ];
+        if ($operation === BackupRequestOperation::Prune) {
+            $request['runtime_config_sha256'] = $runtimeConfigSha256;
+        }
+        $payload = json_encode($request, JSON_THROW_ON_ERROR)."\n";
 
         try {
             $this->publish($temporary, $pending, $payload);

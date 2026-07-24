@@ -251,6 +251,52 @@ final class BackupController extends Controller
         ], 201);
     }
 
+    public function prune(
+        Request $request,
+        BackupRequestService $backupRequests,
+    ): JsonResponse {
+        $data = $request->validate([
+            'target' => ['required', 'string', 'in:local,samba'],
+        ]);
+        $target = (string) $data['target'];
+        $this->ensureTargetReady($target);
+        $runtimeConfig = $this->runtimeConfig->write($target);
+        $actorId = $request->user()?->id;
+        $result = $backupRequests->prune(
+            $target,
+            is_string($actorId) ? $actorId : null,
+            $runtimeConfig['sha256'],
+        );
+        $output = $this->cleanOutput($result['output']);
+        $successful = $result['exit_code'] === 0;
+
+        $this->auditService->record('backups.retention_applied', SystemSetting::class, $request->user(), [
+            'target' => $runtimeConfig['target'],
+            'target_reference' => $runtimeConfig['target_reference'],
+            'retention_count' => $runtimeConfig['retention_count'],
+            'successful' => $successful,
+            'operation_request_id' => $result['request_id'],
+        ], null, $request);
+
+        if (! $successful) {
+            return ApiResponse::error(
+                'backup_prune_failed',
+                $output ?: 'Backupretentie toepassen mislukt.',
+                500,
+            );
+        }
+
+        return ApiResponse::success([
+            'state' => 'succeeded',
+            'target' => $runtimeConfig['target'],
+            'target_reference' => $runtimeConfig['target_reference'],
+            'retention_count' => $runtimeConfig['retention_count'],
+            'output' => $output,
+            'request_id' => $result['request_id'],
+            'backups' => $this->index()->getData(true)['data']['backups'] ?? [],
+        ]);
+    }
+
     public function verify(
         Request $request,
         string $backup,

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Console\Commands\RunScheduledBackup;
 use App\Http\Controllers\BackupController;
+use App\Models\AuditLog;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SystemSetting;
@@ -57,7 +58,7 @@ final class BackupRuntimeConfigServiceTest extends TestCase
             'backup.samba.password' => "legacy\tpassword",
         ]);
 
-        $this->service()->write('local');
+        $metadata = $this->service()->write('local');
 
         $config = $this->readConfig();
         self::assertSame([
@@ -72,6 +73,16 @@ final class BackupRuntimeConfigServiceTest extends TestCase
         foreach ($config as $value) {
             self::assertIsString($value);
         }
+        self::assertSame([
+            'sha256',
+            'target',
+            'retention_count',
+            'target_reference',
+        ], array_keys($metadata));
+        self::assertSame($this->configFingerprint($config), $metadata['sha256']);
+        self::assertSame('local', $metadata['target']);
+        self::assertSame(7, $metadata['retention_count']);
+        self::assertSame($config['BACKUP_ROOT'], $metadata['target_reference']);
         self::assertSame([], glob($this->temporaryDirectory.DIRECTORY_SEPARATOR.'.backup-config-*') ?: []);
     }
 
@@ -79,7 +90,7 @@ final class BackupRuntimeConfigServiceTest extends TestCase
     {
         $this->configureSettings();
 
-        $this->service()->write('samba');
+        $metadata = $this->service()->write('samba');
 
         $config = $this->readConfig();
         self::assertSame([
@@ -100,6 +111,10 @@ final class BackupRuntimeConfigServiceTest extends TestCase
         foreach ($config as $value) {
             self::assertIsString($value);
         }
+        self::assertSame($this->configFingerprint($config), $metadata['sha256']);
+        self::assertSame('samba', $metadata['target']);
+        self::assertSame(7, $metadata['retention_count']);
+        self::assertSame('//backup.example.test/dis', $metadata['target_reference']);
     }
 
     public function test_control_characters_are_rejected_before_publication(): void
@@ -222,9 +237,133 @@ final class BackupRuntimeConfigServiceTest extends TestCase
         }
     }
 
+    public function test_manual_retention_requires_an_explicit_target_and_returns_the_refreshed_list(): void
+    {
+        $this->configureSettings([
+            'backup.target' => 'local',
+            'backup.retention_count' => 2,
+        ]);
+        $this->app->instance(BackupRuntimeConfigService::class, $this->service());
+
+        $requestRoot = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'prune-requests';
+        self::assertTrue(mkdir($requestRoot, 0750));
+        $requestId = str_repeat('e', 32);
+        $requestPayload = null;
+        $this->app->instance(BackupRequestService::class, new BackupRequestService(
+            $requestRoot,
+            static fn (): string => $requestId,
+            null,
+            static function (int $microseconds) use ($requestRoot, $requestId, &$requestPayload): void {
+                unset($microseconds);
+                $pending = $requestRoot.DIRECTORY_SEPARATOR.$requestId.'.pending';
+                $contents = file_get_contents($pending);
+                self::assertIsString($contents);
+                $requestPayload = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
+                @unlink($pending);
+                SystemSetting::query()
+                    ->where('key', 'backup.retention_count')
+                    ->firstOrFail()
+                    ->forceFill(['value' => 99])
+                    ->save();
+                file_put_contents(
+                    $requestRoot.DIRECTORY_SEPARATOR.$requestId.'.result',
+                    json_encode([
+                        'exit_code' => 0,
+                        'output' => 'Backup retention applied to local target.',
+                    ], JSON_THROW_ON_ERROR)."\n",
+                );
+            },
+        ));
+
+        try {
+            $actor = $this->administrator();
+            $request = $this->asAdminClient($actor);
+
+            $request->postJson('/api/admin/backups/prune', [])
+                ->assertUnprocessable()
+                ->assertJsonPath('error.code', 'validation_failed')
+                ->assertJsonStructure(['error' => ['details' => ['target']]]);
+
+            $response = $request->postJson('/api/admin/backups/prune', ['target' => 'local']);
+            $response->assertOk()
+                ->assertJsonPath('data.state', 'succeeded')
+                ->assertJsonPath('data.target', 'local')
+                ->assertJsonPath(
+                    'data.target_reference',
+                    rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/').'/backup',
+                )
+                ->assertJsonPath('data.retention_count', 2)
+                ->assertJsonPath('data.request_id', $requestId)
+                ->assertJsonStructure(['data' => ['output', 'backups']]);
+
+            self::assertSame('prune', $requestPayload['operation'] ?? null);
+            self::assertSame('local', $requestPayload['target'] ?? null);
+            self::assertNull($requestPayload['backup_path'] ?? null);
+            self::assertSame((string) $actor->id, $requestPayload['actor_id'] ?? null);
+            self::assertSame(
+                $this->configFingerprint($this->readConfig()),
+                $requestPayload['runtime_config_sha256'] ?? null,
+            );
+            self::assertArrayNotHasKey('BACKUP_SAMBA_PASSWORD', $requestPayload);
+
+            $audit = AuditLog::query()
+                ->where('action', 'backups.retention_applied')
+                ->sole();
+            self::assertSame('local', $audit->metadata['target'] ?? null);
+            self::assertSame(
+                rtrim((string) env('DIS_DATA_PATH', '/opt/dis-data'), '/').'/backup',
+                $audit->metadata['target_reference'] ?? null,
+            );
+            self::assertSame(2, $audit->metadata['retention_count'] ?? null);
+            self::assertTrue($audit->metadata['successful'] ?? false);
+            self::assertSame($requestId, $audit->metadata['operation_request_id'] ?? null);
+            self::assertNotSame($requestId, $audit->metadata['request_id'] ?? null);
+            self::assertArrayNotHasKey('sha256', $audit->metadata);
+            self::assertArrayNotHasKey('runtime_config_sha256', $audit->metadata);
+            self::assertSame(99, SystemSetting::integer('backup.retention_count', 0));
+        } finally {
+            foreach (glob($requestRoot.DIRECTORY_SEPARATOR.'*') ?: [] as $path) {
+                @unlink($path);
+            }
+            rmdir($requestRoot);
+        }
+    }
+
+    public function test_manual_retention_requires_the_existing_backup_manage_permission(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Backup viewer',
+            'first_name' => 'Backup',
+            'last_name' => 'Viewer',
+            'email' => 'backup-viewer@example.test',
+            'password' => Hash::make('Test-password-123!'),
+            'account_status' => 'active',
+            'two_factor_enabled' => true,
+            'two_factor_confirmed_at' => now(),
+        ]);
+
+        $this->asAdminClient($user)
+            ->postJson('/api/admin/backups/prune', ['target' => 'local'])
+            ->assertForbidden();
+    }
+
     private function service(): BackupRuntimeConfigService
     {
         return new BackupRuntimeConfigService($this->configPath);
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     */
+    private function configFingerprint(array $config): string
+    {
+        $stream = '';
+        foreach ($config as $key => $value) {
+            self::assertIsString($value);
+            $stream .= $key."\0".$value."\0";
+        }
+
+        return hash('sha256', $stream);
     }
 
     /**

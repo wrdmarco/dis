@@ -13,7 +13,15 @@ final class BackupRuntimeConfigService
 
     public function __construct(private readonly ?string $pathOverride = null) {}
 
-    public function write(string $target): void
+    /**
+     * @return array{
+     *     sha256: string,
+     *     target: 'local'|'samba',
+     *     retention_count: int,
+     *     target_reference: string
+     * }
+     */
+    public function write(string $target): array
     {
         if (! in_array($target, ['local', 'samba'], true)) {
             throw new RuntimeException('Backup runtime configuration target is invalid.');
@@ -41,6 +49,15 @@ final class BackupRuntimeConfigService
         $this->assertValidValues($config);
         $payload = json_encode($config, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT)."\n";
         $this->publish($payload);
+
+        return [
+            'sha256' => $this->fingerprint($config),
+            'target' => $target,
+            'retention_count' => (int) $config['BACKUP_RETENTION_COUNT'],
+            'target_reference' => $target === 'samba'
+                ? $config['BACKUP_SAMBA_SHARE']
+                : $config['BACKUP_ROOT'],
+        ];
     }
 
     /**
@@ -55,6 +72,19 @@ final class BackupRuntimeConfigService
                 throw new RuntimeException('Backup runtime configuration contains an invalid value.');
             }
         }
+    }
+
+    /**
+     * @param  array<string, string>  $config
+     */
+    private function fingerprint(array $config): string
+    {
+        $stream = '';
+        foreach ($config as $key => $value) {
+            $stream .= $key."\0".$value."\0";
+        }
+
+        return hash('sha256', $stream);
     }
 
     private function publish(string $payload): void
