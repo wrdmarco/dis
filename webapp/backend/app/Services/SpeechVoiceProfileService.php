@@ -7,6 +7,7 @@ use App\Models\SpeechCacheEntry;
 use App\Models\SpeechManifest;
 use App\Models\SpeechManifestBuild;
 use App\Models\SpeechManifestSegment;
+use App\Models\SpeechPreparedPhrase;
 use App\Models\SpeechPreview;
 use App\Models\SpeechVoiceProfile;
 use App\Models\SystemSetting;
@@ -104,6 +105,19 @@ final class SpeechVoiceProfileService
                 ->merge(SpeechManifestSegment::query()->whereIn('speech_manifest_id', $manifestIds)->pluck('audio_asset_id'))
                 ->merge(SpeechPreview::query()->whereIn('id', $previewIds)->pluck('audio_asset_id'))
                 ->filter()->map(fn (mixed $id): string => (string) $id)->unique()->values()->all();
+            $voiceCacheEntryIds = SpeechCacheEntry::query()
+                ->where('voice_profile_id', $locked->id)
+                ->pluck('id');
+            SpeechPreparedPhrase::query()
+                ->whereIn('cache_entry_id', $voiceCacheEntryIds)
+                ->update([
+                    'status' => 'failed',
+                    'progress_percent' => 0,
+                    'error_code' => 'speech_voice_consent_revoked',
+                    'cache_entry_id' => null,
+                    'prepared_at' => null,
+                    'updated_at' => now(),
+                ]);
             $locked->forceFill(['status' => 'revoked', 'consent_version' => (int) $locked->consent_version + 1])->save();
             SpeechManifestBuild::query()->whereIn('id', $buildIds)->whereIn('status', ['queued', 'processing', 'ready'])->update([
                 'status' => 'failed',

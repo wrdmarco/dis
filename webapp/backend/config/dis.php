@@ -256,6 +256,7 @@ return [
         'cache_hmac_key' => env('SPEECH_CACHE_HMAC_KEY'),
         'cache_key_version' => 2,
         'cache_quota_bytes' => max(268_435_456, (int) env('SPEECH_CACHE_QUOTA_BYTES', 5_368_709_120)),
+        'orphan_grace_seconds' => max(3600, (int) env('SPEECH_ORPHAN_GRACE_SECONDS', 86_400)),
         'segment_retention_days' => max(1, (int) env('SPEECH_SEGMENT_RETENTION_DAYS', 30)),
         'composite_retention_days' => max(1, (int) env('SPEECH_COMPOSITE_RETENTION_DAYS', 7)),
         'preview_retention_hours' => max(1, (int) env('SPEECH_PREVIEW_RETENTION_HOURS', 24)),

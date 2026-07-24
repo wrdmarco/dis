@@ -3,10 +3,15 @@ import { expect, test, type Page } from 'playwright/test';
 import type {
   PaginationMeta,
   SpeechCacheEntrySummary,
+  SpeechPreparationKind,
+  SpeechPreparationStatus,
+  SpeechPreparationSummary,
+  SpeechPreparedPhrase,
   SpeechPreview,
 } from '../src/types/api';
 import {
   fixedSpeechCacheAudioPath,
+  fixedSpeechPreparationAudioPath,
   fixedSpeechPreviewAudioPath,
   formatSpeechBytes,
   formatSpeechDuration,
@@ -488,6 +493,171 @@ test('shows an actionable error when ready preview audio cannot be loaded', asyn
   )).toBeVisible();
 });
 
+test('opens the permanent preparation library read-only and supports accessible keyboard tabs', async ({ page }) => {
+  const entry = speechPreparedPhrase('Utrecht');
+  const listRequests: Array<{
+    payload: SpeechPreparationSearchPayload;
+    transport: 'index' | 'search';
+  }> = [];
+  await mockSpeechAdminApi(page, speechAdminStatus(), {
+    canViewPreparations: true,
+    canManagePreparations: false,
+    preparations: {
+      summary: () => ({ data: speechPreparationSummary(1) }),
+      search: (payload, transport) => {
+        listRequests.push({ payload, transport });
+
+        return {
+          items: [entry],
+          meta: { current_page: 1, last_page: 1, per_page: 20, total: 1 },
+        };
+      },
+      audio: {
+        body: silentWav(),
+        contentType: 'audio/wav',
+      },
+    },
+  });
+  await page.goto('/speech');
+
+  const opener = page.getByRole('button', { name: 'Voorbereidingsbibliotheek bekijken' });
+  await expect(opener).toBeEnabled();
+  await opener.click();
+
+  const dialog = page.getByRole('dialog', { name: 'Voorbereidingsbibliotheek bekijken' });
+  await expect(dialog.getByText(/Je hebt alleen leesrechten/)).toBeVisible();
+  await expect(dialog.getByText(entry.value ?? '')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Verwijderen' })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Opnieuw genereren' })).toHaveCount(0);
+  await expect(dialog.getByText('Volledige voorbereidingscache legen')).toHaveCount(0);
+  await expect(dialog.getByLabel(`Voorbereide audio afspelen voor ${entry.value}`)).toHaveAttribute(
+    'src',
+    `/api${fixedSpeechPreparationAudioPath(entry.id)}`,
+  );
+  await expect.poll(() => listRequests.length).toBe(1);
+  expect(listRequests[0]).toEqual({
+    transport: 'index',
+    payload: {
+      kind: 'residence',
+      page: 1,
+      per_page: 20,
+    },
+  });
+
+  await dialog.getByLabel('Zoeken').fill('Utrecht');
+  await expect.poll(() => listRequests.length).toBe(2);
+  expect(listRequests[1]).toEqual({
+    transport: 'search',
+    payload: {
+      kind: 'residence',
+      page: 1,
+      per_page: 20,
+      search: 'Utrecht',
+    },
+  });
+
+  const residenceTab = dialog.getByRole('tab', { name: 'Woonplaatsen' });
+  const fixedPhraseTab = dialog.getByRole('tab', { name: 'Vaste template- en pushzinnen' });
+  await expect(residenceTab).toHaveAttribute('tabindex', '0');
+  await expect(fixedPhraseTab).toHaveAttribute('tabindex', '-1');
+  await residenceTab.focus();
+  await page.keyboard.press('End');
+  await expect(fixedPhraseTab).toBeFocused();
+  await expect(fixedPhraseTab).toHaveAttribute('aria-selected', 'true');
+  await expect(dialog.getByRole('tabpanel', { name: 'Vaste template- en pushzinnen' })).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(opener).toBeFocused();
+});
+
+test('returns to a valid page after deleting its last preparation and focuses safe confirmation', async ({ page }) => {
+  const firstPageEntry = speechPreparedPhrase('Amsterdam', '01PREPAREDPHRASEPAGE100000001');
+  const lastPageEntry = speechPreparedPhrase('Utrecht', '01PREPAREDPHRASEPAGE200000001');
+  let deleted = false;
+  await mockSpeechAdminApi(page, speechAdminStatus(), {
+    canViewPreparations: true,
+    canManagePreparations: true,
+    preparations: {
+      summary: () => ({ data: speechPreparationSummary(deleted ? 20 : 21) }),
+      search: (payload) => {
+        if (payload.page === 2 && !deleted) {
+          return {
+            items: [lastPageEntry],
+            meta: { current_page: 2, last_page: 2, per_page: 20, total: 21 },
+          };
+        }
+        if (payload.page === 2) {
+          return {
+            items: [],
+            meta: { current_page: 2, last_page: 1, per_page: 20, total: 20 },
+          };
+        }
+
+        return {
+          items: [firstPageEntry],
+          meta: {
+            current_page: 1,
+            last_page: deleted ? 1 : 2,
+            per_page: 20,
+            total: deleted ? 20 : 21,
+          },
+        };
+      },
+      onDelete: (id) => {
+        expect(id).toBe(lastPageEntry.id);
+        deleted = true;
+      },
+    },
+  });
+  await page.goto('/speech');
+  await page.getByRole('button', { name: 'Voorbereidingsbibliotheek beheren' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Voorbereidingsbibliotheek beheren' });
+  await expect(dialog.getByText(firstPageEntry.value ?? '')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Volgende pagina' }).click();
+  await expect(dialog.getByText(lastPageEntry.value ?? '', { exact: true })).toBeVisible();
+
+  await dialog.getByRole('button', { name: 'Verwijderen' }).click();
+  const cancelButton = dialog.getByRole('button', { name: 'Annuleren' });
+  await expect(cancelButton).toBeFocused();
+  await dialog.getByRole('button', { name: 'Definitief verwijderen' }).click();
+
+  await expect(dialog.getByText(firstPageEntry.value ?? '')).toBeVisible();
+  await expect(dialog.getByText('Pagina 1 van 1')).toBeVisible();
+  await expect(dialog.getByText(lastPageEntry.value ?? '', { exact: true })).toHaveCount(0);
+});
+
+test('shows an honest unknown preparation summary and retries it', async ({ page }) => {
+  let summaryRequests = 0;
+  await mockSpeechAdminApi(page, speechAdminStatus(), {
+    canViewPreparations: true,
+    canManagePreparations: false,
+    preparations: {
+      summary: () => {
+        summaryRequests += 1;
+
+        return summaryRequests === 1
+          ? { status: 503 }
+          : { data: speechPreparationSummary(1) };
+      },
+      search: () => ({
+        items: [],
+        meta: { current_page: 1, last_page: 1, per_page: 20, total: 0 },
+      }),
+    },
+  });
+  await page.goto('/speech');
+
+  await expect(page.getByText('Status onbekend')).toBeVisible();
+  await expect(page.getByText('De voorbereidingsstatus kon niet worden opgehaald.')).toBeVisible();
+  await expect(page.getByText('–').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Opnieuw proberen' }).click();
+
+  await expect(page.getByText('Blijvend opgeslagen')).toBeVisible();
+  await expect.poll(() => summaryRequests).toBe(2);
+});
+
 test('uses fixed speech endpoints and a backend-driven model catalog', () => {
   const page = readFileSync(new URL('../src/features/speech/SpeechAdminPage.tsx', import.meta.url), 'utf8');
 
@@ -514,9 +684,40 @@ test('makes the fixed nl-NL emergency voice distinction explicit without a devic
   expect(page).not.toContain('device_voice_id');
 });
 
+interface SpeechPreparationSearchPayload {
+  kind: SpeechPreparationKind;
+  page: number;
+  per_page: number;
+  search?: string;
+  status?: SpeechPreparationStatus;
+}
+
+interface SpeechPreparationMockOptions {
+  summary: () => {
+    status?: number;
+    data?: SpeechPreparationSummary;
+  };
+  search: (
+    payload: SpeechPreparationSearchPayload,
+    transport: 'index' | 'search',
+  ) => {
+    items: SpeechPreparedPhrase[];
+    meta: PaginationMeta;
+  };
+  onDelete?: (id: string) => void;
+  audio?: {
+    status?: number;
+    contentType: string;
+    body: Buffer;
+  };
+}
+
 interface SpeechAdminMockOptions {
   canViewCacheContent?: boolean;
+  canViewPreparations?: boolean;
+  canManagePreparations?: boolean;
   preview?: SpeechPreview;
+  preparations?: SpeechPreparationMockOptions;
   cacheEntries?: {
     status?: number;
     response: (url: URL) => { items: SpeechCacheEntrySummary[]; meta: PaginationMeta };
@@ -541,7 +742,13 @@ async function mockSpeechAdminApi(
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: speechAdminUser(options.canViewCacheContent ?? true) }),
+        body: JSON.stringify({
+          data: speechAdminUser({
+            canViewCacheContent: options.canViewCacheContent ?? true,
+            canViewPreparations: options.canViewPreparations ?? false,
+            canManagePreparations: options.canManagePreparations ?? false,
+          }),
+        }),
       });
       return;
     }
@@ -565,6 +772,70 @@ async function mockSpeechAdminApi(
         contentType: 'application/json',
         body: JSON.stringify({ data: status }),
       });
+      return;
+    }
+    if (path === '/api/admin/speech/preparations/summary' && options.preparations) {
+      const response = options.preparations.summary();
+      const statusCode = response.status ?? 200;
+      await route.fulfill({
+        status: statusCode,
+        contentType: 'application/json',
+        body: JSON.stringify(statusCode >= 400
+          ? {
+              error: {
+                code: 'speech_preparation_summary_unavailable',
+                message: 'Voorbereidingsstatus niet beschikbaar.',
+                details: {},
+              },
+            }
+          : { data: response.data ?? speechPreparationSummary(0) }),
+      });
+      return;
+    }
+    if (path === '/api/admin/speech/preparations/search'
+      && route.request().method() === 'POST'
+      && options.preparations) {
+      const payload = route.request().postDataJSON() as SpeechPreparationSearchPayload;
+      const response = options.preparations.search(payload, 'search');
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: response.items, meta: response.meta }),
+      });
+      return;
+    }
+    if (path === '/api/admin/speech/preparations'
+      && route.request().method() === 'GET'
+      && options.preparations) {
+      const url = new URL(route.request().url());
+      const statusFilter = url.searchParams.get('status');
+      const payload: SpeechPreparationSearchPayload = {
+        kind: url.searchParams.get('kind') as SpeechPreparationKind,
+        page: Number(url.searchParams.get('page')),
+        per_page: Number(url.searchParams.get('per_page')),
+        ...(statusFilter === null ? {} : { status: statusFilter as SpeechPreparationStatus }),
+      };
+      const response = options.preparations.search(payload, 'index');
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: response.items, meta: response.meta }),
+      });
+      return;
+    }
+    const preparationAudioMatch = path.match(/^\/api\/admin\/speech\/preparations\/([^/]+)\/audio$/u);
+    if (preparationAudioMatch && route.request().method() === 'GET' && options.preparations?.audio) {
+      await route.fulfill({
+        status: options.preparations.audio.status ?? 200,
+        contentType: options.preparations.audio.contentType,
+        body: options.preparations.audio.body,
+      });
+      return;
+    }
+    const preparationDeleteMatch = path.match(/^\/api\/admin\/speech\/preparations\/([^/]+)$/u);
+    if (preparationDeleteMatch && route.request().method() === 'DELETE' && options.preparations) {
+      options.preparations.onDelete?.(decodeURIComponent(preparationDeleteMatch[1]));
+      await route.fulfill({ status: 204, body: '' });
       return;
     }
     if (path === '/api/admin/speech/cache/entries' && options.cacheEntries) {
@@ -661,6 +932,42 @@ function speechCacheEntry(): SpeechCacheEntrySummary {
   };
 }
 
+function speechPreparationSummary(total: number): SpeechPreparationSummary {
+  return {
+    counts: {
+      residence: total,
+      province: 0,
+      postcode: 0,
+      fixed_phrase: 0,
+    },
+    total_count: total,
+    ready_count: total,
+    pending_count: 0,
+    failed_count: 0,
+    disk_bytes: total * 1_024,
+  };
+}
+
+function speechPreparedPhrase(
+  value: string,
+  id = '01PREPAREDPHRASE0000000001',
+): SpeechPreparedPhrase {
+  return {
+    id,
+    kind: 'residence',
+    value,
+    status: 'ready',
+    progress_percent: 100,
+    error_code: null,
+    audio_url: `/api/admin/speech/preparations/${id}/audio`,
+    byte_size: 1_024,
+    duration_ms: 1_250,
+    created_at: '2026-07-24T08:00:00Z',
+    updated_at: '2026-07-24T08:01:00Z',
+    prepared_at: '2026-07-24T08:01:00Z',
+  };
+}
+
 function silentWav(): Buffer {
   const sampleRate = 8_000;
   const sampleCount = 2_000;
@@ -683,7 +990,15 @@ function silentWav(): Buffer {
   return wav;
 }
 
-function speechAdminUser(canViewCacheContent = true) {
+function speechAdminUser({
+  canViewCacheContent = true,
+  canViewPreparations = false,
+  canManagePreparations = false,
+}: {
+  canViewCacheContent?: boolean;
+  canViewPreparations?: boolean;
+  canManagePreparations?: boolean;
+} = {}) {
   return {
     id: 'speech-admin',
     name: 'Spraakbeheerder',
@@ -709,6 +1024,16 @@ function speechAdminUser(canViewCacheContent = true) {
         name: 'incidents.view',
         category: 'incidents',
         display_name: 'Incidenten bekijken',
+      }] : []), ...(canViewPreparations ? [{
+        id: 'speech-cache-view',
+        name: 'speech.cache.view',
+        category: 'speech',
+        display_name: 'Spraakvoorbereidingen bekijken',
+      }] : []), ...(canManagePreparations ? [{
+        id: 'speech-cache-manage',
+        name: 'speech.cache.manage',
+        category: 'speech',
+        display_name: 'Spraakvoorbereidingen beheren',
       }] : [])],
     }],
   };

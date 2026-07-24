@@ -49,6 +49,7 @@ import type {
 } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import styles from './SpeechAdminPage.module.css';
+import { SpeechPreparationLibrary } from './SpeechPreparationLibrary';
 import {
   fixedSpeechCacheAudioPath,
   fixedSpeechPreviewAudioPath,
@@ -91,6 +92,8 @@ export function SpeechAdminPage() {
   const { hasPermission } = useAuth();
   const canManage = hasPermission('settings.manage');
   const canViewCacheContent = hasPermission('incidents.view');
+  const canViewPreparations = hasPermission('speech.cache.view');
+  const canManagePreparations = hasPermission('speech.cache.manage');
   const resource = useApiResource<SpeechAdminStatus>('/admin/speech', canManage);
   const reloadSilently = resource.silentReload;
   const activeWork = resource.data !== null && hasActiveSpeechWork(resource.data);
@@ -142,6 +145,8 @@ export function SpeechAdminPage() {
             data={resource.data}
             canManage={canManage}
             canViewCacheContent={canViewCacheContent}
+            canViewPreparations={canViewPreparations}
+            canManagePreparations={canManagePreparations}
             mutateData={resource.mutate}
             reloadData={resource.reload}
           />
@@ -155,12 +160,16 @@ function SpeechWorkspace({
   data,
   canManage,
   canViewCacheContent,
+  canViewPreparations,
+  canManagePreparations,
   mutateData,
   reloadData,
 }: {
   data: SpeechAdminStatus;
   canManage: boolean;
   canViewCacheContent: boolean;
+  canViewPreparations: boolean;
+  canManagePreparations: boolean;
   mutateData: SpeechDataMutator;
   reloadData: () => Promise<void>;
 }) {
@@ -316,6 +325,11 @@ function SpeechWorkspace({
         canManage={canManage}
         onDraftChange={updateDraft}
         onSave={() => void saveSettings()}
+      />
+
+      <SpeechPreparationLibrary
+        canView={canViewPreparations}
+        canManage={canManage && canManagePreparations}
       />
 
       <CachePanel

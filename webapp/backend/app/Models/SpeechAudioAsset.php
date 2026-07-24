@@ -9,10 +9,21 @@ final class SpeechAudioAsset extends Model
 {
     use UsesUlids;
 
-    protected $fillable = ['content_sha256', 'storage_path', 'mime_type', 'byte_size', 'duration_ms'];
+    protected $fillable = [
+        'content_sha256',
+        'storage_path',
+        'mime_type',
+        'byte_size',
+        'duration_ms',
+        'orphaned_at',
+    ];
 
     protected function casts(): array
     {
-        return ['byte_size' => 'integer', 'duration_ms' => 'integer'];
+        return [
+            'byte_size' => 'integer',
+            'duration_ms' => 'integer',
+            'orphaned_at' => 'immutable_datetime',
+        ];
     }
 }

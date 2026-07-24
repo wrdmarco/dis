@@ -184,6 +184,31 @@ export interface Incident {
     status: string;
     response_status?: DispatchRecipient['response_status'] | null;
   } | null;
+  speech_preparations?: IncidentSpeechPreparations;
+}
+
+export type IncidentSpeechPreparationPhase = 'availability' | 'attendance';
+
+export type IncidentSpeechPreparationStatus =
+  | 'disabled'
+  | 'not_scheduled'
+  | 'queued'
+  | 'processing'
+  | 'ready'
+  | 'failed'
+  | 'cancelled';
+
+export interface IncidentSpeechPreparation {
+  phase: IncidentSpeechPreparationPhase;
+  status: IncidentSpeechPreparationStatus;
+  progress_percent: number;
+  error_code: string | null;
+  updated_at: string | null;
+}
+
+export interface IncidentSpeechPreparations {
+  availability: IncidentSpeechPreparation;
+  attendance: IncidentSpeechPreparation;
 }
 
 export interface OperationalMapLayers {
@@ -2095,6 +2120,34 @@ export interface SpeechCacheEntrySummary {
   updated_at: string;
   last_used_at: string | null;
   expires_at: string | null;
+}
+
+export type SpeechPreparationKind = 'residence' | 'province' | 'postcode' | 'fixed_phrase';
+
+export type SpeechPreparationStatus = 'queued' | 'processing' | 'ready' | 'failed';
+
+export interface SpeechPreparedPhrase {
+  id: string;
+  kind: SpeechPreparationKind;
+  value: string | null;
+  status: SpeechPreparationStatus;
+  progress_percent: number;
+  error_code: string | null;
+  audio_url: string | null;
+  byte_size: number | null;
+  duration_ms: number | null;
+  created_at: string;
+  updated_at: string;
+  prepared_at: string | null;
+}
+
+export interface SpeechPreparationSummary {
+  counts: Record<SpeechPreparationKind, number>;
+  total_count: number;
+  ready_count: number;
+  pending_count: number;
+  failed_count: number;
+  disk_bytes: number;
 }
 
 export interface SpeechAdminStatus {

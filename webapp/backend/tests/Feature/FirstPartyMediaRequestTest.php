@@ -21,6 +21,7 @@ final class FirstPartyMediaRequestTest extends TestCase
             'admin thumbnail' => ['/api/admin/wallboard-media/assets/'.$ulid.'/thumbnail'],
             'admin speech preview' => ['/api/admin/speech/previews/'.$ulid.'/audio'],
             'admin speech cache audio' => ['/api/admin/speech/cache/entries/'.$ulid.'/audio'],
+            'admin prepared speech audio' => ['/api/admin/speech/preparations/'.$ulid.'/audio'],
             'operational precipitation radar atlas' => [
                 '/api/operational-weather/radar/precipitation/20260724T120000Z-0123456789abcdef.png',
             ],
@@ -112,6 +113,12 @@ final class FirstPartyMediaRequestTest extends TestCase
             ],
             'unrelated speech cache route' => [
                 '/api/admin/speech/cache/regenerate',
+            ],
+            'invalid prepared phrase identifier' => [
+                '/api/admin/speech/preparations/not-a-ulid/audio',
+            ],
+            'nested prepared phrase audio suffix' => [
+                '/api/admin/speech/preparations/01ARZ3NDEKTSV4RRFFQ69G5FAV/nested/audio',
             ],
         ];
     }

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Contracts\SpeechEngineClient;
 use App\Jobs\RegenerateSpeechCache;
+use App\Jobs\RequeueSpeechPreparedPhrases;
 use App\Models\SpeechAudioAsset;
 use App\Models\SpeechCacheEntry;
 use App\Models\SpeechCacheJob;
@@ -11,6 +12,7 @@ use App\Models\SpeechManifest;
 use App\Models\SpeechManifestBuild;
 use App\Models\SpeechManifestSegment;
 use App\Models\SpeechModelInstallation;
+use App\Models\SpeechPreparedPhrase;
 use App\Models\SpeechPreview;
 use App\Models\SystemSetting;
 use Illuminate\Support\Facades\DB;
@@ -78,6 +80,19 @@ final class SpeechRuntimeReconciliationService
         $invalidAssetIds = array_values(array_unique($invalidAssetIds));
         if ($invalidAssetIds !== []) {
             DB::transaction(function () use ($invalidAssetIds): void {
+                $invalidCacheEntryIds = SpeechCacheEntry::query()
+                    ->whereIn('audio_asset_id', $invalidAssetIds)
+                    ->pluck('id');
+                SpeechPreparedPhrase::query()
+                    ->whereIn('cache_entry_id', $invalidCacheEntryIds)
+                    ->update([
+                        'status' => 'failed',
+                        'progress_percent' => 0,
+                        'error_code' => 'speech_audio_missing_after_restore',
+                        'cache_entry_id' => null,
+                        'prepared_at' => null,
+                        'updated_at' => now(),
+                    ]);
                 $manifestIds = collect()
                     ->merge(SpeechManifest::query()->whereIn('audio_asset_id', $invalidAssetIds)->pluck('id'))
                     ->merge(SpeechManifestSegment::query()->whereIn('audio_asset_id', $invalidAssetIds)->pluck('speech_manifest_id'))
@@ -101,6 +116,9 @@ final class SpeechRuntimeReconciliationService
         }
 
         $regenerationQueued = $invalidAssetIds !== [] && $this->queueRegenerationWhenRuntimeIsReady();
+        if ($invalidAssetIds !== []) {
+            RequeueSpeechPreparedPhrases::dispatch(false);
+        }
 
         return [
             'models_invalidated' => $modelsInvalidated,

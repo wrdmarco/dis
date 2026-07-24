@@ -30,22 +30,33 @@ final class SpeechAudioPipeline
         ?SpeechVoiceProfile $voice,
         float $speed,
         string $category = 'segment',
+        bool $forceRegeneration = false,
     ): SpeechAudioAsset {
         $this->assertVoiceMode($model, $voice);
         $speed = $this->speed($speed);
         $cacheKey = $this->segmentCacheKey($text, $model, $voice, $speed, $category);
         $entryMetadata = $this->entryMetadata($text, $model, $voice, $speed);
-
-        $lockSeconds = max(900, (int) config('dis.speech.synthesis_timeout_seconds', 14_400) + 600);
-
-        return Cache::lock('speech-audio:'.$cacheKey, $lockSeconds)->block(5, function () use (
-            $cacheKey, $category, $text, $model, $voice, $speed, $entryMetadata,
-        ): SpeechAudioAsset {
+        if (! $forceRegeneration) {
             $ready = $this->verifiedReady($cacheKey);
             if ($ready !== null) {
                 $this->cache->recordHit($ready, $entryMetadata);
 
                 return $ready->audioAsset;
+            }
+        }
+
+        $lockSeconds = max(900, (int) config('dis.speech.synthesis_timeout_seconds', 14_400) + 600);
+
+        return Cache::lock('speech-audio:'.$cacheKey, $lockSeconds)->block(5, function () use (
+            $cacheKey, $category, $text, $model, $voice, $speed, $entryMetadata, $forceRegeneration,
+        ): SpeechAudioAsset {
+            if (! $forceRegeneration) {
+                $ready = $this->verifiedReady($cacheKey);
+                if ($ready !== null) {
+                    $this->cache->recordHit($ready, $entryMetadata);
+
+                    return $ready->audioAsset;
+                }
             }
             $this->cache->recordMiss();
             $root = $this->stagingRoot();

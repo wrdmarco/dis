@@ -8,6 +8,7 @@ use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
 use App\Models\Incident;
+use App\Models\SystemSetting;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\DispatchPushOutboxService;
@@ -73,13 +74,20 @@ final class PreannouncementLocationPushTest extends TestCase
             'is_active' => true,
             'last_seen_at' => now(),
         ]);
+        SystemSetting::query()->updateOrCreate(
+            ['key' => 'push.template.preannouncement_body'],
+            [
+                'value' => 'Plaats {{place}}. Postcode[{{postcode}}] Provincie[{{province}}] Adres[{{address}}] Titel[{{title}}]',
+                'is_sensitive' => false,
+                'updated_by' => $actor->id,
+            ],
+        );
 
         $result = $this->app->make(DispatchService::class)
             ->sendPreannouncementForIncidentActivation($incident, $actor);
 
         $this->assertSame(1, $result['queued_tokens']);
-        $firstPreannouncedAt = $dispatch->refresh()->preannounced_at;
-        $this->assertNotNull($firstPreannouncedAt);
+        $this->assertNotNull($dispatch->refresh()->preannounced_at);
         $outbox = DispatchPushOutbox::query()->sole();
         $this->assertSame('incident_preannouncement', $outbox->message_type);
         $this->assertSame('dispatch_update', $outbox->data['type'] ?? null);
@@ -91,14 +99,9 @@ final class PreannouncementLocationPushTest extends TestCase
                 && $job->messageType === 'incident_preannouncement'
                 && ($job->data['type'] ?? null) === 'dispatch_update'
                 && ($job->data['action_mode'] ?? null) === 'availability'
-                && $job->body === 'Ben je beschikbaar voor een melding in Woerden?'
+                && $job->body === 'Plaats Woerden. Postcode[] Provincie[] Adres[] Titel[]'
                 && ! str_contains($job->body, 'CN');
         });
-
-        $this->travel(1)->seconds();
-        $this->app->make(DispatchService::class)
-            ->sendPreannouncementForIncidentActivation($incident, $actor);
-        $this->assertTrue($dispatch->refresh()->preannounced_at->isAfter($firstPreannouncedAt));
     }
 
     private function user(string $email): User

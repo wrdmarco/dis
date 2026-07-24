@@ -64,6 +64,7 @@ final class EnsureFirstPartyRequestsAreStateful extends EnsureFrontendRequestsAr
         return preg_match(
             '#\Aapi/(?:'
                 .'admin/speech/cache/entries/(?i:[0-9a-hjkmnp-tv-z]{26})/audio'
+                .'|admin/speech/preparations/(?i:[0-9a-hjkmnp-tv-z]{26})/audio'
                 .'|(?:operational-weather/radar|wallboard/weather-radar)'
                 .'/(?:precipitation|lightning)/\d{8}T\d{6}Z-[a-f0-9]{16}\.png'
                 .')\z#D',

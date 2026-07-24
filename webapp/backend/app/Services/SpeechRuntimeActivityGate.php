@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Contracts\SpeechEngineClient;
 use App\Exceptions\SpeechEngineException;
+use App\Jobs\RequeueSpeechPreparedPhrases;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
 use App\Models\SpeechModelInstallation;
@@ -141,6 +142,7 @@ final class SpeechRuntimeActivityGate
                     'installed_at' => now(),
                     'failed_at' => null,
                 ])->save();
+                DB::afterCommit(fn () => RequeueSpeechPreparedPhrases::dispatch(false));
             }
             if ((string) $state->active_installation_id === $installationId
                 && hash_equals((string) $state->install_claim_token, $claimToken)) {

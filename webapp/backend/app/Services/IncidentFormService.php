@@ -23,6 +23,8 @@ final class IncidentFormService
         'description',
         'address',
         'place',
+        'postcode',
+        'province',
         'priority',
         'status',
         'reporter_name',

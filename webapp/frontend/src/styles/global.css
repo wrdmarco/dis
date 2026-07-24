@@ -4767,6 +4767,124 @@ select[multiple] {
   padding-top: 16px;
 }
 
+.incident-speech-preparations {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  border-top: 1px solid var(--dis-border);
+  padding-top: 16px;
+}
+
+.incident-speech-preparation {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  border: 1px solid var(--dis-border);
+  border-left: 4px solid var(--dis-border-strong);
+  border-radius: 8px;
+  background: var(--dis-field);
+  padding: 12px 13px;
+}
+
+.incident-speech-preparation--good {
+  border-left-color: var(--dis-positive);
+  background:
+    linear-gradient(90deg, var(--dis-positive-soft), transparent 44%),
+    var(--dis-field);
+}
+
+.incident-speech-preparation--warn {
+  border-left-color: var(--dis-warning);
+  background:
+    linear-gradient(90deg, var(--dis-warning-soft), transparent 44%),
+    var(--dis-field);
+}
+
+.incident-speech-preparation--bad {
+  border-left-color: var(--dis-critical);
+  background:
+    linear-gradient(90deg, var(--dis-critical-soft), transparent 44%),
+    var(--dis-field);
+}
+
+.incident-speech-preparation > header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.incident-speech-preparation h4 {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: var(--dis-text-strong);
+  font-size: 0.9rem;
+}
+
+.incident-speech-preparation h4 svg {
+  flex: 0 0 auto;
+  color: var(--dis-blue);
+}
+
+.incident-speech-preparation > header .status-pill {
+  flex: 0 0 auto;
+}
+
+.incident-speech-preparation > p {
+  margin: 0;
+  color: var(--dis-muted-strong);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.incident-speech-preparation__error {
+  color: var(--dis-critical);
+  overflow-wrap: anywhere;
+}
+
+.incident-speech-preparation > footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  border-top: 1px solid var(--dis-border);
+  padding-top: 8px;
+}
+
+.incident-speech-preparation > footer > div {
+  min-width: 150px;
+  flex: 1 1 220px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.incident-speech-preparation progress {
+  min-width: 0;
+  width: 100%;
+  height: 7px;
+  accent-color: var(--dis-warning);
+}
+
+.incident-speech-preparation footer span,
+.incident-speech-preparation footer time {
+  color: var(--dis-muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 700px) {
+  .incident-speech-preparations {
+    grid-template-columns: 1fr;
+  }
+}
+
 .draft-dispatch {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 180px;

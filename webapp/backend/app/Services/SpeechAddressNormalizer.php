@@ -40,12 +40,24 @@ final class SpeechAddressNormalizer
 
     public function postcode(?string $postcode): string
     {
-        $compact = strtoupper((string) preg_replace('/\s+/u', '', $this->plain($postcode)));
+        $display = $this->displayPostcode($postcode);
+        $compact = str_replace(' ', '', $display);
         if (preg_match('/^([1-9][0-9]{3})([A-Z]{2})$/D', $compact, $match) !== 1) {
             return $this->plain($postcode);
         }
 
         return implode(' ', mb_str_split($match[1].$match[2]));
+    }
+
+    public function displayPostcode(?string $postcode): string
+    {
+        $value = $this->plain($postcode);
+        $compact = strtoupper((string) preg_replace('/\s+/u', '', $value));
+        if (preg_match('/^([1-9][0-9]{3})([A-Z]{2})$/D', $compact, $match) !== 1) {
+            return $value;
+        }
+
+        return $match[1].' '.$match[2];
     }
 
     public function houseNumber(?string $houseNumber): string

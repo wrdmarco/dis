@@ -16,6 +16,7 @@ use App\Services\DispatchService;
 use App\Services\DroneFlightContextService;
 use App\Services\IncidentAccessService;
 use App\Services\IncidentService;
+use App\Services\SpeechPrewarmService;
 use App\Support\ApiDateTime;
 use App\Support\IncidentTimelineAttribution;
 use App\Support\IncidentTimelineResponsePresentation;
@@ -39,6 +40,7 @@ final class IncidentController extends Controller
         private readonly DispatchService $dispatchService,
         private readonly DroneFlightContextService $droneFlightContextService,
         private readonly IncidentAccessService $access,
+        private readonly SpeechPrewarmService $speechPrewarmService,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -208,10 +210,15 @@ final class IncidentController extends Controller
     {
         $this->access->assertCanViewIncident($request->user(), $incident);
 
-        return ApiResponse::success($this->incidentPayloadForActor(
+        $payload = $this->incidentPayloadForActor(
             $incident->load(['coordinator', 'team', 'teams']),
             $request->user(),
-        ));
+        );
+        if ($request->user()->currentClientType() === 'web') {
+            $payload['speech_preparations'] = $this->speechPrewarmService->payload($incident);
+        }
+
+        return ApiResponse::success($payload);
     }
 
     public function update(UpdateIncidentRequest $request, Incident $incident): JsonResponse

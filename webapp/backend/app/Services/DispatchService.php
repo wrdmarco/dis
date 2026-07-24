@@ -32,6 +32,7 @@ final class DispatchService
         private readonly AvailabilityScheduleService $availabilityScheduleService,
         private readonly DispatchPushOutboxService $dispatchPushOutboxService,
         private readonly SpeechDispatchGateService $speechDispatchGateService,
+        private readonly SpeechAddressNormalizer $speechAddresses,
         private readonly IncidentFormService $incidentFormService,
         private readonly LocationService $locationService,
         private readonly RoutingService $routingService,
@@ -216,7 +217,7 @@ final class DispatchService
     public function sendPreannouncementForIncidentActivation(Incident $incident, User $actor, ?string $message = null, array $options = []): array
     {
         $place = $this->placeNameFromLocation($incident->location_label);
-        $tokens = $this->pushTemplateTokens($incident, ['place' => $place ?? '']);
+        $tokens = $this->pushTemplateTokens(null, ['place' => $place ?? '']);
         $notificationTitle = $this->pushTemplate('preannouncement_title', 'D.I.S vooraankondiging', $tokens);
         $notificationBody = $this->pushTemplate(
             'preannouncement_body',
@@ -340,7 +341,7 @@ final class DispatchService
         }
 
         $place = $this->placeNameFromLocation($incident->location_label);
-        $tokens = $this->pushTemplateTokens($incident, ['place' => $place ?? '']);
+        $tokens = $this->pushTemplateTokens(null, ['place' => $place ?? '']);
         $title = $this->pushTemplate('cancellation_title', 'D.I.S geannuleerd', $tokens);
         $body = $this->pushTemplate(
             'cancellation_body',
@@ -1989,6 +1990,10 @@ final class DispatchService
     {
         $place = $extra['place'] ?? $this->placeNameFromLocation($incident?->location_label) ?? '';
         $address = (string) ($incident?->location_label ?? '');
+        $postcode = preg_match('/\b[1-9][0-9]{3}\s*[A-Z]{2}\b/iu', $address, $postcodeMatch) === 1
+            ? $this->speechAddresses->displayPostcode($postcodeMatch[0])
+            : '';
+        $province = $this->speechAddresses->plain((string) ($incident?->province_name ?? ''));
         $latitude = (string) ($incident?->latitude ?? '');
         $longitude = (string) ($incident?->longitude ?? '');
         $coordinates = trim($latitude.($latitude !== '' && $longitude !== '' ? ', ' : '').$longitude);
@@ -2000,6 +2005,8 @@ final class DispatchService
             'location' => $address,
             'address' => $address,
             'place' => $place,
+            'postcode' => $postcode,
+            'province' => $province,
             'latitude' => $latitude,
             'longitude' => $longitude,
             'coordinates' => $coordinates,

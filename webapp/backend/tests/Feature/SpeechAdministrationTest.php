@@ -369,12 +369,16 @@ final class SpeechAdministrationTest extends TestCase
             'location_label' => 'Maliebaan 12, 3581 CP Utrecht',
         ]);
 
-        $this->assertSame(['place' => 'Utrecht'], $templates->contextForIncident('availability', $incident));
+        $this->assertSame([
+            'place' => 'Utrecht',
+            'province' => 'onbekende provincie',
+        ], $templates->contextForIncident('availability', $incident));
         $attendance = $templates->contextForIncident('attendance', $incident);
         $this->assertSame('Maliebaan', $attendance['street']);
         $this->assertSame('12', $attendance['house_number']);
         $this->assertSame('3 5 8 1 C P', $attendance['postcode']);
         $this->assertSame('Utrecht', $attendance['place']);
+        $this->assertSame('onbekende provincie', $attendance['province']);
 
         $this->expectException(ValidationException::class);
         $templates->validate('availability', ['Mogelijke inzet aan {street}.']);

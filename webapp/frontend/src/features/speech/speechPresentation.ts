@@ -103,6 +103,7 @@ export function speechTokenLabel(token: string): string {
     house_number: 'Huisnummer',
     postcode: 'Postcode',
     place: 'Plaats',
+    province: 'Provincie',
   };
 
   return labels[normalized] ?? normalized.replaceAll('_', ' ');
@@ -261,6 +262,23 @@ export function fixedSpeechPreviewAudioPath(previewId: string): string {
 
 export function fixedSpeechCacheAudioPath(entryId: string): string {
   return `/admin/speech/cache/entries/${encodeURIComponent(entryId)}/audio`;
+}
+
+export function fixedSpeechPreparationAudioPath(entryId: string): string {
+  return `/admin/speech/preparations/${encodeURIComponent(entryId)}/audio`;
+}
+
+export function speechPreparationValues(input: string): string[] {
+  return Array.from(new Set(
+    input
+      .split(/\r?\n/u)
+      .map((value) => value.trim())
+      .filter((value) => value !== ''),
+  ));
+}
+
+export function speechPreparationContainsTemplateToken(values: readonly string[]): boolean {
+  return values.some((value) => /[{}]/u.test(value));
 }
 
 export function formatSpeechDuration(durationMs: number | null | undefined): string {

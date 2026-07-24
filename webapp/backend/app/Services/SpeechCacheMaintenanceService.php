@@ -95,6 +95,7 @@ final class SpeechCacheMaintenanceService
             $protected = $this->protectedAssetIds();
             $entries = SpeechCacheEntry::query()->with('audioAsset')
                 ->whereNotNull('audio_asset_id')
+                ->where('is_pinned', false)
                 ->when($protected !== [], fn ($query) => $query->whereNotIn('audio_asset_id', $protected))
                 ->orderByRaw('last_used_at ASC NULLS FIRST')->oldest()->get();
             foreach ($entries as $entry) {
@@ -115,7 +116,7 @@ final class SpeechCacheMaintenanceService
     private function invalidate(string $scope): void
     {
         $protected = $this->protectedAssetIds();
-        $query = SpeechCacheEntry::query();
+        $query = SpeechCacheEntry::query()->where('is_pinned', false);
         if ($scope === 'segments') {
             $query->where('category', 'segment');
         } elseif ($scope === 'composites') {

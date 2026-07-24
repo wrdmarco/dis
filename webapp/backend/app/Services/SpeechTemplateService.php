@@ -15,8 +15,8 @@ final class SpeechTemplateService
     public const PHASE_TEST_ACK = 'test_ack';
 
     private const ALLOWED_TOKENS = [
-        self::PHASE_AVAILABILITY => ['place'],
-        self::PHASE_ATTENDANCE => ['title', 'street', 'house_number', 'postcode', 'place'],
+        self::PHASE_AVAILABILITY => ['place', 'province'],
+        self::PHASE_ATTENDANCE => ['title', 'street', 'house_number', 'postcode', 'place', 'province'],
         self::PHASE_TEST_ACK => [],
     ];
 
@@ -101,13 +101,19 @@ final class SpeechTemplateService
         if ($phase === self::PHASE_AVAILABILITY) {
             $parts = $this->addresses->parts($incident->location_label);
 
-            return ['place' => $parts['place'] !== '' ? $parts['place'] : 'de regio'];
+            return [
+                'place' => $parts['place'] !== '' ? $parts['place'] : 'de regio',
+                'province' => $this->province($incident),
+            ];
         }
         if ($phase === self::PHASE_TEST_ACK) {
             return [];
         }
 
-        return ['title' => $this->addresses->plain($incident->title)]
+        return [
+            'title' => $this->addresses->plain($incident->title),
+            'province' => $this->province($incident),
+        ]
             + $this->addresses->parts($incident->location_label);
     }
 
@@ -207,13 +213,14 @@ final class SpeechTemplateService
     public function exampleContext(string $phase): array
     {
         return match ($phase) {
-            self::PHASE_AVAILABILITY => ['place' => 'Utrecht'],
+            self::PHASE_AVAILABILITY => ['place' => 'Utrecht', 'province' => 'Utrecht'],
             self::PHASE_ATTENDANCE => [
                 'title' => 'zoekactie',
                 'street' => 'Maliebaan',
                 'house_number' => '12 A',
                 'postcode' => '3 5 8 1 C P',
                 'place' => 'Utrecht',
+                'province' => 'Utrecht',
             ],
             self::PHASE_TEST_ACK => [],
             default => throw new \LogicException('Unknown speech phase.'),
@@ -225,5 +232,12 @@ final class SpeechTemplateService
         if (! array_key_exists($phase, self::DEFAULTS)) {
             throw ValidationException::withMessages(['phase' => ['De gekozen spraakfase is ongeldig.']]);
         }
+    }
+
+    private function province(Incident $incident): string
+    {
+        $province = $this->addresses->plain((string) $incident->province_name);
+
+        return $province !== '' ? $province : 'onbekende provincie';
     }
 }

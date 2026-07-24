@@ -15,7 +15,9 @@ final class SpeechCachePruner
     {
         $this->pruneStaleRuntimeFiles();
         $protected = $this->protectedAssetIds();
-        $expired = SpeechCacheEntry::query()->where('expires_at', '<=', now())
+        $expired = SpeechCacheEntry::query()
+            ->where('is_pinned', false)
+            ->where('expires_at', '<=', now())
             ->when($protected !== [], fn ($query) => $query->where(fn ($inner) => $inner
                 ->whereNull('audio_asset_id')->orWhereNotIn('audio_asset_id', $protected)))
             ->pluck('id');
@@ -74,6 +76,7 @@ final class SpeechCachePruner
         $protected = $this->protectedAssetIds();
         $entries = SpeechCacheEntry::query()->with('audioAsset')
             ->whereNotNull('audio_asset_id')
+            ->where('is_pinned', false)
             ->when($protected !== [], fn ($query) => $query->whereNotIn('audio_asset_id', $protected))
             ->orderByRaw('last_used_at ASC NULLS FIRST')->oldest()->get();
         foreach ($entries as $entry) {

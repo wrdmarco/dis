@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\RequeueSpeechPreparedPhrases;
 use App\Models\SpeechAudioAsset;
 use App\Models\SpeechCacheEntry;
 use App\Models\SpeechCacheJob;
@@ -126,8 +127,11 @@ final class SpeechSettingsService
                 throw ValidationException::withMessages(['voice_profile_id' => ['Dit model vereist een gereed stemprofiel.']]);
             }
         }
+        $runtimeChanged = $current['model_id'] !== $next['model_id']
+            || $current['voice_profile_id'] !== $next['voice_profile_id']
+            || (float) $current['speed'] !== (float) $next['speed'];
 
-        DB::transaction(function () use ($next, $actor): void {
+        DB::transaction(function () use ($next, $actor, $runtimeChanged): void {
             $values = [
                 'speech.enabled' => (bool) $next['enabled'],
                 'speech.model_id' => $next['model_id'],
@@ -154,6 +158,9 @@ final class SpeechSettingsService
                     fn (array $lines, string $phase): string => $this->templates->checksum($phase, $lines),
                 )->all(),
             ]);
+            if ($runtimeChanged) {
+                DB::afterCommit(fn () => RequeueSpeechPreparedPhrases::dispatch());
+            }
         });
 
         return $this->status();

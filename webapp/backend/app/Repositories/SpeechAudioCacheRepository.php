@@ -6,10 +6,15 @@ use App\DTO\SpeechCacheEntryMetadata;
 use App\Models\SpeechAudioAsset;
 use App\Models\SpeechCacheEntry;
 use App\Models\SpeechVoiceProfile;
+use App\Services\SpeechAudioAssetGarbageCollector;
 use Illuminate\Support\Facades\DB;
 
 final class SpeechAudioCacheRepository
 {
+    public function __construct(
+        private readonly SpeechAudioAssetGarbageCollector $garbageCollector,
+    ) {}
+
     public function ready(string $cacheKey): ?SpeechCacheEntry
     {
         return SpeechCacheEntry::query()
@@ -80,6 +85,11 @@ final class SpeechAudioCacheRepository
                     'duration_ms' => $durationMs,
                 ],
             );
+            $this->garbageCollector->restoreReference((string) $asset->id);
+            $previousAssetId = SpeechCacheEntry::query()
+                ->where('cache_key', $cacheKey)
+                ->lockForUpdate()
+                ->value('audio_asset_id');
             $entry = SpeechCacheEntry::query()->updateOrCreate(
                 ['cache_key' => $cacheKey],
                 $this->metadata($metadata) + [
@@ -93,6 +103,9 @@ final class SpeechAudioCacheRepository
                     'expires_at' => $expiresAt,
                 ],
             );
+            if ($previousAssetId !== null && (string) $previousAssetId !== (string) $asset->id) {
+                $this->garbageCollector->markIfUnreferenced((string) $previousAssetId);
+            }
 
             return $entry->load('audioAsset');
         });
