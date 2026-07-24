@@ -302,8 +302,23 @@ return [
             ],
         ],
     ],
+    'queue_monitor' => [
+        'refresh_after_seconds' => 5,
+        'recent_hours' => 24,
+        'queues' => [
+            // This is installed capacity, not a live worker-status claim.
+            'push' => [
+                'configured_parallelism' => 4,
+                'worker_timeout_seconds' => 180,
+                'max_attempts' => 4,
+                'stale_active_after_seconds' => 7200,
+            ],
+            'speech' => ['configured_parallelism' => 1],
+        ],
+    ],
     'retention' => [
         'push_logs_days' => (int) env('PUSH_LOG_RETENTION_DAYS', 90),
+        'push_queue_work_items_days' => max(1, (int) env('PUSH_QUEUE_WORK_ITEM_RETENTION_DAYS', 7)),
         'audit_logs_days' => (int) env('AUDIT_LOG_RETENTION_DAYS', 3650),
         'weather_dataset_operations_days' => max(1, (int) env('WEATHER_DATASET_OPERATION_RETENTION_DAYS', 14)),
     ],

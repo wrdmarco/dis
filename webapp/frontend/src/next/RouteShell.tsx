@@ -28,6 +28,7 @@ const homeRedirectCandidates = [
   { to: '/admin', permissions: ['system.developer-access.manage'] },
   { to: '/wallboards', permissions: ['wallboards.manage'] },
   { to: '/routing', permissions: ['system.routing.manage'] },
+  { to: '/queues', permissions: ['system.health.view'] },
   { to: '/system', permissions: ['system.health.view'] },
 ] as const;
 

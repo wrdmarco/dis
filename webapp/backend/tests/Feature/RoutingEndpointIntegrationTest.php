@@ -7,6 +7,7 @@ use App\Contracts\RouteGeometryProvider;
 use App\Contracts\RoutingProvider;
 use App\Jobs\SendFcmNotification;
 use App\Models\AvailabilityStatus;
+use App\Models\Certification;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
@@ -18,6 +19,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\Team;
 use App\Models\User;
+use App\Models\UserCertification;
 use App\Services\DispatchPushOutboxService;
 use App\Services\LocationService;
 use App\Services\Routing\RouteGeometryService;
@@ -160,6 +162,92 @@ final class RoutingEndpointIntegrationTest extends TestCase
             collect($response->json('data.recipients'))->pluck('id')->all(),
         );
         $this->assertFalse($sleepingPilot->fcmTokens()->firstOrFail()->is_online);
+    }
+
+    public function test_team_without_linked_certifications_does_not_inherit_global_dispatch_requirements(): void
+    {
+        config()->set('dis.routing.enabled', false);
+        $viewer = $this->user('team-no-certificate-viewer@example.test', 'Team Certificate Viewer');
+        $this->grant($viewer, ['incidents.dispatch.view']);
+        $team = $this->team('NO-CERTIFICATE-REQUIREMENT');
+        $pilot = $this->eligiblePilot(
+            $team,
+            'team-no-certificate-pilot@example.test',
+            'Team Certificate Pilot',
+            52.100000,
+            5.100000,
+        );
+        $incident = $this->incident(
+            $viewer,
+            $team,
+            52.300000,
+            5.300000,
+            'NO-CERTIFICATE-REQUIREMENT-001',
+        );
+        Certification::query()->create([
+            'code' => 'GLOBAL-DISPATCH-CERTIFICATE',
+            'name' => 'Globaal dispatchcertificaat',
+            'is_required_for_dispatch' => true,
+            'warning_days_before_expiry' => 30,
+        ]);
+
+        $this->asWebClient($viewer)
+            ->getJson('/api/incidents/'.$incident->id.'/dispatch-preview')
+            ->assertOk()
+            ->assertJsonPath('data.recipients.0.id', $pilot->id)
+            ->assertJsonPath('data.blocked_reason', null);
+    }
+
+    public function test_only_certifications_explicitly_linked_to_the_team_are_required(): void
+    {
+        config()->set('dis.routing.enabled', false);
+        $viewer = $this->user('team-certificate-viewer@example.test', 'Required Certificate Viewer');
+        $this->grant($viewer, ['incidents.dispatch.view']);
+        $team = $this->team('EXPLICIT-CERTIFICATE-REQUIREMENT');
+        $pilot = $this->eligiblePilot(
+            $team,
+            'team-certificate-pilot@example.test',
+            'Required Certificate Pilot',
+            52.100000,
+            5.100000,
+        );
+        $incident = $this->incident(
+            $viewer,
+            $team,
+            52.300000,
+            5.300000,
+            'EXPLICIT-CERTIFICATE-REQUIREMENT-001',
+        );
+        $certification = Certification::query()->create([
+            'code' => 'TEAM-DISPATCH-CERTIFICATE',
+            'name' => 'Teamgebonden dispatchcertificaat',
+            'is_required_for_dispatch' => false,
+            'warning_days_before_expiry' => 30,
+        ]);
+        $team->requiredCertifications()->attach($certification->id, ['created_at' => now()]);
+
+        $blocked = $this->asWebClient($viewer)
+            ->getJson('/api/incidents/'.$incident->id.'/dispatch-preview')
+            ->assertOk()
+            ->assertJsonCount(0, 'data.recipients');
+        $this->assertStringContainsString(
+            'verplichte geldige certificering',
+            (string) $blocked->json('data.blocked_reason'),
+        );
+
+        UserCertification::query()->create([
+            'user_id' => $pilot->id,
+            'certification_id' => $certification->id,
+            'issued_at' => now()->subDay()->toDateString(),
+            'expires_at' => now()->addYear()->toDateString(),
+            'status' => 'active',
+        ]);
+
+        $this->asWebClient($viewer)
+            ->getJson('/api/incidents/'.$incident->id.'/dispatch-preview')
+            ->assertOk()
+            ->assertJsonPath('data.recipients.0.id', $pilot->id)
+            ->assertJsonPath('data.blocked_reason', null);
     }
 
     public function test_dispatch_preview_never_ranks_an_optimistic_fallback_before_a_navigation_route(): void

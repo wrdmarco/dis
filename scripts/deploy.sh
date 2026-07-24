@@ -399,6 +399,7 @@ install_php_fpm_privileged_helpers_override
 run_cmd install -m 0440 "${APP_ROOT}/infrastructure/sudoers/dis-update" /etc/sudoers.d/dis-update
 run_cmd visudo -cf /etc/sudoers.d/dis-update
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-queue.service" /etc/systemd/system/dis-queue.service
+run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-push@.service" /etc/systemd/system/dis-push@.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-media.service" /etc/systemd/system/dis-media.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-tts-engine.service" /etc/systemd/system/dis-tts-engine.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-speech.service" /etc/systemd/system/dis-speech.service
@@ -413,6 +414,7 @@ install_osrm_admin_layout
 install_osrm_admin_request_systemd_units "${APP_ROOT}"
 run_cmd systemctl daemon-reload
 run_cmd systemctl enable \
+  dis-push@1 dis-push@2 dis-push@3 dis-push@4 \
   dis-queue dis-media dis-tts-engine dis-speech dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime \
   dis-backup-request.path dis-backup-request.timer \
   dis-osrm-admin-request.path dis-osrm-admin-request.timer

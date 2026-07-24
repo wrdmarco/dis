@@ -33,6 +33,8 @@ import { useApiResource } from '../../lib/useApiResource';
 import type {
   PaginationMeta,
   SpeechPreparationKind,
+  SpeechPreparationPreset,
+  SpeechPreparationPresetResult,
   SpeechPreparationStatus,
   SpeechPreparationSummary,
   SpeechPreparedPhrase,
@@ -294,6 +296,12 @@ function PreparationLibraryModal({
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [clearConfirmation, setClearConfirmation] = useState('');
   const [clearing, setClearing] = useState(false);
+  const [preparingPresetId, setPreparingPresetId] = useState<string | null>(null);
+  const [manualPreparationOpen, setManualPreparationOpen] = useState(false);
+  const presetResource = useApiResource<SpeechPreparationPreset[]>(
+    '/admin/speech/preparations/presets',
+    canManage && kind === 'fixed_phrase',
+  );
   const kindDefinition = PREPARATION_KINDS.find((candidate) => candidate.kind === kind) ?? PREPARATION_KINDS[0];
   const preparedValues = useMemo(() => speechPreparationValues(values), [values]);
   const containsTemplateToken = kind === 'fixed_phrase'
@@ -410,6 +418,8 @@ function PreparationLibraryModal({
     setDeleteConfirmation(null);
     setMutationError(null);
     setMutationMessage(null);
+    setPreparingPresetId(null);
+    setManualPreparationOpen(false);
   }
 
   function handleTabKeyDown(
@@ -491,6 +501,31 @@ function PreparationLibraryModal({
       setMutationError(apiErrorMessage(error, 'Voorbereiden is mislukt.'));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function preparePreset(preset: SpeechPreparationPreset) {
+    setPreparingPresetId(preset.id);
+    setMutationError(null);
+    setMutationMessage(null);
+    try {
+      const response = await api.post<SpeechPreparationPresetResult>(
+        `/admin/speech/preparations/presets/${encodeURIComponent(preset.id)}/prepare`,
+      );
+      const preparedCount = response.data.preparations.length;
+      setPage(1);
+      setReloadGeneration((value) => value + 1);
+      setMutationMessage(
+        `${response.data.preset.label}: ${preparedCount} ${preparedCount === 1 ? 'exacte regel staat' : 'exacte regels staan'} blijvend in de voorbereidingsbibliotheek. Verwerking loopt waar nodig.`,
+      );
+      await Promise.all([
+        onChanged(),
+        presetResource.silentReload(),
+      ]);
+    } catch (error) {
+      setMutationError(apiErrorMessage(error, `${preset.label} kon niet worden voorbereid.`));
+    } finally {
+      setPreparingPresetId(null);
     }
   }
 
@@ -632,11 +667,98 @@ function PreparationLibraryModal({
           ) : null}
 
           {canManage ? (
-            <section className={styles.prepareCard} aria-labelledby="speech-prepare-form-title">
-            <div>
-              <span>Nieuwe voorbereiding</span>
-              <h3 id="speech-prepare-form-title">{kindDefinition.label}</h3>
-              <p>{kindDefinition.help}</p>
+            <>
+            {kind === 'fixed_phrase' ? (
+              <section className={styles.presetSection} aria-labelledby="speech-preset-title">
+                <header>
+                  <div>
+                    <span>Vaste sjablonen</span>
+                    <h3 id="speech-preset-title">Kant-en-klare meldingen</h3>
+                    <p>
+                      De server vult de actuele meldings- en spraakinstellingen in. Controleer de exacte
+                      regels en bereid het volledige sjabloon met één actie voor.
+                    </p>
+                  </div>
+                  <MessageSquareText aria-hidden size={22} />
+                </header>
+
+                {presetResource.loading ? (
+                  <div className={styles.presetState} role="status">
+                    <RefreshCw className={styles.spin} aria-hidden size={18} />
+                    Vaste sjablonen laden…
+                  </div>
+                ) : presetResource.error ? (
+                  <div className={styles.presetState} role="alert">
+                    <AlertTriangle aria-hidden size={18} />
+                    <span>De vaste sjablonen konden niet worden geladen.</span>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={presetResource.loading}
+                      onClick={() => void presetResource.reload()}
+                    >
+                      Opnieuw proberen
+                    </button>
+                  </div>
+                ) : presetResource.data?.length ? (
+                  <ul className={styles.presetList}>
+                    {presetResource.data.map((preset) => (
+                      <li key={preset.id} className={styles.presetCard}>
+                        <div className={styles.presetHeading}>
+                          <div>
+                            <strong>{preset.label}</strong>
+                            <p>{preset.description}</p>
+                          </div>
+                          <span>
+                            {preset.phrase_count} {preset.phrase_count === 1 ? 'regel' : 'regels'}
+                          </span>
+                        </div>
+                        <div className={styles.presetScript}>
+                          <span>Exacte regels</span>
+                          <ol>
+                            {preset.preview_lines.map((line, index) => (
+                              <li key={`${preset.id}-${index}`}>{line}</li>
+                            ))}
+                          </ol>
+                        </div>
+                        <button
+                          className="primary-button"
+                          type="button"
+                          disabled={preparingPresetId !== null}
+                          onClick={() => void preparePreset(preset)}
+                        >
+                          {preparingPresetId === preset.id
+                            ? <RefreshCw className={styles.spin} aria-hidden size={17} />
+                            : <Plus aria-hidden size={18} />}
+                          {preparingPresetId === preset.id
+                            ? `${preset.label} voorbereiden…`
+                            : `${preset.label} voorbereiden`}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className={styles.presetState} role="status">
+                    <MessageSquareText aria-hidden size={18} />
+                    Er zijn momenteel geen vaste sjablonen beschikbaar.
+                  </div>
+                )}
+              </section>
+            ) : null}
+
+            <details
+              className={styles.manualPreparation}
+              open={kind !== 'fixed_phrase' || manualPreparationOpen}
+              onToggle={(event) => {
+                if (kind === 'fixed_phrase') setManualPreparationOpen(event.currentTarget.open);
+              }}
+            >
+              <summary hidden={kind !== 'fixed_phrase'}>Handmatig voorbereiden</summary>
+              <section className={styles.prepareCard} aria-labelledby="speech-prepare-form-title">
+             <div>
+               <span>{kind === 'fixed_phrase' ? 'Handmatige fallback' : 'Nieuwe voorbereiding'}</span>
+               <h3 id="speech-prepare-form-title">{kindDefinition.label}</h3>
+               <p>{kindDefinition.help}</p>
             </div>
             <label>
               Eén waarde of exacte zin per regel
@@ -670,8 +792,10 @@ function PreparationLibraryModal({
                 <AlertTriangle aria-hidden size={17} />
                 Deze zin bevat een variabele. Vul handmatig de exacte, gerenderde push- of templatezin in.
               </p>
-            ) : null}
-            </section>
+             ) : null}
+             </section>
+            </details>
+            </>
           ) : null}
 
           {mutationError ? <p className={styles.inlineError} role="alert"><AlertTriangle aria-hidden size={17} />{mutationError}</p> : null}

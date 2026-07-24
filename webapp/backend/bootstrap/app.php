@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\TransientPushDeliveryException;
 use App\Http\Middleware\AuditPrivilegedRequest;
 use App\Http\Middleware\AuditRateLimitedRequest;
 use App\Http\Middleware\AuthenticateTwoFactorChallenge;
@@ -82,6 +83,20 @@ return Application::configure(basePath: dirname(__DIR__))
         });
         $exceptions->render(function (ModelNotFoundException $exception) {
             return ApiResponse::error('not_found', 'The requested resource was not found.', 404);
+        });
+        $exceptions->render(function (TransientPushDeliveryException $exception, Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            $response = ApiResponse::error(
+                'push_device_state_busy',
+                'De toestelregistratie wordt momenteel verwerkt. Probeer het zo opnieuw.',
+                503,
+            );
+            $response->headers->set('Retry-After', '2');
+
+            return $response;
         });
         $exceptions->render(function (Throwable $exception, $request) {
             if ($exception instanceof HttpResponseException) {

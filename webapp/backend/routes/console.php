@@ -42,7 +42,14 @@ Schedule::command('dis:send-certification-expiry-mails')->dailyAt('08:00');
 Schedule::command('dis:apply-vacation-statuses')->everyFiveMinutes();
 Schedule::command('dis:apply-availability-schedule-statuses')->everyMinute();
 Schedule::command('dis:send-device-presence-ping')->everyFiveMinutes()->withoutOverlapping();
-Schedule::command('dis:send-scheduled-test-alert')->everyMinute();
+Schedule::command('dis:reconcile-push-queue-work-items')
+    ->everyMinute()
+    ->onOneServer()
+    ->withoutOverlapping(2);
+Schedule::command('dis:send-scheduled-test-alert')
+    ->everyMinute()
+    ->onOneServer()
+    ->withoutOverlapping(10);
 Schedule::command('dis:flush-dispatch-push-outbox')
     ->everySecond()
     ->withoutOverlapping(1);

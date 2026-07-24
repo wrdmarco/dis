@@ -1559,6 +1559,63 @@ export interface SystemMetrics {
   };
 }
 
+export type QueueMonitorFilter = 'all' | 'push' | 'speech';
+
+export type QueueMonitorState =
+  | 'pending'
+  | 'queued'
+  | 'processing'
+  | 'retrying'
+  | 'failed'
+  | 'completed'
+  | 'cancelled';
+
+export type QueueMonitorStateFilter = 'all' | QueueMonitorState;
+
+export interface QueueMonitorStateCounts {
+  total: number;
+  pending: number;
+  queued: number;
+  processing: number;
+  retrying: number;
+  failed: number;
+  completed: number;
+  cancelled: number;
+}
+
+export interface QueueMonitorLane {
+  key: string;
+  label: string;
+  configured_parallelism: number;
+  transport_pending_count: number | null;
+  transport_failed_count: number | null;
+  states: QueueMonitorStateCounts;
+}
+
+export interface QueueMonitorItem {
+  id: string;
+  queue: string;
+  workload_type: string;
+  label: string;
+  state: QueueMonitorState;
+  progress_percent: number | null;
+  queued_at: string | null;
+  started_at: string | null;
+  next_attempt_at: string | null;
+  finished_at: string | null;
+  attempts: number | null;
+  error_code: string | null;
+  duration_ms: number | null;
+}
+
+export interface QueueMonitorSnapshot {
+  generated_at: string;
+  refresh_after_seconds: number;
+  summary: QueueMonitorStateCounts;
+  queues: QueueMonitorLane[];
+  items: QueueMonitorItem[];
+}
+
 export interface SystemVersionState {
   app_version: string;
   git: {
@@ -2112,6 +2169,7 @@ export interface SpeechCacheEntrySummary {
   speed: number | null;
   audio_recipe_revision: string | null;
   duration_ms: number | null;
+  synthesis_duration_ms?: number | null;
   byte_size: number | null;
   hit_count: number;
   audio_available: boolean;
@@ -2139,6 +2197,19 @@ export interface SpeechPreparedPhrase {
   created_at: string;
   updated_at: string;
   prepared_at: string | null;
+}
+
+export interface SpeechPreparationPreset {
+  id: string;
+  label: string;
+  description: string;
+  preview_lines: string[];
+  phrase_count: number;
+}
+
+export interface SpeechPreparationPresetResult {
+  preset: SpeechPreparationPreset;
+  preparations: SpeechPreparedPhrase[];
 }
 
 export interface SpeechPreparationSummary {

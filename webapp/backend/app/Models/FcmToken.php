@@ -29,6 +29,7 @@ final class FcmToken extends Model
         'is_active',
         'last_seen_at',
         'revoked_at',
+        'revocation_generation',
     ];
 
     protected $appends = ['is_online'];

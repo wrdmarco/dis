@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, AudioLines, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, CloudRain, CloudSun, DatabaseBackup, FileText, Gauge, KeyRound, LogOut, Map as MapIcon, Menu, MonitorCog, Moon, Network, Palette, Plane, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
+import { Archive, AudioLines, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, CloudRain, CloudSun, DatabaseBackup, FileText, Gauge, KeyRound, ListTodo, LogOut, Map as MapIcon, Menu, MonitorCog, Moon, Network, Palette, Plane, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -85,6 +85,7 @@ const navGroups: NavGroup[] = [
       { to: '/backups', label: 'Backups', icon: DatabaseBackup, permissions: ['backups.manage'] },
       { to: '/wallboards', label: 'Wallboards', icon: MonitorCog, permissions: ['wallboards.manage'] },
       { to: '/routing', label: 'Routering', icon: RouteIcon, permissions: ['system.health.view', 'system.routing.manage'], anyPermission: true },
+      { to: '/queues', label: 'Wachtrijen', icon: ListTodo, permissions: ['system.health.view'] },
       { to: '/system', label: 'Systeem', icon: Bell, permissions: ['system.health.view'] },
     ],
   },
@@ -127,6 +128,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/backups': () => import('../features/backups/BackupPage'),
   '/wallboards': () => import('../features/wallboards/WallboardsAdminPage'),
   '/routing': () => import('../features/admin/OsrmAdminPage'),
+  '/queues': () => import('../features/queues/QueuePage'),
   '/system': () => import('../features/system/SystemPage'),
   [HELP_PATH]: () => import('../features/help/HelpPage'),
   [PROFILE_PATH]: () => import('../features/profile/ProfilePage'),

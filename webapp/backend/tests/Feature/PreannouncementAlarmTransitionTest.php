@@ -38,6 +38,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
         $pilot = $this->user('contextless-pilot@example.test', 'Contextless Pilot', pushEnabled: true);
         $token = FcmToken::query()->create([
             'user_id' => $pilot->id,
+            'personal_access_token_id' => $this->operatorAccessTokenId($pilot, 'Contextless device'),
             'device_id' => 'contextless-device',
             'token' => 'contextless-token',
             'token_hash' => hash('sha256', 'contextless-token'),
@@ -84,6 +85,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
         $pilot = $this->user('cancelled-prealarm-pilot@example.test', 'Cancelled Pilot', pushEnabled: true);
         $token = FcmToken::query()->create([
             'user_id' => $pilot->id,
+            'personal_access_token_id' => $this->operatorAccessTokenId($pilot, 'Cancelled prealarm device'),
             'device_id' => 'cancelled-prealarm-device',
             'token' => 'cancelled-prealarm-token',
             'token_hash' => hash('sha256', 'cancelled-prealarm-token'),
@@ -155,6 +157,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
         $pilot = $this->user('legacy-cancellation-pilot@example.test', 'Legacy Pilot', pushEnabled: true);
         $token = FcmToken::query()->create([
             'user_id' => $pilot->id,
+            'personal_access_token_id' => $this->operatorAccessTokenId($pilot, 'Legacy cancellation device'),
             'device_id' => 'legacy-cancellation-device',
             'token' => 'legacy-cancellation-token',
             'token_hash' => hash('sha256', 'legacy-cancellation-token'),
@@ -212,6 +215,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
         ])->save();
         $token = FcmToken::query()->create([
             'user_id' => $pilot->id,
+            'personal_access_token_id' => $this->operatorAccessTokenId($pilot, 'Transition device'),
             'device_id' => 'transition-device',
             'token' => 'transition-token',
             'token_hash' => hash('sha256', 'transition-token'),
@@ -370,6 +374,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
         $pilot = $this->user('ordered-alarm-pilot@example.test', 'Ordered Pilot', pushEnabled: true);
         $token = FcmToken::query()->create([
             'user_id' => $pilot->id,
+            'personal_access_token_id' => $this->operatorAccessTokenId($pilot, 'Ordered alarm device'),
             'device_id' => 'ordered-alarm-device',
             'token' => 'ordered-alarm-token',
             'token_hash' => hash('sha256', 'ordered-alarm-token'),
@@ -515,5 +520,14 @@ PHP,
             'account_status' => 'active',
             'push_enabled' => $pushEnabled,
         ]);
+    }
+
+    private function operatorAccessTokenId(User $user, string $name): string
+    {
+        return (string) $user->createToken(
+            $name,
+            ['*', 'client:operator'],
+            now()->addHour(),
+        )->accessToken->getKey();
     }
 }

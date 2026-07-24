@@ -44,14 +44,13 @@ export function CertificationsPage() {
       >
         <ResourceState loading={certifications.loading} error={certifications.error} empty={(certifications.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th scope="col">Code</th><th scope="col">Naam</th><th scope="col">Gekoppelde gebruikers</th><th scope="col">Dispatch</th><th scope="col">Actie</th></tr></thead>
+            <thead><tr><th scope="col">Code</th><th scope="col">Naam</th><th scope="col">Gekoppelde gebruikers</th><th scope="col">Actie</th></tr></thead>
             <tbody>
               {certifications.data?.map((certification) => (
                 <tr key={certification.id}>
                   <td>{certification.code}</td>
                   <td>{certification.name}</td>
                   <td>{certificationUsers(certification)}</td>
-                  <td><StatusPill value={certification.is_required_for_dispatch ? 'required' : 'optional'} tone={certification.is_required_for_dispatch ? 'warn' : 'neutral'} /></td>
                   <td>
                     {canManageCertifications ? (
                       <Link className="secondary-button" href={`/certifications/${certification.id}/edit`}>

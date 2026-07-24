@@ -21,14 +21,12 @@ export function TeamsPage() {
       >
         <ResourceState loading={teams.loading} error={teams.error} empty={(teams.data?.length ?? 0) === 0}>
           <table className="data-table">
-            <thead><tr><th scope="col">Code</th><th scope="col">Naam</th><th scope="col">Type</th><th scope="col">Ouderteam</th><th scope="col">Operationeel</th><th scope="col">Mee alarmeren</th><th scope="col">Certificaten vereist</th><th scope="col">Actie</th></tr></thead>
+            <thead><tr><th scope="col">Code</th><th scope="col">Naam</th><th scope="col">Operationeel</th><th scope="col">Mee alarmeren</th><th scope="col">Certificaten vereist</th><th scope="col">Actie</th></tr></thead>
             <tbody>
               {teams.data?.map((team) => (
                 <tr key={team.id}>
                   <td>{team.code}</td>
                   <td>{team.name}</td>
-                  <td>{team.type}</td>
-                  <td>{team.parent?.code ?? '-'}</td>
                   <td><StatusPill value={team.is_operational ? 'actief' : 'uit'} tone={team.is_operational ? 'good' : 'bad'} /></td>
                   <td>{team.alert_teams?.map((alertTeam) => alertTeam.code).join(', ') || '-'}</td>
                   <td>{team.required_certifications?.map((certification) => certification.code).join(', ') || '-'}</td>

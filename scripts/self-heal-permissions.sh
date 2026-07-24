@@ -57,7 +57,7 @@ fi
 # of being followed by install/chown/chmod.
 ensure_data_links "${APP_ROOT}"
 
-for runtime_service in "${PHP_FPM_SERVICE}" dis-queue dis-media dis-tts-engine dis-speech dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime dis-backup-request dis-osrm-admin-request; do
+for runtime_service in "${PHP_FPM_SERVICE}" dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-queue dis-media dis-tts-engine dis-speech dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime dis-backup-request dis-osrm-admin-request; do
   if systemd_service_exists "${runtime_service}" && systemctl is-active --quiet "${runtime_service}"; then
     fail "Permission repair requires ${runtime_service} to be stopped under deployment maintenance."
   fi

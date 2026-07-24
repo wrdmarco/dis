@@ -11,10 +11,11 @@ final class CertificationService
     public function __construct(private readonly AuditService $auditService) {}
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function create(array $data, User $actor): Certification
     {
+        $data['is_required_for_dispatch'] = false;
         $certification = Certification::query()->create($data);
         $this->auditService->record('certifications.created', $certification, $actor);
 
@@ -22,10 +23,11 @@ final class CertificationService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function update(Certification $certification, array $data, User $actor): Certification
     {
+        $data['is_required_for_dispatch'] = false;
         $before = $certification->only(array_keys($data));
         $certification->update($data);
         $this->auditService->record('certifications.updated', $certification, $actor, [
@@ -37,7 +39,7 @@ final class CertificationService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function assignToUser(User $user, array $data, User $actor): UserCertification
     {
@@ -48,7 +50,7 @@ final class CertificationService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function selfAssignToUser(User $user, array $data): UserCertification
     {

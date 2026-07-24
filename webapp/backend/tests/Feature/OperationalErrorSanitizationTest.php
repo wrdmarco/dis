@@ -77,11 +77,17 @@ final class OperationalErrorSanitizationTest extends TestCase
     {
         Exceptions::fake([RuntimeException::class]);
         $user = $this->user('push-errors@example.test');
+        $accessToken = $user->createToken(
+            'Push error device',
+            ['*', 'client:operator'],
+            now()->addHour(),
+        )->accessToken;
         $token = FcmToken::query()->create([
             'user_id' => $user->id,
             'device_id' => 'push-error-device',
             'token' => 'fcm-device-secret',
             'token_hash' => hash('sha256', 'fcm-device-secret'),
+            'personal_access_token_id' => $accessToken->id,
             'platform' => 'android',
             'client_type' => 'operator',
             'is_active' => true,
@@ -161,11 +167,17 @@ final class OperationalErrorSanitizationTest extends TestCase
     ): void {
         $user = $this->user("transient-{$platform}-{$httpStatus}@example.test");
         $user->update(['push_enabled' => true]);
+        $accessToken = $user->createToken(
+            "Transient {$platform} {$httpStatus}",
+            ['*', 'client:operator'],
+            now()->addHour(),
+        )->accessToken;
         $token = FcmToken::query()->create([
             'user_id' => $user->id,
             'device_id' => "transient-{$platform}-{$httpStatus}",
             'token' => "transient-token-{$platform}-{$httpStatus}",
             'token_hash' => hash('sha256', "transient-token-{$platform}-{$httpStatus}"),
+            'personal_access_token_id' => $accessToken->id,
             'platform' => $platform,
             'client_type' => 'operator',
             'is_active' => true,
@@ -214,11 +226,17 @@ final class OperationalErrorSanitizationTest extends TestCase
     ): void {
         $user = $this->user("permanent-{$platform}-{$httpStatus}@example.test");
         $user->update(['push_enabled' => true]);
+        $accessToken = $user->createToken(
+            "Permanent {$platform} {$httpStatus}",
+            ['*', 'client:operator'],
+            now()->addHour(),
+        )->accessToken;
         $token = FcmToken::query()->create([
             'user_id' => $user->id,
             'device_id' => "permanent-{$platform}-{$httpStatus}",
             'token' => "permanent-token-{$platform}-{$httpStatus}",
             'token_hash' => hash('sha256', "permanent-token-{$platform}-{$httpStatus}"),
+            'personal_access_token_id' => $accessToken->id,
             'platform' => $platform,
             'client_type' => 'operator',
             'is_active' => true,

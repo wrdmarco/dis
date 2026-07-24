@@ -86,7 +86,10 @@ final class SpeechAudioPipeline
                     throw new \RuntimeException('Speech synthesis job could not be staged.');
                 }
                 $this->files->write($jobPath, $encoded);
+                // This intentionally excludes queue wait, staging, encoding, inspection and cache publication.
+                $synthesisStartedAt = hrtime(true);
                 $this->engine->synthesize((string) $model->catalog_key, $jobBasename, $outputBasename);
+                $synthesisDurationMs = max(1, (int) ceil((hrtime(true) - $synthesisStartedAt) / 1_000_000));
                 $this->assertWave($wavPath);
                 $this->encodeM4a($wavPath, $m4aPath, $speed);
                 $metadata = $this->inspectM4a($m4aPath);
@@ -99,6 +102,7 @@ final class SpeechAudioPipeline
                     $entryMetadata,
                     $m4aPath,
                     $metadata,
+                    $synthesisDurationMs,
                 );
             } finally {
                 @unlink($jobPath);
@@ -353,6 +357,7 @@ final class SpeechAudioPipeline
         SpeechCacheEntryMetadata $entryMetadata,
         string $source,
         array $metadata,
+        ?int $synthesisDurationMs = null,
     ): SpeechAudioAsset {
         return Cache::lock('speech-cache-quota-publish', 300)->block(30, fn (): SpeechAudioAsset => $this->publishLocked(
             $cacheKey,
@@ -362,6 +367,7 @@ final class SpeechAudioPipeline
             $entryMetadata,
             $source,
             $metadata,
+            $synthesisDurationMs,
         ));
     }
 
@@ -374,6 +380,7 @@ final class SpeechAudioPipeline
         SpeechCacheEntryMetadata $entryMetadata,
         string $source,
         array $metadata,
+        ?int $synthesisDurationMs,
     ): SpeechAudioAsset {
         $relative = 'objects/'.substr($metadata['sha256'], 0, 2).'/'.$metadata['sha256'].'.m4a';
         $destination = $this->writableCacheRoot().DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
@@ -409,6 +416,7 @@ final class SpeechAudioPipeline
         $entry = $this->cache->publish(
             $cacheKey, $category, $voiceProfileId, $this->keys->semantic($semantic), $metadata['sha256'], $relative,
             $metadata['byte_size'], $metadata['duration_ms'], now()->addDays($days), $entryMetadata,
+            $synthesisDurationMs,
         );
 
         return $entry->audioAsset;

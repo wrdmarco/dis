@@ -62,7 +62,6 @@ interface LiveSystemMetricsState {
 
 export function SystemPage() {
   const health = useApiResource<Health>('/admin/health');
-  const queues = useApiResource<Record<string, unknown>>('/admin/queues');
   const websocket = useApiResource<Record<string, unknown>>('/admin/websocket-status');
   const metrics = useLiveSystemMetrics();
   const services = health.data?.services ?? {};
@@ -140,18 +139,11 @@ export function SystemPage() {
         </ResourceState>
       </Panel>
 
-      <div className="two-column">
-        <Panel title="Queues">
-          <ResourceState loading={queues.loading} error={queues.error} empty={!queues.data}>
-            <pre>{JSON.stringify(queues.data, null, 2)}</pre>
-          </ResourceState>
-        </Panel>
-        <Panel title="WebSocket">
-          <ResourceState loading={websocket.loading} error={websocket.error} empty={!websocket.data}>
-            <pre>{JSON.stringify(websocket.data, null, 2)}</pre>
-          </ResourceState>
-        </Panel>
-      </div>
+      <Panel title="WebSocket">
+        <ResourceState loading={websocket.loading} error={websocket.error} empty={!websocket.data}>
+          <pre>{JSON.stringify(websocket.data, null, 2)}</pre>
+        </ResourceState>
+      </Panel>
     </div>
   );
 }

@@ -295,6 +295,29 @@ export function formatSpeechDuration(durationMs: number | null | undefined): str
     : `${totalSeconds} sec.`;
 }
 
+export function formatSpeechSynthesisDuration(durationMs: number | null | undefined): string {
+  if (durationMs === null || durationMs === undefined || !Number.isFinite(durationMs) || durationMs < 0) {
+    return 'Niet vastgelegd';
+  }
+
+  const roundedMilliseconds = Math.round(durationMs);
+  if (roundedMilliseconds < 1_000) {
+    return `${roundedMilliseconds.toLocaleString('nl-NL')} ms`;
+  }
+
+  const totalTenths = Math.round(roundedMilliseconds / 100);
+  const minutes = Math.floor(totalTenths / 600);
+  const remainingTenths = totalTenths % 600;
+  const seconds = (remainingTenths / 10).toLocaleString('nl-NL', {
+    minimumFractionDigits: remainingTenths % 10 === 0 ? 0 : 1,
+    maximumFractionDigits: 1,
+  });
+
+  return minutes > 0
+    ? `${minutes.toLocaleString('nl-NL')} min ${seconds} sec.`
+    : `${seconds} sec.`;
+}
+
 export function microphoneRecordingError(error: unknown, secureContext: boolean): string {
   if (!secureContext) {
     return 'Microfoonopname werkt alleen via een beveiligde HTTPS-verbinding.';

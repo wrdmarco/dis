@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\SpeechEngineClient;
 use App\Models\SpeechAudioAsset;
 use App\Models\SpeechCacheEntry;
 use App\Models\SpeechModelInstallation;
@@ -181,6 +182,92 @@ LOUDNESS);
         $this->assertSame("Eerste regel.\nTweede regel.", $entry->display_text);
         $this->assertSame('voxcpm2', $entry->model_catalog_key);
         $this->assertSame('pinned-model-revision', $entry->model_revision);
+        $this->assertNull($entry->synthesis_duration_ms);
+    }
+
+    public function test_successful_segment_synthesis_records_and_refreshes_only_the_engine_duration(): void
+    {
+        $engine = new DurationTrackingSpeechEngineFake;
+        app()->instance(SpeechEngineClient::class, $engine);
+        Process::fake(function (PendingProcess $process) {
+            $command = is_array($process->command) ? $process->command : [];
+            if (($command[0] ?? null) === config('dis.speech.ffmpeg_binary')) {
+                if (in_array('null', $command, true)) {
+                    return Process::result(errorOutput: json_encode([
+                        'input_i' => '-24.00',
+                        'input_tp' => '-4.00',
+                        'input_lra' => '2.00',
+                        'input_thresh' => '-34.00',
+                        'target_offset' => '0.00',
+                    ], JSON_THROW_ON_ERROR));
+                }
+                $output = end($command);
+                $this->assertIsString($output);
+                usleep(120_000);
+                File::put($output, str_repeat('SYNTHESIS-DURATION-M4A-', 20));
+
+                return Process::result();
+            }
+
+            return Process::result(output: json_encode([
+                'streams' => [['codec_type' => 'audio', 'codec_name' => 'aac']],
+                'format' => [
+                    'duration' => '1.25',
+                    'format_name' => 'mov,mp4,m4a,3gp,3g2,mj2',
+                ],
+            ], JSON_THROW_ON_ERROR));
+        });
+        $model = new SpeechModelInstallation([
+            'catalog_key' => 'voxcpm2',
+            'revision' => 'pinned-model-revision',
+            'weights_sha256' => str_repeat('a', 64),
+        ]);
+        $pipeline = app(SpeechAudioPipeline::class);
+
+        $engine->delayMicroseconds = 20_000;
+        $pipelineStartedAt = hrtime(true);
+        $asset = $pipeline->segment('Dit fragment meet de synthesetijd.', $model, null, 1.0);
+        $pipelineDurationMs = (int) ceil((hrtime(true) - $pipelineStartedAt) / 1_000_000);
+        $entry = SpeechCacheEntry::query()->where('audio_asset_id', $asset->id)->sole();
+        $firstDuration = $entry->synthesis_duration_ms;
+        $this->assertIsInt($firstDuration);
+        $this->assertGreaterThanOrEqual(10, $firstDuration);
+        $this->assertGreaterThanOrEqual($firstDuration + 80, $pipelineDurationMs);
+        $entry->forceFill(['synthesis_duration_ms' => 999_999])->save();
+
+        $engine->delayMicroseconds = 80_000;
+        $pipeline->segment(
+            'Dit fragment meet de synthesetijd.',
+            $model,
+            null,
+            1.0,
+            forceRegeneration: true,
+        );
+        $entry->refresh();
+        $secondDuration = $entry->synthesis_duration_ms;
+        $this->assertIsInt($secondDuration);
+        $this->assertGreaterThanOrEqual(60, $secondDuration);
+        $this->assertNotSame(999_999, $secondDuration);
+
+        $engine->delayMicroseconds = 5_000;
+        $engine->failSynthesis = true;
+        try {
+            $pipeline->segment(
+                'Dit fragment meet de synthesetijd.',
+                $model,
+                null,
+                1.0,
+                forceRegeneration: true,
+            );
+            $this->fail('Mislukte synthese mocht geen cache-item publiceren.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('engine_failed', $exception->getMessage());
+        }
+
+        $entry->refresh();
+        $this->assertSame($secondDuration, $entry->synthesis_duration_ms);
+        $this->assertSame('ready', $entry->status);
+        $this->assertSame(3, $engine->synthesisCalls);
     }
 
     private function cachedAsset(string $bytes): SpeechAudioAsset
@@ -210,5 +297,53 @@ LOUDNESS);
         ]);
 
         return $asset;
+    }
+}
+
+final class DurationTrackingSpeechEngineFake implements SpeechEngineClient
+{
+    public int $delayMicroseconds = 0;
+
+    public int $synthesisCalls = 0;
+
+    public bool $failSynthesis = false;
+
+    public function health(): array
+    {
+        return ['status' => 'ok', 'ready' => true];
+    }
+
+    public function install(string $modelId, array $model): array
+    {
+        return ['status' => 'installed'];
+    }
+
+    public function cancelInstall(string $modelId): array
+    {
+        return ['status' => 'cancelled'];
+    }
+
+    public function status(string $modelId): array
+    {
+        return ['status' => 'installed'];
+    }
+
+    public function synthesize(string $modelId, string $jobBasename, string $outputBasename): array
+    {
+        $this->synthesisCalls++;
+        if ($this->delayMicroseconds > 0) {
+            usleep($this->delayMicroseconds);
+        }
+        if ($this->failSynthesis) {
+            throw new \RuntimeException('engine_failed');
+        }
+        $root = (string) config('dis.speech.staging_root');
+        File::ensureDirectoryExists($root);
+        File::put(
+            $root.DIRECTORY_SEPARATOR.$outputBasename,
+            'RIFF'.pack('V', 132).'WAVE'.str_repeat("\0", 128),
+        );
+
+        return ['duration_ms' => 1000];
     }
 }

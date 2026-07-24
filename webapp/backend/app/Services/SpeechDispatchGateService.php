@@ -13,6 +13,7 @@ use App\Models\SystemSetting;
 use App\Repositories\SpeechModelInstallationRepository;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 final class SpeechDispatchGateService
 {
@@ -22,13 +23,18 @@ final class SpeechDispatchGateService
         private readonly SpeechModelInstallationRepository $installations,
         private readonly DispatchPushOutboxService $outbox,
         private readonly SpeechRuntimeActivityGate $runtime,
+        private readonly TestAlertSpeechContentService $testAlertSpeech,
     ) {}
 
     /** @return array{delayed:bool,deadline:?Carbon,build_id:?string} */
-    public function prepare(DispatchRequest $dispatch, Incident $incident, Carbon $queuedAt): array
-    {
+    public function prepare(
+        DispatchRequest $dispatch,
+        Incident $incident,
+        Carbon $queuedAt,
+        ?array $testAlertLines = null,
+    ): array {
         $this->runtime->preemptForAlarm($incident);
-        if ((bool) $incident->is_test || ! SystemSetting::boolean('speech.enabled', false)) {
+        if (! SystemSetting::boolean('speech.enabled', false)) {
             $this->markImmediate($dispatch, $queuedAt);
 
             return ['delayed' => false, 'deadline' => null, 'build_id' => null];
@@ -53,10 +59,24 @@ final class SpeechDispatchGateService
             return ['delayed' => false, 'deadline' => null, 'build_id' => null];
         }
 
-        $phase = SpeechTemplateService::PHASE_ATTENDANCE;
-        $template = $this->templates->template($phase);
+        $phase = $this->phaseFor($incident);
         $context = $this->templates->contextForIncident($phase, $incident);
-        $lines = $this->templates->render($phase, $template, $context);
+        try {
+            if ($phase === SpeechTemplateService::PHASE_TEST_ACK) {
+                $lines = $testAlertLines === null
+                    ? $this->testAlertSpeech->lines((string) $dispatch->message)
+                    : $this->testAlertSpeech->validateLines($testAlertLines);
+                $templateChecksum = $this->testAlertSpeech->checksum($lines);
+            } else {
+                $template = $this->templates->template($phase);
+                $lines = $this->templates->render($phase, $template, $context);
+                $templateChecksum = $this->templates->checksum($phase, $template);
+            }
+        } catch (ValidationException) {
+            $this->markImmediate($dispatch, $queuedAt);
+
+            return ['delayed' => false, 'deadline' => null, 'build_id' => null];
+        }
         $deadline = $queuedAt->copy()->addSeconds((int) config('dis.speech.release_gate_seconds', 10));
         $build = SpeechManifestBuild::query()->create([
             'dispatch_request_id' => $dispatch->id,
@@ -67,12 +87,13 @@ final class SpeechDispatchGateService
             'voice_design_revision' => $voice === null ? $voiceDesignRevision : null,
             'audio_recipe_revision' => $audioRecipeRevision,
             'speed' => round((float) SystemSetting::value('speech.speed', 1.0), 2),
-            'template_checksum' => $this->templates->checksum($phase, $template),
+            'template_checksum' => $templateChecksum,
             'context_hmac' => $this->keys->key('dispatch-context', $context),
             'source_fingerprint_hmac' => $this->keys->key('dispatch-source', [
                 'dispatch_id' => (string) $dispatch->id,
+                'phase' => $phase,
                 'incident_updated_at' => $incident->updated_at?->toIso8601String(),
-                'template_checksum' => $this->templates->checksum($phase, $template),
+                'template_checksum' => $templateChecksum,
                 'model_installation_id' => (string) $model->id,
                 'voice_profile_id' => $voice?->id,
                 'voice_consent_version' => $voice?->consent_version,
@@ -108,8 +129,12 @@ final class SpeechDispatchGateService
     public function releaseReady(SpeechManifestBuild $build, SpeechManifest $manifest): void
     {
         if ($build->dispatch_request_id === null || $build->release_deadline === null
-            || $build->phase !== SpeechTemplateService::PHASE_ATTENDANCE
-            || $manifest->phase !== SpeechTemplateService::PHASE_ATTENDANCE) {
+            || ! in_array($build->phase, [
+                SpeechTemplateService::PHASE_ATTENDANCE,
+                SpeechTemplateService::PHASE_TEST_ACK,
+            ], true)
+            || $manifest->phase !== $build->phase
+            || (string) $manifest->dispatch_request_id !== (string) $build->dispatch_request_id) {
             return;
         }
         $dispatchMetadata = DispatchRequest::query()->select(['id', 'incident_id'])->find($build->dispatch_request_id);
@@ -121,6 +146,7 @@ final class SpeechDispatchGateService
             $dispatch = DispatchRequest::query()->whereKey($dispatchMetadata->id)->lockForUpdate()->first();
             if ($incident === null || $dispatch === null || ! in_array($dispatch->status, ['sent', 'escalated'], true)
                 || in_array($incident->status, ['resolved', 'cancelled'], true)
+                || $build->phase !== $this->phaseFor($incident)
                 || now()->greaterThanOrEqualTo($build->release_deadline)) {
                 return false;
             }
@@ -132,8 +158,12 @@ final class SpeechDispatchGateService
             if ($rows->isEmpty()) {
                 return false;
             }
+            $attached = 0;
             foreach ($rows as $row) {
                 $data = (array) $row->data;
+                if (! $this->pushDataMatchesPhase($data, (string) $build->phase, (bool) $incident->is_test)) {
+                    continue;
+                }
                 unset(
                     $data['speech_manifest_id'],
                     $data['speech_phase'],
@@ -149,6 +179,10 @@ final class SpeechDispatchGateService
                     'available_at' => now(),
                     'data' => $data,
                 ])->save();
+                $attached++;
+            }
+            if ($attached === 0) {
+                return false;
             }
             $dispatch->forceFill([
                 'send_status' => 'queued_for_push',
@@ -170,5 +204,19 @@ final class SpeechDispatchGateService
             'send_release_deadline' => null,
             'send_released_at' => $queuedAt,
         ])->save();
+    }
+
+    private function phaseFor(Incident $incident): string
+    {
+        return (bool) $incident->is_test
+            ? SpeechTemplateService::PHASE_TEST_ACK
+            : SpeechTemplateService::PHASE_ATTENDANCE;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function pushDataMatchesPhase(array $data, string $phase, bool $isTest): bool
+    {
+        return ($data['action_mode'] ?? null) === $phase
+            && ($data['is_test'] ?? null) === ($isTest ? 'true' : 'false');
     }
 }

@@ -1,6 +1,9 @@
 <?php
 
-return [
-    App\Providers\AppServiceProvider::class,
-];
+use App\Providers\AppServiceProvider;
+use App\Providers\PushQueueLifecycleServiceProvider;
 
+return [
+    AppServiceProvider::class,
+    PushQueueLifecycleServiceProvider::class,
+];

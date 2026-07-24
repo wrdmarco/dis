@@ -18,8 +18,6 @@ interface TeamFormPageProps {
 interface TeamFormState {
   code: string;
   name: string;
-  type: string;
-  parentTeamId: string;
   isOperational: boolean;
   alertTeamIds: string[];
   requiredCertificationIds: string[];
@@ -32,12 +30,6 @@ interface TeamFormProps {
   certificationsLoading: boolean;
   certificationsError: string | null;
 }
-
-const teamTypes = [
-  { value: 'base', label: 'Basisteam' },
-  { value: 'subset', label: 'Subset' },
-  { value: 'support', label: 'Support' },
-];
 
 export function TeamFormPage({ teamId }: TeamFormPageProps) {
   const teams = useApiResource<Team[]>('/admin/teams');
@@ -100,8 +92,6 @@ function TeamForm({
     const payload = {
       code: form.code,
       name: form.name,
-      type: form.type,
-      parent_team_id: form.parentTeamId || null,
       is_operational: form.isOperational,
       alert_team_ids: form.alertTeamIds,
       required_certification_ids: form.requiredCertificationIds,
@@ -148,23 +138,6 @@ function TeamForm({
         Naam
         <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
       </label>
-      <label>
-        Type
-        <select value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))}>
-          {teamTypes.map((type) => (
-            <option key={type.value} value={type.value}>{type.label}</option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Ouderteam
-        <select value={form.parentTeamId} onChange={(event) => setForm((current) => ({ ...current, parentTeamId: event.target.value }))}>
-          <option value="">Geen</option>
-          {selectableTeams.map((candidate) => (
-            <option key={candidate.id} value={candidate.id}>{candidate.code} - {candidate.name}</option>
-          ))}
-        </select>
-      </label>
       <label className="check-label form-grid__wide">
         <input
           type="checkbox"
@@ -185,7 +158,6 @@ function TeamForm({
               />
               <span>
                 <strong>{candidate.code} - {candidate.name}</strong>
-                <small>{candidate.type}</small>
               </span>
             </label>
           ))}
@@ -193,6 +165,7 @@ function TeamForm({
       </div>
       <div className="form-grid__wide">
         <span className="field-label">Certificaten vereist voor alarmering</span>
+        <p className="form-hint">Geen certificaten geselecteerd betekent dat dit team geen certificaateis heeft.</p>
         <ResourceState
           loading={certificationsLoading}
           error={certificationsError}
@@ -230,8 +203,6 @@ function createEmptyForm(): TeamFormState {
   return {
     code: '',
     name: '',
-    type: 'base',
-    parentTeamId: '',
     isOperational: true,
     alertTeamIds: [],
     requiredCertificationIds: [],
@@ -242,8 +213,6 @@ function formFromTeam(team: Team): TeamFormState {
   return {
     code: team.code,
     name: team.name,
-    type: team.type,
-    parentTeamId: team.parent_team_id ?? '',
     isOperational: team.is_operational,
     alertTeamIds: team.alert_teams?.map((alertTeam) => alertTeam.id) ?? [],
     requiredCertificationIds: team.required_certifications?.map((certification) => certification.id) ?? [],

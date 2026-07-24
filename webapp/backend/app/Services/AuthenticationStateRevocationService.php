@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 final class AuthenticationStateRevocationService
 {
@@ -27,6 +28,7 @@ final class AuthenticationStateRevocationService
                 ->update([
                     'is_active' => false,
                     'revoked_at' => $revokedAt,
+                    'revocation_generation' => null,
                     'updated_at' => $revokedAt,
                 ]);
             $users = DB::table('users')->update([
@@ -34,6 +36,40 @@ final class AuthenticationStateRevocationService
                 'auth_session_version' => DB::raw('auth_session_version + 1'),
                 'updated_at' => $revokedAt,
             ]);
+            $availableUsers = DB::select(<<<'SQL'
+                SELECT users.id, users.name, users.email
+                FROM users
+                WHERE (
+                    SELECT availability_statuses.is_available
+                    FROM availability_statuses
+                    WHERE availability_statuses.user_id = users.id
+                    ORDER BY availability_statuses.effective_at DESC,
+                             availability_statuses.created_at DESC,
+                             availability_statuses.id DESC
+                    LIMIT 1
+                ) = true
+            SQL);
+            if ($availableUsers !== []) {
+                DB::table('availability_statuses')->insert(array_map(
+                    static fn (object $user): array => [
+                        'id' => (string) Str::ulid(),
+                        'user_id' => $user->id,
+                        'user_name' => $user->name,
+                        'user_email' => $user->email,
+                        'status' => 'unavailable',
+                        'is_available' => false,
+                        'is_system_applied' => true,
+                        'changed_by' => null,
+                        'changed_by_name' => null,
+                        'changed_by_email' => null,
+                        'reason' => 'Push notifications disabled.',
+                        'effective_at' => $revokedAt,
+                        'created_at' => $revokedAt,
+                        'updated_at' => $revokedAt,
+                    ],
+                    $availableUsers,
+                ));
+            }
 
             return [
                 'tokens' => $tokens,

@@ -7,6 +7,7 @@ use App\Contracts\KnmiCloudForecastProvider;
 use App\Contracts\KnmiPrecipitationOutlookProvider;
 use App\Contracts\OperationalRadarProvider;
 use App\Contracts\PushProvider;
+use App\Contracts\QueueTransportMetrics;
 use App\Contracts\RouteGeometryProvider;
 use App\Contracts\RoutingProvider;
 use App\Contracts\SpeechEngineClient;
@@ -15,6 +16,7 @@ use App\Mail\MicrosoftGraphTransport;
 use App\Models\PersonalAccessToken;
 use App\Models\SystemSetting;
 use App\Repositories\KnmiPrecipitationSnapshotRepository;
+use App\Repositories\LaravelQueueTransportMetrics;
 use App\Services\KnmiHarmonieCloudService;
 use App\Services\KnmiPrecipitationOutlookService;
 use App\Services\OperationalRadarService;
@@ -43,6 +45,7 @@ final class AppServiceProvider extends ServiceProvider
     {
         $this->app->bind(DispatchNotificationQueue::class, QueuedDispatchNotificationQueue::class);
         $this->app->bind(PushProvider::class, PushProviderClient::class);
+        $this->app->bind(QueueTransportMetrics::class, LaravelQueueTransportMetrics::class);
         $this->app->singleton(SpeechEngineClient::class, SelfHostedSpeechEngineClient::class);
         $this->app->bind(WallboardContentProvider::class, SecureWallboardContentProvider::class);
         $this->app->singleton(KnmiCloudForecastProvider::class, KnmiHarmonieCloudService::class);

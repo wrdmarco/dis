@@ -15,6 +15,10 @@ final class ApnsClient
 {
     private const PREANNOUNCEMENT_TTL_SECONDS = 120;
 
+    private const SESSION_NEUTRAL_ALERT_TITLE = 'Nieuwe D.I.S.-melding';
+
+    private const SESSION_NEUTRAL_ALERT_BODY = 'Open D.I.S. om de actuele melding veilig te bekijken.';
+
     /** @param array<string, string> $data */
     public function send(FcmToken $token, string $title, string $body, array $data = []): Response
     {
@@ -38,7 +42,18 @@ final class ApnsClient
             ->acceptJson()
             ->withHeaders($headers)
             ->post($host.'/3/device/'.$token->token, [
-                'aps' => ['alert' => ['title' => $title, 'body' => $body], 'sound' => 'default', 'content-available' => 1],
+                // iOS can render an APNs alert before the application gets a
+                // chance to compare session_token_id. Keep the system-owned
+                // surface account-neutral; the app may use the caller copy
+                // below only after its session-binding check succeeds.
+                'aps' => [
+                    'alert' => [
+                        'title' => self::SESSION_NEUTRAL_ALERT_TITLE,
+                        'body' => self::SESSION_NEUTRAL_ALERT_BODY,
+                    ],
+                    'sound' => 'default',
+                    'content-available' => 1,
+                ],
                 ...$data,
                 'title' => $title,
                 'body' => $body,

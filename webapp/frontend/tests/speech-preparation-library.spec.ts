@@ -71,6 +71,20 @@ test('keeps place, province, postcode and fixed phrases in separate tabs', () =>
   expect(library).toContain('const audioSource = entry.audio_url !== null');
 });
 
+test('uses server-driven fixed phrase presets with manual preparation as fallback', () => {
+  const library = readFileSync(
+    new URL('../src/features/speech/SpeechPreparationLibrary.tsx', import.meta.url),
+    'utf8',
+  );
+
+  expect(library).toContain("'/admin/speech/preparations/presets'");
+  expect(library).toContain('`/admin/speech/preparations/presets/${encodeURIComponent(preset.id)}/prepare`');
+  expect(library).toContain('preset.preview_lines.map');
+  expect(library).toContain('Handmatig voorbereiden');
+  expect(library).not.toContain('weekly_test_alert');
+  expect(library).not.toContain('Dit is een wekelijks proefalarm.');
+});
+
 test('uses GET without user text and a JSON POST when a search term is present', () => {
   const library = readFileSync(
     new URL('../src/features/speech/SpeechPreparationLibrary.tsx', import.meta.url),

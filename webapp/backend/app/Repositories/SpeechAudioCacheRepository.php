@@ -65,10 +65,11 @@ final class SpeechAudioCacheRepository
         int $durationMs,
         \DateTimeInterface $expiresAt,
         SpeechCacheEntryMetadata $metadata,
+        ?int $synthesisDurationMs = null,
     ): SpeechCacheEntry {
         return DB::transaction(function () use (
             $cacheKey, $category, $voiceProfileId, $semanticHmac, $contentSha256, $storagePath, $byteSize, $durationMs, $expiresAt,
-            $metadata,
+            $metadata, $synthesisDurationMs,
         ): SpeechCacheEntry {
             if ($voiceProfileId !== null) {
                 $voice = SpeechVoiceProfile::withTrashed()->whereKey($voiceProfileId)->lockForUpdate()->first();
@@ -99,6 +100,7 @@ final class SpeechAudioCacheRepository
                     'semantic_hmac' => $semanticHmac,
                     'status' => 'ready',
                     'error_code' => null,
+                    'synthesis_duration_ms' => $synthesisDurationMs,
                     'last_used_at' => now(),
                     'expires_at' => $expiresAt,
                 ],

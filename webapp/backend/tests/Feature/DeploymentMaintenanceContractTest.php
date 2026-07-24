@@ -15,17 +15,26 @@ final class DeploymentMaintenanceContractTest extends TestCase
         $this->repositoryRoot = dirname(__DIR__, 4);
     }
 
-    public function test_queue_worker_prioritizes_push_before_background_work(): void
+    public function test_push_uses_four_dedicated_encrypted_queue_workers(): void
     {
-        $service = $this->read('infrastructure/systemd/dis-queue.service');
+        $general = $this->read('infrastructure/systemd/dis-queue.service');
+        $push = $this->read('infrastructure/systemd/dis-push@.service');
+        $job = $this->read('webapp/backend/app/Jobs/SendFcmNotification.php');
 
-        self::assertStringContainsString('--queue=push,default,broadcasts', $service);
-        self::assertStringNotContainsString('--queue=default,push,broadcasts', $service);
+        self::assertStringContainsString('--queue=default,broadcasts', $general);
+        self::assertStringNotContainsString('--queue=push', $general);
+        self::assertStringContainsString('artisan queue:work push --queue=push', $push);
+        self::assertStringNotContainsString('--queue=speech', $push);
+        self::assertStringContainsString('NoNewPrivileges=true', $push);
+        self::assertStringContainsString('PrivateDevices=true', $push);
+        self::assertStringContainsString('ProtectSystem=strict', $push);
+        self::assertStringContainsString('implements ShouldBeEncrypted, ShouldQueue', $job);
     }
 
     public function test_media_worker_is_independent_interruptible_and_resource_bounded(): void
     {
         $queue = $this->read('infrastructure/systemd/dis-queue.service');
+        $push = $this->read('infrastructure/systemd/dis-push@.service');
         $media = $this->read('infrastructure/systemd/dis-media.service');
         $speech = $this->read('infrastructure/systemd/dis-speech.service');
         $speechEngine = $this->read('infrastructure/systemd/dis-tts-engine.service');
@@ -46,6 +55,8 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertStringNotContainsString('--queue=wallboard-media', $queue);
         self::assertStringNotContainsString('--queue=speech', $queue);
         self::assertStringNotContainsString('systemctl is-active', $queue);
+        self::assertStringNotContainsString('--queue=speech', $push);
+        self::assertStringNotContainsString('--queue=wallboard-media', $push);
 
         foreach ([
             'Type=exec',
@@ -174,6 +185,10 @@ final class DeploymentMaintenanceContractTest extends TestCase
             'dis-tts-engine',
             'dis-media',
             'dis-queue',
+            'dis-push@1',
+            'dis-push@2',
+            'dis-push@3',
+            'dis-push@4',
             'dis-scheduler',
             'dis-websocket',
             'dis-frontend',
@@ -184,6 +199,10 @@ final class DeploymentMaintenanceContractTest extends TestCase
             'dis-speech',
             'dis-media',
             'dis-queue',
+            'dis-push@1',
+            'dis-push@2',
+            'dis-push@3',
+            'dis-push@4',
             'dis-scheduler',
             'dis-websocket',
         ]);
@@ -193,6 +212,10 @@ final class DeploymentMaintenanceContractTest extends TestCase
             'dis-speech',
             'dis-media',
             'dis-queue',
+            'dis-push@1',
+            'dis-push@2',
+            'dis-push@3',
+            'dis-push@4',
             'dis-scheduler',
             'dis-websocket',
             'dis-frontend',
@@ -202,6 +225,10 @@ final class DeploymentMaintenanceContractTest extends TestCase
             'dis-tts-engine',
             'dis-media',
             'dis-queue',
+            'dis-push@1',
+            'dis-push@2',
+            'dis-push@3',
+            'dis-push@4',
             'dis-scheduler',
             'dis-websocket',
             'dis-frontend',
@@ -213,6 +240,10 @@ final class DeploymentMaintenanceContractTest extends TestCase
                 'dis-speech',
                 'dis-media',
                 'dis-queue',
+                'dis-push@1',
+                'dis-push@2',
+                'dis-push@3',
+                'dis-push@4',
                 'dis-scheduler',
                 'dis-websocket',
                 'dis-frontend',
@@ -223,6 +254,10 @@ final class DeploymentMaintenanceContractTest extends TestCase
             'dis-tts-engine',
             'dis-media',
             'dis-queue',
+            'dis-push@1',
+            'dis-push@2',
+            'dis-push@3',
+            'dis-push@4',
             'dis-scheduler',
             'dis-websocket',
         ]);
@@ -231,6 +266,7 @@ final class DeploymentMaintenanceContractTest extends TestCase
             'dis-tts-engine',
             'dis-media',
             'dis-queue',
+            'dis-push@.service',
             'dis-scheduler',
             'dis-websocket',
             'dis-frontend',
@@ -242,6 +278,10 @@ final class DeploymentMaintenanceContractTest extends TestCase
         );
         self::assertStringContainsString(
             'infrastructure/systemd/dis-speech.service" /etc/systemd/system/dis-speech.service',
+            $deploy,
+        );
+        self::assertStringContainsString(
+            'infrastructure/systemd/dis-push@.service" /etc/systemd/system/dis-push@.service',
             $deploy,
         );
         self::assertStringContainsString('acl ca-certificates curl ffmpeg git', $install);

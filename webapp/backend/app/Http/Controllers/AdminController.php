@@ -99,7 +99,12 @@ final class AdminController extends Controller
     {
         return ApiResponse::success(Certification::query()
             ->orderBy('code')
-            ->get(['id', 'code', 'name', 'description', 'is_required_for_dispatch', 'warning_days_before_expiry']));
+            ->get(['id', 'code', 'name', 'description', 'warning_days_before_expiry'])
+            ->map(fn (Certification $certification): array => [
+                ...$certification->toArray(),
+                'is_required_for_dispatch' => false,
+            ])
+            ->values());
     }
 
     public function storeTeam(Request $request): JsonResponse
@@ -107,7 +112,7 @@ final class AdminController extends Controller
         $data = $request->validate([
             'code' => ['required', 'string', 'max:40', 'unique:teams,code'],
             'name' => ['required', 'string', 'max:160'],
-            'type' => ['required', 'in:base,subset,support'],
+            'type' => ['sometimes', 'in:base,subset,support'],
             'parent_team_id' => ['nullable', 'ulid', 'exists:teams,id'],
             'is_operational' => ['required', 'boolean'],
             'alert_team_ids' => ['nullable', 'array'],
@@ -120,7 +125,10 @@ final class AdminController extends Controller
         unset($data['alert_team_ids']);
         unset($data['required_certification_ids']);
 
-        $team = Team::query()->create($data);
+        $team = Team::query()->create([
+            ...$data,
+            'type' => $data['type'] ?? 'base',
+        ]);
         $team->alertTeams()->sync(array_values(array_unique(is_array($alertTeamIds) ? $alertTeamIds : [])));
         $team->requiredCertifications()->sync(array_values(array_unique(is_array($requiredCertificationIds) ? $requiredCertificationIds : [])));
         $this->auditService->record('admin.team_created', $team, $request->user(), [

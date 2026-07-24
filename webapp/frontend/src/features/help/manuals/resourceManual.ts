@@ -220,14 +220,13 @@ export const resourceManualGuides = {
       intro: 'Leg vast wie als groep kan worden geselecteerd en welke voorwaarden gelden.',
       steps: [
         { label: 'Open Teams', description: 'Kies Team aanmaken of Aanpassen bij een bestaand team.' },
-        { label: 'Vul code, naam en type in', description: 'Gebruik een korte unieke code en een naam die meldkamergebruikers direct herkennen.' },
-        { label: 'Kies het ouderteam', description: 'Koppel een subset aan het juiste basisteam. TUI hoort altijd onder OCP.' },
+        { label: 'Vul code en naam in', description: 'Gebruik een korte unieke code en een naam die meldkamergebruikers direct herkennen.' },
         { label: 'Stel operationeel en mee alarmeren in', description: 'Bepaal of het team actief gebruikt mag worden en welke gekoppelde teams bij alarmering worden meegenomen.' },
         { label: 'Kies vereiste certificaten', description: 'Selecteer alleen certificaten die voor inzet via dit team echt verplicht zijn.' },
         { label: 'Kies Opslaan', description: 'Controleer het team daarna in het overzicht.' },
       ],
       result: 'Het team is beschikbaar voor gebruikersbeheer en, wanneer operationeel, voor incidentalarmering.',
-      warning: 'Verander code, type of koppeling van OCP en TUI niet. TUI-leden moeten ook lid van OCP zijn. Mee-alarmeerteams werken één richting en één niveau diep. Zonder gekozen teamcertificaten kunnen certificaatsoorten met Dispatch vereist alsnog als voorwaarde gelden.',
+      warning: 'Verander de vaste codes OCP en TUI niet. TUI-leden moeten ook lid van OCP zijn. Mee-alarmeerteams werken één richting en één niveau diep. Alleen certificaten die expliciet aan het team zijn gekoppeld gelden als voorwaarde; zonder gekozen teamcertificaten geldt geen certificaateis.',
     },
     {
       id: 'teams-manage-members',
@@ -304,17 +303,16 @@ export const resourceManualGuides = {
     {
       id: 'certifications-manage-type',
       title: 'Een certificaatsoort maken of aanpassen',
-      intro: 'Leg de soort en de gevolgen voor inzet centraal vast.',
+      intro: 'Leg een certificaatsoort centraal vast zodat deze aan gebruikers en, waar nodig, aan teams kan worden gekoppeld.',
       permissions: ['certifications.manage'],
       steps: [
         { label: 'Open Certificaatsoorten', description: 'Kies Certificaat aanmaken of Aanpassen bij een bestaande soort.' },
         { label: 'Vul code en naam in', description: 'Gebruik een unieke code en een naam die beheerders en operators begrijpen.' },
-        { label: 'Kies Dispatch vereist', description: 'Vink dit alleen aan wanneer een geldig certificaat echt een voorwaarde voor alarmering is.' },
         { label: 'Vul de omschrijving in', description: 'Leg kort uit waarvoor het certificaat geldt.' },
         { label: 'Kies Opslaan', description: 'De soort kan daarna bij teams en gebruikers worden gebruikt.' },
       ],
-      result: 'De certificaatsoort is centraal beschikbaar en kan de inzetgeschiktheid beïnvloeden.',
-      warning: 'Certificaatsoorten kunnen op deze pagina niet worden verwijderd. Pas Dispatch vereist alleen aan na operationele controle.',
+      result: 'De certificaatsoort is centraal beschikbaar. Alleen een expliciete teamkoppeling maakt de soort tot een harde alarmeringsvoorwaarde.',
+      warning: 'Certificaatsoorten kunnen op deze pagina niet worden verwijderd. Controleer na een wijziging ook de certificaatkoppelingen van de operationele teams.',
     },
   ],
   expiry: [

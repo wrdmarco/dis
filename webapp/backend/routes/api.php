@@ -37,6 +37,7 @@ use App\Http\Controllers\OperationalForecastController;
 use App\Http\Controllers\OperationalMapController;
 use App\Http\Controllers\PasswordController;
 use App\Http\Controllers\PilotIncidentReportController;
+use App\Http\Controllers\QueueMonitorController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\ReportingController;
 use App\Http\Controllers\SetupController;
@@ -467,6 +468,19 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
                 'permission:speech.cache.view',
                 'throttle:speech-admin-read',
             ]);
+        Route::get('/admin/speech/preparations/presets', [AdminSpeechPreparedPhraseController::class, 'presets'])
+            ->middleware([
+                'permission:settings.manage',
+                'permission:speech.cache.manage',
+                'throttle:speech-admin-read',
+            ]);
+        Route::post('/admin/speech/preparations/presets/{preset}/prepare', [AdminSpeechPreparedPhraseController::class, 'preparePreset'])
+            ->where('preset', '[a-z0-9_]+')
+            ->middleware([
+                'permission:settings.manage',
+                'permission:speech.cache.manage',
+                'throttle:speech-admin-write',
+            ]);
         Route::post('/admin/speech/preparations/search', [AdminSpeechPreparedPhraseController::class, 'search'])
             ->middleware([
                 'permission:settings.manage',
@@ -573,7 +587,8 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/admin/incident-form/config', [IncidentFormController::class, 'show'])->middleware('permission:settings.manage');
         Route::patch('/admin/incident-form/config', [IncidentFormController::class, 'update'])->middleware('permission:settings.manage');
         Route::get('/admin/health', [HealthController::class, 'admin'])->middleware('permission:system.health.view');
-        Route::get('/admin/queues', [HealthController::class, 'queues'])->middleware('permission:system.health.view');
+        Route::get('/admin/queues', [QueueMonitorController::class, 'index'])
+            ->middleware(['permission:system.health.view', 'throttle:system-metrics']);
         Route::get('/admin/websocket-status', [HealthController::class, 'websocket'])->middleware('permission:system.health.view');
     });
 });

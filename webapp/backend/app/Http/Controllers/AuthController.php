@@ -531,7 +531,12 @@ final class AuthController extends Controller
         if ($this->webSessionService->isStatefulWebRequest($request)) {
             $this->webSessionService->invalidate($request);
         } else {
-            $this->deleteCurrentPersonalAccessToken($request);
+            $accessToken = $user?->currentAccessToken();
+            if ($user !== null && $accessToken instanceof PersonalAccessToken) {
+                $this->userService->revokeNativeSession($user, $accessToken, $user);
+            } else {
+                $this->deleteCurrentPersonalAccessToken($request);
+            }
         }
 
         return response()->noContent();

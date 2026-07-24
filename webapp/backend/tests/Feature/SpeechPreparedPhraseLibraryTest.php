@@ -696,6 +696,169 @@ final class SpeechPreparedPhraseLibraryTest extends TestCase
         }
     }
 
+    public function test_weekly_test_alert_preset_uses_current_delivered_message_and_fixed_speech_template_lines(): void
+    {
+        Queue::fake();
+        SystemSetting::query()->updateOrCreate(
+            ['key' => 'test_alert.message'],
+            [
+                'value' => 'Dit is de vaste wekelijkse proefmelding. Bevestig deze proefalarmering met Ontvangen in de app.',
+                'is_sensitive' => false,
+            ],
+        );
+        SystemSetting::query()->updateOrCreate(
+            ['key' => 'speech.templates.test_ack'],
+            [
+                'value' => [
+                    'Dit is een rustige proefalarmering.',
+                    'Open de D.I.S.-app en bevestig ontvangst.',
+                ],
+                'is_sensitive' => true,
+            ],
+        );
+        $settingsOnly = $this->user('preset-settings@example.test', ['settings.manage']);
+        $cacheOnly = $this->user('preset-cache@example.test', ['speech.cache.manage']);
+        $viewOnly = $this->user('preset-view@example.test', [
+            'settings.manage',
+            'speech.cache.view',
+        ]);
+        $manager = $this->user('preset-manager@example.test', [
+            'settings.manage',
+            'speech.cache.view',
+            'speech.cache.manage',
+        ]);
+
+        $this->getJson('/api/admin/speech/preparations/presets')->assertUnauthorized();
+        $this->asAdminClient($settingsOnly)
+            ->getJson('/api/admin/speech/preparations/presets')
+            ->assertForbidden();
+        $this->asAdminClient($cacheOnly)
+            ->getJson('/api/admin/speech/preparations/presets')
+            ->assertForbidden();
+        $this->asAdminClient($viewOnly)
+            ->postJson('/api/admin/speech/preparations/presets/weekly_test_alert/prepare')
+            ->assertForbidden();
+
+        $expectedLines = [
+            'Dit is de vaste wekelijkse proefmelding.',
+            'Dit is een rustige proefalarmering.',
+            'Open de D.I.S.-app en bevestig ontvangst.',
+        ];
+        $this->asAdminClient($manager)
+            ->getJson('/api/admin/speech/preparations/presets')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', 'weekly_test_alert')
+            ->assertJsonPath('data.0.label', 'Wekelijks proefalarm')
+            ->assertJsonPath('data.0.preview_lines', $expectedLines)
+            ->assertJsonPath('data.0.phrase_count', 3);
+
+        $first = $this->asAdminClient($manager)
+            ->postJson('/api/admin/speech/preparations/presets/weekly_test_alert/prepare')
+            ->assertStatus(202)
+            ->assertJsonPath('data.preset.preview_lines', $expectedLines)
+            ->assertJsonPath('data.preset.phrase_count', 3)
+            ->assertJsonCount(3, 'data.preparations')
+            ->assertJsonPath('data.preparations.0.kind', 'fixed_phrase')
+            ->assertJsonPath('data.preparations.0.status', 'queued');
+
+        $this->assertDatabaseCount('speech_prepared_phrases', 3);
+        $this->assertSame(
+            3,
+            SpeechPreparedPhrase::query()
+                ->where('kind', 'fixed_phrase')
+                ->where('created_by', $manager->id)
+                ->count(),
+        );
+        Queue::assertPushed(GenerateSpeechPreparedPhrase::class, 3);
+
+        $second = $this->asAdminClient($manager)
+            ->postJson('/api/admin/speech/preparations/presets/weekly_test_alert/prepare')
+            ->assertStatus(202)
+            ->assertJsonCount(3, 'data.preparations');
+        $this->assertSame(
+            collect($first->json('data.preparations'))->pluck('id')->all(),
+            collect($second->json('data.preparations'))->pluck('id')->all(),
+        );
+        $this->assertDatabaseCount('speech_prepared_phrases', 3);
+        Queue::assertPushed(GenerateSpeechPreparedPhrase::class, 3);
+
+        $storedCiphertext = json_encode(
+            DB::table('speech_prepared_phrases')->pluck('display_text')->all(),
+            JSON_THROW_ON_ERROR,
+        );
+        $auditJson = json_encode(
+            AuditLog::query()
+                ->whereIn('action', [
+                    'speech.preparation_created',
+                    'speech.preparation_preset_requested',
+                ])
+                ->pluck('metadata')
+                ->all(),
+            JSON_THROW_ON_ERROR,
+        );
+        foreach ($expectedLines as $line) {
+            $this->assertStringNotContainsString($line, $storedCiphertext);
+            $this->assertStringNotContainsString($line, $auditJson);
+            $this->assertStringNotContainsString('{', $line);
+            $this->assertStringNotContainsString('}', $line);
+        }
+        $presetAudit = AuditLog::query()
+            ->where('action', 'speech.preparation_preset_requested')
+            ->latest('created_at')
+            ->firstOrFail();
+        $this->assertSame('weekly_test_alert', $presetAudit->metadata['preset_id'] ?? null);
+        $this->assertSame(3, $presetAudit->metadata['phrase_count'] ?? null);
+        $this->assertSame(3, $presetAudit->metadata['queued_count'] ?? null);
+    }
+
+    public function test_weekly_test_alert_preset_is_live_deduplicated_and_unknown_presets_fail_closed(): void
+    {
+        Queue::fake();
+        $manager = $this->user('preset-live@example.test', [
+            'settings.manage',
+            'speech.cache.manage',
+        ]);
+        SystemSetting::query()->updateOrCreate(
+            ['key' => 'test_alert.message'],
+            ['value' => 'Dezelfde vaste proefzin.', 'is_sensitive' => false],
+        );
+        SystemSetting::query()->updateOrCreate(
+            ['key' => 'speech.templates.test_ack'],
+            [
+                'value' => [
+                    'Dezelfde vaste proefzin.',
+                    'Bevestig de proefalarmering in de app.',
+                ],
+                'is_sensitive' => true,
+            ],
+        );
+
+        $this->asAdminClient($manager)
+            ->getJson('/api/admin/speech/preparations/presets')
+            ->assertOk()
+            ->assertJsonPath('data.0.preview_lines', [
+                'Dezelfde vaste proefzin.',
+                'Bevestig de proefalarmering in de app.',
+            ])
+            ->assertJsonPath('data.0.phrase_count', 2);
+
+        $messageSetting = SystemSetting::query()->findOrFail('test_alert.message');
+        $messageSetting->value = 'Een nieuw ingesteld wekelijks proefalarm.';
+        $messageSetting->save();
+        $this->asAdminClient($manager)
+            ->getJson('/api/admin/speech/preparations/presets')
+            ->assertOk()
+            ->assertJsonPath('data.0.preview_lines.0', 'Een nieuw ingesteld wekelijks proefalarm.');
+
+        $this->asAdminClient($manager)
+            ->postJson('/api/admin/speech/preparations/presets/onbekend/prepare')
+            ->assertNotFound()
+            ->assertJsonMissingPath('data');
+        $this->assertDatabaseCount('speech_prepared_phrases', 0);
+        Queue::assertNothingPushed();
+    }
+
     private function runtime(User $actor): SpeechModelInstallation
     {
         $installation = SpeechModelInstallation::query()->create([

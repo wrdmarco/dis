@@ -132,6 +132,8 @@ final class DispatchPushOutboxService
             $claimedAt = now();
             $notification->forceFill([
                 'queued_at' => $claimedAt,
+                'processing_started_at' => null,
+                'retry_at' => null,
                 'last_attempted_at' => $claimedAt,
                 'last_error_code' => null,
             ])->save();
@@ -191,6 +193,8 @@ final class DispatchPushOutboxService
             $notification->forceFill([
                 'attempts' => $attempts,
                 'queued_at' => null,
+                'processing_started_at' => null,
+                'retry_at' => null,
                 'last_attempted_at' => now(),
                 'last_error_code' => 'queue_unavailable',
                 'available_at' => now()->addSeconds(min(60, 5 * (2 ** min(3, $attempts - 1)))),
@@ -242,6 +246,8 @@ final class DispatchPushOutboxService
 
             $notification->forceFill([
                 'delivered_at' => now(),
+                'processing_started_at' => null,
+                'retry_at' => null,
                 'last_attempted_at' => now(),
                 'last_error_code' => null,
             ])->save();
@@ -260,6 +266,8 @@ final class DispatchPushOutboxService
 
             $notification->forceFill([
                 'cancelled_at' => now(),
+                'processing_started_at' => null,
+                'retry_at' => null,
                 'last_attempted_at' => now(),
                 'last_error_code' => $errorCode,
             ])->save();
@@ -279,10 +287,47 @@ final class DispatchPushOutboxService
             $attempts = ((int) $notification->attempts) + 1;
             $notification->forceFill([
                 'queued_at' => null,
+                'processing_started_at' => null,
                 'attempts' => $attempts,
                 'available_at' => now()->addSeconds(min(3600, 60 * (2 ** min(5, $attempts - 1)))),
+                'retry_at' => now()->addSeconds(min(3600, 60 * (2 ** min(5, $attempts - 1)))),
                 'last_attempted_at' => now(),
                 'last_error_code' => 'delivery_retry_exhausted',
+            ])->save();
+        });
+    }
+
+    public function markProcessing(string $id, string $fcmTokenId): void
+    {
+        $this->withLockedHierarchy($id, function (DispatchPushOutbox $notification) use ($fcmTokenId): void {
+            if ((string) $notification->fcm_token_id !== $fcmTokenId
+                || $notification->delivered_at !== null
+                || $notification->cancelled_at !== null) {
+                return;
+            }
+
+            $notification->forceFill([
+                'processing_started_at' => now(),
+                'retry_at' => null,
+                'last_attempted_at' => now(),
+            ])->save();
+        });
+    }
+
+    public function markQueueRetry(string $id, string $fcmTokenId, int $delaySeconds): void
+    {
+        $this->withLockedHierarchy($id, function (DispatchPushOutbox $notification) use ($fcmTokenId, $delaySeconds): void {
+            if ((string) $notification->fcm_token_id !== $fcmTokenId
+                || $notification->delivered_at !== null
+                || $notification->cancelled_at !== null) {
+                return;
+            }
+
+            $notification->forceFill([
+                'processing_started_at' => null,
+                'retry_at' => now()->addSeconds(max(1, min(3600, $delaySeconds))),
+                'last_attempted_at' => now(),
+                'last_error_code' => 'delivery_retry_scheduled',
             ])->save();
         });
     }

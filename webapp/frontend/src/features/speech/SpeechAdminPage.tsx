@@ -56,6 +56,7 @@ import {
   formatSpeechBytes,
   formatSpeechDuration,
   formatSpeechParameterCount,
+  formatSpeechSynthesisDuration,
   insertSpeechToken,
   microphoneRecordingError,
   microphoneRequestIsCurrent,
@@ -1566,7 +1567,8 @@ function SpeechCacheEntriesModal({ onClose }: { onClose: () => void }) {
             <span><Database aria-hidden size={16} /> Lokale audiobibliotheek</span>
             <h2 id="speech-cache-modal-title">Inhoud van de audiocache</h2>
             <p id="speech-cache-modal-description">
-              Bekijk en beluister de opgeslagen tekstfragmenten. Technische sleutels en opslagpaden blijven verborgen.
+              Bekijk en beluister de opgeslagen tekstfragmenten. Genereertijd meet alleen het stemmodel;
+              wachtrij en audio-omzetting tellen niet mee. Technische sleutels en opslagpaden blijven verborgen.
             </p>
           </div>
           <button
@@ -1691,6 +1693,9 @@ function SpeechCacheEntryCard({ entry }: { entry: SpeechCacheEntrySummary }) {
   const displayText = entry.text_available && entry.text?.trim()
     ? entry.text.trim()
     : 'Tekst niet beschikbaar voor dit oudere cache-item.';
+  const synthesisDuration = entry.category === 'composite'
+    ? 'Niet van toepassing'
+    : formatSpeechSynthesisDuration(entry.synthesis_duration_ms);
   const audioSource = entry.audio_available && entry.status === 'ready'
     ? `${apiBaseUrl.replace(/\/$/, '')}${fixedSpeechCacheAudioPath(entry.id)}`
     : null;
@@ -1725,7 +1730,8 @@ function SpeechCacheEntryCard({ entry }: { entry: SpeechCacheEntrySummary }) {
         ) : null}
 
         <dl className={styles.cacheEntryFacts}>
-          <div><dt>Duur</dt><dd>{formatSpeechDuration(entry.duration_ms)}</dd></div>
+          <div><dt>Audiolengte</dt><dd>{formatSpeechDuration(entry.duration_ms)}</dd></div>
+          <div><dt>Genereertijd</dt><dd>{synthesisDuration}</dd></div>
           <div><dt>Grootte</dt><dd>{formatSpeechBytes(entry.byte_size)}</dd></div>
           <div><dt>Gebruikt</dt><dd>{entry.hit_count.toLocaleString('nl-NL')} keer</dd></div>
           <div><dt>Aangemaakt</dt><dd>{formatDateTime(entry.created_at)}</dd></div>

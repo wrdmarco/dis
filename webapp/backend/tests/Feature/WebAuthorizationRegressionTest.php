@@ -8,6 +8,7 @@ use App\Models\Certification;
 use App\Models\Incident;
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\Team;
 use App\Models\User;
 use App\Models\UserCertification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -35,6 +36,65 @@ final class WebAuthorizationRegressionTest extends TestCase
             ->getJson('/api/admin/settings');
 
         $this->assertSame(200, $response->status(), $response->getContent());
+    }
+
+    public function test_team_management_no_longer_requires_legacy_type_or_parent_fields(): void
+    {
+        $actor = $this->user('team-manager@example.test');
+        $this->grant($actor, ['teams.manage'], operator: false, admin: true);
+
+        $response = $this->asClient($actor, 'client:web')
+            ->postJson('/api/admin/teams', [
+                'code' => 'NO-LEGACY-FIELDS',
+                'name' => 'Team zonder legacyvelden',
+                'is_operational' => true,
+                'alert_team_ids' => [],
+                'required_certification_ids' => [],
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.code', 'NO-LEGACY-FIELDS')
+            ->assertJsonPath('data.type', 'base')
+            ->assertJsonPath('data.parent_team_id', null);
+
+        $this->assertDatabaseHas('teams', [
+            'id' => $response->json('data.id'),
+            'type' => 'base',
+            'parent_team_id' => null,
+        ]);
+    }
+
+    public function test_team_update_without_legacy_fields_preserves_existing_compatibility_values(): void
+    {
+        $actor = $this->user('legacy-team-manager@example.test');
+        $this->grant($actor, ['teams.manage'], operator: false, admin: true);
+        $parent = Team::query()->create([
+            'code' => 'LEGACY-PARENT',
+            'name' => 'Legacy parent',
+            'type' => 'base',
+            'is_operational' => true,
+        ]);
+        $team = Team::query()->create([
+            'code' => 'LEGACY-SUBSET',
+            'name' => 'Legacy subset',
+            'type' => 'subset',
+            'parent_team_id' => $parent->id,
+            'is_operational' => true,
+        ]);
+
+        $this->asClient($actor, 'client:web')
+            ->patchJson('/api/admin/teams/'.$team->id, [
+                'name' => 'Bijgewerkte naam',
+                'is_operational' => false,
+                'alert_team_ids' => [],
+                'required_certification_ids' => [],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.type', 'subset')
+            ->assertJsonPath('data.parent_team_id', $parent->id);
+
+        $team->refresh();
+        $this->assertSame('subset', $team->type);
+        $this->assertSame($parent->id, $team->parent_team_id);
     }
 
     public function test_nested_user_certification_id_cannot_escape_the_parent_user_scope(): void

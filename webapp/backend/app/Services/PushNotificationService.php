@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\TransientPushDeliveryException;
 use App\Jobs\SendFcmNotification;
 use App\Models\FcmToken;
 use App\Models\Team;
@@ -9,19 +10,21 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Throwable;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 final class PushNotificationService
 {
     public function __construct(
         private readonly AuditService $auditService,
         private readonly StatusService $statusService,
-        private readonly PushProviderClient $pushClient,
+        private readonly RevokedDevicePushQueue $revokedDevicePush,
         private readonly MobileDeviceSessionService $mobileSessions,
+        private readonly FcmTokenIdentityLock $tokenIdentityLock,
     ) {}
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      * @return array{queued_tokens: int, recipient_users: int}
      */
     public function sendManual(User $actor, array $data): array
@@ -85,48 +88,174 @@ final class PushNotificationService
 
     public function revokeToken(FcmToken $token, ?User $actor): void
     {
-        $this->notifyDeviceSessionRevoked($token);
+        $lockedIdentityKey = FcmTokenIdentityLock::keyForToken($token);
+        $lockedProviderTokenKey = FcmTokenIdentityLock::providerTokenKeyForToken($token);
 
-        DB::transaction(function () use ($token, $actor): void {
-            $linkedAccessTokenId = $token->personal_access_token_id;
-            $token->update(['is_active' => false, 'revoked_at' => now()]);
-            $user = $token->user;
+        $this->tokenIdentityLock->synchronizedMany(
+            [[
+                'user_id' => (string) $token->user_id,
+                'device_id' => (string) $token->device_id,
+                'client_type' => (string) $token->client_type,
+            ]],
+            function () use ($token, $actor, $lockedIdentityKey, $lockedProviderTokenKey): void {
+                $revokedToken = DB::transaction(function () use (
+                    $token,
+                    $actor,
+                    $lockedIdentityKey,
+                    $lockedProviderTokenKey,
+                ): ?FcmToken {
+                    $user = User::query()
+                        ->whereKey($token->user_id)
+                        ->lockForUpdate()
+                        ->first();
+                    $token = FcmToken::query()
+                        ->whereKey($token->id)
+                        ->lockForUpdate()
+                        ->firstOrFail();
+                    if (! hash_equals($lockedIdentityKey, FcmTokenIdentityLock::keyForToken($token))
+                        || ! hash_equals(
+                            $lockedProviderTokenKey,
+                            FcmTokenIdentityLock::providerTokenKeyForToken($token),
+                        )) {
+                        throw TransientPushDeliveryException::forDeviceIdentityChange();
+                    }
+                    if (! $token->is_active) {
+                        return null;
+                    }
 
-            $sessionCleanup = $user !== null
-                ? $this->mobileSessions->revokeLinkedAndSafeOldTokens($user, $linkedAccessTokenId, (string) $token->client_type)
-                : ['linked_access_token_revoked' => false, 'old_mobile_tokens_revoked' => 0];
+                    $linkedAccessTokenId = $token->personal_access_token_id;
+                    $token->update([
+                        'is_active' => false,
+                        'revoked_at' => now(),
+                        'revocation_generation' => (string) Str::ulid(),
+                    ]);
 
-            if ($user !== null && ! $user->fcmTokens()->where('is_active', true)->exists()) {
-                $user->update(['push_enabled' => false]);
-                $this->statusService->enforcePushUnavailable($user);
-            }
+                    $sessionCleanup = $user !== null
+                        ? $this->mobileSessions->revokeLinkedAndSafeOldTokens($user, $linkedAccessTokenId, (string) $token->client_type)
+                        : ['linked_access_token_revoked' => false, 'old_mobile_tokens_revoked' => 0];
 
-            $this->auditService->record('push.token_admin_revoked', $token, $actor, [
-                'user_id' => $token->user_id,
-                'device_id' => $token->device_id,
-                'personal_access_token_revoked' => $sessionCleanup['linked_access_token_revoked'],
-                'old_mobile_tokens_revoked' => $sessionCleanup['old_mobile_tokens_revoked'],
-            ]);
+                    if ($user !== null && ! $user->fcmTokens()
+                        ->where('client_type', 'operator')
+                        ->where('is_active', true)
+                        ->exists()) {
+                        $user->update(['push_enabled' => false]);
+                        $this->statusService->enforcePushUnavailable($user);
+                    }
 
-            $token->delete();
-        });
+                    $this->auditService->record('push.token_admin_revoked', $token, $actor, [
+                        'user_id' => $token->user_id,
+                        'device_id' => $token->device_id,
+                        'personal_access_token_revoked' => $sessionCleanup['linked_access_token_revoked'],
+                        'old_mobile_tokens_revoked' => $sessionCleanup['old_mobile_tokens_revoked'],
+                    ]);
+
+                    return $token->refresh();
+                });
+
+                if ($revokedToken === null) {
+                    return;
+                }
+
+                $this->revokedDevicePush->enqueue(
+                    $revokedToken,
+                    'Toestel verwijderd',
+                    'Dit toestel is losgekoppeld van D.I.S.',
+                );
+            },
+            [[
+                'platform' => (string) $token->platform,
+                'token_hash' => FcmTokenIdentityLock::tokenHash($token),
+            ]],
+            [(string) $token->user_id],
+        );
     }
 
     public function activateToken(FcmToken $token, ?User $actor): void
     {
-        DB::transaction(function () use ($token, $actor): void {
-            $token->update(['is_active' => true, 'revoked_at' => null, 'last_seen_at' => now()]);
-            $token->user?->update(['push_enabled' => true]);
+        $lockedIdentityKey = FcmTokenIdentityLock::keyForToken($token);
+        $lockedProviderTokenKey = FcmTokenIdentityLock::providerTokenKeyForToken($token);
+        $providerToken = [
+            'platform' => (string) $token->platform,
+            'token_hash' => FcmTokenIdentityLock::tokenHash($token),
+        ];
 
-            $this->auditService->record('push.token_admin_activated', $token, $actor, [
-                'user_id' => $token->user_id,
-                'device_id' => $token->device_id,
-            ]);
-        });
+        $this->tokenIdentityLock->synchronizedMany(
+            [[
+                'user_id' => (string) $token->user_id,
+                'device_id' => (string) $token->device_id,
+                'client_type' => (string) $token->client_type,
+            ]],
+            function () use ($token, $actor, $lockedIdentityKey, $lockedProviderTokenKey): void {
+                DB::transaction(function () use ($token, $actor, $lockedIdentityKey, $lockedProviderTokenKey): void {
+                    $user = User::query()
+                        ->whereKey($token->user_id)
+                        ->lockForUpdate()
+                        ->firstOrFail();
+                    $token = FcmToken::query()
+                        ->whereKey($token->id)
+                        ->where('user_id', $user->id)
+                        ->lockForUpdate()
+                        ->firstOrFail();
+                    if (! hash_equals($lockedIdentityKey, FcmTokenIdentityLock::keyForToken($token))
+                        || ! hash_equals(
+                            $lockedProviderTokenKey,
+                            FcmTokenIdentityLock::providerTokenKeyForToken($token),
+                        )) {
+                        throw TransientPushDeliveryException::forDeviceIdentityChange();
+                    }
+                    if ($this->mobileSessions->liveTokenForClient(
+                        $user,
+                        $token->personal_access_token_id,
+                        (string) $token->client_type,
+                        true,
+                    ) === null) {
+                        throw ValidationException::withMessages([
+                            'token' => ['De mobiele sessie van dit toestel is niet meer actief. Registreer het toestel opnieuw vanuit de app.'],
+                        ]);
+                    }
+                    if (FcmToken::query()
+                        ->where('platform', $token->platform)
+                        ->where('token_hash', FcmTokenIdentityLock::tokenHash($token))
+                        ->where('is_active', true)
+                        ->where('id', '!=', $token->id)
+                        ->exists()) {
+                        throw ValidationException::withMessages([
+                            'token' => ['Deze providertoken is al aan een ander actief toestel gekoppeld. Registreer het toestel opnieuw vanuit de app.'],
+                        ]);
+                    }
+                    if (FcmToken::query()
+                        ->where('platform', $token->platform)
+                        ->where('token_hash', FcmTokenIdentityLock::tokenHash($token))
+                        ->whereNotNull('revocation_generation')
+                        ->where('id', '!=', $token->id)
+                        ->exists()) {
+                        throw ValidationException::withMessages([
+                            'token' => ['Deze providertoken heeft nog een lopende sessie-intrekking. Registreer het toestel opnieuw vanuit de app.'],
+                        ]);
+                    }
+
+                    $token->update([
+                        'is_active' => true,
+                        'revoked_at' => null,
+                        'revocation_generation' => null,
+                    ]);
+                    if ($token->client_type === 'operator') {
+                        $user->update(['push_enabled' => true]);
+                    }
+
+                    $this->auditService->record('push.token_admin_activated', $token, $actor, [
+                        'user_id' => $token->user_id,
+                        'device_id' => $token->device_id,
+                    ]);
+                });
+            },
+            [$providerToken],
+            [(string) $token->user_id],
+        );
     }
 
     /**
-     * @param array<int, string> $teamIds
+     * @param  array<int, string>  $teamIds
      * @return array<int, string>
      */
     private function expandTeamIds(array $teamIds): array
@@ -151,23 +280,5 @@ final class PushNotificationService
             ->where('is_active', true)
             ->where('client_type', 'operator')
             ->where('last_seen_at', '>', now()->subMinutes(FcmToken::pushReachabilityThresholdMinutes()));
-    }
-
-    private function notifyDeviceSessionRevoked(FcmToken $token): void
-    {
-        if (! $token->is_active) {
-            return;
-        }
-
-        try {
-            $this->pushClient->send(
-                $token,
-                'Toestel verwijderd',
-                'Dit toestel is losgekoppeld van D.I.S.',
-                ['type' => 'session_revoked'],
-            );
-        } catch (Throwable $exception) {
-            report($exception);
-        }
     }
 }

@@ -52,6 +52,7 @@ final class SpeechCacheContentRepository
                 'voice_design_revision',
                 'audio_recipe_revision',
                 'speed',
+                'synthesis_duration_ms',
                 'status',
                 'error_code',
                 'hit_count',

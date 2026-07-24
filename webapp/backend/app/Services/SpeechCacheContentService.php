@@ -199,6 +199,9 @@ final class SpeechCacheContentService
             'hit_count' => max(0, (int) $entry->hit_count),
             'byte_size' => $entry->audioAsset === null ? null : max(0, (int) $entry->audioAsset->byte_size),
             'duration_ms' => $entry->audioAsset === null ? null : max(0, (int) $entry->audioAsset->duration_ms),
+            'synthesis_duration_ms' => $entry->synthesis_duration_ms === null
+                ? null
+                : max(0, (int) $entry->synthesis_duration_ms),
             'audio_available' => $audioAvailable,
             'audio_url' => $audioAvailable
                 ? '/api/admin/speech/cache/entries/'.(string) $entry->id.'/audio'

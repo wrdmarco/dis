@@ -4,8 +4,10 @@ namespace App\Console\Commands;
 
 use App\Models\AuditLog;
 use App\Models\DispatchPushOutbox;
+use App\Models\FcmToken;
 use App\Models\LocationUpdate;
 use App\Models\PushDeliveryLog;
+use App\Models\PushQueueWorkItem;
 use App\Models\SystemSetting;
 use App\Models\WallboardPairingRequest;
 use App\Models\WallboardSession;
@@ -29,6 +31,17 @@ final class PruneOperationalData extends Command
         $weatherDatasetOperationCutoff = now()->subDays(
             max(1, (int) config('dis.retention.weather_dataset_operations_days', 14)),
         );
+        $pushQueueWorkCutoff = now()->subDays(
+            max(1, (int) config('dis.retention.push_queue_work_items_days', 7)),
+        );
+        $expiredRevokedPushTokens = FcmToken::query()
+            ->where('is_active', false)
+            ->whereNotNull('revoked_at')
+            ->where('revoked_at', '<', now()->subDay())
+            ->whereNotExists(fn ($outbox) => $outbox
+                ->selectRaw('1')
+                ->from('dispatch_push_outbox')
+                ->whereColumn('dispatch_push_outbox.fcm_token_id', 'fcm_tokens.id'));
         $expiredWallboardSessions = WallboardSession::query()
             ->where(fn ($query) => $query
                 ->where('expires_at', '<', now())
@@ -45,7 +58,9 @@ final class PruneOperationalData extends Command
         $counts = [
             'location_updates' => LocationUpdate::query()->where('created_at', '<', $locationCutoff)->count(),
             'push_delivery_logs' => PushDeliveryLog::query()->where('created_at', '<', $pushCutoff)->count(),
+            'revoked_push_tokens' => (clone $expiredRevokedPushTokens)->count(),
             'completed_dispatch_push_outbox' => $this->completedOutboxBefore($pushCutoff)->count(),
+            'terminal_push_queue_work_items' => $this->terminalPushQueueWorkBefore($pushQueueWorkCutoff)->count(),
             'audit_logs' => AuditLog::query()->where('created_at', '<', $auditCutoff)->count(),
             'weather_dataset_operations' => $this->terminalWeatherDatasetOperationsBefore(
                 $weatherDatasetOperationCutoff,
@@ -57,7 +72,9 @@ final class PruneOperationalData extends Command
         if (! $dryRun) {
             LocationUpdate::query()->where('created_at', '<', $locationCutoff)->delete();
             PushDeliveryLog::query()->where('created_at', '<', $pushCutoff)->delete();
+            $expiredRevokedPushTokens->delete();
             $this->completedOutboxBefore($pushCutoff)->delete();
+            $this->terminalPushQueueWorkBefore($pushQueueWorkCutoff)->delete();
             AuditLog::query()->where('created_at', '<', $auditCutoff)->delete();
             $this->terminalWeatherDatasetOperationsBefore($weatherDatasetOperationCutoff)->delete();
             $expiredWallboardSessions->delete();
@@ -76,6 +93,16 @@ final class PruneOperationalData extends Command
             ->where(fn ($query) => $query
                 ->whereNotNull('delivered_at')
                 ->orWhereNotNull('cancelled_at'));
+    }
+
+    private function terminalPushQueueWorkBefore(DateTimeInterface $cutoff): Builder
+    {
+        return PushQueueWorkItem::query()
+            ->whereIn('status', [
+                PushQueueWorkItem::STATUS_COMPLETED,
+                PushQueueWorkItem::STATUS_FAILED,
+            ])
+            ->where('finished_at', '<', $cutoff);
     }
 
     private function terminalWeatherDatasetOperationsBefore(DateTimeInterface $cutoff): Builder

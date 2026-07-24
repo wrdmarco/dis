@@ -1085,7 +1085,7 @@ stop_dis_deployment_services() {
   fi
   # Stop the interruptible media worker next. Its SIGTERM contract republishes
   # an in-flight transcode before the remaining deployment services go down.
-  for service in dis-media dis-queue dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime "${PHP_FPM_SERVICE}"; do
+  for service in dis-media dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime "${PHP_FPM_SERVICE}"; do
     if systemd_service_exists "${service}"; then
       run_cmd systemctl stop "${service}"
     fi
@@ -1254,7 +1254,7 @@ start_dis_operational_services() {
   if systemd_service_exists dis-speech; then
     run_cmd systemctl start dis-speech
   fi
-  for service in dis-media dis-queue dis-scheduler dis-websocket dis-incident-enrichment dis-knmi dis-knmi-realtime; do
+  for service in dis-media dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-scheduler dis-websocket dis-incident-enrichment dis-knmi dis-knmi-realtime; do
     if systemd_service_exists "${service}"; then
       run_cmd systemctl start "${service}"
     fi
@@ -1280,7 +1280,7 @@ require_dis_web_services() {
 require_dis_runtime_services() {
   local service
 
-  for service in nginx "${PHP_FPM_SERVICE}" dis-frontend dis-tts-engine dis-speech dis-queue dis-media dis-scheduler dis-websocket dis-incident-enrichment dis-knmi dis-knmi-realtime; do
+  for service in nginx "${PHP_FPM_SERVICE}" dis-frontend dis-tts-engine dis-speech dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-media dis-scheduler dis-websocket dis-incident-enrichment dis-knmi dis-knmi-realtime; do
     if ! systemd_service_exists "${service}"; then
       fail "Required systemd service is not installed: ${service}.service"
     fi

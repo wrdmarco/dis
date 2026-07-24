@@ -23,7 +23,7 @@ final class QueuedDispatchNotificationQueue implements DispatchNotificationQueue
             is_array($data) ? $data : [],
             (string) $notification->dispatch_request_id,
             (string) $notification->id,
-        ))->onQueue('push')->beforeCommit();
+        ))->onConnection('push')->onQueue('push')->beforeCommit();
 
         // The outbox service commits a short claim before calling this method.
         // beforeCommit deliberately overrides Redis' global after_commit flag:

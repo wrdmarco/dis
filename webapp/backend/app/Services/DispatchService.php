@@ -9,7 +9,6 @@ use App\Events\DispatchChanged;
 use App\Events\IncidentChanged;
 use App\Jobs\SendFcmNotification;
 use App\Models\AvailabilityStatus;
-use App\Models\Certification;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
@@ -1275,11 +1274,6 @@ final class DispatchService
     {
         $targetTeam->loadMissing('requiredCertifications');
         $requiredCertificationIds = $targetTeam->requiredCertifications->pluck('id');
-        if ($requiredCertificationIds->isEmpty()) {
-            $requiredCertificationIds = Certification::query()
-                ->where('is_required_for_dispatch', true)
-                ->pluck('id');
-        }
         $teamCodes = $this->expandTeamCodes($targetTeam);
 
         $teamUsers = User::query()

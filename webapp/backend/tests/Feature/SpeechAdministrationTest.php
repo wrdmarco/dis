@@ -34,10 +34,12 @@ use App\Services\SpeechExclusiveFileWriter;
 use App\Services\SpeechManifestGenerationService;
 use App\Services\SpeechModelCatalog;
 use App\Services\SpeechModelInstallationService;
+use App\Services\SpeechPreparedPhrasePresetService;
 use App\Services\SpeechRuntimeActivityGate;
 use App\Services\SpeechRuntimeReconciliationService;
 use App\Services\SpeechSettingsService;
 use App\Services\SpeechTemplateService;
+use App\Services\TestAlertSpeechContentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Process\PendingProcess;
@@ -678,6 +680,184 @@ final class SpeechAdministrationTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_test_alert_ready_audio_uses_the_fixed_preset_and_strict_recipient_phase_authorization(): void
+    {
+        Queue::fake();
+        Carbon::setTestNow(Carbon::parse('2026-07-22 13:00:00'));
+        try {
+            $manager = $this->user('test-alert-speech-manager@example.test', ['settings.manage']);
+            $pilot = $this->operator('test-alert-speech-pilot@example.test');
+            $outsider = $this->operator('test-alert-speech-outsider@example.test');
+            [$installation, $profile] = $this->runtime($manager);
+            $this->settings($manager, $profile);
+            SystemSetting::query()->updateOrCreate(['key' => 'test_alert.message'], [
+                'value' => 'Vaste wekelijkse controle. Bevestig deze proefalarmering met Ontvangen in de app.',
+                'is_sensitive' => false,
+                'updated_by' => $manager->id,
+            ]);
+            SystemSetting::query()->updateOrCreate(['key' => 'speech.templates.test_ack'], [
+                'value' => [
+                    'Dit is een rustige proefalarmering.',
+                    'Open de D.I.S.-app en bevestig ontvangst.',
+                ],
+                'is_sensitive' => true,
+                'updated_by' => $manager->id,
+            ]);
+            $speechContent = app(TestAlertSpeechContentService::class);
+            $incident = Incident::query()->create([
+                'reference' => 'TEST-SPEECH-READY',
+                'title' => 'Proefalarmering',
+                'description' => $speechContent->deliveredMessage(),
+                'priority' => 'normal',
+                'status' => 'active',
+                'is_test' => true,
+                'created_by' => $manager->id,
+                'opened_at' => now(),
+            ]);
+            $dispatch = DispatchRequest::query()->create([
+                'incident_id' => $incident->id,
+                'requested_by' => $manager->id,
+                'status' => 'sent',
+                'priority' => 'normal',
+                'message' => $speechContent->deliveredMessage(),
+                'sent_at' => now(),
+            ]);
+            DispatchRecipient::query()->create([
+                'dispatch_request_id' => $dispatch->id,
+                'user_id' => $pilot->id,
+                'response_status' => 'pending',
+                'notified_at' => now(),
+            ]);
+            $token = FcmToken::query()->create([
+                'user_id' => $pilot->id,
+                'device_id' => 'test-alert-speech-device',
+                'token' => 'test-alert-speech-token',
+                'token_hash' => hash('sha256', 'test-alert-speech-token'),
+                'platform' => 'ios',
+                'client_type' => 'operator',
+                'is_active' => true,
+                'last_seen_at' => now(),
+            ]);
+
+            $plan = null;
+            DB::transaction(function () use ($dispatch, $incident, $token, &$plan): void {
+                $plan = app(SpeechDispatchGateService::class)->prepare($dispatch, $incident, now());
+                app(DispatchPushOutboxService::class)->store(
+                    dispatchRequestId: (string) $dispatch->id,
+                    fcmTokenId: (string) $token->id,
+                    messageType: 'dispatch_request',
+                    title: 'D.I.S proefalarmering',
+                    body: (string) $dispatch->message,
+                    data: [
+                        'type' => 'dispatch_request',
+                        'action_mode' => SpeechTemplateService::PHASE_TEST_ACK,
+                        'is_test' => 'true',
+                        'dispatch_id' => (string) $dispatch->id,
+                    ],
+                    availableAt: $plan['deadline'],
+                    releaseReason: 'speech_deadline',
+                );
+            });
+            $this->assertTrue($plan['delayed']);
+            app(SpeechDispatchGateService::class)->queueAfterCommit($plan['build_id']);
+            $build = SpeechManifestBuild::query()->findOrFail($plan['build_id']);
+            $expectedLines = [
+                'Vaste wekelijkse controle.',
+                'Dit is een rustige proefalarmering.',
+                'Open de D.I.S.-app en bevestig ontvangst.',
+            ];
+            $this->assertSame(SpeechTemplateService::PHASE_TEST_ACK, $build->phase);
+            $this->assertSame($expectedLines, $build->rendered_lines);
+            $this->assertSame(
+                $expectedLines,
+                app(SpeechPreparedPhrasePresetService::class)->all()[0]['preview_lines'],
+            );
+            $this->assertSame($speechContent->checksum($expectedLines), $build->template_checksum);
+            Queue::assertPushed(
+                GenerateDispatchSpeechManifest::class,
+                fn (GenerateDispatchSpeechManifest $job): bool => $job->buildId === $build->id,
+            );
+            Queue::assertNotPushed(SendFcmNotification::class);
+
+            $bytes = str_repeat('TEST-ALERT-M4A-CONTENT-', 100);
+            $sha256 = hash('sha256', $bytes);
+            $relative = 'objects/'.substr($sha256, 0, 2).'/'.$sha256.'.m4a';
+            $path = (string) config('dis.speech.cache_root')
+                .DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
+            File::ensureDirectoryExists(dirname($path));
+            File::put($path, $bytes);
+            $asset = SpeechAudioAsset::query()->create([
+                'content_sha256' => $sha256,
+                'storage_path' => $relative,
+                'mime_type' => 'audio/mp4',
+                'byte_size' => strlen($bytes),
+                'duration_ms' => 1800,
+            ]);
+            $build->forceFill([
+                'status' => 'ready',
+                'progress_percent' => 100,
+                'finished_at' => now(),
+            ])->save();
+            $manifest = SpeechManifest::query()->create([
+                'speech_manifest_build_id' => $build->id,
+                'dispatch_request_id' => $dispatch->id,
+                'phase' => SpeechTemplateService::PHASE_TEST_ACK,
+                'locale' => 'nl-NL',
+                'model_catalog_key' => $installation->catalog_key,
+                'model_revision' => $installation->revision,
+                'model_weights_sha256' => $installation->weights_sha256,
+                'voice_profile_id' => $profile->id,
+                'voice_consent_version' => $profile->consent_version,
+                'voice_design_revision' => null,
+                'audio_recipe_revision' => (string) $build->audio_recipe_revision,
+                'speed' => (float) $build->speed,
+                'template_checksum' => $build->template_checksum,
+                'context_hmac' => $build->context_hmac,
+                'manifest_sha256' => hash('sha256', 'test-ready-'.$build->id),
+                'audio_asset_id' => $asset->id,
+                'segment_count' => count($expectedLines),
+                'duration_ms' => 1800,
+                'expires_at' => now()->addHour(),
+                'sealed_at' => now(),
+                'created_at' => now(),
+            ]);
+
+            app(SpeechDispatchGateService::class)->releaseReady($build, $manifest);
+            $outbox = DispatchPushOutbox::query()
+                ->where('dispatch_request_id', $dispatch->id)
+                ->sole();
+            $this->assertSame($manifest->id, $outbox->speech_manifest_id);
+            $this->assertSame('speech_ready', $outbox->release_reason);
+            $this->assertSame(SpeechTemplateService::PHASE_TEST_ACK, $outbox->data['speech_phase'] ?? null);
+            Queue::assertPushed(
+                SendFcmNotification::class,
+                fn (SendFcmNotification $job): bool => $job->dispatchPushOutboxId === $outbox->id
+                    && ($job->data['speech_manifest_id'] ?? null) === $manifest->id
+                    && ($job->data['speech_phase'] ?? null) === SpeechTemplateService::PHASE_TEST_ACK,
+            );
+
+            $url = '/api/speech/manifests/'.$manifest->id.'/audio';
+            $this->get($url, ['Accept' => 'audio/mp4'])->assertUnauthorized();
+            $this->asAdminClient($manager)->get($url, ['Accept' => 'audio/mp4'])->assertForbidden();
+            $this->asOperatorClient($outsider)->get($url, ['Accept' => 'audio/mp4'])->assertForbidden();
+            $this->asOperatorClient($pilot)->get($url, ['Accept' => 'audio/mp4'])
+                ->assertOk()
+                ->assertHeader('Content-Type', 'audio/mp4')
+                ->assertHeader('ETag', '"'.$sha256.'"');
+
+            $mismatched = $outbox->data;
+            $mismatched['action_mode'] = SpeechTemplateService::PHASE_ATTENDANCE;
+            $outbox->forceFill(['data' => $mismatched])->save();
+            $this->asOperatorClient($pilot)->get($url, ['Accept' => 'audio/mp4'])->assertForbidden();
+            $mismatched['action_mode'] = SpeechTemplateService::PHASE_TEST_ACK;
+            $mismatched['is_test'] = 'false';
+            $outbox->forceFill(['data' => $mismatched])->save();
+            $this->asOperatorClient($pilot)->get($url, ['Accept' => 'audio/mp4'])->assertForbidden();
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
     public function test_revoking_a_voice_immediately_withdraws_ready_previews_and_derived_cache_bytes(): void
     {
         $manager = $this->user('speech-revoke@example.test', ['settings.manage']);
@@ -968,6 +1148,8 @@ final class SpeechAdministrationTest extends TestCase
             'message_type' => 'dispatch_request', 'title' => 'Alarm', 'body' => 'Open de app.',
             'data' => [
                 'type' => 'dispatch_request',
+                'action_mode' => 'attendance',
+                'is_test' => 'false',
                 'speech_manifest_id' => 'stale-value',
                 'speech_phase' => 'stale-phase',
                 'speech_manifest_url' => 'https://invalid.example/audio',

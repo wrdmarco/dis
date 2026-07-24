@@ -318,11 +318,17 @@ final class DispatchPushOutboxLifecycleTest extends TestCase
             'account_status' => 'active',
             'push_enabled' => true,
         ]);
+        $accessToken = $user->createToken(
+            'Outbox '.$suffix,
+            ['*', 'client:operator'],
+            now()->addHour(),
+        )->accessToken;
         $token = FcmToken::query()->create([
             'user_id' => $user->id,
             'device_id' => 'outbox-'.$suffix,
             'token' => 'outbox-token-'.$suffix,
             'token_hash' => hash('sha256', 'outbox-token-'.$suffix),
+            'personal_access_token_id' => $accessToken->id,
             'platform' => 'android',
             'client_type' => 'operator',
             'is_active' => true,

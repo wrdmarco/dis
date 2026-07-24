@@ -15,6 +15,7 @@ final class RoleService
     public function __construct(
         private readonly AuditService $auditService,
         private readonly UserService $userService,
+        private readonly FcmTokenIdentityLock $tokenIdentityLock,
     ) {}
 
     /**
@@ -55,31 +56,46 @@ final class RoleService
         $affectedUsers = $authenticationStateChanged ? $role->users()->get() : collect();
         unset($data['permission_ids']);
 
-        return DB::transaction(function () use ($role, $data, $permissionIds, $actor, $affectedUsers, $authenticationStateChanged): Role {
-            $before = $role->only(array_keys($data));
-            $role->update($data);
-            if (is_array($permissionIds)) {
-                $role->permissions()->sync($permissionIds);
-            }
-            $this->auditService->record('admin.role_updated', $role, $actor, [
-                'before' => $before,
-                'after' => $role->only(array_keys($data)),
-                'permission_ids' => $permissionIds,
-                'authentication_state_changed' => $authenticationStateChanged,
-            ]);
-
-            if ($authenticationStateChanged) {
-                foreach ($affectedUsers as $user) {
-                    $this->userService->revokeAuthenticationState(
-                        $user,
-                        $actor,
-                        'users.role_definition_changed_sessions_revoked',
-                    );
+        $operation = function () use ($role, $data, $permissionIds, $actor, $affectedUsers, $authenticationStateChanged): Role {
+            return DB::transaction(function () use ($role, $data, $permissionIds, $actor, $affectedUsers, $authenticationStateChanged): Role {
+                $before = $role->only(array_keys($data));
+                $role->update($data);
+                if (is_array($permissionIds)) {
+                    $role->permissions()->sync($permissionIds);
                 }
-            }
+                $this->auditService->record('admin.role_updated', $role, $actor, [
+                    'before' => $before,
+                    'after' => $role->only(array_keys($data)),
+                    'permission_ids' => $permissionIds,
+                    'authentication_state_changed' => $authenticationStateChanged,
+                ]);
 
-            return $role->refresh()->load('permissions');
-        });
+                if ($authenticationStateChanged) {
+                    foreach ($affectedUsers as $user) {
+                        $this->userService->revokeAuthenticationStateWhileUserLocked(
+                            $user,
+                            $actor,
+                            'users.role_definition_changed_sessions_revoked',
+                        );
+                    }
+                }
+
+                return $role->refresh()->load('permissions');
+            });
+        };
+
+        if (! $authenticationStateChanged) {
+            return $operation();
+        }
+
+        return $this->tokenIdentityLock->synchronizedUsers(
+            $affectedUsers
+                ->pluck('id')
+                ->map(static fn ($id): string => (string) $id)
+                ->values()
+                ->all(),
+            $operation,
+        );
     }
 
     public function delete(Role $role, User $actor): void

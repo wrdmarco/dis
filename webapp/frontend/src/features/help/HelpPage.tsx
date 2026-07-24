@@ -383,9 +383,9 @@ const helpTopics: readonly HelpTopic[] = [
     href: '/teams',
     permissions: ['teams.manage'],
     actions: [
-      { title: 'Team maken en wijzigen', description: 'Stel code, naam, soort, ouderteam, operationele status en koppelingen met andere teams in. Teams kunnen niet worden verwijderd.' },
+      { title: 'Team maken en wijzigen', description: 'Stel code, naam, operationele status, mee-alarmeerteams en certificaateisen in. Teams kunnen niet worden verwijderd.' },
       { title: 'Leden beheren', description: 'Wijzig teamlidmaatschap bij Gebruikers > Aanpassen. Hiervoor zijn ook rechten voor gebruikersbeheer nodig.', permissions: ['users.view', 'users.manage'] },
-      { title: 'OCP en TUI goed houden', description: 'OCP is het basisteam. Iemand in TUI moet ook in OCP staan. Verander de vaste codes en koppeling van OCP en TUI niet.' },
+      { title: 'OCP en TUI goed houden', description: 'Iemand in TUI moet ook in OCP staan. Verander de vaste codes OCP en TUI niet.' },
       { title: 'Alarmeerteams voorbereiden', description: 'Gebruik herkenbare groepen zodat de meldkamer tijdens een incident snel de juiste mensen kiest.' },
       { title: 'Vereiste certificaten kiezen', description: 'Bepaal welke geldige certificaten iemand nodig heeft voordat die voor dit team gealarmeerd kan worden.' },
     ],
@@ -414,7 +414,7 @@ const helpTopics: readonly HelpTopic[] = [
     permissions: ['certifications.view'],
     actions: [
       { title: 'Geldigheid bekijken', description: 'Bekijk certificaatsoorten en actieve gebruikerscertificaten. Een vereist certificaat telt alleen als het actief en niet verlopen is.' },
-      { title: 'Certificaatsoorten beheren', description: 'Voeg een soort toe of pas code, naam, omschrijving en de regel Dispatch vereist aan. Certificaatsoorten kunnen hier niet worden verwijderd.', permissions: ['certifications.manage'] },
+      { title: 'Certificaatsoorten beheren', description: 'Voeg een soort toe of pas code, naam en omschrijving aan. De alarmeringseis wordt per team ingesteld. Certificaatsoorten kunnen hier niet worden verwijderd.', permissions: ['certifications.manage'] },
     ],
   },
   {

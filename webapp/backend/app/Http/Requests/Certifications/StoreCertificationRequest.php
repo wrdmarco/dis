@@ -17,7 +17,9 @@ final class StoreCertificationRequest extends FormRequest
             'code' => ['required', 'string', 'max:80', 'unique:certifications,code'],
             'name' => ['required', 'string', 'max:160'],
             'description' => ['nullable', 'string', 'max:4000'],
-            'is_required_for_dispatch' => ['required', 'boolean'],
+            // Accepted temporarily for stale web/mobile clients. The service
+            // forces this retired compatibility field to false.
+            'is_required_for_dispatch' => ['sometimes', 'boolean'],
         ];
     }
 }

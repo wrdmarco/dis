@@ -21,6 +21,7 @@ use App\Services\SpeechModelCatalog;
 use App\Services\SpeechModelInstallationService;
 use App\Services\SpeechPreviewService;
 use App\Services\SpeechSettingsService;
+use App\Services\SpeechTemplateService;
 use App\Services\SpeechVoiceProfileService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -156,7 +157,7 @@ final class AdminSpeechController extends Controller
 
     public function manifestAudio(Request $request, SpeechManifest $manifest): Response
     {
-        $manifest->load(['audioAsset', 'dispatchRequest.incident', 'voiceProfile']);
+        $manifest->load(['audioAsset', 'build', 'dispatchRequest.incident', 'voiceProfile']);
         if ($manifest->expires_at?->isPast() === true || $manifest->audioAsset === null) {
             return ApiResponse::error('speech_manifest_expired', 'Dit spraakbericht is niet meer beschikbaar.', 410);
         }
@@ -169,15 +170,30 @@ final class AdminSpeechController extends Controller
         $user = $request->user();
         $recipient = $manifest->dispatch_request_id !== null && $user !== null
             && $manifest->dispatchRequest?->recipients()->where('user_id', $user->id)->exists();
+        $incident = $manifest->dispatchRequest?->incident;
+        $expectedPhase = (bool) $incident?->is_test
+            ? SpeechTemplateService::PHASE_TEST_ACK
+            : SpeechTemplateService::PHASE_ATTENDANCE;
         $attached = $recipient && DispatchPushOutbox::query()
             ->where('dispatch_request_id', $manifest->dispatch_request_id)
             ->where('speech_manifest_id', $manifest->id)
             ->whereHas('fcmToken', fn ($query) => $query->where('user_id', $user->id))
-            ->exists();
+            ->get(['data'])
+            ->contains(function (DispatchPushOutbox $outbox) use ($expectedPhase, $incident): bool {
+                $data = (array) $outbox->data;
+
+                return ($data['action_mode'] ?? null) === $expectedPhase
+                    && ($data['speech_phase'] ?? null) === $expectedPhase
+                    && ($data['is_test'] ?? null) === ((bool) $incident?->is_test ? 'true' : 'false');
+            });
         $deliverable = $manifest->dispatchRequest !== null
-            && $manifest->phase === 'attendance'
+            && $incident !== null
+            && $manifest->phase === $expectedPhase
+            && $manifest->build !== null
+            && (string) $manifest->build->dispatch_request_id === (string) $manifest->dispatch_request_id
+            && $manifest->build->phase === $expectedPhase
             && in_array($manifest->dispatchRequest->status, ['sent', 'escalated'], true)
-            && ! in_array($manifest->dispatchRequest->incident?->status, ['resolved', 'cancelled'], true);
+            && ! in_array($incident->status, ['resolved', 'cancelled'], true);
         abort_unless($recipient && $attached && $deliverable, 403);
 
         try {

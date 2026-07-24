@@ -87,6 +87,7 @@ final class CertificationAccessCompatibilityTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.id', $certification->id)
             ->assertJsonPath('data.0.code', 'CERT-COMPAT')
+            ->assertJsonPath('data.0.is_required_for_dispatch', false)
             ->assertJsonMissingPath('data.0.user_certifications');
 
         $this->assertStringNotContainsString($certificationOwner->id, $response->getContent());
@@ -146,6 +147,50 @@ final class CertificationAccessCompatibilityTest extends TestCase
     {
         $this->getJson('/api/certifications')->assertUnauthorized();
         $this->getJson('/api/certifications/options')->assertUnauthorized();
+    }
+
+    public function test_retired_global_dispatch_flag_is_optional_and_forced_off_for_stale_clients(): void
+    {
+        $admin = $this->user('retired-dispatch-flag-admin@example.test');
+        $this->grant($admin, ['certifications.manage'], operator: false, admin: true);
+
+        $created = $this->asMobileClient($admin, 'client:web')
+            ->postJson('/api/certifications', [
+                'code' => 'NO-GLOBAL-DISPATCH',
+                'name' => 'Geen globale dispatchregel',
+                'description' => 'Alleen een teamkoppeling mag deze eis activeren.',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.is_required_for_dispatch', false);
+
+        $certification = Certification::query()->findOrFail($created->json('data.id'));
+        $certification->forceFill(['is_required_for_dispatch' => true])->save();
+
+        $this->asMobileClient($admin, 'client:web')
+            ->patchJson('/api/certifications/'.$certification->id, [
+                'name' => 'Bijgewerkte certificaatsoort',
+                // A stale browser may still submit the retired field.
+                'is_required_for_dispatch' => true,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.is_required_for_dispatch', false);
+
+        $this->assertFalse($certification->refresh()->is_required_for_dispatch);
+    }
+
+    public function test_retirement_migration_clears_existing_global_dispatch_flags(): void
+    {
+        $certification = Certification::query()->create([
+            'code' => 'LEGACY-GLOBAL-DISPATCH',
+            'name' => 'Legacy global dispatch',
+            'is_required_for_dispatch' => true,
+            'warning_days_before_expiry' => 30,
+        ]);
+
+        $migration = require database_path('migrations/2026_07_24_000010_retire_global_dispatch_certification_flag.php');
+        $migration->up();
+
+        $this->assertFalse($certification->refresh()->is_required_for_dispatch);
     }
 
     /**

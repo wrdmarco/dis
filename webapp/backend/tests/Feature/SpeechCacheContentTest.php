@@ -69,6 +69,7 @@ final class SpeechCacheContentTest extends TestCase
             'model_revision' => 'fixed-cache-model-revision',
             'audio_recipe_revision' => 'consistent-speaker-loudness-v3',
             'speed' => 1.10,
+            'synthesis_duration_ms' => 4825,
             'status' => 'ready',
             'hit_count' => 7,
             'last_used_at' => now()->subMinute(),
@@ -142,6 +143,7 @@ final class SpeechCacheContentTest extends TestCase
             ->assertJsonPath('data.0.hit_count', 7)
             ->assertJsonPath('data.0.byte_size', (int) $asset->byte_size)
             ->assertJsonPath('data.0.duration_ms', 1350)
+            ->assertJsonPath('data.0.synthesis_duration_ms', 4825)
             ->assertJsonPath('data.0.audio_available', true)
             ->assertJsonPath(
                 'data.0.audio_url',
@@ -172,6 +174,7 @@ final class SpeechCacheContentTest extends TestCase
             ->assertJsonPath('meta.total', 1)
             ->assertJsonPath('data.0.id', (string) $expired->id)
             ->assertJsonPath('data.0.status', 'expired')
+            ->assertJsonPath('data.0.synthesis_duration_ms', null)
             ->assertJsonPath('data.0.audio_available', false)
             ->assertJsonPath('data.0.audio_url', null);
     }

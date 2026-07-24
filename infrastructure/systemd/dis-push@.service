@@ -1,0 +1,48 @@
+[Unit]
+Description=DIS Parallel Push Queue Worker %i
+Wants=network-online.target
+After=network-online.target redis-server.service postgresql.service
+
+[Service]
+Type=exec
+User=dis
+Group=dis
+WorkingDirectory=/opt/dis/webapp/backend
+ExecStartPre=/usr/bin/test -r /opt/dis/webapp/backend/artisan
+ExecStart=/usr/bin/php -d zend.exception_ignore_args=1 artisan queue:work push --queue=push --sleep=1 --tries=4 --timeout=180 --max-jobs=1000 --max-time=86400
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+KillMode=control-group
+TimeoutStopSec=30s
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+RestrictRealtime=true
+MemoryHigh=256M
+MemoryMax=384M
+CPUQuota=100%
+TasksMax=64
+Nice=0
+OOMPolicy=stop
+ReadWritePaths=/opt/dis-data /opt/dis/webapp/backend/storage /opt/dis/storage
+
+[Install]
+WantedBy=multi-user.target

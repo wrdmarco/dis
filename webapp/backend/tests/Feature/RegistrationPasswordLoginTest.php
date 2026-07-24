@@ -10,11 +10,25 @@ use App\Services\TwoFactorService;
 use App\Services\WebSessionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 final class RegistrationPasswordLoginTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://api.pwnedpasswords.com/range/*' => Http::response(
+                "00000000000000000000000000000000000:1\r\n",
+                200,
+            ),
+        ]);
+    }
 
     public function test_setting_password_allows_operator_to_log_in_to_web_console(): void
     {

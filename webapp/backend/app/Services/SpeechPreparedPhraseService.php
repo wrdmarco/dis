@@ -195,6 +195,23 @@ final class SpeechPreparedPhraseService
             ->all();
     }
 
+    /**
+     * Validate and normalize exact fixed speech phrases without storing them.
+     *
+     * @param  list<string>  $values
+     * @return list<string>
+     */
+    public function normalizeFixedPhrases(array $values): array
+    {
+        $unique = [];
+        foreach ($values as $value) {
+            $canonical = $this->canonical('fixed_phrase', $value);
+            $unique[$canonical['identity_hmac']] = $canonical['display'];
+        }
+
+        return array_values($unique);
+    }
+
     public function prepare(string $phraseId, bool $forceRegeneration = false): void
     {
         $phrase = SpeechPreparedPhrase::query()->find($phraseId);
@@ -600,7 +617,29 @@ final class SpeechPreparedPhraseService
      */
     private function canonical(string $kind, string $value): array
     {
+        if (! in_array($kind, SpeechPreparedPhrase::KINDS, true)) {
+            throw ValidationException::withMessages([
+                'kind' => ['Het gekozen type spraakvoorbereiding is ongeldig.'],
+            ]);
+        }
         $display = trim($value);
+        if ($display === '' || mb_strlen($display) > 240
+            || preg_match('/[\x00-\x1F\x7F]/u', $display) === 1) {
+            throw ValidationException::withMessages([
+                'values' => ['Een spraakvoorbereiding moet veilige tekst van maximaal 240 tekens bevatten.'],
+            ]);
+        }
+        if (str_contains($display, '<') || str_contains($display, '>')
+            || preg_match('/&(?:#[0-9]+|#x[a-f0-9]+|[a-z][a-z0-9]+);/iu', $display) === 1) {
+            throw ValidationException::withMessages([
+                'values' => ['Markup en tekentiteiten zijn niet toegestaan.'],
+            ]);
+        }
+        if ($kind === 'fixed_phrase' && (str_contains($display, '{') || str_contains($display, '}'))) {
+            throw ValidationException::withMessages([
+                'values' => ['Een vaste zin mag geen templatevariabelen bevatten.'],
+            ]);
+        }
         if ($kind === 'postcode') {
             $canonical = $this->addresses->displayPostcode($display);
             if (preg_match('/^[1-9][0-9]{3} [A-Z]{2}$/D', $canonical) !== 1) {

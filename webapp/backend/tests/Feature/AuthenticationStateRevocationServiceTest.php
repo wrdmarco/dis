@@ -31,6 +31,18 @@ final class AuthenticationStateRevocationServiceTest extends TestCase
             'auth_session_version' => 4,
         ]);
         DB::table('users')->where('id', $user->id)->update(['auth_session_version' => 4]);
+        DB::table('availability_statuses')->insert([
+            'id' => (string) str()->ulid(),
+            'user_id' => $user->id,
+            'user_name' => $user->name,
+            'user_email' => $user->email,
+            'status' => 'available',
+            'is_available' => true,
+            'is_system_applied' => false,
+            'effective_at' => now()->subMinute(),
+            'created_at' => now()->subMinute(),
+            'updated_at' => now()->subMinute(),
+        ]);
         $user->createToken('Restored token', ['*']);
         FcmToken::query()->create([
             'user_id' => $user->id,
@@ -127,5 +139,12 @@ final class AuthenticationStateRevocationServiceTest extends TestCase
         $this->assertFalse(FcmToken::query()->firstOrFail()->is_active);
         $this->assertFalse($user->refresh()->push_enabled);
         $this->assertSame(5, $user->auth_session_version);
+        $this->assertDatabaseHas('availability_statuses', [
+            'user_id' => $user->id,
+            'status' => 'unavailable',
+            'is_available' => false,
+            'is_system_applied' => true,
+            'reason' => 'Push notifications disabled.',
+        ]);
     }
 }

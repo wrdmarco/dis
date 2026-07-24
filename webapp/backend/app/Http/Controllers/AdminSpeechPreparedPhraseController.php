@@ -5,12 +5,14 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Speech\ClearSpeechPreparedPhrasesRequest;
 use App\Http\Requests\Speech\DeleteSpeechPreparedPhraseRequest;
 use App\Http\Requests\Speech\IndexSpeechPreparedPhrasesRequest;
+use App\Http\Requests\Speech\ManageSpeechPreparedPhrasePresetRequest;
 use App\Http\Requests\Speech\RegenerateSpeechPreparedPhraseRequest;
 use App\Http\Requests\Speech\SearchSpeechPreparedPhrasesRequest;
 use App\Http\Requests\Speech\StoreSpeechPreparedPhrasesRequest;
 use App\Http\Requests\Speech\ViewSpeechPreparedPhrasesRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\SpeechPreparedPhrase;
+use App\Services\SpeechPreparedPhrasePresetService;
 use App\Services\SpeechPreparedPhraseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +20,10 @@ use Symfony\Component\HttpFoundation\Response;
 
 final class AdminSpeechPreparedPhraseController extends Controller
 {
-    public function __construct(private readonly SpeechPreparedPhraseService $service) {}
+    public function __construct(
+        private readonly SpeechPreparedPhraseService $service,
+        private readonly SpeechPreparedPhrasePresetService $presets,
+    ) {}
 
     public function index(IndexSpeechPreparedPhrasesRequest $request): JsonResponse
     {
@@ -28,6 +33,21 @@ final class AdminSpeechPreparedPhraseController extends Controller
     public function summary(ViewSpeechPreparedPhrasesRequest $request): JsonResponse
     {
         return ApiResponse::success($this->service->summary());
+    }
+
+    public function presets(ManageSpeechPreparedPhrasePresetRequest $request): JsonResponse
+    {
+        return ApiResponse::success($this->presets->all());
+    }
+
+    public function preparePreset(
+        ManageSpeechPreparedPhrasePresetRequest $request,
+        string $preset,
+    ): JsonResponse {
+        return ApiResponse::success(
+            $this->presets->prepare($preset, $request->user()),
+            202,
+        );
     }
 
     public function search(SearchSpeechPreparedPhrasesRequest $request): JsonResponse

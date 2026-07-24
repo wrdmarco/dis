@@ -4,6 +4,8 @@ import type {
   PaginationMeta,
   SpeechCacheEntrySummary,
   SpeechPreparationKind,
+  SpeechPreparationPreset,
+  SpeechPreparationPresetResult,
   SpeechPreparationStatus,
   SpeechPreparationSummary,
   SpeechPreparedPhrase,
@@ -16,6 +18,7 @@ import {
   formatSpeechBytes,
   formatSpeechDuration,
   formatSpeechParameterCount,
+  formatSpeechSynthesisDuration,
   insertSpeechToken,
   microphoneRecordingError,
   microphoneRequestIsCurrent,
@@ -98,6 +101,10 @@ test('bounds work progress and formats cache/model facts for Dutch admins', () =
   expect(formatSpeechDuration(8_400)).toBe('8 sec.');
   expect(formatSpeechDuration(83_000)).toBe('1:23 min');
   expect(formatSpeechDuration(null)).toBe('-');
+  expect(formatSpeechSynthesisDuration(842)).toBe('842 ms');
+  expect(formatSpeechSynthesisDuration(18_640)).toBe('18,6 sec.');
+  expect(formatSpeechSynthesisDuration(83_040)).toBe('1 min 23 sec.');
+  expect(formatSpeechSynthesisDuration(null)).toBe('Niet vastgelegd');
   expect(speechStatusLabel('expired')).toBe('Verlopen');
   expect(fixedSpeechCacheAudioPath('cache/entry')).toBe('/admin/speech/cache/entries/cache%2Fentry/audio');
 });
@@ -325,6 +332,7 @@ test('loads cache contents only after opening and closes accessibly without expo
   await expect(dialog.getByText('Rustige centralistenstem')).toBeVisible();
   await expect(dialog.getByText('1,10×')).toBeVisible();
   await expect(dialog.getByText('1:23 min')).toBeVisible();
+  await expect(dialog.getByText('18,6 sec.')).toBeVisible();
   await expect(dialog.getByText('12 KiB')).toBeVisible();
 
   const player = dialog.getByLabel(`Cachefragment afspelen: ${entry.text}`);
@@ -628,6 +636,68 @@ test('returns to a valid page after deleting its last preparation and focuses sa
   await expect(dialog.getByText(lastPageEntry.value ?? '', { exact: true })).toHaveCount(0);
 });
 
+test('prepares a server-driven weekly test alert without manual phrase entry', async ({ page }) => {
+  const preset: SpeechPreparationPreset = {
+    id: 'weekly_test_alert',
+    label: 'Wekelijks proefalarm',
+    description: 'De actuele proefalarmmelding en bijbehorende gesproken regels.',
+    preview_lines: [
+      'Dit is het wekelijkse proefalarm.',
+      'Open de app en bevestig ontvangst.',
+    ],
+    phrase_count: 2,
+  };
+  let preparedPresetId: string | null = null;
+  let prepareRequestBody: string | null = null;
+  await mockSpeechAdminApi(page, speechAdminStatus(), {
+    canViewPreparations: true,
+    canManagePreparations: true,
+    preparations: {
+      summary: () => ({ data: speechPreparationSummary(0) }),
+      search: () => ({
+        items: [],
+        meta: { current_page: 1, last_page: 1, per_page: 20, total: 0 },
+      }),
+      presets: {
+        list: () => ({ data: [preset] }),
+        prepare: (id, body) => {
+          preparedPresetId = id;
+          prepareRequestBody = body;
+
+          return {
+            preset,
+            preparations: preset.preview_lines.map((line, index) => ({
+              ...speechPreparedPhrase(line, `01PRESETPHRASE00000000000${index}`),
+              kind: 'fixed_phrase',
+            })),
+          };
+        },
+      },
+    },
+  });
+  await page.goto('/speech');
+  await page.getByRole('button', { name: 'Voorbereidingsbibliotheek beheren' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Voorbereidingsbibliotheek beheren' });
+  await dialog.getByRole('tab', { name: 'Vaste template- en pushzinnen' }).click();
+  await expect(dialog.getByRole('heading', { name: 'Kant-en-klare meldingen' })).toBeVisible();
+  await expect(dialog.getByText(preset.label, { exact: true })).toBeVisible();
+  await expect(dialog.getByText(preset.description, { exact: true })).toBeVisible();
+  await expect(dialog.getByText(preset.preview_lines[0], { exact: true })).toBeVisible();
+  await expect(dialog.getByText(preset.preview_lines[1], { exact: true })).toBeVisible();
+  await expect(dialog.getByLabel('Eén waarde of exacte zin per regel')).not.toBeVisible();
+
+  await dialog.getByRole('button', { name: 'Wekelijks proefalarm voorbereiden' }).click();
+
+  await expect.poll(() => preparedPresetId).toBe(preset.id);
+  expect(prepareRequestBody).toBeNull();
+  await expect(dialog.getByText(
+    /Wekelijks proefalarm: 2 exacte regels staan blijvend in de voorbereidingsbibliotheek\./u,
+  )).toBeVisible();
+  await dialog.getByText('Handmatig voorbereiden', { exact: true }).click();
+  await expect(dialog.getByLabel('Eén waarde of exacte zin per regel')).toBeVisible();
+});
+
 test('shows an honest unknown preparation summary and retries it', async ({ page }) => {
   let summaryRequests = 0;
   await mockSpeechAdminApi(page, speechAdminStatus(), {
@@ -709,6 +779,16 @@ interface SpeechPreparationMockOptions {
     status?: number;
     contentType: string;
     body: Buffer;
+  };
+  presets?: {
+    list: () => {
+      status?: number;
+      data?: SpeechPreparationPreset[];
+    };
+    prepare: (
+      id: string,
+      body: string | null,
+    ) => SpeechPreparationPresetResult;
   };
 }
 
@@ -823,6 +903,43 @@ async function mockSpeechAdminApi(
       });
       return;
     }
+    if (path === '/api/admin/speech/preparations/presets'
+      && route.request().method() === 'GET'
+      && options.preparations?.presets) {
+      const response = options.preparations.presets.list();
+      const statusCode = response.status ?? 200;
+      await route.fulfill({
+        status: statusCode,
+        contentType: 'application/json',
+        body: JSON.stringify(statusCode >= 400
+          ? {
+              error: {
+                code: 'speech_preparation_presets_unavailable',
+                message: 'Vaste sjablonen niet beschikbaar.',
+                details: {},
+              },
+            }
+          : { data: response.data ?? [] }),
+      });
+      return;
+    }
+    const preparationPresetMatch = path.match(
+      /^\/api\/admin\/speech\/preparations\/presets\/([^/]+)\/prepare$/u,
+    );
+    if (preparationPresetMatch
+      && route.request().method() === 'POST'
+      && options.preparations?.presets) {
+      const response = options.preparations.presets.prepare(
+        decodeURIComponent(preparationPresetMatch[1]),
+        route.request().postData(),
+      );
+      await route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: response }),
+      });
+      return;
+    }
     const preparationAudioMatch = path.match(/^\/api\/admin\/speech\/preparations\/([^/]+)\/audio$/u);
     if (preparationAudioMatch && route.request().method() === 'GET' && options.preparations?.audio) {
       await route.fulfill({
@@ -921,6 +1038,7 @@ function speechCacheEntry(): SpeechCacheEntrySummary {
     speed: 1.1,
     audio_recipe_revision: 'internal-audio-recipe',
     duration_ms: 83_000,
+    synthesis_duration_ms: 18_640,
     byte_size: 12_345,
     hit_count: 17,
     audio_available: true,

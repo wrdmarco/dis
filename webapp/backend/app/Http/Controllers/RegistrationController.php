@@ -92,7 +92,7 @@ final class RegistrationController extends Controller
             'users.registration_credentials_changed_sessions_revoked',
         );
 
-        $user->load(['roles.permissions', 'teams']);
+        $user->refresh()->load(['roles.permissions', 'teams']);
         $requiresMfa = $this->requiresMfa($user);
         $twoFactorSetup = null;
         $authenticated = false;

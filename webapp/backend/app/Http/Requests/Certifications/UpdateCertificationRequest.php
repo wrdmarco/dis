@@ -20,6 +20,8 @@ final class UpdateCertificationRequest extends FormRequest
             'code' => ['sometimes', 'string', 'max:80', Rule::unique('certifications', 'code')->ignore($certificationId)],
             'name' => ['sometimes', 'string', 'max:160'],
             'description' => ['nullable', 'string', 'max:4000'],
+            // Accepted temporarily for stale clients; CertificationService
+            // always retires the value to false.
             'is_required_for_dispatch' => ['sometimes', 'boolean'],
         ];
     }

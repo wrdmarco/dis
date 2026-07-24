@@ -14,6 +14,16 @@ return [
             'block_for' => null,
             'after_commit' => true,
         ],
+        'push' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'queue' => 'push',
+            // Must remain longer than the dedicated worker timeout so an
+            // in-flight provider request is never delivered concurrently.
+            'retry_after' => max(240, (int) env('PUSH_QUEUE_RETRY_AFTER', 240)),
+            'block_for' => 5,
+            'after_commit' => true,
+        ],
         'wallboard_media' => [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),

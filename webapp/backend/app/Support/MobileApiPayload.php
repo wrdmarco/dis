@@ -481,7 +481,9 @@ final class MobileApiPayload
             'code' => $certification->code,
             'name' => $certification->name,
             'description' => $certification->description,
-            'is_required_for_dispatch' => (bool) $certification->is_required_for_dispatch,
+            // Backwards-compatible field for installed clients. Dispatch
+            // requirements are now exclusively configured per team.
+            'is_required_for_dispatch' => false,
             'warning_days_before_expiry' => (int) $certification->warning_days_before_expiry,
             'user_certifications' => $certification->userCertifications->map(fn ($userCertification): array => [
                 'id' => $userCertification->id,
@@ -528,7 +530,9 @@ final class MobileApiPayload
             'code' => $certification->code,
             'name' => $certification->name,
             'description' => $certification->description,
-            'is_required_for_dispatch' => (bool) $certification->is_required_for_dispatch,
+            // Backwards-compatible field for installed clients. Dispatch
+            // requirements are now exclusively configured per team.
+            'is_required_for_dispatch' => false,
             'warning_days_before_expiry' => (int) $certification->warning_days_before_expiry,
         ];
     }

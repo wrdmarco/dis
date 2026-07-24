@@ -349,6 +349,153 @@
   padding: clamp(15px, 2vw, 19px);
 }
 
+.presetSection {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(128, 199, 255, 0.34);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(12, 45, 73, 0.5), rgba(5, 18, 31, 0.22)),
+    var(--dis-field);
+  padding: clamp(15px, 2vw, 19px);
+}
+
+.presetSection > header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+}
+
+.presetSection > header > svg {
+  color: var(--dis-blue);
+}
+
+.presetSection > header span,
+.presetScript > span {
+  color: var(--dis-blue);
+  font-size: 0.68rem;
+  font-weight: 820;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.presetSection h3 {
+  margin: 3px 0 4px;
+  font-size: 1.02rem;
+}
+
+.presetSection header p,
+.presetHeading p {
+  margin: 0;
+  color: var(--dis-muted-strong);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.presetList {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.presetCard {
+  display: grid;
+  gap: 13px;
+  border: 1px solid var(--dis-border);
+  border-radius: 9px;
+  background: rgba(2, 12, 23, 0.46);
+  padding: 15px;
+}
+
+.presetHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.presetHeading > div {
+  min-width: 0;
+}
+
+.presetHeading strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--dis-text-strong);
+  font-size: 1rem;
+}
+
+.presetHeading > span {
+  flex: 0 0 auto;
+  border: 1px solid rgba(128, 199, 255, 0.3);
+  border-radius: 999px;
+  background: var(--dis-blue-soft);
+  color: var(--dis-blue);
+  padding: 4px 8px;
+  font-size: 0.7rem;
+  font-weight: 780;
+}
+
+.presetScript {
+  display: grid;
+  gap: 8px;
+  border-left: 3px solid var(--dis-blue);
+  background: rgba(5, 18, 31, 0.54);
+  padding: 11px 13px;
+}
+
+.presetScript ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 1.4rem;
+  color: var(--dis-text-strong);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.presetCard > button {
+  justify-self: end;
+}
+
+.presetState {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 52px;
+  border: 1px dashed var(--dis-border);
+  border-radius: 8px;
+  color: var(--dis-muted-strong);
+  padding: 11px 13px;
+  font-size: 0.82rem;
+  font-weight: 680;
+}
+
+.presetState span {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.manualPreparation {
+  display: grid;
+  gap: 12px;
+}
+
+.manualPreparation > summary {
+  width: fit-content;
+  color: var(--dis-blue);
+  font-size: 0.82rem;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.manualPreparation > summary:hover {
+  color: var(--dis-text-strong);
+}
+
 .prepareCard > div:first-child > span,
 .dangerZone > div > span {
   color: var(--dis-blue);
@@ -699,6 +846,7 @@
 .closeButton:focus-visible,
 .kindTab:focus-visible,
 .kindTabActive:focus-visible,
+.manualPreparation > summary:focus-visible,
 .removeButton:focus-visible,
 .regenerateButton:focus-visible,
 .inlineConfirmation button:focus-visible,
@@ -784,6 +932,25 @@
   .entryActions > button,
   .summaryError button {
     width: 100%;
+  }
+
+  .presetHeading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .presetHeading > span {
+    align-self: flex-start;
+  }
+
+  .presetCard > button,
+  .presetState button {
+    width: 100%;
+  }
+
+  .presetState {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .filters {

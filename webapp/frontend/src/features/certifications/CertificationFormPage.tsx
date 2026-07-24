@@ -19,7 +19,6 @@ interface CertificationFormState {
   code: string;
   name: string;
   description: string;
-  isRequiredForDispatch: boolean;
 }
 
 export function CertificationFormPage({ certificationId }: CertificationFormPageProps) {
@@ -72,7 +71,6 @@ function CertificationForm({ certification }: { certification: Certification | n
       code: form.code,
       name: form.name,
       description: form.description || null,
-      is_required_for_dispatch: form.isRequiredForDispatch,
     };
 
     try {
@@ -98,14 +96,6 @@ function CertificationForm({ certification }: { certification: Certification | n
         Naam
         <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
       </label>
-      <label className="check-label">
-        <input
-          type="checkbox"
-          checked={form.isRequiredForDispatch}
-          onChange={(event) => setForm((current) => ({ ...current, isRequiredForDispatch: event.target.checked }))}
-        />
-        Dispatch vereist
-      </label>
       <label className="form-grid__wide">
         Omschrijving
         <textarea value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
@@ -126,7 +116,6 @@ function createEmptyForm(): CertificationFormState {
     code: '',
     name: '',
     description: '',
-    isRequiredForDispatch: true,
   };
 }
 
@@ -135,6 +124,5 @@ function formFromCertification(certification: Certification): CertificationFormS
     code: certification.code,
     name: certification.name,
     description: certification.description ?? '',
-    isRequiredForDispatch: certification.is_required_for_dispatch,
   };
 }

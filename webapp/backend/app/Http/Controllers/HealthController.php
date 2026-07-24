@@ -52,11 +52,6 @@ final class HealthController extends Controller
         return ApiResponse::success($checks);
     }
 
-    public function queues(): JsonResponse
-    {
-        return ApiResponse::success(['driver' => Queue::getDefaultDriver()]);
-    }
-
     public function metrics(): JsonResponse
     {
         return ApiResponse::success([

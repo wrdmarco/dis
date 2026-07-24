@@ -74,8 +74,16 @@ final class PushProviderCoalescingTest extends TestCase
             return str_contains($request->url(), 'fcm.googleapis.com')
                 && ! array_key_exists('collapse_key', $payload['message']['android'] ?? []);
         });
-        Http::assertSent(static fn (ClientRequest $request): bool => str_contains($request->url(), 'api.push.apple.com')
-            && $request->hasHeader('apns-collapse-id', $collapseId));
+        Http::assertSent(static function (ClientRequest $request) use ($collapseId): bool {
+            $payload = $request->data();
+
+            return str_contains($request->url(), 'api.push.apple.com')
+                && $request->hasHeader('apns-collapse-id', $collapseId)
+                && ($payload['aps']['alert']['title'] ?? null) === 'Nieuwe D.I.S.-melding'
+                && ($payload['aps']['alert']['body'] ?? null) === 'Open D.I.S. om de actuele melding veilig te bekijken.'
+                && ($payload['aps']['alert']['title'] ?? null) !== ($payload['title'] ?? null)
+                && ($payload['aps']['alert']['body'] ?? null) !== ($payload['body'] ?? null);
+        });
         $this->assertNull(PushNotificationIdentity::dispatchCollapseId([
             'type' => 'dispatch_update',
             'dispatch_id' => $dispatchId,
