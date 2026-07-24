@@ -2,7 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\DispatchNotificationQueue;
 use App\Contracts\QueueTransportMetrics;
+use App\Jobs\SendFcmNotification;
+use App\Models\AuditLog;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
@@ -11,16 +14,21 @@ use App\Models\Permission;
 use App\Models\PushQueueWorkItem;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\WebSessionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Mockery;
 use Tests\TestCase;
 
 final class QueueMonitorApiTest extends TestCase
 {
     use RefreshDatabase;
+
+    private const WEB_ORIGIN = 'https://dis.example.test';
 
     public function test_queue_monitor_requires_authentication_and_health_permission(): void
     {
@@ -75,6 +83,39 @@ final class QueueMonitorApiTest extends TestCase
         $this->assertStringNotContainsString('queue_job_id', $content);
         $this->assertStringNotContainsString('opaque-transport-id', $content);
         $this->assertStringNotContainsString('payload', $content);
+    }
+
+    public function test_completed_work_never_displaces_open_work_before_pagination(): void
+    {
+        $this->mockTransport(pushPending: 1);
+        $viewer = $this->user('queue-open-pagination@example.test', ['system.health.view']);
+        foreach (range(1, 60) as $index) {
+            PushQueueWorkItem::query()->create([
+                'queue_job_id' => hash('sha256', 'completed-'.$index),
+                'safe_message_type' => 'manual_admin',
+                'status' => PushQueueWorkItem::STATUS_COMPLETED,
+                'attempts' => 1,
+                'queued_at' => now()->subMinute(),
+                'processing_started_at' => now()->subSeconds(30),
+                'finished_at' => now(),
+            ]);
+        }
+        $open = PushQueueWorkItem::query()->create([
+            'queue_job_id' => hash('sha256', 'still-open'),
+            'safe_message_type' => 'manual_admin',
+            'status' => PushQueueWorkItem::STATUS_QUEUED,
+            'attempts' => 0,
+            'queued_at' => now(),
+        ]);
+
+        $this->asAdminClient($viewer)
+            ->getJson('/api/admin/queues?queue=push&state=open&per_page=25')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonCount(1, 'data.items')
+            ->assertJsonPath('data.items.0.id', (string) $open->id)
+            ->assertJsonPath('data.items.0.state', 'queued')
+            ->assertJsonPath('data.summary.completed', 0);
     }
 
     public function test_current_outbox_lifecycle_overlay_drives_retry_items_and_counts(): void
@@ -210,28 +251,264 @@ final class QueueMonitorApiTest extends TestCase
             ->getJson('/api/admin/queues?queue=push&per_page=100')
             ->assertOk()
             ->assertJsonPath('data.summary.retrying', 1)
-            ->assertJsonPath('data.summary.cancelled', 1)
-            ->assertJsonPath('data.summary.completed', 1)
+            ->assertJsonPath('data.summary.cancelled', 0)
+            ->assertJsonPath('data.summary.completed', 0)
             ->assertJsonPath('data.summary.processing', 1)
-            ->assertJsonPath('data.summary.failed', 0);
+            ->assertJsonPath('data.summary.failed', 0)
+            ->assertJsonPath('meta.total', 2);
 
         $items = collect($response->json('data.items'))->keyBy('id');
-        $this->assertCount(4, $items);
+        $this->assertCount(2, $items);
         $this->assertSame('retrying', $items[(string) $exhausted->id]['state']);
         $this->assertSame(1, $items[(string) $exhausted->id]['attempts']);
+        $this->assertSame(['start'], $items[(string) $exhausted->id]['available_actions']);
         $this->assertSame(
             'delivery_retry_exhausted',
             $items[(string) $exhausted->id]['error_code'],
         );
-        $this->assertSame('cancelled', $items[(string) $cancelled->id]['state']);
-        $this->assertSame(0, $items[(string) $cancelled->id]['attempts']);
-        $this->assertSame('stale_dispatch_phase', $items[(string) $cancelled->id]['error_code']);
-        $this->assertSame('completed', $items[(string) $delivered->id]['state']);
-        $this->assertSame(0, $items[(string) $delivered->id]['attempts']);
-        $this->assertNull($items[(string) $delivered->id]['error_code']);
+        $this->assertArrayNotHasKey((string) $cancelled->id, $items);
+        $this->assertArrayNotHasKey((string) $delivered->id, $items);
         $this->assertSame('processing', $items[(string) $newClaim->id]['state']);
         $this->assertSame(2, $items[(string) $newClaim->id]['attempts']);
+        $this->assertSame([], $items[(string) $newClaim->id]['available_actions']);
         $this->assertSame('outbox_processing', $items[(string) $newClaim->id]['error_code']);
+    }
+
+    public function test_queue_actions_require_separate_management_permission(): void
+    {
+        Queue::fake();
+        $viewer = $this->user('queue-action-viewer@example.test', ['system.health.view']);
+        $outbox = $this->pushOutbox($viewer, [
+            'message_type' => 'dispatch_update',
+            'available_at' => now()->addHour(),
+        ]);
+
+        $this->asAdminClient($viewer)
+            ->getJson('/api/admin/queues?queue=push&state=open')
+            ->assertOk()
+            ->assertJsonPath('data.items.0.available_actions.0', 'start');
+
+        $this->asAdminClient($viewer)
+            ->postJson('/api/admin/queues/push/'.$outbox->id.'/start')
+            ->assertForbidden();
+
+        Queue::assertNothingPushed();
+        $this->assertNull($outbox->fresh()?->queued_at);
+    }
+
+    public function test_queue_actions_reject_personal_access_tokens_even_for_a_manager(): void
+    {
+        Queue::fake();
+        $manager = $this->user('queue-token-manager@example.test', [
+            'system.health.view',
+            'system.queues.manage',
+        ]);
+        $manager->roles()->firstOrFail()->update(['can_use_operator_app' => true]);
+        $outbox = $this->pushOutbox($manager, [
+            'message_type' => 'dispatch_update',
+            'available_at' => now()->addHour(),
+        ]);
+
+        foreach (['client:operator', 'client:web'] as $ability) {
+            $token = $manager->createToken(
+                'Queue action bearer test',
+                ['*', $ability],
+                now()->addHour(),
+            )->plainTextToken;
+            Auth::forgetGuards();
+
+            $this->withToken($token)
+                ->postJson('/api/admin/queues/push/'.$outbox->id.'/start')
+                ->assertForbidden()
+                ->assertJsonPath('error.code', 'stateful_web_session_required');
+        }
+
+        Queue::assertNothingPushed();
+        $this->assertNull($outbox->fresh()?->queued_at);
+    }
+
+    public function test_manager_can_start_an_unclaimed_outbox_only_once_and_action_is_audited(): void
+    {
+        Queue::fake();
+        $manager = $this->user('queue-start-manager@example.test', [
+            'system.health.view',
+            'system.queues.manage',
+        ]);
+        $outbox = $this->pushOutbox($manager, [
+            'message_type' => 'dispatch_update',
+            'available_at' => now()->addHour(),
+        ]);
+
+        $this->asWebSession($manager)
+            ->postJson('/api/admin/queues/push/'.$outbox->id.'/start')
+            ->assertStatus(202)
+            ->assertJsonPath('data.action', 'started')
+            ->assertJsonMissingPath('data.item');
+
+        $this->asWebSession($manager)
+            ->postJson('/api/admin/queues/push/'.$outbox->id.'/start')
+            ->assertConflict()
+            ->assertJsonPath('error.code', 'queue_action_conflict');
+
+        Queue::assertPushed(
+            SendFcmNotification::class,
+            fn (SendFcmNotification $job): bool => $job->dispatchPushOutboxId === (string) $outbox->id,
+        );
+        Queue::assertPushed(SendFcmNotification::class, 1);
+        $this->assertNotNull($outbox->fresh()?->queued_at);
+
+        $audit = AuditLog::query()
+            ->where('action', 'system.queue.started')
+            ->where('target_id', $outbox->id)
+            ->firstOrFail();
+        $requestAudit = AuditLog::query()
+            ->where('action', 'system.queue.action_requested')
+            ->where('target_id', $outbox->id)
+            ->firstOrFail();
+        $this->assertSame((string) $manager->id, (string) $audit->actor_id);
+        $this->assertSame('pending', $audit->metadata['previous_state'] ?? null);
+        $this->assertSame('started', $audit->metadata['outcome'] ?? null);
+        $this->assertSame((string) $manager->id, (string) $requestAudit->actor_id);
+        $this->assertSame('pending', $requestAudit->metadata['previous_state'] ?? null);
+        $this->assertSame('start', $requestAudit->metadata['requested_action'] ?? null);
+        $metadata = json_encode([
+            $requestAudit->metadata,
+            $audit->metadata,
+        ], JSON_THROW_ON_ERROR);
+        $this->assertStringNotContainsString('token', $metadata);
+        $this->assertStringNotContainsString('body', $metadata);
+        $this->assertStringNotContainsString('payload', $metadata);
+    }
+
+    public function test_manager_can_retry_only_a_failed_current_outbox_cycle(): void
+    {
+        $manager = $this->user('queue-retry-manager@example.test', [
+            'system.health.view',
+            'system.queues.manage',
+        ]);
+        $failedOutbox = $this->pushOutbox($manager, [
+            'message_type' => 'dispatch_update',
+            'queued_at' => now()->subSeconds(30),
+            'processing_started_at' => now()->subSeconds(20),
+            'last_error_code' => 'queue_job_failed',
+        ]);
+        $this->linkedPushWorkItem($failedOutbox, 'failed-current-cycle', [
+            'status' => PushQueueWorkItem::STATUS_FAILED,
+            'attempts' => 4,
+            'error_code' => 'queue_job_failed',
+            'finished_at' => now()->subSecond(),
+        ], now()->subSecond());
+
+        $standaloneJobId = 'failed-without-durable-outbox';
+        $standaloneJobUuid = (string) Str::uuid();
+        $standalonePayload = json_encode([
+            'uuid' => $standaloneJobUuid,
+            'id' => $standaloneJobId,
+            'displayName' => SendFcmNotification::class,
+            'job' => 'Illuminate\Queue\CallQueuedHandler@call',
+            'attempts' => 4,
+            'data' => [
+                'commandName' => SendFcmNotification::class,
+                'command' => 'ENCRYPTED-STANDALONE-PAYLOAD',
+            ],
+        ], JSON_THROW_ON_ERROR);
+        $unsafeLedger = PushQueueWorkItem::query()->create([
+            'queue_job_id' => hash('sha256', $standaloneJobId),
+            'queue_job_uuid' => $standaloneJobUuid,
+            'safe_message_type' => 'manual_admin',
+            'status' => PushQueueWorkItem::STATUS_FAILED,
+            'attempts' => 4,
+            'error_code' => 'queue_job_failed',
+            'finished_at' => now(),
+        ]);
+        DB::table('failed_jobs')->insert([
+            'id' => (string) Str::uuid(),
+            'uuid' => $standaloneJobUuid,
+            'connection' => 'push',
+            'queue' => 'push',
+            'payload' => $standalonePayload,
+            'exception' => 'sanitized test exception',
+            'failed_at' => now(),
+        ]);
+
+        $recordingQueue = new class implements DispatchNotificationQueue
+        {
+            public int $enqueueCount = 0;
+
+            public bool $requestAuditSeenBeforeEnqueue = false;
+
+            public function enqueue(DispatchPushOutbox $notification): void
+            {
+                $this->enqueueCount++;
+                $this->requestAuditSeenBeforeEnqueue = AuditLog::query()
+                    ->where('action', 'system.queue.action_requested')
+                    ->where('target_type', DispatchPushOutbox::class)
+                    ->where('target_id', $notification->id)
+                    ->exists();
+            }
+        };
+        $this->app->instance(DispatchNotificationQueue::class, $recordingQueue);
+
+        $items = collect($this->asAdminClient($manager)
+            ->getJson('/api/admin/queues?queue=push&state=open&per_page=100')
+            ->assertOk()
+            ->json('data.items'))
+            ->keyBy('id');
+        $this->assertSame(['retry'], $items[(string) $failedOutbox->id]['available_actions']);
+        $this->assertSame([], $items[(string) $unsafeLedger->id]['available_actions']);
+
+        $this->asWebSession($manager)
+            ->postJson('/api/admin/queues/push/'.$failedOutbox->id.'/retry')
+            ->assertStatus(202)
+            ->assertJsonPath('data.action', 'retried')
+            ->assertJsonMissingPath('data.item');
+
+        $this->asWebSession($manager)
+            ->postJson('/api/admin/queues/push/'.$unsafeLedger->id.'/retry')
+            ->assertConflict()
+            ->assertJsonPath('error.code', 'queue_action_conflict');
+
+        $this->assertSame(1, $recordingQueue->enqueueCount);
+        $this->assertTrue($recordingQueue->requestAuditSeenBeforeEnqueue);
+        $this->assertDatabaseHas('failed_jobs', [
+            'uuid' => $standaloneJobUuid,
+            'payload' => $standalonePayload,
+        ]);
+        $this->assertSame(
+            PushQueueWorkItem::STATUS_FAILED,
+            $unsafeLedger->refresh()->status,
+        );
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => 'system.queue.action_requested',
+            'target_type' => PushQueueWorkItem::class,
+            'target_id' => $unsafeLedger->id,
+        ]);
+
+        $requestAudit = AuditLog::query()
+            ->where('action', 'system.queue.action_requested')
+            ->where('target_type', DispatchPushOutbox::class)
+            ->where('target_id', $failedOutbox->id)
+            ->sole();
+        $outcomeAudit = AuditLog::query()
+            ->where('action', 'system.queue.retried')
+            ->where('target_type', DispatchPushOutbox::class)
+            ->where('target_id', $failedOutbox->id)
+            ->sole();
+        $this->assertSame((string) $manager->id, (string) $requestAudit->actor_id);
+        $this->assertSame('failed', $requestAudit->metadata['previous_state'] ?? null);
+        $this->assertSame('retry', $requestAudit->metadata['requested_action'] ?? null);
+        $this->assertSame((string) $manager->id, (string) $outcomeAudit->actor_id);
+        $this->assertSame('retried', $outcomeAudit->metadata['outcome'] ?? null);
+
+        $encoded = json_encode([
+            $items[(string) $unsafeLedger->id],
+            $requestAudit->metadata,
+            $outcomeAudit->metadata,
+        ], JSON_THROW_ON_ERROR);
+        $this->assertStringNotContainsString($standaloneJobUuid, $encoded);
+        $this->assertStringNotContainsString($standaloneJobId, $encoded);
+        $this->assertStringNotContainsString(hash('sha256', $standaloneJobId), $encoded);
+        $this->assertStringNotContainsString('ENCRYPTED-STANDALONE-PAYLOAD', $encoded);
     }
 
     public function test_queue_monitor_rejects_unbounded_pagination_and_invalid_filters(): void
@@ -380,5 +657,47 @@ final class QueueMonitorApiTest extends TestCase
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);
+    }
+
+    private function asWebSession(User $user): static
+    {
+        config([
+            'app.url' => self::WEB_ORIGIN,
+            'session.trusted_origins' => [self::WEB_ORIGIN],
+            'sanctum.stateful' => ['dis.example.test'],
+        ]);
+
+        Auth::forgetGuards();
+        $this->defaultHeaders = [];
+        $this->defaultCookies = [];
+        $this->unencryptedCookies = [];
+        $this->serverVariables = [];
+
+        $timestamp = now()->getTimestamp();
+        $csrfToken = hash('sha256', 'queue-monitor-browser-session-'.$user->id);
+
+        return $this->actingAs($user, 'web')
+            ->withSession([
+                '_token' => $csrfToken,
+                WebSessionService::KEY_AUTHENTICATED_AT => $timestamp,
+                WebSessionService::KEY_LAST_ACTIVITY_AT => $timestamp,
+                WebSessionService::KEY_AUTH_VERSION => (int) $user->auth_session_version,
+            ])
+            ->withHeaders([
+                'Accept' => 'application/json',
+                'Origin' => self::WEB_ORIGIN,
+                'Referer' => self::WEB_ORIGIN.'/',
+                'Sec-Fetch-Site' => 'same-origin',
+                'X-CSRF-TOKEN' => $csrfToken,
+                'X-Requested-With' => 'XMLHttpRequest',
+            ])
+            ->withServerVariables([
+                'HTTP_HOST' => 'dis.example.test',
+                'SERVER_NAME' => 'dis.example.test',
+                'SERVER_PORT' => 443,
+                'HTTPS' => 'on',
+                'HTTP_X_FORWARDED_PROTO' => 'https',
+                'REMOTE_ADDR' => '192.0.2.70',
+            ]);
     }
 }

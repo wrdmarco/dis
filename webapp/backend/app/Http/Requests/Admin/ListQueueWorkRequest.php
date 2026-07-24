@@ -19,13 +19,12 @@ final class ListQueueWorkRequest extends FormRequest
             'queue' => ['sometimes', 'string', Rule::in(['all', 'push'])],
             'state' => ['sometimes', 'string', Rule::in([
                 'all',
+                'open',
                 'pending',
                 'queued',
                 'processing',
                 'retrying',
                 'failed',
-                'completed',
-                'cancelled',
             ])],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'page' => [
@@ -48,7 +47,7 @@ final class ListQueueWorkRequest extends FormRequest
     {
         return [
             'queue' => (string) $this->validated('queue', 'all'),
-            'state' => (string) $this->validated('state', 'all'),
+            'state' => (string) $this->validated('state', 'open'),
             'per_page' => (int) $this->validated('per_page', 50),
             'page' => (int) $this->validated('page', 1),
         ];

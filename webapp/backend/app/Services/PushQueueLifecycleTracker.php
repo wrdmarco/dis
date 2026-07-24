@@ -45,6 +45,7 @@ final class PushQueueLifecycleTracker
         $notification = $event->job;
         $this->workItems->queued(
             $this->opaqueJobId($event->id),
+            $this->safeJobUuid($this->queuedJobUuid($event)),
             self::SAFE_MESSAGE_TYPES[$notification->messageType] ?? 'push_notification',
             $this->safeOutboxId($notification->dispatchPushOutboxId),
             is_int($event->delay) ? $event->delay : null,
@@ -59,6 +60,7 @@ final class PushQueueLifecycleTracker
 
         $this->workItems->processing(
             $this->opaqueJobId($event->job->getJobId()),
+            $this->safeJobUuid($this->runtimeJobUuid($event->job)),
             max(1, (int) $event->job->attempts()),
         );
     }
@@ -71,6 +73,7 @@ final class PushQueueLifecycleTracker
 
         $this->workItems->retrying(
             $this->opaqueJobId($event->job->getJobId()),
+            $this->safeJobUuid($this->runtimeJobUuid($event->job)),
             max(1, (int) $event->job->attempts()),
             is_int($event->backoff) ? $event->backoff : null,
         );
@@ -84,6 +87,7 @@ final class PushQueueLifecycleTracker
 
         $this->workItems->completed(
             $this->opaqueJobId($event->job->getJobId()),
+            $this->safeJobUuid($this->runtimeJobUuid($event->job)),
             max(1, (int) $event->job->attempts()),
         );
     }
@@ -96,6 +100,7 @@ final class PushQueueLifecycleTracker
 
         $this->workItems->failed(
             $this->opaqueJobId($event->job->getJobId()),
+            $this->safeJobUuid($this->runtimeJobUuid($event->job)),
             max(1, (int) $event->job->attempts()),
             $event->exception instanceof TimeoutExceededException
                 ? 'queue_job_timeout_exhausted'
@@ -114,6 +119,7 @@ final class PushQueueLifecycleTracker
         if ($this->policy->timedOutJobIsExhausted($event->job)) {
             $this->workItems->failed(
                 $jobId,
+                $this->safeJobUuid($this->runtimeJobUuid($event->job)),
                 $attempts,
                 'queue_job_timeout_exhausted',
             );
@@ -123,6 +129,7 @@ final class PushQueueLifecycleTracker
 
         $this->workItems->retrying(
             $jobId,
+            $this->safeJobUuid($this->runtimeJobUuid($event->job)),
             $attempts,
             $this->policy->timeoutVisibilityDelaySeconds($event->job),
             'queue_timeout_retry_scheduled',
@@ -153,5 +160,32 @@ final class PushQueueLifecycleTracker
     private function safeOutboxId(?string $outboxId): ?string
     {
         return is_string($outboxId) && Str::isUlid($outboxId) ? $outboxId : null;
+    }
+
+    private function queuedJobUuid(JobQueued $event): ?string
+    {
+        try {
+            $uuid = $event->payload()['uuid'] ?? null;
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return is_string($uuid) ? $uuid : null;
+    }
+
+    private function runtimeJobUuid(Job $job): ?string
+    {
+        try {
+            $uuid = $job->uuid();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return is_string($uuid) ? $uuid : null;
+    }
+
+    private function safeJobUuid(?string $uuid): ?string
+    {
+        return is_string($uuid) && Str::isUuid($uuid) ? $uuid : null;
     }
 }

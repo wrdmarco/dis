@@ -73,6 +73,20 @@ final class OperationalAlarmRateLimitTest extends TestCase
         $this->assertSame([], array_intersect(array_column($firstLimits, 'key'), array_column($secondLimits, 'key')));
     }
 
+    public function test_queue_actions_have_a_separate_low_rate_limit(): void
+    {
+        $user = $this->user('queue-action-limits@example.test');
+        $limits = $this->resolveLimits(
+            'queue-action',
+            $user,
+            $this->accessToken($user, 'Queue action test client'),
+        );
+
+        $this->assertSame([30, 60], array_column($limits, 'maxAttempts'));
+        $this->assertStringStartsWith('queue-action:client:', $limits[0]->key);
+        $this->assertStringStartsWith('queue-action:user:', $limits[1]->key);
+    }
+
     public function test_alarm_limiter_supports_stateful_web_sessions_without_a_persisted_token(): void
     {
         $user = $this->user('web-session-limits@example.test');
@@ -101,6 +115,8 @@ final class OperationalAlarmRateLimitTest extends TestCase
             ['POST', '/api/dispatches/01J00000000000000000000000/send', 'throttle:alarm-dispatch'],
             ['POST', '/api/test-alert', 'throttle:reachability-test'],
             ['PATCH', '/api/status/me', 'throttle:operational-action'],
+            ['POST', '/api/admin/queues/push/01J00000000000000000000000/start', 'throttle:queue-action'],
+            ['POST', '/api/admin/queues/push/01J00000000000000000000000/retry', 'throttle:queue-action'],
             ['POST', '/api/devices/heartbeat', 'throttle:operational-telemetry'],
             ['POST', '/api/incidents/01J00000000000000000000000/location', 'throttle:operational-telemetry'],
         ];

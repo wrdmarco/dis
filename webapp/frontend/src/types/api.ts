@@ -1543,7 +1543,12 @@ export type QueueMonitorState =
   | 'completed'
   | 'cancelled';
 
-export type QueueMonitorStateFilter = 'all' | QueueMonitorState;
+export type QueueMonitorStateFilter =
+  | 'all'
+  | 'open'
+  | Exclude<QueueMonitorState, 'completed' | 'cancelled'>;
+
+export type QueueMonitorAction = 'start' | 'retry';
 
 export interface QueueMonitorStateCounts {
   total: number;
@@ -1579,6 +1584,11 @@ export interface QueueMonitorItem {
   attempts: number | null;
   error_code: string | null;
   duration_ms: number | null;
+  available_actions: QueueMonitorAction[];
+}
+
+export interface QueueMonitorActionResult {
+  action: 'started' | 'retried';
 }
 
 export interface QueueMonitorSnapshot {

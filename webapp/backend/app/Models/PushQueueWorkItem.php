@@ -21,6 +21,7 @@ final class PushQueueWorkItem extends Model
 
     protected $fillable = [
         'queue_job_id',
+        'queue_job_uuid',
         'safe_message_type',
         'dispatch_push_outbox_id',
         'status',
@@ -30,6 +31,11 @@ final class PushQueueWorkItem extends Model
         'processing_started_at',
         'next_attempt_at',
         'finished_at',
+    ];
+
+    protected $hidden = [
+        'queue_job_id',
+        'queue_job_uuid',
     ];
 
     protected function casts(): array

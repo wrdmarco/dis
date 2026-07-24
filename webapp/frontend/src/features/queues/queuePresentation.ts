@@ -1,4 +1,5 @@
 import type {
+  QueueMonitorAction,
   QueueMonitorFilter,
   QueueMonitorItem,
   QueueMonitorState,
@@ -32,10 +33,10 @@ export function queueMonitorPath(
 
 export function queueStateLabel(state: QueueMonitorState): string {
   const labels: Record<QueueMonitorState, string> = {
-    pending: 'In afwachting',
-    queued: 'In wachtrij',
-    processing: 'Wordt verwerkt',
-    retrying: 'Nieuwe poging',
+    pending: 'Wachtend',
+    queued: 'Wachtend',
+    processing: 'Bezig',
+    retrying: 'Wachtend',
     failed: 'Mislukt',
     completed: 'Verwerkt',
     cancelled: 'Geannuleerd',
@@ -48,25 +49,36 @@ export function queueStateTone(state: QueueMonitorState): QueueStatusTone {
   if (state === 'processing') return 'active';
   if (state === 'completed') return 'success';
   if (state === 'failed') return 'danger';
-  if (state === 'retrying') return 'warning';
   return 'neutral';
 }
 
-export function queueFilterLabel(queue: QueueMonitorFilter): string {
-  if (queue === 'push') return 'Pushmeldingen';
-  return 'Alle wachtrijen';
+export function isVisibleQueueItem(item: QueueMonitorItem): boolean {
+  return item.state === 'pending'
+    || item.state === 'queued'
+    || item.state === 'processing'
+    || item.state === 'retrying'
+    || item.state === 'failed';
 }
 
-export function queueStateFilterLabel(state: QueueMonitorStateFilter): string {
-  return state === 'all' ? 'Alle statussen' : queueStateLabel(state);
-}
+export function queueActionForItem(item: QueueMonitorItem): QueueMonitorAction | null {
+  const availableActions = Array.isArray(item.available_actions) ? item.available_actions : [];
 
-export function queueLaneDescription(key: string): string {
-  if (key === 'push') {
-    return 'Pushmeldingen worden via eigen parallelle workers verwerkt voor een vlotte alarmering.';
+  if (item.state === 'failed' && availableActions.includes('retry')) {
+    return 'retry';
   }
 
-  return 'Afzonderlijke serverwachtrij voor achtergrondverwerking.';
+  if (
+    (item.state === 'pending' || item.state === 'queued' || item.state === 'retrying')
+    && availableActions.includes('start')
+  ) {
+    return 'start';
+  }
+
+  return null;
+}
+
+export function queueActionPath(item: Pick<QueueMonitorItem, 'id' | 'queue'>, action: QueueMonitorAction): string {
+  return `/admin/queues/${encodeURIComponent(item.queue)}/${encodeURIComponent(item.id)}/${action}`;
 }
 
 export function boundedQueueProgress(progress: number | null): number | null {

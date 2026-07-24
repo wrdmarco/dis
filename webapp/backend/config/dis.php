@@ -240,6 +240,13 @@ return [
     'queue_monitor' => [
         'refresh_after_seconds' => 5,
         'recent_hours' => 24,
+        // Manual queue actions inspect only this bounded number of Redis
+        // entries. A task outside the window remains untouched and can be
+        // handled normally by the worker.
+        'manual_action_scan_limit' => max(
+            1,
+            min(5000, (int) env('PUSH_QUEUE_MANUAL_ACTION_SCAN_LIMIT', 1000)),
+        ),
         'queues' => [
             // This is installed capacity, not a live worker-status claim.
             'push' => [

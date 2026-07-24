@@ -46,6 +46,7 @@ final class RoleAndPermissionSeeder extends Seeder
         'operational-map.pilot-homes.view' => ['display_name' => 'Globale woonplaatsen op kaart bekijken', 'category' => 'incident_management', 'description' => 'Toon globale woonplaatscoordinaten van piloten op de operationele kaart.'],
         'wallboards.manage' => ['display_name' => 'Wallboards beheren', 'category' => 'system_configuration', 'description' => 'Beheer wallboardindelingen, koppelcodes en afzonderlijke wallboardsessies.'],
         'system.health.view' => ['display_name' => 'Systeemstatus bekijken', 'category' => 'system_configuration', 'description' => 'Bekijk queue, websocket, versie en servicestatus zonder beheersacties uit te voeren.'],
+        'system.queues.manage' => ['display_name' => 'Wachtrijen bedienen', 'category' => 'system_configuration', 'description' => 'Start geschikte wachtende taken direct en herstart geschikte mislukte taken.'],
         'system.routing.manage' => ['display_name' => 'OSRM-routering beheren', 'category' => 'system_configuration', 'description' => 'Installeer, activeer en werk de lokale OSRM-routeringsdata bij.'],
         'system.update.execute' => ['display_name' => 'Systeemupdate uitvoeren', 'category' => 'system_configuration', 'description' => 'Start een serverupdate. Dit is een afzonderlijke bevoorrechte actie.'],
         'system.reboot.execute' => ['display_name' => 'Server herstarten', 'category' => 'system_configuration', 'description' => 'Start een herstart van de DIS-server. Dit is een afzonderlijke bevoorrechte actie.'],

@@ -1,12 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'playwright/test';
-import type { QueueMonitorItem } from '../src/types/api';
+import type { QueueMonitorItem, QueueMonitorState } from '../src/types/api';
 import {
   boundedQueueProgress,
   formatQueueDuration,
   formatQueueRuntime,
   formatQueueWait,
-  queueLaneDescription,
+  isVisibleQueueItem,
+  queueActionForItem,
+  queueActionPath,
   queueMonitorPath,
   queueStateLabel,
   queueStateTone,
@@ -18,6 +20,28 @@ import {
   queuePollIntervalMs,
   startQueuePolling,
 } from '../src/features/queues/queuePolling';
+
+function queueItem(
+  state: QueueMonitorState,
+  availableActions: QueueMonitorItem['available_actions'] = [],
+): QueueMonitorItem {
+  return {
+    id: 'safe-reference',
+    queue: 'push',
+    workload_type: 'push_notification',
+    label: 'Pushmelding',
+    state,
+    progress_percent: state === 'processing' ? 35 : null,
+    queued_at: '2026-07-24T10:00:00Z',
+    started_at: state === 'processing' ? '2026-07-24T10:00:03Z' : null,
+    next_attempt_at: null,
+    finished_at: state === 'failed' ? '2026-07-24T10:00:09Z' : null,
+    attempts: 1,
+    error_code: state === 'failed' ? 'delivery_failed' : null,
+    duration_ms: null,
+    available_actions: availableActions,
+  };
+}
 
 test('exposes Wachtrijen as a protected management page immediately before Systeem', () => {
   const route = readFileSync(new URL('../app/queues/page.tsx', import.meta.url), 'utf8');
@@ -33,58 +57,82 @@ test('exposes Wachtrijen as a protected management page immediately before Syste
   expect(routeShell).toContain("{ to: '/queues', permissions: ['system.health.view'] }");
 });
 
-test('moves queue monitoring out of raw System JSON and explains transport totals safely', () => {
-  const systemPage = readFileSync(new URL('../src/features/system/SystemPage.tsx', import.meta.url), 'utf8');
-  const queuePage = readFileSync(new URL('../src/features/queues/QueuePage.tsx', import.meta.url), 'utf8');
+test('renders one minimal work list with only the three operational states', () => {
+  const page = readFileSync(new URL('../src/features/queues/QueuePage.tsx', import.meta.url), 'utf8');
 
-  expect(systemPage).not.toContain("'/admin/queues'");
-  expect(systemPage).not.toContain('title="Queues"');
-  expect(queuePage).toContain('Totaal in transportwachtrij');
-  expect(queuePage).toContain("if (lane.key === 'push') return 'Pushmeldingen'");
-  expect(queuePage).toContain("push_notification: 'Pushmelding'");
-  expect(queuePage).toContain('Dit is de ingestelde capaciteit, geen live workerstatus.');
-  expect(queuePage).not.toContain('payload');
-  expect(queuePage).not.toContain('token');
+  expect(page).toContain("title=\"Wachtrij\"");
+  expect(page).toContain("label: 'Wachtend'");
+  expect(page).toContain("label: 'Bezig'");
+  expect(page).toContain("label: 'Mislukt'");
+  expect(page).toContain('snapshot?.items.filter(isVisibleQueueItem)');
+  expect(page).toContain('Geen openstaande taken.');
+  expect(page).not.toContain('Verwerkt</');
+  expect(page).not.toContain('Eigen verwerkingsbaan');
+  expect(page).not.toContain('parallelle workers');
+  expect(page).not.toContain('Totaal in transportwachtrij');
+  expect(page).not.toContain('Dit is de ingestelde capaciteit');
+  expect(page).not.toContain('Per pagina');
+  expect(page).not.toContain('<select');
+  expect(page).not.toContain('payload');
+  expect(page).not.toContain('token');
 });
 
-test('builds bounded queue monitor filters and Dutch operational states', () => {
+test('builds bounded queue monitor paths and concise Dutch states', () => {
+  expect(queueMonitorPath('all', 'open', 1, 50)).toBe(
+    '/admin/queues?queue=all&state=open&page=1&per_page=50',
+  );
   expect(queueMonitorPath('push', 'retrying', 0, 250)).toBe(
     '/admin/queues?queue=push&state=retrying&page=1&per_page=100',
   );
-  expect(queueStateLabel('pending')).toBe('In afwachting');
-  expect(queueStateLabel('processing')).toBe('Wordt verwerkt');
-  expect(queueStateLabel('completed')).toBe('Verwerkt');
+  expect(queueStateLabel('pending')).toBe('Wachtend');
+  expect(queueStateLabel('queued')).toBe('Wachtend');
+  expect(queueStateLabel('retrying')).toBe('Wachtend');
+  expect(queueStateLabel('processing')).toBe('Bezig');
+  expect(queueStateLabel('failed')).toBe('Mislukt');
   expect(queueStateTone('processing')).toBe('active');
   expect(queueStateTone('failed')).toBe('danger');
-  expect(queueStateTone('cancelled')).toBe('neutral');
   expect(boundedQueueProgress(-3)).toBe(0);
   expect(boundedQueueProgress(44.6)).toBe(45);
   expect(boundedQueueProgress(180)).toBe(100);
   expect(boundedQueueProgress(null)).toBeNull();
 });
 
-test('describes parallel push processing without claiming live worker health', () => {
-  expect(queueLaneDescription('push')).toContain('eigen parallelle workers');
-  expect(queueLaneDescription('push')).toContain('vlotte alarmering');
-  expect(queueLaneDescription('other')).toContain('Afzonderlijke serverwachtrij');
+test('never presents completed or cancelled work and exposes only server-approved actions', () => {
+  for (const state of ['pending', 'queued', 'processing', 'retrying', 'failed'] as const) {
+    expect(isVisibleQueueItem(queueItem(state))).toBe(true);
+  }
+
+  expect(isVisibleQueueItem(queueItem('completed'))).toBe(false);
+  expect(isVisibleQueueItem(queueItem('cancelled'))).toBe(false);
+  expect(queueActionForItem(queueItem('pending', ['start']))).toBe('start');
+  expect(queueActionForItem(queueItem('queued', ['start']))).toBe('start');
+  expect(queueActionForItem(queueItem('retrying'))).toBeNull();
+  expect(queueActionForItem(queueItem('retrying', ['start']))).toBe('start');
+  expect(queueActionForItem(queueItem('failed', ['retry']))).toBe('retry');
+  expect(queueActionForItem(queueItem('failed'))).toBeNull();
+  expect(queueActionForItem(queueItem('processing', ['start', 'retry']))).toBeNull();
+  expect(queueActionForItem({ ...queueItem('pending'), available_actions: undefined as never })).toBeNull();
+});
+
+test('uses encoded queue action paths and permission-gated compact controls', () => {
+  const page = readFileSync(new URL('../src/features/queues/QueuePage.tsx', import.meta.url), 'utf8');
+  const item = { id: 'work/item', queue: 'push lane' };
+
+  expect(queueActionPath(item, 'start')).toBe('/admin/queues/push%20lane/work%2Fitem/start');
+  expect(queueActionPath(item, 'retry')).toBe('/admin/queues/push%20lane/work%2Fitem/retry');
+  expect(page).toContain("hasPermission('system.queues.manage')");
+  expect(page).toContain("queueMonitorPath('all', 'open'");
+  expect(page).toContain("'Opnieuw starten' : 'Nu starten'");
+  expect(page).toContain('aria-busy={busy}');
+  expect(page).toContain('aria-label={`${actionLabel}: ${item.label}`}');
+  expect(page).toContain('busyItemsRef.current.has(itemKey)');
+  expect(page).toContain('role="status"');
+  expect(page).toContain('actionStatusRef.current?.focus()');
+  expect(page).toContain("aria-label={refreshing ? 'Wachtrij wordt ververst' : 'Wachtrij verversen'}");
 });
 
 test('formats measured duration, waiting time and active runtime without using update timestamps', () => {
-  const item: QueueMonitorItem = {
-    id: 'safe-reference',
-    queue: 'push',
-    workload_type: 'push_notification',
-    label: 'Pushmelding',
-    state: 'processing',
-    progress_percent: 35,
-    queued_at: '2026-07-24T10:00:00Z',
-    started_at: '2026-07-24T10:00:03Z',
-    next_attempt_at: null,
-    finished_at: null,
-    attempts: 1,
-    error_code: null,
-    duration_ms: null,
-  };
+  const item = queueItem('processing');
 
   expect(formatQueueDuration(850)).toBe('850 ms');
   expect(formatQueueDuration(18_640)).toBe('18,6 sec.');
@@ -94,24 +142,13 @@ test('formats measured duration, waiting time and active runtime without using u
   expect(formatQueueRuntime({ ...item, duration_ms: 18_640 }, '2026-07-24T10:00:10Z')).toBe('18,6 sec.');
 });
 
-test('renders unavailable transport telemetry and unknown attempts explicitly', () => {
-  const types = readFileSync(new URL('../src/types/api.ts', import.meta.url), 'utf8');
-  const page = readFileSync(new URL('../src/features/queues/QueuePage.tsx', import.meta.url), 'utf8');
-
-  expect(types).toContain('transport_pending_count: number | null');
-  expect(types).toContain('transport_failed_count: number | null');
-  expect(types).toContain('attempts: number | null');
-  expect(page).toContain('Niet beschikbaar');
-  expect(page).toContain("item.attempts ?? '-'");
-});
-
-test('makes the safe 2000-item cap explicit instead of implying an exhaustive queue list', () => {
+test('keeps the bounded result cap visible without adding explanatory copy', () => {
   const page = readFileSync(new URL('../src/features/queues/QueuePage.tsx', import.meta.url), 'utf8');
 
   expect(page).toContain('is_truncated: boolean');
   expect(page).toContain("'is_truncated' in meta && meta.is_truncated === true");
-  expect(page).toContain("resource.pagination.is_truncated ? '+' : ''");
-  expect(page).toContain('nieuwste {DUTCH_INTEGER.format(resource.pagination.total)} zichtbaar');
+  expect(page).toContain("{DUTCH_INTEGER.format(resource.pagination.total)}+ taken");
+  expect(page).not.toContain('nieuwste');
 });
 
 test('uses the server refresh interval, avoids overlapping loads and pauses in hidden tabs', async () => {

@@ -40,7 +40,7 @@ final class QueueMonitorService
                 $stateCounts[$state] += $count;
             }
         }
-        $total = $filters['state'] === 'all'
+        $total = in_array($filters['state'], ['all', 'open'], true)
             ? array_sum($stateCounts)
             : ($stateCounts[$filters['state']] ?? 0);
         $visibleTotal = min(2000, $total);

@@ -2,6 +2,7 @@
 
 namespace App\Repositories;
 
+use App\Models\DispatchPushOutbox;
 use App\Models\PushQueueWorkItem;
 use Carbon\CarbonImmutable;
 use Closure;
@@ -10,8 +11,102 @@ use Illuminate\Support\Facades\DB;
 
 final class PushQueueWorkItemRepository
 {
+    /**
+     * @param  Closure(PushQueueWorkItem): ('queued'|'conflict'|'failed')  $transport
+     * @return 'queued'|'conflict'|'failed'|'unsupported'
+     */
+    public function startManually(string $workItemId, Closure $transport): string
+    {
+        return DB::transaction(function () use ($workItemId, $transport): string {
+            $item = $this->lockManualActionItem($workItemId);
+            if ($item === null || $item->dispatch_push_outbox_id !== null) {
+                return 'unsupported';
+            }
+            if (! in_array($item->status, [
+                PushQueueWorkItem::STATUS_QUEUED,
+                PushQueueWorkItem::STATUS_RETRYING,
+            ], true) || $item->queue_job_uuid === null) {
+                return 'conflict';
+            }
+
+            $outcome = $transport($item);
+            if ($outcome !== 'queued') {
+                return $outcome;
+            }
+
+            $item->forceFill([
+                'status' => PushQueueWorkItem::STATUS_QUEUED,
+                'processing_started_at' => null,
+                'next_attempt_at' => null,
+                'finished_at' => null,
+                'error_code' => null,
+            ])->save();
+
+            return 'queued';
+        }, 3);
+    }
+
+    /**
+     * @param  Closure(PushQueueWorkItem): ('queued'|'conflict'|'failed')  $transport
+     * @return 'queued'|'conflict'|'failed'|'unsupported'
+     */
+    public function startLinkedOutboxManually(string $outboxId, Closure $transport): string
+    {
+        return DB::transaction(function () use ($outboxId, $transport): string {
+            DB::select(
+                'SELECT pg_advisory_xact_lock(hashtextextended(?, 0))',
+                ['push-queue-manual-action:outbox:'.$outboxId],
+            );
+            $outbox = DispatchPushOutbox::query()
+                ->whereKey($outboxId)
+                ->lockForUpdate()
+                ->first();
+            if ($outbox === null) {
+                return 'unsupported';
+            }
+            if ($outbox->queued_at === null
+                || $outbox->delivered_at !== null
+                || $outbox->cancelled_at !== null) {
+                return 'unsupported';
+            }
+
+            $item = PushQueueWorkItem::query()
+                ->where('dispatch_push_outbox_id', $outbox->id)
+                ->where('created_at', '>=', $outbox->queued_at)
+                ->latest('created_at')
+                ->latest('id')
+                ->lockForUpdate()
+                ->first();
+            if ($item === null) {
+                return 'unsupported';
+            }
+            if (! in_array($item->status, [
+                PushQueueWorkItem::STATUS_QUEUED,
+                PushQueueWorkItem::STATUS_RETRYING,
+            ], true) || $item->queue_job_uuid === null) {
+                return 'conflict';
+            }
+
+            $outcome = $transport($item);
+            if ($outcome !== 'queued') {
+                return $outcome;
+            }
+
+            $item->forceFill([
+                'status' => PushQueueWorkItem::STATUS_QUEUED,
+                'processing_started_at' => null,
+                'next_attempt_at' => null,
+                'finished_at' => null,
+                'error_code' => null,
+            ])->save();
+
+            return 'queued';
+        }, 3);
+    }
+
     public function queued(
         string $queueJobId,
+        ?string $queueJobUuid,
         string $safeMessageType,
         ?string $dispatchPushOutboxId,
         ?int $delaySeconds,
@@ -19,6 +114,7 @@ final class PushQueueWorkItemRepository
         $queuedAtCandidate = CarbonImmutable::now();
         $this->mutate($queueJobId, function (?PushQueueWorkItem $item) use (
             $queueJobId,
+            $queueJobUuid,
             $safeMessageType,
             $dispatchPushOutboxId,
             $delaySeconds,
@@ -27,6 +123,7 @@ final class PushQueueWorkItemRepository
             if ($item === null) {
                 PushQueueWorkItem::query()->create([
                     'queue_job_id' => $queueJobId,
+                    'queue_job_uuid' => $queueJobUuid,
                     'safe_message_type' => $safeMessageType,
                     'dispatch_push_outbox_id' => $dispatchPushOutboxId,
                     'status' => PushQueueWorkItem::STATUS_QUEUED,
@@ -41,6 +138,7 @@ final class PushQueueWorkItemRepository
             // reached processing or even completion before this listener gets
             // the database lock, so this event may enrich but never regress.
             $item->forceFill([
+                'queue_job_uuid' => $item->queue_job_uuid ?? $queueJobUuid,
                 'safe_message_type' => $item->safe_message_type === 'push_notification'
                     ? $safeMessageType
                     : $item->safe_message_type,
@@ -50,11 +148,16 @@ final class PushQueueWorkItemRepository
         });
     }
 
-    public function processing(string $queueJobId, int $attempts): void
+    public function processing(string $queueJobId, ?string $queueJobUuid, int $attempts): void
     {
-        $this->mutate($queueJobId, function (?PushQueueWorkItem $item) use ($queueJobId, $attempts): void {
+        $this->mutate($queueJobId, function (?PushQueueWorkItem $item) use (
+            $queueJobId,
+            $queueJobUuid,
+            $attempts,
+        ): void {
             $item ??= PushQueueWorkItem::query()->create([
                 'queue_job_id' => $queueJobId,
+                'queue_job_uuid' => $queueJobUuid,
                 'safe_message_type' => 'push_notification',
                 'status' => PushQueueWorkItem::STATUS_PROCESSING,
             ]);
@@ -62,6 +165,7 @@ final class PushQueueWorkItemRepository
                 return;
             }
             $item->forceFill([
+                'queue_job_uuid' => $item->queue_job_uuid ?? $queueJobUuid,
                 'status' => PushQueueWorkItem::STATUS_PROCESSING,
                 'attempts' => max((int) $item->attempts, $attempts),
                 // JobProcessing represents the start of this concrete attempt.
@@ -77,18 +181,21 @@ final class PushQueueWorkItemRepository
 
     public function retrying(
         string $queueJobId,
+        ?string $queueJobUuid,
         int $attempts,
         ?int $delaySeconds,
         string $errorCode = 'queue_retry_scheduled',
     ): void {
         $this->mutate($queueJobId, function (?PushQueueWorkItem $item) use (
             $queueJobId,
+            $queueJobUuid,
             $attempts,
             $delaySeconds,
             $errorCode,
         ): void {
             $item ??= PushQueueWorkItem::query()->create([
                 'queue_job_id' => $queueJobId,
+                'queue_job_uuid' => $queueJobUuid,
                 'safe_message_type' => 'push_notification',
                 'status' => PushQueueWorkItem::STATUS_RETRYING,
             ]);
@@ -98,6 +205,7 @@ final class PushQueueWorkItemRepository
             $recoveringStale = $this->isStaleFailure($item);
 
             $item->forceFill([
+                'queue_job_uuid' => $item->queue_job_uuid ?? $queueJobUuid,
                 'status' => PushQueueWorkItem::STATUS_RETRYING,
                 'attempts' => max((int) $item->attempts, $attempts),
                 'processing_started_at' => $recoveringStale ? null : $item->processing_started_at,
@@ -127,30 +235,42 @@ final class PushQueueWorkItemRepository
             ]);
     }
 
-    public function completed(string $queueJobId, int $attempts): void
+    public function completed(string $queueJobId, ?string $queueJobUuid, int $attempts): void
     {
         $this->finish(
             $queueJobId,
+            $queueJobUuid,
             PushQueueWorkItem::STATUS_COMPLETED,
             $attempts,
             null,
         );
     }
 
-    public function failed(string $queueJobId, int $attempts, string $errorCode): void
-    {
+    public function failed(
+        string $queueJobId,
+        ?string $queueJobUuid,
+        int $attempts,
+        string $errorCode,
+    ): void {
         $this->finish(
             $queueJobId,
+            $queueJobUuid,
             PushQueueWorkItem::STATUS_FAILED,
             $attempts,
             $errorCode,
         );
     }
 
-    private function finish(string $queueJobId, string $status, int $attempts, ?string $errorCode): void
-    {
+    private function finish(
+        string $queueJobId,
+        ?string $queueJobUuid,
+        string $status,
+        int $attempts,
+        ?string $errorCode,
+    ): void {
         $this->mutate($queueJobId, function (?PushQueueWorkItem $item) use (
             $queueJobId,
+            $queueJobUuid,
             $status,
             $attempts,
             $errorCode,
@@ -158,6 +278,7 @@ final class PushQueueWorkItemRepository
             if ($item === null) {
                 PushQueueWorkItem::query()->create([
                     'queue_job_id' => $queueJobId,
+                    'queue_job_uuid' => $queueJobUuid,
                     'safe_message_type' => 'push_notification',
                     'status' => $status,
                     'attempts' => $attempts,
@@ -172,6 +293,7 @@ final class PushQueueWorkItemRepository
             }
 
             $item->forceFill([
+                'queue_job_uuid' => $item->queue_job_uuid ?? $queueJobUuid,
                 'status' => $status,
                 'attempts' => max((int) $item->attempts, $attempts),
                 'next_attempt_at' => null,
@@ -195,6 +317,19 @@ final class PushQueueWorkItemRepository
 
             $callback($item);
         }, 3);
+    }
+
+    private function lockManualActionItem(string $workItemId): ?PushQueueWorkItem
+    {
+        DB::select(
+            'SELECT pg_advisory_xact_lock(hashtextextended(?, 0))',
+            ['push-queue-manual-action:'.$workItemId],
+        );
+
+        return PushQueueWorkItem::query()
+            ->whereKey($workItemId)
+            ->lockForUpdate()
+            ->first();
     }
 
     private function isTerminal(PushQueueWorkItem $item): bool

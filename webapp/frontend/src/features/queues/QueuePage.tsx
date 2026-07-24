@@ -1,14 +1,13 @@
 'use client';
 
 import {
-  BellRing,
-  CheckCircle2,
+  CircleCheck,
   ChevronLeft,
   ChevronRight,
-  Clock3,
+  LoaderCircle,
+  Play,
   RefreshCw,
   RotateCcw,
-  Rows3,
   TriangleAlert,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -20,39 +19,27 @@ import { formatDateTime } from '../../lib/dateTime';
 import type {
   ApiResponse,
   PaginationMeta,
-  QueueMonitorFilter,
+  QueueMonitorAction,
+  QueueMonitorActionResult,
   QueueMonitorItem,
-  QueueMonitorLane,
   QueueMonitorSnapshot,
-  QueueMonitorStateFilter,
 } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import {
   boundedQueueProgress,
   formatQueueRuntime,
   formatQueueWait,
-  queueFilterLabel,
-  queueLaneDescription,
+  isVisibleQueueItem,
+  queueActionForItem,
+  queueActionPath,
   queueMonitorPath,
-  queueStateFilterLabel,
   queueStateLabel,
   queueStateTone,
 } from './queuePresentation';
 import { startQueuePolling } from './queuePolling';
 import styles from './QueuePage.module.css';
 
-const QUEUE_OPTIONS: QueueMonitorFilter[] = ['all', 'push'];
-const STATE_OPTIONS: QueueMonitorStateFilter[] = [
-  'all',
-  'pending',
-  'queued',
-  'processing',
-  'retrying',
-  'failed',
-  'completed',
-  'cancelled',
-];
-const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+const PAGE_SIZE = 50;
 const DUTCH_INTEGER = new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 0 });
 
 interface QueuePagination extends PaginationMeta {
@@ -61,7 +48,7 @@ interface QueuePagination extends PaginationMeta {
 
 const EMPTY_PAGINATION: QueuePagination = {
   current_page: 1,
-  per_page: 25,
+  per_page: PAGE_SIZE,
   total: 0,
   last_page: 1,
   is_truncated: false,
@@ -77,39 +64,63 @@ interface QueueResource {
 }
 
 export function QueuePage() {
-  const { api } = useAuth();
-  const [queueFilter, setQueueFilter] = useState<QueueMonitorFilter>('all');
-  const [stateFilter, setStateFilter] = useState<QueueMonitorStateFilter>('all');
-  const [perPage, setPerPage] = useState(25);
+  const { api, hasPermission } = useAuth();
   const [page, setPage] = useState(1);
-  const path = queueMonitorPath(queueFilter, stateFilter, page, perPage);
-  const resource = useQueueMonitor(api, path);
+  const busyItemsRef = useRef<Set<string>>(new Set());
+  const actionStatusRef = useRef<HTMLParagraphElement>(null);
+  const [busyItems, setBusyItems] = useState<ReadonlySet<string>>(() => new Set());
+  const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const resource = useQueueMonitor(api, queueMonitorPath('all', 'open', page, PAGE_SIZE));
   const snapshot = resource.data;
+  const canManage = hasPermission('system.queues.manage');
+  const items = snapshot?.items.filter(isVisibleQueueItem) ?? [];
 
-  function changeQueue(value: QueueMonitorFilter) {
-    setQueueFilter(value);
-    setPage(1);
-  }
+  useEffect(() => {
+    if (snapshot !== null && page > resource.pagination.last_page) {
+      setPage(resource.pagination.last_page);
+    }
+  }, [page, resource.pagination.last_page, snapshot]);
 
-  function changeState(value: QueueMonitorStateFilter) {
-    setStateFilter(value);
-    setPage(1);
-  }
+  async function runAction(item: QueueMonitorItem, action: QueueMonitorAction) {
+    const itemKey = `${item.queue}-${item.id}`;
+    if (busyItemsRef.current.has(itemKey)) {
+      return;
+    }
+    const nextBusyItems = new Set(busyItemsRef.current);
+    nextBusyItems.add(itemKey);
+    busyItemsRef.current = nextBusyItems;
+    setBusyItems(nextBusyItems);
+    setActionStatus(null);
+    setActionError(null);
 
-  function changePageSize(value: number) {
-    setPerPage(value);
-    setPage(1);
+    try {
+      await api.post<QueueMonitorActionResult>(queueActionPath(item, action));
+      await resource.reload();
+      setActionStatus(
+        action === 'retry'
+          ? `${item.label} is opnieuw vrijgegeven.`
+          : `${item.label} is vrijgegeven voor directe verwerking.`,
+      );
+      window.requestAnimationFrame(() => actionStatusRef.current?.focus());
+    } catch (error) {
+      setActionError(error instanceof ApiClientError ? error.message : 'Actie mislukt.');
+      await resource.reload();
+    } finally {
+      const remainingBusyItems = new Set(busyItemsRef.current);
+      remainingBusyItems.delete(itemKey);
+      busyItemsRef.current = remainingBusyItems;
+      setBusyItems(remainingBusyItems);
+    }
   }
 
   return (
     <div className={`page-stack ${styles.page}`}>
       <Panel
-        title="Wachtrijen"
+        title="Wachtrij"
         action={(
-          <QueueRefreshStatus
-            data={snapshot}
-            error={resource.error}
-            loading={resource.loading}
+          <QueueRefresh
+            generatedAt={snapshot?.generated_at ?? null}
             refreshing={resource.refreshing}
             onRefresh={resource.reload}
           />
@@ -121,298 +132,221 @@ export function QueuePage() {
           empty={snapshot === null}
         >
           {snapshot ? (
-            <div className={styles.overview}>
+            <div className={styles.content}>
+              <QueueStatusCounts snapshot={snapshot} />
+
               {resource.error ? (
-                <p className={styles.staleWarning} role="status">
-                  De actuele wachtrijstatus kon tijdelijk niet worden opgehaald. De laatste geldige meting blijft zichtbaar.
+                <p className={styles.notice} role="status">
+                  <TriangleAlert aria-hidden size={16} />
+                  Status tijdelijk verouderd.
                 </p>
               ) : null}
 
-              <header className={styles.intro}>
-                <div>
-                  <span className={styles.eyebrow}>Live werkvoorraad</span>
-                  <h3>Pushmeldingen direct in beeld</h3>
-                  <p>
-                    Bekijk welke meldingen wachten, worden verwerkt, opnieuw worden geprobeerd of al zijn afgerond.
-                    Parallelle workers houden de operationele alarmering vlot.
-                  </p>
-                </div>
-                <div className={styles.generatedAt}>
-                  <Clock3 aria-hidden size={17} />
-                  <span>
-                    Gemeten
-                    <time dateTime={snapshot.generated_at}>{formatDateTime(snapshot.generated_at)}</time>
-                  </span>
-                </div>
-              </header>
+              {actionError ? (
+                <p className={`${styles.notice} ${styles.actionError}`} role="alert">
+                  <TriangleAlert aria-hidden size={16} />
+                  {actionError}
+                </p>
+              ) : null}
 
-              <div className={styles.lanes}>
-                {orderedLanes(snapshot.queues).map((lane) => (
-                  <QueueLaneCard lane={lane} key={lane.key} />
-                ))}
-              </div>
+              {actionStatus ? (
+                <p
+                  className={`${styles.notice} ${styles.actionSuccess}`}
+                  role="status"
+                  tabIndex={-1}
+                  ref={actionStatusRef}
+                >
+                  <CircleCheck aria-hidden size={16} />
+                  {actionStatus}
+                </p>
+              ) : null}
 
-              <QueueSummary snapshot={snapshot} />
+              {resource.pagination.is_truncated ? (
+                <p className={styles.limitNotice} role="status">
+                  {DUTCH_INTEGER.format(resource.pagination.total)}+ taken
+                </p>
+              ) : null}
+
+              {items.length > 0 ? (
+                <>
+                  <ol className={styles.workList} aria-label="Openstaande wachtrijtaken">
+                    {items.map((item) => {
+                      const itemKey = `${item.queue}-${item.id}`;
+                      return (
+                        <QueueWorkItem
+                          item={item}
+                          generatedAt={snapshot.generated_at}
+                          canManage={canManage}
+                          busy={busyItems.has(itemKey)}
+                          onAction={runAction}
+                          key={itemKey}
+                        />
+                      );
+                    })}
+                  </ol>
+                  <QueuePagination pagination={resource.pagination} onPage={setPage} />
+                </>
+              ) : (
+                <p className={styles.emptyState} role="status">Geen openstaande taken.</p>
+              )}
             </div>
           ) : null}
         </ResourceState>
-      </Panel>
-
-      <Panel
-        title="Wachtrijtaken"
-        action={snapshot ? (
-          <span className={styles.resultCount}>
-            {DUTCH_INTEGER.format(resource.pagination.total)}{resource.pagination.is_truncated ? '+' : ''} taken
-          </span>
-        ) : undefined}
-      >
-        <div className={styles.workbench}>
-          <div className={styles.filters} aria-label="Wachtrijfilters">
-            <label>
-              <span>Wachtrij</span>
-              <select
-                value={queueFilter}
-                onChange={(event) => changeQueue(event.target.value as QueueMonitorFilter)}
-              >
-                {QUEUE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>{queueFilterLabel(option)}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Status</span>
-              <select
-                value={stateFilter}
-                onChange={(event) => changeState(event.target.value as QueueMonitorStateFilter)}
-              >
-                {STATE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>{queueStateFilterLabel(option)}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Per pagina</span>
-              <select
-                value={perPage}
-                onChange={(event) => changePageSize(Number(event.target.value))}
-              >
-                {PAGE_SIZE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <ResourceState
-            loading={resource.loading && snapshot === null}
-            error={snapshot === null ? resource.error : null}
-            empty={false}
-          >
-            {snapshot ? (
-              snapshot.items.length > 0 ? (
-                <>
-                  {resource.pagination.is_truncated ? (
-                    <p className={styles.truncationNotice} role="status">
-                      <TriangleAlert aria-hidden size={16} />
-                      {DUTCH_INTEGER.format(resource.pagination.total)}+ taken · nieuwste {DUTCH_INTEGER.format(resource.pagination.total)} zichtbaar
-                    </p>
-                  ) : null}
-                  <ol className={styles.workList} aria-label="Taken in de wachtrijen">
-                    {snapshot.items.map((item) => (
-                      <QueueWorkItem item={item} generatedAt={snapshot.generated_at} key={`${item.queue}-${item.id}`} />
-                    ))}
-                  </ol>
-                  <QueuePagination
-                    pagination={resource.pagination}
-                    onPage={setPage}
-                  />
-                </>
-              ) : (
-                <div className={styles.emptyState} role="status">
-                  <CheckCircle2 aria-hidden size={25} />
-                  <div>
-                    <strong>Geen werk voor deze filters</strong>
-                    <span>Er staan geen passende taken meer te wachten of te verwerken.</span>
-                  </div>
-                </div>
-              )
-            ) : null}
-          </ResourceState>
-        </div>
       </Panel>
     </div>
   );
 }
 
-function QueueRefreshStatus({
-  data,
-  error,
-  loading,
+function QueueRefresh({
+  generatedAt,
   refreshing,
   onRefresh,
 }: {
-  data: QueueMonitorSnapshot | null;
-  error: string | null;
-  loading: boolean;
+  generatedAt: string | null;
   refreshing: boolean;
   onRefresh: () => Promise<void>;
 }) {
-  const seconds = data?.refresh_after_seconds ?? 5;
-  const state = error ? 'stale' : data === null || loading ? 'connecting' : 'live';
-  const label = state === 'stale'
-    ? 'Verbinding herstellen'
-    : state === 'connecting'
-      ? 'Verbinden'
-      : `Live · elke ${seconds} sec.`;
-
   return (
-    <div className={styles.refreshActions}>
-      <span className={`${styles.liveStatus} ${styles[`liveStatus-${state}`]}`} role="status" aria-live="polite">
-        <span aria-hidden className={styles.liveDot} />
-        {label}
-      </span>
+    <div className={styles.refresh}>
+      {generatedAt ? (
+        <time dateTime={generatedAt}>{formatDateTime(generatedAt)}</time>
+      ) : null}
       <button
-        className="secondary-button"
+        className={styles.refreshButton}
         type="button"
         onClick={() => void onRefresh()}
         disabled={refreshing}
         aria-busy={refreshing}
+        aria-label={refreshing ? 'Wachtrij wordt ververst' : 'Wachtrij verversen'}
+        title="Wachtrij verversen"
       >
-        <RefreshCw aria-hidden className={refreshing ? 'spin' : undefined} size={16} />
-        {refreshing ? 'Verversen' : 'Nu verversen'}
+        <RefreshCw aria-hidden className={refreshing ? 'spin' : undefined} size={18} />
       </button>
     </div>
   );
 }
 
-function QueueLaneCard({ lane }: { lane: QueueMonitorLane }) {
-  const waiting = lane.states.pending + lane.states.queued + lane.states.retrying;
-  const icon = lane.key === 'push'
-    ? <BellRing aria-hidden size={23} />
-    : <Rows3 aria-hidden size={23} />;
-
-  return (
-    <article className={`${styles.lane} ${styles[`lane-${lane.key}`] ?? ''}`}>
-      <header>
-        <span className={styles.laneIcon}>{icon}</span>
-        <div>
-          <span className={styles.laneKicker}>Eigen verwerkingsbaan</span>
-          <h3>{laneHeading(lane)}</h3>
-        </div>
-      </header>
-      <p>{queueLaneDescription(lane.key)}</p>
-      <dl className={styles.laneFacts}>
-        <div><dt>Wachtend</dt><dd>{waiting}</dd></div>
-        <div><dt>Bezig</dt><dd>{lane.states.processing}</dd></div>
-        <div><dt>Totaal in transportwachtrij</dt><dd>{countValue(lane.transport_pending_count)}</dd></div>
-        <div className={typeof lane.transport_failed_count === 'number' && lane.transport_failed_count > 0 ? styles.failedFact : undefined}>
-          <dt>Transportfouten</dt><dd>{countValue(lane.transport_failed_count)}</dd>
-        </div>
-      </dl>
-      <footer>
-        <span className={styles.capacity}>
-          Ingesteld: {lane.configured_parallelism} parallelle {lane.configured_parallelism === 1 ? 'worker' : 'workers'}
-        </span>
-        <small>Dit is de ingestelde capaciteit, geen live workerstatus.</small>
-      </footer>
-    </article>
-  );
-}
-
-function QueueSummary({ snapshot }: { snapshot: QueueMonitorSnapshot }) {
-  const summary = snapshot.summary;
-  const waiting = summary.pending + summary.queued;
+function QueueStatusCounts({ snapshot }: { snapshot: QueueMonitorSnapshot }) {
   const facts = [
-    { label: 'Wachtend', value: waiting, icon: <Clock3 aria-hidden size={18} />, tone: 'neutral' },
-    { label: 'In verwerking', value: summary.processing, icon: <Rows3 aria-hidden size={18} />, tone: 'active' },
-    { label: 'Nieuwe poging', value: summary.retrying, icon: <RotateCcw aria-hidden size={18} />, tone: 'warning' },
-    { label: 'Mislukt', value: summary.failed, icon: <TriangleAlert aria-hidden size={18} />, tone: 'danger' },
-    { label: 'Verwerkt', value: summary.completed, icon: <CheckCircle2 aria-hidden size={18} />, tone: 'success' },
-  ];
+    {
+      label: 'Wachtend',
+      value: snapshot.summary.pending + snapshot.summary.queued + snapshot.summary.retrying,
+      tone: 'waiting',
+    },
+    { label: 'Bezig', value: snapshot.summary.processing, tone: 'processing' },
+    { label: 'Mislukt', value: snapshot.summary.failed, tone: 'failed' },
+  ] as const;
 
   return (
-    <div className={styles.summary} aria-label={`Totaal ${summary.total} geregistreerde taken`}>
+    <dl className={styles.statusCounts} aria-label="Wachtrijstatus">
       {facts.map((fact) => (
-        <article className={`${styles.summaryFact} ${styles[`summaryFact-${fact.tone}`]}`} key={fact.label}>
-          <span>{fact.icon}{fact.label}</span>
-          <strong>{fact.value}</strong>
-        </article>
+        <div className={`${styles.statusCount} ${styles[`statusCount-${fact.tone}`]}`} key={fact.label}>
+          <dt>{fact.label}</dt>
+          <dd>{fact.value}</dd>
+        </div>
       ))}
-    </div>
+    </dl>
   );
 }
 
-function QueueWorkItem({ item, generatedAt }: { item: QueueMonitorItem; generatedAt: string }) {
+function QueueWorkItem({
+  item,
+  generatedAt,
+  canManage,
+  busy,
+  onAction,
+}: {
+  item: QueueMonitorItem;
+  generatedAt: string;
+  canManage: boolean;
+  busy: boolean;
+  onAction: (item: QueueMonitorItem, action: QueueMonitorAction) => Promise<void>;
+}) {
   const progress = boundedQueueProgress(item.progress_percent);
   const tone = queueStateTone(item.state);
+  const action = canManage ? queueActionForItem(item) : null;
+  const actionLabel = action === 'retry' ? 'Opnieuw starten' : 'Nu starten';
 
   return (
     <li>
-      <article className={styles.workItem}>
-        <header>
-          <div className={styles.workIdentity}>
-            <span className={`${styles.queueTag} ${styles[`queueTag-${item.queue}`] ?? ''}`}>
-              {item.queue === 'push' ? 'Push' : item.queue}
-            </span>
-            <h3>{item.label}</h3>
-            <small>{workloadTypeLabel(item.workload_type)}</small>
-          </div>
-          <span className={`${styles.state} ${styles[`state-${tone}`]}`}>
-            {queueStateLabel(item.state)}
-          </span>
-        </header>
+      <article className={`${styles.workItem} ${styles[`workItem-${tone}`]}`}>
+        <div className={styles.identity}>
+          <h3>{item.label}</h3>
+          <QueueItemMeta item={item} generatedAt={generatedAt} />
+        </div>
 
-        {progress !== null ? (
+        {item.state === 'processing' && progress !== null ? (
           <div className={styles.progress}>
-            <div>
-              <span>Voortgang</span>
-              <strong>{progress}%</strong>
-            </div>
             <progress max={100} value={progress} aria-label={`Voortgang ${item.label}`}>
               {progress}%
             </progress>
+            <span>{progress}%</span>
           </div>
         ) : null}
 
-        <dl className={styles.workFacts}>
-          <div>
-            <dt>In wachtrij sinds</dt>
-            <dd>{dateValue(item.queued_at)}</dd>
-          </div>
-          <div>
-            <dt>Wachttijd</dt>
-            <dd>{formatQueueWait(item, generatedAt)}</dd>
-          </div>
-          <div>
-            <dt>Verwerkingsduur</dt>
-            <dd>{formatQueueRuntime(item, generatedAt)}</dd>
-          </div>
-          <div>
-            <dt>Pogingen</dt>
-            <dd>{item.attempts ?? '-'}</dd>
-          </div>
-          {item.next_attempt_at ? (
-            <div>
-              <dt>Volgende poging</dt>
-              <dd>{dateValue(item.next_attempt_at)}</dd>
-            </div>
+        <div className={styles.itemControls}>
+          <span className={`${styles.state} ${styles[`state-${tone}`]}`}>
+            {queueStateLabel(item.state)}
+          </span>
+          {action ? (
+            <button
+              className={styles.taskAction}
+              type="button"
+              disabled={busy}
+              aria-busy={busy}
+              aria-label={`${actionLabel}: ${item.label}`}
+              onClick={() => void onAction(item, action)}
+            >
+              {busy ? (
+                <LoaderCircle aria-hidden className="spin" size={16} />
+              ) : action === 'retry' ? (
+                <RotateCcw aria-hidden size={16} />
+              ) : (
+                <Play aria-hidden size={16} />
+              )}
+              {actionLabel}
+            </button>
           ) : null}
-          {item.finished_at ? (
-            <div>
-              <dt>Afgerond</dt>
-              <dd>{dateValue(item.finished_at)}</dd>
-            </div>
-          ) : null}
-        </dl>
-
-        {item.error_code ? (
-          <p className={styles.errorCode}>
-            <TriangleAlert aria-hidden size={16} />
-            Foutcode: <code>{item.error_code}</code>
-          </p>
-        ) : null}
+        </div>
       </article>
     </li>
+  );
+}
+
+function QueueItemMeta({ item, generatedAt }: { item: QueueMonitorItem; generatedAt: string }) {
+  const entries: Array<{ label: string; value: React.ReactNode }> = [];
+
+  if (item.state === 'processing') {
+    entries.push(
+      { label: 'Gestart', value: dateValue(item.started_at) },
+      { label: 'Duur', value: formatQueueRuntime(item, generatedAt) },
+    );
+  } else if (item.state === 'failed') {
+    entries.push({ label: 'Mislukt', value: dateValue(item.finished_at) });
+  } else {
+    entries.push(
+      { label: 'Sinds', value: dateValue(item.queued_at) },
+      { label: 'Wachttijd', value: formatQueueWait(item, generatedAt) },
+    );
+  }
+
+  if (typeof item.attempts === 'number' && item.attempts > 0) {
+    entries.push({ label: item.attempts === 1 ? 'Poging' : 'Pogingen', value: item.attempts });
+  }
+
+  if (item.state === 'failed' && item.error_code) {
+    entries.push({ label: 'Fout', value: <code>{item.error_code}</code> });
+  }
+
+  return (
+    <dl className={styles.itemMeta}>
+      {entries.map((entry) => (
+        <div key={entry.label}>
+          <dt>{entry.label}</dt>
+          <dd>{entry.value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -430,23 +364,23 @@ function QueuePagination({
   return (
     <nav className={styles.pagination} aria-label="Pagina's met wachtrijtaken">
       <button
-        className="secondary-button"
+        className={styles.pageButton}
         type="button"
         disabled={pagination.current_page <= 1}
         onClick={() => onPage(pagination.current_page - 1)}
+        aria-label="Vorige pagina"
       >
-        <ChevronLeft aria-hidden size={17} />
-        Vorige
+        <ChevronLeft aria-hidden size={18} />
       </button>
-      <span>Pagina {pagination.current_page} van {pagination.last_page}</span>
+      <span>{pagination.current_page} / {pagination.last_page}</span>
       <button
-        className="secondary-button"
+        className={styles.pageButton}
         type="button"
         disabled={pagination.current_page >= pagination.last_page}
         onClick={() => onPage(pagination.current_page + 1)}
+        aria-label="Volgende pagina"
       >
-        Volgende
-        <ChevronRight aria-hidden size={17} />
+        <ChevronRight aria-hidden size={18} />
       </button>
     </nav>
   );
@@ -495,6 +429,9 @@ function useQueueMonitor(api: ApiClient, path: string): QueueResource {
       if (!active) return;
       setRefreshing(true);
       try {
+        if (activeLoad !== null) {
+          await activeLoad.catch(() => null);
+        }
         await load();
       } catch (loadError) {
         if (active) {
@@ -544,7 +481,7 @@ function readPagination(response: ApiResponse<QueueMonitorSnapshot>): QueuePagin
 
   return {
     current_page: positiveInteger(meta.current_page, 1),
-    per_page: positiveInteger(meta.per_page, 25),
+    per_page: positiveInteger(meta.per_page, PAGE_SIZE),
     total: nonNegativeInteger(meta.total),
     last_page: positiveInteger(meta.last_page, 1),
     is_truncated: 'is_truncated' in meta && meta.is_truncated === true,
@@ -562,41 +499,11 @@ function nonNegativeInteger(value: unknown): number {
 function queueLoadError(error: unknown): string {
   return error instanceof ApiClientError
     ? error.message
-    : 'De wachtrijstatus kon niet worden geladen.';
-}
-
-function orderedLanes(lanes: QueueMonitorLane[]): QueueMonitorLane[] {
-  const order = new Map([
-    ['push', 0],
-  ]);
-
-  return [...lanes].sort((left, right) => (
-    (order.get(left.key) ?? 10) - (order.get(right.key) ?? 10)
-    || left.label.localeCompare(right.label, 'nl')
-  ));
-}
-
-function workloadTypeLabel(value: string): string {
-  const labels: Record<string, string> = {
-    push_notification: 'Pushmelding',
-  };
-
-  return labels[value] ?? 'Overige achtergrondtaak';
-}
-
-function laneHeading(lane: QueueMonitorLane): string {
-  if (lane.key === 'push') return 'Pushmeldingen';
-  return lane.label;
+    : 'Wachtrij kon niet worden geladen.';
 }
 
 function dateValue(value: string | null): React.ReactNode {
   return value
     ? <time dateTime={value}>{formatDateTime(value)}</time>
     : '-';
-}
-
-function countValue(value: number | null): React.ReactNode {
-  return value === null
-    ? <span className={styles.unavailableCount}>Niet beschikbaar</span>
-    : value;
 }

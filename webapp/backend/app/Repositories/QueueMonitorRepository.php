@@ -4,6 +4,7 @@ namespace App\Repositories;
 
 use App\Models\DispatchPushOutbox;
 use App\Models\PushQueueWorkItem;
+use App\Services\PushQueueManualActionPolicy;
 use App\Support\ApiDateTime;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -20,6 +21,18 @@ final class QueueMonitorRepository
         'cancelled',
     ];
 
+    private const OPEN_STATES = [
+        'pending',
+        'queued',
+        'processing',
+        'retrying',
+        'failed',
+    ];
+
+    public function __construct(
+        private readonly PushQueueManualActionPolicy $manualActionPolicy,
+    ) {}
+
     /**
      * @return Collection<int, array<string, mixed>>
      */
@@ -31,6 +44,21 @@ final class QueueMonitorRepository
         }
 
         return $items;
+    }
+
+    /** @return array<string, mixed>|null */
+    public function findItem(string $queue, string $id): ?array
+    {
+        if (! in_array($queue, ['all', 'push'], true)) {
+            return null;
+        }
+
+        $item = $this->pushItems('open', 1, $id)->first();
+        if ($item !== null) {
+            unset($item['_sort_at']);
+        }
+
+        return $item;
     }
 
     /** @return array<string, int> */
@@ -47,7 +75,7 @@ final class QueueMonitorRepository
     /**
      * @return Collection<int, array<string, mixed>>
      */
-    private function pushItems(string $state, int $limit): Collection
+    private function pushItems(string $state, int $limit, ?string $id = null): Collection
     {
         $query = $this->monitoredPushOutboxQuery()
             ->select([
@@ -64,6 +92,7 @@ final class QueueMonitorRepository
                 'dispatch_push_outbox.created_at',
                 'dispatch_push_outbox.updated_at',
                 'push_queue_lifecycle.lifecycle_id',
+                'push_queue_lifecycle.lifecycle_queue_job_uuid',
                 'push_queue_lifecycle.lifecycle_status',
                 'push_queue_lifecycle.lifecycle_attempts',
                 'push_queue_lifecycle.lifecycle_error_code',
@@ -80,6 +109,9 @@ final class QueueMonitorRepository
                 'lifecycle_next_attempt_at' => 'immutable_datetime',
                 'lifecycle_finished_at' => 'immutable_datetime',
             ]);
+        if ($id !== null) {
+            $query->where('dispatch_push_outbox.id', $id);
+        }
         $this->applyPushOutboxStateFilter($query, $state);
 
         $outboxItems = $query->latest('dispatch_push_outbox.created_at')->limit($limit)->get()
@@ -104,6 +136,21 @@ final class QueueMonitorRepository
                 $errorCode = $hasCurrentLifecycle
                     ? $item->getAttribute('lifecycle_error_code')
                     : $item->last_error_code;
+                $availableActions = match (true) {
+                    $item->delivered_at !== null || $item->cancelled_at !== null => [],
+                    $hasCurrentLifecycle && $state === PushQueueWorkItem::STATUS_FAILED => ['retry'],
+                    $hasCurrentLifecycle
+                        && $item->getAttribute('lifecycle_queue_job_uuid') !== null
+                        && in_array($state, [
+                            PushQueueWorkItem::STATUS_QUEUED,
+                            PushQueueWorkItem::STATUS_RETRYING,
+                        ], true) => ['start'],
+                    ! $hasCurrentLifecycle
+                        && $item->queued_at === null
+                        && $item->processing_started_at === null
+                        && in_array($state, ['pending', 'retrying'], true) => ['start'],
+                    default => [],
+                };
 
                 return $this->item(
                     id: (string) $item->id,
@@ -120,29 +167,36 @@ final class QueueMonitorRepository
                     errorCode: $this->safeErrorCode($errorCode),
                     durationMs: null,
                     sortAt: $item->created_at,
+                    availableActions: $availableActions,
                 );
             });
 
         $workItems = $this->recentPushWorkItemQuery();
+        if ($id !== null) {
+            $workItems->whereKey($id);
+        }
         $this->applyPushWorkItemStateFilter($workItems, $state);
 
+        $workItemRows = $workItems
+            ->select([
+                'id',
+                'queue_job_uuid',
+                'safe_message_type',
+                'status',
+                'attempts',
+                'error_code',
+                'queued_at',
+                'processing_started_at',
+                'next_attempt_at',
+                'finished_at',
+                'created_at',
+            ])
+            ->latest('created_at')
+            ->limit($limit)
+            ->get();
+
         return $outboxItems->concat(
-            $workItems
-                ->select([
-                    'id',
-                    'safe_message_type',
-                    'status',
-                    'attempts',
-                    'error_code',
-                    'queued_at',
-                    'processing_started_at',
-                    'next_attempt_at',
-                    'finished_at',
-                    'created_at',
-                ])
-                ->latest('created_at')
-                ->limit($limit)
-                ->get()
+            $workItemRows
                 ->map(fn (PushQueueWorkItem $item): array => $this->item(
                     id: (string) $item->id,
                     queue: 'push',
@@ -158,6 +212,15 @@ final class QueueMonitorRepository
                     errorCode: $this->safeErrorCode($item->error_code),
                     durationMs: null,
                     sortAt: $item->created_at,
+                    availableActions: match (true) {
+                        $item->queue_job_uuid === null => [],
+                        ! $this->manualActionPolicy->canStart($item) => [],
+                        in_array($item->status, [
+                            PushQueueWorkItem::STATUS_QUEUED,
+                            PushQueueWorkItem::STATUS_RETRYING,
+                        ], true) => ['start'],
+                        default => [],
+                    },
                 )),
         );
     }
@@ -179,6 +242,7 @@ final class QueueMonitorRepository
         $currentLifecycle = PushQueueWorkItem::query()
             ->select([
                 'push_queue_work_items.id AS lifecycle_id',
+                'push_queue_work_items.queue_job_uuid AS lifecycle_queue_job_uuid',
                 'push_queue_work_items.status AS lifecycle_status',
                 'push_queue_work_items.attempts AS lifecycle_attempts',
                 'push_queue_work_items.error_code AS lifecycle_error_code',
@@ -218,7 +282,22 @@ final class QueueMonitorRepository
                     PushQueueWorkItem::STATUS_QUEUED,
                     PushQueueWorkItem::STATUS_PROCESSING,
                     PushQueueWorkItem::STATUS_RETRYING,
-                ])->orWhere('updated_at', '>=', $cutoff);
+                ])->orWhere(function (Builder $failed): void {
+                    $failed->where(
+                        'push_queue_work_items.status',
+                        PushQueueWorkItem::STATUS_FAILED,
+                    )
+                        ->whereNotNull('push_queue_work_items.queue_job_uuid')
+                        ->whereExists(fn ($failedJobs) => $failedJobs
+                            ->selectRaw('1')
+                            ->from('failed_jobs')
+                            ->where('failed_jobs.connection', 'push')
+                            ->where('failed_jobs.queue', 'push')
+                            ->whereColumn(
+                                'failed_jobs.uuid',
+                                'push_queue_work_items.queue_job_uuid',
+                            ));
+                })->orWhere('push_queue_work_items.updated_at', '>=', $cutoff);
             });
     }
 
@@ -229,6 +308,10 @@ final class QueueMonitorRepository
         $stateExpression = $this->pushOutboxStateExpression();
         $this->monitoredPushOutboxQuery()
             ->selectRaw("{$stateExpression} AS monitor_state, COUNT(*) AS aggregate")
+            ->whereRaw(
+                '('.$stateExpression.') IN ('.implode(', ', array_fill(0, count(self::OPEN_STATES), '?')).')',
+                self::OPEN_STATES,
+            )
             ->groupByRaw($stateExpression)
             ->get()
             ->each(function (DispatchPushOutbox $row) use (&$counts): void {
@@ -240,6 +323,7 @@ final class QueueMonitorRepository
 
         $this->recentPushWorkItemQuery()
             ->select(['status'])
+            ->whereIn('status', self::OPEN_STATES)
             ->selectRaw('COUNT(*) AS aggregate')
             ->groupBy('status')
             ->get()
@@ -255,7 +339,13 @@ final class QueueMonitorRepository
 
     private function applyPushOutboxStateFilter(Builder $query, string $state): void
     {
-        if ($state === 'all') {
+        if (in_array($state, ['all', 'open'], true)) {
+            $stateExpression = $this->pushOutboxStateExpression();
+            $query->whereRaw(
+                '('.$stateExpression.') IN ('.implode(', ', array_fill(0, count(self::OPEN_STATES), '?')).')',
+                self::OPEN_STATES,
+            );
+
             return;
         }
 
@@ -264,9 +354,13 @@ final class QueueMonitorRepository
 
     private function applyPushWorkItemStateFilter(Builder $query, string $state): void
     {
-        if ($state !== 'all') {
-            $query->where('status', $state);
+        if (in_array($state, ['all', 'open'], true)) {
+            $query->whereIn('status', self::OPEN_STATES);
+
+            return;
         }
+
+        $query->where('status', $state);
     }
 
     private function pushOutboxStateExpression(): string
@@ -331,6 +425,7 @@ SQL;
         ?string $errorCode,
         ?int $durationMs,
         mixed $sortAt,
+        array $availableActions,
     ): array {
         return [
             'id' => $id,
@@ -346,6 +441,7 @@ SQL;
             'attempts' => $attempts,
             'error_code' => $errorCode,
             'duration_ms' => $durationMs,
+            'available_actions' => $availableActions,
             '_sort_at' => $sortAt instanceof \DateTimeInterface ? $sortAt->getTimestamp() : 0,
         ];
     }

@@ -6,6 +6,7 @@ use App\Contracts\DispatchNotificationQueue;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
+use App\Models\PushQueueWorkItem;
 use App\Support\ApiDateTime;
 use Closure;
 use Illuminate\Support\Facades\DB;
@@ -92,13 +93,25 @@ final class DispatchPushOutboxService
         return $result;
     }
 
-    private function enqueueOne(string $id): ?string
+    /** @return 'queued'|'failed'|'cancelled'|'not_actionable' */
+    public function startNow(string $id): string
+    {
+        return $this->enqueueOne($id, 'start') ?? 'not_actionable';
+    }
+
+    /** @return 'queued'|'failed'|'cancelled'|'not_actionable' */
+    public function retryNow(string $id): string
+    {
+        return $this->enqueueOne($id, 'retry') ?? 'not_actionable';
+    }
+
+    private function enqueueOne(string $id, ?string $manualAction = null): ?string
     {
         $claim = $this->withLockedHierarchy($id, function (
             DispatchPushOutbox $notification,
             DispatchRequest $dispatch,
             Incident $incident,
-        ): ?array {
+        ) use ($manualAction): ?array {
             $clockNow = ApiDateTime::comparableWallClock(now());
             $staleQueuedAt = $clockNow->subMinutes(self::QUEUE_LEASE_MINUTES);
             // DIS historically persists application wall-clock values through
@@ -112,12 +125,35 @@ final class DispatchPushOutboxService
             $queuedAt = $notification->queued_at !== null
                 ? ApiDateTime::comparableWallClock($notification->queued_at)
                 : null;
-            if ($notification->delivered_at !== null
-                || $notification->cancelled_at !== null
+            if ($notification->delivered_at !== null || $notification->cancelled_at !== null) {
+                return null;
+            }
+
+            if ($manualAction === 'start') {
+                if ($notification->queued_at !== null || $notification->processing_started_at !== null) {
+                    return null;
+                }
+            } elseif ($manualAction === 'retry') {
+                if ($notification->queued_at === null) {
+                    return null;
+                }
+
+                $currentLifecycle = PushQueueWorkItem::query()
+                    ->where('dispatch_push_outbox_id', $notification->id)
+                    ->where('created_at', '>=', $notification->queued_at)
+                    ->latest('created_at')
+                    ->latest('id')
+                    ->lockForUpdate()
+                    ->first();
+                if ($currentLifecycle?->status !== PushQueueWorkItem::STATUS_FAILED) {
+                    return null;
+                }
+            } elseif ($manualAction !== null
                 || ($availableAt !== null && $availableAt->greaterThan($clockNow))
                 || ($queuedAt !== null && $queuedAt->greaterThan($staleQueuedAt))) {
                 return null;
             }
+
             if (! $this->isDeliverablePhase($notification, $dispatch, $incident)) {
                 $notification->forceFill([
                     'cancelled_at' => now(),
@@ -128,13 +164,17 @@ final class DispatchPushOutboxService
             }
 
             $claimedAt = now();
-            $notification->forceFill([
+            $changes = [
                 'queued_at' => $claimedAt,
                 'processing_started_at' => null,
                 'retry_at' => null,
                 'last_attempted_at' => $claimedAt,
                 'last_error_code' => null,
-            ])->save();
+            ];
+            if ($manualAction !== null) {
+                $changes['available_at'] = $claimedAt;
+            }
+            $notification->forceFill($changes)->save();
             if ((string) $notification->message_type === 'dispatch_request') {
                 $dispatch->forceFill([
                     'send_status' => 'queued_for_push',

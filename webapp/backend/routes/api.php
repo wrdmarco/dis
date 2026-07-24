@@ -485,6 +485,16 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/admin/health', [HealthController::class, 'admin'])->middleware('permission:system.health.view');
         Route::get('/admin/queues', [QueueMonitorController::class, 'index'])
             ->middleware(['permission:system.health.view', 'throttle:system-metrics']);
+        Route::post('/admin/queues/{queue}/{workItem}/start', [QueueMonitorController::class, 'start'])
+            ->where('queue', 'push')
+            ->whereUlid('workItem')
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:system.queues.manage', 'throttle:queue-action']);
+        Route::post('/admin/queues/{queue}/{workItem}/retry', [QueueMonitorController::class, 'retry'])
+            ->where('queue', 'push')
+            ->whereUlid('workItem')
+            ->withoutMiddleware('throttle:authenticated')
+            ->middleware(['permission:system.queues.manage', 'throttle:queue-action']);
         Route::get('/admin/websocket-status', [HealthController::class, 'websocket'])->middleware('permission:system.health.view');
     });
 });
