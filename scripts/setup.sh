@@ -130,10 +130,6 @@ if [ "$(env_value REVERB_APP_SECRET)" = "change-this-reverb-secret" ] || [ -z "$
   set_env REVERB_APP_SECRET "$(random_hex 32)"
 fi
 
-if [ -z "$(env_value SPEECH_CACHE_HMAC_KEY)" ]; then
-  set_managed_env_secret "${ENV_FILE}" SPEECH_CACHE_HMAC_KEY "base64:$(random_base64 48)"
-fi
-
 set_env APP_ENV production
 set_env APP_DEBUG false
 set_env APP_URL "https://${DOMAIN}"

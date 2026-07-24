@@ -59,6 +59,63 @@ final class PushQueueIsolationTest extends TestCase
         $this->assertDatabaseHas('fcm_tokens', ['id' => $token->id]);
     }
 
+    public function test_legacy_serialized_job_strips_retired_server_tts_data_before_provider_delivery(): void
+    {
+        $user = $this->user('legacy-server-tts-data', true);
+        $accessToken = $user->createToken(
+            'Legacy server TTS payload',
+            ['*', 'client:operator'],
+            now()->addHour(),
+        )->accessToken;
+        $token = $this->activeToken(
+            $user,
+            'legacy-server-tts-device',
+            'legacy-server-tts-provider-token',
+            (string) $accessToken->id,
+        );
+        $legacyData = [
+            'type' => 'manual_admin',
+            'action_mode' => 'availability',
+            'push.template.title_key' => 'incident_title',
+            'speech_manifest_id' => (string) Str::ulid(),
+            'speech_phase' => 'attendance',
+            'speech_manifest_url' => '/api/speech/manifests/legacy',
+            'speech_manifest_version' => '1',
+            'speech_locale' => 'nl-NL',
+        ];
+        $serialized = serialize(new SendFcmNotification(
+            (string) $token->id,
+            'manual_admin',
+            'Legacy payload',
+            'Open de app.',
+            $legacyData,
+        ));
+        $job = unserialize($serialized, [
+            'allowed_classes' => [SendFcmNotification::class],
+        ]);
+        $this->assertInstanceOf(SendFcmNotification::class, $job);
+        $provider = $this->recordingProvider();
+
+        $job->handle($provider, app(DispatchPushOutboxService::class));
+
+        $this->assertSame(1, $provider->sendCount);
+        $this->assertSame('manual_admin', $provider->lastData['type'] ?? null);
+        $this->assertSame('availability', $provider->lastData['action_mode'] ?? null);
+        $this->assertSame(
+            'incident_title',
+            $provider->lastData['push.template.title_key'] ?? null,
+        );
+        foreach ([
+            'speech_manifest_id',
+            'speech_phase',
+            'speech_manifest_url',
+            'speech_manifest_version',
+            'speech_locale',
+        ] as $key) {
+            $this->assertArrayNotHasKey($key, $provider->lastData);
+        }
+    }
+
     public function test_old_revocation_job_cannot_send_after_reactivation_or_a_new_revocation(): void
     {
         $token = $this->revokedToken('generation');

@@ -54,7 +54,6 @@ export function queueStateTone(state: QueueMonitorState): QueueStatusTone {
 
 export function queueFilterLabel(queue: QueueMonitorFilter): string {
   if (queue === 'push') return 'Pushmeldingen';
-  if (queue === 'speech') return 'Spraak en audio';
   return 'Alle wachtrijen';
 }
 
@@ -64,11 +63,7 @@ export function queueStateFilterLabel(state: QueueMonitorStateFilter): string {
 
 export function queueLaneDescription(key: string): string {
   if (key === 'push') {
-    return 'Pushmeldingen worden via eigen parallelle workers verwerkt en wachten niet op audio.';
-  }
-
-  if (key === 'speech') {
-    return 'Spraakgeneratie draait geïsoleerd, zodat zware audiotaken de alarmering niet blokkeren.';
+    return 'Pushmeldingen worden via eigen parallelle workers verwerkt voor een vlotte alarmering.';
   }
 
   return 'Afzonderlijke serverwachtrij voor achtergrondverwerking.';

@@ -24,7 +24,6 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertStringContainsString('--queue=default,broadcasts', $general);
         self::assertStringNotContainsString('--queue=push', $general);
         self::assertStringContainsString('artisan queue:work push --queue=push', $push);
-        self::assertStringNotContainsString('--queue=speech', $push);
         self::assertStringContainsString('NoNewPrivileges=true', $push);
         self::assertStringContainsString('PrivateDevices=true', $push);
         self::assertStringContainsString('ProtectSystem=strict', $push);
@@ -36,8 +35,6 @@ final class DeploymentMaintenanceContractTest extends TestCase
         $queue = $this->read('infrastructure/systemd/dis-queue.service');
         $push = $this->read('infrastructure/systemd/dis-push@.service');
         $media = $this->read('infrastructure/systemd/dis-media.service');
-        $speech = $this->read('infrastructure/systemd/dis-speech.service');
-        $speechEngine = $this->read('infrastructure/systemd/dis-tts-engine.service');
         $common = $this->read('scripts/lib/common.sh');
         $deploy = $this->read('scripts/deploy.sh');
         $install = $this->read('scripts/install.sh');
@@ -50,12 +47,8 @@ final class DeploymentMaintenanceContractTest extends TestCase
         // The critical queue worker must remain restartable when media is down.
         self::assertStringContainsString('After=network.target redis-server.service postgresql.service', $queue);
         self::assertStringNotContainsString('dis-media.service', $queue);
-        self::assertStringNotContainsString('dis-speech.service', $queue);
-        self::assertStringNotContainsString('dis-tts-engine.service', $queue);
         self::assertStringNotContainsString('--queue=wallboard-media', $queue);
-        self::assertStringNotContainsString('--queue=speech', $queue);
         self::assertStringNotContainsString('systemctl is-active', $queue);
-        self::assertStringNotContainsString('--queue=speech', $push);
         self::assertStringNotContainsString('--queue=wallboard-media', $push);
 
         foreach ([
@@ -84,76 +77,6 @@ final class DeploymentMaintenanceContractTest extends TestCase
         }
         self::assertStringNotContainsString('NoNewPrivileges=false', $media);
         self::assertStringNotContainsString('ProtectSystem=false', $media);
-        self::assertStringNotContainsString('--queue=speech', $media);
-        self::assertStringNotContainsString('dis-tts-engine.service', $media);
-
-        foreach ([
-            'Requires=dis-tts-engine.service',
-            'After=network.target redis-server.service postgresql.service dis-tts-engine.service',
-            'Type=exec',
-            'ExecStartPre=/usr/bin/test -S /run/dis-tts/engine.sock',
-            'queue:work speech --queue=speech',
-            'KillSignal=SIGTERM',
-            'KillMode=control-group',
-            'TimeoutStopSec=60s',
-            'NoNewPrivileges=true',
-            'PrivateDevices=true',
-            'ProtectSystem=strict',
-            'ProtectKernelTunables=true',
-            'ProtectKernelModules=true',
-            'ProtectControlGroups=true',
-            'RestrictSUIDSGID=true',
-            'CapabilityBoundingSet=',
-            'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6',
-            'ReadWritePaths=/opt/dis-data/tts/cache /opt/dis-data/tts/staging',
-            'InaccessiblePaths=-/opt/dis-data/tts/models -/opt/dis-data/tts/runtime',
-            'MemoryHigh=2G',
-            'MemoryMax=3G',
-            'CPUQuota=200%',
-            'TasksMax=128',
-            'OOMPolicy=stop',
-        ] as $contract) {
-            self::assertStringContainsString($contract, $speech);
-        }
-        self::assertStringNotContainsString('--queue=push', $speech);
-        self::assertStringNotContainsString('--queue=wallboard-media', $speech);
-        self::assertStringNotContainsString('NoNewPrivileges=false', $speech);
-        self::assertStringNotContainsString('ProtectSystem=false', $speech);
-
-        foreach ([
-            'Before=dis-speech.service',
-            'Type=exec',
-            'User=dis',
-            'Group=dis',
-            'RuntimeDirectory=dis-tts',
-            'ExecStart=/opt/dis-data/tts/runtime/bin/python -m dis_tts_engine',
-            'Environment=DIS_TTS_SOCKET_PATH=/run/dis-tts/engine.sock',
-            'Environment=DIS_TTS_TORCH_THREADS=16',
-            'KillSignal=SIGTERM',
-            'KillMode=control-group',
-            'TimeoutStopSec=60s',
-            'NoNewPrivileges=true',
-            'PrivateDevices=true',
-            'ProtectSystem=strict',
-            'ProtectKernelTunables=true',
-            'ProtectKernelModules=true',
-            'ProtectControlGroups=true',
-            'RestrictSUIDSGID=true',
-            'CapabilityBoundingSet=',
-            'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6',
-            'ReadWritePaths=/opt/dis-data/tts/models /opt/dis-data/tts/staging /opt/dis-data/tts/state',
-            'ReadOnlyPaths=/opt/dis/speech-engine /opt/dis-data/tts/runtime /opt/dis-data/tts/python',
-            'MemoryHigh=80%',
-            'MemoryMax=90%',
-            'CPUQuota=1600%',
-            'TasksMax=512',
-            'OOMPolicy=stop',
-        ] as $contract) {
-            self::assertStringContainsString($contract, $speechEngine);
-        }
-        self::assertStringNotContainsString('queue:work', $speechEngine);
-        self::assertStringNotContainsString('NoNewPrivileges=false', $speechEngine);
-        self::assertStringNotContainsString('ProtectSystem=false', $speechEngine);
 
         $commonStop = $this->shellFunction($common, 'stop_dis_deployment_services');
         $commonStart = $this->shellFunction($common, 'start_dis_operational_services');
@@ -171,7 +94,7 @@ final class DeploymentMaintenanceContractTest extends TestCase
         );
         $uninstallStop = $this->section(
             $uninstall,
-            'for service in dis-speech',
+            'for service in dis-media',
             'log "Removing DIS systemd units"',
         );
         $uninstallUnits = $this->section(
@@ -181,8 +104,6 @@ final class DeploymentMaintenanceContractTest extends TestCase
         );
 
         $this->assertServicesReferenced($commonStop, [
-            'dis-speech',
-            'dis-tts-engine',
             'dis-media',
             'dis-queue',
             'dis-push@1',
@@ -193,10 +114,7 @@ final class DeploymentMaintenanceContractTest extends TestCase
             'dis-websocket',
             'dis-frontend',
         ]);
-        $this->assertAppearsBefore($commonStop, 'systemctl stop dis-speech', 'systemctl stop dis-tts-engine');
         $this->assertServicesReferenced($commonStart, [
-            'dis-tts-engine',
-            'dis-speech',
             'dis-media',
             'dis-queue',
             'dis-push@1',
@@ -206,10 +124,7 @@ final class DeploymentMaintenanceContractTest extends TestCase
             'dis-scheduler',
             'dis-websocket',
         ]);
-        $this->assertAppearsBefore($commonStart, 'dis-tts-engine', 'dis-speech');
         $this->assertServicesReferenced($commonRequire, [
-            'dis-tts-engine',
-            'dis-speech',
             'dis-media',
             'dis-queue',
             'dis-push@1',
@@ -221,8 +136,6 @@ final class DeploymentMaintenanceContractTest extends TestCase
             'dis-frontend',
         ]);
         $this->assertServicesReferenced($restoreStop, [
-            'dis-speech',
-            'dis-tts-engine',
             'dis-media',
             'dis-queue',
             'dis-push@1',
@@ -233,11 +146,8 @@ final class DeploymentMaintenanceContractTest extends TestCase
             'dis-websocket',
             'dis-frontend',
         ]);
-        $this->assertAppearsBefore($restoreStop, 'systemctl stop dis-speech', 'systemctl stop dis-tts-engine');
         foreach ([$deployEnable, $selfHealRuntimeGuard] as $lifecycleSection) {
             $this->assertServicesReferenced($lifecycleSection, [
-                'dis-tts-engine',
-                'dis-speech',
                 'dis-media',
                 'dis-queue',
                 'dis-push@1',
@@ -250,8 +160,6 @@ final class DeploymentMaintenanceContractTest extends TestCase
             ]);
         }
         $this->assertServicesReferenced($uninstallStop, [
-            'dis-speech',
-            'dis-tts-engine',
             'dis-media',
             'dis-queue',
             'dis-push@1',
@@ -262,8 +170,6 @@ final class DeploymentMaintenanceContractTest extends TestCase
             'dis-websocket',
         ]);
         $this->assertServicesReferenced($uninstallUnits, [
-            'dis-speech',
-            'dis-tts-engine',
             'dis-media',
             'dis-queue',
             'dis-push@.service',
@@ -272,14 +178,6 @@ final class DeploymentMaintenanceContractTest extends TestCase
             'dis-frontend',
         ]);
 
-        self::assertStringContainsString(
-            'infrastructure/systemd/dis-tts-engine.service" /etc/systemd/system/dis-tts-engine.service',
-            $deploy,
-        );
-        self::assertStringContainsString(
-            'infrastructure/systemd/dis-speech.service" /etc/systemd/system/dis-speech.service',
-            $deploy,
-        );
         self::assertStringContainsString(
             'infrastructure/systemd/dis-push@.service" /etc/systemd/system/dis-push@.service',
             $deploy,
@@ -306,6 +204,17 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertIsInt($deployMaintenance);
         self::assertTrue($updateDependency < $updateMaintenance);
         self::assertTrue($deployDependency < $deployMaintenance);
+    }
+
+    public function test_deploy_update_and_restore_invoke_the_server_tts_retirement_path(): void
+    {
+        $deploy = $this->read('scripts/deploy.sh');
+        $update = $this->read('scripts/update.sh');
+        $restore = $this->read('scripts/restore.sh');
+
+        self::assertStringContainsString('bash "${SCRIPT_DIR}/retire-server-tts.sh"', $deploy);
+        self::assertStringContainsString('DIS_LEGACY_TTS_COMPAT_REQUIRED=0', $update);
+        self::assertStringContainsString('bash "${SCRIPT_DIR}/retire-server-tts.sh"', $restore);
     }
 
     public function test_incident_location_enrichment_has_an_independent_low_priority_worker(): void
@@ -1049,16 +958,16 @@ final class DeploymentMaintenanceContractTest extends TestCase
         self::assertTrue($prepare < $install);
     }
 
-    public function test_browser_microphone_is_same_origin_and_still_user_permission_gated(): void
+    public function test_browser_microphone_is_disabled_after_server_tts_retirement(): void
     {
         $nginxHeaders = $this->read('infrastructure/nginx/security-headers.conf');
         $frontendMiddleware = $this->read('webapp/frontend/middleware.ts');
-        $policy = 'geolocation=(), microphone=(self), camera=()';
+        $policy = 'geolocation=(), microphone=(), camera=()';
 
         self::assertStringContainsString($policy, $nginxHeaders);
         self::assertStringContainsString($policy, $frontendMiddleware);
-        self::assertStringNotContainsString('microphone=()', $nginxHeaders);
-        self::assertStringNotContainsString('microphone=()', $frontendMiddleware);
+        self::assertStringNotContainsString('microphone=(self)', $nginxHeaders);
+        self::assertStringNotContainsString('microphone=(self)', $frontendMiddleware);
     }
 
     public function test_healthcheck_requires_an_exact_healthy_json_response_with_bounded_timeouts(): void

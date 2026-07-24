@@ -4,7 +4,6 @@ use Illuminate\Support\Facades\Schedule;
 
 Schedule::command('queue:prune-failed --hours=168')->dailyAt('03:30');
 Schedule::command('dis:cleanup-wallboard-media')->dailyAt('03:20')->withoutOverlapping();
-Schedule::command('dis:prune-speech-cache')->everyFifteenMinutes()->onOneServer()->withoutOverlapping(10);
 Schedule::command('dis:backfill-wallboard-media-thumbnails')
     ->everyMinute()
     ->onOneServer()

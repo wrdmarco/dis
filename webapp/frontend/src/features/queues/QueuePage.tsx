@@ -6,7 +6,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
-  Headphones,
   RefreshCw,
   RotateCcw,
   Rows3,
@@ -42,7 +41,7 @@ import {
 import { startQueuePolling } from './queuePolling';
 import styles from './QueuePage.module.css';
 
-const QUEUE_OPTIONS: QueueMonitorFilter[] = ['all', 'push', 'speech'];
+const QUEUE_OPTIONS: QueueMonitorFilter[] = ['all', 'push'];
 const STATE_OPTIONS: QueueMonitorStateFilter[] = [
   'all',
   'pending',
@@ -132,10 +131,10 @@ export function QueuePage() {
               <header className={styles.intro}>
                 <div>
                   <span className={styles.eyebrow}>Live werkvoorraad</span>
-                  <h3>Push blijft vrij van zware audiotaken</h3>
+                  <h3>Pushmeldingen direct in beeld</h3>
                   <p>
-                    Pushmeldingen en spraak worden in afzonderlijke serverwachtrijen verwerkt. Zo kan een alarmmelding
-                    direct parallel worden verzonden terwijl audio nog wordt opgebouwd.
+                    Bekijk welke meldingen wachten, worden verwerkt, opnieuw worden geprobeerd of al zijn afgerond.
+                    Parallelle workers houden de operationele alarmering vlot.
                   </p>
                 </div>
                 <div className={styles.generatedAt}>
@@ -290,9 +289,7 @@ function QueueLaneCard({ lane }: { lane: QueueMonitorLane }) {
   const waiting = lane.states.pending + lane.states.queued + lane.states.retrying;
   const icon = lane.key === 'push'
     ? <BellRing aria-hidden size={23} />
-    : lane.key === 'speech'
-      ? <Headphones aria-hidden size={23} />
-      : <Rows3 aria-hidden size={23} />;
+    : <Rows3 aria-hidden size={23} />;
 
   return (
     <article className={`${styles.lane} ${styles[`lane-${lane.key}`] ?? ''}`}>
@@ -355,7 +352,7 @@ function QueueWorkItem({ item, generatedAt }: { item: QueueMonitorItem; generate
         <header>
           <div className={styles.workIdentity}>
             <span className={`${styles.queueTag} ${styles[`queueTag-${item.queue}`] ?? ''}`}>
-              {item.queue === 'push' ? 'Push' : item.queue === 'speech' ? 'Spraak/audio' : item.queue}
+              {item.queue === 'push' ? 'Push' : item.queue}
             </span>
             <h3>{item.label}</h3>
             <small>{workloadTypeLabel(item.workload_type)}</small>
@@ -571,7 +568,6 @@ function queueLoadError(error: unknown): string {
 function orderedLanes(lanes: QueueMonitorLane[]): QueueMonitorLane[] {
   const order = new Map([
     ['push', 0],
-    ['speech', 1],
   ]);
 
   return [...lanes].sort((left, right) => (
@@ -583,13 +579,6 @@ function orderedLanes(lanes: QueueMonitorLane[]): QueueMonitorLane[] {
 function workloadTypeLabel(value: string): string {
   const labels: Record<string, string> = {
     push_notification: 'Pushmelding',
-    incident_speech_preparation: 'Incidentalarmspraak',
-    speech_manifest: 'Alarmeringsaudio',
-    speech_preview: 'Voorbeeldmelding',
-    speech_prepared_phrase: 'Vaste spraakvoorbereiding',
-    speech_audio_fragment: 'Audiofragment',
-    speech_cache_maintenance: 'Spraakcache-onderhoud',
-    speech_model_installation: 'Installatie spraakmodel',
   };
 
   return labels[value] ?? 'Overige achtergrondtaak';
@@ -597,7 +586,6 @@ function workloadTypeLabel(value: string): string {
 
 function laneHeading(lane: QueueMonitorLane): string {
   if (lane.key === 'push') return 'Pushmeldingen';
-  if (lane.key === 'speech') return 'Spraak en audio';
   return lane.label;
 }
 

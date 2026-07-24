@@ -286,12 +286,16 @@ final class PreannouncementAlarmTransitionTest extends TestCase
         $this->assertSame('dispatching', $incident->refresh()->status);
         $this->assertSame('sent', $dispatch->status);
         $this->assertNotNull($dispatch->sent_at);
+        $this->assertSame('queued_for_push', $dispatch->send_status);
+        $this->assertNotNull($dispatch->send_queued_at);
+        $this->assertNotNull($dispatch->send_released_at);
         $this->assertNotNull($preannouncementOutbox->refresh()->cancelled_at);
         $this->assertSame('superseded_by_alarm', $preannouncementOutbox->last_error_code);
         $this->assertSame($token->id, $outbox->fcm_token_id);
         $this->assertSame('dispatch_request', $outbox->message_type);
         $this->assertSame('dispatch_request', $outbox->data['type'] ?? null);
         $this->assertSame('attendance', $outbox->data['action_mode'] ?? null);
+        $this->assertTrue($outbox->available_at->lessThanOrEqualTo(now()));
         $this->assertNotNull($outbox->queued_at);
         $this->assertDatabaseHas('dispatch_recipients', [
             'dispatch_request_id' => $dispatch->id,

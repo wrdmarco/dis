@@ -20,10 +20,6 @@ final class DispatchDeliveryStatusService
         $failed = $rows->whereNotNull('cancelled_at')->count();
         $pending = max(0, $total - $accepted - $failed);
         $state = match (true) {
-            $dispatch->send_status === 'preparing_speech'
-                && $dispatch->send_release_deadline !== null
-                && ApiDateTime::comparableWallClock($dispatch->send_release_deadline)
-                    ->greaterThan(ApiDateTime::comparableWallClock(now())) => 'preparing_speech',
             $total > 0 && $accepted === $total => 'sent',
             $accepted > 0 => 'partial',
             $pending > 0 => 'queued_for_push',
@@ -34,7 +30,6 @@ final class DispatchDeliveryStatusService
             'dispatch_id' => (string) $dispatch->id,
             'state' => $state,
             'queued_at' => ApiDateTime::dateTime($dispatch->send_queued_at),
-            'release_deadline' => ApiDateTime::dateTime($dispatch->send_release_deadline),
             'released_at' => ApiDateTime::dateTime($dispatch->send_released_at),
             'device_counts' => [
                 'total' => $total,

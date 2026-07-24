@@ -6,8 +6,6 @@ use App\Http\Controllers\AdminDeveloperController;
 use App\Http\Controllers\AdminKnmiController;
 use App\Http\Controllers\AdminOsrmController;
 use App\Http\Controllers\AdminPushController;
-use App\Http\Controllers\AdminSpeechController;
-use App\Http\Controllers\AdminSpeechPreparedPhraseController;
 use App\Http\Controllers\AdminStoreReviewController;
 use App\Http\Controllers\AdminWallboardController;
 use App\Http\Controllers\AdminWallboardMediaAssetController;
@@ -245,10 +243,6 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/dispatches/{dispatch}/recipients', [DispatchController::class, 'recipients'])
             ->withoutMiddleware('throttle:authenticated')
             ->middleware(['permission:incidents.dispatch.view,incidents.assigned.view', 'throttle:alarm-read']);
-        Route::get('/speech/manifests/{manifest}/audio', [AdminSpeechController::class, 'manifestAudio'])
-            ->whereUlid('manifest')
-            ->withoutMiddleware('throttle:authenticated')
-            ->middleware('throttle:alarm-read');
         Route::get('/reports/incidents', [ReportingController::class, 'incidents'])->middleware('permission:incidents.view');
         Route::get('/reports/dispatch-statistics', [ReportingController::class, 'dispatchStatistics'])->middleware('permission:incidents.dispatch.view');
         Route::get('/expiry-overview', [ExpiryOverviewController::class, 'index']);
@@ -421,105 +415,6 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/status/audit-users', [AdminController::class, 'auditUsers'])->middleware('permission:status.audit.view');
         Route::get('/admin/settings', [AdminController::class, 'settings'])->middleware('permission:settings.manage');
         Route::patch('/admin/settings', [AdminController::class, 'updateSettings'])->middleware('permission:settings.manage');
-        Route::get('/admin/speech', [AdminSpeechController::class, 'show'])
-            ->middleware(['permission:settings.manage', 'throttle:speech-admin-read']);
-        Route::patch('/admin/speech/settings', [AdminSpeechController::class, 'update'])
-            ->middleware(['permission:settings.manage', 'throttle:speech-admin-write']);
-        Route::post('/admin/speech/models/{modelId}/install', [AdminSpeechController::class, 'install'])
-            ->where('modelId', '[a-z0-9_]{1,80}')
-            ->middleware(['permission:settings.manage', 'throttle:speech-admin-install']);
-        Route::post('/admin/speech/voice-profiles', [AdminSpeechController::class, 'storeVoiceProfile'])
-            ->middleware(['permission:settings.manage', 'throttle:speech-admin-upload']);
-        Route::delete('/admin/speech/voice-profiles/{voiceProfile}', [AdminSpeechController::class, 'destroyVoiceProfile'])
-            ->whereUlid('voiceProfile')
-            ->middleware(['permission:settings.manage', 'throttle:speech-admin-write']);
-        Route::post('/admin/speech/previews', [AdminSpeechController::class, 'createPreview'])
-            ->middleware(['permission:settings.manage', 'throttle:speech-admin-preview']);
-        Route::get('/admin/speech/previews/{preview}', [AdminSpeechController::class, 'preview'])
-            ->whereUlid('preview')
-            ->middleware(['permission:settings.manage', 'throttle:speech-admin-read']);
-        Route::get('/admin/speech/previews/{preview}/audio', [AdminSpeechController::class, 'previewAudio'])
-            ->whereUlid('preview')
-            ->middleware(['permission:settings.manage', 'throttle:speech-admin-read']);
-        Route::get('/admin/speech/cache/entries', [AdminSpeechController::class, 'cacheEntries'])
-            ->middleware([
-                'permission:settings.manage',
-                'permission:incidents.view',
-                'throttle:speech-admin-read',
-            ]);
-        Route::get('/admin/speech/cache/entries/{speechCacheEntry}/audio', [AdminSpeechController::class, 'cacheEntryAudio'])
-            ->whereUlid('speechCacheEntry')
-            ->middleware([
-                'permission:settings.manage',
-                'permission:incidents.view',
-                'throttle:speech-admin-read',
-            ]);
-        Route::post('/admin/speech/cache/regenerate', [AdminSpeechController::class, 'regenerateCache'])
-            ->middleware(['permission:settings.manage', 'throttle:speech-admin-write']);
-        Route::get('/admin/speech/preparations', [AdminSpeechPreparedPhraseController::class, 'index'])
-            ->middleware([
-                'permission:settings.manage',
-                'permission:speech.cache.view',
-                'throttle:speech-admin-read',
-            ]);
-        Route::get('/admin/speech/preparations/summary', [AdminSpeechPreparedPhraseController::class, 'summary'])
-            ->middleware([
-                'permission:settings.manage',
-                'permission:speech.cache.view',
-                'throttle:speech-admin-read',
-            ]);
-        Route::get('/admin/speech/preparations/presets', [AdminSpeechPreparedPhraseController::class, 'presets'])
-            ->middleware([
-                'permission:settings.manage',
-                'permission:speech.cache.manage',
-                'throttle:speech-admin-read',
-            ]);
-        Route::post('/admin/speech/preparations/presets/{preset}/prepare', [AdminSpeechPreparedPhraseController::class, 'preparePreset'])
-            ->where('preset', '[a-z0-9_]+')
-            ->middleware([
-                'permission:settings.manage',
-                'permission:speech.cache.manage',
-                'throttle:speech-admin-write',
-            ]);
-        Route::post('/admin/speech/preparations/search', [AdminSpeechPreparedPhraseController::class, 'search'])
-            ->middleware([
-                'permission:settings.manage',
-                'permission:speech.cache.view',
-                'throttle:speech-admin-read',
-            ]);
-        Route::post('/admin/speech/preparations', [AdminSpeechPreparedPhraseController::class, 'store'])
-            ->middleware([
-                'permission:settings.manage',
-                'permission:speech.cache.manage',
-                'throttle:speech-admin-write',
-            ]);
-        Route::get('/admin/speech/preparations/{speechPreparedPhrase}/audio', [AdminSpeechPreparedPhraseController::class, 'audio'])
-            ->whereUlid('speechPreparedPhrase')
-            ->middleware([
-                'permission:settings.manage',
-                'permission:speech.cache.view',
-                'throttle:speech-admin-read',
-            ]);
-        Route::delete('/admin/speech/preparations/{speechPreparedPhrase}', [AdminSpeechPreparedPhraseController::class, 'destroy'])
-            ->whereUlid('speechPreparedPhrase')
-            ->middleware([
-                'permission:settings.manage',
-                'permission:speech.cache.manage',
-                'throttle:speech-admin-write',
-            ]);
-        Route::post('/admin/speech/preparations/{speechPreparedPhrase}/regenerate', [AdminSpeechPreparedPhraseController::class, 'regenerate'])
-            ->whereUlid('speechPreparedPhrase')
-            ->middleware([
-                'permission:settings.manage',
-                'permission:speech.cache.manage',
-                'throttle:speech-admin-write',
-            ]);
-        Route::post('/admin/speech/preparations/clear', [AdminSpeechPreparedPhraseController::class, 'clear'])
-            ->middleware([
-                'permission:settings.manage',
-                'permission:speech.cache.manage',
-                'throttle:speech-admin-write',
-            ]);
         Route::get('/admin/knmi', [AdminKnmiController::class, 'show'])
             ->middleware(['permission:settings.manage', 'throttle:knmi-admin-read']);
         Route::get('/admin/knmi/catalog', [AdminKnmiController::class, 'catalog'])

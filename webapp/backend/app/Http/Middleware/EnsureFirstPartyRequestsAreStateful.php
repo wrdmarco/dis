@@ -56,16 +56,13 @@ final class EnsureFirstPartyRequestsAreStateful extends EnsureFrontendRequestsAr
             'api/wallboard/news-images/*',
             'api/admin/wallboard-media/assets/*/content',
             'api/admin/wallboard-media/assets/*/thumbnail',
-            'api/admin/speech/previews/*/audio',
         )) {
             return true;
         }
 
         return preg_match(
             '#\Aapi/(?:'
-                .'admin/speech/cache/entries/(?i:[0-9a-hjkmnp-tv-z]{26})/audio'
-                .'|admin/speech/preparations/(?i:[0-9a-hjkmnp-tv-z]{26})/audio'
-                .'|(?:operational-weather/radar|wallboard/weather-radar)'
+                .'(?:operational-weather/radar|wallboard/weather-radar)'
                 .'/(?:precipitation|lightning)/\d{8}T\d{6}Z-[a-f0-9]{16}\.png'
                 .')\z#D',
             $request->path(),

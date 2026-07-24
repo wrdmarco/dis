@@ -8,7 +8,6 @@ use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
 use App\Models\Incident;
-use App\Models\SpeechManifestBuild;
 use App\Models\SystemSetting;
 use App\Models\TestAlertScheduleDelivery;
 use App\Models\TestAlertScheduleRun;
@@ -33,8 +32,7 @@ final class TestAlertService
         private readonly AuditService $auditService,
         private readonly DispatchService $dispatchService,
         private readonly DispatchPushOutboxService $outbox,
-        private readonly SpeechDispatchGateService $speechGate,
-        private readonly TestAlertSpeechContentService $speechContent,
+        private readonly TestAlertMessageService $messageContent,
     ) {}
 
     /**
@@ -70,7 +68,6 @@ final class TestAlertService
         User $actor,
         string $scope,
         ?string $fixedMessage = null,
-        ?array $fixedSpeechLines = null,
     ): array {
         if (! in_array($scope, [self::SCOPE_SELF, self::SCOPE_ALL_ONLINE], true)) {
             throw ValidationException::withMessages([
@@ -99,7 +96,6 @@ final class TestAlertService
                 $actor,
                 $scope,
                 $fixedMessage,
-                $fixedSpeechLines,
                 $targets,
                 $skippedUsers,
                 &$failedSummary,
@@ -107,7 +103,7 @@ final class TestAlertService
                 User::query()->whereKey($actor->id)->lockForUpdate()->firstOrFail();
                 $supersededDispatchIds = $this->expirePreviousTestAlerts($actor);
                 $dispatch = $this->createDispatch($actor, $fixedMessage);
-                $fanOut = $this->fanOut($dispatch, $targets, $fixedSpeechLines);
+                $fanOut = $this->fanOut($dispatch, $targets);
                 $summary = $this->summary(
                     $scope,
                     $fanOut['recipient_count'],
@@ -137,7 +133,6 @@ final class TestAlertService
                 return [
                     'dispatch' => $dispatch->refresh(),
                     'summary' => $summary,
-                    'speech_build_id' => $fanOut['speech_build_id'],
                     'superseded_dispatch_ids' => $supersededDispatchIds,
                 ];
             });
@@ -184,16 +179,6 @@ final class TestAlertService
                 ]);
             }
 
-            if (is_string($persisted['speech_build_id'])) {
-                try {
-                    $this->speechGate->queueAfterCommit($persisted['speech_build_id']);
-                } catch (Throwable $exception) {
-                    Log::warning('Test alert speech generation could not be queued; deadline fallback remains active.', [
-                        'dispatch_request_id' => $dispatchId,
-                        'exception_class' => $exception::class,
-                    ]);
-                }
-            }
             try {
                 $this->outbox->flushPending(500, $dispatchId);
             } catch (Throwable $exception) {
@@ -212,9 +197,9 @@ final class TestAlertService
 
     private function createDispatch(User $actor, ?string $fixedMessage = null): DispatchRequest
     {
-        $notificationMessage = trim($fixedMessage ?? $this->speechContent->deliveredMessage());
+        $notificationMessage = trim($fixedMessage ?? $this->messageContent->deliveredMessage());
         if ($notificationMessage === '') {
-            $notificationMessage = TestAlertSpeechContentService::DEFAULT_MESSAGE;
+            $notificationMessage = TestAlertMessageService::DEFAULT_MESSAGE;
         }
 
         $incident = Incident::query()->create([
@@ -247,15 +232,12 @@ final class TestAlertService
 
     /**
      * @param  Collection<int, array{user: User, tokens: Collection<int, FcmToken>}>  $targets
-     * @param  array<int, mixed>|null  $fixedSpeechLines
-     * @return array{recipient_count: int, queued_token_count: int, failed_user_count: int, speech_build_id: ?string}
+     * @return array{recipient_count: int, queued_token_count: int, failed_user_count: int}
      */
     private function fanOut(
         DispatchRequest $dispatch,
         Collection $targets,
-        ?array $fixedSpeechLines = null,
     ): array {
-        $plan = ['delayed' => false, 'deadline' => null, 'build_id' => null];
         $recipientCount = 0;
         $queuedTokenCount = 0;
         $failedUserCount = 0;
@@ -300,7 +282,6 @@ final class TestAlertService
                 'recipient_count' => 0,
                 'queued_token_count' => 0,
                 'failed_user_count' => $failedUserCount,
-                'speech_build_id' => null,
             ];
         }
 
@@ -308,8 +289,10 @@ final class TestAlertService
         $dispatch->forceFill([
             'status' => 'sent',
             'sent_at' => $queuedAt,
+            'send_status' => 'queued_for_push',
+            'send_queued_at' => $queuedAt,
+            'send_released_at' => $queuedAt,
         ])->save();
-        $plan = $this->speechGate->prepare($dispatch, $incident, $queuedAt, $fixedSpeechLines);
         $data = $this->notificationData($dispatch, $incident);
         foreach ($preparedTargets as $target) {
             /** @var DispatchRecipient $recipient */
@@ -324,8 +307,6 @@ final class TestAlertService
                         title: 'D.I.S proefalarmering',
                         body: (string) $dispatch->message,
                         data: $data,
-                        availableAt: $plan['deadline'],
-                        releaseReason: $plan['delayed'] ? 'speech_deadline' : 'immediate',
                     ));
                     $queuedForUser++;
                     $queuedTokenCount++;
@@ -352,10 +333,6 @@ final class TestAlertService
             $recipientCount++;
         }
 
-        if ($recipientCount === 0 && is_string($plan['build_id'])) {
-            SpeechManifestBuild::query()->whereKey($plan['build_id'])->delete();
-            $plan = ['delayed' => false, 'deadline' => null, 'build_id' => null];
-        }
         if ($recipientCount === 0 && $persistenceFailed) {
             throw new RetryableTestAlertException('Test alert push outbox persistence failed.');
         }
@@ -364,7 +341,6 @@ final class TestAlertService
             'recipient_count' => $recipientCount,
             'queued_token_count' => $queuedTokenCount,
             'failed_user_count' => $failedUserCount,
-            'speech_build_id' => $plan['build_id'],
         ];
     }
 
@@ -592,7 +568,7 @@ final class TestAlertService
             'enabled' => SystemSetting::boolean('test_alert.schedule_enabled', false),
             'day_of_week' => SystemSetting::integer('test_alert.schedule_day_of_week', 1),
             'time' => SystemSetting::string('test_alert.schedule_time', '09:00') ?? '09:00',
-            'message' => $this->speechContent->configuredMessage(),
+            'message' => $this->messageContent->configuredMessage(),
             'last_run_at' => SystemSetting::string('test_alert.schedule_last_run_at'),
         ];
     }
@@ -608,7 +584,7 @@ final class TestAlertService
             'test_alert.schedule_enabled' => (bool) $data['enabled'],
             'test_alert.schedule_day_of_week' => (int) $data['day_of_week'],
             'test_alert.schedule_time' => $data['time'],
-            'test_alert.message' => $message !== '' ? $message : TestAlertSpeechContentService::DEFAULT_MESSAGE,
+            'test_alert.message' => $message !== '' ? $message : TestAlertMessageService::DEFAULT_MESSAGE,
         ];
 
         foreach ($settings as $key => $value) {
@@ -652,15 +628,7 @@ final class TestAlertService
 
     private function ensureScheduledRun(Carbon $slot): TestAlertScheduleRun
     {
-        $message = $this->speechContent->deliveredMessage();
-        try {
-            $speechLines = $this->speechContent->lines($message);
-        } catch (ValidationException) {
-            // A malformed or oversized speech template must never block the
-            // weekly push. An empty pinned snapshot deliberately makes the
-            // speech gate fail open while preserving the exact push message.
-            $speechLines = [];
-        }
+        $message = $this->messageContent->deliveredMessage();
 
         return TestAlertScheduleRun::query()->firstOrCreate(
             ['run_key' => $this->scheduleRunKey($slot)],
@@ -668,8 +636,6 @@ final class TestAlertService
                 'scheduled_for' => $slot,
                 'retry_until' => $slot->copy()->addHours(self::SCHEDULE_RECOVERY_HOURS),
                 'message' => $message,
-                'speech_lines' => $speechLines,
-                'template_checksum' => $this->speechContent->checksum($speechLines),
                 'status' => TestAlertScheduleRun::STATUS_PENDING,
             ],
         );
@@ -760,23 +726,10 @@ final class TestAlertService
                     return TestAlertScheduleDelivery::STATUS_SKIPPED;
                 }
 
-                $speechLines = (array) $run->speech_lines;
-                try {
-                    $snapshotMatches = hash_equals(
-                        (string) $run->template_checksum,
-                        $this->speechContent->checksum($speechLines),
-                    );
-                } catch (Throwable) {
-                    $snapshotMatches = false;
-                }
-                if (! $snapshotMatches) {
-                    $speechLines = [];
-                }
                 $result = $this->sendResolved(
                     $user,
                     self::SCOPE_SELF,
                     (string) $run->message,
-                    $speechLines,
                 );
                 $delivery->forceFill([
                     'dispatch_request_id' => $result['dispatch']->id,
@@ -1078,7 +1031,7 @@ final class TestAlertService
     {
         return [
             'type' => 'dispatch_request',
-            'action_mode' => SpeechTemplateService::PHASE_TEST_ACK,
+            'action_mode' => 'test_ack',
             'is_test' => 'true',
             'dispatch_id' => (string) $dispatch->id,
             'incident_id' => (string) $incident->id,

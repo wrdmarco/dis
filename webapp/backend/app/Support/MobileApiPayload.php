@@ -368,14 +368,8 @@ final class MobileApiPayload
             'priority' => $dispatch->priority,
             'message' => $dispatch->message,
             'sent_at' => self::dateTime($dispatch->sent_at),
-            'send_status' => $dispatch->send_status === 'preparing_speech'
-                && $dispatch->send_release_deadline !== null
-                && ApiDateTime::comparableWallClock($dispatch->send_release_deadline)
-                    ->lessThanOrEqualTo(ApiDateTime::comparableWallClock(now()))
-                    ? 'queued_for_push'
-                    : $dispatch->send_status,
+            'send_status' => $dispatch->send_status,
             'send_queued_at' => self::dateTime($dispatch->send_queued_at),
-            'send_release_deadline' => self::dateTime($dispatch->send_release_deadline),
             'send_released_at' => self::dateTime($dispatch->send_released_at),
             'created_at' => self::dateTime($dispatch->created_at),
             'incident' => $dispatch->relationLoaded('incident') && $dispatch->incident !== null ? self::incident($dispatch->incident) : null,

@@ -1,3 +1,0 @@
-# Installed separately with --no-deps. The VoxCPM wheel over-declares demo,
-# training and cloud dependencies that are not imported by the offline engine.
-voxcpm @ https://files.pythonhosted.org/packages/f5/50/76e912427684f7e71d443d9542802ad33df8764ef3bba954b96feeab41ba/voxcpm-2.0.3-py3-none-any.whl#sha256=24da58a30d094a9e9a7ead450ae9cffda0d31eaeba620b61ad99179dd87e486b

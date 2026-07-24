@@ -188,13 +188,51 @@ SQL
   fi
 }
 
+retire_legacy_server_tts_for_uninstall() (
+  set -euo pipefail
+
+  local php_fpm_was_active=0
+
+  restore_php_fpm_after_retirement() {
+    local status="$?"
+
+    trap - EXIT INT TERM
+    if [ "${php_fpm_was_active}" = "1" ]; then
+      systemctl start "${PHP_FPM_SERVICE}" >/dev/null 2>&1 || {
+        printf '[dis:error] Failed to restart %s after legacy TTS retirement.\n' \
+          "${PHP_FPM_SERVICE}.service" >&2
+        [ "${status}" -ne 0 ] || status=1
+      }
+    fi
+    exit "${status}"
+  }
+  trap restore_php_fpm_after_retirement EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  if systemd_service_exists "${PHP_FPM_SERVICE}" \
+    && systemctl is-active --quiet "${PHP_FPM_SERVICE}"; then
+    php_fpm_was_active=1
+    run_cmd systemctl stop "${PHP_FPM_SERVICE}"
+  fi
+
+  DIS_RETIRE_TTS_PARENT_OWNS_LOCK=1 \
+    bash "${SCRIPT_DIR}/retire-server-tts.sh"
+
+  if [ "${php_fpm_was_active}" = "1" ]; then
+    run_cmd systemctl start "${PHP_FPM_SERVICE}"
+    php_fpm_was_active=0
+  fi
+  trap - EXIT INT TERM
+)
+
 confirm "This will uninstall DIS service configuration from this server."
 acquire_dis_operation_lock uninstall
 
 log "Stopping and disabling DIS services"
 # Legacy backup entries remain here so uninstall also cleans hosts upgraded from
 # releases that installed the retired standalone backup helpers.
-for service in dis-speech dis-tts-engine dis-media dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-queue dis-scheduler dis-websocket dis-osrm dis-incident-enrichment dis-knmi dis-knmi-realtime \
+for service in dis-media dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-queue dis-scheduler dis-websocket dis-osrm dis-incident-enrichment dis-knmi dis-knmi-realtime \
   dis-osrm-admin-request.timer dis-osrm-admin-request.path dis-osrm-admin-request \
   dis-backup-request.timer dis-backup-request.path dis-backup-request \
   dis-backup-mount dis-backup.timer dis-backup; do
@@ -203,13 +241,13 @@ for service in dis-speech dis-tts-engine dis-media dis-push@1 dis-push@2 dis-pus
   fi
 done
 
+retire_legacy_server_tts_for_uninstall
+
 log "Removing DIS systemd units"
 for unit in \
   /etc/systemd/system/dis-queue.service \
   /etc/systemd/system/dis-push@.service \
   /etc/systemd/system/dis-media.service \
-  /etc/systemd/system/dis-speech.service \
-  /etc/systemd/system/dis-tts-engine.service \
   /etc/systemd/system/dis-knmi.service \
   /etc/systemd/system/dis-knmi-realtime.service \
   /etc/systemd/system/dis-incident-enrichment.service \
@@ -290,14 +328,6 @@ elif [ -e /usr/local/bin/update ]; then
   log "/usr/local/bin/update exists but is not managed by DIS; leaving it in place."
 fi
 safe_remove_recursive "${DIS_INSTALL_PATH}/storage/generated"
-if [ -d "${DIS_DATA_PATH}/tts" ] && [ ! -L "${DIS_DATA_PATH}/tts" ]; then
-  log "Removing reproducible speech models, cache and managed runtime data"
-  secure_path_operation remove-tree "${DIS_DATA_PATH}/tts"
-elif [ -L "${DIS_DATA_PATH}/tts" ]; then
-  run_cmd rm -f -- "${DIS_DATA_PATH}/tts"
-elif [ -e "${DIS_DATA_PATH}/tts" ]; then
-  fail "Refusing to remove an unexpected speech runtime object at ${DIS_DATA_PATH}/tts."
-fi
 run_cmd rm -f -- "${DIS_INSTALL_PATH}/webapp/frontend/.env.production" 2>/dev/null || true
 run_cmd rm -f -- "${DIS_INSTALL_PATH}/webapp/backend/.env" 2>/dev/null || true
 

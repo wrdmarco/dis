@@ -19,9 +19,6 @@ final class FirstPartyMediaRequestTest extends TestCase
             'wallboard news image' => ['/api/wallboard/news-images/'.str_repeat('a', 64)],
             'admin asset' => ['/api/admin/wallboard-media/assets/'.$ulid.'/content'],
             'admin thumbnail' => ['/api/admin/wallboard-media/assets/'.$ulid.'/thumbnail'],
-            'admin speech preview' => ['/api/admin/speech/previews/'.$ulid.'/audio'],
-            'admin speech cache audio' => ['/api/admin/speech/cache/entries/'.$ulid.'/audio'],
-            'admin prepared speech audio' => ['/api/admin/speech/preparations/'.$ulid.'/audio'],
             'operational precipitation radar atlas' => [
                 '/api/operational-weather/radar/precipitation/20260724T120000Z-0123456789abcdef.png',
             ],
@@ -93,38 +90,6 @@ final class FirstPartyMediaRequestTest extends TestCase
 
     #[DataProvider('invalidRadarPaths')]
     public function test_radar_media_exception_is_limited_to_valid_atlas_routes(string $uri): void
-    {
-        $request = Request::create($uri, 'GET', server: [
-            'HTTP_SEC_FETCH_SITE' => 'same-origin',
-        ]);
-
-        self::assertFalse(EnsureFirstPartyRequestsAreStateful::fromFrontend($request));
-    }
-
-    /** @return array<string, array{string}> */
-    public static function invalidSpeechCachePaths(): array
-    {
-        return [
-            'invalid cache entry identifier' => [
-                '/api/admin/speech/cache/entries/not-a-ulid/audio',
-            ],
-            'nested cache audio suffix' => [
-                '/api/admin/speech/cache/entries/01ARZ3NDEKTSV4RRFFQ69G5FAV/nested/audio',
-            ],
-            'unrelated speech cache route' => [
-                '/api/admin/speech/cache/regenerate',
-            ],
-            'invalid prepared phrase identifier' => [
-                '/api/admin/speech/preparations/not-a-ulid/audio',
-            ],
-            'nested prepared phrase audio suffix' => [
-                '/api/admin/speech/preparations/01ARZ3NDEKTSV4RRFFQ69G5FAV/nested/audio',
-            ],
-        ];
-    }
-
-    #[DataProvider('invalidSpeechCachePaths')]
-    public function test_speech_cache_media_exception_is_limited_to_exact_audio_routes(string $uri): void
     {
         $request = Request::create($uri, 'GET', server: [
             'HTTP_SEC_FETCH_SITE' => 'same-origin',

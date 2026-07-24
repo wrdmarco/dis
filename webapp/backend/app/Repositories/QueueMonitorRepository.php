@@ -3,17 +3,9 @@
 namespace App\Repositories;
 
 use App\Models\DispatchPushOutbox;
-use App\Models\IncidentSpeechPreparation;
 use App\Models\PushQueueWorkItem;
-use App\Models\SpeechCacheEntry;
-use App\Models\SpeechCacheJob;
-use App\Models\SpeechManifestBuild;
-use App\Models\SpeechModelInstallation;
-use App\Models\SpeechPreparedPhrase;
-use App\Models\SpeechPreview;
 use App\Support\ApiDateTime;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 
 final class QueueMonitorRepository
@@ -37,65 +29,6 @@ final class QueueMonitorRepository
         if (in_array($queue, ['all', 'push'], true)) {
             $items = $items->concat($this->pushItems($state, $candidateLimit));
         }
-        if (in_array($queue, ['all', 'speech'], true)) {
-            $items = $items
-                ->concat($this->speechItems(
-                    IncidentSpeechPreparation::class,
-                    'incident_speech_preparation',
-                    'Incidentalarmspraak voorbereiden',
-                    $state,
-                    $candidateLimit,
-                    ['progress_percent'],
-                ))
-                ->concat($this->speechItems(
-                    SpeechManifestBuild::class,
-                    'speech_manifest',
-                    'Alarmeringsaudio samenstellen',
-                    $state,
-                    $candidateLimit,
-                    ['phase', 'progress_percent', 'finished_at', 'failed_at'],
-                ))
-                ->concat($this->speechItems(
-                    SpeechPreview::class,
-                    'speech_preview',
-                    'Voorbeeldmelding genereren',
-                    $state,
-                    $candidateLimit,
-                    ['phase', 'progress_percent', 'ready_at', 'failed_at'],
-                ))
-                ->concat($this->speechItems(
-                    SpeechPreparedPhrase::class,
-                    'speech_prepared_phrase',
-                    'Vaste spraakvoorbereiding genereren',
-                    $state,
-                    $candidateLimit,
-                    ['kind', 'progress_percent', 'prepared_at'],
-                ))
-                ->concat($this->speechItems(
-                    SpeechCacheEntry::class,
-                    'speech_audio_fragment',
-                    'Audiofragment genereren',
-                    $state,
-                    $candidateLimit,
-                    ['category', 'synthesis_duration_ms'],
-                ))
-                ->concat($this->speechItems(
-                    SpeechCacheJob::class,
-                    'speech_cache_maintenance',
-                    'Spraakcache verwerken',
-                    $state,
-                    $candidateLimit,
-                    ['scope', 'progress_percent', 'finished_at'],
-                ))
-                ->concat($this->speechItems(
-                    SpeechModelInstallation::class,
-                    'speech_model_installation',
-                    'Spraakmodel installeren',
-                    $state,
-                    $candidateLimit,
-                    ['progress_percent', 'installed_at', 'failed_at'],
-                ));
-        }
 
         return $items;
     }
@@ -106,19 +39,6 @@ final class QueueMonitorRepository
         $counts = array_fill_keys(self::STATES, 0);
         if (in_array($queue, ['all', 'push'], true)) {
             $this->mergeCounts($counts, $this->pushStateCounts());
-        }
-        if (in_array($queue, ['all', 'speech'], true)) {
-            foreach ([
-                IncidentSpeechPreparation::class,
-                SpeechManifestBuild::class,
-                SpeechPreview::class,
-                SpeechPreparedPhrase::class,
-                SpeechCacheEntry::class,
-                SpeechCacheJob::class,
-                SpeechModelInstallation::class,
-            ] as $modelClass) {
-                $this->mergeCounts($counts, $this->speechStateCounts($modelClass));
-            }
         }
 
         return $counts;
@@ -242,65 +162,6 @@ final class QueueMonitorRepository
         );
     }
 
-    /**
-     * @param  class-string<Model>  $modelClass
-     * @param  list<string>  $extraColumns
-     * @return Collection<int, array<string, mixed>>
-     */
-    private function speechItems(
-        string $modelClass,
-        string $workloadType,
-        string $label,
-        string $state,
-        int $limit,
-        array $extraColumns,
-    ): Collection {
-        $query = $this->recentSpeechQuery($modelClass)
-            ->select(array_values(array_unique([
-                'id',
-                'status',
-                'error_code',
-                'created_at',
-                'updated_at',
-                ...$extraColumns,
-            ])));
-        $this->applySpeechStateFilter($query, $modelClass, $state);
-
-        return $query->latest('created_at')->limit($limit)->get()
-            ->map(function (Model $item) use ($workloadType, $label): array {
-                $state = $this->speechState($item::class, (string) $item->getAttribute('status'));
-                $finishedAt = $item->getAttribute('finished_at')
-                    ?? $item->getAttribute('ready_at')
-                    ?? $item->getAttribute('prepared_at')
-                    ?? $item->getAttribute('installed_at')
-                    ?? $item->getAttribute('failed_at');
-                if ($item instanceof IncidentSpeechPreparation
-                    && in_array($state, ['completed', 'failed', 'cancelled'], true)) {
-                    $finishedAt = $item->getAttribute('updated_at');
-                }
-
-                return $this->item(
-                    id: (string) $item->getKey(),
-                    queue: 'speech',
-                    workloadType: $workloadType,
-                    label: $label,
-                    state: $state,
-                    progress: $this->progress($item, $state),
-                    queuedAt: $item->getAttribute('created_at'),
-                    // These domain tables currently do not persist a true
-                    // processing start instant. Never present updated_at as one:
-                    // progress writes would make the displayed duration false.
-                    startedAt: null,
-                    nextAttemptAt: null,
-                    finishedAt: $finishedAt,
-                    attempts: null,
-                    errorCode: $this->safeErrorCode($item->getAttribute('error_code')),
-                    durationMs: $this->durationMs($item),
-                    sortAt: $item->getAttribute('created_at'),
-                );
-            });
-    }
-
     private function recentPushQuery(): Builder
     {
         $cutoff = now()->subHours(max(1, (int) config('dis.queue_monitor.recent_hours', 24)));
@@ -361,30 +222,6 @@ final class QueueMonitorRepository
             });
     }
 
-    /** @param class-string<Model> $modelClass */
-    private function recentSpeechQuery(string $modelClass): Builder
-    {
-        $cutoff = now()->subHours(max(1, (int) config('dis.queue_monitor.recent_hours', 24)));
-
-        $activeStatuses = array_merge(
-            $this->speechStatuses($modelClass, 'queued'),
-            $this->speechStatuses($modelClass, 'processing'),
-        );
-
-        return $modelClass::query()->where(function (Builder $query) use (
-            $cutoff,
-            $activeStatuses,
-            $modelClass,
-        ): void {
-            $query->whereIn('status', $activeStatuses);
-            if ($modelClass === SpeechCacheEntry::class) {
-                $query->orWhere('created_at', '>=', $cutoff);
-            } else {
-                $query->orWhere('updated_at', '>=', $cutoff);
-            }
-        });
-    }
-
     /** @return array<string, int> */
     private function pushStateCounts(): array
     {
@@ -416,26 +253,6 @@ final class QueueMonitorRepository
         return $counts;
     }
 
-    /**
-     * @param  class-string<Model>  $modelClass
-     * @return array<string, int>
-     */
-    private function speechStateCounts(string $modelClass): array
-    {
-        $counts = array_fill_keys(self::STATES, 0);
-        $this->recentSpeechQuery($modelClass)
-            ->select(['status'])
-            ->selectRaw('COUNT(*) AS aggregate')
-            ->groupBy('status')
-            ->get()
-            ->each(function (Model $row) use (&$counts, $modelClass): void {
-                $counts[$this->speechState($modelClass, (string) $row->getAttribute('status'))]
-                    += (int) $row->getAttribute('aggregate');
-            });
-
-        return $counts;
-    }
-
     private function applyPushOutboxStateFilter(Builder $query, string $state): void
     {
         if ($state === 'all') {
@@ -450,28 +267,6 @@ final class QueueMonitorRepository
         if ($state !== 'all') {
             $query->where('status', $state);
         }
-    }
-
-    /** @param class-string<Model> $modelClass */
-    private function applySpeechStateFilter(Builder $query, string $modelClass, string $state): void
-    {
-        if ($state === 'all') {
-            return;
-        }
-
-        if ($state === 'failed') {
-            $nonFailedStatuses = array_merge(
-                $this->speechStatuses($modelClass, 'completed'),
-                $this->speechStatuses($modelClass, 'processing'),
-                $this->speechStatuses($modelClass, 'queued'),
-                $this->speechStatuses($modelClass, 'cancelled'),
-            );
-            $query->whereNotIn('status', $nonFailedStatuses);
-
-            return;
-        }
-
-        $query->whereIn('status', $this->speechStatuses($modelClass, $state));
     }
 
     private function pushOutboxStateExpression(): string
@@ -493,59 +288,6 @@ END
 SQL;
     }
 
-    /** @param class-string<Model> $modelClass */
-    private function speechState(string $modelClass, string $status): string
-    {
-        foreach (['completed', 'failed', 'cancelled', 'processing', 'queued'] as $state) {
-            if (in_array($status, $this->speechStatuses($modelClass, $state), true)) {
-                return $state;
-            }
-        }
-
-        // Unknown states are fail-closed. Treating a new terminal state as
-        // queued would leave an apparently endless workload in operations.
-        return 'failed';
-    }
-
-    /**
-     * @param  class-string<Model>  $modelClass
-     * @return list<string>
-     */
-    private function speechStatuses(string $modelClass, string $state): array
-    {
-        if ($modelClass === IncidentSpeechPreparation::class) {
-            return match ($state) {
-                'completed' => [IncidentSpeechPreparation::STATUS_READY],
-                'failed' => [IncidentSpeechPreparation::STATUS_FAILED],
-                'cancelled' => [
-                    IncidentSpeechPreparation::STATUS_CANCELLED,
-                    IncidentSpeechPreparation::STATUS_DISABLED,
-                    IncidentSpeechPreparation::STATUS_NOT_SCHEDULED,
-                ],
-                'processing' => [IncidentSpeechPreparation::STATUS_PROCESSING],
-                'queued' => [IncidentSpeechPreparation::STATUS_QUEUED],
-                default => [],
-            };
-        }
-
-        if ($modelClass === SpeechModelInstallation::class) {
-            return match ($state) {
-                'completed' => ['installed'],
-                'failed' => ['failed'],
-                'processing' => ['installing'],
-                default => [],
-            };
-        }
-
-        return match ($state) {
-            'completed' => ['ready'],
-            'failed' => ['failed'],
-            'processing' => ['processing'],
-            'queued' => ['queued'],
-            default => [],
-        };
-    }
-
     private function pushLabel(string $messageType): string
     {
         return match ($messageType) {
@@ -561,23 +303,6 @@ SQL;
             'session_revoked' => 'Sessiebeëindiging',
             default => 'Pushmelding',
         };
-    }
-
-    private function progress(Model $item, string $state): ?int
-    {
-        $progress = $item->getAttribute('progress_percent');
-        if (is_numeric($progress)) {
-            return max(0, min(100, (int) $progress));
-        }
-
-        return $state === 'completed' ? 100 : null;
-    }
-
-    private function durationMs(Model $item): ?int
-    {
-        $duration = $item->getAttribute('synthesis_duration_ms');
-
-        return is_numeric($duration) && (int) $duration >= 0 ? (int) $duration : null;
     }
 
     private function safeErrorCode(mixed $errorCode): ?string

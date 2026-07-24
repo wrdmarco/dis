@@ -57,7 +57,7 @@ fi
 # of being followed by install/chown/chmod.
 ensure_data_links "${APP_ROOT}"
 
-for runtime_service in "${PHP_FPM_SERVICE}" dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-queue dis-media dis-tts-engine dis-speech dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime dis-backup-request dis-osrm-admin-request; do
+for runtime_service in "${PHP_FPM_SERVICE}" dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-queue dis-media dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime dis-backup-request dis-osrm-admin-request; do
   if systemd_service_exists "${runtime_service}" && systemctl is-active --quiet "${runtime_service}"; then
     fail "Permission repair requires ${runtime_service} to be stopped under deployment maintenance."
   fi
@@ -128,8 +128,6 @@ for runtime_leaf in \
 done
 repair_managed_tree "${DIS_DATA_PATH}/storage/generated" root root 0755 0644
 repair_managed_tree "${DIS_DATA_PATH}/storage/releases" root root 0750 0640
-repair_speech_data_permissions
-
 if [ -d "${DIS_DATA_PATH}/backup" ]; then
   repair_managed_tree "${DIS_DATA_PATH}/backup" root "${DIS_GROUP}" 0750 0640
 fi

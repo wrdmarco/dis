@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, AudioLines, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, CloudRain, CloudSun, DatabaseBackup, FileText, Gauge, KeyRound, ListTodo, LogOut, Map as MapIcon, Menu, MonitorCog, Moon, Network, Palette, Plane, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, CloudRain, CloudSun, DatabaseBackup, FileText, Gauge, KeyRound, ListTodo, LogOut, Map as MapIcon, Menu, MonitorCog, Moon, Network, Palette, Plane, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -77,7 +77,6 @@ const navGroups: NavGroup[] = [
     label: 'Beheer',
     items: [
       { to: '/forms', label: 'Formulieren', icon: FileText, permissions: ['settings.manage'] },
-      { to: '/speech', label: 'Spraak', icon: AudioLines, permissions: ['settings.manage'] },
       { to: '/admin', label: 'Admin', icon: Shield, permissions: ['settings.manage', 'settings.push.tokens.manage', 'system.health.view', 'system.developer-access.manage'], anyPermission: true },
       { to: '/knmi', label: 'KNMI', icon: CloudSun, permissions: ['settings.manage'] },
       { to: '/branding', label: 'Branding', icon: Palette, permissions: ['settings.manage'] },
@@ -119,7 +118,6 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/certifications': () => import('../features/certifications/CertificationsPage'),
   '/expiry': () => import('../features/expiry/ExpiryPage'),
   '/forms': () => import('../features/admin/AdminPage'),
-  '/speech': () => import('../features/speech/SpeechAdminPage'),
   '/calendar': () => import('../features/calendar/CalendarPage'),
   '/admin': () => import('../features/admin/AdminPage'),
   '/knmi': () => import('../features/admin/KnmiAdminPage'),

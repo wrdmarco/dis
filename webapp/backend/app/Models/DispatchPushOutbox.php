@@ -29,8 +29,6 @@ final class DispatchPushOutbox extends Model
         'attempts',
         'last_attempted_at',
         'last_error_code',
-        'speech_manifest_id',
-        'release_reason',
     ];
 
     protected function casts(): array
@@ -56,10 +54,5 @@ final class DispatchPushOutbox extends Model
     public function fcmToken(): BelongsTo
     {
         return $this->belongsTo(FcmToken::class);
-    }
-
-    public function speechManifest(): BelongsTo
-    {
-        return $this->belongsTo(SpeechManifest::class);
     }
 }

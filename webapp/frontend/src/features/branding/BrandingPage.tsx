@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -114,7 +113,7 @@ const basePushVariables = [
 ] as const;
 
 export function BrandingPage() {
-  const { api, hasPermission } = useAuth();
+  const { api } = useAuth();
   const settings = useApiResource<SystemSetting[]>('/admin/settings');
   const incidentFormConfig = useApiResource<IncidentFormConfig>('/admin/incident-form/config');
   const initialForm = useMemo(() => toBrandingForm(settings.data ?? []), [settings.data]);
@@ -425,21 +424,6 @@ export function BrandingPage() {
                 <strong>Reason bij niet beschikbaar maar opgeschaald</strong>
                 <pre>{'{{reason}} = Urgente opschaling: de coordinator heeft gekozen om ook niet-beschikbare teamleden te alarmeren.\n{{availability_reason}} = persoonlijke beschikbaarheidsreden, bijvoorbeeld status niet beschikbaar of vast weekpatroon.'}</pre>
               </div>
-              {hasPermission('speech.cache.manage') ? (
-                <div className="metadata-example">
-                  <strong>Pushtekst vooraf als spraak voorbereiden</strong>
-                  <p>
-                    Open de blijvende voorbereidingsbibliotheek en voeg de exact gerenderde titel of zin
-                    handmatig toe. Vervang variabelen zoals {'{{place}}'}, {'{{postcode}}'} en {'{{province}}'}
-                    eerst door de concrete waarde die uitgesproken moet worden. De audio wordt direct
-                    hergebruikt zodra exact dezelfde regel in een TTS-meldingssjabloon voorkomt; een
-                    pushtekst wordt niet automatisch uitgesproken.
-                  </p>
-                  <Link className="secondary-button" href="/speech">
-                    Naar spraakvoorbereiding
-                  </Link>
-                </div>
-              ) : null}
             </div>
           ) : null}
 

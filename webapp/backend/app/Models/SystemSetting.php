@@ -17,9 +17,6 @@ final class SystemSetting extends Model
         'push.apns.credentials',
         'mail.microsoft365_client_secret',
         'mail.password',
-        'speech.templates.availability',
-        'speech.templates.attendance',
-        'speech.templates.test_ack',
     ];
 
     protected $primaryKey = 'key';

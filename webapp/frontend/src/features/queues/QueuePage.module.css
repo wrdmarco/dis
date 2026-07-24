@@ -1,8 +1,6 @@
 .page {
   --queue-push: #67e8f9;
   --queue-push-soft: rgba(34, 211, 238, 0.1);
-  --queue-speech: #c4b5fd;
-  --queue-speech-soft: rgba(167, 139, 250, 0.11);
 }
 
 .overview,
@@ -162,16 +160,6 @@
   background: var(--queue-push);
 }
 
-.lane-speech {
-  background:
-    linear-gradient(110deg, var(--queue-speech-soft), transparent 56%),
-    var(--dis-surface-2);
-}
-
-.lane-speech::before {
-  background: var(--queue-speech);
-}
-
 .lane > header {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -194,12 +182,6 @@
   border-color: color-mix(in srgb, var(--queue-push) 30%, transparent);
   background: var(--queue-push-soft);
   color: var(--queue-push);
-}
-
-.lane-speech .laneIcon {
-  border-color: color-mix(in srgb, var(--queue-speech) 30%, transparent);
-  background: var(--queue-speech-soft);
-  color: var(--queue-speech);
 }
 
 .lane h3 {
@@ -450,12 +432,6 @@
   color: var(--queue-push);
 }
 
-.queueTag-speech {
-  border-color: color-mix(in srgb, var(--queue-speech) 34%, var(--dis-border));
-  background: var(--queue-speech-soft);
-  color: var(--queue-speech);
-}
-
 .state-active {
   border-color: rgba(128, 199, 255, 0.32);
   background: var(--dis-blue-soft);
@@ -621,8 +597,6 @@
 :global(:root[data-theme="light"]) .page {
   --queue-push: #087e8b;
   --queue-push-soft: rgba(8, 126, 139, 0.08);
-  --queue-speech: #6d4cc4;
-  --queue-speech-soft: rgba(109, 76, 196, 0.08);
 }
 
 @media (max-width: 1050px) {

@@ -7,12 +7,9 @@ use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
 use App\Models\Incident;
-use App\Models\IncidentSpeechPreparation;
 use App\Models\Permission;
 use App\Models\PushQueueWorkItem;
 use App\Models\Role;
-use App\Models\SpeechCacheEntry;
-use App\Models\SpeechPreparedPhrase;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
@@ -32,97 +29,6 @@ final class QueueMonitorApiTest extends TestCase
         $this->asAdminClient($this->user('queue-denied@example.test'))
             ->getJson('/api/admin/queues')
             ->assertForbidden();
-    }
-
-    public function test_queue_monitor_returns_bounded_safe_speech_work_without_source_text(): void
-    {
-        $this->mockTransport();
-        $viewer = $this->user('queue-viewer@example.test', ['system.health.view']);
-        $secretText = 'Geheime meldtekst die nooit in de queue-monitor hoort';
-
-        SpeechCacheEntry::query()->create([
-            'cache_key' => hash('sha256', 'duration-test'),
-            'category' => 'segment',
-            'semantic_hmac' => hash('sha256', 'semantic-test'),
-            'display_text' => $secretText,
-            'status' => 'ready',
-            'synthesis_duration_ms' => 4321,
-        ]);
-        SpeechPreparedPhrase::query()->create([
-            'kind' => 'fixed_phrase',
-            'identity_hmac' => hash('sha256', 'unknown-state'),
-            'display_text' => $secretText,
-            'status' => 'retired',
-            'progress_percent' => 100,
-        ]);
-        SpeechCacheEntry::query()->create([
-            'cache_key' => hash('sha256', 'failed-without-progress'),
-            'category' => 'segment',
-            'semantic_hmac' => hash('sha256', 'failed-semantic'),
-            'status' => 'failed',
-            'error_code' => 'synthesis_failed',
-        ]);
-
-        $response = $this->asAdminClient($viewer)
-            ->getJson('/api/admin/queues?queue=speech&per_page=10')
-            ->assertOk()
-            ->assertHeader('Cache-Control', 'no-store, private')
-            ->assertJsonPath('data.queues.0.key', 'speech')
-            ->assertJsonPath('data.queues.0.configured_parallelism', 1)
-            ->assertJsonPath('data.queues.0.transport_pending_count', 3)
-            ->assertJsonPath('data.queues.0.states.total', 3)
-            ->assertJsonPath('data.items.0.queue', 'speech')
-            ->assertJsonStructure([
-                'data' => [
-                    'generated_at',
-                    'refresh_after_seconds',
-                    'summary',
-                    'queues',
-                    'items' => [[
-                        'id',
-                        'queue',
-                        'workload_type',
-                        'label',
-                        'state',
-                        'progress_percent',
-                        'queued_at',
-                        'started_at',
-                        'next_attempt_at',
-                        'finished_at',
-                        'attempts',
-                        'error_code',
-                        'duration_ms',
-                    ]],
-                ],
-                'meta' => ['current_page', 'per_page', 'total', 'last_page', 'is_truncated'],
-            ]);
-
-        $items = collect($response->json('data.items'));
-        $duration = $items->first(
-            fn (array $item): bool => $item['workload_type'] === 'speech_audio_fragment'
-                && $item['duration_ms'] === 4321,
-        );
-        $failedWithoutProgress = $items->first(
-            fn (array $item): bool => $item['workload_type'] === 'speech_audio_fragment'
-                && $item['state'] === 'failed',
-        );
-        $unknown = $items->firstWhere('workload_type', 'speech_prepared_phrase');
-        $this->assertSame(4321, $duration['duration_ms']);
-        $this->assertNull($duration['started_at']);
-        $this->assertNull($failedWithoutProgress['progress_percent']);
-        $this->assertSame('failed', $unknown['state']);
-        $this->assertSame(100, $unknown['progress_percent']);
-        $this->assertStringNotContainsString($secretText, (string) $response->getContent());
-        $this->assertStringNotContainsString('display_text', (string) $response->getContent());
-
-        $failedItems = $this->asAdminClient($viewer)
-            ->getJson('/api/admin/queues?queue=speech&state=failed&per_page=10')
-            ->assertOk()
-            ->json('data.items');
-        $this->assertNotNull(
-            collect($failedItems)->firstWhere('workload_type', 'speech_prepared_phrase'),
-            'Een onbekende terminale status moet ook via het fail-closed foutfilter zichtbaar blijven.',
-        );
     }
 
     public function test_transport_count_honestly_represents_non_outbox_push_jobs_without_payload_details(): void
@@ -328,100 +234,12 @@ final class QueueMonitorApiTest extends TestCase
         $this->assertSame('outbox_processing', $items[(string) $newClaim->id]['error_code']);
     }
 
-    public function test_incident_speech_preparations_are_mapped_without_incident_content(): void
-    {
-        $this->mockTransport();
-        $viewer = $this->user('queue-incident-speech@example.test', ['system.health.view']);
-        $secretIncidentTitle = 'Vertrouwelijk incident aan de geheime straat';
-        $incident = Incident::query()->create([
-            'reference' => 'QUEUE-SPEECH-001',
-            'title' => $secretIncidentTitle,
-            'priority' => 'normal',
-            'status' => 'draft',
-            'created_by' => $viewer->id,
-        ]);
-        $expectedStates = [
-            IncidentSpeechPreparation::STATUS_QUEUED => 'queued',
-            IncidentSpeechPreparation::STATUS_PROCESSING => 'processing',
-            IncidentSpeechPreparation::STATUS_READY => 'completed',
-            IncidentSpeechPreparation::STATUS_FAILED => 'failed',
-            IncidentSpeechPreparation::STATUS_CANCELLED => 'cancelled',
-            IncidentSpeechPreparation::STATUS_DISABLED => 'cancelled',
-            IncidentSpeechPreparation::STATUS_NOT_SCHEDULED => 'cancelled',
-        ];
-        foreach ($expectedStates as $status => $mappedState) {
-            IncidentSpeechPreparation::query()->create([
-                'incident_id' => $incident->id,
-                'phase' => str_replace('_', '-', $status),
-                'source_fingerprint_hmac' => hash('sha256', $status),
-                'status' => $status,
-                'progress_percent' => $status === IncidentSpeechPreparation::STATUS_PROCESSING ? 47 : 0,
-                'error_code' => $status === IncidentSpeechPreparation::STATUS_FAILED ? 'prewarm_failed' : null,
-            ]);
-        }
-
-        $response = $this->asAdminClient($viewer)
-            ->getJson('/api/admin/queues?queue=speech&per_page=100')
-            ->assertOk();
-        $items = collect($response->json('data.items'))
-            ->where('workload_type', 'incident_speech_preparation');
-        $this->assertCount(count($expectedStates), $items);
-        foreach (array_count_values($expectedStates) as $state => $count) {
-            $this->assertCount($count, $items->where('state', $state));
-        }
-        $this->assertSame(
-            47,
-            $items->firstWhere('state', 'processing')['progress_percent'],
-        );
-        $this->assertStringNotContainsString($secretIncidentTitle, (string) $response->getContent());
-        $this->assertStringNotContainsString((string) $incident->id, (string) $response->getContent());
-    }
-
-    public function test_cache_hits_do_not_resurface_old_terminal_audio_as_new_queue_work(): void
-    {
-        $this->mockTransport();
-        $viewer = $this->user('queue-cache-created-at@example.test', ['system.health.view']);
-        $entry = SpeechCacheEntry::query()->create([
-            'cache_key' => hash('sha256', 'old-hit-cache'),
-            'category' => 'segment',
-            'semantic_hmac' => hash('sha256', 'old-hit-semantic'),
-            'status' => 'ready',
-        ]);
-        $entry->timestamps = false;
-        $entry->forceFill([
-            'created_at' => now()->subDays(2),
-            'updated_at' => now(),
-            'last_used_at' => now(),
-            'hit_count' => 99,
-        ])->save();
-
-        DB::flushQueryLog();
-        DB::enableQueryLog();
-        $response = $this->asAdminClient($viewer)
-            ->getJson('/api/admin/queues?queue=speech&per_page=100')
-            ->assertOk();
-        $cacheQueries = collect(DB::getQueryLog())
-            ->pluck('query')
-            ->filter(fn (string $sql): bool => str_contains($sql, 'speech_cache_entries'));
-        DB::disableQueryLog();
-
-        $this->assertNotContains(
-            (string) $entry->id,
-            collect($response->json('data.items'))->pluck('id')->all(),
-        );
-        $this->assertNotEmpty($cacheQueries);
-        foreach ($cacheQueries as $sql) {
-            $this->assertStringContainsString('"created_at" >=', $sql);
-            $this->assertStringNotContainsString('"updated_at" >=', $sql);
-        }
-    }
-
     public function test_queue_monitor_rejects_unbounded_pagination_and_invalid_filters(): void
     {
         $viewer = $this->user('queue-validation@example.test', ['system.health.view']);
 
         $this->asAdminClient($viewer)
-            ->getJson('/api/admin/queues?per_page=101&page=2001&queue=redis&state=reserved')
+            ->getJson('/api/admin/queues?per_page=101&page=2001&queue=speech&state=reserved')
             ->assertUnprocessable()
             ->assertJsonPath('error.code', 'validation_failed')
             ->assertJsonStructure([
@@ -431,7 +249,7 @@ final class QueueMonitorApiTest extends TestCase
             ]);
     }
 
-    public function test_push_only_poll_does_not_query_speech_domain_tables(): void
+    public function test_push_only_poll_queries_only_the_push_domain(): void
     {
         $this->mockTransport(pushPending: 1);
         $viewer = $this->user('queue-query-scope@example.test', ['system.health.view']);
@@ -447,13 +265,11 @@ final class QueueMonitorApiTest extends TestCase
         DB::disableQueryLog();
     }
 
-    private function mockTransport(int $pushPending = 2, int $speechPending = 3): void
+    private function mockTransport(int $pushPending = 2): void
     {
         $transport = Mockery::mock(QueueTransportMetrics::class);
         $transport->shouldReceive('pendingCount')->with('push', 'push')->zeroOrMoreTimes()->andReturn($pushPending);
-        $transport->shouldReceive('pendingCount')->with('speech', 'speech')->zeroOrMoreTimes()->andReturn($speechPending);
         $transport->shouldReceive('failedCount')->with('push')->zeroOrMoreTimes()->andReturn(0);
-        $transport->shouldReceive('failedCount')->with('speech')->zeroOrMoreTimes()->andReturn(0);
         $this->app->instance(QueueTransportMetrics::class, $transport);
     }
 

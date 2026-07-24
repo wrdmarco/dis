@@ -32,14 +32,6 @@ return [
             'block_for' => 5,
             'after_commit' => true,
         ],
-        'speech' => [
-            'driver' => 'redis',
-            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
-            'queue' => 'speech',
-            'retry_after' => max(68_400, (int) env('SPEECH_QUEUE_RETRY_AFTER', 68_400)),
-            'block_for' => 5,
-            'after_commit' => true,
-        ],
         'knmi' => [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),

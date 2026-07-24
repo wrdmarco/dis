@@ -34,9 +34,6 @@ final class QueueMonitorService
         if (in_array($filters['queue'], ['all', 'push'], true)) {
             $laneCounts['push'] = $this->repository->stateCounts('push');
         }
-        if (in_array($filters['queue'], ['all', 'speech'], true)) {
-            $laneCounts['speech'] = $this->repository->stateCounts('speech');
-        }
         $stateCounts = array_fill_keys(self::STATES, 0);
         foreach ($laneCounts as $counts) {
             foreach ($counts as $state => $count) {
@@ -95,20 +92,6 @@ final class QueueMonitorService
                 'transport_pending_count' => $this->transport->pendingCount('push', 'push'),
                 'transport_failed_count' => $this->transport->failedCount('push'),
                 'states' => ['total' => array_sum($pushStates), ...$pushStates],
-            ];
-        }
-        if (isset($laneCounts['speech'])) {
-            $speechStates = $laneCounts['speech'];
-            $queues[] = [
-                'key' => 'speech',
-                'label' => 'Audio en spraak',
-                'configured_parallelism' => max(
-                    1,
-                    (int) config('dis.queue_monitor.queues.speech.configured_parallelism', 1),
-                ),
-                'transport_pending_count' => $this->transport->pendingCount('speech', 'speech'),
-                'transport_failed_count' => $this->transport->failedCount('speech'),
-                'states' => ['total' => array_sum($speechStates), ...$speechStates],
             ];
         }
 

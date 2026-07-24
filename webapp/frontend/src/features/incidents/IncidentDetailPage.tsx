@@ -2,7 +2,7 @@
 
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { AudioLines, Ban, BellRing, CheckCircle2, Clock, CloudSun, Download, MapPin, MessageSquare, Pencil, Plane, RadioTower, RefreshCw, Send, Trash2, TrendingUp, UserRound, Users, X } from 'lucide-react';
+import { Ban, BellRing, CheckCircle2, Clock, CloudSun, Download, MapPin, MessageSquare, Pencil, Plane, RadioTower, RefreshCw, Send, Trash2, TrendingUp, UserRound, Users, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
@@ -11,18 +11,10 @@ import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { DispatchDeliveryStatus, DispatchPreview, DispatchRequest, DroneFlightContext, Incident, IncidentInternalNotes, IncidentLiveLocation, IncidentSpeechPreparation, IncidentSpeechPreparationPhase, IncidentSpeechPreparations, IncidentTimelineItem, ReportIncident, Team } from '../../types/api';
+import type { DispatchDeliveryStatus, DispatchPreview, DispatchRequest, DroneFlightContext, Incident, IncidentInternalNotes, IncidentLiveLocation, IncidentTimelineItem, ReportIncident, Team } from '../../types/api';
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 import { dispatchDeliveryNotice } from './dispatchDeliveryPresentation';
 import { currentLiveLocations, dispatchEtaLabel, isCurrentLiveLocation, liveLocationEtaLabel } from './etaPresentation';
-import {
-  INCIDENT_SPEECH_PREPARATION_POLL_INTERVAL_MS,
-  incidentSpeechPreparationIsActive,
-  incidentSpeechPreparationPhaseLabel,
-  incidentSpeechPreparationsAreActive,
-  normalizeIncidentSpeechPreparationProgress,
-  presentIncidentSpeechPreparation,
-} from './incidentSpeechPreparationPresentation';
 import { presentIncidentTimelineItem } from './incidentTimelinePresentation';
 import { incidentLifecycleActionForStatus, type IncidentLifecycleAction } from './incidentStatusFlow';
 
@@ -92,7 +84,6 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const dispatchedTeamIds = dispatchTargetTeamIds(dispatches.data ?? []);
   const escalationTeams = (teams.data ?? []).filter((team) => team.is_operational && !dispatchedTeamIds.includes(team.id));
   const canEscalateUnavailable = incident.data?.priority === 'high' || incident.data?.priority === 'critical';
-  const speechPreparationsActive = incidentSpeechPreparationsAreActive(incident.data?.speech_preparations);
   const liveLocationByUserId = useMemo(
     () => new Map((liveLocations.data ?? []).map((location) => [location.user_id, location])),
     [liveLocations.data],
@@ -101,21 +92,6 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
     () => (reportIncidents.data ?? []).find((item) => item.id === incidentId) ?? null,
     [incidentId, reportIncidents.data],
   );
-
-  useEffect(() => {
-    if (!speechPreparationsActive) return undefined;
-
-    let requestInFlight = false;
-    const timer = window.setInterval(() => {
-      if (requestInFlight) return;
-      requestInFlight = true;
-      void reloadIncidentSilently().finally(() => {
-        requestInFlight = false;
-      });
-    }, INCIDENT_SPEECH_PREPARATION_POLL_INTERVAL_MS);
-
-    return () => window.clearInterval(timer);
-  }, [reloadIncidentSilently, speechPreparationsActive]);
 
   useEffect(() => {
     if (!incidentId || incident.data?.status === 'resolved' || incident.data?.status === 'cancelled') {
@@ -179,7 +155,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
           void reloadDispatchesSilently();
           return;
         }
-        schedule(status.state === 'preparing_speech' ? 500 : 1_000);
+        schedule(1_000);
       } catch {
         if (disposed) return;
         consecutiveFailures += 1;
@@ -623,7 +599,6 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
                 <SummaryItem label="Onderweg" value={latestDispatch ? String(countOperatorStatuses(latestDispatch, 'en_route')) : '-'} />
                 <SummaryItem label="Live locaties" value={String(liveSharedCount)} />
               </div>
-              <IncidentSpeechPreparationCards preparations={incident.data.speech_preparations} />
               {incidentError ? <p className="form-error">{incidentError}</p> : null}
               {reportError ? <p className="form-error">{reportError}</p> : null}
               <div className="incident-overview incident-overview--text">
@@ -1264,69 +1239,6 @@ function DispatchPreviewSummary({ preview }: { preview?: DispatchPreview | null 
         </div>
       ) : null}
     </>
-  );
-}
-
-function IncidentSpeechPreparationCards({
-  preparations,
-}: {
-  preparations: IncidentSpeechPreparations | undefined;
-}) {
-  if (preparations === undefined) return null;
-
-  const items: Array<{ phase: IncidentSpeechPreparationPhase; preparation: IncidentSpeechPreparation }> = [
-    { phase: 'availability', preparation: preparations.availability },
-    { phase: 'attendance', preparation: preparations.attendance },
-  ];
-  const active = incidentSpeechPreparationsAreActive(preparations);
-
-  return (
-    <section
-      className="incident-speech-preparations"
-      aria-label="TTS-voorbereidingsstatus"
-      aria-live="polite"
-      aria-busy={active}
-    >
-      {items.map(({ phase, preparation }) => {
-        const title = incidentSpeechPreparationPhaseLabel(phase);
-        const presentation = presentIncidentSpeechPreparation(preparation.status);
-        const preparationActive = incidentSpeechPreparationIsActive(preparation.status);
-        const progress = normalizeIncidentSpeechPreparationProgress(preparation.progress_percent);
-
-        return (
-          <article
-            className={`incident-speech-preparation incident-speech-preparation--${presentation.tone}`}
-            key={phase}
-          >
-            <header>
-              <h4><AudioLines aria-hidden size={17} /> {title}</h4>
-              <StatusPill value={presentation.label} tone={presentation.tone} />
-            </header>
-            <p>{presentation.description}</p>
-            {preparation.status === 'failed' && preparation.error_code ? (
-              <small className="incident-speech-preparation__error">
-                Foutcode: {preparation.error_code}
-              </small>
-            ) : null}
-            {preparationActive || preparation.updated_at ? (
-              <footer>
-                {preparationActive ? (
-                  <div>
-                    <progress
-                      max={100}
-                      value={progress}
-                      aria-label={`${title} is voor ${progress} procent voorbereid`}
-                    />
-                    <span>{progress}%</span>
-                  </div>
-                ) : null}
-                {preparation.updated_at ? <time dateTime={preparation.updated_at}>Bijgewerkt {formatDate(preparation.updated_at)}</time> : null}
-              </footer>
-            ) : null}
-          </article>
-        );
-      })}
-    </section>
   );
 }
 

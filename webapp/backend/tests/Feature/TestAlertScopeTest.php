@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Events\DispatchChanged;
-use App\Jobs\GenerateDispatchSpeechManifest;
 use App\Jobs\SendFcmNotification;
 use App\Models\AuditLog;
 use App\Models\DispatchPushOutbox;
@@ -12,14 +11,10 @@ use App\Models\DispatchRequest;
 use App\Models\FcmToken;
 use App\Models\Permission;
 use App\Models\Role;
-use App\Models\SpeechManifestBuild;
-use App\Models\SpeechModelInstallation;
 use App\Models\SystemSetting;
 use App\Models\TestAlertScheduleDelivery;
 use App\Models\TestAlertScheduleRun;
 use App\Models\User;
-use App\Services\DispatchPushOutboxService;
-use App\Services\SpeechTemplateService;
 use App\Services\TestAlertService;
 use DateTimeInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -64,7 +59,8 @@ final class TestAlertScopeTest extends TestCase
         $outbox = DispatchPushOutbox::query()
             ->where('dispatch_request_id', $response->json('data.id'))
             ->sole();
-        $this->assertSame('immediate', $outbox->release_reason);
+        $this->assertTrue($outbox->available_at->lessThanOrEqualTo(now()));
+        $this->assertNotNull($outbox->queued_at);
         $this->assertSame('test_ack', $outbox->data['action_mode'] ?? null);
         $this->assertSame('true', $outbox->data['is_test'] ?? null);
         Queue::assertPushed(SendFcmNotification::class, fn (SendFcmNotification $job): bool => $job->fcmTokenId === $actorToken->id);
@@ -76,7 +72,7 @@ final class TestAlertScopeTest extends TestCase
             ->assertJsonPath('data.id', $response->json('data.id'));
     }
 
-    public function test_manual_test_alert_uses_the_fixed_speech_template_and_ten_second_fallback(): void
+    public function test_manual_test_alert_normalizes_its_message_and_queues_push_immediately(): void
     {
         Queue::fake();
         Carbon::setTestNow(Carbon::parse('2026-07-20 09:00:00'));
@@ -84,16 +80,11 @@ final class TestAlertScopeTest extends TestCase
             $actor = $this->user('fixed-test-alert@example.test', pushEnabled: true);
             $this->grant($actor, ['incidents.dispatch.manage'], operator: false, admin: true);
             $token = $this->token($actor, 'fixed-test-alert', lastSeenAt: now());
-            $this->enableSpeech($actor);
             $this->setting(
                 'test_alert.message',
                 'Dit is de vaste wekelijkse proefmelding. Bevestig deze proefalarmering met Ontvangen in de app.',
                 $actor,
             );
-            $this->setting('speech.templates.test_ack', [
-                'Dit is een rustige proefalarmering.',
-                'Open de D.I.S.-app en bevestig ontvangst.',
-            ], $actor);
 
             $response = $this->asWebClient($actor)
                 ->postJson('/api/test-alert')
@@ -101,63 +92,43 @@ final class TestAlertScopeTest extends TestCase
                 ->assertJsonPath('data.message', 'Dit is de vaste wekelijkse proefmelding.');
 
             $dispatch = DispatchRequest::query()->findOrFail($response->json('data.id'));
-            $build = SpeechManifestBuild::query()
-                ->where('dispatch_request_id', $dispatch->id)
-                ->sole();
-            $this->assertSame(SpeechTemplateService::PHASE_TEST_ACK, $build->phase);
-            $this->assertSame([
-                'Dit is de vaste wekelijkse proefmelding.',
-                'Dit is een rustige proefalarmering.',
-                'Open de D.I.S.-app en bevestig ontvangst.',
-            ], $build->rendered_lines);
-            $this->assertSame('preparing_speech', $dispatch->refresh()->send_status);
-            $this->assertSame(10.0, now()->diffInSeconds($build->release_deadline));
-            Queue::assertPushed(
-                GenerateDispatchSpeechManifest::class,
-                fn (GenerateDispatchSpeechManifest $job): bool => $job->buildId === $build->id,
-            );
-            Queue::assertNotPushed(SendFcmNotification::class);
+            $this->assertSame('queued_for_push', $dispatch->send_status);
+            $this->assertSame(now()->getTimestamp(), $dispatch->send_queued_at?->getTimestamp());
+            $this->assertSame(now()->getTimestamp(), $dispatch->send_released_at?->getTimestamp());
 
             $outbox = DispatchPushOutbox::query()
                 ->where('dispatch_request_id', $dispatch->id)
                 ->sole();
             $this->assertSame($token->id, $outbox->fcm_token_id);
-            $this->assertSame('speech_deadline', $outbox->release_reason);
-            $this->assertSame(SpeechTemplateService::PHASE_TEST_ACK, $outbox->data['action_mode'] ?? null);
+            $this->assertTrue($outbox->available_at->lessThanOrEqualTo(now()));
+            $this->assertNotNull($outbox->queued_at);
+            $this->assertSame('test_ack', $outbox->data['action_mode'] ?? null);
             $this->assertSame('true', $outbox->data['is_test'] ?? null);
-            $this->assertArrayNotHasKey('speech_manifest_id', $outbox->data);
-
-            Carbon::setTestNow(now()->addSeconds(10));
-            app(DispatchPushOutboxService::class)->flushPending(100, (string) $dispatch->id);
             Queue::assertPushed(
                 SendFcmNotification::class,
                 fn (SendFcmNotification $job): bool => $job->dispatchPushOutboxId === $outbox->id
-                    && ($job->data['action_mode'] ?? null) === SpeechTemplateService::PHASE_TEST_ACK
+                    && ($job->data['action_mode'] ?? null) === 'test_ack'
                     && ($job->data['is_test'] ?? null) === 'true'
-                    && ! array_key_exists('speech_manifest_id', $job->data),
+                    && collect(array_keys($job->data))
+                        ->every(fn (string $key): bool => ! str_starts_with($key, 'speech_')),
             );
         } finally {
             Carbon::setTestNow();
         }
     }
 
-    public function test_weekly_schedule_reuses_the_fixed_template_without_manual_alert_fields(): void
+    public function test_weekly_schedule_reuses_the_fixed_message_and_queues_push_immediately(): void
     {
         Queue::fake();
         Carbon::setTestNow(Carbon::parse('2026-07-20 09:00:00'));
         try {
             $operator = $this->operator('scheduled-fixed-test-alert@example.test');
             $this->token($operator, 'scheduled-fixed-test-alert', lastSeenAt: now());
-            $this->enableSpeech($operator);
             foreach ([
                 'test_alert.schedule_enabled' => true,
                 'test_alert.schedule_day_of_week' => 1,
                 'test_alert.schedule_time' => '09:00',
                 'test_alert.message' => 'Vaste wekelijkse controle.',
-                'speech.templates.test_ack' => [
-                    'Dit is een proefalarmering.',
-                    'Open de D.I.S.-app en bevestig ontvangst.',
-                ],
             ] as $key => $value) {
                 $this->setting($key, $value, $operator);
             }
@@ -174,24 +145,17 @@ final class TestAlertScopeTest extends TestCase
             $dispatch = DispatchRequest::query()->sole();
             $this->assertSame($operator->id, $dispatch->requested_by);
             $this->assertSame('Vaste wekelijkse controle.', $dispatch->message);
-            $build = SpeechManifestBuild::query()
+            $this->assertSame('queued_for_push', $dispatch->send_status);
+            $outbox = DispatchPushOutbox::query()
                 ->where('dispatch_request_id', $dispatch->id)
                 ->sole();
-            $this->assertSame(SpeechTemplateService::PHASE_TEST_ACK, $build->phase);
-            $this->assertSame([
-                'Vaste wekelijkse controle.',
-                'Dit is een proefalarmering.',
-                'Open de D.I.S.-app en bevestig ontvangst.',
-            ], $build->rendered_lines);
-            $this->assertDatabaseHas('dispatch_push_outbox', [
-                'dispatch_request_id' => $dispatch->id,
-                'release_reason' => 'speech_deadline',
-            ]);
+            $this->assertTrue($outbox->available_at->lessThanOrEqualTo(now()));
+            $this->assertNotNull($outbox->queued_at);
+            $this->assertSame('test_ack', $outbox->data['action_mode'] ?? null);
             Queue::assertPushed(
-                GenerateDispatchSpeechManifest::class,
-                fn (GenerateDispatchSpeechManifest $job): bool => $job->buildId === $build->id,
+                SendFcmNotification::class,
+                fn (SendFcmNotification $job): bool => $job->dispatchPushOutboxId === $outbox->id,
             );
-            Queue::assertNotPushed(SendFcmNotification::class);
 
             Cache::flush();
             $this->assertSame(
@@ -322,7 +286,7 @@ final class TestAlertScopeTest extends TestCase
         }
     }
 
-    public function test_weekly_run_continues_after_one_user_crashes_and_retries_only_that_user_with_the_snapshot(): void
+    public function test_weekly_run_continues_after_one_user_crashes_and_retries_only_that_user_with_the_message_snapshot(): void
     {
         Queue::fake();
         Carbon::setTestNow(Carbon::parse('2026-07-20 09:00:00'));
@@ -333,16 +297,11 @@ final class TestAlertScopeTest extends TestCase
             $this->token($failing, 'scheduled-failing', lastSeenAt: now());
             $last = $this->operator('scheduled-last@example.test');
             $this->token($last, 'scheduled-last', lastSeenAt: now());
-            $this->enableSpeech($first);
             foreach ([
                 'test_alert.schedule_enabled' => true,
                 'test_alert.schedule_day_of_week' => 1,
                 'test_alert.schedule_time' => '09:00',
                 'test_alert.message' => 'Oorspronkelijke wekelijkse controle.',
-                'speech.templates.test_ack' => [
-                    'Oorspronkelijke vaste proefzin.',
-                    'Bevestig ontvangst in de D.I.S.-app.',
-                ],
             ] as $key => $value) {
                 $this->setting($key, $value, $first);
             }
@@ -375,10 +334,6 @@ final class TestAlertScopeTest extends TestCase
                 'Oorspronkelijke wekelijkse controle',
                 (string) $storedRun?->message,
             );
-            $this->assertStringNotContainsString(
-                'Oorspronkelijke vaste proefzin',
-                (string) $storedRun?->speech_lines,
-            );
             $this->assertNull(SystemSetting::string('test_alert.schedule_last_run_at'));
             $this->assertSame(2, DispatchRequest::query()->count());
             $this->assertSame(0, DispatchRequest::query()->where('requested_by', $failing->id)->count());
@@ -391,9 +346,6 @@ final class TestAlertScopeTest extends TestCase
             $this->assertSame('scheduled_delivery_failed', $failedDelivery->last_error_code);
 
             $this->setting('test_alert.message', 'Gewijzigde tekst die niet in deze run hoort.', $first);
-            $this->setting('speech.templates.test_ack', [
-                'Gewijzigde proefzin.',
-            ], $first);
             Carbon::setTestNow(now()->addMinute());
 
             $retry = app(TestAlertService::class)->sendScheduled();
@@ -416,13 +368,6 @@ final class TestAlertScopeTest extends TestCase
                 ['Oorspronkelijke wekelijkse controle.'],
                 DispatchRequest::query()->distinct()->pluck('message')->all(),
             );
-            foreach (SpeechManifestBuild::query()->get() as $build) {
-                $this->assertSame([
-                    'Oorspronkelijke wekelijkse controle.',
-                    'Oorspronkelijke vaste proefzin.',
-                    'Bevestig ontvangst in de D.I.S.-app.',
-                ], $build->rendered_lines);
-            }
             $run->refresh();
             $this->assertSame(TestAlertScheduleRun::STATUS_COMPLETED, $run->status);
             $this->assertSame(3, $run->sent_count);
@@ -869,7 +814,6 @@ final class TestAlertScopeTest extends TestCase
         $this->assertDatabaseCount('dispatch_requests', 1);
         $this->assertDatabaseCount('dispatch_recipients', 1);
         $this->assertDatabaseCount('dispatch_push_outbox', 1);
-        $this->assertDatabaseCount('speech_manifest_builds', 0);
         $this->assertSame('sent', $previous->refresh()->status);
         $this->assertSame('active', $previous->incident()->firstOrFail()->status);
         $this->assertNull($previousOutbox->refresh()->cancelled_at);
@@ -907,36 +851,6 @@ final class TestAlertScopeTest extends TestCase
         $this->assertDatabaseMissing('audit_logs', ['action' => 'test_alert.sent']);
         Event::assertNotDispatched(DispatchChanged::class);
         Queue::assertNothingPushed();
-    }
-
-    public function test_test_alert_push_fails_open_when_the_speech_runtime_is_misconfigured(): void
-    {
-        Queue::fake();
-        $actor = $this->user('misconfigured-test-alert@example.test', pushEnabled: true);
-        $this->grant($actor, ['incidents.dispatch.manage'], operator: false, admin: true);
-        $token = $this->token($actor, 'misconfigured-test-alert', lastSeenAt: now());
-        $this->setting('speech.enabled', true, $actor);
-        $this->setting('speech.model_id', 'missing-model', $actor);
-
-        $response = $this->asWebClient($actor)
-            ->postJson('/api/test-alert')
-            ->assertCreated();
-
-        $dispatch = DispatchRequest::query()->findOrFail($response->json('data.id'));
-        $this->assertSame('queued_for_push', $dispatch->send_status);
-        $this->assertNull($dispatch->send_release_deadline);
-        $this->assertDatabaseMissing('speech_manifest_builds', [
-            'dispatch_request_id' => $dispatch->id,
-        ]);
-        $outbox = DispatchPushOutbox::query()
-            ->where('dispatch_request_id', $dispatch->id)
-            ->sole();
-        $this->assertSame('immediate', $outbox->release_reason);
-        Queue::assertPushed(
-            SendFcmNotification::class,
-            fn (SendFcmNotification $job): bool => $job->fcmTokenId === $token->id
-                && ! array_key_exists('speech_manifest_id', $job->data),
-        );
     }
 
     public function test_all_online_only_targets_reachable_active_operator_app_users(): void
@@ -1241,29 +1155,6 @@ final class TestAlertScopeTest extends TestCase
         ]);
     }
 
-    private function enableSpeech(User $actor): void
-    {
-        config()->set('dis.speech.cache_hmac_key', str_repeat('test-alert-speech-key-', 3));
-        SpeechModelInstallation::query()->create([
-            'catalog_key' => 'voxcpm2',
-            'revision' => (string) config('dis.speech.models.voxcpm2.revision'),
-            'weights_sha256' => (string) config('dis.speech.models.voxcpm2.weights_sha256'),
-            'status' => 'installed',
-            'progress_percent' => 100,
-            'requested_by' => $actor->id,
-            'license_confirmed_at' => now(),
-            'installed_at' => now(),
-        ]);
-        foreach ([
-            'speech.enabled' => true,
-            'speech.model_id' => 'voxcpm2',
-            'speech.voice_profile_id' => null,
-            'speech.speed' => 1.0,
-        ] as $key => $value) {
-            $this->setting($key, $value, $actor);
-        }
-    }
-
     private function configureWeeklySchedule(
         User $actor,
         int $dayOfWeek = 1,
@@ -1284,7 +1175,7 @@ final class TestAlertScopeTest extends TestCase
     {
         SystemSetting::query()->updateOrCreate(['key' => $key], [
             'value' => $value,
-            'is_sensitive' => str_starts_with($key, 'speech.templates.'),
+            'is_sensitive' => false,
             'updated_by' => $actor->id,
         ]);
     }

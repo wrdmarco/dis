@@ -781,6 +781,7 @@ if [ "${UPDATE_APP}" = "1" ]; then
       SKIP_DEPLOY_CACHE_CLEAR=1 \
       DIS_DEPLOYMENT_OWNER=update \
       DIS_DEFER_OPERATIONAL_SERVICES=1 \
+      DIS_LEGACY_TTS_COMPAT_REQUIRED=0 \
       bash "${SCRIPT_DIR}/deploy.sh"
     UPDATE_PHASE="stopping services after nested deployment"
     stop_dis_deployment_services

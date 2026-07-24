@@ -184,31 +184,6 @@ export interface Incident {
     status: string;
     response_status?: DispatchRecipient['response_status'] | null;
   } | null;
-  speech_preparations?: IncidentSpeechPreparations;
-}
-
-export type IncidentSpeechPreparationPhase = 'availability' | 'attendance';
-
-export type IncidentSpeechPreparationStatus =
-  | 'disabled'
-  | 'not_scheduled'
-  | 'queued'
-  | 'processing'
-  | 'ready'
-  | 'failed'
-  | 'cancelled';
-
-export interface IncidentSpeechPreparation {
-  phase: IncidentSpeechPreparationPhase;
-  status: IncidentSpeechPreparationStatus;
-  progress_percent: number;
-  error_code: string | null;
-  updated_at: string | null;
-}
-
-export interface IncidentSpeechPreparations {
-  availability: IncidentSpeechPreparation;
-  attendance: IncidentSpeechPreparation;
 }
 
 export interface OperationalMapLayers {
@@ -1179,9 +1154,8 @@ export interface DispatchRequest {
   priority: string;
   message: string;
   sent_at?: string | null;
-  send_status?: 'preparing_speech' | 'queued_for_push' | null;
+  send_status?: 'queued_for_push' | 'sent' | 'partial' | 'failed' | null;
   send_queued_at?: string | null;
-  send_release_deadline?: string | null;
   send_released_at?: string | null;
   created_at?: string | null;
   incident?: Incident;
@@ -1191,9 +1165,8 @@ export interface DispatchRequest {
 
 export interface DispatchDeliveryStatus {
   dispatch_id: string;
-  state: 'preparing_speech' | 'queued_for_push' | 'sent' | 'partial' | 'failed';
+  state: 'queued_for_push' | 'sent' | 'partial' | 'failed';
   queued_at?: string | null;
-  release_deadline?: string | null;
   released_at?: string | null;
   device_counts: {
     total: number;
@@ -1559,7 +1532,7 @@ export interface SystemMetrics {
   };
 }
 
-export type QueueMonitorFilter = 'all' | 'push' | 'speech';
+export type QueueMonitorFilter = 'all' | 'push';
 
 export type QueueMonitorState =
   | 'pending'
@@ -2065,181 +2038,4 @@ export interface TwoFactorEnableResult {
   authenticated: boolean;
   user: User;
   recovery_codes: string[];
-}
-
-export type SpeechPhase = 'availability' | 'attendance' | 'test_ack';
-
-export interface SpeechSettings {
-  enabled: boolean;
-  model_id: string | null;
-  voice_profile_id: string | null;
-  speed: number;
-  pre_generate_on_save: boolean;
-  templates: Record<SpeechPhase, string[]>;
-}
-
-export interface SpeechTemplateDefinition {
-  phase: SpeechPhase;
-  label: string;
-  allowed_tokens: string[];
-  example_rendered_lines: string[];
-}
-
-export interface SpeechModel {
-  id: string;
-  name: string;
-  description: string;
-  parameter_count: number;
-  download_bytes: number;
-  license_spdx: string;
-  commercial_use: boolean;
-  quality_tier: string;
-  supported_languages: string[];
-  built_in_voice_available: boolean;
-  capabilities: {
-    voice_clone: boolean;
-    voice_design: boolean;
-    speed_control: boolean;
-  };
-  cpu: {
-    supported: boolean;
-    recommended_ram_bytes: number;
-    note: string;
-  };
-  status: 'not_installed' | 'installing' | 'installed' | 'failed';
-  progress_percent: number;
-  error_code?: string | null;
-  installed_revision?: string | null;
-}
-
-export interface SpeechVoiceProfile {
-  id: string;
-  name: string;
-  locale: string;
-  status: 'processing' | 'ready' | 'failed';
-  reference_duration_seconds: number;
-  compatible_model_ids: string[];
-  created_at: string;
-}
-
-export type SpeechCacheRegenerationScope = 'all' | 'segments' | 'composites' | 'failed';
-
-export interface SpeechCacheJob {
-  id: string;
-  scope: SpeechCacheRegenerationScope;
-  status: 'queued' | 'processing' | 'ready' | 'failed';
-  progress_percent: number;
-  error_code?: string | null;
-  created_at: string;
-  finished_at: string | null;
-}
-
-export interface SpeechCacheStatus {
-  segment_count: number;
-  composite_count: number;
-  hit_count: number;
-  miss_count: number;
-  disk_bytes: number;
-  quota_bytes: number;
-  pending_count: number;
-  failed_count: number;
-  last_pruned_at: string | null;
-  active_job?: SpeechCacheJob | null;
-}
-
-export type SpeechCacheEntryCategory = 'segment' | 'composite';
-
-export type SpeechCacheEntryStatus = 'queued' | 'processing' | 'ready' | 'failed' | 'expired';
-
-export interface SpeechCacheEntrySummary {
-  id: string;
-  text: string | null;
-  text_available: boolean;
-  text_source: 'cache' | 'manifest' | 'preview' | null;
-  category: SpeechCacheEntryCategory;
-  status: SpeechCacheEntryStatus;
-  error_code: string | null;
-  model_id: string | null;
-  model_name: string | null;
-  model_revision: string | null;
-  voice_type: 'profile' | 'built_in' | null;
-  voice_name: string | null;
-  voice_revision: string | null;
-  locale: string | null;
-  speed: number | null;
-  audio_recipe_revision: string | null;
-  duration_ms: number | null;
-  synthesis_duration_ms?: number | null;
-  byte_size: number | null;
-  hit_count: number;
-  audio_available: boolean;
-  audio_url: string | null;
-  created_at: string;
-  updated_at: string;
-  last_used_at: string | null;
-  expires_at: string | null;
-}
-
-export type SpeechPreparationKind = 'residence' | 'province' | 'postcode' | 'fixed_phrase';
-
-export type SpeechPreparationStatus = 'queued' | 'processing' | 'ready' | 'failed';
-
-export interface SpeechPreparedPhrase {
-  id: string;
-  kind: SpeechPreparationKind;
-  value: string | null;
-  status: SpeechPreparationStatus;
-  progress_percent: number;
-  error_code: string | null;
-  audio_url: string | null;
-  byte_size: number | null;
-  duration_ms: number | null;
-  created_at: string;
-  updated_at: string;
-  prepared_at: string | null;
-}
-
-export interface SpeechPreparationPreset {
-  id: string;
-  label: string;
-  description: string;
-  preview_lines: string[];
-  phrase_count: number;
-}
-
-export interface SpeechPreparationPresetResult {
-  preset: SpeechPreparationPreset;
-  preparations: SpeechPreparedPhrase[];
-}
-
-export interface SpeechPreparationSummary {
-  counts: Record<SpeechPreparationKind, number>;
-  total_count: number;
-  ready_count: number;
-  pending_count: number;
-  failed_count: number;
-  disk_bytes: number;
-}
-
-export interface SpeechAdminStatus {
-  settings: SpeechSettings;
-  template_definitions: SpeechTemplateDefinition[];
-  models: SpeechModel[];
-  voice_profiles: SpeechVoiceProfile[];
-  cache: SpeechCacheStatus;
-}
-
-export interface SpeechPreview {
-  id: string;
-  phase: SpeechPhase;
-  status: 'queued' | 'processing' | 'ready' | 'failed';
-  progress_percent: number;
-  rendered_lines: string[];
-  error_code?: string | null;
-  created_at: string;
-  expires_at: string;
-}
-
-export interface SpeechModelInstallStarted {
-  model: SpeechModel;
 }

@@ -77,7 +77,6 @@ repair_restored_data_permissions() {
   repair_managed_tree "${DIS_DATA_PATH}/storage/generated" root root 0755 0644
   repair_managed_tree "${DIS_DATA_PATH}/storage/releases" root root 0750 0640
   repair_managed_tree "${DIS_DATA_PATH}/secrets" root root 0750 0600
-  repair_speech_data_permissions
   if id www-data >/dev/null 2>&1; then
     # Restored uploads must retain the same PHP-FPM-to-worker boundary as a
     # normal deployment: dis gets access only to its worker-owned app storage.
@@ -105,48 +104,11 @@ stop_restore_runtime_services() {
   if systemd_unit_exists dis-backup-request.path; then
     run_cmd systemctl stop dis-backup-request.path
   fi
-  if systemd_service_exists dis-speech; then
-    run_cmd systemctl stop dis-speech
-  fi
-  if systemd_service_exists dis-tts-engine; then
-    run_cmd systemctl stop dis-tts-engine
-  fi
   for service in dis-media dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime "${PHP_FPM_SERVICE}"; do
     if systemd_service_exists "${service}"; then
       run_cmd systemctl stop "${service}"
     fi
   done
-}
-
-reconcile_speech_runtime_after_restore() {
-  local socket_path="/run/dis-tts/engine.sock"
-  local deadline
-
-  systemd_service_exists dis-tts-engine \
-    || fail "Speech runtime reconciliation requires dis-tts-engine.service."
-  if systemd_service_exists dis-speech && systemctl is-active --quiet dis-speech; then
-    fail "Speech runtime reconciliation requires the speech queue worker to remain stopped."
-  fi
-
-  log "Starting only the local speech engine for post-restore verification"
-  run_cmd systemctl start dis-tts-engine
-  wait_for_systemd_service_stable dis-tts-engine 30 2 \
-    || fail "The speech engine did not become stable for post-restore reconciliation."
-  deadline=$((SECONDS + 30))
-  while [ ! -S "${socket_path}" ]; do
-    if [ "${SECONDS}" -ge "${deadline}" ]; then
-      report_systemd_service_failure dis-tts-engine
-      fail "The speech engine socket was not ready for post-restore reconciliation."
-    fi
-    sleep 1
-  done
-
-  # This command validates model revision/checksum against the local engine,
-  # fails missing generated audio closed, and queues regeneration only when the
-  # restored speech runtime is genuinely ready. A non-zero exit aborts restore.
-  run_cmd runuser -u "${DIS_USER}" -- /usr/bin/php -d zend.exception_ignore_args=1 \
-    "${APP_ROOT}/webapp/backend/artisan" speech:reconcile-runtime
-  run_cmd systemctl stop dis-tts-engine
 }
 
 trap restore_exit_handler EXIT
@@ -217,6 +179,8 @@ replace_managed_tree "${RESTORED_DATA}/storage" "${DIS_DATA_PATH}/storage"
 replace_managed_tree "${RESTORED_DATA}/webapp/backend/storage" "${DIS_DATA_PATH}/webapp/backend/storage"
 replace_managed_tree "${RESTORED_DATA}/secrets" "${DIS_DATA_PATH}/secrets"
 
+DIS_RETIRE_TTS_PARENT_OWNS_LOCK=1 \
+  bash "${SCRIPT_DIR}/retire-server-tts.sh"
 repair_restored_data_permissions
 ensure_data_links "${APP_ROOT}"
 require_backup_encryption_key >/dev/null
@@ -226,7 +190,6 @@ regenerate_backend_package_manifest "${APP_ROOT}/webapp/backend"
 run_cmd runuser -u "${DIS_USER}" -- env \
   PGOPTIONS="-c lock_timeout=60s -c statement_timeout=15min" \
   php "${APP_ROOT}/webapp/backend/artisan" migrate --force
-reconcile_speech_runtime_after_restore
 run_cmd runuser -u "${DIS_USER}" -- php "${APP_ROOT}/webapp/backend/artisan" \
   dis:reconcile-knmi-after-restore
 run_cmd runuser -u "${DIS_USER}" -- php "${APP_ROOT}/webapp/backend/artisan" \

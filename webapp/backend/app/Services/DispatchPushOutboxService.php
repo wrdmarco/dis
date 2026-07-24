@@ -35,7 +35,6 @@ final class DispatchPushOutboxService
         string $body,
         array $data,
         ?\DateTimeInterface $availableAt = null,
-        ?string $releaseReason = null,
     ): DispatchPushOutbox {
         $deduplicationKey = hash('sha256', implode('|', [
             $dispatchRequestId,
@@ -53,7 +52,6 @@ final class DispatchPushOutboxService
                 'body' => $body,
                 'data' => $data,
                 'available_at' => $availableAt ?? now(),
-                'release_reason' => $releaseReason ?? 'immediate',
             ],
         );
     }

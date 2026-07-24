@@ -16,7 +16,7 @@ final class ListQueueWorkRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'queue' => ['sometimes', 'string', Rule::in(['all', 'push', 'speech'])],
+            'queue' => ['sometimes', 'string', Rule::in(['all', 'push'])],
             'state' => ['sometimes', 'string', Rule::in([
                 'all',
                 'pending',

@@ -30,6 +30,14 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
 
     private const DELIVERY_ORDER_WAIT_SECONDS = 30;
 
+    private const RETIRED_SERVER_TTS_DATA_KEYS = [
+        'speech_manifest_id',
+        'speech_phase',
+        'speech_manifest_url',
+        'speech_manifest_version',
+        'speech_locale',
+    ];
+
     public int $tries = 4;
 
     /**
@@ -424,6 +432,9 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
     {
         $data = $this->data;
         unset($data['session_token_id']);
+        foreach (self::RETIRED_SERVER_TTS_DATA_KEYS as $key) {
+            unset($data[$key]);
+        }
 
         $sessionTokenId = trim((string) $token->personal_access_token_id);
         if (preg_match('/^[A-Za-z0-9]{1,64}$/', $sessionTokenId) === 1) {

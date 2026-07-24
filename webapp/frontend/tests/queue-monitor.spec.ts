@@ -40,8 +40,8 @@ test('moves queue monitoring out of raw System JSON and explains transport total
   expect(systemPage).not.toContain("'/admin/queues'");
   expect(systemPage).not.toContain('title="Queues"');
   expect(queuePage).toContain('Totaal in transportwachtrij');
-  expect(queuePage).toContain("if (lane.key === 'speech') return 'Spraak en audio'");
-  expect(queuePage).toContain("incident_speech_preparation: 'Incidentalarmspraak'");
+  expect(queuePage).toContain("if (lane.key === 'push') return 'Pushmeldingen'");
+  expect(queuePage).toContain("push_notification: 'Pushmelding'");
   expect(queuePage).toContain('Dit is de ingestelde capaciteit, geen live workerstatus.');
   expect(queuePage).not.toContain('payload');
   expect(queuePage).not.toContain('token');
@@ -63,19 +63,18 @@ test('builds bounded queue monitor filters and Dutch operational states', () => 
   expect(boundedQueueProgress(null)).toBeNull();
 });
 
-test('describes the hard separation between push and speech without claiming live worker health', () => {
+test('describes parallel push processing without claiming live worker health', () => {
   expect(queueLaneDescription('push')).toContain('eigen parallelle workers');
-  expect(queueLaneDescription('push')).toContain('wachten niet op audio');
-  expect(queueLaneDescription('speech')).toContain('draait geïsoleerd');
-  expect(queueLaneDescription('speech')).toContain('alarmering niet blokkeren');
+  expect(queueLaneDescription('push')).toContain('vlotte alarmering');
+  expect(queueLaneDescription('other')).toContain('Afzonderlijke serverwachtrij');
 });
 
 test('formats measured duration, waiting time and active runtime without using update timestamps', () => {
   const item: QueueMonitorItem = {
     id: 'safe-reference',
-    queue: 'speech',
-    workload_type: 'speech_preview',
-    label: 'Proefmelding',
+    queue: 'push',
+    workload_type: 'push_notification',
+    label: 'Pushmelding',
     state: 'processing',
     progress_percent: 35,
     queued_at: '2026-07-24T10:00:00Z',
@@ -95,7 +94,7 @@ test('formats measured duration, waiting time and active runtime without using u
   expect(formatQueueRuntime({ ...item, duration_ms: 18_640 }, '2026-07-24T10:00:10Z')).toBe('18,6 sec.');
 });
 
-test('renders unavailable transport telemetry and unknown speech attempts explicitly', () => {
+test('renders unavailable transport telemetry and unknown attempts explicitly', () => {
   const types = readFileSync(new URL('../src/types/api.ts', import.meta.url), 'utf8');
   const page = readFileSync(new URL('../src/features/queues/QueuePage.tsx', import.meta.url), 'utf8');
 

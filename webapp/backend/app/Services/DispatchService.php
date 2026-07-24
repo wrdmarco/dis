@@ -30,8 +30,7 @@ final class DispatchService
         private readonly AuditService $auditService,
         private readonly AvailabilityScheduleService $availabilityScheduleService,
         private readonly DispatchPushOutboxService $dispatchPushOutboxService,
-        private readonly SpeechDispatchGateService $speechDispatchGateService,
-        private readonly SpeechAddressNormalizer $speechAddresses,
+        private readonly NotificationTemplateTextNormalizer $notificationText,
         private readonly IncidentFormService $incidentFormService,
         private readonly LocationService $locationService,
         private readonly RoutingService $routingService,
@@ -594,12 +593,17 @@ final class DispatchService
                     ]);
                 }
 
-                $updates = ['status' => 'sent', 'sent_at' => $alarmNotifiedAt];
+                $updates = [
+                    'status' => 'sent',
+                    'sent_at' => $alarmNotifiedAt,
+                    'send_status' => 'queued_for_push',
+                    'send_queued_at' => $alarmNotifiedAt,
+                    'send_released_at' => $alarmNotifiedAt,
+                ];
                 if ($wasPreannouncement) {
                     $updates['message'] = $this->defaultDispatchMessage($incident);
                 }
                 $currentDispatch->update($updates);
-                $speechGate = $this->speechDispatchGateService->prepare($currentDispatch, $incident, $alarmNotifiedAt);
                 DispatchPushOutbox::query()
                     ->where('dispatch_request_id', $currentDispatch->id)
                     ->where('message_type', 'incident_preannouncement')
@@ -644,8 +648,6 @@ final class DispatchService
                             title: $notificationTitle,
                             body: $notificationBody,
                             data: $notificationData,
-                            availableAt: $speechGate['deadline'],
-                            releaseReason: $speechGate['delayed'] ? 'speech_deadline' : 'immediate',
                         );
                         $notificationCount++;
                     }
@@ -667,7 +669,6 @@ final class DispatchService
 
                 return [
                     'dispatch' => $currentDispatch->refresh()->load(['incident', 'targetTeam', 'recipients']),
-                    'speech_build_id' => $speechGate['build_id'],
                 ];
             });
 
@@ -677,9 +678,6 @@ final class DispatchService
                 continue;
             }
 
-            if (is_string($result['speech_build_id'] ?? null)) {
-                $this->speechDispatchGateService->queueAfterCommit($result['speech_build_id']);
-            }
             $this->flushDispatchPushOutboxAfterCommit((string) $result['dispatch']->id);
 
             return $result['dispatch'];
@@ -1985,9 +1983,9 @@ final class DispatchService
         $place = $extra['place'] ?? $this->placeNameFromLocation($incident?->location_label) ?? '';
         $address = (string) ($incident?->location_label ?? '');
         $postcode = preg_match('/\b[1-9][0-9]{3}\s*[A-Z]{2}\b/iu', $address, $postcodeMatch) === 1
-            ? $this->speechAddresses->displayPostcode($postcodeMatch[0])
+            ? $this->notificationText->displayPostcode($postcodeMatch[0])
             : '';
-        $province = $this->speechAddresses->plain((string) ($incident?->province_name ?? ''));
+        $province = $this->notificationText->plain((string) ($incident?->province_name ?? ''));
         $latitude = (string) ($incident?->latitude ?? '');
         $longitude = (string) ($incident?->longitude ?? '');
         $coordinates = trim($latitude.($latitude !== '' && $longitude !== '' ? ', ' : '').$longitude);

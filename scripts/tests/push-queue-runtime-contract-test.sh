@@ -5,7 +5,6 @@ TEST_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_ROOT="$(cd "${TEST_SCRIPT_DIR}/../.." && pwd)"
 GENERAL_UNIT="${APP_ROOT}/infrastructure/systemd/dis-queue.service"
 PUSH_UNIT="${APP_ROOT}/infrastructure/systemd/dis-push@.service"
-SPEECH_UNIT="${APP_ROOT}/infrastructure/systemd/dis-speech.service"
 DEPLOY="${APP_ROOT}/scripts/deploy.sh"
 COMMON="${APP_ROOT}/scripts/lib/common.sh"
 RESTORE="${APP_ROOT}/scripts/restore.sh"
@@ -39,7 +38,6 @@ require_text "${PUSH_UNIT}" 'NoNewPrivileges=true'
 require_text "${PUSH_UNIT}" 'PrivateDevices=true'
 require_text "${PUSH_UNIT}" 'ProtectSystem=strict'
 reject_text "${PUSH_UNIT}" '--queue=speech'
-reject_text "${SPEECH_UNIT}" '--queue=push'
 
 require_text "${QUEUE_CONFIG}" "'push' => ["
 require_text "${QUEUE_CONFIG}" "'queue' => 'push'"

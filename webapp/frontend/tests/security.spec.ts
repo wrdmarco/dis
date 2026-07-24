@@ -67,12 +67,12 @@ test.describe('public security contract', () => {
     assertSecurityHeaders(response);
   });
 
-  test('application documents permit only same-origin microphone requests', async ({ request }) => {
-    const response = await request.get('/speech', { maxRedirects: 0 });
+  test('application documents deny browser microphone requests', async ({ request }) => {
+    const response = await request.get('/login', { maxRedirects: 0 });
 
     expect(response.status()).toBeLessThan(500);
     expect(response.headers()['permissions-policy']).toBe(
-      'geolocation=(), microphone=(self), camera=()',
+      'geolocation=(), microphone=(), camera=()',
     );
   });
 
@@ -323,7 +323,7 @@ function assertSecurityHeaders(response: APIResponse): void {
 
   expect(headers['x-content-type-options']).toBe('nosniff');
   expect(headers['referrer-policy']).toBeTruthy();
-  expect(headers['permissions-policy']).toBe('geolocation=(), microphone=(self), camera=()');
+  expect(headers['permissions-policy']).toBe('geolocation=(), microphone=(), camera=()');
   expect(headers['cross-origin-opener-policy']).toBeTruthy();
   expect(headers['cross-origin-resource-policy']).toBeTruthy();
   for (const header of ['server', 'x-powered-by', 'x-nextjs-cache', 'x-nextjs-prerender', 'x-nextjs-stale-time', 'x-served-by']) {
