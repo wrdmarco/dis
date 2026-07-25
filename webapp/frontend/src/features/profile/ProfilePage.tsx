@@ -1217,7 +1217,13 @@ function deviceStatus(device: FcmToken): { label: string; tone: 'good' | 'warn' 
   }
 
   if (device.client_type === 'operator') {
-    return device.is_online ? { label: 'Online', tone: 'good' } : { label: 'Offline', tone: 'warn' };
+    if (device.is_online) {
+      return { label: 'Online', tone: 'good' };
+    }
+
+    return device.is_reachable
+      ? { label: 'Stand-by', tone: 'neutral' }
+      : { label: 'Offline', tone: 'warn' };
   }
 
   return { label: 'Actief', tone: 'neutral' };

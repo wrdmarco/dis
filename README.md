@@ -177,8 +177,10 @@ DIS keeps operational dispatch selection and reachability testing deliberately s
   status, push reachability, availability and required certification validity remain part of normal
   eligibility.
 - A manual test alert defaults to `self` and sends only to the signed-in user's active paired apps.
-- The optional `all_online` reachability test targets active users who may use the operator app and have
-  push enabled with at least one active, currently online operator-app token. It intentionally does not
+- The backwards-compatible `all_online` reachability-test scope targets active users who may use the
+  operator app and have push enabled with at least one reachable operator-app token. Reachability requires
+  an active linked mobile session and a heartbeat inside the 24-hour push window; the shorter online window
+  remains a freshness indicator only. The test intentionally does not
   filter on availability, certifications or assigned drones, and the web interface requires explicit
   confirmation before sending.
 - Test-alert acknowledgements confirm technical receipt only. They do not start an incident, change
@@ -500,8 +502,15 @@ remain authoritative.
 
 Silent device-presence pings use normal FCM priority so Android cannot downgrade later visible alarms for
 abusive background wakeups. The strict online indicator remains short-lived, while operational push
-selection accepts an active operator token seen within a separate 24-hour reachability window. A phone in
-Doze therefore remains eligible for the subsequent HIGH-priority preannouncement or dispatch alarm.
+selection requires push to be enabled, a live linked operator session and an active operator token seen
+within a separate 24-hour reachability window. The web interface labels a reachable device with a delayed
+heartbeat as stand-by instead of offline. A phone in Doze therefore remains eligible for the subsequent
+HIGH-priority preannouncement or dispatch alarm.
+
+After an operator has signed in, Android offers a one-time, optional request to exempt DIS from battery
+optimisation. The current state and a permanent recovery action remain available under **Gedrag en rechten**.
+Granting the exemption triggers both an immediate heartbeat and durable WorkManager recovery; declining it
+does not block operational access.
 
 iOS receives the same server-derived place and preannouncement text through APNs. The APNs alert contains
 the default notification sound, and the foreground notification delegate presents standard dispatch

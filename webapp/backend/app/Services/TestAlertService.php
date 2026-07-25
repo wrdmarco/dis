@@ -86,7 +86,7 @@ final class TestAlertService
             ]);
 
             throw ValidationException::withMessages([
-                'recipients' => ['Geen online operator-apps gevonden.'],
+                'recipients' => ['Geen bereikbare operator-apps gevonden.'],
             ]);
         }
 
@@ -369,25 +369,22 @@ final class TestAlertService
     {
         $candidates = User::query()
             ->with(['fcmTokens' => fn ($tokens) => $tokens
-                ->where('is_active', true)
-                ->where('client_type', 'operator')])
+                ->reachable()])
             ->where('account_status', 'active')
             ->whereHas('roles', fn ($roles) => $roles->where('roles.can_use_operator_app', true))
             ->get();
 
         $skippedUsers = 0;
         $targets = $candidates->map(function (User $user) use (&$skippedUsers): array|null {
-            $onlineTokens = $user->fcmTokens
-                ->filter(fn (FcmToken $token): bool => $token->is_online)
-                ->values();
+            $reachableTokens = $user->fcmTokens->values();
 
-            if (! $user->push_enabled || $onlineTokens->isEmpty()) {
+            if ($reachableTokens->isEmpty()) {
                 $skippedUsers++;
 
                 return null;
             }
 
-            return ['user' => $user, 'tokens' => $onlineTokens];
+            return ['user' => $user, 'tokens' => $reachableTokens];
         })->filter()->values();
 
         return [$targets, $skippedUsers];

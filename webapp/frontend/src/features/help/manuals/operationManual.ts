@@ -213,8 +213,8 @@ export const operationManualGuides = {
       permissions: ['incidents.dispatch.view', 'incidents.dispatch.manage'],
       steps: [
         { label: 'Open Proefalarmering', description: 'Kies Proefalarmering in het menu.' },
-        { label: 'Kies de ontvangers', description: 'Kies Alleen mijzelf voor je eigen actieve gekoppelde apps, of Alle online operator-apps voor een extra bereikbaarheidstest.' },
-        { label: 'Bevestig een brede test', description: 'Bij Alle online operator-apps vraagt DIS om een extra bevestiging. Deze test filtert niet op beschikbaarheid, certificeringen of toegewezen drones.' },
+        { label: 'Kies de ontvangers', description: 'Kies Alleen mijzelf voor je eigen actieve gekoppelde apps, of Alle bereikbare operator-apps voor een extra bereikbaarheidstest.' },
+        { label: 'Bevestig een brede test', description: 'Bij Alle bereikbare operator-apps vraagt DIS om een extra bevestiging. Deze test filtert niet op beschikbaarheid, certificeringen of toegewezen drones.' },
         { label: 'Start de proefalarmering', description: 'Kies Persoonlijke proefmelding versturen of bevestig de brede bereikbaarheidstest.' },
         { label: 'Open de melding op het toestel', description: 'De proefmelding toont alleen de knop Ontvangen en geen opkomstknoppen.' },
         { label: 'Kies Ontvangen', description: 'Ga terug naar de webapp en controleer Live status.' },

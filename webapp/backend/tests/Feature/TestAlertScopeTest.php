@@ -871,19 +871,31 @@ final class TestAlertScopeTest extends TestCase
         $secondEligible = $this->operator('eligible-two@example.test');
         $secondToken = $this->token($secondEligible, 'eligible-two', lastSeenAt: now()->subMinute());
         $secondDeviceToken = $this->token($secondEligible, 'eligible-two-second-device', lastSeenAt: now()->subMinutes(2));
+        $dozeDelayedSecondToken = $this->token(
+            $secondEligible,
+            'eligible-two-doze-device',
+            lastSeenAt: now()->subMinutes(FcmToken::onlineThresholdMinutes() + 1),
+        );
         $staleSecondToken = $this->token(
             $secondEligible,
             'eligible-two-stale-device',
-            lastSeenAt: now()->subMinutes(FcmToken::onlineThresholdMinutes() + 1),
+            lastSeenAt: now()->subMinutes(FcmToken::pushReachabilityThresholdMinutes() + 1),
         );
         $adminSecondToken = $this->token($secondEligible, 'eligible-two-admin-device', clientType: 'admin', lastSeenAt: now());
 
         $pushDisabled = $this->operator('push-disabled@example.test', pushEnabled: false);
         $this->token($pushDisabled, 'push-disabled', lastSeenAt: now());
         $offline = $this->operator('offline@example.test');
-        $this->token($offline, 'offline', lastSeenAt: now()->subMinutes(FcmToken::onlineThresholdMinutes() + 1));
+        $this->token($offline, 'offline', lastSeenAt: now()->subMinutes(FcmToken::pushReachabilityThresholdMinutes() + 1));
         $thresholdBoundary = $this->operator('threshold-boundary@example.test');
-        $this->token($thresholdBoundary, 'threshold-boundary', lastSeenAt: now()->subMinutes(FcmToken::onlineThresholdMinutes()));
+        $this->token($thresholdBoundary, 'threshold-boundary', lastSeenAt: now()->subMinutes(FcmToken::pushReachabilityThresholdMinutes()));
+        $expiredSession = $this->operator('expired-session@example.test');
+        $this->token(
+            $expiredSession,
+            'expired-session',
+            lastSeenAt: now(),
+            sessionExpiresAt: now()->subMinute(),
+        );
         $withoutToken = $this->operator('without-token@example.test');
         $adminDeviceOnly = $this->operator('admin-device-only@example.test');
         $this->token($adminDeviceOnly, 'admin-device-only', clientType: 'admin', lastSeenAt: now());
@@ -904,16 +916,17 @@ final class TestAlertScopeTest extends TestCase
         $response->assertCreated()
             ->assertJsonPath('meta.scope', 'all_online')
             ->assertJsonPath('meta.recipient_count', 2)
-            ->assertJsonPath('meta.queued_token_count', 3)
-            ->assertJsonPath('meta.skipped_user_count', 5)
+            ->assertJsonPath('meta.queued_token_count', 4)
+            ->assertJsonPath('meta.skipped_user_count', 6)
             ->assertJsonPath('meta.failed_user_count', 0);
 
         $recipientIds = collect($response->json('data.recipients'))->pluck('user_id');
         $this->assertEqualsCanonicalizing([$firstEligible->id, $secondEligible->id], $recipientIds->all());
-        Queue::assertPushed(SendFcmNotification::class, 3);
+        Queue::assertPushed(SendFcmNotification::class, 4);
         Queue::assertPushed(SendFcmNotification::class, fn (SendFcmNotification $job): bool => $job->fcmTokenId === $firstToken->id);
         Queue::assertPushed(SendFcmNotification::class, fn (SendFcmNotification $job): bool => $job->fcmTokenId === $secondToken->id);
         Queue::assertPushed(SendFcmNotification::class, fn (SendFcmNotification $job): bool => $job->fcmTokenId === $secondDeviceToken->id);
+        Queue::assertPushed(SendFcmNotification::class, fn (SendFcmNotification $job): bool => $job->fcmTokenId === $dozeDelayedSecondToken->id);
         Queue::assertNotPushed(SendFcmNotification::class, fn (SendFcmNotification $job): bool => $job->fcmTokenId === $staleSecondToken->id);
         Queue::assertNotPushed(SendFcmNotification::class, fn (SendFcmNotification $job): bool => $job->fcmTokenId === $adminSecondToken->id);
         $this->assertDatabaseMissing('user_certifications', ['user_id' => $firstEligible->id]);
@@ -922,8 +935,8 @@ final class TestAlertScopeTest extends TestCase
         $audit = AuditLog::query()->where('action', 'test_alert.sent')->latest('created_at')->firstOrFail();
         $this->assertSame('all_online', $audit->metadata['scope']);
         $this->assertSame(2, $audit->metadata['recipient_count']);
-        $this->assertSame(3, $audit->metadata['queued_device_count']);
-        $this->assertSame(5, $audit->metadata['skipped_user_count']);
+        $this->assertSame(4, $audit->metadata['queued_device_count']);
+        $this->assertSame(6, $audit->metadata['skipped_user_count']);
         $this->assertSame(0, $audit->metadata['failed_user_count']);
         $this->assertSame(2, $audit->metadata['selected_user_count']);
 
@@ -1010,12 +1023,12 @@ final class TestAlertScopeTest extends TestCase
         $this->grant($actor, ['incidents.dispatch.manage'], operator: false, admin: true);
 
         $offline = $this->operator('empty-offline@example.test');
-        $this->token($offline, 'empty-offline', lastSeenAt: now()->subMinutes(FcmToken::onlineThresholdMinutes() + 1));
+        $this->token($offline, 'empty-offline', lastSeenAt: now()->subMinutes(FcmToken::pushReachabilityThresholdMinutes() + 1));
 
         $response = $this->asWebClient($actor)->postJson('/api/test-alert', ['scope' => 'all_online']);
 
         $response->assertUnprocessable()
-            ->assertJsonPath('error.details.recipients.0', 'Geen online operator-apps gevonden.');
+            ->assertJsonPath('error.details.recipients.0', 'Geen bereikbare operator-apps gevonden.');
         $this->assertDatabaseCount('dispatch_requests', 0);
         $this->assertDatabaseCount('dispatch_recipients', 0);
         Queue::assertNothingPushed();
@@ -1140,14 +1153,21 @@ final class TestAlertScopeTest extends TestCase
         string $deviceId,
         string $clientType = 'operator',
         mixed $lastSeenAt = null,
+        mixed $sessionExpiresAt = null,
     ): FcmToken {
         $token = 'token-'.$deviceId;
+        $session = $user->createToken(
+            'Test alert '.$deviceId,
+            ['*', $clientType === 'operator' ? 'client:operator' : 'client:admin'],
+            $sessionExpiresAt ?? now()->addHour(),
+        )->accessToken;
 
         return FcmToken::query()->create([
             'user_id' => $user->id,
             'device_id' => $deviceId,
             'token' => $token,
             'token_hash' => hash('sha256', $token),
+            'personal_access_token_id' => $session->id,
             'platform' => 'android',
             'client_type' => $clientType,
             'is_active' => true,

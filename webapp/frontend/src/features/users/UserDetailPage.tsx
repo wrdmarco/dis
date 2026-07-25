@@ -9,7 +9,7 @@ import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
-import { activeOperatorDeviceCount, onlineOperatorDeviceCount } from '../../lib/devicePresence';
+import { activeOperatorDeviceCount, onlineOperatorDeviceCount, reachableOperatorDeviceCount } from '../../lib/devicePresence';
 import { locationLabel } from '../../lib/profileLocation';
 import { useApiResource } from '../../lib/useApiResource';
 import type { Asset, Certification, User } from '../../types/api';
@@ -189,7 +189,13 @@ export function UserDetailPage({ userId }: { userId: string }) {
 
   const user = targetUser.data;
   const onlineDevices = onlineOperatorDeviceCount(user?.fcm_tokens ?? []);
+  const reachableDevices = reachableOperatorDeviceCount(user?.fcm_tokens ?? []);
   const activeDevices = activeOperatorDeviceCount(user?.fcm_tokens ?? []);
+  const presenceLabel = onlineDevices > 0
+    ? `Online (${onlineDevices})`
+    : reachableDevices > 0
+      ? `Stand-by (${reachableDevices})`
+      : 'Offline';
 
   return (
     <div className="page-stack">
@@ -235,8 +241,8 @@ export function UserDetailPage({ userId }: { userId: string }) {
                     <dd>{user.two_factor_enabled ? 'Ingeschakeld' : 'Uitgeschakeld'}</dd>
                   </>
                 ) : null}
-                <dt>Online</dt>
-                <dd>{onlineDevices > 0 ? `Online (${onlineDevices})` : 'Offline'}</dd>
+                <dt>Bereikbaarheid</dt>
+                <dd>{presenceLabel}</dd>
                 <dt>Push</dt>
                 <dd>{user.push_enabled ? `Actief (${activeDevices}/${user.max_operator_devices ?? 1})` : 'Uit'}</dd>
                 <dt>Max operator-devices</dt>

@@ -58,7 +58,7 @@ test.describe('handmatige proefalarmering', () => {
     await page.goto('/test-alert');
 
     const selfOption = page.getByRole('radio', { name: /alleen mijzelf/i });
-    const allOnlineOption = page.getByRole('radio', { name: /alle online operator-apps/i });
+    const allOnlineOption = page.getByRole('radio', { name: /alle bereikbare operator-apps/i });
     await expect(selfOption).toBeChecked();
     await expect(allOnlineOption).not.toBeChecked();
     await expect(page.getByText(/beschikbaarheid, certificaten en drones tellen hierbij niet mee/i)).toBeVisible();
@@ -69,7 +69,7 @@ test.describe('handmatige proefalarmering', () => {
 
     await allOnlineOption.check();
     await page.getByRole('button', { name: 'Bereikbaarheidstest starten' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Alle online operator-apps alarmeren?' });
+    const dialog = page.getByRole('dialog', { name: 'Alle bereikbare operator-apps alarmeren?' });
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText('Er wordt niet gefilterd op beschikbaarheid, certificeringen of toegewezen drones.');
     await expect(dialog.getByRole('button', { name: 'Annuleren' })).toBeFocused();

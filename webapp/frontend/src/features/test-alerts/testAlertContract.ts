@@ -15,8 +15,8 @@ export interface TestAlertSummary {
 export function testAlertSuccessMessage(summary: TestAlertSummary): string {
   if (summary.scope === 'all_online') {
     return summary.failed_user_count > 0
-      ? `Bereikbaarheidstest gestart voor ${summary.recipient_count} online operator${summary.recipient_count === 1 ? '' : 's'}; ${summary.failed_user_count} gebruiker${summary.failed_user_count === 1 ? '' : 's'} konden niet worden klaargezet.`
-      : `Bereikbaarheidstest gestart voor ${summary.recipient_count} online operator${summary.recipient_count === 1 ? '' : 's'}.`;
+      ? `Bereikbaarheidstest gestart voor ${summary.recipient_count} bereikbare operator${summary.recipient_count === 1 ? '' : 's'}; ${summary.failed_user_count} gebruiker${summary.failed_user_count === 1 ? '' : 's'} konden niet worden klaargezet.`
+      : `Bereikbaarheidstest gestart voor ${summary.recipient_count} bereikbare operator${summary.recipient_count === 1 ? '' : 's'}.`;
   }
 
   return summary.queued_token_count === 1

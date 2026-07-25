@@ -40,6 +40,15 @@ export function onlineOperatorDeviceCount(tokens: FcmToken[]): number {
     .length;
 }
 
+export function reachableOperatorDeviceCount(tokens: FcmToken[]): number {
+  return operatorDeviceGroups(tokens)
+    .filter((group) => group.some((token) => token.is_active && (
+      token.is_reachable === true
+      || (token.is_reachable === undefined && token.is_online === true)
+    )))
+    .length;
+}
+
 export function activeOperatorDeviceCount(tokens: FcmToken[]): number {
   return operatorDeviceGroups(tokens)
     .filter((group) => group.some((token) => token.is_active))
@@ -48,6 +57,10 @@ export function activeOperatorDeviceCount(tokens: FcmToken[]): number {
 
 export function hasOnlineOperatorDevice(tokens: FcmToken[]): boolean {
   return onlineOperatorDeviceCount(tokens) > 0;
+}
+
+export function hasReachableOperatorDevice(tokens: FcmToken[]): boolean {
+  return reachableOperatorDeviceCount(tokens) > 0;
 }
 
 export function latestOperatorDevice(tokens: FcmToken[]): FcmToken | undefined {

@@ -5,7 +5,7 @@ import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
-import { hasOnlineOperatorDevice, latestOperatorDevice } from '../../lib/devicePresence';
+import { hasOnlineOperatorDevice, hasReachableOperatorDevice, latestOperatorDevice } from '../../lib/devicePresence';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
 import type { AvailabilityStatus } from '../../types/api';
@@ -33,7 +33,7 @@ export function StatusPage() {
     || (left.user?.name ?? '').localeCompare(right.user?.name ?? ''));
   const availableCount = items.filter((item) => item.is_available).length;
   const unavailableCount = items.filter((item) => !item.is_available).length;
-  const onlineCount = items.filter((item) => isUserOnline(item)).length;
+  const reachableCount = items.filter((item) => isUserReachable(item)).length;
   const onSceneCount = items.filter((item) => item.status === 'on_scene').length;
   const returningCount = items.filter((item) => !item.is_available && item.next_available_at !== null && item.next_available_at !== undefined).length;
   const teamSummaries = useMemo(() => teamAvailabilitySummaries(items), [items]);
@@ -85,7 +85,7 @@ export function StatusPage() {
             <div className="operational-status__summary">
               <SummaryItem icon={<ShieldCheck size={18} />} label="Nu beschikbaar" value={String(availableCount)} />
               <SummaryItem icon={<Clock3 size={18} />} label="Niet beschikbaar" value={String(unavailableCount)} />
-              <SummaryItem label="Online" value={String(onlineCount)} />
+              <SummaryItem label="Bereikbaar" value={String(reachableCount)} />
               <SummaryItem icon={<UsersRound size={18} />} label="Wordt later beschikbaar" value={String(returningCount)} />
               <SummaryItem label="Op locatie" value={String(onSceneCount)} />
             </div>
@@ -148,7 +148,7 @@ interface TeamAvailabilitySummary {
   name: string;
   available: number;
   unavailable: number;
-  online: number;
+  reachable: number;
   total: number;
 }
 
@@ -168,7 +168,7 @@ function TeamAvailabilityOverview({ summaries }: { summaries: TeamAvailabilitySu
                 <span>{team.name}</span>
               </div>
               <b>{team.available}/{team.total}</b>
-              <small>{team.online} online</small>
+              <small>{team.reachable} bereikbaar</small>
             </article>
           ))}
         </div>
@@ -196,7 +196,7 @@ function StatusTable({
           <thead>
             <tr>
               <th scope="col">Gebruiker</th>
-              <th scope="col">Online</th>
+              <th scope="col">Bereikbaarheid</th>
               <th scope="col">Status</th>
               <th scope="col">Weer beschikbaar</th>
               <th scope="col">Laatst gewijzigd</th>
@@ -204,37 +204,41 @@ function StatusTable({
             </tr>
           </thead>
           <tbody>
-            {items.map((item) => (
-              <tr key={item.id}>
-                <td>
-                  <div className="operator-cell operator-cell--compact">
-                    <strong>{item.user?.name ?? '-'}</strong>
-                  </div>
-                </td>
-                <td>
-                  <div className="status-cell status-cell--presence">
-                    <StatusPill value={isUserOnline(item) ? 'Online' : 'Offline'} tone={isUserOnline(item) ? 'good' : 'bad'} />
-                    <small>({deviceLastSeenLabel(item)})</small>
-                  </div>
-                </td>
-                <td>
-                  <div className="status-cell">
-                    <StatusPill value={item.is_available ? 'available' : item.status} tone={statusTone(item)} />
-                  </div>
-                </td>
-                <td>{nextAvailabilityLabel(item)}</td>
-                <td>{formatDateTime(item.effective_at)}</td>
-                <td>
-                  {canOverrideStatus ? (
-                    <div className="table-actions">
-                      <button className="secondary-button" type="button" onClick={() => onEdit(item)}>
-                        <Pencil size={16} /> Status
-                      </button>
+            {items.map((item) => {
+              const presence = userPresence(item);
+
+              return (
+                <tr key={item.id}>
+                  <td>
+                    <div className="operator-cell operator-cell--compact">
+                      <strong>{item.user?.name ?? '-'}</strong>
                     </div>
-                  ) : '-'}
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td>
+                    <div className="status-cell status-cell--presence">
+                      <StatusPill value={presence.label} tone={presence.tone} />
+                      <small>({deviceLastSeenLabel(item)})</small>
+                    </div>
+                  </td>
+                  <td>
+                    <div className="status-cell">
+                      <StatusPill value={item.is_available ? 'available' : item.status} tone={statusTone(item)} />
+                    </div>
+                  </td>
+                  <td>{nextAvailabilityLabel(item)}</td>
+                  <td>{formatDateTime(item.effective_at)}</td>
+                  <td>
+                    {canOverrideStatus ? (
+                      <div className="table-actions">
+                        <button className="secondary-button" type="button" onClick={() => onEdit(item)}>
+                          <Pencil size={16} /> Status
+                        </button>
+                      </div>
+                    ) : '-'}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -244,6 +248,22 @@ function StatusTable({
 
 function isUserOnline(item: AvailabilityStatus): boolean {
   return hasOnlineOperatorDevice(item.user?.fcm_tokens ?? []);
+}
+
+function isUserReachable(item: AvailabilityStatus): boolean {
+  return hasReachableOperatorDevice(item.user?.fcm_tokens ?? []);
+}
+
+function userPresence(item: AvailabilityStatus): { label: string; tone: 'neutral' | 'good' | 'bad' } {
+  if (isUserOnline(item)) {
+    return { label: 'Online', tone: 'good' };
+  }
+
+  if (isUserReachable(item)) {
+    return { label: 'Stand-by', tone: 'neutral' };
+  }
+
+  return { label: 'Offline', tone: 'bad' };
 }
 
 function deviceLastSeenLabel(item: AvailabilityStatus): string {
@@ -267,7 +287,7 @@ function teamAvailabilitySummaries(items: AvailabilityStatus[]): TeamAvailabilit
         name: team.name,
         available: 0,
         unavailable: 0,
-        online: 0,
+        reachable: 0,
         total: 0,
       };
 
@@ -277,8 +297,8 @@ function teamAvailabilitySummaries(items: AvailabilityStatus[]): TeamAvailabilit
       } else {
         summary.unavailable += 1;
       }
-      if (isUserOnline(item)) {
-        summary.online += 1;
+      if (isUserReachable(item)) {
+        summary.reachable += 1;
       }
 
       summaries.set(team.id, summary);

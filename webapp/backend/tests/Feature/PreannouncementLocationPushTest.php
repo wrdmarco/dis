@@ -64,11 +64,17 @@ final class PreannouncementLocationPushTest extends TestCase
             'user_email' => $recipient->email,
             'response_status' => 'pending',
         ]);
+        $operatorSession = $recipient->createToken(
+            'Preannouncement location operator',
+            ['*', 'client:operator'],
+            now()->addHour(),
+        )->accessToken;
         $token = FcmToken::query()->create([
             'user_id' => $recipient->id,
             'device_id' => 'operator-location-device',
             'token' => 'operator-location-token',
             'token_hash' => hash('sha256', 'operator-location-token'),
+            'personal_access_token_id' => $operatorSession->id,
             'platform' => 'android',
             'client_type' => 'operator',
             'is_active' => true,

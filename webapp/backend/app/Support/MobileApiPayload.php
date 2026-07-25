@@ -53,13 +53,17 @@ final class MobileApiPayload
             'fcmTokens' => fn ($tokens) => $tokens
                 ->where('client_type', 'operator')
                 ->where('is_active', true)
+                ->with('personalAccessToken')
                 ->latest('last_seen_at'),
         ]);
+        $user->loadMissing('fcmTokens.personalAccessToken');
 
         return [
             ...self::userIdentity($user, true),
             'push_enabled' => (bool) $user->push_enabled,
-            'fcm_tokens' => $user->fcmTokens->map(fn (FcmToken $token): array => self::deviceStatus($token))->values(),
+            'fcm_tokens' => $user->fcmTokens
+                ->map(fn (FcmToken $token): array => self::deviceStatus($token, $user))
+                ->values(),
         ];
     }
 
@@ -78,8 +82,10 @@ final class MobileApiPayload
             'fcmTokens' => fn ($tokens) => $tokens
                 ->where('client_type', 'operator')
                 ->where('is_active', true)
+                ->with('personalAccessToken')
                 ->latest('last_seen_at'),
         ]);
+        $user->loadMissing('fcmTokens.personalAccessToken');
 
         return [
             'id' => $user->id,
@@ -134,7 +140,9 @@ final class MobileApiPayload
             'asset_assignments' => $user->relationLoaded('assetAssignments')
                 ? $user->assetAssignments->map(fn (AssetAssignment $assignment): array => self::assetAssignment($assignment))->values()
                 : [],
-            'fcm_tokens' => $user->fcmTokens->map(fn (FcmToken $token): array => self::fcmToken($token))->values(),
+            'fcm_tokens' => $user->fcmTokens
+                ->map(fn (FcmToken $token): array => self::fcmToken($token, false, $user))
+                ->values(),
         ];
     }
 
@@ -169,8 +177,11 @@ final class MobileApiPayload
     /**
      * @return array<string, mixed>
      */
-    public static function fcmToken(FcmToken $token): array
-    {
+    public static function fcmToken(
+        FcmToken $token,
+        bool $includeUser = true,
+        ?User $reachabilityUser = null,
+    ): array {
         return [
             'id' => $token->id,
             'user_id' => $token->user_id,
@@ -186,12 +197,13 @@ final class MobileApiPayload
             'app_version' => $token->app_version,
             'is_active' => (bool) $token->is_active,
             'is_online' => (bool) $token->is_online,
+            'is_reachable' => $token->isReachableFor($reachabilityUser),
             'last_seen_at' => self::dateTime($token->last_seen_at),
             'revoked_at' => self::dateTime($token->revoked_at),
             'token_preview' => self::tokenPreview((string) $token->token),
             'token_hash' => $token->token_hash ?? hash('sha256', (string) $token->token),
             'personal_access_token_id' => $token->personal_access_token_id,
-            'user' => $token->relationLoaded('user') ? self::user($token->user) : null,
+            'user' => $includeUser && $token->relationLoaded('user') ? self::user($token->user) : null,
         ];
     }
 
@@ -229,7 +241,7 @@ final class MobileApiPayload
             'status' => $offline ? 'unavailable' : $status->status,
             'is_available' => $offline ? false : (bool) $status->is_available,
             'is_system_applied' => (bool) $status->is_system_applied,
-            'reason' => $offline ? 'Offline: geen online operator-device.' : self::statusReason($status),
+            'reason' => $offline ? 'Niet bereikbaar: geen bereikbaar operator-device.' : self::statusReason($status),
             'effective_at' => self::dateTime($status->effective_at),
             'next_availability_change' => $nextAvailabilityChange,
             'next_available_at' => $nextAvailableAt,
@@ -267,18 +279,22 @@ final class MobileApiPayload
 
     private static function statusUserIsOffline(AvailabilityStatus $status): bool
     {
-        if (! $status->relationLoaded('user') || $status->user === null) {
-            return false;
+        $status->loadMissing('user');
+        if ($status->user === null) {
+            return true;
         }
 
         $status->user->loadMissing([
             'fcmTokens' => fn ($tokens) => $tokens
                 ->where('client_type', 'operator')
                 ->where('is_active', true)
+                ->with('personalAccessToken')
                 ->latest('last_seen_at'),
         ]);
+        $status->user->loadMissing('fcmTokens.personalAccessToken');
 
-        return ! $status->user->fcmTokens->contains(fn ($token): bool => (bool) $token->is_online);
+        return ! $status->user->fcmTokens
+            ->contains(fn (FcmToken $token): bool => $token->isReachableFor($status->user));
     }
 
     /**
@@ -565,7 +581,7 @@ final class MobileApiPayload
     /**
      * @return array<string, mixed>
      */
-    private static function deviceStatus(FcmToken $token): array
+    private static function deviceStatus(FcmToken $token, User $user): array
     {
         return [
             'id' => $token->id,
@@ -580,6 +596,7 @@ final class MobileApiPayload
             'app_version' => $token->app_version,
             'is_active' => (bool) $token->is_active,
             'is_online' => (bool) $token->is_online,
+            'is_reachable' => $token->isReachableFor($user),
             'last_seen_at' => self::dateTime($token->last_seen_at),
         ];
     }

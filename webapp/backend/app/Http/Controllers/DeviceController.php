@@ -18,13 +18,16 @@ final class DeviceController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $user = $request->user();
+
         return ApiResponse::success(
-            $request->user()
+            $user
                 ?->fcmTokens()
                 ->where('is_active', true)
+                ->with('personalAccessToken')
                 ->latest()
                 ->get()
-                ->map(fn (FcmToken $token): array => MobileApiPayload::fcmToken($token))
+                ->map(fn (FcmToken $token): array => MobileApiPayload::fcmToken($token, false, $user))
                 ->values() ?? [],
         );
     }
@@ -50,7 +53,11 @@ final class DeviceController extends Controller
             'sdk_version' => ['nullable', 'string', 'max:40'],
         ]);
 
-        return ApiResponse::success(MobileApiPayload::fcmToken($this->service->heartbeat($request->user(), $data, $this->currentPersonalAccessToken($request))));
+        return ApiResponse::success(MobileApiPayload::fcmToken(
+            $this->service->heartbeat($request->user(), $data, $this->currentPersonalAccessToken($request)),
+            false,
+            $request->user(),
+        ));
     }
 
     public function revoke(Request $request, string $token): Response

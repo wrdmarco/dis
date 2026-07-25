@@ -13,7 +13,7 @@ final class UserRepository extends BaseRepository
     }
 
     /**
-     * @param array<string, mixed> $filters
+     * @param  array<string, mixed>  $filters
      */
     public function search(array $filters, int $perPage): LengthAwarePaginator
     {
@@ -25,6 +25,7 @@ final class UserRepository extends BaseRepository
                 'fcmTokens' => fn ($tokens) => $tokens
                     ->where('client_type', 'operator')
                     ->where('is_active', true)
+                    ->with('personalAccessToken')
                     ->latest('last_seen_at'),
             ])
             ->when($filters['search'] ?? null, function ($query, string $search): void {

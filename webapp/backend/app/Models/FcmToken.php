@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\UsesUlids;
 use App\Support\ApiDateTime;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -32,6 +33,8 @@ final class FcmToken extends Model
         'revocation_generation',
     ];
 
+    protected $hidden = ['personalAccessToken'];
+
     protected $appends = ['is_online'];
 
     protected function casts(): array
@@ -41,16 +44,46 @@ final class FcmToken extends Model
 
     public function getIsOnlineAttribute(): bool
     {
-        $lastSeenAt = $this->last_seen_at !== null
-            ? ApiDateTime::comparableWallClock($this->last_seen_at)
-            : null;
-        $onlineCutoff = ApiDateTime::comparableWallClock(now())
-            ->subMinutes(self::onlineThresholdMinutes());
-
         return (bool) $this->is_active
             && $this->client_type === 'operator'
-            && $lastSeenAt !== null
-            && $lastSeenAt->greaterThan($onlineCutoff);
+            && $this->seenAfterMinutes(self::onlineThresholdMinutes());
+    }
+
+    public function getIsReachableAttribute(): bool
+    {
+        return $this->isReachableFor();
+    }
+
+    public function isReachableFor(
+        ?User $user = null,
+        ?PersonalAccessToken $accessToken = null,
+    ): bool {
+        if (! (bool) $this->is_active
+            || $this->client_type !== 'operator'
+            || ! $this->seenAfterMinutes(self::pushReachabilityThresholdMinutes())) {
+            return false;
+        }
+
+        $user ??= $this->relationLoaded('user')
+            ? $this->getRelation('user')
+            : $this->user()->first();
+        if (! $user instanceof User
+            || (string) $user->getKey() !== (string) $this->user_id
+            || $user->account_status !== 'active'
+            || ! (bool) $user->push_enabled) {
+            return false;
+        }
+
+        $accessToken ??= $this->relationLoaded('personalAccessToken')
+            ? $this->getRelation('personalAccessToken')
+            : $this->personalAccessToken()->first();
+
+        return $accessToken instanceof PersonalAccessToken
+            && (string) $accessToken->getKey() === (string) $this->personal_access_token_id
+            && $accessToken->tokenable_type === User::class
+            && (string) $accessToken->tokenable_id === (string) $this->user_id
+            && in_array('client:operator', $accessToken->abilities ?? [], true)
+            && $accessToken->expires_at?->lessThanOrEqualTo(now()) !== true;
     }
 
     public static function onlineThresholdMinutes(): int
@@ -70,8 +103,45 @@ final class FcmToken extends Model
         return max(24 * 60, $heartbeatInterval * 8);
     }
 
+    /**
+     * @param  Builder<FcmToken>  $query
+     * @return Builder<FcmToken>
+     */
+    public function scopeReachable(Builder $query): Builder
+    {
+        return $query
+            ->where('is_active', true)
+            ->where('client_type', 'operator')
+            ->where('last_seen_at', '>', now()->subMinutes(self::pushReachabilityThresholdMinutes()))
+            ->whereHas('user', fn (Builder $users) => $users
+                ->where('account_status', 'active')
+                ->where('push_enabled', true))
+            ->whereHas('personalAccessToken', fn (Builder $tokens) => $tokens
+                ->where('tokenable_type', User::class)
+                ->whereColumn('personal_access_tokens.tokenable_id', 'fcm_tokens.user_id')
+                ->whereJsonContains('abilities', 'client:operator')
+                ->where(fn (Builder $expiry) => $expiry
+                    ->whereNull('expires_at')
+                    ->orWhere('expires_at', '>', now())));
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function personalAccessToken(): BelongsTo
+    {
+        return $this->belongsTo(PersonalAccessToken::class, 'personal_access_token_id');
+    }
+
+    private function seenAfterMinutes(int $minutes): bool
+    {
+        $lastSeenAt = $this->last_seen_at !== null
+            ? ApiDateTime::comparableWallClock($this->last_seen_at)
+            : null;
+        $cutoff = ApiDateTime::comparableWallClock(now())->subMinutes($minutes);
+
+        return $lastSeenAt !== null && $lastSeenAt->greaterThan($cutoff);
     }
 }

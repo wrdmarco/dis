@@ -31,10 +31,10 @@ final class PushNotificationService
     {
         /** @var Collection<int, User> $users */
         $users = User::query()
-            ->with(['fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens)])
+            ->with(['fcmTokens' => fn ($tokens) => $this->reachableOperatorTokenQuery($tokens)])
             ->where('account_status', 'active')
             ->where('push_enabled', true)
-            ->whereHas('fcmTokens', fn ($tokens) => $this->onlineOperatorTokenQuery($tokens))
+            ->whereHas('fcmTokens', fn ($tokens) => $this->reachableOperatorTokenQuery($tokens))
             ->where(function (Builder $query) use ($data): void {
                 $teamIds = $this->expandTeamIds($data['team_ids'] ?? []);
                 $roleIds = $data['role_ids'] ?? [];
@@ -274,11 +274,8 @@ final class PushNotificationService
         return array_values(array_unique([...$teamIds, ...$alertTeamIds]));
     }
 
-    private function onlineOperatorTokenQuery($tokens)
+    private function reachableOperatorTokenQuery($tokens)
     {
-        return $tokens
-            ->where('is_active', true)
-            ->where('client_type', 'operator')
-            ->where('last_seen_at', '>', now()->subMinutes(FcmToken::pushReachabilityThresholdMinutes()));
+        return $tokens->reachable();
     }
 }

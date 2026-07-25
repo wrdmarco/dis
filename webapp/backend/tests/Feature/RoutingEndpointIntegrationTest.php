@@ -143,6 +143,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         $team = $this->team('DOZE-REACHABILITY');
         $sleepingPilot = $this->eligiblePilot($team, 'doze-sleeping@example.test', 'Doze Sleeping', 52.100000, 5.100000);
         $stalePilot = $this->eligiblePilot($team, 'doze-stale@example.test', 'Doze Stale', 52.200000, 5.200000);
+        $expiredSessionPilot = $this->eligiblePilot($team, 'doze-expired-session@example.test', 'Doze Expired Session', 52.250000, 5.250000);
         $incident = $this->incident($viewer, $team, 52.300000, 5.300000, 'DOZE-REACHABILITY-001');
 
         $sleepingPilot->fcmTokens()->update([
@@ -151,6 +152,10 @@ final class RoutingEndpointIntegrationTest extends TestCase
         $stalePilot->fcmTokens()->update([
             'last_seen_at' => now()->subMinutes(FcmToken::pushReachabilityThresholdMinutes() + 1),
         ]);
+        $expiredSessionPilot->fcmTokens()
+            ->firstOrFail()
+            ->personalAccessToken()
+            ->update(['expires_at' => now()->subMinute()]);
         Http::fake(['*' => Http::response([], 503)]);
 
         $response = $this->asWebClient($viewer)
@@ -162,6 +167,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
             collect($response->json('data.recipients'))->pluck('id')->all(),
         );
         $this->assertFalse($sleepingPilot->fcmTokens()->firstOrFail()->is_online);
+        $this->assertTrue($sleepingPilot->fcmTokens()->firstOrFail()->is_reachable);
     }
 
     public function test_team_without_linked_certifications_does_not_inherit_global_dispatch_requirements(): void
@@ -1468,11 +1474,17 @@ final class RoutingEndpointIntegrationTest extends TestCase
         ])->save();
         $team->users()->attach($pilot->id, ['created_at' => now()]);
         $token = 'routing-token-'.$pilot->id;
+        $session = $pilot->createToken(
+            'Routing operator device '.$pilot->id,
+            ['*', 'client:operator'],
+            now()->addHour(),
+        )->accessToken;
         FcmToken::query()->create([
             'user_id' => $pilot->id,
             'device_id' => 'routing-device-'.$pilot->id,
             'token' => $token,
             'token_hash' => hash('sha256', $token),
+            'personal_access_token_id' => $session->id,
             'platform' => 'android',
             'client_type' => 'operator',
             'is_active' => true,

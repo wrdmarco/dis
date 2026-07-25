@@ -6,6 +6,7 @@ use App\Http\Requests\Users\StoreUserRequest;
 use App\Http\Requests\Users\UpdateUserRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\AuditLog;
+use App\Models\FcmToken;
 use App\Models\Role;
 use App\Models\Team;
 use App\Models\User;
@@ -22,7 +23,17 @@ final class UserController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        return ApiResponse::paginated($this->users->search($request->only(['search', 'status', 'role', 'team']), (int) $request->integer('per_page', 25)));
+        $users = $this->users->search(
+            $request->only(['search', 'status', 'role', 'team']),
+            (int) $request->integer('per_page', 25),
+        );
+        $users->getCollection()->each(function (User $user): void {
+            $user->fcmTokens->each(function (FcmToken $token) use ($user): void {
+                $token->setAttribute('is_reachable', $token->isReachableFor($user));
+            });
+        });
+
+        return ApiResponse::paginated($users);
     }
 
     public function store(StoreUserRequest $request): JsonResponse
@@ -43,6 +54,7 @@ final class UserController extends Controller
                 ->with('asset.droneType')
                 ->latest('assigned_at'),
             'fcmTokens' => fn ($query) => $query
+                ->with('personalAccessToken')
                 ->latest('last_seen_at'),
         ])));
     }

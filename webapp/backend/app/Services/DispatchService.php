@@ -12,7 +12,6 @@ use App\Models\AvailabilityStatus;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
-use App\Models\FcmToken;
 use App\Models\Incident;
 use App\Models\SystemSetting;
 use App\Models\Team;
@@ -146,7 +145,7 @@ final class DispatchService
     {
         $existingDrafts = $incident->dispatchRequests()
             ->where('status', 'draft')
-            ->with(['incident', 'recipients.user.fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens)])
+            ->with(['incident', 'recipients.user.fcmTokens' => fn ($tokens) => $this->reachableOperatorTokenQuery($tokens)])
             ->get();
 
         if ($existingDrafts->isNotEmpty()) {
@@ -253,7 +252,7 @@ final class DispatchService
                 }
             }
 
-            $dispatch->load(['recipients.user.fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens)]);
+            $dispatch->load(['recipients.user.fcmTokens' => fn ($tokens) => $this->reachableOperatorTokenQuery($tokens)]);
             $dispatches->push($dispatch);
             $recipientCount += $dispatch->recipients->count();
             if ($remaining !== null) {
@@ -319,7 +318,7 @@ final class DispatchService
     public function sendCancellationForActiveIncident(Incident $incident, User $actor): array
     {
         $incident->load([
-            'dispatchRequests.recipients.user.fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens),
+            'dispatchRequests.recipients.user.fcmTokens' => fn ($tokens) => $this->reachableOperatorTokenQuery($tokens),
         ]);
 
         $recipients = $incident->dispatchRequests
@@ -580,16 +579,16 @@ final class DispatchService
                 }
 
                 $currentDispatch->recipients()
-                    ->whereDoesntHave('user.fcmTokens', fn ($tokens) => $this->onlineOperatorTokenQuery($tokens))
+                    ->whereDoesntHave('user.fcmTokens', fn ($tokens) => $this->reachableOperatorTokenQuery($tokens))
                     ->delete();
                 $currentDispatch->setRelation('incident', $incident);
                 $currentDispatch->load([
-                    'recipients.user.fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens),
+                    'recipients.user.fcmTokens' => fn ($tokens) => $this->reachableOperatorTokenQuery($tokens),
                     'recipients.user.statuses' => fn ($statuses) => $statuses->latestPerUser(),
                 ]);
                 if ($currentDispatch->recipients->isEmpty()) {
                     throw ValidationException::withMessages([
-                        'dispatch' => ['Er zijn geen online operator-devices meer beschikbaar voor deze alarmering.'],
+                        'dispatch' => ['Er zijn geen bereikbare operator-devices meer beschikbaar voor deze alarmering.'],
                     ]);
                 }
 
@@ -654,7 +653,7 @@ final class DispatchService
                 }
                 if ($notificationCount === 0) {
                     throw ValidationException::withMessages([
-                        'dispatch' => ['Er zijn geen online operator-devices meer beschikbaar voor deze alarmering.'],
+                        'dispatch' => ['Er zijn geen bereikbare operator-devices meer beschikbaar voor deze alarmering.'],
                     ]);
                 }
 
@@ -1277,7 +1276,7 @@ final class DispatchService
         $teamUsers = User::query()
             ->with([
                 'certifications',
-                'fcmTokens' => fn ($tokens) => $this->onlineOperatorTokenQuery($tokens),
+                'fcmTokens' => fn ($tokens) => $this->reachableOperatorTokenQuery($tokens),
                 'statuses' => fn ($statuses) => $statuses->latestPerUser(),
                 'teams',
                 'roles',
@@ -1469,7 +1468,7 @@ final class DispatchService
         }
 
         if ($counts['active_token_users'] === 0) {
-            return "$prefix Teamleden hebben geen online operator-device.";
+            return "$prefix Teamleden hebben geen bereikbaar operator-device.";
         }
 
         if ($counts['available_users'] === 0) {
@@ -1513,12 +1512,9 @@ final class DispatchService
         ]));
     }
 
-    private function onlineOperatorTokenQuery($tokens)
+    private function reachableOperatorTokenQuery($tokens)
     {
-        return $tokens
-            ->where('is_active', true)
-            ->where('client_type', 'operator')
-            ->where('last_seen_at', '>', now()->subMinutes(FcmToken::pushReachabilityThresholdMinutes()));
+        return $tokens->reachable();
     }
 
     public function broadcastDispatchChange(DispatchRequest $dispatch, string $action): void

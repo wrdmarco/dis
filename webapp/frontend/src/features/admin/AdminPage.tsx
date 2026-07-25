@@ -1229,7 +1229,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
             <label>
               Operator heartbeat minuten
               <input type="number" min="15" max="60" value={managedForm.deviceHeartbeatIntervalMinutes} onChange={(event) => setManagedForm((current) => ({ ...current, deviceHeartbeatIntervalMinutes: event.target.value }))} />
-              <small>Standaard 15. Offline na ongeveer 2x dit interval.</small>
+              <small>Standaard 15. Na ongeveer 2x dit interval wordt de heartbeat als verouderd getoond; een geldige pushsessie blijft stand-by.</small>
             </label>
           </div>
           {managedError ? <p className="error-text">{managedError}</p> : null}

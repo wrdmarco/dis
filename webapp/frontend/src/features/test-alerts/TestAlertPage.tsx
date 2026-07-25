@@ -192,7 +192,7 @@ export function TestAlertPage() {
                   onChange={() => setScope('all_online')}
                 />
                 <span>
-                  <strong><UsersRound aria-hidden size={17} /> Alle online operator-apps</strong>
+                  <strong><UsersRound aria-hidden size={17} /> Alle bereikbare operator-apps</strong>
                   <small id={allOnlineDescriptionId}>Voor een extra bereikbaarheidstest. Beschikbaarheid, certificaten en drones tellen hierbij niet mee.</small>
                 </span>
               </label>
@@ -311,11 +311,11 @@ export function TestAlertPage() {
             <header className="modal__header">
               <div>
                 <span className="modal__eyebrow">Bereikbaarheidstest</span>
-                <h2 id="test-alert-confirmation-title">Alle online operator-apps alarmeren?</h2>
+                <h2 id="test-alert-confirmation-title">Alle bereikbare operator-apps alarmeren?</h2>
               </div>
             </header>
             <div className="confirm-dialog">
-              <p id={allOnlineConfirmationDescriptionId}>DIS probeert een zichtbare proefmelding klaar te zetten voor alle gebruikers met een online operator-app.</p>
+              <p id={allOnlineConfirmationDescriptionId}>DIS probeert een zichtbare proefmelding klaar te zetten voor alle gebruikers met een bereikbare operator-app.</p>
               <div className="test-alert-warning">
                 <AlertTriangle aria-hidden size={20} />
                 <p><strong>Dit is een brede test.</strong> Er wordt niet gefilterd op beschikbaarheid, certificeringen of toegewezen drones.</p>

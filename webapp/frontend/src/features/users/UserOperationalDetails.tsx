@@ -347,7 +347,12 @@ export function UserOperationalDetails({
                     <td>{deviceTypeLabel(token.device_type)} / {token.client_type ?? 'operator'}</td>
                     <td>{deviceLabel(token.device_manufacturer, token.device_model, token.device_id)}{token.android_version ? ` - Android ${token.android_version}${token.sdk_version ? ` SDK ${token.sdk_version}` : ''}` : ''}</td>
                     <td>{token.app_version ?? '-'}</td>
-                    <td><StatusPill value={token.is_online ? 'Online' : token.is_active ? 'Offline' : 'Uitgeschakeld'} tone={token.is_online ? 'good' : token.is_active ? 'neutral' : 'bad'} /></td>
+                    <td>
+                      <StatusPill
+                        value={token.is_online ? 'Online' : token.is_reachable ? 'Stand-by' : token.is_active ? 'Offline' : 'Uitgeschakeld'}
+                        tone={token.is_online ? 'good' : token.is_reachable ? 'neutral' : token.is_active ? 'bad' : 'neutral'}
+                      />
+                    </td>
                     <td>{formatDateTime(token.last_seen_at)}</td>
                   </tr>
                 ))}

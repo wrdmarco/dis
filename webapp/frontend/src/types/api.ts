@@ -127,6 +127,7 @@ export interface FcmToken {
   app_version?: string | null;
   is_active: boolean;
   is_online?: boolean;
+  is_reachable?: boolean;
   last_seen_at?: string | null;
   revoked_at?: string | null;
   token_preview: string;

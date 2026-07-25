@@ -53,6 +53,7 @@ final class StatusController extends Controller
                 ->with(['user.fcmTokens' => fn ($tokens) => $tokens
                     ->where('client_type', 'operator')
                     ->where('is_active', true)
+                    ->with('personalAccessToken')
                     ->latest('last_seen_at')])
                 ->latest('effective_at')
                 ->paginate((int) $request->integer('per_page', 25)),
@@ -76,7 +77,14 @@ final class StatusController extends Controller
     public function history(Request $request): JsonResponse
     {
         return ApiResponse::paginated(
-            AvailabilityStatus::query()->latest('effective_at')->paginate((int) $request->integer('per_page', 25)),
+            AvailabilityStatus::query()
+                ->with(['user.fcmTokens' => fn ($tokens) => $tokens
+                    ->where('client_type', 'operator')
+                    ->where('is_active', true)
+                    ->with('personalAccessToken')
+                    ->latest('last_seen_at')])
+                ->latest('effective_at')
+                ->paginate((int) $request->integer('per_page', 25)),
             fn (AvailabilityStatus $status): array => MobileApiPayload::status($status),
         );
     }

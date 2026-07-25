@@ -5,7 +5,7 @@ import { Eye, Plus } from 'lucide-react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusPill } from '../../components/StatusPill';
-import { activeOperatorDeviceCount, onlineOperatorDeviceCount } from '../../lib/devicePresence';
+import { activeOperatorDeviceCount, onlineOperatorDeviceCount, reachableOperatorDeviceCount } from '../../lib/devicePresence';
 import { locationLabel } from '../../lib/profileLocation';
 import { useApiResource } from '../../lib/useApiResource';
 import type { User } from '../../types/api';
@@ -34,7 +34,7 @@ export function UsersPage() {
                 <th scope="col">E-mail</th>
                 <th scope="col">Locatie</th>
                 <th scope="col">Account</th>
-                <th scope="col">Online</th>
+                <th scope="col">Bereikbaarheid</th>
                 <th scope="col">Push</th>
                 <th scope="col">Teams</th>
                 <th scope="col">Rollen</th>
@@ -44,7 +44,13 @@ export function UsersPage() {
             <tbody>
               {users.data?.map((user) => {
                 const onlineDevices = onlineOperatorDeviceCount(user.fcm_tokens ?? []);
+                const reachableDevices = reachableOperatorDeviceCount(user.fcm_tokens ?? []);
                 const activeDevices = activeOperatorDeviceCount(user.fcm_tokens ?? []);
+                const presence = onlineDevices > 0
+                  ? { label: `Online (${onlineDevices})`, tone: 'good' as const }
+                  : reachableDevices > 0
+                    ? { label: `Stand-by (${reachableDevices})`, tone: 'neutral' as const }
+                    : { label: 'Offline', tone: 'bad' as const };
 
                 return (
                   <tr key={user.id}>
@@ -54,7 +60,7 @@ export function UsersPage() {
                     <td>{user.email}</td>
                     <td>{locationLabel(user.home_city, user.home_region, user.home_country)}</td>
                     <td><StatusPill value={user.account_status} tone={user.account_status === 'active' ? 'good' : 'bad'} /></td>
-                    <td><StatusPill value={onlineDevices > 0 ? `Online (${onlineDevices})` : 'Offline'} tone={onlineDevices > 0 ? 'good' : 'neutral'} /></td>
+                    <td><StatusPill value={presence.label} tone={presence.tone} /></td>
                     <td>{user.push_enabled ? `Actief (${activeDevices}/${user.max_operator_devices ?? 1})` : 'Uit'}</td>
                     <td>{user.teams?.map((team) => team.code).join(', ') || '-'}</td>
                     <td>{user.roles?.map((role) => role.display_name).join(', ') || '-'}</td>

@@ -53,7 +53,7 @@ final class AdminPushController extends Controller
     public function tokens(Request $request): JsonResponse
     {
         $tokens = FcmToken::query()
-            ->with(['user.roles', 'user.teams'])
+            ->with(['personalAccessToken', 'user.roles', 'user.teams'])
             ->when($request->boolean('include_inactive') !== true, fn ($query) => $query->where('is_active', true))
             ->when($request->string('search')->toString() !== '', function ($query) use ($request): void {
                 $search = $request->string('search')->toString();
@@ -121,6 +121,7 @@ final class AdminPushController extends Controller
             'app_version' => $token->app_version,
             'is_active' => (bool) $token->is_active,
             'is_online' => (bool) $token->is_online,
+            'is_reachable' => $token->isReachableFor($token->user),
             'last_seen_at' => ApiDateTime::dateTime($token->last_seen_at),
             'revoked_at' => ApiDateTime::dateTime($token->revoked_at),
             'token_preview' => $this->tokenPreview($token->token),
