@@ -245,7 +245,7 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
             ->middleware(['permission:incidents.dispatch.view,incidents.assigned.view', 'throttle:alarm-read']);
         Route::get('/reports/incidents', [ReportingController::class, 'incidents'])->middleware('permission:incidents.view');
         Route::get('/reports/dispatch-statistics', [ReportingController::class, 'dispatchStatistics'])->middleware('permission:incidents.dispatch.view');
-        Route::get('/expiry-overview', [ExpiryOverviewController::class, 'index']);
+        Route::get('/expiry-overview', [ExpiryOverviewController::class, 'index'])->middleware('permission:expiry.view');
         Route::get('/calendar-events', [CalendarEventController::class, 'index']);
         Route::get('/operational-weather', [OperationalForecastController::class, 'weather'])
             ->withoutMiddleware('throttle:authenticated')
@@ -281,10 +281,11 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/status/audit', [StatusAuditController::class, 'index'])->middleware('permission:status.audit.view');
         Route::get('/vacations/mine', [VacationController::class, 'mine']);
         Route::post('/vacations/mine', [VacationController::class, 'store']);
+        Route::patch('/vacations/{vacation}', [VacationController::class, 'update']);
         Route::delete('/vacations/{vacation}', [VacationController::class, 'cancel']);
-        Route::get('/vacations', [VacationController::class, 'index'])->middleware('permission:status.view');
-        Route::get('/users/{user}/vacations', [VacationController::class, 'userVacations'])->middleware('permission:users.view');
-        Route::post('/users/{user}/vacations', [VacationController::class, 'storeForUser'])->middleware('permission:users.manage');
+        Route::get('/vacations', [VacationController::class, 'index'])->middleware('permission:vacations.view,vacations.manage');
+        Route::get('/users/{user}/vacations', [VacationController::class, 'userVacations'])->middleware('permission:vacations.view,vacations.manage');
+        Route::post('/users/{user}/vacations', [VacationController::class, 'storeForUser'])->middleware('permission:vacations.manage');
 
         Route::get('/assets/mine', [AssetController::class, 'mine']);
         Route::post('/assets/mine', [AssetController::class, 'storeMine']);
@@ -416,15 +417,15 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/admin/settings', [AdminController::class, 'settings'])->middleware('permission:settings.manage');
         Route::patch('/admin/settings', [AdminController::class, 'updateSettings'])->middleware('permission:settings.manage');
         Route::get('/admin/knmi', [AdminKnmiController::class, 'show'])
-            ->middleware(['permission:settings.manage', 'throttle:knmi-admin-read']);
+            ->middleware(['permission:knmi.manage', 'throttle:knmi-admin-read']);
         Route::get('/admin/knmi/catalog', [AdminKnmiController::class, 'catalog'])
-            ->middleware(['permission:settings.manage', 'throttle:knmi-admin-read']);
+            ->middleware(['permission:knmi.manage', 'throttle:knmi-admin-read']);
         Route::patch('/admin/knmi', [AdminKnmiController::class, 'update'])
-            ->middleware(['permission:settings.manage', 'throttle:knmi-admin-write']);
+            ->middleware(['permission:knmi.manage', 'throttle:knmi-admin-write']);
         Route::post('/admin/knmi/refresh', [AdminKnmiController::class, 'refresh'])
-            ->middleware(['permission:settings.manage', 'throttle:knmi-admin-write']);
+            ->middleware(['permission:knmi.manage', 'throttle:knmi-admin-write']);
         Route::post('/admin/knmi/precipitation/refresh', [AdminKnmiController::class, 'refreshPrecipitation'])
-            ->middleware(['permission:settings.manage', 'throttle:knmi-admin-write']);
+            ->middleware(['permission:knmi.manage', 'throttle:knmi-admin-write']);
         Route::post('/admin/knmi/datasets/{dataset}/refresh', [AdminKnmiController::class, 'refreshDataset'])
             ->where('dataset', implode('|', [
                 'harmonie_arome_cy43_p1',
@@ -435,11 +436,13 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
                 'open_meteo',
                 'noaa_swpc_kp',
             ]))
-            ->middleware(['permission:settings.manage', 'throttle:knmi-admin-write']);
+            ->middleware(['permission:knmi.manage', 'throttle:knmi-admin-write']);
         Route::get('/admin/store-review/status', [AdminStoreReviewController::class, 'status'])->middleware('permission:settings.manage');
         Route::patch('/admin/store-review/accounts/{platform}', [AdminStoreReviewController::class, 'updateAccount'])->middleware(['permission:settings.manage', 'throttle:api']);
-        Route::post('/admin/branding/logo', [BrandingController::class, 'uploadLogo'])->middleware('permission:settings.manage');
-        Route::delete('/admin/branding/logo', [BrandingController::class, 'deleteLogo'])->middleware('permission:settings.manage');
+        Route::get('/admin/branding/settings', [AdminController::class, 'brandingSettings'])->middleware('permission:branding.manage');
+        Route::patch('/admin/branding/settings', [AdminController::class, 'updateBrandingSettings'])->middleware('permission:branding.manage');
+        Route::post('/admin/branding/logo', [BrandingController::class, 'uploadLogo'])->middleware('permission:branding.manage');
+        Route::delete('/admin/branding/logo', [BrandingController::class, 'deleteLogo'])->middleware('permission:branding.manage');
         Route::post('/admin/settings/mail/test', [AdminController::class, 'testMail'])->middleware('permission:settings.manage');
         Route::get('/admin/developer-access', [AdminDeveloperController::class, 'developerAccess'])->middleware('permission:system.developer-access.manage');
         Route::post('/admin/developer-access/key', [AdminDeveloperController::class, 'generateDeveloperKey'])->middleware('permission:system.developer-access.manage');
@@ -450,11 +453,11 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::post('/admin/system/update', [AdminDeveloperController::class, 'runUpdate'])->middleware('permission:system.update.execute');
         Route::post('/admin/system/reboot', [AdminDeveloperController::class, 'reboot'])->middleware('permission:system.reboot.execute');
         Route::get('/admin/routing/osrm', [AdminOsrmController::class, 'show'])
-            ->middleware(['permission:system.health.view,system.routing.manage', 'throttle:osrm-admin-read']);
+            ->middleware(['permission:system.routing.view,system.routing.manage', 'throttle:osrm-admin-read']);
         Route::post('/admin/routing/osrm/operations', [AdminOsrmController::class, 'store'])
             ->middleware(['permission:system.routing.manage', 'throttle:osrm-admin-write']);
         Route::get('/admin/routing/osrm/operations/{operation}', [AdminOsrmController::class, 'operation'])
-            ->middleware(['permission:system.health.view,system.routing.manage', 'throttle:osrm-admin-read']);
+            ->middleware(['permission:system.routing.view,system.routing.manage', 'throttle:osrm-admin-read']);
         Route::get('/admin/backups', [BackupController::class, 'index'])->middleware('permission:backups.manage');
         Route::patch('/admin/backups/settings', [BackupController::class, 'updateSettings'])->middleware('permission:backups.manage');
         Route::post('/admin/backups/samba-shares', [BackupController::class, 'sambaShares'])->middleware('permission:backups.manage');
@@ -478,13 +481,13 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/admin/updates/ios', [UpdateController::class, 'indexIos'])->middleware('permission:updates.manage');
         Route::post('/admin/updates/ios', [UpdateController::class, 'storeIos'])->middleware('permission:updates.manage');
         Route::patch('/admin/updates/ios/{version}', [UpdateController::class, 'update'])->middleware('permission:updates.manage');
-        Route::get('/admin/pilot-report/form-config', [PilotIncidentReportController::class, 'formConfig'])->middleware('permission:settings.manage');
-        Route::patch('/admin/pilot-report/form-config', [PilotIncidentReportController::class, 'updateFormConfig'])->middleware('permission:settings.manage');
-        Route::get('/admin/incident-form/config', [IncidentFormController::class, 'show'])->middleware('permission:settings.manage');
-        Route::patch('/admin/incident-form/config', [IncidentFormController::class, 'update'])->middleware('permission:settings.manage');
+        Route::get('/admin/pilot-report/form-config', [PilotIncidentReportController::class, 'formConfig'])->middleware('permission:forms.manage');
+        Route::patch('/admin/pilot-report/form-config', [PilotIncidentReportController::class, 'updateFormConfig'])->middleware('permission:forms.manage');
+        Route::get('/admin/incident-form/config', [IncidentFormController::class, 'show'])->middleware('permission:forms.manage,branding.manage');
+        Route::patch('/admin/incident-form/config', [IncidentFormController::class, 'update'])->middleware('permission:forms.manage');
         Route::get('/admin/health', [HealthController::class, 'admin'])->middleware('permission:system.health.view');
         Route::get('/admin/queues', [QueueMonitorController::class, 'index'])
-            ->middleware(['permission:system.health.view', 'throttle:system-metrics']);
+            ->middleware(['permission:system.queues.view,system.queues.manage', 'throttle:system-metrics']);
         Route::post('/admin/queues/{queue}/{workItem}/start', [QueueMonitorController::class, 'start'])
             ->where('queue', 'push')
             ->whereUlid('workItem')

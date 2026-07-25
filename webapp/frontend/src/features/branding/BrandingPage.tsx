@@ -114,7 +114,7 @@ const basePushVariables = [
 
 export function BrandingPage() {
   const { api } = useAuth();
-  const settings = useApiResource<SystemSetting[]>('/admin/settings');
+  const settings = useApiResource<SystemSetting[]>('/admin/branding/settings');
   const incidentFormConfig = useApiResource<IncidentFormConfig>('/admin/incident-form/config');
   const initialForm = useMemo(() => toBrandingForm(settings.data ?? []), [settings.data]);
   const incidentFieldVariables = useMemo(() => incidentFormVariables(incidentFormConfig.data?.fields ?? []), [incidentFormConfig.data?.fields]);
@@ -135,7 +135,7 @@ export function BrandingPage() {
     setError(null);
 
     try {
-      await api.patch('/admin/settings', {
+      await api.patch('/admin/branding/settings', {
         settings: {
           'app.brand_name': textSetting(form.brandName, 'D.I.S Operationeel Beeld'),
           'app.brand_short_name': textSetting(form.brandShortName, 'DIS'),

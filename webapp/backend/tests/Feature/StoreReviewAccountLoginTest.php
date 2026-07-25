@@ -86,6 +86,41 @@ final class StoreReviewAccountLoginTest extends TestCase
         ])->assertStatus(422)->assertJsonPath('error.code', 'invalid_credentials');
     }
 
+    public function test_reviewer_vacation_payload_supports_availability_and_updates_without_writes(): void
+    {
+        $this->configureAccount('google', 'Google-review-password-123!');
+        $login = $this->postJson('/api/auth/login', [
+            'email' => 'google-play-review@system.dis.local',
+            'password' => 'Google-review-password-123!',
+            'device_name' => 'Google Play Review',
+            'client_type' => 'operator_android',
+        ])->assertOk();
+        $token = (string) $login->json('data.token');
+
+        $this->withToken($token)
+            ->postJson('/api/vacations/mine', [
+                'starts_at' => today()->toDateString(),
+                'ends_at' => today()->addDay()->toDateString(),
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.is_available', false)
+            ->assertJsonPath('data.status', 'active')
+            ->assertJsonPath('data.user', null);
+
+        $this->withToken($token)
+            ->patchJson('/api/vacations/store-review-vacation', [
+                'starts_at' => today()->addDay()->toDateString(),
+                'ends_at' => today()->addDays(2)->toDateString(),
+                'is_available' => true,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.id', 'store-review-vacation')
+            ->assertJsonPath('data.is_available', true)
+            ->assertJsonPath('data.status', 'scheduled');
+
+        $this->assertDatabaseCount('availability_overrides', 0);
+    }
+
     public function test_reviewer_password_requires_all_character_groups_and_24_characters(): void
     {
         $rules = (new UpdateStoreReviewAccountRequest)->rules();

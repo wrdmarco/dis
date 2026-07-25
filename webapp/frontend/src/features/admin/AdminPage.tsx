@@ -20,7 +20,6 @@ import {
 } from './adminApiSettings';
 
 interface MobileSettingsForm {
-  tenantName: string;
   publicUrl: string;
   apiBaseUrl: string;
   firebaseApplicationId: string;
@@ -42,7 +41,6 @@ interface ManagedSettingsForm {
   mailMicrosoft365ClientSecret: string;
   mailMicrosoft365Sender: string;
   mailFromAddress: string;
-  mailFromName: string;
   firebaseProjectId: string;
   firebaseServiceClientEmail: string;
   firebaseServicePrivateKey: string;
@@ -63,7 +61,6 @@ interface ManagedSettingsForm {
 
 interface PasswordPolicySettingsForm {
   mfaRequired: boolean;
-  mfaIssuerName: string;
   minimumLength: string;
   requiresMixedCase: boolean;
   requiresNumbers: boolean;
@@ -131,8 +128,18 @@ interface DeveloperKeyForm {
 
 function adminTabAllowed(
   tab: AdminTab,
-  permissions: { canManageSettings: boolean; canManagePushTokens: boolean; canViewSystemHealth: boolean; canManageDeveloperAccess: boolean },
+  permissions: {
+    canManageSettings: boolean;
+    canManageForms: boolean;
+    canManagePushTokens: boolean;
+    canViewSystemHealth: boolean;
+    canManageDeveloperAccess: boolean;
+  },
 ): boolean {
+  if (tab === 'pilotReport' || tab === 'incidentForm') {
+    return permissions.canManageForms;
+  }
+
   if (tab === 'tokens') {
     return permissions.canManagePushTokens;
   }
@@ -152,19 +159,26 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const { api, isAuthenticated, hasPermission } = useAuth();
   const availableTabs = mode === 'forms' ? formTabs : adminTabs;
   const canManageSettings = hasPermission('settings.manage');
+  const canManageForms = hasPermission('forms.manage');
   const canManagePushTokens = hasPermission('settings.push.tokens.manage');
   const canViewSystemHealth = hasPermission('system.health.view');
   const canManageDeveloperAccess = hasPermission('system.developer-access.manage');
   const canExecuteSystemUpdate = hasPermission('system.update.execute');
   const canExecuteSystemReboot = hasPermission('system.reboot.execute');
-  const visibleAdminTabs = availableTabs.filter((tab) => adminTabAllowed(tab.id, { canManageSettings, canManagePushTokens, canViewSystemHealth, canManageDeveloperAccess }));
+  const visibleAdminTabs = availableTabs.filter((tab) => adminTabAllowed(tab.id, {
+    canManageSettings,
+    canManageForms,
+    canManagePushTokens,
+    canViewSystemHealth,
+    canManageDeveloperAccess,
+  }));
   const settings = useApiResource<SystemSetting[]>('/admin/settings', canManageSettings && mode === 'admin');
   const tokens = useApiResource<FcmToken[]>('/admin/push/tokens?per_page=100', canManagePushTokens && mode === 'admin');
   const developerAccess = useApiResource<DeveloperAccessState>('/admin/developer-access', canManageDeveloperAccess && mode === 'admin');
   const storeReviewStatus = useApiResource<StoreReviewStatus>('/admin/store-review/status', canManageSettings && mode === 'admin');
   const systemVersion = useApiResource<SystemVersionState>('/admin/system/version', canViewSystemHealth && mode === 'admin');
-  const pilotReportFormConfig = useApiResource<PilotReportFormConfig>('/admin/pilot-report/form-config', canManageSettings && mode === 'forms');
-  const incidentFormConfig = useApiResource<IncidentFormConfig>('/admin/incident-form/config', canManageSettings && mode === 'forms');
+  const pilotReportFormConfig = useApiResource<PilotReportFormConfig>('/admin/pilot-report/form-config', canManageForms && mode === 'forms');
+  const incidentFormConfig = useApiResource<IncidentFormConfig>('/admin/incident-form/config', canManageForms && mode === 'forms');
   const mobileSettings = useMemo(() => toMobileSettingsForm(settings.data ?? []), [settings.data]);
   const managedSettings = useMemo(() => toManagedSettingsForm(settings.data ?? []), [settings.data]);
   const adminApiSettings = useMemo(() => mapAdminApiSettings(settings.data ?? []), [settings.data]);
@@ -318,7 +332,6 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
 
       await api.patch('/admin/settings', {
         settings: {
-          'mobile.tenant_name': form.tenantName,
           'app.public_url': publicUrl,
           'mobile.api_base_url': normalizeApiBaseUrl(form.apiBaseUrl || publicUrl),
           'mobile.firebase_config': {
@@ -516,7 +529,6 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
         payload['mail.encryption'] = managedForm.mailEncryption;
         payload['mail.username'] = managedForm.mailUsername;
         payload['mail.from_address'] = managedForm.mailFromAddress;
-        payload['mail.from_name'] = managedForm.mailFromName;
         if (managedForm.mailPassword.trim() !== '') {
           payload['mail.password'] = managedForm.mailPassword;
         }
@@ -560,7 +572,6 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
           'security.password_requires_symbols': passwordPolicyForm.requiresSymbols,
           'security.password_uncompromised': passwordPolicyForm.uncompromised,
           'security.mfa_required': passwordPolicyForm.mfaRequired,
-          'security.mfa_issuer_name': passwordPolicyForm.mfaIssuerName.trim() || 'D.I.S',
         },
       });
       await settings.reload();
@@ -1010,10 +1021,6 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
             ) : null}
             <div className="form-grid">
               <label>
-                Tenantnaam
-                <input value={form.tenantName} onChange={(event) => setForm((current) => ({ ...current, tenantName: event.target.value }))} />
-              </label>
-              <label>
                 Publieke web URL
                 <input value={form.publicUrl} placeholder="https://dis.example.nl" onChange={(event) => setForm((current) => ({ ...current, publicUrl: event.target.value }))} />
               </label>
@@ -1113,10 +1120,6 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
                 <label>
                   Afzender e-mail
                   <input type="email" value={managedForm.mailFromAddress} onChange={(event) => setManagedForm((current) => ({ ...current, mailFromAddress: event.target.value }))} />
-                </label>
-                <label>
-                  Afzender naam
-                  <input value={managedForm.mailFromName} onChange={(event) => setManagedForm((current) => ({ ...current, mailFromName: event.target.value }))} />
                 </label>
                 <label>
                   SMTP host
@@ -1253,14 +1256,6 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
               MFA verplichten voor alle gebruikers
             </label>
             <p className="form-note form-grid__wide">Beheerders en coördinatoren met toegang tot webbeheer gebruiken altijd MFA, ook als deze algemene instelling uit staat.</p>
-            <label>
-              Authenticator naam
-              <input
-                maxLength={64}
-                value={passwordPolicyForm.mfaIssuerName}
-                onChange={(event) => setPasswordPolicyForm((current) => ({ ...current, mfaIssuerName: event.target.value }))}
-              />
-            </label>
             <label>
               Minimum lengte
               <input
@@ -3093,7 +3088,6 @@ function toMobileSettingsForm(settings: SystemSetting[]): MobileSettingsForm {
   const firebase = asRecord(byKey.get('mobile.firebase_config'));
 
   return {
-    tenantName: asString(byKey.get('mobile.tenant_name')),
     publicUrl: asString(byKey.get('app.public_url')),
     apiBaseUrl: asString(byKey.get('mobile.api_base_url')),
     firebaseApplicationId: asString(firebase.application_id),
@@ -3121,7 +3115,6 @@ function toManagedSettingsForm(settings: SystemSetting[]): ManagedSettingsForm {
     mailMicrosoft365ClientSecret: '',
     mailMicrosoft365Sender: asString(byKey.get('mail.microsoft365_sender')),
     mailFromAddress: asString(byKey.get('mail.from_address')),
-    mailFromName: asString(byKey.get('mail.from_name')),
     firebaseProjectId: asString(byKey.get('firebase.project_id')),
     firebaseServiceClientEmail: asString(serviceAccount.client_email),
     firebaseServicePrivateKey: '',
@@ -3186,7 +3179,6 @@ function toPasswordPolicySettingsForm(settings: SystemSetting[]): PasswordPolicy
 
   return {
     mfaRequired: asBoolean(byKey.get('security.mfa_required'), true),
-    mfaIssuerName: asString(byKey.get('security.mfa_issuer_name')) || 'D.I.S',
     minimumLength: asStringOrNumber(byKey.get('security.password_min_length'), '14'),
     requiresMixedCase: asBoolean(byKey.get('security.password_requires_mixed_case'), true),
     requiresNumbers: asBoolean(byKey.get('security.password_requires_numbers'), true),

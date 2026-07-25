@@ -94,7 +94,7 @@ final class QueueActionSynchronousCompletionTest extends TestCase
             'can_use_admin_app' => true,
             'can_use_operator_app' => false,
         ]);
-        foreach (['system.health.view', 'system.queues.manage'] as $permissionName) {
+        foreach (['system.queues.view', 'system.queues.manage'] as $permissionName) {
             $permission = Permission::query()->firstOrCreate(
                 ['name' => $permissionName],
                 [

@@ -53,14 +53,14 @@ export function createRealtime(options: RealtimeOptions): Echo<'reverb'> | null 
       .listen('.asset.changed', options.onOperationalEvent);
   }
 
-  if (options.onSystemUpdateStatus !== undefined || options.onOsrmOperationStatus !== undefined) {
-    const systemChannel = echo.private('admin.system');
-    if (options.onSystemUpdateStatus !== undefined) {
-      systemChannel.listen('.system.update.status', options.onSystemUpdateStatus);
-    }
-    if (options.onOsrmOperationStatus !== undefined) {
-      systemChannel.listen('.routing.osrm.status', options.onOsrmOperationStatus);
-    }
+  if (options.onSystemUpdateStatus !== undefined) {
+    echo.private('admin.system')
+      .listen('.system.update.status', options.onSystemUpdateStatus);
+  }
+
+  if (options.onOsrmOperationStatus !== undefined) {
+    echo.private('admin.routing')
+      .listen('.routing.osrm.status', options.onOsrmOperationStatus);
   }
 
   return echo;

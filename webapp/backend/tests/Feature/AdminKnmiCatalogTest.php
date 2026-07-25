@@ -36,7 +36,7 @@ final class AdminKnmiCatalogTest extends TestCase
             ->getJson('/api/admin/knmi/catalog')
             ->assertForbidden();
 
-        $manager = $this->user('knmi-catalog-manager@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-catalog-manager@example.test', ['knmi.manage']);
         $this->asAdminClient($manager)
             ->getJson('/api/admin/knmi/catalog?status=deleted')
             ->assertUnprocessable();
@@ -56,7 +56,7 @@ final class AdminKnmiCatalogTest extends TestCase
         Http::fake([
             self::SEARCH_URL.'*' => Http::response($this->catalogPayload(), 200),
         ]);
-        $manager = $this->user('knmi-catalog-search@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-catalog-search@example.test', ['knmi.manage']);
         $url = '/api/admin/knmi/catalog?query=radar&page=2&per_page=1&status=ongoing&license=CC-BY-4.0';
 
         $response = $this->asAdminClient($manager)
@@ -127,7 +127,7 @@ final class AdminKnmiCatalogTest extends TestCase
             ->push($this->catalogPayload(), 200)
             ->pushStatus(503)
             ->pushStatus(503);
-        $manager = $this->user('knmi-catalog-fallback@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-catalog-fallback@example.test', ['knmi.manage']);
 
         CarbonImmutable::setTestNow('2026-07-23T12:00:00Z');
         try {

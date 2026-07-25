@@ -50,11 +50,12 @@ test('exposes Wachtrijen as a protected management page immediately before Syste
   const queueIndex = navigation.indexOf("to: '/queues', label: 'Wachtrijen'");
   const systemIndex = navigation.indexOf("to: '/system', label: 'Systeem'");
 
-  expect(route).toContain("permissions={['system.health.view']}");
+  expect(route).toContain('<ProtectedShell {...webRouteAccess.queues}>');
   expect(queueIndex).toBeGreaterThan(-1);
   expect(systemIndex).toBeGreaterThan(queueIndex);
   expect(navigation).toContain("'/queues': () => import('../features/queues/QueuePage')");
-  expect(routeShell).toContain("{ to: '/queues', permissions: ['system.health.view'] }");
+  expect(navigation).toContain("{ to: '/queues', label: 'Wachtrijen', icon: ListTodo, ...webRouteAccess.queues }");
+  expect(routeShell).toContain("{ to: '/queues', ...webRouteAccess.queues }");
 });
 
 test('renders one minimal work list with only the three operational states', () => {

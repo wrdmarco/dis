@@ -63,7 +63,7 @@ const KNMI_CATALOG_SEARCH_DELAY_MS = 300;
 
 export function KnmiAdminPage() {
   const { api, hasPermission } = useAuth();
-  const canManage = hasPermission('settings.manage');
+  const canManage = hasPermission('knmi.manage');
   const status = useApiResource<KnmiAdminStatus>('/admin/knmi', canManage);
   const [catalogSearchInput, setCatalogSearchInput] = useState('');
   const [catalogQuery, setCatalogQuery] = useState('');

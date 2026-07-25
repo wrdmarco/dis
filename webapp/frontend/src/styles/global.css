@@ -3809,6 +3809,132 @@ select[multiple] {
   line-height: 1.45;
 }
 
+.vacation-planner {
+  gap: 16px;
+}
+
+.vacation-planner__form {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background: var(--dis-field);
+  padding: 14px;
+}
+
+.vacation-planner__form-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.vacation-planner__form-heading > div,
+.vacation-planner__form-heading span {
+  display: grid;
+  gap: 3px;
+}
+
+.vacation-planner__form-heading strong,
+.vacation-planner__empty strong,
+.vacation-card strong {
+  color: var(--dis-text-strong);
+}
+
+.vacation-planner__form-heading span,
+.vacation-planner__empty span,
+.vacation-card__date span {
+  color: var(--dis-muted);
+  font-size: 0.88rem;
+}
+
+.vacation-planner__fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.vacation-planner__fields label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--dis-muted-strong);
+  font-weight: 650;
+}
+
+.vacation-planner__submit {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.vacation-planner__empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 76px;
+  border: 1px dashed var(--dis-border-strong);
+  border-radius: 8px;
+  color: var(--dis-blue);
+  padding: 14px;
+}
+
+.vacation-planner__empty > div {
+  display: grid;
+  gap: 3px;
+}
+
+.vacation-card-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.vacation-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background: var(--dis-field);
+  padding: 14px;
+}
+
+.vacation-card__date {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--dis-blue);
+}
+
+.vacation-card__date > div,
+.vacation-card__details {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.vacation-card__details {
+  justify-items: start;
+}
+
+.vacation-card__details p {
+  margin: 0;
+  color: var(--dis-text);
+  overflow-wrap: anywhere;
+}
+
+.vacation-card__details .muted-text {
+  margin: 0;
+}
+
+.vacation-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .device-management-card {
   display: flex;
   align-items: flex-start;
@@ -13355,6 +13481,19 @@ pre {
     display: grid;
   }
 
+  .vacation-planner__fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .vacation-card {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .vacation-card__actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
   .device-management-card,
   .device-card,
   .device-pairing-grid {
@@ -13390,6 +13529,27 @@ pre {
 }
 
 @media (max-width: 680px) {
+  .vacation-planner__form-heading,
+  .vacation-planner__fields,
+  .vacation-card {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .vacation-planner__form-heading .secondary-button,
+  .vacation-planner__submit .primary-button,
+  .vacation-card__actions,
+  .vacation-card__actions .secondary-button,
+  .vacation-card__actions .danger-button {
+    width: 100%;
+  }
+
+  .vacation-card__actions {
+    display: grid;
+    grid-column: auto;
+    grid-template-columns: 1fr;
+  }
+
   .device-card__meta {
     grid-template-columns: 1fr;
   }

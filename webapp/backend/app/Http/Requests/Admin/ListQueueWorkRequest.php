@@ -9,7 +9,10 @@ final class ListQueueWorkRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->hasPermission('system.health.view') === true;
+        $user = $this->user();
+
+        return $user?->hasPermission('system.queues.view') === true
+            || $user?->hasPermission('system.queues.manage') === true;
     }
 
     /** @return array<string, mixed> */

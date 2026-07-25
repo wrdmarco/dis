@@ -10,6 +10,7 @@ import { droneTypeLabel } from '../../lib/droneTypes';
 import { countryOptions, regionOptionsForCountry } from '../../lib/profileLocation';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
+import { VacationPlanner } from '../vacations/VacationPlanner';
 import type { Asset, AvailabilityOverride, AvailabilitySchedule, AvailabilityScheduleDay, Certification, DroneType, FcmToken, MobilePairingClientType, MobilePairingCode, TwoFactorSetup, User, UserCertification } from '../../types/api';
 
 type OwnAssetStatus = 'ready' | 'maintenance' | 'unavailable';
@@ -786,6 +787,8 @@ export function ProfilePage() {
           ) : null}
         </ResourceState>
       </Panel>
+
+      <VacationPlanner scope="mine" onChanged={schedule.reload} />
 
       {workPlanOpen && workPlanDraft !== null && schedule.data !== null ? (
         <div className="modal-backdrop" role="presentation">

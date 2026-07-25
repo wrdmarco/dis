@@ -229,10 +229,20 @@ function permissionCategoryLabel(category: string): string {
       return 'Incidentalarmering';
     case 'status_management':
       return 'Operationele status';
+    case 'vacation_management':
+      return 'Vakantieplanning';
     case 'asset_management':
       return 'Middelen';
     case 'certification_management':
       return 'Certificaten';
+    case 'expiry_management':
+      return 'Verloop';
+    case 'form_configuration':
+      return 'Formulieren';
+    case 'weather_configuration':
+      return 'Weer en KNMI';
+    case 'branding_configuration':
+      return 'Branding';
     case 'audit_log_access':
       return 'Audit';
     case 'update_management':
@@ -251,7 +261,17 @@ function permissionCategoryDescription(category: string): string | null {
     case 'incident_management':
       return 'Incidentregistratie, incidentstatus en incidentalarmering staan bij elkaar, maar blijven aparte rechten zodat iemand niet automatisch mag alarmeren omdat hij incidentgegevens mag aanpassen.';
     case 'system_configuration':
-      return 'Systeeminstellingen, formulieren, branding, backups en pushbeheer zijn apart te verlenen. Push tokens intrekken is los van handmatige pushmeldingen versturen.';
+      return 'Technische systeemfuncties, backups en pushbeheer zijn apart te verlenen. Push tokens intrekken is los van handmatige pushmeldingen versturen.';
+    case 'expiry_management':
+      return 'Toegang tot het centrale verloopoverzicht staat los van toegang tot afzonderlijke middelen- en certificaatgegevens.';
+    case 'vacation_management':
+      return 'Eigen periodes plannen blijft voor iedere gebruiker beschikbaar. Deze rechten bepalen alleen wie de vakantieplanning van anderen mag bekijken of beheren.';
+    case 'form_configuration':
+      return 'Beheer de dynamische incident- en inzetrapportformulieren zonder toegang tot overige systeeminstellingen.';
+    case 'weather_configuration':
+      return 'Beheer KNMI-bronnen, datasets en handmatige weerdata-updates.';
+    case 'branding_configuration':
+      return 'Beheer huisstijl, logo en berichttemplates zonder toegang tot technische systeeminstellingen.';
     default:
       return null;
   }

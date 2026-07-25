@@ -1,11 +1,12 @@
 'use client';
 
 import { AdminPage } from '../../src/features/admin/AdminPage';
+import { webRouteAccess } from '../../src/features/auth/webRouteAccess';
 import { ProtectedShell } from '../../src/next/RouteShell';
 
 export default function Page() {
   return (
-    <ProtectedShell permissions={['settings.manage', 'settings.push.tokens.manage', 'system.health.view', 'system.developer-access.manage']} anyPermission>
+    <ProtectedShell {...webRouteAccess.admin}>
       <AdminPage />
     </ProtectedShell>
   );

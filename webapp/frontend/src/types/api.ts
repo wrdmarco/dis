@@ -1298,7 +1298,8 @@ export interface UserVacation {
   user_id: string;
   starts_at: string;
   ends_at: string;
-  status: 'scheduled' | 'active' | 'cancelled' | 'completed';
+  is_available: boolean;
+  status: 'scheduled' | 'active';
   note?: string | null;
   user?: Pick<User, 'id' | 'name' | 'email'> | null;
 }

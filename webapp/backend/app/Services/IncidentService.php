@@ -41,6 +41,7 @@ final class IncidentService
         private readonly IncidentFormService $incidentFormService,
         private readonly LocationService $locationService,
         private readonly StatusService $statusService,
+        private readonly AvailabilityScheduleResolver $availabilityScheduleResolver,
     ) {}
 
     /**
@@ -195,7 +196,7 @@ final class IncidentService
 
             if (array_key_exists('status', $data) && $data['status'] !== $beforeStatus && in_array($data['status'], ['resolved', 'cancelled'], true)) {
                 $this->locationService->stopForIncident($incident->refresh(), $actor);
-                $this->resetAcceptedRecipientsToAvailable($incident->refresh(), $actor, $data['status']);
+                $this->resetAcceptedRecipientsToScheduledAvailability($incident->refresh(), $actor, $data['status']);
                 DB::afterCommit(fn () => GenerateIncidentReport::dispatch((string) $incident->getKey()));
             }
 
@@ -372,7 +373,7 @@ final class IncidentService
 
             $this->locationService->stopForIncident($incident, $actor);
             if (! in_array($incident->status, ['resolved', 'cancelled'], true)) {
-                $this->resetAcceptedRecipientsToAvailable($incident, $actor, 'deleted');
+                $this->resetAcceptedRecipientsToScheduledAvailability($incident, $actor, 'deleted');
             }
             $this->broadcastIncidentChange($incident, 'deleted');
             $incident->forceDelete();
@@ -599,17 +600,11 @@ final class IncidentService
         $incident->forceFill(['drone_flight_context' => $context])->save();
     }
 
-    private function resetAcceptedRecipientsToAvailable(Incident $incident, User $actor, string $terminalStatus): void
+    private function resetAcceptedRecipientsToScheduledAvailability(Incident $incident, User $actor, string $terminalStatus): void
     {
         $incident->load([
             'dispatchRequests.recipients.user',
         ]);
-
-        $reason = match ($terminalStatus) {
-            'resolved' => 'Incident afgerond; gebruiker automatisch weer beschikbaar gezet.',
-            'deleted' => 'Incident verwijderd; gebruiker automatisch weer beschikbaar gezet.',
-            default => 'Incident geannuleerd; gebruiker automatisch weer beschikbaar gezet.',
-        };
 
         $incident->dispatchRequests
             ->whereIn('status', ['sent', 'escalated'])
@@ -618,7 +613,28 @@ final class IncidentService
                 && $recipient->user !== null
                 && (bool) $recipient->user->push_enabled)
             ->unique('user_id')
-            ->each(fn ($recipient) => $this->statusService->setStatus($recipient->user, 'available', $actor, $reason, true));
+            ->each(function ($recipient) use ($actor, $terminalStatus): void {
+                try {
+                    $isAvailable = $this->availabilityScheduleResolver
+                        ->availabilityFor($recipient->user)['is_available'];
+                    $targetStatus = $isAvailable ? 'available' : 'unavailable';
+                    $reason = match ($terminalStatus) {
+                        'resolved' => $isAvailable
+                            ? 'Incident afgerond; gebruiker automatisch weer beschikbaar gezet.'
+                            : 'Incident afgerond; gebruiker volgens de beschikbaarheidsplanning niet beschikbaar gezet.',
+                        'deleted' => $isAvailable
+                            ? 'Incident verwijderd; gebruiker automatisch weer beschikbaar gezet.'
+                            : 'Incident verwijderd; gebruiker volgens de beschikbaarheidsplanning niet beschikbaar gezet.',
+                        default => $isAvailable
+                            ? 'Incident geannuleerd; gebruiker automatisch weer beschikbaar gezet.'
+                            : 'Incident geannuleerd; gebruiker volgens de beschikbaarheidsplanning niet beschikbaar gezet.',
+                    };
+
+                    $this->statusService->setStatus($recipient->user, $targetStatus, $actor, $reason, true);
+                } catch (Throwable $exception) {
+                    report($exception);
+                }
+            });
     }
 
     private function broadcastIncidentChange(Incident $incident, string $action): void

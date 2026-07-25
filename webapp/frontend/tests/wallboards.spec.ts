@@ -1565,11 +1565,11 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   const newsQr = readFileSync(new URL('../src/features/wallboards/WallboardNewsQrCode.tsx', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
 
-  expect(adminRoute).toContain("permissions={['wallboards.manage']}");
+  expect(adminRoute).toContain('<ProtectedShell {...webRouteAccess.wallboards}>');
   expect(createRoute).toContain("permissions={['wallboards.manage']}");
   expect(createRoute).toContain('<WallboardCreatePage />');
   expect(navigation).toContain("to: '/wallboards', label: 'Wallboards'");
-  expect(navigation).toContain("permissions: ['wallboards.manage']");
+  expect(navigation).toContain("{ to: '/wallboards', label: 'Wallboards', icon: MonitorCog, ...webRouteAccess.wallboards }");
   expect(kioskRoute).not.toContain('ProtectedShell');
   expect(providers).toContain("pathname === '/wallboard'");
   expect(kiosk).not.toContain('useAuth');

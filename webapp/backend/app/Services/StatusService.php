@@ -7,7 +7,6 @@ use App\Events\IncidentChanged;
 use App\Models\AvailabilityStatus;
 use App\Models\Incident;
 use App\Models\User;
-use App\Models\UserVacation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -18,6 +17,7 @@ final class StatusService
         private readonly AuditService $auditService,
         private readonly LocationService $locationService,
         private readonly PilotIncidentReportService $pilotIncidentReportService,
+        private readonly AvailabilityScheduleResolver $availabilityScheduleResolver,
     ) {}
 
     public function setStatus(User $user, string $status, ?User $actor, ?string $reason = null, bool $systemApplied = false): AvailabilityStatus
@@ -26,8 +26,8 @@ final class StatusService
             $previousStatus = $this->latestStatus($user);
             $isAvailable = $status === 'available';
 
-            if ($isAvailable && $this->hasActiveVacation($user)) {
-                throw ValidationException::withMessages(['status' => ['Deze gebruiker staat op vakantie en kan niet beschikbaar worden gezet.']]);
+            if ($isAvailable && ! $systemApplied && ! $this->availabilityScheduleResolver->availabilityFor($user)['is_available']) {
+                throw ValidationException::withMessages(['status' => ['Deze gebruiker heeft voor vandaag een niet-beschikbare planning en kan niet beschikbaar worden gezet.']]);
             }
 
             if ($isAvailable && ! $user->push_enabled) {
@@ -187,16 +187,6 @@ final class StatusService
         } catch (Throwable $exception) {
             report($exception);
         }
-    }
-
-    private function hasActiveVacation(User $user): bool
-    {
-        return UserVacation::query()
-            ->where('user_id', $user->id)
-            ->open()
-            ->whereDate('starts_at', '<=', today())
-            ->whereDate('ends_at', '>=', today())
-            ->exists();
     }
 
     private function latestStatus(User $user): ?AvailabilityStatus

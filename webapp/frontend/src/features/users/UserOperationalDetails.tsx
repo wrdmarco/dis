@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Panel } from '../../components/Panel';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
@@ -8,8 +8,9 @@ import { assetDisplayLabel } from '../../lib/assetLabels';
 import { formatDateOnly, formatDateTime, todayAmsterdamDateInputValue } from '../../lib/dateTime';
 import { uniqueOperatorDevices } from '../../lib/devicePresence';
 import { droneTypeLabel } from '../../lib/droneTypes';
-import type { Asset, Certification, User, UserVacation } from '../../types/api';
+import type { Asset, Certification, User } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
+import { VacationPlanner } from '../vacations/VacationPlanner';
 
 interface UserOperationalDetailsProps {
   user: User | null;
@@ -23,6 +24,7 @@ interface UserOperationalDetailsProps {
   certificationsError: string | null;
   canManageAssets: boolean;
   canManageCertifications: boolean;
+  canViewVacations: boolean;
   canManageVacations: boolean;
   onChanged: () => Promise<void>;
 }
@@ -39,6 +41,7 @@ export function UserOperationalDetails({
   certificationsError,
   canManageAssets,
   canManageCertifications,
+  canViewVacations,
   canManageVacations,
   onChanged,
 }: UserOperationalDetailsProps) {
@@ -56,47 +59,9 @@ export function UserOperationalDetails({
   const [issuedAt, setIssuedAt] = useState(todayInputValue);
   const [expiresAt, setExpiresAt] = useState('');
   const [certificateNumber, setCertificateNumber] = useState('');
-  const [vacations, setVacations] = useState<UserVacation[]>([]);
-  const [vacationsLoading, setVacationsLoading] = useState(false);
-  const [vacationStartsAt, setVacationStartsAt] = useState(todayInputValue);
-  const [vacationEndsAt, setVacationEndsAt] = useState(todayInputValue);
-  const [vacationNote, setVacationNote] = useState('');
   const [linking, setLinking] = useState(false);
-  const [vacationError, setVacationError] = useState<string | null>(null);
   const [certificationActionError, setCertificationActionError] = useState<string | null>(null);
   const [assetActionError, setAssetActionError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!canManageVacations || userId === null) {
-      setVacations([]);
-      setVacationsLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setVacationsLoading(true);
-    setVacationError(null);
-    api.get<UserVacation[]>(`/users/${userId}/vacations`)
-      .then((response) => {
-        if (!cancelled) {
-          setVacations(response.data);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setVacationError(err instanceof ApiClientError ? err.message : 'Vakanties laden mislukt.');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setVacationsLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [api, canManageVacations, userId]);
 
   async function assignAsset() {
     if (userId === null || assetId === '') {
@@ -143,91 +108,15 @@ export function UserOperationalDetails({
     }
   }
 
-  async function createVacation() {
-    if (userId === null) {
-      return;
-    }
-
-    setLinking(true);
-    setVacationError(null);
-    try {
-      const response = await api.post<UserVacation>(`/users/${userId}/vacations`, {
-        starts_at: vacationStartsAt,
-        ends_at: vacationEndsAt,
-        note: vacationNote.trim() === '' ? null : vacationNote.trim(),
-      });
-      setVacations((current) => [...current, response.data].sort((a, b) => a.starts_at.localeCompare(b.starts_at)));
-      setVacationStartsAt(todayInputValue());
-      setVacationEndsAt(todayInputValue());
-      setVacationNote('');
-    } catch (err) {
-      setVacationError(err instanceof ApiClientError ? err.message : 'Vakantie opslaan mislukt.');
-    } finally {
-      setLinking(false);
-    }
-  }
-
-  async function cancelVacation(vacation: UserVacation) {
-    setLinking(true);
-    setVacationError(null);
-    try {
-      await api.delete(`/vacations/${vacation.id}`);
-      setVacations((current) => current.filter((candidate) => candidate.id !== vacation.id));
-    } catch (err) {
-      setVacationError(err instanceof ApiClientError ? err.message : 'Vakantie intrekken mislukt.');
-    } finally {
-      setLinking(false);
-    }
-  }
-
   return (
     <>
-      {canManageVacations ? (
-        <Panel title="Vakanties">
-          <div className="panel-body">
-            {vacationError ? <p className="form-error" role="alert">{vacationError}</p> : null}
-            <div className="inline-form inline-form--compact">
-              <label>
-                Begindatum
-                <input type="date" value={vacationStartsAt} onChange={(event) => setVacationStartsAt(event.target.value)} disabled={userId === null} />
-              </label>
-              <label>
-                Einddatum
-                <input type="date" value={vacationEndsAt} onChange={(event) => setVacationEndsAt(event.target.value)} disabled={userId === null} />
-              </label>
-              <label>
-                Notitie
-                <input value={vacationNote} maxLength={1000} onChange={(event) => setVacationNote(event.target.value)} disabled={userId === null} />
-              </label>
-              <button className="primary-button" type="button" disabled={linking || userId === null || vacationStartsAt === '' || vacationEndsAt === ''} onClick={() => void createVacation()}>
-                Toevoegen
-              </button>
-            </div>
-            {vacationsLoading ? <p className="muted-text">Vakanties laden...</p> : null}
-            {!vacationsLoading && vacations.length === 0 ? <p className="muted-text">Geen open vakanties geregistreerd.</p> : null}
-            {vacations.length > 0 ? (
-              <table className="data-table compact-table">
-                <thead><tr><th scope="col">Begin</th><th scope="col">Eind</th><th scope="col">Status</th><th scope="col">Notitie</th><th scope="col">Actie</th></tr></thead>
-                <tbody>
-                  {vacations.map((vacation) => (
-                    <tr key={vacation.id}>
-                      <td>{formatDate(vacation.starts_at)}</td>
-                      <td>{formatDate(vacation.ends_at)}</td>
-                      <td><StatusPill value={vacation.status} tone={vacation.status === 'active' ? 'warn' : 'neutral'} /></td>
-                      <td>{vacation.note ?? '-'}</td>
-                      <td>
-                        {vacation.status === 'scheduled' || vacation.status === 'active' ? (
-                          <button className="secondary-button" type="button" disabled={linking} onClick={() => void cancelVacation(vacation)}>Intrekken</button>
-                        ) : '-'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : null}
-          </div>
-        </Panel>
-      ) : null}
+      <VacationPlanner
+        scope="user"
+        userId={userId ?? undefined}
+        canView={canViewVacations}
+        canManage={canManageVacations}
+        onChanged={onChanged}
+      />
 
       <Panel title="Certificaten">
         <div className="panel-body">

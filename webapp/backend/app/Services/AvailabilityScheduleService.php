@@ -14,20 +14,15 @@ final class AvailabilityScheduleService
 {
     private const DAY_PART_ALL_DAY = 'all_day';
 
-    private const DAY_PART_MORNING = 'morning';
-
-    private const DAY_PART_AFTERNOON = 'afternoon';
-
-    private const DAY_PART_EVENING = 'evening';
-
     public function __construct(
         private readonly AuditService $auditService,
         private readonly StatusService $statusService,
+        private readonly AvailabilityScheduleResolver $resolver,
     ) {}
 
     public function isAvailable(User $user, ?CarbonImmutable $date = null): bool
     {
-        return $this->availabilityFor($user, $date)['is_available'];
+        return $this->resolver->availabilityFor($user, $date)['is_available'];
     }
 
     /**
@@ -39,44 +34,7 @@ final class AvailabilityScheduleService
      */
     public function availabilityByUser(Collection $users, ?CarbonImmutable $date = null): array
     {
-        $date ??= CarbonImmutable::now();
-        $userIds = $users->pluck('id')->map(fn (mixed $id): string => (string) $id)->unique()->values();
-        if ($userIds->isEmpty()) {
-            return [];
-        }
-
-        $dayPart = $this->dayPartFor($date);
-        $overrides = AvailabilityOverride::query()
-            ->whereIn('user_id', $userIds)
-            ->whereDate('starts_at', '<=', $date->toDateString())
-            ->whereDate('ends_at', '>=', $date->toDateString())
-            ->whereIn('day_part', [self::DAY_PART_ALL_DAY, $dayPart])
-            ->orderByRaw('case when day_part = ? then 0 else 1 end', [$dayPart])
-            ->orderByDesc('updated_at')
-            ->orderByDesc('id')
-            ->get(['id', 'user_id', 'day_part', 'is_available', 'updated_at'])
-            ->unique(fn (AvailabilityOverride $override): string => (string) $override->user_id)
-            ->keyBy(fn (AvailabilityOverride $override): string => (string) $override->user_id);
-        $patterns = AvailabilityWeekPattern::query()
-            ->whereIn('user_id', $userIds)
-            ->where('day_of_week', $date->dayOfWeekIso)
-            ->whereIn('day_part', [self::DAY_PART_ALL_DAY, $dayPart])
-            ->orderByRaw('case when day_part = ? then 0 else 1 end', [$dayPart])
-            ->orderByDesc('updated_at')
-            ->orderByDesc('id')
-            ->get(['id', 'user_id', 'day_part', 'is_available', 'updated_at'])
-            ->unique(fn (AvailabilityWeekPattern $pattern): string => (string) $pattern->user_id)
-            ->keyBy(fn (AvailabilityWeekPattern $pattern): string => (string) $pattern->user_id);
-
-        return $users->mapWithKeys(function (User $user) use ($overrides, $patterns): array {
-            $userId = (string) $user->id;
-            $override = $overrides->get($userId);
-            $pattern = $patterns->get($userId);
-
-            return [$userId => $override instanceof AvailabilityOverride
-                ? (bool) $override->is_available
-                : ($pattern instanceof AvailabilityWeekPattern ? (bool) $pattern->is_available : true)];
-        })->all();
+        return $this->resolver->availabilityByUser($users, $date);
     }
 
     /**
@@ -92,8 +50,12 @@ final class AvailabilityScheduleService
             ->chunkById(100, function (Collection $users) use ($actor, &$checked, &$updated): void {
                 foreach ($users as $user) {
                     $checked++;
-                    if ($this->syncCurrentStatusForToday($user, $actor)) {
-                        $updated++;
+                    try {
+                        if ($this->syncCurrentStatusForToday($user, $actor)) {
+                            $updated++;
+                        }
+                    } catch (\Throwable $exception) {
+                        report($exception);
                     }
                 }
             });
@@ -106,45 +68,7 @@ final class AvailabilityScheduleService
      */
     public function availabilityFor(User $user, ?CarbonImmutable $date = null): array
     {
-        $date ??= CarbonImmutable::now();
-        $dayPart = $this->dayPartFor($date);
-
-        $override = AvailabilityOverride::query()
-            ->where('user_id', $user->id)
-            ->whereDate('starts_at', '<=', $date->toDateString())
-            ->whereDate('ends_at', '>=', $date->toDateString())
-            ->whereIn('day_part', [self::DAY_PART_ALL_DAY, $dayPart])
-            ->orderByRaw('case when day_part = ? then 0 else 1 end', [$dayPart])
-            ->latest('updated_at')
-            ->first();
-        if ($override !== null) {
-            return [
-                'is_available' => (bool) $override->is_available,
-                'source' => 'override',
-                'note' => $override->note,
-            ];
-        }
-
-        $pattern = AvailabilityWeekPattern::query()
-            ->where('user_id', $user->id)
-            ->where('day_of_week', $date->dayOfWeekIso)
-            ->whereIn('day_part', [self::DAY_PART_ALL_DAY, $dayPart])
-            ->orderByRaw('case when day_part = ? then 0 else 1 end', [$dayPart])
-            ->latest('updated_at')
-            ->first();
-        if ($pattern !== null) {
-            return [
-                'is_available' => (bool) $pattern->is_available,
-                'source' => 'week_pattern',
-                'note' => $pattern->note,
-            ];
-        }
-
-        return [
-            'is_available' => true,
-            'source' => 'default',
-            'note' => null,
-        ];
+        return $this->resolver->availabilityFor($user, $date);
     }
 
     /**
@@ -272,6 +196,55 @@ final class AvailabilityScheduleService
         return $override;
     }
 
+    /**
+     * @param  array{starts_at?: string, ends_at?: string, is_available: bool, note?: string|null}  $data
+     */
+    public function updateOverride(AvailabilityOverride $override, array $data, User $actor): AvailabilityOverride
+    {
+        return DB::transaction(function () use ($override, $data, $actor): AvailabilityOverride {
+            $override->loadMissing('user');
+            $user = $override->user;
+            if ($user === null) {
+                return $override;
+            }
+
+            $before = [
+                'starts_at' => $override->starts_at?->toDateString(),
+                'ends_at' => $override->ends_at?->toDateString(),
+                'day_part' => $override->day_part,
+                'is_available' => (bool) $override->is_available,
+                'note' => $override->note,
+            ];
+
+            $override->fill([
+                'starts_at' => $data['starts_at'] ?? $override->starts_at?->toDateString(),
+                'ends_at' => $data['ends_at'] ?? $override->ends_at?->toDateString(),
+                'is_available' => $data['is_available'],
+                'note' => array_key_exists('note', $data) ? $data['note'] : $override->note,
+            ])->save();
+
+            $after = [
+                'starts_at' => $override->starts_at?->toDateString(),
+                'ends_at' => $override->ends_at?->toDateString(),
+                'day_part' => $override->day_part,
+                'is_available' => (bool) $override->is_available,
+                'note' => $override->note,
+            ];
+            $changedFields = collect(array_keys($after))
+                ->filter(fn (string $field): bool => $before[$field] !== $after[$field])
+                ->values()
+                ->all();
+            $this->auditService->record('availability.override_updated', $user, $actor, [
+                'before' => collect($before)->except('note')->all(),
+                'after' => collect($after)->except('note')->all(),
+                'changed_fields' => $changedFields,
+            ]);
+            $this->syncCurrentStatusForToday($user, $actor);
+
+            return $override->refresh()->load('user');
+        });
+    }
+
     public function deleteOverride(AvailabilityOverride $override, User $actor): void
     {
         $user = $override->user;
@@ -297,7 +270,7 @@ final class AvailabilityScheduleService
             ->orderByDesc('id')
             ->first();
 
-        if ($latestStatus !== null && ! in_array($latestStatus->status, ['available', 'unavailable'], true)) {
+        if ($latestStatus !== null && ! in_array($latestStatus->status, ['available', 'unavailable', 'vacation'], true)) {
             return false;
         }
 
@@ -337,16 +310,5 @@ final class AvailabilityScheduleService
         usort($checkpoints, fn (CarbonImmutable $left, CarbonImmutable $right): int => $left <=> $right);
 
         return $checkpoints;
-    }
-
-    private function dayPartFor(CarbonImmutable $date): string
-    {
-        $hour = $date->hour;
-
-        return match (true) {
-            $hour < 12 => self::DAY_PART_MORNING,
-            $hour < 18 => self::DAY_PART_AFTERNOON,
-            default => self::DAY_PART_EVENING,
-        };
     }
 }

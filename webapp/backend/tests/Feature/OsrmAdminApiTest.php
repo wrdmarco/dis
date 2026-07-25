@@ -63,7 +63,7 @@ final class OsrmAdminApiTest extends TestCase
     {
         $this->getJson('/api/admin/routing/osrm')->assertUnauthorized();
 
-        $healthViewer = $this->user('osrm-health@example.test', ['system.health.view']);
+        $healthViewer = $this->user('osrm-health@example.test', ['system.routing.view']);
         $this->asAdminClient($healthViewer)
             ->getJson('/api/admin/routing/osrm')
             ->assertOk()
@@ -372,7 +372,7 @@ final class OsrmAdminApiTest extends TestCase
             json_encode(['version' => 2, 'seq' => 3, 'timestamp' => $now, 'stage' => 'invalid-stage', 'level' => 'info', 'message' => 'hidden'], JSON_THROW_ON_ERROR),
         ])."\n");
 
-        $healthViewer = $this->user('osrm-log-viewer@example.test', ['system.health.view']);
+        $healthViewer = $this->user('osrm-log-viewer@example.test', ['system.routing.view']);
         $feed = $this->asAdminClient($healthViewer)
             ->getJson('/api/admin/routing/osrm/operations/'.$operation->id.'?after=1&limit=1')
             ->assertOk()
@@ -498,7 +498,7 @@ final class OsrmAdminApiTest extends TestCase
         $manifest = $this->sourceManifest();
         array_pop($manifest['sources']);
         $this->writeReadyRuntimeStatus($manifest);
-        $actor = $this->user('osrm-partial-manifest@example.test', ['system.health.view']);
+        $actor = $this->user('osrm-partial-manifest@example.test', ['system.routing.view']);
 
         $response = $this->asAdminClient($actor)
             ->getJson('/api/admin/routing/osrm')

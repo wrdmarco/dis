@@ -5,10 +5,11 @@ import { usePathname, useRouter } from 'next/navigation';
 import { CommandLayout } from '../app/CommandLayout';
 import { ApiClientError } from '../lib/apiClient';
 import { useAuth } from '../features/auth/AuthContext';
+import { hasWebRouteAccess, webRouteAccess, type WebRouteAccess } from '../features/auth/webRouteAccess';
 
 interface ProtectedShellProps {
   children: React.ReactNode;
-  permissions?: string[];
+  permissions?: readonly string[];
   anyPermission?: boolean;
   allowProfileOnly?: boolean;
 }
@@ -20,17 +21,20 @@ const homeRedirectCandidates = [
   { to: '/operational-status', permissions: ['status.view'] },
   { to: '/users', permissions: ['users.view'] },
   { to: '/address-book', permissions: ['address-book.view'] },
-  { to: '/assets', permissions: ['assets.view'] },
-  { to: '/certifications', permissions: ['certifications.view'] },
-  { to: '/forms', permissions: ['settings.manage'] },
-  { to: '/admin', permissions: ['settings.manage'] },
-  { to: '/admin', permissions: ['settings.push.tokens.manage'] },
-  { to: '/admin', permissions: ['system.developer-access.manage'] },
-  { to: '/wallboards', permissions: ['wallboards.manage'] },
-  { to: '/routing', permissions: ['system.routing.manage'] },
-  { to: '/queues', permissions: ['system.health.view'] },
-  { to: '/system', permissions: ['system.health.view'] },
-] as const;
+  { to: '/assets', ...webRouteAccess.assets },
+  { to: '/certifications', ...webRouteAccess.certifications },
+  { to: '/expiry', ...webRouteAccess.expiry },
+  { to: '/forms', ...webRouteAccess.forms },
+  { to: '/admin', ...webRouteAccess.admin },
+  { to: '/knmi', ...webRouteAccess.knmi },
+  { to: '/branding', ...webRouteAccess.branding },
+  { to: '/audit', ...webRouteAccess.audit },
+  { to: '/backups', ...webRouteAccess.backups },
+  { to: '/wallboards', ...webRouteAccess.wallboards },
+  { to: '/routing', ...webRouteAccess.routing },
+  { to: '/queues', ...webRouteAccess.queues },
+  { to: '/system', ...webRouteAccess.system },
+] as const satisfies ReadonlyArray<{ to: string } & WebRouteAccess>;
 
 export function ProtectedShell({ children, permissions = [], anyPermission = false, allowProfileOnly = false }: ProtectedShellProps) {
   const { isAuthenticated, user, refreshMe, canUseWebConsole, hasPermission } = useAuth();
@@ -79,7 +83,7 @@ export function ProtectedShell({ children, permissions = [], anyPermission = fal
       return true;
     }
 
-    return anyPermission ? permissions.some(hasPermission) : permissions.every(hasPermission);
+    return hasWebRouteAccess({ permissions, anyPermission }, hasPermission);
   }, [allowProfileOnly, anyPermission, canUseWebConsole, hasPermission, permissions]);
 
   useEffect(() => {
@@ -124,7 +128,7 @@ export function HomeRedirect() {
       return '/profile';
     }
 
-    return homeRedirectCandidates.find((item) => item.permissions.every(hasPermission))?.to ?? '/profile';
+    return homeRedirectCandidates.find((item) => hasWebRouteAccess(item, hasPermission))?.to ?? '/profile';
   }, [canUseWebConsole, hasPermission, user]);
 
   useEffect(() => {

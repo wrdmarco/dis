@@ -48,7 +48,7 @@ final class AdminKnmiTest extends TestCase
             'value' => 'legacy-edr-key-123456',
             'is_sensitive' => true,
         ]);
-        $manager = $this->user('knmi-manager@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-manager@example.test', ['knmi.manage']);
         $response = $this->asAdminClient($manager)
             ->getJson('/api/admin/knmi')
             ->assertOk()
@@ -99,7 +99,7 @@ final class AdminKnmiTest extends TestCase
 
     public function test_manager_can_update_both_encrypted_keys_on_the_dedicated_page(): void
     {
-        $manager = $this->user('knmi-settings@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-settings@example.test', ['knmi.manage']);
         $openDataKey = 'open-data-public-key-123456';
         $edrKey = 'edr-observation-key-123456';
 
@@ -125,17 +125,15 @@ final class AdminKnmiTest extends TestCase
         }
         $this->assertDatabaseHas('audit_logs', ['action' => 'weather.knmi.settings_updated']);
 
-        $generic = $this->asAdminClient($manager)->getJson('/api/admin/settings')->assertOk();
-        $this->assertNotContains('weather.knmi_open_data_api_key', collect($generic->json('data'))->pluck('key')->all());
-        $this->assertNotContains('weather.knmi_edr_api_key', collect($generic->json('data'))->pluck('key')->all());
+        $this->asAdminClient($manager)->getJson('/api/admin/settings')->assertForbidden();
         $this->asAdminClient($manager)->patchJson('/api/admin/settings', [
             'settings' => ['weather.knmi_edr_api_key' => 'bypass-key-123456789'],
-        ])->assertUnprocessable();
+        ])->assertForbidden();
     }
 
     public function test_key_update_requires_at_least_one_valid_nonempty_key(): void
     {
-        $manager = $this->user('knmi-invalid@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-invalid@example.test', ['knmi.manage']);
 
         $this->asAdminClient($manager)->patchJson('/api/admin/knmi', [])
             ->assertUnprocessable()
@@ -152,7 +150,7 @@ final class AdminKnmiTest extends TestCase
     {
         CarbonImmutable::setTestNow('2026-07-23T14:01:30Z');
         try {
-            $manager = $this->user('knmi-schedule@example.test', ['settings.manage']);
+            $manager = $this->user('knmi-schedule@example.test', ['knmi.manage']);
             $datasets = collect(
                 $this->asAdminClient($manager)
                     ->getJson('/api/admin/knmi')
@@ -181,7 +179,7 @@ final class AdminKnmiTest extends TestCase
     {
         CarbonImmutable::setTestNow('2026-01-23T14:01:30Z');
         try {
-            $manager = $this->user('knmi-winter-schedule@example.test', ['settings.manage']);
+            $manager = $this->user('knmi-winter-schedule@example.test', ['knmi.manage']);
             $datasets = collect(
                 $this->asAdminClient($manager)
                     ->getJson('/api/admin/knmi')
@@ -206,7 +204,7 @@ final class AdminKnmiTest extends TestCase
             'value' => 'open-data-public-key-123456',
             'is_sensitive' => true,
         ]);
-        $manager = $this->user('knmi-refresh@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-refresh@example.test', ['knmi.manage']);
 
         $response = $this->asAdminClient($manager)
             ->postJson('/api/admin/knmi/refresh')
@@ -244,7 +242,7 @@ final class AdminKnmiTest extends TestCase
             'value' => 'open-data-public-key-123456',
             'is_sensitive' => true,
         ]);
-        $manager = $this->user('knmi-precipitation@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-precipitation@example.test', ['knmi.manage']);
 
         $response = $this->asAdminClient($manager)
             ->postJson('/api/admin/knmi/precipitation/refresh')
@@ -278,7 +276,7 @@ final class AdminKnmiTest extends TestCase
     {
         Queue::fake();
         $viewer = $this->user('knmi-precipitation-viewer@example.test', []);
-        $manager = $this->user('knmi-precipitation-unconfigured@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-precipitation-unconfigured@example.test', ['knmi.manage']);
 
         $this->postJson('/api/admin/knmi/precipitation/refresh')->assertUnauthorized();
         $this->asAdminClient($viewer)
@@ -301,7 +299,7 @@ final class AdminKnmiTest extends TestCase
             'is_sensitive' => true,
         ]);
         $viewer = $this->user('knmi-dataset-viewer@example.test', []);
-        $manager = $this->user('knmi-dataset-refresh@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-dataset-refresh@example.test', ['knmi.manage']);
 
         $this->postJson('/api/admin/knmi/datasets/radar_forecast/refresh')->assertUnauthorized();
         $this->asAdminClient($viewer)
@@ -345,7 +343,7 @@ final class AdminKnmiTest extends TestCase
             'value' => 'open-data-public-key-123456',
             'is_sensitive' => true,
         ]);
-        $manager = $this->user('knmi-other-dataset-refresh@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-other-dataset-refresh@example.test', ['knmi.manage']);
 
         $harmonie = $this->asAdminClient($manager)
             ->postJson('/api/admin/knmi/datasets/harmonie_arome_cy43_p1/refresh')
@@ -379,7 +377,7 @@ final class AdminKnmiTest extends TestCase
     public function test_realtime_knmi_refresh_is_rejected_before_queueing_without_open_data_configuration(): void
     {
         Queue::fake();
-        $manager = $this->user('knmi-dataset-unconfigured@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-dataset-unconfigured@example.test', ['knmi.manage']);
 
         foreach ([
             'radar_forecast',
@@ -403,7 +401,7 @@ final class AdminKnmiTest extends TestCase
             'value' => 'open-data-public-key-123456',
             'is_sensitive' => true,
         ]);
-        $manager = $this->user('knmi-queue-outage@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-queue-outage@example.test', ['knmi.manage']);
         $dispatcher = \Mockery::mock(Dispatcher::class);
         $dispatcher->shouldReceive('dispatch')
             ->twice()
@@ -489,7 +487,7 @@ final class AdminKnmiTest extends TestCase
             'value' => 'open-data-public-key-123456',
             'is_sensitive' => true,
         ]);
-        $manager = $this->user('knmi-harmonie-queue-outage@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-harmonie-queue-outage@example.test', ['knmi.manage']);
         $dispatcher = \Mockery::mock(Dispatcher::class);
         $dispatcher->shouldReceive('dispatch')
             ->times(3)
@@ -570,7 +568,7 @@ final class AdminKnmiTest extends TestCase
             'value' => 'open-data-public-key-123456',
             'is_sensitive' => true,
         ]);
-        $manager = $this->user('knmi-worker-failure@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-worker-failure@example.test', ['knmi.manage']);
         $response = $this->asAdminClient($manager)
             ->postJson('/api/admin/knmi/datasets/radar_forecast/refresh')
             ->assertStatus(202);
@@ -671,7 +669,7 @@ final class AdminKnmiTest extends TestCase
             'value' => 'open-data-public-key-123456',
             'is_sensitive' => true,
         ]);
-        $manager = $this->user('knmi-stale-budget@example.test', ['settings.manage']);
+        $manager = $this->user('knmi-stale-budget@example.test', ['knmi.manage']);
         $queued = WeatherDatasetOperation::query()->create([
             'dataset_key' => 'radar_forecast',
             'dataset_keys' => [

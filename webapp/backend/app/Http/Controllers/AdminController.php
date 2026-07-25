@@ -38,6 +38,73 @@ final class AdminController extends Controller
         'push.apns.credentials',
     ];
 
+    /**
+     * Branding management deliberately uses a narrow projection of system settings.
+     *
+     * @var list<string>
+     */
+    private const BRANDING_SETTING_KEYS = [
+        'app.brand_name',
+        'app.brand_short_name',
+        'app.login_title',
+        'app.login_subtitle',
+        'app.logo_data_url',
+        'mobile.tenant_name',
+        'security.mfa_issuer_name',
+        'mail.from_name',
+        'mail.template.welcome_subject',
+        'mail.template.welcome_body',
+        'certification.warning_days_before_expiry',
+        'mail.template.certification_expiry_subject',
+        'mail.template.certification_expiry_body',
+        'asset.warning_days_before_expiry',
+        'mail.template.asset_expiry_subject',
+        'mail.template.asset_expiry_body',
+        'push.template.preannouncement_title',
+        'push.template.preannouncement_body',
+        'push.template.dispatch_title',
+        'push.template.dispatch_body',
+        'push.template.dispatch_unavailable_escalation_title',
+        'push.template.dispatch_unavailable_escalation_body',
+        'push.template.additional_info_title',
+        'push.template.additional_info_body',
+        'push.template.cancellation_title',
+        'push.template.cancellation_body',
+    ];
+
+    /**
+     * The logo remains writable only through BrandingController's validated upload.
+     *
+     * @var list<string>
+     */
+    private const BRANDING_WRITABLE_SETTING_KEYS = [
+        'app.brand_name',
+        'app.brand_short_name',
+        'app.login_title',
+        'app.login_subtitle',
+        'mobile.tenant_name',
+        'security.mfa_issuer_name',
+        'mail.from_name',
+        'mail.template.welcome_subject',
+        'mail.template.welcome_body',
+        'certification.warning_days_before_expiry',
+        'mail.template.certification_expiry_subject',
+        'mail.template.certification_expiry_body',
+        'asset.warning_days_before_expiry',
+        'mail.template.asset_expiry_subject',
+        'mail.template.asset_expiry_body',
+        'push.template.preannouncement_title',
+        'push.template.preannouncement_body',
+        'push.template.dispatch_title',
+        'push.template.dispatch_body',
+        'push.template.dispatch_unavailable_escalation_title',
+        'push.template.dispatch_unavailable_escalation_body',
+        'push.template.additional_info_title',
+        'push.template.additional_info_body',
+        'push.template.cancellation_title',
+        'push.template.cancellation_body',
+    ];
+
     public function __construct(
         private readonly AuditService $auditService,
         private readonly RoleService $roleService,
@@ -253,24 +320,63 @@ final class AdminController extends Controller
 
     public function settings(): JsonResponse
     {
-        $settings = SystemSetting::query()
-            ->whereNotIn('key', self::INTERNAL_SETTING_KEYS)
-            ->orderBy('key')
-            ->get()
-            ->map(function (SystemSetting $setting): array {
-                return [
-                    'key' => $setting->key,
-                    'value' => $this->publicSettingValue($setting),
-                    'is_sensitive' => $setting->is_sensitive,
-                ];
-            });
+        return $this->settingsResponse(excludedKeys: self::BRANDING_SETTING_KEYS);
+    }
 
-        return ApiResponse::success($settings->sortBy('key')->values());
+    public function brandingSettings(): JsonResponse
+    {
+        return $this->settingsResponse(self::BRANDING_SETTING_KEYS);
     }
 
     public function updateSettings(Request $request): JsonResponse
     {
+        return $this->updateSettingsFromRequest(
+            $request,
+            allowedKeys: null,
+            excludedKeys: self::BRANDING_SETTING_KEYS,
+            auditAction: 'admin.settings_updated',
+            response: fn (): JsonResponse => $this->settings(),
+        );
+    }
+
+    public function updateBrandingSettings(Request $request): JsonResponse
+    {
+        return $this->updateSettingsFromRequest(
+            $request,
+            allowedKeys: self::BRANDING_WRITABLE_SETTING_KEYS,
+            excludedKeys: [],
+            auditAction: 'branding.settings_updated',
+            response: fn (): JsonResponse => $this->brandingSettings(),
+        );
+    }
+
+    /**
+     * @param  list<string>|null  $allowedKeys
+     * @param  list<string>  $excludedKeys
+     * @param  callable(): JsonResponse  $response
+     */
+    private function updateSettingsFromRequest(
+        Request $request,
+        ?array $allowedKeys,
+        array $excludedKeys,
+        string $auditAction,
+        callable $response,
+    ): JsonResponse {
         $data = $request->validate(['settings' => ['required', 'array']]);
+        foreach (array_keys($data['settings']) as $key) {
+            $settingKey = (string) $key;
+            if ($allowedKeys !== null && ! in_array($settingKey, $allowedKeys, true)) {
+                throw ValidationException::withMessages([
+                    "settings.$settingKey" => ['Deze instelling valt buiten dit beheeronderdeel.'],
+                ]);
+            }
+            if (in_array($settingKey, $excludedKeys, true)) {
+                throw ValidationException::withMessages([
+                    "settings.$settingKey" => ['Deze instelling valt buiten dit beheeronderdeel.'],
+                ]);
+            }
+        }
+
         foreach ($data['settings'] as $key => $value) {
             $settingKey = (string) $key;
             $value = $this->validateSettingValue($settingKey, $value);
@@ -295,9 +401,9 @@ final class AdminController extends Controller
                 ],
             );
         }
-        $this->auditService->record('admin.settings_updated', SystemSetting::class, $request->user(), ['keys' => array_keys($data['settings'])]);
+        $this->auditService->record($auditAction, SystemSetting::class, $request->user(), ['keys' => array_keys($data['settings'])]);
 
-        return $this->settings();
+        return $response();
     }
 
     public function testMail(Request $request): JsonResponse
@@ -435,6 +541,34 @@ final class AdminController extends Controller
         }
 
         return $setting->is_sensitive ? null : $setting->value;
+    }
+
+    /**
+     * @param  list<string>|null  $keys
+     * @param  list<string>  $excludedKeys
+     */
+    private function settingsResponse(?array $keys = null, array $excludedKeys = []): JsonResponse
+    {
+        $query = SystemSetting::query()->whereNotIn(
+            'key',
+            array_values(array_unique([...self::INTERNAL_SETTING_KEYS, ...$excludedKeys])),
+        );
+        if ($keys !== null) {
+            $query->whereIn('key', $keys);
+        }
+
+        $settings = $query
+            ->orderBy('key')
+            ->get()
+            ->map(function (SystemSetting $setting): array {
+                return [
+                    'key' => $setting->key,
+                    'value' => $this->publicSettingValue($setting),
+                    'is_sensitive' => $setting->is_sensitive,
+                ];
+            });
+
+        return ApiResponse::success($settings->sortBy('key')->values());
     }
 
     private function validateNullableUrlSetting(string $key, mixed $value, int $max): string

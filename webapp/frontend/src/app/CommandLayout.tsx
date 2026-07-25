@@ -8,6 +8,7 @@ import { ApiClientError } from '../lib/apiClient';
 import type { ApiClient } from '../lib/apiClient';
 import { countryOptions, regionOptionsForCountry } from '../lib/profileLocation';
 import { useAuth } from '../features/auth/AuthContext';
+import { hasWebRouteAccess, webRouteAccess } from '../features/auth/webRouteAccess';
 import type { User } from '../types/api';
 
 interface NavItem {
@@ -15,7 +16,7 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   end?: boolean;
-  permissions?: string[];
+  permissions?: readonly string[];
   anyPermission?: boolean;
 }
 
@@ -68,24 +69,24 @@ const navGroups: NavGroup[] = [
   {
     label: 'Gebruikersmiddelen',
     items: [
-      { to: '/assets', label: 'Assets', icon: Boxes, permissions: ['assets.view'] },
-      { to: '/certifications', label: 'Certificaten', icon: ClipboardCheck, permissions: ['certifications.view'] },
-      { to: '/expiry', label: 'Verloop', icon: CalendarClock, permissions: ['assets.view', 'certifications.view'], anyPermission: true },
+      { to: '/assets', label: 'Assets', icon: Boxes, ...webRouteAccess.assets },
+      { to: '/certifications', label: 'Certificaten', icon: ClipboardCheck, ...webRouteAccess.certifications },
+      { to: '/expiry', label: 'Verloop', icon: CalendarClock, ...webRouteAccess.expiry },
     ],
   },
   {
     label: 'Beheer',
     items: [
-      { to: '/forms', label: 'Formulieren', icon: FileText, permissions: ['settings.manage'] },
-      { to: '/admin', label: 'Admin', icon: Shield, permissions: ['settings.manage', 'settings.push.tokens.manage', 'system.health.view', 'system.developer-access.manage'], anyPermission: true },
-      { to: '/knmi', label: 'KNMI', icon: CloudSun, permissions: ['settings.manage'] },
-      { to: '/branding', label: 'Branding', icon: Palette, permissions: ['settings.manage'] },
-      { to: '/audit', label: 'Audit', icon: ScrollText, permissions: ['audit.view', 'status.audit.view'], anyPermission: true },
-      { to: '/backups', label: 'Backups', icon: DatabaseBackup, permissions: ['backups.manage'] },
-      { to: '/wallboards', label: 'Wallboards', icon: MonitorCog, permissions: ['wallboards.manage'] },
-      { to: '/routing', label: 'Routering', icon: RouteIcon, permissions: ['system.health.view', 'system.routing.manage'], anyPermission: true },
-      { to: '/queues', label: 'Wachtrijen', icon: ListTodo, permissions: ['system.health.view'] },
-      { to: '/system', label: 'Systeem', icon: Bell, permissions: ['system.health.view'] },
+      { to: '/forms', label: 'Formulieren', icon: FileText, ...webRouteAccess.forms },
+      { to: '/admin', label: 'Admin', icon: Shield, ...webRouteAccess.admin },
+      { to: '/knmi', label: 'KNMI', icon: CloudSun, ...webRouteAccess.knmi },
+      { to: '/branding', label: 'Branding', icon: Palette, ...webRouteAccess.branding },
+      { to: '/audit', label: 'Audit', icon: ScrollText, ...webRouteAccess.audit },
+      { to: '/backups', label: 'Backups', icon: DatabaseBackup, ...webRouteAccess.backups },
+      { to: '/wallboards', label: 'Wallboards', icon: MonitorCog, ...webRouteAccess.wallboards },
+      { to: '/routing', label: 'Routering', icon: RouteIcon, ...webRouteAccess.routing },
+      { to: '/queues', label: 'Wachtrijen', icon: ListTodo, ...webRouteAccess.queues },
+      { to: '/system', label: 'Systeem', icon: Bell, ...webRouteAccess.system },
     ],
   },
 ];
@@ -546,11 +547,10 @@ function canShowNavItem(item: NavItem, hasPermission: (permission: string) => bo
     return true;
   }
 
-  if (item.anyPermission) {
-    return item.permissions.some(hasPermission);
-  }
-
-  return item.permissions.every(hasPermission);
+  return hasWebRouteAccess({
+    permissions: item.permissions,
+    anyPermission: item.anyPermission ?? false,
+  }, hasPermission);
 }
 
 function documentTitleForBranding(branding: BrandingState, pageTitle?: string): string {

@@ -211,6 +211,10 @@ final class RestrictStoreReviewAccess
             return ApiResponse::success($this->reviewVacation($request));
         }
 
+        if ($method === 'PATCH' && preg_match('#^api/vacations/([^/]+)$#', $path, $matches) === 1) {
+            return ApiResponse::success($this->reviewVacation($request, $matches[1]));
+        }
+
         if ($method === 'DELETE' && preg_match('#^api/vacations/[^/]+$#', $path) === 1) {
             return response()->noContent();
         }
@@ -389,14 +393,22 @@ final class RestrictStoreReviewAccess
     /**
      * @return array<string, mixed>
      */
-    private function reviewVacation(Request $request): array
+    private function reviewVacation(Request $request, string $id = 'store-review-vacation'): array
     {
+        $startsAt = (string) $request->input('starts_at', now()->toDateString());
+        $endsAt = (string) $request->input('ends_at', $startsAt);
+
         return [
-            'id' => 'store-review-vacation',
-            'starts_at' => (string) $request->input('starts_at', now()->toDateString()),
-            'ends_at' => (string) $request->input('ends_at', now()->toDateString()),
-            'status' => 'approved',
+            'id' => $id,
+            'user_id' => (string) $request->user()?->id,
+            'starts_at' => $startsAt,
+            'ends_at' => $endsAt,
+            'is_available' => (bool) $request->boolean('is_available', false),
+            'status' => $startsAt <= now()->toDateString() && $endsAt >= now()->toDateString()
+                ? 'active'
+                : 'scheduled',
             'note' => $request->input('note'),
+            'user' => null,
         ];
     }
 

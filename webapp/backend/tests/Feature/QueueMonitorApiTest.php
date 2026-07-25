@@ -42,7 +42,7 @@ final class QueueMonitorApiTest extends TestCase
     public function test_transport_count_honestly_represents_non_outbox_push_jobs_without_payload_details(): void
     {
         $this->mockTransport(pushPending: 7);
-        $viewer = $this->user('queue-push-viewer@example.test', ['system.health.view']);
+        $viewer = $this->user('queue-push-viewer@example.test', ['system.queues.view']);
 
         $response = $this->asAdminClient($viewer)
             ->getJson('/api/admin/queues?queue=push')
@@ -59,7 +59,7 @@ final class QueueMonitorApiTest extends TestCase
     public function test_queue_monitor_lists_safe_non_outbox_push_ledger_items(): void
     {
         $this->mockTransport(pushPending: 1);
-        $viewer = $this->user('queue-ledger-viewer@example.test', ['system.health.view']);
+        $viewer = $this->user('queue-ledger-viewer@example.test', ['system.queues.view']);
         PushQueueWorkItem::query()->create([
             'queue_job_id' => hash('sha256', 'opaque-transport-id'),
             'safe_message_type' => 'manual_admin',
@@ -88,7 +88,7 @@ final class QueueMonitorApiTest extends TestCase
     public function test_completed_work_never_displaces_open_work_before_pagination(): void
     {
         $this->mockTransport(pushPending: 1);
-        $viewer = $this->user('queue-open-pagination@example.test', ['system.health.view']);
+        $viewer = $this->user('queue-open-pagination@example.test', ['system.queues.view']);
         foreach (range(1, 60) as $index) {
             PushQueueWorkItem::query()->create([
                 'queue_job_id' => hash('sha256', 'completed-'.$index),
@@ -121,7 +121,7 @@ final class QueueMonitorApiTest extends TestCase
     public function test_current_outbox_lifecycle_overlay_drives_retry_items_and_counts(): void
     {
         $this->mockTransport(pushPending: 2);
-        $viewer = $this->user('queue-outbox-overlay@example.test', ['system.health.view']);
+        $viewer = $this->user('queue-outbox-overlay@example.test', ['system.queues.view']);
         $normalRetry = $this->pushOutbox($viewer, [
             'queued_at' => now()->subSeconds(60),
             'processing_started_at' => now()->subSeconds(55),
@@ -193,7 +193,7 @@ final class QueueMonitorApiTest extends TestCase
     public function test_terminal_between_cycle_and_new_claim_outboxes_ignore_ineligible_lifecycle_rows(): void
     {
         $this->mockTransport(pushPending: 1);
-        $viewer = $this->user('queue-outbox-precedence@example.test', ['system.health.view']);
+        $viewer = $this->user('queue-outbox-precedence@example.test', ['system.queues.view']);
 
         $exhausted = $this->pushOutbox($viewer, [
             'queued_at' => null,
@@ -277,7 +277,7 @@ final class QueueMonitorApiTest extends TestCase
     public function test_queue_actions_require_separate_management_permission(): void
     {
         Queue::fake();
-        $viewer = $this->user('queue-action-viewer@example.test', ['system.health.view']);
+        $viewer = $this->user('queue-action-viewer@example.test', ['system.queues.view']);
         $outbox = $this->pushOutbox($viewer, [
             'message_type' => 'dispatch_update',
             'available_at' => now()->addHour(),
@@ -300,7 +300,7 @@ final class QueueMonitorApiTest extends TestCase
     {
         Queue::fake();
         $manager = $this->user('queue-token-manager@example.test', [
-            'system.health.view',
+            'system.queues.view',
             'system.queues.manage',
         ]);
         $manager->roles()->firstOrFail()->update(['can_use_operator_app' => true]);
@@ -331,7 +331,7 @@ final class QueueMonitorApiTest extends TestCase
     {
         Queue::fake();
         $manager = $this->user('queue-start-manager@example.test', [
-            'system.health.view',
+            'system.queues.view',
             'system.queues.manage',
         ]);
         $outbox = $this->pushOutbox($manager, [
@@ -383,7 +383,7 @@ final class QueueMonitorApiTest extends TestCase
     public function test_manager_can_retry_only_a_failed_current_outbox_cycle(): void
     {
         $manager = $this->user('queue-retry-manager@example.test', [
-            'system.health.view',
+            'system.queues.view',
             'system.queues.manage',
         ]);
         $failedOutbox = $this->pushOutbox($manager, [
@@ -513,7 +513,7 @@ final class QueueMonitorApiTest extends TestCase
 
     public function test_queue_monitor_rejects_unbounded_pagination_and_invalid_filters(): void
     {
-        $viewer = $this->user('queue-validation@example.test', ['system.health.view']);
+        $viewer = $this->user('queue-validation@example.test', ['system.queues.view']);
 
         $this->asAdminClient($viewer)
             ->getJson('/api/admin/queues?per_page=101&page=2001&queue=speech&state=reserved')
@@ -529,7 +529,7 @@ final class QueueMonitorApiTest extends TestCase
     public function test_push_only_poll_queries_only_the_push_domain(): void
     {
         $this->mockTransport(pushPending: 1);
-        $viewer = $this->user('queue-query-scope@example.test', ['system.health.view']);
+        $viewer = $this->user('queue-query-scope@example.test', ['system.queues.view']);
         DB::flushQueryLog();
         DB::enableQueryLog();
 

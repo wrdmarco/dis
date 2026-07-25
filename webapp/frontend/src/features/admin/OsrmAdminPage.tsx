@@ -8,7 +8,7 @@ import { isOsrmOperationSummary } from './osrmAdminPresentation';
 export function OsrmAdminPage() {
   const { isAuthenticated, hasPermission } = useAuth();
   const canManage = hasPermission('system.routing.manage');
-  const canView = canManage || hasPermission('system.health.view');
+  const canView = canManage || hasPermission('system.routing.view');
   const [realtimeOperation, setRealtimeOperation] = useState<OsrmOperationSummary | null>(null);
 
   useEffect(() => {
@@ -25,7 +25,7 @@ export function OsrmAdminPage() {
     });
 
     return () => {
-      echo?.leave('private-admin.system');
+      echo?.leave('private-admin.routing');
     };
   }, [canView, isAuthenticated]);
 

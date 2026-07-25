@@ -22,6 +22,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
 use Symfony\Component\HttpFoundation\Response;
@@ -63,6 +64,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'wallboard.auth' => AuthenticateWallboardSession::class,
             'permission' => RequirePermission::class,
         ]);
+        $middleware->prependToPriorityList(SubstituteBindings::class, RestrictStoreReviewAccess::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->respond(function (Response $response, Throwable $exception, Request $request): Response {

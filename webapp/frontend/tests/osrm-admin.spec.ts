@@ -22,10 +22,16 @@ test('exposes OSRM on a dedicated permission-guarded admin route', () => {
   const route = readFileSync(new URL('../app/routing/page.tsx', import.meta.url), 'utf8');
   const navigation = readFileSync(new URL('../src/app/CommandLayout.tsx', import.meta.url), 'utf8');
   const generalAdmin = readFileSync(new URL('../src/features/admin/AdminPage.tsx', import.meta.url), 'utf8');
+  const osrmAdmin = readFileSync(new URL('../src/features/admin/OsrmAdminPage.tsx', import.meta.url), 'utf8');
+  const realtime = readFileSync(new URL('../src/lib/realtime.ts', import.meta.url), 'utf8');
 
-  expect(route).toContain("permissions={['system.health.view', 'system.routing.manage']} anyPermission");
-  expect(navigation).toContain("to: '/routing', label: 'Routering'");
+  expect(route).toContain('<ProtectedShell {...webRouteAccess.routing}>');
+  expect(navigation).toContain("{ to: '/routing', label: 'Routering', icon: RouteIcon, ...webRouteAccess.routing }");
   expect(generalAdmin).not.toContain('<OsrmAdminPanel');
+  expect(realtime).toContain("echo.private('admin.routing')");
+  expect(realtime).toContain("echo.private('admin.system')");
+  expect(osrmAdmin).toContain("echo?.leave('private-admin.routing')");
+  expect(osrmAdmin).not.toContain("leave('private-admin.system')");
 });
 
 test('presents lifecycle and reliable stages without inventing progress percentages', () => {

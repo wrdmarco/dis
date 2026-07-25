@@ -34,10 +34,11 @@ test('exposes KNMI directly below Admin as its own protected management page', (
   const adminIndex = navigation.indexOf("to: '/admin', label: 'Admin'");
   const knmiIndex = navigation.indexOf("to: '/knmi', label: 'KNMI'");
 
-  expect(route).toContain("permissions={['settings.manage']}");
+  expect(route).toContain('<ProtectedShell {...webRouteAccess.knmi}>');
   expect(adminIndex).toBeGreaterThan(-1);
   expect(knmiIndex).toBeGreaterThan(adminIndex);
   expect(navigation.slice(adminIndex, knmiIndex)).not.toContain("to: '/branding'");
+  expect(navigation).toContain("{ to: '/knmi', label: 'KNMI', icon: CloudSun, ...webRouteAccess.knmi }");
   expect(navigation).toContain("'/knmi': () => import('../features/admin/KnmiAdminPage')");
   expect(generalAdmin).not.toContain('KNMI Data Platform');
   expect(generalAdmin).not.toContain('KNMI EDR');
@@ -415,10 +416,10 @@ function knmiAdminUser() {
       can_use_operator_app: false,
       can_use_admin_app: true,
       permissions: [{
-        id: 'settings-manage',
-        name: 'settings.manage',
-        category: 'settings',
-        display_name: 'Instellingen beheren',
+        id: 'knmi-manage',
+        name: 'knmi.manage',
+        category: 'knmi',
+        display_name: 'KNMI beheren',
       }],
     }],
   };

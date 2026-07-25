@@ -21,7 +21,9 @@ final class OsrmOperationStatusChanged implements ShouldBroadcastNow
 
     public function broadcastOn(): array
     {
-        return [new PrivateChannel('admin.system')];
+        return [
+            new PrivateChannel('admin.routing'),
+        ];
     }
 
     public function broadcastAs(): string

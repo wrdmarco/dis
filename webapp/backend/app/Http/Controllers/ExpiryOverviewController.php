@@ -13,8 +13,8 @@ final class ExpiryOverviewController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        if ($user?->hasPermission('assets.view') !== true && $user?->hasPermission('certifications.view') !== true) {
-            return ApiResponse::error('forbidden', 'You do not have permission to view expiry information.', 403);
+        if ($user === null) {
+            return ApiResponse::error('unauthenticated', 'Authentication is required.', 401);
         }
 
         $days = min(max((int) $request->integer('days', 60), 1), 365);

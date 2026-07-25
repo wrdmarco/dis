@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Jobs\SendFcmNotification;
+use App\Models\AvailabilityWeekPattern;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
@@ -261,6 +262,54 @@ final class IncidentStatusFlowTest extends TestCase
         $this->assertSame('in_progress', $responseIncident->refresh()->status);
 
         $this->assertSame('sent', $activeDispatch->refresh()->status);
+    }
+
+    public function test_terminal_incident_resets_each_accepted_pilot_to_effective_scheduled_availability(): void
+    {
+        Queue::fake();
+        $actor = $this->user('terminal-schedule-actor@example.test');
+        $scheduledUnavailable = $this->user('terminal-schedule-unavailable@example.test');
+        $defaultAvailable = $this->user('terminal-schedule-available@example.test');
+        $scheduledUnavailable->forceFill(['push_enabled' => true])->save();
+        $defaultAvailable->forceFill(['push_enabled' => true])->save();
+
+        AvailabilityWeekPattern::query()->create([
+            'user_id' => $scheduledUnavailable->id,
+            'day_of_week' => now()->dayOfWeekIso,
+            'day_part' => 'all_day',
+            'is_available' => false,
+            'created_by' => $actor->id,
+        ]);
+
+        $incident = $this->incident($actor, 'in_progress', 'FLOW-TERMINAL-SCHEDULE');
+        $dispatch = $this->acceptedDispatch($incident, $actor, $scheduledUnavailable);
+        DispatchRecipient::query()->create([
+            'dispatch_request_id' => $dispatch->id,
+            'user_id' => $defaultAvailable->id,
+            'user_name' => $defaultAvailable->name,
+            'user_email' => $defaultAvailable->email,
+            'response_status' => 'accepted',
+            'responded_at' => now(),
+            'notified_at' => now(),
+        ]);
+        app(StatusService::class)->setStatus($scheduledUnavailable, 'en_route', $scheduledUnavailable);
+        app(StatusService::class)->setStatus($defaultAvailable, 'en_route', $defaultAvailable);
+
+        $resolved = app(IncidentService::class)->close($incident, $actor, 'Inzet afgerond.');
+
+        $this->assertSame('resolved', $resolved->status);
+        $this->assertDatabaseHas('availability_statuses', [
+            'user_id' => $scheduledUnavailable->id,
+            'status' => 'unavailable',
+            'is_available' => false,
+            'is_system_applied' => true,
+        ]);
+        $this->assertDatabaseHas('availability_statuses', [
+            'user_id' => $defaultAvailable->id,
+            'status' => 'available',
+            'is_available' => true,
+            'is_system_applied' => true,
+        ]);
     }
 
     private function assertTransitionRejected(
