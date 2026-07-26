@@ -104,6 +104,7 @@ export interface IntakeWorkflowIncidentField {
   target: string;
   label: string;
   type: string;
+  options?: IntakeWorkflowOption[];
 }
 
 export interface IntakeWorkflowTeam {
@@ -378,35 +379,40 @@ export function availableBindingTargets(
   );
 
   return incidentFields.filter((candidate) =>
-    bindingTypesCompatible(selectedField?.type, candidate.type)
+    bindingTypesCompatible(selectedField, candidate)
     && !occupied.has(candidate.target));
 }
 
 export function bindingTypesCompatible(
-  sourceType: IntakeWorkflowFieldType | undefined,
-  targetType: string,
+  sourceField: Pick<IntakeWorkflowField, 'type' | 'options'> | undefined,
+  targetField: Pick<IntakeWorkflowIncidentField, 'type' | 'options'>,
 ): boolean {
-  if (sourceType === undefined) {
+  if (sourceField === undefined) {
     return false;
   }
 
-  if (targetType === 'number') {
-    return sourceType === 'number';
+  if (targetField.type === 'number') {
+    return sourceField.type === 'number';
   }
-  if (targetType === 'checkbox') {
-    return sourceType === 'checkbox';
+  if (targetField.type === 'checkbox') {
+    return sourceField.type === 'checkbox';
   }
-  if (targetType === 'select' || targetType === 'radio') {
-    return sourceType === 'select' || sourceType === 'radio';
+  if (targetField.type === 'select' || targetField.type === 'radio') {
+    if (sourceField.type !== 'select' && sourceField.type !== 'radio') {
+      return false;
+    }
+
+    const targetValues = new Set((targetField.options ?? []).map((option) => option.value));
+    return sourceField.options.every((option) => targetValues.has(option.value));
   }
-  if (targetType === 'phone') {
-    return sourceType === 'text' || sourceType === 'select' || sourceType === 'radio';
+  if (targetField.type === 'phone') {
+    return sourceField.type === 'text' || sourceField.type === 'select' || sourceField.type === 'radio';
   }
-  if (targetType === 'flight_time') {
-    return false;
+  if (targetField.type === 'flight_time') {
+    return sourceField.type === 'text' || sourceField.type === 'textarea';
   }
 
-  return sourceType !== 'checkbox' && sourceType !== 'section';
+  return ['text', 'textarea', 'select', 'radio', 'date', 'datetime'].includes(sourceField.type);
 }
 
 export function updateWorkflowBinding(

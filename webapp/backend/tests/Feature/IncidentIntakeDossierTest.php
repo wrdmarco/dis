@@ -393,6 +393,80 @@ final class IncidentIntakeDossierTest extends TestCase
         $this->assertSame('low', $incident->intakeDossier()->firstOrFail()->decided_priority);
     }
 
+    public function test_first_workflow_initialization_aligns_prebound_legacy_incident_field_types(): void
+    {
+        Http::fake(['*' => Http::response([], 200)]);
+        $actor = $this->user('prebound-upgrade-fields@example.test');
+        $this->grant($actor, ['forms.manage', 'incidents.manage']);
+        $incidentFields = array_values(array_filter(
+            app(IncidentFormService::class)->fields(),
+            fn (array $field): bool => $field['key'] !== 'on_scene_contact_role',
+        ));
+
+        foreach ($incidentFields as &$incidentField) {
+            if ($incidentField['key'] === 'requesting_organization') {
+                $incidentField['type'] = 'select';
+                $incidentField['options'] = [
+                    ['value' => 'police', 'label' => 'Politie'],
+                    ['value' => 'fire_service', 'label' => 'Brandweer'],
+                ];
+            }
+            if ($incidentField['key'] === 'requesting_unit') {
+                $incidentField['type'] = 'number';
+                $incidentField['required'] = true;
+            }
+        }
+        unset($incidentField);
+
+        SystemSetting::query()->updateOrCreate(
+            ['key' => IncidentFormService::SETTING_KEY],
+            ['value' => $incidentFields, 'is_sensitive' => false, 'updated_by' => $actor->id],
+        );
+
+        $configuration = $this->asWebClient($actor)
+            ->getJson('/api/admin/intake-workflow/config')
+            ->assertOk()
+            ->json('data.published.configuration');
+        $fields = collect($configuration['fields'])->keyBy('key');
+        $bindings = collect($configuration['bindings'])->keyBy('field_key');
+
+        $this->assertSame('select', $fields['requesting_organization']['type']);
+        $this->assertSame(
+            ['police', 'fire_service'],
+            array_column($fields['requesting_organization']['options'], 'value'),
+        );
+        $this->assertSame('number', $fields['requesting_unit']['type']);
+        $this->assertTrue($fields['requesting_unit']['required']);
+        $this->assertSame('on_scene_contact_role', $bindings['on_scene_contact_role']['target']);
+
+        $answers = [
+            ...$this->personAnswers(),
+            'requesting_organization' => 'police',
+            'requesting_unit' => 112,
+        ];
+        $dossiers = app(IncidentIntakeDossierService::class);
+        $created = $dossiers->create([
+            'subject_type' => 'person',
+            'answers' => $answers,
+            'client_mutation_id' => 'prebound-upgrade-create',
+        ], $actor);
+        $dossier = IncidentIntakeDossier::query()->findOrFail($created['id']);
+        $decided = $dossiers->decidePriority($dossier, [
+            'lock_version' => $created['lock_version'],
+            'client_mutation_id' => 'prebound-upgrade-decide',
+            'priority' => 'low',
+        ], $actor);
+        $incident = $dossiers->promote($dossier, [
+            'lock_version' => $decided['lock_version'],
+            'client_mutation_id' => 'prebound-upgrade-promote',
+        ], $actor)['incident'];
+
+        $this->assertSame('police', $incident->requesting_organization);
+        $this->assertSame('police', $incident->custom_fields['requesting_organization']);
+        $this->assertSame('112', $incident->requesting_unit);
+        $this->assertSame(112, $incident->custom_fields['requesting_unit']);
+    }
+
     public function test_promoted_bound_number_keeps_current_incident_form_range(): void
     {
         Http::fake(['*' => Http::response([], 200)]);

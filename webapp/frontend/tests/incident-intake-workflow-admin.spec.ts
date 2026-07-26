@@ -150,9 +150,22 @@ test('allows one incident target across mutually exclusive subject branches only
     { field_key: 'object_category', target: 'title' },
   ]);
 
-  expect(bindingTypesCompatible('number', 'number')).toBe(true);
-  expect(bindingTypesCompatible('checkbox', 'text')).toBe(false);
-  expect(bindingTypesCompatible('text', 'flight_time')).toBe(false);
+  expect(bindingTypesCompatible(fields[4], { type: 'number' })).toBe(true);
+  expect(bindingTypesCompatible(fields[5], { type: 'text' })).toBe(false);
+  expect(bindingTypesCompatible(fields[0], { type: 'flight_time' })).toBe(true);
+  expect(bindingTypesCompatible(
+    field('notes', 'Toelichting', 'common', 'textarea'),
+    { type: 'flight_time' },
+  )).toBe(true);
+  expect(bindingTypesCompatible(fields[4], { type: 'text' })).toBe(false);
+  expect(bindingTypesCompatible(fields[3], {
+    type: 'select',
+    options: [{ value: 'fiets', label: 'Fiets' }],
+  })).toBe(true);
+  expect(bindingTypesCompatible(fields[3], {
+    type: 'select',
+    options: [{ value: 'auto', label: 'Auto' }],
+  })).toBe(false);
 });
 
 test('keeps priority condition references subject-safe and operators typed', () => {

@@ -615,28 +615,60 @@ final class IncidentIntakeWorkflowService
             ],
         ];
 
-        return $this->appendRequiredIncidentFormFields($configuration);
+        return $this->synchronizeInitialIncidentFormFields($configuration);
     }
 
     /**
-     * Keeps first-time workflow initialization compatible with required
-     * incident fields that already exist on an upgraded installation.
+     * Keeps first-time workflow initialization compatible with the incident
+     * form that already exists on an upgraded installation. Existing default
+     * bindings adopt the live target type while newly required targets receive
+     * a matching common intake field.
      *
      * @param  array<string, mixed>  $configuration
      * @return array<string, mixed>
      */
-    private function appendRequiredIncidentFormFields(array $configuration): array
+    private function synchronizeInitialIncidentFormFields(array $configuration): array
     {
+        $incidentFields = collect($this->incidentFormService->fields())
+            ->filter(fn (array $field): bool => ($field['type'] ?? null) !== 'section'
+                && ($field['key'] ?? null) !== 'required_resources')
+            ->values();
+        $incidentFieldsByTarget = $incidentFields->keyBy(
+            fn (array $field): string => self::canonicalBindingTarget('custom_fields.'.(string) $field['key']),
+        );
+        $fieldIndexes = collect($configuration['fields'])
+            ->mapWithKeys(fn (array $field, int $index): array => [(string) $field['key'] => $index]);
+
+        foreach ($configuration['bindings'] as $bindingIndex => $binding) {
+            $fieldIndex = $fieldIndexes->get((string) ($binding['field_key'] ?? ''));
+            $target = (string) ($binding['target'] ?? '');
+            $canonicalTarget = self::canonicalBindingTarget($target);
+            $incidentField = $incidentFieldsByTarget->get($canonicalTarget);
+
+            if (! is_int($fieldIndex) || ! is_array($incidentField)) {
+                if (str_starts_with($target, 'custom_fields.')
+                    && in_array($canonicalTarget, self::LEGACY_MIRRORED_FIELD_KEYS, true)) {
+                    $configuration['bindings'][$bindingIndex]['target'] = $canonicalTarget;
+                }
+
+                continue;
+            }
+
+            $configuration['fields'][$fieldIndex] = $this->alignInitialWorkflowField(
+                $configuration['fields'][$fieldIndex],
+                $incidentField,
+            );
+        }
+
         $boundTargets = collect($configuration['bindings'])
             ->map(fn (array $binding): string => self::canonicalBindingTarget((string) $binding['target']))
             ->all();
         $fieldKeys = array_fill_keys(array_column($configuration['fields'], 'key'), true);
 
-        foreach ($this->incidentFormService->fields() as $incidentField) {
+        foreach ($incidentFields as $incidentField) {
             if (($incidentField['visible'] ?? true) !== true
                 || ($incidentField['required'] ?? false) !== true
-                || ($incidentField['type'] ?? null) === 'section'
-                || ($incidentField['key'] ?? null) === 'required_resources') {
+            ) {
                 continue;
             }
             $target = 'custom_fields.'.$incidentField['key'];
@@ -649,24 +681,16 @@ final class IncidentIntakeWorkflowService
             if (isset($fieldKeys[$fieldKey])) {
                 continue;
             }
-            $incidentType = (string) ($incidentField['type'] ?? 'text');
-            $workflowType = in_array($incidentType, self::FIELD_TYPES, true)
-                ? $incidentType
-                : 'text';
-            $configuration['fields'][] = [
+            $configuration['fields'][] = $this->alignInitialWorkflowField([
                 'key' => $fieldKey,
                 'label' => (string) ($incidentField['label'] ?? $incidentField['key']),
-                'type' => $workflowType,
+                'type' => 'text',
                 'scope' => 'common',
                 'required' => true,
                 'operator_visible' => false,
-                'help_text' => $incidentType === 'flight_time'
-                    ? 'Gebruik begin- en eindtijd als UU:MM-UU:MM.'
-                    : null,
-                'options' => in_array($workflowType, ['select', 'radio'], true)
-                    ? ($incidentField['options'] ?? [])
-                    : [],
-            ];
+                'help_text' => null,
+                'options' => [],
+            ], $incidentField);
             $configuration['bindings'][] = [
                 'field_key' => $fieldKey,
                 'target' => $target,
@@ -676,6 +700,32 @@ final class IncidentIntakeWorkflowService
         }
 
         return $configuration;
+    }
+
+    /**
+     * @param  array<string, mixed>  $workflowField
+     * @param  array<string, mixed>  $incidentField
+     * @return array<string, mixed>
+     */
+    private function alignInitialWorkflowField(array $workflowField, array $incidentField): array
+    {
+        $incidentType = (string) ($incidentField['type'] ?? 'text');
+        $workflowType = in_array($incidentType, self::FIELD_TYPES, true)
+            ? $incidentType
+            : 'text';
+
+        return [
+            ...$workflowField,
+            'type' => $workflowType,
+            'required' => ($workflowField['required'] ?? false) === true
+                || ($incidentField['required'] ?? false) === true,
+            'help_text' => $incidentType === 'flight_time'
+                ? 'Gebruik begin- en eindtijd als UU:MM-UU:MM.'
+                : ($workflowField['help_text'] ?? null),
+            'options' => in_array($workflowType, ['select', 'radio'], true)
+                ? ($incidentField['options'] ?? [])
+                : [],
+        ];
     }
 
     private function ensureDraft(IncidentIntakeWorkflowRevision $published): IncidentIntakeWorkflowRevision

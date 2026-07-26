@@ -888,7 +888,7 @@ function BindingsPanel(props: {
           const selectedTarget = binding === undefined
             ? null
             : incidentFields.find((candidate) => candidate.target === binding.target) ?? null;
-          const bindingValid = selectedTarget !== null && bindingTypesCompatible(field.type, selectedTarget.type);
+          const bindingValid = selectedTarget !== null && bindingTypesCompatible(field, selectedTarget);
 
           return (
             <div className={styles.bindingRow} key={field.key}>
