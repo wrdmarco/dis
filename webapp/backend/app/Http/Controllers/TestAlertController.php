@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Http\Requests\TestAlerts\SendTestAlertRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\DispatchRequest;
+use App\Models\User;
+use App\Services\IncidentIntakeDossierService;
 use App\Services\TestAlertService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
@@ -12,11 +14,14 @@ use Illuminate\Http\Request;
 
 final class TestAlertController extends Controller
 {
-    public function __construct(private readonly TestAlertService $service) {}
+    public function __construct(
+        private readonly TestAlertService $service,
+        private readonly IncidentIntakeDossierService $incidentIntakeDossierService,
+    ) {}
 
     public function show(Request $request): JsonResponse
     {
-        return ApiResponse::success($this->dispatchPayload($this->service->latestFor($request->user())));
+        return ApiResponse::success($this->dispatchPayload($this->service->latestFor($request->user()), $request->user()));
     }
 
     public function send(SendTestAlertRequest $request): JsonResponse
@@ -24,7 +29,7 @@ final class TestAlertController extends Controller
         $result = $this->service->send($request->user(), $request->scope());
 
         return ApiResponse::success(
-            $this->dispatchPayload($result['dispatch']),
+            $this->dispatchPayload($result['dispatch'], $request->user()),
             201,
             $result['summary'],
         );
@@ -50,12 +55,16 @@ final class TestAlertController extends Controller
     /**
      * @return array<string, mixed>|null
      */
-    private function dispatchPayload(?DispatchRequest $dispatch): ?array
+    private function dispatchPayload(?DispatchRequest $dispatch, User $actor): ?array
     {
         if ($dispatch === null) {
             return null;
         }
 
-        return MobileApiPayload::dispatch($dispatch->loadMissing(['incident', 'targetTeam', 'recipients.user']));
+        return MobileApiPayload::dispatch(
+            $dispatch->loadMissing(['incident.intakeDossier.workflowRevision', 'targetTeam', 'recipients.user']),
+            $actor,
+            $this->incidentIntakeDossierService,
+        );
     }
 }

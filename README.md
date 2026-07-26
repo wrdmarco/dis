@@ -190,6 +190,21 @@ The test-alert result reports targeted users, queued devices, users skipped befo
 whom no notification could be queued. The action requires the `incidents.dispatch.manage` permission and
 is recorded in the audit log.
 
+### Pre-incident intake dossiers
+
+Authorised centralists start a report under `/meldingen` before an incident exists. Every dossier uses the
+published, immutable intake-workflow revision that was current when the dossier was created and contains
+common questions plus exactly one subject branch: person, animal or object. Answers are autosaved with
+optimistic locking and idempotent mutations. A linked dossier remains editable after promotion, and configured
+field bindings keep the corresponding incident fields synchronized without requiring duplicate entry.
+
+Administrators with `forms.manage` configure, validate, simulate, publish and restore intake workflows under
+`/forms`. Priority advice and deployment proposals remain separate from the centralist's recorded decision.
+Departures from the advice require the dedicated override permission and a reason. Promoting a complete dossier
+creates exactly one draft incident; it never sends a preannouncement, dispatch, push notification or alarm.
+Operator clients receive only fields that are marked operator-visible in both the dossier's frozen workflow
+revision and the currently published revision.
+
 ## Managed Wallboards
 
 System administrators with completed 2FA manage paired displays from `/wallboards`; the display itself uses

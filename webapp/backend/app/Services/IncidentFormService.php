@@ -10,14 +10,23 @@ use Illuminate\Validation\ValidationException;
 final class IncidentFormService
 {
     public const SETTING_KEY = 'incident.form_fields';
+
     public const LAYOUT_SETTING_KEY = 'incident.form_layout';
+
     private const FIELD_KEY_PATTERN = '/^[a-z][a-z0-9_]{1,60}$/';
+
     private const FIELD_TYPES = ['section', 'text', 'textarea', 'number', 'phone', 'flight_time', 'select', 'checkbox', 'radio'];
+
     private const DEFAULT_PHONE_COUNTRIES = ['31', '32'];
+
     private const SUPPORTED_PHONE_COUNTRIES = ['31', '32'];
+
     private const FIXED_FIELD_KEYS = ['reporter_name', 'reporter_phone'];
+
     private const FIXED_INPUT_LAYOUT_KEYS = ['title', 'description', 'reporter_name', 'reporter_phone', 'priority', 'status', 'location_search'];
+
     private const ALWAYS_REQUIRED_LAYOUT_KEYS = ['title', 'description', 'priority'];
+
     private const FIXED_PUSH_VARIABLE_KEYS = [
         'title',
         'description',
@@ -71,7 +80,7 @@ final class IncidentFormService
     }
 
     /**
-     * @param array<int, mixed> $layout
+     * @param  array<int, mixed>  $layout
      * @return array<int, array<string, mixed>>
      */
     public function validateLayout(array $layout): array
@@ -80,7 +89,7 @@ final class IncidentFormService
     }
 
     /**
-     * @param array<int, mixed> $fields
+     * @param  array<int, mixed>  $fields
      * @return array<int, array<string, mixed>>
      */
     public function validateFields(array $fields): array
@@ -127,6 +136,7 @@ final class IncidentFormService
             $fieldRules = [];
             if ($partial) {
                 $fieldRules[] = 'sometimes';
+                $fieldRules[] = 'nullable';
             } else {
                 $fieldRules[] = $field['required'] === true ? 'required' : 'nullable';
             }
@@ -181,7 +191,7 @@ final class IncidentFormService
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     public function normalizeCustomValues(array $data, ?string $phoneCountry = null): array
@@ -225,7 +235,7 @@ final class IncidentFormService
     }
 
     /**
-     * @param array<string, mixed> $field
+     * @param  array<string, mixed>  $field
      * @return array<string, mixed>
      */
     private function normalizeField(array $field, ?int $index = null): array
@@ -287,6 +297,7 @@ final class IncidentFormService
 
             if (! $byKey->has($field['key'])) {
                 $byKey->put($field['key'], $this->normalizeField($field));
+
                 continue;
             }
 
@@ -369,7 +380,7 @@ final class IncidentFormService
     }
 
     /**
-     * @param array<int, mixed> $layout
+     * @param  array<int, mixed>  $layout
      * @return array<int, array<string, mixed>>
      */
     private function normalizeLayout(array $layout): array
@@ -393,6 +404,7 @@ final class IncidentFormService
                         $normalized[] = $replacement;
                     }
                 }
+
                 continue;
             }
 
@@ -404,6 +416,7 @@ final class IncidentFormService
                         $normalized[] = $replacement;
                     }
                 }
+
                 continue;
             }
 
@@ -415,6 +428,7 @@ final class IncidentFormService
                         $normalized[] = $replacement;
                     }
                 }
+
                 continue;
             }
 
@@ -426,6 +440,7 @@ final class IncidentFormService
                         $normalized[] = $replacement;
                     }
                 }
+
                 continue;
             }
 
@@ -441,6 +456,7 @@ final class IncidentFormService
                         $normalized[] = $replacement;
                     }
                 }
+
                 continue;
             }
 
@@ -452,6 +468,7 @@ final class IncidentFormService
                         $normalized[] = $replacement;
                     }
                 }
+
                 continue;
             }
 
@@ -505,7 +522,7 @@ final class IncidentFormService
     }
 
     /**
-     * @param array<string, int> $requiredKeys
+     * @param  array<string, int>  $requiredKeys
      * @return list<mixed>
      */
     private function fixedTextRules(string $layoutKey, array $requiredKeys, bool $partial, int $max): array
@@ -522,8 +539,8 @@ final class IncidentFormService
     }
 
     /**
-     * @param array<string, int> $requiredKeys
-     * @param list<string> $values
+     * @param  array<string, int>  $requiredKeys
+     * @param  list<string>  $values
      * @return list<mixed>
      */
     private function fixedEnumRules(string $layoutKey, array $requiredKeys, bool $partial, array $values): array
@@ -543,7 +560,7 @@ final class IncidentFormService
     }
 
     /**
-     * @param array<string, mixed> $item
+     * @param  array<string, mixed>  $item
      */
     private function normalizeFixedLayoutRequired(string $key, array $item, bool $visible): bool
     {
@@ -672,6 +689,7 @@ final class IncidentFormService
     private function cleanTimeValue(?string $value): ?string
     {
         $time = trim((string) $value);
+
         return preg_match('/^([01]\d|2[0-4]):[0-5]\d$/', $time) === 1 ? $time : null;
     }
 

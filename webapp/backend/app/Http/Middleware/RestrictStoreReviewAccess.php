@@ -319,6 +319,7 @@ final class RestrictStoreReviewAccess
             'requesting_organization' => 'Nationaal Drone Team',
             'required_resources' => '1 operator en 1 drone',
             'custom_fields' => (object) [],
+            'intake' => null,
             'priority' => (string) ($payload['priority'] ?? 'normal'),
             'status' => (string) ($payload['status'] ?? $status),
             'is_test' => true,

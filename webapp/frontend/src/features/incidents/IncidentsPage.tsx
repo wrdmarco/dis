@@ -34,29 +34,6 @@ export interface IncidentFormState {
   customFields: Record<string, unknown>;
 }
 
-export function createEmptyIncidentForm(): IncidentFormState {
-  return {
-    title: '',
-    description: '',
-    reporterName: '',
-    reporterPhone: '',
-    requestingOrganization: '',
-    requestingUnit: '',
-    onSceneContactName: '',
-    onSceneContactPhone: '',
-    onSceneContactRole: '',
-    requiredResources: '',
-    priority: 'normal',
-    status: 'draft',
-    locationLabel: '',
-    latitude: '',
-    longitude: '',
-    coordinatorId: '',
-    teamIds: [],
-    customFields: {},
-  };
-}
-
 type IncidentPageMode = 'active' | 'archive';
 
 const activeIncidentStatuses: Incident['status'][] = ['draft', 'active', 'dispatching', 'in_progress'];
@@ -71,7 +48,7 @@ export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) 
   const criticalCount = incidentList.filter((incident) => incident.priority === 'critical').length;
   const resolvedCount = incidentList.filter((incident) => incident.status === 'resolved').length;
   const cancelledCount = incidentList.filter((incident) => incident.status === 'cancelled').length;
-  const pageTitle = mode === 'archive' ? 'Archief' : 'Actieve meldingen';
+  const pageTitle = mode === 'archive' ? 'Archief' : 'Incidenten';
   const emptyText = mode === 'archive' ? 'Geen afgeronde of geannuleerde meldingen gevonden.' : 'Geen actieve meldingen of concepten gevonden.';
   const canManageIncidents = hasPermission('incidents.manage');
 
@@ -81,8 +58,8 @@ export function IncidentsPage({ mode = 'active' }: { mode?: IncidentPageMode }) 
       <Panel
         title={pageTitle}
         action={mode === 'active' && canManageIncidents ? (
-          <Link className="primary-button" href="/incidents/new">
-            <Plus size={16} /> Incident aanmaken
+          <Link className="primary-button" href="/meldingen/new">
+            <Plus size={16} /> Nieuwe melding
           </Link>
         ) : null}
       >
@@ -241,6 +218,7 @@ export function IncidentForm(props: {
   error?: string | null;
   extraFields?: ReactNode;
   enforceConfiguredRequiredFixedInputs?: boolean;
+  hiddenFieldKeys?: string[];
   showStatus?: boolean;
   submitLabel: string;
   onCancel: () => void;
@@ -248,7 +226,7 @@ export function IncidentForm(props: {
   onChange: (updater: (current: IncidentFormState) => IncidentFormState) => void;
 }) {
   const { api } = useAuth();
-  const { form, users, teams, customFields = [], layout = [], usersError, teamsError, saving, error, extraFields, enforceConfiguredRequiredFixedInputs = true, showStatus = false, submitLabel, onCancel, onSubmit, onChange } = props;
+  const { form, users, teams, customFields = [], layout = [], usersError, teamsError, saving, error, extraFields, enforceConfiguredRequiredFixedInputs = true, hiddenFieldKeys = [], showStatus = false, submitLabel, onCancel, onSubmit, onChange } = props;
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
   const [flightContext, setFlightContext] = useState<DroneFlightContext | null>(null);
   const [flightContextLoading, setFlightContextLoading] = useState(false);
@@ -312,6 +290,7 @@ export function IncidentForm(props: {
     };
   }, [api, form.latitude, form.longitude, form.locationLabel]);
 
+  const hiddenFields = new Set(hiddenFieldKeys);
   const activeLayout = incidentFormLayout(layout, customFields)
     .flatMap((item) => {
       if (item.key !== 'status') {
@@ -319,7 +298,8 @@ export function IncidentForm(props: {
       }
 
       return showStatus ? [{ ...item, visible: true }] : [];
-    });
+    })
+    .map((item) => hiddenFields.has(item.key) ? { ...item, visible: false } : item);
 
   return (
     <form className="form-grid" onSubmit={onSubmit}>

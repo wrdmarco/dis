@@ -31,6 +31,7 @@ final class DispatchService
         private readonly DispatchPushOutboxService $dispatchPushOutboxService,
         private readonly NotificationTemplateTextNormalizer $notificationText,
         private readonly IncidentFormService $incidentFormService,
+        private readonly IncidentIntakeWorkflowService $incidentIntakeWorkflowService,
         private readonly LocationService $locationService,
         private readonly RoutingService $routingService,
     ) {}
@@ -65,13 +66,16 @@ final class DispatchService
                 if (in_array($currentIncident->status, ['resolved', 'cancelled'], true)) {
                     throw ValidationException::withMessages(['incident_id' => ['Cannot dispatch for a closed incident.']]);
                 }
+                $this->assertIntakeDecisionReady($currentIncident);
                 if ($this->incidentRouteFingerprint($currentIncident) !== $routeTarget) {
                     return null;
                 }
 
-                $currentTargetTeam = Team::query()->find($targetTeam->id);
+                $currentTargetTeam = Team::query()
+                    ->where('is_operational', true)
+                    ->find($targetTeam->id);
                 if ($currentTargetTeam === null) {
-                    throw ValidationException::withMessages(['team_code' => ['Het gekozen team bestaat niet.']]);
+                    throw ValidationException::withMessages(['team_code' => ['Het gekozen team bestaat niet of is niet operationeel.']]);
                 }
 
                 // The incident row is already locked. This serializes creators
@@ -213,14 +217,9 @@ final class DispatchService
      */
     public function sendPreannouncementForIncidentActivation(Incident $incident, User $actor, ?string $message = null, array $options = []): array
     {
-        $place = $this->placeNameFromLocation($incident->location_label);
-        $tokens = $this->pushTemplateTokens(null, ['place' => $place ?? '']);
-        $notificationTitle = $this->pushTemplate('preannouncement_title', 'D.I.S vooraankondiging', $tokens);
-        $notificationBody = $this->pushTemplate(
-            'preannouncement_body',
-            $place === null ? 'Ben je beschikbaar voor een melding?' : 'Ben je beschikbaar voor een melding in {{place}}?',
-            $tokens,
-        );
+        $notification = $this->preannouncementNotification($incident);
+        $notificationTitle = $notification['title'];
+        $notificationBody = $notification['body'];
 
         $queuedTokens = 0;
         $recipientCount = 0;
@@ -337,14 +336,9 @@ final class DispatchService
             $recipients = $recipients->unique('user_id')->values();
         }
 
-        $place = $this->placeNameFromLocation($incident->location_label);
-        $tokens = $this->pushTemplateTokens(null, ['place' => $place ?? '']);
-        $title = $this->pushTemplate('cancellation_title', 'D.I.S geannuleerd', $tokens);
-        $body = $this->pushTemplate(
-            'cancellation_body',
-            $place === null ? 'De vooraankondiging is geannuleerd.' : 'De vooraankondiging in {{place}} is geannuleerd.',
-            $tokens,
-        );
+        $notification = $this->cancellationNotification($incident);
+        $title = $notification['title'];
+        $body = $notification['body'];
 
         $queuedTokens = 0;
         foreach ($recipients as $recipient) {
@@ -372,6 +366,64 @@ final class DispatchService
             'queued_tokens' => $queuedTokens,
             'recipient_users' => $recipients->count(),
         ];
+    }
+
+    public function invalidateDraftsAfterIntakeChange(Incident $incident, User $actor): void
+    {
+        DB::transaction(function () use ($incident, $actor): void {
+            $currentIncident = Incident::query()->lockForUpdate()->findOrFail($incident->id);
+            $drafts = $currentIncident->dispatchRequests()
+                ->where('status', 'draft')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($drafts as $dispatch) {
+                $dispatch->load([
+                    'recipients' => fn ($recipients) => $recipients->whereNotNull('notified_at'),
+                    'recipients.user.fcmTokens' => fn ($tokens) => $this->reachableOperatorTokenQuery($tokens),
+                ]);
+                $notifiedTokenIds = $dispatch->recipients
+                    ->flatMap(fn (DispatchRecipient $recipient): Collection => $recipient->user?->fcmTokens ?? collect())
+                    ->pluck('id')
+                    ->map(fn (mixed $id): string => (string) $id)
+                    ->unique()
+                    ->values()
+                    ->all();
+                $dispatch->forceFill([
+                    'status' => 'cancelled',
+                    'cancelled_at' => now(),
+                ])->save();
+                DispatchPushOutbox::query()
+                    ->where('dispatch_request_id', $dispatch->id)
+                    ->whereNull('delivered_at')
+                    ->whereNull('cancelled_at')
+                    ->update([
+                        'cancelled_at' => now(),
+                        'last_error_code' => 'intake_decision_invalidated',
+                        'updated_at' => now(),
+                    ]);
+                $this->auditService->record('dispatch.cancelled_after_intake_change', $dispatch, $actor, [
+                    'incident_id' => $currentIncident->id,
+                    'notified_recipient_devices' => count($notifiedTokenIds),
+                ]);
+                $this->broadcastDispatchChange($dispatch->refresh(), 'cancelled_after_intake_change');
+                foreach ($notifiedTokenIds as $fcmTokenId) {
+                    DB::afterCommit(fn () => SendFcmNotification::dispatch(
+                        $fcmTokenId,
+                        'incident_preannouncement_cancelled',
+                        'D.I.S vooraankondiging bijgewerkt',
+                        'De eerdere vooraankondiging is ingetrokken. Wacht op een nieuwe melding.',
+                        [
+                            'type' => 'dispatch_update',
+                            'action_mode' => 'availability_cancelled',
+                            'incident_id' => (string) $currentIncident->id,
+                            'dispatch_id' => (string) $dispatch->id,
+                        ],
+                        (string) $dispatch->id,
+                    )->onQueue('push'));
+                }
+            }
+        });
     }
 
     /**
@@ -509,14 +561,17 @@ final class DispatchService
                         'dispatch' => ['Voor een gesloten incident kan geen alarmering worden verstuurd.'],
                     ]);
                 }
+                $this->assertIntakeDecisionReady($incident);
                 if ($this->incidentRouteFingerprint($incident) !== $plan['route_target']) {
                     return null;
                 }
 
-                $targetTeam = Team::query()->find($currentDispatch->target_team_id);
+                $targetTeam = Team::query()
+                    ->where('is_operational', true)
+                    ->find($currentDispatch->target_team_id);
                 if ($targetTeam === null) {
                     throw ValidationException::withMessages([
-                        'dispatch' => ['Het team van deze alarmering bestaat niet meer.'],
+                        'dispatch' => ['Het team van deze alarmering bestaat niet meer of is niet operationeel.'],
                     ]);
                 }
 
@@ -996,36 +1051,72 @@ final class DispatchService
 
     public function reAlert(DispatchRequest $dispatch, User $actor): DispatchRequest
     {
-        if ($dispatch->status === 'cancelled') {
-            throw ValidationException::withMessages(['dispatch' => ['Een geannuleerde alarmering kan niet opnieuw worden verstuurd.']]);
+        $metadata = DispatchRequest::query()
+            ->select(['id', 'incident_id'])
+            ->find($dispatch->id);
+        if ($metadata === null) {
+            throw ValidationException::withMessages(['dispatch' => ['Deze alarmering bestaat niet meer.']]);
         }
+        $incidentId = (string) $metadata->incident_id;
 
-        $dispatch->load(['incident', 'recipients.user.fcmTokens']);
-        $queuedTokens = 0;
-
-        foreach ($dispatch->recipients as $recipient) {
-            if ($recipient->response_status !== 'pending') {
-                continue;
+        return DB::transaction(function () use ($dispatch, $actor, $incidentId): DispatchRequest {
+            // Use the same parent-to-child order as create/markSent so an
+            // intake edit cannot race a new definitive re-alarm.
+            $incident = Incident::query()->lockForUpdate()->find($incidentId);
+            if ($incident === null) {
+                throw ValidationException::withMessages(['dispatch' => ['Het incident van deze alarmering bestaat niet meer.']]);
+            }
+            $currentDispatch = DispatchRequest::query()->lockForUpdate()->find($dispatch->id);
+            if ($currentDispatch === null || (string) $currentDispatch->incident_id !== $incidentId) {
+                throw ValidationException::withMessages(['dispatch' => ['Deze alarmering bestaat niet meer.']]);
+            }
+            if ($currentDispatch->status === 'cancelled') {
+                throw ValidationException::withMessages(['dispatch' => ['Een geannuleerde alarmering kan niet opnieuw worden verstuurd.']]);
+            }
+            if (in_array($incident->status, ['resolved', 'cancelled'], true)) {
+                throw ValidationException::withMessages(['dispatch' => ['Voor een gesloten incident kan geen heralarmering worden verstuurd.']]);
+            }
+            $this->assertIntakeDecisionReady($incident);
+            if ($currentDispatch->target_team_id !== null
+                && ! Team::query()
+                    ->whereKey($currentDispatch->target_team_id)
+                    ->where('is_operational', true)
+                    ->exists()) {
+                throw ValidationException::withMessages(['dispatch' => ['Het team van deze alarmering is niet operationeel.']]);
             }
 
-            foreach ($recipient->user?->fcmTokens->where('is_active', true) ?? [] as $token) {
-                SendFcmNotification::dispatch(
-                    (string) $token->id,
-                    'dispatch_request',
-                    'NDT Heralarmering',
-                    $this->notificationBody($dispatch, 'Reactie vereist'),
-                    $this->notificationData($dispatch),
-                    (string) $dispatch->id,
-                )->onQueue('push');
-                $queuedTokens++;
+            $pendingRecipients = $currentDispatch->recipients()
+                ->where('response_status', 'pending')
+                ->lockForUpdate()
+                ->get();
+            $pendingRecipients->load([
+                'user.fcmTokens' => fn ($tokens) => $this->reachableOperatorTokenQuery($tokens),
+            ]);
+            $currentDispatch->setRelation('incident', $incident);
+            $queuedTokens = 0;
+
+            foreach ($pendingRecipients as $recipient) {
+                foreach ($recipient->user?->fcmTokens ?? [] as $token) {
+                    SendFcmNotification::dispatch(
+                        (string) $token->id,
+                        'dispatch_request',
+                        'NDT Heralarmering',
+                        $this->notificationBody($currentDispatch, 'Reactie vereist'),
+                        $this->notificationData($currentDispatch),
+                        (string) $currentDispatch->id,
+                    )->onQueue('push');
+                    $queuedTokens++;
+                }
             }
-        }
 
-        $dispatch->recipients()->where('response_status', 'pending')->update(['notified_at' => now()]);
-        $this->auditService->record('dispatch.realerted', $dispatch, $actor, ['queued_tokens' => $queuedTokens]);
-        $this->broadcastDispatchChange($dispatch->refresh(), 'realerted');
+            $currentDispatch->recipients()
+                ->whereKey($pendingRecipients->modelKeys())
+                ->update(['notified_at' => now()]);
+            $this->auditService->record('dispatch.realerted', $currentDispatch, $actor, ['queued_tokens' => $queuedTokens]);
+            $this->broadcastDispatchChange($currentDispatch->refresh(), 'realerted');
 
-        return $dispatch->load(['incident', 'targetTeam', 'recipients.user']);
+            return $currentDispatch->load(['incident', 'targetTeam', 'recipients.user']);
+        });
     }
 
     /**
@@ -1034,18 +1125,28 @@ final class DispatchService
     private function targetTeam(Incident $incident, array $data): ?Team
     {
         if (isset($data['target_team_id'])) {
-            return Team::query()->find((string) $data['target_team_id']);
+            return Team::query()
+                ->where('is_operational', true)
+                ->find((string) $data['target_team_id']);
         }
 
         if (isset($data['team_code'])) {
-            return Team::query()->where('code', (string) $data['team_code'])->first();
+            return Team::query()
+                ->where('is_operational', true)
+                ->where('code', (string) $data['team_code'])
+                ->first();
         }
 
         if ($incident->team_id !== null) {
-            return Team::query()->find($incident->team_id);
+            return Team::query()
+                ->where('is_operational', true)
+                ->find($incident->team_id);
         }
 
-        return Team::query()->where('code', (string) config('dis.teams.base_team_code', 'OCP'))->first();
+        return Team::query()
+            ->where('is_operational', true)
+            ->where('code', (string) config('dis.teams.base_team_code', 'OCP'))
+            ->first();
     }
 
     /**
@@ -1062,7 +1163,11 @@ final class DispatchService
 
         $incident->loadMissing('teams');
         if ($incident->teams->isNotEmpty()) {
-            return $incident->teams->values();
+            return Team::query()
+                ->whereIn('id', $incident->teams->pluck('id')->all())
+                ->where('is_operational', true)
+                ->get()
+                ->values();
         }
 
         $targetTeam = $this->targetTeam($incident, []);
@@ -1269,6 +1374,13 @@ final class DispatchService
      */
     private function eligibleUsers(Team $targetTeam, bool $includeUnavailable = false): array
     {
+        if (! $targetTeam->is_operational) {
+            return [
+                'users' => collect(),
+                'message' => "Team {$targetTeam->code} is niet operationeel en kan niet worden gealarmeerd.",
+            ];
+        }
+
         $targetTeam->loadMissing('requiredCertifications');
         $requiredCertificationIds = $targetTeam->requiredCertifications->pluck('id');
         $teamCodes = $this->expandTeamCodes($targetTeam);
@@ -1499,6 +1611,17 @@ final class DispatchService
         return array_values(array_unique($messages));
     }
 
+    private function assertIntakeDecisionReady(Incident $incident): void
+    {
+        if ($incident->intake_decision_valid) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'dispatch' => ['Beoordeel de bijgewerkte uitvraag opnieuw voordat je een alarmering maakt of verstuurt.'],
+        ]);
+    }
+
     /**
      * @return array<int, string>
      */
@@ -1614,13 +1737,74 @@ final class DispatchService
 
     private function defaultDispatchMessage(Incident $incident): string
     {
+        $tokens = $this->pushTemplateTokens($incident);
         $parts = [
-            $incident->reference,
-            $incident->title,
-            $incident->location_label,
+            $tokens['reference'] ?? '',
+            $tokens['title'] ?? '',
+            $tokens['location'] ?? '',
         ];
 
         return implode(' - ', array_values(array_filter($parts, fn (?string $part): bool => filled($part))));
+    }
+
+    /** @return array{title: string, body: string} */
+    private function preannouncementNotification(Incident $incident): array
+    {
+        $visibleTokens = $this->pushTemplateTokens($incident);
+        $place = trim($visibleTokens['place'] ?? '');
+        // A preannouncement is intentionally minimal. It may disclose the
+        // permitted place, but no title, address, postcode or other incident
+        // details before the definitive alarm.
+        $tokens = $this->pushTemplateTokens(null, ['place' => $place]);
+
+        return [
+            'title' => $this->pushTemplate('preannouncement_title', 'D.I.S vooraankondiging', $tokens),
+            'body' => $this->pushTemplate(
+                'preannouncement_body',
+                $place === '' ? 'Ben je beschikbaar voor een melding?' : 'Ben je beschikbaar voor een melding in {{place}}?',
+                $tokens,
+            ),
+        ];
+    }
+
+    /** @return array{title: string, body: string} */
+    private function cancellationNotification(Incident $incident): array
+    {
+        $visibleTokens = $this->pushTemplateTokens($incident);
+        $place = trim($visibleTokens['place'] ?? '');
+        $tokens = $this->pushTemplateTokens(null, ['place' => $place]);
+
+        return [
+            'title' => $this->pushTemplate('cancellation_title', 'D.I.S geannuleerd', $tokens),
+            'body' => $this->pushTemplate(
+                'cancellation_body',
+                $place === '' ? 'De vooraankondiging is geannuleerd.' : 'De vooraankondiging in {{place}} is geannuleerd.',
+                $tokens,
+            ),
+        ];
+    }
+
+    private function rawDefaultDispatchMessage(Incident $incident): string
+    {
+        return implode(' - ', array_values(array_filter([
+            $incident->reference,
+            $incident->title,
+            $incident->location_label,
+        ], fn (?string $part): bool => filled($part))));
+    }
+
+    private function dispatchMessageForOperator(DispatchRequest $dispatch): string
+    {
+        $message = trim((string) $dispatch->message);
+        $incident = $dispatch->incident;
+        if ($incident === null) {
+            return $message;
+        }
+        if ($message === '' || hash_equals($this->rawDefaultDispatchMessage($incident), $message)) {
+            return $this->defaultDispatchMessage($incident);
+        }
+
+        return $message;
     }
 
     public function placeNameFromLocation(?string $location): ?string
@@ -1883,6 +2067,7 @@ final class DispatchService
     private function notificationData(DispatchRequest $dispatch): array
     {
         $incident = $dispatch->incident;
+        $tokens = $this->pushTemplateTokens($incident);
 
         return [
             'type' => 'dispatch_request',
@@ -1891,19 +2076,16 @@ final class DispatchService
             'dispatch_id' => (string) $dispatch->id,
             'incident_id' => (string) $dispatch->incident_id,
             'incident_reference' => (string) ($incident?->reference ?? ''),
-            'incident_title' => (string) ($incident?->title ?? ''),
-            'incident_location' => (string) ($incident?->location_label ?? ''),
-            'dispatch_message' => (string) $dispatch->message,
+            'incident_title' => $tokens['title'] ?? '',
+            'incident_location' => $tokens['location'] ?? '',
+            'dispatch_message' => $this->dispatchMessageForOperator($dispatch),
             'priority' => (string) $dispatch->priority,
         ];
     }
 
     private function notificationBody(DispatchRequest $dispatch, ?string $prefix = null): string
     {
-        $message = trim((string) $dispatch->message);
-        if ($message === '' && $dispatch->incident !== null) {
-            $message = $this->defaultDispatchMessage($dispatch->incident);
-        }
+        $message = $this->dispatchMessageForOperator($dispatch);
 
         if ($dispatch->incident !== null) {
             $message = $this->pushTemplate('dispatch_body', $message, $this->pushTemplateTokens($dispatch->incident, [
@@ -1921,10 +2103,7 @@ final class DispatchService
 
     private function unavailableEscalationNotificationBody(DispatchRequest $dispatch, User $user): string
     {
-        $message = trim((string) $dispatch->message);
-        if ($message === '' && $dispatch->incident !== null) {
-            $message = $this->defaultDispatchMessage($dispatch->incident);
-        }
+        $message = $this->dispatchMessageForOperator($dispatch);
 
         $tokens = $this->pushTemplateTokens($dispatch->incident, [
             'message' => $message,
@@ -1976,6 +2155,10 @@ final class DispatchService
      */
     private function pushTemplateTokens(?Incident $incident, array $extra = []): array
     {
+        $hiddenTargets = $incident === null
+            ? []
+            : $this->incidentIntakeWorkflowService->hiddenIncidentTargetsForOperator($incident);
+        $locationHidden = in_array('location_label', $hiddenTargets, true);
         $place = $extra['place'] ?? $this->placeNameFromLocation($incident?->location_label) ?? '';
         $address = (string) ($incident?->location_label ?? '');
         $postcode = preg_match('/\b[1-9][0-9]{3}\s*[A-Z]{2}\b/iu', $address, $postcodeMatch) === 1
@@ -1986,7 +2169,7 @@ final class DispatchService
         $longitude = (string) ($incident?->longitude ?? '');
         $coordinates = trim($latitude.($latitude !== '' && $longitude !== '' ? ', ' : '').$longitude);
 
-        return array_merge([
+        $tokens = array_merge([
             'reference' => (string) ($incident?->reference ?? ''),
             'title' => (string) ($incident?->title ?? ''),
             'description' => (string) ($incident?->description ?? ''),
@@ -2000,26 +2183,43 @@ final class DispatchService
             'coordinates' => $coordinates,
             'priority' => (string) ($incident?->priority ?? ''),
             'status' => (string) ($incident?->status ?? ''),
-            'reporter_name' => $this->legacyFieldToken($incident, 'reporter_name'),
-            'reporter_phone' => $this->legacyFieldToken($incident, 'reporter_phone'),
-            'requesting_organization' => $this->legacyFieldToken($incident, 'requesting_organization'),
-            'requesting_unit' => $this->legacyFieldToken($incident, 'requesting_unit'),
-            'on_scene_contact_name' => $this->legacyFieldToken($incident, 'on_scene_contact_name'),
-            'on_scene_contact_phone' => $this->legacyFieldToken($incident, 'on_scene_contact_phone'),
-            'on_scene_contact_role' => $this->legacyFieldToken($incident, 'on_scene_contact_role'),
-            'required_resources' => $this->legacyFieldToken($incident, 'required_resources'),
+            'reporter_name' => $this->legacyFieldToken($incident, 'reporter_name', $hiddenTargets),
+            'reporter_phone' => $this->legacyFieldToken($incident, 'reporter_phone', $hiddenTargets),
+            'requesting_organization' => $this->legacyFieldToken($incident, 'requesting_organization', $hiddenTargets),
+            'requesting_unit' => $this->legacyFieldToken($incident, 'requesting_unit', $hiddenTargets),
+            'on_scene_contact_name' => $this->legacyFieldToken($incident, 'on_scene_contact_name', $hiddenTargets),
+            'on_scene_contact_phone' => $this->legacyFieldToken($incident, 'on_scene_contact_phone', $hiddenTargets),
+            'on_scene_contact_role' => $this->legacyFieldToken($incident, 'on_scene_contact_role', $hiddenTargets),
+            'required_resources' => $this->legacyFieldToken($incident, 'required_resources', $hiddenTargets),
             'coordinator_name' => (string) ($incident?->coordinator_name ?? ''),
             'created_by_name' => (string) ($incident?->created_by_name ?? ''),
             'created_at' => (string) ($incident?->created_at?->format('d-m-Y H:i') ?? ''),
             'opened_at' => (string) ($incident?->opened_at?->format('d-m-Y H:i') ?? ''),
             'closed_at' => (string) ($incident?->closed_at?->format('d-m-Y H:i') ?? ''),
             'message' => '',
-        ], $this->customFieldTokens($incident), $extra);
+        ], $this->customFieldTokens($incident, $hiddenTargets), $extra);
+
+        foreach ($hiddenTargets as $target) {
+            $tokens[$target] = '';
+            if (str_starts_with($target, 'custom_fields.')) {
+                $tokens['field_'.substr($target, strlen('custom_fields.'))] = '';
+            } elseif (in_array($target, IncidentIntakeWorkflowService::LEGACY_MIRRORED_FIELD_KEYS, true)) {
+                $tokens['field_'.$target] = '';
+            }
+        }
+        if ($locationHidden) {
+            foreach (['location', 'address', 'place', 'postcode', 'province', 'latitude', 'longitude', 'coordinates'] as $key) {
+                $tokens[$key] = '';
+            }
+        }
+
+        return $tokens;
     }
 
-    private function legacyFieldToken(?Incident $incident, string $key): string
+    /** @param list<string> $hiddenTargets */
+    private function legacyFieldToken(?Incident $incident, string $key, array $hiddenTargets): string
     {
-        if (! $this->fieldExposedToPush($key)) {
+        if (in_array($key, $hiddenTargets, true) || ! $this->fieldExposedToPush($key)) {
             return '';
         }
 
@@ -2044,7 +2244,8 @@ final class DispatchService
     /**
      * @return array<string, string>
      */
-    private function customFieldTokens(?Incident $incident): array
+    /** @param list<string> $hiddenTargets */
+    private function customFieldTokens(?Incident $incident, array $hiddenTargets): array
     {
         if ($incident === null || ! is_array($incident->custom_fields)) {
             return [];
@@ -2062,7 +2263,10 @@ final class DispatchService
             }
 
             $value = $incident->custom_fields[$key] ?? null;
-            $tokens['field_'.$key] = $this->stringifyCustomFieldValue($value);
+            $target = IncidentIntakeWorkflowService::canonicalBindingTarget('custom_fields.'.$key);
+            $tokens['field_'.$key] = in_array($target, $hiddenTargets, true)
+                ? ''
+                : $this->stringifyCustomFieldValue($value);
         }
 
         return $tokens;

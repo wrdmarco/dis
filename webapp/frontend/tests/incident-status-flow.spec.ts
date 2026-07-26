@@ -30,9 +30,13 @@ test('omits status unless a system administrator edit explicitly includes it', (
   expect(incidentStatusPayload('in_progress', true)).toEqual({ status: 'in_progress' });
 });
 
-test('wires create and edit forms to the guarded status payload', () => {
-  const createPage = readFileSync(
-    new URL('../src/features/incidents/IncidentCreatePage.tsx', import.meta.url),
+test('routes creation through intake promotion and keeps incident edits guarded', () => {
+  const createRoute = readFileSync(
+    new URL('../app/incidents/new/page.tsx', import.meta.url),
+    'utf8',
+  );
+  const intakeWorkspace = readFileSync(
+    new URL('../src/features/intakes/IntakeWorkspace.tsx', import.meta.url),
     'utf8',
   );
   const editPage = readFileSync(
@@ -44,10 +48,13 @@ test('wires create and edit forms to the guarded status payload', () => {
     'utf8',
   );
 
-  expect(createPage).toContain("api.post<Incident>('/incidents', incidentPayload(form))");
-  expect(createPage).not.toContain('includeStatus');
+  expect(createRoute).toContain("redirect('/meldingen/new')");
+  expect(intakeWorkspace).toContain("`/intake-dossiers/${draft.id}/promote`");
+  expect(intakeWorkspace).toContain('Er wordt geen alarm verstuurd.');
   expect(editPage).toContain('showStatus={canManuallyChangeStatus}');
-  expect(editPage).toContain('incidentPayload(form, { includeStatus: statusChanged })');
+  expect(editPage).toContain('changedIncidentPayload(');
+  expect(editPage).toContain('const currentPayload = incidentPayload(current, { includeStatus })');
+  expect(editPage).not.toContain('includeIntake');
   expect(editPage).toContain('manual_status_override: true');
   expect(incidentForm).toContain('return showStatus ? [{ ...item, visible: true }] : [];');
 });

@@ -1,0 +1,858 @@
+.studio {
+  --workflow-line: color-mix(in srgb, var(--dis-blue) 28%, var(--dis-border));
+  display: grid;
+  gap: 16px;
+  padding: clamp(14px, 2vw, 22px);
+}
+
+.header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px 24px;
+  align-items: flex-end;
+  border: 1px solid var(--dis-border);
+  border-radius: 10px;
+  background:
+    linear-gradient(120deg, color-mix(in srgb, var(--dis-blue-soft) 72%, transparent), transparent 62%),
+    var(--dis-field);
+  padding: clamp(16px, 2.4vw, 24px);
+}
+
+.header h2,
+.sectionHeading h3 {
+  margin: 3px 0 0;
+  color: var(--dis-text-strong);
+}
+
+.header p,
+.sectionHeading p {
+  max-width: 72ch;
+  margin: 7px 0 0;
+  color: var(--dis-muted-strong);
+}
+
+.eyebrow {
+  color: var(--dis-blue);
+  font-size: 0.73rem;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.headerMeta,
+.headerActions,
+.cardActions,
+.checkRow,
+.blockHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.headerMeta {
+  justify-content: flex-end;
+}
+
+.headerActions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  border-top: 1px solid var(--dis-border);
+  padding-top: 14px;
+}
+
+.headerActions button,
+.sectionHeading button,
+.blockHeading button,
+.cardActions button,
+.simulator > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.savedPill,
+.publishedPill,
+.dirtyPill,
+.counter,
+.bindingChip,
+.invalidBindingChip,
+.unboundChip,
+.summaryMeta span {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 26px;
+  border: 1px solid var(--dis-border);
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 0.75rem;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.savedPill,
+.bindingChip {
+  border-color: color-mix(in srgb, var(--dis-positive) 34%, var(--dis-border));
+  background: var(--dis-positive-soft);
+  color: var(--dis-positive);
+}
+
+.invalidBindingChip {
+  border-color: color-mix(in srgb, var(--dis-critical) 36%, var(--dis-border));
+  background: var(--dis-critical-soft);
+  color: var(--dis-critical);
+}
+
+.publishedPill {
+  border-color: color-mix(in srgb, var(--dis-blue) 30%, var(--dis-border));
+  background: var(--dis-blue-soft);
+  color: var(--dis-blue);
+}
+
+.dirtyPill {
+  border-color: color-mix(in srgb, var(--dis-warning) 38%, var(--dis-border));
+  background: var(--dis-warning-soft);
+  color: var(--dis-warning);
+}
+
+.counter,
+.unboundChip {
+  color: var(--dis-muted-strong);
+}
+
+.error,
+.success {
+  margin: 0;
+  border: 1px solid;
+  border-radius: 8px;
+  padding: 11px 13px;
+}
+
+.conflictActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 16px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--dis-warning) 42%, var(--dis-border));
+  border-radius: 8px;
+  background: var(--dis-warning-soft);
+  padding: 12px;
+}
+
+.conflictActions strong {
+  color: var(--dis-text-strong);
+}
+
+.conflictActions > span {
+  grid-column: 1;
+  color: var(--dis-muted-strong);
+  font-size: 0.8rem;
+}
+
+.conflictActions > div {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.error {
+  border-color: color-mix(in srgb, var(--dis-critical) 42%, var(--dis-border));
+  background: var(--dis-critical-soft);
+  color: var(--dis-critical);
+}
+
+.success {
+  border-color: color-mix(in srgb, var(--dis-positive) 36%, var(--dis-border));
+  background: var(--dis-positive-soft);
+  color: var(--dis-positive);
+}
+
+.flow {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.flow::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: 25px;
+  right: 7%;
+  left: 7%;
+  height: 1px;
+  background: var(--workflow-line);
+}
+
+.flowStep,
+.flowStepActive {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 2px 7px;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid var(--dis-border);
+  border-radius: 9px;
+  background: var(--dis-surface);
+  color: var(--dis-muted-strong);
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.flowStep:hover,
+.flowStepActive {
+  border-color: var(--dis-border-strong);
+  background: var(--dis-surface-2);
+  color: var(--dis-text-strong);
+}
+
+.flowStepActive {
+  border-color: color-mix(in srgb, var(--dis-blue) 62%, var(--dis-border));
+  box-shadow: inset 3px 0 0 var(--dis-blue);
+}
+
+.flowStep > span,
+.flowStepActive > span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid var(--workflow-line);
+  border-radius: 50%;
+  background: var(--dis-field);
+  color: var(--dis-blue);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.flowStep strong,
+.flowStepActive strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flowStep small,
+.flowStepActive small {
+  grid-column: 2 / -1;
+  overflow: hidden;
+  color: var(--dis-muted);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace {
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--dis-border);
+  border-radius: 10px;
+  background: var(--dis-surface);
+  padding: clamp(14px, 2vw, 20px);
+}
+
+.sectionHeading {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: flex-end;
+}
+
+.addControl {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.addControl label {
+  min-width: 180px;
+}
+
+.addControl label,
+.fieldGrid label,
+.fullField,
+.outcome label,
+.conditionRow label,
+.simulator > label,
+.simulationFields label {
+  display: grid;
+  gap: 5px;
+  color: var(--dis-muted-strong);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.scopeTabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.scopeTab,
+.scopeTabActive {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background: var(--dis-field);
+  color: var(--dis-muted-strong);
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.scopeTabActive {
+  border-color: color-mix(in srgb, var(--dis-blue) 58%, var(--dis-border));
+  background: var(--dis-blue-soft);
+  color: var(--dis-text-strong);
+}
+
+.scopeTab span,
+.scopeTabActive span {
+  display: grid;
+  min-width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--dis-surface-3);
+  color: var(--dis-blue);
+  font-size: 0.74rem;
+}
+
+.cardList,
+.bindingList,
+.simulationFields {
+  display: grid;
+  gap: 9px;
+}
+
+.editorCard {
+  overflow: clip;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background: var(--dis-field);
+}
+
+.editorCard[open] {
+  border-color: var(--dis-border-strong);
+}
+
+.editorCard summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.editorCard summary:hover {
+  background: var(--dis-surface-2);
+}
+
+.editorCard summary > div {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.editorCard summary strong {
+  color: var(--dis-text-strong);
+}
+
+.editorCard code,
+.bindingRow code {
+  color: var(--dis-muted);
+  font-size: 0.72rem;
+}
+
+.summaryMeta {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.summaryMeta span {
+  min-height: 23px;
+  color: var(--dis-muted-strong);
+  font-size: 0.68rem;
+}
+
+.editorBody {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid var(--dis-border);
+  padding: 14px;
+}
+
+.fieldGrid,
+.outcome {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fieldGrid label > span,
+.fullField > span {
+  color: var(--dis-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.fullField {
+  grid-column: 1 / -1;
+}
+
+.optionsEditor {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 9px;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background: var(--dis-surface-2);
+  padding: 12px;
+}
+
+.optionsEditor .blockHeading {
+  justify-content: space-between;
+}
+
+.optionsEditor .blockHeading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.optionsEditor .blockHeading span,
+.optionValue span {
+  color: var(--dis-muted);
+  font-size: 0.72rem;
+}
+
+.optionList {
+  display: grid;
+  gap: 7px;
+}
+
+.optionRow {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(140px, auto) auto;
+  gap: 10px;
+  align-items: end;
+  border: 1px solid var(--dis-border);
+  border-radius: 7px;
+  background: var(--dis-field);
+  padding: 9px;
+}
+
+.optionRow label,
+.optionValue {
+  display: grid;
+  gap: 4px;
+  color: var(--dis-muted-strong);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.optionValue {
+  align-self: center;
+}
+
+.optionValue code {
+  overflow-wrap: anywhere;
+  color: var(--dis-blue);
+  font-size: 0.75rem;
+}
+
+.optionActions {
+  display: flex;
+  gap: 5px;
+}
+
+.checkRow {
+  padding: 2px 0;
+}
+
+.checkRow label,
+.choiceGroup label,
+.teamGroup label,
+.simulationCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--dis-muted-strong);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.missingChoice {
+  color: var(--dis-critical) !important;
+}
+
+.cardActions {
+  justify-content: flex-end;
+  border-top: 1px solid var(--dis-border);
+  padding-top: 12px;
+}
+
+.empty {
+  display: grid;
+  gap: 4px;
+  border: 1px dashed var(--dis-border-strong);
+  border-radius: 8px;
+  background: var(--dis-field);
+  color: var(--dis-muted);
+  padding: 20px;
+  text-align: center;
+}
+
+.empty strong {
+  color: var(--dis-muted-strong);
+}
+
+.bindingRow {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) auto minmax(180px, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background: var(--dis-field);
+  padding: 11px 12px;
+}
+
+.bindingRow > div {
+  display: grid;
+  gap: 3px;
+}
+
+.bindingRow strong {
+  color: var(--dis-text-strong);
+}
+
+.bindingRow > div > span {
+  color: var(--dis-muted);
+  font-size: 0.76rem;
+}
+
+.conditionBlock,
+.simulator,
+.historyCard {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  background: var(--dis-surface-2);
+  padding: 13px;
+}
+
+.blockHeading {
+  justify-content: space-between;
+}
+
+.blockHeading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.blockHeading strong {
+  color: var(--dis-text-strong);
+}
+
+.blockHeading span {
+  color: var(--dis-muted);
+  font-size: 0.76rem;
+}
+
+.conditionRow {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.4fr) minmax(130px, 1fr) minmax(140px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.conditionRow select,
+.conditionRow input {
+  width: 100%;
+}
+
+.noValue {
+  color: var(--dis-muted);
+  font-size: 0.76rem;
+  text-align: center;
+}
+
+.inlineNotice {
+  margin: 0;
+  border-left: 3px solid var(--dis-blue);
+  background: var(--dis-blue-soft);
+  color: var(--dis-muted-strong);
+  padding: 9px 11px;
+  font-size: 0.8rem;
+}
+
+.choiceColumns,
+.versionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.choiceGroup,
+.teamGroup {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--dis-border);
+  border-radius: 8px;
+  padding: 10px 12px 12px;
+}
+
+.choiceGroup legend,
+.teamGroup legend {
+  color: var(--dis-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.choiceGroup > div,
+.teamGroup > div {
+  display: flex;
+  gap: 8px 14px;
+  flex-wrap: wrap;
+}
+
+.priorityLow {
+  color: var(--dis-positive) !important;
+}
+
+.priorityMedium {
+  color: var(--dis-blue) !important;
+}
+
+.priorityHigh {
+  color: var(--dis-warning) !important;
+}
+
+.priorityUrgent {
+  color: var(--dis-critical) !important;
+}
+
+.simulator {
+  align-content: start;
+}
+
+.simulationFields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.simulationCheck {
+  min-height: 42px;
+}
+
+.simulationResult {
+  display: grid;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--dis-blue) 34%, var(--dis-border));
+  border-radius: 8px;
+  background: var(--dis-field);
+  padding: 13px;
+}
+
+.simulationResult > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.simulationResult > div svg {
+  color: var(--dis-blue);
+}
+
+.simulationResult > div span,
+.simulationResult p,
+.simulationResult section span {
+  color: var(--dis-muted-strong);
+  font-size: 0.8rem;
+}
+
+.simulationResult ul {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--dis-muted-strong);
+  font-size: 0.8rem;
+}
+
+.simulationResult p {
+  margin: 0;
+}
+
+.simulationResult section {
+  display: grid;
+  gap: 3px;
+  border-top: 1px solid var(--dis-border);
+  padding-top: 10px;
+}
+
+.historyList {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.historyList > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--dis-border);
+  border-radius: 7px;
+  background: var(--dis-field);
+  padding: 10px;
+}
+
+.historyList > li > div {
+  display: grid;
+  gap: 2px;
+}
+
+.historyList strong {
+  color: var(--dis-text-strong);
+}
+
+.historyList span {
+  color: var(--dis-muted);
+  font-size: 0.74rem;
+}
+
+@media (max-width: 1050px) {
+  .flow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .flow::before {
+    display: none;
+  }
+
+  .flowStep:last-child,
+  .flowStepActive:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .bindingRow {
+    grid-template-columns: minmax(150px, 1fr) auto minmax(180px, 1fr);
+  }
+
+  .bindingRow > :last-child {
+    grid-column: 3;
+  }
+}
+
+@media (max-width: 760px) {
+  .header,
+  .sectionHeading,
+  .versionGrid,
+  .choiceColumns,
+  .conflictActions {
+    grid-template-columns: 1fr;
+  }
+
+  .headerMeta,
+  .headerActions,
+  .sectionHeading {
+    justify-content: flex-start;
+  }
+
+  .sectionHeading {
+    display: grid;
+  }
+
+  .conflictActions > span,
+  .conflictActions > div {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .conflictActions > div {
+    justify-content: flex-start;
+  }
+
+  .flow,
+  .scopeTabs,
+  .fieldGrid,
+  .outcome,
+  .simulationFields,
+  .optionRow {
+    grid-template-columns: 1fr;
+  }
+
+  .optionActions {
+    justify-content: flex-end;
+  }
+
+  .flowStep:last-child,
+  .flowStepActive:last-child {
+    grid-column: auto;
+  }
+
+  .addControl {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .conditionRow,
+  .bindingRow {
+    grid-template-columns: 1fr auto;
+  }
+
+  .conditionRow label,
+  .conditionRow .noValue,
+  .bindingRow label {
+    grid-column: 1;
+  }
+
+  .conditionRow button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .bindingRow > svg {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .bindingRow > :last-child {
+    grid-column: 1 / -1;
+  }
+
+  .editorCard summary {
+    align-items: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flowStep,
+  .flowStepActive,
+  .scopeTab,
+  .scopeTabActive {
+    scroll-behavior: auto;
+  }
+}

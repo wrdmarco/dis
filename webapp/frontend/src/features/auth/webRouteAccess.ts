@@ -4,6 +4,10 @@ export interface WebRouteAccess {
 }
 
 export const webRouteAccess = {
+  intakes: {
+    permissions: ['incidents.manage'],
+    anyPermission: false,
+  },
   assets: {
     permissions: ['assets.view'],
     anyPermission: false,

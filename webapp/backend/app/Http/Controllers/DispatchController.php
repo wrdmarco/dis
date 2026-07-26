@@ -8,9 +8,11 @@ use App\Http\Responses\ApiResponse;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\Incident;
+use App\Models\User;
 use App\Services\DispatchDeliveryStatusService;
 use App\Services\DispatchService;
 use App\Services\IncidentAccessService;
+use App\Services\IncidentIntakeDossierService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,6 +24,7 @@ final class DispatchController extends Controller
         private readonly DispatchService $service,
         private readonly IncidentAccessService $access,
         private readonly DispatchDeliveryStatusService $deliveryStatus,
+        private readonly IncidentIntakeDossierService $incidentIntakeDossierService,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -42,7 +45,7 @@ final class DispatchController extends Controller
 
     public function store(StoreDispatchRequest $request, Incident $incident): JsonResponse
     {
-        return ApiResponse::success(MobileApiPayload::dispatch($this->service->create($incident, $request->validated(), $request->user())->load(['incident', 'targetTeam', 'recipients.user'])), 201);
+        return ApiResponse::success(MobileApiPayload::dispatch($this->service->create($incident, $request->validated(), $request->user())->load(['incident.intakeDossier.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->incidentIntakeDossierService), 201);
     }
 
     public function show(Request $request, DispatchRequest $dispatch): JsonResponse
@@ -61,7 +64,7 @@ final class DispatchController extends Controller
 
     public function send(Request $request, DispatchRequest $dispatch): JsonResponse
     {
-        return ApiResponse::success(MobileApiPayload::dispatch($this->service->markSent($dispatch, $request->user())->load(['incident', 'targetTeam', 'recipients.user'])));
+        return ApiResponse::success(MobileApiPayload::dispatch($this->service->markSent($dispatch, $request->user())->load(['incident.intakeDossier.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->incidentIntakeDossierService));
     }
 
     public function delivery(Request $request, DispatchRequest $dispatch): JsonResponse
@@ -108,7 +111,7 @@ final class DispatchController extends Controller
         $dispatch->update(['status' => 'cancelled', 'cancelled_at' => now()]);
         $this->service->broadcastDispatchChange($dispatch->refresh(), 'cancelled');
 
-        return ApiResponse::success(MobileApiPayload::dispatch($dispatch->load(['incident', 'targetTeam', 'recipients.user'])));
+        return ApiResponse::success(MobileApiPayload::dispatch($dispatch->load(['incident.intakeDossier.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->incidentIntakeDossierService));
     }
 
     public function escalate(Request $request, DispatchRequest $dispatch): JsonResponse
@@ -124,12 +127,12 @@ final class DispatchController extends Controller
             $request->user(),
             $data['team_ids'] ?? [],
             $request->boolean('include_unavailable'),
-        )->load(['incident', 'targetTeam', 'recipients.user'])));
+        )->load(['incident.intakeDossier.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->incidentIntakeDossierService));
     }
 
     public function reAlert(Request $request, DispatchRequest $dispatch): JsonResponse
     {
-        return ApiResponse::success(MobileApiPayload::dispatch($this->service->reAlert($dispatch, $request->user())->load(['incident', 'targetTeam', 'recipients.user'])));
+        return ApiResponse::success(MobileApiPayload::dispatch($this->service->reAlert($dispatch, $request->user())->load(['incident.intakeDossier.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->incidentIntakeDossierService));
     }
 
     public function recipients(Request $request, DispatchRequest $dispatch): JsonResponse
@@ -151,7 +154,7 @@ final class DispatchController extends Controller
         $query = $incident->dispatchRequests()
             ->with([
                 'targetTeam',
-                'incident',
+                'incident.intakeDossier.workflowRevision',
                 'recipients' => fn ($recipients) => $request->user()->isOperatorClient()
                     ? $recipients->where('user_id', $request->user()->id)
                     : $recipients,
@@ -169,9 +172,9 @@ final class DispatchController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function dispatchPayloadForActor(DispatchRequest $dispatch, \App\Models\User $actor): array
+    private function dispatchPayloadForActor(DispatchRequest $dispatch, User $actor): array
     {
-        $payload = MobileApiPayload::dispatch($dispatch);
+        $payload = MobileApiPayload::dispatch($dispatch, $actor, $this->incidentIntakeDossierService);
         if (! $actor->isOperatorClient() || $dispatch->status !== 'draft' || $dispatch->incident === null) {
             return $payload;
         }
@@ -189,6 +192,7 @@ final class DispatchController extends Controller
             'latitude' => null,
             'longitude' => null,
             'custom_fields' => (object) [],
+            'intake' => null,
         ];
 
         return $payload;

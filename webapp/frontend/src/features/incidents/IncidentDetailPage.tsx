@@ -15,6 +15,7 @@ import type { DispatchDeliveryStatus, DispatchPreview, DispatchRequest, DroneFli
 import { RealtimeBridge } from '../realtime/RealtimeBridge';
 import { dispatchDeliveryNotice } from './dispatchDeliveryPresentation';
 import { currentLiveLocations, dispatchEtaLabel, isCurrentLiveLocation, liveLocationEtaLabel } from './etaPresentation';
+import { IncidentIntakeDossierPanel } from '../intakes/IncidentIntakeDossierPanel';
 import { presentIncidentTimelineItem } from './incidentTimelinePresentation';
 import { incidentLifecycleActionForStatus, type IncidentLifecycleAction } from './incidentStatusFlow';
 
@@ -66,6 +67,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const [incidentLifecycleReason, setIncidentLifecycleReason] = useState('');
   const [incidentLifecycleLoading, setIncidentLifecycleLoading] = useState(false);
   const [incidentLifecycleError, setIncidentLifecycleError] = useState<string | null>(null);
+  const [intakeRefreshVersion, setIntakeRefreshVersion] = useState(0);
 
   const latestDispatch = dispatches.data?.[0] ?? null;
   const latestDispatchIsPreannouncement = latestDispatch?.status === 'draft';
@@ -78,6 +80,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
   const canDeleteIncidents = hasPermission('incidents.delete');
   const canManageDispatches = hasPermission('incidents.dispatch.manage');
   const canOverrideStatus = hasPermission('status.override');
+  const intakeDossierId = incident.data?.intake_dossier_id ?? null;
   const availableLifecycleAction = incident.data
     ? incidentLifecycleActionForStatus(incident.data.status)
     : null;
@@ -534,6 +537,7 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
         void dispatches.silentReload();
         void reloadLiveLocationsSilently();
         void timeline.silentReload();
+        setIntakeRefreshVersion((current) => current + 1);
       }} />
       <Panel
         title="Melding"
@@ -608,6 +612,14 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }) {
           ) : null}
         </ResourceState>
       </Panel>
+
+      {canManageIncidents && incident.data && intakeDossierId !== null ? (
+        <IncidentIntakeDossierPanel
+          incidentId={incidentId}
+          canManage={canManageIncidents}
+          refreshVersion={intakeRefreshVersion}
+        />
+      ) : null}
 
       {canManageIncidents && incident.data && !['resolved', 'cancelled'].includes(incident.data.status) ? (
         <Panel title="Meldkamer kladblok">

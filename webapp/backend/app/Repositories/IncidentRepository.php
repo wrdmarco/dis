@@ -23,14 +23,14 @@ final class IncidentRepository extends BaseRepository
     }
 
     /**
-     * @param array<string, mixed> $filters
+     * @param  array<string, mixed>  $filters
      */
     public function search(array $filters, int $perPage): LengthAwarePaginator
     {
         $statuses = $this->statusFilter($filters['status'] ?? null);
 
         return Incident::query()
-            ->with(['coordinator', 'team', 'teams'])
+            ->with(['coordinator', 'team', 'teams', 'intakeDossier.workflowRevision'])
             ->where('is_test', false)
             ->when($statuses !== [], fn ($query) => $query->whereIn('status', $statuses))
             ->when($filters['priority'] ?? null, fn ($query, string $priority) => $query->where('priority', $priority))

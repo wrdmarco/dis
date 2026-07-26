@@ -28,6 +28,8 @@ use App\Http\Controllers\ExpiryOverviewController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\IncidentController;
 use App\Http\Controllers\IncidentFormController;
+use App\Http\Controllers\IncidentIntakeDossierController;
+use App\Http\Controllers\IncidentIntakeWorkflowController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MobileConfigController;
 use App\Http\Controllers\MobilePairingController;
@@ -143,7 +145,8 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
 
         Route::get('/address-book', [AddressBookController::class, 'index'])->middleware('permission:address-book.view');
 
-        Route::get('/teams', [AdminController::class, 'teams'])->middleware('permission:incidents.view');
+        Route::get('/teams', [AdminController::class, 'teams'])
+            ->middleware('permission:incidents.view,intakes.priority.override');
 
         Route::get('/test-alert', [TestAlertController::class, 'show'])
             ->withoutMiddleware('throttle:authenticated')
@@ -160,11 +163,21 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/operational-map/layers', [OperationalMapController::class, 'layers'])->middleware('permission:operational-map.view');
         Route::post('/incidents', [IncidentController::class, 'store'])->middleware('permission:incidents.manage');
         Route::get('/incident-form/config', [IncidentFormController::class, 'show'])->middleware('permission:incidents.view');
+        Route::get('/intake-workflow/config', [IncidentIntakeWorkflowController::class, 'published'])->middleware('permission:incidents.manage');
+        Route::get('/intake-dossiers', [IncidentIntakeDossierController::class, 'index'])->middleware('permission:incidents.manage');
+        Route::post('/intake-dossiers', [IncidentIntakeDossierController::class, 'store'])->middleware('permission:incidents.manage');
+        Route::get('/intake-dossiers/{intakeDossier}', [IncidentIntakeDossierController::class, 'show'])->middleware('permission:incidents.manage');
+        Route::patch('/intake-dossiers/{intakeDossier}', [IncidentIntakeDossierController::class, 'update'])->middleware('permission:incidents.manage');
+        Route::patch('/intake-dossiers/{intakeDossier}/priority', [IncidentIntakeDossierController::class, 'decide'])->middleware('permission:incidents.manage');
+        Route::post('/intake-dossiers/{intakeDossier}/promote', [IncidentIntakeDossierController::class, 'promote'])->middleware('permission:incidents.manage');
+        Route::post('/intake-dossiers/{intakeDossier}/close', [IncidentIntakeDossierController::class, 'close'])->middleware('permission:incidents.manage');
         Route::post('/incidents/flight-context-preview', [IncidentController::class, 'flightContextPreview'])->middleware('permission:incidents.manage');
         Route::get('/incidents/{incident}', [IncidentController::class, 'show'])
             ->withoutMiddleware('throttle:authenticated')
             ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:alarm-read']);
         Route::patch('/incidents/{incident}', [IncidentController::class, 'update'])->middleware('permission:incidents.manage');
+        Route::get('/incidents/{incident}/intake-dossier', [IncidentIntakeDossierController::class, 'showForIncident'])->middleware('permission:incidents.manage');
+        Route::patch('/incidents/{incident}/intake-dossier', [IncidentIntakeDossierController::class, 'updateForIncident'])->middleware('permission:incidents.manage');
         Route::get('/incidents/{incident}/internal-notes', [IncidentController::class, 'internalNotes'])->middleware('permission:incidents.manage');
         Route::patch('/incidents/{incident}/internal-notes', [IncidentController::class, 'updateInternalNotes'])->middleware('permission:incidents.manage');
         Route::delete('/incidents/{incident}', [IncidentController::class, 'destroy'])->middleware('permission:incidents.delete');
@@ -485,6 +498,12 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::patch('/admin/pilot-report/form-config', [PilotIncidentReportController::class, 'updateFormConfig'])->middleware('permission:forms.manage');
         Route::get('/admin/incident-form/config', [IncidentFormController::class, 'show'])->middleware('permission:forms.manage,branding.manage');
         Route::patch('/admin/incident-form/config', [IncidentFormController::class, 'update'])->middleware('permission:forms.manage');
+        Route::get('/admin/intake-workflow/config', [IncidentIntakeWorkflowController::class, 'adminConfig'])->middleware('permission:forms.manage');
+        Route::patch('/admin/intake-workflow/draft', [IncidentIntakeWorkflowController::class, 'updateDraft'])->middleware('permission:forms.manage');
+        Route::post('/admin/intake-workflow/validate', [IncidentIntakeWorkflowController::class, 'validateDraft'])->middleware('permission:forms.manage');
+        Route::post('/admin/intake-workflow/simulate', [IncidentIntakeWorkflowController::class, 'simulate'])->middleware('permission:forms.manage');
+        Route::post('/admin/intake-workflow/publish', [IncidentIntakeWorkflowController::class, 'publish'])->middleware('permission:forms.manage');
+        Route::post('/admin/intake-workflow/restore', [IncidentIntakeWorkflowController::class, 'restore'])->middleware('permission:forms.manage');
         Route::get('/admin/health', [HealthController::class, 'admin'])->middleware('permission:system.health.view');
         Route::get('/admin/queues', [QueueMonitorController::class, 'index'])
             ->middleware(['permission:system.queues.view,system.queues.manage', 'throttle:system-metrics']);

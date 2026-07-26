@@ -121,7 +121,16 @@ final class IncidentService
             $phoneCountry = $this->phoneCountryFromIncidentData($data, $incident);
             $data = $this->normalizeIncidentPhoneFields($data, $phoneCountry);
             if (array_key_exists('custom_fields', $data)) {
-                $data['custom_fields'] = $this->incidentFormService->normalizeCustomValues($data, $phoneCountry);
+                $customFieldPatch = $this->incidentFormService->normalizeCustomValues($data, $phoneCountry);
+                $customFields = is_array($incident->custom_fields) ? $incident->custom_fields : [];
+                foreach ($customFieldPatch as $key => $value) {
+                    if ($value === null) {
+                        unset($customFields[$key]);
+                    } else {
+                        $customFields[$key] = $value;
+                    }
+                }
+                $data['custom_fields'] = $customFields;
             }
             $teamIds = array_key_exists('team_ids', $data) ? $this->teamIdsFromPayload($data) : null;
             unset($data['status_reason']);
@@ -220,6 +229,11 @@ final class IncidentService
         return $updatedIncident;
     }
 
+    public function invalidateDraftDispatchesAfterIntakeChange(Incident $incident, User $actor): void
+    {
+        $this->dispatchService->invalidateDraftsAfterIntakeChange($incident, $actor);
+    }
+
     private function validateStatusTransition(
         Incident $incident,
         ?string $nextStatus,
@@ -252,6 +266,12 @@ final class IncidentService
 
         if ($nextStatus === (string) $incident->status) {
             return;
+        }
+
+        if (in_array($nextStatus, ['active', 'dispatching'], true) && ! $incident->intake_decision_valid) {
+            throw ValidationException::withMessages([
+                'status' => ['Beoordeel de bijgewerkte uitvraag opnieuw voordat je het incident activeert of alarmeert.'],
+            ]);
         }
 
         if ($manualStatusOverride) {
@@ -639,10 +659,12 @@ final class IncidentService
 
     private function broadcastIncidentChange(Incident $incident, string $action): void
     {
-        try {
-            IncidentChanged::dispatch($incident, $action);
-        } catch (Throwable $exception) {
-            report($exception);
-        }
+        DB::afterCommit(function () use ($incident, $action): void {
+            try {
+                IncidentChanged::dispatch($incident->refresh(), $action);
+            } catch (Throwable $exception) {
+                report($exception);
+            }
+        });
     }
 }

@@ -122,6 +122,14 @@ final class IamAuthorizationTest extends TestCase
             'custom_fields' => ['secret' => 'niet tonen'],
         ]);
         $dispatch = $this->dispatch($incident, $creator, $operator, 'draft');
+        $dispatch->update([
+            'priority' => 'critical',
+            'message' => implode(' - ', [
+                $incident->reference,
+                $incident->title,
+                $incident->location_label,
+            ]),
+        ]);
 
         $response = $this->asClient($operator, 'client:operator')->getJson('/api/incidents/'.$incident->id);
 
@@ -137,11 +145,24 @@ final class IamAuthorizationTest extends TestCase
         $this->assertStringContainsString('"custom_fields":{}', $response->getContent());
         $this->assertStringNotContainsString('Botnische golf 1', (string) $response->json('data.location_label'));
 
-        $this->asClient($operator, 'client:operator')
+        $dispatchResponse = $this->asClient($operator, 'client:operator')
             ->getJson('/api/dispatches/'.$dispatch->id)
             ->assertOk()
+            ->assertJsonPath('data.message', 'Vooraankondiging')
+            ->assertJsonPath('data.priority', 'normal')
             ->assertJsonPath('data.incident.title', 'Beschikbaar voor melding in Woerden?')
             ->assertJsonPath('data.incident.location_label', 'Woerden');
+        $this->assertStringNotContainsString('Botnische golf 1', $dispatchResponse->getContent());
+        $this->assertStringNotContainsString('Testincident', (string) $dispatchResponse->json('data.message'));
+
+        $list = $this->asClient($operator, 'client:operator')
+            ->getJson('/api/dispatches')
+            ->assertOk()
+            ->json('data');
+        $listedDispatch = collect($list)->firstWhere('id', $dispatch->id);
+        $this->assertSame('Vooraankondiging', $listedDispatch['message'] ?? null);
+        $this->assertSame('normal', $listedDispatch['priority'] ?? null);
+        $this->assertStringNotContainsString('Botnische golf 1', json_encode($listedDispatch, JSON_THROW_ON_ERROR));
     }
 
     public function test_operator_timeline_does_not_expose_other_recipients(): void

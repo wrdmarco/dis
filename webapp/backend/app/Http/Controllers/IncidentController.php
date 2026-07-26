@@ -15,6 +15,7 @@ use App\Repositories\IncidentRepository;
 use App\Services\DispatchService;
 use App\Services\DroneFlightContextService;
 use App\Services\IncidentAccessService;
+use App\Services\IncidentIntakeDossierService;
 use App\Services\IncidentService;
 use App\Support\ApiDateTime;
 use App\Support\IncidentTimelineAttribution;
@@ -24,6 +25,7 @@ use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
@@ -39,6 +41,7 @@ final class IncidentController extends Controller
         private readonly DispatchService $dispatchService,
         private readonly DroneFlightContextService $droneFlightContextService,
         private readonly IncidentAccessService $access,
+        private readonly IncidentIntakeDossierService $incidentIntakeDossierService,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -53,6 +56,7 @@ final class IncidentController extends Controller
                     'coordinator',
                     'team',
                     'teams',
+                    'intakeDossier.workflowRevision',
                     'dispatchRequests' => fn ($dispatches) => $dispatches
                         ->where(function ($query) use ($userId, $attendanceDispatchStatuses): void {
                             $query
@@ -136,7 +140,11 @@ final class IncidentController extends Controller
             $incidents = $this->incidents
                 ->search($request->only(['status', 'priority']), 100)
                 ->getCollection()
-                ->map(fn (Incident $incident): array => MobileApiPayload::incident($incident))
+                ->map(fn (Incident $incident): array => MobileApiPayload::incident(
+                    $incident,
+                    $request->user(),
+                    $this->incidentIntakeDossierService,
+                ))
                 ->values();
 
             return ApiResponse::success($incidents);
@@ -144,13 +152,21 @@ final class IncidentController extends Controller
 
         return ApiResponse::paginated(
             $this->incidents->search($request->only(['status', 'priority']), (int) $request->integer('per_page', 25)),
-            fn (Incident $incident): array => MobileApiPayload::incident($incident),
+            fn (Incident $incident): array => MobileApiPayload::incident(
+                $incident,
+                $request->user(),
+                $this->incidentIntakeDossierService,
+            ),
         );
     }
 
     public function store(StoreIncidentRequest $request): JsonResponse
     {
-        return ApiResponse::success(MobileApiPayload::incident($this->service->create($request->validated(), $request->user())), 201);
+        return ApiResponse::error(
+            'incident_intake_required',
+            'Maak eerst een meldingsdossier aan en zet dit daarna om naar een conceptincident.',
+            409,
+        );
     }
 
     public function flightContextPreview(Request $request): JsonResponse
@@ -209,7 +225,7 @@ final class IncidentController extends Controller
         $this->access->assertCanViewIncident($request->user(), $incident);
 
         $payload = $this->incidentPayloadForActor(
-            $incident->load(['coordinator', 'team', 'teams']),
+            $incident->load(['coordinator', 'team', 'teams', 'intakeDossier.workflowRevision']),
             $request->user(),
         );
 
@@ -218,11 +234,24 @@ final class IncidentController extends Controller
 
     public function update(UpdateIncidentRequest $request, Incident $incident): JsonResponse
     {
-        $updated = $this->service->update($incident, $request->validated(), $request->user());
+        $data = $request->validated();
+        $updated = DB::transaction(function () use ($incident, $data, $request): Incident {
+            $this->incidentIntakeDossierService->lockForIncidentUpdate($incident);
+            $currentIncident = Incident::query()->lockForUpdate()->findOrFail($incident->id);
+            $normalizedData = $this->incidentIntakeDossierService->mirrorLegacyIncidentFields($data, $currentIncident);
+            $this->incidentIntakeDossierService->assertLinkedDecisionFieldsUnchanged($currentIncident, $normalizedData);
+            $updated = $this->service->update(
+                $currentIncident,
+                $normalizedData,
+                $request->user(),
+            );
+
+            return $updated;
+        })->load('intakeDossier.workflowRevision');
         $warnings = $this->service->lastDispatchWarnings();
 
         return ApiResponse::success(
-            MobileApiPayload::incident($updated),
+            MobileApiPayload::incident($updated, $request->user(), $this->incidentIntakeDossierService),
             200,
             $warnings === [] ? [] : ['warnings' => $warnings],
         );
@@ -248,28 +277,45 @@ final class IncidentController extends Controller
 
     public function destroy(Request $request, Incident $incident): Response
     {
-        $this->service->delete($incident, $request->user());
+        DB::transaction(function () use ($incident, $request): void {
+            // Keep the same dossier -> incident lock order as linked updates.
+            $this->incidentIntakeDossierService->lockForIncidentUpdate($incident);
+            $currentIncident = Incident::query()->lockForUpdate()->findOrFail($incident->id);
+            $this->service->delete($currentIncident, $request->user());
+        });
 
         return response()->noContent();
     }
 
-    public function refreshFlightContext(Incident $incident): JsonResponse
+    public function refreshFlightContext(Request $request, Incident $incident): JsonResponse
     {
-        return ApiResponse::success(MobileApiPayload::incident($this->droneFlightContextService->refreshIncident($incident)));
+        return ApiResponse::success(MobileApiPayload::incident(
+            $this->droneFlightContextService->refreshIncident($incident),
+            $request->user(),
+            $this->incidentIntakeDossierService,
+        ));
     }
 
     public function close(Request $request, Incident $incident): JsonResponse
     {
         $request->validate(['reason' => ['nullable', 'string', 'max:1000']]);
 
-        return ApiResponse::success(MobileApiPayload::incident($this->service->close($incident, $request->user(), $request->input('reason'))));
+        return ApiResponse::success(MobileApiPayload::incident(
+            $this->service->close($incident, $request->user(), $request->input('reason')),
+            $request->user(),
+            $this->incidentIntakeDossierService,
+        ));
     }
 
     public function cancel(Request $request, Incident $incident): JsonResponse
     {
         $request->validate(['reason' => ['nullable', 'string', 'max:1000']]);
 
-        return ApiResponse::success(MobileApiPayload::incident($this->service->cancel($incident, $request->user(), $request->input('reason'))));
+        return ApiResponse::success(MobileApiPayload::incident(
+            $this->service->cancel($incident, $request->user(), $request->input('reason')),
+            $request->user(),
+            $this->incidentIntakeDossierService,
+        ));
     }
 
     public function timeline(Request $request, Incident $incident): JsonResponse
@@ -677,7 +723,7 @@ final class IncidentController extends Controller
      */
     private function incidentPayloadForActor(Incident $incident, User $actor): array
     {
-        $payload = MobileApiPayload::incident($incident);
+        $payload = MobileApiPayload::incident($incident, $actor, $this->incidentIntakeDossierService);
         if (! $actor->isOperatorClient()) {
             return $payload;
         }
@@ -705,6 +751,7 @@ final class IncidentController extends Controller
                 'on_scene_contact_role' => null,
                 'required_resources' => null,
                 'custom_fields' => (object) [],
+                'intake' => null,
                 'priority' => 'normal',
                 'status' => $incident->status,
                 'is_test' => (bool) $incident->is_test,

@@ -168,6 +168,8 @@ export interface Incident {
   on_scene_contact_role?: string | null;
   required_resources?: string | null;
   custom_fields?: Record<string, unknown>;
+  intake?: IncidentIntake | null;
+  intake_dossier_id?: string | null;
   priority: 'low' | 'normal' | 'high' | 'critical';
   status: 'draft' | 'active' | 'dispatching' | 'in_progress' | 'resolved' | 'cancelled';
   is_test?: boolean;
@@ -1935,6 +1937,23 @@ export interface PilotIncidentReport {
 export interface IncidentFormConfig {
   fields: ConfigurableFormField[];
   layout?: IncidentFormLayoutItem[];
+}
+
+export type IncidentSubjectType = 'person' | 'animal' | 'object';
+
+export interface IncidentIntakeAnswer {
+  key: string;
+  label: string;
+  type: string;
+  value: unknown;
+  display_value: string;
+  section?: string | null;
+}
+
+export interface IncidentIntake {
+  subject_type: IncidentSubjectType;
+  subject_type_label: string;
+  answers: IncidentIntakeAnswer[];
 }
 
 export interface IncidentFormLayoutItem {

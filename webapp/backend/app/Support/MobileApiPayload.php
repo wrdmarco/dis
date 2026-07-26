@@ -16,6 +16,7 @@ use App\Models\Incident;
 use App\Models\PilotIncidentReport;
 use App\Models\User;
 use App\Models\UserCertification;
+use App\Services\IncidentIntakeDossierService;
 use App\Services\TwoFactorService;
 use DateTimeInterface;
 
@@ -300,31 +301,54 @@ final class MobileApiPayload
     /**
      * @return array<string, mixed>
      */
-    public static function incident(Incident $incident): array
-    {
-        $incident->loadMissing(['coordinator', 'team', 'teams']);
+    public static function incident(
+        Incident $incident,
+        ?User $actor = null,
+        ?IncidentIntakeDossierService $intakeDossierService = null,
+    ): array {
+        $incident->loadMissing(['coordinator', 'team', 'teams', 'intakeDossier.workflowRevision']);
+        $intakeDossierService ??= app(IncidentIntakeDossierService::class);
+        $intakeDossier = $incident->intakeDossier;
+        $operatorClient = $actor?->isOperatorClient() === true;
+        $hiddenIncidentTargets = $operatorClient
+            ? $intakeDossierService->hiddenIncidentTargetsForOperator($incident)
+            : [];
+        $visibleValue = static fn (string $target, mixed $value): mixed => in_array($target, $hiddenIncidentTargets, true)
+            ? null
+            : $value;
+        $intakeProjection = $operatorClient
+            ? $intakeDossierService->projectionForIncident($incident, $actor)
+            : null;
+        $title = in_array('title', $hiddenIncidentTargets, true)
+            ? trim((string) ($intakeProjection['subject_type_label'] ?? 'Melding'))
+            : $incident->title;
+        $locationHidden = in_array('location_label', $hiddenIncidentTargets, true);
 
         return [
             'id' => $incident->id,
             'reference' => $incident->reference,
-            'title' => $incident->title,
-            'description' => $incident->description,
-            'reporter_name' => $incident->reporter_name,
-            'reporter_phone' => $incident->reporter_phone,
-            'requesting_organization' => $incident->requesting_organization,
-            'requesting_unit' => $incident->requesting_unit,
-            'on_scene_contact_name' => $incident->on_scene_contact_name,
-            'on_scene_contact_phone' => $incident->on_scene_contact_phone,
-            'on_scene_contact_role' => $incident->on_scene_contact_role,
-            'required_resources' => $incident->required_resources,
-            'custom_fields' => (object) ($incident->custom_fields ?? []),
+            'title' => $title === '' ? 'Melding' : $title,
+            'description' => $visibleValue('description', $incident->description),
+            'reporter_name' => $visibleValue('reporter_name', $incident->reporter_name),
+            'reporter_phone' => $visibleValue('reporter_phone', $incident->reporter_phone),
+            'requesting_organization' => $visibleValue('requesting_organization', $incident->requesting_organization),
+            'requesting_unit' => $visibleValue('requesting_unit', $incident->requesting_unit),
+            'on_scene_contact_name' => $visibleValue('on_scene_contact_name', $incident->on_scene_contact_name),
+            'on_scene_contact_phone' => $visibleValue('on_scene_contact_phone', $incident->on_scene_contact_phone),
+            'on_scene_contact_role' => $visibleValue('on_scene_contact_role', $incident->on_scene_contact_role),
+            'required_resources' => $visibleValue('required_resources', $incident->required_resources),
+            'custom_fields' => $operatorClient && $intakeDossier !== null
+                ? (object) []
+                : (object) ($incident->custom_fields ?? []),
+            'intake' => $intakeProjection,
+            'intake_dossier_id' => $intakeDossier?->id,
             'priority' => $incident->priority,
             'status' => $incident->status,
             'is_test' => (bool) $incident->is_test,
-            'location_label' => $incident->location_label,
-            'latitude' => $incident->latitude,
-            'longitude' => $incident->longitude,
-            'drone_flight_context' => $incident->drone_flight_context,
+            'location_label' => $visibleValue('location_label', $incident->location_label),
+            'latitude' => $locationHidden ? null : $incident->latitude,
+            'longitude' => $locationHidden ? null : $incident->longitude,
+            'drone_flight_context' => $locationHidden ? null : $incident->drone_flight_context,
             'coordinator' => self::userIdentity($incident->coordinator),
             'team' => $incident->team === null ? null : [
                 'id' => $incident->team->id,
@@ -373,22 +397,34 @@ final class MobileApiPayload
     /**
      * @return array<string, mixed>
      */
-    public static function dispatch(DispatchRequest $dispatch): array
-    {
+    public static function dispatch(
+        DispatchRequest $dispatch,
+        ?User $actor = null,
+        ?IncidentIntakeDossierService $intakeDossierService = null,
+    ): array {
+        $operatorPreannouncement = $actor?->isOperatorClient() === true && $dispatch->status === 'draft';
+
         return [
             'id' => $dispatch->id,
             'incident_id' => $dispatch->incident_id,
             'target_team_id' => $dispatch->target_team_id,
             'status' => $dispatch->status,
             'action_mode' => $dispatch->status === 'draft' ? 'availability' : 'attendance',
-            'priority' => $dispatch->priority,
-            'message' => $dispatch->message,
+            'priority' => $operatorPreannouncement ? 'normal' : $dispatch->priority,
+            // Draft dispatches are availability preannouncements. Their
+            // persisted message is retained for the later definitive alarm,
+            // but may already contain its title and full address.
+            'message' => $operatorPreannouncement
+                ? 'Vooraankondiging'
+                : $dispatch->message,
             'sent_at' => self::dateTime($dispatch->sent_at),
             'send_status' => $dispatch->send_status,
             'send_queued_at' => self::dateTime($dispatch->send_queued_at),
             'send_released_at' => self::dateTime($dispatch->send_released_at),
             'created_at' => self::dateTime($dispatch->created_at),
-            'incident' => $dispatch->relationLoaded('incident') && $dispatch->incident !== null ? self::incident($dispatch->incident) : null,
+            'incident' => $dispatch->relationLoaded('incident') && $dispatch->incident !== null
+                ? self::incident($dispatch->incident, $actor, $intakeDossierService)
+                : null,
             'target_team' => $dispatch->relationLoaded('targetTeam') && $dispatch->targetTeam !== null ? [
                 'id' => $dispatch->targetTeam->id,
                 'code' => $dispatch->targetTeam->code,

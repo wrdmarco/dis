@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiClientError } from './apiClient';
 import { useAuth } from '../features/auth/AuthContext';
+import type { ApiResponse } from '../types/api';
 
 interface ResourceState<T> {
   data: T | null;
+  meta: ApiResponse<T>['meta'] | null;
   loading: boolean;
   error: string | null;
   reload: () => Promise<void>;
@@ -14,6 +16,7 @@ interface ResourceState<T> {
 export function useApiResource<T>(path: string, enabled = true): ResourceState<T> {
   const { api } = useAuth();
   const [data, setData] = useState<T | null>(null);
+  const [meta, setMeta] = useState<ApiResponse<T>['meta'] | null>(null);
   const [loading, setLoading] = useState<boolean>(enabled);
   const [error, setError] = useState<string | null>(null);
   const latestRequestRef = useRef(0);
@@ -39,6 +42,7 @@ export function useApiResource<T>(path: string, enabled = true): ResourceState<T
       const response = await api.get<T>(path);
       if (mountedRef.current && latestRequestRef.current === requestId) {
         setData(response.data);
+        setMeta(response.meta ?? null);
       }
     } catch (err) {
       if (mountedRef.current && latestRequestRef.current === requestId) {
@@ -71,6 +75,7 @@ export function useApiResource<T>(path: string, enabled = true): ResourceState<T
       visibleRequestsRef.current.clear();
       setLoading(false);
       setError(null);
+      setMeta(null);
 
       return undefined;
     }
@@ -88,5 +93,5 @@ export function useApiResource<T>(path: string, enabled = true): ResourceState<T
     setData((current) => typeof next === 'function' ? (next as (value: T | null) => T | null)(current) : next);
   }, []);
 
-  return { data, loading, error, reload, silentReload, mutate };
+  return { data, meta, loading, error, reload, silentReload, mutate };
 }

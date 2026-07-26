@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 final class Incident extends Model
@@ -28,6 +29,7 @@ final class Incident extends Model
         'on_scene_contact_role',
         'required_resources',
         'custom_fields',
+        'intake_decision_valid',
         'priority',
         'status',
         'is_test',
@@ -56,6 +58,7 @@ final class Incident extends Model
             'latitude' => 'decimal:7',
             'longitude' => 'decimal:7',
             'custom_fields' => 'array',
+            'intake_decision_valid' => 'boolean',
             'drone_flight_context' => 'array',
             'is_test' => 'boolean',
             'province_resolved_at' => 'immutable_datetime',
@@ -101,5 +104,10 @@ final class Incident extends Model
     public function pilotReports(): HasMany
     {
         return $this->hasMany(PilotIncidentReport::class);
+    }
+
+    public function intakeDossier(): HasOne
+    {
+        return $this->hasOne(IncidentIntakeDossier::class);
     }
 }

@@ -1,4 +1,5 @@
 import { Panel } from '../../components/Panel';
+import dynamic from 'next/dynamic';
 import { FirebaseSetupWizard } from '../../components/FirebaseSetupWizard';
 import { ResourceState } from '../../components/ResourceState';
 import { TotpQrCode } from '../../components/TotpQrCode';
@@ -18,6 +19,11 @@ import {
   preserveAdminApiSecrets,
   type AdminApiSettingsForm,
 } from './adminApiSettings';
+import { adminTabChangeAllowed } from './adminTabNavigation';
+
+const IncidentIntakeWorkflowStudio = dynamic(
+  () => import('./IncidentIntakeWorkflowStudio').then((module) => module.IncidentIntakeWorkflowStudio),
+);
 
 interface MobileSettingsForm {
   publicUrl: string;
@@ -89,7 +95,7 @@ const incidentTimelineVisibilityOptions = [
   { value: 'audit', label: 'Auditacties' },
 ] as const;
 
-type AdminTab = 'firebase' | 'mail' | 'api' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'apps' | 'store' | 'pilotReport' | 'incidentForm' | 'settings';
+type AdminTab = 'firebase' | 'mail' | 'api' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'apps' | 'store' | 'pilotReport' | 'incidentForm' | 'incidentIntake' | 'settings';
 type AdminPageMode = 'admin' | 'forms';
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
@@ -109,6 +115,7 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
 const formTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'pilotReport', label: 'Inzetrapport' },
   { id: 'incidentForm', label: 'Incidentformulier' },
+  { id: 'incidentIntake', label: 'Uitvraag' },
 ];
 
 const developerScopeLabels: Record<string, string> = {
@@ -136,7 +143,7 @@ function adminTabAllowed(
     canManageDeveloperAccess: boolean;
   },
 ): boolean {
-  if (tab === 'pilotReport' || tab === 'incidentForm') {
+  if (tab === 'pilotReport' || tab === 'incidentForm' || tab === 'incidentIntake') {
     return permissions.canManageForms;
   }
 
@@ -195,6 +202,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const [incidentFormFields, setIncidentFormFields] = useState<ConfigurableFormField[]>([]);
   const [incidentFormLayout, setIncidentFormLayout] = useState<IncidentFormLayoutItem[]>(defaultIncidentFormLayout());
   const [activeTab, setActiveTab] = useState<AdminTab>(mode === 'forms' ? 'pilotReport' : 'firebase');
+  const [intakeWorkflowDirty, setIntakeWorkflowDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [managedSaving, setManagedSaving] = useState(false);
@@ -893,6 +901,21 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     setIncidentFormLayout((current) => reorderLayoutItem(current, sourceKey, targetKey));
   }
 
+  function changeActiveTab(nextTab: AdminTab) {
+    if (!adminTabChangeAllowed({
+      currentTab: activeTab,
+      nextTab,
+      intakeWorkflowDirty,
+      confirmLeave: () => window.confirm(
+        'Er zijn niet-opgeslagen wijzigingen in de uitvraag. Dit onderdeel toch verlaten?',
+      ),
+    })) {
+      return;
+    }
+
+    setActiveTab(nextTab);
+  }
+
   return (
     <div className="page-stack">
       <div className="admin-tabs" role="tablist" aria-label="Admin onderdelen">
@@ -903,7 +926,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
             type="button"
             role="tab"
             aria-selected={activeTab === tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => changeActiveTab(tab.id)}
           >
             {tab.label}
           </button>
@@ -1740,6 +1763,10 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
         </Panel>
       ) : null}
 
+      {activeTab === 'incidentIntake' ? (
+        <IncidentIntakeWorkflowStudio onDirtyChange={setIntakeWorkflowDirty} />
+      ) : null}
+
       {activeTab === 'settings' ? (
         <Panel title="Systeeminstellingen">
           <ResourceState loading={settings.loading} error={settings.error} empty={(settings.data?.length ?? 0) === 0}>
@@ -2304,7 +2331,7 @@ function FormFieldPropertiesPanel(props: {
           {showOperatorAvailability ? (
             <label className="check-label">
               <input type="checkbox" checked={field.available_in_operator_app ?? true} disabled={field.locked === true} onChange={(event) => onUpdate(field.key, { available_in_operator_app: event.target.checked })} />
-              Beschikbaar in operator-app
+              Tonen in Operator-app
             </label>
           ) : null}
           {availabilityHint ? <p className="muted-text">{availabilityHint}</p> : null}

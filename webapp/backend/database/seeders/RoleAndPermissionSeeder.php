@@ -27,6 +27,7 @@ final class RoleAndPermissionSeeder extends Seeder
         'incidents.view' => ['display_name' => 'Incidenten bekijken', 'category' => 'incident_management', 'description' => 'Bekijk incidenten, details, tijdlijn en rapportstatus. Dit geeft geen recht om mensen te alarmeren of opkomst te bedienen.'],
         'incidents.assigned.view' => ['display_name' => 'Eigen toegewezen incidenten bekijken', 'category' => 'incident_management', 'description' => 'Bekijk in de operator-app uitsluitend incidenten waarvoor de gebruiker zelf ontvanger of geaccepteerde opkomer is.'],
         'incidents.manage' => ['display_name' => 'Incidentregistratie beheren', 'category' => 'incident_management', 'description' => 'Maak en wijzig incidenten, beheer status, kladblokregels, afsluiten en annuleren. Alarmeren en opkomst vallen onder incidentalarmering.'],
+        'intakes.priority.override' => ['display_name' => 'Uitvraagadvies overschrijven', 'category' => 'incident_management', 'description' => 'Stel gemotiveerd een andere prioriteit of inzetkeuze vast dan het serveradvies.'],
         'incidents.delete' => ['display_name' => 'Incidenten verwijderen', 'category' => 'incident_management', 'description' => 'Verwijder incidenten en gekoppelde operationele gegevens permanent. Gebruik alleen voor beheer.'],
         'incidents.dispatch.view' => ['display_name' => 'Incidentalarmering bekijken', 'category' => 'incident_management', 'description' => 'Bekijk vooraankondigingen, alarmeringen, gealarmeerde teams/personen, reacties, opkomststatus en dispatch-statistieken bij incidenten.'],
         'incidents.dispatch.manage' => ['display_name' => 'Incidentalarmering bedienen', 'category' => 'incident_management', 'description' => 'Bedien het alarmeringsproces rond een incident: proefalarm, vooraankondigen, alarmeren, nadere info, opschalen, heralarmeren, annuleren, opkomst corrigeren en locatieverzoeken sturen.'],
@@ -79,7 +80,7 @@ final class RoleAndPermissionSeeder extends Seeder
             'can_use_operator_app' => true,
             'can_use_admin_app' => true,
             'permissions' => [
-                'users.view', 'teams.manage', 'incidents.view', 'incidents.manage',
+                'users.view', 'teams.manage', 'incidents.view', 'incidents.manage', 'intakes.priority.override',
                 'incidents.dispatch.view', 'incidents.dispatch.manage', 'status.view', 'status.override',
                 'vacations.view',
                 'assets.view', 'assets.manage', 'certifications.view', 'audit.view',
@@ -95,7 +96,7 @@ final class RoleAndPermissionSeeder extends Seeder
             'can_use_operator_app' => true,
             'can_use_admin_app' => true,
             'permissions' => [
-                'users.view', 'incidents.view', 'incidents.manage', 'incidents.dispatch.view',
+                'users.view', 'incidents.view', 'incidents.manage', 'intakes.priority.override', 'incidents.dispatch.view',
                 'incidents.dispatch.manage', 'status.view', 'assets.view', 'certifications.view',
                 'expiry.view', 'vacations.view',
                 'address-book.view', 'settings.push.tokens.manage', 'settings.push.manual.send',

@@ -24,7 +24,21 @@ final class IncidentStatusFlowTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_create_rejects_a_non_draft_client_status_and_the_service_always_stores_draft(): void
+    public function test_flight_context_refresh_returns_the_actor_aware_incident_payload(): void
+    {
+        $actor = $this->user('incident-flight-context-refresh@example.test');
+        $this->grantIncidentManager($actor);
+        $incident = $this->incident($actor, 'draft', 'FLOW-FLIGHT-CONTEXT');
+
+        $this->asWebClient($actor)
+            ->postJson("/api/incidents/{$incident->id}/flight-context/refresh")
+            ->assertOk()
+            ->assertJsonPath('data.id', $incident->id)
+            ->assertJsonPath('data.drone_flight_context', null)
+            ->assertJsonPath('data.intake', null);
+    }
+
+    public function test_public_create_requires_intake_promotion_and_internal_service_always_stores_draft(): void
     {
         Queue::fake();
         $actor = $this->user('incident-create@example.test');
@@ -47,16 +61,18 @@ final class IncidentStatusFlowTest extends TestCase
 
         $this->asWebClient($actor)
             ->postJson('/api/incidents', [
-                'title' => 'Compatibel concept',
-                'description' => 'Een ouder formulier mag de vaste conceptstatus nog meesturen.',
+                'title' => 'Concept zonder meldingsdossier',
+                'description' => 'Publieke callers moeten eerst de uitvraag doorlopen.',
                 'priority' => 'normal',
                 'status' => 'draft',
                 'custom_fields' => [
                     'requesting_organization' => 'Testorganisatie',
                 ],
             ])
-            ->assertCreated()
-            ->assertJsonPath('data.status', 'draft');
+            ->assertConflict()
+            ->assertJsonPath('error.code', 'incident_intake_required');
+
+        $this->assertDatabaseCount('incidents', 0);
 
         $incident = app(IncidentService::class)->create([
             'title' => 'Server-side concept',
