@@ -237,14 +237,6 @@ final class DeploymentRequestService
             ]);
 
             if ($locked->deployment_id !== null) {
-                $nextBoundValues = $this->boundDeploymentValues($configuration, $subjectType, $answers);
-                foreach (['title', 'description', 'location_label'] as $requiredTarget) {
-                    if (trim((string) ($nextBoundValues[$requiredTarget] ?? '')) === '') {
-                        throw ValidationException::withMessages([
-                            'answers' => ["Een gekoppelde inzet moet altijd een ingevuld veld voor $requiredTarget behouden."],
-                        ]);
-                    }
-                }
                 $deployment = $locked->deployment()->firstOrFail();
                 $deploymentPatch = [];
                 $fieldMap = collect($configuration['fields'] ?? [])->keyBy('key');
@@ -265,6 +257,16 @@ final class DeploymentRequestService
                     $newValue = $newExists ? $answers[$key] : null;
                     if ($oldExists !== $newExists || $oldValue !== $newValue) {
                         $this->writeDeploymentTarget($deploymentPatch, (string) $binding['target'], $newValue);
+                    }
+                }
+                foreach (['title', 'description', 'location_label'] as $requiredTarget) {
+                    $effectiveValue = array_key_exists($requiredTarget, $deploymentPatch)
+                        ? $deploymentPatch[$requiredTarget]
+                        : $deployment->{$requiredTarget};
+                    if (trim((string) $effectiveValue) === '') {
+                        throw ValidationException::withMessages([
+                            'answers' => ["Een gekoppelde inzet moet altijd een ingevuld veld voor $requiredTarget behouden."],
+                        ]);
                     }
                 }
                 if ($contentChanged) {

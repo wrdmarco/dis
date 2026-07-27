@@ -49,6 +49,14 @@ final class RoleAndPermissionSeeder extends Seeder
         'settings.manage' => ['display_name' => 'Systeeminstellingen beheren', 'category' => 'system_configuration', 'description' => 'Wijzig technische systeem-, integratie-, mail- en beveiligingsinstellingen. Formulieren, KNMI en branding hebben afzonderlijke rechten.'],
         'forms.manage' => ['display_name' => 'Formulieren beheren', 'category' => 'form_configuration', 'description' => 'Beheer de opbouw en veldinstellingen van operationele formulieren.'],
         'knmi.manage' => ['display_name' => 'KNMI-gegevens beheren', 'category' => 'weather_configuration', 'description' => 'Bekijk en wijzig KNMI-bronconfiguratie en start handmatige datasetupdates.'],
+        'operational-weather.view' => ['display_name' => 'Operationeel weer bekijken', 'category' => 'weather_configuration', 'description' => 'Bekijk de operationele weersverwachting en bijbehorende lokale radar- en bliksembeelden.'],
+        'uav-forecast.view' => ['display_name' => 'UAV Forecast bekijken', 'category' => 'weather_configuration', 'description' => 'Bekijk de UAV Forecast met server-side vliegadvies en onderliggende weers- en ruimteweergegevens.'],
+        'calendar.view' => ['display_name' => 'Agenda bekijken', 'category' => 'calendar_management', 'description' => 'Bekijk algemene en voor de eigen teams zichtbare agenda-items.'],
+        'calendar.manage' => ['display_name' => 'Agenda beheren', 'category' => 'calendar_management', 'description' => 'Maak agenda-items aan en verwijder bestaande agenda-items. Vereist daarnaast Agenda bekijken.'],
+        'product-requests.view' => ['display_name' => 'Verzoeken bekijken', 'category' => 'product_request_management', 'description' => 'Bekijk alle ingediende feature requests, wijzigingsverzoeken en bugmeldingen.'],
+        'product-requests.create' => ['display_name' => 'Verzoeken indienen', 'category' => 'product_request_management', 'description' => 'Dien een feature request, wijzigingsverzoek of bugmelding in. Vereist daarnaast Verzoeken bekijken.'],
+        'product-requests.update-own' => ['display_name' => 'Eigen verzoeken aanpassen', 'category' => 'product_request_management', 'description' => 'Wijzig de inhoud van eigen verzoeken zolang deze niet zijn opgelost of afgewezen. Vereist daarnaast Verzoeken bekijken.'],
+        'product-requests.resolve' => ['display_name' => 'Verzoeken afhandelen', 'category' => 'product_request_management', 'description' => 'Neem verzoeken in behandeling, los ze op, wijs ze af of heropen ze met een toelichting. Vereist daarnaast Verzoeken bekijken.'],
         'branding.manage' => ['display_name' => 'Branding en berichtteksten beheren', 'category' => 'branding_configuration', 'description' => 'Beheer huisstijl, logo, mail- en pushberichtteksten zonder toegang tot overige systeeminstellingen.'],
         'operational-map.view' => ['display_name' => 'Operationele kaart bekijken', 'category' => 'deployment_management', 'description' => 'Bekijk de operationele kaart met meldkamers en inzetlocaties.'],
         'operational-map.pilot-homes.view' => ['display_name' => 'Globale woonplaatsen op kaart bekijken', 'category' => 'deployment_management', 'description' => 'Toon globale woonplaatscoordinaten van piloten op de operationele kaart.'],
@@ -89,6 +97,8 @@ final class RoleAndPermissionSeeder extends Seeder
                 'address-book.view', 'settings.push.tokens.manage', 'settings.push.manual.send', 'system.health.view',
                 'system.queues.view', 'system.routing.view',
                 'operational-map.view', 'operational-map.pilot-homes.view',
+                'calendar.view',
+                'product-requests.view', 'product-requests.create', 'product-requests.update-own',
             ],
         ],
         'deployment-coordinator' => [
@@ -102,6 +112,8 @@ final class RoleAndPermissionSeeder extends Seeder
                 'expiry.view', 'vacations.view',
                 'address-book.view', 'settings.push.tokens.manage', 'settings.push.manual.send',
                 'operational-map.view', 'operational-map.pilot-homes.view',
+                'calendar.view',
+                'product-requests.view', 'product-requests.create', 'product-requests.update-own',
             ],
         ],
         'operator-pilot' => [
@@ -110,7 +122,7 @@ final class RoleAndPermissionSeeder extends Seeder
             'can_use_operator_app' => true,
             'can_use_admin_app' => false,
             'permissions' => [
-                'deployments.assigned.view',
+                'deployments.assigned.view', 'calendar.view',
             ],
         ],
         'support-staff' => [
@@ -121,6 +133,7 @@ final class RoleAndPermissionSeeder extends Seeder
             'permissions' => [
                 'users.view', 'assets.view', 'assets.manage', 'certifications.view',
                 'certifications.manage', 'expiry.view', 'status.view', 'vacations.view',
+                'product-requests.view', 'product-requests.create', 'product-requests.update-own',
             ],
         ],
         'auditor' => [
@@ -132,6 +145,19 @@ final class RoleAndPermissionSeeder extends Seeder
                 'users.view', 'deployments.view', 'deployments.dispatch.view', 'status.view',
                 'assets.view', 'certifications.view', 'expiry.view', 'vacations.view',
                 'address-book.view', 'audit.view',
+                'product-requests.view', 'product-requests.create', 'product-requests.update-own',
+            ],
+        ],
+        'request-handler' => [
+            'display_name' => 'Verzoekafhandelaar',
+            'description' => 'Behandelt feature requests, wijzigingsverzoeken en bugmeldingen.',
+            'can_use_operator_app' => false,
+            'can_use_admin_app' => true,
+            'permissions' => [
+                'product-requests.view',
+                'product-requests.create',
+                'product-requests.update-own',
+                'product-requests.resolve',
             ],
         ],
     ];

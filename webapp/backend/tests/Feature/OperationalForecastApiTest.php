@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Contracts\KnmiCloudForecastProvider;
 use App\Contracts\KnmiPrecipitationOutlookProvider;
 use App\Contracts\OperationalRadarProvider;
+use App\Models\Permission;
+use App\Models\Role;
 use App\Models\User;
 use App\Services\WallboardForecastService;
 use App\Support\OperationalRadarContent;
@@ -54,7 +56,7 @@ final class OperationalForecastApiTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_forecast_endpoints_require_authentication_and_completed_two_factor_but_no_permission(): void
+    public function test_forecast_endpoints_require_authentication_completed_two_factor_and_explicit_permissions(): void
     {
         $this->getJson('/api/operational-weather')->assertUnauthorized();
         $this->getJson('/api/uav-forecast')->assertUnauthorized();
@@ -71,11 +73,25 @@ final class OperationalForecastApiTest extends TestCase
             ->assertForbidden()
             ->assertJsonPath('error.code', 'two_factor_required');
 
+        $this->asWebClient($user, grantForecastPermissions: false)
+            ->getJson('/api/operational-weather')
+            ->assertForbidden()
+            ->assertJsonPath('error.code', 'forbidden');
+        $this->asWebClient($user, grantForecastPermissions: false)
+            ->getJson('/api/uav-forecast')
+            ->assertForbidden()
+            ->assertJsonPath('error.code', 'forbidden');
+
+        $this->grant($user, ['operational-weather.view']);
         Http::preventStrayRequests();
-        $this->asWebClient($user)
+        $this->asWebClient($user, grantForecastPermissions: false)
             ->getJson('/api/operational-weather')
             ->assertOk()
             ->assertJsonPath('data.data_status', 'current');
+        $this->asWebClient($user, grantForecastPermissions: false)
+            ->getJson('/api/uav-forecast')
+            ->assertForbidden()
+            ->assertJsonPath('error.code', 'forbidden');
         Http::assertNothingSent();
     }
 
@@ -259,13 +275,18 @@ final class OperationalForecastApiTest extends TestCase
             ->get($url)
             ->assertForbidden();
 
-        $this->asWebClient($user)
+        $this->asWebClient($user, grantForecastPermissions: false)
+            ->get($url)
+            ->assertForbidden();
+
+        $this->grant($user, ['operational-weather.view']);
+        $this->asWebClient($user, grantForecastPermissions: false)
             ->get('/api/operational-weather/radar/unknown/'.$snapshot.'.png')
             ->assertNotFound();
-        $this->asWebClient($user)
+        $this->asWebClient($user, grantForecastPermissions: false)
             ->get('/api/operational-weather/radar/lightning/not-a-snapshot.png')
             ->assertNotFound();
-        $this->asWebClient($user)
+        $this->asWebClient($user, grantForecastPermissions: false)
             ->get($url)
             ->assertNotFound()
             ->assertHeader('Cache-Control', 'no-store, private');
@@ -502,8 +523,12 @@ final class OperationalForecastApiTest extends TestCase
         ]);
     }
 
-    private function asWebClient(User $user): static
+    private function asWebClient(User $user, bool $grantForecastPermissions = true): static
     {
+        if ($grantForecastPermissions) {
+            $this->grant($user, ['operational-weather.view', 'uav-forecast.view']);
+        }
+
         $token = $user->createToken(
             'Operational forecast web client',
             ['*', 'client:web'],
@@ -512,6 +537,37 @@ final class OperationalForecastApiTest extends TestCase
         Auth::forgetGuards();
 
         return $this->withHeader('Authorization', 'Bearer '.$token);
+    }
+
+    /** @param list<string> $permissionNames */
+    private function grant(User $user, array $permissionNames): void
+    {
+        $role = Role::query()->firstOrCreate(
+            ['name' => 'operational-forecast-test-'.$user->id],
+            [
+                'display_name' => 'Operational forecast test role',
+                'can_use_operator_app' => false,
+                'can_use_admin_app' => true,
+            ],
+        );
+
+        foreach ($permissionNames as $permissionName) {
+            $permission = Permission::query()->firstOrCreate(
+                ['name' => $permissionName],
+                [
+                    'category' => 'weather_configuration',
+                    'display_name' => $permissionName,
+                    'description' => 'Operational forecast test permission',
+                ],
+            );
+            $role->permissions()->syncWithoutDetaching([
+                $permission->id => ['created_at' => now()],
+            ]);
+        }
+
+        $user->roles()->syncWithoutDetaching([
+            $role->id => ['created_at' => now()],
+        ]);
     }
 }
 

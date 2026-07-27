@@ -2155,6 +2155,77 @@ final class DeploymentRequestTest extends TestCase
         Event::assertDispatched(DeploymentRequestChanged::class, fn (DeploymentRequestChanged $event): bool => $event->deploymentRequest->deployment_id === $deployment->id);
     }
 
+    public function test_linked_request_partial_patch_preserves_an_existing_deployment_description_when_the_frozen_answer_is_missing(): void
+    {
+        $actor = $this->user('linked-request-partial-patch@example.test');
+        $this->grant($actor, ['deployments.manage']);
+        $service = app(DeploymentRequestService::class);
+        $created = $service->create([
+            'subject_type' => 'person',
+            'answers' => $this->personAnswers(),
+            'client_mutation_id' => 'linked-partial-create',
+        ], $actor);
+        $deploymentRequest = DeploymentRequest::query()->findOrFail($created['id']);
+        $decided = $service->decidePriority($deploymentRequest, [
+            'lock_version' => $created['lock_version'],
+            'client_mutation_id' => 'linked-partial-decision',
+            'priority' => 'low',
+        ], $actor);
+        $prepared = $service->prepareDeployment($deploymentRequest, [
+            'lock_version' => $decided['lock_version'],
+            'client_mutation_id' => 'linked-partial-prepare',
+        ], $actor);
+
+        $linkedRequest = DeploymentRequest::query()->findOrFail($created['id']);
+        $legacyAnswers = $linkedRequest->answers;
+        unset($legacyAnswers['circumstances']);
+        $linkedRequest->forceFill(['answers' => $legacyAnswers])->save();
+        $deployment = $prepared['deployment']->refresh();
+        $this->assertSame('Zoekactie in Utrecht', $deployment->description);
+
+        $client = $this->asWebClient($actor);
+        $partiallyPatched = $client
+            ->patchJson("/api/deployments/{$deployment->id}/deployment-request", [
+                'lock_version' => $linkedRequest->lock_version,
+                'client_mutation_id' => 'linked-partial-unrelated-answer',
+                'changes' => [
+                    'answers' => ['last_seen_direction' => 'Noord'],
+                ],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.answers.last_seen_direction', 'Noord')
+            ->json('data');
+
+        $this->assertSame('Zoekactie in Utrecht', $deployment->refresh()->description);
+
+        $restored = $client
+            ->patchJson("/api/deployments/{$deployment->id}/deployment-request", [
+                'lock_version' => $partiallyPatched['lock_version'],
+                'client_mutation_id' => 'linked-partial-restore-description',
+                'changes' => [
+                    'answers' => ['circumstances' => 'Nieuwe inzetomschrijving'],
+                ],
+            ])
+            ->assertOk()
+            ->json('data');
+        $this->assertSame('Nieuwe inzetomschrijving', $deployment->refresh()->description);
+
+        $client
+            ->patchJson("/api/deployments/{$deployment->id}/deployment-request", [
+                'lock_version' => $restored['lock_version'],
+                'client_mutation_id' => 'linked-partial-clear-description',
+                'changes' => [
+                    'answers' => ['circumstances' => null],
+                ],
+            ])
+            ->assertUnprocessable()
+            ->assertJsonPath(
+                'error.details.answers.0',
+                'Een gekoppelde inzet moet altijd een ingevuld veld voor description behouden.',
+            );
+        $this->assertSame('Nieuwe inzetomschrijving', $deployment->refresh()->description);
+    }
+
     public function test_migrated_legacy_prepare_mutation_replays_only_with_the_legacy_hash_marker(): void
     {
         $actor = $this->user('legacy-prepare-replay@example.test');

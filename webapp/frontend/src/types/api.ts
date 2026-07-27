@@ -112,6 +112,42 @@ export interface User {
   } | null;
 }
 
+export type ProductRequestType = 'bug' | 'change' | 'feature';
+export type ProductRequestStatus = 'open' | 'in_progress' | 'resolved' | 'rejected';
+
+export interface ProductRequestActor {
+  id: string | null;
+  name: string | null;
+}
+
+export interface ProductRequestStatusHistoryEntry {
+  id: string;
+  from_status: ProductRequestStatus | null;
+  to_status: ProductRequestStatus;
+  note?: string | null;
+  changed_by: ProductRequestActor;
+  created_at: string;
+}
+
+export interface ProductRequest {
+  id: string;
+  type: ProductRequestType;
+  status: ProductRequestStatus;
+  title: string;
+  description: string;
+  resolution_note?: string | null;
+  requester: ProductRequestActor;
+  resolved_by?: ProductRequestActor | null;
+  resolved_at?: string | null;
+  lock_version: number;
+  is_owner: boolean;
+  can_update: boolean;
+  can_resolve: boolean;
+  status_history?: ProductRequestStatusHistoryEntry[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface FcmToken {
   id: string;
   user_id: string;

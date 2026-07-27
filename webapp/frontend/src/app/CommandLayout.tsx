@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, ClipboardList, CloudRain, CloudSun, DatabaseBackup, FileText, Gauge, GitBranch, KeyRound, ListTodo, LogOut, Map as MapIcon, Menu, MonitorCog, Moon, Network, Palette, Plane, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, ClipboardList, CloudRain, CloudSun, DatabaseBackup, FileText, Gauge, GitBranch, KeyRound, ListTodo, LogOut, Map as MapIcon, Menu, MessageSquareText, MonitorCog, Moon, Network, Palette, Plane, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -34,6 +34,7 @@ const navGroups: NavGroup[] = [
     label: 'Account',
     items: [
       { to: PROFILE_PATH, label: 'Profiel', icon: UserRound },
+      { to: '/verzoeken', label: 'Verzoeken', icon: MessageSquareText, ...webRouteAccess.productRequests },
     ],
   },
   {
@@ -48,11 +49,11 @@ const navGroups: NavGroup[] = [
       { to: '/aanvragen', label: 'Aanvragen', icon: ClipboardList, end: true, ...webRouteAccess.deploymentRequests },
       { to: '/inzetten', label: 'Inzetten', icon: RadioTower, end: true, ...webRouteAccess.deployments },
       { to: '/operational-map', label: 'Kaart', icon: MapIcon, permissions: ['operational-map.view', 'deployments.view'] },
-      { to: '/weather', label: 'Weer', icon: CloudRain },
-      { to: '/uav-forecast', label: 'UAV Forecast', icon: Plane },
+      { to: '/weather', label: 'Weer', icon: CloudRain, ...webRouteAccess.weather },
+      { to: '/uav-forecast', label: 'UAV Forecast', icon: Plane, ...webRouteAccess.uavForecast },
       { to: '/inzetten/archive', label: 'Archief', icon: Archive, ...webRouteAccess.deployments },
       { to: '/operational-status', label: 'Status', icon: Workflow, permissions: ['status.view'] },
-      { to: '/calendar', label: 'Agenda', icon: CalendarDays },
+      { to: '/calendar', label: 'Agenda', icon: CalendarDays, ...webRouteAccess.calendar },
       { to: '/test-alert', label: 'Proefalarmering', icon: BellRing, permissions: ['deployments.dispatch.manage'] },
       { to: '/push', label: 'Pushmeldingen', icon: Send, permissions: ['settings.push.manual.send'] },
       { to: '/reports', label: 'Rapporten', icon: BarChart3, permissions: ['deployments.view', 'deployments.dispatch.view'] },
@@ -104,6 +105,7 @@ const profileOnlyNavGroups: NavGroup[] = [
 
 const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/dashboard': () => import('../features/dashboard/DashboardPage'),
+  '/verzoeken': () => import('../features/product-requests/ProductRequestsPage'),
   '/aanvragen': () => import('../features/deployment-requests/DeploymentRequestListPage'),
   '/inzetten': () => import('../features/deployments/DeploymentsPage'),
   '/operational-map': () => import('../features/deployments/DeploymentMapPage'),

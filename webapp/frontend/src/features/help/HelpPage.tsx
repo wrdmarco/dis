@@ -19,6 +19,7 @@ import {
   GitBranch,
   KeyRound,
   Map as MapIcon,
+  MessageSquareText,
   Monitor,
   Network,
   Palette,
@@ -165,9 +166,25 @@ const helpTopics: readonly HelpTopic[] = [
     summary: 'Bekijk trainingen, open dagen en andere gezamenlijke afspraken.',
     icon: CalendarDays,
     href: '/calendar',
+    permissions: ['calendar.view'],
     actions: [
       { title: 'Afspraken bekijken', description: 'Bekijk algemene afspraken en afspraken voor jouw teams, met datum, tijd, soort, locatie en team.' },
-      { title: 'Afspraken beheren', description: 'Voeg een afspraak toe of verwijder een afspraak die niet meer doorgaat. Een bestaande afspraak heeft geen aparte wijzigknop.', permissions: ['settings.manage'] },
+      { title: 'Afspraken beheren', description: 'Voeg een afspraak toe of verwijder een afspraak die niet meer doorgaat. Een bestaande afspraak heeft geen aparte wijzigknop.', permissions: ['calendar.view', 'calendar.manage'] },
+    ],
+  },
+  {
+    id: 'product-requests',
+    group: 'account',
+    title: 'Verzoeken en bugs',
+    summary: 'Meld een bug, vraag een aanpassing aan of stel een nieuwe functie voor.',
+    icon: MessageSquareText,
+    href: '/verzoeken',
+    permissions: ['product-requests.view'],
+    actions: [
+      { title: 'Verzoeken bekijken', description: 'Bekijk alle ingediende verzoeken en filter op type, status of vrije tekst.' },
+      { title: 'Een verzoek indienen', description: 'Kies Bug, Aanpassing of Feature en beschrijf concreet wat er nodig is.', permissions: ['product-requests.view', 'product-requests.create'] },
+      { title: 'Eigen verzoek aanpassen', description: 'Werk je eigen verzoek bij zolang de server aangeeft dat het nog gewijzigd mag worden.', permissions: ['product-requests.view', 'product-requests.update-own'] },
+      { title: 'Een verzoek behandelen', description: 'Zet een verzoek in behandeling, los het op, wijs het af of heropen het met een verplichte toelichting.', permissions: ['product-requests.view', 'product-requests.resolve'] },
     ],
   },
   {
@@ -286,6 +303,7 @@ const helpTopics: readonly HelpTopic[] = [
     summary: 'Bekijk lokaal opgeslagen KNMI-weerdata en EUMETSAT-bliksemdetectie zonder vliegadvies.',
     icon: CloudRain,
     href: '/weather',
+    permissions: ['operational-weather.view'],
     actions: [
       { title: 'Gebied kiezen', description: 'Gebruik UAV Nederland of vul een adres of plaatsnaam in. De server zoekt de locatie; je hoeft geen coördinaten in te voeren.' },
       { title: 'Bewolking lezen', description: 'Vergelijk hoge, middelbare en lage modelbewolking met de totale bedekking en modelwolkenbasis.' },
@@ -302,6 +320,7 @@ const helpTopics: readonly HelpTopic[] = [
     summary: 'Beoordeel het centrale vliegadvies en de onderliggende vluchtwaarden voor een gekozen gebied.',
     icon: Plane,
     href: '/uav-forecast',
+    permissions: ['uav-forecast.view'],
     actions: [
       { title: 'Serveradvies eerst lezen', description: 'Lees het vliegadvies bovenaan. Ontbrekende of verouderde noodzakelijke data wordt nooit als groen getoond.' },
       { title: 'Waarden controleren', description: 'Bekijk daarna iedere standaardwaarde, de centrale status, uitleg, bron en meet- of modeltijd.' },

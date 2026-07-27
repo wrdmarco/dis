@@ -28,9 +28,9 @@ const initialForm = {
 
 export function CalendarPage() {
   const { api, hasPermission } = useAuth();
-  const canManageAgenda = hasPermission('settings.manage');
+  const canManageAgenda = hasPermission('calendar.manage');
   const events = useApiResource<CalendarEvent[]>('/calendar-events');
-  const teams = useApiResource<Team[]>('/teams', canManageAgenda);
+  const teams = useApiResource<Team[]>('/calendar-events/team-options', canManageAgenda);
   const upcoming = useMemo(() => [...(events.data ?? [])].sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()), [events.data]);
   const [form, setForm] = useState(initialForm);
   const [saving, setSaving] = useState(false);

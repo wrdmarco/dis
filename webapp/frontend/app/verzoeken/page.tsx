@@ -1,13 +1,13 @@
 'use client';
 
-import { CalendarPage } from '../../src/features/calendar/CalendarPage';
 import { webRouteAccess } from '../../src/features/auth/webRouteAccess';
+import { ProductRequestsPage } from '../../src/features/product-requests/ProductRequestsPage';
 import { ProtectedShell } from '../../src/next/RouteShell';
 
 export default function Page() {
   return (
-    <ProtectedShell {...webRouteAccess.calendar}>
-      <CalendarPage />
+    <ProtectedShell {...webRouteAccess.productRequests}>
+      <ProductRequestsPage />
     </ProtectedShell>
   );
 }

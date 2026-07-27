@@ -21,7 +21,7 @@ final class CertificationAccessCompatibilityTest extends TestCase
     {
         $this->certificationWithOwner();
         $operator = $this->user('paired-operator@example.test');
-        $this->grant($operator, ['deployments.assigned.view'], operator: true, admin: false);
+        $this->grant($operator, ['deployments.assigned.view', 'calendar.view'], operator: true, admin: false);
         $pairingCode = 'ABCDE-23456';
 
         MobilePairingCode::query()->create([

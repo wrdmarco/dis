@@ -32,16 +32,14 @@ const RADAR_TEST_PNG = Buffer.from(
   'base64',
 );
 
-test('weather and UAV Forecast are authenticated operation routes and preload from the menu', () => {
-  expect(navigation).toContain("{ to: '/weather', label: 'Weer', icon: CloudRain }");
-  expect(navigation).toContain("{ to: '/uav-forecast', label: 'UAV Forecast', icon: Plane }");
+test('weather and UAV Forecast are permission-gated operation routes and preload from the menu', () => {
+  expect(navigation).toContain("{ to: '/weather', label: 'Weer', icon: CloudRain, ...webRouteAccess.weather }");
+  expect(navigation).toContain("{ to: '/uav-forecast', label: 'UAV Forecast', icon: Plane, ...webRouteAccess.uavForecast }");
   expect(navigation).toContain("'/weather': () => import('../features/weather/WeatherPage')");
   expect(navigation).toContain("'/uav-forecast': () => import('../features/weather/UavForecastPage')");
 
-  expect(weatherRoute).toContain('<ProtectedShell>');
-  expect(uavRoute).toContain('<ProtectedShell>');
-  expect(weatherRoute).not.toContain('permissions=');
-  expect(uavRoute).not.toContain('permissions=');
+  expect(weatherRoute).toContain('<ProtectedShell {...webRouteAccess.weather}>');
+  expect(uavRoute).toContain('<ProtectedShell {...webRouteAccess.uavForecast}>');
 });
 
 test('forecast queries use only a national scope or a normalized server-side address', () => {
@@ -648,7 +646,17 @@ function currentUser(theme: 'dark' | 'light') {
     mfa_required: false,
     profile_completion_required: false,
     mail_preferences: { ui: { theme } },
-    roles: [],
+    roles: [{
+      id: 'forecast-web-role',
+      name: 'forecast-web-role',
+      display_name: 'Forecast webrol',
+      can_use_operator_app: false,
+      can_use_admin_app: true,
+      permissions: [
+        { id: 'weather-view', name: 'operational-weather.view', category: 'weather_configuration', display_name: 'Weer bekijken' },
+        { id: 'uav-view', name: 'uav-forecast.view', category: 'weather_configuration', display_name: 'UAV Forecast bekijken' },
+      ],
+    }],
   };
 }
 

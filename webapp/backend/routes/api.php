@@ -37,6 +37,7 @@ use App\Http\Controllers\OperationalForecastController;
 use App\Http\Controllers\OperationalMapController;
 use App\Http\Controllers\PasswordController;
 use App\Http\Controllers\PilotDeploymentReportController;
+use App\Http\Controllers\ProductRequestController;
 use App\Http\Controllers\QueueMonitorController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\ReportingController;
@@ -299,21 +300,54 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/reports/deployments', [ReportingController::class, 'deployments'])->middleware('permission:deployments.view,deployments.manage');
         Route::get('/reports/dispatch-statistics', [ReportingController::class, 'dispatchStatistics'])->middleware('permission:deployments.dispatch.view');
         Route::get('/expiry-overview', [ExpiryOverviewController::class, 'index'])->middleware('permission:expiry.view');
-        Route::get('/calendar-events', [CalendarEventController::class, 'index']);
+        Route::get('/product-requests', [ProductRequestController::class, 'index'])
+            ->middleware('permission:product-requests.view');
+        Route::post('/product-requests', [ProductRequestController::class, 'store'])
+            ->middleware([
+                'permission:product-requests.view',
+                'permission:product-requests.create',
+            ]);
+        Route::get('/product-requests/{productRequest}', [ProductRequestController::class, 'show'])
+            ->middleware('permission:product-requests.view');
+        Route::patch('/product-requests/{productRequest}', [ProductRequestController::class, 'update'])
+            ->middleware([
+                'permission:product-requests.view',
+                'permission:product-requests.update-own',
+            ]);
+        Route::patch('/product-requests/{productRequest}/status', [ProductRequestController::class, 'changeStatus'])
+            ->middleware([
+                'permission:product-requests.view',
+                'permission:product-requests.resolve',
+            ]);
+        Route::get('/calendar-events', [CalendarEventController::class, 'index'])
+            ->middleware('permission:calendar.view');
+        Route::get('/calendar-events/team-options', [CalendarEventController::class, 'teamOptions'])
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.manage',
+            ]);
         Route::get('/operational-weather', [OperationalForecastController::class, 'weather'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware('throttle:operational-forecast-read');
+            ->middleware(['permission:operational-weather.view', 'throttle:operational-forecast-read']);
         Route::get('/operational-weather/radar/{kind}/{snapshot}.png', [OperationalForecastController::class, 'radarAtlas'])
             ->where('kind', 'precipitation|lightning')
             ->where('snapshot', '\\d{8}T\\d{6}Z-[a-f0-9]{16}')
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware('throttle:operational-radar-read')
+            ->middleware(['permission:operational-weather.view', 'throttle:operational-radar-read'])
             ->name('operational-weather.radar-atlas');
         Route::get('/uav-forecast', [OperationalForecastController::class, 'uav'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware('throttle:operational-forecast-read');
-        Route::post('/calendar-events', [CalendarEventController::class, 'store'])->middleware('permission:settings.manage');
-        Route::delete('/calendar-events/{calendarEvent}', [CalendarEventController::class, 'destroy'])->middleware('permission:settings.manage');
+            ->middleware(['permission:uav-forecast.view', 'throttle:operational-forecast-read']);
+        Route::post('/calendar-events', [CalendarEventController::class, 'store'])
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.manage',
+            ]);
+        Route::delete('/calendar-events/{calendarEvent}', [CalendarEventController::class, 'destroy'])
+            ->middleware([
+                'permission:calendar.view',
+                'permission:calendar.manage',
+            ]);
 
         Route::get('/status/me', [StatusController::class, 'me'])
             ->withoutMiddleware('throttle:authenticated')

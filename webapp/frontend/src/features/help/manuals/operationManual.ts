@@ -287,6 +287,7 @@ export const operationManualGuides = {
       id: 'weather-read-local-knmi',
       title: 'Het lokale weer- en radarbeeld controleren',
       intro: 'Controleer bewolking, neerslag en lokaal opgeslagen bliksemdetectie voor een landelijk gebied of één gezocht adres.',
+      permissions: ['operational-weather.view'],
       steps: [
         { label: 'Open Weer', description: 'Kies Weer in het menu onder Operatie.' },
         { label: 'Kies het gebied', description: 'Laat UAV Nederland staan of kies Adres, vul een adres of plaatsnaam in en kies Toepassen.' },
@@ -307,6 +308,7 @@ export const operationManualGuides = {
       id: 'uav-forecast-assess',
       title: 'Een UAV Forecast beoordelen',
       intro: 'Begin bij het serveradvies en controleer daarna alle onderliggende waarden en bronnen.',
+      permissions: ['uav-forecast.view'],
       steps: [
         { label: 'Open UAV Forecast', description: 'Kies UAV Forecast in het menu onder Operatie.' },
         { label: 'Kies het gebied', description: 'Gebruik UAV Nederland of kies Adres en laat de server het ingevoerde adres of de plaatsnaam vinden.' },

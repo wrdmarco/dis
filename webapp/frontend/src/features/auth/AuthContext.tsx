@@ -266,9 +266,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     applyAuthenticatedUser(response.data);
   }, [api, applyAuthenticatedUser, user]);
 
-  const hasPermission = useCallback((permission: string): boolean =>
-    user?.roles?.some((role) => role.permissions?.some((candidate) => candidate.name === permission)) ?? false,
-  [user]);
+  const hasPermission = useCallback(
+    (permission: string): boolean => hasWebPermission(user, permission),
+    [user],
+  );
 
   const canUseWebConsole = useCallback((): boolean => user !== null, [user]);
 
@@ -320,6 +321,13 @@ export function useAuth(): AuthContextValue {
     throw new Error('useAuth must be used inside AuthProvider');
   }
   return context;
+}
+
+export function hasWebPermission(user: User | null, permission: string): boolean {
+  return user?.roles?.some(
+    (role) => role.can_use_admin_app
+      && role.permissions?.some((candidate) => candidate.name === permission),
+  ) ?? false;
 }
 
 function removeLegacyBearerState(): void {

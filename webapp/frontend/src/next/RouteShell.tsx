@@ -16,10 +16,14 @@ interface ProtectedShellProps {
 
 const homeRedirectCandidates = [
   { to: '/dashboard', permissions: ['deployments.view', 'deployments.dispatch.view', 'status.view', 'assets.view'] },
+  { to: '/verzoeken', ...webRouteAccess.productRequests },
   { to: '/aanvragen', ...webRouteAccess.deploymentRequests },
   { to: '/inzetten', ...webRouteAccess.deployments },
   { to: '/operational-map', permissions: ['operational-map.view', 'deployments.view'] },
+  { to: '/weather', ...webRouteAccess.weather },
+  { to: '/uav-forecast', ...webRouteAccess.uavForecast },
   { to: '/operational-status', permissions: ['status.view'] },
+  { to: '/calendar', ...webRouteAccess.calendar },
   { to: '/users', permissions: ['users.view'] },
   { to: '/address-book', permissions: ['address-book.view'] },
   { to: '/assets', ...webRouteAccess.assets },

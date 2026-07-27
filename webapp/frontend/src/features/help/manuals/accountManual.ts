@@ -165,6 +165,7 @@ export const accountManualGuides = {
       id: 'calendar-view-events',
       title: 'Een agenda-item bekijken',
       intro: 'Bekijk trainingen, open dagen en teammomenten.',
+      permissions: ['calendar.view'],
       steps: [
         { label: 'Open Agenda', description: 'Kies Agenda in het menu.' },
         { label: 'Ga naar Geplande items', description: 'De tabel toont datum, type, titel, locatie, team en wie het item heeft aangemaakt.' },
@@ -176,7 +177,7 @@ export const accountManualGuides = {
       id: 'calendar-add-event',
       title: 'Een agenda-item toevoegen',
       intro: 'Plan een training, open dag of ander gezamenlijk moment.',
-      permissions: ['settings.manage'],
+      permissions: ['calendar.view', 'calendar.manage'],
       steps: [
         { label: 'Open Agenda-item toevoegen', description: 'Op de pagina Agenda staat voor beheerders het formulier Agenda-item toevoegen.' },
         { label: 'Vul titel en start in', description: 'Titel en Start zijn verplicht. Kies daarnaast Type en zo nodig Einde en Locatie.' },
@@ -190,7 +191,7 @@ export const accountManualGuides = {
       id: 'calendar-delete-event',
       title: 'Een agenda-item verwijderen',
       intro: 'Haal een moment weg dat niet meer doorgaat.',
-      permissions: ['settings.manage'],
+      permissions: ['calendar.view', 'calendar.manage'],
       steps: [
         { label: 'Zoek het item', description: 'Ga in Agenda naar de tabel Geplande items.' },
         { label: 'Controleer datum en titel', description: 'Controleer goed dat je de juiste rij hebt.' },
@@ -198,6 +199,49 @@ export const accountManualGuides = {
       ],
       result: 'Het agenda-item verdwijnt direct uit de webapp en mobiele agenda.',
       warning: 'Er is geen aparte wijzigknop en geen herstelknop. Bij een fout moet je het item opnieuw toevoegen.',
+    },
+  ],
+  'product-requests': [
+    {
+      id: 'product-request-submit',
+      title: 'Een bug, aanpassing of feature indienen',
+      intro: 'Leg één concreet verzoek vast zodat het beoordeeld en opgevolgd kan worden.',
+      permissions: ['product-requests.view', 'product-requests.create'],
+      steps: [
+        { label: 'Open Verzoeken', description: 'Kies Verzoeken in het menu onder Account.' },
+        { label: 'Kies Nieuw verzoek', description: 'Selecteer Bug, Aanpassing of Feature als type.' },
+        { label: 'Schrijf een herkenbare titel', description: 'Vat de vraag kort samen zonder persoonsgegevens of operationele geheime informatie.' },
+        { label: 'Beschrijf de gewenste uitkomst', description: 'Leg uit wat er misgaat of wat er moet veranderen en wanneer dat merkbaar is.' },
+        { label: 'Kies Verzoek indienen', description: 'Het verzoek verschijnt direct in Alle en Mijn verzoeken.' },
+      ],
+      result: 'Het verzoek is geregistreerd met status Open en kan door een behandelaar worden opgepakt.',
+    },
+    {
+      id: 'product-request-update-own',
+      title: 'Je eigen open verzoek aanpassen',
+      intro: 'Vul een eigen verzoek aan zolang het nog wijzigbaar is.',
+      permissions: ['product-requests.view', 'product-requests.update-own'],
+      steps: [
+        { label: 'Open Mijn verzoeken', description: 'Zoek het verzoek en open de detailweergave.' },
+        { label: 'Kies Aanpassen', description: 'De knop staat alleen wanneer de server dit verzoek nog wijzigbaar vindt.' },
+        { label: 'Werk type, titel of omschrijving bij', description: 'Bewaar de oorspronkelijke bedoeling en maak ontbrekende informatie concreet.' },
+        { label: 'Kies Wijzigingen opslaan', description: 'Bij een gelijktijdige wijziging laadt DIS eerst de nieuwste versie.' },
+      ],
+      result: 'De nieuwste inhoud en het wijzigingstijdstip zijn zichtbaar voor alle lezers.',
+    },
+    {
+      id: 'product-request-resolve',
+      title: 'Een verzoek behandelen',
+      intro: 'Leg iedere statuswijziging uit zodat de afhandeling controleerbaar blijft.',
+      permissions: ['product-requests.view', 'product-requests.resolve'],
+      steps: [
+        { label: 'Open Te behandelen', description: 'Bekijk openstaande en lopende verzoeken.' },
+        { label: 'Open het juiste verzoek', description: 'Controleer type, indiener, omschrijving en huidige status.' },
+        { label: 'Kies de nieuwe status', description: 'Zet het verzoek in behandeling, opgelost, afgewezen of heropen het.' },
+        { label: 'Vul de toelichting in', description: 'Beschrijf wat er is besloten of uitgevoerd. Deze toelichting is verplicht.' },
+        { label: 'Kies Afhandeling opslaan', description: 'DIS controleert de actuele versie voordat de wijziging wordt toegepast.' },
+      ],
+      result: 'De status en toelichting zijn bijgewerkt zonder de oorspronkelijke melding te overschrijven.',
     },
   ],
 } satisfies ManualGuideMap;

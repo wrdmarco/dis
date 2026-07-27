@@ -11,11 +11,14 @@ This repository contains only the files required to install, run, update and uni
   complete request is prepared.
 - A **dispatch request** (`DispatchRequest`, Dutch UI: **alarmering**) selects, alerts and tracks
   recipients for a deployment.
+- A **product request** (`ProductRequest`, Dutch UI: **Verzoek**) is a user-submitted feature request,
+  change request or bug report. It is separate from the operational deployment-request workflow.
 - Software changes are described as an installation, release, update or production rollout in this
   document; they are not domain deployments.
 
-The canonical API resources are `/deployment-requests` and `/deployments`; relationship keys are
-`deployment_request_id` and `deployment_id`. The web routes are `/aanvragen` and `/inzetten`.
+The canonical operational API resources are `/deployment-requests` and `/deployments`; relationship keys
+are `deployment_request_id` and `deployment_id`. The corresponding web routes are `/aanvragen` and
+`/inzetten`. Product requests use `/product-requests` and the web route `/verzoeken`.
 Old incident/intake identifiers exist only in immutable historical migrations, bounded upgrade readers,
 queue-drain compatibility, web redirects and bounded native-client compatibility aliases. Older supported
 native builds may temporarily use read/report/location routes under `/incidents` and receive additive
@@ -100,6 +103,23 @@ built-in Aeret map origins, and the configured same-service websocket host. Medi
 authenticated same-origin delivery and browser-local `blob:` previews; no external media origin is
 allowed. Adding a new external frontend dependency requires updating and testing
 `webapp/frontend/src/lib/securityPolicy.ts`.
+
+### RBAC for requests, calendar and forecasts
+
+The `/verzoeken` product-request workflow is protected end to end by four permissions:
+`product-requests.view`, `product-requests.create`, `product-requests.update-own` and
+`product-requests.resolve`. Viewers can read every request, while only the server-recorded requester may
+edit its content and only while it remains open or in progress. Status changes, resolution, rejection and
+reopening require the resolve permission, optimistic-lock version checks and an audit record. The
+three action permissions require `product-requests.view` as well. The API is web-only; bearer tokens
+cannot use it. The `request-handler` role grants all four permissions but is never assigned to a
+user automatically.
+
+The operational `/weather`, `/uav-forecast` and `/calendar` web routes and their first-party API endpoints
+require `operational-weather.view`, `uav-forecast.view` and `calendar.view` respectively. Agenda mutation is
+separate under `calendar.manage` and requires `calendar.view` as well; it exposes only the bounded team-option
+payload needed by the agenda form and does not grant general team-management access. Frontend permission
+checks control navigation and route UX only; Laravel middleware and validated requests remain authoritative.
 
 ### Deployment location enrichment
 

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'playwright/test';
 import { authorizationFingerprint } from '../src/features/auth/authorizationFingerprint';
+import { hasWebPermission } from '../src/features/auth/AuthContext';
 import type { Permission, Role, User } from '../src/types/api';
 
 const permission = (id: string, name: string): Permission => ({
@@ -60,6 +61,17 @@ test('authorization fingerprint changes for permissions and app access', () => {
 
   expect(authorizationFingerprint(changedPermission)).not.toBe(authorizationFingerprint(original));
   expect(authorizationFingerprint(changedAppAccess)).not.toBe(authorizationFingerprint(original));
+});
+
+test('web permissions only come from roles that may use the web console', () => {
+  const mixedUser = user([
+    role('operator', [permission('1', 'calendar.view')], true, false),
+    role('web', [permission('2', 'product-requests.view')], false, true),
+  ]);
+
+  expect(hasWebPermission(mixedUser, 'calendar.view')).toBe(false);
+  expect(hasWebPermission(mixedUser, 'product-requests.view')).toBe(true);
+  expect(hasWebPermission(null, 'product-requests.view')).toBe(false);
 });
 
 test('active auth refresh consumes touch payload and listens for authorization changes', () => {

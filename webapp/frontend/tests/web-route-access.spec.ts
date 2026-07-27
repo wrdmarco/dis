@@ -74,6 +74,48 @@ test('keeps all fourteen management navigation items and direct routes on one RB
   }
 });
 
+test('keeps user-facing weather, forecast, calendar and request routes behind explicit permissions', () => {
+  const navigation = readFileSync(new URL('../src/app/CommandLayout.tsx', import.meta.url), 'utf8');
+  const routeShell = readFileSync(new URL('../src/next/RouteShell.tsx', import.meta.url), 'utf8');
+  const routes = [
+    { key: 'productRequests', path: '/verzoeken', label: 'Verzoeken', permission: 'product-requests.view' },
+    { key: 'weather', path: '/weather', label: 'Weer', permission: 'operational-weather.view' },
+    { key: 'uavForecast', path: '/uav-forecast', label: 'UAV Forecast', permission: 'uav-forecast.view' },
+    { key: 'calendar', path: '/calendar', label: 'Agenda', permission: 'calendar.view' },
+  ] as const;
+
+  for (const item of routes) {
+    const access = webRouteAccess[item.key];
+    expect(access.permissions).toEqual([item.permission]);
+    expect(access.anyPermission).toBe(false);
+    expect(hasWebRouteAccess(access, (permission) => permission === item.permission)).toBe(true);
+    expect(hasWebRouteAccess(access, () => false)).toBe(false);
+    expect(navigation).toContain(`to: '${item.path}', label: '${item.label}'`);
+    expect(navigation).toContain(`...webRouteAccess.${item.key}`);
+    expect(routeShell).toContain(`{ to: '${item.path}', ...webRouteAccess.${item.key} }`);
+
+    const route = readFileSync(new URL(`../app${item.path}/page.tsx`, import.meta.url), 'utf8');
+    expect(route).toContain(`<ProtectedShell {...webRouteAccess.${item.key}}>`);
+  }
+});
+
+test('calendar mutations use their dedicated manage permission throughout the frontend', () => {
+  const calendar = readFileSync(new URL('../src/features/calendar/CalendarPage.tsx', import.meta.url), 'utf8');
+  const help = readFileSync(new URL('../src/features/help/HelpPage.tsx', import.meta.url), 'utf8');
+  const accountManual = readFileSync(new URL('../src/features/help/manuals/accountManual.ts', import.meta.url), 'utf8');
+  const roleForm = readFileSync(new URL('../src/features/roles/RoleForm.tsx', import.meta.url), 'utf8');
+
+  expect(calendar).toContain("hasPermission('calendar.manage')");
+  expect(calendar).not.toContain("hasPermission('settings.manage')");
+  expect(calendar).toContain("useApiResource<Team[]>('/calendar-events/team-options', canManageAgenda)");
+  expect(calendar).not.toContain("useApiResource<Team[]>('/teams'");
+  expect(help).toContain("permissions: ['calendar.view']");
+  expect(help).toContain("permissions: ['calendar.view', 'calendar.manage']");
+  expect(accountManual).toContain("permissions: ['calendar.view', 'calendar.manage']");
+  expect(accountManual).not.toContain("permissions: ['settings.manage']");
+  expect(roleForm).toContain("case 'calendar_management':");
+});
+
 test('treats deployment management as web view access across navigation and deployment routes', () => {
   const navigation = readFileSync(new URL('../src/app/CommandLayout.tsx', import.meta.url), 'utf8');
   const routeShell = readFileSync(new URL('../src/next/RouteShell.tsx', import.meta.url), 'utf8');

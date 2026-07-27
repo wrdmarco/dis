@@ -107,6 +107,7 @@ export function RoleForm({
             <p>Eigen profiel bekijken en waar toegestaan eigen profielgegevens wijzigen is voor iedere ingelogde gebruiker beschikbaar. Kies hieronder alleen extra rechten voor beheer, inzetten, alarmering en systeemfuncties.</p>
             <p>MFA staat niet per rol. Gebruik de globale MFA-schakelaar bij Admin onder MFA en wachtwoordeisen.</p>
             <p>Let op bij inzetten en instellingen: alarmeren staat los van inzetgegevens beheren, en push tokens beheren staat los van handmatige pushmeldingen versturen.</p>
+            <p>Actierechten voor Agenda en Verzoeken werken alleen samen met het bijbehorende bekijkrecht.</p>
           </div>
           <div className="permission-category-list">
             {permissionGroups(permissions).map((group) => (
@@ -231,6 +232,10 @@ function permissionCategoryLabel(category: string): string {
       return 'Operationele status';
     case 'vacation_management':
       return 'Vakantieplanning';
+    case 'calendar_management':
+      return 'Agenda';
+    case 'product_request_management':
+      return 'Verzoeken';
     case 'asset_management':
       return 'Middelen';
     case 'certification_management':
@@ -266,10 +271,14 @@ function permissionCategoryDescription(category: string): string | null {
       return 'Toegang tot het centrale verloopoverzicht staat los van toegang tot afzonderlijke middelen- en certificaatgegevens.';
     case 'vacation_management':
       return 'Eigen periodes plannen blijft voor iedere gebruiker beschikbaar. Deze rechten bepalen alleen wie de vakantieplanning van anderen mag bekijken of beheren.';
+    case 'calendar_management':
+      return 'Agenda bekijken en agenda-items beheren zijn aparte rechten. Beheer geeft niet automatisch toegang tot andere instellingen.';
+    case 'product_request_management':
+      return 'Bepaal afzonderlijk wie verzoeken kan lezen, indienen, eigen open verzoeken wijzigen en verzoeken behandelen.';
     case 'form_configuration':
       return 'Beheer de dynamische inzet- en rapportformulieren zonder toegang tot overige systeeminstellingen.';
     case 'weather_configuration':
-      return 'Beheer KNMI-bronnen, datasets en handmatige weerdata-updates.';
+      return 'Toegang tot Weer en UAV Forecast staat los van het technische beheer van KNMI-bronnen en datasets.';
     case 'branding_configuration':
       return 'Beheer huisstijl, logo en berichttemplates zonder toegang tot technische systeeminstellingen.';
     default:

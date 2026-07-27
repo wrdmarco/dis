@@ -12,6 +12,22 @@ export const webRouteAccess = {
     permissions: ['deployments.manage'],
     anyPermission: false,
   },
+  productRequests: {
+    permissions: ['product-requests.view'],
+    anyPermission: false,
+  },
+  weather: {
+    permissions: ['operational-weather.view'],
+    anyPermission: false,
+  },
+  uavForecast: {
+    permissions: ['uav-forecast.view'],
+    anyPermission: false,
+  },
+  calendar: {
+    permissions: ['calendar.view'],
+    anyPermission: false,
+  },
   assets: {
     permissions: ['assets.view'],
     anyPermission: false,
