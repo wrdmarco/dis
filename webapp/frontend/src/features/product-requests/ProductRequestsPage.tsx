@@ -2,7 +2,6 @@ import {
   Bug,
   CheckCircle2,
   ChevronRight,
-  CircleDot,
   FilePenLine,
   Inbox,
   Lightbulb,
@@ -10,16 +9,18 @@ import {
   RotateCcw,
   Search,
   Send,
-  Settings2,
   Wrench,
   X,
 } from 'lucide-react';
 import {
   type FormEvent,
+  type ReactNode,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
+import { Panel } from '../../components/Panel';
 import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
@@ -92,9 +93,7 @@ export function ProductRequestsPage() {
   const requests = useApiResource<ProductRequest[]>(resourcePath);
   const visibleRequests = requests.data ?? EMPTY_REQUESTS;
   const pagination = paginationMeta(requests.meta);
-  const selectedRequest = visibleRequests.find((request) => request.id === selectedId)
-    ?? visibleRequests[0]
-    ?? null;
+  const selectedRequest = visibleRequests.find((request) => request.id === selectedId) ?? null;
 
   function selectTab(nextTab: ProductRequestTab) {
     setTab(nextTab);
@@ -116,7 +115,6 @@ export function ProductRequestsPage() {
 
       return current.map((request) => request.id === nextRequest.id ? nextRequest : request);
     });
-    setSelectedId(nextRequest.id);
   }
 
   async function createRequest(form: RequestContentForm): Promise<void> {
@@ -196,79 +194,68 @@ export function ProductRequestsPage() {
   }
 
   return (
-    <div className={styles.page}>
-      <section className={styles.hero} aria-labelledby="product-requests-heading">
-        <div className={styles.heroCopy}>
-          <span className={styles.eyebrow}>Centraal meldpunt</span>
-          <h2 id="product-requests-heading">Van signaal naar oplossing</h2>
-          <p>Meld een bug, vraag een aanpassing aan of stel een nieuwe functie voor. Iedereen met toegang kan de voortgang volgen.</p>
-        </div>
-        <ol className={styles.workflow} aria-label="Afhandeling van een verzoek">
-          <li><CircleDot aria-hidden size={16} /><span>Open</span></li>
-          <li><Settings2 aria-hidden size={16} /><span>In behandeling</span></li>
-          <li><CheckCircle2 aria-hidden size={16} /><span>Opgelost</span></li>
-          <li><X aria-hidden size={16} /><span>Afgewezen</span></li>
-        </ol>
-        {canCreate ? (
+    <div className="page-stack">
+      <Panel
+        title="Overzicht"
+        action={canCreate ? (
           <button
             className="primary-button"
             type="button"
+            aria-haspopup="dialog"
             onClick={() => {
-              setCreateOpen((open) => !open);
+              setCreateOpen(true);
+              setSelectedId(null);
               setMutationError(null);
               setMessage(null);
             }}
-            aria-expanded={createOpen}
-            aria-controls="product-request-create"
           >
-            {createOpen ? <X aria-hidden size={17} /> : <Plus aria-hidden size={17} />}
-            {createOpen ? 'Sluiten' : 'Nieuw verzoek'}
+            <Plus aria-hidden size={17} />
+            Nieuw verzoek
           </button>
-        ) : null}
-      </section>
+        ) : undefined}
+      >
+        <div className={styles.panelBody}>
+          <p className={styles.intro}>
+            Meld een bug, vraag een aanpassing aan of stel een nieuwe functie voor.
+          </p>
 
-      {createOpen && canCreate ? (
-        <CreateRequestForm onCancel={() => setCreateOpen(false)} onSubmit={createRequest} />
-      ) : null}
+          {message && !createOpen && selectedRequest === null ? (
+            <p className={styles.success} role="status">{message}</p>
+          ) : null}
+          {mutationError && !createOpen && selectedRequest === null ? (
+            <p className={styles.error} role="alert">{mutationError}</p>
+          ) : null}
 
-      {message ? <p className={styles.success} role="status">{message}</p> : null}
-      {mutationError ? <p className={styles.error} role="alert">{mutationError}</p> : null}
-
-      <section className={styles.workspace} aria-label="Verzoekenoverzicht">
-        <div className={styles.listColumn}>
-          <div className={styles.tabs} role="tablist" aria-label="Verzoeken selecteren">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={effectiveTab === 'all'}
-              className={effectiveTab === 'all' ? styles.activeTab : undefined}
-              onClick={() => selectTab('all')}
-            >
-              Alle
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={effectiveTab === 'mine'}
-              className={effectiveTab === 'mine' ? styles.activeTab : undefined}
-              onClick={() => selectTab('mine')}
-            >
-              Mijn
-            </button>
-            {canResolve ? (
+          <div className={styles.toolbar}>
+            <div className={styles.tabs} role="group" aria-label="Verzoeken selecteren">
               <button
                 type="button"
-                role="tab"
-                aria-selected={effectiveTab === 'handling'}
-                className={effectiveTab === 'handling' ? styles.activeTab : undefined}
-                onClick={() => selectTab('handling')}
+                aria-pressed={effectiveTab === 'all'}
+                className={effectiveTab === 'all' ? styles.activeTab : undefined}
+                onClick={() => selectTab('all')}
               >
-                Te behandelen
+                Alle verzoeken
               </button>
-            ) : null}
-          </div>
+              <button
+                type="button"
+                aria-pressed={effectiveTab === 'mine'}
+                className={effectiveTab === 'mine' ? styles.activeTab : undefined}
+                onClick={() => selectTab('mine')}
+              >
+                Mijn verzoeken
+              </button>
+              {canResolve ? (
+                <button
+                  type="button"
+                  aria-pressed={effectiveTab === 'handling'}
+                  className={effectiveTab === 'handling' ? styles.activeTab : undefined}
+                  onClick={() => selectTab('handling')}
+                >
+                  Te behandelen
+                </button>
+              ) : null}
+            </div>
 
-          <div className={styles.filters}>
             <label className={styles.search}>
               <span className="sr-only">Zoeken in verzoeken</span>
               <Search aria-hidden size={17} />
@@ -284,9 +271,10 @@ export function ProductRequestsPage() {
                 placeholder="Zoek op titel, inhoud of indiener"
               />
             </label>
-            <label>
-              <span>Type</span>
+            <label className={styles.compactFilter}>
+              <span className="sr-only">Filter op type</span>
               <select
+                aria-label="Type"
                 value={typeFilter}
                 onChange={(event) => {
                   setTypeFilter(event.target.value as ProductRequestType | 'all');
@@ -300,9 +288,10 @@ export function ProductRequestsPage() {
                 ))}
               </select>
             </label>
-            <label>
-              <span>Status</span>
+            <label className={styles.compactFilter}>
+              <span className="sr-only">Filter op status</span>
               <select
+                aria-label="Status"
                 value={statusFilter}
                 onChange={(event) => {
                   setStatusFilter(event.target.value as ProductRequestStatus | 'all');
@@ -320,14 +309,17 @@ export function ProductRequestsPage() {
             </label>
           </div>
 
-          <RequestList
+          <RequestTable
             error={requests.error}
             loading={requests.loading}
             requests={visibleRequests}
-            selectedId={selectedRequest?.id ?? null}
             hasFilters={query.trim() !== '' || typeFilter !== 'all' || statusFilter !== 'all'}
             onReload={requests.reload}
-            onSelect={(requestId) => setSelectedId(requestId)}
+            onOpen={(requestId) => {
+              setMessage(null);
+              setMutationError(null);
+              setSelectedId(requestId);
+            }}
           />
           {pagination !== null && pagination.last_page > 1 ? (
             <Pagination
@@ -339,23 +331,182 @@ export function ProductRequestsPage() {
             />
           ) : null}
         </div>
+      </Panel>
 
-        <div className={styles.detailColumn}>
-          {selectedRequest === null ? (
-            <div className={styles.emptyDetail}>
-              <Inbox aria-hidden size={28} />
-              <h3>Geen verzoek geselecteerd</h3>
-              <p>Kies een verzoek in de lijst of pas de filters aan.</p>
+      {createOpen && canCreate ? (
+        <RequestDialog
+          title="Nieuw verzoek"
+          titleId="product-request-create-title"
+          description="Kies het type en beschrijf kort wat er moet veranderen."
+          narrow
+          onClose={() => {
+            setCreateOpen(false);
+            setMutationError(null);
+          }}
+        >
+          {mutationError ? <p className={styles.dialogError} role="alert">{mutationError}</p> : null}
+          <CreateRequestForm
+            onCancel={() => {
+              setCreateOpen(false);
+              setMutationError(null);
+            }}
+            onSubmit={createRequest}
+          />
+        </RequestDialog>
+      ) : null}
+
+      {selectedRequest !== null ? (
+        <RequestDialog
+          title={selectedRequest.title}
+          titleId={`product-request-dialog-${selectedRequest.id}`}
+          meta={(
+            <div className={styles.dialogLabels}>
+              <span className={styles.typeLabel} data-type={selectedRequest.type}>
+                <RequestTypeIcon type={selectedRequest.type} />
+                {productRequestTypeLabel(selectedRequest.type)}
+              </span>
+              <RequestStatusBadge status={selectedRequest.status} />
             </div>
-          ) : (
-            <ProductRequestDetailLoader
-              key={`${selectedRequest.id}:${selectedRequest.lock_version}`}
-              summary={selectedRequest}
-              onUpdate={updateRequest}
-              onStatusUpdate={updateRequestStatus}
-            />
           )}
-        </div>
+          onClose={() => {
+            setSelectedId(null);
+            setMutationError(null);
+          }}
+        >
+          {message ? <p className={styles.dialogSuccess} role="status">{message}</p> : null}
+          {mutationError ? <p className={styles.dialogError} role="alert">{mutationError}</p> : null}
+          <ProductRequestDetailLoader
+            key={`${selectedRequest.id}:${selectedRequest.lock_version}`}
+            summary={selectedRequest}
+            onUpdate={updateRequest}
+            onStatusUpdate={updateRequestStatus}
+          />
+        </RequestDialog>
+      ) : null}
+    </div>
+  );
+}
+
+function RequestDialog({
+  children,
+  description,
+  meta,
+  narrow = false,
+  onClose,
+  title,
+  titleId,
+}: {
+  children: ReactNode;
+  description?: string;
+  meta?: ReactNode;
+  narrow?: boolean;
+  onClose: () => void;
+  title: string;
+  titleId: string;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      const dialog = dialogRef.current;
+      const initialTarget = dialog?.querySelector<HTMLElement>('[data-dialog-initial="true"]')
+        ?? dialog?.querySelector<HTMLElement>('[data-dialog-close="true"]')
+        ?? dialog;
+      initialTarget?.focus();
+    });
+
+    function keepFocusInDialog(event: KeyboardEvent) {
+      const dialog = dialogRef.current;
+      if (dialog === null) return;
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter((element) => element.tabIndex >= 0);
+
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', keepFocusInDialog);
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener('keydown', keepFocusInDialog);
+      document.body.style.overflow = previousOverflow;
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, []);
+
+  const descriptionId = description ? `${titleId}-description` : undefined;
+
+  return (
+    <div
+      className={`modal-backdrop ${styles.modalBackdrop}`}
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        ref={dialogRef}
+        className={`modal ${styles.requestDialog} ${narrow ? styles.requestDialogNarrow : ''}`}
+        role="dialog"
+        tabIndex={-1}
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+      >
+        <header className={`modal__header ${styles.dialogHeader}`}>
+          <div>
+            {meta}
+            <h2 id={titleId}>{title}</h2>
+          </div>
+          <button
+            className="icon-button"
+            type="button"
+            onClick={onClose}
+            aria-label="Sluiten"
+            data-dialog-close="true"
+          >
+            <X aria-hidden size={18} />
+          </button>
+        </header>
+        {description ? (
+          <p className={styles.dialogDescription} id={descriptionId}>{description}</p>
+        ) : null}
+        {children}
       </section>
     </div>
   );
@@ -385,90 +536,73 @@ function CreateRequestForm({
   }
 
   return (
-    <section className={styles.createPanel} id="product-request-create" aria-labelledby="product-request-create-title">
-      <header>
-        <div>
-          <span className={styles.eyebrow}>Nieuwe melding</span>
-          <h3 id="product-request-create-title">Wat kunnen we verbeteren?</h3>
-        </div>
-        <button className="icon-button" type="button" onClick={onCancel} aria-label="Nieuw verzoek sluiten">
-          <X aria-hidden size={18} />
-        </button>
-      </header>
-      <form className={styles.form} onSubmit={submit}>
-        <fieldset className={styles.typePicker}>
-          <legend>Type verzoek</legend>
+    <form className={`${styles.form} ${styles.dialogForm}`} onSubmit={submit}>
+      <label>
+        Type verzoek
+        <select
+          value={form.type}
+          onChange={(event) => setForm((current) => ({
+            ...current,
+            type: event.target.value as ProductRequestType,
+          }))}
+        >
           {productRequestTypeOptions.map((option) => (
-            <label key={option.value}>
-              <input
-                type="radio"
-                name="product-request-type"
-                value={option.value}
-                checked={form.type === option.value}
-                onChange={() => setForm((current) => ({ ...current, type: option.value }))}
-              />
-              <span>
-                <RequestTypeIcon type={option.value} />
-                <strong>{option.label}</strong>
-              </span>
-            </label>
+            <option value={option.value} key={option.value}>{option.label}</option>
           ))}
-        </fieldset>
-        <label>
-          Titel
-          <input
-            value={form.title}
-            maxLength={180}
-            required
-            autoFocus
-            onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-            placeholder="Korte samenvatting van je verzoek"
-          />
-        </label>
-        <label>
-          Omschrijving
-          <textarea
-            value={form.description}
-            maxLength={20000}
-            rows={6}
-            required
-            onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-            placeholder="Beschrijf wat er gebeurt, wat je verwacht en wanneer dit merkbaar is."
-          />
-          <small>Deel geen wachtwoorden, tokens of andere geheime gegevens.</small>
-        </label>
-        <div className={styles.formActions}>
-          <button className="secondary-button" type="button" onClick={onCancel} disabled={saving}>Annuleren</button>
-          <button
-            className="primary-button"
-            type="submit"
-            disabled={saving || form.title.trim() === '' || form.description.trim() === ''}
-          >
-            <Send aria-hidden size={16} />
-            {saving ? 'Indienen…' : 'Verzoek indienen'}
-          </button>
-        </div>
-      </form>
-    </section>
+        </select>
+      </label>
+      <label>
+        Titel
+        <input
+          value={form.title}
+          maxLength={180}
+          required
+          data-dialog-initial="true"
+          onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+          placeholder="Korte samenvatting"
+        />
+      </label>
+      <label>
+        Omschrijving
+        <textarea
+          value={form.description}
+          maxLength={20000}
+          rows={6}
+          required
+          onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+          placeholder="Wat gebeurt er nu en wat verwacht je?"
+        />
+        <small>Deel geen wachtwoorden, tokens of andere geheime gegevens.</small>
+      </label>
+      <div className={styles.formActions}>
+        <button className="secondary-button" type="button" onClick={onCancel} disabled={saving}>Annuleren</button>
+        <button
+          className="primary-button"
+          type="submit"
+          disabled={saving || form.title.trim() === '' || form.description.trim() === ''}
+        >
+          <Send aria-hidden size={16} />
+          {saving ? 'Indienen…' : 'Verzoek indienen'}
+        </button>
+      </div>
+    </form>
   );
 }
 
-function RequestList({
+function RequestTable({
   requests,
-  selectedId,
   loading,
   error,
   hasFilters,
   onReload,
-  onSelect,
+  onOpen,
 }: {
   requests: ProductRequest[];
-  selectedId: string | null;
   loading: boolean;
   error: string | null;
   hasFilters: boolean;
   onReload: () => Promise<void>;
-  onSelect: (requestId: string) => void;
+  onOpen: (requestId: string) => void;
 }) {
   if (loading) {
     return (
@@ -505,32 +639,65 @@ function RequestList({
   }
 
   return (
-    <div className={styles.requestList} aria-label="Verzoeken">
-      {requests.map((request) => (
-        <button
-          className={`${styles.requestCard} ${selectedId === request.id ? styles.selectedCard : ''}`}
-          data-status={request.status}
-          type="button"
-          key={request.id}
-          onClick={() => onSelect(request.id)}
-          aria-current={selectedId === request.id ? 'true' : undefined}
-        >
-          <span className={styles.cardTopline}>
-            <span className={styles.typeLabel}>
-              <RequestTypeIcon type={request.type} />
-              {productRequestTypeLabel(request.type)}
-            </span>
-            <RequestStatusBadge status={request.status} />
-          </span>
-          <strong className={styles.cardTitle}>{request.title}</strong>
-          <span className={styles.cardDescription}>{request.description}</span>
-          <span className={styles.cardMeta}>
-            <span>{actorName(request.requester.name)}</span>
-            <time dateTime={request.updated_at}>{formatDateTime(request.updated_at)}</time>
-            <ChevronRight aria-hidden size={16} />
-          </span>
-        </button>
-      ))}
+    <div className={styles.tableWrap}>
+      <table className={`data-table ${styles.requestTable}`} aria-label="Verzoekenoverzicht">
+        <colgroup>
+          <col className={styles.typeColumn} />
+          <col />
+          <col className={styles.requesterColumn} />
+          <col className={styles.statusColumn} />
+          <col className={styles.updatedColumn} />
+          <col className={styles.actionColumn} />
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col">Type</th>
+            <th scope="col">Verzoek</th>
+            <th scope="col">Indiener</th>
+            <th scope="col">Status</th>
+            <th scope="col">Bijgewerkt</th>
+            <th scope="col">Acties</th>
+          </tr>
+        </thead>
+        <tbody>
+          {requests.map((request) => (
+            <tr key={request.id} data-status={request.status}>
+              <td data-label="Type">
+                <span className={styles.typeLabel} data-type={request.type}>
+                  <RequestTypeIcon type={request.type} />
+                  {productRequestTypeLabel(request.type)}
+                </span>
+              </td>
+              <td data-label="Verzoek">
+                <div className={styles.requestSummary}>
+                  <strong>{request.title}</strong>
+                  <span>{request.description}</span>
+                </div>
+              </td>
+              <td data-label="Indiener">
+                {request.is_owner ? 'Jij' : actorName(request.requester.name)}
+              </td>
+              <td data-label="Status">
+                <RequestStatusBadge status={request.status} />
+              </td>
+              <td data-label="Bijgewerkt">
+                <time dateTime={request.updated_at}>{formatDateTime(request.updated_at)}</time>
+              </td>
+              <td data-label="Acties">
+                <button
+                  className={`secondary-button ${styles.viewButton}`}
+                  type="button"
+                  onClick={() => onOpen(request.id)}
+                  aria-label={`Verzoek bekijken: ${request.title}`}
+                >
+                  <span>Bekijken</span>
+                  <ChevronRight aria-hidden size={16} />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -605,24 +772,30 @@ function ProductRequestDetail({
   onStatusUpdate: (request: ProductRequest, form: RequestStatusForm) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   return (
-    <article className={styles.detail} aria-labelledby={`product-request-${request.id}`}>
-      <header className={styles.detailHeader}>
-        <div className={styles.detailLabels}>
-          <span className={styles.typeLabel}>
-            <RequestTypeIcon type={request.type} />
-            {productRequestTypeLabel(request.type)}
-          </span>
-          <RequestStatusBadge status={request.status} />
+    <article className={styles.detail}>
+      <dl className={styles.detailMeta}>
+        <div><dt>Ingediend door</dt><dd>{actorName(request.requester.name)}</dd></div>
+        <div><dt>Aangemaakt</dt><dd><time dateTime={request.created_at}>{formatDateTime(request.created_at)}</time></dd></div>
+        <div><dt>Bijgewerkt</dt><dd><time dateTime={request.updated_at}>{formatDateTime(request.updated_at)}</time></dd></div>
+      </dl>
+
+      {!editing && !updatingStatus && (request.can_update || request.can_resolve) ? (
+        <div className={styles.detailActions}>
+          {request.can_update ? (
+            <button className="secondary-button" type="button" onClick={() => setEditing(true)}>
+              <FilePenLine aria-hidden size={16} /> Aanpassen
+            </button>
+          ) : null}
+          {request.can_resolve ? (
+            <button className="secondary-button" type="button" onClick={() => setUpdatingStatus(true)}>
+              <Wrench aria-hidden size={16} /> Status wijzigen
+            </button>
+          ) : null}
         </div>
-        <h3 id={`product-request-${request.id}`}>{request.title}</h3>
-        <dl className={styles.detailMeta}>
-          <div><dt>Ingediend door</dt><dd>{actorName(request.requester.name)}</dd></div>
-          <div><dt>Aangemaakt</dt><dd><time dateTime={request.created_at}>{formatDateTime(request.created_at)}</time></dd></div>
-          <div><dt>Bijgewerkt</dt><dd><time dateTime={request.updated_at}>{formatDateTime(request.updated_at)}</time></dd></div>
-        </dl>
-      </header>
+      ) : null}
 
       {editing ? (
         <EditRequestForm
@@ -635,14 +808,7 @@ function ProductRequestDetail({
         />
       ) : (
         <section className={styles.description} aria-labelledby={`product-request-description-${request.id}`}>
-          <header>
-            <h4 id={`product-request-description-${request.id}`}>Omschrijving</h4>
-            {request.can_update ? (
-              <button className="secondary-button" type="button" onClick={() => setEditing(true)}>
-                <FilePenLine aria-hidden size={16} /> Aanpassen
-              </button>
-            ) : null}
-          </header>
+          <h3 id={`product-request-description-${request.id}`}>Omschrijving</h3>
           <p>{request.description}</p>
         </section>
       )}
@@ -651,19 +817,26 @@ function ProductRequestDetail({
         <section className={styles.resolutionNote} aria-labelledby={`product-request-resolution-${request.id}`}>
           <span className={styles.resolutionIcon} aria-hidden><CheckCircle2 size={19} /></span>
           <div>
-            <h4 id={`product-request-resolution-${request.id}`}>Toelichting op de afhandeling</h4>
+            <h3 id={`product-request-resolution-${request.id}`}>Toelichting op de afhandeling</h3>
             <p>{request.resolution_note}</p>
             {request.resolved_by ? <small>Door {actorName(request.resolved_by.name)}</small> : null}
           </div>
         </section>
       ) : null}
 
-      {request.status_history && request.status_history.length > 0 ? (
-        <StatusHistory entries={request.status_history} requestId={request.id} />
+      {updatingStatus ? (
+        <StatusUpdateForm
+          request={request}
+          onCancel={() => setUpdatingStatus(false)}
+          onSubmit={async (form) => {
+            await onStatusUpdate(request, form);
+            setUpdatingStatus(false);
+          }}
+        />
       ) : null}
 
-      {request.can_resolve ? (
-        <StatusUpdateForm request={request} onSubmit={(form) => onStatusUpdate(request, form)} />
+      {request.status_history && request.status_history.length > 0 ? (
+        <StatusHistory entries={request.status_history} />
       ) : null}
     </article>
   );
@@ -671,14 +844,15 @@ function ProductRequestDetail({
 
 function StatusHistory({
   entries,
-  requestId,
 }: {
   entries: ProductRequestStatusHistoryEntry[];
-  requestId: string;
 }) {
   return (
-    <section className={styles.history} aria-labelledby={`product-request-history-${requestId}`}>
-      <h4 id={`product-request-history-${requestId}`}>Statusgeschiedenis</h4>
+    <details className={styles.history}>
+      <summary>
+        <span>Statusgeschiedenis</span>
+        <small>{entries.length}</small>
+      </summary>
       <ol>
         {entries.map((entry) => (
           <li key={entry.id}>
@@ -695,7 +869,7 @@ function StatusHistory({
           </li>
         ))}
       </ol>
-    </section>
+    </details>
   );
 }
 
@@ -729,7 +903,7 @@ function EditRequestForm({
 
   return (
     <form className={`${styles.form} ${styles.editForm}`} onSubmit={submit}>
-      <h4>Verzoek aanpassen</h4>
+      <h3>Verzoek aanpassen</h3>
       <label>
         Type
         <select value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value as ProductRequestType }))}>
@@ -771,9 +945,11 @@ function EditRequestForm({
 
 function StatusUpdateForm({
   request,
+  onCancel,
   onSubmit,
 }: {
   request: ProductRequest;
+  onCancel: () => void;
   onSubmit: (form: RequestStatusForm) => Promise<void>;
 }) {
   const [form, setForm] = useState<RequestStatusForm>({
@@ -797,13 +973,7 @@ function StatusUpdateForm({
 
   return (
     <section className={styles.resolver} aria-labelledby={`product-request-resolver-${request.id}`}>
-      <header>
-        <span className={styles.resolverIcon} aria-hidden><Wrench size={18} /></span>
-        <div>
-          <span className={styles.eyebrow}>Behandelaar</span>
-          <h4 id={`product-request-resolver-${request.id}`}>Afhandeling vastleggen</h4>
-        </div>
-      </header>
+      <h3 id={`product-request-resolver-${request.id}`}>Status wijzigen</h3>
       <form className={styles.form} onSubmit={submit}>
         <label>
           Nieuwe status
@@ -837,6 +1007,9 @@ function StatusUpdateForm({
           <small>Verplicht bij iedere statuswijziging; zichtbaar voor alle lezers.</small>
         </label>
         <div className={styles.formActions}>
+          <button className="secondary-button" type="button" onClick={onCancel} disabled={saving}>
+            Annuleren
+          </button>
           <button
             className="primary-button"
             type="submit"

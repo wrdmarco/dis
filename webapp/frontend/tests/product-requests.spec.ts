@@ -146,15 +146,17 @@ test('wires the requests page into route access, navigation, help and responsive
   expect(manual).toContain("id: 'product-request-update-own'");
   expect(manual).toContain("id: 'product-request-resolve'");
 
-  expect(styles).toContain('grid-template-columns: minmax(320px, 0.72fr) minmax(440px, 1.28fr);');
-  expect(styles).toContain('@media (max-width: 880px)');
+  expect(styles).toContain('.tableWrap');
+  expect(styles).toContain('.requestTable');
+  expect(styles).toContain('.modalBackdrop');
+  expect(styles).toContain('overflow-x: auto');
+  expect(styles).toContain('@media (max-width: 760px)');
   expect(styles).toContain('@media (max-width: 620px)');
   expect(styles).toContain('@media (prefers-reduced-motion: reduce)');
-  expect(styles).toContain('.requestCard:focus-visible');
 });
 
-test('creates, edits and resolves a request through the rendered page', async ({ page }) => {
-  const state = productRequestMockState();
+test('creates, edits and resolves a request through the table and dialogs', async ({ page }) => {
+  const state = productRequestMockState({ can_resolve: true });
   await mockProductRequestApi(page, state, [
     'product-requests.view',
     'product-requests.create',
@@ -163,18 +165,40 @@ test('creates, edits and resolves a request through the rendered page', async ({
   ]);
 
   await page.goto('/verzoeken');
-  await expect(page.getByRole('heading', { name: 'Van signaal naar oplossing' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Bestaand verzoek' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Verzoeken', exact: true })).toBeVisible();
+  const table = productRequestsTable(page);
+  await expect(table).toBeVisible();
+  await expect(table.getByRole('columnheader')).toHaveText([
+    'Type',
+    'Verzoek',
+    'Indiener',
+    'Status',
+    'Bijgewerkt',
+    'Acties',
+  ]);
+  await expect(productRequestRow(page, 'Bestaand verzoek')).toHaveCount(1);
 
-  await page.getByRole('button', { name: 'Nieuw verzoek' }).click();
-  const createPanel = page.locator('#product-request-create');
-  await createPanel.getByLabel('Feature').check({ force: true });
-  await createPanel.getByLabel('Titel', { exact: true }).fill('Nieuwe exportfunctie');
-  await createPanel.getByLabel(/^Omschrijving/).fill('Voeg een compacte PDF-export toe.');
-  await createPanel.getByRole('button', { name: 'Verzoek indienen' }).click();
+  const createButton = page.getByRole('button', { name: 'Nieuw verzoek', exact: true });
+  await createButton.click();
+  let createDialog = page.getByRole('dialog', { name: 'Nieuw verzoek', exact: true });
+  await expect(createDialog).toBeVisible();
+  await expect(createDialog).toHaveAttribute('aria-modal', 'true');
+  await expect(createDialog.getByLabel('Titel', { exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(createDialog).toHaveCount(0);
+  await expect(createButton).toBeFocused();
 
+  await createButton.click();
+  createDialog = page.getByRole('dialog', { name: 'Nieuw verzoek', exact: true });
+  await createDialog.getByLabel('Type verzoek').selectOption('feature');
+  await createDialog.getByLabel('Titel', { exact: true }).fill('Nieuwe exportfunctie');
+  await createDialog.getByLabel(/^Omschrijving/).fill('Voeg een compacte PDF-export toe.');
+  await createDialog.getByRole('button', { name: 'Verzoek indienen' }).click();
+
+  await expect(createDialog).toHaveCount(0);
   await expect(page.getByRole('status').filter({ hasText: 'Verzoek ingediend.' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Nieuwe exportfunctie' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Mijn verzoeken', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(productRequestRow(page, 'Nieuwe exportfunctie')).toHaveCount(1);
   expect(state.items).toHaveLength(2);
   expect(state.items[0]).toMatchObject({
     type: 'feature',
@@ -182,33 +206,49 @@ test('creates, edits and resolves a request through the rendered page', async ({
     lock_version: 1,
   });
 
-  await page.getByRole('button', { name: 'Aanpassen' }).click();
-  const editForm = page.getByRole('heading', { name: 'Verzoek aanpassen' }).locator('..');
-  await editForm.getByLabel('Titel', { exact: true }).fill('Nieuwe PDF-exportfunctie');
-  await page.getByRole('textbox', { name: 'Omschrijving', exact: true })
+  const viewButton = productRequestViewButton(page, 'Nieuwe exportfunctie');
+  await viewButton.click();
+  let detailDialog = page.getByRole('dialog', { name: 'Nieuwe exportfunctie', exact: true });
+  await expect(detailDialog).toBeVisible();
+  await expect(detailDialog).toHaveAttribute('aria-modal', 'true');
+  await page.keyboard.press('Escape');
+  await expect(detailDialog).toHaveCount(0);
+  await expect(viewButton).toBeFocused();
+
+  await viewButton.click();
+  detailDialog = page.getByRole('dialog', { name: 'Nieuwe exportfunctie', exact: true });
+  await detailDialog.getByRole('button', { name: 'Aanpassen', exact: true }).click();
+  await expect(detailDialog.getByRole('heading', { name: 'Verzoek aanpassen', exact: true })).toBeVisible();
+  await detailDialog.getByLabel('Titel', { exact: true }).fill('Nieuwe PDF-exportfunctie');
+  await detailDialog.getByRole('textbox', { name: 'Omschrijving', exact: true })
     .fill('Voeg een compacte, toegankelijke PDF-export toe.');
-  await editForm.getByRole('button', { name: 'Wijzigingen opslaan' }).click();
+  await detailDialog.getByRole('button', { name: 'Wijzigingen opslaan' }).click();
 
   await expect(page.getByRole('status').filter({ hasText: 'Wijzigingen opgeslagen.' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Nieuwe PDF-exportfunctie' })).toBeVisible();
+  await expect(productRequestRow(page, 'Nieuwe PDF-exportfunctie')).toHaveCount(1);
+  detailDialog = page.getByRole('dialog', { name: 'Nieuwe PDF-exportfunctie', exact: true });
+  await expect(detailDialog).toBeVisible();
   expect(state.items[0]).toMatchObject({
     title: 'Nieuwe PDF-exportfunctie',
     lock_version: 2,
   });
 
-  await page.getByLabel('Nieuwe status').selectOption('resolved');
-  await page.getByLabel('Toelichting').fill('Opgenomen in de eerstvolgende webrelease.');
-  await page.getByRole('button', { name: 'Afhandeling opslaan' }).click();
+  await detailDialog.getByRole('button', { name: 'Status wijzigen', exact: true }).click();
+  await detailDialog.getByLabel('Nieuwe status').selectOption('resolved');
+  await detailDialog.getByLabel('Toelichting').fill('Opgenomen in de eerstvolgende webrelease.');
+  await detailDialog.getByRole('button', { name: 'Afhandeling opslaan' }).click();
 
   await expect(page.getByRole('status').filter({ hasText: 'Afhandeling opgeslagen.' })).toBeVisible();
-  const detail = page.locator('article').filter({ hasText: 'Nieuwe PDF-exportfunctie' });
-  await expect(detail.getByText('Opgelost', { exact: true })).toBeVisible();
+  const resolvedRow = productRequestRow(page, 'Nieuwe PDF-exportfunctie');
+  await expect(resolvedRow.getByText('Opgelost', { exact: true })).toBeVisible();
+  detailDialog = page.getByRole('dialog', { name: 'Nieuwe PDF-exportfunctie', exact: true });
+  await expect(detailDialog.getByText('Opgelost', { exact: true })).toBeVisible();
   await expect(
-    detail
+    detailDialog
       .getByRole('region', { name: 'Toelichting op de afhandeling' })
       .getByText('Opgenomen in de eerstvolgende webrelease.'),
   ).toBeVisible();
-  await expect(detail.getByRole('button', { name: 'Aanpassen' })).toHaveCount(0);
+  await expect(detailDialog.getByRole('button', { name: 'Aanpassen', exact: true })).toHaveCount(0);
   expect(state.items[0]).toMatchObject({
     status: 'resolved',
     resolution_note: 'Opgenomen in de eerstvolgende webrelease.',
@@ -224,10 +264,13 @@ test('hides actions without action rights and reloads the latest version after a
   await mockProductRequestApi(page, readOnlyState, ['product-requests.view']);
   await page.goto('/verzoeken');
 
-  await expect(page.getByRole('heading', { name: 'Bestaand verzoek' })).toBeVisible();
+  await expect(productRequestRow(page, 'Bestaand verzoek')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Nieuw verzoek' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Aanpassen' })).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Afhandeling vastleggen' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Te behandelen', exact: true })).toHaveCount(0);
+  await productRequestViewButton(page, 'Bestaand verzoek').click();
+  let detailDialog = page.getByRole('dialog', { name: 'Bestaand verzoek', exact: true });
+  await expect(detailDialog.getByRole('button', { name: 'Aanpassen', exact: true })).toHaveCount(0);
+  await expect(detailDialog.getByRole('button', { name: 'Status wijzigen', exact: true })).toHaveCount(0);
 
   const staleState = productRequestMockState();
   staleState.conflictOnNextContentUpdate = true;
@@ -237,19 +280,70 @@ test('hides actions without action rights and reloads the latest version after a
     'product-requests.update-own',
   ]);
   await page.reload();
-  await page.getByRole('button', { name: 'Aanpassen' }).click();
-  const editForm = page.getByRole('heading', { name: 'Verzoek aanpassen' }).locator('..');
-  await editForm.getByLabel('Titel', { exact: true }).fill('Lokale wijziging');
-  await editForm.getByRole('button', { name: 'Wijzigingen opslaan' }).click();
+  await productRequestViewButton(page, 'Bestaand verzoek').click();
+  detailDialog = page.getByRole('dialog', { name: 'Bestaand verzoek', exact: true });
+  await detailDialog.getByRole('button', { name: 'Aanpassen', exact: true }).click();
+  await detailDialog.getByLabel('Titel', { exact: true }).fill('Lokale wijziging');
+  await detailDialog.getByRole('button', { name: 'Wijzigingen opslaan' }).click();
 
   await expect(page.getByRole('alert').filter({ hasText: 'Dit verzoek is intussen gewijzigd.' }))
     .toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Nieuwste titel van de server' })).toBeVisible();
+  await expect(productRequestRow(page, 'Nieuwste titel van de server')).toHaveCount(1);
+  await expect(page.getByRole('dialog', { name: 'Nieuwste titel van de server', exact: true })).toBeVisible();
   expect(staleState.items[0]).toMatchObject({
     title: 'Nieuwste titel van de server',
     lock_version: 2,
   });
 });
+
+test('keeps the requests table and create dialog within a mobile viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = productRequestMockState();
+  await mockProductRequestApi(page, state, [
+    'product-requests.view',
+    'product-requests.create',
+  ]);
+
+  await page.goto('/verzoeken');
+  await expect(productRequestsTable(page)).toBeVisible();
+  await expectNoPageOverflow(page);
+
+  const createButton = page.getByRole('button', { name: 'Nieuw verzoek', exact: true });
+  await createButton.click();
+  const dialog = page.getByRole('dialog', { name: 'Nieuw verzoek', exact: true });
+  await expect(dialog).toBeVisible();
+  await expectNoPageOverflow(page);
+
+  const dialogBox = await dialog.boundingBox();
+  expect(dialogBox).not.toBeNull();
+  expect(dialogBox?.x ?? -1).toBeGreaterThanOrEqual(0);
+  expect((dialogBox?.x ?? 0) + (dialogBox?.width ?? 0)).toBeLessThanOrEqual(391);
+
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(createButton).toBeFocused();
+});
+
+function productRequestsTable(page: Page) {
+  return page.getByRole('table', { name: 'Verzoekenoverzicht', exact: true });
+}
+
+function productRequestRow(page: Page, title: string) {
+  return productRequestsTable(page)
+    .getByRole('row')
+    .filter({ has: page.getByText(title, { exact: true }) });
+}
+
+function productRequestViewButton(page: Page, title: string) {
+  return productRequestRow(page, title)
+    .getByRole('button', { name: `Verzoek bekijken: ${title}`, exact: true });
+}
+
+async function expectNoPageOverflow(page: Page): Promise<void> {
+  await expect.poll(() => page.evaluate(
+    () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+  )).toBe(true);
+}
 
 interface ProductRequestMockState {
   items: ProductRequest[];
@@ -264,7 +358,7 @@ function productRequestMockState(
     items: [request('request-1', {
       title: 'Bestaand verzoek',
       description: 'Bestaande omschrijving.',
-      can_resolve: true,
+      can_resolve: false,
       status_history: [{
         id: 'history-1',
         from_status: null,
