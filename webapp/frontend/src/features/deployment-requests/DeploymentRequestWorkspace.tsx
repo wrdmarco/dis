@@ -30,6 +30,7 @@ import {
   type FocusEvent,
   type ReactNode,
 } from 'react';
+import { AddressAutocomplete } from '../../components/AddressAutocomplete';
 import { StatusPill } from '../../components/StatusPill';
 import { ApiClientError } from '../../lib/apiClient';
 import {
@@ -61,6 +62,7 @@ import {
   makeDeploymentRequestMutationId,
   mergeDeploymentRequestChanges,
   mergeQueuedDeploymentRequestChanges,
+  rebaseDeploymentRequestTeamIds,
   type DeploymentProposal,
   type DeploymentRequest,
   type DeploymentRequestChanges,
@@ -81,6 +83,7 @@ interface DeploymentRequestWorkspaceProps {
   saveEndpoint?: string;
   compact?: boolean;
   allowPreparedEditing?: boolean;
+  interactionDisabled?: boolean;
   onDeploymentRequestChange: (deploymentRequest: DeploymentRequest) => void;
   onChangesQueued?: (changes: DeploymentRequestChanges) => void;
   onRefresh: () => Promise<void>;
@@ -115,6 +118,7 @@ export const DeploymentRequestWorkspace = forwardRef<
     saveEndpoint = `/deployment-requests/${deploymentRequest.id}`,
     compact = false,
     allowPreparedEditing = false,
+    interactionDisabled = false,
     onDeploymentRequestChange,
     onChangesQueued,
     onRefresh,
@@ -139,7 +143,11 @@ export const DeploymentRequestWorkspace = forwardRef<
   const [deploymentDraft, setDeploymentDraft] = useState(
     () => deploymentFormFromRequest(deploymentRequest),
   );
+  const deploymentDraftRef = useRef(deploymentDraft);
+  const deploymentDraftBaselineRef = useRef(deploymentDraft);
+  const deploymentDraftDirtyFieldsRef = useRef<Set<DeploymentFormField>>(new Set());
   const [decisionSaving, setDecisionSaving] = useState(false);
+  const [saveAllActive, setSaveAllActive] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
   const [preparingDeployment, setPreparingDeployment] = useState(false);
   const [prepareDeploymentError, setPrepareDeploymentError] = useState<string | null>(null);
@@ -150,9 +158,13 @@ export const DeploymentRequestWorkspace = forwardRef<
   const pendingRef = useRef<DeploymentRequestChanges>(EMPTY_CHANGES);
   const retryMutationRef = useRef<QueuedMutation | null>(null);
   const inFlightRef = useRef<Promise<boolean> | null>(null);
+  const conflictRef = useRef<ConflictState | null>(null);
   const versionRef = useRef(deploymentRequest.lock_version);
   const timerRef = useRef<number | null>(null);
   const flushRef = useRef<() => Promise<boolean>>(async () => true);
+  const saveAllRef = useRef<() => Promise<boolean>>(async () => true);
+  const saveAllActiveRef = useRef(false);
+  const saveAllInFlightRef = useRef<Promise<DeploymentRequest | null> | null>(null);
   const mountedRef = useRef(true);
   const navigationPendingRef = useRef(false);
   const prepareDeploymentMutationIdRef = useRef<string | null>(null);
@@ -161,6 +173,8 @@ export const DeploymentRequestWorkspace = forwardRef<
     payload: Record<string, unknown>;
   } | null>(null);
   const decisionSelectionAdjustedRef = useRef(false);
+  const prioritySelectionAdjustedRef = useRef(false);
+  const decisionReasonAdjustedRef = useRef(false);
   const deploymentDraftAdjustedRef = useRef(false);
   const closeMutationRef = useRef<{
     signature: string;
@@ -186,7 +200,15 @@ export const DeploymentRequestWorkspace = forwardRef<
   const assessmentBlocked = draft.triage.state === 'incomplete';
   const statusEditable = draft.status === 'open'
     || (allowPreparedEditing && draft.status === 'prepared');
-  const editable = canManage && statusEditable && conflict === null && configuration !== null;
+  const interactionLocked = interactionDisabled
+    || saveAllActive
+    || preparingDeployment
+    || closing;
+  const editable = canManage
+    && statusEditable
+    && conflict === null
+    && configuration !== null
+    && !interactionLocked;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -242,7 +264,7 @@ export const DeploymentRequestWorkspace = forwardRef<
       event.preventDefault();
       if (navigationPendingRef.current) return;
       navigationPendingRef.current = true;
-      void flushRef.current().then((saved) => {
+      void saveAllRef.current().then((saved) => {
         if (!saved || !mountedRef.current) {
           navigationPendingRef.current = false;
           return;
@@ -287,7 +309,7 @@ export const DeploymentRequestWorkspace = forwardRef<
       event.intercept({
         precommitHandler: async () => {
           navigationPendingRef.current = true;
-          const saved = await flushRef.current();
+          const saved = await saveAllRef.current();
           navigationPendingRef.current = false;
           if (!saved) {
             throw new DOMException('Navigatie geannuleerd omdat de aanvraag niet kon worden opgeslagen.', 'AbortError');
@@ -302,8 +324,31 @@ export const DeploymentRequestWorkspace = forwardRef<
 
   useEffect(() => {
     const requestChanged = deploymentRequest.id !== latestDeploymentRequestRef.current.id;
+    const externalVersionAdvanced = !requestChanged
+      && deploymentRequest.lock_version > versionRef.current;
     if (requestChanged || deploymentRequest.lock_version >= latestDeploymentRequestRef.current.lock_version) {
       latestDeploymentRequestRef.current = deploymentRequest;
+    }
+    if (
+      externalVersionAdvanced
+      && (
+        decisionSelectionAdjustedRef.current
+        || deploymentDraftAdjustedRef.current
+      )
+      && !deploymentRequestHasChanges(pendingRef.current)
+      && retryMutationRef.current === null
+      && inFlightRef.current === null
+      && saveAllInFlightRef.current === null
+      && conflict === null
+    ) {
+      const nextConflict = { current: deploymentRequest, attempted: EMPTY_CHANGES };
+      conflictRef.current = nextConflict;
+      setConflict(nextConflict);
+      setSaveState('conflict');
+      setSaveError(
+        'Het aanvraagdossier of inzetplan is intussen gewijzigd. Controleer de serverversie voordat je lokale wijzigingen toepast.',
+      );
+      return;
     }
     if (
       (requestChanged || deploymentRequest.lock_version > versionRef.current)
@@ -314,12 +359,26 @@ export const DeploymentRequestWorkspace = forwardRef<
     ) {
       versionRef.current = deploymentRequest.lock_version;
       setDraft(deploymentRequest);
-      decisionSelectionAdjustedRef.current = false;
-      deploymentDraftAdjustedRef.current = false;
-      setDecisionPriority(deploymentRequestSuggestedDecisionPriority(deploymentRequest));
-      setDecisionReason(deploymentRequest.priority_override_reason ?? '');
-      setDeploymentDraft(deploymentFormFromRequest(deploymentRequest));
-      setSaveState('saved');
+      const preserveDecision = !requestChanged && decisionSelectionAdjustedRef.current;
+      const preserveDeploymentProposal = !requestChanged && deploymentDraftAdjustedRef.current;
+      if (!preserveDecision) {
+        decisionSelectionAdjustedRef.current = false;
+        prioritySelectionAdjustedRef.current = false;
+        decisionReasonAdjustedRef.current = false;
+        setDecisionPriority(deploymentRequestSuggestedDecisionPriority(deploymentRequest));
+        setDecisionReason(deploymentRequest.priority_override_reason ?? '');
+      }
+      if (!preserveDeploymentProposal) {
+        deploymentDraftAdjustedRef.current = false;
+        deploymentDraftDirtyFieldsRef.current = new Set();
+        const nextDeploymentDraft = deploymentFormFromRequest(deploymentRequest);
+        deploymentDraftBaselineRef.current = nextDeploymentDraft;
+        deploymentDraftRef.current = nextDeploymentDraft;
+        setDeploymentDraft(nextDeploymentDraft);
+      }
+      setSaveState(
+        preserveDecision || preserveDeploymentProposal ? 'dirty' : 'saved',
+      );
       setSaveError(null);
     }
   }, [conflict, deploymentRequest]);
@@ -334,7 +393,7 @@ export const DeploymentRequestWorkspace = forwardRef<
 
   const flushSave = useCallback(async (): Promise<boolean> => {
     if (!canManage || !statusEditable) return true;
-    if (conflict !== null) return false;
+    if (conflictRef.current !== null) return false;
     if (timerRef.current !== null) {
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -349,7 +408,14 @@ export const DeploymentRequestWorkspace = forwardRef<
     const retry = retryMutationRef.current;
     const changes = retry?.changes ?? pendingRef.current;
     if (!deploymentRequestHasChanges(changes)) {
-      if (mountedRef.current) setSaveState('saved');
+      if (mountedRef.current) {
+        setSaveState(
+          decisionSelectionAdjustedRef.current
+            || deploymentDraftAdjustedRef.current
+            ? 'dirty'
+            : 'saved',
+        );
+      }
       return true;
     }
 
@@ -377,14 +443,43 @@ export const DeploymentRequestWorkspace = forwardRef<
         if (mountedRef.current) {
           onDeploymentRequestChange(response.data);
           setDraft(mergeDeploymentRequestChanges(response.data, pendingRef.current));
-          if (!hasPendingChanges) {
-            decisionSelectionAdjustedRef.current = false;
-            deploymentDraftAdjustedRef.current = false;
+          if (!hasPendingChanges && !prioritySelectionAdjustedRef.current) {
             setDecisionPriority(deploymentRequestSuggestedDecisionPriority(response.data));
-            setDecisionReason(response.data.priority_override_reason ?? '');
-            setDeploymentDraft(deploymentFormFromRequest(response.data));
           }
-          setSaveState(hasPendingChanges ? 'dirty' : 'saved');
+          if (!hasPendingChanges && !decisionReasonAdjustedRef.current) {
+            setDecisionReason(response.data.priority_override_reason ?? '');
+          }
+          const serverDeploymentDraft = deploymentFormFromRequest(response.data);
+          if (deploymentDraftDirtyFieldsRef.current.size > 0) {
+            const rebasedDeploymentDraft = rebaseDeploymentForm(
+              deploymentDraftRef.current,
+              deploymentDraftBaselineRef.current,
+              serverDeploymentDraft,
+              deploymentDraftDirtyFieldsRef.current,
+            );
+            deploymentDraftBaselineRef.current = serverDeploymentDraft;
+            const rebasedDirtyFields = deploymentFormDirtyFields(
+              rebasedDeploymentDraft,
+              serverDeploymentDraft,
+            );
+            deploymentDraftDirtyFieldsRef.current = rebasedDirtyFields;
+            deploymentDraftAdjustedRef.current = rebasedDirtyFields.size > 0;
+            deploymentDraftRef.current = rebasedDeploymentDraft;
+            setDeploymentDraft(rebasedDeploymentDraft);
+          } else {
+            deploymentDraftAdjustedRef.current = false;
+            deploymentDraftDirtyFieldsRef.current = new Set();
+            deploymentDraftBaselineRef.current = serverDeploymentDraft;
+            deploymentDraftRef.current = serverDeploymentDraft;
+            setDeploymentDraft(serverDeploymentDraft);
+          }
+          setSaveState(
+            hasPendingChanges
+              || decisionSelectionAdjustedRef.current
+              || deploymentDraftAdjustedRef.current
+              ? 'dirty'
+              : 'saved',
+          );
           setSaveError(null);
         }
         return true;
@@ -404,7 +499,9 @@ export const DeploymentRequestWorkspace = forwardRef<
             pendingRef.current = EMPTY_CHANGES;
             retryMutationRef.current = null;
             if (mountedRef.current) {
-              setConflict({ current, attempted });
+              const nextConflict = { current, attempted };
+              conflictRef.current = nextConflict;
+              setConflict(nextConflict);
               setSaveState('conflict');
               setSaveError(caught.message);
             }
@@ -430,23 +527,19 @@ export const DeploymentRequestWorkspace = forwardRef<
     }
 
     return succeeded;
-  }, [api, canManage, conflict, onDeploymentRequestChange, saveEndpoint, statusEditable]);
+  }, [api, canManage, onDeploymentRequestChange, saveEndpoint, statusEditable]);
 
   function deploymentRequestHasUnsavedWork(): boolean {
     return deploymentRequestHasChanges(pendingRef.current)
       || retryMutationRef.current !== null
-      || inFlightRef.current !== null;
+      || inFlightRef.current !== null
+      || decisionSelectionAdjustedRef.current
+      || deploymentDraftAdjustedRef.current;
   }
 
   useEffect(() => {
     flushRef.current = flushSave;
   }, [flushSave]);
-
-  useImperativeHandle(ref, () => ({
-    savePendingChanges: async () => (
-      await flushSave() ? latestDeploymentRequestRef.current : null
-    ),
-  }), [flushSave]);
 
   useEffect(() => {
     const retryWhenOnline = () => {
@@ -462,16 +555,17 @@ export const DeploymentRequestWorkspace = forwardRef<
   }, []);
 
   const queueChanges = useCallback((changes: DeploymentRequestChanges) => {
+    if (interactionDisabled || saveAllActiveRef.current) return;
     onChangesQueued?.(changes);
     setDraft((current) => mergeDeploymentRequestChanges(current, changes));
     pendingRef.current = mergeQueuedDeploymentRequestChanges(pendingRef.current, changes);
     setSaveState('dirty');
     setSaveError(null);
     scheduleSave();
-  }, [onChangesQueued, scheduleSave]);
+  }, [interactionDisabled, onChangesQueued, scheduleSave]);
 
   const loadServerConflict = () => {
-    if (conflict === null) return;
+    if (conflict === null || saveAllActiveRef.current) return;
     pendingRef.current = EMPTY_CHANGES;
     retryMutationRef.current = null;
     versionRef.current = conflict.current.lock_version;
@@ -479,31 +573,75 @@ export const DeploymentRequestWorkspace = forwardRef<
     onDeploymentRequestChange(conflict.current);
     setDraft(conflict.current);
     decisionSelectionAdjustedRef.current = false;
+    prioritySelectionAdjustedRef.current = false;
+    decisionReasonAdjustedRef.current = false;
     deploymentDraftAdjustedRef.current = false;
+    deploymentDraftDirtyFieldsRef.current = new Set();
     setDecisionPriority(deploymentRequestSuggestedDecisionPriority(conflict.current));
     setDecisionReason(conflict.current.priority_override_reason ?? '');
-    setDeploymentDraft(deploymentFormFromRequest(conflict.current));
+    const nextDeploymentDraft = deploymentFormFromRequest(conflict.current);
+    deploymentDraftBaselineRef.current = nextDeploymentDraft;
+    deploymentDraftRef.current = nextDeploymentDraft;
+    setDeploymentDraft(nextDeploymentDraft);
+    conflictRef.current = null;
     setConflict(null);
     setSaveState('saved');
     setSaveError(null);
   };
 
   const retryConflictOnCurrent = () => {
-    if (conflict === null) return;
+    if (conflict === null || saveAllActiveRef.current) return;
     versionRef.current = conflict.current.lock_version;
     latestDeploymentRequestRef.current = conflict.current;
     onDeploymentRequestChange(conflict.current);
     setDraft(mergeDeploymentRequestChanges(conflict.current, conflict.attempted));
+    if (!prioritySelectionAdjustedRef.current) {
+      setDecisionPriority(deploymentRequestSuggestedDecisionPriority(conflict.current));
+    }
+    if (!decisionReasonAdjustedRef.current) {
+      setDecisionReason(conflict.current.priority_override_reason ?? '');
+    }
+    if (deploymentDraftDirtyFieldsRef.current.size > 0) {
+      const serverDeploymentDraft = deploymentFormFromRequest(conflict.current);
+      const rebasedDeploymentDraft = rebaseDeploymentForm(
+        deploymentDraftRef.current,
+        deploymentDraftBaselineRef.current,
+        serverDeploymentDraft,
+        deploymentDraftDirtyFieldsRef.current,
+      );
+      deploymentDraftBaselineRef.current = serverDeploymentDraft;
+      const rebasedDirtyFields = deploymentFormDirtyFields(
+        rebasedDeploymentDraft,
+        serverDeploymentDraft,
+      );
+      deploymentDraftDirtyFieldsRef.current = rebasedDirtyFields;
+      deploymentDraftAdjustedRef.current = rebasedDirtyFields.size > 0;
+      deploymentDraftRef.current = rebasedDeploymentDraft;
+      setDeploymentDraft(rebasedDeploymentDraft);
+    } else {
+      deploymentDraftDirtyFieldsRef.current = new Set();
+      deploymentDraftAdjustedRef.current = false;
+      const nextDeploymentDraft = deploymentFormFromRequest(conflict.current);
+      deploymentDraftBaselineRef.current = nextDeploymentDraft;
+      deploymentDraftRef.current = nextDeploymentDraft;
+      setDeploymentDraft(nextDeploymentDraft);
+    }
     pendingRef.current = conflict.attempted;
     retryMutationRef.current = null;
+    conflictRef.current = null;
     setConflict(null);
     setSaveState('dirty');
     setSaveError(null);
-    window.setTimeout(() => void flushRef.current(), 0);
+    window.setTimeout(() => void saveAllRef.current(), 0);
   };
 
   const changeSubject = (subjectType: DeploymentRequestSubjectType) => {
-    if (!configuration || subjectType === draft.subject_type) return;
+    if (
+      interactionDisabled
+      || saveAllActiveRef.current
+      || !configuration
+      || subjectType === draft.subject_type
+    ) return;
     const oldBranchHasAnswers = deploymentRequestBranchFields(configuration, draft.subject_type)
       .some((field) => deploymentRequestFieldIsAnswered(field, draft.answers[field.key]));
     if (
@@ -526,6 +664,7 @@ export const DeploymentRequestWorkspace = forwardRef<
   ): Promise<DeploymentRequest> => {
     const decisionSignature = JSON.stringify({
       deployment_request_id: current.id,
+      lock_version: current.lock_version,
       ...desiredDecision,
     });
     if (decisionMutationRef.current?.signature !== decisionSignature) {
@@ -548,74 +687,124 @@ export const DeploymentRequestWorkspace = forwardRef<
     return response.data;
   };
 
-  const saveDecision = async () => {
+  const performPersistAllChanges = async (): Promise<DeploymentRequest | null> => {
     setDecisionError(null);
-    if (assessmentBlocked) {
+    if (!await flushSave()) return null;
+    if (conflictRef.current !== null) return null;
+
+    const current = latestDeploymentRequestRef.current;
+    if (
+      !decisionSelectionAdjustedRef.current
+      && !deploymentDraftAdjustedRef.current
+    ) {
+      return current;
+    }
+
+    if (current.triage.state === 'incomplete') {
       setDecisionError('Vul eerst de ontbrekende kerngegevens in.');
-      return;
+      return null;
     }
-    if (decisionPriority === null) {
+    const priority = prioritySelectionAdjustedRef.current
+      ? decisionPriority
+      : deploymentRequestSuggestedDecisionPriority(current);
+    if (priority === null) {
       setDecisionError('Kies eerst de vastgestelde prioriteit.');
-      return;
+      return null;
     }
-    if (overrideRequired && decisionReason.trim() === '') {
+
+    const currentRecommendedPlan = current.deployment_proposal;
+    const currentSelectedPlan = current.selected_deployment_proposal;
+    const effectiveDeploymentDraft = deploymentDraftAdjustedRef.current
+      ? deploymentDraftRef.current
+      : deploymentFormFromRequest(current);
+    const effectiveDecisionReason = decisionReasonAdjustedRef.current
+      ? decisionReason
+      : (current.priority_override_reason ?? '');
+    const currentPlanChanged = deploymentDiffers(effectiveDeploymentDraft, currentRecommendedPlan);
+    const currentOverrideRequired = priority !== current.triage.recommended_priority
+      || currentPlanChanged;
+    if (currentOverrideRequired && effectiveDecisionReason.trim() === '') {
       setDecisionError('Leg uit waarom je afwijkt van het advies of inzetvoorstel.');
-      return;
+      return null;
     }
-    if (overrideRequired && !canOverride) {
+    if (currentOverrideRequired && !canOverride) {
       setDecisionError('Je hebt geen toestemming om van het advies of inzetvoorstel af te wijken.');
-      return;
-    }
-    const hadUnsavedAnswers = deploymentRequestHasChanges(pendingRef.current)
-      || retryMutationRef.current !== null
-      || inFlightRef.current !== null;
-    if (!await flushSave()) return;
-    if (hadUnsavedAnswers) {
-      setDecisionError('De uitvraag is opgeslagen en het advies is opnieuw berekend. Controleer het actuele advies en leg daarna de beoordeling vast.');
-      return;
+      return null;
     }
 
     setDecisionSaving(true);
     try {
       const selectedProfileId = deploymentRequestDecisionProfileId(
-        decisionPriority,
-        draft.decided_priority,
-        draft.triage.recommended_priority,
-        selectedPlan?.profile_id,
-        recommendedPlan?.profile_id,
+        priority,
+        current.decided_priority,
+        current.triage.recommended_priority,
+        currentSelectedPlan?.profile_id,
+        currentRecommendedPlan?.profile_id,
       );
       const desiredDecision = {
-        priority: decisionPriority,
+        priority,
         selected_deployment_profile_id: selectedProfileId,
-        ...(planChanged ? {
+        ...(currentPlanChanged ? {
           deployment_adjustments: {
-            team_ids: deploymentDraft.teamIds,
-            resources: deploymentDraft.resources,
-            recommended_recipient_count: deploymentDraft.recipientCount,
-            recommended_dispatch_mode: deploymentDraft.dispatchMode,
-            notes: deploymentDraft.notes.trim() === '' ? null : deploymentDraft.notes,
+            team_ids: effectiveDeploymentDraft.teamIds,
+            resources: effectiveDeploymentDraft.resources,
+            recommended_recipient_count: effectiveDeploymentDraft.recipientCount,
+            recommended_dispatch_mode: effectiveDeploymentDraft.dispatchMode,
+            notes: effectiveDeploymentDraft.notes.trim() === '' ? null : effectiveDeploymentDraft.notes,
           },
         } : {}),
-        reason: overrideRequired ? decisionReason.trim() : undefined,
+        reason: currentOverrideRequired ? effectiveDecisionReason.trim() : undefined,
       };
-      const decided = await requestDecision(latestDeploymentRequestRef.current, desiredDecision);
-      adoptActionResponse(decided);
+      const decided = await requestDecision(current, desiredDecision);
+      const adopted = adoptActionResponse(decided);
       setDecisionError(null);
+      return adopted;
     } catch (caught) {
       if (adoptActionConflict(caught)) {
         decisionMutationRef.current = null;
-        return;
+        return null;
       }
       setDecisionError(caught instanceof ApiClientError ? caught.message : 'De beoordeling kon niet worden opgeslagen.');
+      return null;
     } finally {
       setDecisionSaving(false);
     }
   };
 
+  const persistAllChanges = (): Promise<DeploymentRequest | null> => {
+    const active = saveAllInFlightRef.current;
+    if (active !== null) return active;
+
+    saveAllActiveRef.current = true;
+    if (mountedRef.current) setSaveAllActive(true);
+    const operation = performPersistAllChanges()
+      .finally(() => {
+        saveAllInFlightRef.current = null;
+        saveAllActiveRef.current = false;
+        if (mountedRef.current) setSaveAllActive(false);
+      });
+    saveAllInFlightRef.current = operation;
+
+    return operation;
+  };
+
+  const saveDecision = async () => {
+    await persistAllChanges();
+  };
+
+  useEffect(() => {
+    saveAllRef.current = async () => (await persistAllChanges()) !== null;
+  });
+
+  useImperativeHandle(ref, () => ({
+    savePendingChanges: persistAllChanges,
+  }));
+
   const prepareDeployment = async () => {
     setPrepareDeploymentError(null);
-    if (!await flushSave()) return;
-    let currentDeploymentRequest = latestDeploymentRequestRef.current;
+    const persisted = await persistAllChanges();
+    if (persisted === null) return;
+    let currentDeploymentRequest = persisted;
     if (currentDeploymentRequest.triage.state === 'incomplete') {
       setPrepareDeploymentError('De uitvraag is nog onvolledig. Vul eerst de ontbrekende kerngegevens in.');
       return;
@@ -628,21 +817,17 @@ export const DeploymentRequestWorkspace = forwardRef<
         setPrepareDeploymentError('Er is nog geen betrouwbaar prioriteits- en inzetadvies. Leg de beoordeling eerst handmatig vast.');
         return;
       }
-      if (decisionSelectionAdjustedRef.current || deploymentDraftAdjustedRef.current) {
-        setPrepareDeploymentError('Leg de aangepaste beoordeling en het inzetvoorstel eerst afzonderlijk vast.');
-        return;
-      }
     }
     if (!window.confirm('Conceptinzet voorbereiden vanuit deze aanvraag? Er wordt nog geen alarm verstuurd.')) return;
 
     setPreparingDeployment(true);
     try {
       if (currentDeploymentRequest.decided_priority === null) {
-        currentDeploymentRequest = await requestDecision(currentDeploymentRequest, {
+        const decided = await requestDecision(currentDeploymentRequest, {
           priority: currentDeploymentRequest.triage.recommended_priority,
           selected_deployment_profile_id: currentDeploymentRequest.deployment_proposal?.profile_id ?? null,
         });
-        adoptActionResponse(currentDeploymentRequest);
+        currentDeploymentRequest = adoptActionResponse(decided);
       }
 
       const preparationMutationId = prepareDeploymentMutationIdRef.current
@@ -711,26 +896,54 @@ export const DeploymentRequestWorkspace = forwardRef<
     }
   };
 
-  const adoptActionResponse = (next: DeploymentRequest) => {
-    versionRef.current = next.lock_version;
-    latestDeploymentRequestRef.current = next;
+  const adoptActionResponse = (next: DeploymentRequest): DeploymentRequest => {
+    const latest = latestDeploymentRequestRef.current;
+    let adopted = latest.id === next.id && latest.lock_version > next.lock_version
+      ? latest
+      : next;
+    if (
+      conflictRef.current?.current.id === adopted.id
+      && conflictRef.current.current.lock_version > adopted.lock_version
+    ) {
+      adopted = conflictRef.current.current;
+    }
+    versionRef.current = adopted.lock_version;
+    latestDeploymentRequestRef.current = adopted;
     pendingRef.current = EMPTY_CHANGES;
     retryMutationRef.current = null;
-    setDraft(next);
-    onDeploymentRequestChange(next);
+    setDraft(adopted);
+    onDeploymentRequestChange(adopted);
     decisionSelectionAdjustedRef.current = false;
+    prioritySelectionAdjustedRef.current = false;
+    decisionReasonAdjustedRef.current = false;
     deploymentDraftAdjustedRef.current = false;
-    setDecisionPriority(deploymentRequestSuggestedDecisionPriority(next));
-    setDecisionReason(next.priority_override_reason ?? '');
-    setDeploymentDraft(deploymentFormFromRequest(next));
-    setSaveState('saved');
+    deploymentDraftDirtyFieldsRef.current = new Set();
+    setDecisionPriority(deploymentRequestSuggestedDecisionPriority(adopted));
+    setDecisionReason(adopted.priority_override_reason ?? '');
+    const nextDeploymentDraft = deploymentFormFromRequest(adopted);
+    deploymentDraftBaselineRef.current = nextDeploymentDraft;
+    deploymentDraftRef.current = nextDeploymentDraft;
+    setDeploymentDraft(nextDeploymentDraft);
+    if (
+      conflictRef.current !== null
+      && conflictRef.current.current.id === adopted.id
+      && conflictRef.current.current.lock_version <= adopted.lock_version
+    ) {
+      conflictRef.current = null;
+      setConflict(null);
+    }
+    setSaveState(conflictRef.current === null ? 'saved' : 'conflict');
+
+    return adopted;
   };
 
   function adoptActionConflict(caught: unknown): boolean {
     if (!(caught instanceof ApiClientError) || caught.status !== 409) return false;
     const current = conflictDeploymentRequest(caught.details);
     if (current === null) return false;
-    setConflict({ current, attempted: EMPTY_CHANGES });
+    const nextConflict = { current, attempted: EMPTY_CHANGES };
+    conflictRef.current = nextConflict;
+    setConflict(nextConflict);
     setSaveState('conflict');
     setSaveError(caught.message);
     return true;
@@ -776,10 +989,10 @@ export const DeploymentRequestWorkspace = forwardRef<
             <strong>Deze aanvraag is intussen door iemand anders bijgewerkt.</strong>
             <p>{saveError ?? 'Kies welke versie je wilt gebruiken voordat je verdergaat.'}</p>
             <div className="actions-row">
-              <button className="secondary-button" type="button" onClick={loadServerConflict}>
+              <button className="secondary-button" type="button" disabled={saveAllActive} onClick={loadServerConflict}>
                 <RefreshCcw size={16} /> Serverversie laden
               </button>
-              <button className="primary-button" type="button" onClick={retryConflictOnCurrent}>
+              <button className="primary-button" type="button" disabled={saveAllActive} onClick={retryConflictOnCurrent}>
                 <Save size={16} /> Mijn wijzigingen opnieuw toepassen
               </button>
             </div>
@@ -863,13 +1076,25 @@ export const DeploymentRequestWorkspace = forwardRef<
                 canOverride={canOverride}
                 overrideRequired={overrideRequired}
                 blocked={assessmentBlocked}
-                saving={decisionSaving || preparingDeployment}
+                saving={decisionSaving || interactionLocked}
+                disabled={interactionLocked}
                 error={decisionError}
                 onPriorityChange={(priority) => {
+                  if (interactionDisabled || saveAllActiveRef.current) return;
                   decisionSelectionAdjustedRef.current = true;
+                  prioritySelectionAdjustedRef.current = true;
                   setDecisionPriority(priority);
+                  setSaveState('dirty');
+                  setSaveError(null);
                 }}
-                onReasonChange={setDecisionReason}
+                onReasonChange={(reason) => {
+                  if (interactionDisabled || saveAllActiveRef.current) return;
+                  decisionSelectionAdjustedRef.current = true;
+                  decisionReasonAdjustedRef.current = true;
+                  setDecisionReason(reason);
+                  setSaveState('dirty');
+                  setSaveError(null);
+                }}
                 onSave={() => void saveDecision()}
               />
               <DeploymentCard
@@ -877,10 +1102,23 @@ export const DeploymentRequestWorkspace = forwardRef<
                 selected={selectedPlan}
                 teams={teams.data ?? []}
                 canOverride={canOverride}
+                disabled={interactionLocked}
                 draft={deploymentDraft}
-                onChange={(next) => {
-                  deploymentDraftAdjustedRef.current = true;
+                onChange={(next, changedField) => {
+                  if (interactionDisabled || saveAllActiveRef.current) return;
+                  const baseline = deploymentDraftBaselineRef.current;
+                  const dirtyFields = new Set(deploymentDraftDirtyFieldsRef.current);
+                  if (deploymentFormFieldEquals(next, baseline, changedField)) {
+                    dirtyFields.delete(changedField);
+                  } else {
+                    dirtyFields.add(changedField);
+                  }
+                  deploymentDraftDirtyFieldsRef.current = dirtyFields;
+                  deploymentDraftAdjustedRef.current = dirtyFields.size > 0;
+                  deploymentDraftRef.current = next;
                   setDeploymentDraft(next);
+                  setSaveState(deploymentRequestHasUnsavedWork() ? 'dirty' : 'saved');
+                  setSaveError(null);
                 }}
               />
             </>
@@ -898,7 +1136,7 @@ export const DeploymentRequestWorkspace = forwardRef<
                 <button
                   className="primary-button deployment-request-prepare-button"
                   type="button"
-                  disabled={preparingDeployment || decisionSaving || !requiredAnswersComplete}
+                  disabled={interactionLocked || decisionSaving || !requiredAnswersComplete}
                   onClick={() => void prepareDeployment()}
                 >
                   {preparingDeployment ? <Loader2 className="spin" size={17} /> : <FileCheck2 size={17} />}
@@ -917,6 +1155,7 @@ export const DeploymentRequestWorkspace = forwardRef<
                 <button
                   className="deployment-request-close-trigger"
                   type="button"
+                  disabled={interactionLocked}
                   onClick={() => setCloseConfirmOpen((current) => !current)}
                 >
                   <XCircle size={16} /> Afsluiten zonder inzet
@@ -925,13 +1164,23 @@ export const DeploymentRequestWorkspace = forwardRef<
                   <div className="deployment-request-close-confirm">
                     <label>
                       Reden (optioneel)
-                      <textarea value={closeReason} maxLength={1000} onChange={(event) => setCloseReason(event.target.value)} />
+                      <textarea
+                        value={closeReason}
+                        maxLength={1000}
+                        disabled={interactionLocked}
+                        onChange={(event) => setCloseReason(event.target.value)}
+                      />
                     </label>
                     <div className="actions-row">
-                      <button className="secondary-button" type="button" onClick={() => setCloseConfirmOpen(false)}>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={interactionLocked}
+                        onClick={() => setCloseConfirmOpen(false)}
+                      >
                         Annuleren
                       </button>
-                      <button className="danger-button" type="button" disabled={closing} onClick={() => void closeWithoutDeployment()}>
+                      <button className="danger-button" type="button" disabled={interactionLocked} onClick={() => void closeWithoutDeployment()}>
                         {closing ? <Loader2 className="spin" size={16} /> : null}
                         Aanvraag afsluiten
                       </button>
@@ -1014,6 +1263,25 @@ function DeploymentRequestField(props: {
     </span>
   );
   const className = `deployment-request-field${field.type === 'textarea' || field.type === 'radio' ? ' deployment-request-field--wide' : ''}`;
+
+  if (field.type === 'address') {
+    const helpId = field.help_text ? `${fieldId}-help` : undefined;
+
+    return (
+      <div className={className}>
+        <label htmlFor={fieldId}>{label}</label>
+        <AddressAutocomplete
+          id={fieldId}
+          value={asInputString(value)}
+          disabled={disabled}
+          required={field.required}
+          describedBy={helpId}
+          onChange={(nextValue) => onChange(nextValue === '' ? null : nextValue)}
+        />
+        {field.help_text ? <small id={helpId}>{field.help_text}</small> : null}
+      </div>
+    );
+  }
 
   if (field.type === 'textarea') {
     return (
@@ -1235,6 +1503,7 @@ function DecisionCard(props: {
   overrideRequired: boolean;
   blocked: boolean;
   saving: boolean;
+  disabled: boolean;
   error: string | null;
   onPriorityChange: (priority: DeploymentRequestPriority) => void;
   onReasonChange: (reason: string) => void;
@@ -1269,7 +1538,7 @@ function DecisionCard(props: {
                 name={`priority-${props.deploymentRequest.id}`}
                 value={option.value}
                 checked={props.priority === option.value}
-                disabled={props.blocked || (isOverride && !props.canOverride)}
+                disabled={props.disabled || props.blocked || (isOverride && !props.canOverride)}
                 onChange={() => props.onPriorityChange(option.value)}
               />
               <span>{option.label}</span>
@@ -1290,6 +1559,7 @@ function DecisionCard(props: {
             value={props.reason}
             required
             maxLength={1000}
+            disabled={props.disabled}
             placeholder="Leg kort uit waarom je afwijkt."
             onChange={(event) => props.onReasonChange(event.target.value)}
           />
@@ -1312,16 +1582,27 @@ interface DeploymentForm {
   notes: string;
 }
 
+type DeploymentFormField = keyof DeploymentForm;
+
 function DeploymentCard(props: {
   proposal: DeploymentProposal | null;
   selected: DeploymentProposal | null;
   teams: Team[];
   canOverride: boolean;
+  disabled: boolean;
   draft: DeploymentForm;
-  onChange: (draft: DeploymentForm) => void;
+  onChange: (draft: DeploymentForm, changedField: DeploymentFormField) => void;
 }) {
-  const { proposal, selected, teams, canOverride, draft, onChange } = props;
-  const shown = proposal ?? selected;
+  const {
+    proposal,
+    selected,
+    teams,
+    canOverride,
+    disabled,
+    draft,
+    onChange,
+  } = props;
+  const shown = selected ?? proposal;
 
   return (
     <section className="deployment-request-assessment-card">
@@ -1352,7 +1633,7 @@ function DeploymentCard(props: {
             </dl>
             <small>Het geadviseerde voorstel en de bijbehorende teams zijn vooraf geselecteerd. Alarmeren blijft een aparte handmatige actie.</small>
           </div>
-          <fieldset className="deployment-request-team-choice" disabled={!canOverride}>
+          <fieldset className="deployment-request-team-choice" disabled={disabled || !canOverride}>
             <legend>Teams</legend>
             {teams.filter((team) => team.is_operational).map((team) => (
               <label key={team.id}>
@@ -1364,7 +1645,7 @@ function DeploymentCard(props: {
                     teamIds: draft.teamIds.includes(team.id)
                       ? draft.teamIds.filter((id) => id !== team.id)
                       : [...draft.teamIds, team.id],
-                  })}
+                  }, 'teamIds')}
                 />
                 <span>{team.code} · {team.name}</span>
               </label>
@@ -1378,24 +1659,24 @@ function DeploymentCard(props: {
                 min="1"
                 max="200"
                 value={draft.recipientCount ?? ''}
-                disabled={!canOverride}
+                disabled={disabled || !canOverride}
                 onChange={(event) => onChange({
                   ...draft,
                   recipientCount: event.target.value === '' ? null : Number(event.target.value),
-                })}
+                }, 'recipientCount')}
               />
             </label>
             <label>
               Adviesroute
               <select
                 value={draft.dispatchMode ?? ''}
-                disabled={!canOverride}
+                disabled={disabled || !canOverride}
                 onChange={(event) => onChange({
                   ...draft,
                   dispatchMode: event.target.value === ''
                     ? null
                     : event.target.value as DeploymentForm['dispatchMode'],
-                })}
+                }, 'dispatchMode')}
               >
                 <option value="">Niet bepaald</option>
                 <option value="preannouncement">Voorwaarschuwing</option>
@@ -1407,21 +1688,21 @@ function DeploymentCard(props: {
             Benodigde middelen
             <textarea
               value={draft.resources.join('\n')}
-              disabled={!canOverride}
+              disabled={disabled || !canOverride}
               placeholder="Eén middel per regel"
               onChange={(event) => onChange({
                 ...draft,
                 resources: event.target.value.split('\n').map((value) => value.trim()).filter(Boolean),
-              })}
+              }, 'resources')}
             />
           </label>
           <label>
             Toelichting inzet
             <textarea
               value={draft.notes}
-              disabled={!canOverride}
+              disabled={disabled || !canOverride}
               maxLength={1000}
-              onChange={(event) => onChange({ ...draft, notes: event.target.value })}
+              onChange={(event) => onChange({ ...draft, notes: event.target.value }, 'notes')}
             />
           </label>
           {!canOverride ? <small>Afwijken van het inzetvoorstel vereist aanvullende rechten.</small> : null}
@@ -1512,6 +1793,59 @@ function deploymentFormFromRequest(deploymentRequest: DeploymentRequest): Deploy
     dispatchMode: proposal?.recommended_dispatch_mode ?? null,
     notes: proposal?.notes ?? '',
   };
+}
+
+function rebaseDeploymentForm(
+  local: DeploymentForm,
+  baseline: DeploymentForm,
+  server: DeploymentForm,
+  dirtyFields: Set<DeploymentFormField>,
+): DeploymentForm {
+  return {
+    teamIds: dirtyFields.has('teamIds')
+      ? rebaseDeploymentRequestTeamIds(local.teamIds, baseline.teamIds, server.teamIds)
+      : server.teamIds,
+    resources: dirtyFields.has('resources') ? local.resources : server.resources,
+    recipientCount: dirtyFields.has('recipientCount')
+      ? local.recipientCount
+      : server.recipientCount,
+    dispatchMode: dirtyFields.has('dispatchMode') ? local.dispatchMode : server.dispatchMode,
+    notes: dirtyFields.has('notes') ? local.notes : server.notes,
+  };
+}
+
+function deploymentFormDirtyFields(
+  draft: DeploymentForm,
+  baseline: DeploymentForm,
+): Set<DeploymentFormField> {
+  const fields: DeploymentFormField[] = [
+    'teamIds',
+    'resources',
+    'recipientCount',
+    'dispatchMode',
+    'notes',
+  ];
+
+  return new Set(fields.filter((field) => !deploymentFormFieldEquals(draft, baseline, field)));
+}
+
+function deploymentFormFieldEquals(
+  left: DeploymentForm,
+  right: DeploymentForm,
+  field: DeploymentFormField,
+): boolean {
+  switch (field) {
+    case 'teamIds':
+      return sameStringSet(left.teamIds, right.teamIds);
+    case 'resources':
+      return sameStringList(left.resources, right.resources);
+    case 'recipientCount':
+      return left.recipientCount === right.recipientCount;
+    case 'dispatchMode':
+      return left.dispatchMode === right.dispatchMode;
+    case 'notes':
+      return left.notes.trim() === right.notes.trim();
+  }
 }
 
 function deploymentDiffers(draft: DeploymentForm, proposal: DeploymentProposal | null): boolean {

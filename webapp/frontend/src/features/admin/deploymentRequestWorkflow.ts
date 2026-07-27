@@ -4,6 +4,7 @@ export type DeploymentRequestWorkflowFieldType =
   | 'section'
   | 'text'
   | 'textarea'
+  | 'address'
   | 'number'
   | 'select'
   | 'radio'
@@ -185,6 +186,7 @@ export const deploymentRequestWorkflowFieldTypes: Array<{ value: DeploymentReque
   { value: 'section', label: 'Sectie' },
   { value: 'text', label: 'Korte tekst' },
   { value: 'textarea', label: 'Lange tekst' },
+  { value: 'address', label: 'Adreszoekveld' },
   { value: 'number', label: 'Getal' },
   { value: 'select', label: 'Dropdown' },
   { value: 'radio', label: 'Keuzelijst' },
@@ -194,14 +196,14 @@ export const deploymentRequestWorkflowFieldTypes: Array<{ value: DeploymentReque
 ];
 
 export const deploymentRequestWorkflowConditionOperators: DeploymentRequestWorkflowOperatorCatalogItem[] = [
-  { key: 'equals', label: 'is gelijk aan', field_types: ['text', 'textarea', 'number', 'select', 'radio', 'checkbox', 'date', 'datetime'], needs_value: true },
-  { key: 'not_equals', label: 'is niet gelijk aan', field_types: ['text', 'textarea', 'number', 'select', 'radio', 'checkbox', 'date', 'datetime'], needs_value: true },
-  { key: 'contains', label: 'bevat', field_types: ['text', 'textarea', 'select', 'radio'], needs_value: true },
+  { key: 'equals', label: 'is gelijk aan', field_types: ['text', 'textarea', 'address', 'number', 'select', 'radio', 'checkbox', 'date', 'datetime'], needs_value: true },
+  { key: 'not_equals', label: 'is niet gelijk aan', field_types: ['text', 'textarea', 'address', 'number', 'select', 'radio', 'checkbox', 'date', 'datetime'], needs_value: true },
+  { key: 'contains', label: 'bevat', field_types: ['text', 'textarea', 'address', 'select', 'radio'], needs_value: true },
   { key: 'greater_than_or_equal', label: 'is minimaal', field_types: ['number', 'date', 'datetime'], needs_value: true },
   { key: 'less_than_or_equal', label: 'is maximaal', field_types: ['number', 'date', 'datetime'], needs_value: true },
   { key: 'is_true', label: 'is ja', field_types: ['checkbox'], needs_value: false },
   { key: 'is_false', label: 'is nee', field_types: ['checkbox'], needs_value: false },
-  { key: 'is_present', label: 'is ingevuld', field_types: ['text', 'textarea', 'number', 'select', 'radio', 'checkbox', 'date', 'datetime'], needs_value: false },
+  { key: 'is_present', label: 'is ingevuld', field_types: ['text', 'textarea', 'address', 'number', 'select', 'radio', 'checkbox', 'date', 'datetime'], needs_value: false },
 ];
 
 export function createWorkflowField(
@@ -491,7 +493,7 @@ export function bindingTypesCompatible(
     return sourceField.type === 'text' || sourceField.type === 'textarea';
   }
 
-  return ['text', 'textarea', 'select', 'radio', 'date', 'datetime'].includes(sourceField.type);
+  return ['text', 'textarea', 'address', 'select', 'radio', 'date', 'datetime'].includes(sourceField.type);
 }
 
 export function updateWorkflowBinding(

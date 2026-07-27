@@ -37,7 +37,7 @@ final class DeploymentRequestWorkflowService
     ];
 
     /** @var list<string> */
-    private const FIELD_TYPES = ['section', 'text', 'textarea', 'number', 'select', 'radio', 'checkbox', 'date', 'datetime'];
+    private const FIELD_TYPES = ['section', 'text', 'textarea', 'address', 'number', 'select', 'radio', 'checkbox', 'date', 'datetime'];
 
     /** @var list<string> */
     private const SCOPES = ['common', 'person', 'animal', 'object'];
@@ -264,6 +264,7 @@ final class DeploymentRequestWorkflowService
             $fieldMap->all(),
             $allowHistoricalMirroredPhoneNumber,
         );
+        $this->assertLocationFieldsAreSeparated($bindings, $fieldMap->all());
         $this->assertRequiredDeploymentBindings($bindings, $fieldMap->all());
         $profiles = $this->normalizeDeploymentProfiles($configuration['deployment_profiles'] ?? []);
         $rules = $this->normalizePriorityRules(
@@ -542,7 +543,7 @@ final class DeploymentRequestWorkflowService
             'operators' => [
                 ['key' => 'equals', 'label' => 'is gelijk aan', 'field_types' => array_values(array_diff(self::FIELD_TYPES, ['section'])), 'needs_value' => true],
                 ['key' => 'not_equals', 'label' => 'is niet gelijk aan', 'field_types' => array_values(array_diff(self::FIELD_TYPES, ['section'])), 'needs_value' => true],
-                ['key' => 'contains', 'label' => 'bevat', 'field_types' => ['text', 'textarea', 'select', 'radio'], 'needs_value' => true],
+                ['key' => 'contains', 'label' => 'bevat', 'field_types' => ['text', 'textarea', 'address', 'select', 'radio'], 'needs_value' => true],
                 ['key' => 'greater_than_or_equal', 'label' => 'is minimaal', 'field_types' => ['number', 'date', 'datetime'], 'needs_value' => true],
                 ['key' => 'less_than_or_equal', 'label' => 'is maximaal', 'field_types' => ['number', 'date', 'datetime'], 'needs_value' => true],
                 ['key' => 'is_true', 'label' => 'is waar', 'field_types' => ['checkbox'], 'needs_value' => false],
@@ -605,8 +606,10 @@ final class DeploymentRequestWorkflowService
             'fields' => [
                 ['key' => 'common_section', 'label' => 'Laatst gezien', 'type' => 'section', 'scope' => 'common', 'required' => false, 'operator_visible' => false, 'help_text' => null, 'options' => []],
                 ['key' => 'last_seen_at', 'label' => 'Laatst gezien op', 'type' => 'datetime', 'scope' => 'common', 'required' => true, 'operator_visible' => true, 'help_text' => null, 'options' => []],
-                ['key' => 'last_seen_location', 'label' => 'Plaats laatst gezien', 'type' => 'text', 'scope' => 'common', 'required' => true, 'operator_visible' => true, 'help_text' => null, 'options' => []],
+                ['key' => 'last_seen_location', 'label' => 'Laatst gezien locatie', 'type' => 'address', 'scope' => 'common', 'required' => true, 'operator_visible' => true, 'help_text' => 'De locatie waar de persoon, het dier of het object voor het laatst is gezien.', 'options' => []],
                 ['key' => 'last_seen_direction', 'label' => 'Bewegingsrichting', 'type' => 'text', 'scope' => 'common', 'required' => false, 'operator_visible' => true, 'help_text' => null, 'options' => []],
+                ['key' => 'deployment_location_section', 'label' => 'Opkomstlocatie', 'type' => 'section', 'scope' => 'common', 'required' => false, 'operator_visible' => false, 'help_text' => null, 'options' => []],
+                ['key' => 'deployment_location', 'label' => 'Opkomstlocatie', 'type' => 'address', 'scope' => 'common', 'required' => true, 'operator_visible' => true, 'help_text' => 'De verzamel- of opkomstlocatie voor de inzet; dit staat los van de laatst gezien locatie.', 'options' => []],
                 ['key' => 'circumstances', 'label' => 'Omstandigheden', 'type' => 'textarea', 'scope' => 'common', 'required' => true, 'operator_visible' => true, 'help_text' => null, 'options' => []],
                 ['key' => 'requesting_organization', 'label' => 'Aanvragende organisatie', 'type' => 'text', 'scope' => 'common', 'required' => true, 'operator_visible' => false, 'help_text' => null, 'options' => []],
                 ['key' => 'requesting_unit', 'label' => 'Dienst of eenheid', 'type' => 'text', 'scope' => 'common', 'required' => false, 'operator_visible' => false, 'help_text' => null, 'options' => []],
@@ -640,7 +643,7 @@ final class DeploymentRequestWorkflowService
                 ['key' => 'object_description', 'label' => 'Aanvullende omschrijving', 'type' => 'textarea', 'scope' => 'object', 'required' => false, 'operator_visible' => true, 'help_text' => null, 'options' => []],
             ],
             'bindings' => [
-                ['field_key' => 'last_seen_location', 'target' => 'location_label'],
+                ['field_key' => 'deployment_location', 'target' => 'location_label'],
                 ['field_key' => 'circumstances', 'target' => 'description'],
                 ['field_key' => 'requesting_organization', 'target' => 'custom_fields.requesting_organization'],
                 ['field_key' => 'requesting_unit', 'target' => 'custom_fields.requesting_unit'],
@@ -1206,6 +1209,7 @@ final class DeploymentRequestWorkflowService
             'datetime' => is_string($value)
                 ? $this->parseDateTime($value, $path)
                 : throw ValidationException::withMessages([$path => ['Vul een geldig datum-tijdstip met tijdzone in.']]),
+            'address' => $this->boundedText($value, 255, $path),
             default => $this->boundedText($value, 10000, $path),
         };
     }
@@ -1335,7 +1339,7 @@ final class DeploymentRequestWorkflowService
     {
         return match ($operator) {
             'is_true', 'is_false' => $fieldType === 'checkbox',
-            'contains' => in_array($fieldType, ['text', 'textarea', 'select', 'radio'], true),
+            'contains' => in_array($fieldType, ['text', 'textarea', 'address', 'select', 'radio'], true),
             'greater_than_or_equal', 'less_than_or_equal' => in_array($fieldType, ['number', 'date', 'datetime'], true),
             'equals', 'not_equals', 'is_present' => $fieldType !== 'section',
             default => false,
@@ -1357,7 +1361,8 @@ final class DeploymentRequestWorkflowService
                 ) === [],
             'phone' => in_array($sourceType, ['text', 'select', 'radio'], true),
             'flight_time' => in_array($sourceType, ['text', 'textarea'], true),
-            default => in_array($sourceType, ['text', 'textarea', 'select', 'radio', 'date', 'datetime'], true),
+            'address' => in_array($sourceType, ['address', 'text'], true),
+            default => in_array($sourceType, ['text', 'textarea', 'address', 'select', 'radio', 'date', 'datetime'], true),
         };
     }
 
@@ -1466,6 +1471,60 @@ final class DeploymentRequestWorkflowService
                     ]);
                 }
             }
+        }
+    }
+
+    /**
+     * `last_seen_location` is operational search information, while
+     * `deployment_location` is the assembly/navigation target. Keeping this
+     * semantic contract explicit prevents a restored historical workflow from
+     * silently coupling the two locations again.
+     *
+     * @param  list<array{field_key: string, target: string}>  $bindings
+     * @param  array<string, array<string, mixed>>  $fieldMap
+     */
+    private function assertLocationFieldsAreSeparated(array $bindings, array $fieldMap): void
+    {
+        $expectedFields = [
+            'last_seen_at' => 'datetime',
+            'last_seen_location' => 'address',
+            'deployment_location' => 'address',
+        ];
+        foreach ($expectedFields as $key => $type) {
+            $field = $fieldMap[$key] ?? null;
+            if (! is_array($field)
+                || ($field['type'] ?? null) !== $type
+                || ($field['scope'] ?? null) !== 'common'
+                || ($field['required'] ?? false) !== true
+                || ($field['operator_visible'] ?? false) !== true) {
+                throw ValidationException::withMessages([
+                    'configuration.fields' => [
+                        "Veld '$key' moet een verplicht, algemeen en operator-zichtbaar veld van type '$type' blijven.",
+                    ],
+                ]);
+            }
+        }
+
+        if (collect($bindings)->contains(
+            fn (array $binding): bool => $binding['field_key'] === 'last_seen_location',
+        )) {
+            throw ValidationException::withMessages([
+                'configuration.bindings' => [
+                    'Laatst gezien locatie blijft zelfstandig en mag niet aan een inzetveld worden gekoppeld.',
+                ],
+            ]);
+        }
+
+        $locationBindings = collect($bindings)
+            ->filter(fn (array $binding): bool => self::canonicalBindingTarget($binding['target']) === 'location_label')
+            ->values();
+        if ($locationBindings->count() !== 1
+            || $locationBindings->first()['field_key'] !== 'deployment_location') {
+            throw ValidationException::withMessages([
+                'configuration.bindings' => [
+                    'Alleen Opkomstlocatie mag de inzetlocatie vullen.',
+                ],
+            ]);
         }
     }
 

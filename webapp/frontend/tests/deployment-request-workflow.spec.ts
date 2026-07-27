@@ -16,6 +16,7 @@ import {
   deploymentRequestSuggestedDecisionPriority,
   mergeDeploymentRequestChanges,
   mergeQueuedDeploymentRequestChanges,
+  rebaseDeploymentRequestTeamIds,
   type DeploymentRequest,
   type DeploymentRequestWorkflowConfiguration,
 } from '../src/features/deployment-requests/deploymentRequestWorkflow';
@@ -29,10 +30,26 @@ const configuration: DeploymentRequestWorkflowConfiguration = {
   fields: [
     {
       key: 'last_seen_location',
-      label: 'Laatst gezien',
-      type: 'text',
+      label: 'Laatst gezien locatie',
+      type: 'address',
       scope: 'common',
       required: true,
+      operator_visible: true,
+    },
+    {
+      key: 'last_seen_at',
+      label: 'Laatst gezien datum en tijd',
+      type: 'datetime',
+      scope: 'common',
+      required: false,
+      operator_visible: true,
+    },
+    {
+      key: 'deployment_location',
+      label: 'Opkomstlocatie',
+      type: 'address',
+      scope: 'common',
+      required: false,
       operator_visible: true,
     },
     {
@@ -52,18 +69,46 @@ const configuration: DeploymentRequestWorkflowConfiguration = {
       operator_visible: true,
     },
   ],
-  bindings: [{ field_key: 'last_seen_location', target: 'location_label' }],
+  bindings: [{ field_key: 'deployment_location', target: 'location_label' }],
   priority_rules: [],
   deployment_profiles: [],
 };
 
 test('keeps common fields and exactly one subject branch in the questionnaire', () => {
   expect(deploymentRequestApplicableFields(configuration, 'person').map((field) => field.key))
-    .toEqual(['last_seen_location', 'age']);
+    .toEqual(['last_seen_location', 'last_seen_at', 'deployment_location', 'age']);
   expect(deploymentRequestApplicableFields(configuration, 'animal').map((field) => field.key))
-    .toEqual(['last_seen_location', 'animal_type']);
+    .toEqual(['last_seen_location', 'last_seen_at', 'deployment_location', 'animal_type']);
   expect(deploymentRequestApplicableFields(configuration, 'object').map((field) => field.key))
-    .toEqual(['last_seen_location']);
+    .toEqual(['last_seen_location', 'last_seen_at', 'deployment_location']);
+});
+
+test('renders address workflow fields independently without changing the datetime field', () => {
+  const workspace = source('../src/features/deployment-requests/DeploymentRequestWorkspace.tsx');
+  const addressAutocomplete = source('../src/components/AddressAutocomplete.tsx');
+
+  expect(configuration.fields.find((field) => field.key === 'last_seen_location')?.type).toBe('address');
+  expect(configuration.fields.find((field) => field.key === 'deployment_location')?.type).toBe('address');
+  expect(configuration.fields.find((field) => field.key === 'last_seen_at')?.type).toBe('datetime');
+  expect(configuration.bindings).toEqual([
+    { field_key: 'deployment_location', target: 'location_label' },
+  ]);
+  expect(workspace).toContain("field.type === 'address'");
+  expect(workspace).toContain('<AddressAutocomplete');
+  expect(workspace).toContain("field.type === 'datetime'");
+  expect(workspace).toContain("'datetime-local'");
+  expect(addressAutocomplete).toContain('fetchLocationSuggestions(query, controller.signal)');
+  expect(addressAutocomplete).toContain('const SEARCH_DELAY_MS = 250');
+  expect(addressAutocomplete).toContain('const MINIMUM_QUERY_LENGTH = 3');
+  expect(addressAutocomplete).toContain('const MAXIMUM_LABEL_LENGTH = 255');
+  expect(addressAutocomplete).toContain('new AbortController()');
+  expect(addressAutocomplete).toContain('role="combobox"');
+  expect(addressAutocomplete).toContain('role="listbox"');
+  expect(addressAutocomplete).toContain("event.key === 'ArrowDown'");
+  expect(addressAutocomplete).toContain("'ArrowUp'");
+  expect(addressAutocomplete).toContain("event.key === 'Enter'");
+  expect(addressAutocomplete).toContain("event.key === 'Escape'");
+  expect(addressAutocomplete).toContain('Je kunt de locatie handmatig invullen.');
 });
 
 test('derives completeness from the server-authoritative missing-field list', () => {
@@ -90,15 +135,17 @@ test('allows deployment preparation to flush locally complete answers before che
   expect(prepareStart).toBeGreaterThan(-1);
   expect(prepareEnd).toBeGreaterThan(prepareStart);
   const prepareFlow = workspace.slice(prepareStart, prepareEnd);
-  expect(prepareFlow.indexOf('if (!await flushSave()) return;'))
+  expect(prepareFlow.indexOf('const persisted = await persistAllChanges();'))
     .toBeLessThan(prepareFlow.indexOf("currentDeploymentRequest.triage.state === 'incomplete'"));
-  expect(workspace).toContain('disabled={preparingDeployment || decisionSaving || !requiredAnswersComplete}');
+  expect(prepareFlow).toContain('let currentDeploymentRequest = persisted;');
+  expect(prepareFlow).not.toContain('Leg de aangepaste beoordeling en het inzetvoorstel eerst afzonderlijk vast.');
+  expect(workspace).toContain('disabled={interactionLocked || decisionSaving || !requiredAnswersComplete}');
   expect(workspace).not.toContain('disabled={preparingDeployment || decisionSaving || assessmentBlocked || draft.decided_priority === null}');
-  expect(prepareFlow).toContain('currentDeploymentRequest = await requestDecision');
+  expect(prepareFlow).toContain('currentDeploymentRequest = adoptActionResponse(decided)');
   expect(prepareFlow).toContain('selected_deployment_profile_id: currentDeploymentRequest.deployment_proposal?.profile_id ?? null');
   expect(workspace).toContain('Het geadviseerde inzetvoorstel en de teams worden bij voorbereiden automatisch vastgelegd.');
   expect(prepareFlow.indexOf("window.confirm('Conceptinzet voorbereiden"))
-    .toBeLessThan(prepareFlow.indexOf('currentDeploymentRequest = await requestDecision'));
+    .toBeLessThan(prepareFlow.indexOf('currentDeploymentRequest = adoptActionResponse(decided)'));
 });
 
 test('merges dirty patches without dropping newer keystrokes and null removes an answer', () => {
@@ -117,6 +164,24 @@ test('merges dirty patches without dropping newer keystrokes and null removes an
       animal_type: 'Hond',
     },
   });
+});
+
+test('rebases explicit team additions and removals without dropping concurrent server teams', () => {
+  expect(rebaseDeploymentRequestTeamIds(
+    ['team-c'],
+    ['team-a'],
+    ['team-a', 'team-b'],
+  )).toEqual(['team-b', 'team-c']);
+  expect(rebaseDeploymentRequestTeamIds(
+    [],
+    ['team-a'],
+    ['team-a'],
+  )).toEqual([]);
+  expect(rebaseDeploymentRequestTeamIds(
+    ['team-a', 'team-c'],
+    ['team-a'],
+    ['team-b'],
+  )).toEqual(['team-b', 'team-c']);
 });
 
 test('keeps an explicit required boolean answer distinct from unanswered', () => {
@@ -168,15 +233,29 @@ test('implements conflict-safe autosave, decision and idempotent deployment prep
   expect(workspace).toContain("'deployment_request_version_conflict'");
   expect(workspace).toContain('Serverversie laden');
   expect(workspace).toContain('Mijn wijzigingen opnieuw toepassen');
+  expect(workspace).toContain('const serverDeploymentDraft = deploymentFormFromRequest(conflict.current)');
+  expect(workspace).toContain('deploymentDraftBaselineRef.current');
+  expect(workspace).toContain('rebaseDeploymentRequestTeamIds(local.teamIds, baseline.teamIds, server.teamIds)');
+  expect(workspace).toContain("dirtyFields.has('teamIds')");
+  expect(workspace).toContain("dirtyFields.has('resources')");
+  expect(workspace).toContain("dirtyFields.has('recipientCount')");
+  expect(workspace).toContain("dirtyFields.has('dispatchMode')");
+  expect(workspace).toContain("dirtyFields.has('notes')");
+  expect(workspace).toContain('deploymentFormDirtyFields(');
+  expect(workspace).toContain('deploymentDraftRef.current = rebasedDeploymentDraft');
+  expect(workspace).toContain('decisionReasonAdjustedRef.current');
+  expect(workspace).toContain('const effectiveDecisionReason = decisionReasonAdjustedRef.current');
+  expect(workspace).toContain('saveAllInFlightRef.current === null');
+  expect(workspace).toContain('window.setTimeout(() => void saveAllRef.current(), 0)');
   expect(workspace).toContain("window.addEventListener('online'");
   expect(workspace).toContain("`/deployment-requests/${current.id}/priority`");
-  expect(workspace).toContain('...(planChanged ? {');
+  expect(workspace).toContain('...(currentPlanChanged ? {');
   expect(workspace).toContain("`/deployment-requests/${currentDeploymentRequest.id}/prepare-deployment`");
   expect(workspace).toContain('prepareDeploymentMutationIdRef.current');
   expect(workspace).toContain('client_mutation_id: preparationMutationId');
   expect(workspace).toContain('Er wordt geen alarm verstuurd.');
-  expect(workspace).toContain('recommended_recipient_count: deploymentDraft.recipientCount');
-  expect(workspace).toContain('recommended_dispatch_mode: deploymentDraft.dispatchMode');
+  expect(workspace).toContain('recommended_recipient_count: effectiveDeploymentDraft.recipientCount');
+  expect(workspace).toContain('recommended_dispatch_mode: effectiveDeploymentDraft.dispatchMode');
   expect(workspace).not.toContain('required_certification_type_ids:');
   expect(workspace).not.toContain('certificationTypeIds');
   expect(workspace).not.toContain('/certifications/options');
@@ -254,11 +333,16 @@ test('shows and forwards only changed answers explicitly visible to pilots', () 
 
 test('persists modal edits before optionally sending the pilot-visible subset', () => {
   const panel = source('../src/features/deployment-requests/DeploymentRequestPanel.tsx');
+  const workspace = source('../src/features/deployment-requests/DeploymentRequestWorkspace.tsx');
   const finishStart = panel.indexOf('const finishEditing = async');
   const finishEnd = panel.indexOf('\n  return (', finishStart);
   const finishFlow = panel.slice(finishStart, finishEnd);
+  const persistStart = workspace.indexOf('const performPersistAllChanges = async');
+  const persistEnd = workspace.indexOf('\n  const saveDecision = async', persistStart);
+  const persistFlow = workspace.slice(persistStart, persistEnd);
 
   expect(finishStart).toBeGreaterThan(-1);
+  expect(persistStart).toBeGreaterThan(-1);
   expect(finishFlow.indexOf('workspaceRef.current.savePendingChanges()'))
     .toBeLessThan(finishFlow.indexOf('deploymentRequestPilotVisibleChanges(editBaseline, persisted)'));
   expect(finishFlow.indexOf('deploymentRequestPilotVisibleChanges(editBaseline, persisted)'))
@@ -267,6 +351,20 @@ test('persists modal edits before optionally sending the pilot-visible subset', 
   expect(finishFlow).toContain('if (message.length > 2000)');
   expect(panel.indexOf('modal--deployment-request'))
     .toBeLessThan(panel.indexOf('              <DeploymentRequestWorkspace'));
+  expect(workspace).toContain('savePendingChanges: persistAllChanges');
+  expect(persistFlow.indexOf('if (!await flushSave()) return null;'))
+    .toBeLessThan(persistFlow.indexOf('await requestDecision(current, desiredDecision)'));
+  expect(persistFlow).toContain('decisionSelectionAdjustedRef.current');
+  expect(persistFlow).toContain('deploymentDraftAdjustedRef.current');
+  expect(persistFlow).toContain('team_ids: effectiveDeploymentDraft.teamIds');
+  expect(persistFlow).toContain('prioritySelectionAdjustedRef.current');
+  expect(persistFlow).toContain('deploymentFormFromRequest(current)');
+  expect(workspace).toContain('saveAllRef.current()');
+  expect(workspace).toContain('saveAllInFlightRef.current');
+  expect(panel).toContain('interactionDisabled={finishingEdit}');
+  expect(workspace).toContain('onReasonChange={(reason) => {');
+  expect(panel).toContain('Wijzigingen opslaan en sluiten');
+  expect(panel).not.toContain('Antwoorden opslaan en sluiten');
 });
 
 test('prefills the current recommendation while preserving an explicit decision', () => {
@@ -340,6 +438,10 @@ test('keeps idempotency keys across uncertain decision and close retries', () =>
 
   expect(workspace).toContain('const decisionMutationRef = useRef');
   expect(workspace).toContain('decisionMutationRef.current?.signature !== decisionSignature');
+  expect(workspace).toContain('lock_version: current.lock_version');
+  expect(workspace).toContain("setSaveState('dirty')");
+  expect(workspace).toContain("setSaveState('conflict')");
+  expect(workspace).toContain('const shown = selected ?? proposal;');
   expect(workspace).toContain('const closeMutationRef = useRef');
   expect(workspace).toContain('closeMutationRef.current?.signature !== closeSignature');
 });

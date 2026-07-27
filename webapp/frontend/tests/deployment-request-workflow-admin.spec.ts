@@ -10,6 +10,7 @@ import {
   createWorkflowField,
   createWorkflowPriorityRule,
   createWorkflowPriorityRuleForSubject,
+  deploymentRequestWorkflowFieldTypes,
   deploymentRequestWorkflowDateTimeIsoValue,
   deploymentRequestWorkflowDateTimeLocalValue,
   moveWorkflowPriorityRuleForSubject,
@@ -27,7 +28,7 @@ import {
 } from '../src/features/admin/deploymentRequestWorkflow';
 
 const fields: DeploymentRequestWorkflowField[] = [
-  field('last_seen_location', 'Locatie', 'common', 'text'),
+  field('last_seen_location', 'Locatie', 'common', 'address'),
   field('person_name', 'Naam persoon', 'person', 'text'),
   field('animal_name', 'Naam dier', 'animal', 'text'),
   field('object_category', 'Objectsoort', 'object', 'select'),
@@ -113,6 +114,23 @@ test('creates stable keys and limits every field to common or one subject scope'
   expect(section.operator_visible).toBe(false);
 });
 
+test('offers address search as a typed text-like workflow field', () => {
+  const addressField = fields[0];
+
+  expect(deploymentRequestWorkflowFieldTypes).toContainEqual({
+    value: 'address',
+    label: 'Adreszoekveld',
+  });
+  expect(conditionOperatorsForField(addressField).map((operator) => operator.key)).toEqual([
+    'equals',
+    'not_equals',
+    'contains',
+    'is_present',
+  ]);
+  expect(bindingTypesCompatible(addressField, { type: 'text' })).toBe(true);
+  expect(bindingTypesCompatible(addressField, { type: 'flight_time' })).toBe(false);
+});
+
 test('allows one deployment target across mutually exclusive subject branches only', () => {
   const deploymentFields = [
     { target: 'title', label: 'Titel', type: 'text' },
@@ -159,7 +177,7 @@ test('allows one deployment target across mutually exclusive subject branches on
 
   expect(bindingTypesCompatible(fields[4], { type: 'number' })).toBe(true);
   expect(bindingTypesCompatible(fields[5], { type: 'text' })).toBe(false);
-  expect(bindingTypesCompatible(fields[0], { type: 'flight_time' })).toBe(true);
+  expect(bindingTypesCompatible(fields[0], { type: 'flight_time' })).toBe(false);
   expect(bindingTypesCompatible(
     field('notes', 'Toelichting', 'common', 'textarea'),
     { type: 'flight_time' },

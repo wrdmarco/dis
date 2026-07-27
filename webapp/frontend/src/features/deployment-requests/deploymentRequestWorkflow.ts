@@ -4,7 +4,7 @@ export type DeploymentRequestSubjectType = 'person' | 'animal' | 'object';
 export type DeploymentRequestPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type DeploymentRequestStatus = 'open' | 'prepared' | 'closed';
 export type DeploymentRequestTriageState = 'incomplete' | 'unknown' | 'determined';
-export type DeploymentRequestFieldType = 'section' | 'text' | 'textarea' | 'number' | 'select' | 'radio' | 'checkbox' | 'date' | 'datetime';
+export type DeploymentRequestFieldType = 'section' | 'text' | 'textarea' | 'address' | 'number' | 'select' | 'radio' | 'checkbox' | 'date' | 'datetime';
 
 export interface DeploymentRequestSubjectOption {
   key: DeploymentRequestSubjectType;
@@ -372,6 +372,22 @@ export function mergeQueuedDeploymentRequestChanges(
       ...(newer.answers ?? {}),
     },
   };
+}
+
+export function rebaseDeploymentRequestTeamIds(
+  localTeamIds: string[],
+  baselineTeamIds: string[],
+  serverTeamIds: string[],
+): string[] {
+  const baseline = new Set(baselineTeamIds);
+  const local = new Set(localTeamIds);
+  const removed = new Set(baselineTeamIds.filter((teamId) => !local.has(teamId)));
+  const added = localTeamIds.filter((teamId) => !baseline.has(teamId));
+
+  return [...new Set([
+    ...serverTeamIds.filter((teamId) => !removed.has(teamId)),
+    ...added,
+  ])];
 }
 
 export function deploymentRequestHasChanges(changes: DeploymentRequestChanges): boolean {

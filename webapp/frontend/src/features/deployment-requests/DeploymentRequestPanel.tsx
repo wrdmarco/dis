@@ -214,8 +214,8 @@ export function DeploymentRequestPanel(props: DeploymentRequestPanelProps) {
               <div>
                 <h2 id="deployment-request-edit-title">Aanvraag aanvullen</h2>
                 <span>
-                  Antwoorden worden veilig opgeslagen zonder alarm. Een handmatige afwijking
-                  leg je apart vast via Beoordeling vastleggen.
+                  Antwoorden, prioriteit en inzetvoorstel worden veilig opgeslagen zonder
+                  een nieuwe alarmering te starten.
                 </span>
               </div>
               <button
@@ -240,6 +240,7 @@ export function DeploymentRequestPanel(props: DeploymentRequestPanelProps) {
                 canManage={canManage}
                 saveEndpoint={endpoint}
                 allowPreparedEditing
+                interactionDisabled={finishingEdit}
                 onDeploymentRequestChange={deploymentRequest.mutate}
                 onChangesQueued={recordQueuedChanges}
                 onRefresh={reloadDeploymentRequestSilently}
@@ -292,8 +293,8 @@ export function DeploymentRequestPanel(props: DeploymentRequestPanelProps) {
                   {finishingEdit
                     ? 'Opslaan...'
                     : sendPilotChanges
-                      ? 'Antwoorden opslaan en info versturen'
-                      : 'Antwoorden opslaan en sluiten'}
+                      ? 'Wijzigingen opslaan en info versturen'
+                      : 'Wijzigingen opslaan en sluiten'}
                 </button>
               </div>
             </footer>

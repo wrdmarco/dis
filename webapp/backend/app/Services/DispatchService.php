@@ -25,6 +25,8 @@ use Throwable;
 
 final class DispatchService
 {
+    private const MAX_DEPLOYMENT_TEAMS = 50;
+
     public function __construct(
         private readonly AuditService $auditService,
         private readonly AvailabilityScheduleService $availabilityScheduleService,
@@ -32,6 +34,7 @@ final class DispatchService
         private readonly NotificationTemplateTextNormalizer $notificationText,
         private readonly DeploymentFormService $deploymentFormService,
         private readonly DeploymentRequestWorkflowService $deploymentRequestWorkflowService,
+        private readonly DeploymentRequestPlanSynchronizationService $deploymentRequestPlanSynchronizationService,
         private readonly LocationService $locationService,
         private readonly RoutingService $routingService,
     ) {}
@@ -62,6 +65,8 @@ final class DispatchService
             }
 
             $created = DB::transaction(function () use ($deployment, $data, $actor, $targetTeam, $eligibility, $routeTarget): ?DispatchRequest {
+                $deploymentRequest = $this->deploymentRequestPlanSynchronizationService
+                    ->lockForDeployment((string) $deployment->id);
                 $currentDeployment = Deployment::query()->lockForUpdate()->findOrFail($deployment->id);
                 if (in_array($currentDeployment->status, ['resolved', 'cancelled'], true)) {
                     throw ValidationException::withMessages(['deployment_id' => ['Voor een afgesloten inzet kan geen alarmering worden aangemaakt.']]);
@@ -76,6 +81,15 @@ final class DispatchService
                     ->find($targetTeam->id);
                 if ($currentTargetTeam === null) {
                     throw ValidationException::withMessages(['team_code' => ['Het gekozen team bestaat niet of is niet operationeel.']]);
+                }
+                if ($deploymentRequest !== null
+                    && (string) $currentDeployment->team_id !== (string) $currentTargetTeam->id
+                    && ! $currentDeployment->teams()->where('teams.id', $currentTargetTeam->id)->exists()) {
+                    throw ValidationException::withMessages([
+                        'target_team_id' => [
+                            'Koppel een nieuw team eerst via de gesynchroniseerde opschalingsroute aan deze inzet.',
+                        ],
+                    ]);
                 }
 
                 // The deployment row is already locked. This serializes creators
@@ -1029,33 +1043,127 @@ final class DispatchService
             ]);
         }
 
-        return DB::transaction(function () use ($dispatch, $actor, $newTeams, $includeUnavailable): DispatchRequest {
-            $deployment = $dispatch->deployment;
-            if ($deployment !== null && $newTeams->isNotEmpty()) {
-                $deployment->teams()->syncWithoutDetaching($newTeams->pluck('id')->all());
-                $deployment->forceFill(['team_id' => $deployment->team_id ?? $newTeams->first()?->id])->save();
+        return DB::transaction(function () use ($dispatch, $actor, $teamIds, $includeUnavailable): DispatchRequest {
+            // Linked request mutations always lock the request before the
+            // deployment. Keep that order here so an operational team
+            // expansion cannot deadlock with an intake update or redecision.
+            $deploymentRequest = $this->deploymentRequestPlanSynchronizationService
+                ->lockForDeployment((string) $dispatch->deployment_id);
+            $deployment = Deployment::query()
+                ->with(['dispatchRequests', 'teams'])
+                ->lockForUpdate()
+                ->findOrFail($dispatch->deployment_id);
+            $currentDispatch = DispatchRequest::query()
+                ->lockForUpdate()
+                ->find($dispatch->id);
+            if ($currentDispatch === null
+                || (string) $currentDispatch->deployment_id !== (string) $deployment->id) {
+                throw ValidationException::withMessages([
+                    'dispatch' => ['Deze alarmering bestaat niet meer of hoort niet bij deze inzet.'],
+                ]);
+            }
+            if ($currentDispatch->status === 'cancelled') {
+                throw ValidationException::withMessages([
+                    'dispatch' => ['Een geannuleerde alarmering kan niet worden opgeschaald.'],
+                ]);
+            }
+            if ($includeUnavailable && ! in_array($deployment->priority, ['high', 'critical'], true)) {
+                throw ValidationException::withMessages([
+                    'include_unavailable' => ['Niet-beschikbare teamleden mogen alleen bij urgente inzetten worden gealarmeerd.'],
+                ]);
+            }
 
-                foreach ($newTeams as $team) {
+            $deployment->load(['dispatchRequests', 'teams']);
+            $currentDispatch->setRelation('deployment', $deployment);
+            $currentNewTeams = $this->teamsForEscalation($currentDispatch, $teamIds);
+            $resultingTeamIds = $deployment->teams
+                ->pluck('id')
+                ->merge($currentNewTeams->pluck('id'))
+                ->unique()
+                ->values();
+            if ($resultingTeamIds->count() > self::MAX_DEPLOYMENT_TEAMS) {
+                throw ValidationException::withMessages([
+                    'team_ids' => ['Een inzet kan aan maximaal 50 operationele teams worden gekoppeld.'],
+                ]);
+            }
+
+            if ($currentNewTeams->isNotEmpty()) {
+                $deployment->teams()->syncWithoutDetaching($currentNewTeams->pluck('id')->all());
+                $deployment->forceFill(['team_id' => $deployment->team_id ?? $currentNewTeams->first()?->id])->save();
+
+                foreach ($currentNewTeams as $team) {
                     $created = $this->create($deployment->refresh(), [
-                        'priority' => $dispatch->priority,
-                        'message' => $dispatch->message ?: $this->defaultDispatchMessage($deployment),
+                        'priority' => $currentDispatch->priority,
+                        'message' => $currentDispatch->message ?: $this->defaultDispatchMessage($deployment),
                         'target_team_id' => $team->id,
                         'include_unavailable' => $includeUnavailable,
                     ], $actor);
 
                     $this->markSent($created, $actor);
                 }
+
+                if ($deploymentRequest !== null) {
+                    $this->deploymentRequestPlanSynchronizationService->synchronizeTeams(
+                        $deploymentRequest,
+                        $deployment->refresh(),
+                        $actor,
+                    );
+                }
             }
 
-            $dispatch->update(['status' => 'escalated']);
-            $this->auditService->record('dispatch.escalated', $dispatch, $actor, [
-                'added_team_ids' => $newTeams->pluck('id')->values()->all(),
-                'added_team_codes' => $newTeams->pluck('code')->values()->all(),
+            $currentDispatch->update(['status' => 'escalated', 'cancelled_at' => null]);
+            $this->auditService->record('dispatch.escalated', $currentDispatch, $actor, [
+                'added_team_ids' => $currentNewTeams->pluck('id')->values()->all(),
+                'added_team_codes' => $currentNewTeams->pluck('code')->values()->all(),
                 'include_unavailable' => $includeUnavailable,
             ]);
-            $this->broadcastDispatchChange($dispatch->refresh(), 'escalated');
+            $this->broadcastDispatchChange($currentDispatch->refresh(), 'escalated');
 
-            return $dispatch->load(['deployment', 'targetTeam', 'recipients.user']);
+            return $currentDispatch->load(['deployment', 'targetTeam', 'recipients.user']);
+        });
+    }
+
+    public function cancel(DispatchRequest $dispatch, User $actor): DispatchRequest
+    {
+        $metadata = DispatchRequest::query()
+            ->select(['id', 'deployment_id'])
+            ->find($dispatch->id);
+        if ($metadata === null) {
+            throw ValidationException::withMessages([
+                'dispatch' => ['Deze alarmering bestaat niet meer.'],
+            ]);
+        }
+
+        return DB::transaction(function () use ($metadata, $actor): DispatchRequest {
+            $deployment = Deployment::query()
+                ->lockForUpdate()
+                ->find($metadata->deployment_id);
+            if ($deployment === null) {
+                throw ValidationException::withMessages([
+                    'dispatch' => ['De inzet van deze alarmering bestaat niet meer.'],
+                ]);
+            }
+            $currentDispatch = DispatchRequest::query()
+                ->lockForUpdate()
+                ->find($metadata->id);
+            if ($currentDispatch === null
+                || (string) $currentDispatch->deployment_id !== (string) $deployment->id) {
+                throw ValidationException::withMessages([
+                    'dispatch' => ['Deze alarmering bestaat niet meer of hoort niet bij deze inzet.'],
+                ]);
+            }
+            if ($currentDispatch->status !== 'cancelled') {
+                $currentDispatch->forceFill([
+                    'status' => 'cancelled',
+                    'cancelled_at' => now(),
+                ])->save();
+                $this->auditService->record('dispatch.cancelled', $currentDispatch, $actor, [
+                    'deployment_id' => $deployment->id,
+                ]);
+                $this->broadcastDispatchChange($currentDispatch->refresh(), 'cancelled');
+            }
+
+            return $currentDispatch->load(['deployment', 'targetTeam', 'recipients.user']);
         });
     }
 

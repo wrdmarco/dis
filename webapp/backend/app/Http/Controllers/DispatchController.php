@@ -108,16 +108,15 @@ final class DispatchController extends Controller
 
     public function cancel(Request $request, DispatchRequest $dispatch): JsonResponse
     {
-        $dispatch->update(['status' => 'cancelled', 'cancelled_at' => now()]);
-        $this->service->broadcastDispatchChange($dispatch->refresh(), 'cancelled');
+        $cancelled = $this->service->cancel($dispatch, $request->user());
 
-        return ApiResponse::success(MobileApiPayload::dispatch($dispatch->load(['deployment.deploymentRequest.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->deploymentRequestService));
+        return ApiResponse::success(MobileApiPayload::dispatch($cancelled->load(['deployment.deploymentRequest.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->deploymentRequestService));
     }
 
     public function escalate(Request $request, DispatchRequest $dispatch): JsonResponse
     {
         $data = $request->validate([
-            'team_ids' => ['sometimes', 'array'],
+            'team_ids' => ['sometimes', 'array', 'max:50'],
             'team_ids.*' => ['ulid', 'exists:teams,id'],
             'include_unavailable' => ['sometimes', 'boolean'],
         ]);

@@ -218,6 +218,11 @@ published, immutable request-workflow revision that was current when the request
 common questions plus exactly one subject branch: person, animal or object. Answers are autosaved with
 optimistic locking and idempotent mutations. A linked request remains editable after preparation, and configured
 field bindings keep the corresponding deployment fields synchronized without requiring duplicate entry.
+`Laatst gezien locatie` and `Opkomstlocatie` are separate address answers: only the latter supplies the
+deployment `location_label`. The system never copies the last-seen address into the assembly location.
+For a linked deployment, a changed priority or deployment proposal is persisted through the request decision.
+Later answer edits invalidate that decision for review but retain the current operational plan; teams added by
+dispatch escalation are synchronized back into that plan without rewriting dispatch recipients or history.
 
 Administrators with `forms.manage` configure, validate, simulate, publish and restore request workflows under
 `/forms`. Priority advice and deployment proposals remain separate from the centralist's recorded decision.

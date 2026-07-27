@@ -67,6 +67,416 @@ final class DeploymentRequestTest extends TestCase
         $service->updateDraft($updated['draft']['lock_version'], $configuration, $actor);
     }
 
+    public function test_default_workflow_keeps_last_seen_and_deployment_locations_distinct(): void
+    {
+        $service = app(DeploymentRequestWorkflowService::class);
+        $configuration = $service->defaultConfiguration();
+        $fields = collect($configuration['fields'])->keyBy('key');
+        $bindings = collect($configuration['bindings'])->keyBy('field_key');
+
+        $this->assertSame('datetime', $fields->get('last_seen_at')['type']);
+        $this->assertSame('Laatst gezien locatie', $fields->get('last_seen_location')['label']);
+        $this->assertSame('address', $fields->get('last_seen_location')['type']);
+        $this->assertTrue($fields->get('last_seen_location')['required']);
+        $this->assertTrue($fields->get('last_seen_location')['operator_visible']);
+        $this->assertSame('section', $fields->get('deployment_location_section')['type']);
+        $this->assertSame('Opkomstlocatie', $fields->get('deployment_location')['label']);
+        $this->assertSame('address', $fields->get('deployment_location')['type']);
+        $this->assertTrue($fields->get('deployment_location')['required']);
+        $this->assertTrue($fields->get('deployment_location')['operator_visible']);
+        $this->assertFalse($bindings->has('last_seen_location'));
+        $this->assertSame('location_label', $bindings->get('deployment_location')['target']);
+
+        $configuration['priority_rules'][0]['conditions'][0] = [
+            'field_key' => 'last_seen_location',
+            'operator' => 'contains',
+            'value' => 'Utrecht',
+        ];
+        $service->validateConfiguration($configuration);
+
+        $normalized = $service->normalizeAnswers($configuration, 'person', [
+            'last_seen_at' => '2026-07-26T12:30:00+02:00',
+            'last_seen_location' => 'Utrecht Centraal',
+            'deployment_location' => 'Kazerne Utrecht',
+        ], patch: true);
+        $this->assertSame('2026-07-26T10:30:00+00:00', $normalized['last_seen_at']);
+        $this->assertSame('Utrecht Centraal', $normalized['last_seen_location']);
+        $this->assertSame('Kazerne Utrecht', $normalized['deployment_location']);
+    }
+
+    public function test_location_split_migration_publishes_once_and_keeps_existing_requests_frozen(): void
+    {
+        $actor = $this->user('location-split-migration@example.test');
+        $configuration = app(DeploymentRequestWorkflowService::class)->defaultConfiguration();
+        $configuration['fields'] = array_values(array_filter(
+            $configuration['fields'],
+            fn (array $field): bool => ! in_array(
+                $field['key'],
+                ['deployment_location_section', 'deployment_location'],
+                true,
+            ),
+        ));
+        foreach ($configuration['fields'] as &$field) {
+            if ($field['key'] === 'last_seen_location') {
+                $field['label'] = 'Plaats laatst gezien';
+                $field['type'] = 'text';
+            }
+            if ($field['key'] === 'circumstances') {
+                $field['help_text'] = 'Bestaande gepubliceerde toelichting';
+            }
+        }
+        unset($field);
+        foreach ($configuration['bindings'] as &$binding) {
+            if ($binding['field_key'] === 'deployment_location') {
+                $binding['field_key'] = 'last_seen_location';
+            }
+        }
+        unset($binding);
+
+        $published = DeploymentRequestWorkflowRevision::query()->create([
+            'version' => 7,
+            'status' => 'published',
+            'lock_version' => 4,
+            'configuration' => $configuration,
+            'created_by' => $actor->id,
+            'updated_by' => $actor->id,
+            'published_by' => $actor->id,
+            'published_at' => now()->subMinute(),
+        ]);
+        $draftConfiguration = $configuration;
+        $draftConfiguration['subject_types'][0]['label'] = 'Persoon in concept';
+        $draftConfiguration['fields'][] = [
+            'key' => 'deployment_location_section',
+            'label' => 'Bestaande opkomstsectie',
+            'type' => 'section',
+            'scope' => 'person',
+            'required' => false,
+            'operator_visible' => false,
+            'help_text' => null,
+            'options' => [],
+        ];
+        $draftConfiguration['fields'][] = [
+            'key' => 'deployment_location',
+            'label' => 'Bestaande opkomstplek',
+            'type' => 'text',
+            'scope' => 'person',
+            'required' => false,
+            'operator_visible' => false,
+            'help_text' => null,
+            'options' => [],
+        ];
+        $draftConfiguration['bindings'][] = [
+            'field_key' => 'deployment_location',
+            'target' => 'location_label',
+        ];
+        DeploymentRequestWorkflowRevision::query()->create([
+            'status' => 'draft',
+            'draft_marker' => 'active',
+            'lock_version' => 9,
+            'configuration' => $draftConfiguration,
+            'created_by' => $actor->id,
+            'updated_by' => $actor->id,
+        ]);
+        $request = DeploymentRequest::query()->create([
+            'workflow_revision_id' => $published->id,
+            'status' => 'open',
+            'subject_type' => 'person',
+            'answers' => ['last_seen_location' => 'Utrecht Centraal'],
+            'triage' => ['state' => 'incomplete'],
+            'lock_version' => 1,
+            'created_by' => $actor->id,
+            'updated_by' => $actor->id,
+        ]);
+
+        $migration = require database_path('migrations/2026_07_27_000003_split_last_seen_and_deployment_locations.php');
+        $migration->up();
+        $firstMigratedId = DeploymentRequestWorkflowRevision::query()
+            ->where('status', 'published')
+            ->latest('version')
+            ->value('id');
+        $firstMigratedDraftLock = DeploymentRequestWorkflowRevision::query()
+            ->where('draft_marker', 'active')
+            ->value('lock_version');
+        $migration->up();
+
+        $this->assertDatabaseCount('deployment_request_workflow_revisions', 3);
+        $this->assertSame(
+            $firstMigratedId,
+            DeploymentRequestWorkflowRevision::query()
+                ->where('status', 'published')
+                ->latest('version')
+                ->value('id'),
+        );
+        $this->assertSame(
+            $firstMigratedDraftLock,
+            DeploymentRequestWorkflowRevision::query()
+                ->where('draft_marker', 'active')
+                ->value('lock_version'),
+        );
+        $this->assertSame($published->id, $request->refresh()->workflow_revision_id);
+        $this->assertSame('text', collect($published->refresh()->configuration['fields'])->firstWhere('key', 'last_seen_location')['type']);
+        $this->assertSame(
+            'last_seen_location',
+            collect($published->configuration['bindings'])->firstWhere('target', 'location_label')['field_key'],
+        );
+
+        $migrated = DeploymentRequestWorkflowRevision::query()
+            ->where('status', 'published')
+            ->latest('version')
+            ->firstOrFail();
+        $migratedFields = collect($migrated->configuration['fields'])->keyBy('key');
+        $migratedBindings = collect($migrated->configuration['bindings'])->keyBy('field_key');
+        $this->assertSame(8, $migrated->version);
+        $this->assertNull($migrated->published_by);
+        $this->assertSame('datetime', $migratedFields->get('last_seen_at')['type']);
+        $this->assertSame('address', $migratedFields->get('last_seen_location')['type']);
+        $this->assertSame('address', $migratedFields->get('deployment_location')['type']);
+        $this->assertFalse($migratedBindings->has('last_seen_location'));
+        $this->assertSame('location_label', $migratedBindings->get('deployment_location')['target']);
+        $this->assertSame(
+            'Bestaande gepubliceerde toelichting',
+            $migratedFields->get('circumstances')['help_text'],
+        );
+        app(DeploymentRequestWorkflowService::class)->validateConfiguration($migrated->configuration);
+
+        $draft = DeploymentRequestWorkflowRevision::query()
+            ->where('draft_marker', 'active')
+            ->firstOrFail();
+        $draftFields = collect($draft->configuration['fields'])->keyBy('key');
+        $draftBindings = collect($draft->configuration['bindings'])->keyBy('field_key');
+        $this->assertSame(10, $draft->lock_version);
+        $this->assertNull($draft->updated_by);
+        $this->assertSame('Persoon in concept', $draft->configuration['subject_types'][0]['label']);
+        $this->assertCount(1, collect($draft->configuration['fields'])->where('key', 'deployment_location_section'));
+        $this->assertCount(1, collect($draft->configuration['fields'])->where('key', 'deployment_location'));
+        $this->assertSame('common', $draftFields->get('deployment_location_section')['scope']);
+        $this->assertSame('Opkomstlocatie', $draftFields->get('deployment_location')['label']);
+        $this->assertSame('address', $draftFields->get('last_seen_location')['type']);
+        $this->assertSame('address', $draftFields->get('deployment_location')['type']);
+        $this->assertSame('common', $draftFields->get('deployment_location')['scope']);
+        $this->assertTrue($draftFields->get('deployment_location')['required']);
+        $this->assertTrue($draftFields->get('deployment_location')['operator_visible']);
+        $this->assertFalse($draftBindings->has('last_seen_location'));
+        $this->assertCount(1, collect($draft->configuration['bindings'])->where('target', 'location_label'));
+        $this->assertSame('location_label', $draftBindings->get('deployment_location')['target']);
+        app(DeploymentRequestWorkflowService::class)->validateConfiguration($draft->configuration);
+
+        $customLegacyConfiguration = $configuration;
+        foreach ($customLegacyConfiguration['bindings'] as &$binding) {
+            if (($binding['target'] ?? null) === 'location_label') {
+                $binding['field_key'] = 'last_seen_direction';
+            }
+        }
+        unset($binding);
+        $deploymentFields = app(DeploymentFormService::class)->fields();
+        $deploymentFields[] = [
+            'key' => 'location_label',
+            'label' => 'Aparte custom locatie',
+            'type' => 'text',
+            'visible' => true,
+            'required' => false,
+            'options' => [],
+        ];
+        SystemSetting::query()->updateOrCreate(
+            ['key' => DeploymentFormService::SETTING_KEY],
+            ['value' => $deploymentFields, 'is_sensitive' => false],
+        );
+        $customLegacyConfiguration['fields'][] = [
+            'key' => 'custom_location_label',
+            'label' => 'Aparte custom locatie',
+            'type' => 'text',
+            'scope' => 'common',
+            'required' => false,
+            'operator_visible' => false,
+            'help_text' => null,
+            'options' => [],
+        ];
+        $customLegacyConfiguration['bindings'][] = [
+            'field_key' => 'custom_location_label',
+            'target' => 'custom_fields.location_label',
+        ];
+        DeploymentRequestWorkflowRevision::query()->create([
+            'version' => 9,
+            'status' => 'published',
+            'lock_version' => 1,
+            'configuration' => $customLegacyConfiguration,
+            'created_by' => $actor->id,
+            'updated_by' => $actor->id,
+            'published_by' => $actor->id,
+            'published_at' => now(),
+        ]);
+        $migration->up();
+        $customMigrated = DeploymentRequestWorkflowRevision::query()
+            ->where('status', 'published')
+            ->latest('version')
+            ->firstOrFail();
+        $this->assertSame(10, $customMigrated->version);
+        $this->assertSame(
+            'deployment_location',
+            collect($customMigrated->configuration['bindings'])
+                ->firstWhere('target', 'location_label')['field_key'],
+        );
+        $this->assertSame(
+            'custom_location_label',
+            collect($customMigrated->configuration['bindings'])
+                ->firstWhere('target', 'custom_fields.location_label')['field_key'],
+        );
+        app(DeploymentRequestWorkflowService::class)->validateConfiguration(
+            $customMigrated->configuration,
+        );
+        $countAfterCustomMigration = DeploymentRequestWorkflowRevision::query()->count();
+        $migration->up();
+        $this->assertSame(
+            $countAfterCustomMigration,
+            DeploymentRequestWorkflowRevision::query()->count(),
+        );
+    }
+
+    public function test_linked_deployment_team_backfill_reconciles_current_and_protected_teams(): void
+    {
+        $actor = $this->user('linked-team-backfill@example.test');
+        $this->grant($actor, ['deployments.manage']);
+        $staleTeam = Team::query()->create([
+            'code' => 'BACKFILL-STALE',
+            'name' => 'Niet meer gekoppeld team',
+            'type' => 'operational',
+            'is_operational' => true,
+        ]);
+        $currentTeam = Team::query()->create([
+            'code' => 'BACKFILL-TEAM',
+            'name' => 'Bestaand gekoppeld team',
+            'type' => 'operational',
+            'is_operational' => true,
+        ]);
+        $service = app(DeploymentRequestService::class);
+        $created = $service->create([
+            'subject_type' => 'person',
+            'answers' => $this->personAnswers(),
+            'client_mutation_id' => 'linked-team-backfill-create',
+        ], $actor);
+        $deploymentRequest = DeploymentRequest::query()->findOrFail($created['id']);
+        $decided = $service->decidePriority($deploymentRequest, [
+            'lock_version' => $created['lock_version'],
+            'client_mutation_id' => 'linked-team-backfill-decision',
+            'priority' => 'low',
+        ], $actor);
+        $prepared = $service->prepareDeployment($deploymentRequest, [
+            'lock_version' => $decided['lock_version'],
+            'client_mutation_id' => 'linked-team-backfill-prepare',
+        ], $actor);
+        $prepared['deployment']->teams()->sync([$currentTeam->id]);
+        $prepared['deployment']->forceFill(['team_id' => $currentTeam->id])->save();
+        $staleProposal = $deploymentRequest->refresh()->selected_deployment_proposal;
+        $staleProposal['team_ids'] = [$staleTeam->id];
+        $staleProposal['teams'] = [[
+            'id' => $staleTeam->id,
+            'code' => $staleTeam->code,
+            'name' => $staleTeam->name,
+        ]];
+        $deploymentRequest->forceFill([
+            'selected_deployment_proposal' => $staleProposal,
+            'updated_by' => $actor->id,
+        ])->save();
+        $lockVersionBeforeBackfill = $deploymentRequest->refresh()->lock_version;
+
+        $migration = require database_path('migrations/2026_07_27_000004_backfill_linked_deployment_request_teams.php');
+        $migration->up();
+
+        $backfilled = $deploymentRequest->refresh();
+        $this->assertSame(
+            [$currentTeam->id],
+            $backfilled->selected_deployment_proposal['team_ids'],
+        );
+        $this->assertSame(
+            [[
+                'id' => $currentTeam->id,
+                'code' => $currentTeam->code,
+                'name' => $currentTeam->name,
+            ]],
+            $backfilled->selected_deployment_proposal['teams'],
+        );
+        $this->assertSame($lockVersionBeforeBackfill + 1, $backfilled->lock_version);
+        $this->assertNull($backfilled->updated_by);
+        $backfilledLockVersion = $backfilled->lock_version;
+
+        DispatchRequest::query()->create([
+            'deployment_id' => $prepared['deployment']->id,
+            'requested_by' => $actor->id,
+            'requested_by_name' => $actor->name,
+            'requested_by_email' => $actor->email,
+            'target_team_id' => $staleTeam->id,
+            'status' => 'sent',
+            'priority' => 'normal',
+            'message' => 'Historische actieve alarmering',
+            'sent_at' => now(),
+        ]);
+        $migration->up();
+        $protected = $deploymentRequest->refresh();
+        $this->assertSame(
+            [$currentTeam->id, $staleTeam->id],
+            $protected->selected_deployment_proposal['team_ids'],
+        );
+        $this->assertSame($backfilledLockVersion + 1, $protected->lock_version);
+        $protectedLockVersion = $protected->lock_version;
+
+        $migration->up();
+        $this->assertSame($protectedLockVersion, $deploymentRequest->refresh()->lock_version);
+    }
+
+    public function test_restored_historical_workflow_cannot_rejoin_last_seen_and_deployment_locations(): void
+    {
+        $actor = $this->user('location-restore-guard@example.test');
+        $this->grant($actor, ['forms.manage']);
+        $service = app(DeploymentRequestWorkflowService::class);
+        $admin = $service->adminEnvelope();
+        $legacy = $service->defaultConfiguration();
+        $legacy['fields'] = array_values(array_filter(
+            $legacy['fields'],
+            fn (array $field): bool => ! in_array(
+                $field['key'],
+                ['deployment_location_section', 'deployment_location'],
+                true,
+            ),
+        ));
+        foreach ($legacy['fields'] as &$field) {
+            if ($field['key'] === 'last_seen_location') {
+                $field['type'] = 'text';
+            }
+        }
+        unset($field);
+        foreach ($legacy['bindings'] as &$binding) {
+            if ($binding['target'] === 'location_label') {
+                $binding['field_key'] = 'last_seen_location';
+            }
+        }
+        unset($binding);
+        $source = DeploymentRequestWorkflowRevision::query()->create([
+            'version' => ((int) DeploymentRequestWorkflowRevision::query()->max('version')) + 1,
+            'status' => 'published',
+            'lock_version' => 1,
+            'configuration' => $legacy,
+            'created_by' => $actor->id,
+            'updated_by' => $actor->id,
+            'published_by' => $actor->id,
+            'published_at' => now(),
+        ]);
+
+        $restored = $service->restore(
+            $source->id,
+            $admin['draft']['lock_version'],
+            $actor,
+        );
+        try {
+            $service->publishDraft($restored['draft']['lock_version'], $actor);
+            $this->fail('Een herstelde workflow mag laatst gezien niet opnieuw aan de inzetlocatie koppelen.');
+        } catch (ValidationException $exception) {
+            $this->assertTrue(
+                array_key_exists('configuration.fields', $exception->errors())
+                || array_key_exists('configuration.bindings', $exception->errors()),
+            );
+        }
+    }
+
     public function test_restore_keeps_stale_profile_references_editable_but_publish_rejects_them(): void
     {
         $actor = $this->user('restore-stale@example.test');
@@ -155,7 +565,7 @@ final class DeploymentRequestTest extends TestCase
             $this->assertArrayHasKey('configuration.bindings', $exception->errors());
         }
 
-        foreach (['last_seen_location', 'circumstances', 'person_name'] as $hiddenCoreField) {
+        foreach (['deployment_location', 'circumstances', 'person_name'] as $hiddenCoreField) {
             $configuration = $service->defaultConfiguration();
             foreach ($configuration['fields'] as &$field) {
                 if ($field['key'] === $hiddenCoreField) {
@@ -167,7 +577,12 @@ final class DeploymentRequestTest extends TestCase
                 $service->validateConfiguration($configuration);
                 $this->fail('Operationele kernvelden moeten altijd met operators worden gedeeld.');
             } catch (ValidationException $exception) {
-                $this->assertArrayHasKey('configuration.bindings', $exception->errors());
+                $this->assertArrayHasKey(
+                    $hiddenCoreField === 'deployment_location'
+                        ? 'configuration.fields'
+                        : 'configuration.bindings',
+                    $exception->errors(),
+                );
             }
         }
 
@@ -372,7 +787,7 @@ final class DeploymentRequestTest extends TestCase
         $this->assertSame([], $inactiveDecision['selected_deployment_proposal']['teams']);
     }
 
-    public function test_bound_answers_enforce_target_lengths_and_select_options_before_preparation(): void
+    public function test_address_and_bound_answers_enforce_lengths_and_select_options_before_preparation(): void
     {
         $service = app(DeploymentRequestWorkflowService::class);
         $configuration = $service->defaultConfiguration();
@@ -380,6 +795,7 @@ final class DeploymentRequestTest extends TestCase
         foreach ([
             ['person_name', str_repeat('a', 181)],
             ['last_seen_location', str_repeat('a', 256)],
+            ['deployment_location', str_repeat('a', 256)],
             ['reporter_phone', str_repeat('1', 41)],
         ] as [$fieldKey, $value]) {
             try {
@@ -683,6 +1099,7 @@ final class DeploymentRequestTest extends TestCase
             'answers' => [
                 ...$this->personAnswers(),
                 'last_seen_location' => 'Utrecht, Nederland',
+                'deployment_location' => 'Utrecht, Nederland',
                 'on_scene_contact_phone' => 612345678,
             ],
             'client_mutation_id' => 'frozen-numeric-phone-create',
@@ -1377,7 +1794,7 @@ final class DeploymentRequestTest extends TestCase
         $this->assertSame('draft', $prepared['deployment']->status);
         $this->assertSame('low', $prepared['deployment']->priority);
         $this->assertSame('Zoekactie in Utrecht', $prepared['deployment']->description);
-        $this->assertSame('Utrecht Centraal', $prepared['deployment']->location_label);
+        $this->assertSame('Kazerne Utrecht', $prepared['deployment']->location_label);
         $this->assertSame('Politie', $prepared['deployment']->requesting_organization);
         $this->assertSame('Politie', $prepared['deployment']->custom_fields['requesting_organization']);
         $this->assertSame('Operationele droneploeg', $prepared['deployment']->required_resources);
@@ -1424,6 +1841,7 @@ final class DeploymentRequestTest extends TestCase
             'lock_version' => $prepared['deployment_request']['lock_version'],
             'client_mutation_id' => 'linked-update',
             'changes' => ['answers' => [
+                'last_seen_location' => 'Utrecht Overvecht',
                 'circumstances' => 'Aanvullende informatie ontvangen',
                 'requesting_organization' => 'Brandweer',
             ]],
@@ -1432,16 +1850,32 @@ final class DeploymentRequestTest extends TestCase
         $this->assertSame('Aanvullende informatie ontvangen', $deployment->description);
         $this->assertSame('Brandweer', $deployment->requesting_organization);
         $this->assertSame('Brandweer', $deployment->custom_fields['requesting_organization']);
+        $this->assertSame('Kazerne Utrecht', $deployment->location_label);
         $this->assertNotNull($deployment->updated_at);
         $this->assertSame($linked['lock_version'], $deployment->deploymentRequest()->firstOrFail()->lock_version);
         $this->assertFalse($deployment->deployment_request_decision_valid);
-        $this->assertNull($deployment->required_resources);
-        $this->assertSame([], $deployment->teams()->pluck('teams.id')->all());
+        $this->assertSame('Operationele droneploeg', $deployment->required_resources);
+        $this->assertSame(
+            $prepared['deployment_request']['selected_deployment_proposal'],
+            $linked['selected_deployment_proposal'],
+        );
+        $this->assertEqualsCanonicalizing(
+            $prepared['deployment']->teams()->pluck('teams.id')->all(),
+            $deployment->teams()->pluck('teams.id')->all(),
+        );
         $this->assertSame('cancelled', $staleDraft->refresh()->status);
         Queue::assertPushed(SendFcmNotification::class, fn (SendFcmNotification $job): bool => $job->fcmTokenId === $staleToken->id
             && $job->messageType === 'deployment_preannouncement_cancelled'
             && ($job->data['type'] ?? null) === 'deployment_preannouncement_cancelled'
             && ($job->data['action_mode'] ?? null) === 'availability_cancelled');
+        $locationPatched = $service->patch($deploymentRequest, [
+            'lock_version' => $linked['lock_version'],
+            'client_mutation_id' => 'linked-deployment-location-update',
+            'changes' => ['answers' => [
+                'deployment_location' => 'Brandweerkazerne Utrecht',
+            ]],
+        ], $actor);
+        $this->assertSame('Brandweerkazerne Utrecht', $deployment->refresh()->location_label);
         $this->asWebClient($actor)
             ->patchJson("/api/deployments/{$deployment->id}", [
                 'status' => 'active',
@@ -1451,7 +1885,7 @@ final class DeploymentRequestTest extends TestCase
             ->assertJsonStructure(['error' => ['details' => ['status']]]);
 
         $redecided = $service->decidePriority($deploymentRequest, [
-            'lock_version' => $linked['lock_version'],
+            'lock_version' => $locationPatched['lock_version'],
             'client_mutation_id' => 'linked-redecision',
             'priority' => 'low',
         ], $actor);
@@ -1591,6 +2025,302 @@ final class DeploymentRequestTest extends TestCase
         $this->assertFalse($deployment->deployment_request_decision_valid);
         $this->assertSame('Bestaande actieve inzet', $deployment->required_resources);
         $this->assertSame([$team->id], $deployment->teams()->pluck('teams.id')->all());
+    }
+
+    public function test_linked_plan_survives_answer_edits_and_escalated_teams_round_trip_through_redecision(): void
+    {
+        Http::fake(['*' => Http::response([], 200)]);
+        Queue::fake();
+        Event::fake([DeploymentRequestChanged::class, DispatchChanged::class]);
+        $actor = $this->user('linked-plan-sync@example.test');
+        $this->grant($actor, ['deployments.manage', 'deployment-requests.priority.override']);
+        $initialTeam = Team::query()->create([
+            'code' => 'PLAN-INITIAL',
+            'name' => 'Initieel inzetteam',
+            'type' => 'operational',
+            'is_operational' => true,
+        ]);
+        $escalationTeam = Team::query()->create([
+            'code' => 'PLAN-EXTRA',
+            'name' => 'Extra inzetteam',
+            'type' => 'operational',
+            'is_operational' => true,
+        ]);
+        $service = app(DeploymentRequestService::class);
+        $created = $service->create([
+            'subject_type' => 'person',
+            'answers' => $this->personAnswers(),
+            'client_mutation_id' => 'linked-plan-create',
+        ], $actor);
+        $deploymentRequest = DeploymentRequest::query()->findOrFail($created['id']);
+        $decided = $service->decidePriority($deploymentRequest, [
+            'lock_version' => $created['lock_version'],
+            'client_mutation_id' => 'linked-plan-decision',
+            'priority' => 'low',
+            'deployment_adjustments' => [
+                'team_ids' => [$initialTeam->id],
+                'resources' => ['Warmtebeeldcamera'],
+                'notes' => 'Behoud het actuele operationele plan.',
+                'recommended_recipient_count' => 2,
+                'recommended_dispatch_mode' => 'preannouncement',
+            ],
+            'reason' => 'Operationeel inzetplan vastgesteld.',
+        ], $actor);
+        $prepared = $service->prepareDeployment($deploymentRequest, [
+            'lock_version' => $decided['lock_version'],
+            'client_mutation_id' => 'linked-plan-prepare',
+        ], $actor);
+        $deployment = $prepared['deployment'];
+
+        $firstPatch = $service->patch($deploymentRequest, [
+            'lock_version' => $prepared['deployment_request']['lock_version'],
+            'client_mutation_id' => 'linked-plan-first-answer-update',
+            'changes' => ['answers' => ['person_clothing' => 'Groene jas']],
+        ], $actor);
+        $this->assertNull($firstPatch['decided_priority']);
+        $this->assertSame([$initialTeam->id], $firstPatch['selected_deployment_proposal']['team_ids']);
+        $this->assertSame(['Warmtebeeldcamera'], $firstPatch['selected_deployment_proposal']['resources']);
+        $this->assertSame([$initialTeam->id], $deployment->refresh()->teams()->pluck('teams.id')->all());
+        $this->assertSame('Warmtebeeldcamera', $deployment->required_resources);
+
+        $firstRedecision = $service->decidePriority($deploymentRequest, [
+            'lock_version' => $firstPatch['lock_version'],
+            'client_mutation_id' => 'linked-plan-first-redecision',
+            'priority' => 'low',
+            'reason' => 'Het handmatig vastgestelde inzetplan blijft van kracht.',
+        ], $actor);
+        $this->assertSame([$initialTeam->id], $firstRedecision['selected_deployment_proposal']['team_ids']);
+        $this->assertSame([$initialTeam->id], $deployment->refresh()->teams()->pluck('teams.id')->all());
+
+        $deployment->forceFill(['status' => 'dispatching'])->save();
+        $existingDispatch = DispatchRequest::query()->create([
+            'deployment_id' => $deployment->id,
+            'requested_by' => $actor->id,
+            'requested_by_name' => $actor->name,
+            'requested_by_email' => $actor->email,
+            'target_team_id' => $initialTeam->id,
+            'status' => 'sent',
+            'priority' => 'normal',
+            'message' => 'Bestaande alarmering',
+            'sent_at' => now(),
+        ]);
+        $existingRecipient = DispatchRecipient::query()->create([
+            'dispatch_request_id' => $existingDispatch->id,
+            'user_id' => $actor->id,
+            'user_name' => $actor->name,
+            'user_email' => $actor->email,
+            'response_status' => 'accepted',
+            'response_note' => 'Bestaande reactie',
+            'notified_at' => now()->subMinute(),
+            'responded_at' => now(),
+        ]);
+        $pilot = $this->user('linked-plan-extra-pilot@example.test');
+        $pilot->forceFill([
+            'push_enabled' => true,
+            'home_city' => 'Utrecht',
+            'home_latitude' => 52.0907,
+            'home_longitude' => 5.1214,
+        ])->save();
+        $escalationTeam->users()->attach($pilot->id, ['created_at' => now()]);
+        $operatorSession = $pilot->createToken(
+            'Linked plan operator',
+            ['*', 'client:operator'],
+            now()->addHour(),
+        )->accessToken;
+        FcmToken::query()->create([
+            'user_id' => $pilot->id,
+            'personal_access_token_id' => $operatorSession->id,
+            'device_id' => 'linked-plan-extra-device',
+            'token' => 'linked-plan-extra-token',
+            'token_hash' => hash('sha256', 'linked-plan-extra-token'),
+            'platform' => 'android',
+            'client_type' => 'operator',
+            'is_active' => true,
+            'last_seen_at' => now(),
+        ]);
+
+        try {
+            app(DispatchService::class)->create($deployment, [
+                'priority' => 'normal',
+                'message' => 'Mag gekoppeld plan niet omzeilen',
+                'target_team_id' => $escalationTeam->id,
+            ], $actor);
+            $this->fail('Een directe alarmering mag geen nieuw team buiten het gekoppelde inzetplan introduceren.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('target_team_id', $exception->errors());
+        }
+        $this->assertDatabaseMissing('dispatch_requests', [
+            'deployment_id' => $deployment->id,
+            'target_team_id' => $escalationTeam->id,
+        ]);
+
+        app(DispatchService::class)->escalate($existingDispatch, $actor, [$escalationTeam->id]);
+
+        $synced = $deploymentRequest->refresh();
+        $expectedTeamIds = [$initialTeam->id, $escalationTeam->id];
+        $this->assertEqualsCanonicalizing(
+            $expectedTeamIds,
+            $synced->selected_deployment_proposal['team_ids'],
+        );
+        $this->assertEqualsCanonicalizing(
+            $expectedTeamIds,
+            collect($synced->selected_deployment_proposal['teams'])->pluck('id')->all(),
+        );
+        $this->assertSame($firstRedecision['lock_version'] + 1, $synced->lock_version);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'deployment_requests.operational_plan_synced',
+            'target_id' => $deploymentRequest->id,
+        ]);
+        Event::assertDispatched(
+            DeploymentRequestChanged::class,
+            fn (DeploymentRequestChanged $event): bool => $event->deploymentRequest->is($deploymentRequest),
+        );
+
+        $secondPatch = $service->patch($deploymentRequest, [
+            'lock_version' => $synced->lock_version,
+            'client_mutation_id' => 'linked-plan-second-answer-update',
+            'changes' => ['answers' => ['circumstances' => 'Nieuwe informatie na opschaling']],
+        ], $actor);
+        $this->assertEqualsCanonicalizing(
+            $expectedTeamIds,
+            $secondPatch['selected_deployment_proposal']['team_ids'],
+        );
+        $secondRedecision = $service->decidePriority($deploymentRequest, [
+            'lock_version' => $secondPatch['lock_version'],
+            'client_mutation_id' => 'linked-plan-second-redecision',
+            'priority' => 'urgent',
+            'deployment_adjustments' => [
+                // Simulate a conflict retry from a client that still has the
+                // pre-escalation team list. Already alerted teams must remain.
+                'team_ids' => [$initialTeam->id],
+                'resources' => ['Warmtebeeldcamera'],
+                'notes' => 'Behoud het actuele operationele plan.',
+                'recommended_recipient_count' => 2,
+                'recommended_dispatch_mode' => 'preannouncement',
+            ],
+            'reason' => 'Nieuwe informatie maakt de inzet kritiek.',
+        ], $actor);
+        $this->assertSame('urgent', $secondRedecision['decided_priority']);
+        $this->assertEqualsCanonicalizing(
+            $expectedTeamIds,
+            $secondRedecision['selected_deployment_proposal']['team_ids'],
+        );
+        $this->assertEqualsCanonicalizing(
+            $expectedTeamIds,
+            $deployment->refresh()->teams()->pluck('teams.id')->all(),
+        );
+        $this->assertSame('critical', $deployment->priority);
+        $this->assertSame('Warmtebeeldcamera', $deployment->required_resources);
+
+        $existingDispatch->refresh();
+        $existingRecipient->refresh();
+        $this->assertSame('escalated', $existingDispatch->status);
+        $this->assertSame('normal', $existingDispatch->priority);
+        $this->assertSame($initialTeam->id, $existingDispatch->target_team_id);
+        $this->assertSame('Bestaande alarmering', $existingDispatch->message);
+        $this->assertSame('accepted', $existingRecipient->response_status);
+        $this->assertSame('Bestaande reactie', $existingRecipient->response_note);
+
+        $staleDispatch = DispatchRequest::query()->findOrFail($existingDispatch->id);
+        app(DispatchService::class)->cancel($existingDispatch, $actor);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'dispatch.cancelled',
+            'target_id' => $existingDispatch->id,
+        ]);
+        $blockedEscalationTeam = Team::query()->create([
+            'code' => 'PLAN-AFTER-CANCEL',
+            'name' => 'Team na annulering',
+            'type' => 'operational',
+            'is_operational' => true,
+        ]);
+        $blockedEscalationTeam->users()->attach($pilot->id, ['created_at' => now()]);
+        try {
+            app(DispatchService::class)->escalate(
+                $staleDispatch,
+                $actor,
+                [$blockedEscalationTeam->id],
+            );
+            $this->fail('Een stale alarmeringsinstantie mag een gelijktijdige annulering niet overschrijven.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('dispatch', $exception->errors());
+        }
+        $this->assertSame('cancelled', $existingDispatch->refresh()->status);
+        $this->assertNotNull($existingDispatch->cancelled_at);
+        $this->assertDatabaseMissing('dispatch_requests', [
+            'deployment_id' => $deployment->id,
+            'target_team_id' => $blockedEscalationTeam->id,
+        ]);
+        $this->assertFalse(
+            $deployment->refresh()->teams()->whereKey($blockedEscalationTeam->id)->exists(),
+        );
+    }
+
+    public function test_preserved_linked_plan_requires_override_rights_when_the_recommendation_changes(): void
+    {
+        $actor = $this->user('linked-plan-override-guard@example.test');
+        $this->grant($actor, ['deployments.manage']);
+        $service = app(DeploymentRequestService::class);
+        $created = $service->create([
+            'subject_type' => 'person',
+            'answers' => $this->personAnswers(),
+            'client_mutation_id' => 'linked-plan-guard-create',
+        ], $actor);
+        $deploymentRequest = DeploymentRequest::query()->findOrFail($created['id']);
+        $decided = $service->decidePriority($deploymentRequest, [
+            'lock_version' => $created['lock_version'],
+            'client_mutation_id' => 'linked-plan-guard-decision',
+            'priority' => 'low',
+        ], $actor);
+        $prepared = $service->prepareDeployment($deploymentRequest, [
+            'lock_version' => $decided['lock_version'],
+            'client_mutation_id' => 'linked-plan-guard-prepare',
+        ], $actor);
+        $patched = $service->patch($deploymentRequest, [
+            'lock_version' => $prepared['deployment_request']['lock_version'],
+            'client_mutation_id' => 'linked-plan-guard-answer-update',
+            'changes' => ['answers' => ['immediate_danger' => true]],
+        ], $actor);
+        $this->assertSame('urgent', $patched['triage']['recommended_priority']);
+        $this->assertSame(
+            ['Operationele droneploeg'],
+            $patched['selected_deployment_proposal']['resources'],
+        );
+
+        try {
+            $service->decidePriority($deploymentRequest, [
+                'lock_version' => $patched['lock_version'],
+                'client_mutation_id' => 'linked-plan-guard-no-permission',
+                'priority' => 'urgent',
+            ], $actor);
+            $this->fail('Een bewaard plan dat afwijkt van het nieuwe advies vereist override-rechten.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('priority', $exception->errors());
+        }
+
+        $this->grant($actor, ['deployment-requests.priority.override']);
+        try {
+            $service->decidePriority($deploymentRequest, [
+                'lock_version' => $patched['lock_version'],
+                'client_mutation_id' => 'linked-plan-guard-no-reason',
+                'priority' => 'urgent',
+            ], $actor);
+            $this->fail('Een bewaard afwijkend plan vereist ook een vastgelegde reden.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('reason', $exception->errors());
+        }
+
+        $redecided = $service->decidePriority($deploymentRequest, [
+            'lock_version' => $patched['lock_version'],
+            'client_mutation_id' => 'linked-plan-guard-with-reason',
+            'priority' => 'urgent',
+            'reason' => 'Het ingezette operationele plan blijft bewust behouden.',
+        ], $actor);
+        $this->assertSame('urgent', $redecided['decided_priority']);
+        $this->assertSame(
+            ['Operationele droneploeg'],
+            $redecided['selected_deployment_proposal']['resources'],
+        );
+        $this->assertSame('critical', $prepared['deployment']->refresh()->priority);
     }
 
     public function test_linked_deployment_request_rejects_missing_core_binding_and_switches_subject_atomically(): void
@@ -2080,7 +2810,7 @@ final class DeploymentRequestTest extends TestCase
         $revision = $deploymentRequest->workflowRevision()->firstOrFail();
         $configuration = $revision->configuration;
         foreach ($configuration['fields'] as &$field) {
-            if (in_array($field['key'], ['person_name', 'circumstances', 'last_seen_location'], true)) {
+            if (in_array($field['key'], ['person_name', 'circumstances', 'deployment_location'], true)) {
                 $field['operator_visible'] = false;
             }
         }
@@ -2111,7 +2841,7 @@ final class DeploymentRequestTest extends TestCase
 
         foreach ([$preannouncement['body'], $cancellation['body'], $body, ...array_values($data)] as $value) {
             $this->assertStringNotContainsString('Jan Jansen', (string) $value);
-            $this->assertStringNotContainsString('Utrecht Centraal', (string) $value);
+            $this->assertStringNotContainsString('Kazerne Utrecht', (string) $value);
             $this->assertStringNotContainsString('Zoekactie in Utrecht', (string) $value);
         }
         $this->assertSame('', $data['deployment_title']);
@@ -2464,6 +3194,7 @@ final class DeploymentRequestTest extends TestCase
             'last_seen_at' => '2026-07-26T12:30:00+02:00',
             'last_seen_location' => 'Utrecht Centraal',
             'last_seen_direction' => 'Onbekend',
+            'deployment_location' => 'Kazerne Utrecht',
             'circumstances' => 'Zoekactie in Utrecht',
             'requesting_organization' => 'Politie',
             'immediate_danger' => false,

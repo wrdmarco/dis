@@ -56,7 +56,7 @@ export const managementManualGuides = {
         { label: 'Maak de vier scopes', description: 'Zet algemene vragen onder Gemeenschappelijk. Een andere vraag hoort bij exact één scope: Mens, Dier of Object.' },
         { label: 'Controleer de technische sleutel', description: 'De sleutel blijft stabiel wanneer het zichtbare label later verandert. Zo blijven opgeslagen antwoorden en regels gekoppeld.' },
         { label: 'Kies Tonen in Operator-app', description: 'Deel alleen informatie die piloten tijdens de inzet operationeel nodig hebben.' },
-        { label: 'Koppel dubbele invoer', description: 'Koppel bijvoorbeeld locatie of naam aan een toegestaan inzetveld. Eén actief inzetveld krijgt nooit twee concurrerende bronnen.' },
+        { label: 'Houd locaties gescheiden', description: 'Gebruik de adreszoeker apart voor Laatst gezien locatie en Opkomstlocatie. Koppel alleen Opkomstlocatie aan de inzetlocatie; één actief inzetveld krijgt nooit twee concurrerende bronnen.' },
         { label: 'Sla het concept op', description: 'Niet-opgeslagen wijzigingen worden nooit gebruikt door een simulatie of nieuwe aanvraag.' },
       ],
       result: 'Aanvragen en de latere inzet gebruiken dezelfde gegevensbron zonder dezelfde informatie opnieuw te laten invullen.',

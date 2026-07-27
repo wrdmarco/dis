@@ -208,6 +208,7 @@ final class DeploymentRequestService
 
             $evaluation = $this->workflowService->evaluate($configuration, $subjectType, $answers);
             $contentChanged = $subjectType !== $oldSubjectType || $answers !== $oldAnswers;
+            $preserveLinkedDeploymentPlan = $contentChanged && $locked->deployment_id !== null;
             $locked->forceFill([
                 'subject_type' => $subjectType,
                 'answers' => $answers,
@@ -215,8 +216,12 @@ final class DeploymentRequestService
                 'recommended_priority' => $evaluation['triage']['recommended_priority'],
                 'decided_priority' => $contentChanged ? null : $locked->decided_priority,
                 'priority_decision_reason' => $contentChanged ? null : $locked->priority_decision_reason,
-                'selected_deployment_profile_id' => $contentChanged ? null : $locked->selected_deployment_profile_id,
-                'selected_deployment_proposal' => $contentChanged ? null : $locked->selected_deployment_proposal,
+                'selected_deployment_profile_id' => $contentChanged && ! $preserveLinkedDeploymentPlan
+                    ? null
+                    : $locked->selected_deployment_profile_id,
+                'selected_deployment_proposal' => $contentChanged && ! $preserveLinkedDeploymentPlan
+                    ? null
+                    : $locked->selected_deployment_proposal,
                 'updated_by' => $actor->id,
             ]);
 
@@ -253,10 +258,6 @@ final class DeploymentRequestService
                 }
                 if ($contentChanged) {
                     $deploymentPatch['deployment_request_decision_valid'] = false;
-                    if ($deployment->status === 'draft') {
-                        $deploymentPatch['required_resources'] = null;
-                        $deploymentPatch['team_ids'] = [];
-                    }
                 }
                 if ($deploymentPatch !== []) {
                     $this->deploymentService->update(
@@ -291,16 +292,59 @@ final class DeploymentRequestService
             $profileId = $profileIdProvided
                 ? $input['selected_deployment_profile_id']
                 : ($priority === $locked->recommended_priority ? ($recommendedProposal['profile_id'] ?? null) : null);
+            $deploymentAdjustments = is_array($input['deployment_adjustments'] ?? null)
+                ? $input['deployment_adjustments']
+                : [];
+            $linkedDeployment = null;
+            if ($locked->deployment_id !== null && is_array($locked->selected_deployment_proposal)) {
+                foreach ([
+                    'team_ids',
+                    'resources',
+                    'notes',
+                    'recommended_recipient_count',
+                    'recommended_dispatch_mode',
+                ] as $planKey) {
+                    if (! array_key_exists($planKey, $deploymentAdjustments)
+                        && array_key_exists($planKey, $locked->selected_deployment_proposal)) {
+                        $deploymentAdjustments[$planKey] = $locked->selected_deployment_proposal[$planKey];
+                    }
+                }
+            }
+            if ($locked->deployment_id !== null) {
+                $linkedDeployment = Deployment::query()
+                    ->lockForUpdate()
+                    ->findOrFail($locked->deployment_id);
+                $protectedTeamIds = $linkedDeployment->dispatchRequests()
+                    ->where('status', '!=', 'cancelled')
+                    ->whereNotNull('target_team_id')
+                    ->pluck('target_team_id')
+                    ->filter(fn (mixed $teamId): bool => is_string($teamId) && $teamId !== '')
+                    ->unique()
+                    ->values()
+                    ->all();
+                if ($protectedTeamIds !== []) {
+                    $requestedTeamIds = $deploymentAdjustments['team_ids'] ?? [];
+                    if (is_array($requestedTeamIds) && array_is_list($requestedTeamIds)) {
+                        $deploymentAdjustments['team_ids'] = collect($requestedTeamIds)
+                            ->merge($protectedTeamIds)
+                            ->unique()
+                            ->values()
+                            ->all();
+                    }
+                }
+            }
             $selected = $this->selectedProposal(
                 $configuration,
                 (string) $locked->subject_type,
                 $priority,
                 is_string($profileId) ? $profileId : null,
-                is_array($input['deployment_adjustments'] ?? null) ? $input['deployment_adjustments'] : [],
+                $deploymentAdjustments,
             );
             $override = $priority !== $locked->recommended_priority
-                || ($selected['profile_id'] ?? null) !== ($recommendedProposal['profile_id'] ?? null)
-                || ($input['deployment_adjustments'] ?? []) !== [];
+                || $this->deploymentProposalDiffersFromRecommendation(
+                    $selected,
+                    is_array($recommendedProposal) ? $recommendedProposal : null,
+                );
             $reason = trim((string) ($input['reason'] ?? ''));
             if ($override && ! $actor->hasPermission('deployment-requests.priority.override')) {
                 throw ValidationException::withMessages(['priority' => ['Je hebt geen recht om van het advies af te wijken.']]);
@@ -326,7 +370,7 @@ final class DeploymentRequestService
                     'team_ids' => $selected['team_ids'] ?? [],
                     'deployment_request_decision_valid' => true,
                 ];
-                $deployment = $locked->deployment()->firstOrFail();
+                $deployment = $linkedDeployment ?? $locked->deployment()->firstOrFail();
                 $this->deploymentService->update(
                     $deployment,
                     $this->mirrorLegacyDeploymentFields($deploymentPatch, $deployment),
@@ -801,6 +845,7 @@ final class DeploymentRequestService
         }
         $normalizedTeamIds = collect($teamIds)->filter(fn (mixed $id): bool => is_string($id))->unique()->values()->all();
         if (count($normalizedTeamIds) !== count($teamIds)
+            || count($normalizedTeamIds) > 50
             || Team::query()->whereIn('id', $normalizedTeamIds)->where('is_operational', true)->count() !== count($normalizedTeamIds)) {
             throw ValidationException::withMessages(['deployment_adjustments.team_ids' => ['Een of meer gekozen teams bestaan niet of zijn niet operationeel.']]);
         }
@@ -862,6 +907,49 @@ final class DeploymentRequestService
                 ? Certification::query()->whereIn('id', $certificationIds)->get(['id', 'code', 'name'])->map->only(['id', 'code', 'name'])->values()->all()
                 : ($profile['certification_type_snapshots'] ?? []),
         ];
+    }
+
+    /** @param array<string, mixed> $selected @param array<string, mixed>|null $recommended */
+    private function deploymentProposalDiffersFromRecommendation(array $selected, ?array $recommended): bool
+    {
+        if ($recommended === null) {
+            return true;
+        }
+
+        return ($selected['profile_id'] ?? null) !== ($recommended['profile_id'] ?? null)
+            || ! $this->sameStringSet($selected['team_ids'] ?? null, $recommended['team_ids'] ?? null)
+            || ($selected['resources'] ?? null) !== ($recommended['resources'] ?? null)
+            || ($selected['recommended_recipient_count'] ?? null) !== ($recommended['recommended_recipient_count'] ?? null)
+            || ($selected['recommended_dispatch_mode'] ?? null) !== ($recommended['recommended_dispatch_mode'] ?? null)
+            || trim((string) ($selected['notes'] ?? '')) !== trim((string) ($recommended['notes'] ?? ''))
+            || ! $this->sameStringSet(
+                $selected['required_certification_type_ids'] ?? null,
+                $recommended['required_certification_type_ids'] ?? null,
+            );
+    }
+
+    private function sameStringSet(mixed $left, mixed $right): bool
+    {
+        if (! is_array($left) || ! is_array($right)) {
+            return false;
+        }
+
+        $normalizedLeft = collect($left)
+            ->filter(fn (mixed $value): bool => is_string($value))
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+        $normalizedRight = collect($right)
+            ->filter(fn (mixed $value): bool => is_string($value))
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+
+        return count($normalizedLeft) === count($left)
+            && count($normalizedRight) === count($right)
+            && $normalizedLeft === $normalizedRight;
     }
 
     /** @param array<string, mixed> $proposal */
