@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { createRealtime } from '../../lib/realtime';
 import { useAuth } from '../auth/AuthContext';
+import { authorizationFingerprint } from '../auth/authorizationFingerprint';
 
 interface RealtimeBridgeProps {
   deploymentId?: string;
@@ -13,7 +14,8 @@ export function RealtimeBridge({
   onOperationalEvent,
   onDeploymentRequestEvent,
 }: RealtimeBridgeProps) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
+  const currentAuthorizationFingerprint = authorizationFingerprint(user);
   const operationalCallbackRef = useRef(onOperationalEvent);
   const deploymentRequestCallbackRef = useRef(onDeploymentRequestEvent);
 
@@ -52,7 +54,7 @@ export function RealtimeBridge({
       }
       echo.disconnect();
     };
-  }, [deploymentId, isAuthenticated]);
+  }, [currentAuthorizationFingerprint, deploymentId, isAuthenticated]);
 
   return null;
 }

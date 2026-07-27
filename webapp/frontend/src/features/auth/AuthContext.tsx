@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { ApiClient, apiBaseUrl } from '../../lib/apiClient';
+import { createRealtime } from '../../lib/realtime';
 import type { TwoFactorEnableResult, TwoFactorSetup, User } from '../../types/api';
 
 interface LoginResult {
@@ -64,6 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     applyAuthenticatedUser(response.data);
     return response.data;
   }, [api, applyAuthenticatedUser]);
+  const authenticatedUserId = user?.id ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -91,7 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [api, applyAuthenticatedUser]);
 
   useEffect(() => {
-    if (user === null || !isBrowser()) {
+    if (authenticatedUserId === null || !isBrowser()) {
       return;
     }
 
@@ -128,8 +130,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const versionBeingTouched = activityVersion;
         lastTouchAttemptAt = Date.now();
         requestInFlight = true;
-        void api.post<void>('/auth/session/touch')
-          .then(() => {
+        void api.post<User>('/auth/session/touch')
+          .then((response) => {
+            applyAuthenticatedUser(response.data);
             touchedActivityVersion = Math.max(touchedActivityVersion, versionBeingTouched);
           })
           .catch(() => {
@@ -173,7 +176,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener('focus', recordActivity);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [api, user]);
+  }, [api, applyAuthenticatedUser, authenticatedUserId]);
+
+  useEffect(() => {
+    if (authenticatedUserId === null || !isBrowser()) {
+      return;
+    }
+
+    let disposed = false;
+    let refreshInFlight = false;
+    const echo = createRealtime({
+      userId: authenticatedUserId,
+      onAuthorizationChanged: () => {
+        if (disposed || refreshInFlight) {
+          return;
+        }
+
+        refreshInFlight = true;
+        void refreshMe()
+          .catch(() => undefined)
+          .finally(() => {
+            refreshInFlight = false;
+          });
+      },
+    });
+
+    return () => {
+      disposed = true;
+      if (echo === null) {
+        return;
+      }
+
+      echo.leave(`users.${authenticatedUserId}`);
+      echo.disconnect();
+    };
+  }, [authenticatedUserId, refreshMe]);
 
   const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
     const response = await api.post<LoginResult>('/auth/login', {

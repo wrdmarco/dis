@@ -9,6 +9,7 @@ import {
   deploymentRequestDecisionProfileId,
   deploymentRequestTitle,
   deploymentRequestPriorityLabel,
+  deploymentRequestRequiredAnswersAreComplete,
   mergeDeploymentRequestChanges,
   mergeQueuedDeploymentRequestChanges,
   type DeploymentRequest,
@@ -68,6 +69,28 @@ test('derives completeness from the server-authoritative missing-field list', ()
   dossier.triage.missing_fields = [];
   dossier.triage.state = 'determined';
   expect(deploymentRequestCompleteness(dossier, configuration)).toBe(100);
+});
+
+test('allows deployment preparation to flush locally complete answers before checking server triage', () => {
+  const deploymentRequest = dossierFixture();
+
+  expect(deploymentRequest.triage.state).toBe('incomplete');
+  expect(deploymentRequestRequiredAnswersAreComplete(deploymentRequest, configuration)).toBe(true);
+
+  deploymentRequest.answers.age = null;
+  expect(deploymentRequestRequiredAnswersAreComplete(deploymentRequest, configuration)).toBe(false);
+
+  const workspace = source('../src/features/deployment-requests/DeploymentRequestWorkspace.tsx');
+  const prepareStart = workspace.indexOf('const prepareDeployment = async () => {');
+  const prepareEnd = workspace.indexOf('const closeWithoutDeployment = async () => {');
+  expect(prepareStart).toBeGreaterThan(-1);
+  expect(prepareEnd).toBeGreaterThan(prepareStart);
+  const prepareFlow = workspace.slice(prepareStart, prepareEnd);
+  expect(prepareFlow.indexOf('if (!await flushSave()) return;'))
+    .toBeLessThan(prepareFlow.indexOf("currentDeploymentRequest.triage.state === 'incomplete'"));
+  expect(workspace).toContain('disabled={preparingDeployment || decisionSaving || !requiredAnswersComplete}');
+  expect(workspace).not.toContain('disabled={preparingDeployment || decisionSaving || assessmentBlocked || draft.decided_priority === null}');
+  expect(workspace).toContain('Leg eerst de beoordeling en het inzetvoorstel vast.');
 });
 
 test('merges dirty patches without dropping newer keystrokes and null removes an answer', () => {

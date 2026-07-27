@@ -499,11 +499,13 @@ final class AuthController extends Controller
         return ApiResponse::success(MobileApiPayload::user($request->user()?->load(['roles.permissions', 'teams'])));
     }
 
-    public function touchSession(Request $request): Response
+    public function touchSession(Request $request): JsonResponse
     {
         $this->webSessionService->assertStatefulWebRequest($request);
 
-        return response()->noContent();
+        return ApiResponse::success(MobileApiPayload::user(
+            $request->user()?->load(['roles.permissions', 'teams']),
+        ));
     }
 
     public function updateMe(Request $request): JsonResponse

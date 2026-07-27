@@ -243,6 +243,15 @@ export function deploymentRequestCompleteness(
   return Math.round((completed / required.length) * 100);
 }
 
+export function deploymentRequestRequiredAnswersAreComplete(
+  deploymentRequest: Pick<DeploymentRequest, 'answers' | 'subject_type'>,
+  configuration: DeploymentRequestWorkflowConfiguration,
+): boolean {
+  return deploymentRequestApplicableFields(configuration, deploymentRequest.subject_type)
+    .filter((field) => field.required && field.type !== 'section')
+    .every((field) => deploymentRequestFieldIsAnswered(field, deploymentRequest.answers[field.key]));
+}
+
 export function deploymentRequestSaveLabel(state: DeploymentRequestSaveState): string {
   switch (state) {
     case 'dirty':

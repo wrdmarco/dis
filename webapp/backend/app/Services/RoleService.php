@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\UserAuthorizationChanged;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -9,6 +10,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
+use Throwable;
 
 final class RoleService
 {
@@ -52,12 +54,19 @@ final class RoleService
         if (is_array($permissionIds)) {
             $this->assertPermissionCeiling($actor, $permissionIds);
         }
-        $authenticationStateChanged = $this->authenticationStateWillChange($role, $data, $permissionIds);
-        $affectedUsers = $authenticationStateChanged ? $role->users()->get() : collect();
+        $appAccessDefinitionChanged = $this->appAccessDefinitionWillChange($role, $data);
+        $permissionsChanged = $this->permissionsWillChange($role, $permissionIds);
+        $authorizationDefinitionChanged = $appAccessDefinitionChanged || $permissionsChanged;
+        $affectedUsers = $authorizationDefinitionChanged ? $role->users()->get() : collect();
         unset($data['permission_ids']);
 
-        $operation = function () use ($role, $data, $permissionIds, $actor, $affectedUsers, $authenticationStateChanged): Role {
-            return DB::transaction(function () use ($role, $data, $permissionIds, $actor, $affectedUsers, $authenticationStateChanged): Role {
+        $operation = function () use ($role, $data, $permissionIds, $actor, $affectedUsers, $appAccessDefinitionChanged): Role {
+            return DB::transaction(function () use ($role, $data, $permissionIds, $actor, $affectedUsers, $appAccessDefinitionChanged): Role {
+                $previousAppAccess = $appAccessDefinitionChanged
+                    ? $affectedUsers->mapWithKeys(fn (User $user): array => [
+                        (string) $user->id => $this->userService->appAccessState($user),
+                    ])
+                    : collect();
                 $before = $role->only(array_keys($data));
                 $role->update($data);
                 if (is_array($permissionIds)) {
@@ -67,15 +76,16 @@ final class RoleService
                     'before' => $before,
                     'after' => $role->only(array_keys($data)),
                     'permission_ids' => $permissionIds,
-                    'authentication_state_changed' => $authenticationStateChanged,
+                    'app_access_definition_changed' => $appAccessDefinitionChanged,
                 ]);
 
-                if ($authenticationStateChanged) {
+                if ($appAccessDefinitionChanged) {
                     foreach ($affectedUsers as $user) {
-                        $this->userService->revokeAuthenticationStateWhileUserLocked(
+                        $this->userService->applyAppAccessTransitionWhileUserLocked(
                             $user,
                             $actor,
-                            'users.role_definition_changed_sessions_revoked',
+                            $previousAppAccess->get((string) $user->id, ['operator' => false, 'admin' => false]),
+                            'users.role_definition_app_access_changed',
                         );
                     }
                 }
@@ -84,18 +94,24 @@ final class RoleService
             });
         };
 
-        if (! $authenticationStateChanged) {
-            return $operation();
+        $updatedRole = $appAccessDefinitionChanged
+            ? $this->tokenIdentityLock->synchronizedUsers(
+                $affectedUsers
+                    ->pluck('id')
+                    ->map(static fn ($id): string => (string) $id)
+                    ->values()
+                    ->all(),
+                $operation,
+            )
+            : $operation();
+
+        if ($authorizationDefinitionChanged) {
+            foreach ($affectedUsers as $user) {
+                $this->dispatchAuthorizationChanged($user);
+            }
         }
 
-        return $this->tokenIdentityLock->synchronizedUsers(
-            $affectedUsers
-                ->pluck('id')
-                ->map(static fn ($id): string => (string) $id)
-                ->values()
-                ->all(),
-            $operation,
-        );
+        return $updatedRole;
     }
 
     public function delete(Role $role, User $actor): void
@@ -177,9 +193,8 @@ final class RoleService
 
     /**
      * @param  array<string, mixed>  $data
-     * @param  list<string>|null  $permissionIds
      */
-    private function authenticationStateWillChange(Role $role, array $data, ?array $permissionIds): bool
+    private function appAccessDefinitionWillChange(Role $role, array $data): bool
     {
         if (array_key_exists('can_use_operator_app', $data)
             && (bool) $data['can_use_operator_app'] !== (bool) $role->can_use_operator_app) {
@@ -191,13 +206,35 @@ final class RoleService
             return true;
         }
 
+        return false;
+    }
+
+    /**
+     * @param  list<string>|null  $permissionIds
+     */
+    private function permissionsWillChange(Role $role, ?array $permissionIds): bool
+    {
         if ($permissionIds === null) {
             return false;
         }
 
-        $currentIds = $role->permissions()->pluck('permissions.id')->map(static fn ($id): string => (string) $id)->sort()->values()->all();
+        $currentIds = $role->permissions()
+            ->pluck('permissions.id')
+            ->map(static fn ($id): string => (string) $id)
+            ->sort()
+            ->values()
+            ->all();
         $requestedIds = collect($permissionIds)->sort()->values()->all();
 
         return $currentIds !== $requestedIds;
+    }
+
+    private function dispatchAuthorizationChanged(User $user): void
+    {
+        try {
+            UserAuthorizationChanged::dispatch((string) $user->id);
+        } catch (Throwable $exception) {
+            report($exception);
+        }
     }
 }

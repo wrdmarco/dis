@@ -26,8 +26,11 @@ for (const requiredActivitySignal of ['keydown', 'pointerdown', 'touchstart', 'v
     violations.push(`${displayPath(authContextPath)}: authenticated session activity must include ${requiredActivitySignal}`);
   }
 }
-if (!/api\.post<void>\(['"]\/auth\/session\/touch['"]\)/.test(authContext)) {
+if (!/api\.post<User>\(['"]\/auth\/session\/touch['"]\)/.test(authContext)) {
   violations.push(`${displayPath(authContextPath)}: authenticated activity must refresh the server-side session`);
+}
+if (!/applyAuthenticatedUser\(response\.data\)/.test(authContext)) {
+  violations.push(`${displayPath(authContextPath)}: authenticated activity must refresh current authorization state`);
 }
 if (/setInterval\s*\([^)]*\/auth\/session\/touch/s.test(authContext)) {
   violations.push(`${displayPath(authContextPath)}: an idle browser tab may not keep a session alive automatically`);

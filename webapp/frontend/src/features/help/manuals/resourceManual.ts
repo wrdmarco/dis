@@ -197,7 +197,7 @@ export const resourceManualGuides = {
         { label: 'Kies Rol toevoegen of Rol opslaan', description: 'Koppel de rol daarna via Gebruikers > Aanpassen aan de juiste personen.' },
       ],
       result: 'Gebruikers met deze rol zien alleen de functies waarvoor de rol app-toegang en rechten heeft.',
-      warning: 'Je kunt geen rechten doorgeven die je zelf niet hebt. De vaste rol Systeembeheerder kan niet worden aangepast. Een rolwijziging trekt bestaande sessies niet automatisch in.',
+      warning: 'Je kunt geen rechten doorgeven die je zelf niet hebt. De vaste rol Systeembeheerder kan niet worden aangepast. Gewone rol- en rechtenwijzigingen behouden bestaande sessies. Nieuwe webbeheertoegang beëindigt alleen de websessie en vraagt bij de volgende aanmelding opnieuw om de beveiligingscontrole; verlies van operator-app-toegang trekt alleen de operationele app-toegang in.',
     },
     {
       id: 'roles-remove',

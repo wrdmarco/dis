@@ -51,6 +51,7 @@ import {
   deploymentRequestPriorityLabel,
   deploymentRequestPriorityOptions,
   deploymentRequestPriorityTone,
+  deploymentRequestRequiredAnswersAreComplete,
   deploymentRequestSaveLabel,
   deploymentRequestStatusLabel,
   deploymentRequestStatusTone,
@@ -165,6 +166,9 @@ export function DeploymentRequestWorkspace(props: DeploymentRequestWorkspaceProp
     [configuration?.bindings],
   );
   const completeness = configuration ? deploymentRequestCompleteness(draft, configuration) : null;
+  const requiredAnswersComplete = configuration
+    ? deploymentRequestRequiredAnswersAreComplete(draft, configuration)
+    : false;
   const recommendedPlan = draft.deployment_proposal;
   const selectedPlan = draft.selected_deployment_proposal;
   const planChanged = deploymentDiffers(deploymentDraft, recommendedPlan);
@@ -576,10 +580,6 @@ export function DeploymentRequestWorkspace(props: DeploymentRequestWorkspaceProp
 
   const prepareDeployment = async () => {
     setPrepareDeploymentError(null);
-    if (assessmentBlocked) {
-      setPrepareDeploymentError('De uitvraag is nog onvolledig. Vul eerst de ontbrekende kerngegevens in.');
-      return;
-    }
     if (!await flushSave()) return;
     const currentDeploymentRequest = latestDeploymentRequestRef.current;
     if (currentDeploymentRequest.triage.state === 'incomplete') {
@@ -839,15 +839,19 @@ export function DeploymentRequestWorkspace(props: DeploymentRequestWorkspaceProp
                 <button
                   className="primary-button deployment-request-prepare-button"
                   type="button"
-                  disabled={preparingDeployment || decisionSaving || assessmentBlocked || draft.decided_priority === null}
+                  disabled={preparingDeployment || decisionSaving || !requiredAnswersComplete}
                   onClick={() => void prepareDeployment()}
                 >
                   {preparingDeployment ? <Loader2 className="spin" size={17} /> : <FileCheck2 size={17} />}
                   Inzet voorbereiden
                 </button>
-                {assessmentBlocked ? (
+                {!requiredAnswersComplete ? (
                   <p className="deployment-request-blocked-notice">
                     <AlertTriangle size={15} /> Inzet voorbereiden wordt beschikbaar zodra de kerngegevens compleet zijn.
+                  </p>
+                ) : draft.decided_priority === null ? (
+                  <p className="deployment-request-blocked-notice">
+                    <AlertTriangle size={15} /> Leg eerst de beoordeling en het inzetvoorstel vast.
                   </p>
                 ) : null}
                 {prepareDeploymentError ? <p className="form-error" role="alert">{prepareDeploymentError}</p> : null}

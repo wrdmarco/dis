@@ -14,6 +14,8 @@ export interface RealtimeOptions {
   onDeploymentRequestEvent?: () => void;
   onSystemUpdateStatus?: (payload: unknown) => void;
   onOsrmOperationStatus?: (payload: unknown) => void;
+  userId?: string;
+  onAuthorizationChanged?: () => void;
 }
 
 export function createRealtime(options: RealtimeOptions): Echo<'reverb'> | null {
@@ -77,6 +79,11 @@ export function createRealtime(options: RealtimeOptions): Echo<'reverb'> | null 
   if (options.onOsrmOperationStatus !== undefined) {
     echo.private('admin.routing')
       .listen('.routing.osrm.status', options.onOsrmOperationStatus);
+  }
+
+  if (options.userId !== undefined && options.onAuthorizationChanged !== undefined) {
+    echo.private(`users.${options.userId}`)
+      .listen('.authorization.changed', options.onAuthorizationChanged);
   }
 
   return echo;

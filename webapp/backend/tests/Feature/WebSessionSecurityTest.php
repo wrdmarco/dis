@@ -252,7 +252,7 @@ final class WebSessionSecurityTest extends TestCase
         $this->assertStringNotContainsString($user->email, $tamperedResponse->getContent());
     }
 
-    public function test_privilege_changes_invalidate_an_existing_web_session(): void
+    public function test_role_changes_keep_an_existing_web_session_when_admin_access_remains(): void
     {
         $user = $this->authenticateBrowserUser('role-change@example.test', 'ROLE-12345');
         $sessionId = $this->currentSessionId();
@@ -287,8 +287,10 @@ final class WebSessionSecurityTest extends TestCase
 
         app(UserService::class)->update($user, ['role_ids' => [$replacementRole->id]], $actor);
 
-        $this->assertDatabaseMissing('sessions', ['id' => $sessionId]);
-        $this->browserJson('GET', '/api/auth/me')->assertUnauthorized();
+        $this->assertDatabaseHas('sessions', ['id' => $sessionId]);
+        $this->browserJson('GET', '/api/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.id', $user->id);
     }
 
     public function test_registration_invitation_is_exchanged_once_for_server_side_session_state(): void
@@ -425,7 +427,9 @@ final class WebSessionSecurityTest extends TestCase
         $sessionId = $this->currentSessionId();
 
         $this->travel(90)->seconds();
-        $this->browserJson('POST', '/api/auth/session/touch')->assertNoContent();
+        $this->browserJson('POST', '/api/auth/session/touch')
+            ->assertOk()
+            ->assertJsonPath('data.email', 'active-session@example.test');
         $this->assertSame($sessionId, $this->currentSessionId(), 'Activity must not rotate an already authenticated session.');
 
         $this->travel(90)->seconds();
