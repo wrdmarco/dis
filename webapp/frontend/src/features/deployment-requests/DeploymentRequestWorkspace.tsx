@@ -418,6 +418,13 @@ export const DeploymentRequestWorkspace = forwardRef<
       }
       return true;
     }
+    if (changes.title !== undefined && changes.title.trim() === '') {
+      if (mountedRef.current) {
+        setSaveState('error');
+        setSaveError('Vul een titel in voordat je de aanvraag opslaat.');
+      }
+      return false;
+    }
 
     const mutation: QueuedMutation = retry ?? {
       changes,
@@ -970,8 +977,8 @@ export const DeploymentRequestWorkspace = forwardRef<
       <header className="deployment-request-workspace__topline">
         <div>
           <span className="deployment-request-workspace__eyebrow">Aanvraag</span>
-          <strong>{draft.subject_type_label}</strong>
-          <span>Versie {draft.workflow_revision.version} · bijgewerkt {formatDateTime(draft.updated_at)}</span>
+          <strong>{draft.title}</strong>
+          <span>{draft.subject_type_label} · versie {draft.workflow_revision.version} · bijgewerkt {formatDateTime(draft.updated_at)}</span>
         </div>
         <div className="deployment-request-workspace__top-status">
           <StatusPill
@@ -1045,6 +1052,27 @@ export const DeploymentRequestWorkspace = forwardRef<
             number="02"
             title="Gegevens van de aanvraag"
             description="Deze gegevens worden één keer vastgelegd en waar ingesteld overgenomen in de inzet."
+            leadingContent={(
+              <label
+                className="deployment-request-field deployment-request-field--wide"
+                htmlFor={`deployment-request-title-${draft.id}`}
+              >
+                <span className="deployment-request-field__label">
+                  <span>Titel *</span>
+                </span>
+                <input
+                  id={`deployment-request-title-${draft.id}`}
+                  type="text"
+                  value={draft.title}
+                  required
+                  maxLength={180}
+                  autoComplete="off"
+                  disabled={!editable}
+                  onChange={(event) => queueChanges({ title: event.target.value })}
+                />
+                <small>De herkenbare titel van deze aanvraag. Maximaal 180 tekens.</small>
+              </label>
+            )}
             fields={deploymentRequestCommonFields(configuration)}
             answers={draft.answers}
             bindings={bindingByField}
@@ -1054,7 +1082,7 @@ export const DeploymentRequestWorkspace = forwardRef<
 
           <QuestionSection
             number="03"
-            title={`Uitvraag ${draft.subject_type_label.toLowerCase()}`}
+            title={`Gegevens over ${draft.subject_type_label.toLowerCase()}`}
             description="Vul aan wat nu bekend is. Je kunt deze aanvraag later blijven bijwerken."
             fields={deploymentRequestBranchFields(configuration, draft.subject_type)}
             answers={draft.answers}
@@ -1207,13 +1235,24 @@ function QuestionSection(props: {
   number: string;
   title: string;
   description: string;
+  leadingContent?: ReactNode;
   fields: DeploymentRequestWorkflowField[];
   answers: Record<string, unknown>;
   bindings: Map<string, DeploymentRequestWorkflowBinding>;
   disabled: boolean;
   onChange: (key: string, value: unknown | null) => void;
 }) {
-  const { number, title, description, fields, answers, bindings, disabled, onChange } = props;
+  const {
+    number,
+    title,
+    description,
+    leadingContent,
+    fields,
+    answers,
+    bindings,
+    disabled,
+    onChange,
+  } = props;
 
   return (
     <section className="deployment-request-questionnaire__section">
@@ -1225,6 +1264,7 @@ function QuestionSection(props: {
         </div>
       </header>
       <div className="deployment-request-field-grid">
+        {leadingContent}
         {fields.map((field) => (
           field.type === 'section' ? (
             <div className="deployment-request-field-section" key={field.key}>
@@ -1723,8 +1763,8 @@ function ReadonlyDeploymentRequest(props: {
     <div className="deployment-request-readonly">
       <header>
         <div>
-          <span className="deployment-request-workspace__eyebrow">Uitvraag</span>
-          <h3>{props.deploymentRequest.subject_type_label}</h3>
+          <span className="deployment-request-workspace__eyebrow">Aanvraag · {props.deploymentRequest.subject_type_label}</span>
+          <h3>{props.deploymentRequest.title}</h3>
           <span>Bijgewerkt {formatDateTime(props.deploymentRequest.updated_at)}</span>
         </div>
         <div>

@@ -3,9 +3,9 @@
 namespace Tests\Feature;
 
 use App\Casts\SystemSettingValueCast;
-use App\Models\Permission;
 use App\Mail\UserPasswordRecoveryMail;
 use App\Mail\UserWelcomeMail;
+use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\User;
@@ -84,6 +84,35 @@ final class IamSecurityControlsTest extends TestCase
 
         $this->assertTrue($permissionNames->contains('users.delete'));
         $this->assertTrue($permissionNames->contains('roles.delete'));
+        $this->assertTrue($permissionNames->contains('deployment-requests.delete'));
+    }
+
+    public function test_deployment_request_delete_permission_migration_only_grants_system_administrator(): void
+    {
+        $this->seed(RoleAndPermissionSeeder::class);
+        $permission = Permission::query()->where('name', 'deployment-requests.delete')->firstOrFail();
+        DB::table('permission_role')->where('permission_id', $permission->id)->delete();
+        $permission->delete();
+
+        $migration = require database_path('migrations/2026_07_27_000007_add_deployment_request_delete_permission.php');
+        $migration->up();
+
+        $permissionId = Permission::query()
+            ->where('name', 'deployment-requests.delete')
+            ->value('id');
+        $administratorId = Role::query()
+            ->where('name', Role::SYSTEM_ADMINISTRATOR)
+            ->value('id');
+        $this->assertDatabaseHas('permission_role', [
+            'role_id' => $administratorId,
+            'permission_id' => $permissionId,
+        ]);
+        foreach (['national-coordinator', 'deployment-coordinator'] as $roleName) {
+            $this->assertDatabaseMissing('permission_role', [
+                'role_id' => Role::query()->where('name', $roleName)->value('id'),
+                'permission_id' => $permissionId,
+            ]);
+        }
     }
 
     public function test_email_change_revokes_reset_tokens_for_old_and_new_addresses(): void

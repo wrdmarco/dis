@@ -10,7 +10,6 @@ import {
   deploymentRequestPilotVisibleAnswers,
   deploymentRequestPilotVisibleChanges,
   deploymentRequestPilotVisibleChangesMessage,
-  deploymentRequestTitle,
   deploymentRequestPriorityLabel,
   deploymentRequestRequiredAnswersAreComplete,
   deploymentRequestSuggestedDecisionPriority,
@@ -150,14 +149,19 @@ test('allows deployment preparation to flush locally complete answers before che
 
 test('merges dirty patches without dropping newer keystrokes and null removes an answer', () => {
   expect(mergeQueuedDeploymentRequestChanges(
-    { answers: { name: 'Jan', age: 70 } },
-    { answers: { age: 71, clothing: 'Blauwe jas' } },
-  )).toEqual({ answers: { name: 'Jan', age: 71, clothing: 'Blauwe jas' } });
+    { title: 'Oude titel', answers: { name: 'Jan', age: 70 } },
+    { title: 'Nieuwe titel', answers: { age: 71, clothing: 'Blauwe jas' } },
+  )).toEqual({
+    title: 'Nieuwe titel',
+    answers: { name: 'Jan', age: 71, clothing: 'Blauwe jas' },
+  });
 
   expect(mergeDeploymentRequestChanges(dossierFixture(), {
+    title: 'Vermiste hond Bello',
     subject_type: 'animal',
     answers: { age: null, animal_type: 'Hond' },
   })).toMatchObject({
+    title: 'Vermiste hond Bello',
     subject_type: 'animal',
     answers: {
       last_seen_location: 'Stationsplein',
@@ -214,13 +218,20 @@ test('uses the pre-deployment work queue as the only new-deployment entry point'
   expect(webRouteAccess.deploymentRequests.permissions).toEqual(['deployments.manage']);
 });
 
-test('creates no empty deployment request before the centralist chooses person, animal or object', () => {
+test('creates a titled deployment request only after an explicit form submit', () => {
   const page = source('../src/features/deployment-requests/DeploymentRequestCreatePage.tsx');
 
   expect(page).toContain('workflow.data.configuration.subject_types.map');
-  expect(page).toContain('onClick={() => void createDeploymentRequest({');
+  expect(page).toContain('onSubmit={createDeploymentRequest}');
+  expect(page).toContain('onClick={() => chooseSubjectType(subject.key)}');
+  expect(page).not.toContain('onClick={() => void createDeploymentRequest(');
   expect(page).toContain("api.post<DeploymentRequest>('/deployment-requests'");
+  expect(page).toContain('title: nextAttempt.title');
   expect(page).toContain('client_mutation_id: nextAttempt.mutationId');
+  expect(page).toContain('maxLength={180}');
+  expect(page).toContain('Aanvraag aanmaken');
+  expect(page).toContain('title.trim()');
+  expect(page).toContain('if (creatingRef.current || subjectType === null) return;');
   expect(page).not.toContain('useEffect(');
 });
 
@@ -393,28 +404,39 @@ test('does not reuse an incompatible advised deployment profile for a priority o
   expect(deploymentRequestDecisionProfileId('high', 'high', 'low', 'high-response', 'low-response')).toBe('high-response');
 });
 
-test('uses stable subject-specific fields for person, animal and object work-queue titles', () => {
-  expect(deploymentRequestTitle({
-    subject_type_label: 'Persoon',
-    answer_rows: [
-      answerRow('last_seen_at', '18:30'),
-      answerRow('person_name', 'Jan de Vries'),
-    ],
-  })).toBe('Jan de Vries');
-  expect(deploymentRequestTitle({
-    subject_type_label: 'Dier',
-    answer_rows: [
-      answerRow('last_seen_location', 'Park'),
-      answerRow('animal_species', 'Hond'),
-    ],
-  })).toBe('Hond');
-  expect(deploymentRequestTitle({
-    subject_type_label: 'Object',
-    answer_rows: [
-      answerRow('last_seen_location', 'Station'),
-      answerRow('object_category', 'Rugzak'),
-    ],
-  })).toBe('Rugzak');
+test('uses the explicit request title throughout the list, workspace and linked deployment panel', () => {
+  const list = source('../src/features/deployment-requests/DeploymentRequestListPage.tsx');
+  const detail = source('../src/features/deployment-requests/DeploymentRequestDetailPage.tsx');
+  const workspace = source('../src/features/deployment-requests/DeploymentRequestWorkspace.tsx');
+  const panel = source('../src/features/deployment-requests/DeploymentRequestPanel.tsx');
+  const workflow = source('../src/features/deployment-requests/deploymentRequestWorkflow.ts');
+
+  expect(list).toContain('{deploymentRequest.title}');
+  expect(detail).toContain("title={request?.title ?? 'Aanvraag'}");
+  expect(workspace).toContain('<strong>{draft.title}</strong>');
+  expect(workspace).toContain('value={draft.title}');
+  expect(workspace).toContain('queueChanges({ title: event.target.value })');
+  expect(workspace).toContain('title={`Gegevens over ${draft.subject_type_label.toLowerCase()}`}');
+  expect(panel).toContain('<strong>{deploymentRequest.data.title}</strong>');
+  expect(workflow).not.toContain('preferredKeys');
+  expect(workflow).not.toContain('`Uitvraag ${deploymentRequest.subject_type_label.toLowerCase()}`');
+});
+
+test('shows request deletion only with its dedicated permission and protects linked requests', () => {
+  const detail = source('../src/features/deployment-requests/DeploymentRequestDetailPage.tsx');
+
+  expect(detail).toContain("canManage && hasPermission('deployment-requests.delete')");
+  expect(detail).toContain('disabled={deleting || deleteBlockedByDeployment}');
+  expect(detail).toContain('request.deployment_id !== null');
+  expect(detail).toContain('Deze aanvraag is gekoppeld aan een inzet');
+  expect(detail).toContain('Aanvraag verwijderen');
+  expect(detail).toContain("await api.delete(`/deployment-requests/${request.id}`, {");
+  expect(detail).toContain('lock_version: request.lock_version');
+  expect(detail).toContain("router.replace('/aanvragen')");
+  expect(detail).toContain('cancelButtonRef.current?.focus()');
+  expect(detail).toContain("if (event.key === 'Escape')");
+  expect(detail).toContain("if (event.key !== 'Tab') return;");
+  expect(detail).toContain('previouslyFocused?.isConnected');
 });
 
 test('guards dirty deploymentRequest work on unload and flushes it during client-side unmount', () => {
@@ -483,6 +505,7 @@ test('focuses an input inside choice groups when a missing-field shortcut is use
 function dossierFixture(): DeploymentRequest {
   return {
     id: 'dossier-1',
+    title: 'Vermist persoon Stationsplein',
     status: 'open',
     subject_type: 'person',
     subject_type_label: 'Persoon',

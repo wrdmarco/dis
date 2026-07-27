@@ -88,6 +88,7 @@ export interface DeploymentProposal {
 
 export interface DeploymentRequest {
   id: string;
+  title: string;
   status: DeploymentRequestStatus;
   subject_type: DeploymentRequestSubjectType;
   subject_type_label: string;
@@ -129,6 +130,7 @@ export interface PrepareDeploymentResponse {
 }
 
 export interface DeploymentRequestChanges {
+  title?: string;
   subject_type?: DeploymentRequestSubjectType;
   answers?: Record<string, unknown | null>;
 }
@@ -199,27 +201,6 @@ export function deploymentRequestStatusTone(status: DeploymentRequestStatus): 'n
   if (status === 'open') return 'warn';
   if (status === 'prepared') return 'good';
   return 'neutral';
-}
-
-export function deploymentRequestTitle(
-  deploymentRequest: Pick<DeploymentRequest, 'answer_rows' | 'subject_type_label'>,
-): string {
-  const preferredKeys = [
-    'person_name',
-    'animal_name',
-    'animal_species',
-    'object_category',
-    'last_seen_location',
-  ];
-  for (const key of preferredKeys) {
-    const answer = deploymentRequest.answer_rows.find((candidate) => (
-      candidate.key === key && candidate.display_value.trim() !== ''
-    ));
-    if (answer) return answer.display_value;
-  }
-
-  const fallback = deploymentRequest.answer_rows.find((answer) => answer.display_value.trim() !== '');
-  return fallback?.display_value ?? `Uitvraag ${deploymentRequest.subject_type_label.toLowerCase()}`;
 }
 
 export function deploymentRequestPilotVisibleAnswers(
@@ -355,6 +336,7 @@ export function mergeDeploymentRequestChanges(base: DeploymentRequest, changes: 
 
   return {
     ...base,
+    title: changes.title ?? base.title,
     subject_type: changes.subject_type ?? base.subject_type,
     answers,
   };
@@ -365,6 +347,8 @@ export function mergeQueuedDeploymentRequestChanges(
   newer: DeploymentRequestChanges,
 ): DeploymentRequestChanges {
   return {
+    ...(older.title === undefined ? {} : { title: older.title }),
+    ...(newer.title === undefined ? {} : { title: newer.title }),
     ...(older.subject_type === undefined ? {} : { subject_type: older.subject_type }),
     ...(newer.subject_type === undefined ? {} : { subject_type: newer.subject_type }),
     answers: {
@@ -391,7 +375,9 @@ export function rebaseDeploymentRequestTeamIds(
 }
 
 export function deploymentRequestHasChanges(changes: DeploymentRequestChanges): boolean {
-  return changes.subject_type !== undefined || Object.keys(changes.answers ?? {}).length > 0;
+  return changes.title !== undefined
+    || changes.subject_type !== undefined
+    || Object.keys(changes.answers ?? {}).length > 0;
 }
 
 export function bindingLabel(target: string): string {

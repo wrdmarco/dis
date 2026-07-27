@@ -15,6 +15,7 @@ final class StoreDeploymentRequest extends FormRequest
     {
         return [
             'subject_type' => ['required', 'string', 'in:person,animal,object'],
+            'title' => ['sometimes', 'string', 'min:1', 'max:180'],
             'answers' => ['sometimes', 'array', 'max:100'],
             'client_mutation_id' => ['required', 'string', 'max:120', 'regex:/^[A-Za-z0-9._:-]+$/'],
         ];

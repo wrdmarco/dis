@@ -53,8 +53,8 @@ export class ApiClient {
     return this.request<T>('PATCH', path, body);
   }
 
-  async delete<T>(path: string): Promise<ApiResponse<T>> {
-    return this.request<T>('DELETE', path);
+  async delete<T>(path: string, body?: unknown): Promise<ApiResponse<T>> {
+    return this.request<T>('DELETE', path, body);
   }
 
   async download(path: string): Promise<{ blob: Blob; filename?: string }> {

@@ -3,9 +3,11 @@
 namespace Tests\Feature;
 
 use App\Events\DeploymentRequestChanged;
+use App\Events\DeploymentRequestDeleted;
 use App\Events\DispatchChanged;
 use App\Exceptions\DeploymentRequestConflictException;
 use App\Jobs\SendFcmNotification;
+use App\Models\AuditLog;
 use App\Models\Certification;
 use App\Models\DeploymentRequest;
 use App\Models\DeploymentRequestMutation;
@@ -24,6 +26,7 @@ use App\Services\DeploymentRequestWorkflowService;
 use App\Services\DeploymentService;
 use App\Services\DispatchService;
 use App\Support\MobileApiPayload;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -1500,6 +1503,237 @@ final class DeploymentRequestTest extends TestCase
         }
 
         Event::assertDispatched(DeploymentRequestChanged::class);
+    }
+
+    public function test_deployment_request_title_is_additive_editable_and_uses_a_neutral_legacy_fallback(): void
+    {
+        $actor = $this->user('deployment-request-title@example.test');
+        $this->grant($actor, ['deployments.manage']);
+        $service = app(DeploymentRequestService::class);
+
+        $created = $service->create([
+            'title' => 'Zoekactie Utrecht Centraal',
+            'subject_type' => 'person',
+            'answers' => $this->personAnswers(),
+            'client_mutation_id' => 'title-create',
+        ], $actor);
+        $this->assertSame('Zoekactie Utrecht Centraal', $created['title']);
+        $this->assertDatabaseHas('deployment_requests', [
+            'id' => $created['id'],
+            'title' => 'Zoekactie Utrecht Centraal',
+        ]);
+
+        $deploymentRequest = DeploymentRequest::query()->findOrFail($created['id']);
+        $decided = $service->decidePriority($deploymentRequest, [
+            'lock_version' => $created['lock_version'],
+            'client_mutation_id' => 'title-decision',
+            'priority' => 'low',
+        ], $actor);
+        $selectedProfileId = $decided['selected_deployment_proposal']['profile_id'];
+        $triage = $decided['triage'];
+
+        $renamed = $service->patch($deploymentRequest, [
+            'lock_version' => $decided['lock_version'],
+            'client_mutation_id' => 'title-patch',
+            'changes' => ['title' => 'Vermist persoon Utrecht'],
+        ], $actor);
+
+        $this->assertSame('Vermist persoon Utrecht', $renamed['title']);
+        $this->assertSame('low', $renamed['decided_priority']);
+        $this->assertSame($selectedProfileId, $renamed['selected_deployment_proposal']['profile_id']);
+        $this->assertSame($triage, $renamed['triage']);
+        $titleAudit = AuditLog::query()
+            ->where('target_id', $deploymentRequest->id)
+            ->where('action', 'deployment_requests.patch')
+            ->latest('created_at')
+            ->firstOrFail();
+        $this->assertSame('Zoekactie Utrecht Centraal', $titleAudit->metadata['title_from']);
+        $this->assertSame('Vermist persoon Utrecht', $titleAudit->metadata['title_to']);
+
+        $invalidCreate = $this->asWebClient($actor)->postJson('/api/deployment-requests', [
+            'title' => '   ',
+            'subject_type' => 'person',
+            'client_mutation_id' => 'title-blank-create',
+        ])->assertUnprocessable()
+            ->assertJsonPath('error.code', 'validation_failed');
+        $this->assertArrayHasKey('title', $invalidCreate->json('error.details'));
+
+        $invalidPatch = $this->asWebClient($actor)->patchJson("/api/deployment-requests/{$deploymentRequest->id}", [
+            'lock_version' => $renamed['lock_version'],
+            'client_mutation_id' => 'title-blank-route-patch',
+            'changes' => ['title' => '   '],
+        ])->assertUnprocessable()
+            ->assertJsonPath('error.code', 'validation_failed');
+        $this->assertArrayHasKey('changes.title', $invalidPatch->json('error.details'));
+
+        try {
+            $service->patch($deploymentRequest, [
+                'lock_version' => $renamed['lock_version'],
+                'client_mutation_id' => 'title-blank-service-patch',
+                'changes' => ['title' => '   '],
+            ], $actor);
+            $this->fail('Een expliciet lege titel mag ook buiten de HTTP-validatie niet worden opgeslagen.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('changes.title', $exception->errors());
+            $this->assertSame('Vermist persoon Utrecht', $deploymentRequest->refresh()->title);
+            $this->assertSame($renamed['lock_version'], $deploymentRequest->lock_version);
+        }
+
+        $legacy = $service->create([
+            'subject_type' => 'animal',
+            'client_mutation_id' => 'title-legacy-create',
+        ], $actor);
+        $this->assertSame('Aanvraag', $legacy['title']);
+        $this->assertNull(DeploymentRequest::query()->findOrFail($legacy['id'])->title);
+        $this->assertStringNotContainsString('Uitvraag', $legacy['title']);
+        $this->assertStringNotContainsString('dier', mb_strtolower($legacy['title']));
+    }
+
+    public function test_deployment_request_delete_requires_the_dedicated_permission_at_route_and_service_layers(): void
+    {
+        $actor = $this->user('deployment-request-delete-denied@example.test');
+        $this->grant($actor, ['deployments.manage']);
+        $service = app(DeploymentRequestService::class);
+        $created = $service->create([
+            'title' => 'Niet verwijderbaar',
+            'subject_type' => 'object',
+            'client_mutation_id' => 'delete-denied-create',
+        ], $actor);
+        $deploymentRequest = DeploymentRequest::query()->findOrFail($created['id']);
+
+        $this->asWebClient($actor)
+            ->deleteJson("/api/deployment-requests/{$deploymentRequest->id}", [
+                'lock_version' => $created['lock_version'],
+            ])
+            ->assertForbidden();
+
+        try {
+            $service->delete($deploymentRequest, $created['lock_version'], $actor);
+            $this->fail('Verwijderen zonder het afzonderlijke aanvraagrecht moet worden geweigerd.');
+        } catch (AuthorizationException) {
+            $this->assertDatabaseHas('deployment_requests', ['id' => $deploymentRequest->id]);
+        }
+
+        $deleteOnlyActor = $this->user('deployment-request-delete-only@example.test');
+        $this->grant($deleteOnlyActor, ['deployment-requests.delete']);
+        $this->asWebClient($deleteOnlyActor)
+            ->deleteJson("/api/deployment-requests/{$deploymentRequest->id}", [
+                'lock_version' => $created['lock_version'],
+            ])
+            ->assertForbidden();
+
+        try {
+            $service->delete($deploymentRequest, $created['lock_version'], $deleteOnlyActor);
+            $this->fail('Het verwijderrecht zonder aanvraagbeheer mag geen dossier verwijderen.');
+        } catch (AuthorizationException) {
+            $this->assertDatabaseHas('deployment_requests', ['id' => $deploymentRequest->id]);
+        }
+    }
+
+    public function test_authorized_deployment_request_delete_cascades_mutations_audits_safely_and_broadcasts_after_commit(): void
+    {
+        Event::fake([DeploymentRequestDeleted::class]);
+        $actor = $this->user('deployment-request-delete@example.test');
+        $this->grant($actor, ['deployments.manage', 'deployment-requests.delete']);
+        $service = app(DeploymentRequestService::class);
+        $created = $service->create([
+            'title' => 'Foutief aangemaakte aanvraag',
+            'subject_type' => 'person',
+            'answers' => ['person_name' => 'Niet in audit opnemen'],
+            'client_mutation_id' => 'delete-create',
+        ], $actor);
+        $deploymentRequest = DeploymentRequest::query()->findOrFail($created['id']);
+        $patched = $service->patch($deploymentRequest, [
+            'lock_version' => $created['lock_version'],
+            'client_mutation_id' => 'delete-patch',
+            'changes' => ['answers' => ['person_clothing' => 'Evenmin in audit']],
+        ], $actor);
+        $this->assertDatabaseCount('deployment_request_mutations', 2);
+
+        $this->asWebClient($actor)
+            ->deleteJson("/api/deployment-requests/{$deploymentRequest->id}", [
+                'lock_version' => $patched['lock_version'],
+            ])
+            ->assertNoContent();
+
+        $this->assertDatabaseMissing('deployment_requests', ['id' => $deploymentRequest->id]);
+        $this->assertDatabaseMissing('deployment_request_mutations', [
+            'deployment_request_id' => $deploymentRequest->id,
+        ]);
+        $audit = AuditLog::query()
+            ->where('target_id', $deploymentRequest->id)
+            ->where('action', 'deployment_requests.deleted')
+            ->firstOrFail();
+        $this->assertSame('Foutief aangemaakte aanvraag', $audit->metadata['title']);
+        $this->assertSame('open', $audit->metadata['status']);
+        $this->assertSame('person', $audit->metadata['subject_type']);
+        $this->assertSame(2, $audit->metadata['mutation_count']);
+        $this->assertArrayNotHasKey('answers', $audit->metadata);
+        $this->assertStringNotContainsString('Niet in audit opnemen', json_encode($audit->metadata, JSON_THROW_ON_ERROR));
+        Event::assertDispatched(
+            DeploymentRequestDeleted::class,
+            function (DeploymentRequestDeleted $event) use ($deploymentRequest): bool {
+                $payload = $event->broadcastWith();
+
+                return $event->deploymentRequestId === (string) $deploymentRequest->id
+                    && $event->broadcastAs() === 'deployment-request.changed'
+                    && $payload['action'] === 'deleted'
+                    && $payload['deleted'] === true
+                    && $payload['deployment_request_id'] === (string) $deploymentRequest->id;
+            },
+        );
+    }
+
+    public function test_deployment_request_delete_rejects_stale_versions_and_linked_deployments(): void
+    {
+        $actor = $this->user('deployment-request-delete-guard@example.test');
+        $this->grant($actor, ['deployments.manage', 'deployment-requests.delete']);
+        $client = $this->asWebClient($actor);
+        $created = $client->postJson('/api/deployment-requests', [
+            'title' => 'Te koppelen aanvraag',
+            'subject_type' => 'person',
+            'answers' => $this->personAnswers(),
+            'client_mutation_id' => 'delete-guard-create',
+        ])->assertCreated()->json('data');
+        $patched = $client->patchJson("/api/deployment-requests/{$created['id']}", [
+            'lock_version' => $created['lock_version'],
+            'client_mutation_id' => 'delete-guard-patch',
+            'changes' => ['title' => 'Actuele titel'],
+        ])->assertOk()->json('data');
+
+        $client->deleteJson("/api/deployment-requests/{$created['id']}", [
+            'lock_version' => $created['lock_version'],
+        ])->assertConflict()
+            ->assertJsonPath('error.code', 'deployment_request_version_conflict')
+            ->assertJsonPath('error.details.current.lock_version', $patched['lock_version'])
+            ->assertJsonPath('error.details.current.id', $created['id'])
+            ->assertJsonMissingPath('error.details.current.title')
+            ->assertJsonMissingPath('error.details.current.answers')
+            ->assertJsonMissingPath('error.details.current.answer_rows')
+            ->assertJsonMissingPath('error.details.current.triage');
+
+        $decided = $client->patchJson("/api/deployment-requests/{$created['id']}/priority", [
+            'lock_version' => $patched['lock_version'],
+            'client_mutation_id' => 'delete-guard-decision',
+            'priority' => 'low',
+        ])->assertOk()->json('data');
+        $prepared = $client->postJson("/api/deployment-requests/{$created['id']}/prepare-deployment", [
+            'lock_version' => $decided['lock_version'],
+            'client_mutation_id' => 'delete-guard-prepare',
+        ])->assertCreated()->json('data.deployment_request');
+
+        $client->deleteJson("/api/deployment-requests/{$created['id']}", [
+            'lock_version' => $prepared['lock_version'],
+        ])->assertUnprocessable()
+            ->assertJsonPath(
+                'error.details.deployment_request.0',
+                'Een aanvraag met een gekoppelde inzet kan niet afzonderlijk worden verwijderd. Verwijder de inzet via inzetbeheer.',
+            );
+        $this->assertDatabaseHas('deployment_requests', [
+            'id' => $created['id'],
+            'deployment_id' => $prepared['deployment_id'],
+            'status' => 'prepared',
+        ]);
     }
 
     public function test_closed_deployment_request_metadata_is_immutable_for_new_mutations(): void

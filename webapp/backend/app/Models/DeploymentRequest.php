@@ -16,6 +16,7 @@ final class DeploymentRequest extends Model
         'deployment_id',
         'status',
         'subject_type',
+        'title',
         'answers',
         'triage',
         'recommended_priority',

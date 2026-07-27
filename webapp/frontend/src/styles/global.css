@@ -15703,8 +15703,46 @@ pre {
   gap: 5px;
 }
 
+.deployment-request-create-form {
+  width: min(100%, 760px);
+  display: grid;
+  gap: 18px;
+  text-align: left;
+}
+
+.deployment-request-create-title {
+  display: grid;
+  gap: 7px;
+  color: var(--dis-text-strong);
+  font-weight: 700;
+}
+
+.deployment-request-create-title input {
+  width: 100%;
+}
+
+.deployment-request-create-title small,
+.deployment-request-create-subject-fieldset > span {
+  color: var(--dis-muted);
+  font-size: 0.78rem;
+  font-weight: 400;
+}
+
+.deployment-request-create-subject-fieldset {
+  display: grid;
+  gap: 5px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.deployment-request-create-subject-fieldset legend {
+  color: var(--dis-text-strong);
+  font-weight: 700;
+}
+
 .deployment-request-create-subjects {
-  width: min(100%, 740px);
+  width: 100%;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
@@ -15725,10 +15763,16 @@ pre {
 }
 
 .deployment-request-create-subjects button:hover,
-.deployment-request-create-subjects button:focus-visible {
+.deployment-request-create-subjects button:focus-visible,
+.deployment-request-create-subjects .deployment-request-create-subject--selected {
   border-color: var(--dis-blue);
   background: var(--dis-blue-soft);
   color: var(--dis-blue);
+}
+
+.deployment-request-create-actions {
+  justify-content: flex-end;
+  padding: 0;
 }
 
 .deployment-request-briefing {
@@ -15769,6 +15813,20 @@ pre {
 .deployment-request-briefing__identity > strong {
   color: var(--dis-text-strong);
   font-size: 1rem;
+}
+
+.deployment-request-briefing__identity > small {
+  color: var(--dis-muted);
+  font-size: 0.78rem;
+}
+
+.deployment-request-briefing__visibility {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--dis-muted);
+  font-size: 0.78rem;
 }
 
 .deployment-request-briefing__answers {
@@ -15874,6 +15932,7 @@ pre {
 }
 
 .deployment-request-workspace__topline > div:first-child {
+  min-width: 0;
   display: grid;
   grid-template-columns: auto auto;
   align-items: baseline;
@@ -15884,6 +15943,15 @@ pre {
   grid-column: 1 / -1;
   color: var(--dis-muted);
   font-size: 0.78rem;
+}
+
+.deployment-request-workspace__topline > div:first-child > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.deployment-request-delete-help {
+  margin: 12px 16px 0;
 }
 
 .deployment-request-workspace__eyebrow {

@@ -25,8 +25,8 @@ export const operationManualGuides = {
       permissions: ['deployments.manage'],
       prerequisites: ['Bepaal welke teams mogelijk nodig zijn.', 'Verzamel melder, telefoonnummer en locatie voor zover deze bekend zijn.'],
       steps: [
-        { label: 'Open Aanvragen', description: 'Kies Aanvragen, rond de beoordeling af en kies daarna Inzet voorbereiden.' },
-        { label: 'Vul titel en details in', description: 'Geef een herkenbare titel en leg de kern van de aanvraag vast.' },
+        { label: 'Maak de aanvraag bewust aan', description: 'Open Aanvragen, kies Nieuwe aanvraag, geef een herkenbare titel, kies het onderwerp en kies Aanvraag aanmaken. Alleen deze knop legt de nieuwe aanvraag vast.' },
+        { label: 'Vul de details in', description: 'Controleer de titel en leg de kern van de aanvraag vast. Wijzigingen in een bewust aangemaakt dossier worden daarna veilig tussentijds opgeslagen.' },
         { label: 'Vul melder en aanvrager in', description: 'Naam en telefoonnummer van de melder zijn vaste velden. Vul ze in wanneer bekend en vul ook de aanvragende organisatie en contactpersoon in.' },
         { label: 'Zoek de locatie', description: 'Typ een adres of herkenbare naam, kies de juiste suggestie en controleer plaats en kaart.' },
         { label: 'Kies prioriteit, teams en benodigde mensen', description: 'Selecteer de operationele teams en vul de gevraagde bezetting in.' },

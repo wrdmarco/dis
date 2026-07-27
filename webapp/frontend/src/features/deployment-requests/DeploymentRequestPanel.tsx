@@ -176,11 +176,15 @@ export function DeploymentRequestPanel(props: DeploymentRequestPanelProps) {
             <div className="deployment-request-briefing">
               <header>
                 <div className="deployment-request-briefing__identity">
-                  <span><Eye size={15} aria-hidden /> Zichtbaar voor piloten</span>
-                  <strong>{deploymentRequest.data.subject_type_label}</strong>
+                  <span>Aanvraagdossier</span>
+                  <strong>{deploymentRequest.data.title}</strong>
+                  <small>{deploymentRequest.data.subject_type_label}</small>
                 </div>
                 <span>Bijgewerkt {formatDateTime(deploymentRequest.data.updated_at)}</span>
               </header>
+              <p className="deployment-request-briefing__visibility">
+                <Eye size={15} aria-hidden /> Onderwerp en gegevens hieronder zijn zichtbaar voor piloten.
+              </p>
               {pilotVisibleAnswers.length > 0 ? (
                 <dl className="deployment-request-briefing__answers">
                   {pilotVisibleAnswers.map((answer) => (
@@ -193,9 +197,6 @@ export function DeploymentRequestPanel(props: DeploymentRequestPanelProps) {
               ) : (
                 <div className="empty-panel">Nog geen belangrijke inzetinformatie vastgelegd.</div>
               )}
-              <p className="deployment-request-briefing__note">
-                Alleen gegevens die in de aanvraag expliciet als zichtbaar voor piloten zijn gemarkeerd.
-              </p>
               {panelMessage ? <p className="form-note" role="status">{panelMessage}</p> : null}
             </div>
           ) : null}

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Events\DeploymentRequestChanged;
+use App\Events\DeploymentRequestDeleted;
 use App\Exceptions\DeploymentRequestConflictException;
 use App\Models\Certification;
 use App\Models\Deployment;
@@ -13,6 +14,7 @@ use App\Models\User;
 use App\Repositories\DeploymentRequestRepository;
 use App\Support\ApiDateTime;
 use Carbon\CarbonImmutable;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -131,6 +133,9 @@ final class DeploymentRequestService
 
         $published = $this->workflowService->published();
         $subjectType = (string) ($data['subject_type'] ?? '');
+        $title = array_key_exists('title', $data)
+            ? $this->normalizeTitle($data['title'], 'title', required: true)
+            : null;
         $answers = $this->workflowService->normalizeAnswers(
             $published->configuration ?? [],
             $subjectType,
@@ -139,11 +144,12 @@ final class DeploymentRequestService
         $evaluation = $this->workflowService->evaluate($published->configuration ?? [], $subjectType, $answers);
 
         try {
-            return DB::transaction(function () use ($published, $subjectType, $answers, $evaluation, $actor, $mutationId, $operation, $hash): array {
+            return DB::transaction(function () use ($published, $subjectType, $title, $answers, $evaluation, $actor, $mutationId, $operation, $hash): array {
                 $deploymentRequest = DeploymentRequest::query()->create([
                     'workflow_revision_id' => $published->id,
                     'status' => 'open',
                     'subject_type' => $subjectType,
+                    'title' => $title,
                     'answers' => $answers,
                     'triage' => $this->storedTriage($evaluation),
                     'recommended_priority' => $evaluation['triage']['recommended_priority'],
@@ -155,6 +161,7 @@ final class DeploymentRequestService
                 $payload = $this->present($deploymentRequest, $actor);
                 $this->storeMutation($deploymentRequest, $mutationId, $operation, $hash, $payload, $actor);
                 $this->auditService->record('deployment_requests.created', $deploymentRequest, $actor, [
+                    'title' => $this->titleForPresentation($deploymentRequest),
                     'subject_type' => $subjectType,
                     'workflow_version' => $published->version,
                 ]);
@@ -184,6 +191,9 @@ final class DeploymentRequestService
 
             $configuration = $locked->workflowRevision->configuration ?? [];
             $changes = is_array($input['changes'] ?? null) ? $input['changes'] : [];
+            $title = array_key_exists('title', $changes)
+                ? $this->normalizeTitle($changes['title'], 'changes.title', required: true)
+                : $locked->title;
             $oldSubjectType = (string) $locked->subject_type;
             $subjectType = array_key_exists('subject_type', $changes)
                 ? (string) $changes['subject_type']
@@ -210,6 +220,7 @@ final class DeploymentRequestService
             $contentChanged = $subjectType !== $oldSubjectType || $answers !== $oldAnswers;
             $preserveLinkedDeploymentPlan = $contentChanged && $locked->deployment_id !== null;
             $locked->forceFill([
+                'title' => $title,
                 'subject_type' => $subjectType,
                 'answers' => $answers,
                 'triage' => $this->storedTriage($evaluation),
@@ -505,6 +516,66 @@ final class DeploymentRequestService
         });
     }
 
+    public function delete(DeploymentRequest $deploymentRequest, int $expectedLockVersion, User $actor): void
+    {
+        if (
+            ! $actor->hasPermission('deployments.manage')
+            || ! $actor->hasPermission('deployment-requests.delete')
+        ) {
+            throw new AuthorizationException('Deleting deployment requests requires manage and delete permissions.');
+        }
+
+        DB::transaction(function () use ($deploymentRequest, $expectedLockVersion, $actor): void {
+            $locked = $this->repository->lock((string) $deploymentRequest->getKey());
+            $this->assertDeleteLockVersion($locked, $expectedLockVersion);
+
+            if ($locked->deployment_id !== null || $locked->status === 'prepared') {
+                throw ValidationException::withMessages([
+                    'deployment_request' => ['Een aanvraag met een gekoppelde inzet kan niet afzonderlijk worden verwijderd. Verwijder de inzet via inzetbeheer.'],
+                ]);
+            }
+
+            $deletedAt = now();
+            $mutationCount = $locked->mutations()->count();
+            $this->auditService->record('deployment_requests.deleted', $locked, $actor, [
+                'title' => $this->titleForPresentation($locked),
+                'status' => $locked->status,
+                'subject_type' => $locked->subject_type,
+                'mutation_count' => $mutationCount,
+            ]);
+
+            $deploymentRequestId = (string) $locked->getKey();
+            $locked->delete();
+
+            DB::afterCommit(function () use ($deploymentRequestId, $deletedAt): void {
+                try {
+                    event(new DeploymentRequestDeleted(
+                        $deploymentRequestId,
+                        ApiDateTime::dateTime($deletedAt) ?? $deletedAt->toIso8601String(),
+                    ));
+                } catch (Throwable $exception) {
+                    report($exception);
+                }
+            });
+        });
+    }
+
+    private function assertDeleteLockVersion(DeploymentRequest $deploymentRequest, int $expected): void
+    {
+        if ($expected !== $deploymentRequest->lock_version) {
+            throw new DeploymentRequestConflictException(
+                'deployment_request_version_conflict',
+                'Het aanvraagdossier is intussen gewijzigd.',
+                [
+                    'id' => (string) $deploymentRequest->getKey(),
+                    'lock_version' => $deploymentRequest->lock_version,
+                    'status' => $deploymentRequest->status,
+                    'deployment_id' => $deploymentRequest->deployment_id,
+                ],
+            );
+        }
+    }
+
     /** @return array<string, mixed> */
     public function present(DeploymentRequest $deploymentRequest, ?User $actor = null, bool $operatorOnly = false): array
     {
@@ -552,6 +623,7 @@ final class DeploymentRequestService
         return [
             'id' => $deploymentRequest->id,
             'status' => $deploymentRequest->status,
+            'title' => $this->titleForPresentation($deploymentRequest),
             'subject_type' => $subjectType,
             'subject_type_label' => $this->subjectTypeLabel($configuration, $subjectType),
             'workflow_revision' => [
@@ -625,6 +697,7 @@ final class DeploymentRequestService
                 }
                 $this->assertLockVersion($locked, (int) ($data['lock_version'] ?? 0), $actor);
                 $beforeSubjectType = (string) $locked->subject_type;
+                $beforeTitle = $this->titleForPresentation($locked);
                 $beforeAnswers = is_array($locked->answers) ? $locked->answers : [];
                 $beforePriority = $locked->decided_priority;
                 $beforeProfile = $locked->selected_deployment_profile_id;
@@ -644,6 +717,8 @@ final class DeploymentRequestService
                         'deployment_id' => $locked->deployment_id,
                         'lock_version' => $locked->lock_version,
                         'status' => $locked->status,
+                        'title_from' => $beforeTitle,
+                        'title_to' => $this->titleForPresentation($locked),
                         'changed_answer_keys' => $this->changedAnswerKeys($beforeAnswers, is_array($locked->answers) ? $locked->answers : []),
                         'subject_type_from' => $beforeSubjectType,
                         'subject_type_to' => $locked->subject_type,
@@ -1183,6 +1258,41 @@ final class DeploymentRequestService
     private function isEmpty(mixed $value): bool
     {
         return $value === null || $value === '' || (is_array($value) && $value === []);
+    }
+
+    private function normalizeTitle(mixed $value, string $key, bool $required = false): ?string
+    {
+        if ($value === null) {
+            if ($required) {
+                throw ValidationException::withMessages([$key => ['Vul een titel in.']]);
+            }
+
+            return null;
+        }
+        if (! is_string($value)) {
+            throw ValidationException::withMessages([$key => ['De titel moet tekst zijn.']]);
+        }
+
+        $title = trim($value);
+        if ($title === '') {
+            if ($required) {
+                throw ValidationException::withMessages([$key => ['Vul een titel in.']]);
+            }
+
+            return null;
+        }
+        if (mb_strlen($title) > 180) {
+            throw ValidationException::withMessages([$key => ['Gebruik maximaal 180 tekens voor de titel.']]);
+        }
+
+        return $title;
+    }
+
+    private function titleForPresentation(DeploymentRequest $deploymentRequest): string
+    {
+        $title = trim((string) $deploymentRequest->title);
+
+        return $title === '' ? 'Aanvraag' : $title;
     }
 
     private function nullableText(mixed $value, int $max): ?string

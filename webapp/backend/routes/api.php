@@ -171,6 +171,8 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::patch('/deployment-requests/{deploymentRequest}/priority', [DeploymentRequestController::class, 'decide'])->middleware('permission:deployments.manage');
         Route::post('/deployment-requests/{deploymentRequest}/prepare-deployment', [DeploymentRequestController::class, 'prepareDeployment'])->middleware('permission:deployments.manage');
         Route::post('/deployment-requests/{deploymentRequest}/close', [DeploymentRequestController::class, 'close'])->middleware('permission:deployments.manage');
+        Route::delete('/deployment-requests/{deploymentRequest}', [DeploymentRequestController::class, 'destroy'])
+            ->middleware(['permission:deployments.manage', 'permission:deployment-requests.delete']);
         Route::post('/deployments/flight-context-preview', [DeploymentController::class, 'flightContextPreview'])->middleware('permission:deployments.manage');
         Route::get('/deployments/{deployment}', [DeploymentController::class, 'show'])
             ->withoutMiddleware('throttle:authenticated')

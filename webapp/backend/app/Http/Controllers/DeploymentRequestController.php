@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\DeploymentRequestConflictException;
 use App\Http\Requests\DeploymentRequests\DecideDeploymentRequestPriorityRequest;
+use App\Http\Requests\DeploymentRequests\DeleteDeploymentRequestRequest;
 use App\Http\Requests\DeploymentRequests\DeploymentRequestMutationRequest;
 use App\Http\Requests\DeploymentRequests\PatchDeploymentRequest;
 use App\Http\Requests\DeploymentRequests\StoreDeploymentRequest;
@@ -14,6 +15,7 @@ use App\Services\DeploymentRequestService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 final class DeploymentRequestController extends Controller
 {
@@ -88,6 +90,21 @@ final class DeploymentRequestController extends Controller
         } catch (DeploymentRequestConflictException $exception) {
             return $this->conflict($exception);
         }
+    }
+
+    public function destroy(DeleteDeploymentRequestRequest $request, DeploymentRequest $deploymentRequest): Response
+    {
+        try {
+            $this->service->delete(
+                $deploymentRequest,
+                (int) $request->validated('lock_version'),
+                $request->user(),
+            );
+        } catch (DeploymentRequestConflictException $exception) {
+            return $this->conflict($exception);
+        }
+
+        return response()->noContent();
     }
 
     public function showForDeployment(Request $request, Deployment $deployment): JsonResponse

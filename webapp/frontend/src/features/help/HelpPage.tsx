@@ -194,11 +194,12 @@ const helpTopics: readonly HelpTopic[] = [
     permissions: ['deployments.manage'],
     actions: [
       { title: 'Werkvoorraad bekijken', description: 'Aanvragen toont alleen uitvragen waarvoor nog geen inzet is voorbereid. Open een aanvraag om verder te gaan waar je gebleven was.' },
-      { title: 'Nieuwe aanvraag starten', description: 'Kies eerst Persoon, Dier of Object. Vanaf dat moment wordt het aanvraagdossier automatisch op de server opgeslagen.', permissions: ['deployments.manage'] },
+      { title: 'Nieuwe aanvraag starten', description: 'Geef de aanvraag een herkenbare titel, kies Persoon, Dier of Object en kies daarna Aanvraag aanmaken. Weggaan vóór die knop maakt geen aanvraag aan.', permissions: ['deployments.manage'] },
       { title: 'Uitvraag aanvullen', description: 'Vul de algemene vragen en daarna de vragen voor Persoon, Dier of Object in. Leg Laatst gezien locatie en Opkomstlocatie apart vast; gekoppelde gegevens worden later automatisch in de inzet gebruikt.', permissions: ['deployments.manage'] },
       { title: 'Prioriteit vaststellen', description: 'Controleer het advies, de redenen, ontbrekende informatie en het inzetvoorstel. Afwijken vereist aanvullende rechten en een reden.', permissions: ['deployments.manage'] },
       { title: 'Inzet voorbereiden', description: 'Maak na de beoordeling een conceptinzet. Dit verstuurt nog geen alarmering. De uitvraag blijft vanuit de inzet beschikbaar.', permissions: ['deployments.manage'] },
       { title: 'Zonder inzet afsluiten', description: 'Sluit een aanvraag af wanneer geen inzet nodig is. Het dossier verdwijnt dan uit de open werkvoorraad.', permissions: ['deployments.manage'] },
+      { title: 'Foutieve aanvraag verwijderen', description: 'Een beheerder met verwijderrechten kan een niet-gekoppelde aanvraag permanent verwijderen. Aanvragen die al aan een inzet gekoppeld zijn blijven behouden.', permissions: ['deployment-requests.delete'] },
     ],
   },
   {

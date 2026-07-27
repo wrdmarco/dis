@@ -16,7 +16,6 @@ import {
   deploymentRequestPriorityTone,
   deploymentRequestStatusLabel,
   deploymentRequestStatusTone,
-  deploymentRequestTitle,
   type DeploymentRequest,
 } from './deploymentRequestWorkflow';
 
@@ -116,7 +115,7 @@ export function DeploymentRequestListPage() {
                         tone={deploymentRequestStatusTone(deploymentRequest.status)}
                       />
                     </header>
-                    <strong>{deploymentRequestTitle(deploymentRequest)}</strong>
+                    <strong>{deploymentRequest.title}</strong>
                     <div className="deployment-request-card__priority">
                       <span>Prioriteit</span>
                       <StatusPill
