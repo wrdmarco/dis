@@ -84,7 +84,7 @@ final class WallboardCalendarTest extends TestCase
         yield 'nul items' => [['max_items' => 0], 'configuration.pages.0.options.max_items'];
         yield 'te veel items' => [['max_items' => 13], 'configuration.pages.0.options.max_items'];
         yield 'geen geheel getal' => [['max_items' => '6'], 'configuration.pages.0.options.max_items'];
-        yield 'vreemde optie' => [['max_items' => 6, 'show_test_incidents' => true], 'configuration.pages.0.options'];
+        yield 'vreemde optie' => [['max_items' => 6, 'show_test_deployments' => true], 'configuration.pages.0.options'];
     }
 
     public function test_state_queries_once_and_returns_only_bounded_current_and_upcoming_calendar_items(): void

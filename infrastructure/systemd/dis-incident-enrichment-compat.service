@@ -1,0 +1,25 @@
+# DIS temporary legacy deployment-enrichment compatibility bridge
+[Unit]
+Description=DIS temporary legacy incident-enrichment updater bridge
+Requires=dis-deployment-enrichment.service
+After=dis-deployment-enrichment.service
+BindsTo=dis-deployment-enrichment.service
+
+[Service]
+Type=oneshot
+User=dis
+Group=dis
+ExecStart=/usr/bin/true
+RemainAfterExit=yes
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native

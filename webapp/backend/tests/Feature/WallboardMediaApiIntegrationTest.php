@@ -91,10 +91,10 @@ final class WallboardMediaApiIntegrationTest extends TestCase
             'purpose' => WallboardPlaylist::PURPOSE_ALARM,
             'configuration' => $this->photoConfiguration((string) $deploymentMediaPlaylist->id, 15),
         ], $manager, Request::create('/api/admin/wallboard-playlists', 'POST'));
-        $wallboard->forceFill(['active_incident_playlist_id' => $deploymentPlaylist->id])->save();
+        $wallboard->forceFill(['active_deployment_playlist_id' => $deploymentPlaylist->id])->save();
         self::assertSame(
             (string) $deploymentPlaylist->id,
-            (string) $wallboard->fresh()?->active_incident_playlist_id,
+            (string) $wallboard->fresh()?->active_deployment_playlist_id,
         );
         $this->assertDatabaseHas('wallboard_media_playlist_usages', [
             'wallboard_playlist_id' => (string) $deploymentPlaylist->id,
@@ -556,7 +556,7 @@ final class WallboardMediaApiIntegrationTest extends TestCase
                     'item_duration_seconds' => $itemDurationSeconds,
                 ],
             ]],
-            'incident_override' => ['enabled' => false, 'page_id' => 'photos'],
+            'deployment_override' => ['enabled' => false, 'page_id' => 'photos'],
         ];
     }
 
@@ -572,7 +572,7 @@ final class WallboardMediaApiIntegrationTest extends TestCase
                 'duration_seconds' => 30,
                 'options' => [],
             ]],
-            'incident_override' => ['enabled' => false, 'page_id' => 'map'],
+            'deployment_override' => ['enabled' => false, 'page_id' => 'map'],
         ];
     }
 

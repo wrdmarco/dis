@@ -538,7 +538,7 @@ final class WallboardMediaLibraryTest extends TestCase
                     'item_duration_seconds' => $duration,
                 ],
             ]],
-            'incident_override' => ['enabled' => false, 'page_id' => 'photos'],
+            'deployment_override' => ['enabled' => false, 'page_id' => 'photos'],
         ];
     }
 

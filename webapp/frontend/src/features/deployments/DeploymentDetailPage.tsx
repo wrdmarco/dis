@@ -1,0 +1,1782 @@
+'use client';
+
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { Ban, BellRing, CheckCircle2, Clock, CloudSun, Download, MapPin, MessageSquare, Pencil, Plane, RadioTower, RefreshCw, Send, Trash2, TrendingUp, UserRound, Users, X } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Panel } from '../../components/Panel';
+import { ResourceState } from '../../components/ResourceState';
+import { StatusPill } from '../../components/StatusPill';
+import { ApiClientError } from '../../lib/apiClient';
+import { formatDateTime } from '../../lib/dateTime';
+import { useApiResource } from '../../lib/useApiResource';
+import { useAuth } from '../auth/AuthContext';
+import type { Deployment, DeploymentInternalNotes, DeploymentLiveLocation, DeploymentTimelineItem, DispatchDeliveryStatus, DispatchPreview, DispatchRequest, DroneFlightContext, ReportDeployment, Team } from '../../types/api';
+import { RealtimeBridge } from '../realtime/RealtimeBridge';
+import { dispatchDeliveryNotice } from './dispatchDeliveryPresentation';
+import { currentLiveLocations, dispatchEtaLabel, isCurrentLiveLocation, liveLocationEtaLabel } from './etaPresentation';
+import { DeploymentRequestPanel } from '../deployment-requests/DeploymentRequestPanel';
+import { presentDeploymentTimelineItem } from './deploymentTimelinePresentation';
+import { deploymentLifecycleActionForStatus, type DeploymentLifecycleAction } from './deploymentStatusFlow';
+
+export function DeploymentDetailPage({ deploymentId }: { deploymentId: string }) {
+  const router = useRouter();
+  const { api, hasPermission } = useAuth();
+  const canManageDeployments = hasPermission('deployments.manage');
+  const canDeleteDeployments = hasPermission('deployments.delete');
+  const canViewDispatches = hasPermission('deployments.dispatch.view');
+  const canManageDispatches = hasPermission('deployments.dispatch.manage');
+  const canOverrideStatus = hasPermission('status.override');
+  const canOpenReports = hasPermission('deployments.view') && canViewDispatches;
+  const [dispatchRecipientCount, setDispatchRecipientCount] = useState('');
+  const dispatchRecipientCountNumber = Number.parseInt(dispatchRecipientCount, 10);
+  const dispatchPreviewUrl = `/deployments/${deploymentId}/dispatch-preview${Number.isFinite(dispatchRecipientCountNumber) && dispatchRecipientCountNumber > 0 ? `?dispatch_recipient_count=${dispatchRecipientCountNumber}` : ''}`;
+  const deployment = useApiResource<Deployment>(`/deployments/${deploymentId}`, Boolean(deploymentId));
+  const reloadDeploymentSilently = deployment.silentReload;
+  const preview = useApiResource<DispatchPreview>(dispatchPreviewUrl, Boolean(deploymentId) && canViewDispatches);
+  const dispatches = useApiResource<DispatchRequest[]>(`/deployments/${deploymentId}/dispatches`, Boolean(deploymentId) && canViewDispatches);
+  const reloadDispatchesSilently = dispatches.silentReload;
+  const liveLocations = useApiResource<DeploymentLiveLocation[]>(`/deployments/${deploymentId}/live-locations`, Boolean(deploymentId));
+  const reloadLiveLocationsSilently = liveLocations.silentReload;
+  const timeline = useApiResource<DeploymentTimelineItem[]>(`/deployments/${deploymentId}/timeline`, Boolean(deploymentId));
+  const reportDeployments = useApiResource<ReportDeployment[]>('/reports/deployments?limit=100', Boolean(deploymentId));
+  const internalNotes = useApiResource<DeploymentInternalNotes>(`/deployments/${deploymentId}/internal-notes`, Boolean(deploymentId) && canManageDeployments);
+  const teams = useApiResource<Team[]>('/teams', canViewDispatches && canManageDispatches);
+  const [deploymentError, setDeploymentError] = useState<string | null>(null);
+  const [dispatching, setDispatching] = useState(false);
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
+  const [dispatchNotice, setDispatchNotice] = useState<string | null>(null);
+  const [dispatchWarning, setDispatchWarning] = useState<string | null>(null);
+  const [deliveryTrackingDispatchId, setDeliveryTrackingDispatchId] = useState<string | null>(null);
+  const [additionalInfo, setAdditionalInfo] = useState('');
+  const [additionalInfoSending, setAdditionalInfoSending] = useState(false);
+  const [additionalInfoMessage, setAdditionalInfoMessage] = useState<string | null>(null);
+  const [internalNotesText, setInternalNotesText] = useState('');
+  const [internalNotesSaving, setInternalNotesSaving] = useState(false);
+  const [internalNotesMessage, setInternalNotesMessage] = useState<string | null>(null);
+  const [dispatchAction, setDispatchAction] = useState<'escalate' | 'realert' | null>(null);
+  const [dispatchActionMessage, setDispatchActionMessage] = useState<string | null>(null);
+  const [escalationModalOpen, setEscalationModalOpen] = useState(false);
+  const [escalationTeamIds, setEscalationTeamIds] = useState<string[]>([]);
+  const [escalationIncludeUnavailable, setEscalationIncludeUnavailable] = useState(false);
+  const [escalationError, setEscalationError] = useState<string | null>(null);
+  const [recipientUpdatingId, setRecipientUpdatingId] = useState<string | null>(null);
+  const [recipientUpdateMessage, setRecipientUpdateMessage] = useState<string | null>(null);
+  const [operatorStatusUpdatingUserId, setOperatorStatusUpdatingUserId] = useState<string | null>(null);
+  const [locationRequestingUserId, setLocationRequestingUserId] = useState<string | null>(null);
+  const [reportDownloading, setReportDownloading] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [flightRefreshLoading, setFlightRefreshLoading] = useState(false);
+  const [flightRefreshMessage, setFlightRefreshMessage] = useState<string | null>(null);
+  const [deletingDeployment, setDeletingDeployment] = useState(false);
+  const [deploymentLifecycleAction, setDeploymentLifecycleAction] = useState<DeploymentLifecycleAction | null>(null);
+  const [deploymentLifecycleReason, setDeploymentLifecycleReason] = useState('');
+  const [deploymentLifecycleLoading, setDeploymentLifecycleLoading] = useState(false);
+  const [deploymentLifecycleError, setDeploymentLifecycleError] = useState<string | null>(null);
+  const [deploymentRequestRefreshVersion, setDeploymentRequestRefreshVersion] = useState(0);
+
+  const latestDispatch = dispatches.data?.[0] ?? null;
+  const latestDispatchIsPreannouncement = latestDispatch?.status === 'draft';
+  const showDraftPanel = deployment.data?.status === 'draft';
+  const showDispatchPanel = deployment.data?.status === 'active';
+  const reportAvailable = deployment.data?.status === 'resolved' || deployment.data?.status === 'cancelled';
+  const recipientCount = canViewDispatches
+    ? latestDispatch?.recipients?.length ?? preview.data?.recipients.length ?? 0
+    : null;
+  const liveSharedCount = liveLocations.data?.filter((location) => isCurrentLiveLocation(location)).length ?? 0;
+  const deploymentRequestId = deployment.data?.deployment_request_id ?? null;
+  const availableLifecycleAction = deployment.data
+    ? deploymentLifecycleActionForStatus(deployment.data.status)
+    : null;
+  const dispatchedTeamIds = dispatchTargetTeamIds(dispatches.data ?? []);
+  const escalationTeams = (teams.data ?? []).filter((team) => team.is_operational && !dispatchedTeamIds.includes(team.id));
+  const canEscalateUnavailable = deployment.data?.priority === 'high' || deployment.data?.priority === 'critical';
+  const liveLocationByUserId = useMemo(
+    () => new Map((liveLocations.data ?? []).map((location) => [location.user_id, location])),
+    [liveLocations.data],
+  );
+  const reportDeployment = useMemo(
+    () => (reportDeployments.data ?? []).find((item) => item.id === deploymentId) ?? null,
+    [deploymentId, reportDeployments.data],
+  );
+
+  useEffect(() => {
+    if (!deploymentId || deployment.data?.status === 'resolved' || deployment.data?.status === 'cancelled') {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void reloadLiveLocationsSilently();
+    }, 10_000);
+
+    return () => window.clearInterval(timer);
+  }, [deployment.data?.status, deploymentId, reloadLiveLocationsSilently]);
+
+  useEffect(() => {
+    setInternalNotesText(internalNotes.data?.internal_notes ?? '');
+  }, [internalNotes.data?.internal_notes]);
+
+  useEffect(() => {
+    if (deliveryTrackingDispatchId === null) return undefined;
+
+    let disposed = false;
+    let timeoutId: number | null = null;
+    let consecutiveFailures = 0;
+
+    const schedule = (delayMs: number) => {
+      timeoutId = window.setTimeout(() => void poll(), delayMs);
+    };
+    const poll = async () => {
+      try {
+        const response = await api.get<DispatchDeliveryStatus>(
+          `/dispatches/${encodeURIComponent(deliveryTrackingDispatchId)}/delivery`,
+        );
+        if (disposed) return;
+        consecutiveFailures = 0;
+        const status = response.data;
+        const notice = dispatchDeliveryNotice(status.state);
+        if (notice !== null) {
+          setDispatchNotice(joinDispatchNotice(notice, dispatchWarning));
+        }
+
+        if (status.state === 'sent') {
+          setDispatchError(null);
+          setDeliveryTrackingDispatchId(null);
+          void reloadDispatchesSilently();
+          return;
+        }
+        if (status.state === 'partial') {
+          setDispatchError(dispatchPartialDeliveryMessage(status));
+          if (status.device_counts.pending > 0) {
+            schedule(1_000);
+          } else {
+            setDeliveryTrackingDispatchId(null);
+            void reloadDispatchesSilently();
+          }
+          return;
+        }
+        if (status.state === 'failed') {
+          setDispatchNotice(dispatchWarning);
+          setDispatchError('Het alarm kon niet bij de pushprovider worden afgeleverd. Controleer de apparaten en probeer opnieuw te alarmeren.');
+          setDeliveryTrackingDispatchId(null);
+          void reloadDispatchesSilently();
+          return;
+        }
+        schedule(1_000);
+      } catch {
+        if (disposed) return;
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= 3) {
+          setDispatchNotice(joinDispatchNotice(
+            'Alarm staat in de verzendwachtrij; de afleverbevestiging is tijdelijk niet bereikbaar.',
+            dispatchWarning,
+          ));
+        }
+        schedule(Math.min(5_000, 1_000 * consecutiveFailures));
+      }
+    };
+
+    void poll();
+    return () => {
+      disposed = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
+  }, [api, deliveryTrackingDispatchId, dispatchWarning, reloadDispatchesSilently]);
+
+  const activateDeployment = async () => {
+    if (!deploymentId) {
+      return;
+    }
+
+    setDispatchError(null);
+    setDispatchNotice(null);
+    setDispatchWarning(null);
+    setDeliveryTrackingDispatchId(null);
+    setDispatching(true);
+    try {
+      const response = await api.patch<Deployment>(`/deployments/${deploymentId}`, {
+        status: 'active',
+        status_reason: 'Vooraankondiging verstuurd.',
+        ...dispatchRecipientCountPayload(dispatchRecipientCount),
+      });
+      setDispatchNotice(warningsMessage(response.meta));
+      await deployment.reload();
+      await preview.reload();
+      await dispatches.reload();
+      await timeline.reload();
+    } catch (err) {
+      setDispatchError(err instanceof ApiClientError ? err.message : 'Vooraankondiging kon niet worden verstuurd.');
+    } finally {
+      setDispatching(false);
+    }
+  };
+
+  const sendAlarm = async () => {
+    if (!deploymentId) {
+      return;
+    }
+
+    setDispatchError(null);
+    setDispatchNotice(null);
+    setDispatchWarning(null);
+    setDeliveryTrackingDispatchId(null);
+    setDispatching(true);
+    try {
+      const response = await api.patch<Deployment>(`/deployments/${deploymentId}`, {
+        status: 'dispatching',
+        status_reason: 'Alarmering verstuurd.',
+        direct_dispatch: deployment.data?.status === 'draft',
+        ...dispatchRecipientCountPayload(dispatchRecipientCount),
+      });
+      const warning = warningsMessage(response.meta);
+      const dispatchId = response.data.active_dispatch?.id ?? null;
+      setDispatchWarning(warning);
+      setDispatchNotice(joinDispatchNotice('Alarm in wachtrij geplaatst.', warning));
+      setDeliveryTrackingDispatchId(dispatchId);
+      await deployment.reload();
+      await preview.reload();
+      await dispatches.reload();
+      await timeline.reload();
+    } catch (err) {
+      setDispatchError(err instanceof ApiClientError ? err.message : 'Alarmering kon niet worden verstuurd.');
+    } finally {
+      setDispatching(false);
+    }
+  };
+
+  const sendAdditionalInfo = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!latestDispatch || additionalInfo.trim() === '') {
+      return;
+    }
+
+    setAdditionalInfoSending(true);
+    setAdditionalInfoMessage(null);
+    try {
+      const response = await api.post<{ queued_tokens: number; recipient_users: number }>(`/dispatches/${latestDispatch.id}/message`, {
+        message: additionalInfo.trim(),
+      });
+      setAdditionalInfo('');
+      setAdditionalInfoMessage(`Verzonden naar ${response.data.recipient_users} opkomende gebruiker(s), ${response.data.queued_tokens} pushbericht(en) in wachtrij.`);
+      await timeline.reload();
+      await dispatches.reload();
+    } catch (err) {
+      setAdditionalInfoMessage(err instanceof ApiClientError ? err.message : 'Nadere info kon niet worden verzonden.');
+    } finally {
+      setAdditionalInfoSending(false);
+    }
+  };
+
+  const saveInternalNotes = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setInternalNotesSaving(true);
+    setInternalNotesMessage(null);
+    try {
+      const response = await api.patch<DeploymentInternalNotes>(`/deployments/${deploymentId}/internal-notes`, {
+        internal_notes: internalNotesText,
+      });
+      internalNotes.mutate(response.data);
+      setInternalNotesText('');
+      setInternalNotesMessage('Kladblokregel aan log toegevoegd.');
+      await timeline.silentReload();
+    } catch (err) {
+      setInternalNotesMessage(err instanceof ApiClientError ? err.message : 'Kladblokregels konden niet worden opgeslagen.');
+    } finally {
+      setInternalNotesSaving(false);
+    }
+  };
+
+  const openEscalationModal = () => {
+    setEscalationTeamIds([]);
+    setEscalationIncludeUnavailable(false);
+    setEscalationError(null);
+    setDispatchActionMessage(null);
+    setEscalationModalOpen(true);
+  };
+
+  const toggleEscalationTeam = (teamId: string, checked: boolean) => {
+    setEscalationTeamIds((current) => checked ? [...current, teamId] : current.filter((id) => id !== teamId));
+  };
+
+  const runEscalation = async () => {
+    if (!latestDispatch || escalationTeamIds.length === 0) {
+      setEscalationError('Kies minimaal een extra team om naar op te schalen.');
+      return;
+    }
+
+    const selectedLabels = escalationTeams
+      .filter((team) => escalationTeamIds.includes(team.id))
+      .map((team) => team.code)
+      .join(', ');
+
+    setDispatchAction('escalate');
+    setEscalationError(null);
+    setDispatchActionMessage(null);
+    try {
+      await api.post<DispatchRequest>(`/dispatches/${latestDispatch.id}/escalate`, {
+        team_ids: escalationTeamIds,
+        include_unavailable: escalationIncludeUnavailable,
+      });
+      setDispatchActionMessage(`Opgeschaald naar ${selectedLabels}. De extra teams zijn aan de inzet gekoppeld en gealarmeerd${escalationIncludeUnavailable ? ', inclusief niet-beschikbare teamleden.' : '.'}`);
+      setEscalationModalOpen(false);
+      setEscalationTeamIds([]);
+      setEscalationIncludeUnavailable(false);
+      await deployment.reload();
+      await preview.reload();
+      await dispatches.reload();
+      await timeline.reload();
+    } catch (err) {
+      setEscalationError(err instanceof ApiClientError ? err.message : 'Opschalen kon niet worden uitgevoerd.');
+    } finally {
+      setDispatchAction(null);
+    }
+  };
+
+  const runDispatchAction = async (action: 'realert') => {
+    if (!latestDispatch) {
+      return;
+    }
+
+    setDispatchAction(action);
+    setDispatchActionMessage(null);
+    try {
+      await api.post<DispatchRequest>(`/dispatches/${latestDispatch.id}/re-alert`);
+      setDispatchActionMessage('Heralarmering is verstuurd naar ontvangers zonder reactie.');
+      await dispatches.reload();
+      await timeline.reload();
+    } catch (err) {
+      setDispatchActionMessage(err instanceof ApiClientError ? err.message : 'Dispatchactie kon niet worden uitgevoerd.');
+    } finally {
+      setDispatchAction(null);
+    }
+  };
+
+  const updateRecipientResponse = async (recipientId: string, response: 'pending' | 'accepted' | 'declined' | 'no_response') => {
+    if (!latestDispatch) {
+      return;
+    }
+
+    setRecipientUpdatingId(recipientId);
+    setRecipientUpdateMessage(null);
+    try {
+      await api.patch(`/dispatches/${latestDispatch.id}/recipients/${recipientId}/response`, {
+        response,
+        note: 'Handmatig aangepast vanuit inzetdetail.',
+      });
+      setRecipientUpdateMessage('Opkomststatus aangepast.');
+      await dispatches.reload();
+      await liveLocations.reload();
+      await timeline.reload();
+    } catch (err) {
+      setRecipientUpdateMessage(err instanceof ApiClientError ? err.message : 'Opkomststatus kon niet worden aangepast.');
+    } finally {
+      setRecipientUpdatingId(null);
+    }
+  };
+
+  const updateOperatorStatus = async (userId: string, status: 'en_route' | 'on_scene') => {
+    setOperatorStatusUpdatingUserId(userId);
+    setRecipientUpdateMessage(null);
+    try {
+      await api.post(`/availability-statuses/users/${userId}/override`, {
+        status,
+        reason: 'Handmatig aangepast vanuit inzetdetail.',
+      });
+      setRecipientUpdateMessage('Gebruikersstatus aangepast.');
+      await dispatches.reload();
+      await liveLocations.reload();
+      await timeline.reload();
+    } catch (err) {
+      setRecipientUpdateMessage(err instanceof ApiClientError ? err.message : 'Gebruikersstatus kon niet worden aangepast.');
+    } finally {
+      setOperatorStatusUpdatingUserId(null);
+    }
+  };
+
+  const requestLocationSharing = async (userId: string) => {
+    if (!deploymentId) {
+      return;
+    }
+
+    setLocationRequestingUserId(userId);
+    setRecipientUpdateMessage(null);
+    try {
+      await api.post(`/deployments/${deploymentId}/location/request`, { user_id: userId });
+      setRecipientUpdateMessage('Locatieverzoek is naar de gebruiker gestuurd.');
+      await liveLocations.reload();
+      await timeline.reload();
+    } catch (err) {
+      setRecipientUpdateMessage(err instanceof ApiClientError ? err.message : 'Locatieverzoek kon niet worden verzonden.');
+    } finally {
+      setLocationRequestingUserId(null);
+    }
+  };
+
+  const downloadReport = async () => {
+    if (!deploymentId) {
+      return;
+    }
+
+    setReportDownloading(true);
+    setReportError(null);
+    try {
+      const response = await api.download(`/deployments/${deploymentId}/report`);
+      const url = URL.createObjectURL(response.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = response.filename ?? `${deployment.data?.reference ?? 'inzet'}-rapport.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setReportError(err instanceof ApiClientError ? err.message : 'Rapport kon niet worden gedownload.');
+    } finally {
+      setReportDownloading(false);
+    }
+  };
+
+  const refreshFlightContext = async () => {
+    if (!deploymentId) {
+      return;
+    }
+
+    setFlightRefreshLoading(true);
+    setFlightRefreshMessage(null);
+    try {
+      await api.post(`/deployments/${deploymentId}/flight-context/refresh`);
+      setFlightRefreshMessage('Drone vluchtinformatie is bijgewerkt.');
+      await deployment.reload();
+    } catch (err) {
+      setFlightRefreshMessage(err instanceof ApiClientError ? err.message : 'Drone vluchtinformatie kon niet worden bijgewerkt.');
+    } finally {
+      setFlightRefreshLoading(false);
+    }
+  };
+
+  const deleteDeployment = async () => {
+    if (!deploymentId || !deployment.data) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Inzet ${deployment.data.reference} permanent verwijderen? Bijbehorende opkomst, tijdlijn, live locatiegegevens en opgeslagen rapportdata worden ook verwijderd.`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingDeployment(true);
+    setDeploymentError(null);
+    try {
+      const returnPath = deploymentListReturnPath(deployment.data.status);
+      await api.delete(`/deployments/${deploymentId}`);
+      router.replace(returnPath);
+    } catch (err) {
+      setDeploymentError(err instanceof ApiClientError ? err.message : 'De inzet kon niet worden verwijderd.');
+    } finally {
+      setDeletingDeployment(false);
+    }
+  };
+
+  const openDeploymentLifecycleDialog = (action: DeploymentLifecycleAction) => {
+    setDeploymentLifecycleAction(action);
+    setDeploymentLifecycleReason('');
+    setDeploymentLifecycleError(null);
+  };
+
+  const closeDeploymentLifecycleDialog = () => {
+    if (deploymentLifecycleLoading) {
+      return;
+    }
+
+    setDeploymentLifecycleAction(null);
+    setDeploymentLifecycleReason('');
+    setDeploymentLifecycleError(null);
+  };
+
+  const submitDeploymentLifecycleAction = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!deploymentId || !deployment.data || deploymentLifecycleAction === null) {
+      return;
+    }
+
+    if (availableLifecycleAction !== deploymentLifecycleAction) {
+      setDeploymentLifecycleError('De inzetstatus is gewijzigd. Sluit dit venster en controleer de actuele status.');
+      return;
+    }
+
+    setDeploymentLifecycleLoading(true);
+    setDeploymentLifecycleError(null);
+    try {
+      const endpoint = deploymentLifecycleAction === 'cancel' ? 'cancel' : 'close';
+      const response = await api.post<Deployment>(`/deployments/${deploymentId}/${endpoint}`, {
+        reason: deploymentLifecycleReason.trim() === '' ? null : deploymentLifecycleReason.trim(),
+      });
+      deployment.mutate(response.data);
+      await Promise.all([
+        deployment.reload(),
+        preview.reload(),
+        dispatches.reload(),
+        liveLocations.reload(),
+        timeline.reload(),
+        reportDeployments.reload(),
+      ]);
+      setDeploymentLifecycleAction(null);
+      setDeploymentLifecycleReason('');
+    } catch (err) {
+      setDeploymentLifecycleError(err instanceof ApiClientError
+        ? err.message
+        : deploymentLifecycleAction === 'cancel'
+          ? 'De inzet kon niet worden geannuleerd.'
+          : 'De inzet kon niet worden afgerond.');
+    } finally {
+      setDeploymentLifecycleLoading(false);
+    }
+  };
+
+  return (
+    <div className="page-stack deployment-detail-page">
+      <RealtimeBridge deploymentId={deploymentId} onOperationalEvent={() => {
+        void reloadDeploymentSilently();
+        void preview.silentReload();
+        void dispatches.silentReload();
+        void reloadLiveLocationsSilently();
+        void timeline.silentReload();
+        setDeploymentRequestRefreshVersion((current) => current + 1);
+      }} />
+      <Panel
+        title="Inzet"
+        action={deployment.data ? (
+          <div className="table-actions">
+            {reportAvailable ? (
+              <button className="primary-button" type="button" onClick={() => void downloadReport()} disabled={reportDownloading}>
+                <Download size={16} /> {reportDownloading ? 'Rapport...' : 'Rapport PDF'}
+              </button>
+            ) : null}
+            {canManageDeployments && availableLifecycleAction === 'cancel' ? (
+              <button className="danger-button" type="button" onClick={() => openDeploymentLifecycleDialog('cancel')}>
+                <Ban size={16} /> Inzet annuleren
+              </button>
+            ) : null}
+            {canManageDeployments && availableLifecycleAction === 'close' ? (
+              <button className="primary-button" type="button" onClick={() => openDeploymentLifecycleDialog('close')}>
+                <CheckCircle2 size={16} /> Inzet afronden
+              </button>
+            ) : null}
+            {canManageDeployments ? (
+              <Link className="secondary-button" href={`/inzetten/${deploymentId}/edit`}>
+                <Pencil size={16} /> Aanpassen
+              </Link>
+            ) : null}
+            {canDeleteDeployments ? (
+              <button className="danger-button" type="button" onClick={() => void deleteDeployment()} disabled={deletingDeployment}>
+                <Trash2 size={16} /> {deletingDeployment ? 'Verwijderen...' : 'Verwijderen'}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      >
+        <ResourceState loading={deployment.loading} error={deployment.error} empty={!deployment.data}>
+          {deployment.data ? (
+            <div className="deployment-detail">
+              <div className="deployment-hero">
+                <div className="deployment-hero__main">
+                  <span className="deployment-reference">{deployment.data.reference}</span>
+                  <h3>{deployment.data.title}</h3>
+                  <div className="deployment-hero__badges">
+                    <StatusPill value={priorityLabel(deployment.data.priority)} tone={deployment.data.priority === 'critical' ? 'bad' : deployment.data.priority === 'high' ? 'warn' : 'neutral'} />
+                    <StatusPill value={deploymentStatusLabel(deployment.data.status)} tone={deployment.data.status === 'resolved' ? 'good' : deployment.data.status === 'cancelled' ? 'bad' : deployment.data.status === 'draft' ? 'neutral' : 'warn'} />
+                  </div>
+                  <p>{deployment.data.description ?? 'Geen omschrijving vastgelegd.'}</p>
+                </div>
+                <dl className="deployment-meta">
+                  <MetaItem icon={<MessageSquare size={16} />} label="Melder" value={reporterLabel(deployment.data)} />
+                  <MetaItem icon={<RadioTower size={16} />} label="Aanvrager" value={requesterLabel(deployment.data)} />
+                  <MetaItem icon={<Users size={16} />} label="Ter plaatse" value={onSceneContactLabel(deployment.data)} />
+                  <MetaItem icon={<MapPin size={16} />} label="Opkomstlocatie" value={deployment.data.location_label ?? '-'} />
+                  <MetaItem icon={<Users size={16} />} label="Teams" value={deploymentTeamsLabel(deployment.data)} />
+                  <MetaItem icon={<RadioTower size={16} />} label="Coordinator" value={deployment.data.coordinator?.name ?? '-'} />
+                  <MetaItem icon={<Clock size={16} />} label="Geopend" value={formatDate(deployment.data.opened_at)} />
+                  <MetaItem icon={<Clock size={16} />} label="Gesloten" value={formatDate(deployment.data.closed_at)} />
+                </dl>
+              </div>
+              <div className="deployment-overview">
+                <SummaryItem label="Inzetstatus" value={deploymentStatusLabel(deployment.data.status)} />
+                <SummaryItem label="Prioriteit" value={priorityLabel(deployment.data.priority)} />
+                <SummaryItem label="Ontvangers" value={recipientCount === null ? '-' : String(recipientCount)} />
+                <SummaryItem label={latestDispatchIsPreannouncement ? 'Beschikbaar' : 'Komt'} value={latestDispatch ? String(countResponses(latestDispatch, 'accepted')) : '-'} />
+                <SummaryItem label="Onderweg" value={latestDispatch ? String(countOperatorStatuses(latestDispatch, 'en_route')) : '-'} />
+                <SummaryItem label="Live locaties" value={String(liveSharedCount)} />
+              </div>
+              {deploymentError ? <p className="form-error">{deploymentError}</p> : null}
+              {reportError ? <p className="form-error">{reportError}</p> : null}
+              <div className="deployment-overview deployment-overview--text">
+                <SummaryItem label="Benodigde middelen" value={deployment.data.required_resources ?? '-'} />
+              </div>
+            </div>
+          ) : null}
+        </ResourceState>
+      </Panel>
+
+      {canManageDeployments && deployment.data && deploymentRequestId !== null ? (
+        <DeploymentRequestPanel
+          deploymentId={deploymentId}
+          canManage={canManageDeployments}
+          refreshVersion={deploymentRequestRefreshVersion}
+        />
+      ) : null}
+
+      {canManageDeployments && deployment.data && !['resolved', 'cancelled'].includes(deployment.data.status) ? (
+        <Panel title="Meldkamer kladblok">
+          <ResourceState loading={internalNotes.loading} error={internalNotes.error} empty={false}>
+            <form className="panel-body" onSubmit={saveInternalNotes}>
+              <label>
+                Nieuwe kladblokregel
+                <textarea
+                  value={internalNotesText}
+                  rows={6}
+                  maxLength={20000}
+                  onChange={(event) => setInternalNotesText(event.target.value)}
+                  placeholder="Kladblokregel..."
+                />
+              </label>
+              <div className="form-actions">
+                <button className="primary-button" type="submit" disabled={internalNotesSaving || internalNotesText.trim() === ''}>
+                  <MessageSquare size={16} /> {internalNotesSaving ? 'Versturen...' : 'Kladblok verzenden'}
+                </button>
+              </div>
+              {internalNotesMessage ? <p className={internalNotesMessage.includes('kon') || internalNotesMessage.includes('alleen') ? 'form-error' : 'form-note'}>{internalNotesMessage}</p> : null}
+            </form>
+          </ResourceState>
+        </Panel>
+      ) : null}
+
+      {showDraftPanel && canViewDispatches && canManageDispatches ? (
+        <Panel
+          title="Concept"
+          action={(
+            <div className="actions-row">
+              <button className="secondary-button" type="button" onClick={activateDeployment} disabled={dispatching || preview.loading || (preview.data?.recipients.length ?? 0) === 0}>
+                <Send size={16} /> {dispatching ? 'Vooraankondigen...' : 'Vooraankondiging'}
+              </button>
+              <button className="primary-button" type="button" onClick={() => void sendAlarm()} disabled={dispatching || preview.loading || (preview.data?.recipients.length ?? 0) === 0}>
+                <BellRing size={16} /> {dispatching ? 'Alarmeren...' : 'Direct alarmeren'}
+              </button>
+            </div>
+          )}
+        >
+          <ResourceState loading={preview.loading} error={preview.error} empty={false}>
+          <div className="panel-body">
+            <p className="form-note">Kies voor een vooraankondiging of alarmeer direct. Beide acties gebruiken routegebaseerde ETA-ringen vanaf de globale woonplaats; een terugvalschatting wordt apart gemarkeerd.</p>
+            <DispatchRingControls value={dispatchRecipientCount} onChange={setDispatchRecipientCount} />
+            <DispatchPreviewSummary preview={preview.data} />
+            {preview.data?.blocked_reason ? <p className="form-error">{preview.data.blocked_reason}</p> : null}
+            {previewWarningsMessage(preview.data) ? <p className="form-note">{previewWarningsMessage(preview.data)}</p> : null}
+            {dispatchNotice ? <p className="form-note">{dispatchNotice}</p> : null}
+            {dispatchError ? <p className="form-error">{dispatchError}</p> : null}
+          </div>
+          </ResourceState>
+        </Panel>
+      ) : null}
+
+      {showDispatchPanel && canViewDispatches && canManageDispatches ? (
+        <Panel
+          title="Alarmeringsconcept"
+          action={(
+            <button className="primary-button" type="button" onClick={() => void sendAlarm()} disabled={dispatching || preview.loading || (preview.data?.recipients.length ?? 0) === 0}>
+              <Send size={16} /> {dispatching ? 'Versturen...' : 'Alarmering versturen'}
+            </button>
+          )}
+        >
+          <ResourceState loading={preview.loading} error={preview.error} empty={false}>
+            <div className="panel-body">
+              <DispatchRingControls value={dispatchRecipientCount} onChange={setDispatchRecipientCount} />
+              <div className="draft-dispatch">
+                <div>
+                  <span>Teams</span>
+                  <strong>{previewTeamsLabel(preview.data)}</strong>
+                </div>
+                <div>
+                  <span>Te alarmeren</span>
+                  <strong>{preview.data?.recipients.length ?? 0}</strong>
+                </div>
+              </div>
+              {preview.data?.blocked_reason ? <p className="form-error">{preview.data.blocked_reason}</p> : null}
+              {previewWarningsMessage(preview.data) ? <p className="form-note">{previewWarningsMessage(preview.data)}</p> : null}
+              {dispatchNotice ? <p className="form-note">{dispatchNotice}</p> : null}
+              {dispatchError ? <p className="form-error">{dispatchError}</p> : null}
+              {(preview.data?.recipients.length ?? 0) > 0 ? (
+                <div className="draft-recipient-grid">
+                  {preview.data?.recipients.map((recipient) => (
+                    <article key={recipient.id}>
+                      <strong>{recipient.name}</strong>
+                      <span>{recipient.email}</span>
+                      <small>{recipientPreviewMeta(recipient)}</small>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </ResourceState>
+        </Panel>
+      ) : null}
+
+      {canViewDispatches ? (
+        <Panel title="Opkomst en alarmering">
+          <ResourceState loading={dispatches.loading} error={dispatches.error} empty={(dispatches.data?.length ?? 0) === 0}>
+            <div className="panel-body">
+              {latestDispatch ? (
+                <>
+                <div className="dispatch-toolbar">
+                  <div>
+                    <span>{latestDispatch.status === 'draft' ? 'Laatste vooraankondiging' : 'Laatste alarmering'}</span>
+                    <strong>{dispatchStatusLabel(latestDispatch.status)}</strong>
+                  </div>
+                  {canManageDispatches ? <div className="dispatch-toolbar__actions">
+                    <button className="secondary-button" type="button" onClick={openEscalationModal} disabled={dispatchAction !== null || latestDispatch.status === 'draft' || latestDispatch.status === 'cancelled' || latestDispatch.status === 'escalated'}>
+                      <TrendingUp size={16} /> {dispatchAction === 'escalate' ? 'Opschalen...' : 'Opschalen'}
+                    </button>
+                    <button className="secondary-button" type="button" onClick={() => void runDispatchAction('realert')} disabled={dispatchAction !== null || latestDispatch.status === 'draft' || latestDispatch.status === 'cancelled' || countResponses(latestDispatch, 'pending') === 0}>
+                      <BellRing size={16} /> {dispatchAction === 'realert' ? 'Heralarmeren...' : 'Heralarmeren'}
+                    </button>
+                  </div> : null}
+                </div>
+                {dispatchActionMessage ? <p className={dispatchActionMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{dispatchActionMessage}</p> : null}
+                <div className="summary-grid">
+                  <SummaryItem label={latestDispatch.status === 'draft' ? 'Vooraankondiging' : 'Alarmering'} value={dispatchStatusLabel(latestDispatch.status)} />
+                  <SummaryItem label="Team" value={latestDispatch.target_team?.code ?? '-'} />
+                  <SummaryItem label="Verstuurd" value={formatDate(latestDispatch.sent_at)} />
+                  <SummaryItem label={latestDispatch.status === 'draft' ? 'Beschikbaar' : 'Komt'} value={String(countResponses(latestDispatch, 'accepted'))} />
+                  <SummaryItem label={latestDispatch.status === 'draft' ? 'Niet beschikbaar' : 'Komt niet'} value={String(countResponses(latestDispatch, 'declined'))} />
+                  <SummaryItem label="Nog geen reactie" value={String(countResponses(latestDispatch, 'pending'))} />
+                  <SummaryItem label="Onderweg" value={String(countOperatorStatuses(latestDispatch, 'en_route'))} />
+                  <SummaryItem label="Op locatie" value={String(countOperatorStatuses(latestDispatch, 'on_scene'))} />
+                </div>
+                <div className="recipient-list">
+                  {latestDispatch.recipients?.map((recipient) => {
+                    const userStatus = recipient.user?.statuses?.[0]?.status;
+                    const location = liveLocationByUserId.get(recipient.user_id);
+                    const canEditOperatorStatus = canOverrideStatus && !latestDispatchIsPreannouncement && recipient.response_status === 'accepted' && recipient.user_id !== '';
+
+                    return (
+                      <article className={`recipient-row recipient-row--${recipient.response_status}`} key={recipient.id}>
+                        <div className="recipient-row__identity">
+                          <strong>{recipient.user?.name ?? recipient.user_id}</strong>
+                          <span>{recipient.user?.email ?? '-'}</span>
+                        </div>
+                        <div className="recipient-row__states">
+                          <StatusPill value={responseLabel(recipient.response_status, latestDispatch.status === 'draft')} tone={recipient.response_status === 'accepted' ? 'good' : recipient.response_status === 'declined' ? 'bad' : undefined} />
+                          <StatusPill value={operatorStatusLabel(userStatus)} tone={operatorStatusTone(userStatus)} />
+                          <StatusPill value={locationSharingLabel(location?.sharing_status)} tone={location?.sharing_status === 'shared' ? 'good' : location?.sharing_status === 'declined' ? 'bad' : 'neutral'} />
+                        </div>
+                        <div className="recipient-row__time">
+                          <span>Reactie</span>
+                          <strong>{formatDate(recipient.responded_at)}</strong>
+                        </div>
+                        {canManageDispatches ? (
+                          <select
+                            value={recipient.response_status}
+                            disabled={recipientUpdatingId === recipient.id || latestDispatch.status === 'cancelled'}
+                            onChange={(event) => void updateRecipientResponse(recipient.id, event.target.value as 'pending' | 'accepted' | 'declined' | 'no_response')}
+                            aria-label={`Reactie aanpassen voor ${recipient.user?.name ?? recipient.user_id}`}
+                          >
+                            <option value="pending">Wacht op reactie</option>
+                            <option value="accepted">{latestDispatch.status === 'draft' ? 'Beschikbaar' : 'Komt'}</option>
+                            <option value="declined">{latestDispatch.status === 'draft' ? 'Niet beschikbaar' : 'Komt niet'}</option>
+                            <option value="no_response">Geen reactie</option>
+                          </select>
+                        ) : null}
+                        {canEditOperatorStatus ? (
+                          <div className="table-actions">
+                            <button className="secondary-button" type="button" onClick={() => void updateOperatorStatus(recipient.user_id, 'en_route')} disabled={operatorStatusUpdatingUserId === recipient.user_id || userStatus === 'en_route'}>
+                              Onderweg
+                            </button>
+                            <button className="secondary-button" type="button" onClick={() => void updateOperatorStatus(recipient.user_id, 'on_scene')} disabled={operatorStatusUpdatingUserId === recipient.user_id || userStatus === 'on_scene'}>
+                              Op locatie
+                            </button>
+                          </div>
+                        ) : null}
+                        {recipient.response_note ? <p className="recipient-row__note">{recipient.response_note}</p> : null}
+                      </article>
+                    );
+                  })}
+                </div>
+                {recipientUpdateMessage ? <p className={recipientUpdateMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{recipientUpdateMessage}</p> : null}
+                {canManageDispatches && !latestDispatchIsPreannouncement ? (
+                  <form className="inline-message-form" onSubmit={sendAdditionalInfo}>
+                    <label>
+                      Nadere info voor opkomende gebruikers
+                      <textarea value={additionalInfo} maxLength={2000} onChange={(event) => setAdditionalInfo(event.target.value)} />
+                    </label>
+                    <button className="primary-button" type="submit" disabled={additionalInfoSending || additionalInfo.trim() === '' || additionalInfoRecipientCount(latestDispatch) === 0}>
+                      <MessageSquare size={16} /> {additionalInfoSending ? 'Versturen...' : 'Info versturen'}
+                    </button>
+                    {additionalInfoMessage ? <p className={additionalInfoMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{additionalInfoMessage}</p> : null}
+                  </form>
+                ) : null}
+                </>
+              ) : null}
+            </div>
+          </ResourceState>
+        </Panel>
+      ) : null}
+
+      {reportDeployment ? (
+        <Panel
+          title="Inzetrapporten"
+          action={canOpenReports && reportDeployment.missing_pilot_report_count > 0 ? (
+            <button className="secondary-button" type="button" onClick={() => router.push('/reports')}>
+              Naar rapporten
+            </button>
+          ) : null}
+        >
+          <div className="panel-body">
+            <div className="summary-grid">
+              <SummaryItem label="Rapportstatus" value={reportDeployment.report_status === 'final' ? 'Definitief' : 'Concept'} />
+              <SummaryItem label="Ingediend" value={`${reportDeployment.submitted_pilot_report_count}/${reportDeployment.expected_pilot_report_count}`} />
+              <SummaryItem label="Ontbreekt" value={String(reportDeployment.missing_pilot_report_count)} />
+            </div>
+            {reportDeployment.missing_pilot_report_count > 0 ? (
+              <div className="missing-report-list">
+                {reportDeployment.missing_pilot_reports.map((report) => (
+                  <span key={report.user_id}>{report.name}</span>
+                ))}
+              </div>
+            ) : (
+              <p className="form-note">Alle inzetrapporten zijn binnen.</p>
+            )}
+          </div>
+        </Panel>
+      ) : null}
+
+      <Panel title="Kaart en live locaties">
+        <ResourceState loading={liveLocations.loading} error={liveLocations.error} empty={false}>
+          <LiveLocationMap
+            deployment={deployment.data}
+            locations={liveLocations.data ?? []}
+            canRequestLocation={canManageDispatches}
+            requestingUserId={locationRequestingUserId}
+            onRequestLocation={requestLocationSharing}
+          />
+        </ResourceState>
+      </Panel>
+
+      <Panel
+        title="Drone vluchtinformatie"
+        action={deployment.data && canManageDeployments ? (
+          <button className="secondary-button" type="button" onClick={() => void refreshFlightContext()} disabled={flightRefreshLoading}>
+            <RefreshCw size={16} /> {flightRefreshLoading ? 'Bijwerken...' : 'Bijwerken'}
+          </button>
+        ) : null}
+      >
+        <ResourceState loading={deployment.loading} error={deployment.error} empty={!deployment.data}>
+          <DroneFlightContextDetail context={deployment.data?.drone_flight_context ?? null} />
+          {flightRefreshMessage ? <p className={flightRefreshMessage.includes('kon niet') ? 'form-error' : 'form-note'}>{flightRefreshMessage}</p> : null}
+        </ResourceState>
+      </Panel>
+
+      <Panel title="Inzetlogboek">
+        <ResourceState loading={timeline.loading} error={timeline.error} empty={(timeline.data?.length ?? 0) === 0}>
+          <div className="deployment-timeline">
+            {timeline.data?.map((item) => {
+              const presentation = presentDeploymentTimelineItem(item);
+
+              return (
+                <article className={`deployment-timeline__item deployment-timeline__item--${item.type}`} key={`${item.type}-${item.id}`}>
+                  <time dateTime={item.created_at ?? undefined}>{formatDate(item.created_at)}</time>
+                  <div className="deployment-timeline__content">
+                    <div className="deployment-timeline__meta">
+                      <span className="deployment-timeline__type">{timelineTypeLabel(item.type)}</span>
+                      {presentation.actorLabel ? (
+                        <span className="deployment-timeline__actor">
+                          <UserRound aria-hidden="true" size={14} />
+                          {presentation.actorLabel}
+                        </span>
+                      ) : null}
+                    </div>
+                    <strong>{presentation.action}</strong>
+                    {presentation.detail ? <p>{presentation.detail}</p> : null}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </ResourceState>
+      </Panel>
+
+      {escalationModalOpen && latestDispatch && canManageDispatches ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal modal--deployment-action" role="dialog" aria-modal="true" aria-labelledby="deployment-escalation-title">
+            <header className="modal__header">
+              <h2 id="deployment-escalation-title">Inzet opschalen</h2>
+              <button className="icon-button" type="button" onClick={() => setEscalationModalOpen(false)} aria-label="Sluiten">
+                <X size={18} />
+              </button>
+            </header>
+            <div className="panel-body">
+              <p className="form-note">
+                Opschalen koppelt de gekozen teams aan deze inzet en verstuurt direct een extra alarmering naar beschikbare gebruikers in die teams.
+              </p>
+              <div className="summary-grid">
+                <SummaryItem label="Huidige inzetteams" value={deployment.data ? deploymentTeamsLabel(deployment.data) : '-'} />
+                <SummaryItem label="Al gealarmeerd" value={dispatchTeamsLabel(dispatches.data ?? [])} />
+                <SummaryItem label="Laatste alarmering" value={dispatchStatusLabel(latestDispatch.status)} />
+              </div>
+              <div className="modal-section">
+                <strong>Extra teams</strong>
+                {escalationTeams.length > 0 ? (
+                  <div className="checkbox-grid checkbox-grid--dense">
+                    {escalationTeams.map((team) => (
+                      <label className="checkbox-card" key={team.id}>
+                        <input
+                          type="checkbox"
+                          checked={escalationTeamIds.includes(team.id)}
+                          onChange={(event) => toggleEscalationTeam(team.id, event.target.checked)}
+                        />
+                        <span>
+                          <strong>{team.code} - {team.name}</strong>
+                          <small>{team.alert_teams?.length ? `Alarmeert ook: ${team.alert_teams.map((alertTeam) => alertTeam.code).join(', ')}` : team.type}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="form-note">Er zijn geen extra operationele teams beschikbaar die nog niet zijn gealarmeerd.</p>
+                )}
+              </div>
+              {canEscalateUnavailable ? (
+                <label className="checkbox-card">
+                  <input
+                    type="checkbox"
+                    checked={escalationIncludeUnavailable}
+                    onChange={(event) => setEscalationIncludeUnavailable(event.target.checked)}
+                  />
+                  <span>
+                    <strong>Ook niet-beschikbare teamleden alarmeren</strong>
+                    <small>Alleen voor urgente inzetten. Push moet actief zijn en certificeringen blijven verplicht.</small>
+                  </span>
+                </label>
+              ) : (
+                <p className="form-note">Niet-beschikbare teamleden kunnen alleen bij urgente inzetten worden meegealarmeerd.</p>
+              )}
+              {escalationError ? <p className="form-error">{escalationError}</p> : null}
+              <div className="form-actions">
+                <button className="secondary-button" type="button" onClick={() => setEscalationModalOpen(false)}>Annuleren</button>
+                <button className="primary-button" type="button" onClick={() => void runEscalation()} disabled={dispatchAction === 'escalate' || escalationTeamIds.length === 0}>
+                  <TrendingUp size={16} /> {dispatchAction === 'escalate' ? 'Opschalen...' : 'Opschalen'}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {deploymentLifecycleAction !== null && deployment.data && canManageDeployments ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="modal modal--deployment-action"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="deployment-lifecycle-title"
+          >
+            <header className="modal__header">
+              <h2 id="deployment-lifecycle-title">
+                {deploymentLifecycleAction === 'cancel' ? 'Inzet annuleren' : 'Inzet afronden'}
+              </h2>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={closeDeploymentLifecycleDialog}
+                disabled={deploymentLifecycleLoading}
+                aria-label="Sluiten"
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <form className="form-grid panel-body" onSubmit={submitDeploymentLifecycleAction}>
+              <p className="form-note form-grid__wide">
+                {deploymentLifecycleAction === 'cancel'
+                  ? `Bevestig dat ${deployment.data.reference} niet doorgaat. De inzet verhuist daarna naar het archief.`
+                  : `Bevestig dat de inzet voor ${deployment.data.reference} is voltooid. De inzet verhuist daarna naar het archief.`}
+              </p>
+              <label className="form-grid__wide">
+                Reden
+                <textarea
+                  value={deploymentLifecycleReason}
+                  rows={4}
+                  maxLength={1000}
+                  onChange={(event) => setDeploymentLifecycleReason(event.target.value)}
+                  placeholder={deploymentLifecycleAction === 'cancel'
+                    ? 'Waarom wordt deze inzet geannuleerd?'
+                    : 'Eventuele toelichting op het afronden.'}
+                />
+              </label>
+              {deploymentLifecycleError ? <p className="form-error form-grid__wide">{deploymentLifecycleError}</p> : null}
+              <div className="actions-row form-grid__wide">
+                <button className="secondary-button" type="button" onClick={closeDeploymentLifecycleDialog} disabled={deploymentLifecycleLoading}>
+                  Terug
+                </button>
+                <button
+                  className={deploymentLifecycleAction === 'cancel' ? 'danger-button' : 'primary-button'}
+                  type="submit"
+                  disabled={deploymentLifecycleLoading}
+                >
+                  {deploymentLifecycleAction === 'cancel' ? <Ban size={16} /> : <CheckCircle2 size={16} />}
+                  {deploymentLifecycleLoading
+                    ? deploymentLifecycleAction === 'cancel' ? 'Annuleren...' : 'Afronden...'
+                    : deploymentLifecycleAction === 'cancel' ? 'Inzet annuleren' : 'Inzet afronden'}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
+    </div>
+  );
+}
+
+function DroneFlightContextDetail({ context }: { context: DroneFlightContext | null }) {
+  if (!context) {
+    return (
+      <div className="drone-flight-empty">
+        <Plane size={24} />
+        <span>Geen drone vluchtinformatie opgeslagen. Werk de informatie bij zodra de inzetlocatie bekend is.</span>
+      </div>
+    );
+  }
+
+  const weather = context.weather;
+  const airspace = context.airspace;
+
+  return (
+    <div className="drone-flight-detail">
+      <div className="drone-flight-map-card">
+        <div>
+          <span>Dronekaart</span>
+          <strong>{context.location?.label ?? 'Inzetlocatie'}</strong>
+          <small>Snapshot: {formatDate(context.generated_at)}</small>
+        </div>
+        <div className="drone-flight-links">
+          {context.map?.aeret_url ? <a href={context.map.aeret_url} target="_blank" rel="noreferrer">Open Aeret kaart</a> : null}
+          {context.map?.openstreetmap_url ? <a href={context.map.openstreetmap_url} target="_blank" rel="noreferrer">Open OSM kaart</a> : null}
+        </div>
+      </div>
+      {context.map?.aeret_url ? (
+        <iframe className="drone-flight-aeret-frame" title="Aeret dronekaart" src={context.map.aeret_url} loading="lazy" />
+      ) : null}
+      <div className="drone-flight-grid">
+        <FlightDetailCard
+          icon={<CloudSun size={18} />}
+          title="Weer"
+          items={[
+            ['Status', providerStatusLabel(weather?.status)],
+            ['Samenvatting', weather?.summary ?? '-'],
+            ['Temperatuur', formatFlightMetric(weather?.temperature_c, ' C')],
+            ['Gevoelstemperatuur', formatFlightMetric(weather?.feels_like_c, ' C')],
+            ['Wind', formatFlightMetric(weather?.wind_speed_kmh, ' km/u')],
+            ['Windstoten', formatFlightMetric(weather?.wind_gust_kmh, ' km/u')],
+            ['Windrichting', formatFlightMetric(weather?.wind_direction_degrees, ' graden')],
+            ['Zicht', formatVisibility(weather?.visibility_m)],
+            ['Neerslag', formatFlightMetric(weather?.precipitation_mm, ' mm')],
+            ['Bewolking', formatFlightMetric(weather?.cloud_cover_percent, '%')],
+          ]}
+        />
+        <FlightDetailCard
+          icon={<Plane size={18} />}
+          title="Luchtruim"
+          items={[
+            ['Status', providerStatusLabel(airspace?.status)],
+            ['Samenvatting', airspace?.summary ?? '-'],
+            ['No-fly zones', String(airspace?.no_fly_zones?.length ?? 0)],
+            ['NOTAM', String(airspace?.notams?.length ?? 0)],
+            ['Beperkingen', String(airspace?.restrictions?.length ?? 0)],
+          ]}
+        />
+      </div>
+      <div className="drone-flight-list-row">
+        <FlightList title="No-fly zones" items={airspace?.no_fly_zones ?? []} empty="Geen no-fly zones ontvangen van provider." />
+        <FlightList title="NOTAM" items={airspace?.notams ?? []} empty="Geen NOTAM regels ontvangen van provider." />
+        <FlightList title="Vliegcheck" items={context.checklist ?? []} empty="Geen checklist opgeslagen." />
+      </div>
+    </div>
+  );
+}
+
+function FlightDetailCard({ icon, title, items }: { icon: ReactNode; title: string; items: Array<[string, string]> }) {
+  return (
+    <article className="drone-flight-card">
+      <h4>{icon}{title}</h4>
+      <dl>
+        {items.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </article>
+  );
+}
+
+function FlightList({ title, items, empty }: { title: string; items: unknown[]; empty: string }) {
+  return (
+    <article className="drone-flight-list">
+      <h4>{title}</h4>
+      {items.length > 0 ? (
+        <ul>
+          {items.map((item, index) => <li key={index}>{formatFlightItem(item)}</li>)}
+        </ul>
+      ) : (
+        <p>{empty}</p>
+      )}
+    </article>
+  );
+}
+
+function MetaItem({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <>
+      <dt>{icon}<span>{label}</span></dt>
+      <dd>{value}</dd>
+    </>
+  );
+}
+
+function deploymentListReturnPath(status: Deployment['status']): string {
+  return status === 'resolved' || status === 'cancelled' ? '/inzetten/archive' : '/inzetten';
+}
+
+function reporterLabel(deployment: Deployment): string {
+  const name = deployment.reporter_name?.trim() || '-';
+  const phone = deployment.reporter_phone?.trim();
+
+  return phone ? `${name} - ${phone}` : name;
+}
+
+function requesterLabel(deployment: Deployment): string {
+  const organization = deployment.requesting_organization?.trim() || '-';
+  const unit = deployment.requesting_unit?.trim();
+
+  return unit ? `${organization} - ${unit}` : organization;
+}
+
+function onSceneContactLabel(deployment: Deployment): string {
+  const name = deployment.on_scene_contact_name?.trim() || '-';
+  const role = deployment.on_scene_contact_role?.trim();
+  const phone = deployment.on_scene_contact_phone?.trim();
+  const details = [role, phone].filter((value): value is string => Boolean(value));
+
+  return details.length > 0 ? `${name} - ${details.join(' - ')}` : name;
+}
+
+function deploymentTeamsLabel(deployment: Deployment): string {
+  const teams = deployment.teams?.length ? deployment.teams : deployment.team ? [deployment.team] : [];
+
+  return teams.map((team) => `${team.code} - ${team.name}`).join(', ') || '-';
+}
+
+function dispatchTargetTeamIds(dispatches: DispatchRequest[]): string[] {
+  return Array.from(new Set(dispatches
+    .map((dispatch) => dispatch.target_team?.id ?? dispatch.target_team_id)
+    .filter((teamId): teamId is string => typeof teamId === 'string' && teamId !== '')));
+}
+
+function dispatchTeamsLabel(dispatches: DispatchRequest[]): string {
+  const teams = dispatches
+    .map((dispatch) => dispatch.target_team)
+    .filter((team): team is Team => team !== null && team !== undefined);
+
+  const uniqueTeams = Array.from(new Map(teams.map((team) => [team.id, team])).values());
+
+  return uniqueTeams.map((team) => `${team.code} - ${team.name}`).join(', ') || '-';
+}
+
+function previewTeamsLabel(preview?: DispatchPreview | null): string {
+  const teams = preview?.teams?.length ? preview.teams : preview?.team ? [preview.team] : [];
+
+  return teams.map((team) => `${team.code} - ${team.name}`).join(', ') || '-';
+}
+
+function dispatchRecipientCountPayload(value: string): Record<string, number> {
+  const count = Number.parseInt(value, 10);
+
+  return Number.isFinite(count) && count > 0 ? { dispatch_recipient_count: count } : {};
+}
+
+function recipientPreviewMeta(recipient: DispatchPreview['recipients'][number]): string {
+  const parts = [
+    recipient.home_city || null,
+    dispatchEtaLabel(recipient.eta_minutes, recipient.eta_source),
+    recipient.teams?.map((team) => team.code).join(', ') || null,
+  ].filter((value): value is string => Boolean(value));
+
+  return parts.join(' - ') || '-';
+}
+
+function DispatchRingControls({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="inline-form inline-form--compact">
+      <label>
+        Aantal te alarmeren
+        <input
+          type="number"
+          min={1}
+          max={200}
+          value={value}
+          placeholder="Alle geschikte mensen"
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <small>Leeg betekent: iedereen die voldoet. Ingevuld betekent: eerst de route-ETA-ring van 15 min, daarna 30, 45, enzovoort.</small>
+      </label>
+    </div>
+  );
+}
+
+function DispatchPreviewSummary({ preview }: { preview?: DispatchPreview | null }) {
+  return (
+    <>
+      <div className="draft-dispatch">
+        <div>
+          <span>Teams</span>
+          <strong>{previewTeamsLabel(preview)}</strong>
+        </div>
+        <div>
+          <span>Te alarmeren</span>
+          <strong>{preview?.recipients.length ?? 0}</strong>
+        </div>
+      </div>
+      {(preview?.recipients.length ?? 0) > 0 ? (
+        <div className="draft-recipient-grid">
+          {preview?.recipients.map((recipient) => (
+            <article key={recipient.id}>
+              <strong>{recipient.name}</strong>
+              <span>{recipient.email}</span>
+              <small>{recipientPreviewMeta(recipient)}</small>
+            </article>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function SummaryItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function LiveLocationMap({
+  deployment,
+  locations,
+  canRequestLocation,
+  requestingUserId,
+  onRequestLocation,
+}: {
+  deployment: Deployment | null;
+  locations: DeploymentLiveLocation[];
+  canRequestLocation: boolean;
+  requestingUserId: string | null;
+  onRequestLocation: (userId: string) => Promise<void>;
+}) {
+  const points = currentLiveLocations(locations)
+    .filter((location) => location.latitude !== null && location.latitude !== undefined && location.longitude !== null && location.longitude !== undefined)
+    .map((location) => ({
+      ...location,
+      latitude: Number(location.latitude),
+      longitude: Number(location.longitude),
+    }))
+    .filter((location) => Number.isFinite(location.latitude) && Number.isFinite(location.longitude));
+
+  const deploymentLatitude = Number(deployment?.latitude);
+  const deploymentLongitude = Number(deployment?.longitude);
+  const hasDeploymentLocation = Number.isFinite(deploymentLatitude) && Number.isFinite(deploymentLongitude);
+  const allPoints = [
+    ...(hasDeploymentLocation ? [{ latitude: deploymentLatitude, longitude: deploymentLongitude }] : []),
+    ...points,
+  ];
+  const mapPoints = allPoints.length > 0 ? allPoints : [{ latitude: 52.1326, longitude: 5.2913 }];
+  const center = centerFor(mapPoints);
+  const viewport = mapViewport(mapPoints);
+  const centerWorld = latLonToWorld(center.latitude, center.longitude, viewport.zoom);
+  const tiles = visibleTiles(centerWorld, viewport.zoom, viewport.width, viewport.height);
+
+  return (
+    <div className="live-map">
+      <div className="live-map__canvas">
+        <svg
+          className="live-map__viewport"
+          viewBox={`0 0 ${viewport.width} ${viewport.height}`}
+          role="img"
+          aria-label="Live locaties kaart"
+        >
+          {tiles.map((tile) => (
+            <image
+              key={`${tile.x}-${tile.y}-${tile.z}`}
+              className="live-map__tile"
+              href={`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${tile.z}/${tile.y}/${tile.x}`}
+              x={tile.left}
+              y={tile.top}
+              width="256"
+              height="256"
+              preserveAspectRatio="none"
+            />
+          ))}
+          {hasDeploymentLocation ? (
+            <LiveMapMarker
+              className="live-map__deployment-marker"
+              position={worldMarkerPosition({ latitude: deploymentLatitude, longitude: deploymentLongitude }, centerWorld, viewport)}
+              label="Inzetlocatie"
+            />
+          ) : null}
+          {points.map((point) => (
+            <LiveMapMarker
+              key={point.user_id}
+              className="live-map__user-marker"
+              position={worldMarkerPosition(point, centerWorld, viewport)}
+              label={point.user?.name ?? point.user_id}
+              showLabel
+            />
+          ))}
+        </svg>
+      </div>
+      <table className="data-table live-map__table">
+        <thead>
+          <tr>
+            <th scope="col">Gebruiker</th>
+            <th scope="col">Locatie</th>
+            <th scope="col">ETA</th>
+            <th scope="col">Laatst gezien</th>
+            <th scope="col">Nauwkeurigheid</th>
+            {canRequestLocation ? <th scope="col">Actie</th> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {locations.map((location) => {
+            const hasCurrentLiveLocation = isCurrentLiveLocation(location);
+            const requestDisabled = requestingUserId === location.user_id;
+
+            return (
+              <tr key={location.user_id}>
+                <td>{location.user?.name ?? location.user_id}</td>
+                <td>{locationStatusLabel(location)}</td>
+                <td>{liveLocationEtaLabel(location)}</td>
+                <td>{formatDate(location.recorded_at)}</td>
+                <td>{location.accuracy_meters ? `${Number(location.accuracy_meters).toFixed(0)} m` : '-'}</td>
+                {canRequestLocation && !hasCurrentLiveLocation ? (
+                  <td>
+                    <button className="secondary-button" type="button" onClick={() => void onRequestLocation(location.user_id)} disabled={requestDisabled}>
+                      {requestingUserId === location.user_id ? 'Vragen...' : 'Vraag locatie'}
+                    </button>
+                  </td>
+                ) : canRequestLocation ? (
+                  <td><span className="form-note">Live</span></td>
+                ) : null}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function formatDate(value?: string | null): string {
+  return formatDateTime(value);
+}
+
+function formatFlightMetric(value: unknown, suffix: string): string {
+  if (value === null || value === undefined || value === '') {
+    return '-';
+  }
+
+  return `${value}${suffix}`;
+}
+
+function formatVisibility(value: unknown): string {
+  const meters = Number(value);
+  if (!Number.isFinite(meters)) {
+    return '-';
+  }
+
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
+function providerStatusLabel(status?: string | null): string {
+  switch (status) {
+    case 'available':
+      return 'Opgehaald';
+    case 'linked':
+      return 'Gekoppeld';
+    case 'not_configured':
+      return 'Niet gekoppeld';
+    case 'unavailable':
+      return 'Niet beschikbaar';
+    default:
+      return status ?? '-';
+  }
+}
+
+function formatFlightItem(item: unknown): string {
+  if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') {
+    return String(item);
+  }
+
+  if (item && typeof item === 'object') {
+    const record = item as Record<string, unknown>;
+    const preferred = record.name ?? record.title ?? record.description ?? record.summary ?? record.message ?? record.identifier ?? record.id;
+    if (typeof preferred === 'string' || typeof preferred === 'number') {
+      return String(preferred);
+    }
+  }
+
+  return JSON.stringify(item);
+}
+
+function deploymentStatusLabel(status: string): string {
+  switch (status) {
+    case 'draft':
+      return 'Concept';
+    case 'active':
+      return 'Actief';
+    case 'dispatching':
+      return 'Alarmeren';
+    case 'in_progress':
+      return 'In uitvoering';
+    case 'resolved':
+      return 'Afgerond';
+    case 'cancelled':
+      return 'Geannuleerd';
+    default:
+      return status;
+  }
+}
+
+function priorityLabel(priority: string): string {
+  switch (priority) {
+    case 'critical':
+      return 'Kritiek';
+    case 'high':
+      return 'Hoog';
+    case 'normal':
+      return 'Normaal';
+    case 'low':
+      return 'Laag';
+    default:
+      return priority;
+  }
+}
+
+function dispatchStatusLabel(status: string): string {
+  switch (status) {
+    case 'draft':
+      return 'Vooraankondiging';
+    case 'sent':
+      return 'Verstuurd';
+    case 'escalated':
+      return 'Opgeschaald';
+    case 'cancelled':
+      return 'Geannuleerd';
+    default:
+      return status;
+  }
+}
+
+function timelineTypeLabel(type: DeploymentTimelineItem['type']): string {
+  switch (type) {
+    case 'status':
+      return 'Inzetstatus';
+    case 'dispatch':
+      return 'Alarmering';
+    case 'dispatch_response':
+      return 'Opkomst';
+    case 'dispatch_message':
+      return 'Nadere info';
+    case 'operator_status':
+      return 'Operationele status';
+    case 'internal_notes':
+      return 'Meldkamer kladblok';
+    case 'audit':
+      return 'Audit';
+    default:
+      return type;
+  }
+}
+
+function responseLabel(value: string, availabilityMode = false): string {
+  switch (value) {
+    case 'accepted':
+      return availabilityMode ? 'beschikbaar' : 'komt';
+    case 'declined':
+      return availabilityMode ? 'niet beschikbaar' : 'komt niet';
+    case 'no_response':
+      return 'geen reactie';
+    default:
+      return 'wacht op reactie';
+  }
+}
+
+function locationStatusLabel(location: DeploymentLiveLocation): string {
+  switch (location.sharing_status) {
+    case 'shared':
+      return 'gedeeld';
+    case 'stale':
+      return 'locatie verlopen';
+    case 'consented':
+      return 'toestemming gegeven, wacht op locatie';
+    case 'requested':
+      return 'verzoek verzonden';
+    case 'pending':
+      return 'wacht op locatie';
+    case 'declined':
+      return location.refusal_reason ? `geweigerd (${location.refusal_reason})` : 'geweigerd';
+    default:
+      return 'niet gevraagd';
+  }
+}
+
+function locationSharingLabel(status?: DeploymentLiveLocation['sharing_status']): string {
+  switch (status) {
+    case 'shared':
+      return 'Locatie gedeeld';
+    case 'stale':
+      return 'Locatie verlopen';
+    case 'consented':
+      return 'Toestemming gegeven';
+    case 'requested':
+      return 'Locatie gevraagd';
+    case 'pending':
+      return 'Locatie gevraagd';
+    case 'declined':
+      return 'Locatie geweigerd';
+    default:
+      return 'Locatie niet gevraagd';
+  }
+}
+
+function operatorStatusLabel(status?: string | null): string {
+  switch (status) {
+    case 'en_route':
+      return 'Onderweg';
+    case 'on_scene':
+      return 'Op locatie';
+    case 'available':
+      return 'Beschikbaar';
+    case 'unavailable':
+      return 'Niet beschikbaar';
+    case 'assigned':
+      return 'Toegewezen';
+    case 'resting':
+      return 'Rust';
+    case 'suspended':
+      return 'Geblokkeerd';
+    default:
+      return 'Onbekend';
+  }
+}
+
+function operatorStatusTone(status?: string | null): 'neutral' | 'good' | 'warn' | 'bad' {
+  switch (status) {
+    case 'en_route':
+    case 'on_scene':
+      return 'good';
+    case 'unavailable':
+    case 'suspended':
+      return 'bad';
+    case 'assigned':
+      return 'warn';
+    default:
+      return 'neutral';
+  }
+}
+
+function countResponses(dispatch: DispatchRequest, status: 'accepted' | 'declined' | 'pending'): number {
+  return dispatch.recipients?.filter((recipient) => recipient.response_status === status).length ?? 0;
+}
+
+function countOperatorStatuses(dispatch: DispatchRequest, status: 'en_route' | 'on_scene'): number {
+  return dispatch.recipients?.filter((recipient) => recipient.user?.statuses?.[0]?.status === status).length ?? 0;
+}
+
+function additionalInfoRecipientCount(dispatch: DispatchRequest): number {
+  return dispatch.recipients?.filter((recipient) => recipient.response_status === 'accepted'
+    || ['en_route', 'on_scene'].includes(recipient.user?.statuses?.[0]?.status ?? '')).length ?? 0;
+}
+
+interface MapBounds {
+  minLat: number;
+  maxLat: number;
+  minLon: number;
+  maxLon: number;
+}
+
+function boundsFor(points: Array<{ latitude: number; longitude: number }>): MapBounds {
+  const latitudes = points.map((point) => point.latitude);
+  const longitudes = points.map((point) => point.longitude);
+  const minLat = Math.min(...latitudes);
+  const maxLat = Math.max(...latitudes);
+  const minLon = Math.min(...longitudes);
+  const maxLon = Math.max(...longitudes);
+  const latPadding = Math.max((maxLat - minLat) * 0.2, 0.01);
+  const lonPadding = Math.max((maxLon - minLon) * 0.2, 0.015);
+
+  return {
+    minLat: minLat - latPadding,
+    maxLat: maxLat + latPadding,
+    minLon: minLon - lonPadding,
+    maxLon: maxLon + lonPadding,
+  };
+}
+
+function centerFor(points: Array<{ latitude: number; longitude: number }>): { latitude: number; longitude: number } {
+  const bounds = boundsFor(points);
+
+  return {
+    latitude: (bounds.minLat + bounds.maxLat) / 2,
+    longitude: (bounds.minLon + bounds.maxLon) / 2,
+  };
+}
+
+interface MapViewport {
+  width: number;
+  height: number;
+  zoom: number;
+}
+
+interface WorldPoint {
+  x: number;
+  y: number;
+}
+
+interface TilePosition {
+  x: number;
+  y: number;
+  z: number;
+  left: number;
+  top: number;
+}
+
+function mapViewport(points: Array<{ latitude: number; longitude: number }>): MapViewport {
+  const width = 960;
+  const height = 380;
+  const bounds = boundsFor(points);
+
+  for (let zoom = 16; zoom >= 5; zoom -= 1) {
+    const northWest = latLonToWorld(bounds.maxLat, bounds.minLon, zoom);
+    const southEast = latLonToWorld(bounds.minLat, bounds.maxLon, zoom);
+    if (Math.abs(southEast.x - northWest.x) <= width - 96 && Math.abs(southEast.y - northWest.y) <= height - 96) {
+      return { width, height, zoom };
+    }
+  }
+
+  return { width, height, zoom: 5 };
+}
+
+function latLonToWorld(latitude: number, longitude: number, zoom: number): WorldPoint {
+  const sinLatitude = Math.sin((clamp(latitude, -85.05112878, 85.05112878) * Math.PI) / 180);
+  const scale = 256 * 2 ** zoom;
+
+  return {
+    x: ((longitude + 180) / 360) * scale,
+    y: (0.5 - Math.log((1 + sinLatitude) / (1 - sinLatitude)) / (4 * Math.PI)) * scale,
+  };
+}
+
+function visibleTiles(center: WorldPoint, zoom: number, width: number, height: number): TilePosition[] {
+  const tileSize = 256;
+  const minTileX = Math.floor((center.x - width / 2) / tileSize);
+  const maxTileX = Math.floor((center.x + width / 2) / tileSize);
+  const minTileY = Math.floor((center.y - height / 2) / tileSize);
+  const maxTileY = Math.floor((center.y + height / 2) / tileSize);
+  const tileCount = 2 ** zoom;
+  const tiles: TilePosition[] = [];
+
+  for (let x = minTileX; x <= maxTileX; x += 1) {
+    for (let y = minTileY; y <= maxTileY; y += 1) {
+      if (y < 0 || y >= tileCount) {
+        continue;
+      }
+
+      const wrappedX = ((x % tileCount) + tileCount) % tileCount;
+      tiles.push({
+        x: wrappedX,
+        y,
+        z: zoom,
+        left: Math.round(x * tileSize - (center.x - width / 2)),
+        top: Math.round(y * tileSize - (center.y - height / 2)),
+      });
+    }
+  }
+
+  return tiles;
+}
+
+function worldMarkerPosition(point: { latitude: number; longitude: number }, center: WorldPoint, viewport: MapViewport): WorldPoint {
+  const world = latLonToWorld(point.latitude, point.longitude, viewport.zoom);
+  return {
+    x: Math.round(world.x - center.x + viewport.width / 2),
+    y: Math.round(world.y - center.y + viewport.height / 2),
+  };
+}
+
+function LiveMapMarker({
+  className,
+  position,
+  label,
+  showLabel = false,
+}: {
+  className: string;
+  position: WorldPoint;
+  label: string;
+  showLabel?: boolean;
+}) {
+  return (
+    <g className={className} transform={`translate(${position.x} ${position.y})`}>
+      <title>{label}</title>
+      <circle cx="0" cy="0" r={showLabel ? 8 : 11} />
+      {showLabel ? <text className="live-map__user-label" x="0" y="-16" textAnchor="middle">{label}</text> : null}
+    </g>
+  );
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function previewWarningsMessage(preview?: DispatchPreview | null): string | null {
+  return warningsMessage(preview?.warnings === undefined ? undefined : { warnings: preview.warnings });
+}
+
+function warningsMessage(meta: unknown): string | null {
+  if (meta === null || typeof meta !== 'object') {
+    return null;
+  }
+
+  const warnings = (meta as { warnings?: unknown }).warnings;
+  if (!Array.isArray(warnings)) {
+    return null;
+  }
+
+  const messages = warnings.filter((warning): warning is string => typeof warning === 'string' && warning.trim() !== '');
+  if (messages.length === 0) {
+    return null;
+  }
+
+  return `Let op: ${messages.join(' ')}`;
+}
+
+function joinDispatchNotice(message: string, warning: string | null): string {
+  return warning === null ? message : `${message} ${warning}`;
+}
+
+function dispatchPartialDeliveryMessage(status: DispatchDeliveryStatus): string {
+  const accepted = Math.max(0, status.device_counts.provider_accepted);
+  const total = Math.max(0, status.device_counts.total);
+  const failed = Math.max(0, status.device_counts.failed);
+  const pending = Math.max(0, status.device_counts.pending);
+
+  return `Alarm door de pushprovider geaccepteerd voor ${accepted} van ${total} apparaten; ${pending} nog in wachtrij en ${failed} mislukt.`;
+}

@@ -2,12 +2,15 @@
 
 namespace App\Jobs;
 
-use App\Models\Incident;
-use App\Services\IncidentReportService;
+use App\Services\DeploymentReportService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Throwable;
 
+/**
+ * Compatibility envelope for jobs serialized before the deployment-domain cutover.
+ *
+ * New work must dispatch GenerateDeploymentReport.
+ */
 final class GenerateIncidentReport implements ShouldQueue
 {
     use Queueable;
@@ -21,28 +24,8 @@ final class GenerateIncidentReport implements ShouldQueue
         public readonly bool $refreshExisting = false,
     ) {}
 
-    public function handle(IncidentReportService $reports): void
+    public function handle(DeploymentReportService $reports): void
     {
-        $incident = Incident::query()->find($this->incidentId);
-        if ($incident === null) {
-            return;
-        }
-
-        try {
-            if ($this->refreshExisting) {
-                $reports->refreshStored($incident, preserveExistingMaps: true);
-
-                return;
-            }
-
-            $reports->ensureStored($incident);
-        } catch (Throwable $exception) {
-            report($exception);
-            $incident->forceFill([
-                'report_generation_error' => 'Report generation failed. See secured server logs.',
-            ])->save();
-
-            throw $exception;
-        }
+        (new GenerateDeploymentReport($this->incidentId, $this->refreshExisting))->handle($reports);
     }
 }

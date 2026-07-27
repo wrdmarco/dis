@@ -8,37 +8,40 @@ import { ApiClientError } from '../../lib/apiClient';
 import { formatDateTime } from '../../lib/dateTime';
 import { useApiResource } from '../../lib/useApiResource';
 import { useAuth } from '../auth/AuthContext';
-import type { ConfigurableFormField, DispatchStatistics, DispatchStatisticsIncidentSummary, ReportIncident } from '../../types/api';
+import type { ConfigurableFormField, DispatchStatistics, DispatchStatisticsDeploymentSummary, ReportDeployment } from '../../types/api';
 
 export function ReportsPage() {
   const { api, hasPermission } = useAuth();
-  const [incidentLimit, setIncidentLimit] = useState(5);
+  const [deploymentLimit, setDeploymentLimit] = useState(5);
   const [reportDownloadingId, setReportDownloadingId] = useState<string | null>(null);
   const [reportError, setReportError] = useState<string | null>(null);
-  const canManageIncidents = hasPermission('incidents.manage');
-  const resourcePath = useMemo(() => `/reports/dispatch-statistics?incident_limit=${incidentLimit}`, [incidentLimit]);
+  const canManageDeployments = hasPermission('deployments.manage');
+  const resourcePath = useMemo(
+    () => `/reports/dispatch-statistics?deployment_limit=${deploymentLimit}`,
+    [deploymentLimit],
+  );
   const statistics = useApiResource<DispatchStatistics>(resourcePath);
-  const reportIncidents = useApiResource<ReportIncident[]>('/reports/incidents?limit=50');
+  const reportDeployments = useApiResource<ReportDeployment[]>('/reports/deployments?limit=50');
   const summary = statistics.data?.summary;
   const reportSummary = useMemo(() => {
-    const incidents = reportIncidents.data ?? [];
-    const finalReports = incidents.filter((incident) => incident.report_status === 'final').length;
-    const missingReports = incidents.reduce((total, incident) => total + incident.missing_pilot_report_count, 0);
-    const submittedReports = incidents.reduce((total, incident) => total + incident.submitted_pilot_report_count, 0);
+    const deployments = reportDeployments.data ?? [];
+    const finalReports = deployments.filter((deployment) => deployment.report_status === 'final').length;
+    const missingReports = deployments.reduce((total, deployment) => total + deployment.missing_pilot_report_count, 0);
+    const submittedReports = deployments.reduce((total, deployment) => total + deployment.submitted_pilot_report_count, 0);
 
-    return { incidents: incidents.length, finalReports, missingReports, submittedReports };
-  }, [reportIncidents.data]);
+    return { deployments: deployments.length, finalReports, missingReports, submittedReports };
+  }, [reportDeployments.data]);
 
-  async function downloadReport(incident: ReportIncident) {
-    setReportDownloadingId(incident.id);
+  async function downloadReport(deployment: ReportDeployment) {
+    setReportDownloadingId(deployment.id);
     setReportError(null);
 
     try {
-      const response = await api.download(`/incidents/${incident.id}/report`);
+      const response = await api.download(`/deployments/${deployment.id}/report`);
       const url = URL.createObjectURL(response.blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = response.filename ?? `${incident.reference}-rapport.pdf`;
+      link.download = response.filename ?? `${deployment.reference}-rapport.pdf`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -53,14 +56,14 @@ export function ReportsPage() {
   return (
     <div className="page-stack reports-page">
       <div className="stats-grid">
-        <StatCard icon={<FileText />} label="Incidentrapporten" value={String(reportSummary.incidents)} />
+        <StatCard icon={<FileText />} label="Inzetrapporten" value={String(reportSummary.deployments)} />
         <StatCard icon={<CheckCircle2 />} label="Definitief" value={String(reportSummary.finalReports)} tone="good" />
         <StatCard icon={<AlertTriangle />} label="Vluchtrapporten missen" value={String(reportSummary.missingReports)} tone={reportSummary.missingReports > 0 ? 'warn' : 'good'} />
         <StatCard icon={<Users />} label="Vluchtrapporten binnen" value={String(reportSummary.submittedReports)} />
       </div>
 
-      <Panel title="Incidentrapporten">
-        <ResourceState loading={reportIncidents.loading} error={reportIncidents.error} empty={(reportIncidents.data?.length ?? 0) === 0}>
+      <Panel title="Inzetrapporten">
+        <ResourceState loading={reportDeployments.loading} error={reportDeployments.error} empty={(reportDeployments.data?.length ?? 0) === 0}>
           <div className="panel-body">
             {reportError ? <p className="form-error">{reportError}</p> : null}
             <table className="data-table reports-table">
@@ -68,7 +71,7 @@ export function ReportsPage() {
                 <tr>
                   <th scope="col">Referentie</th>
                   <th scope="col">Titel</th>
-                  <th scope="col">Incident</th>
+                  <th scope="col">Inzetstatus</th>
                   <th scope="col">Rapportstatus</th>
                   <th scope="col">Team</th>
                   <th scope="col">Gesloten</th>
@@ -78,24 +81,24 @@ export function ReportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {reportIncidents.data?.map((incident) => (
-                  <tr key={incident.id}>
-                    <td data-label="Referentie"><Link href={`/incidents/${incident.id}`}>{incident.reference}</Link></td>
-                    <td data-label="Titel">{incident.title}</td>
-                    <td data-label="Incident"><StatusPill value={incidentStatusLabel(incident.status)} tone={incident.status === 'resolved' ? 'good' : 'warn'} /></td>
-                    <td data-label="Rapport"><StatusPill value={incident.report_status === 'final' ? 'Definitief' : 'Concept'} tone={incident.report_status === 'final' ? 'good' : 'warn'} /></td>
-                    <td data-label="Team">{incident.team?.code ?? '-'}</td>
-                    <td data-label="Gesloten">{formatDateTime(incident.closed_at)}</td>
+                {reportDeployments.data?.map((deployment) => (
+                  <tr key={deployment.id}>
+                    <td data-label="Referentie"><Link href={`/inzetten/${deployment.id}`}>{deployment.reference}</Link></td>
+                    <td data-label="Titel">{deployment.title}</td>
+                    <td data-label="Inzetstatus"><StatusPill value={deploymentStatusLabel(deployment.status)} tone={deployment.status === 'resolved' ? 'good' : 'warn'} /></td>
+                    <td data-label="Rapport"><StatusPill value={deployment.report_status === 'final' ? 'Definitief' : 'Concept'} tone={deployment.report_status === 'final' ? 'good' : 'warn'} /></td>
+                    <td data-label="Team">{deployment.team?.code ?? '-'}</td>
+                    <td data-label="Gesloten">{formatDateTime(deployment.closed_at)}</td>
                     <td data-label="Vluchtrapporten">
-                      {incident.submitted_pilot_report_count}/{incident.expected_pilot_report_count}
+                      {deployment.submitted_pilot_report_count}/{deployment.expected_pilot_report_count}
                     </td>
                     <td data-label="Status inzetrapporten">
-                      <MissingPilotReports incident={incident} canManage={canManageIncidents} />
+                      <MissingPilotReports deployment={deployment} canManage={canManageDeployments} />
                     </td>
                     <td data-label="Rapport">
-                      <button className="secondary-button" type="button" onClick={() => void downloadReport(incident)} disabled={reportDownloadingId === incident.id}>
-                        {reportDownloadingId === incident.id ? <FileText size={16} /> : <Download size={16} />}
-                        {reportDownloadingId === incident.id ? 'Maken...' : 'PDF'}
+                      <button className="secondary-button" type="button" onClick={() => void downloadReport(deployment)} disabled={reportDownloadingId === deployment.id}>
+                        {reportDownloadingId === deployment.id ? <FileText size={16} /> : <Download size={16} />}
+                        {reportDownloadingId === deployment.id ? 'Maken...' : 'PDF'}
                       </button>
                     </td>
                   </tr>
@@ -110,8 +113,8 @@ export function ReportsPage() {
         title="Statistieken"
         action={(
           <label className="compact-control">
-            Laatste meldingen
-            <select value={incidentLimit} onChange={(event) => setIncidentLimit(Number(event.target.value))}>
+            Laatste inzetten
+            <select value={deploymentLimit} onChange={(event) => setDeploymentLimit(Number(event.target.value))}>
               <option value={5}>5</option>
               <option value={10}>10</option>
               <option value={25}>25</option>
@@ -128,7 +131,7 @@ export function ReportsPage() {
             <StatCard icon={<MessageCircleOff />} label="Geen reactie" value={`${summary?.no_response_rate ?? 0}%`} sub={`${summary?.no_response ?? 0} zonder reactie`} tone="bad" />
           </div>
           <p className="muted-text">
-            Gebaseerd op {statistics.data?.scope.incident_count ?? 0} incident(en) binnen de laatste {statistics.data?.scope.incident_limit ?? incidentLimit} meldingen.
+            Gebaseerd op {inzetCountLabel(statistics.data?.scope.deployment_count ?? 0)} binnen de laatste {inzetCountLabel(statistics.data?.scope.deployment_limit ?? deploymentLimit)}.
           </p>
         </ResourceState>
       </Panel>
@@ -150,17 +153,17 @@ export function ReportsPage() {
                   <SummaryItem label="Komt" value={String(userStat.accepted)} />
                   <SummaryItem label="Komt niet" value={String(userStat.declined)} />
                   <SummaryItem label="Geen reactie" value={String(userStat.no_response)} />
-                  <SummaryItem label="Laatste inzet" value={incidentLink(userStat.last_deployment)} />
-                  <SummaryItem label="Laatste melding" value={incidentLink(userStat.last_alert)} />
+                  <SummaryItem label="Laatste inzet" value={deploymentLink(userStat.last_deployment)} />
+                  <SummaryItem label="Laatste alarmering" value={deploymentLink(userStat.last_alert)} />
                 </div>
                 {userStat.recent_no_response.length > 0 ? (
                   <div className="recent-list">
-                    <span className="field-label">Laatste meldingen zonder reactie</span>
-                    {userStat.recent_no_response.map((incident) => (
-                      <div key={`${userStat.user?.id}-${incident.incident_id}-${incident.sent_at}`}>
-                        {incident.incident_id ? <Link href={`/incidents/${incident.incident_id}`}>{incident.reference}</Link> : <span>{incident.reference ?? '-'}</span>}
-                        <span>{incident.title ?? '-'}</span>
-                        <small>{formatDateTime(incident.sent_at)}</small>
+                    <span className="field-label">Laatste alarmeringen zonder reactie</span>
+                    {userStat.recent_no_response.map((deployment) => (
+                      <div key={`${userStat.user?.id}-${deployment.deployment_id}-${deployment.sent_at}`}>
+                        {deployment.deployment_id ? <Link href={`/inzetten/${deployment.deployment_id}`}>{deployment.reference}</Link> : <span>{deployment.reference ?? '-'}</span>}
+                        <span>{deployment.title ?? '-'}</span>
+                        <small>{formatDateTime(deployment.sent_at)}</small>
                       </div>
                     ))}
                   </div>
@@ -171,8 +174,8 @@ export function ReportsPage() {
         </ResourceState>
       </Panel>
 
-      <Panel title="Meldingen in selectie">
-        <ResourceState loading={statistics.loading} error={statistics.error} empty={(statistics.data?.incidents.length ?? 0) === 0}>
+      <Panel title="Inzetten in selectie">
+        <ResourceState loading={statistics.loading} error={statistics.error} empty={(statistics.data?.deployments.length ?? 0) === 0}>
           <table className="data-table">
             <thead>
               <tr>
@@ -186,15 +189,15 @@ export function ReportsPage() {
               </tr>
             </thead>
             <tbody>
-              {statistics.data?.incidents.map((incident) => (
-                <tr key={incident.id ?? incident.reference}>
-                  <td>{incident.id ? <Link href={`/incidents/${incident.id}`}>{incident.reference}</Link> : incident.reference}</td>
-                  <td>{incident.title ?? '-'}</td>
-                  <td>{formatDateTime(incident.sent_at)}</td>
-                  <td>{incident.total_alerts}</td>
-                  <td>{incident.accepted}</td>
-                  <td>{incident.declined}</td>
-                  <td><StatusPill value={`${incident.no_response_rate}%`} tone={incident.no_response_rate > 25 ? 'bad' : incident.no_response_rate > 0 ? 'warn' : 'good'} /></td>
+              {statistics.data?.deployments.map((deployment) => (
+                <tr key={deployment.id ?? deployment.reference}>
+                  <td>{deployment.id ? <Link href={`/inzetten/${deployment.id}`}>{deployment.reference}</Link> : deployment.reference}</td>
+                  <td>{deployment.title ?? '-'}</td>
+                  <td>{formatDateTime(deployment.sent_at)}</td>
+                  <td>{deployment.total_alerts}</td>
+                  <td>{deployment.accepted}</td>
+                  <td>{deployment.declined}</td>
+                  <td><StatusPill value={`${deployment.no_response_rate}%`} tone={deployment.no_response_rate > 25 ? 'bad' : deployment.no_response_rate > 0 ? 'warn' : 'good'} /></td>
                 </tr>
               ))}
             </tbody>
@@ -206,21 +209,21 @@ export function ReportsPage() {
   );
 }
 
-function MissingPilotReports({ incident, canManage }: { incident: ReportIncident; canManage: boolean }) {
-  const unfinalized = incident.unfinalized_pilot_reports ?? [];
-  if (incident.missing_pilot_report_count === 0 && unfinalized.length === 0) {
+function MissingPilotReports({ deployment, canManage }: { deployment: ReportDeployment; canManage: boolean }) {
+  const unfinalized = deployment.unfinalized_pilot_reports ?? [];
+  if (deployment.missing_pilot_report_count === 0 && unfinalized.length === 0) {
     return <span className="muted-text">Compleet en definitief</span>;
   }
 
   return (
     <div className="missing-report-list">
       {unfinalized.map((report) => canManage ? (
-        <Link className="secondary-button" href={`/reports/incidents/${incident.id}/pilot-reports/${report.user_id}`} key={`unfinalized-${report.user_id}`} title={report.email ?? undefined}>
+        <Link className="secondary-button" href={`/reports/deployments/${deployment.id}/pilot-reports/${report.user_id}`} key={`unfinalized-${report.user_id}`} title={report.email ?? undefined}>
           {report.name} definitief maken
         </Link>
       ) : <span key={`unfinalized-${report.user_id}`}>{report.name}: ingediend</span>)}
-      {incident.missing_pilot_reports.map((report) => canManage ? (
-        <Link className="secondary-button" href={`/reports/incidents/${incident.id}/pilot-reports/${report.user_id}`} key={`missing-${report.user_id}`} title={report.email ?? undefined}>
+      {deployment.missing_pilot_reports.map((report) => canManage ? (
+        <Link className="secondary-button" href={`/reports/deployments/${deployment.id}/pilot-reports/${report.user_id}`} key={`missing-${report.user_id}`} title={report.email ?? undefined}>
           {report.name} invullen
         </Link>
       ) : <span key={`missing-${report.user_id}`}>{report.name}: ontbreekt</span>)}
@@ -337,7 +340,7 @@ function flightTimeValue(value: unknown): { start: string; end: string } {
   return { start: '', end: '' };
 }
 
-function incidentStatusLabel(status: ReportIncident['status']): string {
+function deploymentStatusLabel(status: ReportDeployment['status']): string {
   switch (status) {
     case 'resolved':
       return 'Afgerond';
@@ -378,15 +381,19 @@ function SummaryItem({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function incidentLink(incident?: DispatchStatisticsIncidentSummary | null): ReactNode {
-  if (!incident?.incident_id) {
+function deploymentLink(deployment?: DispatchStatisticsDeploymentSummary | null): ReactNode {
+  if (!deployment?.deployment_id) {
     return '-';
   }
 
   return (
-    <Link href={`/incidents/${incident.incident_id}`}>
-      {incident.reference ?? 'Incident'}
-      <span className="inline-date"> {formatDateTime(incident.sent_at)}</span>
+    <Link href={`/inzetten/${deployment.deployment_id}`}>
+      {deployment.reference ?? 'Inzet'}
+      <span className="inline-date"> {formatDateTime(deployment.sent_at)}</span>
     </Link>
   );
+}
+
+function inzetCountLabel(count: number): string {
+  return `${count} ${count === 1 ? 'inzet' : 'inzetten'}`;
 }

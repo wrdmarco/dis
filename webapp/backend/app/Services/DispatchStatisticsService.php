@@ -13,29 +13,29 @@ final class DispatchStatisticsService
     /**
      * @return array<string, mixed>
      */
-    public function overview(int $incidentLimit = 5): array
+    public function overview(int $deploymentLimit = 5): array
     {
-        $incidentLimit = min(max($incidentLimit, 1), 50);
-        $incidentIds = DispatchRequest::query()
-            ->whereHas('incident', fn ($query) => $query
+        $deploymentLimit = min(max($deploymentLimit, 1), 50);
+        $deploymentIds = DispatchRequest::query()
+            ->whereHas('deployment', fn ($query) => $query
                 ->where('is_test', false)
                 ->whereIn('status', ['resolved', 'cancelled']))
             ->whereNotNull('sent_at')
-            ->with('incident')
+            ->with('deployment')
             ->latest('sent_at')
             ->get()
-            ->pluck('incident_id')
+            ->pluck('deployment_id')
             ->filter()
             ->unique()
-            ->take($incidentLimit)
+            ->take($deploymentLimit)
             ->values();
 
         $recipients = DispatchRecipient::query()
             ->with([
                 'user' => fn ($query) => $query->withTrashed(),
-                'dispatchRequest.incident',
+                'dispatchRequest.deployment',
             ])
-            ->whereHas('dispatchRequest', fn ($query) => $query->whereIn('incident_id', $incidentIds))
+            ->whereHas('dispatchRequest', fn ($query) => $query->whereIn('deployment_id', $deploymentIds))
             ->get();
 
         $total = $recipients->count();
@@ -45,8 +45,8 @@ final class DispatchStatisticsService
 
         return [
             'scope' => [
-                'incident_limit' => $incidentLimit,
-                'incident_count' => $incidentIds->count(),
+                'deployment_limit' => $deploymentLimit,
+                'deployment_count' => $deploymentIds->count(),
             ],
             'summary' => [
                 'total_alerts' => $total,
@@ -58,12 +58,12 @@ final class DispatchStatisticsService
                 'no_response_rate' => $this->percentage($noResponse, $total),
             ],
             'users' => $this->userStats($recipients),
-            'incidents' => $this->incidentStats($recipients),
+            'deployments' => $this->deploymentStats($recipients),
         ];
     }
 
     /**
-     * @param Collection<int, DispatchRecipient> $recipients
+     * @param  Collection<int, DispatchRecipient>  $recipients
      * @return array<int, array<string, mixed>>
      */
     private function userStats(Collection $recipients): array
@@ -92,12 +92,12 @@ final class DispatchStatisticsService
                     'declined' => $declined,
                     'no_response' => $noResponseRows->count(),
                     'no_response_rate' => $this->percentage($noResponseRows->count(), $total),
-                    'last_alert' => $this->incidentSummary($lastAlert),
-                    'last_deployment' => $this->incidentSummary($lastDeployment),
+                    'last_alert' => $this->deploymentSummary($lastAlert),
+                    'last_deployment' => $this->deploymentSummary($lastDeployment),
                     'recent_no_response' => $noResponseRows
                         ->sortByDesc(fn (DispatchRecipient $recipient) => $this->timestamp($recipient->dispatchRequest?->sent_at ?? $recipient->dispatchRequest?->created_at))
                         ->take(5)
-                        ->map(fn (DispatchRecipient $recipient): ?array => $this->incidentSummary($recipient))
+                        ->map(fn (DispatchRecipient $recipient): ?array => $this->deploymentSummary($recipient))
                         ->filter()
                         ->values()
                         ->all(),
@@ -109,24 +109,24 @@ final class DispatchStatisticsService
     }
 
     /**
-     * @param Collection<int, DispatchRecipient> $recipients
+     * @param  Collection<int, DispatchRecipient>  $recipients
      * @return array<int, array<string, mixed>>
      */
-    private function incidentStats(Collection $recipients): array
+    private function deploymentStats(Collection $recipients): array
     {
         return $recipients
-            ->filter(fn (DispatchRecipient $recipient): bool => $recipient->dispatchRequest?->incident_id !== null)
-            ->groupBy(fn (DispatchRecipient $recipient) => $recipient->dispatchRequest?->incident_id)
+            ->filter(fn (DispatchRecipient $recipient): bool => $recipient->dispatchRequest?->deployment_id !== null)
+            ->groupBy(fn (DispatchRecipient $recipient) => $recipient->dispatchRequest?->deployment_id)
             ->map(function (Collection $rows): array {
                 $first = $rows->first();
-                $incident = $first?->dispatchRequest?->incident;
+                $deployment = $first?->dispatchRequest?->deployment;
                 $total = $rows->count();
                 $noResponse = $rows->whereIn('response_status', ['pending', 'no_response'])->count();
 
                 return [
-                    'id' => $incident?->id,
-                    'reference' => $incident?->reference,
-                    'title' => $incident?->title,
+                    'id' => $deployment?->id,
+                    'reference' => $deployment?->reference,
+                    'title' => $deployment?->title,
                     'sent_at' => ApiDateTime::dateTime($first?->dispatchRequest?->sent_at),
                     'total_alerts' => $total,
                     'accepted' => $rows->where('response_status', 'accepted')->count(),
@@ -140,19 +140,19 @@ final class DispatchStatisticsService
             ->all();
     }
 
-    private function incidentSummary(?DispatchRecipient $recipient): ?array
+    private function deploymentSummary(?DispatchRecipient $recipient): ?array
     {
         $dispatch = $recipient?->dispatchRequest;
-        $incident = $dispatch?->incident;
+        $deployment = $dispatch?->deployment;
 
-        if ($recipient === null || $dispatch === null || $incident === null) {
+        if ($recipient === null || $dispatch === null || $deployment === null) {
             return null;
         }
 
         return [
-            'incident_id' => $incident->id,
-            'reference' => $incident->reference,
-            'title' => $incident->title,
+            'deployment_id' => $deployment->id,
+            'reference' => $deployment->reference,
+            'title' => $deployment->title,
             'sent_at' => ApiDateTime::dateTime($dispatch->sent_at),
             'response_status' => $recipient->response_status,
             'responded_at' => ApiDateTime::dateTime($recipient->responded_at),

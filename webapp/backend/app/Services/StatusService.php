@@ -3,9 +3,9 @@
 namespace App\Services;
 
 use App\Events\AvailabilityChanged;
-use App\Events\IncidentChanged;
+use App\Events\DeploymentChanged;
 use App\Models\AvailabilityStatus;
-use App\Models\Incident;
+use App\Models\Deployment;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -16,7 +16,7 @@ final class StatusService
     public function __construct(
         private readonly AuditService $auditService,
         private readonly LocationService $locationService,
-        private readonly PilotIncidentReportService $pilotIncidentReportService,
+        private readonly PilotDeploymentReportService $pilotDeploymentReportService,
         private readonly AvailabilityScheduleResolver $availabilityScheduleResolver,
     ) {}
 
@@ -61,8 +61,8 @@ final class StatusService
         $this->dispatchAvailabilityChanged($record);
         if ($status === 'on_scene' && $actor !== null) {
             $this->locationService->stopForUser($user, $actor);
-            $this->pilotIncidentReportService->ensureForOnScene($user, $actor);
-            $this->transitionAcceptedIncidentsToInProgressWhenEveryoneOnScene($user, $actor);
+            $this->pilotDeploymentReportService->ensureForOnScene($user, $actor);
+            $this->transitionAcceptedDeploymentsToInProgressWhenEveryoneOnScene($user, $actor);
         }
 
         return $record;
@@ -102,9 +102,9 @@ final class StatusService
         }
     }
 
-    private function transitionAcceptedIncidentsToInProgressWhenEveryoneOnScene(User $user, User $actor): void
+    private function transitionAcceptedDeploymentsToInProgressWhenEveryoneOnScene(User $user, User $actor): void
     {
-        $incidents = Incident::query()
+        $deployments = Deployment::query()
             ->where('status', 'dispatching')
             ->whereHas('dispatchRequests', fn ($dispatches) => $dispatches
                 ->whereIn('status', ['sent', 'escalated'])
@@ -116,8 +116,8 @@ final class StatusService
                 ->with('recipients')])
             ->get();
 
-        foreach ($incidents as $incident) {
-            $acceptedUserIds = $incident->dispatchRequests
+        foreach ($deployments as $deployment) {
+            $acceptedUserIds = $deployment->dispatchRequests
                 ->flatMap(fn ($dispatch) => $dispatch->recipients)
                 ->filter(fn ($recipient): bool => $recipient->response_status === 'accepted')
                 ->pluck('user_id')
@@ -137,8 +137,8 @@ final class StatusService
                 ->every(fn (string $userId): bool => $latestStatuses->get($userId) === 'on_scene');
 
             if ($everyoneOnScene) {
-                $this->transitionIncidentStatus(
-                    $incident,
+                $this->transitionDeploymentStatus(
+                    $deployment,
                     $actor,
                     'in_progress',
                     'Automatisch naar uitvoering gezet omdat alle geaccepteerde opkomers op locatie zijn.',
@@ -147,22 +147,22 @@ final class StatusService
         }
     }
 
-    private function transitionIncidentStatus(Incident $incident, User $actor, string $status, string $reason): void
+    private function transitionDeploymentStatus(Deployment $deployment, User $actor, string $status, string $reason): void
     {
-        DB::transaction(function () use ($incident, $actor, $status, $reason): void {
-            $incident = Incident::query()
+        DB::transaction(function () use ($deployment, $actor, $status, $reason): void {
+            $deployment = Deployment::query()
                 ->lockForUpdate()
-                ->find($incident->getKey());
-            if ($incident === null) {
+                ->find($deployment->getKey());
+            if ($deployment === null) {
                 return;
             }
-            if ($incident->status !== 'dispatching' || $status !== 'in_progress') {
+            if ($deployment->status !== 'dispatching' || $status !== 'in_progress') {
                 return;
             }
 
-            $previousStatus = $incident->status;
-            $incident->forceFill(['status' => $status])->save();
-            $incident->statusHistory()->create([
+            $previousStatus = $deployment->status;
+            $deployment->forceFill(['status' => $status])->save();
+            $deployment->statusHistory()->create([
                 'from_status' => $previousStatus,
                 'to_status' => $status,
                 'changed_by' => $actor->id,
@@ -172,18 +172,18 @@ final class StatusService
                 'created_at' => now(),
             ]);
 
-            $this->auditService->record('incidents.status_auto_updated', $incident, $actor, [
+            $this->auditService->record('deployments.status_auto_updated', $deployment, $actor, [
                 'from_status' => $previousStatus,
                 'to_status' => $status,
             ], $reason);
-            $this->dispatchIncidentChanged($incident->refresh(), 'status_auto_updated');
+            $this->dispatchDeploymentChanged($deployment->refresh(), 'status_auto_updated');
         });
     }
 
-    private function dispatchIncidentChanged(Incident $incident, string $action): void
+    private function dispatchDeploymentChanged(Deployment $deployment, string $action): void
     {
         try {
-            IncidentChanged::dispatch($incident, $action);
+            DeploymentChanged::dispatch($deployment, $action);
         } catch (Throwable $exception) {
             report($exception);
         }

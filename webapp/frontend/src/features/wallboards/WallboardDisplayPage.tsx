@@ -72,7 +72,7 @@ import type {
   WallboardPilotAvailability,
   WallboardPlaylistDataMode,
   WallboardState,
-  WallboardStateRecentIncident,
+  WallboardStateRecentDeployment,
   WallboardTickerItem,
   WallboardTransientAlert,
 } from '../../types/api';
@@ -87,14 +87,14 @@ import {
   wallboardForecastDisplayBlocks,
   type WallboardForecastDisplayBlock,
 } from '../weather/forecastPresentation';
-import { OperationalMapCanvas } from '../incidents/OperationalMapCanvas';
+import { OperationalMapCanvas } from '../deployments/OperationalMapCanvas';
 import {
   buildWallboardMapPresentation,
   clampRefreshSeconds,
   clampWallboardNewsItemDuration,
   clampWallboardPageDuration,
   clampWallboardTransitionDurationMs,
-  countActiveOperationalWallboardIncidents,
+  countActiveOperationalWallboardDeployments,
   DEFAULT_WALLBOARD_NEWS_ITEM_TRANSITION_DURATION_MS,
   DEFAULT_WALLBOARD_PHOTO_ITEM_TRANSITION_DURATION_MS,
   formatWallboardPilotAvailability,
@@ -104,7 +104,7 @@ import {
   normalizeWallboardNewsItemTransition,
   normalizeWallboardWeatherRadarKind,
   resolveWallboardFlipDirection,
-  selectRecentWallboardIncidents,
+  selectRecentWallboardDeployments,
   selectWallboardDailyQuote,
   WALLBOARD_KPI_DEFINITIONS,
   WALLBOARD_KPI_KEYS,
@@ -114,7 +114,7 @@ import {
   wallboardKpiDefaultVisualization,
   wallboardKpiSupportedVisualizations,
   wallboardMessageContent,
-  wallboardOperationalIncidentConfiguration,
+  wallboardOperationalDeploymentConfiguration,
   wallboardPageMapConfiguration,
   wallboardStateIsStale,
   wallboardTickerDurationSeconds,
@@ -194,7 +194,7 @@ const WALLBOARD_DATE_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
   year: 'numeric',
   timeZone: WALLBOARD_TIME_ZONE,
 });
-const RECENT_INCIDENT_TIME_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
+const RECENT_DEPLOYMENT_TIME_FORMATTER = new Intl.DateTimeFormat('nl-NL', {
   day: '2-digit',
   month: 'short',
   hour: '2-digit',
@@ -233,7 +233,7 @@ const WALLBOARD_KPI_DEFINITION_BY_KEY = new Map(
 );
 const WALLBOARD_KPI_CATEGORY_LABELS: Record<WallboardKpiCategory, string> = {
   pilots: 'Piloten',
-  incidents: 'Incidenten',
+  deployments: 'Inzetten',
   assets: 'Middelen',
   responses: 'Reacties',
   flight: 'Vluchtgegevens',
@@ -380,7 +380,7 @@ export function WallboardDisplayPage() {
   const refreshSecondsRef = useRef(10);
   const configVersionRef = useRef<number | null>(null);
   const pendingConfigVersionRef = useRef<number | null>(null);
-  const lastControlIncidentActiveRef = useRef<boolean | null>(null);
+  const lastControlDeploymentActiveRef = useRef<boolean | null>(null);
   const lastControlMaintenanceActiveRef = useRef<boolean | null>(null);
   const lastControlFocusSignatureRef = useRef<string | undefined>(undefined);
   const lastControlRuntimePlaylistSignatureRef = useRef<string | undefined>(undefined);
@@ -549,8 +549,8 @@ export function WallboardDisplayPage() {
         setControl((current) => current !== null && current.control_version > nextControl.control_version
           ? current
           : stabilizeWallboardRotationDeadline(current, nextControl));
-        if (lastControlIncidentActiveRef.current === null) {
-          lastControlIncidentActiveRef.current = nextControl.display.incident_active;
+        if (lastControlDeploymentActiveRef.current === null) {
+          lastControlDeploymentActiveRef.current = nextControl.display.deployment_active;
         }
         if (lastControlMaintenanceActiveRef.current === null) {
           lastControlMaintenanceActiveRef.current = wallboardMaintenanceNoticeIsActive(nextControl.maintenance);
@@ -575,7 +575,7 @@ export function WallboardDisplayPage() {
           setSessionStatus('unpaired');
           setStateError(null);
           setControlError(null);
-          lastControlIncidentActiveRef.current = null;
+          lastControlDeploymentActiveRef.current = null;
           lastControlMaintenanceActiveRef.current = null;
           lastControlFocusSignatureRef.current = undefined;
           lastControlRuntimePlaylistSignatureRef.current = undefined;
@@ -624,8 +624,8 @@ export function WallboardDisplayPage() {
           needsStateRefresh = true;
         }
         if (
-          lastControlIncidentActiveRef.current !== null
-          && lastControlIncidentActiveRef.current !== nextControl.display.incident_active
+          lastControlDeploymentActiveRef.current !== null
+          && lastControlDeploymentActiveRef.current !== nextControl.display.deployment_active
         ) {
           needsStateRefresh = true;
         }
@@ -640,7 +640,7 @@ export function WallboardDisplayPage() {
         ) {
           needsStateRefresh = true;
         }
-        lastControlIncidentActiveRef.current = nextControl.display.incident_active;
+        lastControlDeploymentActiveRef.current = nextControl.display.deployment_active;
         lastControlMaintenanceActiveRef.current = nextMaintenanceActive;
         lastControlFocusSignatureRef.current = nextFocusSignature;
         lastControlRuntimePlaylistSignatureRef.current = nextRuntimePlaylistSignature;
@@ -654,7 +654,7 @@ export function WallboardDisplayPage() {
           setSessionStatus('unpaired');
           setStateError(null);
           setControlError(null);
-          lastControlIncidentActiveRef.current = null;
+          lastControlDeploymentActiveRef.current = null;
           lastControlMaintenanceActiveRef.current = null;
           lastControlFocusSignatureRef.current = undefined;
           lastControlRuntimePlaylistSignatureRef.current = undefined;
@@ -1095,7 +1095,7 @@ export function WallboardDisplayPage() {
             <span className={`wallboard-display__mode wallboard-display__mode--${maintenance !== null ? 'maintenance' : display.mode}`}>
               {maintenance !== null
                 ? <RefreshCw size={14} aria-hidden />
-                : display.mode === 'incident_override'
+                : display.mode === 'deployment_override'
                   ? <LockKeyhole size={14} aria-hidden />
                   : <RotateCw size={14} aria-hidden />}
               {maintenance !== null ? 'Onderhoud' : displayModeLabel(display.mode)}
@@ -1498,15 +1498,15 @@ function WallboardPageContent({
   adminPreview = false,
 }: WallboardPageContentProps) {
   const configuration = state.wallboard.configuration.map;
-  const pagePresentation = ['incident_list', 'summary'].includes(page.type)
+  const pagePresentation = ['deployment_list', 'summary'].includes(page.type)
     ? buildWallboardMapPresentation(
       state,
       hasLiveFeed,
       wallboardPageMapConfiguration(state.wallboard.configuration, page),
     )
     : presentation;
-  const recentIncidents = selectRecentWallboardIncidents(state.operational_summary.recent_incidents);
-  const activeOperationalIncidentCount = countActiveOperationalWallboardIncidents(state.map.incidents);
+  const recentDeployments = selectRecentWallboardDeployments(state.operational_summary.recent_deployments);
+  const activeOperationalDeploymentCount = countActiveOperationalWallboardDeployments(state.map.deployments);
   if (page.type === 'news') {
     return (
       <WallboardNewsPage
@@ -1623,11 +1623,11 @@ function WallboardPageContent({
   if (page.type === 'summary') {
     return (
       <div className="wallboard-display__overview">
-        <Summary label="Actieve incidenten" value={activeOperationalIncidentCount} emphasis />
+        <Summary label="Actieve inzetten" value={activeOperationalDeploymentCount} emphasis />
         <PilotAvailabilityMetric availability={state.operational_summary.pilot_availability} isCurrent={hasLiveFeed} />
         <Summary label="Meldkamers" value={pagePresentation.layers.commandCenters.length} />
-        <Summary label="Laatste meldingen" value={recentIncidents.length} />
-        <RecentIncidentList incidents={recentIncidents} />
+        <Summary label="Laatste inzetten" value={recentDeployments.length} />
+        <RecentDeploymentList deployments={recentDeployments} />
       </div>
     );
   }
@@ -1641,20 +1641,20 @@ function WallboardPageContent({
     );
   }
 
-  if (page.type === 'incident_list') {
+  if (page.type === 'deployment_list') {
     return (
       <div className="wallboard-display__list-page">
-        <header><span>Actieve meldingen</span><strong>{pagePresentation.models.length}</strong></header>
-        <IncidentCards state={state} presentation={pagePresentation} hasLiveFeed={hasLiveFeed} />
+        <header><span>Actieve inzetten</span><strong>{pagePresentation.models.length}</strong></header>
+        <DeploymentCards state={state} presentation={pagePresentation} hasLiveFeed={hasLiveFeed} />
       </div>
     );
   }
 
-  const incidentListPresentation = configuration.show_incident_list
+  const deploymentListPresentation = configuration.show_deployment_list
     ? buildWallboardMapPresentation(
       state,
       hasLiveFeed,
-      wallboardOperationalIncidentConfiguration(configuration),
+      wallboardOperationalDeploymentConfiguration(configuration),
     )
     : null;
 
@@ -1662,21 +1662,21 @@ function WallboardPageContent({
     <>
       {configuration.show_summary ? (
         <section className="wallboard-display__summary" aria-label="Operationele samenvatting">
-          <Summary label="Actieve incidenten" value={activeOperationalIncidentCount} />
+          <Summary label="Actieve inzetten" value={activeOperationalDeploymentCount} />
           <PilotAvailabilityMetric availability={state.operational_summary.pilot_availability} isCurrent={hasLiveFeed} />
           <Summary label="Meldkamers" value={presentation.layers.commandCenters.length} />
-          <Summary label="Laatste meldingen" value={recentIncidents.length} />
+          <Summary label="Laatste inzetten" value={recentDeployments.length} />
         </section>
       ) : null}
 
-      <div className={`wallboard-display__content ${configuration.show_incident_list ? 'wallboard-display__content--with-list' : ''}`}>
+      <div className={`wallboard-display__content ${configuration.show_deployment_list ? 'wallboard-display__content--with-list' : ''}`}>
         <section className="wallboard-display__map" aria-label="Operationele kaart">
           <OperationalMapCanvas
             models={presentation.models}
             layers={presentation.layers}
             layerVisibility={{
               commandCenters: configuration.show_command_centers,
-              historicalIncidents: configuration.show_historical_incidents,
+              historicalDeployments: configuration.show_historical_deployments,
               pilotHomes: false,
             }}
             showRoutes={configuration.show_routes && hasLiveFeed}
@@ -1685,10 +1685,10 @@ function WallboardPageContent({
           />
         </section>
 
-        {incidentListPresentation !== null ? (
-          <aside className="wallboard-display__incidents" aria-label="Actieve incidenten">
-            <header><span>Actieve meldingen</span><strong>{incidentListPresentation.models.length}</strong></header>
-            <IncidentCards state={state} presentation={incidentListPresentation} hasLiveFeed={hasLiveFeed} />
+        {deploymentListPresentation !== null ? (
+          <aside className="wallboard-display__deployments" aria-label="Actieve inzetten">
+            <header><span>Actieve inzetten</span><strong>{deploymentListPresentation.models.length}</strong></header>
+            <DeploymentCards state={state} presentation={deploymentListPresentation} hasLiveFeed={hasLiveFeed} />
           </aside>
         ) : null}
       </div>
@@ -2109,7 +2109,7 @@ function wallboardKpiMetricValue(metric: WallboardKpiMetric): string {
 function wallboardKpiCategoryIcon(category: WallboardKpiCategory) {
   switch (category) {
     case 'pilots': return UsersRound;
-    case 'incidents': return Radio;
+    case 'deployments': return Radio;
     case 'assets': return Boxes;
     case 'responses': return Send;
     case 'flight': return Navigation;
@@ -2986,29 +2986,29 @@ function PilotAvailabilityMetric({
   );
 }
 
-function RecentIncidentList({ incidents }: { incidents: WallboardStateRecentIncident[] }) {
+function RecentDeploymentList({ deployments }: { deployments: WallboardStateRecentDeployment[] }) {
   return (
-    <section className="wallboard-display__recent" aria-labelledby="wallboard-recent-incidents-title">
+    <section className="wallboard-display__recent" aria-labelledby="wallboard-recent-deployments-title">
       <header>
         <span>
           <small>Recent afgesloten</small>
-          <strong id="wallboard-recent-incidents-title">Laatste meldingen</strong>
+          <strong id="wallboard-recent-deployments-title">Laatste inzetten</strong>
         </span>
-        <b>{incidents.length}</b>
+        <b>{deployments.length}</b>
       </header>
-      {incidents.length === 0 ? (
-        <p>Er zijn nog geen laatste meldingen om te tonen.</p>
+      {deployments.length === 0 ? (
+        <p>Er zijn nog geen recent afgesloten inzetten om te tonen.</p>
       ) : (
         <ul>
-          {incidents.map((incident) => (
-            <li key={incident.id}>
-              <span className="wallboard-display__recent-reference">{incident.reference}</span>
-              <strong>{incident.title}</strong>
+          {deployments.map((deployment) => (
+            <li key={deployment.id}>
+              <span className="wallboard-display__recent-reference">{deployment.reference}</span>
+              <strong>{deployment.title}</strong>
               <span>
-                {incident.is_test ? <b className="wallboard-display__recent-test">TEST</b> : null}
-                {incident.location_label?.trim() || 'Locatie niet vastgelegd'}
+                {deployment.is_test ? <b className="wallboard-display__recent-test">TEST</b> : null}
+                {deployment.location_label?.trim() || 'Locatie niet vastgelegd'}
               </span>
-              <time dateTime={incident.closed_at ?? undefined}>{formatRecentIncidentTime(incident.closed_at)}</time>
+              <time dateTime={deployment.closed_at ?? undefined}>{formatRecentDeploymentTime(deployment.closed_at)}</time>
             </li>
           ))}
         </ul>
@@ -3060,25 +3060,25 @@ function WallboardTickerGroup({ items, duplicate = false }: { items: WallboardTi
   );
 }
 
-function IncidentCards({
+function DeploymentCards({
   state,
   presentation,
   hasLiveFeed,
 }: Pick<WallboardPageContentProps, 'state' | 'presentation' | 'hasLiveFeed'>) {
   return (
     <div>
-      {presentation.models.length === 0 ? <p>Geen actieve incidenten.</p> : presentation.models.map((model) => {
-        const incident = state.map.incidents.find((item) => item.id === model.incident.id);
+      {presentation.models.length === 0 ? <p>Geen actieve inzetten.</p> : presentation.models.map((model) => {
+        const deployment = state.map.deployments.find((item) => item.id === model.deployment.id);
         return (
-          <article key={model.incident.id} style={{ '--wallboard-incident-color': model.color } as CSSProperties}>
-            <span className="wallboard-display__incident-reference">
-              {incident?.reference ?? 'Incident'}
-              {incident?.is_test ? <b>TEST</b> : null}
+          <article key={model.deployment.id} style={{ '--wallboard-deployment-color': model.color } as CSSProperties}>
+            <span className="wallboard-display__deployment-reference">
+              {deployment?.reference ?? 'Inzet'}
+              {deployment?.is_test ? <b>TEST</b> : null}
             </span>
-            <h2>{model.incident.title}</h2>
-            <p>{incident?.location_label ?? 'Locatie onbekend'}</p>
+            <h2>{model.deployment.title}</h2>
+            <p>{deployment?.location_label ?? 'Locatie onbekend'}</p>
             <footer>
-              <span>{priorityLabel(incident?.priority)}</span>
+              <span>{priorityLabel(deployment?.priority)}</span>
               <span>{hasLiveFeed ? `${model.liveLocations.length} live op kaart` : 'Locatiestatus onbekend'}</span>
             </footer>
           </article>
@@ -3161,10 +3161,41 @@ function optionalNonNegativeInteger(value: unknown): number | null {
     : null;
 }
 
+function normalizeWallboardDisplayState(
+  value: unknown,
+  fallbackMode: WallboardDisplayMode,
+  fallbackPageId: string,
+): WallboardControlState['display'] {
+  if (!isRecord(value)) {
+    return {
+      mode: fallbackMode,
+      page_id: fallbackPageId,
+      deployment_active: false,
+      next_change_at: null,
+    };
+  }
+  // Runtime payloads can briefly outlive a deployment; accept the old keys
+  // only at this normalization boundary and return canonical fields.
+  const mode = value.mode === 'incident_override'
+    ? 'deployment_override'
+    : ['rotation', 'static', 'manual', 'deployment_override'].includes(String(value.mode))
+      ? value.mode as WallboardDisplayMode
+      : fallbackMode;
+
+  return {
+    mode,
+    page_id: typeof value.page_id === 'string' && value.page_id !== '' ? value.page_id : fallbackPageId,
+    deployment_active: value.deployment_active === true || value.incident_active === true,
+    next_change_at: typeof value.next_change_at === 'string' ? value.next_change_at : null,
+  };
+}
+
 export function normalizeWallboardState(state: WallboardState): WallboardState {
   const configuration = wallboardConfigurationCopy(state.wallboard.configuration);
   const rawState = state as WallboardState & {
-    operational_summary?: WallboardState['operational_summary'];
+    operational_summary?: WallboardState['operational_summary'] & {
+      recent_incidents?: WallboardStateRecentDeployment[];
+    };
     maintenance?: unknown;
     ticker?: WallboardState['ticker'];
     news?: unknown;
@@ -3187,13 +3218,16 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
     runtime_playlist_purpose?: unknown;
     active_incident_playlist?: unknown;
   };
+  const {
+    active_incident_playlist: legacyActiveDeploymentPlaylist,
+    ...canonicalWallboard
+  } = rawWallboard;
   const fallbackMode: WallboardDisplayMode = !configuration.rotation_enabled || configuration.pages.length <= 1 ? 'static' : 'rotation';
-  const display = rawWallboard.display ?? {
-    mode: fallbackMode,
-    page_id: configuration.pages[0].id,
-    incident_active: false,
-    next_change_at: null,
-  };
+  const display = normalizeWallboardDisplayState(
+    rawWallboard.display,
+    fallbackMode,
+    configuration.pages[0].id,
+  );
   const pageId = configuration.pages.some((page) => page.id === display.page_id)
     ? display.page_id
     : configuration.pages[0].id;
@@ -3205,7 +3239,9 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
       pilot_availability: operationalSummary?.pilot_availability
         ?? { available: Number.NaN, total: Number.NaN },
       active_alarm: operationalSummary?.active_alarm ?? null,
-      recent_incidents: operationalSummary?.recent_incidents ?? [],
+      recent_deployments: operationalSummary?.recent_deployments
+        ?? operationalSummary?.recent_incidents
+        ?? [],
       transient_alert: operationalSummary?.transient_alert ?? null,
       ...(hasFocusContract ? { focus: normalizeWallboardFocusState(operationalSummary?.focus) } : {}),
     },
@@ -3220,7 +3256,7 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
     forecast: normalizeWallboardForecastState(rawState.forecast),
     weather_radar: normalizeOperationalWeatherRadarState(rawState.weather_radar),
     wallboard: {
-      ...state.wallboard,
+      ...canonicalWallboard,
       data_mode: normalizeWallboardPlaylistDataMode(rawWallboard.data_mode),
       display_profile: normalizeWallboardDisplayProfile(rawWallboard.display_profile),
       configuration,
@@ -3229,7 +3265,8 @@ export function normalizeWallboardState(state: WallboardState): WallboardState {
       runtime_playlist_id: normalizeRuntimePlaylistId(rawWallboard.runtime_playlist_id),
       runtime_playlist_version: nonNegativeRefreshVersion(rawWallboard.runtime_playlist_version),
       runtime_playlist_purpose: normalizeWallboardPlaylistPurpose(rawWallboard.runtime_playlist_purpose),
-      active_incident_playlist: rawWallboard.active_incident_playlist === true,
+      active_deployment_playlist: rawWallboard.active_deployment_playlist === true
+        || legacyActiveDeploymentPlaylist === true,
       display: { ...display, page_id: pageId },
     },
   };
@@ -3508,18 +3545,17 @@ export function controlFromState(state: WallboardState): WallboardControlState {
     runtime_playlist_id: normalizeRuntimePlaylistId(state.wallboard.runtime_playlist_id),
     runtime_playlist_version: nonNegativeRefreshVersion(state.wallboard.runtime_playlist_version),
     runtime_playlist_purpose: normalizeWallboardPlaylistPurpose(state.wallboard.runtime_playlist_purpose),
-    active_incident_playlist: state.wallboard.active_incident_playlist === true,
+    active_deployment_playlist: state.wallboard.active_deployment_playlist === true,
     display_profile: normalizeWallboardDisplayProfile(state.wallboard.display_profile),
     transient_alert: state.operational_summary.transient_alert,
     ...(state.operational_summary.focus === undefined
       ? {}
       : { focus: normalizeWallboardFocusState(state.operational_summary.focus) }),
-    display: state.wallboard.display ?? {
-      mode: fallbackMode,
-      page_id: state.wallboard.configuration.pages[0].id,
-      incident_active: false,
-      next_change_at: null,
-    },
+    display: normalizeWallboardDisplayState(
+      state.wallboard.display,
+      fallbackMode,
+      state.wallboard.configuration.pages[0].id,
+    ),
   };
 }
 
@@ -3536,9 +3572,13 @@ function normalizeWallboardControlState(state: WallboardControlState): Wallboard
     runtime_playlist_purpose?: unknown;
     active_incident_playlist?: unknown;
   };
+  const {
+    active_incident_playlist: legacyActiveDeploymentPlaylist,
+    ...canonicalState
+  } = legacyState;
   const hasFocusContract = Object.prototype.hasOwnProperty.call(legacyState, 'focus');
   return {
-    ...state,
+    ...canonicalState,
     maintenance: normalizeWallboardMaintenanceNotice(legacyState.maintenance),
     data_mode: normalizeWallboardPlaylistDataMode(legacyState.data_mode),
     display_profile: normalizeWallboardDisplayProfile(legacyState.display_profile),
@@ -3546,7 +3586,13 @@ function normalizeWallboardControlState(state: WallboardControlState): Wallboard
     runtime_playlist_id: normalizeRuntimePlaylistId(legacyState.runtime_playlist_id),
     runtime_playlist_version: nonNegativeRefreshVersion(legacyState.runtime_playlist_version),
     runtime_playlist_purpose: normalizeWallboardPlaylistPurpose(legacyState.runtime_playlist_purpose),
-    active_incident_playlist: legacyState.active_incident_playlist === true,
+    active_deployment_playlist: legacyState.active_deployment_playlist === true
+      || legacyActiveDeploymentPlaylist === true,
+    display: normalizeWallboardDisplayState(
+      legacyState.display,
+      'static',
+      legacyState.display.page_id,
+    ),
     transient_alert: legacyState.transient_alert ?? null,
     ...(hasFocusContract ? { focus: normalizeWallboardFocusState(legacyState.focus) } : {}),
   };
@@ -3555,11 +3601,11 @@ function normalizeWallboardControlState(state: WallboardControlState): Wallboard
 export function wallboardRuntimePlaylistSignature(
   control: Pick<
     WallboardControlState,
-    'data_mode' | 'runtime_playlist_id' | 'runtime_playlist_version' | 'runtime_playlist_purpose' | 'active_incident_playlist'
+    'data_mode' | 'runtime_playlist_id' | 'runtime_playlist_version' | 'runtime_playlist_purpose' | 'active_deployment_playlist'
   >,
 ): string {
   return [
-    control.active_incident_playlist === true ? 'incident' : 'base',
+    control.active_deployment_playlist === true ? 'deployment' : 'base',
     normalizeWallboardPlaylistDataMode(control.data_mode),
     normalizeWallboardPlaylistPurpose(control.runtime_playlist_purpose),
     normalizeRuntimePlaylistId(control.runtime_playlist_id) ?? 'none',
@@ -3792,27 +3838,36 @@ function normalizeWallboardFocusState(
   focus: WallboardFocusState | null | undefined,
 ): WallboardFocusState | null | undefined {
   if (focus === undefined || focus === null) return focus;
-  if (!['preannouncement', 'real_alarm', 'test_alarm'].includes(focus.kind)) return null;
+  const legacyFocus = focus as WallboardFocusState & { incident_id?: unknown };
+  const deploymentId = typeof legacyFocus.deployment_id === 'string' && legacyFocus.deployment_id !== ''
+    ? legacyFocus.deployment_id
+    : typeof legacyFocus.incident_id === 'string'
+      ? legacyFocus.incident_id
+      : '';
+  const canonicalFocus = { ...legacyFocus };
+  delete (canonicalFocus as { incident_id?: unknown }).incident_id;
+  if (!['preannouncement', 'real_alarm', 'test_alarm'].includes(legacyFocus.kind)) return null;
   if (
-    typeof focus.focus_id !== 'string' || focus.focus_id === ''
-    || typeof focus.dispatch_id !== 'string' || focus.dispatch_id === ''
-    || typeof focus.incident_id !== 'string' || focus.incident_id === ''
-    || typeof focus.reference !== 'string'
-    || typeof focus.title !== 'string'
-    || typeof focus.started_at !== 'string'
+    typeof legacyFocus.focus_id !== 'string' || legacyFocus.focus_id === ''
+    || typeof legacyFocus.dispatch_id !== 'string' || legacyFocus.dispatch_id === ''
+    || deploymentId === ''
+    || typeof legacyFocus.reference !== 'string'
+    || typeof legacyFocus.title !== 'string'
+    || typeof legacyFocus.started_at !== 'string'
   ) return null;
 
   return {
-    ...focus,
-    is_preview: focus.is_preview === true,
-    visible: focus.visible === true,
-    expires_at: typeof focus.expires_at === 'string' ? focus.expires_at : null,
-    playlist_page_id: typeof focus.playlist_page_id === 'string' && focus.playlist_page_id !== ''
-      ? focus.playlist_page_id
+    ...canonicalFocus,
+    deployment_id: deploymentId,
+    is_preview: legacyFocus.is_preview === true,
+    visible: legacyFocus.visible === true,
+    expires_at: typeof legacyFocus.expires_at === 'string' ? legacyFocus.expires_at : null,
+    playlist_page_id: typeof legacyFocus.playlist_page_id === 'string' && legacyFocus.playlist_page_id !== ''
+      ? legacyFocus.playlist_page_id
       : null,
-    next_change_at: typeof focus.next_change_at === 'string' ? focus.next_change_at : null,
-    pilot_counts: wallboardFocusPilotCounts(focus.pilot_counts, null),
-    responses: normalizeWallboardFocusResponses(focus.responses),
+    next_change_at: typeof legacyFocus.next_change_at === 'string' ? legacyFocus.next_change_at : null,
+    pilot_counts: wallboardFocusPilotCounts(legacyFocus.pilot_counts, null),
+    responses: normalizeWallboardFocusResponses(legacyFocus.responses),
   };
 }
 
@@ -3952,7 +4007,7 @@ function displayModeLabel(mode: WallboardDisplayMode): string {
     case 'rotation': return 'Automatische rotatie';
     case 'static': return 'Vaste pagina';
     case 'manual': return 'Handmatig gestuurd';
-    case 'incident_override': return 'Actief incident';
+    case 'deployment_override': return 'Actieve inzet';
   }
 }
 
@@ -4015,10 +4070,10 @@ function formatWallboardNewsDate(value: string): string {
   return Number.isFinite(date.getTime()) ? WALLBOARD_NEWS_DATE_FORMATTER.format(date) : 'Datum onbekend';
 }
 
-function formatRecentIncidentTime(value: string | null | undefined): string {
+function formatRecentDeploymentTime(value: string | null | undefined): string {
   if (!value) return 'Tijd niet vastgelegd';
   const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? RECENT_INCIDENT_TIME_FORMATTER.format(date) : 'Tijd niet vastgelegd';
+  return Number.isFinite(date.getTime()) ? RECENT_DEPLOYMENT_TIME_FORMATTER.format(date) : 'Tijd niet vastgelegd';
 }
 
 function formatDateTime(value: string): string {
@@ -4026,7 +4081,7 @@ function formatDateTime(value: string): string {
   return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('nl-NL', { dateStyle: 'short', timeStyle: 'medium' }).format(date) : 'onbekend';
 }
 
-function priorityLabel(priority: WallboardState['map']['incidents'][number]['priority'] | undefined): string {
+function priorityLabel(priority: WallboardState['map']['deployments'][number]['priority'] | undefined): string {
   switch (priority) {
     case 'critical': return 'Kritiek';
     case 'high': return 'Hoog';

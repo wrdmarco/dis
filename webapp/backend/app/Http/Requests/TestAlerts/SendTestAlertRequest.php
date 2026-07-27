@@ -10,7 +10,7 @@ final class SendTestAlertRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->hasPermission('incidents.dispatch.manage') === true;
+        return $this->user()?->hasPermission('deployments.dispatch.manage') === true;
     }
 
     /**

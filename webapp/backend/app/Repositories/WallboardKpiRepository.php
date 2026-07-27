@@ -3,10 +3,10 @@
 namespace App\Repositories;
 
 use App\Models\Asset;
+use App\Models\Deployment;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
-use App\Models\Incident;
-use App\Models\PilotIncidentReport;
+use App\Models\PilotDeploymentReport;
 use App\Models\User;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -52,7 +52,7 @@ final class WallboardKpiRepository
     /**
      * @return array{total: int, by_status: array{active: int, dispatching: int, in_progress: int}, by_priority: array{low: int, normal: int, high: int, critical: int}}
      */
-    public function activeIncidentCounts(): array
+    public function activeDeploymentCounts(): array
     {
         $counts = [
             'total' => 0,
@@ -60,7 +60,7 @@ final class WallboardKpiRepository
             'by_priority' => ['low' => 0, 'normal' => 0, 'high' => 0, 'critical' => 0],
         ];
 
-        $rows = Incident::query()
+        $rows = Deployment::query()
             ->where('is_test', false)
             ->whereIn('status', array_keys($counts['by_status']))
             ->select(['status', 'priority'])
@@ -87,9 +87,9 @@ final class WallboardKpiRepository
     /**
      * @return array{registered_total: int, opened_today: int, resolved_today: int, cancelled_today: int, resolved_total: int, cancelled_total: int}
      */
-    public function incidentLifecycleCounts(DateTimeInterface $dayStart, DateTimeInterface $dayEnd): array
+    public function deploymentLifecycleCounts(DateTimeInterface $dayStart, DateTimeInterface $dayEnd): array
     {
-        $row = Incident::query()
+        $row = Deployment::query()
             ->where('is_test', false)
             ->selectRaw('COUNT(*) AS registered_total')
             ->selectRaw(
@@ -163,7 +163,7 @@ final class WallboardKpiRepository
         return DispatchRequest::query()
             ->whereIn('status', ['sent', 'escalated'])
             ->whereNotNull('sent_at')
-            ->whereHas('incident', static fn ($incidents) => $incidents
+            ->whereHas('deployment', static fn ($deployments) => $deployments
                 ->where('is_test', false)
                 ->whereIn('status', ['active', 'dispatching', 'in_progress']))
             ->count();
@@ -173,11 +173,11 @@ final class WallboardKpiRepository
     public function activeResponseRecipients(): Collection
     {
         return DispatchRecipient::query()
-            ->with('dispatchRequest:id,incident_id')
+            ->with('dispatchRequest:id,deployment_id')
             ->whereHas('dispatchRequest', static fn ($dispatches) => $dispatches
                 ->whereIn('status', ['sent', 'escalated'])
                 ->whereNotNull('sent_at')
-                ->whereHas('incident', static fn ($incidents) => $incidents
+                ->whereHas('deployment', static fn ($deployments) => $deployments
                     ->where('is_test', false)
                     ->whereIn('status', ['active', 'dispatching', 'in_progress'])))
             ->orderByDesc('updated_at')
@@ -326,14 +326,14 @@ final class WallboardKpiRepository
     }
 
     /**
-     * Known Belgian and German incidents are outside the province denominator.
+     * Known Belgian and German deployments are outside the province denominator.
      * Unresolved country rows stay visible as `Onbekend` until enrichment finishes.
      *
      * @return list<array{label: string, value: int}>
      */
-    public function incidentProvinceDistribution(): array
+    public function deploymentProvinceDistribution(): array
     {
-        $rows = Incident::query()
+        $rows = Deployment::query()
             ->where('is_test', false)
             ->where(static fn (Builder $query) => $query
                 ->whereNull('country_code')
@@ -364,9 +364,9 @@ final class WallboardKpiRepository
     }
 
     /** @return list<array{label: string, value: int}> */
-    public function incidentCountryDistribution(): array
+    public function deploymentCountryDistribution(): array
     {
-        $rows = Incident::query()
+        $rows = Deployment::query()
             ->where('is_test', false)
             ->select('country_code')
             ->selectRaw('COUNT(*) AS aggregate')
@@ -395,13 +395,13 @@ final class WallboardKpiRepository
 
     private function flightReportQuery(DateTimeInterface $monthStartUtc, DateTimeInterface $monthEndUtc): Builder
     {
-        return PilotIncidentReport::query()
+        return PilotDeploymentReport::query()
             ->where('status', 'submitted')
             ->whereNotNull('submitted_at')
             ->where('submitted_at', '>=', $monthStartUtc)
             ->where('submitted_at', '<', $monthEndUtc)
             ->where('flight_minutes', '>', 0)
-            ->whereHas('incident', static fn (Builder $incidents) => $incidents->where('is_test', false));
+            ->whereHas('deployment', static fn (Builder $deployments) => $deployments->where('is_test', false));
     }
 
     private function droneTypeLabel(mixed $manufacturer, mixed $model): ?string

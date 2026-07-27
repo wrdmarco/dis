@@ -5,7 +5,7 @@ namespace Tests\Feature;
 use App\Contracts\WallboardContentProvider;
 use App\Models\AuditLog;
 use App\Models\CalendarEvent;
-use App\Models\Incident;
+use App\Models\Deployment;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -126,7 +126,7 @@ final class WallboardPlaylistPreviewApiTest extends TestCase
         $configuration = [
             'pages' => [
                 $this->page('summary', 'Operationeel overzicht', 'summary'),
-                $this->page('incidents', 'Incidenten', 'incident_list'),
+                $this->page('deployments', 'Deploymenten', 'deployment_list'),
                 $this->page('map', 'Operationele kaart', 'map'),
                 $this->page('kpi', 'KPI', 'kpi'),
                 $this->page('calendar', 'Kalender', 'calendar'),
@@ -165,7 +165,7 @@ final class WallboardPlaylistPreviewApiTest extends TestCase
             ->assertJsonPath('data.wallboard.configuration.pages.5.options.quotes.0.author', 'DIS DEMO')
             ->assertJsonPath('data.wallboard.configuration.pages.7.options.sources.0', 'ndt')
             ->assertJsonPath('data.operational_summary.pilot_availability.available', 12)
-            ->assertJsonPath('data.map.incidents.0.reference', 'DEMO-2026-0043')
+            ->assertJsonPath('data.map.deployments.0.reference', 'DEMO-2026-0043')
             ->assertJsonPath('data.news.pages.news.items.0.source_label', 'DIS DEMO')
             ->assertJsonPath('data.ticker.items.0.source_label', 'DIS DEMO')
             ->assertJsonPath('data.forecast.pages.forecast.location.label', 'Demolocatie (fictief)')
@@ -198,7 +198,7 @@ final class WallboardPlaylistPreviewApiTest extends TestCase
             'created_by' => $manager->id,
             'updated_by' => $manager->id,
         ]);
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => 'PREVIEW-001',
             'title' => 'Actuele preview-inzet',
             'description' => 'Alleen actuele publieke velden horen in de preview.',
@@ -234,7 +234,7 @@ final class WallboardPlaylistPreviewApiTest extends TestCase
                     'media_asset_version' => 1,
                 ]),
             ],
-            'incident_override' => ['enabled' => true, 'page_id' => 'concept-summary'],
+            'deployment_override' => ['enabled' => true, 'page_id' => 'concept-summary'],
             'ticker' => [
                 'enabled' => true,
                 'sources' => [[
@@ -253,8 +253,8 @@ final class WallboardPlaylistPreviewApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.wallboard.id', (string) $playlist->id)
             ->assertJsonPath('data.wallboard.configuration.pages.0.name', 'Conceptsamenvatting')
-            ->assertJsonPath('data.wallboard.display.incident_active', false)
-            ->assertJsonPath('data.operational_summary.active_alarm.id', (string) $incident->id)
+            ->assertJsonPath('data.wallboard.display.deployment_active', false)
+            ->assertJsonPath('data.operational_summary.active_alarm.id', (string) $deployment->id)
             ->assertJsonPath('data.operational_summary.focus', null)
             ->assertJsonPath('data.operational_summary.transient_alert', null)
             ->assertJsonPath('data.maintenance', null)
@@ -265,7 +265,7 @@ final class WallboardPlaylistPreviewApiTest extends TestCase
             )
             ->assertJsonPath('data.ticker.items.0.text', 'Actuele ticker')
             ->assertJsonPath('data.calendar.pages.concept-calendar.items.0.title', 'Previewbriefing')
-            ->assertJsonPath('data.map.incidents.0.id', (string) $incident->id)
+            ->assertJsonPath('data.map.deployments.0.id', (string) $deployment->id)
             ->assertJsonPath('data.media.photo_pages.concept-photo.items.0.id', (string) $image->id)
             ->assertJsonPath(
                 'data.media.photo_pages.concept-photo.items.0.image_url',

@@ -13,13 +13,13 @@ test('removes the server-side speech route, navigation and browser capability', 
   expect(middleware).not.toContain('microphone=(self)');
 });
 
-test('removes speech state from incident, queue and shared API presentation', () => {
+test('removes speech state from deployment, queue and shared API presentation', () => {
   const types = readFileSync(new URL('../src/types/api.ts', import.meta.url), 'utf8');
-  const incident = readFileSync(new URL('../src/features/incidents/IncidentDetailPage.tsx', import.meta.url), 'utf8');
+  const deployment = readFileSync(new URL('../src/features/deployments/DeploymentDetailPage.tsx', import.meta.url), 'utf8');
   const queue = readFileSync(new URL('../src/features/queues/QueuePage.tsx', import.meta.url), 'utf8');
   const branding = readFileSync(new URL('../src/features/branding/BrandingPage.tsx', import.meta.url), 'utf8');
 
-  for (const source of [types, incident, queue, branding]) {
+  for (const source of [types, deployment, queue, branding]) {
     expect(source).not.toMatch(/speech|spraak|tts|serverstem/iu);
   }
   expect(types).toContain("export type QueueMonitorFilter = 'all' | 'push';");

@@ -403,7 +403,7 @@ export function WallboardsAdminPage() {
               />
             )
           ) : selectedPlaylist === null ? (
-            <EditorEmpty icon="playlist" title="Selecteer of maak een playlist" description="Pagina’s, tijden, kaartlagen, ticker en incidentvoorrang worden hier als één programma beheerd." />
+            <EditorEmpty icon="playlist" title="Selecteer of maak een playlist" description="Pagina’s, tijden, kaartlagen, ticker en inzetvoorrang worden hier als één programma beheerd." />
           ) : (
             <PlaylistEditor
               key={selectedPlaylist.id}
@@ -452,8 +452,8 @@ function ScreenEditor({
     normalizeWallboardDisplayProfile(wallboard.display_profile)
   ));
   const [draftPlaylistId, setDraftPlaylistId] = useState(wallboard.playlist_id);
-  const [draftActiveIncidentPlaylistId, setDraftActiveIncidentPlaylistId] = useState(
-    wallboard.active_incident_playlist_id ?? '',
+  const [draftActiveDeploymentPlaylistId, setDraftActiveDeploymentPlaylistId] = useState(
+    wallboard.active_deployment_playlist_id ?? '',
   );
   const [tvPairingCode, setTvPairingCode] = useState('');
   const [pairingInputInvalid, setPairingInputInvalid] = useState(false);
@@ -471,16 +471,16 @@ function ScreenEditor({
     ?? (wallboard.playlist.id === draftPlaylistId && wallboardPlaylistIsNormal(wallboard.playlist)
       ? wallboard.playlist
       : null);
-  const selectedActiveIncidentPlaylist = playlists.find(
-    (playlist) => playlist.id === draftActiveIncidentPlaylistId,
-  ) ?? (wallboard.active_incident_playlist?.id === draftActiveIncidentPlaylistId
-    ? wallboard.active_incident_playlist
+  const selectedActiveDeploymentPlaylist = playlists.find(
+    (playlist) => playlist.id === draftActiveDeploymentPlaylistId,
+  ) ?? (wallboard.active_deployment_playlist?.id === draftActiveDeploymentPlaylistId
+    ? wallboard.active_deployment_playlist
     : null);
   const selectedPlaylistIsInvalid = draftPlaylistId !== '' && selectedPlaylist === null;
-  const activeIncidentPlaylistIsInvalid = draftActiveIncidentPlaylistId !== ''
+  const activeDeploymentPlaylistIsInvalid = draftActiveDeploymentPlaylistId !== ''
     && (
-      selectedActiveIncidentPlaylist === null
-      || !wallboardPlaylistIsSelectableAlarm(selectedActiveIncidentPlaylist)
+      selectedActiveDeploymentPlaylist === null
+      || !wallboardPlaylistIsSelectableAlarm(selectedActiveDeploymentPlaylist)
     );
   const display = wallboard.display ?? {
     mode: wallboard.manual_page_id
@@ -489,7 +489,7 @@ function ScreenEditor({
         ? 'static' as const
         : 'rotation' as const,
     page_id: wallboard.manual_page_id ?? savedConfiguration.pages[0].id,
-    incident_active: false,
+    deployment_active: false,
     next_change_at: null,
   };
   const currentPage = savedConfiguration.pages.find((page) => page.id === display.page_id) ?? null;
@@ -501,9 +501,9 @@ function ScreenEditor({
     setDraftEnabled(wallboard.is_enabled);
     setDraftDisplayProfile(normalizeWallboardDisplayProfile(wallboard.display_profile));
     setDraftPlaylistId(wallboard.playlist_id);
-    setDraftActiveIncidentPlaylistId(wallboard.active_incident_playlist_id ?? '');
+    setDraftActiveDeploymentPlaylistId(wallboard.active_deployment_playlist_id ?? '');
   }, [
-    wallboard.active_incident_playlist_id,
+    wallboard.active_deployment_playlist_id,
     wallboard.display_profile,
     wallboard.is_enabled,
     wallboard.name,
@@ -535,14 +535,14 @@ function ScreenEditor({
       setActionError('Kies een normale playlist als standaardprogramma voor dit scherm.');
       return;
     }
-    if (activeIncidentPlaylistIsInvalid) {
+    if (activeDeploymentPlaylistIsInvalid) {
       setActionError('Kies een alarmplaylist met LIVE DATA of schakel de alarmplaylist uit.');
       return;
     }
     const metadataChanged = name !== wallboard.name
       || draftEnabled !== wallboard.is_enabled
       || draftDisplayProfile !== wallboard.display_profile
-      || draftActiveIncidentPlaylistId !== (wallboard.active_incident_playlist_id ?? '');
+      || draftActiveDeploymentPlaylistId !== (wallboard.active_deployment_playlist_id ?? '');
     const playlistChanged = draftPlaylistId !== wallboard.playlist_id;
     if (!metadataChanged && !playlistChanged) {
       setActionError(null);
@@ -560,9 +560,9 @@ function ScreenEditor({
           name,
           is_enabled: draftEnabled,
           display_profile: draftDisplayProfile,
-          active_incident_playlist_id: draftActiveIncidentPlaylistId === ''
+          active_deployment_playlist_id: draftActiveDeploymentPlaylistId === ''
             ? null
-            : draftActiveIncidentPlaylistId,
+            : draftActiveDeploymentPlaylistId,
           expected_config_version: wallboard.config_version,
         });
         currentWallboard = response.data;
@@ -740,7 +740,7 @@ function ScreenEditor({
           <div>
             <small id={`wallboard-live-${wallboard.id}`}>Nu op het scherm</small>
             <strong>{currentPage?.name ?? 'Pagina onbekend'}</strong>
-            <span>{displayModeLabel(display.mode, display.incident_active)}</span>
+            <span>{displayModeLabel(display.mode, display.deployment_active)}</span>
           </div>
           {display.next_change_at && display.mode === 'rotation' ? (
             <time dateTime={display.next_change_at}>Volgende wissel {formatTime(display.next_change_at)}</time>
@@ -785,7 +785,7 @@ function ScreenEditor({
         <div className="wallboard-configuration-section-heading">
           <span className="eyebrow">Schermvoorbeeld</span>
           <h3 id={`wallboard-focus-preview-${wallboard.id}`}>Focusscherm testen</h3>
-          <p>Toont 30 seconden vaste voorbeelddata op alleen dit scherm. Er wordt geen incident, alarmering of pushbericht aangemaakt.</p>
+          <p>Toont 30 seconden vaste voorbeelddata op alleen dit scherm. Er wordt geen inzet, alarmering of pushbericht aangemaakt.</p>
         </div>
         <div className="wallboard-editor__heading-actions" role="group" aria-label="Focusscherm 30 seconden testen">
           {WALLBOARD_FOCUS_PREVIEW_OPTIONS.map((option) => {
@@ -914,10 +914,10 @@ function ScreenEditor({
           <label className="wallboard-switch-row">
             <input
               type="checkbox"
-              checked={draftActiveIncidentPlaylistId !== ''}
-              disabled={draftActiveIncidentPlaylistId === '' && selectableAlarmPlaylists.length === 0}
+              checked={draftActiveDeploymentPlaylistId !== ''}
+              disabled={draftActiveDeploymentPlaylistId === '' && selectableAlarmPlaylists.length === 0}
               onChange={(event) => {
-                setDraftActiveIncidentPlaylistId(event.target.checked
+                setDraftActiveDeploymentPlaylistId(event.target.checked
                   ? selectableAlarmPlaylists[0]?.id ?? ''
                   : '');
                 setActionError(null);
@@ -927,25 +927,25 @@ function ScreenEditor({
             <span>
               <strong>Alarmplaylist gebruiken</strong>
               <small id={`wallboard-active-playlist-toggle-help-${wallboard.id}`}>
-                Schakelt tijdens een actief incident over op de gekozen alarmplaylist en keert daarna terug.
+                Schakelt tijdens een actieve inzet over op de gekozen alarmplaylist en keert daarna terug.
               </small>
             </span>
           </label>
           <label>
             <span className="wallboard-playlist-selector-label">
               <span>Alarmplaylist</span>
-              {selectedActiveIncidentPlaylist ? (
+              {selectedActiveDeploymentPlaylist ? (
                 <span className="wallboard-playlist-selector-label__pills">
-                  <WallboardPlaylistPurposePill purpose={selectedActiveIncidentPlaylist.purpose} />
-                  <WallboardPlaylistDataModePill mode={selectedActiveIncidentPlaylist.data_mode} />
+                  <WallboardPlaylistPurposePill purpose={selectedActiveDeploymentPlaylist.purpose} />
+                  <WallboardPlaylistDataModePill mode={selectedActiveDeploymentPlaylist.data_mode} />
                 </span>
               ) : null}
             </span>
             <select
-              value={draftActiveIncidentPlaylistId}
-              disabled={draftActiveIncidentPlaylistId === ''}
+              value={draftActiveDeploymentPlaylistId}
+              disabled={draftActiveDeploymentPlaylistId === ''}
               onChange={(event) => {
-                setDraftActiveIncidentPlaylistId(event.target.value);
+                setDraftActiveDeploymentPlaylistId(event.target.value);
                 setActionError(null);
               }}
               aria-describedby={`wallboard-active-playlist-help-${wallboard.id}`}
@@ -956,19 +956,19 @@ function ScreenEditor({
                   {wallboardPlaylistOptionLabel(playlist)}
                 </option>
               ))}
-              {wallboard.active_incident_playlist
-                && !selectableAlarmPlaylists.some((playlist) => playlist.id === wallboard.active_incident_playlist?.id) ? (
+              {wallboard.active_deployment_playlist
+                && !selectableAlarmPlaylists.some((playlist) => playlist.id === wallboard.active_deployment_playlist?.id) ? (
                   <option
-                    value={wallboard.active_incident_playlist.id}
+                    value={wallboard.active_deployment_playlist.id}
                     disabled
                   >
-                    {wallboardPlaylistOptionLabel(wallboard.active_incident_playlist)}
+                    {wallboardPlaylistOptionLabel(wallboard.active_deployment_playlist)}
                     {' · geen geldige LIVE DATA-alarmplaylist'}
                   </option>
                 ) : null}
             </select>
-            <small id={`wallboard-active-playlist-help-${wallboard.id}`} className={activeIncidentPlaylistIsInvalid ? 'wallboard-playlist-selector-warning' : undefined}>
-              {activeIncidentPlaylistIsInvalid
+            <small id={`wallboard-active-playlist-help-${wallboard.id}`} className={activeDeploymentPlaylistIsInvalid ? 'wallboard-playlist-selector-warning' : undefined}>
+              {activeDeploymentPlaylistIsInvalid
                 ? 'Deze keuze is geen geldige LIVE DATA-alarmplaylist. Kies een andere playlist of schakel de optie uit.'
                 : selectableAlarmPlaylists.length === 0
                   ? 'Maak onder Playlists eerst een alarmplaylist met LIVE DATA.'
@@ -986,7 +986,7 @@ function ScreenEditor({
       {actionMessage ? <p className="form-note" role="status">{actionMessage}</p> : null}
 
       <div className="wallboard-editor__actions">
-        <button className="primary-button" type="submit" disabled={busyAction !== null || draftName.trim() === '' || draftPlaylistId === '' || selectedPlaylistIsInvalid || activeIncidentPlaylistIsInvalid}>
+        <button className="primary-button" type="submit" disabled={busyAction !== null || draftName.trim() === '' || draftPlaylistId === '' || selectedPlaylistIsInvalid || activeDeploymentPlaylistIsInvalid}>
           <Save size={17} aria-hidden /> {busyAction === 'save' ? 'Opslaan…' : 'Scherm opslaan'}
         </button>
         <button className="secondary-button" type="button" onClick={() => void revokeSessions()} disabled={busyAction !== null || !isPaired}>
@@ -1177,7 +1177,7 @@ function PlaylistEditor({
           <AlertTriangle size={22} aria-hidden />
           <div>
             <strong>Gedeelde playlist · {usageCount} schermen</strong>
-            <span>Wijzigingen aan pagina’s, tijden, kaartlagen, ticker of incidentvoorrang verschijnen na opslaan op al deze schermen.</span>
+            <span>Wijzigingen aan pagina’s, tijden, kaartlagen, ticker of inzetvoorrang verschijnen na opslaan op al deze schermen.</span>
           </div>
         </aside>
       ) : (
@@ -1296,11 +1296,11 @@ function displayPageLabel(wallboard: Wallboard): string | null {
   return page ? `Nu: ${page.name}` : null;
 }
 
-function displayModeLabel(mode: 'rotation' | 'static' | 'manual' | 'incident_override', incidentActive: boolean): string {
+function displayModeLabel(mode: 'rotation' | 'static' | 'manual' | 'deployment_override', deploymentActive: boolean): string {
   if (mode === 'manual') return 'Handmatig vastgezet door beheer';
-  if (mode === 'incident_override') return 'Vastgezet zolang het incident actief is';
+  if (mode === 'deployment_override') return 'Vastgezet zolang de inzet actief is';
   if (mode === 'static') return 'Vaste pagina';
-  return incidentActive ? 'Rotatie · incident actief zonder override' : 'Automatische rotatie';
+  return deploymentActive ? 'Rotatie · inzet actief zonder override' : 'Automatische rotatie';
 }
 
 function playlistUsageLabel(playlist: WallboardPlaylist): string {

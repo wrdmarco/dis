@@ -137,7 +137,7 @@ final class WallboardMaintenanceNoticeServiceTest extends TestCase
         $this->writeNotice('update', '2026-02-30T10:00:00Z', '2026-07-19T11:00:00Z');
         self::assertNull($this->service()->current());
 
-        $this->writeNotice('incident', '2026-07-19T10:00:00Z', '2026-07-19T11:00:00Z');
+        $this->writeNotice('deployment', '2026-07-19T10:00:00Z', '2026-07-19T11:00:00Z');
         self::assertNull($this->service()->current());
     }
 

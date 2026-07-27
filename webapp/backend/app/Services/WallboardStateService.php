@@ -6,9 +6,9 @@ use App\Contracts\OperationalRadarProvider;
 use App\DTO\Routing\RouteGeometry;
 use App\DTO\Routing\RoutePoint;
 use App\Models\AvailabilityStatus;
+use App\Models\Deployment;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
-use App\Models\Incident;
 use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
 use App\Models\SystemSetting;
@@ -24,7 +24,7 @@ use Throwable;
 
 final class WallboardStateService
 {
-    private const RECENT_INCIDENT_LIMIT = 20;
+    private const RECENT_DEPLOYMENT_LIMIT = 20;
 
     public function __construct(
         private readonly OperationalMapService $operationalMap,
@@ -62,7 +62,7 @@ final class WallboardStateService
             $configuration,
             $resolved['playlist_id'],
             $resolved['playlist_version'],
-            $resolved['active_incident_playlist'],
+            $resolved['active_deployment_playlist'],
             $resolved['data_mode'],
             $resolved['purpose'],
         );
@@ -133,7 +133,7 @@ final class WallboardStateService
     /**
      * Build the live operational portion for an administrator preview. Current
      * operational data remains visible, while focus, transient alerts,
-     * maintenance and incident-driven page takeover are deliberately disabled.
+     * maintenance and deployment-driven page takeover are deliberately disabled.
      *
      * @param  array<string, mixed>  $configuration
      * @return array<string, mixed>
@@ -164,13 +164,13 @@ final class WallboardStateService
         }
 
         $authorized = $this->hasWeatherRadarKind($base['configuration'], $kind);
-        if (! $authorized && $wallboard->active_incident_playlist_id !== null) {
+        if (! $authorized && $wallboard->active_deployment_playlist_id !== null) {
             // An immutable URL may be requested just after an alarm starts or
             // ends. Authorize the one assigned live alarm playlist as well as
             // the normal playlist, without widening access to any other
-            // playlist or making authorization depend on incident timing.
+            // playlist or making authorization depend on deployment timing.
             $alarm = $this->playlistResolver->resolveRuntime($wallboard, true);
-            $authorized = $alarm['active_incident_playlist'] === true
+            $authorized = $alarm['active_deployment_playlist'] === true
                 && $alarm['data_mode'] === WallboardPlaylist::DATA_MODE_LIVE
                 && $this->hasWeatherRadarKind($alarm['configuration'], $kind);
         }
@@ -190,7 +190,7 @@ final class WallboardStateService
         ?array $configuration = null,
         ?string $playlistId = null,
         ?int $playlistVersion = null,
-        bool $activeIncidentPlaylist = false,
+        bool $activeDeploymentPlaylist = false,
         string $dataMode = WallboardPlaylist::DATA_MODE_LIVE,
         string $purpose = WallboardPlaylist::PURPOSE_NORMAL,
     ): array {
@@ -208,7 +208,7 @@ final class WallboardStateService
             $configuration = $resolved['configuration'];
             $playlistId = $resolved['playlist_id'];
             $playlistVersion = $resolved['playlist_version'];
-            $activeIncidentPlaylist = $resolved['active_incident_playlist'];
+            $activeDeploymentPlaylist = $resolved['active_deployment_playlist'];
             $dataMode = $resolved['data_mode'];
             $purpose = $resolved['purpose'];
         }
@@ -223,7 +223,7 @@ final class WallboardStateService
                 'config_version' => (int) $wallboard->config_version,
                 'runtime_playlist_id' => $playlistId,
                 'runtime_playlist_version' => $playlistVersion ?? 0,
-                'active_incident_playlist' => $activeIncidentPlaylist,
+                'active_deployment_playlist' => $activeDeploymentPlaylist,
                 'data_mode' => $dataMode,
                 'runtime_playlist_purpose' => $purpose,
             ],
@@ -292,7 +292,7 @@ final class WallboardStateService
                 'refresh_version' => (int) $wallboard->refresh_version,
                 'runtime_playlist_id' => $base['playlist_id'],
                 'runtime_playlist_version' => $base['playlist_version'],
-                'active_incident_playlist' => false,
+                'active_deployment_playlist' => false,
                 'runtime_playlist_purpose' => $base['purpose'],
                 'content_versions' => $this->demoStateService->contentVersions(
                     $wallboard,
@@ -324,7 +324,7 @@ final class WallboardStateService
             'refresh_version' => (int) $wallboard->refresh_version,
             'runtime_playlist_id' => $resolved['playlist_id'],
             'runtime_playlist_version' => $resolved['playlist_version'],
-            'active_incident_playlist' => $resolved['active_incident_playlist'],
+            'active_deployment_playlist' => $resolved['active_deployment_playlist'],
             'runtime_playlist_purpose' => $resolved['purpose'],
             'content_versions' => $this->contentSnapshots->contentVersions(
                 $wallboard,
@@ -362,36 +362,36 @@ final class WallboardStateService
             && (string) ($page['type'] ?? '') === 'map');
         $hasWeatherRadarPage = $pages->contains(fn (mixed $page): bool => is_array($page)
             && (string) ($page['type'] ?? '') === 'weather_radar');
-        $incidentPages = $pages
+        $deploymentPages = $pages
             ->filter(fn (mixed $page): bool => is_array($page)
-                && in_array((string) ($page['type'] ?? ''), ['incident_list', 'summary'], true));
-        $summaryPages = $incidentPages
+                && in_array((string) ($page['type'] ?? ''), ['deployment_list', 'summary'], true));
+        $summaryPages = $deploymentPages
             ->filter(fn (array $page): bool => (string) ($page['type'] ?? '') === 'summary');
         $showsOperationalSummary = $summaryPages->isNotEmpty()
             || ($hasMapPage && ($mapConfiguration['show_summary'] ?? false) === true);
         $pilotMetrics = $showsOperationalSummary
             ? $this->kpiService->pilotMetrics()
             : null;
-        $needsIncidents = $showsOperationalSummary
+        $needsDeployments = $showsOperationalSummary
             || ($hasMapPage && (
-                ($mapConfiguration['show_active_incidents'] ?? false) === true
+                ($mapConfiguration['show_active_deployments'] ?? false) === true
                 || ($mapConfiguration['show_live_locations'] ?? false) === true
-                || ($mapConfiguration['show_incident_list'] ?? false) === true
+                || ($mapConfiguration['show_deployment_list'] ?? false) === true
             ))
-            || $incidentPages->isNotEmpty();
-        $incidents = $needsIncidents
-            ? $this->activeIncidents()
+            || $deploymentPages->isNotEmpty();
+        $deployments = $needsDeployments
+            ? $this->activeDeployments()
             : collect();
         $layers = ($hasMapPage && (($mapConfiguration['show_command_centers'] ?? false) === true
-            || ($mapConfiguration['show_historical_incidents'] ?? false) === true)
+            || ($mapConfiguration['show_historical_deployments'] ?? false) === true)
         )
                 ? $this->operationalMap->layers(
                     includePilotHomes: false,
                     includeCommandCenters: (bool) ($mapConfiguration['show_command_centers'] ?? false),
-                    includeHistoricalIncidents: (bool) ($mapConfiguration['show_historical_incidents'] ?? false),
-                    includeTestIncidents: false,
+                    includeHistoricalDeployments: (bool) ($mapConfiguration['show_historical_deployments'] ?? false),
+                    includeTestDeployments: false,
                 )
-                : ['command_centers' => [], 'historical_incidents' => [], 'pilot_homes' => []];
+                : ['command_centers' => [], 'historical_deployments' => [], 'pilot_homes' => []];
 
         return [
             'generated_at' => ApiDateTime::now(),
@@ -405,8 +405,8 @@ final class WallboardStateService
                     ]
                     : ['available' => 0, 'total' => 0],
                 'active_alarm' => $activeAlarm,
-                'recent_incidents' => $showsOperationalSummary
-                    ? $this->recentIncidents()
+                'recent_deployments' => $showsOperationalSummary
+                    ? $this->recentDeployments()
                     : [],
                 'focus' => $focus,
                 'transient_alert' => $transientAlert,
@@ -417,22 +417,22 @@ final class WallboardStateService
                 : null,
             'calendar' => $this->calendarService->pages($configuration),
             'map' => [
-                'incidents' => $incidents->map(fn (Incident $incident): array => $this->incidentPayload($incident))->values()->all(),
+                'deployments' => $deployments->map(fn (Deployment $deployment): array => $this->deploymentPayload($deployment))->values()->all(),
                 'command_centers' => $hasMapPage && ($mapConfiguration['show_command_centers'] ?? false) === true
                     ? $layers['command_centers']
                     : [],
-                'historical_incidents' => $hasMapPage && ($mapConfiguration['show_historical_incidents'] ?? false) === true
-                    ? $layers['historical_incidents']
+                'historical_deployments' => $hasMapPage && ($mapConfiguration['show_historical_deployments'] ?? false) === true
+                    ? $layers['historical_deployments']
                     : [],
                 'live_locations' => $hasMapPage && ($mapConfiguration['show_live_locations'] ?? false) === true
-                    ? $this->liveLocations($incidents, (bool) ($mapConfiguration['show_routes'] ?? false))
+                    ? $this->liveLocations($deployments, (bool) ($mapConfiguration['show_routes'] ?? false))
                     : [],
             ],
         ];
     }
 
     /**
-     * @param  array{configuration: array<string, mixed>, playlist_id: string|null, playlist_version: int, active_incident_playlist: bool, data_mode: string, purpose: string}  $resolved
+     * @param  array{configuration: array<string, mixed>, playlist_id: string|null, playlist_version: int, active_deployment_playlist: bool, data_mode: string, purpose: string}  $resolved
      * @return array<string, mixed>
      */
     private function demoState(Wallboard $wallboard, array $resolved): array
@@ -560,24 +560,24 @@ final class WallboardStateService
      */
     private function activeAlarm(): ?array
     {
-        $incident = Incident::query()
+        $deployment = Deployment::query()
             ->whereIn('status', ['dispatching', 'in_progress'])
             ->where('is_test', false)
             ->orderByDesc('opened_at')
             ->orderByDesc('created_at')
             ->first(['id', 'reference', 'title', 'status', 'priority', 'location_label', 'opened_at']);
-        if (! $incident instanceof Incident) {
+        if (! $deployment instanceof Deployment) {
             return null;
         }
 
         return [
-            'id' => (string) $incident->id,
-            'reference' => (string) $incident->reference,
-            'title' => (string) $incident->title,
-            'status' => (string) $incident->status,
-            'priority' => (string) $incident->priority,
-            'location_label' => $incident->location_label,
-            'opened_at' => ApiDateTime::dateTime($incident->opened_at),
+            'id' => (string) $deployment->id,
+            'reference' => (string) $deployment->reference,
+            'title' => (string) $deployment->title,
+            'status' => (string) $deployment->status,
+            'priority' => (string) $deployment->priority,
+            'location_label' => $deployment->location_label,
+            'opened_at' => ApiDateTime::dateTime($deployment->opened_at),
         ];
     }
 
@@ -591,32 +591,32 @@ final class WallboardStateService
             return false;
         }
 
-        return Incident::query()
+        return Deployment::query()
             ->where('status', 'in_progress')
             ->where('is_test', false)
             ->exists();
     }
 
     /** @return list<array<string, mixed>> */
-    private function recentIncidents(): array
+    private function recentDeployments(): array
     {
-        return Incident::query()
+        return Deployment::query()
             ->whereIn('status', ['resolved', 'cancelled'])
             ->where('is_test', false)
             ->orderByRaw('case when closed_at is null then 1 else 0 end')
             ->orderByDesc('closed_at')
             ->orderByDesc('updated_at')
-            ->limit(self::RECENT_INCIDENT_LIMIT)
+            ->limit(self::RECENT_DEPLOYMENT_LIMIT)
             ->get(['id', 'reference', 'title', 'status', 'priority', 'is_test', 'location_label', 'closed_at'])
-            ->map(fn (Incident $incident): array => [
-                'id' => (string) $incident->id,
-                'reference' => (string) $incident->reference,
-                'title' => (string) $incident->title,
-                'status' => (string) $incident->status,
-                'priority' => (string) $incident->priority,
-                'is_test' => (bool) $incident->is_test,
-                'location_label' => $incident->location_label,
-                'closed_at' => ApiDateTime::dateTime($incident->closed_at),
+            ->map(fn (Deployment $deployment): array => [
+                'id' => (string) $deployment->id,
+                'reference' => (string) $deployment->reference,
+                'title' => (string) $deployment->title,
+                'status' => (string) $deployment->status,
+                'priority' => (string) $deployment->priority,
+                'is_test' => (bool) $deployment->is_test,
+                'location_label' => $deployment->location_label,
+                'closed_at' => ApiDateTime::dateTime($deployment->closed_at),
             ])
             ->values()
             ->all();
@@ -626,15 +626,15 @@ final class WallboardStateService
     private function transientAlert(): ?array
     {
         $dispatch = DispatchRequest::query()
-            ->with('incident:id,reference,title,priority,is_test,location_label')
+            ->with('deployment:id,reference,title,priority,is_test,location_label')
             ->whereIn('status', ['sent', 'escalated'])
             ->whereNotNull('sent_at')
-            ->whereHas('incident')
+            ->whereHas('deployment')
             ->orderByDesc('sent_at')
             ->orderByDesc('id')
-            ->first(['id', 'incident_id', 'status', 'priority', 'sent_at']);
+            ->first(['id', 'deployment_id', 'status', 'priority', 'sent_at']);
         if (! $dispatch instanceof DispatchRequest
-            || ! $dispatch->incident instanceof Incident
+            || ! $dispatch->deployment instanceof Deployment
             || $dispatch->sent_at === null) {
             return null;
         }
@@ -651,25 +651,25 @@ final class WallboardStateService
         if ($now === null || $expiresAt->lessThanOrEqualTo($now)) {
             return null;
         }
-        $incident = $dispatch->incident;
+        $deployment = $dispatch->deployment;
 
         return [
             'dispatch_id' => (string) $dispatch->id,
-            'incident_id' => (string) $incident->id,
-            'reference' => (string) $incident->reference,
-            'title' => (string) $incident->title,
-            'priority' => (string) ($incident->priority ?: $dispatch->priority),
-            'location_label' => $incident->location_label,
+            'deployment_id' => (string) $deployment->id,
+            'reference' => (string) $deployment->reference,
+            'title' => (string) $deployment->title,
+            'priority' => (string) ($deployment->priority ?: $dispatch->priority),
+            'location_label' => $deployment->location_label,
             'received_at' => ApiDateTime::dateTime($receivedAt),
             'expires_at' => ApiDateTime::dateTime($expiresAt),
-            'is_test' => (bool) $incident->is_test,
+            'is_test' => (bool) $deployment->is_test,
         ];
     }
 
-    /** @return Collection<int, Incident> */
-    private function activeIncidents(): Collection
+    /** @return Collection<int, Deployment> */
+    private function activeDeployments(): Collection
     {
-        return Incident::query()
+        return Deployment::query()
             ->whereIn('status', ['active', 'dispatching', 'in_progress'])
             ->where('is_test', false)
             ->latest('opened_at')
@@ -689,43 +689,43 @@ final class WallboardStateService
     }
 
     /** @return array<string, mixed> */
-    private function incidentPayload(Incident $incident): array
+    private function deploymentPayload(Deployment $deployment): array
     {
         return [
-            'id' => (string) $incident->id,
-            'reference' => (string) $incident->reference,
-            'title' => (string) $incident->title,
-            'status' => (string) $incident->status,
-            'priority' => (string) $incident->priority,
-            'is_test' => (bool) $incident->is_test,
-            'location_label' => $incident->location_label,
-            'latitude' => $incident->latitude === null ? null : (float) $incident->latitude,
-            'longitude' => $incident->longitude === null ? null : (float) $incident->longitude,
-            'opened_at' => ApiDateTime::dateTime($incident->opened_at),
+            'id' => (string) $deployment->id,
+            'reference' => (string) $deployment->reference,
+            'title' => (string) $deployment->title,
+            'status' => (string) $deployment->status,
+            'priority' => (string) $deployment->priority,
+            'is_test' => (bool) $deployment->is_test,
+            'location_label' => $deployment->location_label,
+            'latitude' => $deployment->latitude === null ? null : (float) $deployment->latitude,
+            'longitude' => $deployment->longitude === null ? null : (float) $deployment->longitude,
+            'opened_at' => ApiDateTime::dateTime($deployment->opened_at),
         ];
     }
 
     /**
-     * @param  Collection<int, Incident>  $incidents
+     * @param  Collection<int, Deployment>  $deployments
      * @return list<array<string, mixed>>
      */
-    private function liveLocations(Collection $incidents, bool $includeRoutes): array
+    private function liveLocations(Collection $deployments, bool $includeRoutes): array
     {
-        $incidentIds = $incidents->pluck('id')->map(fn ($id): string => (string) $id)->values();
-        if ($incidentIds->isEmpty()) {
+        $deploymentIds = $deployments->pluck('id')->map(fn ($id): string => (string) $id)->values();
+        if ($deploymentIds->isEmpty()) {
             return [];
         }
 
         $acceptedPairs = DispatchRecipient::query()
             ->join('dispatch_requests', 'dispatch_requests.id', '=', 'dispatch_recipients.dispatch_request_id')
-            ->whereIn('dispatch_requests.incident_id', $incidentIds)
+            ->whereIn('dispatch_requests.deployment_id', $deploymentIds)
             ->whereIn('dispatch_requests.status', ['sent', 'escalated'])
             ->where('dispatch_recipients.response_status', 'accepted')
             ->get([
-                'dispatch_requests.incident_id as incident_id',
+                'dispatch_requests.deployment_id as deployment_id',
                 'dispatch_recipients.user_id as user_id',
             ])
-            ->unique(fn ($row): string => (string) $row->incident_id.'|'.(string) $row->user_id)
+            ->unique(fn ($row): string => (string) $row->deployment_id.'|'.(string) $row->user_id)
             ->values();
         if ($acceptedPairs->isEmpty()) {
             return [];
@@ -745,28 +745,28 @@ final class WallboardStateService
         $acceptedPairLookup = $acceptedPairs
             ->reject(fn ($row): bool => isset($onSceneLookup[(string) $row->user_id]))
             ->mapWithKeys(fn ($row): array => [
-                (string) $row->incident_id.'|'.(string) $row->user_id => true,
+                (string) $row->deployment_id.'|'.(string) $row->user_id => true,
             ]);
         if ($acceptedPairLookup->isEmpty()) {
             return [];
         }
 
         $consents = LocationSharingConsent::query()
-            ->whereIn('incident_id', $incidentIds)
+            ->whereIn('deployment_id', $deploymentIds)
             ->whereIn('user_id', $userIds)
             ->where('is_active', true)
-            ->get(['incident_id', 'user_id', 'state_version', 'consented_at'])
+            ->get(['deployment_id', 'user_id', 'state_version', 'consented_at'])
             ->filter(fn (LocationSharingConsent $consent): bool => $acceptedPairLookup->has(
-                (string) $consent->incident_id.'|'.(string) $consent->user_id,
+                (string) $consent->deployment_id.'|'.(string) $consent->user_id,
             ))
-            ->keyBy(fn (LocationSharingConsent $consent): string => (string) $consent->incident_id.'|'.(string) $consent->user_id);
+            ->keyBy(fn (LocationSharingConsent $consent): string => (string) $consent->deployment_id.'|'.(string) $consent->user_id);
         if ($consents->isEmpty()) {
             return [];
         }
 
         $latestLocationUpperBound = now()->addMinutes(2);
         $locations = LocationUpdate::query()
-            ->whereIn('incident_id', $incidentIds)
+            ->whereIn('deployment_id', $deploymentIds)
             ->whereIn('user_id', $userIds)
             ->where('recorded_at', '<=', $latestLocationUpperBound)
             ->where('created_at', '<=', $latestLocationUpperBound)
@@ -774,7 +774,7 @@ final class WallboardStateService
                 $newerLocation
                     ->selectRaw('1')
                     ->from('location_updates as newer_location')
-                    ->whereColumn('newer_location.incident_id', 'location_updates.incident_id')
+                    ->whereColumn('newer_location.deployment_id', 'location_updates.deployment_id')
                     ->whereColumn('newer_location.user_id', 'location_updates.user_id')
                     ->where('newer_location.recorded_at', '<=', $latestLocationUpperBound)
                     ->where('newer_location.created_at', '<=', $latestLocationUpperBound)
@@ -790,7 +790,7 @@ final class WallboardStateService
             })
             ->get([
                 'id',
-                'incident_id',
+                'deployment_id',
                 'user_id',
                 'consent_state_version',
                 'latitude',
@@ -800,7 +800,7 @@ final class WallboardStateService
                 'created_at',
             ])
             ->filter(function (LocationUpdate $location) use ($consents): bool {
-                $key = (string) $location->incident_id.'|'.(string) $location->user_id;
+                $key = (string) $location->deployment_id.'|'.(string) $location->user_id;
                 $consent = $consents->get($key);
                 $createdAt = ApiDateTime::localWallClock($location->created_at);
                 $consentedAt = ApiDateTime::localWallClock($consent?->consented_at);
@@ -820,14 +820,14 @@ final class WallboardStateService
             ->whereIn('id', $locations->pluck('user_id')->unique())
             ->get(['id', 'name'])
             ->keyBy('id');
-        $incidentsById = $incidents->keyBy('id');
+        $deploymentsById = $deployments->keyBy('id');
         $routes = $includeRoutes
-            ? $this->routesForLocations($locations, $incidentsById)
+            ? $this->routesForLocations($locations, $deploymentsById)
             : [];
 
         return $locations
             ->map(function (LocationUpdate $location) use ($latestOperationalStatuses, $users, $routes): array {
-                $key = (string) $location->incident_id.'|'.(string) $location->user_id;
+                $key = (string) $location->deployment_id.'|'.(string) $location->user_id;
                 $route = $routes[$key] ?? null;
                 $user = $users->get($location->user_id);
                 $latestStatus = $latestOperationalStatuses->get((string) $location->user_id);
@@ -836,7 +836,7 @@ final class WallboardStateService
                     : null;
 
                 return [
-                    'incident_id' => (string) $location->incident_id,
+                    'deployment_id' => (string) $location->deployment_id,
                     'user_id' => (string) $location->user_id,
                     'user' => $user instanceof User ? ['id' => (string) $user->id, 'name' => (string) $user->name] : null,
                     'dispatch_response_status' => 'accepted',
@@ -871,31 +871,31 @@ final class WallboardStateService
 
     /**
      * @param  Collection<int, LocationUpdate>  $locations
-     * @param  Collection<string, Incident>  $incidents
+     * @param  Collection<string, Deployment>  $deployments
      * @return array<string, RouteGeometry>
      */
-    private function routesForLocations(Collection $locations, Collection $incidents): array
+    private function routesForLocations(Collection $locations, Collection $deployments): array
     {
         $routes = [];
-        foreach ($locations->groupBy('incident_id') as $incidentId => $incidentLocations) {
-            $incident = $incidents->get($incidentId);
-            if (! $incident instanceof Incident) {
+        foreach ($locations->groupBy('deployment_id') as $deploymentId => $deploymentLocations) {
+            $deployment = $deployments->get($deploymentId);
+            if (! $deployment instanceof Deployment) {
                 continue;
             }
-            $destination = $this->routePoint($incident->latitude, $incident->longitude);
+            $destination = $this->routePoint($deployment->latitude, $deployment->longitude);
             if ($destination === null) {
                 continue;
             }
 
             $origins = [];
-            foreach ($incidentLocations as $location) {
+            foreach ($deploymentLocations as $location) {
                 $origin = $this->routePoint($location->latitude, $location->longitude);
                 if ($origin !== null) {
                     $origins[(string) $location->user_id] = $origin;
                 }
             }
             foreach ($this->routeGeometryService->routesTo($origins, $destination) as $userId => $route) {
-                $routes[(string) $incidentId.'|'.(string) $userId] = $route;
+                $routes[(string) $deploymentId.'|'.(string) $userId] = $route;
             }
         }
 

@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\Incident;
+use App\Models\Deployment;
 use App\Models\SystemSetting;
 use App\Support\ApiDateTime;
 use Illuminate\Support\Facades\Http;
@@ -51,25 +51,25 @@ final class DroneFlightContextService
     /**
      * @return array<string, mixed>|null
      */
-    public function previewForIncident(Incident $incident): ?array
+    public function previewForDeployment(Deployment $deployment): ?array
     {
-        $latitude = $this->coordinate($incident->latitude);
-        $longitude = $this->coordinate($incident->longitude);
+        $latitude = $this->coordinate($deployment->latitude);
+        $longitude = $this->coordinate($deployment->longitude);
 
         if ($latitude === null || $longitude === null) {
             return null;
         }
 
-        return $this->preview($latitude, $longitude, $incident->location_label);
+        return $this->preview($latitude, $longitude, $deployment->location_label);
     }
 
-    public function refreshIncident(Incident $incident): Incident
+    public function refreshDeployment(Deployment $deployment): Deployment
     {
-        $incident->forceFill([
-            'drone_flight_context' => $this->previewForIncident($incident),
+        $deployment->forceFill([
+            'drone_flight_context' => $this->previewForDeployment($deployment),
         ])->save();
 
-        return $incident->refresh();
+        return $deployment->refresh();
     }
 
     /**

@@ -28,8 +28,8 @@ final class WallboardKpiConfigurationTest extends TestCase
         $this->assertSame(WallboardKpiDefinition::KEYS, $options['visible_metrics']);
         $this->assertSame(WallboardKpiDefinition::defaultVisualizations(), $options['metric_visualizations']);
         $this->assertSame('pie', $options['metric_visualizations']['drones_flown_distribution']);
-        $this->assertSame('bar', $options['metric_visualizations']['incidents_by_province']);
-        $this->assertSame('bar', $options['metric_visualizations']['incidents_by_country']);
+        $this->assertSame('bar', $options['metric_visualizations']['deployments_by_province']);
+        $this->assertSame('bar', $options['metric_visualizations']['deployments_by_country']);
     }
 
     public function test_six_visible_charts_are_allowed_and_hidden_chart_preferences_do_not_count(): void
@@ -40,8 +40,8 @@ final class WallboardKpiConfigurationTest extends TestCase
             'assets_ready',
             'responses_accepted',
             'drones_flown_distribution',
-            'incidents_by_province',
-            'incidents_registered_total',
+            'deployments_by_province',
+            'deployments_registered_total',
         ];
         $visualizations = [
             'pilots_available' => 'ring',
@@ -49,8 +49,8 @@ final class WallboardKpiConfigurationTest extends TestCase
             'assets_ready' => 'bar',
             'responses_accepted' => 'ring',
             'drones_flown_distribution' => 'pie',
-            'incidents_by_province' => 'bar',
-            'incidents_dispatching' => 'pie',
+            'deployments_by_province' => 'bar',
+            'deployments_dispatching' => 'pie',
         ];
         $page = $this->kpiPage([
             'visible_metrics' => array_reverse($visible),
@@ -66,7 +66,7 @@ final class WallboardKpiConfigurationTest extends TestCase
             )),
             $options['visible_metrics'],
         );
-        $this->assertSame('pie', $options['metric_visualizations']['incidents_dispatching']);
+        $this->assertSame('pie', $options['metric_visualizations']['deployments_dispatching']);
 
         foreach ($this->requestContracts() as [$request, $basePayload]) {
             $validated = $this->validateRequest($request, [
@@ -134,7 +134,7 @@ final class WallboardKpiConfigurationTest extends TestCase
             'pilots_en_route',
             'pilots_on_scene',
             'pilots_push_disabled',
-            'incidents_active',
+            'deployments_active',
         ];
         yield 'meer dan zes zichtbare diagrammen' => [[
             'visible_metrics' => $sevenCharts,

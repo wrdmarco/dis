@@ -229,6 +229,7 @@ remove_encrypted_speech_storage() (
     dis-push@3 \
     dis-push@4 \
     dis-scheduler \
+    dis-deployment-enrichment \
     dis-incident-enrichment \
     dis-knmi \
     dis-knmi-realtime; do

@@ -65,7 +65,7 @@ final class WallboardPlaylistPreviewService
                 'runtime_playlist_id' => (string) $playlist->id,
                 'runtime_playlist_version' => (int) $playlist->version,
                 'runtime_playlist_purpose' => $playlist->normalizedPurpose(),
-                'active_incident_playlist' => false,
+                'active_deployment_playlist' => false,
                 'display' => $runtime['display'],
                 'updated_at' => ApiDateTime::dateTime($playlist->updated_at),
             ],

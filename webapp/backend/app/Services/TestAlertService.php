@@ -3,11 +3,11 @@
 namespace App\Services;
 
 use App\Exceptions\RetryableTestAlertException;
+use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
-use App\Models\Incident;
 use App\Models\SystemSetting;
 use App\Models\TestAlertScheduleDelivery;
 use App\Models\TestAlertScheduleRun;
@@ -126,7 +126,7 @@ final class TestAlertService
                     $actor,
                     $this->auditSummary($summary) + [
                         'selected_user_count' => $targets->count(),
-                        'incident_id' => $dispatch->incident_id,
+                        'deployment_id' => $dispatch->deployment_id,
                     ],
                 );
 
@@ -190,7 +190,7 @@ final class TestAlertService
         });
 
         return [
-            'dispatch' => $persisted['dispatch']->load(['incident', 'recipients.user']),
+            'dispatch' => $persisted['dispatch']->load(['deployment', 'recipients.user']),
             'summary' => $persisted['summary'],
         ];
     }
@@ -202,7 +202,7 @@ final class TestAlertService
             $notificationMessage = TestAlertMessageService::DEFAULT_MESSAGE;
         }
 
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => $this->nextReference(),
             'title' => 'Proefalarmering',
             'description' => $notificationMessage,
@@ -219,7 +219,7 @@ final class TestAlertService
         ]);
 
         return DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $actor->id,
             'requested_by_name' => $actor->name,
             'requested_by_email' => $actor->email,
@@ -227,7 +227,7 @@ final class TestAlertService
             'status' => 'draft',
             'priority' => 'normal',
             'message' => $notificationMessage,
-        ])->load('incident');
+        ])->load('deployment');
     }
 
     /**
@@ -242,7 +242,7 @@ final class TestAlertService
         $queuedTokenCount = 0;
         $failedUserCount = 0;
         $persistenceFailed = false;
-        $incident = $dispatch->incident()->firstOrFail();
+        $deployment = $dispatch->deployment()->firstOrFail();
         $preparedTargets = [];
 
         foreach ($targets as $target) {
@@ -293,7 +293,7 @@ final class TestAlertService
             'send_queued_at' => $queuedAt,
             'send_released_at' => $queuedAt,
         ])->save();
-        $data = $this->notificationData($dispatch, $incident);
+        $data = $this->notificationData($dispatch, $deployment);
         foreach ($preparedTargets as $target) {
             /** @var DispatchRecipient $recipient */
             $recipient = $target['recipient'];
@@ -957,9 +957,9 @@ final class TestAlertService
     public function latestFor(User $actor): ?DispatchRequest
     {
         return DispatchRequest::query()
-            ->with(['incident', 'recipients.user'])
+            ->with(['deployment', 'recipients.user'])
             ->where('requested_by', $actor->id)
-            ->whereHas('incident', fn ($incident) => $incident->where('is_test', true))
+            ->whereHas('deployment', fn ($deployment) => $deployment->where('is_test', true))
             ->latest()
             ->first();
     }
@@ -969,26 +969,26 @@ final class TestAlertService
     {
         $superseded = [];
         $candidates = DispatchRequest::query()
-            ->select(['id', 'incident_id'])
+            ->select(['id', 'deployment_id'])
             ->where('requested_by', $actor->id)
             ->whereIn('status', ['draft', 'sent', 'escalated'])
-            ->whereHas('incident', fn ($incident) => $incident
+            ->whereHas('deployment', fn ($deployment) => $deployment
                 ->where('is_test', true)
                 ->whereNotIn('status', ['resolved', 'cancelled']))
-            ->orderBy('incident_id')
+            ->orderBy('deployment_id')
             ->orderBy('id')
             ->get();
         foreach ($candidates as $candidate) {
-            $incident = Incident::query()->whereKey($candidate->incident_id)->lockForUpdate()->first();
+            $deployment = Deployment::query()->whereKey($candidate->deployment_id)->lockForUpdate()->first();
             $dispatch = DispatchRequest::query()->whereKey($candidate->id)->lockForUpdate()->first();
-            if ($incident === null || $dispatch === null
+            if ($deployment === null || $dispatch === null
                 || (string) $dispatch->requested_by !== (string) $actor->id
                 || ! in_array($dispatch->status, ['draft', 'sent', 'escalated'], true)
-                || ! $incident->is_test
-                || in_array($incident->status, ['resolved', 'cancelled'], true)) {
+                || ! $deployment->is_test
+                || in_array($deployment->status, ['resolved', 'cancelled'], true)) {
                 continue;
             }
-            $dispatch->setRelation('incident', $incident);
+            $dispatch->setRelation('deployment', $deployment);
             $dispatch->recipients()
                 ->where('response_status', 'pending')
                 ->update([
@@ -1007,10 +1007,10 @@ final class TestAlertService
                     'updated_at' => now(),
                 ]);
             $dispatch->update(['status' => 'cancelled', 'cancelled_at' => now()]);
-            $incident->update(['status' => 'cancelled', 'closed_at' => now()]);
+            $deployment->update(['status' => 'cancelled', 'closed_at' => now()]);
 
             $this->auditService->record('test_alert.superseded', $dispatch, $actor, [
-                'incident_id' => $dispatch->incident_id,
+                'deployment_id' => $dispatch->deployment_id,
             ]);
             $superseded[] = (string) $dispatch->id;
         }
@@ -1024,16 +1024,16 @@ final class TestAlertService
     }
 
     /** @return array<string, string> */
-    private function notificationData(DispatchRequest $dispatch, Incident $incident): array
+    private function notificationData(DispatchRequest $dispatch, Deployment $deployment): array
     {
         return [
             'type' => 'dispatch_request',
             'action_mode' => 'test_ack',
             'is_test' => 'true',
             'dispatch_id' => (string) $dispatch->id,
-            'incident_id' => (string) $incident->id,
-            'incident_reference' => (string) $incident->reference,
-            'incident_title' => (string) $incident->title,
+            'deployment_id' => (string) $deployment->id,
+            'deployment_reference' => (string) $deployment->reference,
+            'deployment_title' => (string) $deployment->title,
             'dispatch_message' => (string) $dispatch->message,
             'priority' => 'normal',
         ];

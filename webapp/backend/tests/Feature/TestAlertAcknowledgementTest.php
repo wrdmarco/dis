@@ -5,10 +5,10 @@ namespace Tests\Feature;
 use App\Jobs\SendFcmNotification;
 use App\Models\AuditLog;
 use App\Models\AvailabilityStatus;
+use App\Models\Deployment;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
-use App\Models\Incident;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -28,9 +28,9 @@ final class TestAlertAcknowledgementTest extends TestCase
 
         $coordinator = $this->user('test-coordinator@example.test');
         $pilot = $this->user('test-pilot@example.test');
-        $this->grantOperatorPermission($pilot, 'incidents.assigned.view');
+        $this->grantOperatorPermission($pilot, 'deployments.assigned.view');
         $token = $this->operatorToken($pilot);
-        [$incident, $dispatch, $recipient] = $this->createTestDispatch($coordinator, $pilot);
+        [$deployment, $dispatch, $recipient] = $this->createTestDispatch($coordinator, $pilot);
         $effectiveAt = now()->subMinute()->startOfSecond();
         $availability = AvailabilityStatus::query()->create([
             'user_id' => $pilot->id,
@@ -58,7 +58,7 @@ final class TestAlertAcknowledgementTest extends TestCase
         $this->assertSame('Proefalarm zichtbaar ontvangen.', $recipient->response_note);
         $this->assertNotNull($recipient->responded_at);
 
-        $this->assertSame('active', $incident->refresh()->status);
+        $this->assertSame('active', $deployment->refresh()->status);
         $this->assertDatabaseCount('availability_statuses', 1);
         $availability->refresh();
         $this->assertSame('on_scene', $availability->status);
@@ -74,12 +74,12 @@ final class TestAlertAcknowledgementTest extends TestCase
         $this->assertSame('accepted', $audit->metadata['response'] ?? null);
         $this->assertSame('test_ack', $audit->metadata['action_mode'] ?? null);
 
-        Queue::assertPushed(SendFcmNotification::class, function (SendFcmNotification $job) use ($dispatch, $incident, $token): bool {
+        Queue::assertPushed(SendFcmNotification::class, function (SendFcmNotification $job) use ($dispatch, $deployment, $token): bool {
             return $job->fcmTokenId === $token->id
                 && $job->messageType === 'dispatch_response_sync'
                 && $job->dispatchRequestId === $dispatch->id
                 && ($job->data['dispatch_id'] ?? null) === $dispatch->id
-                && ($job->data['incident_id'] ?? null) === $incident->id
+                && ($job->data['deployment_id'] ?? null) === $deployment->id
                 && ($job->data['action_mode'] ?? null) === 'test_ack'
                 && ($job->data['is_test'] ?? null) === 'true'
                 && ($job->data['response'] ?? null) === 'accepted';
@@ -93,8 +93,8 @@ final class TestAlertAcknowledgementTest extends TestCase
         $coordinator = $this->user('other-test-coordinator@example.test');
         $assignedPilot = $this->user('assigned-test-pilot@example.test');
         $otherPilot = $this->user('other-test-pilot@example.test');
-        $this->grantOperatorPermission($otherPilot, 'incidents.assigned.view');
-        [$incident, $dispatch, $recipient] = $this->createTestDispatch($coordinator, $assignedPilot);
+        $this->grantOperatorPermission($otherPilot, 'deployments.assigned.view');
+        [$deployment, $dispatch, $recipient] = $this->createTestDispatch($coordinator, $assignedPilot);
 
         $this->asOperator($otherPilot)
             ->postJson('/api/dispatches/'.$dispatch->id.'/respond', [
@@ -107,7 +107,7 @@ final class TestAlertAcknowledgementTest extends TestCase
         $this->assertSame('pending', $recipient->response_status);
         $this->assertNull($recipient->response_note);
         $this->assertNull($recipient->responded_at);
-        $this->assertSame('active', $incident->refresh()->status);
+        $this->assertSame('active', $deployment->refresh()->status);
         $this->assertFalse(AuditLog::query()
             ->where('action', 'dispatch.responded')
             ->where('actor_id', $otherPilot->id)
@@ -169,11 +169,11 @@ final class TestAlertAcknowledgementTest extends TestCase
     }
 
     /**
-     * @return array{Incident, DispatchRequest, DispatchRecipient}
+     * @return array{Deployment, DispatchRequest, DispatchRecipient}
      */
     private function createTestDispatch(User $coordinator, User $recipientUser): array
     {
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => 'TEST-ACK-'.strtoupper(substr((string) str()->ulid(), -8)),
             'title' => 'Proefalarmering',
             'description' => 'Gerichte integratietest',
@@ -189,7 +189,7 @@ final class TestAlertAcknowledgementTest extends TestCase
             'opened_at' => now(),
         ]);
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $coordinator->id,
             'requested_by_name' => $coordinator->name,
             'requested_by_email' => $coordinator->email,
@@ -207,7 +207,7 @@ final class TestAlertAcknowledgementTest extends TestCase
             'notified_at' => now(),
         ]);
 
-        return [$incident, $dispatch, $recipient];
+        return [$deployment, $dispatch, $recipient];
     }
 
     private function asOperator(User $user): static

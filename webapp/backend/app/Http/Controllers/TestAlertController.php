@@ -6,7 +6,7 @@ use App\Http\Requests\TestAlerts\SendTestAlertRequest;
 use App\Http\Responses\ApiResponse;
 use App\Models\DispatchRequest;
 use App\Models\User;
-use App\Services\IncidentIntakeDossierService;
+use App\Services\DeploymentRequestService;
 use App\Services\TestAlertService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
@@ -16,7 +16,7 @@ final class TestAlertController extends Controller
 {
     public function __construct(
         private readonly TestAlertService $service,
-        private readonly IncidentIntakeDossierService $incidentIntakeDossierService,
+        private readonly DeploymentRequestService $deploymentRequestService,
     ) {}
 
     public function show(Request $request): JsonResponse
@@ -62,9 +62,9 @@ final class TestAlertController extends Controller
         }
 
         return MobileApiPayload::dispatch(
-            $dispatch->loadMissing(['incident.intakeDossier.workflowRevision', 'targetTeam', 'recipients.user']),
+            $dispatch->loadMissing(['deployment.deploymentRequest.workflowRevision', 'targetTeam', 'recipients.user']),
             $actor,
-            $this->incidentIntakeDossierService,
+            $this->deploymentRequestService,
         );
     }
 }

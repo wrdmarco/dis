@@ -66,13 +66,13 @@ test('sends purpose through playlist writes and keeps screen assignments purpose
   expect(admin).toContain('const selectableAlarmPlaylists = playlists.filter(wallboardPlaylistIsSelectableAlarm);');
   expect(admin).toContain('<strong>Alarmplaylist gebruiken</strong>');
   expect(admin).toContain('De volledige alarmplaylist roteert tijdens de inzet; er is geen verplichte kaartpagina.');
-  expect(saveScreen).toContain('active_incident_playlist_id: draftActiveIncidentPlaylistId === \'\'');
+  expect(saveScreen).toContain('active_deployment_playlist_id: draftActiveDeploymentPlaylistId === \'\'');
   expect(saveScreen).toContain('? null');
-  expect(screenSettings).toContain('checked={draftActiveIncidentPlaylistId !== \'\'}');
-  expect(screenSettings).toContain('disabled={draftActiveIncidentPlaylistId === \'\'}');
+  expect(screenSettings).toContain('checked={draftActiveDeploymentPlaylistId !== \'\'}');
+  expect(screenSettings).toContain('disabled={draftActiveDeploymentPlaylistId === \'\'}');
   expect(screenSettings.match(/<WallboardPlaylistPurposePill/g)).toHaveLength(2);
   expect(createPage).toContain('.filter(wallboardPlaylistIsNormal)');
-  expect(configurationEditor).not.toContain('Vaste incidentpagina als fallback');
-  expect(configurationEditor).not.toContain('Incidentpagina vastzetten');
+  expect(configurationEditor).not.toContain('Vaste deploymentpagina als fallback');
+  expect(configurationEditor).not.toContain('Deploymentpagina vastzetten');
   expect(configurationEditor).toContain('een ingestelde alarmplaylist draait daarbij volledig');
 });

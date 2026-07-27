@@ -8,9 +8,9 @@ use App\Http\Requests\Admin\UpdateWallboardPlaylistRequest;
 use App\Http\Requests\Admin\UpdateWallboardRequest;
 use App\Models\Asset;
 use App\Models\AvailabilityStatus;
+use App\Models\Deployment;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
-use App\Models\Incident;
 use App\Models\Role;
 use App\Models\Team;
 use App\Models\User;
@@ -50,7 +50,7 @@ final class WallboardKpiTest extends TestCase
         ]);
         $canonicalized = WallboardConfiguration::normalize([
             'pages' => [$this->kpiPage([
-                'visible_metrics' => ['drones_ready', 'pilots_available', 'incidents_total'],
+                'visible_metrics' => ['drones_ready', 'pilots_available', 'deployments_total'],
             ])],
         ]);
 
@@ -62,7 +62,7 @@ final class WallboardKpiTest extends TestCase
         );
         $this->assertSame([], $explicitEmpty['pages'][0]['options']['visible_metrics']);
         $this->assertSame(
-            ['pilots_available', 'incidents_total', 'drones_ready'],
+            ['pilots_available', 'deployments_total', 'drones_ready'],
             $canonicalized['pages'][0]['options']['visible_metrics'],
         );
 
@@ -121,7 +121,7 @@ final class WallboardKpiTest extends TestCase
             'configuration.pages.0.options.visible_metrics',
         ];
         yield 'optie van ander paginatype' => [
-            ['visible_metrics' => ['pilots_total'], 'show_test_incidents' => true],
+            ['visible_metrics' => ['pilots_total'], 'show_test_deployments' => true],
             'configuration.pages.0.options',
         ];
     }
@@ -131,33 +131,33 @@ final class WallboardKpiTest extends TestCase
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 10:00:00', 'Europe/Amsterdam'));
         [$available, $enRoute, $onScene, $pushDisabled] = $this->pilotCohort();
 
-        $activeLow = $this->incident($available, 'KPI-ACTIVE-LOW', 'active', 'low', false, now()->subHour());
-        $dispatchingNormal = $this->incident($available, 'KPI-DISPATCH-NORMAL', 'dispatching', 'normal', false, now()->subDay());
-        $inProgressHigh = $this->incident($available, 'KPI-PROGRESS-HIGH', 'in_progress', 'high', false, now()->subHours(2));
-        $this->incident($available, 'KPI-ACTIVE-CRITICAL', 'active', 'critical', false, now()->subMinutes(30));
-        $this->incident($available, 'KPI-RESOLVED-TODAY', 'resolved', 'normal', false, now()->subDays(2), now()->subHour());
-        $this->incident($available, 'KPI-CANCELLED-TODAY', 'cancelled', 'normal', false, now()->subMinutes(20), now()->subMinutes(10));
-        $this->incident($available, 'KPI-RESOLVED-OLD', 'resolved', 'normal', false, now()->subDays(5), now()->subDays(4));
-        $this->incident($available, 'KPI-CANCELLED-OLD', 'cancelled', 'normal', false, now()->subDays(4), now()->subDays(3));
-        $this->incident($available, 'KPI-TEST', 'resolved', 'critical', true, now()->subHour(), now()->subMinutes(5));
-        $deletedIncident = $this->incident($available, 'KPI-DELETED', 'active', 'low', false, now()->subMinute());
-        $deletedIncident->delete();
+        $activeLow = $this->deployment($available, 'KPI-ACTIVE-LOW', 'active', 'low', false, now()->subHour());
+        $dispatchingNormal = $this->deployment($available, 'KPI-DISPATCH-NORMAL', 'dispatching', 'normal', false, now()->subDay());
+        $inProgressHigh = $this->deployment($available, 'KPI-PROGRESS-HIGH', 'in_progress', 'high', false, now()->subHours(2));
+        $this->deployment($available, 'KPI-ACTIVE-CRITICAL', 'active', 'critical', false, now()->subMinutes(30));
+        $this->deployment($available, 'KPI-RESOLVED-TODAY', 'resolved', 'normal', false, now()->subDays(2), now()->subHour());
+        $this->deployment($available, 'KPI-CANCELLED-TODAY', 'cancelled', 'normal', false, now()->subMinutes(20), now()->subMinutes(10));
+        $this->deployment($available, 'KPI-RESOLVED-OLD', 'resolved', 'normal', false, now()->subDays(5), now()->subDays(4));
+        $this->deployment($available, 'KPI-CANCELLED-OLD', 'cancelled', 'normal', false, now()->subDays(4), now()->subDays(3));
+        $this->deployment($available, 'KPI-TEST', 'resolved', 'critical', true, now()->subHour(), now()->subMinutes(5));
+        $deletedDeployment = $this->deployment($available, 'KPI-DELETED', 'active', 'low', false, now()->subMinute());
+        $deletedDeployment->delete();
 
         $oldDispatch = $this->dispatch($activeLow, $available, 'sent', now()->subMinutes(8));
         $newDispatch = $this->dispatch($activeLow, $available, 'escalated', now()->subMinutes(4));
-        $otherIncidentDispatch = $this->dispatch($dispatchingNormal, $available, 'sent', now()->subMinutes(3));
+        $otherDeploymentDispatch = $this->dispatch($dispatchingNormal, $available, 'sent', now()->subMinutes(3));
         $this->dispatch($inProgressHigh, $available, 'sent', now()->subMinutes(2));
         $this->recipient($oldDispatch, $available, 'accepted', now()->subMinutes(7), now()->subMinutes(6));
         $this->recipient($oldDispatch, $enRoute, 'pending');
         $this->recipient($newDispatch, $available, 'declined', now()->subMinutes(3), now()->subMinutes(2));
-        $this->recipient($otherIncidentDispatch, $available, 'accepted', now()->subMinutes(2), now()->subMinute());
-        $this->recipient($otherIncidentDispatch, $onScene, 'no_response', now()->subMinute(), now()->subMinute());
+        $this->recipient($otherDeploymentDispatch, $available, 'accepted', now()->subMinutes(2), now()->subMinute());
+        $this->recipient($otherDeploymentDispatch, $onScene, 'no_response', now()->subMinute(), now()->subMinute());
 
-        $testIncident = Incident::query()->where('reference', 'KPI-TEST')->firstOrFail();
-        $testDispatch = $this->dispatch($testIncident, $available, 'sent', now());
+        $testDeployment = Deployment::query()->where('reference', 'KPI-TEST')->firstOrFail();
+        $testDispatch = $this->dispatch($testDeployment, $available, 'sent', now());
         $this->recipient($testDispatch, $pushDisabled, 'accepted', now(), now());
-        $resolvedIncident = Incident::query()->where('reference', 'KPI-RESOLVED-TODAY')->firstOrFail();
-        $resolvedDispatch = $this->dispatch($resolvedIncident, $available, 'sent', now());
+        $resolvedDeployment = Deployment::query()->where('reference', 'KPI-RESOLVED-TODAY')->firstOrFail();
+        $resolvedDispatch = $this->dispatch($resolvedDeployment, $available, 'sent', now());
         $this->recipient($resolvedDispatch, $pushDisabled, 'accepted', now(), now());
         $draftDispatch = $this->dispatch($activeLow, $available, 'draft', now());
         $this->recipient($draftDispatch, $pushDisabled, 'accepted', now(), now());
@@ -188,20 +188,20 @@ final class WallboardKpiTest extends TestCase
             'pilots_en_route' => 1,
             'pilots_on_scene' => 1,
             'pilots_push_disabled' => 1,
-            'incidents_total' => 4,
-            'incidents_registered_total' => 8,
-            'incidents_active' => 2,
-            'incidents_dispatching' => 1,
-            'incidents_in_progress' => 1,
-            'incidents_low' => 1,
-            'incidents_normal' => 1,
-            'incidents_high' => 1,
-            'incidents_critical' => 1,
-            'incidents_opened_today' => 4,
-            'incidents_resolved_today' => 1,
-            'incidents_cancelled_today' => 1,
-            'incidents_resolved_total' => 2,
-            'incidents_cancelled_total' => 2,
+            'deployments_total' => 4,
+            'deployments_registered_total' => 8,
+            'deployments_active' => 2,
+            'deployments_dispatching' => 1,
+            'deployments_in_progress' => 1,
+            'deployments_low' => 1,
+            'deployments_normal' => 1,
+            'deployments_high' => 1,
+            'deployments_critical' => 1,
+            'deployments_opened_today' => 4,
+            'deployments_resolved_today' => 1,
+            'deployments_cancelled_today' => 1,
+            'deployments_resolved_total' => 2,
+            'deployments_cancelled_total' => 2,
             'assets_total' => 5,
             'assets_ready' => 1,
             'assets_maintenance' => 1,
@@ -224,7 +224,7 @@ final class WallboardKpiTest extends TestCase
             $this->assertSame($value, $metrics[$key]['value'], $key);
             $this->assertSame($key, $metrics[$key]['key']);
             $this->assertIsString($metrics[$key]['label']);
-            $this->assertContains($metrics[$key]['category'], ['pilots', 'incidents', 'assets', 'responses', 'flight']);
+            $this->assertContains($metrics[$key]['category'], ['pilots', 'deployments', 'assets', 'responses', 'flight']);
         }
         $this->assertSame('%', $metrics['pilot_availability_rate']['unit']);
         $this->assertSame('%', $metrics['dispatch_acceptance_rate']['unit']);
@@ -234,7 +234,7 @@ final class WallboardKpiTest extends TestCase
         $this->assertStringNotContainsString($enRoute->name, json_encode($state['kpi'], JSON_THROW_ON_ERROR));
 
         $live = $service->live($wallboard);
-        $this->assertSame($expectedValues['incidents_total'], collect($live['kpi']['pages']['kpi-all']['metrics'])->keyBy('key')['incidents_total']['value']);
+        $this->assertSame($expectedValues['deployments_total'], collect($live['kpi']['pages']['kpi-all']['metrics'])->keyBy('key')['deployments_total']['value']);
         $this->assertArrayNotHasKey('kpi', $service->staticContent($wallboard));
         $this->assertArrayNotHasKey('kpi', $service->control($wallboard));
 
@@ -371,7 +371,7 @@ final class WallboardKpiTest extends TestCase
         ]);
     }
 
-    private function incident(
+    private function deployment(
         User $creator,
         string $reference,
         string $status,
@@ -379,10 +379,10 @@ final class WallboardKpiTest extends TestCase
         bool $isTest,
         \DateTimeInterface $openedAt,
         ?\DateTimeInterface $closedAt = null,
-    ): Incident {
-        return Incident::query()->create([
+    ): Deployment {
+        return Deployment::query()->create([
             'reference' => $reference,
-            'title' => 'KPI incident '.$reference,
+            'title' => 'KPI deployment '.$reference,
             'description' => 'KPI-PRIVE-BESCHRIJVING',
             'internal_notes' => 'KPI-PRIVE-NOTITIE',
             'priority' => $priority,
@@ -398,18 +398,18 @@ final class WallboardKpiTest extends TestCase
     }
 
     private function dispatch(
-        Incident $incident,
+        Deployment $deployment,
         User $requester,
         string $status,
         ?\DateTimeInterface $sentAt,
     ): DispatchRequest {
         return DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $requester->id,
             'requested_by_name' => $requester->name,
             'requested_by_email' => $requester->email,
             'status' => $status,
-            'priority' => $incident->priority,
+            'priority' => $deployment->priority,
             'message' => 'KPI-PRIVE-ALARMBERICHT',
             'sent_at' => $sentAt,
         ]);

@@ -21,9 +21,12 @@ final class FcmClient
     private const VISIBLE_HIGH_PRIORITY_TYPES = [
         'dispatch_request',
         'dispatch_update',
+        'deployment_preannouncement',
+        'deployment_preannouncement_cancelled',
         'incident_preannouncement',
         'manual_admin',
         'location_share_request',
+        'deployment_cancelled',
         'incident_cancelled',
     ];
 
@@ -65,7 +68,7 @@ final class FcmClient
      */
     private function androidPriority(array $data): string
     {
-        $type = $data['type'] ?? null;
+        $type = $this->notificationType($data);
 
         return is_string($type) && in_array($type, self::VISIBLE_HIGH_PRIORITY_TYPES, true)
             ? 'HIGH'
@@ -77,9 +80,25 @@ final class FcmClient
      */
     private function isPreannouncement(array $data): bool
     {
+        $type = $this->notificationType($data);
+
+        return $type === 'deployment_preannouncement'
+            || $type === 'incident_preannouncement'
+            || ($type === 'dispatch_update' && ($data['action_mode'] ?? null) === 'availability');
+    }
+
+    /**
+     * @param  array<string, string>  $data
+     */
+    private function notificationType(array $data): ?string
+    {
+        $eventType = $data['deployment_event_type'] ?? null;
+        if (is_string($eventType) && $eventType !== '') {
+            return $eventType;
+        }
+
         $type = $data['type'] ?? null;
 
-        return $type === 'incident_preannouncement'
-            || ($type === 'dispatch_update' && ($data['action_mode'] ?? null) === 'availability');
+        return is_string($type) && $type !== '' ? $type : null;
     }
 }

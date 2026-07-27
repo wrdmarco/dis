@@ -104,9 +104,9 @@ export function RoleForm({
         <ResourceState loading={permissionsLoading} error={permissionsError} empty={permissions.length === 0}>
           <div className="metadata-example">
             <strong>Standaard toegang</strong>
-            <p>Eigen profiel bekijken en waar toegestaan eigen profielgegevens wijzigen is voor iedere ingelogde gebruiker beschikbaar. Kies hieronder alleen extra rechten voor beheer, incidenten, alarmering en systeemfuncties.</p>
+            <p>Eigen profiel bekijken en waar toegestaan eigen profielgegevens wijzigen is voor iedere ingelogde gebruiker beschikbaar. Kies hieronder alleen extra rechten voor beheer, inzetten, alarmering en systeemfuncties.</p>
             <p>MFA staat niet per rol. Gebruik de globale MFA-schakelaar bij Admin onder MFA en wachtwoordeisen.</p>
-            <p>Let op bij incidenten en instellingen: alarmeren staat los van incidentgegevens beheren, en push tokens beheren staat los van handmatige pushmeldingen versturen.</p>
+            <p>Let op bij inzetten en instellingen: alarmeren staat los van inzetgegevens beheren, en push tokens beheren staat los van handmatige pushmeldingen versturen.</p>
           </div>
           <div className="permission-category-list">
             {permissionGroups(permissions).map((group) => (
@@ -223,10 +223,10 @@ function permissionCategoryLabel(category: string): string {
       return 'Rollen en rechten';
     case 'team_management':
       return 'Teams';
-    case 'incident_management':
-      return 'Incidenten';
+    case 'deployment_management':
+      return 'Inzetten';
     case 'dispatch_management':
-      return 'Incidentalarmering';
+      return 'Inzetalarmering';
     case 'status_management':
       return 'Operationele status';
     case 'vacation_management':
@@ -258,8 +258,8 @@ function permissionCategoryLabel(category: string): string {
 
 function permissionCategoryDescription(category: string): string | null {
   switch (category) {
-    case 'incident_management':
-      return 'Incidentregistratie, incidentstatus en incidentalarmering staan bij elkaar, maar blijven aparte rechten zodat iemand niet automatisch mag alarmeren omdat hij incidentgegevens mag aanpassen.';
+    case 'deployment_management':
+      return 'Inzetregistratie, inzetstatus en alarmering staan bij elkaar, maar blijven aparte rechten zodat iemand niet automatisch mag alarmeren omdat hij inzetgegevens mag aanpassen.';
     case 'system_configuration':
       return 'Technische systeemfuncties, backups en pushbeheer zijn apart te verlenen. Push tokens intrekken is los van handmatige pushmeldingen versturen.';
     case 'expiry_management':
@@ -267,7 +267,7 @@ function permissionCategoryDescription(category: string): string | null {
     case 'vacation_management':
       return 'Eigen periodes plannen blijft voor iedere gebruiker beschikbaar. Deze rechten bepalen alleen wie de vakantieplanning van anderen mag bekijken of beheren.';
     case 'form_configuration':
-      return 'Beheer de dynamische incident- en inzetrapportformulieren zonder toegang tot overige systeeminstellingen.';
+      return 'Beheer de dynamische inzet- en rapportformulieren zonder toegang tot overige systeeminstellingen.';
     case 'weather_configuration':
       return 'Beheer KNMI-bronnen, datasets en handmatige weerdata-updates.';
     case 'branding_configuration':

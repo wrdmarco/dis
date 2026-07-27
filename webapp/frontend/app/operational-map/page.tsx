@@ -1,12 +1,12 @@
 'use client';
 
-import { IncidentMapPage } from '../../src/features/incidents/IncidentMapPage';
+import { DeploymentMapPage } from '../../src/features/deployments/DeploymentMapPage';
 import { ProtectedShell } from '../../src/next/RouteShell';
 
 export default function Page() {
   return (
-    <ProtectedShell permissions={['operational-map.view', 'incidents.view']}>
-      <IncidentMapPage />
+    <ProtectedShell permissions={['operational-map.view', 'deployments.view']}>
+      <DeploymentMapPage />
     </ProtectedShell>
   );
 }

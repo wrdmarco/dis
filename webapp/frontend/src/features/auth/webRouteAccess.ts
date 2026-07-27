@@ -4,8 +4,12 @@ export interface WebRouteAccess {
 }
 
 export const webRouteAccess = {
-  intakes: {
-    permissions: ['incidents.manage'],
+  deployments: {
+    permissions: ['deployments.view', 'deployments.manage'],
+    anyPermission: true,
+  },
+  deploymentRequests: {
+    permissions: ['deployments.manage'],
     anyPermission: false,
   },
   assets: {
@@ -21,6 +25,10 @@ export const webRouteAccess = {
     anyPermission: false,
   },
   forms: {
+    permissions: ['forms.manage'],
+    anyPermission: false,
+  },
+  priorityDecisions: {
     permissions: ['forms.manage'],
     anyPermission: false,
   },

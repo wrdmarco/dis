@@ -28,6 +28,7 @@ DIS_DEPLOYMENT_OWNER="${DIS_DEPLOYMENT_OWNER:-deploy}"
 DIS_DEFER_OPERATIONAL_SERVICES="${DIS_DEFER_OPERATIONAL_SERVICES:-0}"
 RELEASE_MARKER_TEMP=""
 LEGACY_TTS_COMPAT_REQUIRED=0
+LEGACY_INCIDENT_ENRICHMENT_COMPAT_REQUIRED=0
 
 require_directory "${APP_ROOT}"
 require_file "${NGINX_SOURCE}"
@@ -102,6 +103,26 @@ case "${LEGACY_TTS_COMPAT_REQUIRED}" in
     fail "DIS_LEGACY_TTS_COMPAT_REQUIRED must be 0 or 1."
     ;;
 esac
+if [ "${DIS_DEPLOYMENT_OWNER}" = "update" ] \
+  && [ -z "${DIS_LEGACY_INCIDENT_ENRICHMENT_COMPAT_REQUIRED+x}" ]; then
+  # The already-running updater from the previous release still starts and
+  # requires the retired unit name. Install a bounded oneshot bridge until
+  # that exact parent process exits.
+  LEGACY_INCIDENT_ENRICHMENT_COMPAT_REQUIRED=1
+else
+  LEGACY_INCIDENT_ENRICHMENT_COMPAT_REQUIRED="${DIS_LEGACY_INCIDENT_ENRICHMENT_COMPAT_REQUIRED:-0}"
+fi
+case "${LEGACY_INCIDENT_ENRICHMENT_COMPAT_REQUIRED}" in
+  0|1)
+    ;;
+  *)
+    fail "DIS_LEGACY_INCIDENT_ENRICHMENT_COMPAT_REQUIRED must be 0 or 1."
+    ;;
+esac
+if [ "${LEGACY_INCIDENT_ENRICHMENT_COMPAT_REQUIRED}" = "1" ] \
+  && [ "${DIS_DEPLOYMENT_OWNER}" != "update" ]; then
+  fail "Legacy incident-enrichment compatibility is only valid inside an application update."
+fi
 DIS_BACKUP_KEY_CUTOVER_ALLOWED=1 ensure_backup_encryption_key >/dev/null
 
 env_value() {
@@ -118,14 +139,34 @@ env_value() {
 set_env_value() {
   local key="$1"
   local value="$2"
-  local escaped
-  escaped="$(printf '%s' "${value}" | sed 's/[&/\\]/\\&/g')"
 
-  if grep -qE "^${key}=" "${ENV_FILE}"; then
-    run_cmd sed -i "s/^${key}=.*/${key}=${escaped}/" "${ENV_FILE}"
-  else
-    printf '%s=%s\n' "${key}" "${value}" >> "${ENV_FILE}"
+  set_managed_env_value "${ENV_FILE}" "${key}" "${value}"
+}
+
+migrate_env_key() {
+  local legacy_key="$1"
+  local canonical_key="$2"
+  local legacy_value
+
+  if ! grep -qE "^${legacy_key}=" "${ENV_FILE}"; then
+    return
   fi
+
+  if ! grep -qE "^${canonical_key}=" "${ENV_FILE}"; then
+    legacy_value="$(env_value "${legacy_key}")"
+    set_env_value "${canonical_key}" "${legacy_value}"
+  fi
+
+  remove_managed_env_key "${ENV_FILE}" "${legacy_key}"
+}
+
+migrate_deployment_environment_keys() {
+  migrate_env_key INCIDENT_LOCATION_ENRICHMENT_ENABLED DEPLOYMENT_LOCATION_ENRICHMENT_ENABLED
+  migrate_env_key INCIDENT_PROVINCE_WFS_URL DEPLOYMENT_PROVINCE_WFS_URL
+  migrate_env_key INCIDENT_COUNTRY_GISCO_URL DEPLOYMENT_COUNTRY_GISCO_URL
+  migrate_env_key INCIDENT_LOCATION_CONNECT_TIMEOUT_SECONDS DEPLOYMENT_LOCATION_CONNECT_TIMEOUT_SECONDS
+  migrate_env_key INCIDENT_LOCATION_TIMEOUT_SECONDS DEPLOYMENT_LOCATION_TIMEOUT_SECONDS
+  migrate_env_key INCIDENT_LOCATION_BACKFILL_BATCH DEPLOYMENT_LOCATION_BACKFILL_BATCH
 }
 
 harden_web_session_environment() {
@@ -249,6 +290,7 @@ prepare_canonical_nginx_source() {
   NGINX_SOURCE="${generated_conf}"
 }
 
+migrate_deployment_environment_keys
 harden_web_session_environment
 write_frontend_security_environment
 prepare_canonical_nginx_source
@@ -400,17 +442,32 @@ run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-push@.service" /
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-media.service" /etc/systemd/system/dis-media.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-knmi.service" /etc/systemd/system/dis-knmi.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-knmi-realtime.service" /etc/systemd/system/dis-knmi-realtime.service
-run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-incident-enrichment.service" /etc/systemd/system/dis-incident-enrichment.service
+run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-deployment-enrichment.service" /etc/systemd/system/dis-deployment-enrichment.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-scheduler.service" /etc/systemd/system/dis-scheduler.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-websocket.service" /etc/systemd/system/dis-websocket.service
 run_cmd install -m 0644 "${APP_ROOT}/infrastructure/systemd/dis-frontend.service" /etc/systemd/system/dis-frontend.service
 install_backup_request_systemd_units "${APP_ROOT}"
 install_osrm_admin_layout
 install_osrm_admin_request_systemd_units "${APP_ROOT}"
+# Retire the pre-rename unit name after the canonical worker is installed.
+# During the first update only, the old parent updater still references that
+# name and receives an inert Requires bridge bounded to its exact PID generation.
+case "${LEGACY_INCIDENT_ENRICHMENT_COMPAT_REQUIRED}" in
+  0)
+    DIS_DEPLOYMENT_ENRICHMENT_PARENT_OWNS_LOCK=1 \
+      bash "${SCRIPT_DIR}/deployment-enrichment-compat.sh" --retire
+    ;;
+  1)
+    [ "${DIS_DEPLOYMENT_OWNER}" = "update" ] \
+      || fail "Legacy incident-enrichment compatibility is only valid inside an application update."
+    DIS_DEPLOYMENT_ENRICHMENT_PARENT_OWNS_LOCK=1 \
+      bash "${SCRIPT_DIR}/deployment-enrichment-compat.sh" --compat-parent-pid "${PPID}"
+    ;;
+esac
 run_cmd systemctl daemon-reload
 run_cmd systemctl enable \
   dis-push@1 dis-push@2 dis-push@3 dis-push@4 \
-  dis-queue dis-media dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime \
+  dis-queue dis-media dis-scheduler dis-websocket dis-frontend dis-deployment-enrichment dis-knmi dis-knmi-realtime \
   dis-backup-request.path dis-backup-request.timer \
   dis-osrm-admin-request.path dis-osrm-admin-request.timer
 APP_ROOT="${APP_ROOT}" bash "${APP_ROOT}/scripts/osrm.sh" reconcile

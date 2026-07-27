@@ -20,23 +20,23 @@ use App\Http\Controllers\BackupController;
 use App\Http\Controllers\BrandingController;
 use App\Http\Controllers\CalendarEventController;
 use App\Http\Controllers\CertificationController;
+use App\Http\Controllers\DeploymentController;
+use App\Http\Controllers\DeploymentFormController;
+use App\Http\Controllers\DeploymentRequestController;
+use App\Http\Controllers\DeploymentRequestWorkflowController;
 use App\Http\Controllers\DeveloperDispatchDiagnosticsController;
 use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\DispatchController;
 use App\Http\Controllers\DroneTypeController;
 use App\Http\Controllers\ExpiryOverviewController;
 use App\Http\Controllers\HealthController;
-use App\Http\Controllers\IncidentController;
-use App\Http\Controllers\IncidentFormController;
-use App\Http\Controllers\IncidentIntakeDossierController;
-use App\Http\Controllers\IncidentIntakeWorkflowController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MobileConfigController;
 use App\Http\Controllers\MobilePairingController;
 use App\Http\Controllers\OperationalForecastController;
 use App\Http\Controllers\OperationalMapController;
 use App\Http\Controllers\PasswordController;
-use App\Http\Controllers\PilotIncidentReportController;
+use App\Http\Controllers\PilotDeploymentReportController;
 use App\Http\Controllers\QueueMonitorController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\ReportingController;
@@ -107,7 +107,7 @@ Route::post('/developer/users/login-lock/reset', [AdminDeveloperController::clas
 Route::get('/developer/logs', [AdminDeveloperController::class, 'developerLogs'])->middleware('throttle:developer-logs');
 Route::get('/developer/logs/{filename}', [AdminDeveloperController::class, 'developerLog'])->where('filename', '[A-Za-z0-9._-]+\.log')->middleware('throttle:developer-logs');
 Route::get('/developer/dispatches/{dispatchId}/diagnostics', [DeveloperDispatchDiagnosticsController::class, 'show'])->middleware('throttle:developer-logs');
-Route::get('/developer/incidents/{incidentId}/dispatches', [DeveloperDispatchDiagnosticsController::class, 'indexForIncident'])->middleware('throttle:developer-logs');
+Route::get('/developer/deployments/{deploymentId}/dispatches', [DeveloperDispatchDiagnosticsController::class, 'indexForDeployment'])->middleware('throttle:developer-logs');
 Route::get('/health', [HealthController::class, 'public'])->middleware('throttle:api');
 
 Route::middleware(['two_factor.challenge', 'operational', 'audit.privileged', 'store.review'])->group(function (): void {
@@ -146,118 +146,118 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/address-book', [AddressBookController::class, 'index'])->middleware('permission:address-book.view');
 
         Route::get('/teams', [AdminController::class, 'teams'])
-            ->middleware('permission:incidents.view,intakes.priority.override');
+            ->middleware('permission:deployments.view,deployments.manage,deployment-requests.priority.override');
 
         Route::get('/test-alert', [TestAlertController::class, 'show'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.dispatch.view,incidents.dispatch.manage', 'throttle:alarm-read']);
+            ->middleware(['permission:deployments.dispatch.view,deployments.dispatch.manage', 'throttle:alarm-read']);
         Route::post('/test-alert', [TestAlertController::class, 'send'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.dispatch.manage', 'throttle:reachability-test']);
-        Route::get('/test-alert/schedule', [TestAlertController::class, 'schedule'])->middleware('permission:incidents.dispatch.manage');
-        Route::patch('/test-alert/schedule', [TestAlertController::class, 'updateSchedule'])->middleware('permission:incidents.dispatch.manage');
+            ->middleware(['permission:deployments.dispatch.manage', 'throttle:reachability-test']);
+        Route::get('/test-alert/schedule', [TestAlertController::class, 'schedule'])->middleware('permission:deployments.dispatch.manage');
+        Route::patch('/test-alert/schedule', [TestAlertController::class, 'updateSchedule'])->middleware('permission:deployments.dispatch.manage');
 
-        Route::get('/incidents', [IncidentController::class, 'index'])
+        Route::get('/deployments', [DeploymentController::class, 'index'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:alarm-read']);
+            ->middleware(['permission:deployments.view,deployments.manage,deployments.assigned.view', 'throttle:alarm-read']);
         Route::get('/operational-map/layers', [OperationalMapController::class, 'layers'])->middleware('permission:operational-map.view');
-        Route::post('/incidents', [IncidentController::class, 'store'])->middleware('permission:incidents.manage');
-        Route::get('/incident-form/config', [IncidentFormController::class, 'show'])->middleware('permission:incidents.view');
-        Route::get('/intake-workflow/config', [IncidentIntakeWorkflowController::class, 'published'])->middleware('permission:incidents.manage');
-        Route::get('/intake-dossiers', [IncidentIntakeDossierController::class, 'index'])->middleware('permission:incidents.manage');
-        Route::post('/intake-dossiers', [IncidentIntakeDossierController::class, 'store'])->middleware('permission:incidents.manage');
-        Route::get('/intake-dossiers/{intakeDossier}', [IncidentIntakeDossierController::class, 'show'])->middleware('permission:incidents.manage');
-        Route::patch('/intake-dossiers/{intakeDossier}', [IncidentIntakeDossierController::class, 'update'])->middleware('permission:incidents.manage');
-        Route::patch('/intake-dossiers/{intakeDossier}/priority', [IncidentIntakeDossierController::class, 'decide'])->middleware('permission:incidents.manage');
-        Route::post('/intake-dossiers/{intakeDossier}/promote', [IncidentIntakeDossierController::class, 'promote'])->middleware('permission:incidents.manage');
-        Route::post('/intake-dossiers/{intakeDossier}/close', [IncidentIntakeDossierController::class, 'close'])->middleware('permission:incidents.manage');
-        Route::post('/incidents/flight-context-preview', [IncidentController::class, 'flightContextPreview'])->middleware('permission:incidents.manage');
-        Route::get('/incidents/{incident}', [IncidentController::class, 'show'])
+        Route::post('/deployments', [DeploymentController::class, 'store'])->middleware('permission:deployments.manage');
+        Route::get('/deployment-form/config', [DeploymentFormController::class, 'show'])->middleware('permission:deployments.view,deployments.manage');
+        Route::get('/deployment-request-workflow/config', [DeploymentRequestWorkflowController::class, 'published'])->middleware('permission:deployments.manage');
+        Route::get('/deployment-requests', [DeploymentRequestController::class, 'index'])->middleware('permission:deployments.manage');
+        Route::post('/deployment-requests', [DeploymentRequestController::class, 'store'])->middleware('permission:deployments.manage');
+        Route::get('/deployment-requests/{deploymentRequest}', [DeploymentRequestController::class, 'show'])->middleware('permission:deployments.manage');
+        Route::patch('/deployment-requests/{deploymentRequest}', [DeploymentRequestController::class, 'update'])->middleware('permission:deployments.manage');
+        Route::patch('/deployment-requests/{deploymentRequest}/priority', [DeploymentRequestController::class, 'decide'])->middleware('permission:deployments.manage');
+        Route::post('/deployment-requests/{deploymentRequest}/prepare-deployment', [DeploymentRequestController::class, 'prepareDeployment'])->middleware('permission:deployments.manage');
+        Route::post('/deployment-requests/{deploymentRequest}/close', [DeploymentRequestController::class, 'close'])->middleware('permission:deployments.manage');
+        Route::post('/deployments/flight-context-preview', [DeploymentController::class, 'flightContextPreview'])->middleware('permission:deployments.manage');
+        Route::get('/deployments/{deployment}', [DeploymentController::class, 'show'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:alarm-read']);
-        Route::patch('/incidents/{incident}', [IncidentController::class, 'update'])->middleware('permission:incidents.manage');
-        Route::get('/incidents/{incident}/intake-dossier', [IncidentIntakeDossierController::class, 'showForIncident'])->middleware('permission:incidents.manage');
-        Route::patch('/incidents/{incident}/intake-dossier', [IncidentIntakeDossierController::class, 'updateForIncident'])->middleware('permission:incidents.manage');
-        Route::get('/incidents/{incident}/internal-notes', [IncidentController::class, 'internalNotes'])->middleware('permission:incidents.manage');
-        Route::patch('/incidents/{incident}/internal-notes', [IncidentController::class, 'updateInternalNotes'])->middleware('permission:incidents.manage');
-        Route::delete('/incidents/{incident}', [IncidentController::class, 'destroy'])->middleware('permission:incidents.delete');
-        Route::post('/incidents/{incident}/flight-context/refresh', [IncidentController::class, 'refreshFlightContext'])->middleware('permission:incidents.manage');
-        Route::post('/incidents/{incident}/close', [IncidentController::class, 'close'])->middleware('permission:incidents.manage');
-        Route::post('/incidents/{incident}/cancel', [IncidentController::class, 'cancel'])->middleware('permission:incidents.manage');
-        Route::get('/incidents/{incident}/timeline', [IncidentController::class, 'timeline'])
+            ->middleware(['permission:deployments.view,deployments.manage,deployments.assigned.view', 'throttle:alarm-read']);
+        Route::patch('/deployments/{deployment}', [DeploymentController::class, 'update'])->middleware('permission:deployments.manage');
+        Route::get('/deployments/{deployment}/deployment-request', [DeploymentRequestController::class, 'showForDeployment'])->middleware('permission:deployments.manage');
+        Route::patch('/deployments/{deployment}/deployment-request', [DeploymentRequestController::class, 'updateForDeployment'])->middleware('permission:deployments.manage');
+        Route::get('/deployments/{deployment}/internal-notes', [DeploymentController::class, 'internalNotes'])->middleware('permission:deployments.manage');
+        Route::patch('/deployments/{deployment}/internal-notes', [DeploymentController::class, 'updateInternalNotes'])->middleware('permission:deployments.manage');
+        Route::delete('/deployments/{deployment}', [DeploymentController::class, 'destroy'])->middleware('permission:deployments.delete');
+        Route::post('/deployments/{deployment}/flight-context/refresh', [DeploymentController::class, 'refreshFlightContext'])->middleware('permission:deployments.manage');
+        Route::post('/deployments/{deployment}/close', [DeploymentController::class, 'close'])->middleware('permission:deployments.manage');
+        Route::post('/deployments/{deployment}/cancel', [DeploymentController::class, 'cancel'])->middleware('permission:deployments.manage');
+        Route::get('/deployments/{deployment}/timeline', [DeploymentController::class, 'timeline'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:alarm-read']);
-        Route::get('/pilot-report/form-config', [PilotIncidentReportController::class, 'formConfig'])->middleware('permission:incidents.view,incidents.assigned.view');
-        Route::get('/incidents/{incident}/pilot-report', [PilotIncidentReportController::class, 'show'])->middleware('permission:incidents.view,incidents.assigned.view');
-        Route::patch('/incidents/{incident}/pilot-report', [PilotIncidentReportController::class, 'update'])->middleware('permission:incidents.view,incidents.assigned.view');
-        Route::post('/incidents/{incident}/pilot-report/finalize', [PilotIncidentReportController::class, 'finalize'])->middleware('permission:incidents.view,incidents.assigned.view');
-        Route::get('/incidents/{incident}/pilot-reports/{user}', [PilotIncidentReportController::class, 'showForUser'])->middleware('permission:incidents.manage');
-        Route::patch('/incidents/{incident}/pilot-reports/{user}', [PilotIncidentReportController::class, 'updateForUser'])->middleware('permission:incidents.manage');
-        Route::post('/incidents/{incident}/pilot-reports/{user}/finalize', [PilotIncidentReportController::class, 'finalizeForUser'])->middleware('permission:incidents.manage');
-        Route::get('/incidents/{incidentId}/report', [ReportingController::class, 'incidentPdf'])->middleware('permission:incidents.view');
-        Route::get('/incidents/{incidentId}/report.pdf', [ReportingController::class, 'incidentPdf'])->middleware('permission:incidents.view');
-        Route::get('/incidents/{incident}/dispatch-preview', [IncidentController::class, 'dispatchPreview'])
+            ->middleware(['permission:deployments.view,deployments.manage,deployments.assigned.view', 'throttle:alarm-read']);
+        Route::get('/pilot-report/form-config', [PilotDeploymentReportController::class, 'formConfig'])->middleware('permission:deployments.view,deployments.assigned.view');
+        Route::get('/deployments/{deployment}/pilot-report', [PilotDeploymentReportController::class, 'show'])->middleware('permission:deployments.view,deployments.assigned.view');
+        Route::patch('/deployments/{deployment}/pilot-report', [PilotDeploymentReportController::class, 'update'])->middleware('permission:deployments.view,deployments.assigned.view');
+        Route::post('/deployments/{deployment}/pilot-report/finalize', [PilotDeploymentReportController::class, 'finalize'])->middleware('permission:deployments.view,deployments.assigned.view');
+        Route::get('/deployments/{deployment}/pilot-reports/{user}', [PilotDeploymentReportController::class, 'showForUser'])->middleware('permission:deployments.manage');
+        Route::patch('/deployments/{deployment}/pilot-reports/{user}', [PilotDeploymentReportController::class, 'updateForUser'])->middleware('permission:deployments.manage');
+        Route::post('/deployments/{deployment}/pilot-reports/{user}/finalize', [PilotDeploymentReportController::class, 'finalizeForUser'])->middleware('permission:deployments.manage');
+        Route::get('/deployments/{deploymentId}/report', [ReportingController::class, 'deploymentPdf'])->middleware('permission:deployments.view,deployments.manage');
+        Route::get('/deployments/{deploymentId}/report.pdf', [ReportingController::class, 'deploymentPdf'])->middleware('permission:deployments.view,deployments.manage');
+        Route::get('/deployments/{deployment}/dispatch-preview', [DeploymentController::class, 'dispatchPreview'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.dispatch.view', 'throttle:alarm-read']);
-        Route::get('/incidents/{incident}/dispatches', [DispatchController::class, 'incidentDispatches'])
+            ->middleware(['permission:deployments.dispatch.view', 'throttle:alarm-read']);
+        Route::get('/deployments/{deployment}/dispatches', [DispatchController::class, 'deploymentDispatches'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.dispatch.view,incidents.assigned.view', 'throttle:alarm-read']);
-        Route::get('/incidents/{incident}/live-locations', [LocationController::class, 'liveLocations'])
+            ->middleware(['permission:deployments.dispatch.view,deployments.assigned.view', 'throttle:alarm-read']);
+        Route::get('/deployments/{deployment}/live-locations', [LocationController::class, 'liveLocations'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:alarm-read']);
-        Route::post('/incidents/{incident}/location/request', [LocationController::class, 'requestSharing'])
+            ->middleware(['permission:deployments.view,deployments.manage,deployments.assigned.view', 'throttle:alarm-read']);
+        Route::post('/deployments/{deployment}/location/request', [LocationController::class, 'requestSharing'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.dispatch.manage', 'throttle:alarm-dispatch']);
-        Route::post('/incidents/{incident}/location/consent', [LocationController::class, 'consent'])
+            ->middleware(['permission:deployments.dispatch.manage', 'throttle:alarm-dispatch']);
+        Route::post('/deployments/{deployment}/location/consent', [LocationController::class, 'consent'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:alarm-response']);
-        Route::post('/incidents/{incident}/location/decline', [LocationController::class, 'decline'])
+            ->middleware(['permission:deployments.view,deployments.assigned.view', 'throttle:alarm-response']);
+        Route::post('/deployments/{deployment}/location/decline', [LocationController::class, 'decline'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:alarm-response']);
-        Route::delete('/incidents/{incident}/location/consent', [LocationController::class, 'revoke'])
+            ->middleware(['permission:deployments.view,deployments.assigned.view', 'throttle:alarm-response']);
+        Route::delete('/deployments/{deployment}/location/consent', [LocationController::class, 'revoke'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:alarm-response']);
-        Route::post('/incidents/{incident}/location', [LocationController::class, 'update'])
+            ->middleware(['permission:deployments.view,deployments.assigned.view', 'throttle:alarm-response']);
+        Route::post('/deployments/{deployment}/location', [LocationController::class, 'update'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.view,incidents.assigned.view', 'throttle:operational-telemetry']);
-        Route::post('/incidents/{incident}/dispatches', [DispatchController::class, 'store'])
+            ->middleware(['permission:deployments.view,deployments.assigned.view', 'throttle:operational-telemetry']);
+        Route::post('/deployments/{deployment}/dispatches', [DispatchController::class, 'store'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.dispatch.manage', 'throttle:alarm-dispatch']);
+            ->middleware(['permission:deployments.dispatch.manage', 'throttle:alarm-dispatch']);
 
         Route::get('/dispatches', [DispatchController::class, 'index'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.dispatch.view,incidents.assigned.view', 'throttle:alarm-read']);
+            ->middleware(['permission:deployments.dispatch.view,deployments.assigned.view', 'throttle:alarm-read']);
         Route::get('/dispatches/{dispatch}', [DispatchController::class, 'show'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.dispatch.view,incidents.assigned.view', 'throttle:alarm-read']);
+            ->middleware(['permission:deployments.dispatch.view,deployments.assigned.view', 'throttle:alarm-read']);
         Route::get('/dispatches/{dispatch}/delivery', [DispatchController::class, 'delivery'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.dispatch.view,incidents.assigned.view', 'throttle:alarm-read']);
+            ->middleware(['permission:deployments.dispatch.view,deployments.assigned.view', 'throttle:alarm-read']);
         Route::post('/dispatches/{dispatch}/send', [DispatchController::class, 'send'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.dispatch.manage', 'throttle:alarm-dispatch']);
+            ->middleware(['permission:deployments.dispatch.manage', 'throttle:alarm-dispatch']);
         Route::post('/dispatches/{dispatch}/message', [DispatchController::class, 'message'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.dispatch.manage', 'throttle:alarm-dispatch']);
+            ->middleware(['permission:deployments.dispatch.manage', 'throttle:alarm-dispatch']);
         Route::post('/dispatches/{dispatch}/respond', [DispatchController::class, 'respond'])->middleware([
-            'permission:incidents.assigned.view,incidents.dispatch.view,incidents.dispatch.manage',
+            'permission:deployments.assigned.view,deployments.dispatch.view,deployments.dispatch.manage',
             'throttle:alarm-response',
         ])->withoutMiddleware('throttle:authenticated');
-        Route::patch('/dispatches/{dispatch}/recipients/{recipient}/response', [DispatchController::class, 'overrideRecipientResponse'])->middleware('permission:incidents.dispatch.manage');
+        Route::patch('/dispatches/{dispatch}/recipients/{recipient}/response', [DispatchController::class, 'overrideRecipientResponse'])->middleware('permission:deployments.dispatch.manage');
         Route::post('/dispatches/{dispatch}/cancel', [DispatchController::class, 'cancel'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.dispatch.manage', 'throttle:alarm-dispatch']);
+            ->middleware(['permission:deployments.dispatch.manage', 'throttle:alarm-dispatch']);
         Route::post('/dispatches/{dispatch}/escalate', [DispatchController::class, 'escalate'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.dispatch.manage', 'throttle:alarm-dispatch']);
+            ->middleware(['permission:deployments.dispatch.manage', 'throttle:alarm-dispatch']);
         Route::post('/dispatches/{dispatch}/re-alert', [DispatchController::class, 'reAlert'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.dispatch.manage', 'throttle:alarm-dispatch']);
+            ->middleware(['permission:deployments.dispatch.manage', 'throttle:alarm-dispatch']);
         Route::get('/dispatches/{dispatch}/recipients', [DispatchController::class, 'recipients'])
             ->withoutMiddleware('throttle:authenticated')
-            ->middleware(['permission:incidents.dispatch.view,incidents.assigned.view', 'throttle:alarm-read']);
-        Route::get('/reports/incidents', [ReportingController::class, 'incidents'])->middleware('permission:incidents.view');
-        Route::get('/reports/dispatch-statistics', [ReportingController::class, 'dispatchStatistics'])->middleware('permission:incidents.dispatch.view');
+            ->middleware(['permission:deployments.dispatch.view,deployments.assigned.view', 'throttle:alarm-read']);
+        Route::get('/reports/deployments', [ReportingController::class, 'deployments'])->middleware('permission:deployments.view,deployments.manage');
+        Route::get('/reports/dispatch-statistics', [ReportingController::class, 'dispatchStatistics'])->middleware('permission:deployments.dispatch.view');
         Route::get('/expiry-overview', [ExpiryOverviewController::class, 'index'])->middleware('permission:expiry.view');
         Route::get('/calendar-events', [CalendarEventController::class, 'index']);
         Route::get('/operational-weather', [OperationalForecastController::class, 'weather'])
@@ -494,16 +494,16 @@ Route::middleware(['auth:sanctum', 'web.session', 'operational', 'audit.privileg
         Route::get('/admin/updates/ios', [UpdateController::class, 'indexIos'])->middleware('permission:updates.manage');
         Route::post('/admin/updates/ios', [UpdateController::class, 'storeIos'])->middleware('permission:updates.manage');
         Route::patch('/admin/updates/ios/{version}', [UpdateController::class, 'update'])->middleware('permission:updates.manage');
-        Route::get('/admin/pilot-report/form-config', [PilotIncidentReportController::class, 'formConfig'])->middleware('permission:forms.manage');
-        Route::patch('/admin/pilot-report/form-config', [PilotIncidentReportController::class, 'updateFormConfig'])->middleware('permission:forms.manage');
-        Route::get('/admin/incident-form/config', [IncidentFormController::class, 'show'])->middleware('permission:forms.manage,branding.manage');
-        Route::patch('/admin/incident-form/config', [IncidentFormController::class, 'update'])->middleware('permission:forms.manage');
-        Route::get('/admin/intake-workflow/config', [IncidentIntakeWorkflowController::class, 'adminConfig'])->middleware('permission:forms.manage');
-        Route::patch('/admin/intake-workflow/draft', [IncidentIntakeWorkflowController::class, 'updateDraft'])->middleware('permission:forms.manage');
-        Route::post('/admin/intake-workflow/validate', [IncidentIntakeWorkflowController::class, 'validateDraft'])->middleware('permission:forms.manage');
-        Route::post('/admin/intake-workflow/simulate', [IncidentIntakeWorkflowController::class, 'simulate'])->middleware('permission:forms.manage');
-        Route::post('/admin/intake-workflow/publish', [IncidentIntakeWorkflowController::class, 'publish'])->middleware('permission:forms.manage');
-        Route::post('/admin/intake-workflow/restore', [IncidentIntakeWorkflowController::class, 'restore'])->middleware('permission:forms.manage');
+        Route::get('/admin/pilot-report/form-config', [PilotDeploymentReportController::class, 'formConfig'])->middleware('permission:forms.manage');
+        Route::patch('/admin/pilot-report/form-config', [PilotDeploymentReportController::class, 'updateFormConfig'])->middleware('permission:forms.manage');
+        Route::get('/admin/deployment-form/config', [DeploymentFormController::class, 'show'])->middleware('permission:forms.manage,branding.manage');
+        Route::patch('/admin/deployment-form/config', [DeploymentFormController::class, 'update'])->middleware('permission:forms.manage');
+        Route::get('/admin/deployment-request-workflow/config', [DeploymentRequestWorkflowController::class, 'adminConfig'])->middleware('permission:forms.manage');
+        Route::patch('/admin/deployment-request-workflow/draft', [DeploymentRequestWorkflowController::class, 'updateDraft'])->middleware('permission:forms.manage');
+        Route::post('/admin/deployment-request-workflow/validate', [DeploymentRequestWorkflowController::class, 'validateDraft'])->middleware('permission:forms.manage');
+        Route::post('/admin/deployment-request-workflow/simulate', [DeploymentRequestWorkflowController::class, 'simulate'])->middleware('permission:forms.manage');
+        Route::post('/admin/deployment-request-workflow/publish', [DeploymentRequestWorkflowController::class, 'publish'])->middleware('permission:forms.manage');
+        Route::post('/admin/deployment-request-workflow/restore', [DeploymentRequestWorkflowController::class, 'restore'])->middleware('permission:forms.manage');
         Route::get('/admin/health', [HealthController::class, 'admin'])->middleware('permission:system.health.view');
         Route::get('/admin/queues', [QueueMonitorController::class, 'index'])
             ->middleware(['permission:system.queues.view,system.queues.manage', 'throttle:system-metrics']);

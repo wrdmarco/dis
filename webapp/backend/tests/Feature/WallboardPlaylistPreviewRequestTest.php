@@ -30,7 +30,7 @@ final class WallboardPlaylistPreviewRequestTest extends TestCase
                     $this->page('calendar', 'calendar'),
                     $this->page('kpi', 'kpi'),
                     $this->page('map', 'map'),
-                    $this->page('incidents', 'incident_list'),
+                    $this->page('deployments', 'deployment_list'),
                     $this->page('summary', 'summary'),
                 ],
                 'ticker' => [

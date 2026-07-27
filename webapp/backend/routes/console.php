@@ -27,11 +27,11 @@ Schedule::command('dis:refresh-eumetsat-lightning')
     ->everyFiveMinutes()
     ->onOneServer()
     ->withoutOverlapping(10);
-Schedule::command('dis:backfill-incident-locations')
+Schedule::command('dis:backfill-deployment-locations')
     ->everyFiveMinutes()
     ->onOneServer()
     ->withoutOverlapping(10)
-    ->when(static fn (): bool => (bool) config('dis.incident_location.enabled', true));
+    ->when(static fn (): bool => (bool) config('dis.deployment_location.enabled', true));
 Schedule::command('dis:backfill-pilot-report-drone-snapshots')
     ->everyFiveMinutes()
     ->onOneServer()

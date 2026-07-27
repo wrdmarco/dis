@@ -3,6 +3,7 @@ export type ManualMobileAppAccess = 'operator' | 'admin' | 'any';
 export interface ManualAccessRule {
   permissions?: readonly string[];
   anyPermission?: boolean;
+  oneOfPermissions?: readonly string[];
   mobileApp?: ManualMobileAppAccess;
 }
 

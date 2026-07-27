@@ -16,6 +16,7 @@ import {
   FileChartColumn,
   FileText,
   Gauge,
+  GitBranch,
   KeyRound,
   Map as MapIcon,
   Monitor,
@@ -46,6 +47,7 @@ type MobileAppAccess = 'operator' | 'admin' | 'any';
 interface AccessRule {
   permissions?: readonly string[];
   anyPermission?: boolean;
+  oneOfPermissions?: readonly string[];
   mobileApp?: MobileAppAccess;
 }
 
@@ -175,50 +177,51 @@ const helpTopics: readonly HelpTopic[] = [
     summary: 'Bekijk in een oogopslag wat er operationeel speelt.',
     icon: Gauge,
     href: '/dashboard',
-    permissions: ['incidents.view', 'incidents.dispatch.view', 'status.view', 'assets.view'],
+    permissions: ['deployments.view', 'deployments.dispatch.view', 'status.view', 'assets.view'],
     actions: [
-      { title: 'Actieve meldingen volgen', description: 'Zie welke incidenten openstaan en open een incident voor de volledige informatie.' },
+      { title: 'Actieve inzetten volgen', description: 'Zie welke inzetten openstaan en open een inzet voor de volledige operationele informatie.' },
       { title: 'Reacties volgen', description: 'Zie hoeveel mensen komen, nog moeten reageren of niet beschikbaar zijn.' },
       { title: 'Beschikbaarheid en middelen controleren', description: 'Zie hoeveel mensen inzetbaar zijn en welke middelen aandacht nodig hebben.' },
     ],
   },
   {
-    id: 'intake-dossiers',
+    id: 'deployment-requests',
     group: 'operation',
-    title: 'Meldingen en uitvraag',
-    summary: 'Leg een melding vast, beoordeel de prioriteit en maak pas daarna een incident.',
+    title: 'Aanvragen en uitvraag',
+    summary: 'Leg een aanvraag vast, beoordeel de prioriteit en bereid pas daarna een inzet voor.',
     icon: ClipboardList,
-    href: '/meldingen',
-    permissions: ['incidents.manage'],
+    href: '/aanvragen',
+    permissions: ['deployments.manage'],
     actions: [
-      { title: 'Werkvoorraad bekijken', description: 'Meldingen toont alleen uitvragen die nog geen incident zijn. Open een melding om verder te gaan waar je gebleven was.' },
-      { title: 'Nieuwe melding starten', description: 'Kies eerst Persoon, Dier of Object. Vanaf dat moment wordt het dossier automatisch op de server opgeslagen.', permissions: ['incidents.manage'] },
-      { title: 'Uitvraag aanvullen', description: 'Vul de algemene vragen en daarna de vragen voor Persoon, Dier of Object in. Gekoppelde gegevens worden later automatisch in het incident gebruikt.', permissions: ['incidents.manage'] },
-      { title: 'Prioriteit vaststellen', description: 'Controleer het advies, de redenen, ontbrekende informatie en het inzetvoorstel. Afwijken vereist aanvullende rechten en een reden.', permissions: ['incidents.manage'] },
-      { title: 'Incident aanmaken', description: 'Maak na de beoordeling een conceptincident. Dit verstuurt nog geen alarmering. De uitvraag blijft vanuit het incident beschikbaar.', permissions: ['incidents.manage'] },
-      { title: 'Zonder incident afsluiten', description: 'Sluit een melding af wanneer geen inzet nodig is. Het dossier verdwijnt dan uit de open werkvoorraad.', permissions: ['incidents.manage'] },
+      { title: 'Werkvoorraad bekijken', description: 'Aanvragen toont alleen uitvragen waarvoor nog geen inzet is voorbereid. Open een aanvraag om verder te gaan waar je gebleven was.' },
+      { title: 'Nieuwe aanvraag starten', description: 'Kies eerst Persoon, Dier of Object. Vanaf dat moment wordt het aanvraagdossier automatisch op de server opgeslagen.', permissions: ['deployments.manage'] },
+      { title: 'Uitvraag aanvullen', description: 'Vul de algemene vragen en daarna de vragen voor Persoon, Dier of Object in. Gekoppelde gegevens worden later automatisch in de inzet gebruikt.', permissions: ['deployments.manage'] },
+      { title: 'Prioriteit vaststellen', description: 'Controleer het advies, de redenen, ontbrekende informatie en het inzetvoorstel. Afwijken vereist aanvullende rechten en een reden.', permissions: ['deployments.manage'] },
+      { title: 'Inzet voorbereiden', description: 'Maak na de beoordeling een conceptinzet. Dit verstuurt nog geen alarmering. De uitvraag blijft vanuit de inzet beschikbaar.', permissions: ['deployments.manage'] },
+      { title: 'Zonder inzet afsluiten', description: 'Sluit een aanvraag af wanneer geen inzet nodig is. Het dossier verdwijnt dan uit de open werkvoorraad.', permissions: ['deployments.manage'] },
     ],
   },
   {
-    id: 'incidents',
+    id: 'deployments',
     group: 'operation',
-    title: 'Incidenten',
-    summary: 'Bekijk actieve meldingen en afgeronde inzetten in het archief.',
+    title: 'Inzetten',
+    summary: 'Bekijk actieve en afgeronde inzetten.',
     icon: RadioTower,
-    href: '/incidents',
-    permissions: ['incidents.view'],
+    href: '/inzetten',
+    permissions: ['deployments.view', 'deployments.manage'],
+    anyPermission: true,
     actions: [
-      { title: 'Incident bekijken', description: 'Open een melding voor de locatie, incidentgegevens, tijdlijn, dronevluchtinformatie en beschikbare rapporten.' },
-      { title: 'Alarmering en opkomst bekijken', description: 'Bekijk gealarmeerde teams, ontvangers, reacties en opkomst op de incidentdetailpagina.', permissions: ['incidents.dispatch.view'] },
-      { title: 'Archief gebruiken', description: 'Open afgeronde en geannuleerde incidenten vanuit het aparte archiefoverzicht.' },
-      { title: 'Incident aanmaken', description: 'Start onder Meldingen een uitvraag, stel de prioriteit vast en kies daarna Incident aanmaken. Dit maakt eerst een concept.', permissions: ['incidents.manage'] },
-      { title: 'Incident wijzigen', description: 'Open het incident en kies Aanpassen. De gekoppelde uitvraag kun je op dezelfde pagina blijven aanvullen.', permissions: ['incidents.manage'] },
-      { title: 'Status veilig wijzigen', description: 'Let op: Concept naar Actief verstuurt een vooraankondiging. Actief naar Alarmeren verstuurt de echte melding.', permissions: ['incidents.manage'] },
-      { title: 'Kladblokregel versturen', description: 'Schrijf één meldkamerregel en kies Versturen. De regel komt in de tijdlijn; het invoerveld wordt daarna weer leeg.', permissions: ['incidents.manage'] },
-      { title: 'Dronevluchtinformatie controleren', description: 'Bekijk op de detailpagina weer, luchtruim, NOTAM, Aeret-kaart en de bewaarde vliegcheck bij de incidentlocatie.' },
-      { title: 'Incident afronden of annuleren', description: 'Kies de passende eindstatus zodra de inzet klaar is of niet doorgaat. Het incident verhuist daarna naar het archief.', permissions: ['incidents.manage'] },
-      { title: 'Rapport-PDF downloaden', description: 'Na afronden of annuleren kun je vanaf het incident de bewaarde rapport-PDF downloaden.' },
-      { title: 'Incident verwijderen', description: 'Verwijder alleen een foutief incident. Opkomst, tijdlijn, live locaties en rapportgegevens worden dan ook gewist.', permissions: ['incidents.delete'] },
+      { title: 'Inzet bekijken', description: 'Open een inzet voor de locatie, inzetgegevens, tijdlijn, dronevluchtinformatie en beschikbare rapporten.' },
+      { title: 'Alarmering en opkomst bekijken', description: 'Bekijk gealarmeerde teams, ontvangers, reacties en opkomst op de inzetdetailpagina.', permissions: ['deployments.dispatch.view'] },
+      { title: 'Archief gebruiken', description: 'Open afgeronde en geannuleerde inzetten vanuit het aparte archiefoverzicht.' },
+      { title: 'Inzet voorbereiden', description: 'Start onder Aanvragen een uitvraag, stel de prioriteit vast en kies daarna Inzet voorbereiden. Dit maakt eerst een concept.', permissions: ['deployments.manage'] },
+      { title: 'Inzet wijzigen', description: 'Open de inzet en kies Aanpassen. De gekoppelde uitvraag kun je op dezelfde pagina blijven aanvullen.', permissions: ['deployments.manage'] },
+      { title: 'Status veilig wijzigen', description: 'Let op: Concept naar Actief verstuurt een vooraankondiging. Actief naar Alarmeren verstuurt de echte alarmering.', permissions: ['deployments.manage'] },
+      { title: 'Kladblokregel versturen', description: 'Schrijf één meldkamerregel en kies Versturen. De regel komt in de tijdlijn; het invoerveld wordt daarna weer leeg.', permissions: ['deployments.manage'] },
+      { title: 'Dronevluchtinformatie controleren', description: 'Bekijk op de detailpagina weer, luchtruim, NOTAM, Aeret-kaart en de bewaarde vliegcheck bij de inzetlocatie.' },
+      { title: 'Inzet afronden of annuleren', description: 'Kies de passende eindstatus zodra de inzet klaar is of niet doorgaat. De inzet verhuist daarna naar het archief.', permissions: ['deployments.manage'] },
+      { title: 'Rapport-PDF downloaden', description: 'Na afronden of annuleren kun je vanaf de inzet de bewaarde rapport-PDF downloaden.' },
+      { title: 'Inzet verwijderen', description: 'Verwijder alleen een foutieve inzet. Opkomst, tijdlijn, live locaties en rapportgegevens worden dan ook gewist.', permissions: ['deployments.delete'] },
     ],
   },
   {
@@ -227,20 +230,21 @@ const helpTopics: readonly HelpTopic[] = [
     title: 'Vooraankondigen en alarmeren',
     summary: 'Bereid een inzet voor, alarmeer de juiste mensen en volg hun reactie.',
     icon: BellRing,
-    permissions: ['incidents.dispatch.view', 'incidents.manage', 'incidents.dispatch.manage', 'status.override'],
+    permissions: ['deployments.dispatch.view', 'deployments.dispatch.manage', 'status.override'],
     anyPermission: true,
+    oneOfPermissions: ['deployments.view', 'deployments.manage'],
     actions: [
-      { title: 'Alarmering bekijken', description: 'Bekijk geselecteerde teams, ontvangers, reacties, opkomst en verzonden berichten.', permissions: ['incidents.dispatch.view'] },
-      { title: 'Ontvangers vooraf controleren', description: 'Bekijk vóór verzending welke teams leeg zijn en hoeveel geschikte, beschikbare en online gebruikers bereikt kunnen worden.', permissions: ['incidents.view', 'incidents.manage', 'incidents.dispatch.view'] },
-      { title: 'Vooraankondiging sturen', description: 'Vraag eerst wie beschikbaar is. Een vooraankondiging telt niet als opkomst; bij de echte alarmering volgt opnieuw een reactie.', permissions: ['incidents.view', 'incidents.manage', 'incidents.dispatch.view'] },
-      { title: 'Direct alarmeren', description: 'Stuur een echte alarmering wanneer direct reageren nodig is. Alleen geschikte en online gebruikers worden meegenomen.', permissions: ['incidents.view', 'incidents.manage', 'incidents.dispatch.view'] },
-      { title: 'Aantal mensen en ETA-ringen kiezen', description: 'Vul het gewenste aantal in. DIS gebruikt de autoroute vanaf de globale woonplaats, begint bij 15 minuten en vergroot de ring per kwartier. Een terugvalschatting is herkenbaar gemarkeerd.', permissions: ['incidents.view', 'incidents.manage', 'incidents.dispatch.view'] },
-      { title: 'Opschalen', description: 'Voeg extra operationele teams toe. Bij een urgente inzet kun je bewust ook niet-beschikbare teamleden meenemen.', permissions: ['incidents.dispatch.manage'] },
-      { title: 'Heralarmeren', description: 'Stuur opnieuw naar ontvangers die nog op Wacht op reactie staan. Er worden geen nieuwe personen toegevoegd.', permissions: ['incidents.dispatch.manage'] },
-      { title: 'Reactie corrigeren', description: 'Pas namens de meldkamer een reactie aan wanneer telefonisch iets anders is doorgegeven.', permissions: ['incidents.dispatch.manage'] },
-      { title: 'Opkomststatus corrigeren', description: 'Zet een geaccepteerde gebruiker op Onderweg of Op locatie wanneer dit operationeel nodig is.', permissions: ['status.override'] },
-      { title: 'Live locatie vragen', description: 'Vraag een betrokken gebruiker om live locatie te delen. De gebruiker beslist zelf; bij Op locatie stopt het delen.', permissions: ['incidents.dispatch.manage'] },
-      { title: 'Nadere informatie sturen', description: 'Stuur een korte aanvulling naar mensen die al bij de inzet betrokken zijn.', permissions: ['incidents.dispatch.manage'] },
+      { title: 'Alarmering bekijken', description: 'Bekijk geselecteerde teams, ontvangers, reacties, opkomst en verzonden berichten.', permissions: ['deployments.dispatch.view'], oneOfPermissions: ['deployments.view', 'deployments.manage'] },
+      { title: 'Ontvangers vooraf controleren', description: 'Bekijk vóór verzending welke teams leeg zijn en hoeveel geschikte, beschikbare en online gebruikers bereikt kunnen worden.', permissions: ['deployments.dispatch.view', 'deployments.dispatch.manage'], oneOfPermissions: ['deployments.view', 'deployments.manage'] },
+      { title: 'Vooraankondiging sturen', description: 'Vraag eerst wie beschikbaar is. Een vooraankondiging telt niet als opkomst; bij de echte alarmering volgt opnieuw een reactie.', permissions: ['deployments.dispatch.view', 'deployments.dispatch.manage'], oneOfPermissions: ['deployments.view', 'deployments.manage'] },
+      { title: 'Direct alarmeren', description: 'Stuur een echte alarmering wanneer direct reageren nodig is. Alleen geschikte en online gebruikers worden meegenomen.', permissions: ['deployments.dispatch.view', 'deployments.dispatch.manage'], oneOfPermissions: ['deployments.view', 'deployments.manage'] },
+      { title: 'Aantal mensen en ETA-ringen kiezen', description: 'Vul het gewenste aantal in. DIS gebruikt de autoroute vanaf de globale woonplaats, begint bij 15 minuten en vergroot de ring per kwartier. Een terugvalschatting is herkenbaar gemarkeerd.', permissions: ['deployments.dispatch.view', 'deployments.dispatch.manage'], oneOfPermissions: ['deployments.view', 'deployments.manage'] },
+      { title: 'Opschalen', description: 'Voeg extra operationele teams toe. Bij een urgente inzet kun je bewust ook niet-beschikbare teamleden meenemen.', permissions: ['deployments.dispatch.view', 'deployments.dispatch.manage'], oneOfPermissions: ['deployments.view', 'deployments.manage'] },
+      { title: 'Heralarmeren', description: 'Stuur opnieuw naar ontvangers die nog op Wacht op reactie staan. Er worden geen nieuwe personen toegevoegd.', permissions: ['deployments.dispatch.view', 'deployments.dispatch.manage'], oneOfPermissions: ['deployments.view', 'deployments.manage'] },
+      { title: 'Reactie corrigeren', description: 'Pas namens de meldkamer een reactie aan wanneer telefonisch iets anders is doorgegeven.', permissions: ['deployments.dispatch.view', 'deployments.dispatch.manage'], oneOfPermissions: ['deployments.view', 'deployments.manage'] },
+      { title: 'Opkomststatus corrigeren', description: 'Zet een geaccepteerde gebruiker op Onderweg of Op locatie wanneer dit operationeel nodig is.', permissions: ['deployments.dispatch.view', 'status.override'], oneOfPermissions: ['deployments.view', 'deployments.manage'] },
+      { title: 'Live locatie vragen', description: 'Vraag een betrokken gebruiker om live locatie te delen. De gebruiker beslist zelf; bij Op locatie stopt het delen.', permissions: ['deployments.dispatch.view', 'deployments.dispatch.manage'], oneOfPermissions: ['deployments.view', 'deployments.manage'] },
+      { title: 'Nadere informatie sturen', description: 'Stuur een korte aanvulling naar mensen die al bij de inzet betrokken zijn.', permissions: ['deployments.dispatch.view', 'deployments.dispatch.manage'], oneOfPermissions: ['deployments.view', 'deployments.manage'] },
     ],
   },
   {
@@ -250,7 +254,7 @@ const helpTopics: readonly HelpTopic[] = [
     summary: 'Controleer de meldingsketen zonder een echte inzet te starten.',
     icon: BellRing,
     href: '/test-alert',
-    permissions: ['incidents.dispatch.view', 'incidents.dispatch.manage'],
+    permissions: ['deployments.dispatch.view', 'deployments.dispatch.manage'],
     actions: [
       { title: 'Handmatig proefalarm sturen', description: 'Kies tussen je eigen gekoppelde toestellen en een bevestigde bereikbaarheidstest voor alle bereikbare operator-apps.' },
       { title: 'Automatisch proefalarm plannen', description: 'Kies dag, tijd en tekst voor een terugkerende controle bij actieve gebruikers met operator-app en push.' },
@@ -261,15 +265,15 @@ const helpTopics: readonly HelpTopic[] = [
     id: 'map',
     group: 'operation',
     title: 'Operationele kaart',
-    summary: 'Bekijk open meldingen, meldkamers en gedeelde locaties op één kaart.',
+    summary: 'Bekijk open inzetten, meldkamers en gedeelde locaties op één kaart.',
     icon: MapIcon,
     href: '/operational-map',
-    permissions: ['operational-map.view', 'incidents.view'],
+    permissions: ['operational-map.view', 'deployments.view'],
     actions: [
       { title: 'Kaartlagen kiezen', description: 'Meldkamers staan standaard aan. Zet eerdere inzetten zelf aan via het lagenmenu.' },
-      { title: 'Symbolen herkennen', description: 'De kaart onderscheidt open meldingen, gebruikers, meldkamers en eerdere inzetten. Een lijn koppelt een gebruiker aan het bijbehorende incident.' },
-      { title: 'Open melding volgen', description: 'Open een incident via de titel op de kaart en bekijk welke gebruikers vrijwillig hun locatie delen.' },
-      { title: 'Automatisch verversen', description: 'Open meldingen en locaties worden ongeveer elke tien seconden bijgewerkt. Gebruik Vernieuwen om ook de gekozen kaartlagen opnieuw te laden.' },
+      { title: 'Symbolen herkennen', description: 'De kaart onderscheidt open inzetten, gebruikers, meldkamers en eerdere inzetten. Een lijn koppelt een gebruiker aan de bijbehorende inzet.' },
+      { title: 'Open inzet volgen', description: 'Open een inzet via de titel op de kaart en bekijk welke gebruikers vrijwillig hun locatie delen.' },
+      { title: 'Automatisch verversen', description: 'Open inzetten en locaties worden ongeveer elke tien seconden bijgewerkt. Gebruik Vernieuwen om ook de gekozen kaartlagen opnieuw te laden.' },
       { title: 'Globale woonplaatsen tonen', description: 'Zet de woonplaatsen van operationele appgebruikers als globale positie aan. Dit is geen exact woonadres.', permissions: ['operational-map.pilot-homes.view'] },
       { title: 'Volledig scherm openen', description: 'Gebruik de knop voor volledig scherm wanneer de kaart het belangrijkste beeld is.' },
     ],
@@ -323,19 +327,19 @@ const helpTopics: readonly HelpTopic[] = [
     id: 'reports',
     group: 'operation',
     title: 'Rapporten',
-    summary: 'Bekijk incidentrapporten en controleer welke inzetrapporten nog ontbreken.',
+    summary: 'Bekijk inzetrapporten en controleer welke pilootrapporten nog ontbreken.',
     icon: FileChartColumn,
     href: '/reports',
-    permissions: ['incidents.view', 'incidents.dispatch.view'],
+    permissions: ['deployments.view', 'deployments.dispatch.view'],
     actions: [
       { title: 'Rapportstatus controleren', description: 'Zie direct welke piloten hun inzetrapport al hebben ingediend of definitief gemaakt.' },
-      { title: 'Incidentrapport downloaden', description: 'Download de bewaarde PDF met kaarten, opkomst, inzetinformatie en log. De rapportmomentopname wordt niet opnieuw opgebouwd bij iedere download.' },
-      { title: 'Rapport namens een gebruiker invullen', description: 'Open de naam bij Ontbreekt en vul de informatie in na bijvoorbeeld telefonisch contact. Opslaan dient het rapport meteen in.', permissions: ['incidents.manage'] },
-      { title: 'Ingediend rapport aanpassen', description: 'Een ingediend inzetrapport kan nog worden gewijzigd totdat het met de knop definitief is gemaakt.', permissions: ['incidents.manage'] },
-      { title: 'Rapport definitief maken', description: 'Controleer de inhoud en kies Definitief maken. Dit kan niet worden teruggedraaid. Als alles definitief is, wordt het incidentrapport automatisch definitief.', permissions: ['incidents.manage'] },
+      { title: 'Inzetrapport downloaden', description: 'Download de bewaarde PDF met kaarten, opkomst, inzetinformatie en log. De rapportmomentopname wordt niet opnieuw opgebouwd bij iedere download.' },
+      { title: 'Rapport namens een gebruiker invullen', description: 'Open de naam bij Ontbreekt en vul de informatie in na bijvoorbeeld telefonisch contact. Opslaan dient het rapport meteen in.', permissions: ['deployments.manage'] },
+      { title: 'Ingediend rapport aanpassen', description: 'Een ingediend inzetrapport kan nog worden gewijzigd totdat het met de knop definitief is gemaakt.', permissions: ['deployments.manage'] },
+      { title: 'Rapport definitief maken', description: 'Controleer de inhoud en kies Definitief maken. Dit kan niet worden teruggedraaid. Als alles definitief is, wordt het inzetrapport automatisch definitief.', permissions: ['deployments.manage'] },
       { title: 'Wie moet een rapport invullen', description: 'Een uniek gealarmeerd persoon die Komt heeft gekozen, krijgt een inzetrapport. Komt niet en geen reactie tellen niet mee.' },
-      { title: 'Alarmeringscijfers bekijken', description: 'Kies de laatste 5, 10, 25 of 50 meldingen en vergelijk reacties, gemiste reacties en responstijden.' },
-      { title: 'Gebruikers en incidenten vergelijken', description: 'Bekijk wie vaak niet reageert en controleer de cijfers per incident in de tabel.' },
+      { title: 'Alarmeringscijfers bekijken', description: 'Kies de laatste 5, 10, 25 of 50 alarmeringen en vergelijk reacties, gemiste reacties en responstijden.' },
+      { title: 'Gebruikers en inzetten vergelijken', description: 'Bekijk wie vaak niet reageert en controleer de cijfers per inzet in de tabel.' },
     ],
   },
   {
@@ -405,7 +409,7 @@ const helpTopics: readonly HelpTopic[] = [
       { title: 'Team maken en wijzigen', description: 'Stel code, naam, operationele status, mee-alarmeerteams en certificaateisen in. Teams kunnen niet worden verwijderd.' },
       { title: 'Leden beheren', description: 'Wijzig teamlidmaatschap bij Gebruikers > Aanpassen. Hiervoor zijn ook rechten voor gebruikersbeheer nodig.', permissions: ['users.view', 'users.manage'] },
       { title: 'OCP en TUI goed houden', description: 'Iemand in TUI moet ook in OCP staan. Verander de vaste codes OCP en TUI niet.' },
-      { title: 'Alarmeerteams voorbereiden', description: 'Gebruik herkenbare groepen zodat de meldkamer tijdens een incident snel de juiste mensen kiest.' },
+      { title: 'Alarmeerteams voorbereiden', description: 'Gebruik herkenbare groepen zodat de meldkamer tijdens een inzet snel de juiste mensen kiest.' },
       { title: 'Vereiste certificaten kiezen', description: 'Bepaal welke geldige certificaten iemand nodig heeft voordat die voor dit team gealarmeerd kan worden.' },
     ],
   },
@@ -443,8 +447,7 @@ const helpTopics: readonly HelpTopic[] = [
     summary: 'Zie welke middelen of certificaten binnenkort aandacht nodig hebben.',
     icon: Archive,
     href: '/expiry',
-    permissions: ['assets.view', 'certifications.view'],
-    anyPermission: true,
+    permissions: ['expiry.view'],
     actions: [
       { title: 'Verloop bekijken', description: 'Kies 30, 60, 90 of 180 dagen vooruit. Kritiek betekent al verlopen of binnen zeven dagen. Dit overzicht heeft geen wijzigknoppen.' },
     ],
@@ -453,14 +456,14 @@ const helpTopics: readonly HelpTopic[] = [
     id: 'manual-push',
     group: 'management',
     title: 'Handmatige pushmelding',
-    summary: 'Stuur een losse mededeling die niet bij een incident hoort.',
+    summary: 'Stuur een losse mededeling die niet bij een inzet hoort.',
     icon: Send,
     href: '/push',
     permissions: ['settings.push.manual.send'],
     actions: [
       { title: 'Ontvangers kiezen', description: 'Kies teams, rollen of losse gebruikers. De teller toont je keuzes, niet hoeveel mensen op dat moment bereikbaar zijn.' },
       { title: 'Bereikbare gebruikers', description: 'DIS neemt alleen actieve gebruikers mee met push aan en een recent online Operator-app. Dubbele selecties worden samengevoegd.' },
-      { title: 'Bericht versturen', description: 'Schrijf een korte titel en duidelijke tekst. Gebruik incidentalarmering voor echte inzetten. Klaargezet betekent nog niet dat ieder toestel het bericht al heeft ontvangen.' },
+      { title: 'Bericht versturen', description: 'Schrijf een korte titel en duidelijke tekst. Gebruik inzetalarmering voor echte inzetten. Klaargezet betekent nog niet dat ieder toestel het bericht al heeft ontvangen.' },
       { title: 'Afleverpogingen bekijken', description: 'Bekijk onder het formulier de laatste afleverpogingen van pushmeldingen en eventuele fouten.' },
     ],
   },
@@ -473,33 +476,46 @@ const helpTopics: readonly HelpTopic[] = [
     href: '/forms',
     permissions: ['forms.manage'],
     actions: [
-      { title: 'Kies het juiste formulier', description: 'Gebruik Inzetrapport en Incidentformulier voor hun eigen invoer. Uitvraag beheert het doorlopende meldingsdossier voor mens, dier en object.' },
+      { title: 'Kies het juiste formulier', description: 'Gebruik Inzetrapport en Inzetformulier voor hun eigen invoer. Uitvraag beheert het doorlopende aanvraagdossier voor mens, dier en object.' },
       { title: 'Velden en tussenkoppen opbouwen', description: 'Klik of sleep onderdelen naar het canvas en zet ze in de gewenste volgorde. Het canvas is een voorbeeld; de uiteindelijke mobiele weergave kan anders zijn.' },
       { title: 'Veldsoort kiezen', description: 'Kies uit tekst, groot tekstvak, getal, Nederlands of Belgisch telefoonnummer, vluchttijd, keuzelijst, keuzerondjes, vinkvak of een tussenkop.' },
       { title: 'Veldinstellingen aanpassen', description: 'Kies naam, verplichting, breedte, zichtbaarheid en antwoorden bij een keuzeveld. Een keuzeveld heeft minimaal twee antwoorden nodig.' },
-      { title: 'Incidentformulier indelen', description: 'Verplaats vaste webonderdelen en voeg eigen velden toe. De vergrendelde onderdelen voor incident, melder en locatie blijven nodig om incidenten goed te laten werken.' },
-      { title: 'Velden beschikbaar maken voor berichten', description: 'Een incidentveld kan als variabele in een pushbericht worden gebruikt. Velden uit het inzetrapport worden niet in pushberichten gebruikt.' },
+      { title: 'Inzetformulier indelen', description: 'Verplaats vaste webonderdelen en voeg eigen velden toe. De vergrendelde onderdelen voor inzet, aanvrager en locatie blijven nodig om inzetten goed te laten werken.' },
+      { title: 'Velden beschikbaar maken voor berichten', description: 'Een inzetveld kan als variabele in een pushbericht worden gebruikt. Velden uit het pilootrapport worden niet in pushberichten gebruikt.' },
       { title: 'Inzetrapport voor de operator-app', description: 'Bepaal per inzetrapportveld of het in de operator-app beschikbaar is. Er moet altijd minimaal één zichtbaar invoerveld overblijven.' },
       { title: 'Uitvraag per onderwerp', description: 'Plaats een veld onder Gemeenschappelijk, Mens, Dier of Object en bepaal of het in de Operator-app zichtbaar is. De technische sleutel blijft stabiel.' },
-      { title: 'Dubbele invoer voorkomen', description: 'Koppel uitvraagvelden aan toegestane incidentvelden. Velden uit exclusieve Mens-, Dier- en Objecttakken mogen hetzelfde incidentdoel delen.' },
-      { title: 'Prioriteit adviseren', description: 'Bouw getypeerde voorwaarden die Laag, Middel, Hoog of Urgent adviseren en toon de centralist waarom.' },
-      { title: 'Inzetvoorstel beheren', description: 'Configureer voorgestelde teams en middelen per onderwerp en prioriteit. Een voorstel alarmeert nooit automatisch.' },
-      { title: 'Valideren en publiceren', description: 'Sla het concept op, valideer en simuleer voorbeeldantwoorden. Publiceer daarna; een eerdere versie kan altijd als nieuw concept worden teruggezet.' },
+      { title: 'Dubbele invoer voorkomen', description: 'Koppel uitvraagvelden aan toegestane inzetvelden. Velden uit exclusieve Mens-, Dier- en Objecttakken mogen hetzelfde inzetdoel delen.' },
+      { title: 'Valideren en publiceren', description: 'Sla vragen en koppelingen op en controleer daarna bij Versies & testen de volledige conceptconfiguratie. Publiceer pas wanneer ook de prioriteitsbesluiten zijn gecontroleerd.' },
+    ],
+  },
+  {
+    id: 'priority-decisions',
+    group: 'management',
+    title: 'Prioriteitsbesluiten',
+    summary: 'Beheer hoe een aanvraag per onderwerp tot een prioriteitsadvies en inzetvoorstel leidt.',
+    icon: GitBranch,
+    href: '/prioriteitsbesluiten',
+    permissions: ['forms.manage'],
+    actions: [
+      { title: 'Regels per onderwerp beheren', description: 'Stel afzonderlijke beslisregels in voor Mens, Dier en Object en controleer welke voorwaarden tot Laag, Middel, Hoog of Urgent leiden.' },
+      { title: 'Profielen en standaardteams beheren', description: 'Beheer de inzetprofielen en zet per profiel ieder standaardteam afzonderlijk aan of uit.' },
+      { title: 'Opslaan, valideren en publiceren', description: 'Sla de wijzigingen eerst op, los alle validatiefouten op en publiceer pas wanneer de beslissingen en voorstellen gecontroleerd zijn.' },
+      { title: 'Let op bij publiceren', description: 'Publiceren activeert de volledige opgeslagen uitvraagconfiguratie, inclusief vragen, koppelingen, prioriteitsregels en inzetprofielen.' },
     ],
   },
   {
     id: 'branding',
     group: 'management',
     title: 'Branding en berichten',
-    summary: 'Pas naam, logo en teksten van meldingen aan.',
+    summary: 'Pas naam, logo en berichtteksten aan.',
     icon: Palette,
     href: '/branding',
-    permissions: ['settings.manage'],
+    permissions: ['branding.manage'],
     actions: [
       { title: 'Algemene teksten instellen', description: 'Pas namen, inlogteksten, Authenticatornaam en de afzender van e-mail aan via de tab Algemeen.' },
       { title: 'Logo beheren', description: 'Upload of verwijder het logo via de tab Logo. Een logowijziging wordt meteen opgeslagen; andere tekstwijzigingen pas met Branding opslaan.' },
-      { title: 'Pushteksten aanpassen', description: 'Stel vooraankondiging, alarmering, opschaling, nadere info en annulering samen. Deze sjablonen gelden alleen voor incidentmeldingen, niet voor handmatige push.' },
-      { title: 'Variabelen gebruiken', description: 'Voeg alleen variabelen toe die bij het gekozen bericht staan. DIS vult deze bij verzending met de gegevens van het incident.' },
+      { title: 'Pushteksten aanpassen', description: 'Stel vooraankondiging, alarmering, opschaling, nadere info en annulering samen. Deze sjablonen gelden alleen voor inzetalarmeringen, niet voor handmatige push.' },
+      { title: 'Variabelen gebruiken', description: 'Voeg alleen variabelen toe die bij het gekozen bericht staan. DIS vult deze bij verzending met de gegevens van de inzet.' },
       { title: 'E-mailteksten aanpassen', description: 'Beheer de uitnodigingsmail en de afzonderlijke verloopmails voor certificaten en middelen.' },
       { title: 'Verloopwaarschuwingen instellen', description: 'Kies per certificaat of middel hoeveel dagen vooraf wordt gewaarschuwd. Op de verloopdatum wordt ook een mail gestuurd.' },
     ],
@@ -516,7 +532,7 @@ const helpTopics: readonly HelpTopic[] = [
     actions: [
       { title: 'Push en mail instellen', description: 'Controleer de verbinding voor pushmeldingen en de e-mailinstellingen. Sla mailinstellingen eerst op; de testmail gaat daarna naar je eigen e-mailadres.', permissions: ['settings.manage'] },
       { title: 'Heartbeat en beveiliging instellen', description: 'Kies het heartbeat-interval, de algemene MFA-regel en de wachtwoordeisen voor gebruikers.', permissions: ['settings.manage'] },
-      { title: 'Kaart en incidentlog instellen', description: 'Beheer meldkamers, de bewaartermijn van locaties en welke incidentlogregels mobiele gebruikers mogen zien. Verwijderde meldkamers verdwijnen pas na opslaan.', permissions: ['settings.manage'] },
+      { title: 'Kaart en inzetlog instellen', description: 'Beheer meldkamers, de bewaartermijn van locaties en welke inzetlogregels mobiele gebruikers mogen zien. Verwijderde meldkamers verdwijnen pas na opslaan.', permissions: ['settings.manage'] },
       { title: 'Store-review koppeling maken', description: 'Maak alleen voor een appstore-controle een reviewcode. De code kan zes uur meermaals worden gebruikt en een gekoppelde reviewtoegang blijft maximaal 24 uur geldig. Een nieuwe code trekt oudere toegang niet in.', permissions: ['settings.manage'] },
       { title: 'Mobiele toestellen beheren', description: 'Bekijk de maximaal 100 actieve toestelregistraties. Intrekken gebeurt direct, meldt de app af en kan push en beschikbaarheid van de gebruiker aanpassen.', permissions: ['settings.push.tokens.manage'] },
       { title: 'Systeemversie bekijken', description: 'Bekijk de huidige versie en de laatste bekende updategegevens.', permissions: ['system.health.view'] },
@@ -535,7 +551,7 @@ const helpTopics: readonly HelpTopic[] = [
     permissions: ['audit.view', 'status.audit.view'],
     anyPermission: true,
     actions: [
-      { title: 'Beheer- en incidentacties bekijken', description: 'Filter op gebruiker, een deel van de actie of periode. Je ziet maximaal 150 recente regels met uitvoerder, doel, IP-adres en reden.', permissions: ['audit.view'] },
+      { title: 'Beheer- en inzetacties bekijken', description: 'Filter op gebruiker, een deel van de actie of periode. Je ziet maximaal 150 recente regels met uitvoerder, doel, IP-adres en reden.', permissions: ['audit.view'] },
       { title: 'Statuswijzigingen bekijken', description: 'Filter op gebruiker en periode. Je ziet maximaal 150 wijzigingen met oude en nieuwe status, uitvoerder en reden.', permissions: ['status.audit.view'] },
     ],
   },
@@ -563,7 +579,7 @@ const helpTopics: readonly HelpTopic[] = [
     summary: 'Beheer de lokale routeberekening en gecontroleerde kaartdekking voor Nederland en België.',
     icon: RouteIcon,
     href: '/routing',
-    permissions: ['system.health.view', 'system.routing.manage'],
+    permissions: ['system.routing.view', 'system.routing.manage'],
     anyPermission: true,
     actions: [
       { title: 'Status bekijken', description: 'Controleer of OSRM is geïnstalleerd, actief en gezond en welke kaartversie wordt gebruikt.' },
@@ -733,7 +749,7 @@ export function HelpPage() {
         <section className="help-empty" aria-live="polite">
           <Search aria-hidden size={24} />
           <h2>Geen uitleg gevonden</h2>
-          <p>Probeer een korter woord, zoals <strong>status</strong>, <strong>incident</strong> of <strong>toestel</strong>.</p>
+          <p>Probeer een korter woord, zoals <strong>status</strong>, <strong>inzet</strong> of <strong>toestel</strong>.</p>
           <button className="secondary-button" type="button" onClick={() => setQuery('')}>Zoekopdracht wissen</button>
         </section>
       )}
@@ -926,11 +942,16 @@ function hasAccess(rule: AccessRule, access: AccessContext): boolean {
   }
 
   const permissions = rule.permissions ?? [];
-  if (permissions.length === 0) {
-    return true;
+  const requiredPermissionsMatch = permissions.length === 0
+    || (rule.anyPermission
+      ? permissions.some((permission) => access.permissions.has(permission))
+      : permissions.every((permission) => access.permissions.has(permission)));
+  if (!requiredPermissionsMatch) {
+    return false;
   }
 
-  return rule.anyPermission
-    ? permissions.some((permission) => access.permissions.has(permission))
-    : permissions.every((permission) => access.permissions.has(permission));
+  const oneOfPermissions = rule.oneOfPermissions ?? [];
+
+  return oneOfPermissions.length === 0
+    || oneOfPermissions.some((permission) => access.permissions.has(permission));
 }

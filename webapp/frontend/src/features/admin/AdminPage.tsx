@@ -8,7 +8,7 @@ import { dateInputValueInAmsterdam, formatDateTime } from '../../lib/dateTime';
 import { fetchLocationSuggestions, geocodeAddressLabel, lookupLocationSuggestion, type LocationSearchResult, type LocationSuggestion } from '../../lib/locationSearch';
 import { createRealtime } from '../../lib/realtime';
 import { useApiResource } from '../../lib/useApiResource';
-import type { ConfigurableFormField, DeveloperAccessState, FcmToken, IncidentFormConfig, IncidentFormLayoutItem, PilotReportFormConfig, PilotReportFormField, StoreReviewStatus, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
+import type { ConfigurableFormField, DeploymentFormConfig, DeploymentFormLayoutItem, DeveloperAccessState, FcmToken, PilotReportFormConfig, PilotReportFormField, StoreReviewStatus, SystemSetting, SystemUpdateStatus, SystemVersionState } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiClientError } from '../../lib/apiClient';
@@ -21,8 +21,8 @@ import {
 } from './adminApiSettings';
 import { adminTabChangeAllowed } from './adminTabNavigation';
 
-const IncidentIntakeWorkflowStudio = dynamic(
-  () => import('./IncidentIntakeWorkflowStudio').then((module) => module.IncidentIntakeWorkflowStudio),
+const DeploymentRequestWorkflowStudio = dynamic(
+  () => import('./DeploymentRequestWorkflowStudio').then((module) => module.DeploymentRequestWorkflowStudio),
 );
 
 interface MobileSettingsForm {
@@ -86,8 +86,8 @@ interface OperationalMapCommandCenterForm {
   longitude: string;
 }
 
-const incidentTimelineVisibilityOptions = [
-  { value: 'status', label: 'Incidentstatus' },
+const deploymentTimelineVisibilityOptions = [
+  { value: 'status', label: 'Inzetstatus' },
   { value: 'dispatch', label: 'Alarmeringen' },
   { value: 'dispatch_response', label: 'Reacties/opkomst' },
   { value: 'dispatch_message', label: 'Nadere info' },
@@ -95,7 +95,7 @@ const incidentTimelineVisibilityOptions = [
   { value: 'audit', label: 'Auditacties' },
 ] as const;
 
-type AdminTab = 'firebase' | 'mail' | 'api' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'apps' | 'store' | 'pilotReport' | 'incidentForm' | 'incidentIntake' | 'settings';
+type AdminTab = 'firebase' | 'mail' | 'api' | 'system' | 'passwords' | 'developer' | 'version' | 'tokens' | 'apps' | 'store' | 'pilotReport' | 'deploymentForm' | 'deploymentRequest' | 'settings';
 type AdminPageMode = 'admin' | 'forms';
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
@@ -114,8 +114,8 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
 
 const formTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'pilotReport', label: 'Inzetrapport' },
-  { id: 'incidentForm', label: 'Incidentformulier' },
-  { id: 'incidentIntake', label: 'Uitvraag' },
+  { id: 'deploymentForm', label: 'Inzetformulier' },
+  { id: 'deploymentRequest', label: 'Uitvraag' },
 ];
 
 const developerScopeLabels: Record<string, string> = {
@@ -143,7 +143,7 @@ function adminTabAllowed(
     canManageDeveloperAccess: boolean;
   },
 ): boolean {
-  if (tab === 'pilotReport' || tab === 'incidentForm' || tab === 'incidentIntake') {
+  if (tab === 'pilotReport' || tab === 'deploymentForm' || tab === 'deploymentRequest') {
     return permissions.canManageForms;
   }
 
@@ -185,7 +185,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const storeReviewStatus = useApiResource<StoreReviewStatus>('/admin/store-review/status', canManageSettings && mode === 'admin');
   const systemVersion = useApiResource<SystemVersionState>('/admin/system/version', canViewSystemHealth && mode === 'admin');
   const pilotReportFormConfig = useApiResource<PilotReportFormConfig>('/admin/pilot-report/form-config', canManageForms && mode === 'forms');
-  const incidentFormConfig = useApiResource<IncidentFormConfig>('/admin/incident-form/config', canManageForms && mode === 'forms');
+  const deploymentFormConfig = useApiResource<DeploymentFormConfig>('/admin/deployment-form/config', canManageForms && mode === 'forms');
   const mobileSettings = useMemo(() => toMobileSettingsForm(settings.data ?? []), [settings.data]);
   const managedSettings = useMemo(() => toManagedSettingsForm(settings.data ?? []), [settings.data]);
   const adminApiSettings = useMemo(() => mapAdminApiSettings(settings.data ?? []), [settings.data]);
@@ -199,10 +199,10 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const [appLinksForm, setAppLinksForm] = useState<AppLinksForm>(appLinks);
   const [commandCenters, setCommandCenters] = useState<OperationalMapCommandCenterForm[]>(operationalMapCommandCenters);
   const [pilotReportFields, setPilotReportFields] = useState<PilotReportFormField[]>([]);
-  const [incidentFormFields, setIncidentFormFields] = useState<ConfigurableFormField[]>([]);
-  const [incidentFormLayout, setIncidentFormLayout] = useState<IncidentFormLayoutItem[]>(defaultIncidentFormLayout());
+  const [deploymentFormFields, setDeploymentFormFields] = useState<ConfigurableFormField[]>([]);
+  const [deploymentFormLayout, setDeploymentFormLayout] = useState<DeploymentFormLayoutItem[]>(defaultDeploymentFormLayout());
   const [activeTab, setActiveTab] = useState<AdminTab>(mode === 'forms' ? 'pilotReport' : 'firebase');
-  const [intakeWorkflowDirty, setIntakeWorkflowDirty] = useState(false);
+  const [deploymentRequestWorkflowDirty, setDeploymentRequestWorkflowDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [managedSaving, setManagedSaving] = useState(false);
@@ -224,9 +224,9 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   const [pilotReportSaving, setPilotReportSaving] = useState(false);
   const [pilotReportMessage, setPilotReportMessage] = useState<string | null>(null);
   const [pilotReportError, setPilotReportError] = useState<string | null>(null);
-  const [incidentFormSaving, setIncidentFormSaving] = useState(false);
-  const [incidentFormMessage, setIncidentFormMessage] = useState<string | null>(null);
-  const [incidentFormError, setIncidentFormError] = useState<string | null>(null);
+  const [deploymentFormSaving, setDeploymentFormSaving] = useState(false);
+  const [deploymentFormMessage, setDeploymentFormMessage] = useState<string | null>(null);
+  const [deploymentFormError, setDeploymentFormError] = useState<string | null>(null);
   const [timelineVisibilitySaving, setTimelineVisibilitySaving] = useState(false);
   const [timelineVisibilityMessage, setTimelineVisibilityMessage] = useState<string | null>(null);
   const [timelineVisibilityError, setTimelineVisibilityError] = useState<string | null>(null);
@@ -273,9 +273,12 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   }, [pilotReportFormConfig.data?.fields]);
 
   useEffect(() => {
-    setIncidentFormFields(incidentFormConfig.data?.fields ?? []);
-    setIncidentFormLayout(incidentFormConfig.data?.layout ?? defaultIncidentFormLayout(incidentFormConfig.data?.fields ?? []));
-  }, [incidentFormConfig.data?.fields, incidentFormConfig.data?.layout]);
+    setDeploymentFormFields(deploymentFormConfig.data?.fields ?? []);
+    setDeploymentFormLayout(
+      deploymentFormConfig.data?.layout
+        ?? defaultDeploymentFormLayout(deploymentFormConfig.data?.fields ?? []),
+    );
+  }, [deploymentFormConfig.data?.fields, deploymentFormConfig.data?.layout]);
 
   useEffect(() => {
     setUpdaterStatus(systemVersion.data?.updater ?? null);
@@ -597,7 +600,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     try {
       await api.patch('/admin/settings', {
         settings: {
-          'incident.timeline.app_visible_types': nextTypes,
+          'deployment.timeline.app_visible_types': nextTypes,
         },
       });
       await settings.reload();
@@ -790,23 +793,23 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     }
   }
 
-  async function saveIncidentFormConfig() {
-    setIncidentFormSaving(true);
-    setIncidentFormError(null);
-    setIncidentFormMessage(null);
+  async function saveDeploymentFormConfig() {
+    setDeploymentFormSaving(true);
+    setDeploymentFormError(null);
+    setDeploymentFormMessage(null);
     try {
-      const response = await api.patch<IncidentFormConfig>('/admin/incident-form/config', {
-        fields: incidentFormFields.map((field) => ({ ...field, available_in_operator_app: false })),
-        layout: incidentFormLayout,
+      const response = await api.patch<DeploymentFormConfig>('/admin/deployment-form/config', {
+        fields: deploymentFormFields.map((field) => ({ ...field, available_in_operator_app: false })),
+        layout: deploymentFormLayout,
       });
-      setIncidentFormFields(response.data.fields);
-      setIncidentFormLayout(response.data.layout ?? defaultIncidentFormLayout(response.data.fields));
-      setIncidentFormMessage('Incidentformulier is opgeslagen.');
-      await incidentFormConfig.reload();
+      setDeploymentFormFields(response.data.fields);
+      setDeploymentFormLayout(response.data.layout ?? defaultDeploymentFormLayout(response.data.fields));
+      setDeploymentFormMessage('Inzetformulier is opgeslagen.');
+      await deploymentFormConfig.reload();
     } catch (error) {
-      setIncidentFormError(error instanceof ApiClientError ? error.message : 'Incidentformulier opslaan mislukt.');
+      setDeploymentFormError(error instanceof ApiClientError ? error.message : 'Inzetformulier opslaan mislukt.');
     } finally {
-      setIncidentFormSaving(false);
+      setDeploymentFormSaving(false);
     }
   }
 
@@ -841,8 +844,8 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
     setPilotReportFields((current) => reorderFormField(current, sourceKey, targetKey));
   }
 
-  function updateIncidentFormField(key: string, changes: Partial<ConfigurableFormField>) {
-    setIncidentFormFields((current) => current.map((field) => {
+  function updateDeploymentFormField(key: string, changes: Partial<ConfigurableFormField>) {
+    setDeploymentFormFields((current) => current.map((field) => {
       if (field.key !== key) {
         return field;
       }
@@ -850,7 +853,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       const next = { ...field, ...changes, available_in_operator_app: false };
       return next.visible ? next : { ...next, required: false };
     }));
-    setIncidentFormLayout((current) => current.map((item) => item.key === customFieldLayoutKey(key)
+    setDeploymentFormLayout((current) => current.map((item) => item.key === customFieldLayoutKey(key)
       ? {
           ...item,
           label: changes.label ?? item.label,
@@ -860,52 +863,52 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
       : item));
   }
 
-  function addIncidentFormField(type: ConfigurableFormField['type'] = 'text') {
-    setIncidentFormFields((current) => {
+  function addDeploymentFormField(type: ConfigurableFormField['type'] = 'text') {
+    setDeploymentFormFields((current) => {
       const field = newCustomFormField(current, type, { availableInOperatorApp: false });
-      setIncidentFormLayout((layout) => [...layout, customFieldLayoutItem(field)]);
+      setDeploymentFormLayout((layout) => [...layout, customFieldLayoutItem(field)]);
       return [...current, field];
     });
   }
 
-  function addIncidentFormSection() {
-    setIncidentFormFields((current) => {
+  function addDeploymentFormSection() {
+    setDeploymentFormFields((current) => {
       const field = newSectionFormField(current, { availableInOperatorApp: false });
-      setIncidentFormLayout((layout) => [...layout, customFieldLayoutItem(field)]);
+      setDeploymentFormLayout((layout) => [...layout, customFieldLayoutItem(field)]);
       return [...current, field];
     });
   }
 
-  function removeIncidentFormField(key: string) {
-    setIncidentFormFields((current) => current.filter((field) => field.key !== key));
-    setIncidentFormLayout((current) => current.filter((item) => item.key !== customFieldLayoutKey(key)));
+  function removeDeploymentFormField(key: string) {
+    setDeploymentFormFields((current) => current.filter((field) => field.key !== key));
+    setDeploymentFormLayout((current) => current.filter((item) => item.key !== customFieldLayoutKey(key)));
   }
 
-  function moveIncidentFormField(key: string, direction: -1 | 1) {
-    setIncidentFormFields((current) => moveFormField(current, key, direction));
+  function moveDeploymentFormField(key: string, direction: -1 | 1) {
+    setDeploymentFormFields((current) => moveFormField(current, key, direction));
   }
 
-  function reorderIncidentFormField(sourceKey: string, targetKey: string) {
-    setIncidentFormFields((current) => reorderFormField(current, sourceKey, targetKey));
+  function reorderDeploymentFormField(sourceKey: string, targetKey: string) {
+    setDeploymentFormFields((current) => reorderFormField(current, sourceKey, targetKey));
   }
 
-  function updateIncidentLayoutItem(key: string, changes: Partial<IncidentFormLayoutItem>) {
-    setIncidentFormLayout((current) => current.map((item) => item.key === key ? { ...item, ...changes } : item));
+  function updateDeploymentLayoutItem(key: string, changes: Partial<DeploymentFormLayoutItem>) {
+    setDeploymentFormLayout((current) => current.map((item) => item.key === key ? { ...item, ...changes } : item));
   }
 
-  function moveIncidentLayoutItem(key: string, direction: -1 | 1) {
-    setIncidentFormLayout((current) => moveLayoutItem(current, key, direction));
+  function moveDeploymentLayoutItem(key: string, direction: -1 | 1) {
+    setDeploymentFormLayout((current) => moveLayoutItem(current, key, direction));
   }
 
-  function reorderIncidentLayoutItem(sourceKey: string, targetKey: string) {
-    setIncidentFormLayout((current) => reorderLayoutItem(current, sourceKey, targetKey));
+  function reorderDeploymentLayoutItem(sourceKey: string, targetKey: string) {
+    setDeploymentFormLayout((current) => reorderLayoutItem(current, sourceKey, targetKey));
   }
 
   function changeActiveTab(nextTab: AdminTab) {
     if (!adminTabChangeAllowed({
       currentTab: activeTab,
       nextTab,
-      intakeWorkflowDirty,
+      deploymentRequestWorkflowDirty,
       confirmLeave: () => window.confirm(
         'Er zijn niet-opgeslagen wijzigingen in de uitvraag. Dit onderdeel toch verlaten?',
       ),
@@ -1729,49 +1732,49 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
         </Panel>
       ) : null}
 
-      {activeTab === 'incidentForm' ? (
-        <Panel title="Incidentformulier">
-          <ResourceState loading={incidentFormConfig.loading} error={incidentFormConfig.error} empty={false}>
-            <IncidentFormLayoutEditor
-              layout={incidentFormLayout}
-              customFields={incidentFormFields}
-              onMove={moveIncidentLayoutItem}
-              onReorder={reorderIncidentLayoutItem}
-              onUpdate={updateIncidentLayoutItem}
+      {activeTab === 'deploymentForm' ? (
+        <Panel title="Inzetformulier">
+          <ResourceState loading={deploymentFormConfig.loading} error={deploymentFormConfig.error} empty={false}>
+            <DeploymentFormLayoutEditor
+              layout={deploymentFormLayout}
+              customFields={deploymentFormFields}
+              onMove={moveDeploymentLayoutItem}
+              onReorder={reorderDeploymentLayoutItem}
+              onUpdate={updateDeploymentLayoutItem}
             />
             <ConfigurableFormEditor
-              fields={incidentFormFields}
-              description="Beheer extra variabele velden voor de webapp. De Operator-app krijgt het incidentformulier niet."
+              fields={deploymentFormFields}
+              description="Beheer extra variabele velden voor de webapp. De Operator-app krijgt het inzetformulier niet."
               showPushExposure
               showOperatorAvailability={false}
-              availabilityHint="Incidentvelden zijn beschikbaar in de webapp. Ze worden niet naar de Operator-app gestuurd."
-              onAdd={addIncidentFormField}
-              onAddSection={addIncidentFormSection}
-              onMove={moveIncidentFormField}
-              onReorder={reorderIncidentFormField}
-              onRemove={removeIncidentFormField}
-              onUpdate={updateIncidentFormField}
+              availabilityHint="Inzetvelden zijn beschikbaar in de webapp. Ze worden niet naar de Operator-app gestuurd."
+              onAdd={addDeploymentFormField}
+              onAddSection={addDeploymentFormSection}
+              onMove={moveDeploymentFormField}
+              onReorder={reorderDeploymentFormField}
+              onRemove={removeDeploymentFormField}
+              onUpdate={updateDeploymentFormField}
             />
-            {incidentFormError ? <p className="form-error">{incidentFormError}</p> : null}
-            {incidentFormMessage ? <p className="success-text">{incidentFormMessage}</p> : null}
+            {deploymentFormError ? <p className="form-error">{deploymentFormError}</p> : null}
+            {deploymentFormMessage ? <p className="success-text">{deploymentFormMessage}</p> : null}
             <div className="actions-row">
-              <button className="primary-button" type="button" onClick={() => void saveIncidentFormConfig()} disabled={incidentFormSaving}>
-                {incidentFormSaving ? 'Opslaan...' : 'Formulier opslaan'}
+              <button className="primary-button" type="button" onClick={() => void saveDeploymentFormConfig()} disabled={deploymentFormSaving}>
+                {deploymentFormSaving ? 'Opslaan...' : 'Formulier opslaan'}
               </button>
             </div>
           </ResourceState>
         </Panel>
       ) : null}
 
-      {activeTab === 'incidentIntake' ? (
-        <IncidentIntakeWorkflowStudio onDirtyChange={setIntakeWorkflowDirty} />
+      {activeTab === 'deploymentRequest' ? (
+        <DeploymentRequestWorkflowStudio onDirtyChange={setDeploymentRequestWorkflowDirty} />
       ) : null}
 
       {activeTab === 'settings' ? (
         <Panel title="Systeeminstellingen">
           <ResourceState loading={settings.loading} error={settings.error} empty={(settings.data?.length ?? 0) === 0}>
-            <IncidentTimelineVisibilitySettings
-              visibleTypes={incidentTimelineVisibleTypes(settings.data ?? [])}
+            <DeploymentTimelineVisibilitySettings
+              visibleTypes={deploymentTimelineVisibleTypes(settings.data ?? [])}
               saving={timelineVisibilitySaving}
               message={timelineVisibilityMessage}
               error={timelineVisibilityError}
@@ -1806,7 +1809,7 @@ export function AdminPage({ mode = 'admin' }: { mode?: AdminPageMode }) {
   );
 }
 
-function IncidentTimelineVisibilitySettings(props: {
+function DeploymentTimelineVisibilitySettings(props: {
   visibleTypes: string[];
   saving: boolean;
   message: string | null;
@@ -1824,11 +1827,11 @@ function IncidentTimelineVisibilitySettings(props: {
   return (
     <div className="stacked-section">
       <div>
-        <h3>Zichtbaarheid incidentlog mobiele app</h3>
-        <p className="muted-text">Beheerders zien altijd de volledige incidentlog. Deze instelling bepaalt alleen wat appgebruikers mogen zien.</p>
+        <h3>Zichtbaarheid inzetlog mobiele app</h3>
+        <p className="muted-text">Beheerders zien altijd de volledige inzetlog. Deze instelling bepaalt alleen wat appgebruikers mogen zien.</p>
       </div>
       <div className="checkbox-grid">
-        {incidentTimelineVisibilityOptions.map((option) => (
+        {deploymentTimelineVisibilityOptions.map((option) => (
           <label className="checkbox-card" key={option.value}>
             <input
               type="checkbox"
@@ -2461,12 +2464,12 @@ function FormFieldPreview({ field }: { field: ConfigurableFormField }) {
   return <label className={className}>{label}<input readOnly placeholder="Tekst" /></label>;
 }
 
-function IncidentFormLayoutEditor(props: {
-  layout: IncidentFormLayoutItem[];
+function DeploymentFormLayoutEditor(props: {
+  layout: DeploymentFormLayoutItem[];
   customFields: ConfigurableFormField[];
   onMove: (key: string, direction: -1 | 1) => void;
   onReorder: (sourceKey: string, targetKey: string) => void;
-  onUpdate: (key: string, changes: Partial<IncidentFormLayoutItem>) => void;
+  onUpdate: (key: string, changes: Partial<DeploymentFormLayoutItem>) => void;
 }) {
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [draggingPaletteKey, setDraggingPaletteKey] = useState<string | null>(null);
@@ -2494,14 +2497,14 @@ function IncidentFormLayoutEditor(props: {
     <div className="form-builder form-builder--studio form-layout-editor">
       <div className="form-builder__toolbar form-builder__toolbar--studio">
         <div>
-          <h3>Incidentformulier builder</h3>
-          <p className="muted-text">Bouw het incidentformulier voor de webapp uit losse modules. Standaardvelden, locatiekaart en Aeret onderdelen zijn modules; de mobiele app gebruikt deze indeling niet.</p>
+          <h3>Inzetformulier builder</h3>
+          <p className="muted-text">Bouw het inzetformulier voor de webapp uit losse modules. Standaardvelden, locatiekaart en Aeret onderdelen zijn modules; de mobiele app gebruikt deze indeling niet.</p>
         </div>
         <p className="muted-text">Sleep modules naar het canvas om ze te plaatsen of te verplaatsen. Verborgen modules blijven beschikbaar in de modulebank.</p>
       </div>
 
-      <div className="form-builder-studio form-builder-studio--incident">
-        <aside className="form-builder-palette" aria-label="Incidentmodules">
+      <div className="form-builder-studio form-builder-studio--deployment">
+        <aside className="form-builder-palette" aria-label="Inzetmodules">
           <h4>Modules</h4>
           <div className="form-builder-palette__grid">
             {props.layout.map((item) => {
@@ -2524,7 +2527,7 @@ function IncidentFormLayoutEditor(props: {
                   onDragEnd={() => setDraggingPaletteKey(null)}
                 >
                   <span>{label}</span>
-                  <small>{incidentModuleDescription(item)}</small>
+                  <small>{deploymentModuleDescription(item)}</small>
                 </button>
               );
             })}
@@ -2533,7 +2536,7 @@ function IncidentFormLayoutEditor(props: {
 
         <section
           className="form-builder-canvas"
-          aria-label="Incidentformulier canvas"
+          aria-label="Inzetformulier canvas"
           onDragOver={(event) => {
             if (draggingPaletteKey !== null || draggingKey !== null) {
               event.preventDefault();
@@ -2550,20 +2553,20 @@ function IncidentFormLayoutEditor(props: {
           <header className="form-builder-canvas__header">
             <div>
               <span className="modal__eyebrow">Canvas</span>
-              <h3>Incidentformulier webapp</h3>
+              <h3>Inzetformulier webapp</h3>
             </div>
             <span className="muted-text">{visibleLayout.length} zichtbaar</span>
           </header>
           <div className="form-grid">
             {visibleLayout.length === 0 ? (
               <div className="form-builder-dropzone form-grid__wide">
-                <strong>Sleep hier incidentmodules naartoe</strong>
+                <strong>Sleep hier inzetmodules naartoe</strong>
                 <span>Gelockte modules kunnen niet verborgen worden.</span>
               </div>
             ) : null}
             {visibleLayout.map((item, index) => (
               <article
-                className={`${incidentCanvasItemClass(item)} ${selectedItem?.key === item.key ? 'form-builder-canvas-item--selected' : ''}`}
+                className={`${deploymentCanvasItemClass(item)} ${selectedItem?.key === item.key ? 'form-builder-canvas-item--selected' : ''}`}
                 draggable
                 key={item.key}
                 onClick={() => selectModule(item.key)}
@@ -2588,9 +2591,9 @@ function IncidentFormLayoutEditor(props: {
                 <div className="form-builder-canvas-item__bar">
                   <span aria-hidden="true">::</span>
                   <strong>{layoutItemLabel(item, props.customFields)}</strong>
-                  <small>{incidentModuleTypeLabel(item)}</small>
+                  <small>{deploymentModuleTypeLabel(item)}</small>
                 </div>
-                <IncidentModulePreview item={{ ...item, label: layoutItemLabel(item, props.customFields) }} fields={props.customFields} />
+                <DeploymentModulePreview item={{ ...item, label: layoutItemLabel(item, props.customFields) }} fields={props.customFields} />
                 <div className="form-builder-canvas-item__actions">
                   <button className="icon-button" type="button" disabled={index === 0} onClick={(event) => { event.stopPropagation(); props.onMove(item.key, -1); }} aria-label="Module omhoog">↑</button>
                   <button className="icon-button" type="button" disabled={index === visibleLayout.length - 1} onClick={(event) => { event.stopPropagation(); props.onMove(item.key, 1); }} aria-label="Module omlaag">↓</button>
@@ -2611,7 +2614,7 @@ function IncidentFormLayoutEditor(props: {
           </div>
         </section>
 
-        <IncidentModulePropertiesPanel
+        <DeploymentModulePropertiesPanel
           item={selectedItem}
           fields={props.customFields}
           onUpdate={props.onUpdate}
@@ -2621,10 +2624,10 @@ function IncidentFormLayoutEditor(props: {
   );
 }
 
-function IncidentModulePropertiesPanel(props: {
-  item: IncidentFormLayoutItem | null;
+function DeploymentModulePropertiesPanel(props: {
+  item: DeploymentFormLayoutItem | null;
   fields: ConfigurableFormField[];
-  onUpdate: (key: string, changes: Partial<IncidentFormLayoutItem>) => void;
+  onUpdate: (key: string, changes: Partial<DeploymentFormLayoutItem>) => void;
 }) {
   const { item, fields, onUpdate } = props;
 
@@ -2650,7 +2653,7 @@ function IncidentModulePropertiesPanel(props: {
       </label>
       <label>
         Breedte
-        <select value={item.width ?? 'full'} onChange={(event) => onUpdate(item.key, { width: event.target.value as IncidentFormLayoutItem['width'] })}>
+        <select value={item.width ?? 'full'} onChange={(event) => onUpdate(item.key, { width: event.target.value as DeploymentFormLayoutItem['width'] })}>
           <option value="full">Volle breedte</option>
           <option value="half">Naast elkaar</option>
         </select>
@@ -2659,13 +2662,13 @@ function IncidentModulePropertiesPanel(props: {
         <input type="checkbox" checked={item.visible} disabled={item.locked === true} onChange={(event) => onUpdate(item.key, { visible: event.target.checked })} />
         Zichtbaar
       </label>
-      {isFixedIncidentInputModule(item) ? (
+      {isFixedDeploymentInputModule(item) ? (
         <>
           <label className="check-label">
             <input
               type="checkbox"
-              checked={incidentLayoutItemRequired(item)}
-              disabled={!item.visible || isAlwaysRequiredIncidentModule(item)}
+              checked={deploymentLayoutItemRequired(item)}
+              disabled={!item.visible || isAlwaysRequiredDeploymentModule(item)}
               onChange={(event) => onUpdate(item.key, { required: event.target.checked })}
             />
             Verplicht
@@ -2674,14 +2677,14 @@ function IncidentModulePropertiesPanel(props: {
         </>
       ) : null}
       <div className="form-builder-property-note">
-        <strong>{incidentModuleTypeLabel(item)}</strong>
+        <strong>{deploymentModuleTypeLabel(item)}</strong>
         <span>{item.locked === true ? 'Vast onderdeel. Deze module kan niet verborgen worden.' : 'Deze module kan worden verborgen of verplaatst.'}</span>
       </div>
     </aside>
   );
 }
 
-function IncidentModulePreview({ item, fields }: { item: IncidentFormLayoutItem; fields: ConfigurableFormField[] }) {
+function DeploymentModulePreview({ item, fields }: { item: DeploymentFormLayoutItem; fields: ConfigurableFormField[] }) {
   const className = item.width === 'half' ? undefined : 'form-grid__wide';
 
   if (item.key.startsWith('section_')) {
@@ -2702,7 +2705,7 @@ function IncidentModulePreview({ item, fields }: { item: IncidentFormLayoutItem;
   }
 
   if (item.key === 'description') {
-    return <label className={className}>Details{incidentLayoutItemRequired(item) ? ' *' : ''}<textarea rows={3} readOnly value="" placeholder="Beschrijving" /></label>;
+    return <label className={className}>Details{deploymentLayoutItemRequired(item) ? ' *' : ''}<textarea rows={3} readOnly value="" placeholder="Beschrijving" /></label>;
   }
 
   if (item.key === 'teams') {
@@ -2717,15 +2720,15 @@ function IncidentModulePreview({ item, fields }: { item: IncidentFormLayoutItem;
     return <div className={className}><article className="drone-flight-card"><h4>{item.label}</h4><dl><div><dt>Status</dt><dd>Voorbeeld</dd></div></dl></article></div>;
   }
 
-  return <label className={className}>{item.label}{incidentLayoutItemRequired(item) ? ' *' : ''}<input readOnly placeholder={item.label} /></label>;
+  return <label className={className}>{item.label}{deploymentLayoutItemRequired(item) ? ' *' : ''}<input readOnly placeholder={item.label} /></label>;
 }
 
-function incidentCanvasItemClass(item: IncidentFormLayoutItem): string {
+function deploymentCanvasItemClass(item: DeploymentFormLayoutItem): string {
   const wide = item.width !== 'half' || item.key.startsWith('section_') || item.key === 'location_map' || item.key === 'drone_aeret_map';
   return wide ? 'form-builder-canvas-item form-grid__wide' : 'form-builder-canvas-item';
 }
 
-function incidentModuleTypeLabel(item: IncidentFormLayoutItem): string {
+function deploymentModuleTypeLabel(item: DeploymentFormLayoutItem): string {
   if (item.key.startsWith('section_')) {
     return 'Sectie';
   }
@@ -2749,9 +2752,9 @@ function incidentModuleTypeLabel(item: IncidentFormLayoutItem): string {
   return 'Module';
 }
 
-function incidentModuleDescription(item: IncidentFormLayoutItem): string {
+function deploymentModuleDescription(item: DeploymentFormLayoutItem): string {
   const visibility = item.visible ? 'Op canvas' : 'Verborgen';
-  const lockState = item.locked === true ? 'vast' : incidentModuleTypeLabel(item).toLowerCase();
+  const lockState = item.locked === true ? 'vast' : deploymentModuleTypeLabel(item).toLowerCase();
 
   return `${visibility} - ${lockState}`;
 }
@@ -2840,7 +2843,7 @@ function customFieldLayoutKey(fieldKey: string): string {
   return `custom_field:${fieldKey}`;
 }
 
-function customFieldLayoutItem(field: ConfigurableFormField): IncidentFormLayoutItem {
+function customFieldLayoutItem(field: ConfigurableFormField): DeploymentFormLayoutItem {
   return {
     key: customFieldLayoutKey(field.key),
     label: field.label,
@@ -2849,7 +2852,7 @@ function customFieldLayoutItem(field: ConfigurableFormField): IncidentFormLayout
   };
 }
 
-const fixedIncidentInputModuleKeys = new Set([
+const fixedDeploymentInputModuleKeys = new Set([
   'title',
   'description',
   'reporter_name',
@@ -2859,21 +2862,21 @@ const fixedIncidentInputModuleKeys = new Set([
   'location_search',
 ]);
 
-const alwaysRequiredIncidentModuleKeys = new Set(['title', 'description', 'priority']);
+const alwaysRequiredDeploymentModuleKeys = new Set(['title', 'description', 'priority']);
 
-function isFixedIncidentInputModule(item: IncidentFormLayoutItem): boolean {
-  return fixedIncidentInputModuleKeys.has(item.key);
+function isFixedDeploymentInputModule(item: DeploymentFormLayoutItem): boolean {
+  return fixedDeploymentInputModuleKeys.has(item.key);
 }
 
-function isAlwaysRequiredIncidentModule(item: IncidentFormLayoutItem): boolean {
-  return alwaysRequiredIncidentModuleKeys.has(item.key);
+function isAlwaysRequiredDeploymentModule(item: DeploymentFormLayoutItem): boolean {
+  return alwaysRequiredDeploymentModuleKeys.has(item.key);
 }
 
-function incidentLayoutItemRequired(item: IncidentFormLayoutItem): boolean {
-  return isAlwaysRequiredIncidentModule(item) || item.required === true;
+function deploymentLayoutItemRequired(item: DeploymentFormLayoutItem): boolean {
+  return isAlwaysRequiredDeploymentModule(item) || item.required === true;
 }
 
-function layoutItemLabel(item: IncidentFormLayoutItem, fields: ConfigurableFormField[]): string {
+function layoutItemLabel(item: DeploymentFormLayoutItem, fields: ConfigurableFormField[]): string {
   if (!item.key.startsWith('custom_field:')) {
     return item.label;
   }
@@ -2969,9 +2972,9 @@ function reorderFormField<T extends ConfigurableFormField>(fields: T[], sourceKe
   return next;
 }
 
-function defaultIncidentFormLayout(fields: ConfigurableFormField[] = []): IncidentFormLayoutItem[] {
+function defaultDeploymentFormLayout(fields: ConfigurableFormField[] = []): DeploymentFormLayoutItem[] {
   return [
-    { key: 'section_incident', label: 'Sectie: incident', visible: true, width: 'full', locked: true },
+    { key: 'section_deployment', label: 'Sectie: inzet', visible: true, width: 'full', locked: true },
     { key: 'title', label: 'Titel', visible: true, width: 'full', locked: true, required: true, expose_to_push: true },
     { key: 'description', label: 'Details', visible: true, width: 'full', locked: true, required: true, expose_to_push: true },
     { key: 'section_reporter', label: 'Sectie: melder', visible: true, width: 'full', locked: true },
@@ -2995,7 +2998,7 @@ function defaultIncidentFormLayout(fields: ConfigurableFormField[] = []): Incide
   ];
 }
 
-function moveLayoutItem(items: IncidentFormLayoutItem[], key: string, direction: -1 | 1): IncidentFormLayoutItem[] {
+function moveLayoutItem(items: DeploymentFormLayoutItem[], key: string, direction: -1 | 1): DeploymentFormLayoutItem[] {
   const index = items.findIndex((item) => item.key === key);
   const nextIndex = index + direction;
   if (index < 0 || nextIndex < 0 || nextIndex >= items.length) {
@@ -3008,7 +3011,7 @@ function moveLayoutItem(items: IncidentFormLayoutItem[], key: string, direction:
   return next;
 }
 
-function reorderLayoutItem(items: IncidentFormLayoutItem[], sourceKey: string, targetKey: string): IncidentFormLayoutItem[] {
+function reorderLayoutItem(items: DeploymentFormLayoutItem[], sourceKey: string, targetKey: string): DeploymentFormLayoutItem[] {
   const sourceIndex = items.findIndex((item) => item.key === sourceKey);
   const targetIndex = items.findIndex((item) => item.key === targetKey);
   if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
@@ -3236,15 +3239,15 @@ function toOperationalMapCommandCenters(settings: SystemSetting[]): OperationalM
   });
 }
 
-function incidentTimelineVisibleTypes(settings: SystemSetting[]): string[] {
-  const value = settings.find((setting) => setting.key === 'incident.timeline.app_visible_types')?.value;
+function deploymentTimelineVisibleTypes(settings: SystemSetting[]): string[] {
+  const value = settings.find((setting) => setting.key === 'deployment.timeline.app_visible_types')?.value;
   if (!Array.isArray(value)) {
     return ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status'];
   }
 
-  const allowed = new Set(incidentTimelineVisibilityOptions.map((option) => option.value));
+  const allowed = new Set(deploymentTimelineVisibilityOptions.map((option) => option.value));
 
-  return value.filter((item): item is string => typeof item === 'string' && allowed.has(item as (typeof incidentTimelineVisibilityOptions)[number]['value']));
+  return value.filter((item): item is string => typeof item === 'string' && allowed.has(item as (typeof deploymentTimelineVisibilityOptions)[number]['value']));
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

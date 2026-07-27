@@ -8,11 +8,11 @@ use App\Contracts\RoutingProvider;
 use App\Jobs\SendFcmNotification;
 use App\Models\AvailabilityStatus;
 use App\Models\Certification;
+use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
-use App\Models\Incident;
 use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
 use App\Models\Permission;
@@ -65,11 +65,11 @@ final class RoutingEndpointIntegrationTest extends TestCase
     public function test_dispatch_preview_uses_one_bulk_table_response_and_ranks_navigation_eta_in_fifteen_minute_rings(): void
     {
         $viewer = $this->user('routing-viewer@example.test', 'Routing Viewer');
-        $this->grant($viewer, ['incidents.dispatch.view']);
+        $this->grant($viewer, ['deployments.dispatch.view']);
         $team = $this->team('ROUTE-PREVIEW');
         $slowPilot = $this->eligiblePilot($team, 'slow@example.test', 'Anna Langzaam', 52.100000, 5.100000);
         $fastPilot = $this->eligiblePilot($team, 'fast@example.test', 'Zed Snel', 52.200000, 5.200000);
-        $incident = $this->incident($viewer, $team, 52.300000, 5.300000, 'ROUTE-PREVIEW-001');
+        $deployment = $this->deployment($viewer, $team, 52.300000, 5.300000, 'ROUTE-PREVIEW-001');
 
         Http::fake(function (HttpRequest $request) {
             preg_match('#/table/v1/driving/([^?]+)#', urldecode($request->url()), $matches);
@@ -89,7 +89,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         });
 
         $response = $this->asWebClient($viewer)
-            ->getJson('/api/incidents/'.$incident->id.'/dispatch-preview')
+            ->getJson('/api/deployments/'.$deployment->id.'/dispatch-preview')
             ->assertOk();
 
         Http::assertSentCount(1);
@@ -116,15 +116,15 @@ final class RoutingEndpointIntegrationTest extends TestCase
     public function test_dispatch_preview_remains_available_with_explicit_fallback_after_osrm_failure(): void
     {
         $viewer = $this->user('routing-fallback-viewer@example.test', 'Routing Fallback Viewer');
-        $this->grant($viewer, ['incidents.dispatch.view']);
+        $this->grant($viewer, ['deployments.dispatch.view']);
         $team = $this->team('ROUTE-FALLBACK');
         $pilot = $this->eligiblePilot($team, 'fallback@example.test', 'Fallback Pilot', 52.100000, 5.100000);
-        $incident = $this->incident($viewer, $team, 52.300000, 5.300000, 'ROUTE-FALLBACK-001');
+        $deployment = $this->deployment($viewer, $team, 52.300000, 5.300000, 'ROUTE-FALLBACK-001');
 
         Http::fake(['*' => Http::response([], 503)]);
 
         $response = $this->asWebClient($viewer)
-            ->getJson('/api/incidents/'.$incident->id.'/dispatch-preview')
+            ->getJson('/api/deployments/'.$deployment->id.'/dispatch-preview')
             ->assertOk()
             ->assertJsonPath('data.recipients.0.id', $pilot->id)
             ->assertJsonPath('data.recipients.0.eta_source', 'fallback');
@@ -139,12 +139,12 @@ final class RoutingEndpointIntegrationTest extends TestCase
         config()->set('app.timezone', 'Europe/Amsterdam');
         DB::statement("SET LOCAL TIME ZONE 'UTC'");
         $viewer = $this->user('doze-viewer@example.test', 'Doze Viewer');
-        $this->grant($viewer, ['incidents.dispatch.view']);
+        $this->grant($viewer, ['deployments.dispatch.view']);
         $team = $this->team('DOZE-REACHABILITY');
         $sleepingPilot = $this->eligiblePilot($team, 'doze-sleeping@example.test', 'Doze Sleeping', 52.100000, 5.100000);
         $stalePilot = $this->eligiblePilot($team, 'doze-stale@example.test', 'Doze Stale', 52.200000, 5.200000);
         $expiredSessionPilot = $this->eligiblePilot($team, 'doze-expired-session@example.test', 'Doze Expired Session', 52.250000, 5.250000);
-        $incident = $this->incident($viewer, $team, 52.300000, 5.300000, 'DOZE-REACHABILITY-001');
+        $deployment = $this->deployment($viewer, $team, 52.300000, 5.300000, 'DOZE-REACHABILITY-001');
 
         $sleepingPilot->fcmTokens()->update([
             'last_seen_at' => now()->subMinutes(FcmToken::onlineThresholdMinutes() + 1),
@@ -159,7 +159,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         Http::fake(['*' => Http::response([], 503)]);
 
         $response = $this->asWebClient($viewer)
-            ->getJson('/api/incidents/'.$incident->id.'/dispatch-preview')
+            ->getJson('/api/deployments/'.$deployment->id.'/dispatch-preview')
             ->assertOk();
 
         $this->assertSame(
@@ -174,7 +174,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
     {
         config()->set('dis.routing.enabled', false);
         $viewer = $this->user('team-no-certificate-viewer@example.test', 'Team Certificate Viewer');
-        $this->grant($viewer, ['incidents.dispatch.view']);
+        $this->grant($viewer, ['deployments.dispatch.view']);
         $team = $this->team('NO-CERTIFICATE-REQUIREMENT');
         $pilot = $this->eligiblePilot(
             $team,
@@ -183,7 +183,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
             52.100000,
             5.100000,
         );
-        $incident = $this->incident(
+        $deployment = $this->deployment(
             $viewer,
             $team,
             52.300000,
@@ -198,7 +198,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         ]);
 
         $this->asWebClient($viewer)
-            ->getJson('/api/incidents/'.$incident->id.'/dispatch-preview')
+            ->getJson('/api/deployments/'.$deployment->id.'/dispatch-preview')
             ->assertOk()
             ->assertJsonPath('data.recipients.0.id', $pilot->id)
             ->assertJsonPath('data.blocked_reason', null);
@@ -208,7 +208,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
     {
         config()->set('dis.routing.enabled', false);
         $viewer = $this->user('team-certificate-viewer@example.test', 'Required Certificate Viewer');
-        $this->grant($viewer, ['incidents.dispatch.view']);
+        $this->grant($viewer, ['deployments.dispatch.view']);
         $team = $this->team('EXPLICIT-CERTIFICATE-REQUIREMENT');
         $pilot = $this->eligiblePilot(
             $team,
@@ -217,7 +217,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
             52.100000,
             5.100000,
         );
-        $incident = $this->incident(
+        $deployment = $this->deployment(
             $viewer,
             $team,
             52.300000,
@@ -233,7 +233,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         $team->requiredCertifications()->attach($certification->id, ['created_at' => now()]);
 
         $blocked = $this->asWebClient($viewer)
-            ->getJson('/api/incidents/'.$incident->id.'/dispatch-preview')
+            ->getJson('/api/deployments/'.$deployment->id.'/dispatch-preview')
             ->assertOk()
             ->assertJsonCount(0, 'data.recipients');
         $this->assertStringContainsString(
@@ -250,7 +250,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         ]);
 
         $this->asWebClient($viewer)
-            ->getJson('/api/incidents/'.$incident->id.'/dispatch-preview')
+            ->getJson('/api/deployments/'.$deployment->id.'/dispatch-preview')
             ->assertOk()
             ->assertJsonPath('data.recipients.0.id', $pilot->id)
             ->assertJsonPath('data.blocked_reason', null);
@@ -259,11 +259,11 @@ final class RoutingEndpointIntegrationTest extends TestCase
     public function test_dispatch_preview_never_ranks_an_optimistic_fallback_before_a_navigation_route(): void
     {
         $viewer = $this->user('routing-source-viewer@example.test', 'Routing Source Viewer');
-        $this->grant($viewer, ['incidents.dispatch.view']);
+        $this->grant($viewer, ['deployments.dispatch.view']);
         $team = $this->team('ROUTE-SOURCE');
         $fallbackPilot = $this->eligiblePilot($team, 'near-fallback@example.test', 'Dichtbij Schatting', 52.299000, 5.299000);
         $navigationPilot = $this->eligiblePilot($team, 'far-navigation@example.test', 'Verweg Navigatie', 52.100000, 5.100000);
-        $incident = $this->incident($viewer, $team, 52.300000, 5.300000, 'ROUTE-SOURCE-001');
+        $deployment = $this->deployment($viewer, $team, 52.300000, 5.300000, 'ROUTE-SOURCE-001');
 
         Http::fake(function (HttpRequest $request) {
             preg_match('#/table/v1/driving/([^?]+)#', urldecode($request->url()), $matches);
@@ -283,7 +283,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         });
 
         $response = $this->asWebClient($viewer)
-            ->getJson('/api/incidents/'.$incident->id.'/dispatch-preview?dispatch_recipient_count=1')
+            ->getJson('/api/deployments/'.$deployment->id.'/dispatch-preview?dispatch_recipient_count=1')
             ->assertOk()
             ->assertJsonCount(1, 'data.recipients');
 
@@ -296,11 +296,11 @@ final class RoutingEndpointIntegrationTest extends TestCase
     public function test_dispatch_creation_revalidates_eligibility_after_routing_and_backfills_the_selection(): void
     {
         $dispatcher = $this->user('routing-dispatcher@example.test', 'Routing Dispatcher');
-        $this->grant($dispatcher, ['incidents.dispatch.manage']);
+        $this->grant($dispatcher, ['deployments.dispatch.manage']);
         $team = $this->team('ROUTE-REVALIDATE');
         $changedPilot = $this->eligiblePilot($team, 'changed@example.test', 'Eerste Gewijzigd', 52.100000, 5.100000);
         $backupPilot = $this->eligiblePilot($team, 'backup@example.test', 'Tweede Geldig', 52.200000, 5.200000);
-        $incident = $this->incident($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-REVALIDATE-001');
+        $deployment = $this->deployment($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-REVALIDATE-001');
 
         Http::fake(function () use ($changedPilot) {
             $changedPilot->forceFill(['push_enabled' => false])->save();
@@ -313,7 +313,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         });
 
         $this->asWebClient($dispatcher)
-            ->postJson('/api/incidents/'.$incident->id.'/dispatches', [
+            ->postJson('/api/deployments/'.$deployment->id.'/dispatches', [
                 'priority' => 'normal',
                 'message' => 'Hercontroleer de route-selectie.',
                 'target_team_id' => $team->id,
@@ -321,26 +321,26 @@ final class RoutingEndpointIntegrationTest extends TestCase
             ])
             ->assertCreated();
 
-        $dispatch = DispatchRequest::query()->where('incident_id', $incident->id)->sole();
+        $dispatch = DispatchRequest::query()->where('deployment_id', $deployment->id)->sole();
         $this->assertSame([$backupPilot->id], $dispatch->recipients()->pluck('user_id')->all());
     }
 
-    public function test_dispatch_creation_retries_when_the_incident_route_target_changes_during_selection(): void
+    public function test_dispatch_creation_retries_when_the_deployment_route_target_changes_during_selection(): void
     {
         $dispatcher = $this->user('route-change-dispatcher@example.test', 'Route Change Dispatcher');
-        $this->grant($dispatcher, ['incidents.dispatch.manage']);
+        $this->grant($dispatcher, ['deployments.dispatch.manage']);
         $team = $this->team('ROUTE-TARGET-CHANGE');
         $oldTargetPilot = $this->eligiblePilot($team, 'old-target@example.test', 'A Old Target Pilot', 52.100000, 5.100000);
         $newTargetPilot = $this->eligiblePilot($team, 'new-target@example.test', 'B New Target Pilot', 52.200000, 5.200000);
-        $incident = $this->incident($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-TARGET-CHANGE-001');
+        $deployment = $this->deployment($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-TARGET-CHANGE-001');
         $requestNumber = 0;
-        Http::fake(function (HttpRequest $request) use (&$requestNumber, $incident) {
+        Http::fake(function (HttpRequest $request) use (&$requestNumber, $deployment) {
             $requestNumber++;
             preg_match('#/table/v1/driving/([^?]+)#', urldecode($request->url()), $matches);
             $coordinates = explode(';', $matches[1] ?? '');
             $destination = array_pop($coordinates);
             if ($requestNumber === 1) {
-                $incident->forceFill(['latitude' => 52.400000, 'longitude' => 5.400000])->save();
+                $deployment->forceFill(['latitude' => 52.400000, 'longitude' => 5.400000])->save();
             }
             $routes = collect($coordinates)->map(function (string $coordinate) use ($destination): array {
                 $newTarget = $destination === '5.400000,52.400000';
@@ -359,16 +359,16 @@ final class RoutingEndpointIntegrationTest extends TestCase
         });
 
         $this->asWebClient($dispatcher)
-            ->postJson('/api/incidents/'.$incident->id.'/dispatches', [
+            ->postJson('/api/deployments/'.$deployment->id.'/dispatches', [
                 'priority' => 'normal',
-                'message' => 'Gebruik de nieuwe incidentlocatie.',
+                'message' => 'Gebruik de nieuwe deploymentlocatie.',
                 'target_team_id' => $team->id,
                 'dispatch_recipient_count' => 1,
             ])
             ->assertCreated();
 
         Http::assertSentCount(2);
-        $dispatch = DispatchRequest::query()->where('incident_id', $incident->id)->sole();
+        $dispatch = DispatchRequest::query()->where('deployment_id', $deployment->id)->sole();
         $this->assertSame([$newTargetPilot->id], $dispatch->recipients()->pluck('user_id')->all());
         $this->assertNotSame($oldTargetPilot->id, $dispatch->recipients()->sole()->user_id);
     }
@@ -376,10 +376,10 @@ final class RoutingEndpointIntegrationTest extends TestCase
     public function test_repeated_send_does_not_enqueue_an_acknowledged_outbox_row_again(): void
     {
         $dispatcher = $this->user('idempotent-dispatcher@example.test', 'Idempotent Dispatcher');
-        $this->grant($dispatcher, ['incidents.dispatch.manage']);
+        $this->grant($dispatcher, ['deployments.dispatch.manage']);
         $team = $this->team('ROUTE-IDEMPOTENT');
         $pilot = $this->eligiblePilot($team, 'idempotent-pilot@example.test', 'Idempotent Pilot', 52.100000, 5.100000);
-        $incident = $this->incident($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-IDEMPOTENT-001');
+        $deployment = $this->deployment($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-IDEMPOTENT-001');
         Http::fake(['*' => Http::response([
             'code' => 'Ok',
             'durations' => [[300]],
@@ -387,13 +387,13 @@ final class RoutingEndpointIntegrationTest extends TestCase
         ])]);
 
         $this->asWebClient($dispatcher)
-            ->postJson('/api/incidents/'.$incident->id.'/dispatches', [
+            ->postJson('/api/deployments/'.$deployment->id.'/dispatches', [
                 'priority' => 'normal',
                 'message' => 'Stuur deze alarmering.',
                 'target_team_id' => $team->id,
             ])
             ->assertCreated();
-        $dispatch = DispatchRequest::query()->where('incident_id', $incident->id)->sole();
+        $dispatch = DispatchRequest::query()->where('deployment_id', $deployment->id)->sole();
         Queue::fake();
 
         DB::flushQueryLog();
@@ -419,19 +419,19 @@ final class RoutingEndpointIntegrationTest extends TestCase
         $this->assertTrue($firstSentAt->equalTo($dispatch->refresh()->sent_at));
         $this->assertSame([$pilot->id], $dispatch->recipients()->pluck('user_id')->all());
         $this->assertSame(
-            ['incidents', 'dispatch_requests', 'dispatch_recipients', 'dispatch_push_outbox'],
+            ['deployments', 'dispatch_requests', 'dispatch_recipients', 'dispatch_push_outbox'],
             array_values(array_unique($lockingTables)),
-            'Dispatch writes must lock incident -> dispatch -> recipient/outbox.',
+            'Dispatch writes must lock deployment -> dispatch -> recipient/outbox.',
         );
     }
 
-    public function test_only_one_non_cancelled_dispatch_can_be_created_for_the_same_incident_and_team(): void
+    public function test_only_one_non_cancelled_dispatch_can_be_created_for_the_same_deployment_and_team(): void
     {
         $dispatcher = $this->user('duplicate-dispatcher@example.test', 'Duplicate Dispatcher');
-        $this->grant($dispatcher, ['incidents.dispatch.manage']);
+        $this->grant($dispatcher, ['deployments.dispatch.manage']);
         $team = $this->team('ROUTE-DUPLICATE');
         $this->eligiblePilot($team, 'duplicate-pilot@example.test', 'Duplicate Pilot', 52.100000, 5.100000);
-        $incident = $this->incident($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-DUPLICATE-001');
+        $deployment = $this->deployment($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-DUPLICATE-001');
         Http::fake(['*' => Http::response([
             'code' => 'Ok',
             'durations' => [[300]],
@@ -444,16 +444,16 @@ final class RoutingEndpointIntegrationTest extends TestCase
         ];
 
         $this->asWebClient($dispatcher)
-            ->postJson('/api/incidents/'.$incident->id.'/dispatches', $payload)
+            ->postJson('/api/deployments/'.$deployment->id.'/dispatches', $payload)
             ->assertCreated();
         $response = $this->asWebClient($dispatcher)
-            ->postJson('/api/incidents/'.$incident->id.'/dispatches', $payload)
+            ->postJson('/api/deployments/'.$deployment->id.'/dispatches', $payload)
             ->assertUnprocessable()
             ->assertJsonPath('error.code', 'validation_failed');
 
         $this->assertNotEmpty($response->json('error.details.target_team_id'));
         $this->assertSame(1, DispatchRequest::query()
-            ->where('incident_id', $incident->id)
+            ->where('deployment_id', $deployment->id)
             ->where('target_team_id', $team->id)
             ->where('status', '!=', 'cancelled')
             ->count());
@@ -462,23 +462,23 @@ final class RoutingEndpointIntegrationTest extends TestCase
     public function test_dispatch_push_outbox_survives_queue_failure_and_stops_requeueing_after_database_acknowledgement(): void
     {
         $dispatcher = $this->user('outbox-dispatcher@example.test', 'Outbox Dispatcher');
-        $this->grant($dispatcher, ['incidents.dispatch.manage']);
+        $this->grant($dispatcher, ['deployments.dispatch.manage']);
         $team = $this->team('ROUTE-OUTBOX');
         $pilot = $this->eligiblePilot($team, 'outbox-pilot@example.test', 'Outbox Pilot', 52.100000, 5.100000);
-        $incident = $this->incident($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-OUTBOX-001');
+        $deployment = $this->deployment($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-OUTBOX-001');
         Http::fake(['*' => Http::response([
             'code' => 'Ok',
             'durations' => [[300]],
             'distances' => [[5_000]],
         ])]);
         $this->asWebClient($dispatcher)
-            ->postJson('/api/incidents/'.$incident->id.'/dispatches', [
+            ->postJson('/api/deployments/'.$deployment->id.'/dispatches', [
                 'priority' => 'normal',
                 'message' => 'Bewaar deze alarmering duurzaam.',
                 'target_team_id' => $team->id,
             ])
             ->assertCreated();
-        $dispatch = DispatchRequest::query()->where('incident_id', $incident->id)->sole();
+        $dispatch = DispatchRequest::query()->where('deployment_id', $deployment->id)->sole();
 
         $failingQueue = new class implements DispatchNotificationQueue
         {
@@ -538,9 +538,9 @@ final class RoutingEndpointIntegrationTest extends TestCase
         $this->assertSame([(string) $outbox->id], $recordingQueue->outboxIds);
         $this->assertSame(1, DispatchPushOutbox::query()->count());
         $this->assertSame(
-            ['incidents', 'dispatch_requests', 'dispatch_push_outbox'],
+            ['deployments', 'dispatch_requests', 'dispatch_push_outbox'],
             array_values(array_unique($lockingTables)),
-            'Outbox writes must lock incident -> dispatch -> outbox.',
+            'Outbox writes must lock deployment -> dispatch -> outbox.',
         );
     }
 
@@ -560,18 +560,18 @@ final class RoutingEndpointIntegrationTest extends TestCase
     public function test_declined_and_no_response_dispatch_reactions_revoke_live_location_consent(): void
     {
         $dispatcher = $this->user('consent-dispatcher@example.test', 'Consent Dispatcher');
-        $this->grant($dispatcher, ['incidents.dispatch.manage']);
+        $this->grant($dispatcher, ['deployments.dispatch.manage']);
         $pilot = $this->user('consent-pilot@example.test', 'Consent Pilot');
-        $this->grant($pilot, ['incidents.assigned.view'], operator: true);
+        $this->grant($pilot, ['deployments.assigned.view'], operator: true);
         $overriddenPilot = $this->user('consent-override@example.test', 'Consent Override Pilot');
         $team = $this->team('CONSENT-RESPONSE');
-        $incident = $this->incident($dispatcher, $team, 52.300000, 5.300000, 'CONSENT-RESPONSE-001');
-        $dispatch = $this->sentDispatch($incident, $dispatcher);
+        $deployment = $this->deployment($dispatcher, $team, 52.300000, 5.300000, 'CONSENT-RESPONSE-001');
+        $dispatch = $this->sentDispatch($deployment, $dispatcher);
         $this->acceptedRecipient($dispatch, $pilot);
         $this->acceptedRecipient($dispatch, $overriddenPilot);
         foreach ([$pilot, $overriddenPilot] as $recipient) {
             LocationSharingConsent::query()->create([
-                'incident_id' => $incident->id,
+                'deployment_id' => $deployment->id,
                 'user_id' => $recipient->id,
                 'is_active' => true,
                 'state_version' => 1,
@@ -592,7 +592,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
 
         foreach ([$pilot, $overriddenPilot] as $recipient) {
             $consent = LocationSharingConsent::query()
-                ->where('incident_id', $incident->id)
+                ->where('deployment_id', $deployment->id)
                 ->where('user_id', $recipient->id)
                 ->sole();
             $this->assertFalse($consent->is_active);
@@ -604,11 +604,11 @@ final class RoutingEndpointIntegrationTest extends TestCase
     public function test_actual_alarm_excludes_a_declined_preannouncement_and_backfills_the_slot(): void
     {
         $dispatcher = $this->user('declined-dispatcher@example.test', 'Declined Dispatcher');
-        $this->grant($dispatcher, ['incidents.dispatch.manage']);
+        $this->grant($dispatcher, ['deployments.dispatch.manage']);
         $team = $this->team('ROUTE-DECLINED');
         $declinedPilot = $this->eligiblePilot($team, 'declined-pilot@example.test', 'A Declined Pilot', 52.100000, 5.100000);
         $backupPilot = $this->eligiblePilot($team, 'declined-backup@example.test', 'B Backup Pilot', 52.200000, 5.200000);
-        $incident = $this->incident($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-DECLINED-001');
+        $deployment = $this->deployment($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-DECLINED-001');
         Http::fake(function (HttpRequest $request) {
             preg_match('#/table/v1/driving/([^?]+)#', urldecode($request->url()), $matches);
             $coordinates = explode(';', $matches[1] ?? '');
@@ -625,14 +625,14 @@ final class RoutingEndpointIntegrationTest extends TestCase
         });
 
         $this->asWebClient($dispatcher)
-            ->postJson('/api/incidents/'.$incident->id.'/dispatches', [
+            ->postJson('/api/deployments/'.$deployment->id.'/dispatches', [
                 'priority' => 'normal',
                 'message' => 'Vervang een weigering.',
                 'target_team_id' => $team->id,
                 'dispatch_recipient_count' => 1,
             ])
             ->assertCreated();
-        $dispatch = DispatchRequest::query()->where('incident_id', $incident->id)->sole();
+        $dispatch = DispatchRequest::query()->where('deployment_id', $deployment->id)->sole();
         $this->assertSame($declinedPilot->id, $dispatch->recipients()->sole()->user_id);
         $dispatch->recipients()->update([
             'response_status' => 'declined',
@@ -656,24 +656,24 @@ final class RoutingEndpointIntegrationTest extends TestCase
     public function test_actual_alarm_fails_closed_when_every_preannouncement_recipient_declined(): void
     {
         $dispatcher = $this->user('all-declined-dispatcher@example.test', 'All Declined Dispatcher');
-        $this->grant($dispatcher, ['incidents.dispatch.manage']);
+        $this->grant($dispatcher, ['deployments.dispatch.manage']);
         $team = $this->team('ROUTE-ALL-DECLINED');
         $this->eligiblePilot($team, 'all-declined-pilot@example.test', 'Only Declined Pilot', 52.100000, 5.100000);
-        $incident = $this->incident($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-ALL-DECLINED-001');
+        $deployment = $this->deployment($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-ALL-DECLINED-001');
         Http::fake(['*' => Http::response([
             'code' => 'Ok',
             'durations' => [[300]],
             'distances' => [[5_000]],
         ])]);
         $this->asWebClient($dispatcher)
-            ->postJson('/api/incidents/'.$incident->id.'/dispatches', [
+            ->postJson('/api/deployments/'.$deployment->id.'/dispatches', [
                 'priority' => 'normal',
                 'message' => 'Niemand beschikbaar.',
                 'target_team_id' => $team->id,
                 'dispatch_recipient_count' => 1,
             ])
             ->assertCreated();
-        $dispatch = DispatchRequest::query()->where('incident_id', $incident->id)->sole();
+        $dispatch = DispatchRequest::query()->where('deployment_id', $deployment->id)->sole();
         $dispatch->recipients()->update([
             'response_status' => 'declined',
             'responded_at' => now(),
@@ -693,25 +693,25 @@ final class RoutingEndpointIntegrationTest extends TestCase
     public function test_actual_alarm_revalidates_changed_eligibility_and_backfills_the_slot(): void
     {
         $dispatcher = $this->user('send-revalidate-dispatcher@example.test', 'Send Revalidate Dispatcher');
-        $this->grant($dispatcher, ['incidents.dispatch.manage']);
+        $this->grant($dispatcher, ['deployments.dispatch.manage']);
         $team = $this->team('ROUTE-SEND-REVALIDATE');
         $changedPilot = $this->eligiblePilot($team, 'send-changed@example.test', 'A Changed Pilot', 52.100000, 5.100000);
         $backupPilot = $this->eligiblePilot($team, 'send-backup@example.test', 'B Backup Pilot', 52.200000, 5.200000);
-        $incident = $this->incident($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-SEND-REVALIDATE-001');
+        $deployment = $this->deployment($dispatcher, $team, 52.300000, 5.300000, 'ROUTE-SEND-REVALIDATE-001');
         Http::fake(['*' => Http::response([
             'code' => 'Ok',
             'durations' => [[300], [600]],
             'distances' => [[5_000], [10_000]],
         ])]);
         $this->asWebClient($dispatcher)
-            ->postJson('/api/incidents/'.$incident->id.'/dispatches', [
+            ->postJson('/api/deployments/'.$deployment->id.'/dispatches', [
                 'priority' => 'normal',
                 'message' => 'Hercontroleer bij verzending.',
                 'target_team_id' => $team->id,
                 'dispatch_recipient_count' => 1,
             ])
             ->assertCreated();
-        $dispatch = DispatchRequest::query()->where('incident_id', $incident->id)->sole();
+        $dispatch = DispatchRequest::query()->where('deployment_id', $deployment->id)->sole();
         $selectedUserId = (string) $dispatch->recipients()->sole()->user_id;
         $expectedBackupUserId = $selectedUserId === (string) $changedPilot->id
             ? (string) $backupPilot->id
@@ -731,24 +731,24 @@ final class RoutingEndpointIntegrationTest extends TestCase
     {
         $this->travelTo(now()->startOfSecond());
         $viewer = $this->user('live-routing-viewer@example.test', 'Live Routing Viewer');
-        $this->grant($viewer, ['incidents.view']);
+        $this->grant($viewer, ['deployments.view']);
         $currentPilot = $this->user('current-location@example.test', 'Actuele Pilot');
         $stalePilot = $this->user('stale-location@example.test', 'Verlopen Pilot');
         $team = $this->team('LIVE-ROUTING');
-        $incident = $this->incident($viewer, $team, 52.300000, 5.300000, 'LIVE-ROUTING-001');
-        $dispatch = $this->sentDispatch($incident, $viewer);
+        $deployment = $this->deployment($viewer, $team, 52.300000, 5.300000, 'LIVE-ROUTING-001');
+        $dispatch = $this->sentDispatch($deployment, $viewer);
         $this->acceptedRecipient($dispatch, $currentPilot);
         $this->acceptedRecipient($dispatch, $stalePilot);
         foreach ([$currentPilot, $stalePilot] as $pilot) {
             LocationSharingConsent::query()->create([
-                'incident_id' => $incident->id,
+                'deployment_id' => $deployment->id,
                 'user_id' => $pilot->id,
                 'is_active' => true,
                 'consented_at' => now()->subMinutes(10),
             ]);
         }
         LocationUpdate::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $currentPilot->id,
             'latitude' => 52.100000,
             'longitude' => 5.100000,
@@ -757,7 +757,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
             'created_at' => now()->subMinute(),
         ]);
         LocationUpdate::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $stalePilot->id,
             'latitude' => 52.200000,
             'longitude' => 5.200000,
@@ -775,7 +775,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         ]);
 
         $response = $this->asWebClient($viewer)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations')
             ->assertOk();
 
         Http::assertSentCount(1);
@@ -802,20 +802,20 @@ final class RoutingEndpointIntegrationTest extends TestCase
     public function test_live_locations_without_route_opt_in_preserves_contract_and_never_calls_route_endpoint(): void
     {
         $viewer = $this->user('no-route-opt-in@example.test', 'No Route Opt In');
-        $this->grant($viewer, ['incidents.view', 'operational-map.view']);
+        $this->grant($viewer, ['deployments.view', 'operational-map.view']);
         $pilot = $this->user('no-route-pilot@example.test', 'No Route Pilot');
         $team = $this->team('NO-ROUTE-OPT-IN');
-        $incident = $this->incident($viewer, $team, 52.3, 5.3, 'NO-ROUTE-OPT-IN-001');
-        $dispatch = $this->sentDispatch($incident, $viewer);
+        $deployment = $this->deployment($viewer, $team, 52.3, 5.3, 'NO-ROUTE-OPT-IN-001');
+        $dispatch = $this->sentDispatch($deployment, $viewer);
         $this->acceptedRecipient($dispatch, $pilot);
         $consent = LocationSharingConsent::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'is_active' => true,
             'consented_at' => now()->subMinute(),
         ])->refresh();
         LocationUpdate::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'consent_state_version' => $consent->state_version,
             'latitude' => 52.1,
@@ -830,12 +830,12 @@ final class RoutingEndpointIntegrationTest extends TestCase
         ])]);
 
         $this->asWebClient($viewer)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations')
             ->assertOk()
             ->assertJsonMissingPath('data.0.route')
             ->assertJsonPath('data.0.eta_source', 'navigation');
         $this->asWebClient($viewer)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations?include_routes=0')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations?include_routes=0')
             ->assertOk()
             ->assertJsonMissingPath('data.0.route')
             ->assertJsonPath('data.0.eta_source', 'navigation');
@@ -849,25 +849,25 @@ final class RoutingEndpointIntegrationTest extends TestCase
     {
         $this->travelTo(now()->startOfSecond());
         $viewer = $this->user('route-map-viewer@example.test', 'Route Map Viewer');
-        $this->grant($viewer, ['incidents.view', 'operational-map.view']);
+        $this->grant($viewer, ['deployments.view', 'operational-map.view']);
         $currentPilot = $this->user('route-current@example.test', 'Route Current');
         $stalePilot = $this->user('route-stale@example.test', 'Route Stale');
         $onScenePilot = $this->user('route-on-scene@example.test', 'Route On Scene');
         $team = $this->team('ROUTE-MAP');
-        $incident = $this->incident($viewer, $team, 52.3, 5.3, 'ROUTE-MAP-001');
-        $dispatch = $this->sentDispatch($incident, $viewer);
+        $deployment = $this->deployment($viewer, $team, 52.3, 5.3, 'ROUTE-MAP-001');
+        $dispatch = $this->sentDispatch($deployment, $viewer);
 
         foreach ([$currentPilot, $stalePilot, $onScenePilot] as $pilot) {
             $this->acceptedRecipient($dispatch, $pilot);
             $consent = LocationSharingConsent::query()->create([
-                'incident_id' => $incident->id,
+                'deployment_id' => $deployment->id,
                 'user_id' => $pilot->id,
                 'is_active' => true,
                 'consented_at' => now()->subMinutes(10),
             ])->refresh();
             $isStale = $pilot->is($stalePilot);
             LocationUpdate::query()->create([
-                'incident_id' => $incident->id,
+                'deployment_id' => $deployment->id,
                 'user_id' => $pilot->id,
                 'consent_state_version' => $consent->state_version,
                 'latitude' => $pilot->is($currentPilot) ? 52.1 : ($isStale ? 52.2 : 52.25),
@@ -898,7 +898,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         ])]);
 
         $response = $this->asWebClient($viewer)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations?include_routes=1')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations?include_routes=1')
             ->assertOk()
             ->assertJsonCount(2, 'data');
 
@@ -927,20 +927,20 @@ final class RoutingEndpointIntegrationTest extends TestCase
     public function test_route_opt_in_degrades_to_null_geometry_and_fallback_eta_after_osrm_failure(): void
     {
         $viewer = $this->user('route-failure-viewer@example.test', 'Route Failure Viewer');
-        $this->grant($viewer, ['incidents.view', 'operational-map.view']);
+        $this->grant($viewer, ['deployments.view', 'operational-map.view']);
         $pilot = $this->user('route-failure-pilot@example.test', 'Route Failure Pilot');
         $team = $this->team('ROUTE-FAILURE');
-        $incident = $this->incident($viewer, $team, 52.3, 5.3, 'ROUTE-FAILURE-001');
-        $dispatch = $this->sentDispatch($incident, $viewer);
+        $deployment = $this->deployment($viewer, $team, 52.3, 5.3, 'ROUTE-FAILURE-001');
+        $dispatch = $this->sentDispatch($deployment, $viewer);
         $this->acceptedRecipient($dispatch, $pilot);
         $consent = LocationSharingConsent::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'is_active' => true,
             'consented_at' => now()->subMinute(),
         ])->refresh();
         LocationUpdate::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'consent_state_version' => $consent->state_version,
             'latitude' => 52.1,
@@ -951,7 +951,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         Http::fake(['*' => Http::response([], 503)]);
 
         $this->asWebClient($viewer)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations?include_routes=1')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations?include_routes=1')
             ->assertOk()
             ->assertJsonPath('data.0.route', null)
             ->assertJsonPath('data.0.eta_source', 'fallback');
@@ -965,7 +965,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         Http::fake();
 
         $this->asWebClient($viewer)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations?include_routes=1')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations?include_routes=1')
             ->assertOk()
             ->assertJsonPath('data.0.route', null)
             ->assertJsonPath('data.0.eta_source', 'fallback');
@@ -978,13 +978,13 @@ final class RoutingEndpointIntegrationTest extends TestCase
     public function test_route_opt_in_requires_operational_map_permission_before_contacting_osrm(): void
     {
         $viewer = $this->user('route-forbidden-viewer@example.test', 'Route Forbidden Viewer');
-        $this->grant($viewer, ['incidents.view']);
+        $this->grant($viewer, ['deployments.view']);
         $team = $this->team('ROUTE-FORBIDDEN');
-        $incident = $this->incident($viewer, $team, 52.3, 5.3, 'ROUTE-FORBIDDEN-001');
+        $deployment = $this->deployment($viewer, $team, 52.3, 5.3, 'ROUTE-FORBIDDEN-001');
         Http::fake();
 
         $this->asWebClient($viewer)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations?include_routes=1')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations?include_routes=1')
             ->assertForbidden();
 
         Http::assertNothingSent();
@@ -994,14 +994,14 @@ final class RoutingEndpointIntegrationTest extends TestCase
     {
         $this->travelTo(now()->startOfSecond());
         $viewer = $this->user('location-history-viewer@example.test', 'Location History Viewer');
-        $this->grant($viewer, ['incidents.view']);
+        $this->grant($viewer, ['deployments.view']);
         $pilot = $this->user('location-history-pilot@example.test', 'Location History Pilot');
         $team = $this->team('LOCATION-HISTORY');
-        $incident = $this->incident($viewer, $team, 52.300000, 5.300000, 'LOCATION-HISTORY-001');
-        $dispatch = $this->sentDispatch($incident, $viewer);
+        $deployment = $this->deployment($viewer, $team, 52.300000, 5.300000, 'LOCATION-HISTORY-001');
+        $dispatch = $this->sentDispatch($deployment, $viewer);
         $this->acceptedRecipient($dispatch, $pilot);
         $consent = LocationSharingConsent::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'is_active' => true,
             'consented_at' => now()->subMinutes(10),
@@ -1010,7 +1010,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         foreach (range(1, 200) as $offset) {
             $receivedAt = now()->subSeconds(240 - $offset);
             LocationUpdate::query()->create([
-                'incident_id' => $incident->id,
+                'deployment_id' => $deployment->id,
                 'user_id' => $pilot->id,
                 'consent_state_version' => $consent->state_version,
                 'latitude' => 51.900000 + ($offset / 100_000),
@@ -1020,7 +1020,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
             ]);
         }
         LocationUpdate::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'consent_state_version' => $consent->state_version,
             'latitude' => 52.123456,
@@ -1038,7 +1038,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         DB::enableQueryLog();
 
         $this->asWebClient($viewer)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations')
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.latitude', '52.1234560')
@@ -1062,20 +1062,20 @@ final class RoutingEndpointIntegrationTest extends TestCase
     {
         $this->travelTo(now()->startOfSecond());
         $pilot = $this->user('future-location@example.test', 'Future Location Pilot');
-        $this->grant($pilot, ['incidents.view']);
+        $this->grant($pilot, ['deployments.view']);
         $team = $this->team('FUTURE-LOCATION');
-        $incident = $this->incident($pilot, $team, 52.300000, 5.300000, 'FUTURE-LOCATION-001');
-        $dispatch = $this->sentDispatch($incident, $pilot);
+        $deployment = $this->deployment($pilot, $team, 52.300000, 5.300000, 'FUTURE-LOCATION-001');
+        $dispatch = $this->sentDispatch($deployment, $pilot);
         $this->acceptedRecipient($dispatch, $pilot);
         LocationSharingConsent::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'is_active' => true,
             'consented_at' => now(),
         ]);
 
         $futureResponse = $this->asWebClient($pilot)
-            ->postJson('/api/incidents/'.$incident->id.'/location', [
+            ->postJson('/api/deployments/'.$deployment->id.'/location', [
                 'latitude' => 52.100000,
                 'longitude' => 5.100000,
                 'recorded_at' => now()->addMinutes(3)->toIso8601String(),
@@ -1085,7 +1085,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         $this->assertNotEmpty($futureResponse->json('error.details.recorded_at'));
 
         LocationUpdate::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'latitude' => 52.100000,
             'longitude' => 5.100000,
@@ -1093,7 +1093,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
             'created_at' => now(),
         ]);
         LocationUpdate::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'latitude' => 52.200000,
             'longitude' => 5.200000,
@@ -1107,7 +1107,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         ])]);
 
         $response = $this->asWebClient($pilot)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations')
             ->assertOk();
 
         $response
@@ -1121,7 +1121,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         // window it must still be rejected against its server receipt time.
         $this->travel(58)->minutes();
         LocationUpdate::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'latitude' => 52.250000,
             'longitude' => 5.250000,
@@ -1130,7 +1130,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         ]);
 
         $this->asWebClient($pilot)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations')
             ->assertOk()
             ->assertJsonPath('data.0.location_is_current', true)
             ->assertJsonPath('data.0.latitude', '52.2500000')
@@ -1140,19 +1140,19 @@ final class RoutingEndpointIntegrationTest extends TestCase
     public function test_revoking_location_consent_immediately_hides_the_last_coordinate_and_eta(): void
     {
         $pilot = $this->user('revoked-location@example.test', 'Revoked Location Pilot');
-        $this->grant($pilot, ['incidents.view']);
+        $this->grant($pilot, ['deployments.view']);
         $team = $this->team('REVOKED-LOCATION');
-        $incident = $this->incident($pilot, $team, 52.300000, 5.300000, 'REVOKED-LOCATION-001');
-        $dispatch = $this->sentDispatch($incident, $pilot);
+        $deployment = $this->deployment($pilot, $team, 52.300000, 5.300000, 'REVOKED-LOCATION-001');
+        $dispatch = $this->sentDispatch($deployment, $pilot);
         $this->acceptedRecipient($dispatch, $pilot);
         LocationSharingConsent::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'is_active' => true,
             'consented_at' => now(),
         ]);
         LocationUpdate::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'latitude' => 52.100000,
             'longitude' => 5.100000,
@@ -1161,12 +1161,12 @@ final class RoutingEndpointIntegrationTest extends TestCase
         ]);
 
         $this->asWebClient($pilot)
-            ->deleteJson('/api/incidents/'.$incident->id.'/location/consent')
+            ->deleteJson('/api/deployments/'.$deployment->id.'/location/consent')
             ->assertNoContent();
         Http::fake();
 
         $response = $this->asWebClient($pilot)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations')
             ->assertOk();
 
         $response
@@ -1181,20 +1181,20 @@ final class RoutingEndpointIntegrationTest extends TestCase
     {
         $this->travelTo(now()->startOfSecond());
         $pilot = $this->user('reconsent-location@example.test', 'Reconsent Location Pilot');
-        $this->grant($pilot, ['incidents.view']);
+        $this->grant($pilot, ['deployments.view']);
         $team = $this->team('RECONSENT-LOCATION');
-        $incident = $this->incident($pilot, $team, 52.300000, 5.300000, 'RECONSENT-LOCATION-001');
-        $dispatch = $this->sentDispatch($incident, $pilot);
+        $deployment = $this->deployment($pilot, $team, 52.300000, 5.300000, 'RECONSENT-LOCATION-001');
+        $dispatch = $this->sentDispatch($deployment, $pilot);
         $this->acceptedRecipient($dispatch, $pilot);
         $consent = LocationSharingConsent::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'is_active' => true,
             'consented_at' => now()->subMinute(),
         ]);
         $oldConsentStateVersion = (int) $consent->refresh()->state_version;
         LocationUpdate::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'latitude' => 52.100000,
             'longitude' => 5.100000,
@@ -1203,11 +1203,11 @@ final class RoutingEndpointIntegrationTest extends TestCase
         ]);
 
         $this->asWebClient($pilot)
-            ->deleteJson('/api/incidents/'.$incident->id.'/location/consent')
+            ->deleteJson('/api/deployments/'.$deployment->id.'/location/consent')
             ->assertNoContent();
         $this->travel(1)->seconds();
         $this->asWebClient($pilot)
-            ->postJson('/api/incidents/'.$incident->id.'/location/consent')
+            ->postJson('/api/deployments/'.$deployment->id.'/location/consent')
             ->assertCreated();
         $newConsentStateVersion = (int) $consent->refresh()->state_version;
         $this->assertGreaterThan($oldConsentStateVersion, $newConsentStateVersion);
@@ -1216,7 +1216,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         // persistence after re-consent. Receipt timestamps alone would make it
         // look current; the consent generation must still reject it.
         LocationUpdate::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'consent_state_version' => $oldConsentStateVersion,
             'latitude' => 52.200000,
@@ -1227,7 +1227,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         Http::fake();
 
         $this->asWebClient($pilot)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations')
             ->assertOk()
             ->assertJsonPath('data.0.location_is_current', false)
             ->assertJsonPath('data.0.sharing_status', 'consented')
@@ -1242,20 +1242,20 @@ final class RoutingEndpointIntegrationTest extends TestCase
     {
         $this->travelTo(now()->startOfSecond());
         $pilot = $this->user('legacy-mobile-location@example.test', 'Legacy Mobile Pilot');
-        $this->grant($pilot, ['incidents.assigned.view'], operator: true);
+        $this->grant($pilot, ['deployments.assigned.view'], operator: true);
         $team = $this->team('LEGACY-MOBILE-LOCATION');
-        $incident = $this->incident($pilot, $team, 52.300000, 5.300000, 'LEGACY-MOBILE-LOCATION-001');
-        $dispatch = $this->sentDispatch($incident, $pilot);
+        $deployment = $this->deployment($pilot, $team, 52.300000, 5.300000, 'LEGACY-MOBILE-LOCATION-001');
+        $dispatch = $this->sentDispatch($deployment, $pilot);
         $this->acceptedRecipient($dispatch, $pilot);
         $consent = LocationSharingConsent::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'is_active' => true,
             'consented_at' => now()->subMinute(),
         ])->refresh();
 
         $this->asOperatorClient($pilot)
-            ->postJson('/api/incidents/'.$incident->id.'/location', [
+            ->postJson('/api/deployments/'.$deployment->id.'/location', [
                 'latitude' => 52.100000,
                 'longitude' => 5.100000,
                 'recorded_at' => null,
@@ -1272,7 +1272,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
         ])]);
 
         $this->asOperatorClient($pilot)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations')
             ->assertOk()
             ->assertJsonPath('data.0.user.id', $pilot->id)
             ->assertJsonPath('data.0.user.name', $pilot->name)
@@ -1281,9 +1281,9 @@ final class RoutingEndpointIntegrationTest extends TestCase
             ->assertJsonPath('data.0.user.teams', [])
             ->assertJsonPath('data.0.location_is_current', true);
 
-        $this->grant($pilot, ['incidents.view']);
+        $this->grant($pilot, ['deployments.view']);
         $this->asWebClient($pilot)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations')
             ->assertOk()
             ->assertJsonMissingPath('data.0.user.email')
             ->assertJsonMissingPath('data.0.user.roles')
@@ -1296,18 +1296,18 @@ final class RoutingEndpointIntegrationTest extends TestCase
         $coordinator = $this->user('location-idempotency-coordinator@example.test', 'Location Idempotency Coordinator');
         $team = $this->team('LOCATION-IDEMPOTENCY');
         $pilot = $this->eligiblePilot($team, 'location-idempotency-pilot@example.test', 'Location Idempotency Pilot', 52.100000, 5.100000);
-        $incident = $this->incident($coordinator, $team, 52.300000, 5.300000, 'LOCATION-IDEMPOTENCY-001');
-        $dispatch = $this->sentDispatch($incident, $coordinator);
+        $deployment = $this->deployment($coordinator, $team, 52.300000, 5.300000, 'LOCATION-IDEMPOTENCY-001');
+        $dispatch = $this->sentDispatch($deployment, $coordinator);
         $this->acceptedRecipient($dispatch, $pilot);
         $consent = LocationSharingConsent::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'is_active' => true,
             'consented_at' => now()->subMinute(),
         ])->refresh();
         $stateVersion = (int) $consent->state_version;
         LocationUpdate::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'consent_state_version' => $stateVersion,
             'latitude' => 52.100000,
@@ -1316,7 +1316,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
             'created_at' => now(),
         ]);
 
-        $result = app(LocationService::class)->requestSharing($incident, $pilot, $coordinator);
+        $result = app(LocationService::class)->requestSharing($deployment, $pilot, $coordinator);
 
         $this->assertSame(['queued_tokens' => 0, 'user_id' => (string) $pilot->id], $result);
         $this->assertTrue($consent->refresh()->is_active);
@@ -1330,18 +1330,18 @@ final class RoutingEndpointIntegrationTest extends TestCase
         $coordinator = $this->user('location-refresh-coordinator@example.test', 'Location Refresh Coordinator');
         $team = $this->team('LOCATION-REFRESH');
         $pilot = $this->eligiblePilot($team, 'location-refresh-pilot@example.test', 'Location Refresh Pilot', 52.100000, 5.100000);
-        $incident = $this->incident($coordinator, $team, 52.300000, 5.300000, 'LOCATION-REFRESH-001');
-        $dispatch = $this->sentDispatch($incident, $coordinator);
+        $deployment = $this->deployment($coordinator, $team, 52.300000, 5.300000, 'LOCATION-REFRESH-001');
+        $dispatch = $this->sentDispatch($deployment, $coordinator);
         $this->acceptedRecipient($dispatch, $pilot);
         $consent = LocationSharingConsent::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'is_active' => true,
             'consented_at' => now()->subMinutes(10),
         ])->refresh();
         $stateVersion = (int) $consent->state_version;
         LocationUpdate::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'consent_state_version' => $stateVersion,
             'latitude' => 52.100000,
@@ -1350,14 +1350,14 @@ final class RoutingEndpointIntegrationTest extends TestCase
             'created_at' => now()->subMinutes(6),
         ]);
 
-        $result = app(LocationService::class)->requestSharing($incident, $pilot, $coordinator);
+        $result = app(LocationService::class)->requestSharing($deployment, $pilot, $coordinator);
 
         $this->assertSame(['queued_tokens' => 1, 'user_id' => (string) $pilot->id], $result);
         $this->assertTrue($consent->refresh()->is_active);
         $this->assertSame($stateVersion, (int) $consent->state_version);
-        Queue::assertPushed(SendFcmNotification::class, function (SendFcmNotification $job) use ($incident, $pilot): bool {
+        Queue::assertPushed(SendFcmNotification::class, function (SendFcmNotification $job) use ($deployment, $pilot): bool {
             return $job->messageType === 'location_share_request'
-                && ($job->data['incident_id'] ?? null) === $incident->id
+                && ($job->data['deployment_id'] ?? null) === $deployment->id
                 && $job->fcmTokenId === $pilot->fcmTokens()->sole()->id;
         });
     }
@@ -1365,25 +1365,25 @@ final class RoutingEndpointIntegrationTest extends TestCase
     public function test_live_location_access_enforces_operator_self_scope_assignment_and_permission(): void
     {
         $viewer = $this->user('scope-viewer@example.test', 'Scope Viewer');
-        $this->grant($viewer, ['incidents.view']);
+        $this->grant($viewer, ['deployments.view']);
         $firstPilot = $this->user('scope-first@example.test', 'Scope First Pilot');
         $secondPilot = $this->user('scope-second@example.test', 'Scope Second Pilot');
-        $this->grant($firstPilot, ['incidents.assigned.view'], operator: true);
-        $this->grant($secondPilot, ['incidents.assigned.view'], operator: true);
+        $this->grant($firstPilot, ['deployments.assigned.view'], operator: true);
+        $this->grant($secondPilot, ['deployments.assigned.view'], operator: true);
         $team = $this->team('LIVE-SCOPE');
-        $incident = $this->incident($viewer, $team, 52.300000, 5.300000, 'LIVE-SCOPE-001');
-        $dispatch = $this->sentDispatch($incident, $viewer);
+        $deployment = $this->deployment($viewer, $team, 52.300000, 5.300000, 'LIVE-SCOPE-001');
+        $dispatch = $this->sentDispatch($deployment, $viewer);
         $this->acceptedRecipient($dispatch, $firstPilot);
         $this->acceptedRecipient($dispatch, $secondPilot);
         foreach ([$firstPilot, $secondPilot] as $index => $pilot) {
             LocationSharingConsent::query()->create([
-                'incident_id' => $incident->id,
+                'deployment_id' => $deployment->id,
                 'user_id' => $pilot->id,
                 'is_active' => true,
                 'consented_at' => now()->subMinute(),
             ]);
             LocationUpdate::query()->create([
-                'incident_id' => $incident->id,
+                'deployment_id' => $deployment->id,
                 'user_id' => $pilot->id,
                 'latitude' => 52.100000 + ($index / 100),
                 'longitude' => 5.100000 + ($index / 100),
@@ -1397,22 +1397,22 @@ final class RoutingEndpointIntegrationTest extends TestCase
             'distances' => [[5_000]],
         ])]);
 
-        $this->getJson('/api/incidents/'.$incident->id.'/live-locations')
+        $this->getJson('/api/deployments/'.$deployment->id.'/live-locations')
             ->assertUnauthorized();
         $this->asOperatorClient($firstPilot)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations')
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.user_id', $firstPilot->id);
 
-        $unassigned = $this->incident($viewer, $team, 52.400000, 5.400000, 'LIVE-SCOPE-UNASSIGNED');
+        $unassigned = $this->deployment($viewer, $team, 52.400000, 5.400000, 'LIVE-SCOPE-UNASSIGNED');
         $this->asOperatorClient($firstPilot)
-            ->getJson('/api/incidents/'.$unassigned->id.'/live-locations')
+            ->getJson('/api/deployments/'.$unassigned->id.'/live-locations')
             ->assertForbidden();
 
         $unauthorizedViewer = $this->user('scope-unauthorized@example.test', 'Scope Unauthorized');
         $this->asWebClient($unauthorizedViewer)
-            ->getJson('/api/incidents/'.$incident->id.'/live-locations')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations')
             ->assertForbidden();
     }
 
@@ -1494,16 +1494,16 @@ final class RoutingEndpointIntegrationTest extends TestCase
         return $pilot;
     }
 
-    private function incident(
+    private function deployment(
         User $creator,
         Team $team,
         float $latitude,
         float $longitude,
         string $reference,
-    ): Incident {
-        $incident = Incident::query()->create([
+    ): Deployment {
+        $deployment = Deployment::query()->create([
             'reference' => $reference,
-            'title' => 'Routing endpoint testincident',
+            'title' => 'Routing endpoint testdeployment',
             'priority' => 'normal',
             'status' => 'active',
             'is_test' => false,
@@ -1515,15 +1515,15 @@ final class RoutingEndpointIntegrationTest extends TestCase
             'team_id' => $team->id,
             'opened_at' => now(),
         ]);
-        $incident->teams()->attach($team->id, ['created_at' => now()]);
+        $deployment->teams()->attach($team->id, ['created_at' => now()]);
 
-        return $incident;
+        return $deployment;
     }
 
-    private function sentDispatch(Incident $incident, User $creator): DispatchRequest
+    private function sentDispatch(Deployment $deployment, User $creator): DispatchRequest
     {
         return DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $creator->id,
             'requested_by_name' => $creator->name,
             'requested_by_email' => $creator->email,
@@ -1574,7 +1574,7 @@ final class RoutingEndpointIntegrationTest extends TestCase
     /** @return list<string> */
     private function lockingTablesFromQueryLog(): array
     {
-        $tables = ['incidents', 'dispatch_requests', 'dispatch_recipients', 'dispatch_push_outbox'];
+        $tables = ['deployments', 'dispatch_requests', 'dispatch_recipients', 'dispatch_push_outbox'];
 
         return collect(DB::getQueryLog())
             ->pluck('query')

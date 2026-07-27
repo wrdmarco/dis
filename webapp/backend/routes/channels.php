@@ -1,21 +1,21 @@
 <?php
 
-use App\Models\Incident;
-use App\Services\IncidentAccessService;
+use App\Models\Deployment;
+use App\Services\DeploymentAccessService;
 use Illuminate\Support\Facades\Broadcast;
 
-Broadcast::channel('operations', fn ($user) => $user->hasPermission('incidents.view') || $user->hasPermission('incidents.dispatch.view') || $user->hasPermission('incidents.dispatch.manage') || $user->hasPermission('status.view'));
+Broadcast::channel('operations', fn ($user) => $user->hasPermission('deployments.view') || $user->hasPermission('deployments.manage') || $user->hasPermission('deployments.dispatch.view') || $user->hasPermission('deployments.dispatch.manage') || $user->hasPermission('status.view'));
 
-Broadcast::channel('intakes', fn ($user) => $user->hasPermission('incidents.manage'));
+Broadcast::channel('deployment-requests', fn ($user) => $user->hasPermission('deployments.manage'));
 
 Broadcast::channel('admin.system', fn ($user) => $user->hasPermission('system.health.view'));
 
 Broadcast::channel('admin.routing', fn ($user) => $user->hasPermission('system.routing.view') || $user->hasPermission('system.routing.manage'));
 
-Broadcast::channel('incidents.{incidentId}', function ($user, string $incidentId): bool {
-    $incident = Incident::query()->find($incidentId);
+Broadcast::channel('deployments.{deploymentId}', function ($user, string $deploymentId): bool {
+    $deployment = Deployment::query()->find($deploymentId);
 
-    return $incident !== null && app(IncidentAccessService::class)->canViewIncident($user, $incident);
+    return $deployment !== null && app(DeploymentAccessService::class)->canViewDeployment($user, $deployment);
 });
 
 Broadcast::channel('users.{userId}', fn ($user, string $userId) => (string) $user->id === $userId || $user->hasPermission('users.view'));

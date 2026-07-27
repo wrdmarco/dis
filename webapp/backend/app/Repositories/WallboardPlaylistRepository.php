@@ -73,14 +73,14 @@ final class WallboardPlaylistRepository extends BaseRepository
         return Wallboard::query()
             ->where(fn (Builder $query): Builder => $query
                 ->where('playlist_id', $playlistId)
-                ->orWhere('active_incident_playlist_id', $playlistId))
+                ->orWhere('active_deployment_playlist_id', $playlistId))
             ->exists();
     }
 
-    public function activeIncidentLinkedWallboardsExist(string $playlistId): bool
+    public function activeDeploymentLinkedWallboardsExist(string $playlistId): bool
     {
         return Wallboard::query()
-            ->where('active_incident_playlist_id', $playlistId)
+            ->where('active_deployment_playlist_id', $playlistId)
             ->exists();
     }
 
@@ -96,7 +96,7 @@ final class WallboardPlaylistRepository extends BaseRepository
         return Wallboard::query()
             ->where(fn (Builder $query): Builder => $query
                 ->where('playlist_id', $playlistId)
-                ->orWhere('active_incident_playlist_id', $playlistId))
+                ->orWhere('active_deployment_playlist_id', $playlistId))
             ->count();
     }
 
@@ -110,7 +110,7 @@ final class WallboardPlaylistRepository extends BaseRepository
                     ->selectRaw('count(*)')
                     ->where(fn (Builder $query): Builder => $query
                         ->whereColumn('wallboards.playlist_id', 'wallboard_playlists.id')
-                        ->orWhereColumn('wallboards.active_incident_playlist_id', 'wallboard_playlists.id')),
+                        ->orWhereColumn('wallboards.active_deployment_playlist_id', 'wallboard_playlists.id')),
                 'wallboards_count',
             );
     }

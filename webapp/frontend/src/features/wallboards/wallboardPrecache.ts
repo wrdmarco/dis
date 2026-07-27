@@ -100,7 +100,7 @@ export function wallboardPrecacheManifest(
   const contentParts: string[] = [
     `config:${state.wallboard.config_version}`,
     `data-mode:${normalizeWallboardPlaylistDataMode(state.wallboard.data_mode)}`,
-    `runtime-playlist:${runtimePlaylistId}:${runtimePlaylistVersion}:${normalizeWallboardPlaylistPurpose(state.wallboard.runtime_playlist_purpose)}:${state.wallboard.active_incident_playlist === true ? 1 : 0}`,
+    `runtime-playlist:${runtimePlaylistId}:${runtimePlaylistVersion}:${normalizeWallboardPlaylistPurpose(state.wallboard.runtime_playlist_purpose)}:${state.wallboard.active_deployment_playlist === true ? 1 : 0}`,
   ];
 
   for (const page of configuredPages) {

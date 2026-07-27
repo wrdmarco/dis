@@ -135,13 +135,13 @@ function transitionDurationMilliseconds(durationSeconds: number, fallbackMs: num
 }
 
 const MAP_OPTION_LABELS: Array<{ key: keyof WallboardMapConfiguration; label: string; help: string }> = [
-  { key: 'show_active_incidents', label: 'Actieve incidenten', help: 'Toon open operationele meldingen.' },
+  { key: 'show_active_deployments', label: 'Actieve inzetten', help: 'Toon open operationele inzetten.' },
   { key: 'show_live_locations', label: 'Live pilootlocaties', help: 'Toon alleen actuele, gedeelde locaties.' },
-  { key: 'show_routes', label: 'Navigatieroutes', help: 'Teken de actuele route van piloten naar het incident.' },
+  { key: 'show_routes', label: 'Navigatieroutes', help: 'Teken de actuele route van piloten naar de inzet.' },
   { key: 'show_command_centers', label: 'Meldkamers', help: 'Toon de geconfigureerde meldkamers.' },
-  { key: 'show_historical_incidents', label: 'Historische incidenten', help: 'Toon gesloten incidenten uit de wallboardfeed.' },
+  { key: 'show_historical_deployments', label: 'Historische inzetten', help: 'Toon gesloten inzetten uit de wallboardfeed.' },
   { key: 'show_summary', label: 'Samenvattingsbalk', help: 'Toon aantallen boven een kaartpagina.' },
-  { key: 'show_incident_list', label: 'Incidentenlijst naast kaart', help: 'Toon een compacte lijst naast een kaartpagina.' },
+  { key: 'show_deployment_list', label: 'Inzettenlijst naast kaart', help: 'Toon een compacte lijst naast een kaartpagina.' },
   { key: 'show_route_legend', label: 'Routelabels', help: 'Toon pilootnaam en route-informatie.' },
   { key: 'auto_fit', label: 'Referentielagen kaderen', help: 'Kader zonder actieve inzet de zichtbare meldkamers en historie. Een actieve inzet wordt altijd automatisch gevolgd.' },
 ];
@@ -173,7 +173,7 @@ const KPI_CATEGORIES: ReadonlyArray<{
   description: string;
 }> = [
   { key: 'pilots', label: 'Piloten', description: 'Actuele inzetbaarheid van piloten.' },
-  { key: 'incidents', label: 'Incidenten', description: 'Aantallen, fasen en prioriteiten van incidenten.' },
+  { key: 'deployments', label: 'Inzetten', description: 'Aantallen, fasen en prioriteiten van inzetten.' },
   { key: 'assets', label: 'Middelen', description: 'Operationele gereedheid van drones en andere middelen.' },
   { key: 'responses', label: 'Reacties', description: 'Stand van de actuele uitvraag of alarmering.' },
   { key: 'flight', label: 'Vluchtgegevens', description: 'Vliegduur en gebruikte drones uit inzetrapporten.' },
@@ -188,7 +188,7 @@ const KPI_VISUALIZATION_LABELS: Record<WallboardKpiVisualization, string> = {
 
 const PAGE_TYPE_OPTIONS: Array<{ value: WallboardPageType; label: string }> = [
   { value: 'map', label: 'Kaart' },
-  { value: 'incident_list', label: 'Incidentenlijst' },
+  { value: 'deployment_list', label: 'Inzettenlijst' },
   { value: 'summary', label: 'Samenvatting' },
   { value: 'kpi', label: 'KPI-overzicht' },
   { value: 'calendar', label: 'Agenda' },
@@ -236,7 +236,7 @@ const FOCUS_TYPES: Array<{
   {
     kind: 'test_alarm',
     label: 'Proefalarmering',
-    description: 'Maakt een proefalarm tijdelijk prominent zonder het als actief incident te tellen.',
+    description: 'Maakt een proefalarm tijdelijk prominent zonder het als actieve inzet te tellen.',
     icon: Radio,
   },
 ];
@@ -286,13 +286,13 @@ export function WallboardConfigurationEditor({
     if (configuration.pages.length <= 1) return;
     setConfiguration((current) => {
       const pages = current.pages.filter((page) => page.id !== pageId);
-      const overridePageId = current.incident_override.page_id === pageId
+      const overridePageId = current.deployment_override.page_id === pageId
         ? pages[0].id
-        : current.incident_override.page_id;
+        : current.deployment_override.page_id;
       return {
         ...current,
         pages,
-        incident_override: { ...current.incident_override, page_id: overridePageId },
+        deployment_override: { ...current.deployment_override, page_id: overridePageId },
       };
     });
     const nextPage = configuration.pages.find((page) => page.id !== pageId);
@@ -1755,7 +1755,7 @@ function WallboardPageEditor({
         </fieldset>
       ) : (
         <div className="wallboard-page-editor__page-options">
-          <p className="wallboard-page-editor__hint">Deze pagina toont uitsluitend operationele incidenten; proefalarmen verschijnen alleen tijdelijk als prominente alarmmelding.</p>
+          <p className="wallboard-page-editor__hint">Deze pagina toont uitsluitend operationele inzetten; proefalarmen verschijnen alleen tijdelijk als prominente alarmmelding.</p>
         </div>
       )}
     </div>
@@ -1765,7 +1765,7 @@ function WallboardPageEditor({
 export function WallboardPageTypeIcon({ type }: { type: WallboardPageType }) {
   switch (type) {
     case 'map': return <Map size={18} aria-hidden />;
-    case 'incident_list': return <List size={18} aria-hidden />;
+    case 'deployment_list': return <List size={18} aria-hidden />;
     case 'summary': return <BarChart3 size={18} aria-hidden />;
     case 'kpi': return <Gauge size={18} aria-hidden />;
     case 'calendar': return <CalendarDays size={18} aria-hidden />;

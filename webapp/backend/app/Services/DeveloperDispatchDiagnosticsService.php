@@ -3,10 +3,10 @@
 namespace App\Services;
 
 use App\Models\AuditLog;
+use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
-use App\Models\Incident;
 use App\Models\PushDeliveryLog;
 use App\Support\ApiDateTime;
 use Illuminate\Database\Eloquent\Builder;
@@ -15,7 +15,7 @@ final class DeveloperDispatchDiagnosticsService
 {
     private const ROW_LIMIT = 250;
 
-    private const INCIDENT_DISPATCH_LIMIT = 100;
+    private const DEPLOYMENT_DISPATCH_LIMIT = 100;
 
     private const TIMELINE_LIMIT = 100;
 
@@ -56,19 +56,19 @@ final class DeveloperDispatchDiagnosticsService
     ];
 
     /** @return array<string, mixed> */
-    public function listForIncident(Incident $incident): array
+    public function listForDeployment(Deployment $deployment): array
     {
-        $query = DispatchRequest::query()->where('incident_id', $incident->id);
+        $query = DispatchRequest::query()->where('deployment_id', $deployment->id);
         $total = (clone $query)->count();
         $rows = (clone $query)
             ->latest('created_at')
             ->orderByDesc('id')
-            ->limit(self::INCIDENT_DISPATCH_LIMIT)
+            ->limit(self::DEPLOYMENT_DISPATCH_LIMIT)
             ->get(['id', 'status', 'sent_at', 'cancelled_at', 'created_at', 'updated_at']);
 
         return [
             'generated_at' => ApiDateTime::now(),
-            'incident_id' => (string) $incident->id,
+            'deployment_id' => (string) $deployment->id,
             'total' => $total,
             'rows_truncated' => $total > $rows->count(),
             'dispatches' => $rows->map(fn (DispatchRequest $dispatch): array => [
@@ -130,8 +130,8 @@ final class DeveloperDispatchDiagnosticsService
             ])
             ->reverse()
             ->values();
-        $incident = Incident::withTrashed()
-            ->find($dispatch->incident_id, ['id', 'status', 'is_test', 'updated_at', 'deleted_at']);
+        $deployment = Deployment::withTrashed()
+            ->find($dispatch->deployment_id, ['id', 'status', 'is_test', 'updated_at', 'deleted_at']);
         $dispatchTimeline = AuditLog::query()
             ->where('target_type', DispatchRequest::class)
             ->where('target_id', $dispatch->id)
@@ -140,12 +140,12 @@ final class DeveloperDispatchDiagnosticsService
             ->limit(self::TIMELINE_LIMIT)
             ->get(['action', 'metadata', 'created_at'])
             ->map(fn (AuditLog $entry): array => $this->timelineEntry($entry, 'dispatch'));
-        $preannouncementTimeline = $incident === null
+        $preannouncementTimeline = $deployment === null
             ? collect()
             : AuditLog::query()
-                ->where('target_type', Incident::class)
-                ->where('target_id', $incident->id)
-                ->where('action', 'incidents.preannouncement_sent')
+                ->where('target_type', Deployment::class)
+                ->where('target_id', $deployment->id)
+                ->where('action', 'deployments.preannouncement_sent')
                 ->latest('created_at')
                 ->limit(self::TIMELINE_LIMIT)
                 ->get(['action', 'metadata', 'created_at'])
@@ -154,7 +154,7 @@ final class DeveloperDispatchDiagnosticsService
 
                     return is_array($dispatchIds) && in_array((string) $dispatch->id, $dispatchIds, true);
                 })
-                ->map(fn (AuditLog $entry): array => $this->timelineEntry($entry, 'incident'));
+                ->map(fn (AuditLog $entry): array => $this->timelineEntry($entry, 'deployment'));
         $timeline = $dispatchTimeline
             ->concat($preannouncementTimeline)
             ->sortBy('created_at')
@@ -171,12 +171,12 @@ final class DeveloperDispatchDiagnosticsService
                 'sent_at' => ApiDateTime::dateTime($dispatch->sent_at),
                 'cancelled_at' => ApiDateTime::dateTime($dispatch->cancelled_at),
             ],
-            'incident' => $incident === null ? null : [
-                'id' => (string) $incident->id,
-                'status' => (string) $incident->status,
-                'is_test' => (bool) $incident->is_test,
-                'deleted' => $incident->deleted_at !== null,
-                'updated_at' => ApiDateTime::dateTime($incident->updated_at),
+            'deployment' => $deployment === null ? null : [
+                'id' => (string) $deployment->id,
+                'status' => (string) $deployment->status,
+                'is_test' => (bool) $deployment->is_test,
+                'deleted' => $deployment->deleted_at !== null,
+                'updated_at' => ApiDateTime::dateTime($deployment->updated_at),
             ],
             'recipients' => [
                 'total' => $recipientTotal,

@@ -60,7 +60,7 @@ export function RolesPage() {
           <strong>Standaard voor iedere ingelogde gebruiker</strong>
           <p>Iedere gebruiker kan altijd het eigen profiel bekijken en de eigen profielgegevens beheren waar dat is toegestaan. Dat is basisfunctionaliteit en staat daarom niet als aparte permissie in rollen.</p>
           <p>MFA wordt systeemwijd ingesteld bij Admin onder MFA en wachtwoordeisen. Rollen bepalen toegang tot de Operator-app, webbeheer en afzonderlijke functies.</p>
-          <p>Rond incidenten zijn rechten bewust gescheiden: incidentregistratie gaat over gegevens en status, incidentalarmering gaat over vooraankondigen, alarmeren, opkomst en opschalen.</p>
+          <p>Rond inzetten zijn rechten bewust gescheiden: inzetregistratie gaat over gegevens en status, alarmering gaat over vooraankondigen, alarmeren, opkomst en opschalen.</p>
         </div>
         <ResourceState loading={roles.loading} error={roles.error} empty={(roles.data?.length ?? 0) === 0}>
           <table className="data-table">

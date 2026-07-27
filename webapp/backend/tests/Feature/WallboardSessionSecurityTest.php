@@ -3,9 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\AvailabilityStatus;
+use App\Models\Deployment;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
-use App\Models\Incident;
 use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
 use App\Models\User;
@@ -224,12 +224,12 @@ final class WallboardSessionSecurityTest extends TestCase
         $this->travelTo(now()->startOfSecond());
         $wallboard = $this->wallboard([
             'map' => [
-                'show_active_incidents' => true,
-                'show_test_incidents' => false,
+                'show_active_deployments' => true,
+                'show_test_deployments' => false,
                 'show_live_locations' => true,
                 'show_routes' => false,
                 'show_command_centers' => false,
-                'show_historical_incidents' => false,
+                'show_historical_deployments' => false,
             ],
         ]);
         [, $cookie] = $this->sessionCredential($wallboard);
@@ -237,10 +237,10 @@ final class WallboardSessionSecurityTest extends TestCase
 
         $pilot = $this->pilot('visible-pilot@example.test', 'Actuele piloot', 'GEHEIM-WOONADRES');
         $stalePilot = $this->pilot('stale-pilot@example.test', 'Verlopen piloot', 'NOG-EEN-GEHEIM');
-        $incident = $this->incident($pilot, 'WALLBOARD-001', false, 'active');
-        $this->incident($pilot, 'WALLBOARD-DRAFT', false, 'draft');
-        $this->incident($pilot, 'WALLBOARD-TEST', true, 'active');
-        $dispatch = $this->sentDispatch($incident, $pilot);
+        $deployment = $this->deployment($pilot, 'WALLBOARD-001', false, 'active');
+        $this->deployment($pilot, 'WALLBOARD-DRAFT', false, 'draft');
+        $this->deployment($pilot, 'WALLBOARD-TEST', true, 'active');
+        $dispatch = $this->sentDispatch($deployment, $pilot);
         $this->acceptedRecipient($dispatch, $pilot);
         $this->acceptedRecipient($dispatch, $stalePilot);
         AvailabilityStatus::query()->create([
@@ -249,15 +249,15 @@ final class WallboardSessionSecurityTest extends TestCase
             'is_available' => false,
             'effective_at' => now(),
         ]);
-        $consent = $this->consent($incident, $pilot);
-        $staleConsent = $this->consent($incident, $stalePilot);
-        $this->location($incident, $pilot, $consent, now());
-        $this->location($incident, $stalePilot, $staleConsent, now()->subMinutes(6));
+        $consent = $this->consent($deployment, $pilot);
+        $staleConsent = $this->consent($deployment, $stalePilot);
+        $this->location($deployment, $pilot, $consent, now());
+        $this->location($deployment, $stalePilot, $staleConsent, now()->subMinutes(6));
 
         $state = $this->browserJson('GET', '/api/wallboard/state')
             ->assertOk()
-            ->assertJsonCount(1, 'data.map.incidents')
-            ->assertJsonPath('data.map.incidents.0.reference', 'WALLBOARD-001')
+            ->assertJsonCount(1, 'data.map.deployments')
+            ->assertJsonPath('data.map.deployments.0.reference', 'WALLBOARD-001')
             ->assertJsonCount(1, 'data.map.live_locations')
             ->assertJsonPath('data.map.live_locations.0.user.id', $pilot->id)
             ->assertJsonPath('data.map.live_locations.0.user.name', $pilot->name)
@@ -305,11 +305,11 @@ final class WallboardSessionSecurityTest extends TestCase
             'layout' => Wallboard::LAYOUT_FULLSCREEN_MAP,
             'configuration' => WallboardConfiguration::normalize($configuration, [
                 'map' => [
-                    'show_active_incidents' => false,
+                    'show_active_deployments' => false,
                     'show_live_locations' => false,
                     'show_routes' => false,
                     'show_command_centers' => false,
-                    'show_historical_incidents' => false,
+                    'show_historical_deployments' => false,
                 ],
             ]),
             'is_enabled' => true,
@@ -448,11 +448,11 @@ final class WallboardSessionSecurityTest extends TestCase
         ]);
     }
 
-    private function incident(User $creator, string $reference, bool $isTest, string $status): Incident
+    private function deployment(User $creator, string $reference, bool $isTest, string $status): Deployment
     {
-        return Incident::query()->create([
+        return Deployment::query()->create([
             'reference' => $reference,
-            'title' => 'Operationeel incident',
+            'title' => 'Operationeel deployment',
             'description' => 'Publieke operationele omschrijving',
             'internal_notes' => 'INTERNE-NOTITIE',
             'reporter_name' => 'REPORTER-GEHEIM',
@@ -471,10 +471,10 @@ final class WallboardSessionSecurityTest extends TestCase
         ]);
     }
 
-    private function sentDispatch(Incident $incident, User $creator): DispatchRequest
+    private function sentDispatch(Deployment $deployment, User $creator): DispatchRequest
     {
         return DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $creator->id,
             'requested_by_name' => $creator->name,
             'requested_by_email' => $creator->email,
@@ -498,10 +498,10 @@ final class WallboardSessionSecurityTest extends TestCase
         ]);
     }
 
-    private function consent(Incident $incident, User $pilot): LocationSharingConsent
+    private function consent(Deployment $deployment, User $pilot): LocationSharingConsent
     {
         return LocationSharingConsent::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'is_active' => true,
             'consented_at' => now()->subMinute(),
@@ -509,13 +509,13 @@ final class WallboardSessionSecurityTest extends TestCase
     }
 
     private function location(
-        Incident $incident,
+        Deployment $deployment,
         User $pilot,
         LocationSharingConsent $consent,
         \DateTimeInterface $timestamp,
     ): void {
         LocationUpdate::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'user_id' => $pilot->id,
             'consent_state_version' => $consent->state_version,
             'latitude' => 52.10,

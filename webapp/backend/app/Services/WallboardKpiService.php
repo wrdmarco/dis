@@ -33,7 +33,7 @@ final class WallboardKpiService
     public function __construct(
         private readonly WallboardKpiRepository $repository,
         private readonly AvailabilityScheduleService $availabilityScheduleService,
-        private readonly PilotIncidentReportFormService $pilotReportFormService,
+        private readonly PilotDeploymentReportFormService $pilotReportFormService,
     ) {}
 
     /**
@@ -99,34 +99,34 @@ final class WallboardKpiService
             $numerators['pilot_availability_rate'] = $available;
         }
 
-        if (in_array('incidents', $categories, true)) {
-            $counts = $this->repository->activeIncidentCounts();
-            $values['incidents_total'] = $counts['total'];
+        if (in_array('deployments', $categories, true)) {
+            $counts = $this->repository->activeDeploymentCounts();
+            $values['deployments_total'] = $counts['total'];
             foreach ($counts['by_status'] as $status => $count) {
-                $values['incidents_'.$status] = $count;
-                $denominators['incidents_'.$status] = $counts['total'];
+                $values['deployments_'.$status] = $count;
+                $denominators['deployments_'.$status] = $counts['total'];
             }
             foreach ($counts['by_priority'] as $priority => $count) {
-                $values['incidents_'.$priority] = $count;
-                $denominators['incidents_'.$priority] = $counts['total'];
+                $values['deployments_'.$priority] = $count;
+                $denominators['deployments_'.$priority] = $counts['total'];
             }
             $dayStartUtc = $nowAmsterdam->startOfDay()->setTimezone('UTC');
             $dayEndUtc = $nowAmsterdam->startOfDay()->addDay()->setTimezone('UTC');
-            foreach ($this->repository->incidentLifecycleCounts($dayStartUtc, $dayEndUtc) as $key => $count) {
-                $values['incidents_'.$key] = $count;
+            foreach ($this->repository->deploymentLifecycleCounts($dayStartUtc, $dayEndUtc) as $key => $count) {
+                $values['deployments_'.$key] = $count;
             }
-            $denominators['incidents_resolved_total'] = $values['incidents_registered_total'];
-            $denominators['incidents_cancelled_total'] = $values['incidents_registered_total'];
+            $denominators['deployments_resolved_total'] = $values['deployments_registered_total'];
+            $denominators['deployments_cancelled_total'] = $values['deployments_registered_total'];
 
-            if (in_array('incidents_by_province', $selected, true)) {
-                $segments['incidents_by_province'] = $this->repository->incidentProvinceDistribution();
-                $values['incidents_by_province'] = $this->segmentTotal($segments['incidents_by_province']);
-                $contexts['incidents_by_province'] = 'Sinds registratie · Nederland + onbekend';
+            if (in_array('deployments_by_province', $selected, true)) {
+                $segments['deployments_by_province'] = $this->repository->deploymentProvinceDistribution();
+                $values['deployments_by_province'] = $this->segmentTotal($segments['deployments_by_province']);
+                $contexts['deployments_by_province'] = 'Sinds registratie · Nederland + onbekend';
             }
-            if (in_array('incidents_by_country', $selected, true)) {
-                $segments['incidents_by_country'] = $this->repository->incidentCountryDistribution();
-                $values['incidents_by_country'] = $this->segmentTotal($segments['incidents_by_country']);
-                $contexts['incidents_by_country'] = 'Sinds registratie · onbekend apart';
+            if (in_array('deployments_by_country', $selected, true)) {
+                $segments['deployments_by_country'] = $this->repository->deploymentCountryDistribution();
+                $values['deployments_by_country'] = $this->segmentTotal($segments['deployments_by_country']);
+                $contexts['deployments_by_country'] = 'Sinds registratie · onbekend apart';
             }
         }
 
@@ -265,20 +265,20 @@ final class WallboardKpiService
             'pilots_en_route' => 3,
             'pilots_on_scene' => 2,
             'pilots_push_disabled' => 1,
-            'incidents_total' => 7,
-            'incidents_registered_total' => 248,
-            'incidents_active' => 2,
-            'incidents_dispatching' => 3,
-            'incidents_in_progress' => 2,
-            'incidents_low' => 1,
-            'incidents_normal' => 3,
-            'incidents_high' => 2,
-            'incidents_critical' => 1,
-            'incidents_opened_today' => 4,
-            'incidents_resolved_today' => 3,
-            'incidents_cancelled_today' => 1,
-            'incidents_resolved_total' => 225,
-            'incidents_cancelled_total' => 16,
+            'deployments_total' => 7,
+            'deployments_registered_total' => 248,
+            'deployments_active' => 2,
+            'deployments_dispatching' => 3,
+            'deployments_in_progress' => 2,
+            'deployments_low' => 1,
+            'deployments_normal' => 3,
+            'deployments_high' => 2,
+            'deployments_critical' => 1,
+            'deployments_opened_today' => 4,
+            'deployments_resolved_today' => 3,
+            'deployments_cancelled_today' => 1,
+            'deployments_resolved_total' => 225,
+            'deployments_cancelled_total' => 16,
             'assets_total' => 28,
             'assets_ready' => 23,
             'assets_maintenance' => 3,
@@ -298,8 +298,8 @@ final class WallboardKpiService
             'flight_minutes_this_month' => 1480,
             'average_flight_minutes_this_month' => 46.3,
             'drones_flown_distribution' => 32,
-            'incidents_by_province' => 248,
-            'incidents_by_country' => 248,
+            'deployments_by_province' => 248,
+            'deployments_by_country' => 248,
         ];
         $denominators = [
             'pilots_available' => 18,
@@ -308,15 +308,15 @@ final class WallboardKpiService
             'pilots_en_route' => 18,
             'pilots_on_scene' => 18,
             'pilots_push_disabled' => 18,
-            'incidents_active' => 7,
-            'incidents_dispatching' => 7,
-            'incidents_in_progress' => 7,
-            'incidents_low' => 7,
-            'incidents_normal' => 7,
-            'incidents_high' => 7,
-            'incidents_critical' => 7,
-            'incidents_resolved_total' => 248,
-            'incidents_cancelled_total' => 248,
+            'deployments_active' => 7,
+            'deployments_dispatching' => 7,
+            'deployments_in_progress' => 7,
+            'deployments_low' => 7,
+            'deployments_normal' => 7,
+            'deployments_high' => 7,
+            'deployments_critical' => 7,
+            'deployments_resolved_total' => 248,
+            'deployments_cancelled_total' => 248,
             'assets_ready' => 28,
             'assets_maintenance' => 28,
             'assets_unavailable' => 28,
@@ -346,7 +346,7 @@ final class WallboardKpiService
                 ['label' => 'Overig', 'value' => 2],
                 ['label' => 'Onbekend', 'value' => 1],
             ],
-            'incidents_by_province' => [
+            'deployments_by_province' => [
                 ['label' => 'Groningen', 'value' => 9],
                 ['label' => 'Fryslân', 'value' => 12],
                 ['label' => 'Drenthe', 'value' => 8],
@@ -361,7 +361,7 @@ final class WallboardKpiService
                 ['label' => 'Limburg', 'value' => 10],
                 ['label' => 'Onbekend', 'value' => 3],
             ],
-            'incidents_by_country' => [
+            'deployments_by_country' => [
                 ['label' => 'Nederland', 'value' => 226],
                 ['label' => 'België', 'value' => 13],
                 ['label' => 'Duitsland', 'value' => 7],
@@ -458,9 +458,9 @@ final class WallboardKpiService
     {
         $recipients = $this->repository->activeResponseRecipients()
             ->unique(static function (DispatchRecipient $recipient): string {
-                $incidentId = (string) $recipient->dispatchRequest?->incident_id;
+                $deploymentId = (string) $recipient->dispatchRequest?->deployment_id;
 
-                return $incidentId.'|'.($recipient->user_id === null
+                return $deploymentId.'|'.($recipient->user_id === null
                     ? 'deleted:'.(string) $recipient->id
                     : 'user:'.(string) $recipient->user_id);
             })

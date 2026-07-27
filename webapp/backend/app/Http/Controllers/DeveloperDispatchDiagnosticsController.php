@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiResponse;
+use App\Models\Deployment;
 use App\Models\DispatchRequest;
-use App\Models\Incident;
 use App\Services\AuditService;
 use App\Services\DeveloperAccessService;
 use App\Services\DeveloperDispatchDiagnosticsService;
@@ -31,7 +31,7 @@ final class DeveloperDispatchDiagnosticsController extends Controller
         )->validate();
 
         $dispatch = DispatchRequest::query()
-            ->find($dispatchId, ['id', 'incident_id', 'status', 'sent_at', 'cancelled_at', 'created_at', 'updated_at']);
+            ->find($dispatchId, ['id', 'deployment_id', 'status', 'sent_at', 'cancelled_at', 'created_at', 'updated_at']);
         if ($dispatch === null) {
             return ApiResponse::error('dispatch_not_found', 'Dispatch niet gevonden.', 404);
         }
@@ -52,25 +52,25 @@ final class DeveloperDispatchDiagnosticsController extends Controller
         return ApiResponse::success($payload);
     }
 
-    public function indexForIncident(Request $request, string $incidentId): JsonResponse
+    public function indexForDeployment(Request $request, string $deploymentId): JsonResponse
     {
         // Keep authorization ahead of validation and lookup for the same
         // reason as the dispatch endpoint: no unauthenticated ID oracle.
         $this->developerAccess->authorize($request, DeveloperAccessService::SCOPE_LOGS_READ);
         Validator::make(
-            ['incident_id' => $incidentId],
-            ['incident_id' => ['required', 'ulid']],
+            ['deployment_id' => $deploymentId],
+            ['deployment_id' => ['required', 'ulid']],
         )->validate();
 
-        $incident = Incident::withTrashed()->find($incidentId, ['id']);
-        if ($incident === null) {
-            return ApiResponse::error('incident_not_found', 'Incident niet gevonden.', 404);
+        $deployment = Deployment::withTrashed()->find($deploymentId, ['id']);
+        if ($deployment === null) {
+            return ApiResponse::error('deployment_not_found', 'Inzet niet gevonden.', 404);
         }
 
-        $payload = $this->diagnostics->listForIncident($incident);
+        $payload = $this->diagnostics->listForDeployment($deployment);
         $this->auditService->record(
-            'developer.incident_dispatch_index_read',
-            $incident,
+            'developer.deployment_dispatch_index_read',
+            $deployment,
             null,
             ['dispatch_count' => (int) data_get($payload, 'total', 0)],
             null,

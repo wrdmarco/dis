@@ -22,7 +22,7 @@ final class LocationUpdated implements ShouldBroadcastNow
     {
         return [
             new PrivateChannel('operations'),
-            new PrivateChannel('incidents.'.$this->locationUpdate->incident_id),
+            new PrivateChannel('deployments.'.$this->locationUpdate->deployment_id),
         ];
     }
 

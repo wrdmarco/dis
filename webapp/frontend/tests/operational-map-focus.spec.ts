@@ -1,20 +1,20 @@
 import { expect, test } from 'playwright/test';
 import {
   operationalMapAutoFitPoints,
-  type OperationalMapIncidentModel,
+  type OperationalMapDeploymentModel,
   type OperationalMapLayerModels,
   type OperationalMapLayerVisibility,
-} from '../src/features/incidents/OperationalMapCanvas';
+} from '../src/features/deployments/OperationalMapCanvas';
 
 const visibleLayers: OperationalMapLayerVisibility = {
   commandCenters: true,
-  historicalIncidents: true,
+  historicalDeployments: true,
   pilotHomes: true,
 };
 
 const layers: OperationalMapLayerModels = {
   commandCenters: [{ id: 'center', name: 'Meldkamer', latitude: 53.2, longitude: 6.5 }],
-  historicalIncidents: [{
+  historicalDeployments: [{
     id: 'history',
     reference: 'DIS-100',
     title: 'Afgesloten inzet',
@@ -30,11 +30,11 @@ const layers: OperationalMapLayerModels = {
   }],
 };
 
-function activeIncident(pilotLatitude = 52.105): OperationalMapIncidentModel {
+function activeDeployment(pilotLatitude = 52.105): OperationalMapDeploymentModel {
   return {
-    incident: { id: 'incident', title: 'Actieve inzet' },
+    deployment: { id: 'deployment', title: 'Actieve inzet' },
     color: '#fbbf24',
-    incidentPoint: { latitude: 52.1, longitude: 5.1 },
+    deploymentPoint: { latitude: 52.1, longitude: 5.1 },
     liveLocations: [{
       userId: 'pilot',
       name: 'Actuele piloot',
@@ -57,8 +57,8 @@ function activeIncident(pilotLatitude = 52.105): OperationalMapIncidentModel {
   };
 }
 
-test('frames active incident, current pilots and route without widening for reference layers', () => {
-  const model = activeIncident();
+test('frames active deployment, current pilots and route without widening for reference layers', () => {
+  const model = activeDeployment();
   const points = operationalMapAutoFitPoints({
     models: [model],
     layers,
@@ -68,16 +68,16 @@ test('frames active incident, current pilots and route without widening for refe
   });
 
   expect(points).toEqual([
-    model.incidentPoint,
+    model.deploymentPoint,
     model.liveLocations[0],
     ...model.liveLocations[0].route!.points,
   ]);
   expect(points).not.toContainEqual(layers.commandCenters[0]);
-  expect(points).not.toContainEqual(layers.historicalIncidents[0]);
+  expect(points).not.toContainEqual(layers.historicalDeployments[0]);
   expect(points).not.toContainEqual(layers.pilotHomes[0]);
 
   const movedPilotPoints = operationalMapAutoFitPoints({
-    models: [activeIncident(52.12)],
+    models: [activeDeployment(52.12)],
     layers,
     layerVisibility: visibleLayers,
     showRoutes: true,
@@ -92,7 +92,7 @@ test('uses visible reference layers only when no operational point is available'
     layers,
     layerVisibility: {
       commandCenters: true,
-      historicalIncidents: false,
+      historicalDeployments: false,
       pilotHomes: false,
     },
   })).toEqual(layers.commandCenters);
@@ -104,14 +104,14 @@ test('uses visible reference layers only when no operational point is available'
   })).toEqual([]);
 
   const withoutRoutes = operationalMapAutoFitPoints({
-    models: [activeIncident()],
+    models: [activeDeployment()],
     layers,
     layerVisibility: visibleLayers,
     showRoutes: false,
   });
   expect(withoutRoutes).toHaveLength(2);
   expect(withoutRoutes).toEqual([
-    activeIncident().incidentPoint,
-    activeIncident().liveLocations[0],
+    activeDeployment().deploymentPoint,
+    activeDeployment().liveLocations[0],
   ]);
 });

@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\Deployment;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
-use App\Models\Incident;
 use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
 use App\Models\User;
@@ -84,8 +84,8 @@ final class WallboardFocusTest extends TestCase
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 10:00:00', 'Europe/Amsterdam'));
         $dispatcher = $this->user('focus-pre-dispatcher@example.test', 'Focus dispatcher');
         $wallboard = $this->wallboard();
-        $incident = $this->incident($dispatcher, 'FOCUS-PRE', 'active', false);
-        $dispatch = $this->dispatch($incident, $dispatcher, 'draft');
+        $deployment = $this->deployment($dispatcher, 'FOCUS-PRE', 'active', false);
+        $dispatch = $this->dispatch($deployment, $dispatcher, 'draft');
         $service = app(WallboardStateService::class);
 
         $this->assertNull($service->state($wallboard)['operational_summary']['focus']);
@@ -98,7 +98,7 @@ final class WallboardFocusTest extends TestCase
         $this->assertIsArray($stateFocus);
         $this->assertSame('preannouncement', $stateFocus['kind']);
         $this->assertSame($dispatch->id, $stateFocus['dispatch_id']);
-        $this->assertSame($incident->id, $stateFocus['incident_id']);
+        $this->assertSame($deployment->id, $stateFocus['deployment_id']);
         $this->assertSame('2026-07-20T10:00:00+02:00', $stateFocus['started_at']);
         $this->assertSame('2026-07-20T10:02:00+02:00', $stateFocus['expires_at']);
         $this->assertTrue($stateFocus['visible']);
@@ -122,8 +122,8 @@ final class WallboardFocusTest extends TestCase
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 11:00:00', 'Europe/Amsterdam'));
         $dispatcher = $this->user('focus-test-dispatcher@example.test', 'Test dispatcher');
         $wallboard = $this->wallboard();
-        $incident = $this->incident($dispatcher, 'FOCUS-TEST', 'active', true);
-        $dispatch = $this->dispatch($incident, $dispatcher, 'sent', now());
+        $deployment = $this->deployment($dispatcher, 'FOCUS-TEST', 'active', true);
+        $dispatch = $this->dispatch($deployment, $dispatcher, 'sent', now());
         $confirmed = $this->user('focus-test-confirmed@example.test', 'Test bevestigd');
         $missed = $this->user('focus-test-missed@example.test', 'Test gemist');
         $this->recipient($dispatch, $confirmed, 'accepted', now());
@@ -157,8 +157,8 @@ final class WallboardFocusTest extends TestCase
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 12:00:00', 'Europe/Amsterdam'));
         $dispatcher = $this->user('focus-real-dispatcher@example.test', 'Real dispatcher');
         $wallboard = $this->wallboard();
-        $incident = $this->incident($dispatcher, 'FOCUS-REAL', 'dispatching', false);
-        $dispatch = $this->dispatch($incident, $dispatcher, 'sent', now());
+        $deployment = $this->deployment($dispatcher, 'FOCUS-REAL', 'dispatching', false);
+        $dispatch = $this->dispatch($deployment, $dispatcher, 'sent', now());
         $service = app(WallboardStateService::class);
 
         $firstFocus = $service->state($wallboard)['operational_summary']['focus'];
@@ -205,13 +205,13 @@ final class WallboardFocusTest extends TestCase
         $this->assertSame('2026-07-20T12:01:30+02:00', $nextFocus['next_change_at']);
     }
 
-    public function test_real_alarm_focus_stops_after_every_selected_pilot_has_responded_or_the_incident_is_in_progress(): void
+    public function test_real_alarm_focus_stops_after_every_selected_pilot_has_responded_or_the_deployment_is_in_progress(): void
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 12:30:00', 'Europe/Amsterdam'));
         $dispatcher = $this->user('focus-complete-dispatcher@example.test', 'Complete dispatcher');
         $wallboard = $this->wallboard();
-        $incident = $this->incident($dispatcher, 'FOCUS-COMPLETE', 'dispatching', false);
-        $dispatch = $this->dispatch($incident, $dispatcher, 'sent', now());
+        $deployment = $this->deployment($dispatcher, 'FOCUS-COMPLETE', 'dispatching', false);
+        $dispatch = $this->dispatch($deployment, $dispatcher, 'sent', now());
         $accepted = $this->user('focus-complete-accepted@example.test', 'Accepted pilot');
         $pending = $this->user('focus-complete-pending@example.test', 'Pending pilot');
         $this->recipient($dispatch, $accepted, 'accepted', now());
@@ -234,7 +234,7 @@ final class WallboardFocusTest extends TestCase
             'response_status' => 'pending',
             'responded_at' => null,
         ])->save();
-        $incident->forceFill(['status' => 'in_progress'])->save();
+        $deployment->forceFill(['status' => 'in_progress'])->save();
 
         $this->assertNull($service->control($wallboard)['focus']);
     }
@@ -244,23 +244,23 @@ final class WallboardFocusTest extends TestCase
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 13:00:00', 'Europe/Amsterdam'));
         $dispatcher = $this->user('focus-priority-dispatcher@example.test', 'Priority dispatcher');
         $wallboard = $this->wallboard();
-        $realIncident = $this->incident($dispatcher, 'FOCUS-PRIORITY-REAL', 'dispatching', false);
-        $realDispatch = $this->dispatch($realIncident, $dispatcher, 'sent', now());
+        $realDeployment = $this->deployment($dispatcher, 'FOCUS-PRIORITY-REAL', 'dispatching', false);
+        $realDispatch = $this->dispatch($realDeployment, $dispatcher, 'sent', now());
 
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 13:00:01', 'Europe/Amsterdam'));
-        $preIncident = $this->incident($dispatcher, 'FOCUS-PRIORITY-PRE', 'active', false);
-        $this->dispatch($preIncident, $dispatcher, 'draft', preannouncedAt: now());
+        $preDeployment = $this->deployment($dispatcher, 'FOCUS-PRIORITY-PRE', 'active', false);
+        $this->dispatch($preDeployment, $dispatcher, 'draft', preannouncedAt: now());
 
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 13:00:02', 'Europe/Amsterdam'));
-        $testIncident = $this->incident($dispatcher, 'FOCUS-PRIORITY-TEST', 'active', true);
-        $testDispatch = $this->dispatch($testIncident, $dispatcher, 'sent', now());
+        $testDeployment = $this->deployment($dispatcher, 'FOCUS-PRIORITY-TEST', 'active', true);
+        $testDispatch = $this->dispatch($testDeployment, $dispatcher, 'sent', now());
         $service = app(WallboardStateService::class);
 
         $focus = $service->state($wallboard)['operational_summary']['focus'];
         $this->assertSame('real_alarm', $focus['kind']);
         $this->assertSame($realDispatch->id, $focus['dispatch_id']);
 
-        $realIncident->forceFill(['status' => 'resolved', 'closed_at' => now()])->save();
+        $realDeployment->forceFill(['status' => 'resolved', 'closed_at' => now()])->save();
         $afterRealAlarm = $service->state($wallboard)['operational_summary']['focus'];
         $this->assertSame('test_alarm', $afterRealAlarm['kind']);
         $this->assertSame($testDispatch->id, $afterRealAlarm['dispatch_id']);
@@ -270,9 +270,9 @@ final class WallboardFocusTest extends TestCase
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 14:00:00', 'Europe/Amsterdam'));
         $dispatcher = $this->user('focus-feed-dispatcher@example.test', 'Feed dispatcher');
-        $incident = $this->incident($dispatcher, 'FOCUS-FEED', 'dispatching', false);
-        $firstDispatch = $this->dispatch($incident, $dispatcher, 'sent', now());
-        $secondDispatch = $this->dispatch($incident, $dispatcher, 'escalated', now());
+        $deployment = $this->deployment($dispatcher, 'FOCUS-FEED', 'dispatching', false);
+        $firstDispatch = $this->dispatch($deployment, $dispatcher, 'sent', now());
+        $secondDispatch = $this->dispatch($deployment, $dispatcher, 'escalated', now());
 
         $users = [];
         for ($index = 0; $index < 26; $index++) {
@@ -337,8 +337,8 @@ final class WallboardFocusTest extends TestCase
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 15:00:00', 'Europe/Amsterdam'));
         $dispatcher = $this->user('focus-pre-count-dispatcher@example.test', 'Pre count dispatcher');
-        $incident = $this->incident($dispatcher, 'FOCUS-PRE-COUNTS', 'active', false);
-        $dispatch = $this->dispatch($incident, $dispatcher, 'draft', preannouncedAt: now());
+        $deployment = $this->deployment($dispatcher, 'FOCUS-PRE-COUNTS', 'active', false);
+        $dispatch = $this->dispatch($deployment, $dispatcher, 'draft', preannouncedAt: now());
         $available = $this->user('focus-pre-available@example.test', 'Beschikbare piloot');
         $unavailable = $this->user('focus-pre-unavailable@example.test', 'Niet beschikbare piloot');
         $pending = $this->user('focus-pre-pending@example.test', 'Wachtende piloot');
@@ -405,12 +405,12 @@ final class WallboardFocusTest extends TestCase
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 15:30:00', 'Europe/Amsterdam'));
         $dispatcher = $this->user('focus-coming-dispatcher@example.test', 'Coming dispatcher');
-        $incident = $this->incident($dispatcher, 'FOCUS-COMING', 'dispatching', false);
-        $incident->forceFill([
+        $deployment = $this->deployment($dispatcher, 'FOCUS-COMING', 'dispatching', false);
+        $deployment->forceFill([
             'latitude' => 52.0907000,
             'longitude' => 5.1214000,
         ])->save();
-        $dispatch = $this->dispatch($incident, $dispatcher, 'sent', now());
+        $dispatch = $this->dispatch($deployment, $dispatcher, 'sent', now());
 
         $users = [];
         for ($index = 0; $index < 26; $index++) {
@@ -424,14 +424,14 @@ final class WallboardFocusTest extends TestCase
 
         foreach ([$users[0], $users[1]] as $index => $user) {
             LocationSharingConsent::query()->create([
-                'incident_id' => $incident->id,
+                'deployment_id' => $deployment->id,
                 'user_id' => $user->id,
                 'is_active' => true,
                 'state_version' => 2,
                 'consented_at' => now()->subMinute(),
             ]);
             LocationUpdate::query()->create([
-                'incident_id' => $incident->id,
+                'deployment_id' => $deployment->id,
                 'user_id' => $user->id,
                 'consent_state_version' => 2,
                 'latitude' => 52.1601000,
@@ -566,17 +566,17 @@ final class WallboardFocusTest extends TestCase
         ]);
     }
 
-    private function incident(
+    private function deployment(
         User $creator,
         string $reference,
         string $status,
         bool $isTest,
-    ): Incident {
-        return Incident::query()->create([
+    ): Deployment {
+        return Deployment::query()->create([
             'reference' => $reference,
             'title' => 'Wallboardfocus '.$reference,
-            'description' => 'FOCUS-INCIDENT-DESCRIPTION-SECRET',
-            'internal_notes' => 'FOCUS-INCIDENT-NOTES-SECRET',
+            'description' => 'FOCUS-DEPLOYMENT-DESCRIPTION-SECRET',
+            'internal_notes' => 'FOCUS-DEPLOYMENT-NOTES-SECRET',
             'priority' => 'high',
             'status' => $status,
             'is_test' => $isTest,
@@ -589,19 +589,19 @@ final class WallboardFocusTest extends TestCase
     }
 
     private function dispatch(
-        Incident $incident,
+        Deployment $deployment,
         User $dispatcher,
         string $status,
         ?\DateTimeInterface $sentAt = null,
         ?\DateTimeInterface $preannouncedAt = null,
     ): DispatchRequest {
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $dispatcher->id,
             'requested_by_name' => $dispatcher->name,
             'requested_by_email' => $dispatcher->email,
             'status' => $status,
-            'priority' => $incident->priority,
+            'priority' => $deployment->priority,
             'message' => 'FOCUS-DISPATCH-MESSAGE-SECRET',
             'sent_at' => $sentAt,
         ]);

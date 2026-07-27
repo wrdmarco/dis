@@ -32,7 +32,7 @@ final class WebNavigationPermissionTest extends TestCase
             ['GET', 'api/users/{user}/vacations', 'permission:vacations.view,vacations.manage'],
             ['POST', 'api/users/{user}/vacations', 'permission:vacations.manage'],
             ['GET', 'api/admin/pilot-report/form-config', 'permission:forms.manage'],
-            ['PATCH', 'api/admin/incident-form/config', 'permission:forms.manage'],
+            ['PATCH', 'api/admin/deployment-form/config', 'permission:forms.manage'],
             ['GET', 'api/admin/settings', 'permission:settings.manage'],
             ['GET', 'api/admin/knmi', 'permission:knmi.manage'],
             ['GET', 'api/admin/branding/settings', 'permission:branding.manage'],
@@ -124,6 +124,30 @@ final class WebNavigationPermissionTest extends TestCase
         $this->assertSame(['private-admin.routing'], $channelNames);
     }
 
+    public function test_deployment_manager_can_authorize_the_operations_realtime_channel(): void
+    {
+        config(['broadcasting.default' => 'reverb']);
+        Broadcast::forgetDrivers();
+        require base_path('routes/channels.php');
+
+        $deploymentManager = $this->user('deployment-realtime-manager@example.test');
+        $this->grant($deploymentManager, ['deployments.manage']);
+
+        $this->asWebClient($deploymentManager)
+            ->postJson('/api/broadcasting/auth', [
+                'socket_id' => '123.456',
+                'channel_name' => 'private-operations',
+            ])
+            ->assertOk();
+
+        $this->asWebClient($deploymentManager)
+            ->postJson('/api/broadcasting/auth', [
+                'socket_id' => '123.456',
+                'channel_name' => 'private-deployment-requests',
+            ])
+            ->assertOk();
+    }
+
     public function test_dedicated_navigation_permissions_open_only_their_intended_read_pages(): void
     {
         $manager = $this->user('dedicated-navigation-manager@example.test');
@@ -145,7 +169,7 @@ final class WebNavigationPermissionTest extends TestCase
             ->getJson('/api/admin/pilot-report/form-config')
             ->assertOk();
         $this->asWebClient($manager)
-            ->getJson('/api/admin/incident-form/config')
+            ->getJson('/api/admin/deployment-form/config')
             ->assertOk();
         $this->asWebClient($manager)
             ->getJson('/api/admin/knmi')

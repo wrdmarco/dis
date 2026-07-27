@@ -243,7 +243,7 @@ final class UserService
         $personalAssetIds = DB::table('asset_assignments')
             ->select('asset_id')
             ->where('user_id', $userId)
-            ->whereNull('incident_id')
+            ->whereNull('deployment_id')
             ->whereNotExists(function ($query) use ($userId): void {
                 $query->selectRaw('1')
                     ->from('asset_assignments as other_assignments')
@@ -251,7 +251,7 @@ final class UserService
                     ->where(function ($otherAssignments) use ($userId): void {
                         $otherAssignments
                             ->where('other_assignments.user_id', '<>', $userId)
-                            ->orWhereNotNull('other_assignments.incident_id');
+                            ->orWhereNotNull('other_assignments.deployment_id');
                     });
             })
             ->pluck('asset_id');

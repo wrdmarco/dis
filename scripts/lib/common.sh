@@ -52,38 +52,59 @@ run_cmd() {
   fi
 }
 
-set_managed_env_secret() (
+canonical_dis_data_path() {
+  local resolved_data_path
+
+  resolved_data_path="$(/usr/bin/readlink -f -- "${DIS_DATA_PATH}" 2>/dev/null || true)"
+  [ -n "${resolved_data_path}" ] && [ -d "${resolved_data_path}" ] \
+    || return 1
+  printf '%s\n' "${resolved_data_path}"
+}
+
+mutate_managed_env_value() (
   set -euo pipefail
 
-  local env_file="$1" key="$2" value="$3"
-  local resolved_env temporary="" line found=0
+  local operation="$1" env_file="$2" key="$3" value="${4-}"
+  local resolved_data_path resolved_env expected_env temporary="" line found=0 source_acl target_acl
 
   require_root
+  case "${operation}" in
+    set|remove)
+      ;;
+    *)
+      fail "Invalid managed environment mutation."
+      ;;
+  esac
   [[ "${key}" =~ ^[A-Z][A-Z0-9_]*$ ]] \
-    || fail "Invalid managed environment secret name."
-  [ -n "${value}" ] && [[ "${value}" != *$'\n'* ]] && [[ "${value}" != *$'\r'* ]] \
-    || fail "Invalid managed environment secret value."
-  resolved_env="$(readlink -f -- "${env_file}" 2>/dev/null || true)"
-  [ "${resolved_env}" = "${DIS_DATA_PATH}/.env" ] \
-    || fail "The managed environment secret target does not resolve to ${DIS_DATA_PATH}/.env."
+    || fail "Invalid managed environment key."
+  if [ "${operation}" = "set" ]; then
+    [[ "${value}" != *$'\n'* ]] && [[ "${value}" != *$'\r'* ]] \
+      || fail "Invalid managed environment value."
+  fi
+  resolved_data_path="$(canonical_dis_data_path)" \
+    || fail "The managed data path could not be canonicalized."
+  expected_env="${resolved_data_path}/.env"
+  resolved_env="$(/usr/bin/readlink -f -- "${env_file}" 2>/dev/null || true)"
+  [ "${resolved_env}" = "${expected_env}" ] \
+    || fail "The managed environment target does not resolve to ${expected_env}."
   [ -f "${resolved_env}" ] && [ ! -L "${resolved_env}" ] \
     && [ "$(stat -c '%h' -- "${resolved_env}" 2>/dev/null || true)" = "1" ] \
     || fail "The managed environment file is not a safe regular file."
   require_root_controlled_parent "${resolved_env}"
 
   if [ "${DRY_RUN:-0}" = "1" ]; then
-    log "Would set managed environment secret ${key}."
+    log "Would ${operation} managed environment key ${key}."
     return 0
   fi
 
-  temporary="$(mktemp "${resolved_env}.secret.XXXXXX")"
-  cleanup_managed_env_secret() {
+  temporary="$(mktemp "${resolved_env}.rewrite.XXXXXX")"
+  cleanup_managed_env_mutation() {
     local exit_code="$?"
     trap - EXIT INT TERM
     rm -f -- "${temporary:-}" 2>/dev/null || true
     exit "${exit_code}"
   }
-  trap cleanup_managed_env_secret EXIT
+  trap cleanup_managed_env_mutation EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
   chmod 0600 "${temporary}"
@@ -91,7 +112,9 @@ set_managed_env_secret() (
   while IFS= read -r line || [ -n "${line}" ]; do
     case "${line}" in
       "${key}="*)
-        printf '%s=%s\n' "${key}" "${value}" >> "${temporary}"
+        if [ "${operation}" = "set" ] && [ "${found}" = "0" ]; then
+          printf '%s=%s\n' "${key}" "${value}" >> "${temporary}"
+        fi
         found=1
         ;;
       *)
@@ -99,22 +122,45 @@ set_managed_env_secret() (
         ;;
     esac
   done < "${resolved_env}"
-  if [ "${found}" = "0" ]; then
+  if [ "${operation}" = "set" ] && [ "${found}" = "0" ]; then
     printf '%s=%s\n' "${key}" "${value}" >> "${temporary}"
   fi
 
-  chown root:"${DIS_GROUP}" "${temporary}"
-  chmod 0640 "${temporary}"
+  [ -x /usr/bin/getfacl ] && [ -x /usr/bin/setfacl ] \
+    || fail "getfacl and setfacl are required for managed environment updates."
+  chown --reference="${resolved_env}" "${temporary}"
+  chmod --reference="${resolved_env}" "${temporary}"
+  /usr/bin/getfacl -cp -- "${resolved_env}" \
+    | /usr/bin/setfacl --set-file=- -- "${temporary}"
+  [ "$(stat -c '%u:%g:%a' -- "${temporary}")" = "$(stat -c '%u:%g:%a' -- "${resolved_env}")" ] \
+    || fail "The managed environment replacement did not preserve ownership and mode."
+  source_acl="$(/usr/bin/getfacl -cp -- "${resolved_env}")"
+  target_acl="$(/usr/bin/getfacl -cp -- "${temporary}")"
+  [ "${target_acl}" = "${source_acl}" ] \
+    || fail "The managed environment replacement did not preserve its ACL."
   sync -f "${temporary}"
   mv -fT -- "${temporary}" "${resolved_env}"
   temporary=""
   sync -f "${resolved_env}"
   sync -f "$(dirname "${resolved_env}")"
-  if id www-data >/dev/null 2>&1; then
-    setfacl -m "u:www-data:r--" "${resolved_env}"
-  fi
   trap - EXIT INT TERM
 )
+
+set_managed_env_value() {
+  mutate_managed_env_value set "$1" "$2" "$3"
+}
+
+remove_managed_env_key() {
+  mutate_managed_env_value remove "$1" "$2"
+}
+
+set_managed_env_secret() {
+  local value="$3"
+
+  [ -n "${value}" ] \
+    || fail "Invalid managed environment secret value."
+  set_managed_env_value "$1" "$2" "${value}"
+}
 
 require_file() {
   local path="$1"
@@ -916,7 +962,7 @@ stop_dis_deployment_services() {
   fi
   # Stop the interruptible media worker next. Its SIGTERM contract republishes
   # an in-flight transcode before the remaining deployment services go down.
-  for service in dis-media dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime "${PHP_FPM_SERVICE}"; do
+  for service in dis-media dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-scheduler dis-websocket dis-frontend dis-deployment-enrichment dis-incident-enrichment dis-knmi dis-knmi-realtime "${PHP_FPM_SERVICE}"; do
     if systemd_service_exists "${service}"; then
       run_cmd systemctl stop "${service}"
     fi
@@ -1052,7 +1098,7 @@ start_dis_operational_services() {
     run_cmd runuser -u "${DIS_USER}" -- php "${DIS_INSTALL_PATH}/webapp/backend/artisan" \
       dis:check-backup-request-worker --timeout=30
   fi
-  for service in dis-media dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-scheduler dis-websocket dis-incident-enrichment dis-knmi dis-knmi-realtime; do
+  for service in dis-media dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-scheduler dis-websocket dis-deployment-enrichment dis-knmi dis-knmi-realtime; do
     if systemd_service_exists "${service}"; then
       run_cmd systemctl start "${service}"
     fi
@@ -1078,7 +1124,7 @@ require_dis_web_services() {
 require_dis_runtime_services() {
   local service
 
-  for service in nginx "${PHP_FPM_SERVICE}" dis-frontend dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-media dis-scheduler dis-websocket dis-incident-enrichment dis-knmi dis-knmi-realtime; do
+  for service in nginx "${PHP_FPM_SERVICE}" dis-frontend dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-media dis-scheduler dis-websocket dis-deployment-enrichment dis-knmi dis-knmi-realtime; do
     if ! systemd_service_exists "${service}"; then
       fail "Required systemd service is not installed: ${service}.service"
     fi

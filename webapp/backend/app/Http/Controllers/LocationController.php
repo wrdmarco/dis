@@ -6,11 +6,11 @@ use App\DTO\Routing\RouteEstimate;
 use App\DTO\Routing\RouteGeometry;
 use App\DTO\Routing\RoutePoint;
 use App\Http\Responses\ApiResponse;
-use App\Models\Incident;
+use App\Models\Deployment;
 use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
 use App\Models\User;
-use App\Services\IncidentAccessService;
+use App\Services\DeploymentAccessService;
 use App\Services\LocationService;
 use App\Services\Routing\RouteGeometryService;
 use App\Services\Routing\RoutingService;
@@ -25,52 +25,52 @@ final class LocationController extends Controller
 {
     public function __construct(
         private readonly LocationService $service,
-        private readonly IncidentAccessService $access,
+        private readonly DeploymentAccessService $access,
         private readonly RoutingService $routingService,
         private readonly RouteGeometryService $routeGeometryService,
     ) {}
 
-    public function consent(Request $request, Incident $incident): JsonResponse
+    public function consent(Request $request, Deployment $deployment): JsonResponse
     {
-        $this->access->assertCanViewIncident($request->user(), $incident);
+        $this->access->assertCanViewDeployment($request->user(), $deployment);
 
-        return ApiResponse::success($this->service->consent($incident, $request->user()), 201);
+        return ApiResponse::success($this->service->consent($deployment, $request->user()), 201);
     }
 
-    public function revoke(Request $request, Incident $incident): Response
+    public function revoke(Request $request, Deployment $deployment): Response
     {
-        $this->access->assertCanViewIncident($request->user(), $incident);
-        $this->service->revoke($incident, $request->user());
+        $this->access->assertCanViewDeployment($request->user(), $deployment);
+        $this->service->revoke($deployment, $request->user());
 
         return response()->noContent();
     }
 
-    public function decline(Request $request, Incident $incident): JsonResponse
+    public function decline(Request $request, Deployment $deployment): JsonResponse
     {
-        $this->access->assertCanViewIncident($request->user(), $incident);
+        $this->access->assertCanViewDeployment($request->user(), $deployment);
         $data = $request->validate([
             'reason' => ['nullable', 'string', 'max:120'],
         ]);
 
-        return ApiResponse::success($this->service->decline($incident, $request->user(), $data['reason'] ?? null));
+        return ApiResponse::success($this->service->decline($deployment, $request->user(), $data['reason'] ?? null));
     }
 
-    public function requestSharing(Request $request, Incident $incident): JsonResponse
+    public function requestSharing(Request $request, Deployment $deployment): JsonResponse
     {
         $data = $request->validate([
             'user_id' => ['required', 'ulid', 'exists:users,id'],
         ]);
 
         return ApiResponse::success($this->service->requestSharing(
-            $incident,
+            $deployment,
             User::query()->findOrFail($data['user_id']),
             $request->user(),
         ));
     }
 
-    public function update(Request $request, Incident $incident): Response
+    public function update(Request $request, Deployment $deployment): Response
     {
-        $this->access->assertCanViewIncident($request->user(), $incident);
+        $this->access->assertCanViewDeployment($request->user(), $deployment);
         $data = $request->validate([
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
@@ -78,14 +78,14 @@ final class LocationController extends Controller
             'recorded_at' => ['nullable', 'bail', 'date', 'before_or_equal:'.now()->addMinutes(2)->toIso8601String()],
         ]);
 
-        $this->service->updateLocation($incident, $request->user(), $data);
+        $this->service->updateLocation($deployment, $request->user(), $data);
 
         return response()->noContent();
     }
 
-    public function liveLocations(Request $request, Incident $incident): JsonResponse
+    public function liveLocations(Request $request, Deployment $deployment): JsonResponse
     {
-        $this->access->assertCanViewIncident($request->user(), $incident);
+        $this->access->assertCanViewDeployment($request->user(), $deployment);
         $query = $request->validate([
             'include_routes' => ['sometimes', 'boolean'],
         ]);
@@ -93,11 +93,11 @@ final class LocationController extends Controller
         if ($includeRoutes && ! $request->user()->hasPermission('operational-map.view')) {
             throw new AuthorizationException('Viewing live pilot routes requires operational map access.');
         }
-        if ($this->service->isClosedForLocationSharing($incident)) {
+        if ($this->service->isClosedForLocationSharing($deployment)) {
             return ApiResponse::success([]);
         }
 
-        $acceptedRecipients = $incident->dispatchRequests()
+        $acceptedRecipients = $deployment->dispatchRequests()
             ->whereIn('status', ['sent', 'escalated'])
             ->with(['recipients.user.statuses' => fn ($statuses) => $statuses->latestPerUser()])
             ->latest()
@@ -113,11 +113,11 @@ final class LocationController extends Controller
 
         $acceptedUserIds = $acceptedRecipients->pluck('user_id')->unique()->values();
         $activeConsentUserIds = LocationSharingConsent::query()
-            ->where('incident_id', $incident->id)
+            ->where('deployment_id', $deployment->id)
             ->where('is_active', true)
             ->whereIn('user_id', $acceptedUserIds)
             ->pluck('user_id');
-        // A consent never grants incident participation by itself. Once a
+        // A consent never grants deployment participation by itself. Once a
         // recipient declines the dispatch, it must disappear immediately even
         // if an older client has not yet processed the consent revocation.
         $locationUserIds = $acceptedUserIds;
@@ -128,7 +128,7 @@ final class LocationController extends Controller
 
         $consents = LocationSharingConsent::query()
             ->with('user')
-            ->where('incident_id', $incident->id)
+            ->where('deployment_id', $deployment->id)
             ->whereIn('user_id', $locationUserIds)
             ->get();
         $consentsByUser = $consents->keyBy('user_id');
@@ -136,18 +136,18 @@ final class LocationController extends Controller
         $latestLocationUpperBound = now()->addMinutes(2);
         $latestLocations = LocationUpdate::query()
             ->with('user')
-            ->where('incident_id', $incident->id)
+            ->where('deployment_id', $deployment->id)
             ->whereIn('user_id', $activeLocationUserIds)
             ->where('recorded_at', '<=', $latestLocationUpperBound)
             ->where('created_at', '<=', $latestLocationUpperBound)
             // Select at most one row per user in SQL. Server receipt order is
             // authoritative; loading the complete 30-day location history on
-            // every poll would make incident ETA degrade as history grows.
+            // every poll would make deployment ETA degrade as history grows.
             ->whereNotExists(function ($newerLocation) use ($latestLocationUpperBound): void {
                 $newerLocation
                     ->selectRaw('1')
                     ->from('location_updates as newer_location')
-                    ->whereColumn('newer_location.incident_id', 'location_updates.incident_id')
+                    ->whereColumn('newer_location.deployment_id', 'location_updates.deployment_id')
                     ->whereColumn('newer_location.user_id', 'location_updates.user_id')
                     ->where('newer_location.recorded_at', '<=', $latestLocationUpperBound)
                     ->where('newer_location.created_at', '<=', $latestLocationUpperBound)
@@ -180,11 +180,11 @@ final class LocationController extends Controller
 
         $acceptedRecipientsByUser = $acceptedRecipients->keyBy('user_id');
         $routeGeometries = $includeRoutes
-            ? $this->liveRouteGeometries($incident, $latestLocations)
+            ? $this->liveRouteGeometries($deployment, $latestLocations)
             : [];
         $routeEstimates = $includeRoutes
-            ? $this->liveRouteEstimatesFromGeometries($incident, $latestLocations, $routeGeometries)
-            : $this->liveRouteEstimates($incident, $latestLocations);
+            ? $this->liveRouteEstimatesFromGeometries($deployment, $latestLocations, $routeGeometries)
+            : $this->liveRouteEstimates($deployment, $latestLocations);
         $includeLegacyMobileUserFields = in_array($request->user()->currentClientType(), ['operator', 'admin'], true);
 
         return ApiResponse::success($locationUserIds
@@ -303,9 +303,9 @@ final class LocationController extends Controller
      * @param  Collection<string, LocationUpdate>  $latestLocations
      * @return array<string, RouteEstimate>
      */
-    private function liveRouteEstimates(Incident $incident, Collection $latestLocations): array
+    private function liveRouteEstimates(Deployment $deployment, Collection $latestLocations): array
     {
-        $destination = $this->routePoint($incident->latitude, $incident->longitude);
+        $destination = $this->routePoint($deployment->latitude, $deployment->longitude);
         if ($destination === null) {
             return [];
         }
@@ -329,9 +329,9 @@ final class LocationController extends Controller
      * @param  Collection<string, LocationUpdate>  $latestLocations
      * @return array<string, RouteGeometry>
      */
-    private function liveRouteGeometries(Incident $incident, Collection $latestLocations): array
+    private function liveRouteGeometries(Deployment $deployment, Collection $latestLocations): array
     {
-        $destination = $this->routePoint($incident->latitude, $incident->longitude);
+        $destination = $this->routePoint($deployment->latitude, $deployment->longitude);
         if ($destination === null) {
             return [];
         }
@@ -362,11 +362,11 @@ final class LocationController extends Controller
      * @return array<string, RouteEstimate>
      */
     private function liveRouteEstimatesFromGeometries(
-        Incident $incident,
+        Deployment $deployment,
         Collection $latestLocations,
         array $routeGeometries,
     ): array {
-        $destination = $this->routePoint($incident->latitude, $incident->longitude);
+        $destination = $this->routePoint($deployment->latitude, $deployment->longitude);
         if ($destination === null) {
             return [];
         }

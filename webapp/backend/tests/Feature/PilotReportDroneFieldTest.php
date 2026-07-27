@@ -3,8 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\SystemSetting;
-use App\Services\PilotIncidentReportFormService;
-use App\Services\PilotIncidentReportService;
+use App\Services\PilotDeploymentReportFormService;
+use App\Services\PilotDeploymentReportService;
 use Database\Seeders\SystemSettingSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -16,11 +16,11 @@ final class PilotReportDroneFieldTest extends TestCase
     public function test_default_and_seeded_forms_offer_the_optional_user_drone_select(): void
     {
         $expected = $this->droneField();
-        $defaults = app(PilotIncidentReportFormService::class)->defaultFields();
+        $defaults = app(PilotDeploymentReportFormService::class)->defaultFields();
         self::assertSame($expected, collect($defaults)->firstWhere('key', 'drone_used'));
 
         $this->seed(SystemSettingSeeder::class);
-        $stored = SystemSetting::value(PilotIncidentReportFormService::SETTING_KEY);
+        $stored = SystemSetting::value(PilotDeploymentReportFormService::SETTING_KEY);
         self::assertIsArray($stored);
         self::assertEquals($expected, collect($stored)->firstWhere('key', 'drone_used'));
     }
@@ -35,7 +35,7 @@ final class PilotReportDroneFieldTest extends TestCase
             'required' => false,
         ];
         SystemSetting::query()->create([
-            'key' => PilotIncidentReportFormService::SETTING_KEY,
+            'key' => PilotDeploymentReportFormService::SETTING_KEY,
             'value' => [$customField],
             'is_sensitive' => false,
         ]);
@@ -44,7 +44,7 @@ final class PilotReportDroneFieldTest extends TestCase
         $migration->up();
         $migration->up();
 
-        $stored = SystemSetting::value(PilotIncidentReportFormService::SETTING_KEY);
+        $stored = SystemSetting::value(PilotDeploymentReportFormService::SETTING_KEY);
         self::assertIsArray($stored);
         self::assertEquals($customField, $stored[0]);
         self::assertCount(1, array_filter(
@@ -54,11 +54,11 @@ final class PilotReportDroneFieldTest extends TestCase
         self::assertEquals($this->droneField(), collect($stored)->firstWhere('key', 'drone_used'));
 
         SystemSetting::query()
-            ->findOrFail(PilotIncidentReportFormService::SETTING_KEY)
+            ->findOrFail(PilotDeploymentReportFormService::SETTING_KEY)
             ->forceFill(['value' => [$stored[0], array_reverse($this->droneField(), true)]])
             ->save();
         $migration->down();
-        self::assertEquals([$customField], SystemSetting::value(PilotIncidentReportFormService::SETTING_KEY));
+        self::assertEquals([$customField], SystemSetting::value(PilotDeploymentReportFormService::SETTING_KEY));
     }
 
     public function test_data_migration_preserves_an_existing_admin_drone_field(): void
@@ -72,7 +72,7 @@ final class PilotReportDroneFieldTest extends TestCase
             'option_source' => 'user_drones',
         ];
         SystemSetting::query()->create([
-            'key' => PilotIncidentReportFormService::SETTING_KEY,
+            'key' => PilotDeploymentReportFormService::SETTING_KEY,
             'value' => [$adminField],
             'is_sensitive' => false,
         ]);
@@ -80,13 +80,13 @@ final class PilotReportDroneFieldTest extends TestCase
 
         $migration->up();
 
-        self::assertEquals([$adminField], SystemSetting::value(PilotIncidentReportFormService::SETTING_KEY));
+        self::assertEquals([$adminField], SystemSetting::value(PilotDeploymentReportFormService::SETTING_KEY));
     }
 
     public function test_data_migration_rollback_preserves_post_migration_admin_edits(): void
     {
         SystemSetting::query()->create([
-            'key' => PilotIncidentReportFormService::SETTING_KEY,
+            'key' => PilotDeploymentReportFormService::SETTING_KEY,
             'value' => [],
             'is_sensitive' => false,
         ]);
@@ -97,13 +97,13 @@ final class PilotReportDroneFieldTest extends TestCase
         $edited['label'] = 'Operationeel gebruikt toestel';
         $edited['required'] = true;
         SystemSetting::query()
-            ->findOrFail(PilotIncidentReportFormService::SETTING_KEY)
+            ->findOrFail(PilotDeploymentReportFormService::SETTING_KEY)
             ->forceFill(['value' => [$edited]])
             ->save();
 
         $migration->down();
 
-        self::assertEquals([$edited], SystemSetting::value(PilotIncidentReportFormService::SETTING_KEY));
+        self::assertEquals([$edited], SystemSetting::value(PilotDeploymentReportFormService::SETTING_KEY));
         self::assertDatabaseMissing('system_settings', [
             'key' => 'migration.2026_07_20_000004.drone_used_added',
         ]);
@@ -111,8 +111,8 @@ final class PilotReportDroneFieldTest extends TestCase
 
     public function test_legacy_integer_flight_minutes_remain_compatible_with_standard_report_storage(): void
     {
-        $method = new \ReflectionMethod(PilotIncidentReportService::class, 'standardValuesFromCustomFields');
-        $service = app(PilotIncidentReportService::class);
+        $method = new \ReflectionMethod(PilotDeploymentReportService::class, 'standardValuesFromCustomFields');
+        $service = app(PilotDeploymentReportService::class);
 
         self::assertSame(37, $method->invoke($service, ['flight_minutes' => 37])['flight_minutes']);
         self::assertSame(25, $method->invoke($service, [
@@ -133,7 +133,7 @@ final class PilotReportDroneFieldTest extends TestCase
             'required' => false,
         ];
         SystemSetting::query()->create([
-            'key' => PilotIncidentReportFormService::SETTING_KEY,
+            'key' => PilotDeploymentReportFormService::SETTING_KEY,
             'value' => [$collision],
             'is_sensitive' => false,
         ]);
@@ -141,8 +141,8 @@ final class PilotReportDroneFieldTest extends TestCase
 
         $migration->up();
 
-        self::assertEquals([$collision], SystemSetting::value(PilotIncidentReportFormService::SETTING_KEY));
-        self::assertSame([], app(PilotIncidentReportFormService::class)->droneFieldKeys());
+        self::assertEquals([$collision], SystemSetting::value(PilotDeploymentReportFormService::SETTING_KEY));
+        self::assertSame([], app(PilotDeploymentReportFormService::class)->droneFieldKeys());
     }
 
     /** @return array<string, mixed> */

@@ -15,10 +15,10 @@ interface ProtectedShellProps {
 }
 
 const homeRedirectCandidates = [
-  { to: '/dashboard', permissions: ['incidents.view', 'incidents.dispatch.view', 'status.view', 'assets.view'] },
-  { to: '/meldingen', ...webRouteAccess.intakes },
-  { to: '/incidents', permissions: ['incidents.view'] },
-  { to: '/operational-map', permissions: ['operational-map.view', 'incidents.view'] },
+  { to: '/dashboard', permissions: ['deployments.view', 'deployments.dispatch.view', 'status.view', 'assets.view'] },
+  { to: '/aanvragen', ...webRouteAccess.deploymentRequests },
+  { to: '/inzetten', ...webRouteAccess.deployments },
+  { to: '/operational-map', permissions: ['operational-map.view', 'deployments.view'] },
   { to: '/operational-status', permissions: ['status.view'] },
   { to: '/users', permissions: ['users.view'] },
   { to: '/address-book', permissions: ['address-book.view'] },
@@ -26,6 +26,7 @@ const homeRedirectCandidates = [
   { to: '/certifications', ...webRouteAccess.certifications },
   { to: '/expiry', ...webRouteAccess.expiry },
   { to: '/forms', ...webRouteAccess.forms },
+  { to: '/prioriteitsbesluiten', ...webRouteAccess.priorityDecisions },
   { to: '/admin', ...webRouteAccess.admin },
   { to: '/knmi', ...webRouteAccess.knmi },
   { to: '/branding', ...webRouteAccess.branding },

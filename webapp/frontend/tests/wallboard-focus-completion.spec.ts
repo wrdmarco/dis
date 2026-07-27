@@ -8,7 +8,7 @@ function focusState(overrides: Partial<WallboardFocusState> = {}): WallboardFocu
     kind: 'preannouncement',
     focus_id: 'focus-1',
     dispatch_id: 'dispatch-1',
-    incident_id: 'incident-1',
+    deployment_id: 'deployment-1',
     reference: 'DIS-1',
     title: 'Nieuwe inzet',
     priority: 'normal',

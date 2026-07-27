@@ -4,16 +4,16 @@ namespace Tests\Feature;
 
 use App\Contracts\PushProvider;
 use App\Jobs\SendFcmNotification;
+use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
-use App\Models\Incident;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\DeploymentService;
 use App\Services\DispatchPushOutboxService;
 use App\Services\DispatchService;
-use App\Services\IncidentService;
 use App\Support\PushNotificationIdentity;
 use GuzzleHttp\Psr7\Response as PsrResponse;
 use Illuminate\Cache\FileStore;
@@ -61,11 +61,11 @@ final class PreannouncementAlarmTransitionTest extends TestCase
         };
         $job = new SendFcmNotification(
             $token->id,
-            'incident_preannouncement',
+            'deployment_preannouncement',
             'Vooraankondiging',
             'Ben je beschikbaar?',
             [
-                'type' => 'incident_preannouncement',
+                'type' => 'deployment_preannouncement',
                 'action_mode' => 'availability',
             ],
         );
@@ -75,11 +75,11 @@ final class PreannouncementAlarmTransitionTest extends TestCase
         $this->assertSame(0, $provider->sendCount);
         $this->assertDatabaseMissing('push_delivery_logs', [
             'fcm_token_id' => $token->id,
-            'message_type' => 'incident_preannouncement',
+            'message_type' => 'deployment_preannouncement',
         ]);
     }
 
-    public function test_delayed_preannouncement_is_not_delivered_after_incident_cancellation(): void
+    public function test_delayed_preannouncement_is_not_delivered_after_deployment_cancellation(): void
     {
         $actor = $this->user('cancelled-prealarm-actor@example.test', 'Cancelled Actor');
         $pilot = $this->user('cancelled-prealarm-pilot@example.test', 'Cancelled Pilot', pushEnabled: true);
@@ -94,7 +94,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
             'is_active' => true,
             'last_seen_at' => now(),
         ]);
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => 'CANCELLED-PREALARM-001',
             'title' => 'Geannuleerde vooraankondiging',
             'priority' => 'normal',
@@ -106,7 +106,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
             'opened_at' => now(),
         ]);
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $actor->id,
             'requested_by_name' => $actor->name,
             'requested_by_email' => $actor->email,
@@ -114,7 +114,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
             'priority' => 'normal',
             'message' => 'Ben je beschikbaar?',
         ]);
-        $incident->update(['status' => 'cancelled', 'closed_at' => now()]);
+        $deployment->update(['status' => 'cancelled', 'closed_at' => now()]);
         $provider = new class implements PushProvider
         {
             public int $sendCount = 0;
@@ -129,13 +129,13 @@ final class PreannouncementAlarmTransitionTest extends TestCase
         };
         $job = new SendFcmNotification(
             (string) $token->id,
-            'incident_preannouncement',
+            'deployment_preannouncement',
             'Vooraankondiging',
             'Ben je beschikbaar?',
             [
                 'type' => 'dispatch_update',
                 'action_mode' => 'availability',
-                'incident_id' => (string) $incident->id,
+                'deployment_id' => (string) $deployment->id,
                 'dispatch_id' => (string) $dispatch->id,
             ],
             (string) $dispatch->id,
@@ -148,11 +148,11 @@ final class PreannouncementAlarmTransitionTest extends TestCase
         $this->assertDatabaseMissing('push_delivery_logs', [
             'fcm_token_id' => $token->id,
             'dispatch_request_id' => $dispatch->id,
-            'message_type' => 'incident_preannouncement',
+            'message_type' => 'deployment_preannouncement',
         ]);
     }
 
-    public function test_legacy_cancellation_without_incident_context_remains_deliverable_during_a_rolling_update(): void
+    public function test_legacy_cancellation_without_deployment_context_remains_deliverable_during_a_rolling_update(): void
     {
         $pilot = $this->user('legacy-cancellation-pilot@example.test', 'Legacy Pilot', pushEnabled: true);
         $token = FcmToken::query()->create([
@@ -170,28 +170,34 @@ final class PreannouncementAlarmTransitionTest extends TestCase
         {
             public int $sendCount = 0;
 
+            /** @var array<string, string> */
+            public array $lastData = [];
+
             /** @param array<string, string> $data */
             public function send(FcmToken $token, string $title, string $body, array $data = []): ClientResponse
             {
                 $this->sendCount++;
+                $this->lastData = $data;
 
                 return new ClientResponse(new PsrResponse(200));
             }
         };
         $job = new SendFcmNotification(
             (string) $token->id,
-            'incident_cancelled',
+            'deployment_cancelled',
             'Geannuleerd',
             'De vooraankondiging is geannuleerd.',
-            ['type' => 'incident_cancelled'],
+            ['type' => 'deployment_cancelled'],
         );
 
         $job->handle($provider, app(DispatchPushOutboxService::class));
 
         $this->assertSame(1, $provider->sendCount);
+        $this->assertSame('deployment_cancelled', $provider->lastData['deployment_event_type'] ?? null);
+        $this->assertSame('incident_cancelled', $provider->lastData['type'] ?? null);
         $this->assertDatabaseHas('push_delivery_logs', [
             'fcm_token_id' => $token->id,
-            'message_type' => 'incident_cancelled',
+            'message_type' => 'deployment_cancelled',
             'status' => 'sent',
         ]);
     }
@@ -224,7 +230,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
             'is_active' => true,
             'last_seen_at' => now(),
         ]);
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => 'PREALARM-TRANSITION-001',
             'title' => 'Prealarm overgangstest',
             'priority' => 'normal',
@@ -238,33 +244,33 @@ final class PreannouncementAlarmTransitionTest extends TestCase
             'created_by_email' => $actor->email,
             'opened_at' => now(),
         ]);
-        $incident->teams()->attach($team->id, ['created_at' => now()]);
+        $deployment->teams()->attach($team->id, ['created_at' => now()]);
 
-        $service = app(IncidentService::class);
-        $service->update($incident, [
+        $service = app(DeploymentService::class);
+        $service->update($deployment, [
             'status' => 'active',
             'status_reason' => 'Vooraankondiging verstuurd.',
         ], $actor);
 
-        $dispatch = DispatchRequest::query()->where('incident_id', $incident->id)->sole();
+        $dispatch = DispatchRequest::query()->where('deployment_id', $deployment->id)->sole();
         $this->assertSame('draft', $dispatch->status);
         $preannouncementOutbox = DispatchPushOutbox::query()
             ->where('dispatch_request_id', $dispatch->id)
-            ->where('message_type', 'incident_preannouncement')
+            ->where('message_type', 'deployment_preannouncement')
             ->sole();
-        $this->assertSame('dispatch_update', $preannouncementOutbox->data['type'] ?? null);
+        $this->assertSame('deployment_preannouncement', $preannouncementOutbox->data['type'] ?? null);
         $this->assertSame('availability', $preannouncementOutbox->data['action_mode'] ?? null);
         $this->assertNotNull($preannouncementOutbox->queued_at);
         Queue::assertPushed(
             SendFcmNotification::class,
-            fn (SendFcmNotification $job): bool => $job->messageType === 'incident_preannouncement'
-                && ($job->data['type'] ?? null) === 'dispatch_update'
+            fn (SendFcmNotification $job): bool => $job->messageType === 'deployment_preannouncement'
+                && ($job->data['type'] ?? null) === 'deployment_preannouncement'
                 && ($job->data['action_mode'] ?? null) === 'availability'
                 && $job->dispatchPushOutboxId === (string) $preannouncementOutbox->id,
         );
         $preannouncementJob = Queue::pushed(
             SendFcmNotification::class,
-            fn (SendFcmNotification $job): bool => $job->messageType === 'incident_preannouncement'
+            fn (SendFcmNotification $job): bool => $job->messageType === 'deployment_preannouncement'
                 && ($job->data['action_mode'] ?? null) === 'availability',
         )->sole();
 
@@ -276,14 +282,14 @@ final class PreannouncementAlarmTransitionTest extends TestCase
                 && ($job->data['action_mode'] ?? null) === 'availability',
         );
 
-        $service->update($incident->refresh(), [
+        $service->update($deployment->refresh(), [
             'status' => 'dispatching',
             'status_reason' => 'Alarmering verstuurd.',
         ], $actor);
 
         $dispatch->refresh();
         $outbox = DispatchPushOutbox::query()->where('message_type', 'dispatch_request')->sole();
-        $this->assertSame('dispatching', $incident->refresh()->status);
+        $this->assertSame('dispatching', $deployment->refresh()->status);
         $this->assertSame('sent', $dispatch->status);
         $this->assertNotNull($dispatch->sent_at);
         $this->assertSame('queued_for_push', $dispatch->send_status);
@@ -304,7 +310,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
         ]);
         $collapseId = 'dispatch-'.$dispatch->id;
         $this->assertSame($collapseId, PushNotificationIdentity::dispatchCollapseId([
-            'type' => 'incident_preannouncement',
+            'type' => 'deployment_preannouncement',
             'action_mode' => 'availability',
             'dispatch_id' => (string) $dispatch->id,
         ]));
@@ -347,7 +353,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
         $this->assertDatabaseMissing('push_delivery_logs', [
             'fcm_token_id' => $token->id,
             'dispatch_request_id' => $dispatch->id,
-            'message_type' => 'incident_preannouncement',
+            'message_type' => 'deployment_preannouncement',
         ]);
 
         $alarmJob = $alarmJobs->sole();
@@ -387,7 +393,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
             'is_active' => true,
             'last_seen_at' => now(),
         ]);
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => 'ORDERED-ALARM-001',
             'title' => 'Provider ordering test',
             'priority' => 'normal',
@@ -399,7 +405,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
             'opened_at' => now(),
         ]);
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $actor->id,
             'requested_by_name' => $actor->name,
             'requested_by_email' => $actor->email,
@@ -418,7 +424,7 @@ final class PreannouncementAlarmTransitionTest extends TestCase
         $data = [
             'type' => 'dispatch_request',
             'action_mode' => 'attendance',
-            'incident_id' => (string) $incident->id,
+            'deployment_id' => (string) $deployment->id,
             'dispatch_id' => (string) $dispatch->id,
         ];
         $lockKey = PushNotificationIdentity::deliveryOrderLockKey(

@@ -2,10 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
-use App\Models\Incident;
 use App\Models\Permission;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
@@ -24,7 +24,7 @@ final class ServerSideSpeechRetirementTest extends TestCase
 
     /** @var list<string> */
     private const RETIRED_TABLES = [
-        'incident_speech_preparations',
+        'deployment_speech_preparations',
         'speech_prepared_phrases',
         'speech_previews',
         'speech_manifest_segments',
@@ -83,7 +83,7 @@ final class ServerSideSpeechRetirementTest extends TestCase
         $this->assertLessThanOrEqual(now()->addSeconds(5)->getTimestamp(), $releasedAt);
         $payload = json_decode((string) $outboxState->data, true, flags: JSON_THROW_ON_ERROR);
         $this->assertSame('attendance', $payload['action_mode'] ?? null);
-        $this->assertSame('incident_title', $payload['push.template.title_key'] ?? null);
+        $this->assertSame('deployment_title', $payload['push.template.title_key'] ?? null);
         foreach ([
             'speech_manifest_id',
             'speech_phase',
@@ -146,7 +146,7 @@ final class ServerSideSpeechRetirementTest extends TestCase
             'two_factor_enabled' => true,
             'two_factor_confirmed_at' => now(),
         ]);
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => 'RETIRE-SPEECH-001',
             'title' => 'Retirement fixture',
             'priority' => 'normal',
@@ -154,7 +154,7 @@ final class ServerSideSpeechRetirementTest extends TestCase
             'created_by' => $user->id,
         ]);
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $user->id,
             'status' => 'sent',
             'priority' => 'normal',
@@ -184,7 +184,7 @@ final class ServerSideSpeechRetirementTest extends TestCase
             'body' => 'Retirement fixture',
             'data' => [
                 'action_mode' => 'attendance',
-                'push.template.title_key' => 'incident_title',
+                'push.template.title_key' => 'deployment_title',
                 'speech_manifest_id' => (string) Str::ulid(),
                 'speech_phase' => 'attendance',
                 'speech_manifest_url' => '/api/speech/manifests/legacy',

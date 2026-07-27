@@ -4,15 +4,15 @@ namespace App\Policies;
 
 use App\Models\DispatchRequest;
 use App\Models\User;
-use App\Services\IncidentAccessService;
+use App\Services\DeploymentAccessService;
 
 final class DispatchRequestPolicy
 {
-    public function __construct(private readonly IncidentAccessService $access) {}
+    public function __construct(private readonly DeploymentAccessService $access) {}
 
     public function viewAny(User $actor): bool
     {
-        return $actor->hasPermission('incidents.dispatch.view') || $actor->hasPermission('incidents.assigned.view');
+        return $actor->hasPermission('deployments.dispatch.view') || $actor->hasPermission('deployments.assigned.view');
     }
 
     public function view(User $actor, DispatchRequest $dispatch): bool
@@ -22,11 +22,11 @@ final class DispatchRequestPolicy
 
     public function create(User $actor): bool
     {
-        return $actor->hasPermission('incidents.dispatch.manage');
+        return $actor->hasPermission('deployments.dispatch.manage');
     }
 
     public function update(User $actor, DispatchRequest $dispatch): bool
     {
-        return ! in_array($dispatch->status, ['cancelled'], true) && $actor->hasPermission('incidents.dispatch.manage');
+        return ! in_array($dispatch->status, ['cancelled'], true) && $actor->hasPermission('deployments.dispatch.manage');
     }
 }

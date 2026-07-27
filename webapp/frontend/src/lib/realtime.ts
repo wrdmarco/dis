@@ -10,7 +10,8 @@ declare global {
 
 export interface RealtimeOptions {
   onOperationalEvent?: () => void;
-  onIntakeEvent?: () => void;
+  deploymentId?: string;
+  onDeploymentRequestEvent?: () => void;
   onSystemUpdateStatus?: (payload: unknown) => void;
   onOsrmOperationStatus?: (payload: unknown) => void;
 }
@@ -47,17 +48,25 @@ export function createRealtime(options: RealtimeOptions): Echo<'reverb'> | null 
 
   if (options.onOperationalEvent !== undefined) {
     echo.private('operations')
-      .listen('.incident.changed', options.onOperationalEvent)
-      .listen('.incident.intake.changed', options.onOperationalEvent)
+      .listen('.deployment.changed', options.onOperationalEvent)
+      .listen('.deployment-request.changed', options.onOperationalEvent)
       .listen('.dispatch.changed', options.onOperationalEvent)
       .listen('.location.updated', options.onOperationalEvent)
       .listen('.availability.changed', options.onOperationalEvent)
       .listen('.asset.changed', options.onOperationalEvent);
   }
 
-  if (options.onIntakeEvent !== undefined) {
-    echo.private('intakes')
-      .listen('.incident.intake.changed', options.onIntakeEvent);
+  if (options.onOperationalEvent !== undefined && options.deploymentId !== undefined) {
+    echo.private(`deployments.${options.deploymentId}`)
+      .listen('.deployment.changed', options.onOperationalEvent)
+      .listen('.deployment-request.changed', options.onOperationalEvent)
+      .listen('.dispatch.changed', options.onOperationalEvent)
+      .listen('.location.updated', options.onOperationalEvent);
+  }
+
+  if (options.onDeploymentRequestEvent !== undefined) {
+    echo.private('deployment-requests')
+      .listen('.deployment-request.changed', options.onDeploymentRequestEvent);
   }
 
   if (options.onSystemUpdateStatus !== undefined) {

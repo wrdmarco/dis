@@ -21,8 +21,8 @@ import type {
   WallboardRichTextDocument,
   WallboardPilotAvailability,
   WallboardState,
-  WallboardStateIncident,
-  WallboardStateRecentIncident,
+  WallboardStateDeployment,
+  WallboardStateRecentDeployment,
   WallboardTickerConfiguration,
   WallboardTickerItem,
   WallboardTickerSource,
@@ -36,10 +36,10 @@ import {
   wallboardPhotoItemDurationSeconds,
 } from './wallboardMedia';
 import {
-  type OperationalMapIncidentModel,
+  type OperationalMapDeploymentModel,
   type OperationalMapLayerModels,
-} from '../incidents/OperationalMapCanvas';
-import { parseMapPoint, parsePilotRoute, pilotRouteColor } from '../incidents/pilotRoutePresentation';
+} from '../deployments/OperationalMapCanvas';
+import { parseMapPoint, parsePilotRoute, pilotRouteColor } from '../deployments/pilotRoutePresentation';
 import {
   normalizeWallboardRichText,
   wallboardRichTextFromPlainText,
@@ -49,7 +49,7 @@ import {
   WALLBOARD_VIDEO_STARTUP_ALLOWANCE_SECONDS,
 } from './wallboardVideoInspection';
 
-const INCIDENT_COLORS = ['#7dd3fc', '#fbbf24', '#a7f3d0', '#fca5a5', '#c4b5fd', '#fdba74', '#93c5fd', '#f0abfc'];
+const DEPLOYMENT_COLORS = ['#7dd3fc', '#fbbf24', '#a7f3d0', '#fca5a5', '#c4b5fd', '#fdba74', '#93c5fd', '#f0abfc'];
 export const MIN_WALLBOARD_REFRESH_SECONDS = 5;
 export const MAX_WALLBOARD_REFRESH_SECONDS = 60;
 export const MIN_WALLBOARD_PAGE_DURATION_SECONDS = 5;
@@ -106,20 +106,20 @@ export const WALLBOARD_KPI_DEFINITIONS = [
   { key: 'pilots_en_route', category: 'pilots', label: 'Piloten onderweg', help: 'Piloten die momenteel onderweg zijn naar een inzet.' },
   { key: 'pilots_on_scene', category: 'pilots', label: 'Piloten op locatie', help: 'Piloten die zich momenteel op een inzetlocatie bevinden.' },
   { key: 'pilots_push_disabled', category: 'pilots', label: 'Push uitgeschakeld', help: 'Piloten die door uitgeschakelde push niet operationeel inzetbaar zijn.' },
-  { key: 'incidents_total', category: 'incidents', label: 'Open incidenten totaal', help: 'Alle echte open incidenten in de fasen actief, alarmering en in uitvoering.' },
-  { key: 'incidents_registered_total', category: 'incidents', label: 'Incidenten sinds registratie', help: 'Alle incidenten die sinds de ingebruikname van D.I.S. zijn geregistreerd.' },
-  { key: 'incidents_active', category: 'incidents', label: 'Status actief', help: 'Open incidenten met de status actief.' },
-  { key: 'incidents_dispatching', category: 'incidents', label: 'Wordt gealarmeerd', help: 'Incidenten waarvoor de alarmering loopt.' },
-  { key: 'incidents_in_progress', category: 'incidents', label: 'In uitvoering', help: 'Incidenten met een lopende inzet.' },
-  { key: 'incidents_low', category: 'incidents', label: 'Prioriteit laag', help: 'Incidenten met lage prioriteit.' },
-  { key: 'incidents_normal', category: 'incidents', label: 'Prioriteit normaal', help: 'Incidenten met normale prioriteit.' },
-  { key: 'incidents_high', category: 'incidents', label: 'Prioriteit hoog', help: 'Incidenten met hoge prioriteit.' },
-  { key: 'incidents_critical', category: 'incidents', label: 'Prioriteit kritiek', help: 'Incidenten met kritieke prioriteit.' },
-  { key: 'incidents_opened_today', category: 'incidents', label: 'Incidenten geopend vandaag', help: 'Incidenten die vandaag zijn geopend.' },
-  { key: 'incidents_resolved_today', category: 'incidents', label: 'Incidenten afgerond vandaag', help: 'Incidenten die vandaag zijn afgerond.' },
-  { key: 'incidents_cancelled_today', category: 'incidents', label: 'Incidenten geannuleerd vandaag', help: 'Incidenten die vandaag zijn geannuleerd.' },
-  { key: 'incidents_resolved_total', category: 'incidents', label: 'Afgerond sinds registratie', help: 'Alle afgeronde incidenten sinds de ingebruikname van D.I.S.' },
-  { key: 'incidents_cancelled_total', category: 'incidents', label: 'Geannuleerd sinds registratie', help: 'Alle geannuleerde incidenten sinds de ingebruikname van D.I.S.' },
+  { key: 'deployments_total', category: 'deployments', label: 'Open inzetten totaal', help: 'Alle echte open inzetten in de fasen actief, alarmering en in uitvoering.' },
+  { key: 'deployments_registered_total', category: 'deployments', label: 'Inzetten sinds registratie', help: 'Alle inzetten die sinds de ingebruikname van D.I.S. zijn geregistreerd.' },
+  { key: 'deployments_active', category: 'deployments', label: 'Status actief', help: 'Open inzetten met de status actief.' },
+  { key: 'deployments_dispatching', category: 'deployments', label: 'Wordt gealarmeerd', help: 'Inzetten waarvoor de alarmering loopt.' },
+  { key: 'deployments_in_progress', category: 'deployments', label: 'In uitvoering', help: 'Inzetten die in uitvoering zijn.' },
+  { key: 'deployments_low', category: 'deployments', label: 'Prioriteit laag', help: 'Inzetten met lage prioriteit.' },
+  { key: 'deployments_normal', category: 'deployments', label: 'Prioriteit normaal', help: 'Inzetten met normale prioriteit.' },
+  { key: 'deployments_high', category: 'deployments', label: 'Prioriteit hoog', help: 'Inzetten met hoge prioriteit.' },
+  { key: 'deployments_critical', category: 'deployments', label: 'Prioriteit kritiek', help: 'Inzetten met kritieke prioriteit.' },
+  { key: 'deployments_opened_today', category: 'deployments', label: 'Inzetten geopend vandaag', help: 'Inzetten die vandaag zijn geopend.' },
+  { key: 'deployments_resolved_today', category: 'deployments', label: 'Inzetten afgerond vandaag', help: 'Inzetten die vandaag zijn afgerond.' },
+  { key: 'deployments_cancelled_today', category: 'deployments', label: 'Inzetten geannuleerd vandaag', help: 'Inzetten die vandaag zijn geannuleerd.' },
+  { key: 'deployments_resolved_total', category: 'deployments', label: 'Afgerond sinds registratie', help: 'Alle afgeronde inzetten sinds de ingebruikname van D.I.S.' },
+  { key: 'deployments_cancelled_total', category: 'deployments', label: 'Geannuleerd sinds registratie', help: 'Alle geannuleerde inzetten sinds de ingebruikname van D.I.S.' },
   { key: 'assets_total', category: 'assets', label: 'Totaal middelen', help: 'Alle geregistreerde operationele middelen.' },
   { key: 'assets_ready', category: 'assets', label: 'Middelen gereed', help: 'Middelen die direct inzetbaar zijn.' },
   { key: 'assets_maintenance', category: 'assets', label: 'Middelen in onderhoud', help: 'Middelen die vanwege onderhoud niet gereed zijn.' },
@@ -139,8 +139,8 @@ export const WALLBOARD_KPI_DEFINITIONS = [
   { key: 'flight_minutes_this_month', category: 'flight', label: 'Vluchttijd deze maand', help: 'Totaal vastgelegde vliegminuten in de huidige maand.' },
   { key: 'average_flight_minutes_this_month', category: 'flight', label: 'Gem. vluchttijd deze maand', help: 'Gemiddelde vastgelegde vluchttijd per inzetrapport in de huidige maand.' },
   { key: 'drones_flown_distribution', category: 'flight', label: 'Dronetypen in inzetrapporten', help: 'Verdeling op fabrikant en model van de drones waarmee volgens inzetrapporten is gevlogen.' },
-  { key: 'incidents_by_province', category: 'incidents', label: 'Incidenten per provincie', help: 'Verdeling van geregistreerde incidenten over de provincies.' },
-  { key: 'incidents_by_country', category: 'incidents', label: 'Incidenten per land', help: 'Verdeling van geregistreerde incidenten over de herkende landen.' },
+  { key: 'deployments_by_province', category: 'deployments', label: 'Inzetten per provincie', help: 'Verdeling van geregistreerde inzetten over de provincies.' },
+  { key: 'deployments_by_country', category: 'deployments', label: 'Inzetten per land', help: 'Verdeling van geregistreerde inzetten over de herkende landen.' },
 ] as const satisfies ReadonlyArray<{
   key: WallboardKpiKey;
   category: WallboardKpiCategory;
@@ -153,14 +153,14 @@ export const DEFAULT_WALLBOARD_KPI_VISIBLE_METRICS = [
   'pilots_unavailable',
   'pilots_total',
   'pilot_availability_rate',
-  'incidents_total',
-  'incidents_active',
-  'incidents_dispatching',
-  'incidents_in_progress',
-  'incidents_low',
-  'incidents_normal',
-  'incidents_high',
-  'incidents_critical',
+  'deployments_total',
+  'deployments_active',
+  'deployments_dispatching',
+  'deployments_in_progress',
+  'deployments_low',
+  'deployments_normal',
+  'deployments_high',
+  'deployments_critical',
   'assets_total',
   'assets_ready',
   'assets_maintenance',
@@ -177,8 +177,8 @@ export const MAX_WALLBOARD_KPI_CHARTS = 6;
 export const WALLBOARD_KPI_VISUALIZATIONS = ['counter', 'bar', 'pie', 'ring'] as const satisfies readonly WallboardKpiVisualization[];
 const WALLBOARD_KPI_DISTRIBUTION_KEYS = new Set<WallboardKpiKey>([
   'drones_flown_distribution',
-  'incidents_by_province',
-  'incidents_by_country',
+  'deployments_by_province',
+  'deployments_by_country',
 ]);
 const WALLBOARD_KPI_RATIO_KEYS = new Set<WallboardKpiKey>([
   'pilot_availability_rate',
@@ -188,15 +188,15 @@ const WALLBOARD_KPI_RATIO_KEYS = new Set<WallboardKpiKey>([
   'pilots_en_route',
   'pilots_on_scene',
   'pilots_push_disabled',
-  'incidents_active',
-  'incidents_dispatching',
-  'incidents_in_progress',
-  'incidents_low',
-  'incidents_normal',
-  'incidents_high',
-  'incidents_critical',
-  'incidents_resolved_total',
-  'incidents_cancelled_total',
+  'deployments_active',
+  'deployments_dispatching',
+  'deployments_in_progress',
+  'deployments_low',
+  'deployments_normal',
+  'deployments_high',
+  'deployments_critical',
+  'deployments_resolved_total',
+  'deployments_cancelled_total',
   'assets_ready',
   'assets_maintenance',
   'assets_unavailable',
@@ -253,7 +253,7 @@ export const MAX_WALLBOARD_CUSTOM_NEWS_SOURCES = 8;
 export const MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_LABEL_LENGTH = 80;
 export const MAX_WALLBOARD_CUSTOM_NEWS_SOURCE_URL_LENGTH = 2048;
 const WALLBOARD_HEARTBEAT_GRACE_SECONDS = 90;
-const DEFAULT_RECENT_INCIDENT_LIMIT = 4;
+const DEFAULT_RECENT_DEPLOYMENT_LIMIT = 4;
 
 export function normalizeWallboardDisplayProfile(value: unknown): WallboardDisplayProfile {
   return value === '1080p' || value === '4k' ? value : 'auto';
@@ -278,14 +278,14 @@ export function wallboardDisplayProfileLabel(profile: WallboardDisplayProfile): 
 }
 
 export const DEFAULT_WALLBOARD_MAP_CONFIGURATION: WallboardMapConfiguration = {
-  show_active_incidents: true,
-  show_test_incidents: false,
+  show_active_deployments: true,
+  show_test_deployments: false,
   show_live_locations: true,
   show_routes: true,
   show_command_centers: true,
-  show_historical_incidents: false,
+  show_historical_deployments: false,
   show_summary: true,
-  show_incident_list: true,
+  show_deployment_list: true,
   show_route_legend: true,
   auto_fit: true,
 };
@@ -327,19 +327,21 @@ export const DEFAULT_WALLBOARD_CONFIGURATION: WallboardConfiguration = {
   page_transition_duration_ms: DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS,
   page_flip_direction: DEFAULT_WALLBOARD_FLIP_DIRECTION,
   page_fade_enabled: true,
-  incident_override: {
+  deployment_override: {
     enabled: false,
     page_id: 'map-overview',
   },
 };
 
 export interface WallboardMapPresentation {
-  models: OperationalMapIncidentModel[];
+  models: OperationalMapDeploymentModel[];
   layers: OperationalMapLayerModels;
   linkedUsers: number;
 }
 
 export function wallboardConfigurationCopy(configuration: WallboardConfiguration = DEFAULT_WALLBOARD_CONFIGURATION): WallboardConfiguration {
+  // Read-only migration boundary for persisted pre-rename wallboard settings.
+  // The normalized object below deliberately emits deployment keys only.
   const legacyConfiguration = configuration as WallboardConfiguration & {
     pages?: WallboardPage[];
     rotation_enabled?: boolean;
@@ -347,17 +349,36 @@ export function wallboardConfigurationCopy(configuration: WallboardConfiguration
     page_transition_duration_ms?: number;
     page_flip_direction?: WallboardFlipDirection;
     page_fade_enabled?: boolean;
-    incident_override?: WallboardConfiguration['incident_override'];
+    incident_override?: WallboardConfiguration['deployment_override'];
     focus?: Partial<WallboardFocusConfiguration>;
   };
-  const fallbackMap = { ...DEFAULT_WALLBOARD_MAP_CONFIGURATION, ...legacyConfiguration.map };
-  fallbackMap.show_test_incidents = false;
+  const legacyMap = legacyConfiguration.map as WallboardMapConfiguration & {
+    show_active_incidents?: boolean;
+    show_test_incidents?: boolean;
+    show_historical_incidents?: boolean;
+    show_incident_list?: boolean;
+  };
+  const { incident_override: legacyIncidentOverride, ...canonicalConfiguration } = legacyConfiguration;
+  const fallbackMap: WallboardMapConfiguration = {
+    show_active_deployments: legacyMap.show_active_deployments ?? legacyMap.show_active_incidents ?? true,
+    show_test_deployments: false,
+    show_live_locations: legacyMap.show_live_locations ?? DEFAULT_WALLBOARD_MAP_CONFIGURATION.show_live_locations,
+    show_routes: legacyMap.show_routes ?? DEFAULT_WALLBOARD_MAP_CONFIGURATION.show_routes,
+    show_command_centers: legacyMap.show_command_centers ?? DEFAULT_WALLBOARD_MAP_CONFIGURATION.show_command_centers,
+    show_historical_deployments: legacyMap.show_historical_deployments ?? legacyMap.show_historical_incidents ?? false,
+    show_summary: legacyMap.show_summary ?? DEFAULT_WALLBOARD_MAP_CONFIGURATION.show_summary,
+    show_deployment_list: legacyMap.show_deployment_list ?? legacyMap.show_incident_list ?? true,
+    show_route_legend: legacyMap.show_route_legend ?? DEFAULT_WALLBOARD_MAP_CONFIGURATION.show_route_legend,
+    auto_fit: legacyMap.auto_fit ?? DEFAULT_WALLBOARD_MAP_CONFIGURATION.auto_fit,
+  };
   const ticker = wallboardTickerConfigurationCopy(legacyConfiguration.ticker);
   const sourcePages = Array.isArray(legacyConfiguration.pages) && legacyConfiguration.pages.length > 0
     ? legacyConfiguration.pages
     : [{ ...DEFAULT_WALLBOARD_CONFIGURATION.pages[0], options: {} }];
   const pages = sourcePages.map((page, index) => normalizeWallboardPage(page, index));
-  const requestedOverridePageId = legacyConfiguration.incident_override?.page_id ?? pages[0].id;
+  const requestedOverridePageId = legacyConfiguration.deployment_override?.page_id
+    ?? legacyIncidentOverride?.page_id
+    ?? pages[0].id;
   const overridePageId = pages.some((page) => page.id === requestedOverridePageId)
     ? requestedOverridePageId
     : pages[0].id;
@@ -367,7 +388,7 @@ export function wallboardConfigurationCopy(configuration: WallboardConfiguration
   );
 
   return {
-    ...legacyConfiguration,
+    ...canonicalConfiguration,
     refresh_seconds: clampRefreshSeconds(legacyConfiguration.refresh_seconds),
     map: fallbackMap,
     ticker,
@@ -381,8 +402,10 @@ export function wallboardConfigurationCopy(configuration: WallboardConfiguration
     ),
     page_flip_direction: normalizeWallboardFlipDirection(legacyConfiguration.page_flip_direction),
     page_fade_enabled: pageTransition !== 'none',
-    incident_override: {
-      enabled: legacyConfiguration.incident_override?.enabled ?? false,
+    deployment_override: {
+      enabled: legacyConfiguration.deployment_override?.enabled
+        ?? legacyIncidentOverride?.enabled
+        ?? false,
       page_id: overridePageId,
     },
   };
@@ -682,7 +705,7 @@ export function createWallboardTickerSource(
 export function wallboardPageTypeLabel(type: WallboardPageType): string {
   switch (type) {
     case 'map': return 'Operationele kaart';
-    case 'incident_list': return 'Incidentenoverzicht';
+    case 'deployment_list': return 'Inzettenoverzicht';
     case 'summary': return 'Operationele samenvatting';
     case 'kpi': return 'KPI-overzicht';
     case 'calendar': return 'Agenda';
@@ -701,20 +724,20 @@ export function wallboardPageMapConfiguration(
   configuration: WallboardConfiguration,
   page?: WallboardPage,
 ): WallboardMapConfiguration {
-  if (page === undefined || !['incident_list', 'summary'].includes(page.type)) {
+  if (page === undefined || !['deployment_list', 'summary'].includes(page.type)) {
     return { ...configuration.map };
   }
 
-  return wallboardOperationalIncidentConfiguration(configuration.map);
+  return wallboardOperationalDeploymentConfiguration(configuration.map);
 }
 
-export function wallboardOperationalIncidentConfiguration(
+export function wallboardOperationalDeploymentConfiguration(
   configuration: WallboardMapConfiguration,
 ): WallboardMapConfiguration {
   return {
     ...configuration,
-    show_active_incidents: true,
-    show_test_incidents: false,
+    show_active_deployments: true,
+    show_test_deployments: false,
   };
 }
 
@@ -779,26 +802,26 @@ export function wallboardTransientAlertIsActive(alert: WallboardTransientAlert |
   return Number.isFinite(expiresAt) && expiresAt > now;
 }
 
-export function selectRecentWallboardIncidents(
-  incidents: WallboardStateRecentIncident[],
-  limit = DEFAULT_RECENT_INCIDENT_LIMIT,
-): WallboardStateRecentIncident[] {
+export function selectRecentWallboardDeployments(
+  deployments: WallboardStateRecentDeployment[],
+  limit = DEFAULT_RECENT_DEPLOYMENT_LIMIT,
+): WallboardStateRecentDeployment[] {
   const boundedLimit = Math.max(0, Math.trunc(limit));
-  return incidents
-    .filter((incident) => !incident.is_test)
+  return deployments
+    .filter((deployment) => !deployment.is_test)
     .slice()
     .sort((left, right) => {
-      const leftTimestamp = incidentTimestamp(left.closed_at);
-      const rightTimestamp = incidentTimestamp(right.closed_at);
+      const leftTimestamp = deploymentTimestamp(left.closed_at);
+      const rightTimestamp = deploymentTimestamp(right.closed_at);
       if (leftTimestamp === rightTimestamp) return 0;
       return rightTimestamp > leftTimestamp ? 1 : -1;
     })
     .slice(0, boundedLimit);
 }
 
-export function countActiveOperationalWallboardIncidents(incidents: WallboardStateIncident[]): number {
-  return incidents.reduce((count, incident) => (
-    !incident.is_test && !['resolved', 'cancelled'].includes(incident.status) ? count + 1 : count
+export function countActiveOperationalWallboardDeployments(deployments: WallboardStateDeployment[]): number {
+  return deployments.reduce((count, deployment) => (
+    !deployment.is_test && !['resolved', 'cancelled'].includes(deployment.status) ? count + 1 : count
   ), 0);
 }
 
@@ -822,24 +845,24 @@ export function buildWallboardMapPresentation(
   includeLiveData = true,
   configuration: WallboardMapConfiguration = state.wallboard.configuration.map,
 ): WallboardMapPresentation {
-  const incidents = state.map.incidents.filter((incident) => (
-    configuration.show_active_incidents
-    && !['resolved', 'cancelled'].includes(incident.status)
-    && !incident.is_test
+  const deployments = state.map.deployments.filter((deployment) => (
+    configuration.show_active_deployments
+    && !['resolved', 'cancelled'].includes(deployment.status)
+    && !deployment.is_test
   ));
-  const visibleIncidentIds = new Set(incidents.map((incident) => incident.id));
+  const visibleDeploymentIds = new Set(deployments.map((deployment) => deployment.id));
   const liveLocations = configuration.show_live_locations && includeLiveData
-    ? state.map.live_locations.filter((location) => location.location_is_current && visibleIncidentIds.has(location.incident_id))
+    ? state.map.live_locations.filter((location) => location.location_is_current && visibleDeploymentIds.has(location.deployment_id))
     : [];
 
-  const models: OperationalMapIncidentModel[] = incidents.map((incident, index) => {
-    const color = INCIDENT_COLORS[index % INCIDENT_COLORS.length];
+  const models: OperationalMapDeploymentModel[] = deployments.map((deployment, index) => {
+    const color = DEPLOYMENT_COLORS[index % DEPLOYMENT_COLORS.length];
     return {
-      incident: { id: incident.id, title: incident.title },
+      deployment: { id: deployment.id, title: deployment.title },
       color,
-      incidentPoint: parseMapPoint(incident.latitude, incident.longitude),
+      deploymentPoint: parseMapPoint(deployment.latitude, deployment.longitude),
       liveLocations: liveLocations
-        .filter((location) => location.incident_id === incident.id)
+        .filter((location) => location.deployment_id === deployment.id)
         .flatMap((location) => {
           const point = parseMapPoint(location.latitude, location.longitude);
           if (point === null) return [];
@@ -868,10 +891,10 @@ export function buildWallboardMapPresentation(
           return point === null ? [] : [{ ...point, id: center.id, name: center.name }];
         })
         : [],
-      historicalIncidents: configuration.show_historical_incidents
-        ? state.map.historical_incidents.flatMap((incident) => {
-          const point = parseMapPoint(incident.latitude, incident.longitude);
-          return point === null ? [] : [{ ...point, id: incident.id, reference: incident.reference, title: incident.title }];
+      historicalDeployments: configuration.show_historical_deployments
+        ? state.map.historical_deployments.flatMap((deployment) => {
+          const point = parseMapPoint(deployment.latitude, deployment.longitude);
+          return point === null ? [] : [{ ...point, id: deployment.id, reference: deployment.reference, title: deployment.title }];
         })
         : [],
       pilotHomes: [],
@@ -883,8 +906,11 @@ function normalizeWallboardPage(
   page: WallboardPage,
   index: number,
 ): WallboardPage {
-  const type: WallboardPageType = ['map', 'incident_list', 'summary', 'kpi', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'weather_radar', 'news', 'video', 'photo_carousel'].includes(page.type)
-    ? page.type
+  const legacyPageType = page.type as WallboardPageType | 'incident_list';
+  const type: WallboardPageType = legacyPageType === 'incident_list'
+    ? 'deployment_list'
+    : ['map', 'deployment_list', 'summary', 'kpi', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'weather_radar', 'news', 'video', 'photo_carousel'].includes(legacyPageType)
+      ? legacyPageType
     : 'map';
   const id = typeof page.id === 'string' && page.id.trim() !== '' ? page.id : `page-${index + 1}`;
   const legacyPage = page as WallboardPage & { title?: string };
@@ -1024,15 +1050,20 @@ function arraysEqual<T>(first: readonly T[], second: readonly T[]): boolean {
 
 export function normalizeWallboardKpiPageOptions(page: WallboardPage): WallboardPage['options'] {
   const selectedMetrics = Array.isArray(page.options.visible_metrics)
-    ? new Set(page.options.visible_metrics)
+    ? new Set(page.options.visible_metrics
+      .map(canonicalWallboardKpiKey)
+      .filter((key): key is WallboardKpiKey => key !== null))
     : null;
   const rawVisualizations = typeof page.options.metric_visualizations === 'object'
     && page.options.metric_visualizations !== null
     && !Array.isArray(page.options.metric_visualizations)
-    ? page.options.metric_visualizations
-    : {};
+    ? page.options.metric_visualizations as Record<string, unknown>
+    : {} as Record<string, unknown>;
   const metricVisualizations = Object.fromEntries(WALLBOARD_KPI_KEYS.map((key) => {
-    const candidate = rawVisualizations[key];
+    const legacyKey = key.startsWith('deployments_')
+      ? `incidents_${key.slice('deployments_'.length)}`
+      : null;
+    const candidate = rawVisualizations[key] ?? (legacyKey === null ? undefined : rawVisualizations[legacyKey]);
     return [
       key,
       typeof candidate === 'string'
@@ -1050,6 +1081,16 @@ export function normalizeWallboardKpiPageOptions(page: WallboardPage): Wallboard
   };
 }
 
+function canonicalWallboardKpiKey(value: unknown): WallboardKpiKey | null {
+  if (typeof value !== 'string') return null;
+  const canonical = value.startsWith('incidents_')
+    ? `deployments_${value.slice('incidents_'.length)}`
+    : value;
+  return (WALLBOARD_KPI_KEYS as readonly string[]).includes(canonical)
+    ? canonical as WallboardKpiKey
+    : null;
+}
+
 export function wallboardVisibleKpiKeys(page: WallboardPage): WallboardKpiKey[] {
   return normalizeWallboardKpiPageOptions(page).visible_metrics ?? [];
 }
@@ -1062,7 +1103,7 @@ export function wallboardKpiSupportedVisualizations(key: WallboardKpiKey): reado
 
 export function wallboardKpiDefaultVisualization(key: WallboardKpiKey): WallboardKpiVisualization {
   if (key === 'drones_flown_distribution') return 'pie';
-  if (key === 'incidents_by_province' || key === 'incidents_by_country') return 'bar';
+  if (key === 'deployments_by_province' || key === 'deployments_by_country') return 'bar';
   return 'counter';
 }
 
@@ -1290,7 +1331,7 @@ function wallboardFocusTypeConfigurationCopy(
   };
 }
 
-function incidentTimestamp(value: string | null | undefined): number {
+function deploymentTimestamp(value: string | null | undefined): number {
   if (!value) return Number.NEGATIVE_INFINITY;
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;

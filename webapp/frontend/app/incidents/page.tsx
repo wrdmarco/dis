@@ -1,12 +1,5 @@
-'use client';
-
-import { IncidentsPage } from '../../src/features/incidents/IncidentsPage';
-import { ProtectedShell } from '../../src/next/RouteShell';
+import { redirect } from 'next/navigation';
 
 export default function Page() {
-  return (
-    <ProtectedShell permissions={['incidents.view']}>
-      <IncidentsPage mode="active" />
-    </ProtectedShell>
-  );
+  redirect('/inzetten');
 }

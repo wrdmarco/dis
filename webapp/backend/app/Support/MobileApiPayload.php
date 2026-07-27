@@ -8,15 +8,15 @@ use App\Models\AssetAssignment;
 use App\Models\AuditLog;
 use App\Models\AvailabilityStatus;
 use App\Models\Certification;
+use App\Models\Deployment;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\DroneType;
 use App\Models\FcmToken;
-use App\Models\Incident;
-use App\Models\PilotIncidentReport;
+use App\Models\PilotDeploymentReport;
 use App\Models\User;
 use App\Models\UserCertification;
-use App\Services\IncidentIntakeDossierService;
+use App\Services\DeploymentRequestService;
 use App\Services\TwoFactorService;
 use DateTimeInterface;
 
@@ -301,80 +301,80 @@ final class MobileApiPayload
     /**
      * @return array<string, mixed>
      */
-    public static function incident(
-        Incident $incident,
+    public static function deployment(
+        Deployment $deployment,
         ?User $actor = null,
-        ?IncidentIntakeDossierService $intakeDossierService = null,
+        ?DeploymentRequestService $deploymentRequestService = null,
     ): array {
-        $incident->loadMissing(['coordinator', 'team', 'teams', 'intakeDossier.workflowRevision']);
-        $intakeDossierService ??= app(IncidentIntakeDossierService::class);
-        $intakeDossier = $incident->intakeDossier;
+        $deployment->loadMissing(['coordinator', 'team', 'teams', 'deploymentRequest.workflowRevision']);
+        $deploymentRequestService ??= app(DeploymentRequestService::class);
+        $deploymentRequest = $deployment->deploymentRequest;
         $operatorClient = $actor?->isOperatorClient() === true;
-        $hiddenIncidentTargets = $operatorClient
-            ? $intakeDossierService->hiddenIncidentTargetsForOperator($incident)
+        $hiddenDeploymentTargets = $operatorClient
+            ? $deploymentRequestService->hiddenDeploymentTargetsForOperator($deployment)
             : [];
-        $visibleValue = static fn (string $target, mixed $value): mixed => in_array($target, $hiddenIncidentTargets, true)
+        $visibleValue = static fn (string $target, mixed $value): mixed => in_array($target, $hiddenDeploymentTargets, true)
             ? null
             : $value;
-        $intakeProjection = $operatorClient
-            ? $intakeDossierService->projectionForIncident($incident, $actor)
+        $deploymentRequestProjection = $operatorClient
+            ? $deploymentRequestService->projectionForDeployment($deployment, $actor)
             : null;
-        $title = in_array('title', $hiddenIncidentTargets, true)
-            ? trim((string) ($intakeProjection['subject_type_label'] ?? 'Melding'))
-            : $incident->title;
-        $locationHidden = in_array('location_label', $hiddenIncidentTargets, true);
+        $title = in_array('title', $hiddenDeploymentTargets, true)
+            ? trim((string) ($deploymentRequestProjection['subject_type_label'] ?? 'Inzet'))
+            : $deployment->title;
+        $locationHidden = in_array('location_label', $hiddenDeploymentTargets, true);
 
         return [
-            'id' => $incident->id,
-            'reference' => $incident->reference,
-            'title' => $title === '' ? 'Melding' : $title,
-            'description' => $visibleValue('description', $incident->description),
-            'reporter_name' => $visibleValue('reporter_name', $incident->reporter_name),
-            'reporter_phone' => $visibleValue('reporter_phone', $incident->reporter_phone),
-            'requesting_organization' => $visibleValue('requesting_organization', $incident->requesting_organization),
-            'requesting_unit' => $visibleValue('requesting_unit', $incident->requesting_unit),
-            'on_scene_contact_name' => $visibleValue('on_scene_contact_name', $incident->on_scene_contact_name),
-            'on_scene_contact_phone' => $visibleValue('on_scene_contact_phone', $incident->on_scene_contact_phone),
-            'on_scene_contact_role' => $visibleValue('on_scene_contact_role', $incident->on_scene_contact_role),
-            'required_resources' => $visibleValue('required_resources', $incident->required_resources),
-            'custom_fields' => $operatorClient && $intakeDossier !== null
+            'id' => $deployment->id,
+            'reference' => $deployment->reference,
+            'title' => $title === '' ? 'Inzet' : $title,
+            'description' => $visibleValue('description', $deployment->description),
+            'reporter_name' => $visibleValue('reporter_name', $deployment->reporter_name),
+            'reporter_phone' => $visibleValue('reporter_phone', $deployment->reporter_phone),
+            'requesting_organization' => $visibleValue('requesting_organization', $deployment->requesting_organization),
+            'requesting_unit' => $visibleValue('requesting_unit', $deployment->requesting_unit),
+            'on_scene_contact_name' => $visibleValue('on_scene_contact_name', $deployment->on_scene_contact_name),
+            'on_scene_contact_phone' => $visibleValue('on_scene_contact_phone', $deployment->on_scene_contact_phone),
+            'on_scene_contact_role' => $visibleValue('on_scene_contact_role', $deployment->on_scene_contact_role),
+            'required_resources' => $visibleValue('required_resources', $deployment->required_resources),
+            'custom_fields' => $operatorClient && $deploymentRequest !== null
                 ? (object) []
-                : (object) ($incident->custom_fields ?? []),
-            'intake' => $intakeProjection,
-            'intake_dossier_id' => $intakeDossier?->id,
-            'priority' => $incident->priority,
-            'status' => $incident->status,
-            'is_test' => (bool) $incident->is_test,
-            'location_label' => $visibleValue('location_label', $incident->location_label),
-            'latitude' => $locationHidden ? null : $incident->latitude,
-            'longitude' => $locationHidden ? null : $incident->longitude,
-            'drone_flight_context' => $locationHidden ? null : $incident->drone_flight_context,
-            'coordinator' => self::userIdentity($incident->coordinator),
-            'team' => $incident->team === null ? null : [
-                'id' => $incident->team->id,
-                'code' => $incident->team->code,
-                'name' => $incident->team->name,
-                'type' => $incident->team->type,
+                : (object) ($deployment->custom_fields ?? []),
+            'deployment_request' => $deploymentRequestProjection,
+            'deployment_request_id' => $deploymentRequest?->id,
+            'priority' => $deployment->priority,
+            'status' => $deployment->status,
+            'is_test' => (bool) $deployment->is_test,
+            'location_label' => $visibleValue('location_label', $deployment->location_label),
+            'latitude' => $locationHidden ? null : $deployment->latitude,
+            'longitude' => $locationHidden ? null : $deployment->longitude,
+            'drone_flight_context' => $locationHidden ? null : $deployment->drone_flight_context,
+            'coordinator' => self::userIdentity($deployment->coordinator),
+            'team' => $deployment->team === null ? null : [
+                'id' => $deployment->team->id,
+                'code' => $deployment->team->code,
+                'name' => $deployment->team->name,
+                'type' => $deployment->team->type,
             ],
-            'teams' => $incident->teams->map(fn ($team): array => [
+            'teams' => $deployment->teams->map(fn ($team): array => [
                 'id' => $team->id,
                 'code' => $team->code,
                 'name' => $team->name,
                 'type' => $team->type,
             ])->values(),
-            'opened_at' => self::dateTime($incident->opened_at),
-            'closed_at' => self::dateTime($incident->closed_at),
+            'opened_at' => self::dateTime($deployment->opened_at),
+            'closed_at' => self::dateTime($deployment->closed_at),
         ];
     }
 
     /**
      * @return array<string, mixed>
      */
-    public static function pilotIncidentReport(PilotIncidentReport $report): array
+    public static function pilotDeploymentReport(PilotDeploymentReport $report): array
     {
         return [
             'id' => $report->id,
-            'incident_id' => $report->incident_id,
+            'deployment_id' => $report->deployment_id,
             'user_id' => $report->user_id,
             'user_name' => $report->user_name,
             'status' => $report->status,
@@ -400,13 +400,13 @@ final class MobileApiPayload
     public static function dispatch(
         DispatchRequest $dispatch,
         ?User $actor = null,
-        ?IncidentIntakeDossierService $intakeDossierService = null,
+        ?DeploymentRequestService $deploymentRequestService = null,
     ): array {
         $operatorPreannouncement = $actor?->isOperatorClient() === true && $dispatch->status === 'draft';
 
         return [
             'id' => $dispatch->id,
-            'incident_id' => $dispatch->incident_id,
+            'deployment_id' => $dispatch->deployment_id,
             'target_team_id' => $dispatch->target_team_id,
             'status' => $dispatch->status,
             'action_mode' => $dispatch->status === 'draft' ? 'availability' : 'attendance',
@@ -422,8 +422,8 @@ final class MobileApiPayload
             'send_queued_at' => self::dateTime($dispatch->send_queued_at),
             'send_released_at' => self::dateTime($dispatch->send_released_at),
             'created_at' => self::dateTime($dispatch->created_at),
-            'incident' => $dispatch->relationLoaded('incident') && $dispatch->incident !== null
-                ? self::incident($dispatch->incident, $actor, $intakeDossierService)
+            'deployment' => $dispatch->relationLoaded('deployment') && $dispatch->deployment !== null
+                ? self::deployment($dispatch->deployment, $actor, $deploymentRequestService)
                 : null,
             'target_team' => $dispatch->relationLoaded('targetTeam') && $dispatch->targetTeam !== null ? [
                 'id' => $dispatch->targetTeam->id,
@@ -488,7 +488,7 @@ final class MobileApiPayload
         return [
             'id' => $assignment->id,
             'asset_id' => $assignment->asset_id,
-            'incident_id' => $assignment->incident_id,
+            'deployment_id' => $assignment->deployment_id,
             'user_id' => $assignment->user_id,
             'assigned_by' => $assignment->assigned_by,
             'assigned_at' => self::dateTime($assignment->assigned_at),

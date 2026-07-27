@@ -1,7 +1,26 @@
-# D.I.S. Bare-Metal Deployment
+# D.I.S. Bare-Metal Installation And Runtime
 
 D.I.S. (Drone Inzet Systeem) is deployed as a bare-metal Ubuntu application under `/opt/dis`.
 This repository contains only the files required to install, run, update and uninstall the platform.
+
+## Domain Terminology
+
+- A **deployment request** (`DeploymentRequest`, Dutch UI: **Aanvraag**) is the pre-operational
+  request from registration through preparation.
+- A **deployment** (`Deployment`, Dutch UI: **Inzet**) is the operational record created when a
+  complete request is prepared.
+- A **dispatch request** (`DispatchRequest`, Dutch UI: **alarmering**) selects, alerts and tracks
+  recipients for a deployment.
+- Software changes are described as an installation, release, update or production rollout in this
+  document; they are not domain deployments.
+
+The canonical API resources are `/deployment-requests` and `/deployments`; relationship keys are
+`deployment_request_id` and `deployment_id`. The web routes are `/aanvragen` and `/inzetten`.
+Old incident/intake identifiers exist only in immutable historical migrations, bounded upgrade readers,
+queue-drain compatibility and web redirects. New API responses, persisted configuration, realtime events
+and internal queued/outbox push contracts use only the canonical deployment terminology. During the
+coordinated mobile transition, provider payloads temporarily include the canonical
+`deployment_event_type` plus bounded, old-client-safe wire aliases.
 
 ## Requirements
 
@@ -80,21 +99,21 @@ authenticated same-origin delivery and browser-local `blob:` previews; no extern
 allowed. Adding a new external frontend dependency requires updating and testing
 `webapp/frontend/src/lib/securityPolicy.ts`.
 
-### Incident location enrichment
+### Deployment location enrichment
 
-For non-test incidents, the isolated `incident-enrichment` queue classifies an already stored incident
+For non-test deployments, the isolated `deployment-enrichment` queue classifies an already stored deployment
 coordinate through the official PDOK province WFS and, when needed, the Eurostat GISCO country lookup.
 Provider URLs are restricted to their exact HTTPS hosts and port 443; redirects, credentials, configured
 query strings and fragments are rejected. Exact coordinates are sent only as lookup parameters. DIS stores
 the canonical province/country code and name, the provider identifier and the resolution timestamp alongside
-the incident; it does not retain provider response bodies. These fields follow the incident's normal retention
-and deletion lifecycle. Wallboard KPI output contains aggregate counts only, never coordinates or incident
-identifiers. Test incidents are not sent to either provider.
+the deployment; it does not retain provider response bodies. These fields follow the deployment's normal retention
+and deletion lifecycle. Wallboard KPI output contains aggregate counts only, never coordinates or deployment
+identifiers. Test deployments are not sent to either provider.
 
-`INCIDENT_LOCATION_ENRICHMENT_ENABLED` is the operational kill switch and is enabled in the supplied deployment
-configuration; set it to `false` before deployment to prevent all outbound lookups and scheduled backfill. The
-incident write path never contacts Redis for this enrichment. Every five minutes the scheduler admits a bounded
-batch of two or three rows: one lane selects the newest never-attempted incident and at least one lane preserves
+`DEPLOYMENT_LOCATION_ENRICHMENT_ENABLED` is the operational kill switch and is enabled in the supplied runtime
+configuration; set it to `false` before a production rollout to prevent all outbound lookups and scheduled backfill. The
+deployment write path never contacts Redis for this enrichment. Every five minutes the scheduler admits a bounded
+batch of two or three rows: one lane selects the newest never-attempted deployment and at least one lane preserves
 oldest-due backfill fairness. An unresolved row waits at least six hours before another provider attempt, so a
 provider or queue outage cannot obstruct push or the normal application queue.
 
@@ -169,7 +188,7 @@ enabled until the first replacement backup has been verified and durably synchro
 
 DIS keeps operational dispatch selection and reachability testing deliberately separate:
 
-- A preannouncement asks operators whether they are available for a possible incident. It creates a
+- A preannouncement asks operators whether they are available for a possible deployment. It creates a
   draft dispatch and does not count as an attendance response. The operator payload contains only the
   derived place name; reporter details, the full street address and coordinates remain hidden until the
   real dispatch is sent.
@@ -183,26 +202,26 @@ DIS keeps operational dispatch selection and reachability testing deliberately s
   remains a freshness indicator only. The test intentionally does not
   filter on availability, certifications or assigned drones, and the web interface requires explicit
   confirmation before sending.
-- Test-alert acknowledgements confirm technical receipt only. They do not start an incident, change
+- Test-alert acknowledgements confirm technical receipt only. They do not start a deployment, change
   attendance state or trigger operational dispatch transitions.
 
 The test-alert result reports targeted users, queued devices, users skipped before queueing and users for
-whom no notification could be queued. The action requires the `incidents.dispatch.manage` permission and
+whom no notification could be queued. The action requires the `deployments.dispatch.manage` permission and
 is recorded in the audit log.
 
-### Pre-incident intake dossiers
+### Deployment requests
 
-Authorised centralists start a report under `/meldingen` before an incident exists. Every dossier uses the
-published, immutable intake-workflow revision that was current when the dossier was created and contains
+Authorised centralists start an application under `/aanvragen` before a deployment exists. Every request uses the
+published, immutable request-workflow revision that was current when the request was created and contains
 common questions plus exactly one subject branch: person, animal or object. Answers are autosaved with
-optimistic locking and idempotent mutations. A linked dossier remains editable after promotion, and configured
-field bindings keep the corresponding incident fields synchronized without requiring duplicate entry.
+optimistic locking and idempotent mutations. A linked request remains editable after preparation, and configured
+field bindings keep the corresponding deployment fields synchronized without requiring duplicate entry.
 
-Administrators with `forms.manage` configure, validate, simulate, publish and restore intake workflows under
+Administrators with `forms.manage` configure, validate, simulate, publish and restore request workflows under
 `/forms`. Priority advice and deployment proposals remain separate from the centralist's recorded decision.
-Departures from the advice require the dedicated override permission and a reason. Promoting a complete dossier
-creates exactly one draft incident; it never sends a preannouncement, dispatch, push notification or alarm.
-Operator clients receive only fields that are marked operator-visible in both the dossier's frozen workflow
+Departures from the advice require the dedicated override permission and a reason. Preparing a complete request
+creates exactly one draft deployment; it never sends a preannouncement, dispatch, push notification or alarm.
+Operator clients receive only fields that are marked operator-visible in both the request's frozen workflow
 revision and the currently published revision.
 
 ## Managed Wallboards
@@ -220,7 +239,7 @@ browser needs an explicit Full HD or Ultra HD readability profile. This setting 
 density. It does not change the television, HDMI input, operating-system or browser output resolution, and a
 shared playlist can therefore be shown on screens with different display profiles.
 
-A playlist contains an ordered set of allowlisted DIS pages: an operational map, incident list, operational
+A playlist contains an ordered set of allowlisted DIS pages: an operational map, deployment list, operational
 summary, live KPI overview, calendar, safely formatted announcement or safety notice, an administrator-managed
 daily quote, a UAV Forecast, curated drone-news page, photo carousel or allowlisted YouTube/Vimeo video. Every
 page has its own bounded display duration. The playlist also owns
@@ -231,10 +250,10 @@ restricted to public destinations. Each RSS source can show between one and eigh
 accepted.
 
 Every playlist explicitly uses either `live` or `demo` data. A demo playlist keeps its configured pages and
-managed static media, but replaces operational summaries, incidents, locations, calendar entries, KPI values,
+managed static media, but replaces operational summaries, deployments, locations, calendar entries, KPI values,
 news, ticker items and UAV Forecast readings with fixed, clearly labelled fictitious fixtures. That path does
 not query operational records or retrieve external feeds, weather or address data, and it never reacts to a real
-incident, focus event or active-deployment override. Demo weather is presentation data only and must never be
+deployment, focus event or active-deployment override. Demo weather is presentation data only and must never be
 used for a flight decision. Changing mode advances the playlist and linked-screen cache versions and removes
 live content snapshots. An active-deployment playlist must remain `live`.
 
@@ -268,7 +287,7 @@ and location. Team-scoped events are excluded because an anonymous wallboard has
 Calendar data remains server-authoritative live state and is not stored as static media.
 
 The KPI page exposes a fixed, server-owned catalogue of 42 aggregate metrics for pilot availability, real
-incidents, managed assets, live dispatch responses and submitted flight reports. Administrators can enable or
+deployments, managed assets, live dispatch responses and submitted flight reports. Administrators can enable or
 disable every KPI separately. They can choose a counter, bar, pie or ring wherever the metric has a real
 distribution or denominator; standalone totals remain counters, and one page accepts at most six visible charts.
 An omitted legacy selection enables the complete catalogue while an explicitly empty selection remains empty.
@@ -283,9 +302,9 @@ report history. Its distribution shows up to eight drone types plus `Overig` and
 not submit a supported drone selection remain honestly `Onbekend`; in particular, the current fixed iOS pilot-
 report form does not yet offer the dynamic drone selector and is not included as a known drone type.
 
-Province and country charts use only the stored canonical classifications described under incident location
-enrichment. Incident and response totals exclude test incidents, and repeated recipient rows are deduplicated per
-incident and user. Names, e-mail addresses, notes, exact locations, incident identifiers and other recipient
+Province and country charts use only the stored canonical classifications described under deployment location
+enrichment. Deployment and response totals exclude test deployments, and repeated recipient rows are deduplicated per
+deployment and user. Names, e-mail addresses, notes, exact locations, deployment identifiers and other recipient
 details are never included in the KPI payload. A percentage without a valid denominator is shown as unknown
 rather than zero.
 
@@ -426,32 +445,33 @@ Each playlist independently configures focus screens for a preannouncement, a re
 Every focus type has a bounded screen duration and an optional response feed. That feed contains only the
 recipient name snapshot, response status and response timestamp; it never exposes e-mail addresses, response
 notes or user identifiers. For a real alarm, the response contract additionally contains the complete list of
-accepted responders. A current live location received under active incident consent is converted server-side
+accepted responders. A current live location received under active deployment consent is converted server-side
 to a navigation or explicitly labelled fallback ETA; otherwise that responder remains visible with no ETA.
 A preannouncement and test alarm use a one-shot focus window. While a real non-test
-incident is being dispatched or is in progress, its focus screen is inserted server-side before the assigned
+deployment is being dispatched or is in progress, its focus screen is inserted server-side before the assigned
 playlist and the combined cycle repeats. A playlist containing only the operational map therefore alternates
-between alarm focus and map until the incident ends. The server supplies every phase and deadline through the
+between alarm focus and map until the deployment ends. The server supplies every phase and deadline through the
 two-second control feed, so paired displays stay synchronized and refreshes cannot restart a timer. A real alarm
 always takes precedence over a simultaneous preannouncement or test alarm.
 
 Each screen may additionally select a dedicated active-deployment playlist. It becomes the runtime playlist only
-while a real, non-test incident is in progress and returns to the normal assigned playlist afterwards. The
+while a real, non-test deployment is in progress and returns to the normal assigned playlist afterwards. The
 selection is server-authoritative, audited and part of the wallboard cache version, so a running deployment is
 not masked by a newer dispatching record and a display prepares the replacement playlist before showing it.
 
 Administrators can send a rate-limited focus test for any of the three focus types to one selected screen. DIS
-uses fixed, clearly labelled example counts, names and ETAs from a short-lived per-screen cache; no incident,
+uses fixed, clearly labelled example counts, names and ETAs from a short-lived per-screen cache; no deployment,
 dispatch or recipient is created. The preview is audited, respects optimistic control versions and expires after
 thirty seconds, after which the screen automatically resumes its existing manual page or playlist rotation. A
 real operational alarm blocks a new preview and immediately takes priority if it starts during one.
 
-Legacy `incident_override` values remain accepted for stored-configuration compatibility, but never pin or replace
-the configured normal or active-deployment playlist. Operational-map pages in either playlist receive the same
-live incident, responder, route and focus data, so they can centre and zoom on the active deployment without a
-hard-coded incident page. Test alerts never count as active incidents and are omitted from every persistent
-operational summary, map, incident list and historical wallboard layer; they can only appear in their bounded
-focus screen. After the final matching real incident closes or is cancelled, the normal playlist or current
+Stored legacy `incident_override` values are migrated once to the canonical `deployment_override` value; new
+configuration accepts only the canonical name. Neither value pins or replaces the configured normal or
+active-deployment playlist. Operational-map pages in either playlist receive the same live deployment, responder,
+route and focus data, so they can centre and zoom on the active deployment without a hard-coded deployment page.
+Test alerts never count as active deployments and are omitted from every persistent operational summary, map,
+deployment list and historical wallboard layer; they can only appear in their bounded focus screen. After the
+final matching real deployment closes or is cancelled, the normal playlist or current
 manual selection becomes effective again.
 Playlist configuration, screen assignment and live-control changes require `wallboards.manage`, use
 optimistic versions to prevent stale administrators overwriting each other, and are audit logged. Updating a
@@ -473,7 +493,7 @@ Repeating the send action does not create duplicate outbox rows, but delivery is
 crash after queue acceptance can still send a duplicate. Stable FCM/APNs collapse identifiers reduce visible
 duplicates while they are pending at the provider; preventing loss takes precedence over exactly-once delivery.
 
-After an operator has accepted and explicitly shares a current incident location, DIS can calculate a
+After an operator has accepted and explicitly shares a current deployment location, DIS can calculate a
 navigation ETA from that location. A location older than five minutes is stale: it is not plotted as live and
 its former ETA is not shown. The API's optional `eta_source` value is `navigation`, `fallback`, or `unknown`;
 clients must continue to handle older responses where this field is absent.
@@ -483,7 +503,7 @@ sharing a current location. Each successful poll replaces the complete route geo
 builds a historical location trail behind the pilot. Route geometry is not cached or stored as history. If
 OSRM is unavailable or returns an invalid route, the map keeps the current pilot marker but draws no straight
 line or other route substitute. Route geometry is available only to users who also have
-`operational-map.view`; ordinary incident and mobile location responses retain their existing contract and do
+`operational-map.view`; ordinary deployment and mobile location responses retain their existing contract and do
 not trigger route-geometry requests.
 
 Administrators can install and activate the self-hosted Netherlands-and-Belgium OSRM service from the dedicated
@@ -494,18 +514,18 @@ systemd request broker validates the immutable database operation snapshot,
 resolves both fixed HTTPS sources to a common dated Geofabrik snapshot, verifies each supplier MD5 and matching
 source timestamp, and merges both extracts without network access. It shows bounded live stage logging, verifies
 both Dutch and Belgian readiness probes, atomically activates the dataset, and rolls back to the prior healthy
-release on failure. Once ready, the same panel offers only a deliberate map-data update; normal DIS deployments
+release on failure. Once ready, the same panel offers only a deliberate map-data update; normal DIS updates
 never download map data implicitly. See
 `infrastructure/osrm/README.md` for the privilege boundary, storage requirements and recovery behavior.
 The runtime uses Ubuntu's APT-held Podman package and an official OSRM image pinned to an immutable amd64 manifest
 digest. Neither a map-data action nor a normal DIS update changes that container image.
 Each revoke/re-consent transition advances a server-side consent generation. Location updates are stored
 against that generation, so an update started under an older grant cannot reappear after re-consent. Declining
-attendance, a `no_response` override, arriving on scene, or closing the incident stops live sharing server-side.
+attendance, a `no_response` override, arriving on scene, or closing the deployment stops live sharing server-side.
 
 ## Mobile Apps And Push Behaviour
 
-Mobile app installation and updates are handled through the platform app stores. The deployment no longer
+Mobile app installation and updates are handled through the platform app stores. The DIS runtime no longer
 exposes a public APK download page.
 
 Android treats a preannouncement as a one-shot DIS alarm rather than the persistent looping alarm used for

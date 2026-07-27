@@ -9,7 +9,7 @@ final class PushQueueManualActionPolicy
     private const SAFE_STANDALONE_START_TYPES = [
         'device_presence_ping',
         'dispatch_request',
-        'incident_preannouncement',
+        'deployment_preannouncement',
         'manual_admin',
         'session_revoked',
     ];

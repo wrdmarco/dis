@@ -232,7 +232,7 @@ acquire_dis_operation_lock uninstall
 log "Stopping and disabling DIS services"
 # Legacy backup entries remain here so uninstall also cleans hosts upgraded from
 # releases that installed the retired standalone backup helpers.
-for service in dis-media dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-queue dis-scheduler dis-websocket dis-osrm dis-incident-enrichment dis-knmi dis-knmi-realtime \
+for service in dis-media dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-queue dis-scheduler dis-websocket dis-osrm dis-deployment-enrichment dis-incident-enrichment dis-knmi dis-knmi-realtime \
   dis-osrm-admin-request.timer dis-osrm-admin-request.path dis-osrm-admin-request \
   dis-backup-request.timer dis-backup-request.path dis-backup-request \
   dis-backup-mount dis-backup.timer dis-backup; do
@@ -250,6 +250,7 @@ for unit in \
   /etc/systemd/system/dis-media.service \
   /etc/systemd/system/dis-knmi.service \
   /etc/systemd/system/dis-knmi-realtime.service \
+  /etc/systemd/system/dis-deployment-enrichment.service \
   /etc/systemd/system/dis-incident-enrichment.service \
   /etc/systemd/system/dis-scheduler.service \
   /etc/systemd/system/dis-websocket.service \

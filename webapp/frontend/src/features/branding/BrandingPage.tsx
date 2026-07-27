@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { useApiResource } from '../../lib/useApiResource';
-import type { ConfigurableFormField, IncidentFormConfig, SystemSetting } from '../../types/api';
+import type { ConfigurableFormField, DeploymentFormConfig, SystemSetting } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 
 type BrandingTab = 'general' | 'logo' | 'mailTemplates' | 'pushTemplates' | 'expiryTemplates' | 'expiry';
@@ -79,7 +79,7 @@ Status: {{status_text}}
 
 Werk de assetgegevens bij zodra dit is afgehandeld.`;
 const DEFAULT_PUSH_PREANNOUNCEMENT_TITLE = 'D.I.S vooraankondiging';
-const DEFAULT_PUSH_PREANNOUNCEMENT_BODY = 'Ben je beschikbaar voor een melding in {{place}}?';
+const DEFAULT_PUSH_PREANNOUNCEMENT_BODY = 'Ben je beschikbaar voor een mogelijke inzet in {{place}}?';
 const DEFAULT_PUSH_DISPATCH_TITLE = 'NDT Alarmering';
 const DEFAULT_PUSH_DISPATCH_BODY = '{{message}}';
 const DEFAULT_PUSH_UNAVAILABLE_ESCALATION_TITLE = 'NDT urgente opschaling';
@@ -89,8 +89,8 @@ const DEFAULT_PUSH_ADDITIONAL_INFO_BODY = '{{message}}';
 const DEFAULT_PUSH_CANCELLATION_TITLE = 'D.I.S geannuleerd';
 const DEFAULT_PUSH_CANCELLATION_BODY = 'De vooraankondiging in {{place}} is geannuleerd.';
 const basePushVariables = [
-  ['reference', 'Incidentnummer'],
-  ['title', 'Incidenttitel'],
+  ['reference', 'Inzetnummer'],
+  ['title', 'Inzettitel'],
   ['description', 'Omschrijving'],
   ['address', 'Adres/locatie'],
   ['place', 'Plaatsnaam'],
@@ -115,9 +115,12 @@ const basePushVariables = [
 export function BrandingPage() {
   const { api } = useAuth();
   const settings = useApiResource<SystemSetting[]>('/admin/branding/settings');
-  const incidentFormConfig = useApiResource<IncidentFormConfig>('/admin/incident-form/config');
+  const deploymentFormConfig = useApiResource<DeploymentFormConfig>('/admin/deployment-form/config');
   const initialForm = useMemo(() => toBrandingForm(settings.data ?? []), [settings.data]);
-  const incidentFieldVariables = useMemo(() => incidentFormVariables(incidentFormConfig.data?.fields ?? []), [incidentFormConfig.data?.fields]);
+  const deploymentFieldVariables = useMemo(
+    () => deploymentFormVariables(deploymentFormConfig.data?.fields ?? []),
+    [deploymentFormConfig.data?.fields],
+  );
   const [form, setForm] = useState<BrandingForm>(initialForm);
   const [activeTab, setActiveTab] = useState<BrandingTab>('general');
   const [saving, setSaving] = useState(false);
@@ -367,7 +370,7 @@ export function BrandingPage() {
                   titleValue={form.pushPreannouncementTitle}
                   bodyLabel="Beschikbaarheidsvraag"
                   bodyValue={form.pushPreannouncementBody}
-                  variables={pushVariablesFor('preannouncement', incidentFieldVariables)}
+                  variables={pushVariablesFor('preannouncement', deploymentFieldVariables)}
                   onTitleChange={(value) => setForm((current) => ({ ...current, pushPreannouncementTitle: value }))}
                   onBodyChange={(value) => setForm((current) => ({ ...current, pushPreannouncementBody: value }))}
                 />
@@ -377,7 +380,7 @@ export function BrandingPage() {
                   titleValue={form.pushDispatchTitle}
                   bodyLabel="Berichtopbouw"
                   bodyValue={form.pushDispatchBody}
-                  variables={pushVariablesFor('dispatch', incidentFieldVariables)}
+                  variables={pushVariablesFor('dispatch', deploymentFieldVariables)}
                   onTitleChange={(value) => setForm((current) => ({ ...current, pushDispatchTitle: value }))}
                   onBodyChange={(value) => setForm((current) => ({ ...current, pushDispatchBody: value }))}
                 />
@@ -387,7 +390,7 @@ export function BrandingPage() {
                   titleValue={form.pushUnavailableEscalationTitle}
                   bodyLabel="Bericht"
                   bodyValue={form.pushUnavailableEscalationBody}
-                  variables={pushVariablesFor('unavailable', incidentFieldVariables)}
+                  variables={pushVariablesFor('unavailable', deploymentFieldVariables)}
                   onTitleChange={(value) => setForm((current) => ({ ...current, pushUnavailableEscalationTitle: value }))}
                   onBodyChange={(value) => setForm((current) => ({ ...current, pushUnavailableEscalationBody: value }))}
                 />
@@ -397,7 +400,7 @@ export function BrandingPage() {
                   titleValue={form.pushAdditionalInfoTitle}
                   bodyLabel="Bericht"
                   bodyValue={form.pushAdditionalInfoBody}
-                  variables={pushVariablesFor('additional', incidentFieldVariables)}
+                  variables={pushVariablesFor('additional', deploymentFieldVariables)}
                   onTitleChange={(value) => setForm((current) => ({ ...current, pushAdditionalInfoTitle: value }))}
                   onBodyChange={(value) => setForm((current) => ({ ...current, pushAdditionalInfoBody: value }))}
                 />
@@ -407,18 +410,18 @@ export function BrandingPage() {
                   titleValue={form.pushCancellationTitle}
                   bodyLabel="Bericht"
                   bodyValue={form.pushCancellationBody}
-                  variables={pushVariablesFor('cancellation', incidentFieldVariables)}
+                  variables={pushVariablesFor('cancellation', deploymentFieldVariables)}
                   onTitleChange={(value) => setForm((current) => ({ ...current, pushCancellationTitle: value }))}
                   onBodyChange={(value) => setForm((current) => ({ ...current, pushCancellationBody: value }))}
                 />
               </div>
               <div className="metadata-example">
                 <strong>Beschikbare tokens</strong>
-                <pre>{pushTemplateHelpText(incidentFieldVariables)}</pre>
+                <pre>{pushTemplateHelpText(deploymentFieldVariables)}</pre>
               </div>
               <div className="metadata-example">
                 <strong>Voorbeeld alarmering</strong>
-                <pre>{'Melding {{reference}}\n{{title}}\nAdres: {{address}}\nPlaats: {{place}}\nContact: {{on_scene_contact_name}} - {{on_scene_contact_phone}}\nMiddelen: {{required_resources}}'}</pre>
+                <pre>{'Inzet {{reference}}\n{{title}}\nAdres: {{address}}\nPlaats: {{place}}\nContact: {{on_scene_contact_name}} - {{on_scene_contact_phone}}\nMiddelen: {{required_resources}}'}</pre>
               </div>
               <div className="metadata-example">
                 <strong>Reason bij niet beschikbaar maar opgeschaald</strong>
@@ -525,7 +528,7 @@ function TemplateFields({
       </div>
       {variables.length > 0 ? (
         <div className="template-variable-bank">
-          <strong>Variabelen voor deze melding</strong>
+          <strong>Variabelen voor deze alarmering</strong>
           <div className="template-variable-bank__grid">
             {variables.map((variable) => (
               <div className="template-variable" key={variable.key}>
@@ -551,27 +554,27 @@ function appendToken(value: string, token: string): string {
   return `${value}${value.endsWith('\n') ? '' : ' '}${token}`;
 }
 
-function incidentFormVariables(fields: ConfigurableFormField[]): Array<{ key: string; label: string }> {
+function deploymentFormVariables(fields: ConfigurableFormField[]): Array<{ key: string; label: string }> {
   return fields
     .filter((field) => field.visible && field.type !== 'section' && (field.expose_to_push ?? true))
     .filter((field) => field.key !== 'reporter_name' && field.key !== 'reporter_phone')
     .map((field) => ({ key: `field_${field.key}`, label: `Formulierveld: ${field.label}` }));
 }
 
-function pushTemplateHelpText(incidentFields: Array<{ key: string; label: string }>): string {
-  const base = pushVariablesFor('unavailable', incidentFields)
+function pushTemplateHelpText(deploymentFields: Array<{ key: string; label: string }>): string {
+  const base = pushVariablesFor('unavailable', deploymentFields)
     .filter((variable, index, variables) => variables.findIndex((candidate) => candidate.key === variable.key) === index)
     .map((variable) => `{{${variable.key}}} = ${variable.label}`);
 
   return [
     ...base,
     '',
-    'Nieuwe incidentvelden staan hier automatisch tussen als ze bij Formulieren zichtbaar zijn en Beschikbaar in pushmelding aan staat.',
+    'Nieuwe inzetvelden staan hier automatisch tussen als ze bij Formulieren zichtbaar zijn en Beschikbaar in pushmelding aan staat.',
     'Vluchtrapportvelden worden niet als pushmelding-variabelen gebruikt.',
   ].join('\n');
 }
 
-function pushVariablesFor(kind: 'preannouncement' | 'dispatch' | 'unavailable' | 'additional' | 'cancellation', incidentFields: Array<{ key: string; label: string }>): Array<{ key: string; label: string }> {
+function pushVariablesFor(kind: 'preannouncement' | 'dispatch' | 'unavailable' | 'additional' | 'cancellation', deploymentFields: Array<{ key: string; label: string }>): Array<{ key: string; label: string }> {
   const extras = kind === 'unavailable'
     ? [{ key: 'reason', label: 'Reden opschaling' }, { key: 'availability_reason', label: 'Waarom niet beschikbaar' }]
     : [];
@@ -592,7 +595,7 @@ function pushVariablesFor(kind: 'preannouncement' | 'dispatch' | 'unavailable' |
     ...base,
     ...message,
     ...extras,
-    ...(kind === 'preannouncement' || kind === 'cancellation' ? [] : incidentFields),
+    ...(kind === 'preannouncement' || kind === 'cancellation' ? [] : deploymentFields),
   ];
 }
 

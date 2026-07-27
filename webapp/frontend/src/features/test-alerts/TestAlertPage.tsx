@@ -261,7 +261,7 @@ export function TestAlertPage() {
         <ResourceState loading={testAlert.loading} error={testAlert.error} empty={!testAlert.data}>
           <div className="panel-body">
             <div className="summary-grid">
-              <SummaryItem label="Referentie" value={testAlert.data?.incident?.reference ?? '-'} />
+              <SummaryItem label="Referentie" value={testAlert.data?.deployment?.reference ?? '-'} />
               <SummaryItem label="Dispatch" value={testAlert.data?.status ?? '-'} />
               <SummaryItem label="Gestart" value={formatDate(testAlert.data?.sent_at)} />
               <SummaryItem label="Ontvangen" value={String(countResponses(recipients, 'accepted'))} />

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, ClipboardList, CloudRain, CloudSun, DatabaseBackup, FileText, Gauge, KeyRound, ListTodo, LogOut, Map as MapIcon, Menu, MonitorCog, Moon, Network, Palette, Plane, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
+import { Archive, BarChart3, Bell, BellRing, BookOpen, BookUser, Boxes, CalendarClock, CalendarDays, ChevronDown, ClipboardCheck, ClipboardList, CloudRain, CloudSun, DatabaseBackup, FileText, Gauge, GitBranch, KeyRound, ListTodo, LogOut, Map as MapIcon, Menu, MonitorCog, Moon, Network, Palette, Plane, RadioTower, Route as RouteIcon, ScrollText, Send, Shield, Sun, UserRound, Users, Workflow, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -39,23 +39,23 @@ const navGroups: NavGroup[] = [
   {
     label: 'Overzicht',
     items: [
-      { to: '/dashboard', label: 'Dashboard', icon: Gauge, permissions: ['incidents.view', 'incidents.dispatch.view', 'status.view', 'assets.view'] },
+      { to: '/dashboard', label: 'Dashboard', icon: Gauge, permissions: ['deployments.view', 'deployments.dispatch.view', 'status.view', 'assets.view'] },
     ],
   },
   {
     label: 'Operatie',
     items: [
-      { to: '/meldingen', label: 'Meldingen', icon: ClipboardList, end: true, ...webRouteAccess.intakes },
-      { to: '/incidents', label: 'Incidenten', icon: RadioTower, end: true, permissions: ['incidents.view'] },
-      { to: '/operational-map', label: 'Kaart', icon: MapIcon, permissions: ['operational-map.view', 'incidents.view'] },
+      { to: '/aanvragen', label: 'Aanvragen', icon: ClipboardList, end: true, ...webRouteAccess.deploymentRequests },
+      { to: '/inzetten', label: 'Inzetten', icon: RadioTower, end: true, ...webRouteAccess.deployments },
+      { to: '/operational-map', label: 'Kaart', icon: MapIcon, permissions: ['operational-map.view', 'deployments.view'] },
       { to: '/weather', label: 'Weer', icon: CloudRain },
       { to: '/uav-forecast', label: 'UAV Forecast', icon: Plane },
-      { to: '/incidents/archive', label: 'Archief', icon: Archive, permissions: ['incidents.view'] },
+      { to: '/inzetten/archive', label: 'Archief', icon: Archive, ...webRouteAccess.deployments },
       { to: '/operational-status', label: 'Status', icon: Workflow, permissions: ['status.view'] },
       { to: '/calendar', label: 'Agenda', icon: CalendarDays },
-      { to: '/test-alert', label: 'Proefalarmering', icon: BellRing, permissions: ['incidents.dispatch.manage'] },
+      { to: '/test-alert', label: 'Proefalarmering', icon: BellRing, permissions: ['deployments.dispatch.manage'] },
       { to: '/push', label: 'Pushmeldingen', icon: Send, permissions: ['settings.push.manual.send'] },
-      { to: '/reports', label: 'Rapporten', icon: BarChart3, permissions: ['incidents.view', 'incidents.dispatch.view'] },
+      { to: '/reports', label: 'Rapporten', icon: BarChart3, permissions: ['deployments.view', 'deployments.dispatch.view'] },
     ],
   },
   {
@@ -79,6 +79,7 @@ const navGroups: NavGroup[] = [
     label: 'Beheer',
     items: [
       { to: '/forms', label: 'Formulieren', icon: FileText, ...webRouteAccess.forms },
+      { to: '/prioriteitsbesluiten', label: 'Prioriteitsbesluiten', icon: GitBranch, ...webRouteAccess.priorityDecisions },
       { to: '/admin', label: 'Admin', icon: Shield, ...webRouteAccess.admin },
       { to: '/knmi', label: 'KNMI', icon: CloudSun, ...webRouteAccess.knmi },
       { to: '/branding', label: 'Branding', icon: Palette, ...webRouteAccess.branding },
@@ -103,12 +104,12 @@ const profileOnlyNavGroups: NavGroup[] = [
 
 const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/dashboard': () => import('../features/dashboard/DashboardPage'),
-  '/meldingen': () => import('../features/intakes/IntakeListPage'),
-  '/incidents': () => import('../features/incidents/IncidentsPage'),
-  '/operational-map': () => import('../features/incidents/IncidentMapPage'),
+  '/aanvragen': () => import('../features/deployment-requests/DeploymentRequestListPage'),
+  '/inzetten': () => import('../features/deployments/DeploymentsPage'),
+  '/operational-map': () => import('../features/deployments/DeploymentMapPage'),
   '/weather': () => import('../features/weather/WeatherPage'),
   '/uav-forecast': () => import('../features/weather/UavForecastPage'),
-  '/incidents/archive': () => import('../features/incidents/IncidentsPage'),
+  '/inzetten/archive': () => import('../features/deployments/DeploymentsPage'),
   '/operational-status': () => import('../features/status/StatusPage'),
   '/test-alert': () => import('../features/test-alerts/TestAlertPage'),
   '/push': () => import('../features/push/PushPage'),
@@ -121,6 +122,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   '/certifications': () => import('../features/certifications/CertificationsPage'),
   '/expiry': () => import('../features/expiry/ExpiryPage'),
   '/forms': () => import('../features/admin/AdminPage'),
+  '/prioriteitsbesluiten': () => import('../features/admin/DeploymentRequestPriorityDecisionsPage'),
   '/calendar': () => import('../features/calendar/CalendarPage'),
   '/admin': () => import('../features/admin/AdminPage'),
   '/knmi': () => import('../features/admin/KnmiAdminPage'),

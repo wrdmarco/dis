@@ -22,7 +22,7 @@ final class WallboardRepository extends BaseRepository
         return Wallboard::query()
             ->with([
                 'playlist:id,name,data_mode,purpose,configuration,version',
-                'activeIncidentPlaylist:id,name,data_mode,purpose,configuration,version',
+                'activeDeploymentPlaylist:id,name,data_mode,purpose,configuration,version',
                 'nonRevokedSessions:id,wallboard_id,last_seen_at,expires_at',
             ])
             ->orderBy('name')
@@ -34,7 +34,7 @@ final class WallboardRepository extends BaseRepository
         return Wallboard::query()
             ->with([
                 'playlist:id,name,data_mode,purpose,configuration,version',
-                'activeIncidentPlaylist:id,name,data_mode,purpose,configuration,version',
+                'activeDeploymentPlaylist:id,name,data_mode,purpose,configuration,version',
                 'nonRevokedSessions:id,wallboard_id,last_seen_at,expires_at',
             ])
             ->findOrFail($id);
@@ -60,7 +60,7 @@ final class WallboardRepository extends BaseRepository
     public function lockSession(string $id): ?WallboardSession
     {
         return WallboardSession::query()
-            ->with(['wallboard.playlist', 'wallboard.activeIncidentPlaylist'])
+            ->with(['wallboard.playlist', 'wallboard.activeDeploymentPlaylist'])
             ->whereKey($id)
             ->lockForUpdate()
             ->first();

@@ -5,7 +5,7 @@ namespace Tests\Feature;
 use App\Models\Asset;
 use App\Models\AssetAssignment;
 use App\Models\Certification;
-use App\Models\Incident;
+use App\Models\Deployment;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\Team;
@@ -155,12 +155,12 @@ final class WebAuthorizationRegressionTest extends TestCase
         $this->assertSame('ready', $asset->refresh()->status);
     }
 
-    public function test_operator_cannot_download_an_unassigned_incident_report_by_guessing_its_id(): void
+    public function test_operator_cannot_download_an_unassigned_deployment_report_by_guessing_its_id(): void
     {
         $operator = $this->user('report-operator@example.test');
         $creator = $this->user('report-creator@example.test');
-        $this->grant($operator, ['incidents.view'], operator: true, admin: false);
-        $incident = Incident::query()->create([
+        $this->grant($operator, ['deployments.view'], operator: true, admin: false);
+        $deployment = Deployment::query()->create([
             'reference' => 'SEC-REPORT-IDOR',
             'title' => 'Unassigned security report',
             'priority' => 'normal',
@@ -173,18 +173,18 @@ final class WebAuthorizationRegressionTest extends TestCase
         ]);
 
         $response = $this->asClient($operator, 'client:operator')
-            ->getJson('/api/incidents/'.$incident->id.'/report.pdf');
+            ->getJson('/api/deployments/'.$deployment->id.'/report.pdf');
 
         $response->assertForbidden();
-        $this->assertStringNotContainsString($incident->title, $response->getContent());
+        $this->assertStringNotContainsString($deployment->title, $response->getContent());
     }
 
-    public function test_operator_report_listing_does_not_include_unassigned_incidents(): void
+    public function test_operator_report_listing_does_not_include_unassigned_deployments(): void
     {
         $operator = $this->user('report-list-operator@example.test');
         $creator = $this->user('report-list-creator@example.test');
-        $this->grant($operator, ['incidents.view'], operator: true, admin: false);
-        $incident = Incident::query()->create([
+        $this->grant($operator, ['deployments.view'], operator: true, admin: false);
+        $deployment = Deployment::query()->create([
             'reference' => 'SEC-REPORT-LIST-IDOR',
             'title' => 'Unassigned closed report',
             'priority' => 'normal',
@@ -198,11 +198,11 @@ final class WebAuthorizationRegressionTest extends TestCase
         ]);
 
         $response = $this->asClient($operator, 'client:operator')
-            ->getJson('/api/reports/incidents')
+            ->getJson('/api/reports/deployments')
             ->assertOk();
 
         $this->assertSame([], $response->json('data'));
-        $this->assertStringNotContainsString($incident->title, $response->getContent());
+        $this->assertStringNotContainsString($deployment->title, $response->getContent());
     }
 
     private function user(string $email): User

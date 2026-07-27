@@ -131,7 +131,7 @@ final class GeneralMaintenancePageRendererTest extends TestCase
         self::assertStringContainsString('Automatisch herstel is actief', $template);
         self::assertStringContainsString('@media (max-width: 620px)', $template);
         self::assertStringContainsString('@media (prefers-reduced-motion: reduce)', $template);
-        self::assertStringNotContainsString('Drone Incident Support', $template);
+        self::assertStringNotContainsString('Drone Deployment Support', $template);
         self::assertStringNotContainsString('id="maintenance-eyebrow"', $template);
         self::assertStringNotContainsString('id="maintenance-message"', $template);
         self::assertStringNotContainsString('id="recovery-detail"', $template);
@@ -213,7 +213,7 @@ final class GeneralMaintenancePageRendererTest extends TestCase
         );
         self::assertStringContainsString('<meta http-equiv="refresh" content="20">', $bootstrapWriter);
         self::assertStringContainsString('Drone Inzet Systeem', $bootstrapWriter);
-        self::assertStringNotContainsString('Drone Incident Support', $bootstrapWriter);
+        self::assertStringNotContainsString('Drone Deployment Support', $bootstrapWriter);
         self::assertStringNotContainsString('De operationele omgeving', $bootstrapWriter);
         self::assertStringNotContainsString('<style>', $bootstrapWriter);
         self::assertStringNotContainsString('<script>', $bootstrapWriter);

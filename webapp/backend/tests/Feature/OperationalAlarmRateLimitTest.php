@@ -2,10 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Models\Deployment;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
-use App\Models\Incident;
 use App\Models\Permission;
 use App\Models\PersonalAccessToken;
 use App\Models\Role;
@@ -91,7 +91,7 @@ final class OperationalAlarmRateLimitTest extends TestCase
     {
         $user = $this->user('web-session-limits@example.test');
         $user->withAccessToken(new TransientToken);
-        $request = Request::create('/api/incidents', 'GET', server: ['REMOTE_ADDR' => '203.0.113.30']);
+        $request = Request::create('/api/deployments', 'GET', server: ['REMOTE_ADDR' => '203.0.113.30']);
         $session = app('session')->driver();
         $session->start();
         $request->setLaravelSession($session);
@@ -109,8 +109,8 @@ final class OperationalAlarmRateLimitTest extends TestCase
     public function test_critical_alarm_routes_do_not_use_the_general_authenticated_bucket(): void
     {
         $routes = [
-            ['GET', '/api/incidents', 'throttle:alarm-read'],
-            ['GET', '/api/incidents/01J00000000000000000000000', 'throttle:alarm-read'],
+            ['GET', '/api/deployments', 'throttle:alarm-read'],
+            ['GET', '/api/deployments/01J00000000000000000000000', 'throttle:alarm-read'],
             ['POST', '/api/dispatches/01J00000000000000000000000/respond', 'throttle:alarm-response'],
             ['POST', '/api/dispatches/01J00000000000000000000000/send', 'throttle:alarm-dispatch'],
             ['POST', '/api/test-alert', 'throttle:reachability-test'],
@@ -118,7 +118,7 @@ final class OperationalAlarmRateLimitTest extends TestCase
             ['POST', '/api/admin/queues/push/01J00000000000000000000000/start', 'throttle:queue-action'],
             ['POST', '/api/admin/queues/push/01J00000000000000000000000/retry', 'throttle:queue-action'],
             ['POST', '/api/devices/heartbeat', 'throttle:operational-telemetry'],
-            ['POST', '/api/incidents/01J00000000000000000000000/location', 'throttle:operational-telemetry'],
+            ['POST', '/api/deployments/01J00000000000000000000000/location', 'throttle:operational-telemetry'],
         ];
 
         foreach ($routes as [$method, $uri, $expectedLimiter]) {
@@ -147,9 +147,9 @@ final class OperationalAlarmRateLimitTest extends TestCase
     {
         Queue::fake();
         $operator = $this->user('alarm-response@example.test');
-        $this->grant($operator, ['incidents.assigned.view'], operator: true, admin: false);
+        $this->grant($operator, ['deployments.assigned.view'], operator: true, admin: false);
         $coordinator = $this->user('alarm-coordinator@example.test');
-        [$incident, $dispatch] = $this->dispatch($coordinator, $operator);
+        [$deployment, $dispatch] = $this->dispatch($coordinator, $operator);
         $token = $operator->createToken('Alarm operator', ['*', 'client:operator'], now()->addHour())->plainTextToken;
 
         RateLimiter::for('authenticated', fn (Request $request) => Limit::perMinute(1)
@@ -159,9 +159,9 @@ final class OperationalAlarmRateLimitTest extends TestCase
         $this->withToken($token)->getJson('/api/auth/me')->assertStatus(429);
 
         $this->withToken($token)
-            ->getJson('/api/incidents?active_alarms=true')
+            ->getJson('/api/deployments?active_alarms=true')
             ->assertOk()
-            ->assertJsonPath('data.0.id', $incident->id);
+            ->assertJsonPath('data.0.id', $deployment->id);
 
         $this->withToken($token)
             ->postJson('/api/dispatches/'.$dispatch->id.'/respond', ['response' => 'accepted'])
@@ -178,7 +178,7 @@ final class OperationalAlarmRateLimitTest extends TestCase
     {
         Queue::fake();
         $dispatcher = $this->user('alarm-dispatch@example.test', pushEnabled: true);
-        $this->grant($dispatcher, ['incidents.dispatch.manage'], operator: false, admin: true);
+        $this->grant($dispatcher, ['deployments.dispatch.manage'], operator: false, admin: true);
         $this->fcmToken($dispatcher);
         $token = $dispatcher->createToken('Alarm dispatcher', ['*', 'client:web'], now()->addHour())->plainTextToken;
 
@@ -240,7 +240,7 @@ final class OperationalAlarmRateLimitTest extends TestCase
     private function resolveLimits(string $name, User $user, PersonalAccessToken $token): array
     {
         $user->withAccessToken($token);
-        $request = Request::create('/api/incidents', 'GET', server: ['REMOTE_ADDR' => '192.0.2.40']);
+        $request = Request::create('/api/deployments', 'GET', server: ['REMOTE_ADDR' => '192.0.2.40']);
         $request->setUserResolver(static fn (): User => $user);
         $resolve = RateLimiter::limiter($name);
         $this->assertNotNull($resolve);
@@ -248,10 +248,10 @@ final class OperationalAlarmRateLimitTest extends TestCase
         return $resolve($request);
     }
 
-    /** @return array{Incident, DispatchRequest} */
+    /** @return array{Deployment, DispatchRequest} */
     private function dispatch(User $coordinator, User $operator): array
     {
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => 'RATE-'.strtoupper(substr((string) str()->ulid(), -8)),
             'title' => 'Operationeel alarm',
             'priority' => 'normal',
@@ -263,7 +263,7 @@ final class OperationalAlarmRateLimitTest extends TestCase
             'opened_at' => now(),
         ]);
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $coordinator->id,
             'requested_by_name' => $coordinator->name,
             'requested_by_email' => $coordinator->email,
@@ -281,7 +281,7 @@ final class OperationalAlarmRateLimitTest extends TestCase
             'notified_at' => now(),
         ]);
 
-        return [$incident, $dispatch];
+        return [$deployment, $dispatch];
     }
 
     private function fcmToken(User $user): void

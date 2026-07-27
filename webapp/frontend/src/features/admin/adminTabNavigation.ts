@@ -1,13 +1,13 @@
 export function adminTabChangeAllowed(options: {
   currentTab: string;
   nextTab: string;
-  intakeWorkflowDirty: boolean;
+  deploymentRequestWorkflowDirty: boolean;
   confirmLeave: () => boolean;
 }): boolean {
   if (
-    options.currentTab !== 'incidentIntake'
+    options.currentTab !== 'deploymentRequest'
     || options.nextTab === options.currentTab
-    || !options.intakeWorkflowDirty
+    || !options.deploymentRequestWorkflowDirty
   ) {
     return true;
   }

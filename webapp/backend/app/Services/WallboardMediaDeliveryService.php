@@ -43,7 +43,7 @@ final class WallboardMediaDeliveryService
     {
         $playlistIds = array_values(array_filter([
             $wallboard->playlist_id,
-            $wallboard->active_incident_playlist_id,
+            $wallboard->active_deployment_playlist_id,
         ], static fn (mixed $id): bool => is_string($id) && $id !== ''));
         if ($playlistIds === []) {
             return null;

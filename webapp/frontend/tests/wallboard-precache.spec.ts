@@ -93,7 +93,7 @@ test('builds one stable manifest across all configured cacheable wallboard pages
     .not.toBe(manifest.contentVersion);
 
   const runtimeActivationChanged = wallboardState();
-  runtimeActivationChanged.wallboard.active_incident_playlist = true;
+  runtimeActivationChanged.wallboard.active_deployment_playlist = true;
   expect(wallboardPrecacheManifest(runtimeActivationChanged, 'https://dis.example.test').contentVersion)
     .not.toBe(manifest.contentVersion);
 
@@ -596,14 +596,14 @@ function wallboardState(): WallboardState {
         page_transition_duration_ms: 300,
         page_flip_direction: 'left_to_right',
         page_fade_enabled: true,
-        incident_override: {} as WallboardState['wallboard']['configuration']['incident_override'],
+        deployment_override: {} as WallboardState['wallboard']['configuration']['deployment_override'],
       },
       config_version: 7,
       control_version: 1,
       refresh_version: 1,
       runtime_playlist_id: '01KXW0QZTP0000000000000007',
       runtime_playlist_version: 7,
-      active_incident_playlist: false,
+      active_deployment_playlist: false,
       display: {} as WallboardState['wallboard']['display'],
       updated_at: '2026-07-19T12:00:00Z',
     },
@@ -641,7 +641,7 @@ function wallboardState(): WallboardState {
       },
     },
     calendar: { generated_at: '2026-07-19T12:00:00Z', pages: {} },
-    map: { incidents: [], command_centers: [], historical_incidents: [], live_locations: [] },
+    map: { deployments: [], command_centers: [], historical_deployments: [], live_locations: [] },
     operational_summary: {} as WallboardState['operational_summary'],
     ticker: { items: [] },
     forecast: { pages: {} },

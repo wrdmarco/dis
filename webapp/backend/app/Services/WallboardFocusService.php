@@ -4,9 +4,9 @@ namespace App\Services;
 
 use App\DTO\Routing\RouteEstimate;
 use App\DTO\Routing\RoutePoint;
+use App\Models\Deployment;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
-use App\Models\Incident;
 use App\Models\LocationSharingConsent;
 use App\Models\LocationUpdate;
 use App\Models\Wallboard;
@@ -26,7 +26,7 @@ final class WallboardFocusService
 
     /**
      * Resolve focus once for the supplied normalized wallboard configuration.
-     * An active real incident is an absolute priority boundary: lower-severity
+     * An active real deployment is an absolute priority boundary: lower-severity
      * transient phases never cover it, even when real-alarm focus is disabled.
      *
      * @param  array<string, mixed>  $configuration
@@ -35,22 +35,22 @@ final class WallboardFocusService
     public function resolve(array $configuration, ?Wallboard $wallboard = null): ?array
     {
         $focusConfiguration = (array) ($configuration['focus'] ?? []);
-        $realIncident = $this->activeRealIncident();
-        if ($realIncident instanceof Incident) {
+        $realDeployment = $this->activeRealDeployment();
+        if ($realDeployment instanceof Deployment) {
             $settings = (array) ($focusConfiguration['real_alarm'] ?? []);
             if (($settings['enabled'] ?? false) !== true) {
                 return null;
             }
 
-            $candidate = $this->realAlarmCandidate($realIncident);
-            if ($candidate === null || (string) $realIncident->status === 'in_progress') {
+            $candidate = $this->realAlarmCandidate($realDeployment);
+            if ($candidate === null || (string) $realDeployment->status === 'in_progress') {
                 return null;
             }
 
             $payload = $this->payload($candidate, $settings, (array) ($configuration['pages'] ?? []));
             $responseCounts = (array) (($payload['responses'] ?? [])['counts'] ?? []);
 
-            // The alarm focus is a response screen, not an incident-status
+            // The alarm focus is a response screen, not an deployment-status
             // screen. Once every selected recipient has reached a terminal
             // response, keeping it in the cycle only repeats stale information.
             return (int) ($responseCounts['targeted'] ?? 0) > 0
@@ -60,7 +60,7 @@ final class WallboardFocusService
         }
 
         // Preview state is intentionally resolved only after the absolute real-
-        // incident priority boundary. A mock can therefore never cover an
+        // deployment priority boundary. A mock can therefore never cover an
         // operational alarm that starts while the preview TTL is still active.
         if ($wallboard instanceof Wallboard) {
             $preview = $this->previewService->current($wallboard);
@@ -104,9 +104,9 @@ final class WallboardFocusService
         return $this->payload($candidate, $settings, (array) ($configuration['pages'] ?? []));
     }
 
-    private function activeRealIncident(): ?Incident
+    private function activeRealDeployment(): ?Deployment
     {
-        return Incident::query()
+        return Deployment::query()
             ->whereIn('status', ['dispatching', 'in_progress'])
             ->where('is_test', false)
             ->orderByDesc('opened_at')
@@ -126,18 +126,18 @@ final class WallboardFocusService
     }
 
     /** @return array<string, mixed>|null */
-    private function realAlarmCandidate(Incident $incident): ?array
+    private function realAlarmCandidate(Deployment $deployment): ?array
     {
         $dispatch = DispatchRequest::query()
-            ->where('incident_id', $incident->id)
+            ->where('deployment_id', $deployment->id)
             ->whereIn('status', ['sent', 'escalated'])
             ->whereNotNull('sent_at')
             ->orderByDesc('sent_at')
             ->orderByDesc('id')
-            ->first(['id', 'incident_id', 'status', 'priority', 'sent_at']);
+            ->first(['id', 'deployment_id', 'status', 'priority', 'sent_at']);
 
         return $dispatch instanceof DispatchRequest
-            ? $this->candidate('real_alarm', $dispatch, $incident, $dispatch->sent_at)
+            ? $this->candidate('real_alarm', $dispatch, $deployment, $dispatch->sent_at)
             : null;
     }
 
@@ -145,18 +145,18 @@ final class WallboardFocusService
     private function preannouncementCandidate(): ?array
     {
         $dispatch = DispatchRequest::query()
-            ->with('incident:id,reference,title,status,priority,is_test,location_label,opened_at')
+            ->with('deployment:id,reference,title,status,priority,is_test,location_label,opened_at')
             ->where('status', 'draft')
             ->whereNotNull('preannounced_at')
-            ->whereHas('incident', static fn ($incident) => $incident
+            ->whereHas('deployment', static fn ($deployment) => $deployment
                 ->where('status', 'active')
                 ->where('is_test', false))
             ->orderByDesc('preannounced_at')
             ->orderByDesc('id')
-            ->first(['id', 'incident_id', 'status', 'priority', 'preannounced_at']);
+            ->first(['id', 'deployment_id', 'status', 'priority', 'preannounced_at']);
 
-        return $dispatch instanceof DispatchRequest && $dispatch->incident instanceof Incident
-            ? $this->candidate('preannouncement', $dispatch, $dispatch->incident, $dispatch->preannounced_at)
+        return $dispatch instanceof DispatchRequest && $dispatch->deployment instanceof Deployment
+            ? $this->candidate('preannouncement', $dispatch, $dispatch->deployment, $dispatch->preannounced_at)
             : null;
     }
 
@@ -164,28 +164,28 @@ final class WallboardFocusService
     private function testAlarmCandidate(): ?array
     {
         $dispatch = DispatchRequest::query()
-            ->with('incident:id,reference,title,status,priority,is_test,location_label,opened_at')
+            ->with('deployment:id,reference,title,status,priority,is_test,location_label,opened_at')
             ->whereIn('status', ['sent', 'escalated'])
             ->whereNotNull('sent_at')
-            ->whereHas('incident', static fn ($incident) => $incident
+            ->whereHas('deployment', static fn ($deployment) => $deployment
                 ->where('status', 'active')
                 ->where('is_test', true))
             ->orderByDesc('sent_at')
             ->orderByDesc('id')
-            ->first(['id', 'incident_id', 'status', 'priority', 'sent_at']);
+            ->first(['id', 'deployment_id', 'status', 'priority', 'sent_at']);
 
-        return $dispatch instanceof DispatchRequest && $dispatch->incident instanceof Incident
-            ? $this->candidate('test_alarm', $dispatch, $dispatch->incident, $dispatch->sent_at)
+        return $dispatch instanceof DispatchRequest && $dispatch->deployment instanceof Deployment
+            ? $this->candidate('test_alarm', $dispatch, $dispatch->deployment, $dispatch->sent_at)
             : null;
     }
 
     /**
-     * @return array{kind: string, dispatch: DispatchRequest, incident: Incident, started_at: CarbonImmutable}|null
+     * @return array{kind: string, dispatch: DispatchRequest, deployment: Deployment, started_at: CarbonImmutable}|null
      */
     private function candidate(
         string $kind,
         DispatchRequest $dispatch,
-        Incident $incident,
+        Deployment $deployment,
         mixed $startedAt,
     ): ?array {
         $startedAt = $startedAt instanceof \DateTimeInterface
@@ -198,13 +198,13 @@ final class WallboardFocusService
         return [
             'kind' => $kind,
             'dispatch' => $dispatch,
-            'incident' => $incident,
+            'deployment' => $deployment,
             'started_at' => $startedAt,
         ];
     }
 
     /**
-     * @param  array{kind: string, dispatch: DispatchRequest, incident: Incident, started_at: CarbonImmutable}  $candidate
+     * @param  array{kind: string, dispatch: DispatchRequest, deployment: Deployment, started_at: CarbonImmutable}  $candidate
      * @param  array<string, mixed>  $settings
      */
     private function isTransientCandidateCurrent(array $candidate, array $settings): bool
@@ -218,7 +218,7 @@ final class WallboardFocusService
     }
 
     /**
-     * @param  array{kind: string, dispatch: DispatchRequest, incident: Incident, started_at: CarbonImmutable}  $candidate
+     * @param  array{kind: string, dispatch: DispatchRequest, deployment: Deployment, started_at: CarbonImmutable}  $candidate
      * @param  array<string, mixed>  $settings
      * @param  list<array<string, mixed>>  $pages
      * @return array<string, mixed>
@@ -227,13 +227,13 @@ final class WallboardFocusService
     {
         $kind = $candidate['kind'];
         $dispatch = $candidate['dispatch'];
-        $incident = $candidate['incident'];
+        $deployment = $candidate['deployment'];
         $startedAt = $candidate['started_at'];
         $durationSeconds = (int) ($settings['duration_seconds'] ?? 0);
         $phase = $kind === 'preannouncement' ? 'preannouncement' : 'alarm';
-        $dispatchIds = $this->phaseDispatchIds((string) $incident->id, $phase);
+        $dispatchIds = $this->phaseDispatchIds((string) $deployment->id, $phase);
         $showResponseFeed = ($settings['show_response_feed'] ?? false) === true;
-        $responseSummary = $this->responses($dispatchIds, $incident, $kind === 'real_alarm' && $showResponseFeed);
+        $responseSummary = $this->responses($dispatchIds, $deployment, $kind === 'real_alarm' && $showResponseFeed);
         $responses = [
             // Totals are privacy-safe and remain available when the named feed
             // is disabled. A wallboard can therefore stop transient focus as
@@ -273,17 +273,17 @@ final class WallboardFocusService
             'kind' => $kind,
             'focus_id' => hash('sha256', implode('|', [
                 $kind,
-                (string) $incident->id,
+                (string) $deployment->id,
                 $startedAt->format('Y-m-d H:i:s.u'),
             ])),
             'dispatch_id' => (string) $dispatch->id,
-            'incident_id' => (string) $incident->id,
-            'reference' => (string) $incident->reference,
-            'title' => (string) $incident->title,
-            'priority' => (string) ($incident->priority ?: $dispatch->priority),
+            'deployment_id' => (string) $deployment->id,
+            'reference' => (string) $deployment->reference,
+            'title' => (string) $deployment->title,
+            'priority' => (string) ($deployment->priority ?: $dispatch->priority),
             // A reachability test has no operational destination. Never let a
-            // stale or synthetic incident location appear as a test-alarm route.
-            'location_label' => $kind === 'test_alarm' ? null : $incident->location_label,
+            // stale or synthetic deployment location appear as a test-alarm route.
+            'location_label' => $kind === 'test_alarm' ? null : $deployment->location_label,
             'started_at' => ApiDateTime::dateTime($startedAt),
             'expires_at' => ApiDateTime::dateTime($expiresAt),
             'visible' => $visible,
@@ -296,10 +296,10 @@ final class WallboardFocusService
     }
 
     /** @return list<string> */
-    private function phaseDispatchIds(string $incidentId, string $phase): array
+    private function phaseDispatchIds(string $deploymentId, string $phase): array
     {
         return DispatchRequest::query()
-            ->where('incident_id', $incidentId)
+            ->where('deployment_id', $deploymentId)
             ->when(
                 $phase === 'preannouncement',
                 static fn ($query) => $query->where('status', 'draft')->whereNotNull('preannounced_at'),
@@ -315,7 +315,7 @@ final class WallboardFocusService
      * @param  list<string>  $dispatchIds
      * @return array{counts: array{targeted: int, contacted: int, pending: int, accepted: int, declined: int, no_response: int}, items: list<array{name: string, response_status: string, responded_at: string|null}>, coming: list<array{name: string, response_status: string, responded_at: string|null, eta_minutes: int|null, eta_source: string|null}>}
      */
-    private function responses(array $dispatchIds, Incident $incident, bool $includeComing): array
+    private function responses(array $dispatchIds, Deployment $deployment, bool $includeComing): array
     {
         if ($dispatchIds === []) {
             return [
@@ -349,7 +349,7 @@ final class WallboardFocusService
             static fn (DispatchRecipient $recipient): string => (string) $recipient->response_status,
         );
         $coming = $includeComing
-            ? $this->acceptedComing($recipients, $incident)
+            ? $this->acceptedComing($recipients, $deployment)
             : [];
 
         $items = $recipients
@@ -393,7 +393,7 @@ final class WallboardFocusService
      * @param  Collection<int, DispatchRecipient>  $recipients
      * @return list<array{name: string, response_status: string, responded_at: string|null, eta_minutes: int|null, eta_source: string|null}>
      */
-    private function acceptedComing(Collection $recipients, Incident $incident): array
+    private function acceptedComing(Collection $recipients, Deployment $deployment): array
     {
         $accepted = $recipients
             ->filter(static fn (DispatchRecipient $recipient): bool => $recipient->response_status === 'accepted')
@@ -402,7 +402,7 @@ final class WallboardFocusService
             return [];
         }
 
-        $routeEstimates = $this->currentRouteEstimates($accepted, $incident);
+        $routeEstimates = $this->currentRouteEstimates($accepted, $deployment);
 
         return $accepted
             ->map(static function (DispatchRecipient $recipient) use ($routeEstimates): array {
@@ -432,9 +432,9 @@ final class WallboardFocusService
      * @param  Collection<int, DispatchRecipient>  $accepted
      * @return array<string, RouteEstimate>
      */
-    private function currentRouteEstimates(Collection $accepted, Incident $incident): array
+    private function currentRouteEstimates(Collection $accepted, Deployment $deployment): array
     {
-        $destination = $this->routePoint($incident->latitude, $incident->longitude);
+        $destination = $this->routePoint($deployment->latitude, $deployment->longitude);
         if ($destination === null) {
             return [];
         }
@@ -450,7 +450,7 @@ final class WallboardFocusService
         }
 
         $consents = LocationSharingConsent::query()
-            ->where('incident_id', $incident->id)
+            ->where('deployment_id', $deployment->id)
             ->whereIn('user_id', $userIds)
             ->where('is_active', true)
             ->get(['user_id', 'state_version', 'consented_at'])
@@ -461,7 +461,7 @@ final class WallboardFocusService
 
         $latestLocationUpperBound = now()->addMinutes(2);
         $locations = LocationUpdate::query()
-            ->where('incident_id', $incident->id)
+            ->where('deployment_id', $deployment->id)
             ->whereIn('user_id', $consents->keys())
             ->where('recorded_at', '<=', $latestLocationUpperBound)
             ->where('created_at', '<=', $latestLocationUpperBound)
@@ -469,7 +469,7 @@ final class WallboardFocusService
                 $newerLocation
                     ->selectRaw('1')
                     ->from('location_updates as newer_location')
-                    ->whereColumn('newer_location.incident_id', 'location_updates.incident_id')
+                    ->whereColumn('newer_location.deployment_id', 'location_updates.deployment_id')
                     ->whereColumn('newer_location.user_id', 'location_updates.user_id')
                     ->where('newer_location.recorded_at', '<=', $latestLocationUpperBound)
                     ->where('newer_location.created_at', '<=', $latestLocationUpperBound)

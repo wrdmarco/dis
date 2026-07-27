@@ -45,7 +45,7 @@ final class PushQueueLifecycleTest extends TestCase
             'manual_admin',
             'ZEER GEHEIME TITEL',
             'ZEER GEHEIME MELDTEKST',
-            ['incident_id' => 'ZEER-GEHEIM-INCIDENT'],
+            ['deployment_id' => 'ZEER-GEHEIM-DEPLOYMENT'],
         ));
         $item = PushQueueWorkItem::query()->sole();
         $this->assertSame(PushQueueWorkItem::STATUS_PROCESSING, $item->status);

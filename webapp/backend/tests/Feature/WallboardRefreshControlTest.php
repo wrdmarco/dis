@@ -148,7 +148,7 @@ final class WallboardRefreshControlTest extends TestCase
                         'options' => [],
                     ],
                 ],
-                'incident_override' => ['enabled' => false, 'page_id' => 'map'],
+                'deployment_override' => ['enabled' => false, 'page_id' => 'map'],
             ]),
             'is_enabled' => true,
             'rotation_started_at' => now(),

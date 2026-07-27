@@ -410,7 +410,7 @@ function DeleteUserDialog({
             Weet je zeker dat je <strong>{user.name}</strong> wilt verwijderen?
           </p>
           <p className="muted-text">
-            De gebruiker kan niet meer inloggen. Historische meldingen, rapportages en auditgegevens blijven behouden.
+            De gebruiker kan niet meer inloggen. Historische inzetgegevens, rapportages en auditgegevens blijven behouden.
           </p>
           {error ? <p className="form-error" role="alert">{error}</p> : null}
         </div>

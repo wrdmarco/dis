@@ -5,10 +5,10 @@ namespace Tests\Feature;
 use App\Contracts\PushProvider;
 use App\Exceptions\TransientPushDeliveryException;
 use App\Jobs\SendFcmNotification;
+use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
-use App\Models\Incident;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\DeviceService;
@@ -76,7 +76,7 @@ final class PushQueueIsolationTest extends TestCase
         $legacyData = [
             'type' => 'manual_admin',
             'action_mode' => 'availability',
-            'push.template.title_key' => 'incident_title',
+            'push.template.title_key' => 'deployment_title',
             'speech_manifest_id' => (string) Str::ulid(),
             'speech_phase' => 'attendance',
             'speech_manifest_url' => '/api/speech/manifests/legacy',
@@ -102,7 +102,7 @@ final class PushQueueIsolationTest extends TestCase
         $this->assertSame('manual_admin', $provider->lastData['type'] ?? null);
         $this->assertSame('availability', $provider->lastData['action_mode'] ?? null);
         $this->assertSame(
-            'incident_title',
+            'deployment_title',
             $provider->lastData['push.template.title_key'] ?? null,
         );
         foreach ([
@@ -114,6 +114,71 @@ final class PushQueueIsolationTest extends TestCase
         ] as $key) {
             $this->assertArrayNotHasKey($key, $provider->lastData);
         }
+    }
+
+    public function test_legacy_serialized_deployment_notification_uses_canonical_event_and_safe_wire_aliases(): void
+    {
+        $user = $this->user('legacy-deployment-notification', true);
+        $accessToken = $user->createToken(
+            'Legacy deployment notification',
+            ['*', 'client:operator'],
+            now()->addHour(),
+        )->accessToken;
+        $token = $this->activeToken(
+            $user,
+            'legacy-deployment-notification-device',
+            'legacy-deployment-notification-provider-token',
+            (string) $accessToken->id,
+        );
+        $deploymentId = (string) Str::ulid();
+        $legacyDeploymentId = (string) Str::ulid();
+        $serialized = serialize(new SendFcmNotification(
+            (string) $token->id,
+            'incident_preannouncement_cancelled',
+            'Vooraankondiging geannuleerd',
+            'Open de app.',
+            [
+                'type' => 'dispatch_update',
+                'message_type' => 'incident_custom_extension',
+                'action_mode' => 'availability_cancelled',
+                'deployment_id' => $deploymentId,
+                'incident_id' => $legacyDeploymentId,
+                'incident_reference' => 'LEGACY-001',
+                'deployment_title' => 'incident_test oefening',
+                'incident_title' => 'Legacy titel die niet mag winnen',
+                'incident_location' => 'incident_test locatie',
+                'incident_extension' => 'incident_test extensiewaarde',
+                'note' => 'incident_test vrije tekst',
+            ],
+        ));
+        $job = unserialize($serialized, [
+            'allowed_classes' => [SendFcmNotification::class],
+        ]);
+        $this->assertInstanceOf(SendFcmNotification::class, $job);
+        $provider = $this->recordingProvider();
+
+        $job->handle($provider, app(DispatchPushOutboxService::class));
+
+        $this->assertSame(1, $provider->sendCount);
+        $this->assertSame('deployment_preannouncement_cancelled', $provider->lastData['deployment_event_type'] ?? null);
+        $this->assertSame('dispatch_update', $provider->lastData['type'] ?? null);
+        $this->assertSame('availability_cancelled', $provider->lastData['action_mode'] ?? null);
+        $this->assertSame($deploymentId, $provider->lastData['deployment_id'] ?? null);
+        $this->assertSame($deploymentId, $provider->lastData['incident_id'] ?? null);
+        $this->assertSame('LEGACY-001', $provider->lastData['deployment_reference'] ?? null);
+        $this->assertSame('LEGACY-001', $provider->lastData['incident_reference'] ?? null);
+        $this->assertSame('incident_test oefening', $provider->lastData['deployment_title'] ?? null);
+        $this->assertSame('incident_test oefening', $provider->lastData['incident_title'] ?? null);
+        $this->assertSame('incident_test locatie', $provider->lastData['deployment_location'] ?? null);
+        $this->assertSame('incident_test locatie', $provider->lastData['incident_location'] ?? null);
+        $this->assertSame('incident_custom_extension', $provider->lastData['message_type'] ?? null);
+        $this->assertSame('incident_test extensiewaarde', $provider->lastData['incident_extension'] ?? null);
+        $this->assertSame('incident_test vrije tekst', $provider->lastData['note'] ?? null);
+        $this->assertDatabaseHas('push_delivery_logs', [
+            'fcm_token_id' => $token->id,
+            'message_type' => 'deployment_preannouncement_cancelled',
+            'status' => 'sent',
+        ]);
     }
 
     public function test_old_revocation_job_cannot_send_after_reactivation_or_a_new_revocation(): void
@@ -1162,7 +1227,7 @@ final class PushQueueIsolationTest extends TestCase
     {
         $token = $this->revokedToken($suffix);
         $user = $token->user;
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => 'PUSH-'.strtoupper($suffix),
             'title' => 'Push retention test',
             'priority' => 'normal',
@@ -1174,7 +1239,7 @@ final class PushQueueIsolationTest extends TestCase
             'opened_at' => now(),
         ]);
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $user->id,
             'requested_by_name' => $user->name,
             'requested_by_email' => $user->email,

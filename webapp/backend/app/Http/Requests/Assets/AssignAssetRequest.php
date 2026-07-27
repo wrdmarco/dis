@@ -14,9 +14,8 @@ final class AssignAssetRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'incident_id' => ['nullable', 'ulid', 'exists:incidents,id'],
+            'deployment_id' => ['nullable', 'ulid', 'exists:deployments,id'],
             'user_id' => ['nullable', 'ulid', 'exists:users,id'],
         ];
     }
 }
-

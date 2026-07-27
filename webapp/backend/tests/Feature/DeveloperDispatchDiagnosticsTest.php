@@ -3,11 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\AuditLog;
+use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
-use App\Models\Incident;
 use App\Models\PushDeliveryLog;
 use App\Models\SystemSetting;
 use App\Models\User;
@@ -54,24 +54,24 @@ final class DeveloperDispatchDiagnosticsTest extends TestCase
             ->assertJsonPath('error.code', 'dispatch_not_found');
     }
 
-    public function test_incident_lookup_is_authenticated_before_validation(): void
+    public function test_deployment_lookup_is_authenticated_before_validation(): void
     {
         $this->enableDeveloperAccess([DeveloperAccessService::SCOPE_LOGS_READ]);
 
         $this->withHeader('X-DIS-Developer-Key', 'incorrect-key')
-            ->getJson('/api/developer/incidents/not-an-ulid/dispatches')
+            ->getJson('/api/developer/deployments/not-an-ulid/dispatches')
             ->assertUnauthorized()
             ->assertJsonPath('error.code', 'developer_api_invalid_key');
     }
 
-    public function test_incident_lookup_exposes_only_safe_dispatch_identifiers_and_state(): void
+    public function test_deployment_lookup_exposes_only_safe_dispatch_identifiers_and_state(): void
     {
         $this->enableDeveloperAccess([DeveloperAccessService::SCOPE_LOGS_READ]);
         [$dispatch] = $this->dispatchFixture();
 
-        $response = $this->developerIncidentRequest((string) $dispatch->incident_id)
+        $response = $this->developerDeploymentRequest((string) $dispatch->deployment_id)
             ->assertOk()
-            ->assertJsonPath('data.incident_id', (string) $dispatch->incident_id)
+            ->assertJsonPath('data.deployment_id', (string) $dispatch->deployment_id)
             ->assertJsonPath('data.total', 1)
             ->assertJsonPath('data.rows_truncated', false)
             ->assertJsonPath('data.dispatches.0.id', (string) $dispatch->id)
@@ -81,16 +81,16 @@ final class DeveloperDispatchDiagnosticsTest extends TestCase
         foreach ([
             'Sensitive Requester Name',
             'sensitive-requester@example.test',
-            'Sensitive incident title',
+            'Sensitive deployment title',
             'Sensitive dispatch message',
         ] as $sensitiveValue) {
             $this->assertStringNotContainsString($sensitiveValue, $serialized);
         }
 
         $this->assertDatabaseHas('audit_logs', [
-            'action' => 'developer.incident_dispatch_index_read',
-            'target_type' => Incident::class,
-            'target_id' => $dispatch->incident_id,
+            'action' => 'developer.deployment_dispatch_index_read',
+            'target_type' => Deployment::class,
+            'target_id' => $dispatch->deployment_id,
         ]);
     }
 
@@ -160,9 +160,9 @@ final class DeveloperDispatchDiagnosticsTest extends TestCase
             'created_at' => now()->subMinute(),
         ]);
         AuditLog::query()->create([
-            'action' => 'incidents.preannouncement_sent',
-            'target_type' => Incident::class,
-            'target_id' => $dispatch->incident_id,
+            'action' => 'deployments.preannouncement_sent',
+            'target_type' => Deployment::class,
+            'target_id' => $dispatch->deployment_id,
             'metadata' => [
                 'dispatch_ids' => [(string) $dispatch->id],
                 'recipient_users' => 1,
@@ -176,7 +176,7 @@ final class DeveloperDispatchDiagnosticsTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.dispatch.id', (string) $dispatch->id)
             ->assertJsonPath('data.dispatch.status', 'sent')
-            ->assertJsonPath('data.incident.id', (string) $dispatch->incident_id)
+            ->assertJsonPath('data.deployment.id', (string) $dispatch->deployment_id)
             ->assertJsonPath('data.recipients.total', 1)
             ->assertJsonPath('data.recipients.status_counts.accepted', 1)
             ->assertJsonPath('data.recipients.notified', 1)
@@ -191,8 +191,8 @@ final class DeveloperDispatchDiagnosticsTest extends TestCase
             ->assertJsonPath('data.deliveries.message_type_counts.dispatch_request', 1)
             ->assertJsonPath('data.deliveries.message_type_counts.dispatch_update', 1)
             ->assertJsonPath('data.deliveries.rows.1.error_code', 'delivery_error')
-            ->assertJsonPath('data.timeline.0.action', 'incidents.preannouncement_sent')
-            ->assertJsonPath('data.timeline.0.target', 'incident')
+            ->assertJsonPath('data.timeline.0.action', 'deployments.preannouncement_sent')
+            ->assertJsonPath('data.timeline.0.target', 'deployment')
             ->assertJsonPath('data.timeline.0.counts.queued_tokens', 1)
             ->assertJsonPath('data.timeline.1.action', 'dispatch.created')
             ->assertJsonPath('data.timeline.2.action', 'dispatch.sent');
@@ -279,10 +279,10 @@ final class DeveloperDispatchDiagnosticsTest extends TestCase
             ->getJson("/api/developer/dispatches/{$dispatchId}/diagnostics");
     }
 
-    private function developerIncidentRequest(string $incidentId): TestResponse
+    private function developerDeploymentRequest(string $deploymentId): TestResponse
     {
         return $this->withHeader('X-DIS-Developer-Key', self::DEVELOPER_KEY)
-            ->getJson("/api/developer/incidents/{$incidentId}/dispatches");
+            ->getJson("/api/developer/deployments/{$deploymentId}/dispatches");
     }
 
     /** @return array{DispatchRequest, FcmToken, User} */
@@ -307,21 +307,21 @@ final class DeveloperDispatchDiagnosticsTest extends TestCase
             'is_active' => true,
             'last_seen_at' => now(),
         ]);
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => 'SENSITIVE-REFERENCE',
-            'title' => 'Sensitive incident title',
-            'description' => 'Sensitive incident description',
+            'title' => 'Sensitive deployment title',
+            'description' => 'Sensitive deployment description',
             'priority' => 'normal',
             'status' => 'dispatching',
             'is_test' => false,
-            'location_label' => 'Sensitive incident location',
+            'location_label' => 'Sensitive deployment location',
             'created_by' => $user->id,
             'created_by_name' => $user->name,
             'created_by_email' => $user->email,
             'opened_at' => now(),
         ]);
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $user->id,
             'requested_by_name' => $user->name,
             'requested_by_email' => $user->email,

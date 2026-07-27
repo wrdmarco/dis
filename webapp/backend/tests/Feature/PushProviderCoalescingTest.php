@@ -96,7 +96,7 @@ final class PushProviderCoalescingTest extends TestCase
         $collapseId = 'dispatch-'.$dispatchId;
         $phases = [
             ['type' => 'dispatch_update', 'action_mode' => 'availability'],
-            ['type' => 'incident_preannouncement', 'action_mode' => 'availability'],
+            ['type' => 'deployment_preannouncement', 'action_mode' => 'availability'],
             ['type' => 'dispatch_request', 'action_mode' => 'attendance'],
             ['type' => 'dispatch_update', 'action_mode' => 'attendance'],
             ['type' => 'dispatch_response_sync', 'action_mode' => 'availability'],
@@ -125,22 +125,22 @@ final class PushProviderCoalescingTest extends TestCase
         ]));
     }
 
-    public function test_provider_submission_lock_is_shared_by_all_phases_for_one_incident_and_device(): void
+    public function test_provider_submission_lock_is_shared_by_all_phases_for_one_deployment_and_device(): void
     {
-        $incidentId = (string) Str::ulid();
+        $deploymentId = (string) Str::ulid();
         $dispatchId = (string) Str::ulid();
         $tokenId = (string) Str::ulid();
         $otherTokenId = (string) Str::ulid();
         $preannouncement = [
             'type' => 'dispatch_update',
             'action_mode' => 'availability',
-            'incident_id' => $incidentId,
+            'deployment_id' => $deploymentId,
             'dispatch_id' => $dispatchId,
         ];
         $alarm = [
             'type' => 'dispatch_request',
             'action_mode' => 'attendance',
-            'incident_id' => $incidentId,
+            'deployment_id' => $deploymentId,
             'dispatch_id' => $dispatchId,
         ];
 
@@ -153,11 +153,11 @@ final class PushProviderCoalescingTest extends TestCase
             $preannouncementKey,
             PushNotificationIdentity::deliveryOrderLockKey($alarm, $otherTokenId, $dispatchId),
         );
-        $this->assertStringNotContainsString($incidentId, $preannouncementKey);
+        $this->assertStringNotContainsString($deploymentId, $preannouncementKey);
         $this->assertStringNotContainsString($tokenId, $preannouncementKey);
     }
 
-    public function test_legacy_preannouncement_has_a_bounded_lifetime_on_fcm_and_apns(): void
+    public function test_dual_wire_preannouncement_has_a_bounded_lifetime_on_fcm_and_apns(): void
     {
         Carbon::setTestNow('2026-07-17T10:00:00Z');
         try {
@@ -180,6 +180,7 @@ final class PushProviderCoalescingTest extends TestCase
             $dispatchId = (string) Str::ulid();
             $data = [
                 'type' => 'dispatch_update',
+                'deployment_event_type' => 'deployment_preannouncement',
                 'action_mode' => 'availability',
                 'dispatch_id' => $dispatchId,
             ];
@@ -204,6 +205,50 @@ final class PushProviderCoalescingTest extends TestCase
         }
     }
 
+    public function test_canonical_deployment_event_type_takes_precedence_for_provider_policy(): void
+    {
+        Carbon::setTestNow('2026-07-17T10:00:00Z');
+        try {
+            $user = User::query()->create([
+                'name' => 'Event precedence pilot',
+                'first_name' => 'Event',
+                'last_name' => 'Pilot',
+                'email' => 'event-precedence@example.test',
+                'password' => Hash::make('Test-password-123!'),
+                'account_status' => 'active',
+            ]);
+            $androidToken = $this->token($user, 'android', 'android-event-precedence');
+            $iosToken = $this->token($user, 'ios', 'ios-event-precedence');
+            $this->configureFcm();
+            $this->configureApns();
+            Http::fake([
+                'https://fcm.googleapis.com/*' => Http::response(['name' => 'messages/test'], 200),
+                'https://api.push.apple.com/*' => Http::response([], 200, ['apns-id' => 'test-apns-id']),
+            ]);
+            $data = [
+                'type' => 'unknown_legacy_wire_type',
+                'deployment_event_type' => 'deployment_preannouncement',
+            ];
+
+            app(FcmClient::class)->send($androidToken, 'Vooraankondiging', 'Ben je beschikbaar?', $data);
+            app(ApnsClient::class)->send($iosToken, 'Vooraankondiging', 'Ben je beschikbaar?', $data);
+
+            Http::assertSent(static function (ClientRequest $request): bool {
+                if (! str_contains($request->url(), 'fcm.googleapis.com')) {
+                    return false;
+                }
+                $android = $request->data()['message']['android'] ?? [];
+
+                return ($android['priority'] ?? null) === 'HIGH'
+                    && ($android['ttl'] ?? null) === '120s';
+            });
+            Http::assertSent(static fn (ClientRequest $request): bool => str_contains($request->url(), 'api.push.apple.com')
+                && $request->hasHeader('apns-expiration', '1784282520'));
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
     public function test_visible_operational_messages_use_high_android_priority_and_remain_data_only(): void
     {
         $token = $this->androidToken('visible-priority');
@@ -212,9 +257,12 @@ final class PushProviderCoalescingTest extends TestCase
         $this->sendAndAssertAndroidPriorities($token, [
             'dispatch_request' => 'HIGH',
             'dispatch_update' => 'HIGH',
+            'deployment_preannouncement' => 'HIGH',
+            'deployment_preannouncement_cancelled' => 'HIGH',
             'incident_preannouncement' => 'HIGH',
             'manual_admin' => 'HIGH',
             'location_share_request' => 'HIGH',
+            'deployment_cancelled' => 'HIGH',
             'incident_cancelled' => 'HIGH',
         ]);
     }
@@ -300,7 +348,7 @@ final class PushProviderCoalescingTest extends TestCase
             $this->assertSame($expectedPriorities[$type], $message['android']['priority'] ?? null);
             $this->assertArrayNotHasKey('notification', $message);
             $this->assertArrayNotHasKey('notification', $message['android']);
-            if ($type === 'incident_preannouncement') {
+            if (in_array($type, ['deployment_preannouncement', 'incident_preannouncement'], true)) {
                 $this->assertSame('120s', $message['android']['ttl'] ?? null);
             } else {
                 $this->assertArrayNotHasKey('ttl', $message['android']);

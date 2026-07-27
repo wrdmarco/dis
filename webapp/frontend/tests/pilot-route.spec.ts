@@ -1,5 +1,5 @@
 import { expect, test } from 'playwright/test';
-import { parseMapPoint, parsePilotRoute, pilotRouteColor } from '../src/features/incidents/pilotRoutePresentation';
+import { parseMapPoint, parsePilotRoute, pilotRouteColor } from '../src/features/deployments/pilotRoutePresentation';
 
 const validRoute = {
   source: 'navigation',

@@ -3,8 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\AuditLog;
+use App\Models\Deployment;
 use App\Models\DispatchRequest;
-use App\Models\Incident;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -157,7 +157,7 @@ final class WallboardFocusPreviewApiTest extends TestCase
         $this->wallboardGet('/api/wallboard/control', $otherCookie)
             ->assertOk()
             ->assertJsonPath('data.focus', null);
-        $this->assertDatabaseCount('incidents', 0);
+        $this->assertDatabaseCount('deployments', 0);
         $this->assertDatabaseCount('dispatch_requests', 0);
         $this->assertSame('summary', $wallboard->refresh()->manual_page_id);
         $this->assertSame(
@@ -186,9 +186,9 @@ final class WallboardFocusPreviewApiTest extends TestCase
             'expected_control_version' => 1,
         ])->assertOk();
 
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => 'FOCUS-PREVIEW-REAL',
-            'title' => 'Werkelijk incident',
+            'title' => 'Werkelijk deployment',
             'priority' => 'high',
             'status' => 'dispatching',
             'is_test' => false,
@@ -199,7 +199,7 @@ final class WallboardFocusPreviewApiTest extends TestCase
             'opened_at' => now(),
         ]);
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $manager->id,
             'requested_by_name' => $manager->name,
             'requested_by_email' => $manager->email,
@@ -213,7 +213,7 @@ final class WallboardFocusPreviewApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.focus.kind', 'real_alarm')
             ->assertJsonPath('data.focus.is_preview', false)
-            ->assertJsonPath('data.focus.incident_id', $incident->id)
+            ->assertJsonPath('data.focus.deployment_id', $deployment->id)
             ->assertJsonPath('data.focus.dispatch_id', $dispatch->id);
 
         $client->postJson('/api/admin/wallboards/'.$wallboard->id.'/focus-test', [

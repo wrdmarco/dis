@@ -5,7 +5,7 @@ namespace Tests\Feature;
 use App\Contracts\WallboardContentProvider;
 use App\Models\AuditLog;
 use App\Models\CalendarEvent;
-use App\Models\Incident;
+use App\Models\Deployment;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -146,7 +146,7 @@ final class WallboardDemoPlaylistTest extends TestCase
             ->assertJsonPath('data.display.next_change_at', '2026-07-20T14:25:20+02:00');
     }
 
-    public function test_demo_playlist_cannot_be_or_become_an_active_incident_playlist(): void
+    public function test_demo_playlist_cannot_be_or_become_an_active_deployment_playlist(): void
     {
         $manager = $this->user('demo-active@example.test', ['wallboards.manage']);
         $configuration = WallboardConfiguration::normalize([
@@ -163,9 +163,9 @@ final class WallboardDemoPlaylistTest extends TestCase
         $this->asAdminClient($manager)->postJson('/api/admin/wallboards', [
             'name' => 'Ongeldig actief scherm',
             'playlist_id' => $base->id,
-            'active_incident_playlist_id' => $demo->id,
+            'active_deployment_playlist_id' => $demo->id,
         ])->assertUnprocessable()
-            ->assertJsonStructure(['error' => ['details' => ['active_incident_playlist_id']]]);
+            ->assertJsonStructure(['error' => ['details' => ['active_deployment_playlist_id']]]);
 
         $active = $this->playlist(
             'Actieve inzet',
@@ -174,7 +174,7 @@ final class WallboardDemoPlaylistTest extends TestCase
             WallboardPlaylist::PURPOSE_ALARM,
         );
         $wallboard = $this->wallboard($base, $configuration, [
-            'active_incident_playlist_id' => $active->id,
+            'active_deployment_playlist_id' => $active->id,
         ]);
         $this->asAdminClient($manager)->patchJson('/api/admin/wallboard-playlists/'.$active->id, [
             'expected_version' => 1,
@@ -186,7 +186,7 @@ final class WallboardDemoPlaylistTest extends TestCase
             );
 
         $this->assertSame(WallboardPlaylist::DATA_MODE_LIVE, $active->fresh()->data_mode);
-        $this->assertSame($active->id, $wallboard->fresh()->active_incident_playlist_id);
+        $this->assertSame($active->id, $wallboard->fresh()->active_deployment_playlist_id);
     }
 
     public function test_paired_demo_endpoints_use_only_fixtures_and_ignore_real_deployments_and_providers(): void
@@ -204,12 +204,12 @@ final class WallboardDemoPlaylistTest extends TestCase
             WallboardPlaylist::PURPOSE_ALARM,
         );
         $wallboard = $this->wallboard($demo, $configuration, [
-            'active_incident_playlist_id' => $activeLive->id,
+            'active_deployment_playlist_id' => $activeLive->id,
         ]);
         $credential = $this->wallboardCredential($wallboard);
 
         $creator = $this->user('real-sentinel@example.test', []);
-        Incident::query()->create([
+        Deployment::query()->create([
             'reference' => 'REAL-SECRET-SENTINEL',
             'title' => 'Echte operationele titel die nooit zichtbaar mag zijn',
             'priority' => 'critical',
@@ -234,10 +234,10 @@ final class WallboardDemoPlaylistTest extends TestCase
         $state = $this->wallboardGet('/api/wallboard/state', $credential)->assertOk()
             ->assertJsonPath('data.wallboard.data_mode', WallboardPlaylist::DATA_MODE_DEMO)
             ->assertJsonPath('data.wallboard.runtime_playlist_id', $demo->id)
-            ->assertJsonPath('data.wallboard.active_incident_playlist', false)
+            ->assertJsonPath('data.wallboard.active_deployment_playlist', false)
             ->assertJsonPath('data.operational_summary.active_alarm', null)
             ->assertJsonPath('data.operational_summary.focus', null)
-            ->assertJsonPath('data.map.incidents.0.reference', 'DEMO-2026-0043')
+            ->assertJsonPath('data.map.deployments.0.reference', 'DEMO-2026-0043')
             ->assertJsonPath('data.map.live_locations.0.route.geometry.type', 'LineString')
             ->assertJsonPath('data.news.pages.news.items.0.source_label', 'DIS DEMO')
             ->assertJsonPath(
@@ -285,8 +285,8 @@ final class WallboardDemoPlaylistTest extends TestCase
             ->assertJsonPath('data.items.0.source_label', 'DIS DEMO');
         $this->wallboardGet('/api/wallboard/control', $credential)->assertOk()
             ->assertJsonPath('data.data_mode', WallboardPlaylist::DATA_MODE_DEMO)
-            ->assertJsonPath('data.active_incident_playlist', false)
-            ->assertJsonPath('data.display.incident_active', false)
+            ->assertJsonPath('data.active_deployment_playlist', false)
+            ->assertJsonPath('data.display.deployment_active', false)
             ->assertJsonPath('data.focus', null)
             ->assertJsonPath('data.transient_alert', null);
         $this->wallboardGet('/api/wallboard/news-images/'.str_repeat('a', 64), $credential)
@@ -296,12 +296,12 @@ final class WallboardDemoPlaylistTest extends TestCase
         $this->assertSame(0, $provider->tickerCalls);
         Http::assertNothingSent();
         foreach ([
-            'incidents',
+            'deployments',
             'dispatch_requests',
             'dispatch_recipients',
             'availability_statuses',
             'assets',
-            'pilot_incident_reports',
+            'pilot_deployment_reports',
             'calendar_events',
             'location_updates',
             'location_sharing_consents',
@@ -498,10 +498,10 @@ final class WallboardDemoPlaylistTest extends TestCase
             'pages' => [
                 $this->page('summary', 'Overzicht', 'summary'),
                 $this->page('kpi', 'KPI', 'kpi', [
-                    'visible_metrics' => ['drones_flown_distribution', 'incidents_by_province'],
+                    'visible_metrics' => ['drones_flown_distribution', 'deployments_by_province'],
                     'metric_visualizations' => [
                         'drones_flown_distribution' => 'pie',
-                        'incidents_by_province' => 'bar',
+                        'deployments_by_province' => 'bar',
                     ],
                 ]),
                 $this->page('calendar', 'Kalender', 'calendar', ['max_items' => 3]),
@@ -513,13 +513,13 @@ final class WallboardDemoPlaylistTest extends TestCase
                 ]),
             ],
             'map' => [
-                'show_active_incidents' => true,
+                'show_active_deployments' => true,
                 'show_live_locations' => true,
                 'show_routes' => true,
                 'show_command_centers' => true,
-                'show_historical_incidents' => true,
+                'show_historical_deployments' => true,
                 'show_summary' => true,
-                'show_incident_list' => true,
+                'show_deployment_list' => true,
             ],
             'ticker' => [
                 'enabled' => true,

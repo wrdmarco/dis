@@ -3,7 +3,7 @@
 namespace Tests\Feature;
 
 use App\Contracts\OperationalRadarProvider;
-use App\Models\Incident;
+use App\Models\Deployment;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -225,9 +225,9 @@ final class WallboardWeatherRadarTest extends TestCase
         $wallboard = $this->wallboard(
             $actor,
             $this->configuration([$this->page('map', 'Kaart', 'map')]),
-            activeIncidentPlaylist: $alarmPlaylist,
+            activeDeploymentPlaylist: $alarmPlaylist,
         );
-        $this->incident($actor);
+        $this->deployment($actor);
         $cookie = $this->wallboardCredential($wallboard);
         $png = "\x89PNG\r\n\x1a\nalarm-lightning-radar";
         $this->radarFixturePath = storage_path('framework/testing/wallboard-alarm-weather-radar.png');
@@ -291,7 +291,7 @@ final class WallboardWeatherRadarTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.weather_radar.precipitation.atlas_url', $url);
 
-        $this->incident($actor);
+        $this->deployment($actor);
 
         $this->wallboardGet($url, $cookie)->assertOk();
         $this->assertSame(1, $this->radar->fileCalls);
@@ -323,7 +323,7 @@ final class WallboardWeatherRadarTest extends TestCase
             $normalPlaylist,
             $alarmPlaylist,
         );
-        $incident = $this->incident($actor);
+        $deployment = $this->deployment($actor);
         $cookie = $this->wallboardCredential($wallboard);
         $url = $this->registerRadarFile(
             'lightning',
@@ -335,7 +335,7 @@ final class WallboardWeatherRadarTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.weather_radar.lightning.atlas_url', $url);
 
-        $incident->forceFill([
+        $deployment->forceFill([
             'status' => 'resolved',
             'closed_at' => now(),
         ])->save();
@@ -407,7 +407,7 @@ final class WallboardWeatherRadarTest extends TestCase
             $playlist,
             $alarmPlaylist,
         );
-        $this->incident($manager);
+        $this->deployment($manager);
         $cookie = $this->wallboardCredential($wallboard);
         $this->wallboardGetJson('/api/wallboard/state', $cookie)
             ->assertOk()
@@ -471,12 +471,12 @@ final class WallboardWeatherRadarTest extends TestCase
         User $actor,
         array $configuration,
         ?WallboardPlaylist $playlist = null,
-        ?WallboardPlaylist $activeIncidentPlaylist = null,
+        ?WallboardPlaylist $activeDeploymentPlaylist = null,
     ): Wallboard {
         return Wallboard::query()->create([
             'name' => 'Weerradarwallboard',
             'playlist_id' => $playlist?->id,
-            'active_incident_playlist_id' => $activeIncidentPlaylist?->id,
+            'active_deployment_playlist_id' => $activeDeploymentPlaylist?->id,
             'layout' => Wallboard::LAYOUT_FULLSCREEN_MAP,
             'display_profile' => Wallboard::DISPLAY_PROFILE_AUTO,
             'configuration' => $configuration,
@@ -490,9 +490,9 @@ final class WallboardWeatherRadarTest extends TestCase
         ]);
     }
 
-    private function incident(User $actor): Incident
+    private function deployment(User $actor): Deployment
     {
-        return Incident::query()->create([
+        return Deployment::query()->create([
             'reference' => 'RADAR-'.str()->upper((string) str()->random(8)),
             'title' => 'Actieve inzet voor weerradar',
             'priority' => 'normal',

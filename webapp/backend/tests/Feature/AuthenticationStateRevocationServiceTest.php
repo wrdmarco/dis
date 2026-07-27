@@ -87,7 +87,7 @@ final class AuthenticationStateRevocationServiceTest extends TestCase
                 'theme' => 'dark',
                 'refresh_seconds' => 10,
                 'map' => [
-                    'show_active_incidents' => false,
+                    'show_active_deployments' => false,
                     'show_live_locations' => false,
                     'show_routes' => false,
                 ],

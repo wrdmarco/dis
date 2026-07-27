@@ -12,7 +12,7 @@ final class AssetAssignment extends Model
 
     public $timestamps = false;
 
-    protected $fillable = ['asset_id', 'incident_id', 'user_id', 'assigned_by', 'assigned_at', 'released_at'];
+    protected $fillable = ['asset_id', 'deployment_id', 'user_id', 'assigned_by', 'assigned_at', 'released_at'];
 
     protected function casts(): array
     {
@@ -24,9 +24,9 @@ final class AssetAssignment extends Model
         return $this->belongsTo(Asset::class);
     }
 
-    public function incident(): BelongsTo
+    public function deployment(): BelongsTo
     {
-        return $this->belongsTo(Incident::class);
+        return $this->belongsTo(Deployment::class);
     }
 
     public function user(): BelongsTo

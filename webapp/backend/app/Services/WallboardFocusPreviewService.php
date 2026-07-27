@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\Incident;
+use App\Models\Deployment;
 use App\Models\User;
 use App\Models\Wallboard;
 use App\Repositories\WallboardRepository;
@@ -32,7 +32,7 @@ final class WallboardFocusPreviewService
 
     /**
      * Start a short-lived, wallboard-scoped focus preview. The preview lives
-     * only in cache and never creates or changes incidents or dispatches.
+     * only in cache and never creates or changes deployments or dispatches.
      *
      * @return array<string, mixed>
      */
@@ -170,7 +170,7 @@ final class WallboardFocusPreviewService
 
     private function hasActiveRealAlarm(): bool
     {
-        return Incident::query()
+        return Deployment::query()
             ->whereIn('status', ['dispatching', 'in_progress'])
             ->where('is_test', false)
             ->exists();
@@ -197,7 +197,7 @@ final class WallboardFocusPreviewService
             'kind' => $kind,
             'focus_id' => 'preview-'.hash('sha256', $identity),
             'dispatch_id' => 'preview-dispatch-'.$kind,
-            'incident_id' => 'preview-incident-'.$kind,
+            'deployment_id' => 'preview-deployment-'.$kind,
             'reference' => match ($kind) {
                 'preannouncement' => 'VOORBEELD-VOORALARM',
                 'test_alarm' => 'VOORBEELD-PROEFALARM',

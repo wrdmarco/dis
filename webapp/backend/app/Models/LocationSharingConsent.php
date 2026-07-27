@@ -10,7 +10,7 @@ final class LocationSharingConsent extends Model
 {
     use UsesUlids;
 
-    protected $fillable = ['incident_id', 'user_id', 'is_active', 'state_version', 'consented_at', 'revoked_at', 'declined_at', 'refusal_reason'];
+    protected $fillable = ['deployment_id', 'user_id', 'is_active', 'state_version', 'consented_at', 'revoked_at', 'declined_at', 'refusal_reason'];
 
     protected function casts(): array
     {
@@ -28,8 +28,8 @@ final class LocationSharingConsent extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function incident(): BelongsTo
+    public function deployment(): BelongsTo
     {
-        return $this->belongsTo(Incident::class);
+        return $this->belongsTo(Deployment::class);
     }
 }

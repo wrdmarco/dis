@@ -38,6 +38,59 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
         'speech_locale',
     ];
 
+    /**
+     * The queue, outbox and delivery log use these canonical event types. Only
+     * the provider payload is adapted for mobile builds from before the
+     * deployment-domain cut-over.
+     *
+     * @var array<string, array{type:string, action_mode?:string}>
+     */
+    private const DEPLOYMENT_EVENT_WIRE_COMPATIBILITY = [
+        'deployment_preannouncement' => [
+            'type' => 'dispatch_update',
+            'action_mode' => 'availability',
+        ],
+        'deployment_preannouncement_cancelled' => [
+            'type' => 'dispatch_update',
+            'action_mode' => 'availability_cancelled',
+        ],
+        'deployment_cancelled' => [
+            'type' => 'incident_cancelled',
+        ],
+    ];
+
+    /**
+     * @var array<string, string>
+     */
+    private const DEPLOYMENT_WIRE_KEY_ALIASES = [
+        'deployment_id' => 'incident_id',
+        'deployment_reference' => 'incident_reference',
+        'deployment_title' => 'incident_title',
+        'deployment_location' => 'incident_location',
+    ];
+
+    /**
+     * Only established pre-cut-over payload keys are decoded. Unknown extension
+     * keys and human-authored values must remain byte-for-byte unchanged.
+     *
+     * @var array<string, string>
+     */
+    private const LEGACY_DEPLOYMENT_DATA_KEYS = [
+        'incident_id' => 'deployment_id',
+        'incident_reference' => 'deployment_reference',
+        'incident_title' => 'deployment_title',
+        'incident_location' => 'deployment_location',
+    ];
+
+    /**
+     * @var array<string, string>
+     */
+    private const LEGACY_DEPLOYMENT_EVENT_TYPES = [
+        'incident_preannouncement' => 'deployment_preannouncement',
+        'incident_preannouncement_cancelled' => 'deployment_preannouncement_cancelled',
+        'incident_cancelled' => 'deployment_cancelled',
+    ];
+
     public int $tries = 4;
 
     /**
@@ -83,7 +136,7 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
             }
 
             $lockKey = PushNotificationIdentity::deliveryOrderLockKey(
-                $this->data,
+                $this->canonicalData(),
                 $this->fcmTokenId,
                 $this->dispatchRequestId,
             );
@@ -93,7 +146,7 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
                 return;
             }
 
-            // Every phase for one incident and device uses the same distributed
+            // Every phase for one deployment and device uses the same distributed
             // lock. A preannouncement that is already in flight finishes before a
             // later alarm is submitted to the provider; once the
             // later database state is committed, a delayed old job is discarded.
@@ -267,17 +320,19 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
 
     private function isPreannouncement(): bool
     {
-        $type = $this->data['type'] ?? null;
+        $data = $this->canonicalData();
+        $type = $data['type'] ?? null;
 
-        return $this->messageType === 'incident_preannouncement'
-            || $type === 'incident_preannouncement'
-            || ($type === 'dispatch_update' && ($this->data['action_mode'] ?? null) === 'availability');
+        return $this->canonicalMessageType() === 'deployment_preannouncement'
+            || $type === 'deployment_preannouncement'
+            || ($type === 'dispatch_update' && ($data['action_mode'] ?? null) === 'availability');
     }
 
     private function isDefinitiveAlarm(): bool
     {
-        $type = $this->data['type'] ?? null;
-        $actionMode = $this->data['action_mode'] ?? null;
+        $data = $this->canonicalData();
+        $type = $data['type'] ?? null;
+        $actionMode = $data['action_mode'] ?? null;
 
         return $type === 'dispatch_request'
             || $actionMode === 'attendance'
@@ -286,8 +341,8 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
 
     private function isResponseSync(): bool
     {
-        return $this->messageType === 'dispatch_response_sync'
-            || ($this->data['type'] ?? null) === 'dispatch_response_sync';
+        return $this->canonicalMessageType() === 'dispatch_response_sync'
+            || ($this->canonicalData()['type'] ?? null) === 'dispatch_response_sync';
     }
 
     private function requiresOrderedOperationalDelivery(): bool
@@ -322,13 +377,13 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
 
         $query = DispatchRequest::query()
             ->whereKey($this->dispatchRequestId)
-            ->whereHas('incident', function ($incident): void {
+            ->whereHas('deployment', function ($deployment): void {
                 if ($this->isPreannouncement()) {
-                    $incident->where('status', 'active');
+                    $deployment->where('status', 'active');
 
                     return;
                 }
-                $incident->whereNotIn('status', ['resolved', 'cancelled']);
+                $deployment->whereNotIn('status', ['resolved', 'cancelled']);
             });
 
         if ($this->isPreannouncement()) {
@@ -341,7 +396,7 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
         }
 
         if ($this->isResponseSync()) {
-            $response = $this->data['response'] ?? null;
+            $response = $this->canonicalData()['response'] ?? null;
             if (! in_array($response, ['accepted', 'declined'], true)) {
                 return false;
             }
@@ -384,7 +439,7 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
         try {
             // Exhausting one bounded Laravel retry cycle returns the durable
             // outbox row to pending with a longer bounded backoff. The
-            // scheduler then retries it, or cancels it if the incident closed.
+            // scheduler then retries it, or cancels it if the deployment closed.
             app(DispatchPushOutboxService::class)->releaseAfterDeliveryFailure(
                 $this->dispatchPushOutboxId,
                 $this->fcmTokenId,
@@ -401,8 +456,8 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
         return $token !== null
             && ! $token->is_active
             && $token->revoked_at !== null
-            && $this->messageType === 'session_revoked'
-            && ($this->data['type'] ?? null) === 'session_revoked'
+            && $this->canonicalMessageType() === 'session_revoked'
+            && ($this->canonicalData()['type'] ?? null) === 'session_revoked'
             && $this->expectedRevocationGeneration !== null
             && hash_equals(
                 (string) $token->revocation_generation,
@@ -430,15 +485,56 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
     /** @return array<string, string> */
     private function deliveryData(FcmToken $token): array
     {
-        $data = $this->data;
+        $data = $this->canonicalData();
         unset($data['session_token_id']);
         foreach (self::RETIRED_SERVER_TTS_DATA_KEYS as $key) {
             unset($data[$key]);
         }
+        $data = $this->deploymentCompatibleWireData($data);
 
         $sessionTokenId = trim((string) $token->personal_access_token_id);
         if (preg_match('/^[A-Za-z0-9]{1,64}$/', $sessionTokenId) === 1) {
             $data['session_token_id'] = $sessionTokenId;
+        }
+
+        return $data;
+    }
+
+    /**
+     * Preserve canonical persisted payloads while keeping the provider wire
+     * safe for installed mobile builds that only understand incident_* keys.
+     * Canonical values always win when a queued legacy job contains both forms.
+     *
+     * @param  array<string, string>  $data
+     * @return array<string, string>
+     */
+    private function deploymentCompatibleWireData(array $data): array
+    {
+        $messageType = $this->canonicalMessageType();
+        $eventType = array_key_exists($messageType, self::DEPLOYMENT_EVENT_WIRE_COMPATIBILITY)
+            ? $messageType
+            : null;
+        if ($eventType === null) {
+            $dataType = $data['type'] ?? null;
+            if (is_string($dataType)
+                && array_key_exists($dataType, self::DEPLOYMENT_EVENT_WIRE_COMPATIBILITY)) {
+                $eventType = $dataType;
+            }
+        }
+
+        if ($eventType !== null) {
+            $wire = self::DEPLOYMENT_EVENT_WIRE_COMPATIBILITY[$eventType];
+            $data['deployment_event_type'] = $eventType;
+            $data['type'] = $wire['type'];
+            if (isset($wire['action_mode'])) {
+                $data['action_mode'] = $wire['action_mode'];
+            }
+        }
+
+        foreach (self::DEPLOYMENT_WIRE_KEY_ALIASES as $canonicalKey => $legacyKey) {
+            if (array_key_exists($canonicalKey, $data)) {
+                $data[$legacyKey] = $data[$canonicalKey];
+            }
         }
 
         return $data;
@@ -510,12 +606,48 @@ final class SendFcmNotification implements ShouldBeEncrypted, ShouldQueue
             'user_id' => $token->user_id,
             'fcm_token_id' => $token->id,
             'dispatch_request_id' => $this->dispatchRequestId,
-            'message_type' => $this->messageType,
+            'message_type' => $this->canonicalMessageType(),
             'status' => $status,
             'provider_message_id' => $providerMessageId,
             'error_code' => $errorCode,
             'sent_at' => now(),
         ]);
+    }
+
+    /**
+     * Legacy queued jobs may still contain incident_* keys. They are consumed
+     * without reserializing the readonly job envelope, while ordering, logging
+     * and persistence use the canonical deployment_* contract. Provider-only
+     * compatibility aliases are added later by deploymentCompatibleWireData().
+     *
+     * @return array<string, string>
+     */
+    private function canonicalData(): array
+    {
+        $canonical = $this->data;
+        foreach (self::LEGACY_DEPLOYMENT_DATA_KEYS as $legacyKey => $canonicalKey) {
+            if (array_key_exists($legacyKey, $canonical)) {
+                if (! array_key_exists($canonicalKey, $canonical)) {
+                    $canonical[$canonicalKey] = $canonical[$legacyKey];
+                }
+                unset($canonical[$legacyKey]);
+            }
+        }
+
+        foreach (['type', 'message_type'] as $eventKey) {
+            $eventType = $canonical[$eventKey] ?? null;
+            if (is_string($eventType)
+                && array_key_exists($eventType, self::LEGACY_DEPLOYMENT_EVENT_TYPES)) {
+                $canonical[$eventKey] = self::LEGACY_DEPLOYMENT_EVENT_TYPES[$eventType];
+            }
+        }
+
+        return $canonical;
+    }
+
+    private function canonicalMessageType(): string
+    {
+        return self::LEGACY_DEPLOYMENT_EVENT_TYPES[$this->messageType] ?? $this->messageType;
     }
 
     private function providerErrorCode(FcmToken $token, mixed $payload, int $httpStatus): string

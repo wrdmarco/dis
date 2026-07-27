@@ -45,7 +45,7 @@ import {
   clampWallboardNewsItemDuration,
   clampWallboardRssMaxItems,
   clampWallboardTransitionDurationMs,
-  countActiveOperationalWallboardIncidents,
+  countActiveOperationalWallboardDeployments,
   createWallboardCustomNewsSource,
   createWallboardPage,
   createWallboardTickerSource,
@@ -61,7 +61,7 @@ import {
   normalizeWallboardPageTransition,
   requestedWallboardScreenSelection,
   resolveWallboardFlipDirection,
-  selectRecentWallboardIncidents,
+  selectRecentWallboardDeployments,
   wallboardConfigurationCopy,
   wallboardConfigurationHasInvalidPhotoCarousels,
   wallboardConfigurationHasUnverifiedVideos,
@@ -71,7 +71,7 @@ import {
   wallboardFocusKindLabel,
   wallboardIsOnline,
   wallboardMessageContent,
-  wallboardOperationalIncidentConfiguration,
+  wallboardOperationalDeploymentConfiguration,
   wallboardPageMapConfiguration,
   wallboardPlaylistUsageCount,
   wallboardStateIsStale,
@@ -86,7 +86,7 @@ import {
   wallboardRichTextCharacterCount,
   wallboardRichTextIsEmpty,
 } from '../src/features/wallboards/WallboardRichText';
-import { pilotOperationalDetail } from '../src/features/incidents/OperationalMapCanvas';
+import { pilotOperationalDetail } from '../src/features/deployments/OperationalMapCanvas';
 
 const now = Date.parse('2026-07-19T10:00:00Z');
 
@@ -109,7 +109,7 @@ function stateFixture(): WallboardState {
       display: {
         mode: 'rotation',
         page_id: 'map-overview',
-        incident_active: false,
+        deployment_active: false,
         next_change_at: '2026-07-19T10:00:25Z',
       },
       updated_at: '2026-07-19T09:59:00Z',
@@ -117,7 +117,7 @@ function stateFixture(): WallboardState {
     operational_summary: {
       pilot_availability: { available: 3, total: 8 },
       active_alarm: null,
-      recent_incidents: [
+      recent_deployments: [
         { id: 'recent-older', reference: 'DIS-101', title: 'Oudere melding', status: 'resolved', priority: 'normal', is_test: false, location_label: null, closed_at: '2026-07-18T12:00:00Z' },
         { id: 'recent-test', reference: 'TEST-102', title: 'Proefmelding', status: 'cancelled', priority: 'low', is_test: true, location_label: 'Zwolle', closed_at: '2026-07-19T09:00:00Z' },
         { id: 'recent-latest', reference: 'DIS-103', title: 'Laatste melding zonder kaartpunt', status: 'resolved', priority: 'high', is_test: false, location_label: 'Amersfoort', closed_at: '2026-07-19T09:30:00Z' },
@@ -135,16 +135,16 @@ function stateFixture(): WallboardState {
     },
     media: { photo_pages: {} },
     map: {
-      incidents: [
-        { id: 'incident-1', reference: 'DIS-1', title: 'Operationeel', status: 'active', priority: 'high', is_test: false, location_label: 'Utrecht', latitude: 52.09, longitude: 5.12 },
-        { id: 'incident-2', reference: 'TEST-2', title: 'Proefmelding', status: 'active', priority: 'normal', is_test: true, location_label: 'Arnhem', latitude: 51.98, longitude: 5.9 },
-        { id: 'incident-3', reference: 'DIS-3', title: 'Gesloten', status: 'resolved', priority: 'normal', is_test: false, location_label: 'Breda', latitude: 51.58, longitude: 4.78 },
+      deployments: [
+        { id: 'deployment-1', reference: 'DIS-1', title: 'Operationeel', status: 'active', priority: 'high', is_test: false, location_label: 'Utrecht', latitude: 52.09, longitude: 5.12 },
+        { id: 'deployment-2', reference: 'TEST-2', title: 'Proefmelding', status: 'active', priority: 'normal', is_test: true, location_label: 'Arnhem', latitude: 51.98, longitude: 5.9 },
+        { id: 'deployment-3', reference: 'DIS-3', title: 'Gesloten', status: 'resolved', priority: 'normal', is_test: false, location_label: 'Breda', latitude: 51.58, longitude: 4.78 },
       ],
       command_centers: [{ id: 'center-1', name: 'Meldkamer', address: null, latitude: 52.1, longitude: 5.1 }],
-      historical_incidents: [{ id: 'history-1', reference: 'DIS-H1', title: 'Historie', status: 'resolved', priority: 'low', location_label: null, latitude: 52.2, longitude: 5.2, closed_at: null }],
+      historical_deployments: [{ id: 'history-1', reference: 'DIS-H1', title: 'Historie', status: 'resolved', priority: 'low', location_label: null, latitude: 52.2, longitude: 5.2, closed_at: null }],
       live_locations: [
         {
-          incident_id: 'incident-1',
+          deployment_id: 'deployment-1',
           user_id: 'pilot-1',
           user: { id: 'pilot-1', name: 'Piloot Een' },
           dispatch_response_status: 'accepted',
@@ -162,7 +162,7 @@ function stateFixture(): WallboardState {
           },
         },
         {
-          incident_id: 'incident-1',
+          deployment_id: 'deployment-1',
           user_id: 'pilot-stale',
           user: { id: 'pilot-stale', name: 'Verlopen piloot' },
           dispatch_response_status: 'accepted',
@@ -181,7 +181,7 @@ function stateFixture(): WallboardState {
 function transientAlert(overrides: Partial<WallboardTransientAlert> = {}): WallboardTransientAlert {
   return {
     dispatch_id: 'dispatch-1',
-    incident_id: 'incident-1',
+    deployment_id: 'deployment-1',
     reference: 'DIS-1',
     title: 'Nieuwe inzet',
     priority: 'high',
@@ -198,7 +198,7 @@ function focusState(overrides: Partial<WallboardFocusState> = {}): WallboardFocu
     kind: 'real_alarm',
     focus_id: 'focus-1',
     dispatch_id: 'dispatch-1',
-    incident_id: 'incident-1',
+    deployment_id: 'deployment-1',
     reference: 'DIS-1',
     title: 'Nieuwe inzet',
     priority: 'high',
@@ -226,7 +226,7 @@ test('filters wallboard data by server configuration and keeps only current pilo
   const presentation = buildWallboardMapPresentation(stateFixture());
 
   expect(presentation.models).toHaveLength(1);
-  expect(presentation.models[0].incident.id).toBe('incident-1');
+  expect(presentation.models[0].deployment.id).toBe('deployment-1');
   expect(presentation.models[0].liveLocations).toHaveLength(1);
   expect(presentation.models[0].liveLocations[0].route?.points).toEqual([
     { longitude: 5.11, latitude: 52.08 },
@@ -237,7 +237,7 @@ test('filters wallboard data by server configuration and keeps only current pilo
     etaMinutes: 10,
   });
   expect(presentation.layers.commandCenters).toHaveLength(1);
-  expect(presentation.layers.historicalIncidents).toHaveLength(0);
+  expect(presentation.layers.historicalDeployments).toHaveLength(0);
   expect(presentation.layers.pilotHomes).toEqual([]);
 });
 
@@ -346,12 +346,98 @@ test('normalizes legacy wallboard configuration into a safe page program', () =>
   expect(normalized.page_transition_duration_ms).toBe(DEFAULT_WALLBOARD_PAGE_TRANSITION_DURATION_MS);
   expect(normalized.page_flip_direction).toBe(DEFAULT_WALLBOARD_FLIP_DIRECTION);
   expect(normalized.page_fade_enabled).toBe(true);
-  expect(normalized.incident_override).toEqual({ enabled: false, page_id: 'map-overview' });
+  expect(normalized.deployment_override).toEqual({ enabled: false, page_id: 'map-overview' });
   expect(normalized.focus).toEqual({
     preannouncement: { enabled: true, duration_seconds: 120, show_response_feed: true },
     real_alarm: { enabled: true, duration_seconds: 30, show_response_feed: true },
     test_alarm: { enabled: true, duration_seconds: 300, show_response_feed: true },
   });
+});
+
+test('reads persisted incident wallboard keys but emits only canonical deployment keys', () => {
+  const legacy = {
+    theme: 'dark',
+    refresh_seconds: 10,
+    map: {
+      show_active_incidents: false,
+      show_test_incidents: true,
+      show_live_locations: true,
+      show_routes: true,
+      show_command_centers: true,
+      show_historical_incidents: true,
+      show_summary: true,
+      show_incident_list: false,
+      show_route_legend: true,
+      auto_fit: true,
+    },
+    ticker: { enabled: false, sources: [] },
+    focus: DEFAULT_WALLBOARD_CONFIGURATION.focus,
+    pages: [{
+      id: 'legacy-list',
+      type: 'incident_list',
+      name: 'Inzetten',
+      duration_seconds: 30,
+      options: {},
+    }],
+    rotation_enabled: true,
+    page_transition: 'fade',
+    page_transition_duration_ms: 320,
+    page_flip_direction: 'left_to_right',
+    page_fade_enabled: true,
+    incident_override: { enabled: true, page_id: 'legacy-list' },
+  } as unknown as WallboardConfiguration;
+
+  const normalized = wallboardConfigurationCopy(legacy);
+
+  expect(normalized.map).toEqual({
+    ...DEFAULT_WALLBOARD_CONFIGURATION.map,
+    show_active_deployments: false,
+    show_historical_deployments: true,
+    show_deployment_list: false,
+  });
+  expect(normalized.pages[0].type).toBe('deployment_list');
+  expect(normalized.deployment_override).toEqual({ enabled: true, page_id: 'legacy-list' });
+  expect(normalized).not.toHaveProperty('incident_override');
+  expect(normalized.map).not.toHaveProperty('show_active_incidents');
+  expect(normalized.map).not.toHaveProperty('show_historical_incidents');
+  expect(normalized.map).not.toHaveProperty('show_incident_list');
+});
+
+test('normalizes legacy wallboard runtime keys without leaking them into canonical state', () => {
+  const legacyState = stateFixture();
+  const rawWallboard = legacyState.wallboard as unknown as Record<string, unknown>;
+  delete rawWallboard.active_deployment_playlist;
+  rawWallboard.active_incident_playlist = true;
+  rawWallboard.display = {
+    mode: 'incident_override',
+    page_id: 'map-overview',
+    incident_active: true,
+    next_change_at: null,
+  };
+
+  const rawSummary = legacyState.operational_summary as unknown as Record<string, unknown>;
+  rawSummary.recent_incidents = rawSummary.recent_deployments;
+  delete rawSummary.recent_deployments;
+  const rawFocus = { ...focusState() } as unknown as Record<string, unknown>;
+  rawFocus.incident_id = rawFocus.deployment_id;
+  delete rawFocus.deployment_id;
+  rawSummary.focus = rawFocus;
+
+  const normalized = normalizeWallboardState(legacyState);
+
+  expect(normalized.wallboard.active_deployment_playlist).toBe(true);
+  expect(normalized.wallboard.display).toEqual({
+    mode: 'deployment_override',
+    page_id: 'map-overview',
+    deployment_active: true,
+    next_change_at: null,
+  });
+  expect(normalized.operational_summary.recent_deployments).toHaveLength(3);
+  expect(normalized.operational_summary.focus?.deployment_id).toBe('deployment-1');
+  expect(normalized.wallboard).not.toHaveProperty('active_incident_playlist');
+  expect(normalized.wallboard.display).not.toHaveProperty('incident_active');
+  expect(normalized.operational_summary).not.toHaveProperty('recent_incidents');
+  expect(normalized.operational_summary.focus).not.toHaveProperty('incident_id');
 });
 
 test('normalizes global and per-page transition timing with legacy compatibility', () => {
@@ -730,17 +816,17 @@ test('hard reloads only for a higher server refresh version after the first base
   expect(wallboardRefreshDecision(null, 'invalid')).toEqual({ version: 0, reload: false });
 });
 
-test('detects runtime playlist activation and version changes independently from incident state', () => {
+test('detects runtime playlist activation and version changes independently from deployment state', () => {
   const basePlaylistId = '01KXW0QZTP0000000000000001';
-  const incidentPlaylistId = '01KXW0QZTP0000000000000002';
+  const deploymentPlaylistId = '01KXW0QZTP0000000000000002';
   const state = stateFixture();
   state.wallboard = {
     ...state.wallboard,
     runtime_playlist_id: basePlaylistId,
     runtime_playlist_version: 3,
     runtime_playlist_purpose: 'normal',
-    active_incident_playlist: false,
-    display: { ...state.wallboard.display, incident_active: true },
+    active_deployment_playlist: false,
+    display: { ...state.wallboard.display, deployment_active: true },
   };
 
   const dispatching = controlFromState(state);
@@ -749,18 +835,18 @@ test('detects runtime playlist activation and version changes independently from
     runtime_playlist_id: basePlaylistId,
     runtime_playlist_version: 3,
     runtime_playlist_purpose: 'normal',
-    active_incident_playlist: false,
-    display: { incident_active: true },
+    active_deployment_playlist: false,
+    display: { deployment_active: true },
   });
 
   const inProgress = {
     ...dispatching,
-    runtime_playlist_id: incidentPlaylistId,
+    runtime_playlist_id: deploymentPlaylistId,
     runtime_playlist_version: 7,
     runtime_playlist_purpose: 'alarm' as const,
-    active_incident_playlist: true,
+    active_deployment_playlist: true,
   };
-  expect(inProgress.display.incident_active).toBe(dispatching.display.incident_active);
+  expect(inProgress.display.deployment_active).toBe(dispatching.display.deployment_active);
   expect(wallboardRuntimePlaylistSignature(inProgress))
     .not.toBe(wallboardRuntimePlaylistSignature(dispatching));
   expect(wallboardRuntimePlaylistSignature({ ...inProgress, runtime_playlist_version: 8 }))
@@ -772,7 +858,7 @@ test('detects runtime playlist activation and version changes independently from
   expect(wallboardRuntimePlaylistSignature({
     runtime_playlist_id: dispatching.runtime_playlist_id,
     runtime_playlist_version: dispatching.runtime_playlist_version,
-    active_incident_playlist: dispatching.active_incident_playlist,
+    active_deployment_playlist: dispatching.active_deployment_playlist,
   })).toBe(wallboardRuntimePlaylistSignature(dispatching));
 });
 
@@ -782,7 +868,7 @@ test('keeps offline status and automatic polling recovery without a reconnect re
   const controlPoll = kiosk.slice(kiosk.indexOf('const pollControl = async () =>'), kiosk.indexOf('}, [controlPollGeneration, hasPairedState, observeRefreshVersion]'));
   const runtimePlaylistInvalidation = controlPoll.slice(
     controlPoll.indexOf('if (configVersionChanged || runtimePlaylistChanged)'),
-    controlPoll.indexOf('if (\n          lastControlIncidentActiveRef.current'),
+    controlPoll.indexOf('if (\n          lastControlDeploymentActiveRef.current'),
   );
 
   expect(kiosk).toContain("const feedStatus = connectionError !== null ? 'offline' : stale ? 'stale' : 'live';");
@@ -824,22 +910,22 @@ test('presents operational pilot availability independently from live location s
   expect(formatWallboardPilotAvailability({ available: Number.NaN, total: 8 })).toBe('Operationele beschikbaarheid onbekend');
 });
 
-test('selects only coordinate-independent real incidents for the operational overview', () => {
-  const incidents = stateFixture().operational_summary.recent_incidents;
+test('selects only coordinate-independent real deployments for the operational overview', () => {
+  const deployments = stateFixture().operational_summary.recent_deployments;
 
-  expect(selectRecentWallboardIncidents(incidents).map((incident) => incident.id)).toEqual([
+  expect(selectRecentWallboardDeployments(deployments).map((deployment) => deployment.id)).toEqual([
     'recent-latest',
     'recent-older',
   ]);
-  expect(selectRecentWallboardIncidents(incidents, 2).map((incident) => incident.id)).toEqual([
+  expect(selectRecentWallboardDeployments(deployments, 2).map((deployment) => deployment.id)).toEqual([
     'recent-latest',
     'recent-older',
   ]);
-  expect(incidents.find((incident) => incident.id === 'recent-latest')).not.toHaveProperty('latitude');
+  expect(deployments.find((deployment) => deployment.id === 'recent-latest')).not.toHaveProperty('latitude');
 });
 
-test('counts only real active incidents in wallboard overview metrics', () => {
-  expect(countActiveOperationalWallboardIncidents(stateFixture().map.incidents)).toBe(1);
+test('counts only real active deployments in wallboard overview metrics', () => {
+  expect(countActiveOperationalWallboardDeployments(stateFixture().map.deployments)).toBe(1);
 });
 
 test('uses server transient expiry for both real and test alert focus', () => {
@@ -1095,7 +1181,7 @@ test('does not postpone a rotation deadline within the same active server phase'
     display: {
       mode: 'rotation',
       page_id: 'map-overview',
-      incident_active: false,
+      deployment_active: false,
       next_change_at: '2026-07-19T10:00:05Z',
     },
   };
@@ -1115,7 +1201,7 @@ test('does not postpone a rotation deadline within the same active server phase'
   }, Date.parse('2026-07-19T10:00:03Z')).display.next_change_at).toBe('2026-07-19T10:00:04Z');
   expect(stabilizeWallboardRotationDeadline(current, {
     ...repeatedPoll,
-    display: { ...repeatedPoll.display, page_id: 'incident-list' },
+    display: { ...repeatedPoll.display, page_id: 'deployment-list' },
   }, Date.parse('2026-07-19T10:00:03Z')).display.next_change_at).toBe('2026-07-19T10:00:07Z');
   expect(stabilizeWallboardRotationDeadline(current, {
     ...repeatedPoll,
@@ -1179,7 +1265,7 @@ test('advances an expired rotation locally while the server confirmation is in f
     display: {
       mode: 'rotation',
       page_id: 'first',
-      incident_active: false,
+      deployment_active: false,
       next_change_at: '2026-07-19T10:00:05Z',
     },
   };
@@ -1218,7 +1304,7 @@ test('advances an expired rotation locally while the server confirmation is in f
     ...control,
     display: {
       ...control.display,
-      incident_active: true,
+      deployment_active: true,
     },
   };
   expect(stabilizeWallboardRotationDeadline(
@@ -1227,7 +1313,7 @@ test('advances an expired rotation locally while the server confirmation is in f
     Date.parse('2026-07-19T10:00:05.050Z'),
   ).display).toMatchObject({
     page_id: 'second',
-    incident_active: true,
+    deployment_active: true,
     next_change_at: '2026-07-19T10:00:15.000Z',
   });
 });
@@ -1336,7 +1422,7 @@ test('keeps maintenance state authoritative when state and control responses arr
     display: {
       mode: 'static',
       page_id: 'map-overview',
-      incident_active: false,
+      deployment_active: false,
       next_change_at: null,
     },
   };
@@ -1375,7 +1461,7 @@ test('keeps focus deadlines server-authoritative without postponing one active p
     display: {
       mode: 'rotation',
       page_id: 'map-overview',
-      incident_active: true,
+      deployment_active: true,
       next_change_at: null,
     },
   };
@@ -1421,7 +1507,7 @@ test('rejects an older focus transition but accepts a current server focus remov
     display_profile: 'auto',
     transient_alert: transientAlert(),
     focus: focusState(),
-    display: { mode: 'rotation', page_id: 'map-overview', incident_active: true, next_change_at: null },
+    display: { mode: 'rotation', page_id: 'map-overview', deployment_active: true, next_change_at: null },
   };
   const olderRemoval: WallboardControlState = {
     ...current,
@@ -1476,7 +1562,7 @@ test('does not lose an unexpired transient alert to an older state response', ()
     display: {
       mode: 'rotation',
       page_id: 'map-overview',
-      incident_active: false,
+      deployment_active: false,
       next_change_at: null,
     },
   };
@@ -1495,57 +1581,57 @@ test('does not lose an unexpired transient alert to an older state response', ()
     .toBe('dispatch-2');
 });
 
-test('dedicated incident pages remain operational when the global map layer is hidden', () => {
+test('dedicated deployment pages remain operational when the global map layer is hidden', () => {
   const state = stateFixture();
-  state.wallboard.configuration.map.show_active_incidents = false;
+  state.wallboard.configuration.map.show_active_deployments = false;
   const page: WallboardPage = {
-    id: 'incidents',
-    type: 'incident_list',
+    id: 'deployments',
+    type: 'deployment_list',
     name: 'Actieve meldingen',
     duration_seconds: 20,
-    options: { show_test_incidents: false },
+    options: { show_test_deployments: false },
   };
 
   const pageConfiguration = wallboardPageMapConfiguration(state.wallboard.configuration, page);
-  expect(pageConfiguration.show_active_incidents).toBe(true);
-  expect(buildWallboardMapPresentation(state, true, pageConfiguration).models.map((model) => model.incident.id)).toEqual(['incident-1']);
+  expect(pageConfiguration.show_active_deployments).toBe(true);
+  expect(buildWallboardMapPresentation(state, true, pageConfiguration).models.map((model) => model.deployment.id)).toEqual(['deployment-1']);
 
-  page.options.show_test_incidents = true;
+  page.options.show_test_deployments = true;
   const withTests = wallboardPageMapConfiguration(state.wallboard.configuration, page);
-  expect(withTests.show_test_incidents).toBe(false);
-  expect(buildWallboardMapPresentation(state, true, withTests).models.map((model) => model.incident.id)).toEqual(['incident-1']);
+  expect(withTests.show_test_deployments).toBe(false);
+  expect(buildWallboardMapPresentation(state, true, withTests).models.map((model) => model.deployment.id)).toEqual(['deployment-1']);
 
   const summaryPage: WallboardPage = {
     ...page,
     id: 'summary',
     type: 'summary',
-    options: { show_test_incidents: true },
+    options: { show_test_deployments: true },
   };
   const summaryConfiguration = wallboardPageMapConfiguration(state.wallboard.configuration, summaryPage);
-  expect(summaryConfiguration.show_test_incidents).toBe(false);
-  expect(buildWallboardMapPresentation(state, true, summaryConfiguration).models.map((model) => model.incident.id)).toEqual(['incident-1']);
+  expect(summaryConfiguration.show_test_deployments).toBe(false);
+  expect(buildWallboardMapPresentation(state, true, summaryConfiguration).models.map((model) => model.deployment.id)).toEqual(['deployment-1']);
 });
 
-test('keeps the map incident sidebar independent from the active-incident map layer', () => {
+test('keeps the map deployment sidebar independent from the active-deployment map layer', () => {
   const state = stateFixture();
-  state.wallboard.configuration.map.show_active_incidents = false;
-  state.wallboard.configuration.map.show_incident_list = true;
+  state.wallboard.configuration.map.show_active_deployments = false;
+  state.wallboard.configuration.map.show_deployment_list = true;
 
   expect(buildWallboardMapPresentation(state).models).toEqual([]);
 
-  const listConfiguration = wallboardOperationalIncidentConfiguration(
+  const listConfiguration = wallboardOperationalDeploymentConfiguration(
     state.wallboard.configuration.map,
   );
   expect(listConfiguration).toMatchObject({
-    show_active_incidents: true,
-    show_incident_list: true,
-    show_test_incidents: false,
+    show_active_deployments: true,
+    show_deployment_list: true,
+    show_test_deployments: false,
   });
   expect(
     buildWallboardMapPresentation(state, true, listConfiguration).models.map(
-      (model) => model.incident.id,
+      (model) => model.deployment.id,
     ),
-  ).toEqual(['incident-1']);
+  ).toEqual(['deployment-1']);
 });
 
 test('exposes admin and kiosk routes with separate trust boundaries', () => {
@@ -1582,7 +1668,7 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(kiosk).toContain('clearPersistedWallboardRefreshVersion(window.sessionStorage)');
   expect(kiosk).toContain('if (observeRefreshVersion(nextControl.refresh_version)) return;');
   expect(kiosk).not.toContain('URLSearchParams');
-  expect(kiosk).not.toMatch(/wallboardApi\.(?:get|post|patch|delete)\([^\n]*\/incidents\//);
+  expect(kiosk).not.toMatch(/wallboardApi\.(?:get|post|patch|delete)\([^\n]*\/deployments\//);
   expect(kiosk.match(/\/wallboard\/state/g)).toHaveLength(1);
   expect(kiosk.match(/\/wallboard\/control/g)).toHaveLength(1);
   expect(kiosk.match(/\/wallboard\/cache/g)).toHaveLength(1);
@@ -1606,7 +1692,7 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(apiTypes).toContain("status: 'pending' | 'approved';");
   expect(apiTypes).toContain('expires_at: string | null;');
   expect(apiTypes).toContain('pilot_availability: WallboardPilotAvailability;');
-  expect(apiTypes).toContain('recent_incidents: WallboardStateRecentIncident[];');
+  expect(apiTypes).toContain('recent_deployments: WallboardStateRecentDeployment[];');
   expect(apiTypes).toContain('transient_alert: WallboardTransientAlert | null;');
   expect(apiTypes).toContain("export type WallboardFocusKind = 'preannouncement' | 'real_alarm' | 'test_alarm';");
   expect(apiTypes).toContain('pilot_counts?: WallboardFocusPilotCounts | null;');
@@ -1639,12 +1725,12 @@ test('exposes admin and kiosk routes with separate trust boundaries', () => {
   expect(apiTypes).toContain('playlist: WallboardPlaylistReference;');
   expect(apiTypes).toContain("export type WallboardPlaylistPurpose = 'normal' | 'alarm';");
   expect(apiTypes).toContain('purpose?: WallboardPlaylistPurpose;');
-  expect(apiTypes).toContain('active_incident_playlist_id?: string | null;');
-  expect(apiTypes).toContain('active_incident_playlist?: WallboardPlaylistReference | null;');
+  expect(apiTypes).toContain('active_deployment_playlist_id?: string | null;');
+  expect(apiTypes).toContain('active_deployment_playlist?: WallboardPlaylistReference | null;');
   expect(apiTypes).toContain('linked_wallboards_count: number;');
   expect(kiosk).toContain('Koppel deze tv');
   expect(kiosk).toContain('Operationeel beschikbaar');
-  expect(kiosk).toContain('Laatste meldingen');
+  expect(kiosk).toContain('Laatste inzetten');
   expect(kiosk).toContain('Proefalarmering');
   expect(kiosk).toContain('<FocusTakeover');
   expect(kiosk).toContain('<MaintenanceTakeover notice={maintenance} now={clock} />');
@@ -1869,17 +1955,17 @@ test('separates screen control from shared playlist content management', () => {
   expect(saveScreen).toContain('name,');
   expect(saveScreen).toContain('is_enabled: draftEnabled');
   expect(saveScreen).toContain('display_profile: draftDisplayProfile');
-  expect(saveScreen).toContain('active_incident_playlist_id: draftActiveIncidentPlaylistId');
+  expect(saveScreen).toContain('active_deployment_playlist_id: draftActiveDeploymentPlaylistId');
   expect(saveScreen).toContain('expected_config_version: wallboard.config_version');
   expect(saveScreen).not.toContain('configuration');
   expect(admin).toContain('Alarmplaylist gebruiken');
   expect(admin).toContain('Kies een alarmplaylist');
-  expect(admin).toContain("wallboard.active_incident_playlist_id ?? ''");
+  expect(admin).toContain("wallboard.active_deployment_playlist_id ?? ''");
   expect(configurationEditor).toContain('Weergave en ritme');
   expect(configurationEditor).toContain('Gegevens en kaartlagen');
   expect(configurationEditor).toContain('Pagina’s en volgorde');
   expect(configurationEditor).toContain('Focusschermen');
-  expect(configurationEditor).not.toContain('Vaste incidentpagina als fallback');
+  expect(configurationEditor).not.toContain('Vaste deploymentpagina als fallback');
   expect(configurationEditor).toContain('Onderticker');
 });
 
@@ -1897,7 +1983,7 @@ test('offers three bounded mock focus previews for the selected wallboard', () =
   expect(previewControls).toContain('WALLBOARD_FOCUS_PREVIEW_OPTIONS.map');
   expect(previewControls).toContain('onClick={() => void previewFocus(option.kind)}');
   expect(previewControls).toContain('Toont 30 seconden vaste voorbeelddata op alleen dit scherm.');
-  expect(previewControls).toContain('Er wordt geen incident, alarmering of pushbericht aangemaakt.');
+  expect(previewControls).toContain('Er wordt geen inzet, alarmering of pushbericht aangemaakt.');
   expect(previewControls).toContain('Nog {focusPreviewSecondsRemaining} van {activeFocusPreview.durationSeconds} seconden');
   expect(previewControls).toContain('disabled={busyAction !== null || !wallboard.is_enabled}');
 
@@ -1971,7 +2057,7 @@ test('keeps explicit screen profiles fluid at Full HD and Ultra HD viewports', a
           <section class="wallboard-display__summary"><div><small>Beschikbaar</small><strong>8 van 12</strong></div></section>
           <div class="wallboard-display__content wallboard-display__content--with-list">
             <section class="wallboard-display__map"></section>
-            <aside class="wallboard-display__incidents"><header>Incidenten <strong>2</strong></header><div><article><h2>Actieve melding</h2><p>Utrecht</p></article></div></aside>
+            <aside class="wallboard-display__deployments"><header>Inzetten <strong>2</strong></header><div><article><h2>Actieve inzet</h2><p>Utrecht</p></article></div></aside>
           </div>
         </section>
         <footer class="wallboard-display__footer"><span>Pagina 1 van 2</span><span>Scherm blijft actief</span></footer>
@@ -2012,7 +2098,7 @@ test('keeps the safety notice calm, wide and readable at Full HD and Ultra HD', 
     'Controleer na iedere vlucht de temperatuur en behuizing voordat de accu teruggaat in de transportkist. Laat warme accu\'s eerst op een veilige, geventileerde plaats afkoelen.',
     'Gebruik uitsluitend goedgekeurde laders op de aangewezen laadplaats. Stop het laden direct bij een storing en koppel de voeding alleen los wanneer dit veilig kan.',
     'Draag de situatie bij een ploegwissel mondeling over. Benoem welke maatregelen al zijn genomen, wie verantwoordelijk blijft en welk materiaal niet meer gebruikt mag worden.',
-    'Na het incident blijft de veiligheidsbak buiten staan totdat de ploegcoördinator vrijgave geeft. Registreer de afwijking volgens de vaste procedure voordat de inzet wordt hervat.',
+    'Na het deployment blijft de veiligheidsbak buiten staan totdat de ploegcoördinator vrijgave geeft. Registreer de afwijking volgens de vaste procedure voordat de inzet wordt hervat.',
     'Bewaar transportkisten gesloten buiten de laadmomenten en controleer of iedere kist op de afgesproken plaats staat. Losliggende materialen mogen geen doorgang blokkeren.',
     'Hervat de inzet pas nadat de ploegcoördinator de situatie heeft beoordeeld, het defecte materiaal is gemarkeerd en het team de werkwijze kent.',
   ];
@@ -2382,7 +2468,7 @@ test('keeps the preannouncement pilot availability counter readable across displ
 });
 
 test('reuses the extracted map canvas for the operational map and kiosk', () => {
-  const operationalMap = readFileSync(new URL('../src/features/incidents/IncidentMapPage.tsx', import.meta.url), 'utf8');
+  const operationalMap = readFileSync(new URL('../src/features/deployments/DeploymentMapPage.tsx', import.meta.url), 'utf8');
   const kiosk = readFileSync(new URL('../src/features/wallboards/WallboardDisplayPage.tsx', import.meta.url), 'utf8');
 
   expect(operationalMap).toContain('<OperationalMapCanvas');

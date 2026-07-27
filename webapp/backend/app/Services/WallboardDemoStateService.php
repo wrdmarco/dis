@@ -29,9 +29,9 @@ final class WallboardDemoStateService
         $now = CarbonImmutable::now((string) config('app.timezone', 'Europe/Amsterdam'));
         $pages = collect((array) ($configuration['pages'] ?? []));
         $hasMap = $pages->contains($this->pageType('map'));
-        $hasIncidentPage = $pages->contains(
+        $hasDeploymentPage = $pages->contains(
             static fn (mixed $page): bool => is_array($page)
-                && in_array($page['type'] ?? null, ['incident_list', 'summary'], true),
+                && in_array($page['type'] ?? null, ['deployment_list', 'summary'], true),
         );
         $showsSummary = $pages->contains($this->pageType('summary'))
             || ($hasMap && (($configuration['map']['show_summary'] ?? false) === true));
@@ -45,7 +45,7 @@ final class WallboardDemoStateService
                     ? ['available' => 12, 'total' => 18]
                     : ['available' => 0, 'total' => 0],
                 'active_alarm' => null,
-                'recent_incidents' => $showsSummary ? $this->recentIncidents($now) : [],
+                'recent_deployments' => $showsSummary ? $this->recentDeployments($now) : [],
                 'focus' => null,
                 'transient_alert' => null,
             ],
@@ -54,7 +54,7 @@ final class WallboardDemoStateService
             'map' => $this->map(
                 (array) ($configuration['map'] ?? []),
                 $hasMap,
-                $hasIncidentPage,
+                $hasDeploymentPage,
                 $now,
             ),
         ];
@@ -312,17 +312,17 @@ final class WallboardDemoStateService
     }
 
     /** @return list<array<string, mixed>> */
-    private function recentIncidents(CarbonImmutable $now): array
+    private function recentDeployments(CarbonImmutable $now): array
     {
         return [
-            $this->recentIncident('demo-recent-1', 'DEMO-2026-0042', 'Demo: zoekactie in natuurgebied', 'resolved', 'high', $now->subHours(2)),
-            $this->recentIncident('demo-recent-2', 'DEMO-2026-0041', 'Demo: ondersteuning brandweer', 'cancelled', 'normal', $now->subHours(5)),
-            $this->recentIncident('demo-recent-3', 'DEMO-2026-0040', 'Demo: inspectie na stormschade', 'resolved', 'normal', $now->subDay()),
+            $this->recentDeployment('demo-recent-1', 'DEMO-2026-0042', 'Demo: zoekactie in natuurgebied', 'resolved', 'high', $now->subHours(2)),
+            $this->recentDeployment('demo-recent-2', 'DEMO-2026-0041', 'Demo: ondersteuning brandweer', 'cancelled', 'normal', $now->subHours(5)),
+            $this->recentDeployment('demo-recent-3', 'DEMO-2026-0040', 'Demo: inspectie na stormschade', 'resolved', 'normal', $now->subDay()),
         ];
     }
 
     /** @return array<string, mixed> */
-    private function recentIncident(
+    private function recentDeployment(
         string $id,
         string $reference,
         string $title,
@@ -391,15 +391,15 @@ final class WallboardDemoStateService
     private function map(
         array $mapConfiguration,
         bool $hasMap,
-        bool $hasIncidentPage,
+        bool $hasDeploymentPage,
         CarbonImmutable $now,
     ): array {
-        $needsIncidents = $hasIncidentPage || ($hasMap && (
-            ($mapConfiguration['show_active_incidents'] ?? false) === true
+        $needsDeployments = $hasDeploymentPage || ($hasMap && (
+            ($mapConfiguration['show_active_deployments'] ?? false) === true
             || ($mapConfiguration['show_live_locations'] ?? false) === true
         ));
-        $incidents = $needsIncidents ? [[
-            'id' => 'demo-incident-1',
+        $deployments = $needsDeployments ? [[
+            'id' => 'demo-deployment-1',
             'reference' => 'DEMO-2026-0043',
             'title' => 'Demo: vermiste wandelaar',
             'status' => 'in_progress',
@@ -410,7 +410,7 @@ final class WallboardDemoStateService
             'longitude' => 5.12,
             'opened_at' => ApiDateTime::dateTime($now->subMinutes(42)),
         ], [
-            'id' => 'demo-incident-2',
+            'id' => 'demo-deployment-2',
             'reference' => 'DEMO-2026-0044',
             'title' => 'Demo: inspectie infrastructuur',
             'status' => 'active',
@@ -423,7 +423,7 @@ final class WallboardDemoStateService
         ]] : [];
 
         return [
-            'incidents' => $incidents,
+            'deployments' => $deployments,
             'command_centers' => $hasMap && ($mapConfiguration['show_command_centers'] ?? false) === true ? [[
                 'id' => 'demo-command-center-1',
                 'name' => 'Demo commandocentrum',
@@ -431,7 +431,7 @@ final class WallboardDemoStateService
                 'latitude' => 52.05,
                 'longitude' => 5.18,
             ]] : [],
-            'historical_incidents' => $hasMap && ($mapConfiguration['show_historical_incidents'] ?? false) === true ? [[
+            'historical_deployments' => $hasMap && ($mapConfiguration['show_historical_deployments'] ?? false) === true ? [[
                 'id' => 'demo-history-1',
                 'reference' => 'DEMO-2026-0039',
                 'title' => 'Demo: afgeronde inzet',
@@ -444,8 +444,8 @@ final class WallboardDemoStateService
             ]] : [],
             'live_locations' => $hasMap
                 && ($mapConfiguration['show_live_locations'] ?? false) === true
-                && $incidents !== [] ? [[
-                    'incident_id' => 'demo-incident-1',
+                && $deployments !== [] ? [[
+                    'deployment_id' => 'demo-deployment-1',
                     'user_id' => 'demo-pilot-alpha',
                     'user' => ['id' => 'demo-pilot-alpha', 'name' => 'Demopiloot Alfa'],
                     'dispatch_response_status' => 'accepted',

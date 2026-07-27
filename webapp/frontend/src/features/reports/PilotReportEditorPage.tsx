@@ -7,15 +7,15 @@ import { Panel } from '../../components/Panel';
 import { ResourceState } from '../../components/ResourceState';
 import { ApiClientError } from '../../lib/apiClient';
 import { useApiResource } from '../../lib/useApiResource';
-import type { Incident, PilotIncidentReport, PilotReportFormConfig } from '../../types/api';
+import type { Deployment, PilotDeploymentReport, PilotReportFormConfig } from '../../types/api';
 import { useAuth } from '../auth/AuthContext';
 import { PilotReportField } from './ReportsPage';
 
-export function PilotReportEditorPage({ incidentId, userId }: { incidentId: string; userId: string }) {
+export function PilotReportEditorPage({ deploymentId, userId }: { deploymentId: string; userId: string }) {
   const { api } = useAuth();
-  const incident = useApiResource<Incident>(`/incidents/${incidentId}`);
-  const report = useApiResource<PilotIncidentReport>(`/incidents/${incidentId}/pilot-reports/${userId}`);
-  const config = useApiResource<PilotReportFormConfig>(`/pilot-report/form-config?target=web&user_id=${encodeURIComponent(userId)}&incident_id=${encodeURIComponent(incidentId)}`);
+  const deployment = useApiResource<Deployment>(`/deployments/${deploymentId}`);
+  const report = useApiResource<PilotDeploymentReport>(`/deployments/${deploymentId}/pilot-reports/${userId}`);
+  const config = useApiResource<PilotReportFormConfig>(`/pilot-report/form-config?target=web&user_id=${encodeURIComponent(userId)}&deployment_id=${encodeURIComponent(deploymentId)}`);
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +37,7 @@ export function PilotReportEditorPage({ incidentId, userId }: { incidentId: stri
     setError(null);
     setMessage(null);
     try {
-      const response = await api.patch<PilotIncidentReport>(`/incidents/${incidentId}/pilot-reports/${userId}`, {
+      const response = await api.patch<PilotDeploymentReport>(`/deployments/${deploymentId}/pilot-reports/${userId}`, {
         custom_fields: values,
       });
       report.mutate(response.data);
@@ -58,7 +58,7 @@ export function PilotReportEditorPage({ incidentId, userId }: { incidentId: stri
     setError(null);
     setMessage(null);
     try {
-      const response = await api.post<PilotIncidentReport>(`/incidents/${incidentId}/pilot-reports/${userId}/finalize`, {});
+      const response = await api.post<PilotDeploymentReport>(`/deployments/${deploymentId}/pilot-reports/${userId}/finalize`, {});
       report.mutate(response.data);
       setMessage('Inzetrapport is definitief gemaakt.');
     } catch (err) {
@@ -68,11 +68,11 @@ export function PilotReportEditorPage({ incidentId, userId }: { incidentId: stri
     }
   }
 
-  const loading = incident.loading || report.loading || config.loading;
-  const loadError = incident.error ?? report.error ?? config.error;
+  const loading = deployment.loading || report.loading || config.loading;
+  const loadError = deployment.error ?? report.error ?? config.error;
 
   return (
-    <div className="page-stack incident-detail-page pilot-report-editor-page">
+    <div className="page-stack deployment-detail-page pilot-report-editor-page">
       <Panel
         title="Inzetrapport invullen"
         action={(
@@ -81,13 +81,13 @@ export function PilotReportEditorPage({ incidentId, userId }: { incidentId: stri
           </Link>
         )}
       >
-        <ResourceState loading={loading} error={loadError} empty={!report.data || !incident.data}>
-          {report.data && incident.data ? (
+        <ResourceState loading={loading} error={loadError} empty={!report.data || !deployment.data}>
+          {report.data && deployment.data ? (
             <form className="form-grid" onSubmit={save}>
               <div className="form-grid__wide">
                 <span className="field-label">Namens</span>
                 <strong>{report.data.user_name ?? 'Onbekende gebruiker'}</strong>
-                <p className="muted-text">{incident.data.reference} - {incident.data.title}</p>
+                <p className="muted-text">{deployment.data.reference} - {deployment.data.title}</p>
               </div>
               {report.data.can_edit === false ? (
                 <p className="form-note form-grid__wide">Dit inzetrapport is definitief en kan niet meer worden aangepast.</p>

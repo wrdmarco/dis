@@ -2,9 +2,9 @@
 
 namespace App\Console\Commands;
 
-use App\Models\PilotIncidentReport;
-use App\Services\PilotIncidentReportDroneSnapshotService;
-use App\Services\PilotIncidentReportFormService;
+use App\Models\PilotDeploymentReport;
+use App\Services\PilotDeploymentReportDroneSnapshotService;
+use App\Services\PilotDeploymentReportFormService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -15,8 +15,8 @@ final class BackfillPilotReportDroneSnapshots extends Command
     protected $description = 'Backfill immutable drone type snapshots for existing pilot reports';
 
     public function handle(
-        PilotIncidentReportDroneSnapshotService $snapshotService,
-        PilotIncidentReportFormService $formService,
+        PilotDeploymentReportDroneSnapshotService $snapshotService,
+        PilotDeploymentReportFormService $formService,
     ): int {
         $batchOption = $this->option('batch');
         if (! is_string($batchOption)
@@ -27,7 +27,7 @@ final class BackfillPilotReportDroneSnapshots extends Command
             return self::INVALID;
         }
         $fieldKeys = $formService->droneFieldKeys();
-        $reports = PilotIncidentReport::query()
+        $reports = PilotDeploymentReport::query()
             ->whereNull('drone_usage_snapshot')
             ->orderBy('created_at')
             ->orderBy('id')
@@ -41,7 +41,7 @@ final class BackfillPilotReportDroneSnapshots extends Command
                 [],
                 $fieldKeys,
             );
-            $updated += DB::table('pilot_incident_reports')
+            $updated += DB::table('pilot_deployment_reports')
                 ->where('id', $report->id)
                 ->whereNull('drone_usage_snapshot')
                 ->update([

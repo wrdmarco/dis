@@ -41,7 +41,7 @@ final class RestrictStoreReviewAccess
                 'api/auth/me' => ApiResponse::success($this->reviewUser($request)),
                 'api/status/me' => ApiResponse::success($this->unavailableStatus((string) $request->user()?->id)),
                 'api/teams' => ApiResponse::success([$this->reviewTeam()]),
-                'api/incidents' => ApiResponse::success([$this->reviewIncident('store-review-incident', null, 'active')]),
+                'api/deployments' => ApiResponse::success([$this->reviewDeployment('store-review-deployment', null, 'active')]),
                 'api/calendar-events' => ApiResponse::success([$this->reviewCalendarEvent()]),
                 'api/assets/mine',
                 'api/assets' => ApiResponse::success([$this->reviewAsset($request)]),
@@ -50,7 +50,7 @@ final class RestrictStoreReviewAccess
                 'api/certifications/me' => ApiResponse::success([$this->reviewUserCertification($request)]),
                 'api/vacations/mine',
                 'api/devices' => ApiResponse::success([]),
-                'api/incident-form/config',
+                'api/deployment-form/config',
                 'api/pilot-report/form-config' => ApiResponse::success(['fields' => []]),
                 'api/availability-schedule/me' => ApiResponse::success($this->emptyAvailabilitySchedule((string) $request->user()?->id)),
                 default => $this->storeReviewReadResponse($path),
@@ -144,19 +144,19 @@ final class RestrictStoreReviewAccess
 
     private function storeReviewReadResponse(string $path): Response
     {
-        if (preg_match('#^api/incidents/([^/]+)$#', $path, $matches) === 1) {
-            return ApiResponse::success($this->reviewIncident($matches[1]));
+        if (preg_match('#^api/deployments/([^/]+)$#', $path, $matches) === 1) {
+            return ApiResponse::success($this->reviewDeployment($matches[1]));
         }
 
-        if (preg_match('#^api/incidents/([^/]+)/(timeline|dispatches|live-locations)$#', $path) === 1) {
+        if (preg_match('#^api/deployments/([^/]+)/(timeline|dispatches|live-locations)$#', $path) === 1) {
             return ApiResponse::success([]);
         }
 
-        if (preg_match('#^api/incidents/([^/]+)/pilot-report$#', $path, $matches) === 1) {
+        if (preg_match('#^api/deployments/([^/]+)/pilot-report$#', $path, $matches) === 1) {
             return ApiResponse::success($this->reviewPilotReport($matches[1]));
         }
 
-        if (preg_match('#^api/incidents/([^/]+)/dispatch-preview$#', $path) === 1) {
+        if (preg_match('#^api/deployments/([^/]+)/dispatch-preview$#', $path) === 1) {
             return ApiResponse::success([
                 'team' => null,
                 'recipients' => [],
@@ -219,35 +219,35 @@ final class RestrictStoreReviewAccess
             return response()->noContent();
         }
 
-        if ($method === 'POST' && $path === 'api/incidents') {
-            return ApiResponse::success($this->reviewIncident('store-review-incident', $request), 201);
+        if ($method === 'POST' && $path === 'api/deployments') {
+            return ApiResponse::success($this->reviewDeployment('store-review-deployment', $request), 201);
         }
 
-        if (preg_match('#^api/incidents/([^/]+)$#', $path, $matches) === 1 && $method === 'PATCH') {
-            return ApiResponse::success($this->reviewIncident($matches[1], $request));
+        if (preg_match('#^api/deployments/([^/]+)$#', $path, $matches) === 1 && $method === 'PATCH') {
+            return ApiResponse::success($this->reviewDeployment($matches[1], $request));
         }
 
-        if (preg_match('#^api/incidents/([^/]+)/(close|cancel)$#', $path, $matches) === 1 && $method === 'POST') {
-            return ApiResponse::success($this->reviewIncident($matches[1], $request, $matches[2] === 'cancel' ? 'cancelled' : 'resolved'));
+        if (preg_match('#^api/deployments/([^/]+)/(close|cancel)$#', $path, $matches) === 1 && $method === 'POST') {
+            return ApiResponse::success($this->reviewDeployment($matches[1], $request, $matches[2] === 'cancel' ? 'cancelled' : 'resolved'));
         }
 
-        if (preg_match('#^api/incidents/([^/]+)/pilot-report$#', $path, $matches) === 1 && $method === 'PATCH') {
+        if (preg_match('#^api/deployments/([^/]+)/pilot-report$#', $path, $matches) === 1 && $method === 'PATCH') {
             return ApiResponse::success($this->reviewPilotReport($matches[1], $request));
         }
 
-        if (preg_match('#^api/incidents/([^/]+)/pilot-report/finalize$#', $path, $matches) === 1 && $method === 'POST') {
+        if (preg_match('#^api/deployments/([^/]+)/pilot-report/finalize$#', $path, $matches) === 1 && $method === 'POST') {
             return ApiResponse::success($this->reviewPilotReport($matches[1], $request, true));
         }
 
-        if (preg_match('#^api/incidents/([^/]+)/location/(consent|decline)$#', $path, $matches) === 1 && $method === 'POST') {
+        if (preg_match('#^api/deployments/([^/]+)/location/(consent|decline)$#', $path, $matches) === 1 && $method === 'POST') {
             return ApiResponse::success($this->reviewLocationConsent($matches[1], $matches[2] === 'consent'));
         }
 
-        if (preg_match('#^api/incidents/([^/]+)/location/consent$#', $path) === 1 && $method === 'DELETE') {
+        if (preg_match('#^api/deployments/([^/]+)/location/consent$#', $path) === 1 && $method === 'DELETE') {
             return response()->noContent();
         }
 
-        if (preg_match('#^api/incidents/([^/]+)/location$#', $path) === 1 && $method === 'POST') {
+        if (preg_match('#^api/deployments/([^/]+)/location$#', $path) === 1 && $method === 'POST') {
             return response()->noContent();
         }
 
@@ -306,20 +306,20 @@ final class RestrictStoreReviewAccess
     /**
      * @return array<string, mixed>
      */
-    private function reviewIncident(string $id, ?Request $request = null, string $status = 'draft'): array
+    private function reviewDeployment(string $id, ?Request $request = null, string $status = 'draft'): array
     {
         $payload = $request?->all() ?? [];
 
         return [
             'id' => $id,
             'reference' => 'REVIEW-0001',
-            'title' => (string) ($payload['title'] ?? 'Review incident'),
+            'title' => (string) ($payload['title'] ?? 'Review inzet'),
             'description' => $payload['description'] ?? null,
             'reporter_name' => 'App Store Reviewer',
             'requesting_organization' => 'Nationaal Drone Team',
             'required_resources' => '1 operator en 1 drone',
             'custom_fields' => (object) [],
-            'intake' => null,
+            'deployment_request' => null,
             'priority' => (string) ($payload['priority'] ?? 'normal'),
             'status' => (string) ($payload['status'] ?? $status),
             'is_test' => true,
@@ -356,14 +356,14 @@ final class RestrictStoreReviewAccess
     /**
      * @return array<string, mixed>
      */
-    private function reviewPilotReport(string $incidentId, ?Request $request = null, bool $finalized = false): array
+    private function reviewPilotReport(string $deploymentId, ?Request $request = null, bool $finalized = false): array
     {
         $payload = $request?->all() ?? [];
         $now = now()->toIso8601String();
 
         return [
             'id' => 'store-review-pilot-report',
-            'incident_id' => $incidentId,
+            'deployment_id' => $deploymentId,
             'status' => $finalized ? 'final' : 'draft',
             'summary' => $payload['summary'] ?? null,
             'observations' => $payload['observations'] ?? null,
@@ -382,11 +382,11 @@ final class RestrictStoreReviewAccess
     /**
      * @return array<string, mixed>
      */
-    private function reviewLocationConsent(string $incidentId, bool $active): array
+    private function reviewLocationConsent(string $deploymentId, bool $active): array
     {
         return [
             'id' => 'store-review-location-consent',
-            'incident_id' => $incidentId,
+            'deployment_id' => $deploymentId,
             'is_active' => $active,
         ];
     }

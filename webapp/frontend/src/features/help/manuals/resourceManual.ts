@@ -163,7 +163,7 @@ export const resourceManualGuides = {
         { label: 'Kies Verwijderen', description: 'Lees in het bevestigingsvenster welke gekoppelde gegevens verdwijnen.' },
         { label: 'Bevestig Ja, verwijderen', description: 'Wacht totdat je terugkeert naar het gebruikersoverzicht.' },
       ],
-      result: 'Het account, planning, actuele koppelingen, middelen en certificaten van de gebruiker zijn verwijderd. Historische namen in incidentrapporten blijven bewaard.',
+      result: 'Het account, planning, actuele koppelingen, middelen en certificaten van de gebruiker zijn verwijderd. Historische namen in inzetrapportages blijven bewaard.',
       warning: 'Verwijderen kan niet ongedaan worden gemaakt. Trek alleen sessies in wanneer het account later nog nodig is.',
     },
   ],
@@ -226,7 +226,7 @@ export const resourceManualGuides = {
         { label: 'Kies vereiste certificaten', description: 'Selecteer alleen certificaten die voor inzet via dit team echt verplicht zijn.' },
         { label: 'Kies Opslaan', description: 'Controleer het team daarna in het overzicht.' },
       ],
-      result: 'Het team is beschikbaar voor gebruikersbeheer en, wanneer operationeel, voor incidentalarmering.',
+      result: 'Het team is beschikbaar voor gebruikersbeheer en, wanneer operationeel, voor inzetalarmering.',
       warning: 'Verander de vaste codes OCP en TUI niet. TUI-leden moeten ook lid van OCP zijn. Mee-alarmeerteams werken één richting en één niveau diep. Alleen certificaten die expliciet aan het team zijn gekoppeld gelden als voorwaarde; zonder gekozen teamcertificaten geldt geen certificaateis.',
     },
     {

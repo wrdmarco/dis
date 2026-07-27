@@ -23,14 +23,14 @@ const CORE_METRICS = [
   'pilots_unavailable',
   'pilots_total',
   'pilot_availability_rate',
-  'incidents_total',
-  'incidents_active',
-  'incidents_dispatching',
-  'incidents_in_progress',
-  'incidents_low',
-  'incidents_normal',
-  'incidents_high',
-  'incidents_critical',
+  'deployments_total',
+  'deployments_active',
+  'deployments_dispatching',
+  'deployments_in_progress',
+  'deployments_low',
+  'deployments_normal',
+  'deployments_high',
+  'deployments_critical',
   'assets_total',
   'assets_ready',
   'assets_maintenance',
@@ -52,20 +52,20 @@ const ALL_METRICS = [
   'pilots_en_route',
   'pilots_on_scene',
   'pilots_push_disabled',
-  'incidents_total',
-  'incidents_registered_total',
-  'incidents_active',
-  'incidents_dispatching',
-  'incidents_in_progress',
-  'incidents_low',
-  'incidents_normal',
-  'incidents_high',
-  'incidents_critical',
-  'incidents_opened_today',
-  'incidents_resolved_today',
-  'incidents_cancelled_today',
-  'incidents_resolved_total',
-  'incidents_cancelled_total',
+  'deployments_total',
+  'deployments_registered_total',
+  'deployments_active',
+  'deployments_dispatching',
+  'deployments_in_progress',
+  'deployments_low',
+  'deployments_normal',
+  'deployments_high',
+  'deployments_critical',
+  'deployments_opened_today',
+  'deployments_resolved_today',
+  'deployments_cancelled_today',
+  'deployments_resolved_total',
+  'deployments_cancelled_total',
   'assets_total',
   'assets_ready',
   'assets_maintenance',
@@ -85,8 +85,8 @@ const ALL_METRICS = [
   'flight_minutes_this_month',
   'average_flight_minutes_this_month',
   'drones_flown_distribution',
-  'incidents_by_province',
-  'incidents_by_country',
+  'deployments_by_province',
+  'deployments_by_country',
 ] as const satisfies readonly WallboardKpiKey[];
 
 const PROVINCE_SEGMENTS = [
@@ -128,8 +128,8 @@ test('keeps all KPI switches in canonical order, while new pages start with the 
   expect(DEFAULT_WALLBOARD_KPI_VISIBLE_METRICS).toEqual(CORE_METRICS);
   expect(normalizeWallboardKpiPageOptions(kpiPage()).visible_metrics).toEqual(ALL_METRICS);
   expect(DEFAULT_WALLBOARD_KPI_VISUALIZATIONS.drones_flown_distribution).toBe('pie');
-  expect(DEFAULT_WALLBOARD_KPI_VISUALIZATIONS.incidents_by_province).toBe('bar');
-  expect(DEFAULT_WALLBOARD_KPI_VISUALIZATIONS.incidents_by_country).toBe('bar');
+  expect(DEFAULT_WALLBOARD_KPI_VISUALIZATIONS.deployments_by_province).toBe('bar');
+  expect(DEFAULT_WALLBOARD_KPI_VISUALIZATIONS.deployments_by_country).toBe('bar');
   expect(DEFAULT_WALLBOARD_KPI_VISUALIZATIONS.pilots_available).toBe('counter');
   expect(MAX_WALLBOARD_KPI_CHARTS).toBe(6);
   expect(createWallboardPage('kpi', 1)).toMatchObject({
@@ -141,20 +141,20 @@ test('keeps all KPI switches in canonical order, while new pages start with the 
 
 test('normalizes each semantic KPI visualization without inventing a denominator', () => {
   const normalized = normalizeWallboardKpiPageOptions(kpiPage(
-    ['pilots_available', 'incidents_registered_total', 'incidents_by_country'],
+    ['pilots_available', 'deployments_registered_total', 'deployments_by_country'],
     {
       pilots_available: 'ring',
-      incidents_registered_total: 'pie',
-      incidents_by_country: 'ring',
+      deployments_registered_total: 'pie',
+      deployments_by_country: 'ring',
     },
   ));
   expect(normalized.metric_visualizations).toMatchObject({
     pilots_available: 'ring',
-    incidents_registered_total: 'counter',
-    incidents_by_country: 'ring',
+    deployments_registered_total: 'counter',
+    deployments_by_country: 'ring',
   });
   expect(wallboardKpiSupportedVisualizations('pilots_available')).toEqual(['counter', 'bar', 'pie', 'ring']);
-  expect(wallboardKpiSupportedVisualizations('incidents_registered_total')).toEqual(['counter']);
+  expect(wallboardKpiSupportedVisualizations('deployments_registered_total')).toEqual(['counter']);
   expect(wallboardKpiDefaultVisualization('drones_flown_distribution')).toBe('pie');
 });
 
@@ -248,11 +248,11 @@ test('normalizes numeric, unknown, pie and thirteen-segment bar KPI payloads def
             ],
           },
           {
-            key: 'incidents_by_province',
-            label: 'Incidenten per provincie',
+            key: 'deployments_by_province',
+            label: 'Inzetten per provincie',
             value: 81,
-            unit: 'incidenten',
-            category: 'incidents',
+            unit: 'inzetten',
+            category: 'deployments',
             context: 'Alle registraties',
             visualization: 'bar',
             segments: [
@@ -262,7 +262,7 @@ test('normalizes numeric, unknown, pie and thirteen-segment bar KPI payloads def
             ],
           },
           { key: 'pilots_available', label: 'Dubbel', value: 99, unit: null, category: 'pilots' },
-          { key: 'incidents_active', label: 'Verkeerde categorie', value: 1, unit: null, category: 'assets' },
+          { key: 'deployments_active', label: 'Verkeerde categorie', value: 1, unit: null, category: 'assets' },
           { key: 'not_supported', label: 'Onbekend', value: 1, unit: null, category: 'assets' },
         ],
       },
@@ -288,11 +288,11 @@ test('normalizes numeric, unknown, pie and thirteen-segment bar KPI payloads def
             ],
           },
           {
-            key: 'incidents_by_province',
-            label: 'Incidenten per provincie',
+            key: 'deployments_by_province',
+            label: 'Inzetten per provincie',
             value: 81,
-            unit: 'incidenten',
-            category: 'incidents',
+            unit: 'inzetten',
+            category: 'deployments',
             context: 'Alle registraties',
             visualization: 'bar',
             segments: PROVINCE_SEGMENTS,
@@ -367,15 +367,15 @@ test('fits all forty-two KPI cards without clipping at compact, Full HD and Ultr
     </li>
   `).join('');
   const cards = WALLBOARD_KPI_DEFINITIONS.map((metric, index) => {
-    const pie = metric.key === 'drones_flown_distribution' || metric.key === 'incidents_by_province';
+    const pie = metric.key === 'drones_flown_distribution' || metric.key === 'deployments_by_province';
     const ring = ['pilots_available', 'pilot_availability_rate', 'assets_ready'].includes(metric.key);
-    const bar = metric.key === 'incidents_by_country';
-    const legendSegments = metric.key === 'incidents_by_province'
+    const bar = metric.key === 'deployments_by_country';
+    const legendSegments = metric.key === 'deployments_by_province'
       ? pieSegments
       : metric.key === 'drones_flown_distribution'
         ? droneSegments
         : '<li><i style="border-color:#38bdf8">1</i><span>Beschikbaar</span><strong>10</strong></li><li><i style="border-color:#a78bfa">2</i><span>Overig</span><strong>6</strong></li>';
-    const legendCount = metric.key === 'incidents_by_province'
+    const legendCount = metric.key === 'deployments_by_province'
       ? PROVINCE_SEGMENTS.length
       : metric.key === 'drones_flown_distribution'
         ? 10

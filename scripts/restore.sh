@@ -104,7 +104,7 @@ stop_restore_runtime_services() {
   if systemd_unit_exists dis-backup-request.path; then
     run_cmd systemctl stop dis-backup-request.path
   fi
-  for service in dis-media dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-scheduler dis-websocket dis-frontend dis-incident-enrichment dis-knmi dis-knmi-realtime "${PHP_FPM_SERVICE}"; do
+  for service in dis-media dis-queue dis-push@1 dis-push@2 dis-push@3 dis-push@4 dis-scheduler dis-websocket dis-frontend dis-deployment-enrichment dis-incident-enrichment dis-knmi dis-knmi-realtime "${PHP_FPM_SERVICE}"; do
     if systemd_service_exists "${service}"; then
       run_cmd systemctl stop "${service}"
     fi

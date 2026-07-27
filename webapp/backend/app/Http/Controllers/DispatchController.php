@@ -5,14 +5,14 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Dispatch\RespondDispatchRequest;
 use App\Http\Requests\Dispatch\StoreDispatchRequest;
 use App\Http\Responses\ApiResponse;
+use App\Models\Deployment;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
-use App\Models\Incident;
 use App\Models\User;
+use App\Services\DeploymentAccessService;
+use App\Services\DeploymentRequestService;
 use App\Services\DispatchDeliveryStatusService;
 use App\Services\DispatchService;
-use App\Services\IncidentAccessService;
-use App\Services\IncidentIntakeDossierService;
 use App\Support\MobileApiPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,9 +22,9 @@ final class DispatchController extends Controller
 {
     public function __construct(
         private readonly DispatchService $service,
-        private readonly IncidentAccessService $access,
+        private readonly DeploymentAccessService $access,
         private readonly DispatchDeliveryStatusService $deliveryStatus,
-        private readonly IncidentIntakeDossierService $incidentIntakeDossierService,
+        private readonly DeploymentRequestService $deploymentRequestService,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -32,8 +32,8 @@ final class DispatchController extends Controller
         $this->access->assertCanListDispatches($request->user());
 
         $query = DispatchRequest::query()
-            ->with(['incident', 'recipients'])
-            ->when(! $request->boolean('include_tests'), fn ($query) => $query->whereHas('incident', fn ($incident) => $incident->where('is_test', false)))
+            ->with(['deployment', 'recipients'])
+            ->when(! $request->boolean('include_tests'), fn ($query) => $query->whereHas('deployment', fn ($deployment) => $deployment->where('is_test', false)))
             ->latest();
         $this->access->scopeDispatches($query, $request->user());
 
@@ -43,16 +43,16 @@ final class DispatchController extends Controller
         );
     }
 
-    public function store(StoreDispatchRequest $request, Incident $incident): JsonResponse
+    public function store(StoreDispatchRequest $request, Deployment $deployment): JsonResponse
     {
-        return ApiResponse::success(MobileApiPayload::dispatch($this->service->create($incident, $request->validated(), $request->user())->load(['incident.intakeDossier.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->incidentIntakeDossierService), 201);
+        return ApiResponse::success(MobileApiPayload::dispatch($this->service->create($deployment, $request->validated(), $request->user())->load(['deployment.deploymentRequest.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->deploymentRequestService), 201);
     }
 
     public function show(Request $request, DispatchRequest $dispatch): JsonResponse
     {
         $this->access->assertCanViewDispatch($request->user(), $dispatch);
         $dispatch->load([
-            'incident',
+            'deployment',
             'recipients' => fn ($recipients) => $request->user()->isOperatorClient()
                 ? $recipients->where('user_id', $request->user()->id)
                 : $recipients,
@@ -64,7 +64,7 @@ final class DispatchController extends Controller
 
     public function send(Request $request, DispatchRequest $dispatch): JsonResponse
     {
-        return ApiResponse::success(MobileApiPayload::dispatch($this->service->markSent($dispatch, $request->user())->load(['incident.intakeDossier.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->incidentIntakeDossierService));
+        return ApiResponse::success(MobileApiPayload::dispatch($this->service->markSent($dispatch, $request->user())->load(['deployment.deploymentRequest.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->deploymentRequestService));
     }
 
     public function delivery(Request $request, DispatchRequest $dispatch): JsonResponse
@@ -111,7 +111,7 @@ final class DispatchController extends Controller
         $dispatch->update(['status' => 'cancelled', 'cancelled_at' => now()]);
         $this->service->broadcastDispatchChange($dispatch->refresh(), 'cancelled');
 
-        return ApiResponse::success(MobileApiPayload::dispatch($dispatch->load(['incident.intakeDossier.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->incidentIntakeDossierService));
+        return ApiResponse::success(MobileApiPayload::dispatch($dispatch->load(['deployment.deploymentRequest.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->deploymentRequestService));
     }
 
     public function escalate(Request $request, DispatchRequest $dispatch): JsonResponse
@@ -127,12 +127,12 @@ final class DispatchController extends Controller
             $request->user(),
             $data['team_ids'] ?? [],
             $request->boolean('include_unavailable'),
-        )->load(['incident.intakeDossier.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->incidentIntakeDossierService));
+        )->load(['deployment.deploymentRequest.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->deploymentRequestService));
     }
 
     public function reAlert(Request $request, DispatchRequest $dispatch): JsonResponse
     {
-        return ApiResponse::success(MobileApiPayload::dispatch($this->service->reAlert($dispatch, $request->user())->load(['incident.intakeDossier.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->incidentIntakeDossierService));
+        return ApiResponse::success(MobileApiPayload::dispatch($this->service->reAlert($dispatch, $request->user())->load(['deployment.deploymentRequest.workflowRevision', 'targetTeam', 'recipients.user']), $request->user(), $this->deploymentRequestService));
     }
 
     public function recipients(Request $request, DispatchRequest $dispatch): JsonResponse
@@ -148,13 +148,13 @@ final class DispatchController extends Controller
             ->values());
     }
 
-    public function incidentDispatches(Request $request, Incident $incident): JsonResponse
+    public function deploymentDispatches(Request $request, Deployment $deployment): JsonResponse
     {
-        $this->access->assertCanViewIncident($request->user(), $incident);
-        $query = $incident->dispatchRequests()
+        $this->access->assertCanViewDeployment($request->user(), $deployment);
+        $query = $deployment->dispatchRequests()
             ->with([
                 'targetTeam',
-                'incident.intakeDossier.workflowRevision',
+                'deployment.deploymentRequest.workflowRevision',
                 'recipients' => fn ($recipients) => $request->user()->isOperatorClient()
                     ? $recipients->where('user_id', $request->user()->id)
                     : $recipients,
@@ -174,25 +174,25 @@ final class DispatchController extends Controller
      */
     private function dispatchPayloadForActor(DispatchRequest $dispatch, User $actor): array
     {
-        $payload = MobileApiPayload::dispatch($dispatch, $actor, $this->incidentIntakeDossierService);
-        if (! $actor->isOperatorClient() || $dispatch->status !== 'draft' || $dispatch->incident === null) {
+        $payload = MobileApiPayload::dispatch($dispatch, $actor, $this->deploymentRequestService);
+        if (! $actor->isOperatorClient() || $dispatch->status !== 'draft' || $dispatch->deployment === null) {
             return $payload;
         }
 
-        $place = $this->service->placeNameFromLocation($dispatch->incident->location_label);
-        $payload['incident'] = [
-            'id' => $dispatch->incident->id,
+        $place = $this->service->placeNameFromLocation($dispatch->deployment->location_label);
+        $payload['deployment'] = [
+            'id' => $dispatch->deployment->id,
             'reference' => 'Vooraankondiging',
-            'title' => $place === null ? 'Beschikbaar voor melding?' : "Beschikbaar voor melding in {$place}?",
+            'title' => $place === null ? 'Beschikbaar voor een mogelijke inzet?' : "Beschikbaar voor een mogelijke inzet in {$place}?",
             'description' => null,
             'priority' => 'normal',
-            'status' => $dispatch->incident->status,
-            'is_test' => (bool) $dispatch->incident->is_test,
+            'status' => $dispatch->deployment->status,
+            'is_test' => (bool) $dispatch->deployment->is_test,
             'location_label' => $place,
             'latitude' => null,
             'longitude' => null,
             'custom_fields' => (object) [],
-            'intake' => null,
+            'deployment_request' => null,
         ];
 
         return $payload;

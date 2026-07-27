@@ -3,9 +3,9 @@
 namespace App\Services;
 
 use App\Contracts\DispatchNotificationQueue;
+use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRequest;
-use App\Models\Incident;
 use App\Models\PushQueueWorkItem;
 use App\Support\ApiDateTime;
 use Closure;
@@ -110,7 +110,7 @@ final class DispatchPushOutboxService
         $claim = $this->withLockedHierarchy($id, function (
             DispatchPushOutbox $notification,
             DispatchRequest $dispatch,
-            Incident $incident,
+            Deployment $deployment,
         ) use ($manualAction): ?array {
             $clockNow = ApiDateTime::comparableWallClock(now());
             $staleQueuedAt = $clockNow->subMinutes(self::QUEUE_LEASE_MINUTES);
@@ -154,7 +154,7 @@ final class DispatchPushOutboxService
                 return null;
             }
 
-            if (! $this->isDeliverablePhase($notification, $dispatch, $incident)) {
+            if (! $this->isDeliverablePhase($notification, $dispatch, $deployment)) {
                 $notification->forceFill([
                     'cancelled_at' => now(),
                     'last_error_code' => 'dispatch_not_deliverable',
@@ -243,22 +243,22 @@ final class DispatchPushOutboxService
     private function isDeliverablePhase(
         DispatchPushOutbox $notification,
         DispatchRequest $dispatch,
-        Incident $incident,
+        Deployment $deployment,
     ): bool {
-        if ((string) $notification->message_type === 'incident_preannouncement') {
+        if ((string) $notification->message_type === 'deployment_preannouncement') {
             return $dispatch->status === 'draft'
-                && $incident->status === 'active'
+                && $deployment->status === 'active'
                 && $this->hasPendingRecipientForToken($notification, $dispatch);
         }
 
         if ((string) $notification->message_type === 'dispatch_request') {
             return in_array($dispatch->status, ['sent', 'escalated'], true)
-                && ! in_array($incident->status, ['resolved', 'cancelled'], true)
+                && ! in_array($deployment->status, ['resolved', 'cancelled'], true)
                 && $this->hasPendingRecipientForToken($notification, $dispatch);
         }
 
         return $dispatch->status !== 'cancelled'
-            && ! in_array($incident->status, ['resolved', 'cancelled'], true);
+            && ! in_array($deployment->status, ['resolved', 'cancelled'], true);
     }
 
     private function hasPendingRecipientForToken(
@@ -373,13 +373,13 @@ final class DispatchPushOutboxService
     /**
      * @template TResult
      *
-     * @param  Closure(DispatchPushOutbox, DispatchRequest, Incident): TResult  $callback
+     * @param  Closure(DispatchPushOutbox, DispatchRequest, Deployment): TResult  $callback
      * @return TResult|null
      */
     private function withLockedHierarchy(string $id, Closure $callback): mixed
     {
         // Metadata reads are deliberately unlocked. All write locks inside the
-        // transaction follow incident -> dispatch -> outbox. If a relationship
+        // transaction follow deployment -> dispatch -> outbox. If a relationship
         // changed in between, no mutation is made and a later pass can retry.
         $notificationMetadata = DispatchPushOutbox::query()
             ->select(['id', 'dispatch_request_id'])
@@ -388,21 +388,21 @@ final class DispatchPushOutboxService
             return null;
         }
         $dispatchMetadata = DispatchRequest::query()
-            ->select(['id', 'incident_id'])
+            ->select(['id', 'deployment_id'])
             ->find($notificationMetadata->dispatch_request_id);
         if ($dispatchMetadata === null) {
             return null;
         }
         $dispatchRequestId = (string) $dispatchMetadata->id;
-        $incidentId = (string) $dispatchMetadata->incident_id;
+        $deploymentId = (string) $dispatchMetadata->deployment_id;
 
-        return DB::transaction(function () use ($id, $dispatchRequestId, $incidentId, $callback): mixed {
-            $incident = Incident::query()->whereKey($incidentId)->lockForUpdate()->first();
-            if ($incident === null) {
+        return DB::transaction(function () use ($id, $dispatchRequestId, $deploymentId, $callback): mixed {
+            $deployment = Deployment::query()->whereKey($deploymentId)->lockForUpdate()->first();
+            if ($deployment === null) {
                 return null;
             }
             $dispatch = DispatchRequest::query()->whereKey($dispatchRequestId)->lockForUpdate()->first();
-            if ($dispatch === null || (string) $dispatch->incident_id !== $incidentId) {
+            if ($dispatch === null || (string) $dispatch->deployment_id !== $deploymentId) {
                 return null;
             }
             $notification = DispatchPushOutbox::query()->whereKey($id)->lockForUpdate()->first();
@@ -410,7 +410,7 @@ final class DispatchPushOutboxService
                 return null;
             }
 
-            return $callback($notification, $dispatch, $incident);
+            return $callback($notification, $dispatch, $deployment);
         });
     }
 

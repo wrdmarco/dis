@@ -22,7 +22,7 @@ final class DispatchChanged implements ShouldBroadcastNow
     {
         return [
             new PrivateChannel('operations'),
-            new PrivateChannel('incidents.'.$this->dispatch->incident_id),
+            new PrivateChannel('deployments.'.$this->dispatch->deployment_id),
         ];
     }
 
@@ -35,7 +35,7 @@ final class DispatchChanged implements ShouldBroadcastNow
     {
         return [
             'id' => $this->dispatch->id,
-            'incident_id' => $this->dispatch->incident_id,
+            'deployment_id' => $this->dispatch->deployment_id,
             'status' => $this->dispatch->status,
             'priority' => $this->dispatch->priority,
             'action' => $this->action,

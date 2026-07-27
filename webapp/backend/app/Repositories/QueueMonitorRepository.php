@@ -386,10 +386,10 @@ SQL;
     {
         return match ($messageType) {
             'dispatch_request' => 'Alarmeringspush',
-            'incident_preannouncement' => 'Vooraankondigingspush',
+            'deployment_preannouncement' => 'Vooraankondigingspush',
             'dispatch_response_sync' => 'Reactiebevestiging',
             'dispatch_update' => 'Inzetupdate',
-            'incident_cancelled' => 'Incidentannulering',
+            'deployment_cancelled' => 'Inzetannulering',
             'location_share_request' => 'Locatieverzoek',
             'location_sharing_stopped' => 'Locatiedeling gestopt',
             'manual_admin' => 'Handmatige pushmelding',

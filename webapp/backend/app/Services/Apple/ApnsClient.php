@@ -65,9 +65,13 @@ final class ApnsClient
     /** @param array<string, string> $data */
     private function isPreannouncement(array $data): bool
     {
-        $type = $data['type'] ?? null;
+        $eventType = $data['deployment_event_type'] ?? null;
+        $type = is_string($eventType) && $eventType !== ''
+            ? $eventType
+            : ($data['type'] ?? null);
 
-        return $type === 'incident_preannouncement'
+        return $type === 'deployment_preannouncement'
+            || $type === 'incident_preannouncement'
             || ($type === 'dispatch_update' && ($data['action_mode'] ?? null) === 'availability');
     }
 

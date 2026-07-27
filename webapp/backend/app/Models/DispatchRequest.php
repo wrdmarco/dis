@@ -12,7 +12,7 @@ final class DispatchRequest extends Model
     use UsesUlids;
 
     protected $fillable = [
-        'incident_id',
+        'deployment_id',
         'requested_by',
         'requested_by_name',
         'requested_by_email',
@@ -41,9 +41,9 @@ final class DispatchRequest extends Model
         ];
     }
 
-    public function incident(): BelongsTo
+    public function deployment(): BelongsTo
     {
-        return $this->belongsTo(Incident::class);
+        return $this->belongsTo(Deployment::class);
     }
 
     public function targetTeam(): BelongsTo

@@ -499,7 +499,7 @@ final class AdminController extends Controller
             'software.download.operator_android.app_store_url',
             'software.download.admin_android.app_store_url',
             'software.download.operator_ios.app_store_url' => $this->validateNullableUrlSetting($key, $value, 2048),
-            'incident.timeline.app_visible_types' => $this->validateStringArraySetting($key, $value, ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status', 'audit']),
+            'deployment.timeline.app_visible_types' => $this->validateStringArraySetting($key, $value, ['status', 'dispatch', 'dispatch_response', 'dispatch_message', 'operator_status', 'audit']),
             'operational_map.command_centers' => $this->validateOperationalMapCommandCenters($key, $value),
             default => throw ValidationException::withMessages(["settings.$key" => ['Deze instelling mag niet via deze pagina worden aangepast.']]),
         };

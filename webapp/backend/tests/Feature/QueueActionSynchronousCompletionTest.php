@@ -4,10 +4,10 @@ namespace Tests\Feature;
 
 use App\Contracts\DispatchNotificationQueue;
 use App\Models\AuditLog;
+use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
-use App\Models\Incident;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -107,7 +107,7 @@ final class QueueActionSynchronousCompletionTest extends TestCase
         }
         $manager->roles()->attach($role->id, ['created_at' => now()]);
 
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => 'QUEUE-RACE',
             'title' => 'Queue race regression',
             'priority' => 'normal',
@@ -115,7 +115,7 @@ final class QueueActionSynchronousCompletionTest extends TestCase
             'created_by' => $manager->id,
         ]);
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $manager->id,
             'status' => 'sent',
             'priority' => 'normal',

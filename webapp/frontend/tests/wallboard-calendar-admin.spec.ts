@@ -30,14 +30,14 @@ test('normalizes agenda page options before an admin saves them again', () => {
     theme: 'dark',
     refresh_seconds: 10,
     map: {
-      show_active_incidents: true,
-      show_test_incidents: false,
+      show_active_deployments: true,
+      show_test_deployments: false,
       show_live_locations: true,
       show_routes: true,
       show_command_centers: true,
-      show_historical_incidents: false,
+      show_historical_deployments: false,
       show_summary: true,
-      show_incident_list: true,
+      show_deployment_list: true,
       show_route_legend: true,
       auto_fit: true,
     },
@@ -59,7 +59,7 @@ test('normalizes agenda page options before an admin saves them again', () => {
     page_transition_duration_ms: 320,
     page_flip_direction: 'left_to_right',
     page_fade_enabled: true,
-    incident_override: { enabled: false, page_id: 'agenda' },
+    deployment_override: { enabled: false, page_id: 'agenda' },
   });
 
   expect(configuration.pages[0]).toMatchObject({

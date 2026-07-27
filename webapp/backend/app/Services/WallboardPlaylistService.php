@@ -121,7 +121,7 @@ final class WallboardPlaylistService
             $purposeChanged = $nextPurpose !== $currentPurpose;
             if ($dataModeChanged
                 && $nextDataMode === WallboardPlaylist::DATA_MODE_DEMO
-                && $this->repository->activeIncidentLinkedWallboardsExist((string) $locked->id)) {
+                && $this->repository->activeDeploymentLinkedWallboardsExist((string) $locked->id)) {
                 throw ValidationException::withMessages([
                     'data_mode' => ['Een actieve-inzetplaylist moet live gegevens blijven gebruiken.'],
                 ]);
@@ -135,7 +135,7 @@ final class WallboardPlaylistService
             }
             if ($purposeChanged
                 && $nextPurpose === WallboardPlaylist::PURPOSE_NORMAL
-                && $this->repository->activeIncidentLinkedWallboardsExist((string) $locked->id)) {
+                && $this->repository->activeDeploymentLinkedWallboardsExist((string) $locked->id)) {
                 throw ValidationException::withMessages([
                     'purpose' => ['Een geselecteerde alarmplaylist kan niet als normale playlist worden geclassificeerd.'],
                 ]);

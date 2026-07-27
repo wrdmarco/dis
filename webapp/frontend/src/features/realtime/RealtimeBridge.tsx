@@ -3,22 +3,27 @@ import { createRealtime } from '../../lib/realtime';
 import { useAuth } from '../auth/AuthContext';
 
 interface RealtimeBridgeProps {
+  deploymentId?: string;
   onOperationalEvent?: () => void;
-  onIntakeEvent?: () => void;
+  onDeploymentRequestEvent?: () => void;
 }
 
-export function RealtimeBridge({ onOperationalEvent, onIntakeEvent }: RealtimeBridgeProps) {
+export function RealtimeBridge({
+  deploymentId,
+  onOperationalEvent,
+  onDeploymentRequestEvent,
+}: RealtimeBridgeProps) {
   const { isAuthenticated } = useAuth();
   const operationalCallbackRef = useRef(onOperationalEvent);
-  const intakeCallbackRef = useRef(onIntakeEvent);
+  const deploymentRequestCallbackRef = useRef(onDeploymentRequestEvent);
 
   useEffect(() => {
     operationalCallbackRef.current = onOperationalEvent;
   }, [onOperationalEvent]);
 
   useEffect(() => {
-    intakeCallbackRef.current = onIntakeEvent;
-  }, [onIntakeEvent]);
+    deploymentRequestCallbackRef.current = onDeploymentRequestEvent;
+  }, [onDeploymentRequestEvent]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -29,9 +34,10 @@ export function RealtimeBridge({ onOperationalEvent, onIntakeEvent }: RealtimeBr
       onOperationalEvent: operationalCallbackRef.current === undefined
         ? undefined
         : () => operationalCallbackRef.current?.(),
-      onIntakeEvent: intakeCallbackRef.current === undefined
+      deploymentId,
+      onDeploymentRequestEvent: deploymentRequestCallbackRef.current === undefined
         ? undefined
-        : () => intakeCallbackRef.current?.(),
+        : () => deploymentRequestCallbackRef.current?.(),
     });
 
     return () => {
@@ -40,10 +46,13 @@ export function RealtimeBridge({ onOperationalEvent, onIntakeEvent }: RealtimeBr
       }
 
       echo.leave('private-operations');
-      echo.leave('private-intakes');
+      echo.leave('private-deployment-requests');
+      if (deploymentId !== undefined) {
+        echo.leave(`private-deployments.${deploymentId}`);
+      }
       echo.disconnect();
     };
-  }, [isAuthenticated]);
+  }, [deploymentId, isAuthenticated]);
 
   return null;
 }

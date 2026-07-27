@@ -3,10 +3,10 @@
 namespace Tests\Feature;
 
 use App\Jobs\SendFcmNotification;
+use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
-use App\Models\Incident;
 use App\Models\PushQueueWorkItem;
 use App\Models\User;
 use App\Repositories\PushQueueWorkItemRepository;
@@ -475,7 +475,7 @@ final class PushQueueWorkItemActionTest extends TestCase
             'password' => Hash::make('Test-password-123!'),
             'account_status' => 'active',
         ]);
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => 'QUEUE-'.$suffix,
             'title' => 'Queue action fixture',
             'priority' => 'normal',
@@ -483,7 +483,7 @@ final class PushQueueWorkItemActionTest extends TestCase
             'created_by' => $user->id,
         ]);
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $user->id,
             'status' => 'sent',
             'priority' => 'normal',

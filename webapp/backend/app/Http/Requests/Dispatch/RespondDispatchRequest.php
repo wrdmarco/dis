@@ -16,9 +16,9 @@ final class RespondDispatchRequest extends FormRequest
             return false;
         }
 
-        $canRespond = $user->hasPermission('incidents.assigned.view')
-            || $user->hasPermission('incidents.dispatch.view')
-            || $user->hasPermission('incidents.dispatch.manage');
+        $canRespond = $user->hasPermission('deployments.assigned.view')
+            || $user->hasPermission('deployments.dispatch.view')
+            || $user->hasPermission('deployments.dispatch.manage');
 
         return $canRespond
             && $dispatch->recipients()->where('user_id', $user->id)->exists();

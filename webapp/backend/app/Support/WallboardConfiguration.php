@@ -11,7 +11,7 @@ final class WallboardConfiguration
     public const DEFAULT_PAGE_ID = 'map';
 
     /** @var list<string> */
-    public const PAGE_TYPES = ['map', 'incident_list', 'summary', 'kpi', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'weather_radar', 'news', 'video', 'photo_carousel'];
+    public const PAGE_TYPES = ['map', 'deployment_list', 'summary', 'kpi', 'calendar', 'message', 'safety_notice', 'quote', 'uav_forecast', 'weather_radar', 'news', 'video', 'photo_carousel'];
 
     /** @var list<string> */
     public const WEATHER_RADAR_KINDS = ['precipitation', 'lightning'];
@@ -207,7 +207,7 @@ final class WallboardConfiguration
                     'show_response_feed' => true,
                 ],
             ],
-            'incident_override' => [
+            'deployment_override' => [
                 'enabled' => false,
                 'page_id' => self::DEFAULT_PAGE_ID,
             ],
@@ -216,14 +216,14 @@ final class WallboardConfiguration
                 'sources' => [],
             ],
             'map' => [
-                'show_active_incidents' => true,
-                'show_test_incidents' => false,
+                'show_active_deployments' => true,
+                'show_test_deployments' => false,
                 'show_live_locations' => true,
                 'show_routes' => true,
                 'show_command_centers' => true,
-                'show_historical_incidents' => false,
+                'show_historical_deployments' => false,
                 'show_summary' => true,
-                'show_incident_list' => true,
+                'show_deployment_list' => true,
                 'show_route_legend' => true,
                 'auto_fit' => true,
             ],
@@ -294,9 +294,9 @@ final class WallboardConfiguration
         $normalized['page_flip_direction'] = $pageFlipDirection;
         // The legacy flag remains in output for older displays, while the richer transition is authoritative.
         $normalized['page_fade_enabled'] = $pageTransition !== 'none';
-        // Test alerts are transient reachability signals, never persistent wallboard incidents.
+        // Test alerts are transient reachability signals, never persistent wallboard deployments.
         // Keep accepting the legacy key so existing playlists remain readable, but force it off.
-        $normalized['map']['show_test_incidents'] = false;
+        $normalized['map']['show_test_deployments'] = false;
 
         // Numeric arrays must be replaced rather than recursively merged. Otherwise
         // removing or reordering pages can silently retain entries from the old list.
@@ -391,7 +391,7 @@ final class WallboardConfiguration
                 // client-supplied coordinates.
                 'uav_forecast' => ['location_mode', 'location_label', 'latitude', 'longitude', 'visible_blocks'],
                 'weather_radar' => ['radar_kind'],
-                'incident_list', 'summary' => ['show_test_incidents'],
+                'deployment_list', 'summary' => ['show_test_deployments'],
                 'kpi' => ['visible_metrics', 'metric_visualizations'],
                 'calendar' => ['max_items'],
                 'news' => ['sources', 'custom_sources', 'max_items', 'item_duration_seconds', 'item_transition', 'item_transition_duration_ms', 'item_flip_direction'],
@@ -794,7 +794,7 @@ final class WallboardConfiguration
                     'item_flip_direction' => $itemFlipDirection,
                 ];
                 $durationSeconds = $maximumItems * $itemDurationSeconds;
-            } elseif (in_array($type, ['incident_list', 'summary'], true)) {
+            } elseif (in_array($type, ['deployment_list', 'summary'], true)) {
                 // The legacy option is accepted above for lossless upgrades, but no longer has effect.
                 $options = [];
             } else {
@@ -823,18 +823,18 @@ final class WallboardConfiguration
         $normalized['pages'] = $pages;
         $normalized['focus'] = self::normalizeFocus((array) ($normalized['focus'] ?? []));
 
-        $override = (array) ($normalized['incident_override'] ?? []);
+        $override = (array) ($normalized['deployment_override'] ?? []);
         $overridePageId = (string) ($override['page_id'] ?? '');
         if (! isset($pageIds[$overridePageId])) {
             if (($override['enabled'] ?? false) === true) {
                 throw ValidationException::withMessages([
-                    'configuration.incident_override.page_id' => ['De incidentpagina moet naar een bestaande wallboardpagina verwijzen.'],
+                    'configuration.deployment_override.page_id' => ['De inzetpagina moet naar een bestaande wallboardpagina verwijzen.'],
                 ]);
             }
 
             $overridePageId = (string) $pages[0]['id'];
         }
-        $normalized['incident_override'] = [
+        $normalized['deployment_override'] = [
             'enabled' => (bool) ($override['enabled'] ?? false),
             'page_id' => $overridePageId,
         ];

@@ -21,7 +21,7 @@ final class CertificationAccessCompatibilityTest extends TestCase
     {
         $this->certificationWithOwner();
         $operator = $this->user('paired-operator@example.test');
-        $this->grant($operator, ['incidents.assigned.view'], operator: true, admin: false);
+        $this->grant($operator, ['deployments.assigned.view'], operator: true, admin: false);
         $pairingCode = 'ABCDE-23456';
 
         MobilePairingCode::query()->create([
@@ -61,7 +61,7 @@ final class CertificationAccessCompatibilityTest extends TestCase
             '/api/status/me',
             '/api/availability-schedule/me',
             '/api/calendar-events',
-            '/api/incidents?active_alarms=true',
+            '/api/deployments?active_alarms=true',
             '/api/pilot-report/form-config',
             '/api/assets/mine',
             '/api/drone-types',
@@ -80,7 +80,7 @@ final class CertificationAccessCompatibilityTest extends TestCase
     {
         [$certification, $certificationOwner] = $this->certificationWithOwner();
         $operator = $this->user('operator-pilot@example.test');
-        $this->grant($operator, ['incidents.assigned.view'], operator: true, admin: false);
+        $this->grant($operator, ['deployments.assigned.view'], operator: true, admin: false);
 
         $response = $this->asMobileClient($operator, 'client:operator')
             ->getJson('/api/certifications')

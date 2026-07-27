@@ -3,11 +3,11 @@
 namespace Tests\Feature;
 
 use App\Jobs\SendFcmNotification;
+use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
-use App\Models\Incident;
 use App\Models\SystemSetting;
 use App\Models\Team;
 use App\Models\User;
@@ -33,7 +33,7 @@ final class PreannouncementLocationPushTest extends TestCase
             'type' => 'base',
             'is_operational' => true,
         ]);
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => 'PRE-LOCATION-001',
             'title' => 'Locatietest',
             'priority' => 'normal',
@@ -46,9 +46,9 @@ final class PreannouncementLocationPushTest extends TestCase
             'team_id' => $team->id,
             'opened_at' => now(),
         ]);
-        $incident->teams()->attach($team->id, ['created_at' => now()]);
+        $deployment->teams()->attach($team->id, ['created_at' => now()]);
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $actor->id,
             'requested_by_name' => $actor->name,
             'requested_by_email' => $actor->email,
@@ -90,20 +90,20 @@ final class PreannouncementLocationPushTest extends TestCase
         );
 
         $result = $this->app->make(DispatchService::class)
-            ->sendPreannouncementForIncidentActivation($incident, $actor);
+            ->sendPreannouncementForDeploymentActivation($deployment, $actor);
 
         $this->assertSame(1, $result['queued_tokens']);
         $this->assertNotNull($dispatch->refresh()->preannounced_at);
         $outbox = DispatchPushOutbox::query()->sole();
-        $this->assertSame('incident_preannouncement', $outbox->message_type);
-        $this->assertSame('dispatch_update', $outbox->data['type'] ?? null);
+        $this->assertSame('deployment_preannouncement', $outbox->message_type);
+        $this->assertSame('deployment_preannouncement', $outbox->data['type'] ?? null);
         $this->assertSame('availability', $outbox->data['action_mode'] ?? null);
         $this->app->make(DispatchPushOutboxService::class)->flushPending(100, (string) $dispatch->id);
         Queue::assertPushed(SendFcmNotification::class, function (SendFcmNotification $job) use ($dispatch, $token): bool {
             return $job->fcmTokenId === $token->id
                 && $job->dispatchRequestId === $dispatch->id
-                && $job->messageType === 'incident_preannouncement'
-                && ($job->data['type'] ?? null) === 'dispatch_update'
+                && $job->messageType === 'deployment_preannouncement'
+                && ($job->data['type'] ?? null) === 'deployment_preannouncement'
                 && ($job->data['action_mode'] ?? null) === 'availability'
                 && $job->body === 'Plaats Woerden. Postcode[] Provincie[] Adres[] Titel[]'
                 && ! str_contains($job->body, 'CN');

@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\Incident;
+use App\Models\Deployment;
 use App\Models\Wallboard;
 use App\Support\ApiDateTime;
 use App\Support\WallboardConfiguration;
@@ -15,34 +15,34 @@ final class WallboardDisplayService
     /**
      * Resolve the page server-side so an administrator and the kiosk always see
      * the same rotation position. Operational focus is resolved separately and
-     * may temporarily cover this result, but an incident never rewrites a
-     * playlist rotation to one legacy incident_override page.
+     * may temporarily cover this result, but an deployment never rewrites a
+     * playlist rotation to one legacy deployment_override page.
      *
      * @param  array<string, mixed>|null  $configuration
-     * @return array{mode: string, page_id: string, incident_active: bool, next_change_at: string|null}
+     * @return array{mode: string, page_id: string, deployment_active: bool, next_change_at: string|null}
      */
-    public function display(Wallboard $wallboard, ?array $configuration = null, ?bool $incidentActive = null): array
+    public function display(Wallboard $wallboard, ?array $configuration = null, ?bool $deploymentActive = null): array
     {
         $configuration ??= $this->playlistResolver->resolve($wallboard);
         $pages = array_values((array) $configuration['pages']);
         $firstPageId = (string) $pages[0]['id'];
-        $incidentActive ??= $this->hasActiveAlarmIncident();
+        $deploymentActive ??= $this->hasActiveAlarmDeployment();
 
         $manualPageId = (string) ($wallboard->manual_page_id ?? '');
         if ($manualPageId !== '' && WallboardConfiguration::hasPage($configuration, $manualPageId)) {
-            return $this->result('manual', $manualPageId, $incidentActive);
+            return $this->result('manual', $manualPageId, $deploymentActive);
         }
 
         if (($configuration['rotation_enabled'] ?? false) !== true || count($pages) === 1) {
-            return $this->result('static', $firstPageId, $incidentActive);
+            return $this->result('static', $firstPageId, $deploymentActive);
         }
 
-        return $this->rotationResult($wallboard, $pages, $incidentActive);
+        return $this->rotationResult($wallboard, $pages, $deploymentActive);
     }
 
-    public function hasActiveAlarmIncident(): bool
+    public function hasActiveAlarmDeployment(): bool
     {
-        return Incident::query()
+        return Deployment::query()
             ->whereIn('status', ['dispatching', 'in_progress'])
             ->where('is_test', false)
             ->exists();
@@ -50,9 +50,9 @@ final class WallboardDisplayService
 
     /**
      * @param  list<array<string, mixed>>  $pages
-     * @return array{mode: string, page_id: string, incident_active: bool, next_change_at: string|null}
+     * @return array{mode: string, page_id: string, deployment_active: bool, next_change_at: string|null}
      */
-    private function rotationResult(Wallboard $wallboard, array $pages, bool $incidentActive): array
+    private function rotationResult(Wallboard $wallboard, array $pages, bool $deploymentActive): array
     {
         $now = ApiDateTime::comparableWallClock(now());
         $anchor = $wallboard->rotation_started_at instanceof CarbonInterface
@@ -86,7 +86,7 @@ final class WallboardDisplayService
                 return $this->result(
                     'rotation',
                     (string) $page['id'],
-                    $incidentActive,
+                    $deploymentActive,
                     $nextChangeAt,
                 );
             }
@@ -95,22 +95,22 @@ final class WallboardDisplayService
             $pageStartedAfterSeconds += $duration;
         }
 
-        return $this->result('rotation', (string) $pages[0]['id'], $incidentActive, $now->copy()->addSecond());
+        return $this->result('rotation', (string) $pages[0]['id'], $deploymentActive, $now->copy()->addSecond());
     }
 
     /**
-     * @return array{mode: string, page_id: string, incident_active: bool, next_change_at: string|null}
+     * @return array{mode: string, page_id: string, deployment_active: bool, next_change_at: string|null}
      */
     private function result(
         string $mode,
         string $pageId,
-        bool $incidentActive,
+        bool $deploymentActive,
         ?CarbonInterface $nextChangeAt = null,
     ): array {
         return [
             'mode' => $mode,
             'page_id' => $pageId,
-            'incident_active' => $incidentActive,
+            'deployment_active' => $deploymentActive,
             'next_change_at' => ApiDateTime::dateTime($nextChangeAt),
         ];
     }

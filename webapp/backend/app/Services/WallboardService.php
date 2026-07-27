@@ -33,10 +33,10 @@ final class WallboardService
     /** @return list<array<string, mixed>> */
     public function all(): array
     {
-        $incidentActive = $this->displayService->hasActiveAlarmIncident();
+        $deploymentActive = $this->displayService->hasActiveAlarmDeployment();
 
         return $this->repository->allForManagement()
-            ->map(fn (Wallboard $wallboard): array => $this->resource($wallboard, $incidentActive))
+            ->map(fn (Wallboard $wallboard): array => $this->resource($wallboard, $deploymentActive))
             ->values()
             ->all();
     }
@@ -46,7 +46,7 @@ final class WallboardService
     {
         return $this->resource(
             $this->repository->findForManagement((string) $wallboard->getKey()),
-            $this->displayService->hasActiveAlarmIncident(),
+            $this->displayService->hasActiveAlarmDeployment(),
         );
     }
 
@@ -92,17 +92,17 @@ final class WallboardService
                 ], null, $request);
             }
 
-            if (isset($data['active_incident_playlist_id'])) {
-                $this->assertActiveIncidentPlaylist(
-                    $this->playlistRepository->lockPlaylist((string) $data['active_incident_playlist_id']),
+            if (isset($data['active_deployment_playlist_id'])) {
+                $this->assertActiveDeploymentPlaylist(
+                    $this->playlistRepository->lockPlaylist((string) $data['active_deployment_playlist_id']),
                 );
             }
 
             $wallboard = $this->repository->create([
                 'name' => trim((string) $data['name']),
                 'playlist_id' => $playlist->id,
-                'active_incident_playlist_id' => isset($data['active_incident_playlist_id'])
-                    ? (string) $data['active_incident_playlist_id']
+                'active_deployment_playlist_id' => isset($data['active_deployment_playlist_id'])
+                    ? (string) $data['active_deployment_playlist_id']
                     : null,
                 'layout' => (string) ($data['layout'] ?? Wallboard::LAYOUT_FULLSCREEN_MAP),
                 'display_profile' => (string) ($data['display_profile'] ?? Wallboard::DISPLAY_PROFILE_AUTO),
@@ -122,9 +122,9 @@ final class WallboardService
                 'display_profile' => $wallboard->display_profile,
                 'is_enabled' => $wallboard->is_enabled,
                 'playlist_id' => (string) $playlist->id,
-                'active_incident_playlist_id' => $wallboard->active_incident_playlist_id === null
+                'active_deployment_playlist_id' => $wallboard->active_deployment_playlist_id === null
                     ? null
-                    : (string) $wallboard->active_incident_playlist_id,
+                    : (string) $wallboard->active_deployment_playlist_id,
             ], null, $request);
             if (array_key_exists('playlist_id', $data)) {
                 $this->auditService->record('wallboards.playlist_assigned', $wallboard, $actor, [
@@ -169,8 +169,8 @@ final class WallboardService
             $linkedWallboards = collect();
             $preparedConfiguration = null;
             $createdImplicitPlaylist = false;
-            $requestedActivePlaylistId = isset($data['active_incident_playlist_id'])
-                ? (string) $data['active_incident_playlist_id']
+            $requestedActivePlaylistId = isset($data['active_deployment_playlist_id'])
+                ? (string) $data['active_deployment_playlist_id']
                 : null;
 
             if ($updatesConfiguration) {
@@ -189,7 +189,7 @@ final class WallboardService
                         $activePlaylist = $requestedActivePlaylistId === $candidatePlaylistId
                             ? $playlist
                             : $this->playlistRepository->lockPlaylist($requestedActivePlaylistId);
-                        $this->assertActiveIncidentPlaylist($activePlaylist);
+                        $this->assertActiveDeploymentPlaylist($activePlaylist);
                     }
                     $preparedConfiguration = WallboardConfiguration::normalize(
                         (array) $data['configuration'],
@@ -237,7 +237,7 @@ final class WallboardService
                     );
                     $playlist->forceFill(['configuration' => $preparedConfiguration])->save();
                     if ($requestedActivePlaylistId !== null) {
-                        $this->assertActiveIncidentPlaylist(
+                        $this->assertActiveDeploymentPlaylist(
                             $this->playlistRepository->lockPlaylist($requestedActivePlaylistId),
                         );
                     }
@@ -249,7 +249,7 @@ final class WallboardService
                 }
             } else {
                 if ($requestedActivePlaylistId !== null) {
-                    $this->assertActiveIncidentPlaylist(
+                    $this->assertActiveDeploymentPlaylist(
                         $this->playlistRepository->lockPlaylist($requestedActivePlaylistId),
                     );
                 }
@@ -274,17 +274,17 @@ final class WallboardService
             if ($displayProfileChanged) {
                 $changes['display_profile'] = (string) $data['display_profile'];
             }
-            $previousActiveIncidentPlaylistId = $locked->active_incident_playlist_id === null
+            $previousActiveDeploymentPlaylistId = $locked->active_deployment_playlist_id === null
                 ? null
-                : (string) $locked->active_incident_playlist_id;
-            $requestedActiveIncidentPlaylistId = ! array_key_exists('active_incident_playlist_id', $data)
-                || $data['active_incident_playlist_id'] === null
+                : (string) $locked->active_deployment_playlist_id;
+            $requestedActiveDeploymentPlaylistId = ! array_key_exists('active_deployment_playlist_id', $data)
+                || $data['active_deployment_playlist_id'] === null
                     ? null
-                    : (string) $data['active_incident_playlist_id'];
-            $activeIncidentPlaylistChanged = array_key_exists('active_incident_playlist_id', $data)
-                && $requestedActiveIncidentPlaylistId !== $previousActiveIncidentPlaylistId;
-            if ($activeIncidentPlaylistChanged) {
-                $changes['active_incident_playlist_id'] = $requestedActiveIncidentPlaylistId;
+                    : (string) $data['active_deployment_playlist_id'];
+            $activeDeploymentPlaylistChanged = array_key_exists('active_deployment_playlist_id', $data)
+                && $requestedActiveDeploymentPlaylistId !== $previousActiveDeploymentPlaylistId;
+            if ($activeDeploymentPlaylistChanged) {
+                $changes['active_deployment_playlist_id'] = $requestedActiveDeploymentPlaylistId;
             }
             $nextConfiguration = $this->playlistResolver->resolve($locked);
             $displayVersionsIncremented = false;
@@ -334,7 +334,7 @@ final class WallboardService
             if ((array_key_exists('name', $changes)
                 || array_key_exists('layout', $changes)
                 || array_key_exists('display_profile', $changes)
-                || array_key_exists('active_incident_playlist_id', $changes))
+                || array_key_exists('active_deployment_playlist_id', $changes))
                 && ! $displayVersionsIncremented) {
                 $changes['config_version'] = (int) $locked->config_version + 1;
                 $changes['control_version'] = (int) $locked->control_version + 1;
@@ -369,20 +369,20 @@ final class WallboardService
             if (array_key_exists('display_profile', $data) && ! $displayProfileChanged) {
                 $changedFields = array_values(array_diff($changedFields, ['display_profile']));
             }
-            if (array_key_exists('active_incident_playlist_id', $data) && ! $activeIncidentPlaylistChanged) {
-                $changedFields = array_values(array_diff($changedFields, ['active_incident_playlist_id']));
+            if (array_key_exists('active_deployment_playlist_id', $data) && ! $activeDeploymentPlaylistChanged) {
+                $changedFields = array_values(array_diff($changedFields, ['active_deployment_playlist_id']));
             }
             $this->auditService->record('wallboards.updated', $locked, $actor, [
                 'changed_fields' => $changedFields,
                 'config_version' => (int) $locked->config_version,
                 'is_enabled' => (bool) $locked->is_enabled,
-                ...($activeIncidentPlaylistChanged ? [
-                    'previous_active_incident_playlist_id' => $previousActiveIncidentPlaylistId,
-                    'active_incident_playlist_id' => $requestedActiveIncidentPlaylistId,
+                ...($activeDeploymentPlaylistChanged ? [
+                    'previous_active_deployment_playlist_id' => $previousActiveDeploymentPlaylistId,
+                    'active_deployment_playlist_id' => $requestedActiveDeploymentPlaylistId,
                 ] : []),
             ], null, $request);
 
-            return $locked->refresh()->load(['playlist', 'activeIncidentPlaylist']);
+            return $locked->refresh()->load(['playlist', 'activeDeploymentPlaylist']);
         }, 3);
     }
 
@@ -430,7 +430,7 @@ final class WallboardService
                 'control_version' => (int) $locked->control_version,
             ], null, $request);
 
-            return $this->resource($locked->refresh(), $this->displayService->hasActiveAlarmIncident());
+            return $this->resource($locked->refresh(), $this->displayService->hasActiveAlarmDeployment());
         }, 3);
     }
 
@@ -478,7 +478,7 @@ final class WallboardService
                 'refresh_version' => (int) $locked->refresh_version,
             ], null, $request);
 
-            return $this->resource($locked->refresh(), $this->displayService->hasActiveAlarmIncident());
+            return $this->resource($locked->refresh(), $this->displayService->hasActiveAlarmDeployment());
         }, 3);
     }
 
@@ -504,18 +504,18 @@ final class WallboardService
     }
 
     /** @return array<string, mixed> */
-    public function resource(Wallboard $wallboard, ?bool $incidentActive = null): array
+    public function resource(Wallboard $wallboard, ?bool $deploymentActive = null): array
     {
         $resolved = $this->playlistResolver->resolveRuntime($wallboard, false);
         $configuration = $resolved['configuration'];
         $wallboard->loadMissing([
             'playlist:id,name,data_mode,purpose,configuration,version',
-            'activeIncidentPlaylist:id,name,data_mode,purpose,configuration,version',
+            'activeDeploymentPlaylist:id,name,data_mode,purpose,configuration,version',
             'nonRevokedSessions:id,wallboard_id,last_seen_at,expires_at',
         ]);
         $activeSessions = $this->activeSessions($wallboard);
         $playlist = $wallboard->playlist;
-        $activeIncidentPlaylist = $wallboard->activeIncidentPlaylist;
+        $activeDeploymentPlaylist = $wallboard->activeDeploymentPlaylist;
 
         return [
             'id' => (string) $wallboard->id,
@@ -528,15 +528,15 @@ final class WallboardService
                 'purpose' => $playlist->normalizedPurpose(),
                 'version' => (int) $playlist->version,
             ] : null,
-            'active_incident_playlist_id' => $wallboard->active_incident_playlist_id === null
+            'active_deployment_playlist_id' => $wallboard->active_deployment_playlist_id === null
                 ? null
-                : (string) $wallboard->active_incident_playlist_id,
-            'active_incident_playlist' => $activeIncidentPlaylist instanceof WallboardPlaylist ? [
-                'id' => (string) $activeIncidentPlaylist->id,
-                'name' => (string) $activeIncidentPlaylist->name,
-                'data_mode' => $this->playlistDataMode($activeIncidentPlaylist),
-                'purpose' => $activeIncidentPlaylist->normalizedPurpose(),
-                'version' => (int) $activeIncidentPlaylist->version,
+                : (string) $wallboard->active_deployment_playlist_id,
+            'active_deployment_playlist' => $activeDeploymentPlaylist instanceof WallboardPlaylist ? [
+                'id' => (string) $activeDeploymentPlaylist->id,
+                'name' => (string) $activeDeploymentPlaylist->name,
+                'data_mode' => $this->playlistDataMode($activeDeploymentPlaylist),
+                'purpose' => $activeDeploymentPlaylist->normalizedPurpose(),
+                'version' => (int) $activeDeploymentPlaylist->version,
             ] : null,
             'layout' => (string) $wallboard->layout,
             'display_profile' => (string) $wallboard->display_profile,
@@ -549,7 +549,7 @@ final class WallboardService
             'display' => $this->displayService->display(
                 $wallboard,
                 $configuration,
-                $resolved['data_mode'] === WallboardPlaylist::DATA_MODE_DEMO ? false : $incidentActive,
+                $resolved['data_mode'] === WallboardPlaylist::DATA_MODE_DEMO ? false : $deploymentActive,
             ),
             'paired_at' => ApiDateTime::dateTime($wallboard->paired_at),
             'last_seen_at' => ApiDateTime::dateTime($wallboard->last_seen_at),
@@ -568,16 +568,16 @@ final class WallboardService
         }
     }
 
-    private function assertActiveIncidentPlaylist(WallboardPlaylist $playlist): void
+    private function assertActiveDeploymentPlaylist(WallboardPlaylist $playlist): void
     {
         if ($playlist->normalizedPurpose() !== WallboardPlaylist::PURPOSE_ALARM) {
             throw ValidationException::withMessages([
-                'active_incident_playlist_id' => ['Selecteer een playlist met het doel alarm.'],
+                'active_deployment_playlist_id' => ['Selecteer een playlist met het doel alarm.'],
             ]);
         }
         if ($this->playlistDataMode($playlist) !== WallboardPlaylist::DATA_MODE_LIVE) {
             throw ValidationException::withMessages([
-                'active_incident_playlist_id' => ['Een actieve-inzetplaylist moet live gegevens gebruiken.'],
+                'active_deployment_playlist_id' => ['Een actieve-inzetplaylist moet live gegevens gebruiken.'],
             ]);
         }
     }

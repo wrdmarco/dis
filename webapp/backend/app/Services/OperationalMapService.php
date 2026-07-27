@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\Incident;
+use App\Models\Deployment;
 use App\Models\SystemSetting;
 use App\Models\User;
 
@@ -11,19 +11,19 @@ final class OperationalMapService
     /**
      * @return array{
      *     command_centers: list<array{id: string, name: string, address: string|null, latitude: float, longitude: float}>,
-     *     historical_incidents: list<array{id: string, reference: string, title: string, status: string, priority: string, location_label: string|null, latitude: float, longitude: float, closed_at: string|null}>,
+     *     historical_deployments: list<array{id: string, reference: string, title: string, status: string, priority: string, location_label: string|null, latitude: float, longitude: float, closed_at: string|null}>,
      *     pilot_homes: list<array{id: string, name: string, home_city: string|null, latitude: float, longitude: float, teams: list<string>}>
      * }
      */
     public function layers(
         bool $includePilotHomes = false,
         bool $includeCommandCenters = true,
-        bool $includeHistoricalIncidents = true,
-        bool $includeTestIncidents = true,
+        bool $includeHistoricalDeployments = true,
+        bool $includeTestDeployments = true,
     ): array {
         return [
             'command_centers' => $includeCommandCenters ? $this->commandCenters() : [],
-            'historical_incidents' => $includeHistoricalIncidents ? $this->historicalIncidents($includeTestIncidents) : [],
+            'historical_deployments' => $includeHistoricalDeployments ? $this->historicalDeployments($includeTestDeployments) : [],
             'pilot_homes' => $includePilotHomes ? $this->pilotHomes() : [],
         ];
     }
@@ -67,26 +67,26 @@ final class OperationalMapService
     /**
      * @return list<array{id: string, reference: string, title: string, status: string, priority: string, location_label: string|null, latitude: float, longitude: float, closed_at: string|null}>
      */
-    private function historicalIncidents(bool $includeTestIncidents): array
+    private function historicalDeployments(bool $includeTestDeployments): array
     {
-        return Incident::query()
+        return Deployment::query()
             ->whereIn('status', ['resolved', 'cancelled'])
-            ->when(! $includeTestIncidents, fn ($query) => $query->where('is_test', false))
+            ->when(! $includeTestDeployments, fn ($query) => $query->where('is_test', false))
             ->whereNotNull('latitude')
             ->whereNotNull('longitude')
             ->latest('closed_at')
             ->limit(500)
             ->get(['id', 'reference', 'title', 'status', 'priority', 'location_label', 'latitude', 'longitude', 'closed_at'])
-            ->map(fn (Incident $incident): array => [
-                'id' => $incident->id,
-                'reference' => $incident->reference,
-                'title' => $incident->title,
-                'status' => $incident->status,
-                'priority' => $incident->priority,
-                'location_label' => $incident->location_label,
-                'latitude' => (float) $incident->latitude,
-                'longitude' => (float) $incident->longitude,
-                'closed_at' => $incident->closed_at?->toISOString(),
+            ->map(fn (Deployment $deployment): array => [
+                'id' => $deployment->id,
+                'reference' => $deployment->reference,
+                'title' => $deployment->title,
+                'status' => $deployment->status,
+                'priority' => $deployment->priority,
+                'location_label' => $deployment->location_label,
+                'latitude' => (float) $deployment->latitude,
+                'longitude' => (float) $deployment->longitude,
+                'closed_at' => $deployment->closed_at?->toISOString(),
             ])
             ->values()
             ->all();

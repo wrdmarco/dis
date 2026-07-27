@@ -37,7 +37,7 @@ final class TestAlertScopeTest extends TestCase
     {
         Queue::fake();
         $actor = $this->user('dispatcher@example.test', pushEnabled: true);
-        $this->grant($actor, ['incidents.dispatch.manage'], operator: false, admin: true);
+        $this->grant($actor, ['deployments.dispatch.manage'], operator: false, admin: true);
         $actorToken = $this->token($actor, 'actor-device', lastSeenAt: now());
 
         $other = $this->user('other-operator@example.test', pushEnabled: true);
@@ -78,7 +78,7 @@ final class TestAlertScopeTest extends TestCase
         Carbon::setTestNow(Carbon::parse('2026-07-20 09:00:00'));
         try {
             $actor = $this->user('fixed-test-alert@example.test', pushEnabled: true);
-            $this->grant($actor, ['incidents.dispatch.manage'], operator: false, admin: true);
+            $this->grant($actor, ['deployments.dispatch.manage'], operator: false, admin: true);
             $token = $this->token($actor, 'fixed-test-alert', lastSeenAt: now());
             $this->setting(
                 'test_alert.message',
@@ -788,7 +788,7 @@ final class TestAlertScopeTest extends TestCase
     {
         Queue::fake();
         $actor = $this->user('atomic-test-alert@example.test', pushEnabled: true);
-        $this->grant($actor, ['incidents.dispatch.manage'], operator: false, admin: true);
+        $this->grant($actor, ['deployments.dispatch.manage'], operator: false, admin: true);
         $this->token($actor, 'atomic-test-alert', lastSeenAt: now());
         $previous = app(TestAlertService::class)->send($actor)['dispatch'];
         $previousOutbox = DispatchPushOutbox::query()
@@ -810,12 +810,12 @@ final class TestAlertScopeTest extends TestCase
             AuditLog::flushEventListeners();
         }
 
-        $this->assertDatabaseCount('incidents', 1);
+        $this->assertDatabaseCount('deployments', 1);
         $this->assertDatabaseCount('dispatch_requests', 1);
         $this->assertDatabaseCount('dispatch_recipients', 1);
         $this->assertDatabaseCount('dispatch_push_outbox', 1);
         $this->assertSame('sent', $previous->refresh()->status);
-        $this->assertSame('active', $previous->incident()->firstOrFail()->status);
+        $this->assertSame('active', $previous->deployment()->firstOrFail()->status);
         $this->assertNull($previousOutbox->refresh()->cancelled_at);
         $this->assertDatabaseCount('audit_logs', 1);
         $this->assertDatabaseHas('audit_logs', ['action' => 'test_alert.sent']);
@@ -829,7 +829,7 @@ final class TestAlertScopeTest extends TestCase
         Queue::fake();
         Event::fake([DispatchChanged::class]);
         $actor = $this->user('outer-transaction-test-alert@example.test', pushEnabled: true);
-        $this->grant($actor, ['incidents.dispatch.manage'], operator: false, admin: true);
+        $this->grant($actor, ['deployments.dispatch.manage'], operator: false, admin: true);
         $this->token($actor, 'outer-transaction-test-alert', lastSeenAt: now());
 
         DB::beginTransaction();
@@ -844,7 +844,7 @@ final class TestAlertScopeTest extends TestCase
             DB::rollBack();
         }
 
-        $this->assertDatabaseCount('incidents', 0);
+        $this->assertDatabaseCount('deployments', 0);
         $this->assertDatabaseCount('dispatch_requests', 0);
         $this->assertDatabaseCount('dispatch_recipients', 0);
         $this->assertDatabaseCount('dispatch_push_outbox', 0);
@@ -858,7 +858,7 @@ final class TestAlertScopeTest extends TestCase
         $this->freezeSecond();
         Queue::fake();
         $actor = $this->user('coordinator@example.test');
-        $this->grant($actor, ['incidents.dispatch.manage'], operator: false, admin: true);
+        $this->grant($actor, ['deployments.dispatch.manage'], operator: false, admin: true);
 
         $firstEligible = $this->operator('eligible-one@example.test');
         $firstToken = $this->token($firstEligible, 'eligible-one', lastSeenAt: now());
@@ -948,7 +948,7 @@ final class TestAlertScopeTest extends TestCase
     {
         Queue::fake();
         $actor = $this->user('robust-coordinator@example.test');
-        $this->grant($actor, ['incidents.dispatch.manage'], operator: false, admin: true);
+        $this->grant($actor, ['deployments.dispatch.manage'], operator: false, admin: true);
 
         $failing = $this->operator('failing-recipient@example.test');
         $this->token($failing, 'failing-recipient', lastSeenAt: now());
@@ -984,7 +984,7 @@ final class TestAlertScopeTest extends TestCase
     {
         Queue::fake();
         $actor = $this->user('failed-coordinator@example.test', pushEnabled: true);
-        $this->grant($actor, ['incidents.dispatch.manage'], operator: false, admin: true);
+        $this->grant($actor, ['deployments.dispatch.manage'], operator: false, admin: true);
         $this->token($actor, 'failed-coordinator', lastSeenAt: now());
         $previous = app(TestAlertService::class)->send($actor)['dispatch'];
         $previousOutbox = DispatchPushOutbox::query()
@@ -1007,7 +1007,7 @@ final class TestAlertScopeTest extends TestCase
         $response->assertServerError();
         $this->assertDatabaseCount('dispatch_requests', 1);
         $this->assertSame('sent', $previous->refresh()->status);
-        $this->assertSame('active', $previous->incident()->firstOrFail()->status);
+        $this->assertSame('active', $previous->deployment()->firstOrFail()->status);
         $this->assertNull($previousOutbox->refresh()->cancelled_at);
         $this->assertDatabaseCount('dispatch_recipients', 1);
         $this->assertDatabaseHas('audit_logs', ['action' => 'test_alert.sent']);
@@ -1020,7 +1020,7 @@ final class TestAlertScopeTest extends TestCase
     {
         Queue::fake();
         $actor = $this->user('empty-coordinator@example.test');
-        $this->grant($actor, ['incidents.dispatch.manage'], operator: false, admin: true);
+        $this->grant($actor, ['deployments.dispatch.manage'], operator: false, admin: true);
 
         $offline = $this->operator('empty-offline@example.test');
         $this->token($offline, 'empty-offline', lastSeenAt: now()->subMinutes(FcmToken::pushReachabilityThresholdMinutes() + 1));
@@ -1043,7 +1043,7 @@ final class TestAlertScopeTest extends TestCase
     {
         Queue::fake();
         $authorized = $this->user('validation-coordinator@example.test', pushEnabled: true);
-        $this->grant($authorized, ['incidents.dispatch.manage'], operator: false, admin: true);
+        $this->grant($authorized, ['deployments.dispatch.manage'], operator: false, admin: true);
         $this->token($authorized, 'validation-coordinator', lastSeenAt: now());
 
         $this->asWebClient($authorized)
@@ -1078,7 +1078,7 @@ final class TestAlertScopeTest extends TestCase
             ->assertUnauthorized();
 
         $actor = $this->user('pending-two-factor@example.test');
-        $this->grant($actor, ['incidents.dispatch.manage'], operator: false, admin: true);
+        $this->grant($actor, ['deployments.dispatch.manage'], operator: false, admin: true);
         $pendingToken = $actor->createToken(
             'Pending test alert client',
             ['2fa:pending', 'client:web'],

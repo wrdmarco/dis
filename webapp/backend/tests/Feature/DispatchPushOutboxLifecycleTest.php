@@ -5,11 +5,11 @@ namespace Tests\Feature;
 use App\Contracts\DispatchNotificationQueue;
 use App\Contracts\PushProvider;
 use App\Jobs\SendFcmNotification;
+use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
-use App\Models\Incident;
 use App\Models\User;
 use App\Services\DispatchPushOutboxService;
 use App\Support\ApiDateTime;
@@ -58,6 +58,50 @@ final class DispatchPushOutboxLifecycleTest extends TestCase
             app(DispatchPushOutboxService::class)->flushPending(),
         );
         $this->assertSame([(string) $outbox->id], $recordingQueue->outboxIds);
+    }
+
+    public function test_domain_cutover_keeps_push_outbox_deduplication_in_sync_with_message_type(): void
+    {
+        [$token, $dispatch, $outbox] = $this->outboxFixture('domain-cutover');
+        $legacyType = 'incident_preannouncement';
+        $legacyDeduplicationKey = hash('sha256', implode('|', [
+            (string) $dispatch->id,
+            (string) $token->id,
+            $legacyType,
+        ]));
+        $outbox->forceFill([
+            'deduplication_key' => $legacyDeduplicationKey,
+            'message_type' => $legacyType,
+            'data' => [
+                'type' => $legacyType,
+                'incident_id' => (string) $dispatch->deployment_id,
+                'incident_reference' => 'LEGACY-OUTBOX',
+                'note' => 'incident blijft gebruikersinhoud',
+            ],
+        ])->save();
+
+        $migration = require database_path('migrations/2026_07_27_000002_rename_incident_domain_to_deployments.php');
+        $migration->up();
+        $outbox->refresh();
+
+        $this->assertSame('deployment_preannouncement', $outbox->message_type);
+        $this->assertSame(
+            hash('sha256', implode('|', [
+                (string) $dispatch->id,
+                (string) $token->id,
+                'deployment_preannouncement',
+            ])),
+            $outbox->deduplication_key,
+        );
+        $this->assertSame('deployment_preannouncement', $outbox->data['type']);
+        $this->assertSame(
+            (string) $dispatch->deployment_id,
+            $outbox->data['deployment_id'],
+        );
+        $this->assertSame('LEGACY-OUTBOX', $outbox->data['deployment_reference']);
+        $this->assertSame('incident blijft gebruikersinhoud', $outbox->data['note']);
+        $this->assertArrayNotHasKey('incident_id', $outbox->data);
+        $this->assertArrayNotHasKey('incident_reference', $outbox->data);
     }
 
     public function test_success_and_permanent_rejection_finish_the_outbox_lifecycle(): void
@@ -148,7 +192,7 @@ final class DispatchPushOutboxLifecycleTest extends TestCase
                 'type' => 'dispatch_response_sync',
                 'action_mode' => 'attendance',
                 'dispatch_id' => (string) $dispatch->id,
-                'incident_id' => (string) $dispatch->incident_id,
+                'deployment_id' => (string) $dispatch->deployment_id,
                 'response' => 'accepted',
             ],
             (string) $dispatch->id,
@@ -334,7 +378,7 @@ final class DispatchPushOutboxLifecycleTest extends TestCase
             'is_active' => true,
             'last_seen_at' => now(),
         ]);
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => 'OUTBOX-'.strtoupper($suffix),
             'title' => 'Outbox lifecycle test',
             'priority' => 'normal',
@@ -346,7 +390,7 @@ final class DispatchPushOutboxLifecycleTest extends TestCase
             'opened_at' => now(),
         ]);
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $user->id,
             'requested_by_name' => $user->name,
             'requested_by_email' => $user->email,

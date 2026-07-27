@@ -182,7 +182,7 @@ final class WallboardContentCacheApiTest extends TestCase
                     'text' => 'Operationeel bericht',
                 ]],
             ],
-            'incident_override' => ['enabled' => false, 'page_id' => 'message'],
+            'deployment_override' => ['enabled' => false, 'page_id' => 'message'],
         ]);
         $playlist = WallboardPlaylist::query()->create([
             'name' => 'Cacheplaylist',

@@ -112,7 +112,7 @@ final class WallboardMaintenanceNoticeApiTest extends TestCase
                     'duration_seconds' => 30,
                     'options' => [],
                 ]],
-                'incident_override' => ['enabled' => false, 'page_id' => 'map'],
+                'deployment_override' => ['enabled' => false, 'page_id' => 'map'],
             ]),
             'is_enabled' => true,
             'rotation_started_at' => now(),

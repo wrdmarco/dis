@@ -32,7 +32,7 @@ final class StoreReviewAccountLoginTest extends TestCase
             ->assertJsonStructure(['data' => ['token']]);
 
         $this->withToken((string) $login->json('data.token'))
-            ->getJson('/api/incidents')
+            ->getJson('/api/deployments')
             ->assertOk()
             ->assertJsonPath('data.0.reference', 'REVIEW-0001')
             ->assertJsonPath('data.0.is_test', true);

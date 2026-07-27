@@ -18,8 +18,8 @@ const currentUser = {
     can_use_admin_app: true,
     permissions: [{
       id: 'permission-test-alert',
-      name: 'incidents.dispatch.manage',
-      category: 'incidents',
+      name: 'deployments.dispatch.manage',
+      category: 'deployments',
       display_name: 'Proefalarmering beheren',
     }],
   }],
@@ -194,7 +194,7 @@ function sendResult(summary: TestAlertSummary): MockPostResponse {
 function dispatchPayload(scope: 'self' | 'all_online') {
   return {
     id: `dispatch-${scope}`,
-    incident_id: `incident-${scope}`,
+    deployment_id: `deployment-${scope}`,
     status: 'sent',
     priority: 'test',
     message: 'Dit is een proefalarm.',

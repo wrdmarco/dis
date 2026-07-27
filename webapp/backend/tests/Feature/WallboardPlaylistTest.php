@@ -98,21 +98,21 @@ final class WallboardPlaylistTest extends TestCase
 
         $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
             'expected_config_version' => 1,
-            'active_incident_playlist_id' => $normal->id,
+            'active_deployment_playlist_id' => $normal->id,
         ])->assertUnprocessable()
-            ->assertJsonStructure(['error' => ['details' => ['active_incident_playlist_id']]]);
+            ->assertJsonStructure(['error' => ['details' => ['active_deployment_playlist_id']]]);
 
         $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
             'expected_config_version' => 1,
-            'active_incident_playlist_id' => $demoAlarm->id,
+            'active_deployment_playlist_id' => $demoAlarm->id,
         ])->assertUnprocessable()
-            ->assertJsonStructure(['error' => ['details' => ['active_incident_playlist_id']]]);
+            ->assertJsonStructure(['error' => ['details' => ['active_deployment_playlist_id']]]);
 
         $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
             'expected_config_version' => 1,
-            'active_incident_playlist_id' => $alarm->id,
+            'active_deployment_playlist_id' => $alarm->id,
         ])->assertOk()
-            ->assertJsonPath('data.active_incident_playlist.purpose', WallboardPlaylist::PURPOSE_ALARM);
+            ->assertJsonPath('data.active_deployment_playlist.purpose', WallboardPlaylist::PURPOSE_ALARM);
 
         $client->patchJson('/api/admin/wallboard-playlists/'.$normal->id, [
             'expected_version' => 1,
@@ -392,7 +392,7 @@ final class WallboardPlaylistTest extends TestCase
             ->exists());
     }
 
-    public function test_active_incident_only_playlist_is_counted_protected_and_updated_without_overwriting_the_base_snapshot(): void
+    public function test_active_deployment_only_playlist_is_counted_protected_and_updated_without_overwriting_the_base_snapshot(): void
     {
         $manager = $this->user('playlist-active-only@example.test', ['wallboards.manage']);
         $baseConfiguration = $this->configuration(['map'], 'Normale playlist');
@@ -406,7 +406,7 @@ final class WallboardPlaylistTest extends TestCase
             WallboardPlaylist::PURPOSE_ALARM,
         );
         $wallboard = $this->wallboard($manager, $basePlaylist, 'Scherm met inzetplaylist', $baseConfiguration);
-        $wallboard->forceFill(['active_incident_playlist_id' => $activePlaylist->id])->save();
+        $wallboard->forceFill(['active_deployment_playlist_id' => $activePlaylist->id])->save();
         $client = $this->asAdminClient($manager);
 
         $playlists = $client->getJson('/api/admin/wallboard-playlists')->assertOk();
@@ -426,7 +426,7 @@ final class WallboardPlaylistTest extends TestCase
 
         $wallboard->refresh();
         $this->assertSame($basePlaylist->id, $wallboard->playlist_id);
-        $this->assertSame($activePlaylist->id, $wallboard->active_incident_playlist_id);
+        $this->assertSame($activePlaylist->id, $wallboard->active_deployment_playlist_id);
         $this->assertSame($baseConfiguration, $wallboard->configuration);
         $this->assertSame(1, $wallboard->config_version);
         $this->assertSame(1, $wallboard->control_version);
@@ -463,21 +463,131 @@ final class WallboardPlaylistTest extends TestCase
             ->assertJsonPath('data.configuration.theme', 'dark');
     }
 
+    public function test_domain_cutover_migrates_wallboard_kpis_and_audit_identifiers_to_runtime_contracts(): void
+    {
+        $manager = $this->user('domain-cutover-kpi@example.test', ['wallboards.manage']);
+        $legacyConfiguration = $this->configuration(['kpi'], 'Historische KPI-configuratie');
+        $legacyConfiguration['pages'][0]['options']['visible_metrics'] = [
+            'incidents_total',
+            'incidents_by_country',
+        ];
+        $legacyConfiguration['pages'][0]['options']['metric_visualizations'] = [
+            'incidents_total' => 'counter',
+            'incidents_by_country' => 'bar',
+        ];
+        $legacyConfiguration['pages'][] = [
+            'id' => 'incidents_custom_page',
+            'name' => 'Incidenten',
+            'type' => 'message',
+            'duration_seconds' => 20,
+            'options' => [
+                'body' => 'incidents_custom_page en incident blijven gebruikersinhoud.',
+            ],
+        ];
+        unset($legacyConfiguration['deployment_override']);
+        $legacyConfiguration['incident_override'] = [
+            'enabled' => true,
+            'page_id' => 'incidents_custom_page',
+        ];
+        $playlist = $this->playlist($manager, 'Historische incident-KPI', $legacyConfiguration);
+        $wallboard = $this->wallboard(
+            $manager,
+            $playlist,
+            'Historisch KPI-scherm',
+            $legacyConfiguration,
+        );
+        $audit = AuditLog::query()->create([
+            'actor_id' => $manager->id,
+            'action' => 'developer.incident_dispatch_index_read',
+            'target_type' => Wallboard::class,
+            'target_id' => $wallboard->id,
+            'metadata' => [
+                'previous_active_incident_playlist_id' => $playlist->id,
+                'metric' => 'incidents_active',
+                'role' => 'incident-coordinator',
+                'required_permissions' => ['incidents.view', 'wallboards.manage'],
+                'keys' => ['incident.form_layout', 'mail.host'],
+                'note' => 'incident',
+                'submitted_snapshot' => [
+                    'incident_id' => 'custom-answer-key',
+                    'label' => 'Incidenten',
+                    'role' => 'incident',
+                ],
+            ],
+            'created_at' => now(),
+        ]);
+
+        $migration = require database_path('migrations/2026_07_27_000002_rename_incident_domain_to_deployments.php');
+        $migration->up();
+
+        $playlist->refresh();
+        $wallboard->refresh();
+        $audit->refresh();
+        $resolved = app(WallboardPlaylistResolver::class)->resolve($wallboard);
+        $options = $resolved['pages'][0]['options'];
+
+        $this->assertSame(
+            ['deployments_total', 'deployments_by_country'],
+            $options['visible_metrics'],
+        );
+        $this->assertSame('counter', $options['metric_visualizations']['deployments_total']);
+        $this->assertSame('bar', $options['metric_visualizations']['deployments_by_country']);
+        $this->assertArrayNotHasKey('incidents_total', $options['metric_visualizations']);
+        $this->assertSame('incidents_custom_page', $playlist->configuration['pages'][1]['id']);
+        $this->assertSame('Incidenten', $playlist->configuration['pages'][1]['name']);
+        $this->assertSame(
+            'incidents_custom_page en incident blijven gebruikersinhoud.',
+            $playlist->configuration['pages'][1]['options']['body'],
+        );
+        $this->assertSame(
+            'incidents_custom_page',
+            $playlist->configuration['deployment_override']['page_id'],
+        );
+        $this->assertArrayNotHasKey('incident_override', $playlist->configuration);
+        $this->assertSame(2, $playlist->version);
+        $this->assertSame(2, $wallboard->config_version);
+        $this->assertSame('developer.deployment_dispatch_index_read', $audit->action);
+        $this->assertSame(
+            $playlist->id,
+            $audit->metadata['previous_active_deployment_playlist_id'],
+        );
+        $this->assertSame('deployments_active', $audit->metadata['metric']);
+        $this->assertSame('deployment-coordinator', $audit->metadata['role']);
+        $this->assertSame(
+            ['deployments.view', 'wallboards.manage'],
+            $audit->metadata['required_permissions'],
+        );
+        $this->assertSame(
+            ['deployment.form_layout', 'mail.host'],
+            $audit->metadata['keys'],
+        );
+        $this->assertSame('incident', $audit->metadata['note']);
+        $this->assertSame(
+            'custom-answer-key',
+            $audit->metadata['submitted_snapshot']['incident_id'],
+        );
+        $this->assertSame('Incidenten', $audit->metadata['submitted_snapshot']['label']);
+        $this->assertSame('incident', $audit->metadata['submitted_snapshot']['role']);
+        $this->assertArrayNotHasKey('previous_active_incident_playlist_id', $audit->metadata);
+    }
+
     public function test_migration_backfills_one_playlist_per_existing_wallboard_without_configuration_loss(): void
     {
         $manager = $this->user('playlist-migration@example.test', ['wallboards.manage']);
         $migration = require database_path('migrations/2026_07_19_000004_create_wallboard_playlists.php');
         $snapshotMigration = require database_path('migrations/2026_07_19_000010_create_wallboard_content_snapshots.php');
         $mediaUsageMigration = require database_path('migrations/2026_07_20_000001_create_wallboard_media_asset_usages.php');
-        $activeIncidentPlaylistMigration = require database_path('migrations/2026_07_20_000002_add_active_incident_playlist_to_wallboards.php');
+        $activeDeploymentPlaylistMigration = require database_path('migrations/2026_07_20_000002_add_active_incident_playlist_to_wallboards.php');
         $dataModeMigration = require database_path('migrations/2026_07_20_000006_add_data_mode_to_wallboard_playlists.php');
         $purposeMigration = require database_path('migrations/2026_07_23_000001_add_purpose_to_wallboard_playlists.php');
+        $domainCutoverMigration = require database_path('migrations/2026_07_27_000002_rename_incident_domain_to_deployments.php');
         // Recreate the historical boundary in dependency order. Newer tables and
         // columns deliberately keep their foreign keys instead of weakening the
         // production schema solely to make this migration test possible.
+        $domainCutoverMigration->down();
         $purposeMigration->down();
         $dataModeMigration->down();
-        $activeIncidentPlaylistMigration->down();
+        $activeDeploymentPlaylistMigration->down();
         $mediaUsageMigration->down();
         $snapshotMigration->down();
         $migration->down();
@@ -507,9 +617,10 @@ final class WallboardPlaylistTest extends TestCase
         $migration->up();
         $snapshotMigration->up();
         $mediaUsageMigration->up();
-        $activeIncidentPlaylistMigration->up();
+        $activeDeploymentPlaylistMigration->up();
         $dataModeMigration->up();
         $purposeMigration->up();
+        $domainCutoverMigration->up();
 
         $wallboards = DB::table('wallboards')->orderBy('name')->get();
         $this->assertCount(2, $wallboards);
@@ -545,14 +656,14 @@ final class WallboardPlaylistTest extends TestCase
             'Gedeeld historisch scherm',
             $sharedConfiguration,
         );
-        $sharedWallboard->forceFill(['active_incident_playlist_id' => $shared->id])->save();
+        $sharedWallboard->forceFill(['active_deployment_playlist_id' => $shared->id])->save();
         $activeOnlyWallboard = $this->wallboard(
             $manager,
             $base,
             'Actief historisch scherm',
             $baseConfiguration,
         );
-        $activeOnlyWallboard->forceFill(['active_incident_playlist_id' => $activeOnly->id])->save();
+        $activeOnlyWallboard->forceFill(['active_deployment_playlist_id' => $activeOnly->id])->save();
 
         $mediaAssetId = (string) Str::ulid();
         DB::table('wallboard_media_assets')->insert([
@@ -610,8 +721,11 @@ final class WallboardPlaylistTest extends TestCase
         ]);
 
         $migration = require database_path('migrations/2026_07_23_000001_add_purpose_to_wallboard_playlists.php');
+        $domainCutoverMigration = require database_path('migrations/2026_07_27_000002_rename_incident_domain_to_deployments.php');
+        $domainCutoverMigration->down();
         $migration->down();
         $migration->up();
+        $domainCutoverMigration->up();
 
         $sharedWallboard->refresh();
         $activeOnlyWallboard->refresh();
@@ -620,21 +734,22 @@ final class WallboardPlaylistTest extends TestCase
 
         $this->assertSame(WallboardPlaylist::PURPOSE_NORMAL, $shared->purpose);
         $this->assertSame($shared->id, $sharedWallboard->playlist_id);
-        $this->assertNotSame($shared->id, $sharedWallboard->active_incident_playlist_id);
+        $this->assertNotSame($shared->id, $sharedWallboard->active_deployment_playlist_id);
         $this->assertSame(WallboardPlaylist::PURPOSE_ALARM, $activeOnly->purpose);
-        $this->assertSame($activeOnly->id, $activeOnlyWallboard->active_incident_playlist_id);
+        $this->assertSame($activeOnly->id, $activeOnlyWallboard->active_deployment_playlist_id);
         $this->assertDatabaseCount('wallboard_playlists', 4);
 
-        $alarmClone = WallboardPlaylist::query()->findOrFail($sharedWallboard->active_incident_playlist_id);
+        $alarmClone = WallboardPlaylist::query()->findOrFail($sharedWallboard->active_deployment_playlist_id);
         $this->assertSame(WallboardPlaylist::PURPOSE_ALARM, $alarmClone->purpose);
         $this->assertSame($shared->name.' - Alarm', $alarmClone->name);
         $this->assertSame($shared->data_mode, $alarmClone->data_mode);
         $this->assertSame($shared->configuration, $alarmClone->configuration);
         $this->assertSame($shared->version, $alarmClone->version);
-        $this->assertDatabaseHas('wallboard_content_snapshots', [
+        // The domain cutover invalidates derived snapshots after rewriting the
+        // cloned configuration; runtime rebuilds them from canonical data.
+        $this->assertDatabaseMissing('wallboard_content_snapshots', [
             'playlist_id' => $alarmClone->id,
             'kind' => 'ticker',
-            'revision' => 4,
         ]);
         $this->assertDatabaseHas('wallboard_media_playlist_usages', [
             'wallboard_playlist_id' => $alarmClone->id,
@@ -668,7 +783,7 @@ final class WallboardPlaylistTest extends TestCase
 
         return WallboardConfiguration::normalize([
             'pages' => $pages,
-            'incident_override' => [
+            'deployment_override' => [
                 'enabled' => false,
                 'page_id' => $pageIds[0],
             ],

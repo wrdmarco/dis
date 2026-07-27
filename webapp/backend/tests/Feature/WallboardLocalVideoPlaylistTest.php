@@ -68,7 +68,7 @@ final class WallboardLocalVideoPlaylistTest extends TestCase
             'purpose' => WallboardPlaylist::PURPOSE_ALARM,
             'configuration' => $this->localVideoConfiguration((string) $deploymentAsset->id),
         ], $actor, Request::create('/api/admin/wallboard-playlists', 'POST'));
-        $assigned->active_incident_playlist_id = $deploymentPlaylist->id;
+        $assigned->active_deployment_playlist_id = $deploymentPlaylist->id;
         self::assertNotNull(app(WallboardMediaDeliveryService::class)->forWallboard(
             $assigned,
             $deploymentAsset,
@@ -235,7 +235,7 @@ final class WallboardLocalVideoPlaylistTest extends TestCase
                     ...($clientDuration === null ? [] : ['video_duration_seconds' => $clientDuration]),
                 ],
             ]],
-            'incident_override' => ['enabled' => false, 'page_id' => 'lokale-video'],
+            'deployment_override' => ['enabled' => false, 'page_id' => 'lokale-video'],
         ];
     }
 
@@ -253,7 +253,7 @@ final class WallboardLocalVideoPlaylistTest extends TestCase
                 'duration_seconds' => 30,
                 'options' => [],
             ]],
-            'incident_override' => ['enabled' => false, 'page_id' => 'map'],
+            'deployment_override' => ['enabled' => false, 'page_id' => 'map'],
         ];
     }
 

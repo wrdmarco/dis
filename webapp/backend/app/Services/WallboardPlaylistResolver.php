@@ -15,7 +15,7 @@ final class WallboardPlaylistResolver
     }
 
     /**
-     * @return array{configuration: array<string, mixed>, playlist_id: string|null, playlist_version: int, active_incident_playlist: bool, data_mode: string, purpose: string}
+     * @return array{configuration: array<string, mixed>, playlist_id: string|null, playlist_version: int, active_deployment_playlist: bool, data_mode: string, purpose: string}
      */
     public function resolveRuntime(Wallboard $wallboard, bool $deploymentActive): array
     {
@@ -32,9 +32,9 @@ final class WallboardPlaylistResolver
             }
         }
 
-        if ($deploymentActive && $wallboard->active_incident_playlist_id !== null) {
-            $wallboard->loadMissing('activeIncidentPlaylist');
-            $playlist = $wallboard->getRelation('activeIncidentPlaylist');
+        if ($deploymentActive && $wallboard->active_deployment_playlist_id !== null) {
+            $wallboard->loadMissing('activeDeploymentPlaylist');
+            $playlist = $wallboard->getRelation('activeDeploymentPlaylist');
             if ($playlist instanceof WallboardPlaylist
                 && $playlist->normalizedPurpose() === WallboardPlaylist::PURPOSE_ALARM
                 && $this->dataMode($playlist) === WallboardPlaylist::DATA_MODE_LIVE) {
@@ -50,20 +50,20 @@ final class WallboardPlaylistResolver
             'configuration' => WallboardConfiguration::normalize((array) $wallboard->configuration),
             'playlist_id' => null,
             'playlist_version' => 0,
-            'active_incident_playlist' => false,
+            'active_deployment_playlist' => false,
             'data_mode' => WallboardPlaylist::DATA_MODE_LIVE,
             'purpose' => WallboardPlaylist::PURPOSE_NORMAL,
         ];
     }
 
-    /** @return array{configuration: array<string, mixed>, playlist_id: string, playlist_version: int, active_incident_playlist: bool, data_mode: string, purpose: string} */
-    private function result(WallboardPlaylist $playlist, bool $activeIncidentPlaylist): array
+    /** @return array{configuration: array<string, mixed>, playlist_id: string, playlist_version: int, active_deployment_playlist: bool, data_mode: string, purpose: string} */
+    private function result(WallboardPlaylist $playlist, bool $activeDeploymentPlaylist): array
     {
         return [
             'configuration' => WallboardConfiguration::normalize((array) $playlist->configuration),
             'playlist_id' => (string) $playlist->id,
             'playlist_version' => (int) $playlist->version,
-            'active_incident_playlist' => $activeIncidentPlaylist,
+            'active_deployment_playlist' => $activeDeploymentPlaylist,
             'data_mode' => $this->dataMode($playlist),
             'purpose' => $playlist->normalizedPurpose(),
         ];

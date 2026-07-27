@@ -2,13 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Models\Deployment;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
-use App\Models\Incident;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
@@ -16,19 +17,19 @@ final class IamAuthorizationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_operator_only_sees_incidents_assigned_to_the_current_user(): void
+    public function test_operator_only_sees_deployments_assigned_to_the_current_user(): void
     {
         $operator = $this->user('operator@example.test');
         $otherOperator = $this->user('other@example.test');
         $creator = $this->user('creator@example.test');
-        $this->grant($operator, ['incidents.assigned.view'], operator: true, admin: false);
+        $this->grant($operator, ['deployments.assigned.view'], operator: true, admin: false);
 
-        $assigned = $this->incident($creator, 'ASSIGNED-001');
-        $unassigned = $this->incident($creator, 'UNASSIGNED-001');
+        $assigned = $this->deployment($creator, 'ASSIGNED-001');
+        $unassigned = $this->deployment($creator, 'UNASSIGNED-001');
         $this->dispatch($assigned, $creator, $operator, 'sent');
         $this->dispatch($unassigned, $creator, $otherOperator, 'sent');
 
-        $response = $this->asClient($operator, 'client:operator')->getJson('/api/incidents');
+        $response = $this->asClient($operator, 'client:operator')->getJson('/api/deployments');
 
         $response->assertOk();
         $ids = collect($response->json('data'))->pluck('id');
@@ -36,21 +37,21 @@ final class IamAuthorizationTest extends TestCase
         $this->assertFalse($ids->contains($unassigned->id));
 
         $this->asClient($operator, 'client:operator')
-            ->getJson('/api/incidents/'.$unassigned->id)
+            ->getJson('/api/deployments/'.$unassigned->id)
             ->assertForbidden();
     }
 
-    public function test_assigned_only_permission_cannot_list_incidents_or_dispatches_from_web_clients(): void
+    public function test_assigned_only_permission_cannot_list_deployments_or_dispatches_from_web_clients(): void
     {
         $actor = $this->user('dual-client-assigned@example.test');
         $creator = $this->user('dual-client-creator@example.test');
-        $this->grant($actor, ['incidents.assigned.view'], operator: true, admin: true);
+        $this->grant($actor, ['deployments.assigned.view'], operator: true, admin: true);
 
-        $incident = $this->incident($creator, 'WEB-ASSIGNED-001');
-        $this->dispatch($incident, $creator, $actor, 'sent');
+        $deployment = $this->deployment($creator, 'WEB-ASSIGNED-001');
+        $this->dispatch($deployment, $creator, $actor, 'sent');
 
         $this->asClient($actor, 'client:web')
-            ->getJson('/api/incidents')
+            ->getJson('/api/deployments')
             ->assertForbidden();
 
         $this->asClient($actor, 'client:web')
@@ -63,18 +64,18 @@ final class IamAuthorizationTest extends TestCase
         $operator = $this->user('dual-client-operator@example.test');
         $otherOperator = $this->user('dual-client-other@example.test');
         $creator = $this->user('dual-client-scope-creator@example.test');
-        $this->grant($operator, ['incidents.assigned.view'], operator: true, admin: true);
+        $this->grant($operator, ['deployments.assigned.view'], operator: true, admin: true);
 
-        $assignedIncident = $this->incident($creator, 'DUAL-ASSIGNED-001');
-        $unassignedIncident = $this->incident($creator, 'DUAL-UNASSIGNED-001');
-        $assignedDispatch = $this->dispatch($assignedIncident, $creator, $operator, 'sent');
-        $unassignedDispatch = $this->dispatch($unassignedIncident, $creator, $otherOperator, 'sent');
+        $assignedDeployment = $this->deployment($creator, 'DUAL-ASSIGNED-001');
+        $unassignedDeployment = $this->deployment($creator, 'DUAL-UNASSIGNED-001');
+        $assignedDispatch = $this->dispatch($assignedDeployment, $creator, $operator, 'sent');
+        $unassignedDispatch = $this->dispatch($unassignedDeployment, $creator, $otherOperator, 'sent');
 
-        $incidentResponse = $this->asClient($operator, 'client:operator')->getJson('/api/incidents');
-        $incidentResponse->assertOk();
-        $incidentIds = collect($incidentResponse->json('data'))->pluck('id');
-        $this->assertTrue($incidentIds->contains($assignedIncident->id));
-        $this->assertFalse($incidentIds->contains($unassignedIncident->id));
+        $deploymentResponse = $this->asClient($operator, 'client:operator')->getJson('/api/deployments');
+        $deploymentResponse->assertOk();
+        $deploymentIds = collect($deploymentResponse->json('data'))->pluck('id');
+        $this->assertTrue($deploymentIds->contains($assignedDeployment->id));
+        $this->assertFalse($deploymentIds->contains($unassignedDeployment->id));
 
         $dispatchResponse = $this->asClient($operator, 'client:operator')->getJson('/api/dispatches');
         $dispatchResponse->assertOk();
@@ -83,22 +84,22 @@ final class IamAuthorizationTest extends TestCase
         $this->assertFalse($dispatchIds->contains($unassignedDispatch->id));
     }
 
-    public function test_broad_incident_permissions_keep_full_web_collection_access(): void
+    public function test_broad_deployment_permissions_keep_full_web_collection_access(): void
     {
         $viewer = $this->user('broad-web-viewer@example.test');
         $creator = $this->user('broad-web-creator@example.test');
-        $this->grant($viewer, ['incidents.view', 'incidents.dispatch.view'], operator: false, admin: true);
+        $this->grant($viewer, ['deployments.view', 'deployments.dispatch.view'], operator: false, admin: true);
 
-        $firstIncident = $this->incident($creator, 'BROAD-001');
-        $secondIncident = $this->incident($creator, 'BROAD-002');
-        $firstDispatch = $this->dispatch($firstIncident, $creator, $creator, 'sent');
-        $secondDispatch = $this->dispatch($secondIncident, $creator, $creator, 'sent');
+        $firstDeployment = $this->deployment($creator, 'BROAD-001');
+        $secondDeployment = $this->deployment($creator, 'BROAD-002');
+        $firstDispatch = $this->dispatch($firstDeployment, $creator, $creator, 'sent');
+        $secondDispatch = $this->dispatch($secondDeployment, $creator, $creator, 'sent');
 
-        $incidentResponse = $this->asClient($viewer, 'client:web')->getJson('/api/incidents');
-        $incidentResponse->assertOk();
-        $incidentIds = collect($incidentResponse->json('data'))->pluck('id');
-        $this->assertTrue($incidentIds->contains($firstIncident->id));
-        $this->assertTrue($incidentIds->contains($secondIncident->id));
+        $deploymentResponse = $this->asClient($viewer, 'client:web')->getJson('/api/deployments');
+        $deploymentResponse->assertOk();
+        $deploymentIds = collect($deploymentResponse->json('data'))->pluck('id');
+        $this->assertTrue($deploymentIds->contains($firstDeployment->id));
+        $this->assertTrue($deploymentIds->contains($secondDeployment->id));
 
         $dispatchResponse = $this->asClient($viewer, 'client:web')->getJson('/api/dispatches');
         $dispatchResponse->assertOk();
@@ -107,13 +108,51 @@ final class IamAuthorizationTest extends TestCase
         $this->assertTrue($dispatchIds->contains($secondDispatch->id));
     }
 
+    public function test_deployment_manage_implies_web_view_without_granting_operator_unscoped_access(): void
+    {
+        $manager = $this->user('manage-only-dual-client@example.test');
+        $creator = $this->user('manage-only-creator@example.test');
+        $this->grant($manager, ['deployments.manage'], operator: true, admin: true);
+        $deployment = $this->deployment($creator, 'MANAGE-ONLY-001');
+
+        $webList = $this->asClient($manager, 'client:web')
+            ->getJson('/api/deployments')
+            ->assertOk();
+        $this->assertContains($deployment->id, collect($webList->json('data'))->pluck('id')->all());
+        $this->asClient($manager, 'client:web')
+            ->getJson('/api/deployments/'.$deployment->id)
+            ->assertOk()
+            ->assertJsonPath('data.id', $deployment->id);
+        $this->asClient($manager, 'client:web')
+            ->getJson('/api/deployments/'.$deployment->id.'/timeline')
+            ->assertOk();
+
+        Auth::forgetGuards();
+        $this->asClient($manager, 'client:operator')
+            ->getJson('/api/deployments')
+            ->assertForbidden();
+        $this->asClient($manager, 'client:operator')
+            ->getJson('/api/deployments/'.$deployment->id)
+            ->assertForbidden();
+        $this->asClient($manager, 'client:operator')
+            ->getJson('/api/deployments/'.$deployment->id.'/timeline')
+            ->assertForbidden();
+        $this->asClient($manager, 'client:operator')
+            ->getJson('/api/deployments/'.$deployment->id.'/live-locations')
+            ->assertForbidden();
+        $this->asClient($manager, 'client:operator')
+            ->getJson('/api/reports/deployments')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+    }
+
     public function test_preannouncement_hides_operational_details(): void
     {
         $operator = $this->user('operator@example.test');
         $creator = $this->user('creator@example.test');
-        $this->grant($operator, ['incidents.assigned.view'], operator: true, admin: false);
+        $this->grant($operator, ['deployments.assigned.view'], operator: true, admin: false);
 
-        $incident = $this->incident($creator, 'PRE-001', [
+        $deployment = $this->deployment($creator, 'PRE-001', [
             'reporter_name' => 'Geheime melder',
             'reporter_phone' => '+31612345678',
             'location_label' => "McDonald's, Botnische golf 1, 3446 CN, Woerden, Utrecht, Nederland",
@@ -121,17 +160,17 @@ final class IamAuthorizationTest extends TestCase
             'longitude' => 4.8922,
             'custom_fields' => ['secret' => 'niet tonen'],
         ]);
-        $dispatch = $this->dispatch($incident, $creator, $operator, 'draft');
+        $dispatch = $this->dispatch($deployment, $creator, $operator, 'draft');
         $dispatch->update([
             'priority' => 'critical',
             'message' => implode(' - ', [
-                $incident->reference,
-                $incident->title,
-                $incident->location_label,
+                $deployment->reference,
+                $deployment->title,
+                $deployment->location_label,
             ]),
         ]);
 
-        $response = $this->asClient($operator, 'client:operator')->getJson('/api/incidents/'.$incident->id);
+        $response = $this->asClient($operator, 'client:operator')->getJson('/api/deployments/'.$deployment->id);
 
         $response->assertOk()
             ->assertJsonPath('data.reference', 'Vooraankondiging')
@@ -139,7 +178,7 @@ final class IamAuthorizationTest extends TestCase
             ->assertJsonPath('data.reporter_phone', null)
             ->assertJsonPath('data.latitude', null)
             ->assertJsonPath('data.longitude', null)
-            ->assertJsonPath('data.title', 'Beschikbaar voor melding in Woerden?')
+            ->assertJsonPath('data.title', 'Beschikbaar voor een mogelijke inzet in Woerden?')
             ->assertJsonPath('data.location_label', 'Woerden')
             ->assertJsonPath('data.custom_fields', []);
         $this->assertStringContainsString('"custom_fields":{}', $response->getContent());
@@ -150,10 +189,10 @@ final class IamAuthorizationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.message', 'Vooraankondiging')
             ->assertJsonPath('data.priority', 'normal')
-            ->assertJsonPath('data.incident.title', 'Beschikbaar voor melding in Woerden?')
-            ->assertJsonPath('data.incident.location_label', 'Woerden');
+            ->assertJsonPath('data.deployment.title', 'Beschikbaar voor een mogelijke inzet in Woerden?')
+            ->assertJsonPath('data.deployment.location_label', 'Woerden');
         $this->assertStringNotContainsString('Botnische golf 1', $dispatchResponse->getContent());
-        $this->assertStringNotContainsString('Testincident', (string) $dispatchResponse->json('data.message'));
+        $this->assertStringNotContainsString('Testdeployment', (string) $dispatchResponse->json('data.message'));
 
         $list = $this->asClient($operator, 'client:operator')
             ->getJson('/api/dispatches')
@@ -170,10 +209,10 @@ final class IamAuthorizationTest extends TestCase
         $operator = $this->user('operator@example.test', 'Eigen Operator');
         $otherOperator = $this->user('other@example.test', 'Andere Operator');
         $creator = $this->user('creator@example.test');
-        $this->grant($operator, ['incidents.assigned.view'], operator: true, admin: false);
+        $this->grant($operator, ['deployments.assigned.view'], operator: true, admin: false);
 
-        $incident = $this->incident($creator, 'TIMELINE-001');
-        $dispatch = $this->dispatch($incident, $creator, $operator, 'sent');
+        $deployment = $this->deployment($creator, 'TIMELINE-001');
+        $dispatch = $this->dispatch($deployment, $creator, $operator, 'sent');
         DispatchRecipient::query()->create([
             'dispatch_request_id' => $dispatch->id,
             'user_id' => $otherOperator->id,
@@ -183,7 +222,7 @@ final class IamAuthorizationTest extends TestCase
             'responded_at' => now(),
         ]);
 
-        $response = $this->asClient($operator, 'client:operator')->getJson('/api/incidents/'.$incident->id.'/timeline');
+        $response = $this->asClient($operator, 'client:operator')->getJson('/api/deployments/'.$deployment->id.'/timeline');
 
         $response->assertOk();
         $labels = collect($response->json('data'))->pluck('label')->implode(' ');
@@ -311,7 +350,7 @@ final class IamAuthorizationTest extends TestCase
         $operator = $this->user('recipient-without-permission@example.test');
         $creator = $this->user('dispatch-creator@example.test');
         $this->grant($operator, [], operator: true, admin: false);
-        $dispatch = $this->dispatch($this->incident($creator, 'RESPOND-001'), $creator, $operator, 'sent');
+        $dispatch = $this->dispatch($this->deployment($creator, 'RESPOND-001'), $creator, $operator, 'sent');
 
         $this->asClient($operator, 'client:operator')
             ->postJson('/api/dispatches/'.$dispatch->id.'/respond', ['response' => 'accepted'])
@@ -371,11 +410,11 @@ final class IamAuthorizationTest extends TestCase
     /**
      * @param  array<string, mixed>  $overrides
      */
-    private function incident(User $creator, string $reference, array $overrides = []): Incident
+    private function deployment(User $creator, string $reference, array $overrides = []): Deployment
     {
-        return Incident::query()->create($overrides + [
+        return Deployment::query()->create($overrides + [
             'reference' => $reference,
-            'title' => 'Testincident',
+            'title' => 'Testdeployment',
             'priority' => 'normal',
             'status' => 'active',
             'is_test' => false,
@@ -386,10 +425,10 @@ final class IamAuthorizationTest extends TestCase
         ]);
     }
 
-    private function dispatch(Incident $incident, User $creator, User $recipient, string $status): DispatchRequest
+    private function dispatch(Deployment $deployment, User $creator, User $recipient, string $status): DispatchRequest
     {
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $creator->id,
             'requested_by_name' => $creator->name,
             'requested_by_email' => $creator->email,

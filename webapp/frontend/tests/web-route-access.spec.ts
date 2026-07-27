@@ -12,6 +12,13 @@ const managementRoutes = [
   { key: 'expiry', path: '/expiry', label: 'Verloop', permissions: ['expiry.view'], anyPermission: false },
   { key: 'forms', path: '/forms', label: 'Formulieren', permissions: ['forms.manage'], anyPermission: false },
   {
+    key: 'priorityDecisions',
+    path: '/prioriteitsbesluiten',
+    label: 'Prioriteitsbesluiten',
+    permissions: ['forms.manage'],
+    anyPermission: false,
+  },
+  {
     key: 'admin',
     path: '/admin',
     label: 'Admin',
@@ -45,11 +52,11 @@ const managementRoutes = [
   { key: 'system', path: '/system', label: 'Systeem', permissions: ['system.health.view'], anyPermission: false },
 ] as const;
 
-test('keeps all thirteen management navigation items and direct routes on one RBAC matrix', () => {
+test('keeps all fourteen management navigation items and direct routes on one RBAC matrix', () => {
   const navigation = readFileSync(new URL('../src/app/CommandLayout.tsx', import.meta.url), 'utf8');
   const routeShell = readFileSync(new URL('../src/next/RouteShell.tsx', import.meta.url), 'utf8');
 
-  expect(managementRoutes).toHaveLength(13);
+  expect(managementRoutes).toHaveLength(14);
 
   for (const item of managementRoutes) {
     const access = webRouteAccess[item.key];
@@ -65,6 +72,49 @@ test('keeps all thirteen management navigation items and direct routes on one RB
     expect(navigation).toContain(`...webRouteAccess.${item.key}`);
     expect(routeShell).toContain(`{ to: '${item.path}', ...webRouteAccess.${item.key} }`);
   }
+});
+
+test('treats deployment management as web view access across navigation and deployment routes', () => {
+  const navigation = readFileSync(new URL('../src/app/CommandLayout.tsx', import.meta.url), 'utf8');
+  const routeShell = readFileSync(new URL('../src/next/RouteShell.tsx', import.meta.url), 'utf8');
+  const deploymentRoutes = [
+    '../app/inzetten/page.tsx',
+    '../app/inzetten/archive/page.tsx',
+    '../app/inzetten/[deploymentId]/page.tsx',
+  ];
+
+  expect(webRouteAccess.deployments.permissions).toEqual(['deployments.view', 'deployments.manage']);
+  expect(webRouteAccess.deployments.anyPermission).toBe(true);
+  expect(hasWebRouteAccess(webRouteAccess.deployments, (permission) => permission === 'deployments.view')).toBe(true);
+  expect(hasWebRouteAccess(webRouteAccess.deployments, (permission) => permission === 'deployments.manage')).toBe(true);
+  expect(hasWebRouteAccess(webRouteAccess.deployments, () => false)).toBe(false);
+
+  for (const routePath of deploymentRoutes) {
+    const route = readFileSync(new URL(routePath, import.meta.url), 'utf8');
+    expect(route).toContain('<ProtectedShell {...webRouteAccess.deployments}>');
+  }
+  const editRoute = readFileSync(new URL('../app/inzetten/[deploymentId]/edit/page.tsx', import.meta.url), 'utf8');
+  expect(editRoute).toContain("<ProtectedShell permissions={['deployments.manage']}>");
+  expect(editRoute).not.toContain("'deployments.view'");
+
+  expect(navigation).toContain("to: '/aanvragen', label: 'Aanvragen'");
+  expect(navigation).toContain("to: '/inzetten', label: 'Inzetten'");
+  expect(navigation).toContain("to: '/inzetten', label: 'Inzetten', icon: RadioTower, end: true, ...webRouteAccess.deployments");
+  expect(navigation).toContain("to: '/inzetten/archive', label: 'Archief', icon: Archive, ...webRouteAccess.deployments");
+  expect(routeShell).toContain("{ to: '/inzetten', ...webRouteAccess.deployments }");
+});
+
+test('keeps dispatch data and actions behind their dedicated permissions on the deployment detail', () => {
+  const detail = readFileSync(new URL('../src/features/deployments/DeploymentDetailPage.tsx', import.meta.url), 'utf8');
+
+  expect(detail).toContain("const canViewDispatches = hasPermission('deployments.dispatch.view')");
+  expect(detail).toContain("const canManageDispatches = hasPermission('deployments.dispatch.manage')");
+  expect(detail).toContain('Boolean(deploymentId) && canViewDispatches');
+  expect(detail).toContain('showDraftPanel && canViewDispatches && canManageDispatches');
+  expect(detail).toContain('showDispatchPanel && canViewDispatches && canManageDispatches');
+  expect(detail).toContain('{canViewDispatches ? (');
+  expect(detail).not.toContain('showDraftPanel && canManageDeployments');
+  expect(detail).not.toContain('showDispatchPanel && canManageDeployments');
 });
 
 test('evaluates alternative and cumulative permission rules fail closed', () => {

@@ -3,7 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\AuditLog;
-use App\Models\Incident;
+use App\Models\Deployment;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -43,9 +43,9 @@ final class WallboardRuntimeControlTest extends TestCase
                 'pages' => [
                     ['id' => 'map', 'name' => 'Kaart', 'type' => 'map', 'duration_seconds' => 15, 'options' => []],
                     ['id' => 'message', 'name' => 'Mededeling', 'type' => 'message', 'duration_seconds' => 20, 'options' => ['body' => 'Start briefing om 14:00.']],
-                    ['id' => 'incidents', 'name' => 'Incidenten', 'type' => 'incident_list', 'duration_seconds' => 10, 'options' => ['show_test_incidents' => false]],
+                    ['id' => 'deployments', 'name' => 'Deploymenten', 'type' => 'deployment_list', 'duration_seconds' => 10, 'options' => ['show_test_deployments' => false]],
                 ],
-                'incident_override' => ['enabled' => true, 'page_id' => 'incidents'],
+                'deployment_override' => ['enabled' => true, 'page_id' => 'deployments'],
             ],
         ])->assertOk()
             ->assertJsonPath('data.config_version', 2)
@@ -85,7 +85,7 @@ final class WallboardRuntimeControlTest extends TestCase
                 'pages' => [
                     ['id' => 'map', 'name' => 'Kaart', 'type' => 'map', 'duration_seconds' => 15, 'options' => []],
                 ],
-                'incident_override' => ['enabled' => false, 'page_id' => 'map'],
+                'deployment_override' => ['enabled' => false, 'page_id' => 'map'],
             ],
         ])->assertOk()
             ->assertJsonPath('data.display.mode', 'static')
@@ -253,11 +253,11 @@ final class WallboardRuntimeControlTest extends TestCase
             ->assertJsonPath('data.display.next_change_at', '2026-07-19T11:00:15+02:00');
     }
 
-    public function test_legacy_incident_override_never_replaces_the_configured_rotation_or_manual_page(): void
+    public function test_legacy_deployment_override_never_replaces_the_configured_rotation_or_manual_page(): void
     {
         $manager = $this->user('wallboard-override@example.test', ['wallboards.manage']);
         $configuration = $this->configuration();
-        $configuration['incident_override'] = ['enabled' => true, 'page_id' => 'summary'];
+        $configuration['deployment_override'] = ['enabled' => true, 'page_id' => 'summary'];
         $wallboard = $this->wallboard($manager, $configuration);
         [, $cookie] = $this->wallboardCredential($wallboard);
 
@@ -266,18 +266,18 @@ final class WallboardRuntimeControlTest extends TestCase
             'expected_control_version' => 1,
         ])->assertOk();
 
-        $openOnly = $this->incident($manager, 'active', false);
-        $testDispatch = $this->incident($manager, 'dispatching', true);
+        $openOnly = $this->deployment($manager, 'active', false);
+        $testDispatch = $this->deployment($manager, 'dispatching', true);
         $this->wallboardGet('/api/wallboard/control', $cookie)
             ->assertJsonPath('data.display.mode', 'manual')
-            ->assertJsonPath('data.display.incident_active', false);
+            ->assertJsonPath('data.display.deployment_active', false);
 
-        $first = $this->incident($manager, 'dispatching', false);
-        $second = $this->incident($manager, 'in_progress', false);
+        $first = $this->deployment($manager, 'dispatching', false);
+        $second = $this->deployment($manager, 'in_progress', false);
         $this->wallboardGet('/api/wallboard/control', $cookie)
             ->assertJsonPath('data.display.mode', 'manual')
             ->assertJsonPath('data.display.page_id', 'map')
-            ->assertJsonPath('data.display.incident_active', true);
+            ->assertJsonPath('data.display.deployment_active', true);
 
         $client = $this->asAdminClient($manager);
         $client->postJson('/api/admin/wallboards/'.$wallboard->id.'/display', [
@@ -291,7 +291,7 @@ final class WallboardRuntimeControlTest extends TestCase
         $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
             'expected_config_version' => 1,
             'configuration' => [
-                'incident_override' => ['enabled' => true, 'page_id' => 'map'],
+                'deployment_override' => ['enabled' => true, 'page_id' => 'map'],
             ],
         ])->assertOk()
             ->assertJsonPath('data.config_version', 2)
@@ -308,7 +308,7 @@ final class WallboardRuntimeControlTest extends TestCase
         $this->wallboardGet('/api/wallboard/control', $cookie)
             ->assertJsonPath('data.display.mode', 'manual')
             ->assertJsonPath('data.display.page_id', 'map')
-            ->assertJsonPath('data.display.incident_active', false);
+            ->assertJsonPath('data.display.deployment_active', false);
 
         $openOnly->delete();
         $testDispatch->delete();
@@ -371,41 +371,41 @@ final class WallboardRuntimeControlTest extends TestCase
         $wallboard = $this->wallboard($manager, $baseConfiguration);
         $wallboard->forceFill([
             'playlist_id' => $basePlaylist->id,
-            'active_incident_playlist_id' => $deploymentPlaylist->id,
+            'active_deployment_playlist_id' => $deploymentPlaylist->id,
         ])->save();
         [, $cookie] = $this->wallboardCredential($wallboard);
         $withoutAlarmPlaylist = $this->wallboard($manager, $baseConfiguration);
         $withoutAlarmPlaylist->forceFill(['playlist_id' => $basePlaylist->id])->save();
         [, $withoutAlarmCookie] = $this->wallboardCredential($withoutAlarmPlaylist);
 
-        $incident = $this->incident($manager, 'dispatching', false);
+        $deployment = $this->deployment($manager, 'dispatching', false);
         $this->wallboardGet('/api/wallboard/control', $cookie)
             ->assertOk()
-            ->assertJsonPath('data.active_incident_playlist', false)
+            ->assertJsonPath('data.active_deployment_playlist', false)
             ->assertJsonPath('data.runtime_playlist_id', $basePlaylist->id)
             ->assertJsonPath('data.runtime_playlist_version', 3)
             ->assertJsonPath('data.runtime_playlist_purpose', WallboardPlaylist::PURPOSE_NORMAL)
             ->assertJsonPath('data.display.page_id', 'base-map');
 
-        $incident->forceFill(['status' => 'in_progress'])->save();
+        $deployment->forceFill(['status' => 'in_progress'])->save();
         $this->wallboardGet('/api/wallboard/control', $cookie)
             ->assertOk()
-            ->assertJsonPath('data.active_incident_playlist', true)
+            ->assertJsonPath('data.active_deployment_playlist', true)
             ->assertJsonPath('data.runtime_playlist_id', $deploymentPlaylist->id)
             ->assertJsonPath('data.runtime_playlist_version', 7)
             ->assertJsonPath('data.runtime_playlist_purpose', WallboardPlaylist::PURPOSE_ALARM)
             ->assertJsonPath('data.display.page_id', 'deployment-briefing');
         $state = $this->wallboardGet('/api/wallboard/state', $cookie)
             ->assertOk()
-            ->assertJsonPath('data.wallboard.active_incident_playlist', true)
+            ->assertJsonPath('data.wallboard.active_deployment_playlist', true)
             ->assertJsonPath('data.wallboard.runtime_playlist_id', $deploymentPlaylist->id)
             ->assertJsonPath('data.wallboard.runtime_playlist_purpose', WallboardPlaylist::PURPOSE_ALARM)
             ->assertJsonPath('data.wallboard.configuration.pages.0.id', 'deployment-briefing')
             ->assertJsonCount(1, 'data.wallboard.configuration.pages');
-        $this->assertSame([], $state->json('data.map.incidents'));
+        $this->assertSame([], $state->json('data.map.deployments'));
         $this->wallboardGet('/api/wallboard/static', $cookie)
             ->assertOk()
-            ->assertJsonPath('data.wallboard.active_incident_playlist', true)
+            ->assertJsonPath('data.wallboard.active_deployment_playlist', true)
             ->assertJsonPath('data.wallboard.runtime_playlist_id', $deploymentPlaylist->id)
             ->assertJsonPath('data.wallboard.configuration.pages.0.id', 'deployment-briefing');
         $this->wallboardGet('/api/wallboard/ticker', $cookie)
@@ -413,31 +413,31 @@ final class WallboardRuntimeControlTest extends TestCase
             ->assertJsonPath('data.items.0.text', 'Ticker tijdens inzet');
         $this->wallboardGet('/api/wallboard/control', $withoutAlarmCookie)
             ->assertOk()
-            ->assertJsonPath('data.active_incident_playlist', false)
+            ->assertJsonPath('data.active_deployment_playlist', false)
             ->assertJsonPath('data.runtime_playlist_id', $basePlaylist->id)
             ->assertJsonPath('data.runtime_playlist_purpose', WallboardPlaylist::PURPOSE_NORMAL)
             ->assertJsonPath('data.display.page_id', 'base-map');
 
-        // A newer dispatching incident may coexist with an already active
+        // A newer dispatching deployment may coexist with an already active
         // deployment. The selected runtime playlist must remain deployment-
-        // scoped until every real in-progress incident has ended.
-        $newerDispatching = $this->incident($manager, 'dispatching', false);
+        // scoped until every real in-progress deployment has ended.
+        $newerDispatching = $this->deployment($manager, 'dispatching', false);
         $newerDispatching->forceFill(['opened_at' => now()->addMinute()])->save();
         $this->wallboardGet('/api/wallboard/control', $cookie)
             ->assertOk()
-            ->assertJsonPath('data.active_incident_playlist', true)
+            ->assertJsonPath('data.active_deployment_playlist', true)
             ->assertJsonPath('data.runtime_playlist_id', $deploymentPlaylist->id)
             ->assertJsonPath('data.display.page_id', 'deployment-briefing');
 
-        $incident->forceFill(['status' => 'resolved', 'closed_at' => now()])->save();
+        $deployment->forceFill(['status' => 'resolved', 'closed_at' => now()])->save();
         $this->wallboardGet('/api/wallboard/control', $cookie)
             ->assertOk()
-            ->assertJsonPath('data.active_incident_playlist', false)
+            ->assertJsonPath('data.active_deployment_playlist', false)
             ->assertJsonPath('data.runtime_playlist_id', $basePlaylist->id)
             ->assertJsonPath('data.display.page_id', 'base-map');
         $this->wallboardGet('/api/wallboard/static', $cookie)
             ->assertOk()
-            ->assertJsonPath('data.wallboard.active_incident_playlist', false)
+            ->assertJsonPath('data.wallboard.active_deployment_playlist', false)
             ->assertJsonPath('data.wallboard.runtime_playlist_id', $basePlaylist->id)
             ->assertJsonPath('data.wallboard.configuration.pages.0.id', 'base-map');
         $this->wallboardGet('/api/wallboard/ticker', $cookie)
@@ -474,23 +474,23 @@ final class WallboardRuntimeControlTest extends TestCase
             ->assertHeader('Cache-Control', 'no-store, private');
     }
 
-    public function test_incident_pages_receive_incidents_when_the_map_incident_layer_is_disabled(): void
+    public function test_deployment_pages_receive_deployments_when_the_map_deployment_layer_is_disabled(): void
     {
         $manager = $this->user('wallboard-list-feed@example.test', ['wallboards.manage']);
         $configuration = $this->configuration();
-        $configuration['map']['show_active_incidents'] = false;
+        $configuration['map']['show_active_deployments'] = false;
         $configuration['pages'] = [
-            ['id' => 'incidents', 'name' => 'Incidenten', 'type' => 'incident_list', 'duration_seconds' => 10, 'options' => ['show_test_incidents' => false]],
+            ['id' => 'deployments', 'name' => 'Deploymenten', 'type' => 'deployment_list', 'duration_seconds' => 10, 'options' => ['show_test_deployments' => false]],
         ];
-        $configuration['incident_override'] = ['enabled' => false, 'page_id' => 'incidents'];
+        $configuration['deployment_override'] = ['enabled' => false, 'page_id' => 'deployments'];
         $wallboard = $this->wallboard($manager, WallboardConfiguration::normalize($configuration));
         [, $cookie] = $this->wallboardCredential($wallboard);
-        $incident = $this->incident($manager, 'dispatching', false);
+        $deployment = $this->deployment($manager, 'dispatching', false);
 
         $this->wallboardGet('/api/wallboard/state', $cookie)
             ->assertOk()
-            ->assertJsonCount(1, 'data.map.incidents')
-            ->assertJsonPath('data.map.incidents.0.id', $incident->id);
+            ->assertJsonCount(1, 'data.map.deployments')
+            ->assertJsonPath('data.map.deployments.0.id', $deployment->id);
     }
 
     public function test_message_only_wallboard_does_not_receive_unused_operational_map_data(): void
@@ -500,17 +500,17 @@ final class WallboardRuntimeControlTest extends TestCase
             'pages' => [
                 ['id' => 'message', 'name' => 'Mededeling', 'type' => 'message', 'duration_seconds' => 30, 'options' => ['body' => 'Stand-by.']],
             ],
-            'incident_override' => ['enabled' => false, 'page_id' => 'message'],
+            'deployment_override' => ['enabled' => false, 'page_id' => 'message'],
         ]);
         $wallboard = $this->wallboard($manager, $configuration);
         [, $cookie] = $this->wallboardCredential($wallboard);
-        $this->incident($manager, 'dispatching', false);
+        $this->deployment($manager, 'dispatching', false);
 
         $this->wallboardGet('/api/wallboard/state', $cookie)
             ->assertOk()
-            ->assertJsonCount(0, 'data.map.incidents')
+            ->assertJsonCount(0, 'data.map.deployments')
             ->assertJsonCount(0, 'data.map.command_centers')
-            ->assertJsonCount(0, 'data.map.historical_incidents')
+            ->assertJsonCount(0, 'data.map.historical_deployments')
             ->assertJsonCount(0, 'data.map.live_locations');
     }
 
@@ -521,15 +521,15 @@ final class WallboardRuntimeControlTest extends TestCase
             'rotation_enabled' => true,
             'pages' => [
                 ['id' => 'map', 'name' => 'Kaart', 'type' => 'map', 'duration_seconds' => 5, 'options' => []],
-                ['id' => 'summary', 'name' => 'Samenvatting', 'type' => 'summary', 'duration_seconds' => 10, 'options' => ['show_test_incidents' => false]],
+                ['id' => 'summary', 'name' => 'Samenvatting', 'type' => 'summary', 'duration_seconds' => 10, 'options' => ['show_test_deployments' => false]],
             ],
-            'incident_override' => ['enabled' => false, 'page_id' => 'summary'],
+            'deployment_override' => ['enabled' => false, 'page_id' => 'summary'],
             'map' => [
-                'show_active_incidents' => false,
+                'show_active_deployments' => false,
                 'show_live_locations' => false,
                 'show_routes' => false,
                 'show_command_centers' => false,
-                'show_historical_incidents' => false,
+                'show_historical_deployments' => false,
             ],
         ]);
     }
@@ -548,11 +548,11 @@ final class WallboardRuntimeControlTest extends TestCase
         ]);
     }
 
-    private function incident(User $creator, string $status, bool $isTest): Incident
+    private function deployment(User $creator, string $status, bool $isTest): Deployment
     {
-        return Incident::query()->create([
+        return Deployment::query()->create([
             'reference' => 'WB-'.str()->upper((string) str()->random(8)),
-            'title' => 'Wallboardincident',
+            'title' => 'Wallboarddeployment',
             'priority' => 'normal',
             'status' => $status,
             'is_test' => $isTest,

@@ -3,19 +3,19 @@
 namespace Tests\Feature;
 
 use App\Models\Asset;
+use App\Models\Deployment;
 use App\Models\DispatchRecipient;
 use App\Models\DispatchRequest;
 use App\Models\DroneType;
-use App\Models\Incident;
 use App\Models\Permission;
-use App\Models\PilotIncidentReport;
+use App\Models\PilotDeploymentReport;
 use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Repositories\WallboardKpiRepository;
-use App\Services\PilotIncidentReportDroneSnapshotService;
-use App\Services\PilotIncidentReportFormService;
-use App\Services\PilotIncidentReportService;
+use App\Services\PilotDeploymentReportDroneSnapshotService;
+use App\Services\PilotDeploymentReportFormService;
+use App\Services\PilotDeploymentReportService;
 use App\Services\WallboardKpiService;
 use App\Support\WallboardConfiguration;
 use Carbon\CarbonImmutable;
@@ -45,7 +45,7 @@ final class WallboardKpiExpansionTest extends TestCase
         [$typeB, $assetB] = $this->drone('DJI', 'Matrice 30T KPI', 'KPI-DRONE-B');
 
         $this->report(
-            $this->incident($user, false, CarbonImmutable::parse('2026-06-01T08:00:00Z')),
+            $this->deployment($user, false, CarbonImmutable::parse('2026-06-01T08:00:00Z')),
             $user,
             'submitted',
             30,
@@ -58,7 +58,7 @@ final class WallboardKpiExpansionTest extends TestCase
             ]],
         );
         $this->report(
-            $this->incident($user),
+            $this->deployment($user),
             $user,
             'submitted',
             45,
@@ -66,16 +66,16 @@ final class WallboardKpiExpansionTest extends TestCase
             ['drone_used' => (string) $assetB->id],
         );
         $this->report(
-            $this->incident($user),
+            $this->deployment($user),
             $user,
             'submitted',
             15,
             CarbonImmutable::parse('2026-07-31T21:59:59Z'),
         );
-        $this->report($this->incident($user), $user, 'draft', 80, CarbonImmutable::parse('2026-07-10T10:00:00Z'), ['drone_used' => (string) $assetA->id]);
-        $this->report($this->incident($user), $user, 'submitted', 0, CarbonImmutable::parse('2026-07-10T10:00:00Z'), ['drone_used' => (string) $assetA->id]);
-        $this->report($this->incident($user), $user, 'submitted', 20, CarbonImmutable::parse('2026-07-31T22:00:00Z'), ['drone_used' => (string) $assetA->id]);
-        $this->report($this->incident($user, true), $user, 'submitted', 60, CarbonImmutable::parse('2026-07-10T10:00:00Z'), ['drone_used' => (string) $assetA->id]);
+        $this->report($this->deployment($user), $user, 'draft', 80, CarbonImmutable::parse('2026-07-10T10:00:00Z'), ['drone_used' => (string) $assetA->id]);
+        $this->report($this->deployment($user), $user, 'submitted', 0, CarbonImmutable::parse('2026-07-10T10:00:00Z'), ['drone_used' => (string) $assetA->id]);
+        $this->report($this->deployment($user), $user, 'submitted', 20, CarbonImmutable::parse('2026-07-31T22:00:00Z'), ['drone_used' => (string) $assetA->id]);
+        $this->report($this->deployment($user, true), $user, 'submitted', 60, CarbonImmutable::parse('2026-07-10T10:00:00Z'), ['drone_used' => (string) $assetA->id]);
 
         $typeA->update(['model' => 'Hernoemd model KPI']);
         $typeB->delete();
@@ -108,35 +108,35 @@ final class WallboardKpiExpansionTest extends TestCase
     public function test_province_and_country_distributions_use_persisted_canonical_aggregates_only(): void
     {
         $user = $this->user();
-        $this->incidentWithLocation($user, 'NL', '26');
-        $this->incidentWithLocation($user, 'NL', '20');
-        $this->incidentWithLocation($user, 'BE', null);
-        $this->incidentWithLocation($user, 'DE', null);
-        $this->incidentWithLocation($user, null, null);
-        $this->incidentWithLocation($user, 'NL', '25', true);
+        $this->deploymentWithLocation($user, 'NL', '26');
+        $this->deploymentWithLocation($user, 'NL', '20');
+        $this->deploymentWithLocation($user, 'BE', null);
+        $this->deploymentWithLocation($user, 'DE', null);
+        $this->deploymentWithLocation($user, null, null);
+        $this->deploymentWithLocation($user, 'NL', '25', true);
 
         $result = app(WallboardKpiService::class)->pages($this->configuration([
-            'incidents_by_province',
-            'incidents_by_country',
+            'deployments_by_province',
+            'deployments_by_country',
         ]));
         $metrics = collect($result['pages']['kpi']['metrics'])->keyBy('key');
-        $provinces = collect($metrics['incidents_by_province']['segments'])->keyBy('label');
-        $countries = collect($metrics['incidents_by_country']['segments'])->keyBy('label');
+        $provinces = collect($metrics['deployments_by_province']['segments'])->keyBy('label');
+        $countries = collect($metrics['deployments_by_country']['segments'])->keyBy('label');
 
-        self::assertSame('bar', $metrics['incidents_by_province']['visualization']);
+        self::assertSame('bar', $metrics['deployments_by_province']['visualization']);
         self::assertCount(13, $provinces);
         self::assertSame(1, $provinces['Utrecht']['value']);
         self::assertSame(1, $provinces['Groningen']['value']);
         self::assertSame(1, $provinces['Onbekend']['value']);
-        self::assertSame(3, $metrics['incidents_by_province']['value']);
-        self::assertSame('Sinds registratie · Nederland + onbekend', $metrics['incidents_by_province']['context']);
+        self::assertSame(3, $metrics['deployments_by_province']['value']);
+        self::assertSame('Sinds registratie · Nederland + onbekend', $metrics['deployments_by_province']['context']);
 
         self::assertCount(4, $countries);
         self::assertSame(2, $countries['Nederland']['value']);
         self::assertSame(1, $countries['België']['value']);
         self::assertSame(1, $countries['Duitsland']['value']);
         self::assertSame(1, $countries['Onbekend']['value']);
-        self::assertSame(5, $metrics['incidents_by_country']['value']);
+        self::assertSame(5, $metrics['deployments_by_country']['value']);
     }
 
     public function test_drone_distribution_uses_only_valid_historical_snapshots_in_stored_priority_order(): void
@@ -149,7 +149,7 @@ final class WallboardKpiExpansionTest extends TestCase
         [, $laterStored] = $this->drone('Parrot', 'Later Stored KPI', 'KPI-HISTORY-LATER');
 
         $this->report(
-            $this->incident($user),
+            $this->deployment($user),
             $user,
             'submitted',
             20,
@@ -172,7 +172,7 @@ final class WallboardKpiExpansionTest extends TestCase
             ],
         );
         $this->report(
-            $this->incident($user),
+            $this->deployment($user),
             $user,
             'submitted',
             20,
@@ -201,7 +201,7 @@ final class WallboardKpiExpansionTest extends TestCase
             ],
         );
         $this->report(
-            $this->incident($user),
+            $this->deployment($user),
             $user,
             'submitted',
             20,
@@ -212,8 +212,8 @@ final class WallboardKpiExpansionTest extends TestCase
 
         $start = CarbonImmutable::parse('2026-06-30T22:00:00Z');
         $end = CarbonImmutable::parse('2026-07-31T22:00:00Z');
-        self::assertSame(3, PilotIncidentReport::query()->count());
-        self::assertSame(3, PilotIncidentReport::query()
+        self::assertSame(3, PilotDeploymentReport::query()->count());
+        self::assertSame(3, PilotDeploymentReport::query()
             ->where('submitted_at', '>=', $start)
             ->where('submitted_at', '<', $end)
             ->count());
@@ -261,11 +261,11 @@ final class WallboardKpiExpansionTest extends TestCase
     ): void {
         CarbonImmutable::setTestNow(CarbonImmutable::parse($nowAmsterdam, 'Europe/Amsterdam'));
         $user = $this->user();
-        $this->incident($user, false, CarbonImmutable::parse($startUtc));
-        $this->incident($user, false, CarbonImmutable::parse($lastInsideUtc));
-        $this->incident($user, false, CarbonImmutable::parse($endUtc));
+        $this->deployment($user, false, CarbonImmutable::parse($startUtc));
+        $this->deployment($user, false, CarbonImmutable::parse($lastInsideUtc));
+        $this->deployment($user, false, CarbonImmutable::parse($endUtc));
 
-        $result = app(WallboardKpiService::class)->pages($this->configuration(['incidents_opened_today']));
+        $result = app(WallboardKpiService::class)->pages($this->configuration(['deployments_opened_today']));
 
         self::assertSame(2, $result['pages']['kpi']['metrics'][0]['value']);
     }
@@ -292,9 +292,9 @@ final class WallboardKpiExpansionTest extends TestCase
         $user = $this->user();
         [$typeA, $assetA] = $this->drone('DJI', 'Matrice 350 RTK KPI', 'KPI-HISTORY-A');
         [, $assetB] = $this->drone('Autel', 'Alpha KPI', 'KPI-HISTORY-B');
-        $incident = $this->incident($user);
+        $deployment = $this->deployment($user);
         $report = $this->report(
-            $incident,
+            $deployment,
             $user,
             'submitted',
             25,
@@ -309,7 +309,7 @@ final class WallboardKpiExpansionTest extends TestCase
 
         $typeA->update(['model' => 'Nieuw model']);
         $typeA->delete();
-        $snapshotService = app(PilotIncidentReportDroneSnapshotService::class);
+        $snapshotService = app(PilotDeploymentReportDroneSnapshotService::class);
         self::assertEquals($snapshot, $snapshotService->capture(
             ['drone_used' => (string) $assetA->id],
             $snapshot,
@@ -322,8 +322,8 @@ final class WallboardKpiExpansionTest extends TestCase
         );
         self::assertSame('Alpha KPI', $changed['drone_used']['model']);
 
-        $formService = app(PilotIncidentReportFormService::class);
-        $droneField = collect($formService->fields($user, incident: $incident))->firstWhere('key', 'drone_used');
+        $formService = app(PilotDeploymentReportFormService::class);
+        $droneField = collect($formService->fields($user, deployment: $deployment))->firstWhere('key', 'drone_used');
         self::assertNotNull($droneField);
         self::assertContains((string) $assetA->id, array_column($droneField['options'], 'value'));
         self::assertStringContainsString('historische selectie', collect($droneField['options'])->firstWhere('value', (string) $assetA->id)['label']);
@@ -332,10 +332,10 @@ final class WallboardKpiExpansionTest extends TestCase
             'summary' => 'Historisch rapport bijgewerkt',
             'drone_used' => (string) $assetA->id,
         ]];
-        self::assertTrue(Validator::make($currentPayload, $formService->validationRules($user, $incident))->passes());
+        self::assertTrue(Validator::make($currentPayload, $formService->validationRules($user, $deployment))->passes());
         $unauthorizedPayload = $currentPayload;
         $unauthorizedPayload['custom_fields']['drone_used'] = (string) $assetB->id;
-        self::assertFalse(Validator::make($unauthorizedPayload, $formService->validationRules($user, $incident))->passes());
+        self::assertFalse(Validator::make($unauthorizedPayload, $formService->validationRules($user, $deployment))->passes());
 
         $segments = app(WallboardKpiRepository::class)->droneFlightDistribution(
             now()->subDay()->setTimezone('UTC'),
@@ -351,7 +351,7 @@ final class WallboardKpiExpansionTest extends TestCase
         $submittedAt = CarbonImmutable::parse('2026-07-20T10:00:00Z');
         $user = $this->user();
         [, $asset] = $this->drone('DJI', 'Historic Edit KPI', 'KPI-HISTORY-EDIT');
-        $incident = $this->incident($user);
+        $deployment = $this->deployment($user);
         $snapshot = [
             'drone_used' => [
                 'asset_id' => (string) $asset->id,
@@ -360,7 +360,7 @@ final class WallboardKpiExpansionTest extends TestCase
             ],
         ];
         $this->report(
-            $incident,
+            $deployment,
             $user,
             'submitted',
             25,
@@ -369,7 +369,7 @@ final class WallboardKpiExpansionTest extends TestCase
             $snapshot,
         );
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $user->id,
             'requested_by_name' => $user->name,
             'requested_by_email' => $user->email,
@@ -387,18 +387,18 @@ final class WallboardKpiExpansionTest extends TestCase
             'notified_at' => now(),
         ]);
 
-        $retypedFields = collect(app(PilotIncidentReportFormService::class)->defaultFields())
+        $retypedFields = collect(app(PilotDeploymentReportFormService::class)->defaultFields())
             ->map(static fn (array $field): array => $field['key'] === 'drone_used'
                 ? array_replace($field, ['type' => 'text', 'option_source' => 'manual'])
                 : $field)
             ->all();
         SystemSetting::query()->updateOrCreate(
-            ['key' => PilotIncidentReportFormService::SETTING_KEY],
+            ['key' => PilotDeploymentReportFormService::SETTING_KEY],
             ['value' => $retypedFields, 'is_sensitive' => false],
         );
 
-        $edited = app(PilotIncidentReportService::class)->submitForActor(
-            $incident,
+        $edited = app(PilotDeploymentReportService::class)->submitForActor(
+            $deployment,
             $user,
             $user,
             [
@@ -409,10 +409,10 @@ final class WallboardKpiExpansionTest extends TestCase
 
         self::assertEquals($snapshot, $edited->drone_usage_snapshot);
         self::assertSame((string) $asset->id, $edited->custom_fields['drone_used']);
-        self::assertSame([], app(PilotIncidentReportFormService::class)->droneFieldKeys());
+        self::assertSame([], app(PilotDeploymentReportFormService::class)->droneFieldKeys());
 
         SystemSetting::query()
-            ->where('key', PilotIncidentReportFormService::SETTING_KEY)
+            ->where('key', PilotDeploymentReportFormService::SETTING_KEY)
             ->firstOrFail()
             ->update([
                 'value' => collect($retypedFields)
@@ -420,8 +420,8 @@ final class WallboardKpiExpansionTest extends TestCase
                     ->values()
                     ->all(),
             ]);
-        $edited = app(PilotIncidentReportService::class)->submitForActor(
-            $incident,
+        $edited = app(PilotDeploymentReportService::class)->submitForActor(
+            $deployment,
             $user,
             $user,
             [
@@ -442,13 +442,13 @@ final class WallboardKpiExpansionTest extends TestCase
         );
     }
 
-    public function test_incident_aware_form_config_does_not_reveal_unassigned_incidents(): void
+    public function test_deployment_aware_form_config_does_not_reveal_unassigned_deployments(): void
     {
         $operator = $this->user();
         $creator = $this->user();
         $permission = Permission::query()->firstOrCreate(
-            ['name' => 'incidents.assigned.view'],
-            ['category' => 'test', 'display_name' => 'Assigned incidents', 'description' => 'Test'],
+            ['name' => 'deployments.assigned.view'],
+            ['category' => 'test', 'display_name' => 'Assigned deployments', 'description' => 'Test'],
         );
         $role = Role::query()->create([
             'name' => 'kpi-operator-'.strtolower((string) Str::ulid()),
@@ -458,10 +458,10 @@ final class WallboardKpiExpansionTest extends TestCase
         ]);
         $role->permissions()->attach($permission->id);
         $operator->roles()->attach($role->id, ['created_at' => now()]);
-        $assigned = $this->incident($creator, false, now());
-        $unassigned = $this->incident($creator, false, now());
+        $assigned = $this->deployment($creator, false, now());
+        $unassigned = $this->deployment($creator, false, now());
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $assigned->id,
+            'deployment_id' => $assigned->id,
             'requested_by' => $creator->id,
             'requested_by_name' => $creator->name,
             'requested_by_email' => $creator->email,
@@ -481,10 +481,10 @@ final class WallboardKpiExpansionTest extends TestCase
         $token = $operator->createToken('KPI operator test', ['*', 'client:operator'], now()->addHour())->plainTextToken;
 
         $this->withToken($token)
-            ->getJson('/api/pilot-report/form-config?target=operator&incident_id='.$assigned->id)
+            ->getJson('/api/pilot-report/form-config?target=operator&deployment_id='.$assigned->id)
             ->assertOk();
         $this->withToken($token)
-            ->getJson('/api/pilot-report/form-config?target=operator&incident_id='.$unassigned->id)
+            ->getJson('/api/pilot-report/form-config?target=operator&deployment_id='.$unassigned->id)
             ->assertNotFound();
     }
 
@@ -524,12 +524,12 @@ final class WallboardKpiExpansionTest extends TestCase
         ]);
     }
 
-    private function incident(
+    private function deployment(
         User $user,
         bool $isTest = false,
         ?\DateTimeInterface $openedAt = null,
-    ): Incident {
-        return Incident::query()->create([
+    ): Deployment {
+        return Deployment::query()->create([
             'reference' => 'KPI-'.Str::ulid(),
             'title' => 'KPI-uitbreiding',
             'priority' => 'normal',
@@ -544,14 +544,14 @@ final class WallboardKpiExpansionTest extends TestCase
         ]);
     }
 
-    private function incidentWithLocation(
+    private function deploymentWithLocation(
         User $user,
         ?string $countryCode,
         ?string $provinceCode,
         bool $isTest = false,
-    ): Incident {
-        $incident = $this->incident($user, $isTest);
-        $incident->forceFill([
+    ): Deployment {
+        $deployment = $this->deployment($user, $isTest);
+        $deployment->forceFill([
             'country_code' => $countryCode,
             'country_name' => match ($countryCode) {
                 'NL' => 'Nederland',
@@ -567,7 +567,7 @@ final class WallboardKpiExpansionTest extends TestCase
             'province_resolved_at' => $provinceCode === null ? null : now(),
         ])->save();
 
-        return $incident;
+        return $deployment;
     }
 
     /** @return array{DroneType, Asset} */
@@ -596,16 +596,16 @@ final class WallboardKpiExpansionTest extends TestCase
      * @param  array<string, mixed>|null  $snapshot
      */
     private function report(
-        Incident $incident,
+        Deployment $deployment,
         User $user,
         string $status,
         int $flightMinutes,
         \DateTimeInterface $submittedAt,
         array $customFields = [],
         ?array $snapshot = null,
-    ): PilotIncidentReport {
-        return PilotIncidentReport::query()->create([
-            'incident_id' => $incident->id,
+    ): PilotDeploymentReport {
+        return PilotDeploymentReport::query()->create([
+            'deployment_id' => $deployment->id,
             'user_id' => $user->id,
             'user_name' => $user->name,
             'user_email' => $user->email,

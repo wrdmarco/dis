@@ -3,10 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Http\Responses\ApiResponse;
-use App\Models\Incident;
+use App\Models\Deployment;
+use App\Services\DeploymentAccessService;
+use App\Services\DeploymentReportService;
 use App\Services\DispatchStatisticsService;
-use App\Services\IncidentAccessService;
-use App\Services\IncidentReportService;
 use App\Support\MobileApiPayload;
 use DateTimeInterface;
 use Illuminate\Http\JsonResponse;
@@ -16,29 +16,29 @@ use Throwable;
 
 final class ReportingController extends Controller
 {
-    public function incidentPdf(Request $request, string $incidentId, IncidentAccessService $access): Response
+    public function deploymentPdf(Request $request, string $deploymentId, DeploymentAccessService $access): Response
     {
-        $incident = Incident::query()->find($incidentId);
-        if ($incident === null) {
-            return ApiResponse::error('incident_not_found', 'Incident niet gevonden.', 404);
+        $deployment = Deployment::query()->find($deploymentId);
+        if ($deployment === null) {
+            return ApiResponse::error('deployment_not_found', 'Inzet niet gevonden.', 404);
         }
 
-        $access->assertCanViewIncident($request->user(), $incident);
+        $access->assertCanViewDeployment($request->user(), $deployment);
 
-        if (! in_array($incident->status, ['resolved', 'cancelled'], true)) {
-            return ApiResponse::error('incident_not_closed', 'Een rapport kan pas worden gemaakt als het incident is afgerond of geannuleerd.', 422);
+        if (! in_array($deployment->status, ['resolved', 'cancelled'], true)) {
+            return ApiResponse::error('deployment_not_closed', 'Een rapport kan pas worden gemaakt als de inzet is afgerond of geannuleerd.', 422);
         }
 
         try {
-            $reports = app(IncidentReportService::class);
-            $reports->ensureStored($incident);
-            $pdfPath = $reports->storedPdfPath($incident->refresh());
+            $reports = app(DeploymentReportService::class);
+            $reports->ensureStored($deployment);
+            $pdfPath = $reports->storedPdfPath($deployment->refresh());
 
             if ($pdfPath === null) {
-                return ApiResponse::error('incident_report_unavailable', 'Het opgeslagen incidentrapport is nog niet beschikbaar.', 503);
+                return ApiResponse::error('deployment_report_unavailable', 'Het opgeslagen inzetrapport is nog niet beschikbaar.', 503);
             }
 
-            return response()->download($pdfPath, $reports->filename($incident), [
+            return response()->download($pdfPath, $reports->filename($deployment), [
                 'Content-Type' => 'application/pdf',
             ]);
         } catch (Throwable $exception) {
@@ -48,46 +48,46 @@ final class ReportingController extends Controller
                 // Logging must not hide the actual report download failure.
             }
 
-            return ApiResponse::error('incident_report_failed', 'Incidentrapport kon niet worden opgehaald.', 500);
+            return ApiResponse::error('deployment_report_failed', 'Inzetrapport kon niet worden opgehaald.', 500);
         }
     }
 
     public function dispatchStatistics(Request $request, DispatchStatisticsService $statistics): JsonResponse
     {
         $data = $request->validate([
-            'incident_limit' => ['nullable', 'integer', 'min:1', 'max:50'],
+            'deployment_limit' => ['nullable', 'integer', 'min:1', 'max:50'],
         ]);
 
-        return ApiResponse::success($statistics->overview((int) ($data['incident_limit'] ?? 5)));
+        return ApiResponse::success($statistics->overview((int) ($data['deployment_limit'] ?? 5)));
     }
 
-    public function incidents(
+    public function deployments(
         Request $request,
-        IncidentReportService $reports,
-        IncidentAccessService $access,
+        DeploymentReportService $reports,
+        DeploymentAccessService $access,
     ): JsonResponse {
         $data = $request->validate([
             'limit' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $query = Incident::query()
+        $query = Deployment::query()
             ->with([
                 'team',
                 'coordinator',
                 'pilotReports.user' => fn ($query) => $query->withTrashed(),
                 'dispatchRequests.recipients.user' => fn ($query) => $query->withTrashed(),
             ]);
-        $access->scopeIncidents($query, $request->user());
+        $access->scopeDeployments($query, $request->user());
 
-        $incidents = $query
+        $deployments = $query
             ->where('is_test', false)
             ->whereIn('status', ['resolved', 'cancelled'])
             ->orderByDesc('closed_at')
             ->orderByDesc('created_at')
             ->limit((int) ($data['limit'] ?? 50))
             ->get()
-            ->map(function (Incident $incident): array {
-                $attendanceDispatches = $incident->dispatchRequests
+            ->map(function (Deployment $deployment): array {
+                $attendanceDispatches = $deployment->dispatchRequests
                     ->whereIn('status', ['sent', 'escalated']);
                 $recipients = $attendanceDispatches->flatMap->recipients;
                 $acceptedRecipients = $recipients
@@ -95,7 +95,7 @@ final class ReportingController extends Controller
                     ->filter(fn ($recipient): bool => is_string($recipient->user_id) && $recipient->user_id !== '')
                     ->unique('user_id')
                     ->values();
-                $submittedReports = $incident->pilotReports
+                $submittedReports = $deployment->pilotReports
                     ->where('status', 'submitted')
                     ->filter(fn ($report): bool => is_string($report->user_id) && $report->user_id !== '')
                     ->keyBy('user_id');
@@ -118,7 +118,7 @@ final class ReportingController extends Controller
                         'submitted_at' => MobileApiPayload::dateTime($report->submitted_at),
                     ])
                     ->values();
-                $latestDispatchAt = $incident->dispatchRequests
+                $latestDispatchAt = $deployment->dispatchRequests
                     ->map(fn ($dispatch): ?DateTimeInterface => $dispatch->sent_at ?? $dispatch->created_at)
                     ->filter()
                     ->sortDesc()
@@ -130,25 +130,25 @@ final class ReportingController extends Controller
                 $reportStatus = $missingReportCount === 0 && $unfinalizedReportCount === 0 ? 'final' : 'draft';
 
                 return [
-                    'id' => $incident->id,
-                    'reference' => $incident->reference,
-                    'title' => $incident->title,
-                    'status' => $incident->status,
-                    'priority' => $incident->priority,
-                    'team' => $incident->team === null ? null : [
-                        'id' => $incident->team->id,
-                        'code' => $incident->team->code,
-                        'name' => $incident->team->name,
+                    'id' => $deployment->id,
+                    'reference' => $deployment->reference,
+                    'title' => $deployment->title,
+                    'status' => $deployment->status,
+                    'priority' => $deployment->priority,
+                    'team' => $deployment->team === null ? null : [
+                        'id' => $deployment->team->id,
+                        'code' => $deployment->team->code,
+                        'name' => $deployment->team->name,
                     ],
-                    'coordinator' => $incident->coordinator === null && $incident->coordinator_name === null ? null : [
-                        'id' => $incident->coordinator?->id ?? $incident->coordinator_id,
-                        'name' => $incident->coordinator?->name ?? $incident->coordinator_name,
-                        'email' => $incident->coordinator?->email ?? $incident->coordinator_email,
+                    'coordinator' => $deployment->coordinator === null && $deployment->coordinator_name === null ? null : [
+                        'id' => $deployment->coordinator?->id ?? $deployment->coordinator_id,
+                        'name' => $deployment->coordinator?->name ?? $deployment->coordinator_name,
+                        'email' => $deployment->coordinator?->email ?? $deployment->coordinator_email,
                     ],
-                    'opened_at' => MobileApiPayload::dateTime($incident->opened_at),
-                    'closed_at' => MobileApiPayload::dateTime($incident->closed_at),
-                    'report_generated_at' => MobileApiPayload::dateTime($incident->report_generated_at),
-                    'report_available' => is_string($incident->report_pdf_path) && $incident->report_pdf_path !== '',
+                    'opened_at' => MobileApiPayload::dateTime($deployment->opened_at),
+                    'closed_at' => MobileApiPayload::dateTime($deployment->closed_at),
+                    'report_generated_at' => MobileApiPayload::dateTime($deployment->report_generated_at),
+                    'report_available' => is_string($deployment->report_pdf_path) && $deployment->report_pdf_path !== '',
                     'report_status' => $reportStatus,
                     'latest_dispatch_sent_at' => MobileApiPayload::dateTime($latestDispatchAt),
                     'recipient_count' => $recipients->count(),
@@ -165,6 +165,6 @@ final class ReportingController extends Controller
             })
             ->values();
 
-        return ApiResponse::success($incidents);
+        return ApiResponse::success($deployments);
     }
 }

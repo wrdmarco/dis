@@ -154,7 +154,7 @@ export interface PushDeliveryLog {
   created_at?: string | null;
 }
 
-export interface Incident {
+export interface Deployment {
   id: string;
   reference: string;
   title: string;
@@ -168,8 +168,8 @@ export interface Incident {
   on_scene_contact_role?: string | null;
   required_resources?: string | null;
   custom_fields?: Record<string, unknown>;
-  intake?: IncidentIntake | null;
-  intake_dossier_id?: string | null;
+  deployment_request?: DeploymentRequestSummary | null;
+  deployment_request_id?: string | null;
   priority: 'low' | 'normal' | 'high' | 'critical';
   status: 'draft' | 'active' | 'dispatching' | 'in_progress' | 'resolved' | 'cancelled';
   is_test?: boolean;
@@ -191,7 +191,7 @@ export interface Incident {
 
 export interface OperationalMapLayers {
   command_centers: OperationalMapCommandCenter[];
-  historical_incidents: OperationalMapHistoricalIncident[];
+  historical_deployments: OperationalMapHistoricalDeployment[];
   pilot_homes: OperationalMapPilotHome[];
 }
 
@@ -203,12 +203,12 @@ export interface OperationalMapCommandCenter {
   longitude: number | string;
 }
 
-export interface OperationalMapHistoricalIncident {
+export interface OperationalMapHistoricalDeployment {
   id: string;
   reference: string;
   title: string;
-  status: Incident['status'];
-  priority: Incident['priority'];
+  status: Deployment['status'];
+  priority: Deployment['priority'];
   location_label?: string | null;
   latitude: number | string;
   longitude: number | string;
@@ -227,8 +227,8 @@ export interface OperationalMapPilotHome {
 export type WallboardLayout = 'fullscreen_map';
 export type WallboardDisplayProfile = 'auto' | '1080p' | '4k';
 export type WallboardTheme = 'dark' | 'light';
-export type WallboardPageType = 'map' | 'incident_list' | 'summary' | 'kpi' | 'calendar' | 'message' | 'safety_notice' | 'quote' | 'uav_forecast' | 'weather_radar' | 'news' | 'video' | 'photo_carousel';
-export type WallboardDisplayMode = 'rotation' | 'static' | 'manual' | 'incident_override';
+export type WallboardPageType = 'map' | 'deployment_list' | 'summary' | 'kpi' | 'calendar' | 'message' | 'safety_notice' | 'quote' | 'uav_forecast' | 'weather_radar' | 'news' | 'video' | 'photo_carousel';
+export type WallboardDisplayMode = 'rotation' | 'static' | 'manual' | 'deployment_override';
 export type WallboardNewsItemTransition = 'fade' | 'dissolve' | 'slide' | 'flip' | 'zoom' | 'wipe' | 'none';
 export type WallboardItemTransition = WallboardNewsItemTransition;
 export type WallboardPageTransition = WallboardItemTransition;
@@ -236,7 +236,7 @@ export type WallboardFlipDirection = 'left_to_right' | 'top_to_bottom' | 'bottom
 export type WallboardForecastLocationMode = 'netherlands' | 'address';
 export type OperationalWeatherRadarKind = 'precipitation' | 'lightning';
 export type WallboardWeatherRadarKind = OperationalWeatherRadarKind;
-export type WallboardKpiCategory = 'pilots' | 'incidents' | 'assets' | 'responses' | 'flight';
+export type WallboardKpiCategory = 'pilots' | 'deployments' | 'assets' | 'responses' | 'flight';
 export type WallboardKpiVisualization = 'counter' | 'bar' | 'pie' | 'ring';
 export type WallboardKpiKey =
   | 'pilots_available'
@@ -246,20 +246,20 @@ export type WallboardKpiKey =
   | 'pilots_en_route'
   | 'pilots_on_scene'
   | 'pilots_push_disabled'
-  | 'incidents_total'
-  | 'incidents_registered_total'
-  | 'incidents_active'
-  | 'incidents_dispatching'
-  | 'incidents_in_progress'
-  | 'incidents_low'
-  | 'incidents_normal'
-  | 'incidents_high'
-  | 'incidents_critical'
-  | 'incidents_opened_today'
-  | 'incidents_resolved_today'
-  | 'incidents_cancelled_today'
-  | 'incidents_resolved_total'
-  | 'incidents_cancelled_total'
+  | 'deployments_total'
+  | 'deployments_registered_total'
+  | 'deployments_active'
+  | 'deployments_dispatching'
+  | 'deployments_in_progress'
+  | 'deployments_low'
+  | 'deployments_normal'
+  | 'deployments_high'
+  | 'deployments_critical'
+  | 'deployments_opened_today'
+  | 'deployments_resolved_today'
+  | 'deployments_cancelled_today'
+  | 'deployments_resolved_total'
+  | 'deployments_cancelled_total'
   | 'assets_total'
   | 'assets_ready'
   | 'assets_maintenance'
@@ -279,8 +279,8 @@ export type WallboardKpiKey =
   | 'flight_minutes_this_month'
   | 'average_flight_minutes_this_month'
   | 'drones_flown_distribution'
-  | 'incidents_by_province'
-  | 'incidents_by_country';
+  | 'deployments_by_province'
+  | 'deployments_by_country';
 export type WallboardForecastBlockKey =
   | 'weather'
   | 'daylight'
@@ -298,14 +298,14 @@ export type WallboardForecastBlockKey =
   | 'gnss_usable';
 
 export interface WallboardMapConfiguration {
-  show_active_incidents: boolean;
-  show_test_incidents: boolean;
+  show_active_deployments: boolean;
+  show_test_deployments: boolean;
   show_live_locations: boolean;
   show_routes: boolean;
   show_command_centers: boolean;
-  show_historical_incidents: boolean;
+  show_historical_deployments: boolean;
   show_summary: boolean;
-  show_incident_list: boolean;
+  show_deployment_list: boolean;
   show_route_legend: boolean;
   auto_fit: boolean;
 }
@@ -323,7 +323,7 @@ export interface WallboardConfiguration {
   page_flip_direction: WallboardFlipDirection;
   /** Behouden voor oudere clients; nieuwe clients gebruiken page_transition. */
   page_fade_enabled: boolean;
-  incident_override: WallboardIncidentOverride;
+  deployment_override: WallboardDeploymentOverride;
 }
 
 export type WallboardFocusKind = 'preannouncement' | 'real_alarm' | 'test_alarm';
@@ -392,7 +392,7 @@ export interface WallboardPageOptions {
   media_asset_id?: string;
   media_asset_version?: number;
   media_playlist_id?: string;
-  show_test_incidents?: boolean;
+  show_test_deployments?: boolean;
   sources?: WallboardNewsSource[];
   custom_sources?: WallboardCustomNewsSource[];
   max_items?: number;
@@ -423,7 +423,7 @@ export interface WallboardPage {
   options: WallboardPageOptions;
 }
 
-export interface WallboardIncidentOverride {
+export interface WallboardDeploymentOverride {
   enabled: boolean;
   page_id: string | null;
 }
@@ -516,7 +516,7 @@ export interface WallboardCalendarState {
 export interface WallboardDisplayState {
   mode: WallboardDisplayMode;
   page_id: string;
-  incident_active: boolean;
+  deployment_active: boolean;
   next_change_at?: string | null;
 }
 
@@ -558,8 +558,8 @@ export interface Wallboard {
   configuration: WallboardConfiguration;
   playlist_id: string;
   playlist: WallboardPlaylistReference;
-  active_incident_playlist_id?: string | null;
-  active_incident_playlist?: WallboardPlaylistReference | null;
+  active_deployment_playlist_id?: string | null;
+  active_deployment_playlist?: WallboardPlaylistReference | null;
   is_enabled: boolean;
   is_online?: boolean;
   config_version: number;
@@ -588,12 +588,12 @@ export interface WallboardPairingStatus {
   poll_after_seconds?: number;
 }
 
-export interface WallboardStateIncident {
+export interface WallboardStateDeployment {
   id: string;
   reference: string;
   title: string;
-  status: Incident['status'];
-  priority: Incident['priority'];
+  status: Deployment['status'];
+  priority: Deployment['priority'];
   is_test: boolean;
   location_label?: string | null;
   latitude: number | string | null;
@@ -609,12 +609,12 @@ export interface WallboardStateCommandCenter {
   longitude: number | string | null;
 }
 
-export interface WallboardStateHistoricalIncident {
+export interface WallboardStateHistoricalDeployment {
   id: string;
   reference: string;
   title: string;
-  status: Incident['status'];
-  priority: Incident['priority'];
+  status: Deployment['status'];
+  priority: Deployment['priority'];
   location_label?: string | null;
   latitude: number | string | null;
   longitude: number | string | null;
@@ -622,7 +622,7 @@ export interface WallboardStateHistoricalIncident {
 }
 
 export interface WallboardStateLiveLocation {
-  incident_id: string;
+  deployment_id: string;
   user_id: string;
   user?: Pick<User, 'id' | 'name'> | null;
   dispatch_response_status: 'accepted';
@@ -635,7 +635,7 @@ export interface WallboardStateLiveLocation {
   recorded_at?: string | null;
   eta_minutes?: number | null;
   eta_source?: 'navigation' | 'fallback' | 'unknown' | null;
-  route?: IncidentLiveLocation['route'];
+  route?: DeploymentLiveLocation['route'];
 }
 
 export interface WallboardPilotAvailability {
@@ -653,18 +653,18 @@ export interface WallboardStateActiveAlarm {
   id: string;
   reference: string;
   title: string;
-  status: Extract<Incident['status'], 'dispatching' | 'in_progress'>;
-  priority: Incident['priority'];
+  status: Extract<Deployment['status'], 'dispatching' | 'in_progress'>;
+  priority: Deployment['priority'];
   location_label?: string | null;
   opened_at?: string | null;
 }
 
-export interface WallboardStateRecentIncident {
+export interface WallboardStateRecentDeployment {
   id: string;
   reference: string;
   title: string;
-  status: Extract<Incident['status'], 'resolved' | 'cancelled'>;
-  priority: Incident['priority'];
+  status: Extract<Deployment['status'], 'resolved' | 'cancelled'>;
+  priority: Deployment['priority'];
   is_test: boolean;
   location_label?: string | null;
   closed_at?: string | null;
@@ -672,10 +672,10 @@ export interface WallboardStateRecentIncident {
 
 export interface WallboardTransientAlert {
   dispatch_id: string;
-  incident_id: string;
+  deployment_id: string;
   reference: string;
   title: string;
-  priority: Incident['priority'];
+  priority: Deployment['priority'];
   location_label?: string | null;
   received_at: string;
   expires_at: string;
@@ -723,10 +723,10 @@ export interface WallboardFocusState {
   kind: WallboardFocusKind;
   focus_id: string;
   dispatch_id: string;
-  incident_id: string;
+  deployment_id: string;
   reference: string;
   title: string;
-  priority: Incident['priority'];
+  priority: Deployment['priority'];
   location_label?: string | null;
   started_at: string;
   expires_at?: string | null;
@@ -741,7 +741,7 @@ export interface WallboardFocusState {
 export interface WallboardOperationalSummary {
   pilot_availability: WallboardPilotAvailability;
   active_alarm: WallboardStateActiveAlarm | null;
-  recent_incidents: WallboardStateRecentIncident[];
+  recent_deployments: WallboardStateRecentDeployment[];
   transient_alert: WallboardTransientAlert | null;
   focus?: WallboardFocusState | null;
 }
@@ -754,12 +754,12 @@ export interface WallboardState {
     runtime_playlist_id?: string | null;
     runtime_playlist_version?: number;
     runtime_playlist_purpose?: WallboardPlaylistPurpose;
-    active_incident_playlist?: boolean;
+    active_deployment_playlist?: boolean;
   };
   map: {
-    incidents: WallboardStateIncident[];
+    deployments: WallboardStateDeployment[];
     command_centers: WallboardStateCommandCenter[];
-    historical_incidents: WallboardStateHistoricalIncident[];
+    historical_deployments: WallboardStateHistoricalDeployment[];
     live_locations: WallboardStateLiveLocation[];
   };
   operational_summary: WallboardOperationalSummary;
@@ -1093,14 +1093,14 @@ export interface WallboardControlState {
   runtime_playlist_id?: string | null;
   runtime_playlist_version?: number;
   runtime_playlist_purpose?: WallboardPlaylistPurpose;
-  active_incident_playlist?: boolean;
+  active_deployment_playlist?: boolean;
   display_profile: WallboardDisplayProfile;
   display: WallboardDisplayState;
   transient_alert: WallboardTransientAlert | null;
   focus?: WallboardFocusState | null;
 }
 
-export interface IncidentInternalNotes {
+export interface DeploymentInternalNotes {
   internal_notes?: string | null;
   updated_at?: string | null;
 }
@@ -1151,7 +1151,7 @@ export interface DroneFlightContext {
 
 export interface DispatchRequest {
   id: string;
-  incident_id: string;
+  deployment_id: string;
   target_team_id?: string | null;
   status: string;
   priority: string;
@@ -1161,7 +1161,7 @@ export interface DispatchRequest {
   send_queued_at?: string | null;
   send_released_at?: string | null;
   created_at?: string | null;
-  incident?: Incident;
+  deployment?: Deployment;
   target_team?: Team | null;
   recipients?: DispatchRecipient[];
 }
@@ -1201,7 +1201,7 @@ export interface DispatchPreview {
   warnings?: string[];
 }
 
-export interface IncidentTimelineItem {
+export interface DeploymentTimelineItem {
   id: string;
   type: 'status' | 'dispatch' | 'dispatch_response' | 'dispatch_message' | 'operator_status' | 'internal_notes' | 'audit';
   label: string;
@@ -1215,7 +1215,7 @@ export interface IncidentTimelineItem {
   created_at?: string | null;
 }
 
-export interface IncidentLiveLocation {
+export interface DeploymentLiveLocation {
   user_id: string;
   user?: { id: string; name: string; email?: string | null } | null;
   sharing_status?: 'shared' | 'stale' | 'consented' | 'requested' | 'pending' | 'declined' | 'not_requested';
@@ -1364,7 +1364,7 @@ export interface Asset {
 export interface AssetAssignment {
   id: string;
   asset_id: string;
-  incident_id?: string | null;
+  deployment_id?: string | null;
   user_id?: string | null;
   assigned_by?: string | null;
   assigned_at?: string | null;
@@ -1913,9 +1913,9 @@ export interface PilotReportFormConfig {
   fields: PilotReportFormField[];
 }
 
-export interface PilotIncidentReport {
+export interface PilotDeploymentReport {
   id: string;
-  incident_id: string;
+  deployment_id: string;
   user_id: string;
   user_name?: string | null;
   status: 'draft' | 'submitted' | string;
@@ -1934,14 +1934,14 @@ export interface PilotIncidentReport {
   updated_at?: string | null;
 }
 
-export interface IncidentFormConfig {
+export interface DeploymentFormConfig {
   fields: ConfigurableFormField[];
-  layout?: IncidentFormLayoutItem[];
+  layout?: DeploymentFormLayoutItem[];
 }
 
-export type IncidentSubjectType = 'person' | 'animal' | 'object';
+export type DeploymentSubjectType = 'person' | 'animal' | 'object';
 
-export interface IncidentIntakeAnswer {
+export interface DeploymentRequestAnswer {
   key: string;
   label: string;
   type: string;
@@ -1950,13 +1950,13 @@ export interface IncidentIntakeAnswer {
   section?: string | null;
 }
 
-export interface IncidentIntake {
-  subject_type: IncidentSubjectType;
+export interface DeploymentRequestSummary {
+  subject_type: DeploymentSubjectType;
   subject_type_label: string;
-  answers: IncidentIntakeAnswer[];
+  answers: DeploymentRequestAnswer[];
 }
 
-export interface IncidentFormLayoutItem {
+export interface DeploymentFormLayoutItem {
   key: string;
   label: string;
   visible: boolean;
@@ -1972,8 +1972,8 @@ export interface SystemSetting {
   is_sensitive: boolean;
 }
 
-export interface DispatchStatisticsIncidentSummary {
-  incident_id?: string;
+export interface DispatchStatisticsDeploymentSummary {
+  deployment_id?: string;
   reference?: string;
   title?: string;
   sent_at?: string | null;
@@ -1988,12 +1988,12 @@ export interface DispatchStatisticsUser {
   declined: number;
   no_response: number;
   no_response_rate: number;
-  last_alert?: DispatchStatisticsIncidentSummary | null;
-  last_deployment?: DispatchStatisticsIncidentSummary | null;
-  recent_no_response: DispatchStatisticsIncidentSummary[];
+  last_alert?: DispatchStatisticsDeploymentSummary | null;
+  last_deployment?: DispatchStatisticsDeploymentSummary | null;
+  recent_no_response: DispatchStatisticsDeploymentSummary[];
 }
 
-export interface DispatchStatisticsIncident {
+export interface DispatchStatisticsDeployment {
   id?: string;
   reference?: string;
   title?: string;
@@ -2007,8 +2007,8 @@ export interface DispatchStatisticsIncident {
 
 export interface DispatchStatistics {
   scope: {
-    incident_limit: number;
-    incident_count: number;
+    deployment_limit: number;
+    deployment_count: number;
   };
   summary: {
     total_alerts: number;
@@ -2020,15 +2020,15 @@ export interface DispatchStatistics {
     no_response_rate: number;
   };
   users: DispatchStatisticsUser[];
-  incidents: DispatchStatisticsIncident[];
+  deployments: DispatchStatisticsDeployment[];
 }
 
-export interface ReportIncident {
+export interface ReportDeployment {
   id: string;
   reference: string;
   title: string;
-  status: Incident['status'];
-  priority: Incident['priority'];
+  status: Deployment['status'];
+  priority: Deployment['priority'];
   team?: Pick<Team, 'id' | 'code' | 'name'> | null;
   coordinator?: Pick<User, 'id' | 'name' | 'email'> | null;
   opened_at?: string | null;

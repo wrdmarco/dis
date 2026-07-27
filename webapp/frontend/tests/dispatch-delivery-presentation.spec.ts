@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { dispatchDeliveryNotice } from '../src/features/incidents/dispatchDeliveryPresentation';
+import { dispatchDeliveryNotice } from '../src/features/deployments/dispatchDeliveryPresentation';
 
 test('toont de afgesproken centrale meldingen tijdens en na de pushwachtrij', () => {
   expect(dispatchDeliveryNotice('queued_for_push')).toBe('Alarm in wachtrij geplaatst.');

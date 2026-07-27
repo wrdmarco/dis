@@ -63,8 +63,8 @@ final class WallboardManagementApiTest extends TestCase
                 'theme' => 'dark',
                 'refresh_seconds' => 15,
                 'map' => [
-                    'show_test_incidents' => true,
-                    'show_historical_incidents' => true,
+                    'show_test_deployments' => true,
+                    'show_historical_deployments' => true,
                 ],
             ],
         ])->assertCreated()
@@ -72,7 +72,7 @@ final class WallboardManagementApiTest extends TestCase
             ->assertJsonPath('data.layout', 'fullscreen_map')
             ->assertJsonPath('data.configuration.refresh_seconds', 15)
             ->assertJsonPath('data.configuration.map.show_routes', true)
-            ->assertJsonPath('data.configuration.map.show_test_incidents', false)
+            ->assertJsonPath('data.configuration.map.show_test_deployments', false)
             ->assertJsonPath('data.config_version', 1);
         $wallboard = Wallboard::query()->findOrFail($create->json('data.id'));
 
@@ -120,7 +120,7 @@ final class WallboardManagementApiTest extends TestCase
         $this->assertTrue(AuditLog::query()->where('action', 'wallboards.deleted')->where('target_id', $wallboard->id)->exists());
     }
 
-    public function test_active_incident_playlist_assignment_is_validated_versioned_and_audited_per_screen(): void
+    public function test_active_deployment_playlist_assignment_is_validated_versioned_and_audited_per_screen(): void
     {
         $manager = $this->user('wallboard-active-playlist-management@example.test', ['wallboards.manage']);
         $configuration = WallboardConfiguration::defaults();
@@ -152,11 +152,11 @@ final class WallboardManagementApiTest extends TestCase
         $created = $client->postJson('/api/admin/wallboards', [
             'name' => 'Scherm met inzetregie',
             'playlist_id' => $basePlaylist->id,
-            'active_incident_playlist_id' => $firstActivePlaylist->id,
+            'active_deployment_playlist_id' => $firstActivePlaylist->id,
         ])->assertCreated()
-            ->assertJsonPath('data.active_incident_playlist_id', $firstActivePlaylist->id)
-            ->assertJsonPath('data.active_incident_playlist.id', $firstActivePlaylist->id)
-            ->assertJsonPath('data.active_incident_playlist.purpose', WallboardPlaylist::PURPOSE_ALARM)
+            ->assertJsonPath('data.active_deployment_playlist_id', $firstActivePlaylist->id)
+            ->assertJsonPath('data.active_deployment_playlist.id', $firstActivePlaylist->id)
+            ->assertJsonPath('data.active_deployment_playlist.purpose', WallboardPlaylist::PURPOSE_ALARM)
             ->assertJsonPath('data.config_version', 1)
             ->assertJsonPath('data.control_version', 1);
         $wallboard = Wallboard::query()->findOrFail($created->json('data.id'));
@@ -164,24 +164,24 @@ final class WallboardManagementApiTest extends TestCase
             ->where('action', 'wallboards.created')
             ->where('target_id', $wallboard->id)
             ->firstOrFail();
-        $this->assertSame($firstActivePlaylist->id, $createdAudit->metadata['active_incident_playlist_id']);
+        $this->assertSame($firstActivePlaylist->id, $createdAudit->metadata['active_deployment_playlist_id']);
 
         $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
-            'active_incident_playlist_id' => $secondActivePlaylist->id,
+            'active_deployment_playlist_id' => $secondActivePlaylist->id,
         ])->assertUnprocessable()
             ->assertJsonStructure(['error' => ['details' => ['expected_config_version']]]);
         $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
             'expected_config_version' => 1,
-            'active_incident_playlist_id' => (string) str()->ulid(),
+            'active_deployment_playlist_id' => (string) str()->ulid(),
         ])->assertUnprocessable()
-            ->assertJsonStructure(['error' => ['details' => ['active_incident_playlist_id']]]);
+            ->assertJsonStructure(['error' => ['details' => ['active_deployment_playlist_id']]]);
 
         $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
             'expected_config_version' => 1,
-            'active_incident_playlist_id' => $secondActivePlaylist->id,
+            'active_deployment_playlist_id' => $secondActivePlaylist->id,
         ])->assertOk()
-            ->assertJsonPath('data.active_incident_playlist_id', $secondActivePlaylist->id)
-            ->assertJsonPath('data.active_incident_playlist.id', $secondActivePlaylist->id)
+            ->assertJsonPath('data.active_deployment_playlist_id', $secondActivePlaylist->id)
+            ->assertJsonPath('data.active_deployment_playlist.id', $secondActivePlaylist->id)
             ->assertJsonPath('data.config_version', 2)
             ->assertJsonPath('data.control_version', 2);
         $updatedAudit = AuditLog::query()
@@ -189,13 +189,13 @@ final class WallboardManagementApiTest extends TestCase
             ->where('target_id', $wallboard->id)
             ->latest('created_at')
             ->firstOrFail();
-        $this->assertContains('active_incident_playlist_id', $updatedAudit->metadata['changed_fields']);
-        $this->assertSame($firstActivePlaylist->id, $updatedAudit->metadata['previous_active_incident_playlist_id']);
-        $this->assertSame($secondActivePlaylist->id, $updatedAudit->metadata['active_incident_playlist_id']);
+        $this->assertContains('active_deployment_playlist_id', $updatedAudit->metadata['changed_fields']);
+        $this->assertSame($firstActivePlaylist->id, $updatedAudit->metadata['previous_active_deployment_playlist_id']);
+        $this->assertSame($secondActivePlaylist->id, $updatedAudit->metadata['active_deployment_playlist_id']);
 
         $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
             'expected_config_version' => 2,
-            'active_incident_playlist_id' => $secondActivePlaylist->id,
+            'active_deployment_playlist_id' => $secondActivePlaylist->id,
         ])->assertOk()
             ->assertJsonPath('data.config_version', 2)
             ->assertJsonPath('data.control_version', 2);
@@ -208,19 +208,19 @@ final class WallboardManagementApiTest extends TestCase
             ->where('action', 'wallboards.updated')
             ->where('target_id', $wallboard->id)
             ->count());
-        $this->assertNotContains('active_incident_playlist_id', $unchangedAudit->metadata['changed_fields']);
+        $this->assertNotContains('active_deployment_playlist_id', $unchangedAudit->metadata['changed_fields']);
 
         $client->patchJson('/api/admin/wallboards/'.$wallboard->id, [
             'expected_config_version' => 2,
-            'active_incident_playlist_id' => null,
+            'active_deployment_playlist_id' => null,
         ])->assertOk()
-            ->assertJsonPath('data.active_incident_playlist_id', null)
-            ->assertJsonPath('data.active_incident_playlist', null)
+            ->assertJsonPath('data.active_deployment_playlist_id', null)
+            ->assertJsonPath('data.active_deployment_playlist', null)
             ->assertJsonPath('data.config_version', 3)
             ->assertJsonPath('data.control_version', 3);
         $this->assertDatabaseHas('wallboards', [
             'id' => $wallboard->id,
-            'active_incident_playlist_id' => null,
+            'active_deployment_playlist_id' => null,
         ]);
     }
 
@@ -514,7 +514,7 @@ final class WallboardManagementApiTest extends TestCase
         $permission = Permission::query()->where('name', 'wallboards.manage')->firstOrFail();
 
         $this->assertTrue(Role::query()->where('name', 'system-administrator')->firstOrFail()->permissions()->whereKey($permission->id)->exists());
-        foreach (['national-coordinator', 'incident-coordinator', 'operator-pilot', 'support-staff', 'auditor'] as $roleName) {
+        foreach (['national-coordinator', 'deployment-coordinator', 'operator-pilot', 'support-staff', 'auditor'] as $roleName) {
             $this->assertFalse(Role::query()->where('name', $roleName)->firstOrFail()->permissions()->whereKey($permission->id)->exists(), $roleName);
         }
     }

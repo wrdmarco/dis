@@ -6,10 +6,10 @@ use App\Contracts\DispatchNotificationQueue;
 use App\Contracts\QueueTransportMetrics;
 use App\Jobs\SendFcmNotification;
 use App\Models\AuditLog;
+use App\Models\Deployment;
 use App\Models\DispatchPushOutbox;
 use App\Models\DispatchRequest;
 use App\Models\FcmToken;
-use App\Models\Incident;
 use App\Models\Permission;
 use App\Models\PushQueueWorkItem;
 use App\Models\Role;
@@ -554,7 +554,7 @@ final class QueueMonitorApiTest extends TestCase
     private function pushOutbox(User $user, array $attributes = []): DispatchPushOutbox
     {
         $suffix = strtolower((string) str()->ulid());
-        $incident = Incident::query()->create([
+        $deployment = Deployment::query()->create([
             'reference' => 'QUEUE-'.$suffix,
             'title' => 'Queue monitor fixture',
             'priority' => 'normal',
@@ -562,7 +562,7 @@ final class QueueMonitorApiTest extends TestCase
             'created_by' => $user->id,
         ]);
         $dispatch = DispatchRequest::query()->create([
-            'incident_id' => $incident->id,
+            'deployment_id' => $deployment->id,
             'requested_by' => $user->id,
             'status' => 'sent',
             'priority' => 'normal',
